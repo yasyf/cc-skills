@@ -5,6 +5,10 @@ A lane's worktrees come from four places, deduplicated by path: its Orca launch 
 worktree path in the text of a ``WORKTREE``, ``FIRST-REPORT``, ``started``, or any other record;
 ``git worktree list`` in the drive's checkout, a worktree whose directory or branch is the lane's
 name; and the head branch of each PR the lane's records name. Only paths that exist count.
+A lane with no worktree on this machine, such as an Orca worker on a paired remote server, is
+read from the drive's Orca Run instead: ``orca_status`` matches the lane to the Run's tasks by
+title, display name, or the lane its spec opens with, and reports each matching dispatch. A drive
+that recorded no Run reads the newest Run its root terminal coordinates.
 Every call goes through ``run``, which returns stdout and raises CalledProcessError on a
 nonzero exit. STDLIB ONLY.
 """
@@ -33,6 +37,12 @@ CHECK_PASSED = frozenset({"SUCCESS", "NEUTRAL", "SKIPPED"})
 ROLE = re.compile(r"^ccx:(?:.*[ \t])?role=([\w-]+)", re.MULTILINE)
 TITLE_ROLES = frozenset({"evidence", "proof", "closeout", "audit"})
 NOT_FIX_ROLES = frozenset({"evidence", "proof", "closeout", "desk", "audit"})
+DISPATCH = "ctx_"
+FOLLOW_UP = " follow-up"
+SPEC_LANE = re.compile(r"^(?:Lane|Follow-up for lane) ([\w.-]+)[:\s]")
+IN_PROGRESS = "in_progress"
+HEARTBEAT = "heartbeat"
+INBOX_READ = 500
 
 
 @dataclass
@@ -56,6 +66,32 @@ class Worktree:
         ahead = "ahead unknown" if self.ahead is None else f"{self.ahead} ahead of trunk"
         commit = f"last commit {self.commit_minutes} min ago {self.commit}" if self.commit_minutes is not None else "no commit"
         return f"- {self.path} ({', '.join(self.sources)}): {self.branch}, {dirty}, {ahead}, {commit}, {self.pushed}, {self.pr or 'no PR'}"
+
+
+@dataclass
+class OrcaWorker:
+    dispatch: str
+    task: str = ""
+    environment: str = ""
+    worktree: str = ""
+    branch: str = ""
+    stage: str = ""
+    outcome: str = ""
+    liveness: str = ""
+    updated_minutes: int | None = None
+    heartbeat_minutes: int | None = None
+    terminal: str = ""
+    message: str = ""
+    error: str = ""
+
+    def line(self) -> str:
+        where = f"{self.worktree or 'no worktree'} on {self.environment or 'this machine'}"
+        source = f"Orca dispatch {self.dispatch}" + (f', task "{self.task}"' if self.task else "")
+        if self.error:
+            return f"- {where} ({source}): {self.error}"
+        updated = "updated unknown" if self.updated_minutes is None else f"updated {self.updated_minutes} min ago"
+        heartbeat = "no heartbeat" if self.heartbeat_minutes is None else f"heartbeat {self.heartbeat_minutes} min ago"
+        return f"- {where} ({source}): {self.branch or 'no branch'}, stage {self.stage}, {self.outcome}, {self.liveness}, {updated}, {heartbeat}, terminal {self.terminal or 'none'}, last message {self.message or 'none'}"
 
 
 def output(run: Run, argv: list[str]) -> str | None:
@@ -155,6 +191,118 @@ def inspect(worktree: Worktree, trunk: str, repo: str, now: datetime, run: Run) 
 
 def lane_status(lane: str, records: list[dict], receipts: Iterable[Path], checkout: Path, repo: str, trunk: str, now: datetime, run: Run) -> list[Worktree]:
     return [inspect(worktree, trunk, repo, now, run) for worktree in lane_worktrees(lane, records, receipts, checkout, repo, run)]
+
+
+def task_lanes(task: dict) -> set[str]:
+    """The lane names an Orca task carries: its title and display name, each without a trailing ` follow-up`, and the lane its spec opens with."""
+    names = {name.removesuffix(FOLLOW_UP) for name in (task.get("task_title"), task.get("display_name")) if name}
+    if match := SPEC_LANE.match(task.get("spec") or ""):
+        names.add(match[1])
+    return names
+
+
+def lane_dispatches(lane: str, tasks: list[dict], workers: list[dict]) -> list[str]:
+    """The dispatches to report for the lane: a `ctx_` lane is its own dispatch; otherwise every in-progress dispatch of a task naming the lane, newest task first, or else the newest such dispatch."""
+    if lane.startswith(DISPATCH):
+        return [lane]
+    owned = sorted((task for task in tasks if lane in task_lanes(task)), key=lambda task: task.get("created_at") or "", reverse=True)
+    dispatches = [worker for task in owned for worker in workers if worker.get("taskId") == task["id"]]
+    live = [worker["dispatchId"] for worker in dispatches if (worker.get("projection") or {}).get("outcome") == IN_PROGRESS]
+    return live or [worker["dispatchId"] for worker in dispatches[:1]]
+
+
+def orca(run: Run, *argv: str) -> dict | None:
+    """The `result` of one `orca orchestration` call, or None when it fails."""
+    reply = json.loads(output(run, ["orca", "orchestration", *argv, "--json"]) or "{}")
+    return reply.get("result") if reply.get("ok") else None
+
+
+def orca_workers(run: Run, run_id: str) -> list[dict]:
+    rows: list[dict] = []
+    cursor: list[str] = []
+    while page := orca(run, "worker-list", "--run", run_id, "--include-remote", "--limit", "100", *cursor):
+        rows += page["workers"]
+        if not (after := (page.get("page") or {}).get("nextCursor")):
+            break
+        cursor = ["--cursor", after]
+    return rows
+
+
+def coordinated_run(run: Run, terminal: str) -> str | None:
+    """The newest Orca Run the terminal coordinates, for a drive whose registry entry names its root terminal but no Run."""
+    runs: list[dict] = []
+    cursor: list[str] = []
+    while page := orca(run, "run-list", "--limit", "100", *cursor):
+        runs += page["runs"]
+        if not (after := page.get("nextCursor")):
+            break
+        cursor = ["--cursor", str(after)]
+    return max((row for row in runs if row.get("coordinator_handle") == terminal), key=lambda row: row.get("created_at") or "", default={}).get("id")
+
+
+def minutes_since(stamp: str | None, now: datetime) -> int | None:
+    if not stamp:
+        return None
+    at = datetime.fromisoformat(stamp)
+    return int((now - (at if at.tzinfo else at.replace(tzinfo=timezone.utc))).total_seconds() // 60)
+
+
+def last_message(messages: list[dict], senders: set[str], now: datetime) -> str:
+    """The newest message the worker sent to the Run that is not a heartbeat, or else its newest heartbeat with the phase it reported."""
+    sent = sorted((message for message in messages if message.get("from_handle") in senders), key=lambda message: message.get("sequence") or 0, reverse=True)
+    if not (message := next((message for message in sent if message.get("type") != HEARTBEAT), sent[0] if sent else None)):
+        return ""
+    age = f"{minutes_since(message.get('created_at'), now)} min ago"
+    if message.get("type") == HEARTBEAT:
+        return f"heartbeat {json.loads(message.get('payload') or '{}').get('phase', '')} {age}".replace("  ", " ")
+    return f'{message.get("type")} "{message.get("subject")}" {age}'
+
+
+def run_tasks(run: Run, run_id: str) -> list[dict]:
+    return (orca(run, "task-list", "--run", run_id) or {}).get("tasks") or []
+
+
+def run_context(run: Run, run_id: str, tasks: list[dict]) -> tuple[dict[str, str], list[dict]]:
+    """The Run's task titles by task id, and its inbox."""
+    messages = (orca(run, "inbox", "--terminal", f"run:{run_id}", "--limit", str(INBOX_READ)) or {}).get("messages") or []
+    return {task["id"]: task.get("task_title") or task.get("display_name") or "" for task in tasks}, messages
+
+
+def orca_worker(dispatch: str, contexts: dict[str, tuple[dict[str, str], list[dict]]], now: datetime, run: Run) -> OrcaWorker:
+    if (shown := orca(run, "worker-show", "--dispatch", dispatch)) is None:
+        return OrcaWorker(dispatch, error="orca orchestration worker-show failed")
+    if (run_id := shown["dispatch"]["runId"]) not in contexts:
+        contexts[run_id] = run_context(run, run_id, run_tasks(run, run_id))
+    titles, messages = contexts[run_id]
+    worker, terminal, projection = shown.get("worker") or {}, shown.get("terminal") or {}, shown.get("projection") or {}
+    stage = projection.get("stage") or {}
+    handle = terminal.get("handle") or worker.get("agentTerminalHandle") or ""
+    return OrcaWorker(
+        dispatch,
+        task=titles.get(shown["dispatch"]["taskId"], ""),
+        environment=(shown.get("server") or {}).get("name", ""),
+        worktree=terminal.get("worktreePath") or (worker.get("worktreeId") or "").rpartition("::")[2],
+        branch=(terminal.get("branch") or "").removeprefix("refs/heads/"),
+        stage=f"{stage.get('worker') or worker.get('state')}/{stage.get('detail') or worker.get('stage')}",
+        outcome=projection.get("outcome", "outcome unknown"),
+        liveness=(projection.get("liveness") or {}).get("verdict", "liveness unknown"),
+        updated_minutes=minutes_since(worker.get("updatedAt"), now),
+        heartbeat_minutes=minutes_since(shown["dispatch"].get("lastHeartbeatAt"), now),
+        terminal=f"{handle} {'connected' if terminal.get('connected') else 'disconnected'}" if handle else "",
+        message=last_message(messages, {f"dispatch:{dispatch}", handle} - {""}, now),
+    )
+
+
+def orca_status(lane: str, run_id: str | None, now: datetime, run: Run) -> list[OrcaWorker]:
+    """Each dispatch `lane_dispatches` reports for the lane from the Orca Run, as `worker-show` and its Run's inbox show it; a `ctx_` lane needs no Run."""
+    contexts: dict[str, tuple[dict[str, str], list[dict]]] = {}
+    tasks: list[dict] = []
+    workers: list[dict] = []
+    if run_id and not lane.startswith(DISPATCH):
+        tasks, workers = run_tasks(run, run_id), orca_workers(run, run_id)
+    if (dispatches := lane_dispatches(lane, tasks, workers)) and run_id and tasks:
+        contexts[run_id] = run_context(run, run_id, tasks)
+    return [orca_worker(dispatch, contexts, now, run) for dispatch in dispatches]
 
 
 def summary(lane: str, worktrees: list[Worktree]) -> str:

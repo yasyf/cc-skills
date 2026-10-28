@@ -13,7 +13,7 @@
     drive.py list    [--json]
     drive.py record  --session ID --lane NAME --cwd DIR [--drive ID] [--opened] --pr [OWNER/NAME#]N[=SHA]...
     drive.py landed  --session ID [--drive ID] --pr N...
-    drive.py lane-status LANE [--drive ID]
+    drive.py lane-status LANE|DISPATCH [--drive ID] [--run ID]
     drive.py pr-owed LANE [--drive ID]
     drive.py digest  [--drive ID]
     drive.py worktree --lane NAME --path DIR [--session ID] [--drive ID]
@@ -54,7 +54,11 @@ leaves the open set in the same step that announced the landing or the close.
 ``lanes.lane_worktrees`` from the drive's launch receipts, the lane's cci records of the last day, the
 checkout's ``git worktree list``, and its PRs' head branches. Each line names the branch, dirty files,
 commits ahead of ``origin/<trunk>``, the last commit's age, whether the branch is pushed, and its open PR
-with CI state. With none found it prints ``no worktree found for lane <lane>`` and exits 1.
+with CI state. A lane with no worktree here, such as an Orca worker on a paired remote server, falls back to
+``lanes.orca_status`` over ``--run``, the drive's Orca run, or else the newest Run its root terminal coordinates: one line per matching dispatch with its worktree,
+environment, branch, stage, outcome, liveness, last update and heartbeat, terminal, and last message to the Run.
+A ``ctx_`` lane names that dispatch directly. With none found it prints ``no worktree found for lane <lane>``
+and exits 1.
 
 ``pr-owed`` answers whether a lane still owes a PR for its mechanism, from the drive's records of the last 12 hours.
 It prints ``owed: <mark> #<seq>`` and exits 0 when the lane's newest MECHANISM or CANDIDATE has no settling record of its own
@@ -414,16 +418,22 @@ def trunk_of(shell: ledger.Shell, checkout: str) -> str:
 
 
 def cmd_lane_status(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    if (entry := resolve(args)) is None:
+    entry = find(args.drive or current_drive(), os.environ.get(SESSION_ENV)) if args.run else resolve(args)
+    if entry is None and not args.run:
         return 1
-    since = (datetime.now(timezone.utc) - LANE_RECORDS).strftime("%Y-%m-%dT%H:%M:%SZ")
-    drive = cci_drive(entry)
-    records = [record for record in cci.records(shell.run, drive, "--lane", args.lane, since=since) if record["drive"] == drive and record["lane"] == args.lane]
-    worktrees = lanes.lane_status(args.lane, records, receipt_dirs(entry), Path(entry["checkout"]), entry["repo"], trunk_of(shell, entry["checkout"]), datetime.now(timezone.utc), shell.run)
-    if not worktrees:
-        print(f"no worktree found for lane {args.lane}")
+    now = datetime.now(timezone.utc)
+    worktrees: list[lanes.Worktree] = []
+    if entry and not args.lane.startswith(lanes.DISPATCH):
+        since = (now - LANE_RECORDS).strftime("%Y-%m-%dT%H:%M:%SZ")
+        drive = cci_drive(entry)
+        records = [record for record in cci.records(shell.run, drive, "--lane", args.lane, since=since) if record["drive"] == drive and record["lane"] == args.lane]
+        worktrees = lanes.lane_status(args.lane, records, receipt_dirs(entry), Path(entry["checkout"]), entry["repo"], trunk_of(shell, entry["checkout"]), now, shell.run)
+    run = args.run or (entry or {}).get("orca_run") or (lanes.coordinated_run(shell.run, entry["root_terminal"]) if entry and entry.get("root_terminal") else None)
+    found = worktrees or lanes.orca_status(args.lane, run, now, shell.run)
+    if not found:
+        print(f"no worktree found for lane {args.lane}" + (f", and no Orca dispatch in run {run}" if run else ""))
         return 1
-    print("\n".join(worktree.line() for worktree in worktrees))
+    print("\n".join(worktree.line() for worktree in found))
     return 0
 
 
@@ -551,9 +561,10 @@ def build_parser() -> argparse.ArgumentParser:
     landed.add_argument("--pr", required=True, action="append", type=ledger.pr_number)
     landed.set_defaults(handler=cmd_landed)
 
-    lane_status = subparsers.add_parser("lane-status", help="every worktree a lane owns with its branch, dirty files, push state, and open PR; exit 1 when none")
-    lane_status.add_argument("lane")
+    lane_status = subparsers.add_parser("lane-status", help="every worktree a lane owns with its branch, dirty files, push state, and open PR, else its Orca dispatches; exit 1 when none")
+    lane_status.add_argument("lane", help="a lane name, or an Orca dispatch id ctx_...")
     lane_status.add_argument("--drive")
+    lane_status.add_argument("--run", help="the Orca run to read a lane with no local worktree from; default the drive's")
     lane_status.set_defaults(handler=cmd_lane_status)
 
     pr_owed = subparsers.add_parser("pr-owed", help="whether a lane's mechanism still waits on a PR; exit 1 when not")

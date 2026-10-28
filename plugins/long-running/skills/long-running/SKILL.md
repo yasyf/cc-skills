@@ -663,8 +663,13 @@ drive.py lane-status <lane>
 It finds every worktree the lane owns, by its launch receipt, its `WORKTREE` and other
 cci records, the checkout's `git worktree list`, and its PRs' head branches. Each line
 names the branch, dirty files, commits ahead of trunk, the last commit's age, whether
-the origin branch holds HEAD, and the PR with its CI state. With none it prints
-`no worktree found for lane <lane>` and exits 1. A worktree named after its branch
+the origin branch holds HEAD, and the PR with its CI state. A lane with no worktree on
+this Mac, such as an Orca worker on a paired remote server, reads from the drive's Orca
+Run instead, or `--run <run>`: one line per dispatch whose task title, display name, or
+spec names the lane, with its worktree, environment, branch, stage, outcome, liveness,
+last update and heartbeat, terminal, and last message to the Run. A `ctx_` dispatch id
+works as the lane. With none it prints `no worktree found for lane <lane>` and exits 1.
+A worktree named after its branch
 still resolves, because the pack's `announce_lane_worktree` hook posts
 `WORKTREE <lane> <path> <branch>` the first time a lane runs a command inside a
 worktree of the drive's repository. `desk-runner.py show` lists each waiting lane as
