@@ -18,11 +18,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from review_assistant import ReviewAssistant
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from brief import Curator
 import plainwords
+from brief import Curator
+from review_assistant import ReviewAssistant
 from story import Stories
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills" / "long-running" / "scripts"))
@@ -645,7 +643,7 @@ class Drive:
             time.sleep(1)
 
     def follow_code(self):
-        sources = [*HERE.glob("*.py"), *HERE.parent.glob("*.py")]
+        sources = [*HERE.glob("*.py")]
         seen = {path: path.stat().st_mtime_ns for path in sources}
         while all(path.stat().st_mtime_ns == stamp for path, stamp in seen.items()):
             time.sleep(2)

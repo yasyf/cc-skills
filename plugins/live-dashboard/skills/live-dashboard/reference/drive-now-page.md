@@ -70,7 +70,7 @@ never poll GitHub for it.
 
 ## Where the words come from
 
-The curator in `dashboard/brief.py` builds a digest of the drive's facts, about 30
+The curator in `dashboard/app/brief.py` builds a digest of the drive's facts, about 30
 thousand characters, and asks the curator model for one brief that matches a JSON schema.
 The digest holds:
 
@@ -93,7 +93,7 @@ every two minutes, and no timer runs it.
 
 ## The plain-words gate
 
-`dashboard/plainwords.py` is the owner's rule as code. A string fails on any of these:
+`dashboard/app/plainwords.py` is the owner's rule as code. A string fails on any of these:
 
 - a release or plan code, a record or pull request number, or a hash;
 - code, a path, or a UTC time;

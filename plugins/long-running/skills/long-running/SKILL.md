@@ -3157,7 +3157,7 @@ older view, kept for drives that do not run the app.
 The Now page answers the owner's four questions (answer 78353511): overall progress,
 what is being worked on, the biggest blockers, and how each is being unblocked. Every
 string on it is written by Claude Opus 5.5 from the drive's records and passes
-`dashboard/plainwords.py`; a click on a piece of work opens a live story that Claude
+`dashboard/app/plainwords.py`; a click on a piece of work opens a live story that Claude
 Sonnet 5.5 writes from that worker's transcript. The `/live-dashboard` drive preset
 below answers an older order: what waits on me, what is broken, what is live, and what
 is in flight. Review comes after them. The `drive` preset already lays the page out that way:
