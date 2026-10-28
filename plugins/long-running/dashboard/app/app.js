@@ -405,6 +405,10 @@ function paintModal() {
   if (held) root.querySelector(`a[href="${CSS.escape(held)}"]`)?.focus();
 }
 document.addEventListener('click', (e) => {
+  const step = !e.target.closest('a') && e.target.closest('.st-table tr[data-step]');
+  if (step) return step.querySelector('a.st-step').click();
+}, true);
+document.addEventListener('click', (e) => {
   const link = e.target.closest('a[href^="#/plan/m"], a[href^="#/status/s"]');
   if (!link || e.metaKey || e.ctrlKey || e.shiftKey) return;
   if (link.hasAttribute('data-out')) { state.overlay = null; return; }
