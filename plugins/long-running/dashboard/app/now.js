@@ -58,7 +58,7 @@ function band(b) {
   if (!m.needs.length) return '';
   const rows = m.needs.slice(0, 2).map(needLine).join('');
   const more = m.needs.length - 2;
-  return `<div class="nw-band needs"><div class="head"><span class="tag">Needs you</span><span class="count">${m.needs.length} decision${m.needs.length === 1 ? '' : 's'}</span>${more > 0 ? `<a class="more" href="#/review">${more} more on Review ›</a>` : ''}</div><div class="rows">${rows}</div></div>`;
+  return `<div class="nw-band needs nw-needs"><div class="head"><span class="tag">Needs you</span><span class="count">${m.needs.length} decision${m.needs.length === 1 ? '' : 's'}</span>${more > 0 ? `<a class="more" href="#/review">${more} more on Review ›</a>` : ''}</div><div class="rows">${rows}</div></div>`;
 }
 function needLine(item) {
   const line = (what, why, acts, sub) => `<div class="nl"><span class="what"${why ? ` title="${esc(why)}"` : ''}>${esc(what)}${sub ? `<span class="sub">${esc(sub)}</span>` : ''}</span><span class="acts">${acts}</span></div>`;
@@ -88,18 +88,21 @@ function journey(b) {
   const lastLive = list.map((s) => s.state).lastIndexOf('live');
   const cur = list.findIndex((s) => s.state === 'next');
   const fill = lastLive > 0 ? (lastLive / list.length) * 100 : 0;
-  const t = tally(state.model.drive.prs);
-  return `<div class="nw-panel"><p class="nw-lab"><span>${esc(state.model.milestones_label)}</span><span class="nw-code">Code: ${t.landed} of ${t.total} changes merged</span></p>
+  return `<div class="nw-panel">${progressLabel()}
     <div class="nw-journey" style="--n:${list.length}"><i class="fill" style="width:${fill}%"></i>${list.map((s, i) => `<a class="ms ms-${s.state}${i === cur ? ' cur' : ''}" href="#/plan/m${i}"><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.why ? `<span class="why">${esc(s.why)}</span>` : ''}</a>`).join('')}</div>
     ${b.progress.sentence ? `<p class="nw-sent">${esc(b.progress.sentence)}</p>` : ''}
     </div>`;
+}
+function progressLabel() {
+  const t = tally(state.model.drive.prs);
+  return `<p class="nw-lab"><span>${esc(state.model.milestones_label)}</span><span class="nw-code">Code: ${t.landed} of ${t.total} changes merged</span></p>`;
 }
 function compact(b) {
   const list = stops(b);
   const live = list.filter((s) => s.state === 'live');
   const next = list.find((s) => s.state === 'next');
   const odd = list.filter((s) => ['paused', 'broken'].includes(s.state));
-  return `<div class="nw-panel"><div class="nw-seg">${list.map((s, i) => `<a class="ms-${s.state}" href="#/plan/m${i}" title="${esc(`${s.name}: ${s.label}`)}"></a>`).join('')}</div>
+  return `<div class="nw-panel">${progressLabel()}<div class="nw-seg">${list.map((s, i) => `<a class="ms-${s.state}" href="#/plan/m${i}" title="${esc(`${s.name}: ${s.label}`)}"></a>`).join('')}</div>
     <p class="nw-sent"><b>${live.length} of ${list.length} milestones live</b>${live.length ? `: ${esc(live.map((s) => s.name).join(', '))}` : ''}.</p>
     ${next ? `<p class="nw-line">Next: <b>${esc(next.name)}</b>${next.why ? `, ${esc(next.why)}` : ''}.</p>` : ''}
     ${odd.map((s) => `<p class="nw-line ms-${s.state}">${esc(s.name)}: ${esc(s.label)}${s.why ? `, ${esc(s.why)}` : ''}.</p>`).join('')}
