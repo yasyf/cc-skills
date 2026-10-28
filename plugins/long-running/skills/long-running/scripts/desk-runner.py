@@ -5488,25 +5488,29 @@ class Landing:
             self.record_waits(graded.heads, waiting)
         if graded.act and waiting:
             self.ask_owner(graded.heads, waiting, graded.rows)
-        untapped = self.untapped({pr: sha for pr, sha in graded.heads.items() if pr not in waiting})
+        untapped, unread = self.untapped({pr: sha for pr, sha in graded.heads.items() if pr not in waiting})
         if graded.act:
             for pr, why in untapped.items():
                 self.refuse_head(f"tap-rule:{pr}:{graded.heads[pr]}", pr, graded, why, untapped, also=[ROOT, *self.board_lanes])
-        return {pr: merge_queue.State(merge_queue.PENDING, f"merge mode {self.merge_mode} waits for the owner's Merge answer at {graded.heads[pr][:7]}") for pr in waiting} | {pr: merge_queue.State(merge_queue.PENDING, why) for pr, why in untapped.items()}
+            for pr, why in unread.items():
+                self.warn_head(f"tap-unread:{pr}:{graded.heads[pr]}:{why}", pr, graded, why, also=[ROOT, *self.runner.landing_lanes("desk_lane")])
+        return {pr: merge_queue.State(merge_queue.PENDING, f"merge mode {self.merge_mode} waits for the owner's Merge answer at {graded.heads[pr][:7]}") for pr in waiting} | {pr: merge_queue.State(merge_queue.PENDING, why) for pr, why in (untapped | unread).items()}
 
-    def untapped(self, heads: dict[str, str]) -> dict[str, str]:
-        """Each PR of `heads` whose changed files a glob of a `landing.tap_rules` row names, or do not read, while the register does not read that row out of force, with why it waits: no approval on the root's board names its head, and a root `go` never stands in for the owner's tap (rule/82317b0)."""
+    def untapped(self, heads: dict[str, str]) -> tuple[dict[str, str], dict[str, str]]:
+        """Each PR of `heads` whose changed files a glob of a `landing.tap_rules` row names, while that row is in the register in force, and no approval on the root's board names its head, with why it waits, since a root `go` never stands in for the owner's tap (rule/82317b0); and each PR whose changed files, register, or board did not read, with what did not, which the runner leaves unqueued for the landing desk rather than guess a merge (4236611)."""
         if not (rules := self.landing_config.get("tap_rules")):
-            return {}
-        touching = {}
+            return {}, {}
+        touching, unread = {}, {}
         for pr, sha in heads.items():
             files, _ = self.changed_files(pr, sha)
-            if found := [rule for rule, globs in rules.items() if files is None or any(fnmatch(name, glob) for name in files for glob in globs)]:
+            if files is None:
+                unread[pr] = f"TAP-UNREAD #{pr}: its changed files did not read, so the runner leaves it unqueued for the landing desk"
+            elif found := [rule for rule, globs in rules.items() if any(fnmatch(name, glob) for name in files for glob in globs)]:
                 touching[pr] = found
         if not touching:
-            return {}
+            return {}, unread
         done = self.rulings_py("rows")
-        register = json.loads(done.out)["rows"] if done.code == 0 else {}
+        register = json.loads(done.out)["rows"] if done.code == 0 else None
         session = self.root_session()
         try:
             verdicts = board_rows.verdicts_of(self.present(["cc-present", "outcomes", "--no-doc", "--session", session])) if session else None
@@ -5514,13 +5518,15 @@ class Landing:
             verdicts = None
         waits = {}
         for pr, found in touching.items():
-            if not (found := [rule for rule in found if register.get(rule, {}).get("status", "in-force") == "in-force"]):
+            if register is not None and not (found := [rule for rule in found if register.get(rule, {}).get("status") == "in-force"]):
                 continue
-            if verdicts is not None and any(entry["verdict"] == "approved" and names_head(heads[pr], entry.get("head") or "") for by_row in verdicts.values() for row, entry in by_row.items() if board_rows.pr_of(row) == pr):
+            if register is None or verdicts is None:
+                unread[pr] = f"TAP-UNREAD #{pr}: {'the register' if register is None else 'the root board'} did not read, so the runner leaves it unqueued for the landing desk"
                 continue
-            unread = "the root's board did not read" if verdicts is None else f"no approval on the root's board names {heads[pr][:10]}"
-            waits[pr] = f"TAP-REQUIRED {','.join(found)}: it lands only on the owner's tap at this head, and a root go is no tap; {unread}"
-        return waits
+            if any(entry["verdict"] == "approved" and names_head(heads[pr], entry.get("head") or "") for by_row in verdicts.values() for row, entry in by_row.items() if board_rows.pr_of(row) == pr):
+                continue
+            waits[pr] = f"TAP-REQUIRED {','.join(found)}: it lands only on the owner's tap at this head, and a root go is no tap; no approval on the root's board names {heads[pr][:10]}"
+        return waits, unread
 
     def record_waits(self, heads: dict[str, str], waiting: dict[str, list[str]]) -> None:
         """Keep, for `show`, what each graded head still waits on: its merge-ask key and the reserved rows only the owner's tap authorizes. A head that stopped waiting drops out, and the heads of other stacks keep theirs."""
