@@ -65,7 +65,7 @@ const FEATURE = { 'New tree': 'New app', 'Old tree': "Today's app", Shared: 'Sha
 function approvalLine(prs) {
   const features = new Map();
   for (const { pr, item } of prs) {
-    const feature = FEATURE[state.drive.get(pr.number)?.tree] ?? item.group;
+    const feature = FEATURE[state.drive.get(pr.number)?.tree] ?? (/new (tree|app)/i.test(item.group) ? FEATURE['New tree'] : /today's app|old (tree|world)/i.test(item.group) ? FEATURE['Old tree'] : item.group);
     features.set(feature, (features.get(feature) ?? 0) + 1);
   }
   const split = [...features].map(([feature, count]) => `${feature} ${count}`).join(' · ');
