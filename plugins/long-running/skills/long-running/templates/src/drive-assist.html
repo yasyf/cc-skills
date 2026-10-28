@@ -385,7 +385,7 @@ function results(raw){
  if(q.length&&AI.key){const askRow={group:"Assistant",icon:"✦",label:`Ask: ${raw.trim()}`,sub:"answers from the drive's records, the plan and your words",go:()=>askInPal(raw.trim()),ask:true};QUESTION.test(raw.trim())?items.unshift(askRow):items.push(askRow)}
  return {items,q};
 }
-function openPal(){location.hash="#/jump"}
+function openPal(){keepScroll();location.hash="#/jump"}
 function showPal(){
  PAL.hidden=false;
  const input=document.getElementById("pal-q");
@@ -394,7 +394,8 @@ function showPal(){
  paintPal();
 }
 function closePal(){PAL.hidden=true;pal.busy=null}
-function leavePal(){location.hash="#/"}
+function leavePal(){if(pal.from)history.back();else location.hash="#/"}
+window.addEventListener("hashchange",e=>{pal.from=location.hash==="#/jump"?new URL(e.oldURL).hash:null})
 function paintPal(){
  const {items,q}=results(document.getElementById("pal-q").value);
  pal.items=items;pal.i=Math.min(pal.i,Math.max(0,items.length-1));
