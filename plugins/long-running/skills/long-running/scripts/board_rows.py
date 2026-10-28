@@ -327,7 +327,7 @@ def root_rulings(shell: Shell, drive: str, lanes: list[str]) -> list[dict]:
 
 def closes(pr: str, text: str) -> bool:
     verb = rf"\b(?:clos(?:e|es|ed|ing)|supersed(?:es|ing))\s+(?:#\d+(?:\s*,\s*|\s*,?\s+and\s+))*#{pr}\b"
-    ruled = rf"#{pr}\b(?:\s+\(?[0-9a-f]{{7,40}}\)?)?(?:\s+(?:is|was|now|stays|has\s+been))*\s+(?:superseded|closed|landed)\b"
+    ruled = rf"(?<!\bon )(?<!\bof )(?<!\bin )#{pr}\b(?:\s+\(?[0-9a-f]{{7,40}}\)?)?(?:\s+(?:is|was|now|stays|has\s+been))*\s+(?:superseded|closed|landed)\b"
     return re.search(verb, text, re.IGNORECASE) is not None or re.search(ruled, text, re.IGNORECASE) is not None
 
 
