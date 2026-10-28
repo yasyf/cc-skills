@@ -121,7 +121,7 @@ class Fake:
 def job(tmp_path: Path, **changes) -> Path:
     directory = tmp_path / "finder-desk" / f"43299-{HEAD[:12]}"
     directory.mkdir(parents=True)
-    spec = {"drive": "d1", "repo": REPO, "pr": "43299", "head": HEAD, "since": "", "prior": None, "previous": "", "history": [], "lane": "p8a-step9", "to": ["root"], "checkout": str(tmp_path / "checkout"), "model": "sol"}
+    spec = {"drive": "d1", "repo": REPO, "pr": "43299", "head": HEAD, "since": "", "prior": None, "previous": "", "history": [], "lane": "p8a-step9", "to": ["root"], "checkout": str(tmp_path / "checkout"), "model": "sol", "full": False}
     (directory / finder.JOB).write_text(json.dumps(spec | changes))
     return directory
 
@@ -146,7 +146,7 @@ def test_a_head_with_only_minors_posts_finder_ok_over_its_whole_change_to_the_he
     [post] = shell.posted
     assert post["--drive"] == "d1" and post["--lane"] == finder.LANE and post["--kind"] == "review" and post["--pr"] == f"{REPO}#43299"
     assert post["--to"] == "p8a-step9,root" and post["--id"] == f"finder:{REPO}#43299:{HEAD}" and post["--path"] == str(directory / "record.md")
-    assert post["--text"] == f"finder: ok {HEAD} sol finder over dev...{HEAD[:7]}: no majors"
+    assert post["--text"] == f"finder: ok {HEAD} sol finder over whole {OWN[:7]}^..{HEAD[:7]}: no majors"
     assert finder_grade(post["--text"]) == FINDER_PASS and graded_head(post["--text"]) == HEAD
     question = (directory / "question-1.md").read_text()
     assert f"`git diff {OWN}^ {HEAD}`" in question and f"on base dev ({BASE})" in question and STALE_BASE not in question
@@ -177,6 +177,31 @@ def test_a_head_rebased_past_its_stale_base_branch_onto_the_trunk_reads_and_scop
     assert shell.posted[0]["--text"].startswith(f"finder: major {HEAD} 1 open")
 
 
+def test_a_requested_full_pass_at_a_head_a_delta_record_graded_reads_the_whole_change_at_the_live_head_and_says_so(tmp_path):
+    prior = {"seq": 149302, "lane": "finder-desk", "head": "a269784", "text": f"finder: ok {HEAD} sol finder over delta a269784..{HEAD[:7]}: no majors"}
+    directory = job(tmp_path, head="", history=[prior | {"path": ""}], full=True)
+    shell = Fake(tmp_path, [reply()])
+    finder.main([str(directory)], shell)
+    question = (directory / "question-1.md").read_text()
+    assert f"This pass reads the PR's whole change: `git diff {OWN}^ {HEAD}`." in question and (directory / "rows.md").exists()
+    [post] = shell.posted
+    assert post["--text"] == f"finder: ok {HEAD} sol finder over whole {OWN[:7]}^..{HEAD[:7]}: no majors" and post["--id"] == f"finder:{REPO}#43299:{HEAD}:whole"
+    assert graded_head(post["--text"]) == HEAD and finder_grade(post["--text"]) == FINDER_PASS
+
+
+@pytest.mark.parametrize(
+    ("to", "text", "prs"),
+    [
+        (["finder-desk", "p8b-step10"], "finder-desk: one whole-diff pass on #44114 over its own commits", ["44114"]),
+        (["finder-desk"], "finder-desk: run #44114 at 7d13a98 again", ["44114"]),
+        (["finder-desk"], "finder-desk: thanks for #44114", []),
+        (["p8b-step10"], "whole-diff pass on #44114", []),
+    ],
+)
+def test_a_decide_or_ask_to_the_finder_desk_requests_a_full_pass_when_it_names_a_head_or_asks_for_the_whole_diff(to, text, prs):
+    assert finder.requested({"to": to, "text": text, "refs": {}}, REPO) == prs
+
+
 def test_a_head_that_carries_no_commit_the_base_lacks_runs_no_finder(tmp_path):
     directory = job(tmp_path)
     shell = Fake(tmp_path, [], own={})
@@ -191,7 +216,7 @@ def test_blockers_and_majors_post_finder_major_one_clause_each_and_minors_stay_o
     shell = Fake(tmp_path, [reply(*majors, finding("minor", "a.go:1", "a name reads oddly"))])
     finder.main([str(directory)], shell)
     text = shell.posted[0]["--text"]
-    assert text == f"finder: major {HEAD} 2 open: rust/crates/sandsql-journal/src/replica.rs:2947 registered mounts never record a resubscribe position; go/poll.go:9 row rule/949e6be missing: a mount polls every 5 s"
+    assert text == f"finder: major {HEAD} 2 open over whole {OWN[:7]}^..{HEAD[:7]}: rust/crates/sandsql-journal/src/replica.rs:2947 registered mounts never record a resubscribe position; go/poll.go:9 row rule/949e6be missing: a mount polls every 5 s"
     assert finder_grade(text) == FINDER_FAIL and graded_head(text) == HEAD
     assert "a name reads oddly" not in text and "a name reads oddly" in (directory / "record.md").read_text()
 
@@ -204,7 +229,7 @@ def test_a_major_whose_cites_name_no_changed_line_and_a_census_finding_go_to_the
     shell = Fake(tmp_path, [reply(stands, dev_only, marked)])
     finder.main([str(directory)], shell)
     review, note = shell.posted
-    assert review["--text"] == f"finder: major {HEAD} 1 open: go/x.go:3, go/sand/internal/replica/follow.go:41-44 the marker is dropped"
+    assert review["--text"] == f"finder: major {HEAD} 1 open over whole {OWN[:7]}^..{HEAD[:7]}: go/x.go:3, go/sand/internal/replica/follow.go:41-44 the marker is dropped"
     census = tmp_path / "finder-desk" / f"census-{time.strftime('%Y-%m-%d')}.md"
     assert note["--kind"] == "note" and note["--lane"] == finder.LANE and note["--to"] == "root" and note["--id"] == f"finder-census:{REPO}#43299:{HEAD}"
     assert note["--text"] == f"finder census: 2 dev-only findings on #43299 appended to {census}"
@@ -245,7 +270,7 @@ def test_a_pass_after_an_earlier_finder_reads_since_that_head_and_checks_its_maj
     assert not [argv for argv, _ in shell.calls if argv[2:3] == ["slice"]]
     [(ask, cwd)] = shell.asks()
     assert ask[:5] == ["codex-ask", "-m", "sol", "--schema", "findings"] and ask[-1] == str(directory / "question-1.md") and cwd == tmp_path / "checkout"
-    assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over {OLD[:7]}..{HEAD[:7]}: no majors"
+    assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over delta {OLD[:7]}..{HEAD[:7]}: no majors"
 
 
 def test_a_reply_that_drops_a_row_key_is_asked_once_more_and_two_such_replies_post_nothing(tmp_path):
@@ -342,7 +367,7 @@ def test_a_fixed_head_named_short_by_the_last_finder_record_reads_only_its_new_c
     finder.main([str(directory)], shell)
     question = (directory / "question-1.md").read_text()
     assert f"for its pair (none); each new commit whole with `git show <sha>` ({OWN[:11]})" in question and finder.SCOPED_STEP in question and not (directory / "rows.md").exists()
-    assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over {OLD[:7]}..{HEAD[:7]}: no majors"
+    assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over delta {OLD[:7]}..{HEAD[:7]}: no majors"
 
 
 def test_a_closed_pr_runs_no_finder_and_posts_nothing(tmp_path):
@@ -392,7 +417,7 @@ def test_a_graded_head_origin_no_longer_serves_reads_the_whole_change(tmp_path):
     finder.main([str(directory)], shell)
     question = (directory / "question-1.md").read_text()
     assert f"This pass reads the PR's whole change: `git diff {OWN}^ {HEAD}`." in question and (directory / "rows.md").exists()
-    assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over dev...{HEAD[:7]}: no majors"
+    assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over whole {OWN[:7]}^..{HEAD[:7]}: no majors"
 
 
 def test_an_amended_commit_that_only_drops_a_hunk_the_base_now_carries_is_a_carry(tmp_path):
@@ -420,4 +445,4 @@ def test_a_replay_that_drops_an_earlier_commit_the_base_lacks_reads_its_removal_
     shell = Fake(tmp_path, [reply()], own={(BASE, HEAD): [OWN], (BASE, OLD): [OLD_OWN]}, resolve={OLD: OLD}, ranges={EARLIER: pairs("=", "=")}, shows={f"{BASE}:api/parent.go": "pending()\n"})
     finder.main([str(directory)], shell)
     assert f"the removal of each dropped commit the base lacks, read with `git show <sha>` ({PARENT[:11]})" in (directory / "question-1.md").read_text()
-    assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over {OLD[:7]}..{HEAD[:7]}: no majors"
+    assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over delta {OLD[:7]}..{HEAD[:7]}: no majors"

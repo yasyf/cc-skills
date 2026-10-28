@@ -20,13 +20,14 @@ graded head's verdict as `finder: ok|major <head7> carried from #<seq>`, or noth
 record graded that head.
 Every pass hands codex the PR's earlier finder records and their answers, and a finding they closed
 is not raised again. A whole pass writes the head's
-required register rows to `DIR/rows.md` with `rulings.py slice --required`. It fills
+required register rows to `DIR/rows.md` with `rulings.py slice --required`. A `full` job, which a `decide` or `ask` to the finder desk queues, reads the PR's
+whole own change at its live head whatever earlier records graded. It fills
 `reference/finder-desk-brief.md` and runs `codex-ask -m <model> --schema findings` in the drive's
 checkout. A reply that names no verdict for a row key the slice printed, or gives no reasoning in
 `swept`, is asked once more; a second such reply fails the job. A head that moved while codex read
 it posts nothing. The verdict is posted under lane `finder-desk` as `finder: ok <head> …` or
-`finder: major <head> <n> open: …`, kind `review`, with `--pr <repo>#<n>`,
-`--id finder:<repo>#<n>:<head>`, and the whole reply on `--path`, to the lane that posted the head
+`finder: major <head> <n> open over <range>: …`, naming `whole <first own>^..<head>` or `delta <graded>..<head>`, kind
+`review`, with `--pr <repo>#<n>`, `--id finder:<repo>#<n>:<head>` and `:whole` for a `full` job, and the whole reply on `--path`, to the lane that posted the head
 and every `finder.to` address. A blocker or major stands only when one of its cites names a line
 the PR's own diff adds or changes; it and every finding the reply marks `census:` are appended to
 `<config dir>/finder-desk/census-<date>.md` instead, with one `finder census:` note to root per head. `DIR/result.json` is written last, `{"error": …}` when the job
@@ -61,6 +62,8 @@ LANE = "finder-desk"
 JOB = "job.json"
 RESULT = "result.json"
 LOG = "job.log"
+WHOLE_ASKED = re.compile(r"\bwhole[- ]diff\b|\bfull pass\b|\b[0-9a-f]{7,40}\b", re.IGNORECASE)
+WHOLE_READ = "over whole "
 HEAD_SHA = re.compile(r"(?<!was )\b[0-9a-f]{40}\b")
 FULL_SHA = re.compile(r"\b[0-9a-f]{40}\b")
 TEXT_PR = re.compile(r"(?:\b([\w.-]+/[\w.-]+))?#(\d+)\b")
@@ -103,6 +106,13 @@ def text_pr(text: str, repo: str) -> list[str]:
     """The first `repo#N` the text names, else its first bare `#N`."""
     named = TEXT_PR.findall(text)
     return next(([number] for owner, number in named if owner.lower() == repo.lower()), next(([number] for owner, number in named if not owner), []))
+
+
+def requested(record: dict, repo: str) -> list[str]:
+    """The PRs a `decide` or `ask` to the finder desk asks a whole pass over: it names a head, or says whole-diff or full pass (root #162320)."""
+    if LANE not in (record.get("to") or []) or not WHOLE_ASKED.search(record["text"]):
+        return []
+    return [pr for pr, _ in repo_prs(record, repo)] if (record.get("refs") or {}).get("prs") else text_pr(record["text"], repo)
 
 
 def since(reviews: list[dict], records: list[dict], head: str) -> tuple[str, dict | None]:
@@ -192,13 +202,13 @@ def prompt(job: dict, view: dict, base: str, own: list[str], last: str, pairs: s
     )
 
 
-def record_text(job: dict, view: dict, last: str, findings: list[dict]) -> str:
+def record_text(job: dict, own: list[str], last: str, findings: list[dict]) -> str:
     head = job["head"]
-    read = f"{last[:7]}..{head[:7]}" if last else f"{view['baseRefName']}...{head[:7]}"
+    read = f"over delta {last[:7]}..{head[:7]}" if last else f"{WHOLE_READ}{own[0][:7]}^..{head[:7]}"
     if not (majors := [finding for finding in findings if finding["severity"] in MAJORS]):
-        return f"finder: ok {head} {job['model']} finder over {read}: no majors"
+        return f"finder: ok {head} {job['model']} finder {read}: no majors"
     opened = "; ".join(" ".join(f"{finding['cite']} {finding['defect']}".split()) for finding in majors)
-    return f"finder: major {head} {len(majors)} open: {opened}"
+    return f"finder: major {head} {len(majors)} open {read}: {opened}"
 
 
 def rulings(job: dict, verb: str, *argv: str) -> list[str]:
@@ -319,7 +329,7 @@ def record_census(shell: Shell, job: dict, directory: Path, census: list[dict]) 
 
 def post(shell: Shell, job: dict, text: str, body: Path) -> str:
     to = ",".join(dict.fromkeys(filter(None, [job["lane"], *job["to"]])))
-    argv = ["cci", "post", "--drive", job["drive"], "--lane", LANE, "--kind", "review", "--pr", f"{job['repo']}#{job['pr']}", "--id", f"finder:{job['repo']}#{job['pr']}:{job['head']}", "--path", str(body)]
+    argv = ["cci", "post", "--drive", job["drive"], "--lane", LANE, "--kind", "review", "--pr", f"{job['repo']}#{job['pr']}", "--id", f"finder:{job['repo']}#{job['pr']}:{job['head']}{':whole' if job['full'] else ''}", "--path", str(body)]
     clipped = text if len(text) <= CCI_TEXT else text[: CCI_TEXT - 1] + "…"
     return shell.run([*argv, *(["--to", to] if to else []), "--text", clipped]).strip()
 
@@ -330,8 +340,9 @@ def run(directory: Path, shell: Shell) -> dict:
     view = view_pr(shell, job)
     if view["state"] == "CLOSED":
         return {"skipped": f"{pr} is closed"}
-    if view["headRefOid"] != head:
+    if not view["headRefOid"].startswith(head):
         return {"skipped": f"{pr} moved to {view['headRefOid'][:12]}"}
+    job["head"] = head = view["headRefOid"]
     base = git(shell, job, "ls-remote", "origin", f"refs/heads/{view['baseRefName']}").split()[0]
     trunk = git(shell, job, "ls-remote", "origin", "HEAD").split()[0]
     git(shell, job, "fetch", "--no-write-fetch-head", "-q", "origin", head, base, trunk)
@@ -366,7 +377,7 @@ def run(directory: Path, shell: Shell) -> dict:
     if (now := view_pr(shell, job)["headRefOid"]) != head:
         return {"skipped": f"{pr} moved to {now[:12]} while codex read {head[:12]}"}
     findings, census = triage(json.loads(reply)["findings"], touched)
-    text = record_text(job, view, last, findings)
+    text = record_text(job, own, last, findings)
     body = directory / "record.md"
     body.write_text(f"{text}\n\n{reply.strip()}\n")
     outcome = {"verdict": text.split()[1], "record": text, "posted": post(shell, job, text, body)}

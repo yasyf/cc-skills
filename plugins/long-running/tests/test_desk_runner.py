@@ -10266,7 +10266,7 @@ def test_each_head_starts_one_finder_at_once_however_many_records_name_it(shell,
     orca_pass(shell, config)
     assert shell.finder_jobs == [config.resolve().parent / "finder-desk" / f"43439-{FINDER_HEAD[:12]}"]
     assert finder_jobs(shell) == [
-        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "previous": "", "history": [], "lane": "p8a-step9", "to": ["root", "desk-runner"], "checkout": str(config.parent / "checkout"), "model": "sol"}
+        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "previous": "", "history": [], "lane": "p8a-step9", "to": ["root", "desk-runner"], "checkout": str(config.parent / "checkout"), "model": "sol", "full": False}
     ]
 
 
@@ -10286,6 +10286,25 @@ def test_a_head_a_lane_already_ran_the_finder_on_starts_no_second_pass(shell, co
     finder_review(shell, "43439", f"finder: ok {FINDER_HEAD[:7]} lgtm, no findings")
     orca_pass(shell, config)
     assert not shell.finder_jobs
+
+
+def test_a_full_pass_request_at_a_head_a_delta_record_graded_starts_a_whole_pass_ahead_of_queued_heads(shell, config):
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    head_record(shell, "44114", FINDER_HEAD)
+    finder_review(shell, "44114", f"finder: major {FINDER_HEAD} 21 open over delta {FINDER_OLD[:7]}..{FINDER_HEAD[:7]}: go/a.go:1 drops a write", lane="finder-desk")
+    head_record(shell, "43299", FINDER_OLD)
+    seq = 149000 + len(shell.records)
+    shell.records.append({"seq": seq, "drive": "d1", "lane": "root", "kind": "decide", "to": ["finder-desk", "p8b-step10"], "refs": {"prs": ["Forge-AI/monorepo#44114"]}, "text": f"finder-desk: one whole-diff pass on #44114 over its own commits at {FINDER_HEAD[:7]}", "source": "post", "at": actions.stamp(shell.clock)})
+    orca_pass(shell, config)
+    assert shell.finder_jobs == [config.resolve().parent / "finder-desk" / f"44114-whole-{seq}"]
+    [whole] = finder_jobs(shell)
+    assert (whole["pr"], whole["head"], whole["since"], whole["prior"], whole["full"]) == ("44114", "", "", None, True)
+    finder_review(shell, "44114", f"finder: ok {FINDER_HEAD} sol finder over whole {FINDER_OLD[:7]}^..{FINDER_HEAD[:7]}: no majors", lane="finder-desk")
+    (shell.finder_jobs[0] / "result.json").write_text(json.dumps({"verdict": "ok", "record": "finder: ok", "posted": "#150003"}))
+    shell.records.append({"seq": seq + 10, "drive": "d1", "lane": "root", "kind": "decide", "to": ["finder-desk"], "refs": {"prs": ["Forge-AI/monorepo#44114"]}, "text": "finder-desk: the whole-diff pass on #44114 is still owed", "source": "post", "at": actions.stamp(shell.clock)})
+    orca_pass(shell, config)
+    assert [job["pr"] for job in finder_jobs(shell)] == ["44114", "43299"]
 
 
 def test_finders_past_the_cap_wait_queued_and_start_as_running_ones_finish(shell, config, capsys):
