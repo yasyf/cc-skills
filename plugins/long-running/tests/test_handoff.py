@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -111,6 +112,18 @@ class FakeCcn(ledger.Shell):
     def touch(self, doc: str) -> None:
         self.updated[doc] = f"2026-10-02T00:{len(self.updated):02d}:00Z"
 
+    def record(self, doc: str) -> dict:
+        created = f"2026-10-01T00:{list(self.docs).index(doc):02d}:00Z"
+        newer = sorted(new for new, olds in self.supersedes.items() if doc in olds)
+        return {
+            "id": doc,
+            "title": self.titles.get(doc, "brook: progress"),
+            "body": self.docs[doc],
+            "tags": self.tags.get(doc, [self.register_label] if doc in self.registers else ["progress:brook"]),
+            "created_at": created,
+            "updated_at": self.updated.get(doc, created),
+        } | ({"superseded_by": newer} if newer else {})
+
     def run(self, argv: list[str], stdin: str | None = None) -> str:
         self.calls.append(argv)
         if argv[:2] == ["cci", "tail"]:
@@ -132,27 +145,20 @@ class FakeCcn(ledger.Shell):
             return json.dumps([a for a in self.answers if all(label in a["tags"] for label in labels)])
         if verb[0] in ("task", "plan"):
             return self.notes(*argv[3:])
+        if verb == ["doc", "list"] and "--full" in argv:
+            listed = self.registers if self.register_label in labels else self.active
+            if "--include-superseded" in argv:
+                listed = [*listed, *(doc for doc in self.docs if doc not in listed and self.record(doc).get("superseded_by"))]
+            return json.dumps([record for doc in listed if all(label in (record := self.record(doc))["tags"] for label in labels)])
         if verb == ["doc", "list"]:
             return json.dumps(
                 [
-                    {"id": doc, "title": self.titles.get(doc, "brook: progress"), "updated_at": f"2026-10-01T0{i}:00:00Z"}
-                    for i, doc in enumerate(self.registers if self.register_label in labels else self.active)
+                    {key: self.record(doc)[key] for key in ("id", "title", "updated_at")}
+                    for doc in (self.registers if self.register_label in labels else self.active)
                 ]
             )
         if verb == ["doc", "show"]:
-            doc = argv[5]
-            created = f"2026-10-01T00:{list(self.docs).index(doc):02d}:00Z"
-            return json.dumps(
-                {
-                    "id": doc,
-                    "title": self.titles.get(doc, "brook: progress"),
-                    "body": self.docs[doc],
-                    "tags": self.tags.get(doc, [self.register_label] if doc in self.registers else ["progress:brook"]),
-                    "supersedes": self.supersedes.get(doc, []),
-                    "created_at": created,
-                    "updated_at": self.updated.get(doc, created),
-                }
-            )
+            return json.dumps(self.record(argv[5]) | {"supersedes": sorted(self.supersedes.get(argv[5], []))})
         if verb == ["doc", "history"]:
             return json.dumps(self.history.get(argv[5]) or [creation_entry(self.docs[argv[5]])])
         if verb == ["doc", "add"]:
@@ -547,6 +553,7 @@ def test_the_handoff_names_the_register_doc_and_never_writes_it(drive_home: Path
     shell = shell_with()
     shell.registers.insert(0, "e" * 40)
     shell.docs["e" * 40] = "# an older draft\n"
+    shell.updated["e" * 40] = "2026-09-30T00:00:00Z"
 
     before = generate(drive_home, shell, capsys=capsys)
     before_body = shell.docs[before["id"]]
@@ -627,6 +634,123 @@ def test_the_hand_written_handoff_and_its_addendum_survive_a_regenerating_compac
     for out in (stop, compaction):
         assert (out["read_first"], out["narrative"]) == (["ccn doc show bbbbbbb"], "9999999")
         assert "Then read the hand-written handoff `ccn doc show bbbbbbb`, then the progress doc `ccn doc show 9999999`, then " in out["digest"]
+
+
+def test_generate_reads_the_whole_progress_lineage_in_one_listing_whatever_its_length(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    doc_calls = {}
+    for length in (1, 6):
+        shell = shell_with()
+        chain = [str(n) * 40 for n in range(1, length + 1)]
+        for older, doc in zip(["a" * 40, *chain], chain):
+            shell.write(doc, f"## Root's next actions\n1. land {doc[:7]}", supersedes=(older,))
+
+        out = generate(drive_home, shell, capsys=capsys)
+
+        assert (out["id"], out["read_first"]) == (chain[-1], [f"ccn doc show {doc[:7]}" for doc in chain[:-1]])
+        assert [call for call in shell.calls if call[3:5] == ["doc", "list"] and "--full" in call] == [
+            ["ccn", "-R", REPO, "doc", "list", "--label", REGISTER, "--full", "--json"],
+            ["ccn", "-R", REPO, "doc", "list", "--label", "progress:brook", "--include-superseded", "--full", "--json"],
+        ]
+        assert not any(call[3:5] == ["doc", "show"] for call in shell.calls)
+        assert out["register"] == REGISTER_DOC
+        doc_calls[length] = sum(call[3:4] == ["doc"] for call in shell.calls)
+    assert doc_calls[1] == doc_calls[6]
+
+
+PROGRESS = "progress:brook"
+
+
+def stored(key: str, *, by: str = "", label: str = PROGRESS, deleted: bool = False, made: bool = False, updated: str = "2026-10-01T00:00:00Z") -> dict:
+    return {
+        "id": key * 40,
+        "tags": [label],
+        "body": generated_record(f"## Root's next actions\n1. {key}") if made else f"## Root's next actions\n1. {key}",
+        "superseded_by": [newer * 40 for newer in by],
+        "deleted": deleted,
+        "created_at": updated,
+        "updated_at": updated,
+    }
+
+
+def default_order(docs: list[dict]) -> list[dict]:
+    return sorted(sorted(docs, key=lambda doc: doc["id"]), key=lambda doc: doc["updated_at"], reverse=True)
+
+
+def show_walk(store: list[dict]) -> list[str]:
+    live = {doc["id"]: doc for doc in store if not doc["deleted"]}
+    seen, shown, queue = set(), [], [doc["id"] for doc in default_order(list(live.values())) if PROGRESS in doc["tags"] and not doc["superseded_by"]]
+    while queue:
+        if (doc_id := queue.pop()) in seen:
+            continue
+        seen.add(doc_id)
+        if PROGRESS not in (doc := live[doc_id])["tags"]:
+            continue
+        shown.append(doc_id)
+        if not handoff.generated(doc["body"]):
+            queue += sorted(other for other, newer in live.items() if doc_id in newer["superseded_by"])
+    return shown
+
+
+def full_listing(store: list[dict]) -> list[dict]:
+    return [
+        {key: value for key, value in doc.items() if key not in ("deleted", "superseded_by")} | ({"superseded_by": doc["superseded_by"]} if doc["superseded_by"] else {})
+        for doc in default_order([doc for doc in store if not doc["deleted"] and PROGRESS in doc["tags"]])
+    ]
+
+
+def random_store(seed: int) -> list[dict]:
+    rng = random.Random(seed)
+    keys = [f"{n:x}" for n in range(rng.randint(1, 9))]
+    stamps = [f"2026-10-01T0{n}:00:00Z" for n in range(3)]
+    return [
+        stored(
+            key,
+            by="".join(rng.sample(pool := [other for other in [*keys, "f"] if other != key], rng.randint(0, min(2, len(pool))))),
+            label=rng.choice([PROGRESS, PROGRESS, "progress:other"]),
+            deleted=rng.random() < 0.15,
+            made=rng.random() < 0.3,
+            updated=rng.choice(stamps),
+        )
+        for key in keys
+    ]
+
+
+LINEAGE_CASES = {
+    "predecessor": [stored("a", by="b"), stored("b")],
+    "cross-label-stop": [stored("a", by="b"), stored("b", by="c", label="progress:other"), stored("c")],
+    "generated-stop": [stored("a", by="b"), stored("b", by="c", made=True), stored("c")],
+    "inactive-through-missing-or-other-label": [stored("a", by="b"), stored("b", label="progress:other"), stored("d", by="f"), stored("e")],
+    "tombstoned-predecessor": [stored("a", by="b", deleted=True), stored("b")],
+    "equal-timestamps": [stored("a"), stored("b")],
+    "reconverging": [stored("a", by="bc"), stored("b", by="c"), stored("c")],
+    "cycle": [stored("a", by="b"), stored("b", by="a"), stored("c")],
+}
+
+
+@pytest.mark.parametrize("store", [*LINEAGE_CASES.values(), *(random_store(seed) for seed in range(300))], ids=[*LINEAGE_CASES, *(f"random-{seed}" for seed in range(300))])
+def test_the_batch_lineage_walks_exactly_what_a_doc_show_per_record_walked(store: list[dict]) -> None:
+    records = full_listing(store)
+    active = [doc for doc in records if not doc.get("superseded_by")]
+
+    assert [doc["id"] for doc in active] == [
+        doc["id"] for doc in default_order(store) if not doc["deleted"] and PROGRESS in doc["tags"] and not doc["superseded_by"]
+    ]
+    assert [doc["id"] for doc in handoff.lineage(records, active)] == show_walk(store)
+
+
+def test_the_batch_lineage_keeps_the_cases_the_contract_names() -> None:
+    def walk(case: str) -> list[str]:
+        records = full_listing(LINEAGE_CASES[case])
+        return [doc["id"][0] for doc in handoff.lineage(records, [doc for doc in records if not doc.get("superseded_by")])]
+
+    assert walk("predecessor") == ["b", "a"]
+    assert walk("cross-label-stop") == ["c"]
+    assert walk("generated-stop") == ["c", "b"]
+    assert walk("inactive-through-missing-or-other-label") == ["e"]
+    assert walk("tombstoned-predecessor") == ["b"]
+    assert walk("equal-timestamps") == ["b", "a"]
+    assert walk("reconverging") == ["c", "b", "a"]
+    assert walk("cycle") == ["c"]
 
 
 def test_open_tasks_list_only_in_progress_and_lanes_only_running_ten(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:

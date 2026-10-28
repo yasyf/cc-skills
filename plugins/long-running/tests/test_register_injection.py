@@ -21,10 +21,8 @@ REGISTER_BODY = "# brook register\n\n1. Pulumi state is the only truth (ec2881e)
 FAKE_CCN = f"""#!/usr/bin/env python3
 import json, sys
 args = sys.argv[3:]
-if args[:2] == ["doc", "list"]:
-    print(json.dumps([{{"id": "{REGISTER_ID}", "updated_at": "2026-10-05T00:00:00Z"}}]))
-if args[:2] == ["doc", "show"]:
-    print(json.dumps({{"id": args[2], "body": {REGISTER_BODY!r}}}))
+if args[:2] == ["doc", "list"] and "--full" in args:
+    print(json.dumps([{{"id": "{REGISTER_ID}", "updated_at": "2026-10-05T00:00:00Z", "body": {REGISTER_BODY!r}}}]))
 """
 @pytest.fixture
 def tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -189,4 +187,3 @@ def test_a_brief_that_does_not_read_passes_the_spawn_and_posts_one_blocker(tools
     assert len(posted) == 1
     assert posted[0][0].startswith("slice_on_spawn: the spawn's brief did not read: ")
     assert posted[0][1] == {"key": "slice-on-spawn:brief"}
-

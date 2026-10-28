@@ -122,9 +122,17 @@ def record(doc, entry):
 with open(os.path.join(state, "calls"), "a") as calls:
     calls.write(json.dumps(sys.argv[1:]) + "\\n")
 listed = os.path.join(state, "docs.json")
+def body_of(doc):
+    path = os.path.join(state, doc + ".md")
+    return open(path).read() if os.path.exists(path) else GENERATED + "## Standing owner rules\\n- none\\n"
+def full(entry):
+    fields = {"id": entry["id"], "title": entry.get("title", ""), "body": body_of(entry["id"]), "tags": entry.get("tags", [])}
+    stamps = {"created_at": entry.get("updated_at", ""), "updated_at": entry.get("updated_at", "")}
+    return fields | stamps | ({"superseded_by": entry["superseded_by"]} if entry.get("superseded_by") else {})
 if args[:2] == ["doc", "list"]:
     labels = [args[i + 1] for i, arg in enumerate(args) if arg == "--label"]
-    print(json.dumps([d for d in json.load(open(listed)) if not d.get("superseded_by") and all(label in d["tags"] for label in labels)]))
+    matched = [d for d in json.load(open(listed)) if ("--include-superseded" in args or not d.get("superseded_by")) and all(label in d["tags"] for label in labels)]
+    print(json.dumps([full(d) for d in matched] if "--full" in args else matched))
 if args[:2] == ["doc", "add"]:
     docs = json.load(open(listed))
     label = args[args.index("--label") + 1]
@@ -150,16 +158,14 @@ if args[:2] == ["doc", "supersede"] and os.environ.get("FAKE_CCN_SUPERSEDE") != 
     docs = json.load(open(listed))
     for d in docs:
         if d["id"] == args[2]:
-            d["superseded_by"] = args[4]
-        if d["id"] == args[4]:
-            d["supersedes"] = d.get("supersedes", []) + [args[2]]
+            d["superseded_by"] = sorted({*d.get("superseded_by", []), args[4]})
     json.dump(docs, open(listed, "w"))
 if args[:2] == ["doc", "show"]:
-    entry = next((d for d in json.load(open(listed)) if d["id"].startswith(args[2])), {})
-    path = os.path.join(state, args[2] + ".md")
-    body = open(path).read() if os.path.exists(path) else GENERATED + "## Standing owner rules\\n- none\\n"
-    fields = {key: entry.get(key, []) for key in ("tags", "supersedes")} | {"title": entry.get("title", "")}
-    print(json.dumps({"id": args[2], "body": body, "created_at": entry.get("updated_at", ""), "updated_at": entry.get("updated_at", "")} | fields))
+    docs = json.load(open(listed))
+    entry = next((d for d in docs if d["id"].startswith(args[2])), {})
+    supersedes = sorted(d["id"] for d in docs if entry and entry["id"] in d.get("superseded_by", []))
+    fields = {"tags": entry.get("tags", []), "supersedes": supersedes, "title": entry.get("title", "")}
+    print(json.dumps({"id": args[2], "body": body_of(args[2]), "created_at": entry.get("updated_at", ""), "updated_at": entry.get("updated_at", "")} | fields))
 if args[:2] == ["answer", "list"]:
     answers = json.load(open(os.path.join(state, "answers.json")))
     print(json.dumps([a for a in answers if all(l in a["tags"] for l in args[3:-3:2])]))
@@ -1043,8 +1049,8 @@ ADDENDUM = (
 def test_a_stop_handoff_whose_state_was_lost_still_points_the_compaction_at_the_roots_records(home: Path, plan: Path, docs: Path) -> None:
     session = home / "session"
     entries = [
-        doc("a" * 40, "2026-10-10T21:13:13Z") | {"title": "brook: progress 2026-10-10T2113Z (generated)", "superseded_by": "b" * 40},
-        doc("b" * 40, "2026-10-10T22:10:38Z") | {"title": "brook: progress 2026-10-10T2210Z (pre-compact handoff, full)", "supersedes": ["a" * 40]},
+        doc("a" * 40, "2026-10-10T21:13:13Z") | {"title": "brook: progress 2026-10-10T2113Z (generated)", "superseded_by": ["b" * 40]},
+        doc("b" * 40, "2026-10-10T22:10:38Z") | {"title": "brook: progress 2026-10-10T2210Z (pre-compact handoff, full)"},
         doc("c" * 40, "2026-10-10T22:15:46Z") | {"title": "brook: progress 2026-10-10T2225Z addendum (read with bbbbbbb)"},
     ]
     (docs / "docs.json").write_text(json.dumps(entries))
