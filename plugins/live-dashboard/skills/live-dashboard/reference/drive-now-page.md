@@ -23,8 +23,9 @@ From top to bottom:
 2. The headline: one sentence of at most 25 words that a person could read aloud at
    standup.
 3. Overall progress: the drive's milestones, each with its state.
-4. Two columns. Blockers come first, drawn as a dependency chart with arrows into each
-   milestone they hold up. Work comes second, as three rows that each open a live story in
+4. Two columns, with blockers first. The path to the next milestone is a dependency chart
+   with arrows. Every later path lists each of its blockers on its own line, with what is
+   being done and who does it, so no blocker hides behind a count. Work comes second, as three rows that each open a live story in
    place of the list. Every open blocker and work row says how long it has waited and since
    when.
 5. The drive's own diagram.

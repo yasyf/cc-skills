@@ -142,8 +142,7 @@ function blockers(b) {
   return view('blockers') === 'cards' ? `${cards([paths[0]])}${paths.slice(1).map(laterPath).join('')}` : `<div class="nw-chart">${chart(paths[0], 0)}${paths.slice(1).map(laterPath).join('')}</div>`;
 }
 function laterPath(path) {
-  const you = path.nodes.filter((n) => n.state === 'you').length;
-  return `<a class="nw-later" href="#/plan/m${path.milestone}"><span class="plab">To ${esc(state.model.milestones[path.milestone] ?? 'a later milestone')}</span>${path.nodes.length} more in the way${you ? `, ${you} waiting on you` : ''} ›</a>`;
+  return `<div class="nw-later"><a class="plab" href="#/plan/m${path.milestone}">To ${esc(state.model.milestones[path.milestone] ?? 'a later milestone')} ›</a><ul>${path.nodes.map((n) => `<li class="${esc(n.state)}"><b>${esc(n.text)}</b><span>${esc(NODE_WORD[n.state])}: ${esc(n.how)}${n.since ? ` · ${esc(waited(n.since))}` : ''}</span></li>`).join('')}</ul></div>`;
 }
 function depthOf(path) {
   const out = new Map(path.nodes.map((n) => [n.id, []]));
