@@ -350,3 +350,79 @@ def test_a_held_pr_draws_no_stall(config, tmp_path):
     watch(shell, config)
 
     assert shell.topics() == []
+
+
+def graded(seq: int, pr: str, sha: str, minutes_ago: float) -> list[dict]:
+    return [head(seq, pr, sha, minutes_ago), finder(seq + 1, pr, sha, minutes_ago - 1), fidelity(seq + 2, pr, sha, minutes_ago - 1)]
+
+
+def stack(config: Path) -> dict[str, dict]:
+    return {found["pr"]: found for found in json.loads((config.parent / "inbox/stack.json").read_text())["prs"]}
+
+
+@pytest.mark.parametrize(
+    ("fields", "state", "step"),
+    [
+        ({"test_state": "failure", "failing_checks": json.dumps([{"name": "buildkite/test"}])}, "red on buildkite/test", "fix the red build of #101 at abc1234"),
+        ({"mergeable_state": "dirty"}, "conflicts with its base", "restack #101 at abc1234 and post HEAD"),
+        ({"base": "graphite-base/101"}, "needs a restack: the PR below it landed", "restack #101 at abc1234 onto its new parent with `ccx vcs ship --tip-only` and post HEAD"),
+        ({"ai_review": "failure"}, "the reviewer bot holds it", "answer each blocking finding on #101 with a fix or a one-line rebuttal"),
+        ({}, "green, and no go names this head", "root posts `go #101 at abc1234` or puts its merge row on the owner's board"),
+    ],
+)
+def test_a_pr_in_one_state_for_two_hours_posts_one_stale_record_naming_its_owner_and_next_step_until_its_state_moves(config, fields, state, step):
+    shell = FakeShell(graded(1, "101", HEAD, 150), [row("101", **fields)])
+    shell.doc = {"blocks": [{"id": f"merge:101:{HEAD[:7]}", "type": "card", "children": []}]}
+
+    watch(shell, config)
+    watch(shell, config)
+
+    assert shell.topics() == ["stale:101:abc1234"]
+    assert shell.post("stale:101:abc1234") == {"to": "root,api-lane@d1", "kind": "urgent", "text": f"STALE #101 at abc1234, 150 min: {state} | owner api-lane | {step}"}
+    shell.rows[0] = row("101", OTHER, **fields)
+    shell.records += graded(4, "101", OTHER, 5)
+    watch(shell, config)
+    assert opened(config) == {}
+
+
+def test_a_pr_that_moved_less_than_two_hours_ago_or_sits_in_the_queue_is_not_stale(config):
+    records = [*graded(1, "101", HEAD, 100), *graded(4, "102", OTHER, 300), record(7, "root", "go", f"go #102 at {OTHER[:7]}", 290)]
+    records.append(record(8, "desk-runner", "report", f"QUEUED #102 at {OTHER[:10]} (go #7)", 280))
+    shell = FakeShell(records, [row("101", mergeable_state="dirty"), row("102", OTHER)])
+    shell.doc = {"blocks": [{"id": f"merge:101:{HEAD[:7]}", "type": "card", "children": []}]}
+
+    watch(shell, config)
+
+    assert shell.topics() == []
+    assert {pr: (found["state"], found["stale"]) for pr, found in stack(config).items()} == {"101": ("conflicts with its base", False), "102": ("in the merge queue", False)}
+
+
+def test_a_stale_stack_posts_once_from_its_lowest_stale_pr_a_held_pr_counts_and_a_lane_with_no_live_record_goes_to_root(config, tmp_path):
+    (tmp_path / "holds.md").write_text("#301 waits on the schema release\n")
+    records = [*graded(1, "201", HEAD, 200), *graded(4, "202", OTHER, 200), *graded(7, "203", OLD, 200), head(10, "301", HEAD, 200)]
+    rows = [row("201", mergeable_state="dirty", lane="gone-lane"), row("202", OTHER, base="b201", test_state="pending"), row("203", OLD, base="b202", test_state="pending"), row("301")]
+    shell = FakeShell(records, rows)
+    shell.doc = {"blocks": [{"id": f"merge:201:{HEAD[:7]}", "type": "card", "children": []}]}
+
+    watch(shell, config)
+
+    assert shell.topics() == ["stale:201:abc1234", "stale:301:abc1234"]
+    assert shell.post("stale:201:abc1234") == {
+        "to": "root",
+        "kind": "urgent",
+        "text": "STALE #201 at abc1234, 200 min: conflicts with its base; 2 above wait on it: #202, #203; gone-lane has posted nothing live in 24 h | owner root | restack #201 at abc1234 and post HEAD",
+    }
+    assert "held: a hold record covers it | owner api-lane | lift the hold on #301 or do what it waits on" in shell.post("stale:301:abc1234")["text"]
+    assert stack(config)["202"] | {"since": ""} == {
+        "pr": "202",
+        "title": "",
+        "head": OTHER,
+        "base": "b201",
+        "below": "201",
+        "state": "waits on #201 below it",
+        "next": "land #201 first",
+        "owner": "api-lane",
+        "since": "",
+        "live": True,
+        "stale": True,
+    }

@@ -33,9 +33,14 @@ and, across the drive:
               its last record promised, or for `stall.minutes.lane`, counted for a lane with no
               record yet from when its task file was last written
     ask       a lane's `ask` to root is open, and no root record answers it
+    stale     an open PR, held or not, has kept one head and one state for `stall.minutes.stale`: in the
+              merge queue, held, needs a restack, conflicting, red, waiting on the PR below it, building,
+              held by the reviewer bot, green with a go, or green with none; no other stall names it,
+              and a stack shares one record naming its lowest stale PR and every stale PR above it;
+              a PR whose owning lane has no live record in the window goes to root
 
 Each kind counts once it is as old as `stall.minutes` says: go 10, tap 10, finder 30, fidelity 30,
-board 15, carry 20 (one fidelity pass), lane 30, ask 15. A PR's head is as old as the first record about the
+board 15, carry 20 (one fidelity pass), lane 30, ask 15, stale 120. A PR's head is as old as the first record about the
 PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record.
 Two questions need judgment, and one headless Claude call per pass
 (`stall.model`, default claude-sonnet-5-5, at low effort) answers all of them: whether a PR's new head is
@@ -46,11 +51,14 @@ its mechanical answer.
 
 A stall's id names its kind and subject, such as `finder:43439:abc1234` or `lane:fidelity-desk`, and it
 posts once while it stands: `cci post --lane stall-watch --kind urgent --to root,<owner>@<drive>` reading
-`STALL <kind> <subject>, <age> min: <what stopped> | owner <lane> | <next step>`. An id that no longer
-stands clears, and posts again if it stalls again; a source that does not read keeps the stalls it
-would have cleared. `stall.board_lane` (default root) owns missing board rows. State lives in
-`stall-watch.json` beside `orca.desk_inbox`, under a lock a second pass meets by exiting. `--dry-run`
-prints the stalls and posts and saves nothing.
+`STALL <kind> <subject>, <age> min: <what stopped> | owner <lane> | <next step>`, or `STALE <subject>, ...`
+for a stale PR. An id that no longer stands clears, and posts again if it stalls again; a source that does
+not read keeps the stalls it would have cleared. `stall.board_lane` (default root) owns missing board rows. State lives in
+`stall-watch.json` beside `orca.desk_inbox`, under a lock a second pass meets by exiting. Each pass also
+writes `stack.json` there: one row per open PR with its head, base, the PR below it, its state and next
+step in words, its owning lane and whether that lane is live, and since when the state stood; the
+dashboard's model carries it as `stack` from its config's `stack` path, and `drive.py digest` prints it.
+`--dry-run` prints the stalls and posts and saves nothing.
 """
 
 from __future__ import annotations
@@ -84,8 +92,8 @@ NOT_LANES = frozenset({*ROOT_NAMES, "team-lead", LANE, RUNNER})
 PACIFIC = ZoneInfo("America/Los_Angeles")
 MODEL = "claude-sonnet-5-5"
 WINDOW_HOURS = 24
-MINUTES = {"go": 10, "tap": 10, "finder": 30, "fidelity": 30, "board": 15, "carry": 20, "lane": 30, "ask": 15}
-PR_KINDS = frozenset({"go", "tap", "finder", "fidelity", "board", "carry"})
+MINUTES = {"go": 10, "tap": 10, "finder": 30, "fidelity": 30, "board": 15, "carry": 20, "lane": 30, "ask": 15, "stale": 120}
+PR_KINDS = frozenset({"go", "tap", "finder", "fidelity", "board", "carry", "stale"})
 BOARD_KINDS = frozenset({"tap", "board", "carry"})
 PROMISE_FLOOR = timedelta(minutes=10)
 EXPLAINED_CEILING = 4
@@ -203,7 +211,8 @@ class Stall:
     pr: str = ""
 
     def line(self, now: datetime) -> str:
-        return f"STALL {self.kind} {self.subject}, {int((now - self.since).total_seconds() // 60)} min: {self.what} | owner {', '.join(self.owner)} | {self.step}"
+        word = "STALE" if self.kind == "stale" else f"STALL {self.kind}"
+        return f"{word} {self.subject}, {int((now - self.since).total_seconds() // 60)} min: {self.what} | owner {', '.join(self.owner)} | {self.step}"
 
     def to(self, drive_name: str) -> str:
         return ",".join(dict.fromkeys([ROOT, *(f"{lane}@{drive_name}" for lane in self.owner if lane not in (ROOT, RUNNER))]))
@@ -287,6 +296,33 @@ def downstack(rows: dict[str, dict], row: dict) -> list[str]:
     return below
 
 
+def stack_row(pr: str, row: dict, rows: dict[str, dict], held: bool, going: bool, in_queue: bool) -> dict:
+    named = f"#{pr} at {short(row['head'])}"
+    below = next((other for other, parent in rows.items() if parent.get("branch") and parent["branch"] == row.get("base")), "")
+    red = ", ".join(check["name"] for check in json.loads(row.get("failing_checks") or "[]")) or "a required check"
+    if in_queue:
+        state, step = "in the merge queue", ""
+    elif held:
+        state, step = f"held: {clip(row.get('hold_reason') or 'a hold record covers it')}", f"lift the hold on #{pr} or do what it waits on"
+    elif row.get("base", "").startswith("graphite-base/"):
+        state, step = "needs a restack: the PR below it landed", f"restack {named} onto its new parent with `ccx vcs ship --tip-only` and post HEAD"
+    elif row.get("mergeable_state") == "dirty":
+        state, step = "conflicts with its base", f"restack {named} and post HEAD"
+    elif row.get("test_state") == "failure":
+        state, step = f"red on {red}", f"fix the red build of {named}"
+    elif below:
+        state, step = f"waits on #{below} below it", f"land #{below} first"
+    elif row.get("test_state") != "success":
+        state, step = "its build has not finished", f"read the build of {named}"
+    elif row.get("ai_review") == "failure":
+        state, step = "the reviewer bot holds it", f"answer each blocking finding on #{pr} with a fix or a one-line rebuttal"
+    elif going:
+        state, step = "green with a go, not queued", f"the landing desk enqueues {named}"
+    else:
+        state, step = "green, and no go names this head", f"root posts `go #{pr} at {short(row['head'])}` or puts its merge row on the owner's board"
+    return {"pr": pr, "title": row.get("title", ""), "head": row["head"], "base": row.get("base", ""), "below": below, "state": state, "next": step, "owner": row.get("lane") or ROOT}
+
+
 def successor_of(lane: str) -> re.Pattern[str]:
     return re.compile(rf"{re.escape(lane)}(?:-\d+)?")
 
@@ -297,6 +333,8 @@ class Pass:
         self.watch = watch
         self.now = shell.now()
         self.unread: set[str] = set()
+        self.states: dict[str, dict] = {}
+        self.stack: list[dict] | None = None
 
     def tail(self, argv: list[str]) -> str:
         done = self.shell.run(argv)
@@ -313,7 +351,7 @@ class Pass:
         records = [record for record in cci.records(self.tail, self.watch.drive, since=actions.stamp(self.now - self.watch.window)) if record["drive"] == self.watch.drive]
         if (session := root_session(self.watch.drive)) is None:
             self.warn(BOARD_KINDS | {"lane"}, f"no drive registry entry for {self.watch.drive} names a root session, so neither the board nor the task list read")
-        stalls, questions = self.prs(records, session)
+        stalls, questions, entries = self.prs(records, session)
         lane_stalls, lane_questions = self.lanes(records, session)
         stalls += lane_stalls + self.asks(records)
         questions += lane_questions
@@ -321,6 +359,7 @@ class Pass:
         fresh = self.judge([question.ask | {"id": question.key} for question in questions if question.key not in cached])
         verdicts = {question.key: cached.get(question.key) or fresh.get(question.key) for question in questions}
         stalls += [stall for question in questions if (stall := question.settle(verdicts[question.key]))]
+        stalls += self.stale(entries, saved.get("states", {}), records, {stall.pr for stall in stalls if stall.pr})
         return self.report({stall.id: stall for stall in stalls}, saved, {key: verdict for key, verdict in verdicts.items() if verdict}, dry_run)
 
     def report(self, standing: dict[str, Stall], saved: dict, verdicts: dict[str, dict], dry_run: bool) -> int:
@@ -342,8 +381,13 @@ class Pass:
             kept[stall.id] = {"kind": stall.kind, "since": actions.stamp(stall.since), "posted": done.out.strip()[:200]}
         if not dry_run:
             staged = self.watch.state.with_name(f".{STATE}")
-            staged.write_text(json.dumps({"open": kept, "verdicts": verdicts}, indent=1) + "\n")
+            staged.write_text(json.dumps({"open": kept, "verdicts": verdicts, "states": self.states}, indent=1) + "\n")
             staged.replace(self.watch.state)
+            if self.stack is not None:
+                stack = self.watch.state.with_name(drive.STACK)
+                staged = stack.with_name(f".{drive.STACK}")
+                staged.write_text(json.dumps({"at": actions.stamp(self.now), "prs": self.stack}, indent=1) + "\n")
+                staged.replace(stack)
         return 1 if failed else 0
 
     def post(self, stall: Stall) -> Done:
@@ -394,10 +438,10 @@ class Pass:
         store = actions.Store(self.watch.store) if self.watch.store else None
         return store.load(LANDING).facts if store and store.path(LANDING).is_file() else {}
 
-    def prs(self, records: list[dict], session: str | None) -> tuple[list[Stall], list[Question]]:
+    def prs(self, records: list[dict], session: str | None) -> tuple[list[Stall], list[Question], list[dict]]:
         landing = self.watch.landing
         if not landing or (rows := self.rows()) is None:
-            return [], []
+            return [], [], []
         board = self.board(session)
         repo, drive_name = landing["repo"], self.watch.drive
         fidelity_lanes = lanes_of(landing.get("fidelity_lane", []))
@@ -415,20 +459,26 @@ class Pass:
         stalls: list[Stall] = []
         questions: list[Question] = []
         waiting: dict[str, list[tuple[str, datetime, int, tuple[str, str, str]]]] = {}
+        entries: list[dict] = []
 
         def holding(pr: str) -> bool:
             return pr in held or bool(rows[pr].get("hold_until")) and actions.parse_stamp(rows[pr]["hold_until"]) > self.now
 
         for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
             head = row.get("head", "")
-            if not head or holding(pr):
+            if not head:
+                continue
+            announced = [record for record in records if grades.about_pr(record, repo, pr) and short(head) in grades.full_text(record)]
+            head_at = at(announced[0]) if announced else None
+            going = grades.gone_at(gos, pr, head)
+            in_queue = any(named == pr and grades.names_head(sha, head) for named, sha in queued)
+            entries.append(stack_row(pr, row, rows, holding(pr), bool(going), in_queue) | {"head_at": head_at})
+            if holding(pr):
                 continue
             subject = f"#{pr} at {short(head)}"
             about = [record for record in reviews if grades.about_pr(record, repo, pr)]
-            announced = [record for record in records if grades.about_pr(record, repo, pr) and short(head) in grades.full_text(record)]
-            head_at = at(announced[0]) if announced else None
             lane = row.get("lane") or next((record["lane"] for record in reversed(announced) if record["kind"] == "head"), ROOT)
-            if going := grades.gone_at(gos, pr, head):
+            if going:
                 below = downstack(rows, row)
                 ready = min(max(at(go), actions.parse_stamp(go.get("graded_at") or go["at"])) for go in going)
                 since = max(ready, head_at) if head_at else ready
@@ -480,7 +530,42 @@ class Pass:
             stack = f" in the stack from #{bottom}" if bottom != blocker or len(named) > 1 else ""
             sha = short(rows[blocker]["head"])
             stalls.append(Stall(f"go:{blocker}:{sha}", "go", min(since for _, since, *_ in group), f"#{blocker} at {sha}", f"root go{'s name' if len(named) > 1 else ' names'} {listed}{stack}, and no QUEUED record does", (owner,), step, blocker))
-        return stalls, questions
+        return stalls, questions, entries
+
+    def stale(self, entries: list[dict], saved: dict[str, dict], records: list[dict], stalled: set[str]) -> list[Stall]:
+        if "stale" in self.unread:
+            self.states, self.stack = saved, None
+            return []
+        newest: dict[str, dict] = {}
+        for record in records:
+            newest[record["lane"]] = record
+        self.states, self.stack, standing = {}, [], {}
+        for found in entries:
+            pr, head_at = found["pr"], found.pop("head_at")
+            signature = f"{found['head']} {found['state']}"
+            was = saved.get(pr)
+            since = actions.parse_stamp(was["since"]) if was and was["signature"] == signature else head_at or self.now
+            self.states[pr] = {"signature": signature, "since": actions.stamp(since)}
+            last = max((record for name, record in newest.items() if successor_of(found["owner"]).fullmatch(name)), key=lambda record: record["seq"], default=None)
+            live = last is not None and last["kind"] not in ENDED
+            stale = bool(found["next"]) and self.now - since >= self.watch.age("stale")
+            self.stack.append(found | {"since": actions.stamp(since), "live": live, "stale": stale})
+            if stale and pr not in stalled:
+                standing[pr] = (found, since, live)
+        stalls: list[Stall] = []
+        for pr, (found, since, live) in standing.items():
+            if found["below"] in standing:
+                continue
+            above, below = [], pr
+            while waiter := next((other for other, (row, *_) in standing.items() if row["below"] == below), None):
+                above.append(f"#{waiter}")
+                below = waiter
+            what = found["state"] + (f"; {len(above)} above wait on it: {', '.join(above[:LISTED])}" if above else "")
+            if not live:
+                what += f"; {found['owner']} has posted nothing live in {int(self.watch.window.total_seconds() // 3600)} h"
+            subject = f"#{pr} at {short(found['head'])}"
+            stalls.append(Stall(f"stale:{pr}:{short(found['head'])}", "stale", since, subject, what, (found["owner"],) if live else (ROOT,), found["next"], pr))
+        return stalls
 
     def unqueued(self, pr: str, row: dict, rows: dict[str, dict], below: list[str], gos: list[dict], since: datetime, queued: set[tuple[str, str]], lane: str) -> tuple[str, str, str] | None:
         if any(named == pr and grades.names_head(sha, row["head"]) for named, sha in queued) or self.now - since < self.watch.age("go"):

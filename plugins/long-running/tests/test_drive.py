@@ -479,3 +479,23 @@ def test_a_current_script_marks_its_children_with_its_version(repo, monkeypatch)
     monkeypatch.delenv(drive.CALLER_VERSION_ENV, raising=False)
     drive.run_installed("holds.py")
     assert drive.os.environ[drive.CALLER_VERSION_ENV] == "0.7.320"
+
+
+def test_digest_prints_the_stack_ledger_the_stall_watch_wrote_and_marks_each_stale_pr(repo, capsys):
+    entry = started(repo)
+    heartbeat(entry, "orca", 73091, "0.7.186")
+    heartbeat(entry, "landing", 49612, "0.7.186")
+    prs = [
+        {"pr": "201", "title": "", "head": "abc1234def", "base": "dev", "below": "", "state": "conflicts with its base", "next": "restack #201 at abc1234 and post HEAD", "owner": "gone-lane", "since": "2026-10-27T17:00:00Z", "live": False, "stale": True},
+        {"pr": "202", "title": "", "head": "fedcba9876", "base": "b201", "below": "201", "state": "in the merge queue", "next": "", "owner": "api-lane", "since": "2026-10-27T19:30:00Z", "live": True, "stale": False},
+    ]
+    (Path(entry["state_dir"]) / "inbox" / drive.STACK).write_text(json.dumps({"at": "2026-10-27T20:00:00Z", "prs": prs}))
+    capsys.readouterr()
+
+    drive.main(["digest"])
+
+    assert capsys.readouterr().out.splitlines()[2:] == [
+        "stack at 2026-10-27T20:00:00Z: 2 open PRs, 1 stale",
+        "STALE #201 abc1234 on dev: conflicts with its base | owner gone-lane, not live | since 2026-10-27T17:00:00Z | next: restack #201 at abc1234 and post HEAD",
+        "#202 fedcba9 on #201: in the merge queue | owner api-lane | since 2026-10-27T19:30:00Z | next: none",
+    ]
