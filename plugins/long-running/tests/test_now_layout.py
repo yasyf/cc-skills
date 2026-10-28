@@ -118,3 +118,17 @@ def test_every_milestone_links_to_its_own_page(page):
     now(page)
     hrefs = page.locator(".nw-journey a.ms").evaluate_all("(links) => links.map((a) => a.getAttribute('href'))")
     assert hrefs == [f"#/plan/m{i}" for i in range(len(json.loads(MODEL.read_text())["milestones"]))]
+
+
+def test_progress_says_how_many_milestones_are_live(page):
+    now(page)
+    model = json.loads(MODEL.read_text())
+    live = sum(stop["state"] == "live" for stop in model["brief"]["progress"]["stops"])
+    assert page.locator(".nw-sent").inner_text().startswith(f"{live} of {len(model['milestones'])} milestones are live.")
+
+
+def test_a_story_links_to_its_full_transcript(page):
+    item = json.loads(MODEL.read_text())["brief"]["work"][0]["item"]
+    page.goto(page.url.split("#")[0] + f"#/story/{item}")
+    page.wait_for_selector(".nw-raw")
+    assert page.locator(".nw-raw").get_attribute("href") == f"/api/transcript/{item}"
