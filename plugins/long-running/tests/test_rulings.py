@@ -101,10 +101,8 @@ class FakeShell(ledger.Shell):
                     case [*durable, "--branch", "yasyf/brook"] if durable == DURABLE:
                         return json.dumps([TRUTH, SEED])
             case ["doc", "list"]:
-                assert argv[5:7] == ["--label", "standing-rules:brook"]
+                assert argv[5:] == ["--label", "standing-rules:brook", "--full", "--json"], argv
                 return json.dumps(self.registers)
-            case ["doc", "show"]:
-                return json.dumps({"id": argv[5], "body": REGISTER_BODY})
         raise AssertionError(argv)
 
 
@@ -122,8 +120,8 @@ def match(shell: FakeShell, brief: str, monkeypatch: pytest.MonkeyPatch, capsys:
 
 
 def test_register_prints_the_newest_register_doc_or_null(home: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    older = {"id": "1" * 40, "updated_at": "2026-10-04T00:00:00Z"}
-    newest = {"id": REGISTER_ID, "updated_at": "2026-10-05T00:00:00Z"}
+    older = {"id": "1" * 40, "updated_at": "2026-10-04T00:00:00Z", "body": "# Older register\n"}
+    newest = {"id": REGISTER_ID, "updated_at": "2026-10-05T00:00:00Z", "body": REGISTER_BODY}
 
     assert rulings.main(["register", "--program", "brook", "--repo", REPO], FakeShell([], [newest, older])) == 0
     assert json.loads(capsys.readouterr().out) == {"id": REGISTER_ID, "body": REGISTER_BODY}
@@ -138,7 +136,7 @@ def test_match_mirrors_the_corpus_and_quotes_uncited_hits_in_rank_order(
     corpus = home / ".claude" / "scratch" / "brook" / "rulings"
     corpus.mkdir(parents=True)
     (corpus / "dead000.md").write_text("# superseded\n")
-    shell = FakeShell(["1984bf6", "ec2881e", "1984bf6", "8075b46"], [{"id": REGISTER_ID, "updated_at": "2026-10-05T00:00:00Z"}])
+    shell = FakeShell(["1984bf6", "ec2881e", "1984bf6", "8075b46"], [{"id": REGISTER_ID, "updated_at": "2026-10-05T00:00:00Z", "body": REGISTER_BODY}])
 
     out = match(shell, "Lane brief: add a --skip-tenant flag.", monkeypatch, capsys)
 
@@ -166,7 +164,7 @@ def test_match_with_no_candidate_answers_prints_nothing_and_skips_the_search(
     home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     empty = FakeShell(["1984bf6"], [], branch="HEAD", program=[])
-    covered = FakeShell(["1984bf6"], [{"id": REGISTER_ID, "updated_at": "2026-10-05T00:00:00Z"}])
+    covered = FakeShell(["1984bf6"], [{"id": REGISTER_ID, "updated_at": "2026-10-05T00:00:00Z", "body": REGISTER_BODY}])
 
     assert match(empty, "brief", monkeypatch, capsys) == ""
     assert match(covered, "brief", monkeypatch, capsys, "--exclude", "1984bf6", "--exclude", "8075b46") == ""
@@ -385,7 +383,7 @@ class RegisterShell(ledger.Shell):
                     name, _, text = value.partition("=")
                     self.rows.setdefault(key, {})[name] = text
                 return ""
-            case ["ccn", "-R", "/repo", "doc", "list", "--label", "standing-rules:brook", "--json"]:
+            case ["ccn", "-R", "/repo", "doc", "list", "--label", "standing-rules:brook", "--full", "--json"]:
                 return "[]"
             case ["ccn", "-R", "/repo", "answer", "list", *labels, "--limit", "0", "--json"]:
                 wanted = set(labels[1::2])

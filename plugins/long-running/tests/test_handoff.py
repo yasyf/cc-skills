@@ -146,8 +146,9 @@ class FakeCcn(ledger.Shell):
         if verb[0] in ("task", "plan"):
             return self.notes(*argv[3:])
         if verb == ["doc", "list"] and "--full" in argv:
-            assert "--include-superseded" in argv, argv
-            listed = [*self.active, *(doc for doc in self.docs if doc not in self.active and self.record(doc).get("superseded_by"))]
+            listed = self.registers if self.register_label in labels else self.active
+            if "--include-superseded" in argv:
+                listed = [*listed, *(doc for doc in self.docs if doc not in listed and self.record(doc).get("superseded_by"))]
             return json.dumps([record for doc in listed if all(label in (record := self.record(doc))["tags"] for label in labels)])
         if verb == ["doc", "list"]:
             return json.dumps(
@@ -646,9 +647,11 @@ def test_generate_reads_the_whole_progress_lineage_in_one_listing_whatever_its_l
 
         assert (out["id"], out["read_first"]) == (chain[-1], [f"ccn doc show {doc[:7]}" for doc in chain[:-1]])
         assert [call for call in shell.calls if call[3:5] == ["doc", "list"] and "--full" in call] == [
-            ["ccn", "-R", REPO, "doc", "list", "--label", "progress:brook", "--include-superseded", "--full", "--json"]
+            ["ccn", "-R", REPO, "doc", "list", "--label", REGISTER, "--full", "--json"],
+            ["ccn", "-R", REPO, "doc", "list", "--label", "progress:brook", "--include-superseded", "--full", "--json"],
         ]
-        assert [call[5] for call in shell.calls if call[3:5] == ["doc", "show"]] == [REGISTER_DOC]
+        assert not any(call[3:5] == ["doc", "show"] for call in shell.calls)
+        assert out["register"] == REGISTER_DOC
         doc_calls[length] = sum(call[3:4] == ["doc"] for call in shell.calls)
     assert doc_calls[1] == doc_calls[6]
 

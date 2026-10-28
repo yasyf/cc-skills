@@ -291,11 +291,11 @@ def state_dir(args: argparse.Namespace) -> Path:
 
 
 def register(shell: ledger.Shell, repo: str, program: str) -> dict | None:
-    docs = ccn(shell, repo, "doc", "list", "--label", f"standing-rules:{program}") or []
+    docs = ccn(shell, repo, "doc", "list", "--label", f"standing-rules:{program}", "--full") or []
     if not docs:
         return None
-    newest = max(docs, key=lambda doc: doc["updated_at"])["id"]
-    return {"id": newest, "body": ccn(shell, repo, "doc", "show", newest)["body"]}
+    newest = max(docs, key=lambda doc: doc["updated_at"])
+    return {"id": newest["id"], "body": newest["body"]}
 
 
 def branch_of(shell: ledger.Shell, repo: str) -> str:
