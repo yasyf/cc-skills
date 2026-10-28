@@ -1,30 +1,16 @@
 package main
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/yasyf/daemonkit"
 	"github.com/yasyf/daemonkit/launchd"
+	"github.com/yasyf/daemonkit/version"
 )
 
-func TestDaemonSpecPinsSignedControlAuthority(t *testing.T) {
-	spec, err := appSpec()
-	if err != nil {
-		t.Fatal(err)
-	}
-	control := spec.Trust.Control
-	if control == nil {
-		t.Fatal("control lane states no requirement")
-	}
-	if control.TeamID != codexSigningTeamID || control.SigningIdentifier != codexSigningIdentifier {
-		t.Fatalf("control requirement = %#v", *control)
-	}
-}
-
-// Genuine here: spec.Program is daemonkit.Stable(), and launchd's renderEnv
+// Genuine here: spec.Program is daemonkit.Stable(build), and launchd's renderEnv
 // injects the ownership marker itself. Reconstructed: the staged path, built
 // from daemonkit's documented rule because v0.21.4 exports no dry-run render
 // (Program has no exported methods) — so ProgramArguments proves Plist echoes
@@ -35,12 +21,12 @@ func TestDaemonSpecPinsStableProgramAndPlistInjectsOwnerMarker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stable, err := daemonkit.Stable()
+	stable, err := daemonkit.Stable(version.Running(appVersion))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if spec.Program != stable {
-		t.Fatalf("Program = %#v, want daemonkit.Stable() = %#v", spec.Program, stable)
+		t.Fatalf("Program = %#v, want daemonkit.Stable(build) = %#v", spec.Program, stable)
 	}
 	if record := spec.RecordPath(); !strings.HasPrefix(record, home+string(filepath.Separator)) {
 		t.Fatalf("RecordPath() = %q, want it under the isolated home %q", record, home)
@@ -69,18 +55,6 @@ func TestDaemonSpecPinsStableProgramAndPlistInjectsOwnerMarker(t *testing.T) {
 	wantOwner := "<key>" + launchd.OwnerEnvKey + "</key>\n        <string>daemonkit</string>"
 	if !strings.Contains(string(plist), wantOwner) {
 		t.Fatalf("plist carries no %s=daemonkit marker:\n%s", launchd.OwnerEnvKey, plist)
-	}
-}
-
-func TestReleasePinsSigningIdentifier(t *testing.T) {
-	workflow := filepath.Join("..", "..", ".github", "workflows", "codex-release.yml")
-	payload, err := os.ReadFile(workflow) //nolint:gosec // repository-owned release contract
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "MACOS_CODESIGN_IDENTIFIER=" + codexSigningIdentifier
-	if !strings.Contains(string(payload), want) {
-		t.Fatalf("release workflow does not pin %q", want)
 	}
 }
 

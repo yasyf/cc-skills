@@ -2,16 +2,6 @@ package main
 
 import "testing"
 
-func TestDaemonSpecTrustsTheSameUserOnly(t *testing.T) {
-	spec, err := appSpec()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if spec.Trust.Control != nil || spec.Trust.Business != nil {
-		t.Fatalf("trust = %#v, want only the same-user serving policy: linux has no signing verifier", spec.Trust)
-	}
-}
-
 func TestSuperviseRoutesToTheConsumerTree(t *testing.T) {
 	if !isConsumerSubcommand("supervise") {
 		t.Fatal("supervise does not route to the consumer tree")

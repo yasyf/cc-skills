@@ -5,12 +5,13 @@ import (
 
 	"github.com/yasyf/cc-interact/daemon"
 	"github.com/yasyf/daemonkit"
+	"github.com/yasyf/daemonkit/version"
 )
 
 const codexServiceLabel = "com.yasyf.codex-ask"
 
 func appSpec() (daemonkit.Daemon, error) {
-	program, err := daemonkit.Stable()
+	program, err := daemonkit.Stable(version.Running(appVersion))
 	if err != nil {
 		return daemonkit.Daemon{}, fmt.Errorf("build stable daemon program: %w", err)
 	}
@@ -20,6 +21,5 @@ func appSpec() (daemonkit.Daemon, error) {
 		Args:    []string{"daemon"},
 		Log:     appPaths().LogPath(),
 		Restart: daemonkit.RestartOnFailure,
-		Trust:   appTrust(),
 	}), nil
 }

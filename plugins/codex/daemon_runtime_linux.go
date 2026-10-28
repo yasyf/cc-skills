@@ -5,10 +5,6 @@ import (
 	"github.com/yasyf/daemonkit"
 )
 
-func appTrust() daemonkit.Trust {
-	return daemonkit.Trust{Serving: daemonkit.ServingSameUser()}
-}
-
 func platformCmds() []*cobra.Command { return []*cobra.Command{superviseCmd()} }
 
 func superviseCmd() *cobra.Command {

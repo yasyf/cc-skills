@@ -6,9 +6,9 @@ toolchain go1.26.6
 
 require (
 	github.com/spf13/cobra v1.10.2
-	github.com/yasyf/cc-interact v0.35.2
-	github.com/yasyf/daemonkit v0.32.0
-	golang.org/x/sys v0.47.0
+	github.com/yasyf/cc-interact v0.38.1-0.20261028042730-4062b9bc5703
+	github.com/yasyf/daemonkit v0.34.1-0.20261028043932-567e3df37f44
+	golang.org/x/sys v0.48.0
 )
 
 require (
@@ -27,6 +27,7 @@ require (
 	github.com/tklauser/go-sysconf v0.3.16 // indirect
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
+	howett.net/plist v1.0.1 // indirect
 	modernc.org/libc v1.72.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
