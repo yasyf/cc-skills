@@ -97,6 +97,7 @@ from functools import cache, cached_property
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import board_rows
 import cci
 import drive
 import ghread
@@ -1753,6 +1754,62 @@ def replied_to(entries: list[dict], text: str) -> str | None:
     return None
 
 
+def slack_proof(args: argparse.Namespace, shell: ledger.Shell, key: str, fields: dict[str, str], owner: list[dict], tapped: tuple[dict, str]) -> list[dict] | None:
+    action, shown = tapped
+    if not AFFIRMATIVE.match(action.get("label") or ""):
+        print(f"AUTHORIZE-NOT-AFFIRMATIVE {key}: the tap was {action.get('label')!r}, which grants nothing")
+        return None
+    if not quotes_row(shown, key, fields):
+        print(f"AUTHORIZE-CARD-NAMES-NO-ROW {key}: the tapped card does not quote {key} and its words")
+        return None
+    if pr_head := untouched(args, shell, fields, str(action.get("id") or "")):
+        print(f"AUTHORIZE-ROW-UNTOUCHED {key}: {pr_head} changes nothing {key} covers, so the tap authorizes nothing")
+        return None
+    permalink = f"p{action['ts'].replace('.', '')}"
+    return [
+        answer
+        for answer in owner
+        if f"proof:slack:{action.get('action_ts')}" in (answer.get("tags") or [])
+        or (permalink in (answer.get("body") or "") and action["label"] in (answer.get("body") or ""))
+    ]
+
+
+def board_proof(args: argparse.Namespace, loaded: Register, shell: ledger.Shell, key: str, fields: dict[str, str], owner: list[dict], session: str) -> list[dict] | None:
+    try:
+        outcomes = shell.run(["cc-present", "outcomes", "--session", session])
+    except subprocess.CalledProcessError:
+        outcomes = "{}"
+    board = json.loads(outcomes[outcomes.index("{") :])
+    rows = {row.pr: row for row in board_rows.rows_of(board.get("doc") or {})}
+    taps = [
+        (block, pr, tap)
+        for block, verdicts in (board.get("interactions", {}).get("triage") or {}).items()
+        for row_id, tap in verdicts.items()
+        if tap.get("at") == args.action and (pr := board_rows.pr_of(row_id))
+    ]
+    if not taps:
+        print(f"AUTHORIZE-NO-TAP {key}: neither the root transcript nor board {session[:8]} holds a tap at {args.action}; a root go is no authorization")
+        return None
+    approved = [tap for tap in taps if tap[2].get("verdict") == "approved"]
+    if not approved:
+        print(f"AUTHORIZE-NOT-AFFIRMATIVE {key}: the board tap was {taps[0][2].get('verdict')!r}, which grants nothing")
+        return None
+    reasons = []
+    for block, pr, tap in approved:
+        if not (row := rows.get(pr)) or not quotes_row(row.words, key, fields):
+            reasons.append(f"AUTHORIZE-CARD-NAMES-NO-ROW {key}: the board row for #{pr} does not quote {key} and its words")
+        elif pr_head := untouched(args, shell, fields, f"merge:{pr}:{tap['head']}"):
+            reasons.append(f"AUTHORIZE-ROW-UNTOUCHED {key}: {pr_head} changes nothing {key} covers, so the tap authorizes nothing")
+        else:
+            proof = f"proof:board:{block}:{pr}:{args.action}"
+            carried = f", carried from {tap['carriedFrom']}" if tap.get("carriedFrom") else ""
+            body = f"Owner approved #{pr} at {tap['head']}{carried} on board {session[:8]} block {block} at {args.action}; the row quotes {key}, so merging also authorizes {key}."
+            made = [answer for answer in owner if proof in (answer.get("tags") or [])]
+            return made or [ccn(shell, loaded.repo, "answer", "add", f"Merge #{pr}?", "--body", body, "--label", "from:owner", "--label", f"program:{loaded.program}", "--label", proof)]
+    print(reasons[0])
+    return None
+
+
 def cmd_authorize(args: argparse.Namespace, shell: ledger.Shell) -> int:
     loaded = Register.load(args, shell)
     key = args.row
@@ -1765,26 +1822,9 @@ def cmd_authorize(args: argparse.Namespace, shell: ledger.Shell) -> int:
     entries = transcript_entries(entry)
     owner = answers_for(loaded, f"program:{loaded.program}", "from:owner")
     if args.action:
-        if not (tapped := tapped_card(entries, args.action)):
-            print(f"AUTHORIZE-NO-TAP {key}: the root transcript holds no slack.action tap with ts {args.action}; a root go is no authorization")
+        found = slack_proof(args, shell, key, fields, owner, tapped) if (tapped := tapped_card(entries, args.action)) else board_proof(args, loaded, shell, key, fields, owner, entry["sessions"][-1])
+        if found is None:
             return 1
-        action, shown = tapped
-        if not AFFIRMATIVE.match(action.get("label") or ""):
-            print(f"AUTHORIZE-NOT-AFFIRMATIVE {key}: the tap was {action.get('label')!r}, which grants nothing")
-            return 1
-        if not quotes_row(shown, key, fields):
-            print(f"AUTHORIZE-CARD-NAMES-NO-ROW {key}: the tapped card does not quote {key} and its words")
-            return 1
-        if pr_head := untouched(args, shell, fields, str(action.get("id") or "")):
-            print(f"AUTHORIZE-ROW-UNTOUCHED {key}: {pr_head} changes nothing {key} covers, so the tap authorizes nothing")
-            return 1
-        permalink = f"p{action['ts'].replace('.', '')}"
-        found = [
-            answer
-            for answer in owner
-            if f"proof:slack:{action.get('action_ts')}" in (answer.get("tags") or [])
-            or (permalink in (answer.get("body") or "") and action["label"] in (answer.get("body") or ""))
-        ]
     else:
         capture = captures(loaded.state).get(args.prompt) or {}
         board = capture.get("source") == "board"
@@ -2439,10 +2479,10 @@ def build_parser() -> argparse.ArgumentParser:
     shown.add_argument("--since-last-update", action="store_true")
     shown.add_argument("--full", action="store_true")
     verb("glossary", cmd_glossary, "print the product nouns and the owner's own captured words")
-    authorize = verb("authorize", cmd_authorize, "label the owner's answer authorizes:<key> from a captured Slack tap, board approval or reply quoting the row")
+    authorize = verb("authorize", cmd_authorize, "label the owner's answer authorizes:<key> from a Slack tap, a board merge-row approval, a board approval or a reply quoting the row")
     authorize.add_argument("--row", required=True, metavar="KEY")
     tap = authorize.add_mutually_exclusive_group(required=True)
-    tap.add_argument("--action", metavar="TS")
+    tap.add_argument("--action", metavar="TS", help="a Slack action_ts, or the time (at) of an approved merge row on the root's board, carried or not")
     tap.add_argument("--prompt", metavar="DIGEST")
     status = verb("status", cmd_status, "set a row's status with the evidence behind it (graders only)")
     status.add_argument("key")
