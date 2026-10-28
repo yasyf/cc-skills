@@ -19,6 +19,24 @@ LANES = ("p8f-replica-4", "landing-desk-3")
         "Restacked three changes onto the new base",
         "The new tree builds again",
         "on it for 45 h 0 min",
+        "Codex found the wrong first line, now fixed; its third point was refuted.",
+        "codex found three problems in an earlier version",
+        "One finding remains open",
+        "Fixed the typecheck that broke getSession",
+        "Writes land through sandsql-journal-next",
+        "Threads link Sentry issues through cc-slack",
+        "Codex: the pause hit a stand-in; sleep loop now waits on events",
+        "Server-acknowledgement ask declined.",
+        "The fix is 2,678 lines and passes",
+        "Blob storage credentials re-mint after an hour",
+        "Two release-order footers are wrong",
+        "Step 11 waits on the replica",
+        "J3 fails on the dashboard",
+        "P8f.3 lands after the rework",
+        "Re-trigger the runs of team_01HX4ABCD2",
+        "The handover txid moved",
+        "Agent machines keep the old protocol",
+        "The Mac harness fails to start",
     ],
 )
 def test_walk_strings_fail(text):
@@ -33,6 +51,11 @@ def test_walk_strings_fail(text):
         "Coordinator told at 12:14 PM; nobody assigned yet, no time given.",
         "SandSQL server change must merge and ship in the next release",
         "Waits on a reviewer for 2 h 5 min",
+        "Codex found nothing; the reviewer bot approved.",
+        "sandsql-server ships first, then the api release",
+        "Chats saved through Litestream to S3 survive a lost Mac",
+        "AIG Reinsurance and seven other teams get their failed-run lists",
+        "Cloud chats show up as read-only followers until the cutover",
     ],
 )
 def test_rewrites_pass(text):
@@ -90,3 +113,11 @@ def test_a_fix_that_does_not_say_what_it_is_fails(text):
 )
 def test_a_fix_that_says_what_it_is_passes(text):
     assert violations(text, "how") == []
+
+
+def test_a_failing_row_never_takes_another_rows_words(tmp_path):
+    curator = Curator({"brief_dir": str(tmp_path)}, None, None)
+    curator.brief = {"rows": [{"key": "a", "review": "Codex found nothing."}, {"key": "b", "review": "The reviewer bot approved."}]}
+    fresh = {"rows": [{"key": "b", "review": "Codex found 3 findings"}, {"key": "c", "review": "landing-desk-3 queued it"}]}
+    problems = ["rows.0.review: 'Codex found 3 findings' has a counted finding", "rows.1.review: 'landing-desk-3 queued it' has the coined word 'desk'"]
+    assert curator.keep_passing(fresh, problems, LANES) == {"rows": [{"key": "b", "review": "The reviewer bot approved."}, {"key": "c", "review": ""}]}

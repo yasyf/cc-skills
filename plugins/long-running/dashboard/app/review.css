@@ -1,21 +1,15 @@
-.review-embed { max-width: 1680px; margin: 0 auto; padding: 0 22px 40px; display: grid; grid-template-columns: 1fr minmax(360px, 440px); gap: 18px; align-items: start; }
-.review-embed[data-tab="code"] { grid-template-columns: 1fr; }
-.review-embed[data-tab="code"] .verdict { display: none; }
-.review-embed .verdict { order: 2; }
+.review-embed { max-width: 1680px; margin: 0 auto; padding: 0 22px 40px; }
+.review-embed[data-tab="text"] { display: none; }
 .review-embed .pane { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
-.review-embed .verdict { position: sticky; top: 70px; }
-.review-embed .verdict iframe { display: block; width: 100%; height: 560px; border: 0; }
 .review-embed .code iframe { display: block; width: 100%; height: calc(100vh - 132px); border: 0; }
 .review-embed .pane-wait { padding: 24px; margin: 0; }
 .review-embed .pane-wait.bad { color: var(--bad); }
 @media (max-width: 1100px) {
-  .review-embed { grid-template-columns: 1fr; padding: 0 14px 40px; }
-  .review-embed .verdict { position: static; }
-  .review-embed[data-tab="notes"] .code { display: none; }
+  .review-embed { padding: 0 14px 40px; }
   .review-embed .code iframe { height: calc(100dvh - 120px); }
 }
-body:has(#embed:not([hidden])) .wrap { max-width: 1680px; padding-bottom: 14px; }
-body:has(#embed:not([hidden])) .foot { display: none; }
+body:has(#embed:not([hidden])[data-tab="code"]) .wrap { max-width: 1680px; padding-bottom: 14px; }
+body:has(#embed:not([hidden])[data-tab="code"]) .foot { display: none; }
 .decide { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
 .decide .btn { min-height: 40px; font-size: 14.5px; }
 .decide .btn.hold { color: var(--warn); }
@@ -32,19 +26,8 @@ body:has(#embed:not([hidden])) .foot { display: none; }
   .bar-bottom.decide .btn { flex: 1; min-height: 48px; font-size: 16px; }
   .review-embed { padding-bottom: 96px; }
 }
-.tiles { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0 4px; }
-.tile { flex: 1 1 170px; max-width: 320px; background: var(--surface); border: 1px solid var(--line); border-top: 3px solid var(--line); border-radius: 12px; padding: 9px 12px; }
-.tile.ok { border-top-color: var(--ok); } .tile.warn { border-top-color: var(--amber); } .tile.bad { border-top-color: var(--bad); }
-.tile summary { list-style: none; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
-.tile summary::-webkit-details-marker { display: none; }
-.tile-k { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; color: var(--ink-3); }
-.tile b { font: 650 15px/1.3 var(--display); }
-.tile.ok b { color: var(--ok); } .tile.bad b { color: var(--bad); } .tile.warn b { color: var(--warn); }
-.tile p { margin: 8px 0 0; color: var(--ink-2); }
-.tile[open] { flex-basis: 100%; max-width: none; }
-@media (max-width: 760px) {
-  .tile { flex-basis: calc(50% - 5px); }
-}
+.pr-facts { margin: 16px 0 4px; padding: 14px 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.pr-facts .mr-f { margin: 0; }
 .review-lists { display: flex; gap: 6px; margin: 4px 0 18px; }
 .review-lists a { padding: 7px 14px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-2); font-weight: 650; }
 .review-lists a.on { background: var(--ink); border-color: var(--ink); color: var(--bg); }
@@ -56,3 +39,10 @@ body:has(#embed:not([hidden])) .foot { display: none; }
 .review-embed .pr-ask { border-top: 1px solid var(--line); }
 .review-embed .pr-ask input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; }
 .review-embed .pr-answer p { margin: 0; padding: 10px 14px; }
+.pr-read { margin: 14px 0 0; padding: 14px 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.pr-read .kick { margin-bottom: 6px; }
+.pr-read .md > :first-child { margin-top: 0; }
+.pr-read .md > :last-child { margin-bottom: 0; }
+.pr-eli5 { border-left: 3px solid var(--ink-3); }
+.pr-wait { margin: 14px 0 0; }
+.pr-reviewed { margin: 0 0 8px; font-weight: 600; color: var(--ink); }

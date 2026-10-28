@@ -20,7 +20,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import plainwords
-from brief import Curator
+from brief import COORDINATORS, Curator
+from pages import PAGES, source_key, stamp
 from review_assistant import ReviewAssistant
 from story import Stories
 
@@ -30,7 +31,7 @@ import holds
 HERE = Path(__file__).resolve().parent
 PACIFIC = ZoneInfo("America/Los_Angeles")
 CCI = "http://127.0.0.1:7377/v1"
-TIMELINE_KINDS = ["state", "head", "review", "owner", "go", "landed", "release", "incident", "mechanism", "fix-live", "opened", "report", "hold", "lift", "blocker", "defect", "correction", "decide", "decision", "ask", "answer"]
+TIMELINE_KINDS = ["state", "head", "review", "owner", "go", "landed", "release", "incident", "mechanism", "fix-live", "opened", "report", "hold", "lift", "blocker", "defect", "correction", "decide", "decision", "ask", "answer", "done", "stopped", "stand-down", "handoff"]
 TIMELINE_WINDOW = dt.timedelta(hours=24)
 LEDGER_KINDS = {"landed", "go", "opened", "head", "hold", "lift"}
 LIVE_SOURCES = ["cc-present store: taps and questions", "cci bus: records and workers", "drive ledger in cc-notes: pull request states, re-read on every landing, go, head, opened, hold or lift record", "progress-desk steps.json: the step rows"]
@@ -40,6 +41,7 @@ PLAN_HEADING = "\n## Ordered plan of action"
 PLAN_ITEM = re.compile(r"^\d+\. (.+)$")
 GO = re.compile(r"^go #(\d+) at (\w+)")
 CI_FIX = re.compile(r"\bCI fix\b", re.I)
+CARD_ID = re.compile(r"\bcard-[a-z0-9]+(?:-[a-z0-9]+)*")
 PR_REF = re.compile(r"#(\d{4,6})\b")
 PR_RANGE = re.compile(r"#(\d{4,6})-#(\d{4,6})")
 REVIEW_ROUTE = re.compile(r"/api/review/(\d+)")
@@ -48,7 +50,7 @@ ASSIST = HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assi
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
 RECORD_ROUTE = re.compile(r"/record/(\d+)")
 STORY_ROUTE = re.compile(r"/api/story/([a-z0-9-]+)")
-ROW_FACTS = ("number", "head", "title", "change", "plan", "risk", "review", "blocker", "md", "block", "state")
+ROW_FACTS = ("number", "head", "key", "title", "change", "plan", "risk", "review", "blocker", "md", "block", "state", "ci_fix_go")
 CONFLICT = "Conflicts with its base, so it cannot land until its worker rebases it."
 UNCHECKED = "GitHub has not yet rechecked whether it merges cleanly."
 RELEASED = re.compile(r"^(released|done|live)", re.I)
@@ -57,7 +59,11 @@ WAITS = re.compile(r"^(waits? on|blocked)", re.I)
 QUEUED_NEXT = "Lands when the merge queue reaches it."
 PR_WORD = {"landed": "landed", "you": "waits on your tap", "failing": "its tests fail", "held": "held", "queued": "approved, waiting to land", "doing": "being worked on", "waiting": "waits its turn"}
 TONIGHT_KINDS = {"landed": "Landed", "go": "Approved", "lift": "Hold lifted", "fix-live": "Fix live", "incident": "Broke", "blocker": "Blocked"}
-PR_FACTS = "{body: .body, additions: .additions, deletions: .deletions, files: .changed_files, commits: .commits, head: .head.sha}"
+PR_FACTS = "{body: .body, head: .head.sha}"
+BOT_COMMENTS = '[.[] | select(.user.type == "Bot") | .body]'
+BOT_REVIEW = '[.[] | select(.user.type == "Bot" and .state != "COMMENTED") | {state: .state, at: .submitted_at}] | last'
+ELI5 = re.compile(r"^### ELI5\n+(.+?)\s*(?=^### |^<sub>|^<!--|\Z)", re.S | re.M)
+BOT_SUMMARY = "<!-- pr-reviewer bot summary -->"
 STORE = Path.home() / ".cc-present" / "cc-interact-v1" / "state.db"
 ASKS = {"choice": "choices", "approval": "decisions", "input": "inputs"}
 NATIVE = {*ASKS, "record", "display.page"}
@@ -70,9 +76,8 @@ BOX = dt.timedelta(minutes=5)
 BOXES = 12
 SEVERITY = {"blocker": "bad", "defect": "bad", "incident": "bad", "ask": "you", "owner": "you", "landed": "ok", "go": "ok", "fix-live": "ok"}
 TONE_RANK = {"bad": 3, "you": 2, "ok": 1, "info": 0}
-COORDINATORS = re.compile(r"^(root|main)$|(^|-)desk(-|$)|refresher|watchdog|register|landing|(^|-)board(-|$)|prompt|fidelity|progress|comms|tooling|finder|sweep|batch-post")
 PR_MENTION = re.compile(r"#(4\d{4})\b")
-STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css"), "/overview.js": ("overview.js", "text/javascript"), "/overview.css": ("overview.css", "text/css"), "/cockpit.css": ("cockpit.css", "text/css"), "/now.js": ("now.js", "text/javascript"), "/now.css": ("now.css", "text/css")}
+STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css"), "/overview.js": ("overview.js", "text/javascript"), "/overview.css": ("overview.css", "text/css"), "/cockpit.css": ("cockpit.css", "text/css"), "/now.js": ("now.js", "text/javascript"), "/now.css": ("now.css", "text/css"), "/pages.js": ("pages.js", "text/javascript"), "/pages.css": ("pages.css", "text/css")}
 
 
 def gh(repo, *args):
@@ -87,6 +92,13 @@ def cci(path, **query):
     url = f"{CCI}/{path}?" + "&".join(f"{k}={v}" for k, values in query.items() for v in (values if isinstance(values, list) else [values]))
     with urllib.request.urlopen(url, timeout=30) as response:
         return json.load(response)
+
+
+def bot_words(comments):
+    eli5 = next((found[1] for body in comments if (found := ELI5.search(body))), None)
+    summary = next((body for body in comments if body.startswith(BOT_SUMMARY)), "").partition("<details>")[0]
+    lead = [part.strip() for part in summary.split("\n\n") if part.strip() and not part.lstrip().startswith((">", "**Since", "<!--"))]
+    return {"eli5": eli5, "summary": "\n\n".join(lead) or None}
 
 
 def plan_prs(text):
@@ -437,6 +449,7 @@ def merge_needs(rows, board_url):
         count = f"{len(waiting)} pull request{'' if len(waiting) == 1 else 's'}"
         items.append({
             "kind": "prs",
+            "key": source_key(group["group"], group["relation"], [row["key"] for row in waiting]),
             "group": group["group"],
             "relation": group["relation"],
             "prs": waiting,
@@ -473,6 +486,11 @@ def card_part(child, answer):
     return {"kind": "input", "id": child["id"], "label": child.get("label", ""), "placeholder": child.get("placeholder", ""), "multiline": bool(child.get("multiline")), "answer": answer}
 
 
+def unanswered(cards, words):
+    answered = {card for word in words for card in CARD_ID.findall(word["title"])}
+    return [card for card in cards if card["id"] not in answered]
+
+
 def needs(rows, cards, asks, board_url, landed):
     return [*merge_needs([row for row in rows if row["number"] not in landed], board_url), *(card_need(card, board_url) for card in cards), *(ask_need(ask) for ask in asks if not ask.get("optional") and ask.get("card") in {None, *(card["id"] for card in cards)})]
 
@@ -505,7 +523,6 @@ class Drive:
         self.errors = {}
         self.paths = {}
         self.reported = set()
-        self.pr_facts = {}
         self.board_seq = None
         self.reported_build = None
         self.gos = {}
@@ -514,6 +531,8 @@ class Drive:
         self.board_raw = None
         self.curator = Curator(config, self.curator_model, self.bump)
         self.status_now = None
+        self.pages = {page.name: Curator(config, self.curator_model, self.bump, page) for page in PAGES}
+        self.curators = (self.curator, *self.pages.values())
         self.stories = Stories(config, self.lane_names, self.worker_reports)
 
     def curator_model(self):
@@ -521,7 +540,7 @@ class Drive:
             time.sleep(1)
         with self.lock:
             model = dict(self.model)
-        return self.live(model)
+        return {**self.live(model), "fetch": self.fetch}
 
     def lane_names(self):
         with self.lock:
@@ -533,14 +552,30 @@ class Drive:
             mine = [r for r in self.records if re.sub(r"-\d+$", "", r["lane"]) in bases and r["kind"] not in ("state", "review")]
         return [f"[{dt.datetime.fromisoformat(r['at'].replace('Z', '+00:00')).astimezone(PACIFIC).strftime('%-I:%M %p')}] {r['kind']}: {r['text'][:600]}" for r in mine[-12:]]
 
+    def follow_mirror(self):
+        while True:
+            try:
+                with urllib.request.urlopen(f"{self.config['mirror']}/api/model", timeout=60) as response:
+                    model = json.load(response)
+            except urllib.error.URLError:
+                time.sleep(30)
+                continue
+            self.curator.brief = model["brief"]
+            for name, curator in self.pages.items():
+                curator.brief = model["pages"][name]
+            self.touch()
+            self.bump()
+            time.sleep(30)
+
     def bump(self):
         with self.changed:
             self.version += 1
             self.changed.notify_all()
 
     def work(self, item):
-        brief = self.curator.brief or {}
-        return next((w for w in brief.get("work", []) if w["item"] == item), None)
+        work = self.pages["work"].brief or {}
+        finished = [{**w, "status": "Finished", "latest": w["result"]} for w in work.get("finished", [])]
+        return next((w for w in [*(self.curator.brief or {}).get("work", []), *work.get("running", []), *finished] if w["item"] == item), None)
 
     def review_url(self, number):
         pr = self.model["prs"].get(str(number), {})
@@ -578,17 +613,20 @@ class Drive:
     def ccn(self, *args):
         return run(["ccn", *args], cwd=self.config["checkout"])
 
-    def load_records(self):
-        since = (dt.datetime.now(dt.timezone.utc) - TIMELINE_WINDOW).strftime("%Y-%m-%dT%H:%M:%SZ")
-        after = 0
+    def fetch(self, kinds, since):
+        found, after = [], 0
         while True:
-            query = {"drive": self.config["drive"], "kind": TIMELINE_KINDS, "limit": 500}
-            query.update({"since": after} if after else {"since_time": since})
+            query = {"drive": self.config["drive"], "kind": sorted(kinds), "limit": 500}
+            query.update({"since": after} if after else {"since_time": since.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
             page = cci("records", **query)
-            self.records.extend(page)
+            found += page
             if len(page) < 500:
-                return page[-1]["seq"] if page else 0
+                return found
             after = page[-1]["seq"]
+
+    def load_records(self):
+        self.records.extend(self.fetch(TIMELINE_KINDS, dt.datetime.now(dt.timezone.utc) - TIMELINE_WINDOW))
+        return self.records[-1]["seq"] if self.records else 0
 
     def follow_records(self, after):
         while True:
@@ -604,18 +642,20 @@ class Drive:
                             with self.lock:
                                 self.records.append(record)
                             self.touch(slow=record["kind"] in LEDGER_KINDS)
-                            self.curator.poke(record["kind"])
+                            for curator in self.curators:
+                                curator.poke(record["kind"])
             except OSError as error:
                 self.errors["records"] = f"{type(error).__name__}: {error}"
                 time.sleep(5)
 
     def follow_board(self):
         while True:
-            watch = subprocess.Popen(["cc-present", "watch", "--session", self.config["board_session"]], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-            for _ in watch.stdout:
+            self.watch = subprocess.Popen(["cc-present", "watch", "--session", self.config["board_session"]], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+            for _ in self.watch.stdout:
                 self.touch()
-                self.curator.poke()
-            watch.wait()
+                for curator in self.curators:
+                    curator.poke()
+            self.watch.wait()
             time.sleep(5)
 
     def follow_steps(self):
@@ -626,7 +666,8 @@ class Drive:
             if stamp != seen:
                 seen = stamp
                 self.touch()
-                self.curator.poke()
+                for curator in self.curators:
+                    curator.poke()
             time.sleep(1)
 
     def follow_status(self):
@@ -649,7 +690,7 @@ class Drive:
         seen = {path: path.stat().st_mtime_ns for path in sources}
         while all(path.stat().st_mtime_ns == stamp for path, stamp in seen.items()):
             time.sleep(2)
-        while self.curator.running:
+        while any(curator.running for curator in self.curators):
             time.sleep(1)
         self.stories.stop_all()
         for pid in subprocess.run(["pgrep", "-P", str(os.getpid()), "-f", "^cc-(present|review) watch "], capture_output=True, text=True).stdout.split():
@@ -770,6 +811,8 @@ class Drive:
         board = self.board()
         self.check_gos(board["rows"])
         board["rows"] = with_conflicts(board["rows"], model["prs"])
+        board["cards"] = unanswered(board["cards"], model["words"])
+        stamp(board)
         now = dt.datetime.now(dt.timezone.utc)
         progress = json.loads(Path(self.config["steps"]).read_text())
         activity_records = [*model["records"], *model["lanes"]]
@@ -794,6 +837,7 @@ class Drive:
             "brief": self.curator.brief,
             "brief_error": self.curator.error,
             "status_now": self.status_now,
+            "pages": {name: curator.brief for name, curator in self.pages.items()},
             "milestones": [m["name"] for m in self.config["milestones"]],
             "milestones_label": self.config["milestones_label"],
             "views": self.config.get("views", {}),
@@ -842,7 +886,7 @@ class Drive:
             "plan_at": plan_at,
             "story": story,
             "releases": self.read_doc(self.config["release_doc"]),
-            "words": [{"id": a["id"][:7], "at": a["updated_at"], "title": a["title"], "text": a["body"]} for a in json.loads(self.ccn("answer", "list", "--label", f"program:{self.config['drive']}", "--json"))],
+            "words": list({a["id"]: {"id": a["id"][:7], "at": a["updated_at"], "title": a["title"], "text": a["body"]} for label in ("program", "drive") for a in json.loads(self.ccn("answer", "list", "--label", f"{label}:{self.config['drive']}", "--json"))}.values()),
         }
 
     def record(self, seq):
@@ -850,12 +894,10 @@ class Drive:
         return {"seq": seq, "lane": found["lane"], "at": found["at"], "text": run(["cci", "show", str(seq)]).partition("\n")[2].strip() or found["text"]}
 
     def facts(self, number):
-        head = self.slow.get("prs", {}).get(str(number), {}).get("head")
-        if head and self.pr_facts.get(number, {}).get("head", "").startswith(head):
-            return self.pr_facts[number]
-        facts = json.loads(gh(self.config["repo"], "api", f"repos/{self.config['repo']}/pulls/{number}", "--jq", PR_FACTS))
-        self.pr_facts[number] = facts
-        return facts
+        repo = self.config["repo"]
+        pr = json.loads(gh(repo, "api", f"repos/{repo}/pulls/{number}", "--jq", PR_FACTS))
+        review = json.loads(gh(repo, "api", f"repos/{repo}/pulls/{number}/reviews?per_page=100", "--jq", BOT_REVIEW))
+        return {**pr, "review": review, **bot_words(json.loads(gh(repo, "api", f"repos/{repo}/issues/{number}/comments?per_page=100", "--jq", BOT_COMMENTS)))}
 
     def read_plan(self):
         for line in self.ccn("doc", "list", "--label", self.config["progress_label"]).splitlines()[:6]:
@@ -915,7 +957,7 @@ def handler(drive):
                 name, kind = STATIC[path]
                 body = (HERE / name).read_text()
                 if name == "index.html":
-                    for asset in ("app.js", "app.css", "review.js", "review.css", "overview.js", "overview.css", "cockpit.css", "now.js", "now.css"):
+                    for asset, _ in STATIC.values():
                         body = body.replace(f"/{asset}", f"/{asset}?v={(HERE / asset).stat().st_mtime_ns}")
                     body = body.replace("</body>", ASSIST.read_text() + "</body>")
                 return self.send(200, kind, body.encode())
@@ -971,6 +1013,8 @@ def handler(drive):
             self.wfile.write(body)
 
         def story(self, item):
+            if "mirror" in drive.config:
+                return self.relay(f"{drive.config['mirror']}/api/story/{item}")
             work = drive.work(item)
             if work is None:
                 return self.send(404, "text/plain", b"no such work")
@@ -995,6 +1039,23 @@ def handler(drive):
                 return
             finally:
                 story.leave(viewer)
+
+        def relay(self, url):
+            try:
+                upstream = urllib.request.urlopen(url, timeout=60)
+            except urllib.error.HTTPError as error:
+                return self.send(error.code, "text/plain", error.read())
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            with upstream:
+                try:
+                    for line in upstream:
+                        self.wfile.write(line)
+                        self.wfile.flush()
+                except OSError:
+                    return
 
         def stream(self):
             self.send_response(200)
@@ -1027,7 +1088,8 @@ def main():
     drive = Drive(config, ReviewAssistant(config, args.config.parent / "reviews", f"http://{config['host']}:{config['port']}/api/model"))
     after = drive.load_records()
     drive.load_gos()
-    for target, rest in ((drive.follow_code, ()), (drive.curator.loop, ()), (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.follow_status, ()), (drive.rebuild_loop, ()), (drive.follow_paths, ())):
+    writers = [(drive.follow_mirror, ())] if "mirror" in config else [(curator.loop, ()) for curator in drive.curators]
+    for target, rest in ((drive.follow_code, ()), *writers, (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.follow_status, ()), (drive.rebuild_loop, ()), (drive.follow_paths, ())):
         threading.Thread(target=target, args=rest, daemon=True).start()
     server = ThreadingHTTPServer((config["host"], config["port"]), handler(drive))
     server.daemon_threads = True

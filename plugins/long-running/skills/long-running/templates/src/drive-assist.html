@@ -1,18 +1,14 @@
 <style>
-.kbtn + .fresh { margin-left: 0; }
-.kbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-3); font: 600 13px var(--sans); cursor: pointer; white-space: nowrap; }
-.kbtn kbd { font: 600 11px var(--mono); padding: 1px 6px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); }
-.kbtn:hover { color: var(--ink); border-color: var(--ink-3); }
 .ai { color: var(--owner); }
 html:not(.ai-on) .ai-only { display: none !important; }
-#pal { position: fixed; inset: 0; z-index: 80; background: rgba(10,14,17,.5); display: flex; justify-content: center; align-items: start; padding: 10vh 14px 14px; }
+#pal { margin-top: 18px; }
 #pal[hidden], #ash[hidden] { display: none; }
-#pal .box { width: min(680px, 100%); max-height: 76vh; display: flex; flex-direction: column; background: var(--surface); border-radius: 16px; box-shadow: 0 24px 60px -12px rgba(0,0,0,.45); overflow: hidden; }
+#pal .box { width: 100%; max-height: 70vh; display: flex; flex-direction: column; background: var(--surface); border-radius: 16px; box-shadow: 0 24px 60px -12px rgba(0,0,0,.45); overflow: hidden; }
 #pal input { border: 0; outline: 0; padding: 18px 20px; font: 500 18px var(--sans); background: transparent; color: var(--ink); border-bottom: 1px solid var(--line); }
 #pal .list { overflow-y: auto; padding: 6px 0 10px; }
 #pal .gh { padding: 10px 20px 4px; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); }
 #pal .it { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 10px; padding: 8px 20px; cursor: pointer; }
-#pal .it .l { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#pal .it .l { font-weight: 600; overflow-wrap: anywhere; }
 #pal .it .s { font-size: 12.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #pal .it .h { font-size: 11.5px; color: var(--ink-3); }
 #pal .it.on { background: var(--accent-soft); }
@@ -51,7 +47,6 @@ html:not(.ai-on) .ai-only { display: none !important; }
 .as-bucket { font-size: 11px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; margin: 18px 0 2px; }
 .as-bucket.safe { color: var(--ok); } .as-bucket.read { color: var(--warn); }
 @media (max-width: 700px) {
-  .kbtn span, .kbtn kbd { display: none; }
   #pal { padding: 0; align-items: stretch; }
   #pal .box { max-height: none; border-radius: 0; width: 100%; }
   #pal .foot { order: -1; border-top: 0; border-bottom: 1px solid var(--line); padding: 10px 16px; }
@@ -66,9 +61,10 @@ html:not(.ai-on) .ai-only { display: none !important; }
   .as-nl .acts .btn { flex: 1; }
 }
 </style>
-<div id="pal" hidden><div class="box"><input id="pal-q" placeholder="Jump to a pull request, stack, worker, step, or ask a question…" autocomplete="off" spellcheck="false"><div id="pal-ans" class="ans" hidden></div><div id="pal-list" class="list"></div><div class="foot"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span class="ai-only"><kbd>⇥</kbd> ask the assistant</span><button class="palx" type="button" data-pal-close><kbd>esc</kbd> Close</button></div></div></div>
+<div id="pal" hidden><div class="box"><input id="pal-q" name="jump" placeholder="Jump to a change, a part of the plan, a piece of work, or ask a question" autocomplete="off" spellcheck="false"><div id="pal-ans" class="ans" hidden></div><div id="pal-list" class="list"></div><div class="foot"><span><kbd>Up</kbd> <kbd>Down</kbd> to move</span><span><kbd>Enter</kbd> to open</span><span class="ai-only"><kbd>Tab</kbd> to ask the assistant</span><button class="palx" type="button" data-pal-close><kbd>Esc</kbd> to close</button></div></div></div>
 <aside id="ash" hidden></aside>
 <script>
+const PAL=document.getElementById("pal");
 (()=>{
 const META={rev:0};
 const SLUG="drive-dashboard";
@@ -259,8 +255,8 @@ function needsYou(){
 
 function decorate(r){
  const top=document.querySelector(".top");
- if(!document.getElementById("kbtn"))top.insertBefore(Object.assign(el("button","kbtn",'⌕ <span>Jump to anything</span><kbd>⌘K</kbd>'),{id:"kbtn",type:"button",onclick:openPal}),document.getElementById("fresh"));
  const main=document.getElementById("main");
+ if(r.screen==="jump"){main.querySelector(".pg").append(PAL);if(PAL.hidden)showPal()}else{if(PAL.parentElement!==document.body)document.body.append(PAL);closePal()}
  if(r.screen==="timeline"&&r.id!=="hour")main.querySelector(".filters")?.insertAdjacentHTML("beforebegin",narration());
  main.querySelectorAll("[data-assist-pr]").forEach(n=>{const k=prKey(n.dataset.assistPr);n.insertAdjacentHTML("afterend",ai[k]?aiBox(k,"In plain words"):`<button class="aibtn ai-only" data-sum-pr="${n.dataset.assistPr}">✦ Explain it in plain words</button>`)});
  main.querySelectorAll("[data-assist-stack]").forEach(n=>{const g=n.dataset.assistStack,k=stackKey(g);n.insertAdjacentHTML("beforeend",ai[k]?"":` <button class="aibtn ai-only" data-sum-stack="${esc(g)}">✦ Summarize the stack</button>`);if(ai[k])n.insertAdjacentHTML("afterend",aiBox(k,"The stack in plain words"))});
@@ -358,23 +354,23 @@ function entries(){
  Object.keys(STATE_WORD).forEach(k=>{const l=prs.filter(e=>e.state===k);if(l.length)add("Show only",`<i class="d ${k}"></i>`,STATE_WORD[k],`show only these ${l.length} pull requests`,only(STATE_WORD[k],l),k)});
  m.parts.forEach(p=>{const l=prs.filter(e=>e.part===p.key);if(l.length)add("Show only","◧",p.name,`show only these ${l.length} pull requests · ${tally(l).landed} landed`,only(p.name,l),p.key)});
  m.steps.forEach(st=>{const l=prs.filter(e=>e.step===st.id);if(l.length)add("Show only","▸",st.label,`show only these ${l.length} pull requests · ${st.title}`,only(st.label,l),st.title)});
- [["","Now"],["status","Plan"],["workers","Work"],["review","Review"],["timeline","History"],["now","Needs you"],["ask","Ask"]].forEach(([id,label])=>add("Screens","→",label,"",()=>{location.hash=`#/${id}`}));
+ [["","Now"],["plan","Plan"],["work","Work"],["review","Review"],["history","History"],["ask","Ask"]].forEach(([id,label])=>add("Screens","→",label,"",()=>{location.hash=`#/${id}`}));
  waiting().forEach(r=>add("Needs you",`<i class="d you"></i>`,`#${r.number} ${r.title}`,"waiting on your tap",()=>{location.hash=`#/review/${r.number}`},r.group));
- openCards().forEach(c=>add("Needs you","?",c.title,c.recommended?`recommended: ${c.recommended}`:"question on the board",()=>window.open(m.board.url,"_blank"),c.summary));
+ openCards().slice(0,3).forEach(c=>add("Needs you","?",(m.pages?.review?.cards??[]).find(x=>x.key===c.key)?.question??c.title,"answer it on Review",()=>{location.hash="#/review"},c.summary));
+ if(openCards().length>3)add("Needs you","→",`All ${openCards().length} questions waiting on you`,"on Review",()=>{location.hash="#/review"});
  const said={};
  [...m.board.rows.map(r=>`#${r.number} ${r.title} ${r.change}`),...(m.board.merge?.pages??[]).flatMap(pg=>pg.split("\n"))].forEach(line=>{for(const [,n] of line.matchAll(/#(\d{5})\b/g))said[n]=`${said[n]??""} ${line.replace(/[|*`]/g," ")}`});
  Object.keys(m.prs).sort((a,b)=>b-a).forEach(n=>{const s=prState(n);if(s==="closed")return;add("Pull requests",`<i class="d ${s}"></i>`,`#${n} ${plainTitle(n)}`,`${STATE_WORD[s]}${said[n]?` · ${short(said[n].replace(/\s+/g," ").trim(),90)}`:""}`,()=>m.prs[n]?onOverview(()=>{ov.pr=Number(n);state.overlay="pr";render()}):window.open(prHref(n),"_blank"),`${n} ${m.prs[n].title??""} ${said[n]??""}`)});
- [...new Set(m.board.rows.map(r=>r.group))].forEach(g=>{const rows=m.board.rows.filter(r=>r.group===g);add("Stacks","≡",g,`${rows.length} pull requests · ${rows.filter(r=>verdictState(r)==="you").length} waiting on you`,()=>openSheet({kind:"stack",id:g}),rows.map(r=>`#${r.number} ${r.title}`).join(" "))});
- m.plan.forEach((s,i)=>add("Plan steps",String(i+1),s.title,`${s.prs.filter(n=>prState(n)==="landed").length} of ${s.prs.length} landed`,()=>{location.hash="#/";state.overlay="plan";render();setTimeout(()=>document.querySelectorAll(".sheet .pstep")[i]?.scrollIntoView({block:"center"}),50)},s.text));
- m.lanes.slice().sort((a,b)=>new Date(b.at)-new Date(a.at)).forEach(l=>add("Workers","●",l.lane,`${agoWords(l.at)} · ${short(l.text,80)}`,()=>openSheet({kind:"lane",id:l.lane})));
- m.releases.markdown.split("\n").filter(x=>/^#{1,4}\s/.test(x)).forEach(h=>{const t=h.replace(/^#+\s*/,"");add("Releases","⇡",t,"release plan",()=>{location.hash="#/releases";setTimeout(()=>[...document.querySelectorAll(".prose h2,.prose h3,.prose h4,.prose h5")].find(x=>x.textContent===t)?.scrollIntoView({block:"start"}),50)})});
+ [...new Set(m.board.rows.map(r=>r.group))].forEach(g=>{const rows=m.board.rows.filter(r=>r.group===g);add("Change groups","≡",g,`${rows.length} pull requests · ${rows.filter(r=>verdictState(r)==="you").length} waiting on you`,()=>openSheet({kind:"stack",id:g}),rows.map(r=>`#${r.number} ${r.title}`).join(" "))});
+ (m.pages?.plan?.parts??[]).forEach(p=>add("Plan","▸",p.name,p.label,()=>{location.hash=`#/plan/${p.id}`},`${p.blocks} ${p.doing}`));
+ (m.pages?.work?.running??[]).forEach(w=>add("Work","●",w.title,`${w.status} · ${w.latest}`,()=>{location.hash=`#/work/${encodeURIComponent(w.item)}`}));
  words().forEach(w=>add("Your words","❝",w.title,short(w.text.replace(/^[^"“]*["“]/,""),110),()=>openSheet({kind:"word",id:w.id}),w.text));
  m.records.slice().reverse().forEach(r=>add("Records","·",short(r.text,110),`${clock(r.at)} · ${r.lane} · ${KIND_WORD[r.kind]??r.kind}`,()=>openSheet({kind:"record",id:r.seq}),r.text));
  return out;
 }
 const STOP=new Set("a an the is are was were be of to in on at for and or but what why how which who whom when where did does do can could should would will has have had it its me my i we us you your this that these those there any all from with by about".split(" "));
 const QUESTION=/^(what|why|how|which|who|when|where|is|are|did|does|do|can|should|will|has|have|summari[sz]e|explain|tell)\b|\?$/i;
-const CAPS={"Show only":6,"Screens":7,"Needs you":6,"Pull requests":8,"Stacks":5,"Plan steps":5,"Workers":5,"Releases":4,"Your words":6,"Records":6};
+const CAPS={"Show only":6,"Screens":7,"Needs you":6,"Pull requests":8,"Change groups":5,"Plan":5,"Work":5,"Your words":6,"Records":6};
 function results(raw){
  const typed=raw.trim().toLowerCase().replace(/^#/,"").replace(/[?.,!]/g,"").split(/\s+/).filter(Boolean);
  const q=typed.length>1?typed.filter(w=>!STOP.has(w)):typed;
@@ -389,14 +385,16 @@ function results(raw){
  if(q.length&&AI.key){const askRow={group:"Assistant",icon:"✦",label:`Ask: ${raw.trim()}`,sub:"answers from the drive's records, the plan and your words",go:()=>askInPal(raw.trim()),ask:true};QUESTION.test(raw.trim())?items.unshift(askRow):items.push(askRow)}
  return {items,q};
 }
-function openPal(){
- document.getElementById("pal").hidden=false;
+function openPal(){location.hash="#/jump"}
+function showPal(){
+ PAL.hidden=false;
  const input=document.getElementById("pal-q");
  input.value="";input.focus();
  document.getElementById("pal-ans").hidden=true;
  paintPal();
 }
-function closePal(){document.getElementById("pal").hidden=true;pal.busy=null}
+function closePal(){PAL.hidden=true;pal.busy=null}
+function leavePal(){location.hash="#/"}
 function paintPal(){
  const {items,q}=results(document.getElementById("pal-q").value);
  pal.items=items;pal.i=Math.min(pal.i,Math.max(0,items.length-1));
@@ -423,7 +421,7 @@ function paintSheet(){
  let html="";
  if(sheet.kind==="stack"){
   const rows=m.board.rows.filter(r=>r.group===sheet.id);
-  html=`<div class="kick">Stack</div><h2>${esc(sheet.id)}</h2><p class="dim">${esc(rows[0]?.group_summary??"")}</p>${aiBox(stackKey(sheet.id),"The stack in plain words")}${rows.map(r=>`<div class="rec"><a class="d ${prState(r.number)}" href="${prHref(r.number)}"></a> ${prLink(r.number)} ${esc(r.title)}<span class="dim">${STATE_WORD[prState(r.number)]} · ${esc(short(r.change,120))}</span></div>`).join("")}`;
+  html=`<div class="kick">Change group</div><h2>${esc(sheet.id)}</h2><p class="dim">${esc(rows[0]?.group_summary??"")}</p>${aiBox(stackKey(sheet.id),"The stack in plain words")}${rows.map(r=>`<div class="rec"><a class="d ${prState(r.number)}" href="${prHref(r.number)}"></a> ${prLink(r.number)} ${esc(r.title)}<span class="dim">${STATE_WORD[prState(r.number)]} · ${esc(short(r.change,120))}</span></div>`).join("")}`;
   if(!ai[stackKey(sheet.id)])summarizeStack(sheet.id);
  }else if(sheet.kind==="lane"){
   const l=m.lanes.find(x=>x.lane===sheet.id);
@@ -447,12 +445,12 @@ function paintSheet(){
 }
 
 document.addEventListener("keydown",e=>{
- const palOpen=!document.getElementById("pal").hidden;
- if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){e.preventDefault();palOpen?closePal():openPal();return}
+ const palOpen=!PAL.hidden;
+ if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){e.preventDefault();palOpen?leavePal():openPal();return}
  if(!palOpen&&e.key==="/"&&!e.target.closest("input,textarea")){e.preventDefault();openPal();return}
  if(!palOpen){if(e.key==="Escape"&&sheet){sheet=null;paintSheet()}return}
  e.stopImmediatePropagation();
- if(e.key==="Escape"){e.preventDefault();closePal()}
+ if(e.key==="Escape"){e.preventDefault();leavePal()}
  else if(e.key==="ArrowDown"){e.preventDefault();pal.i=Math.min(pal.items.length-1,pal.i+1);paintPal()}
  else if(e.key==="ArrowUp"){e.preventDefault();pal.i=Math.max(0,pal.i-1);paintPal()}
  else if(e.key==="Enter"){e.preventDefault();pick(pal.i)}
@@ -460,7 +458,7 @@ document.addEventListener("keydown",e=>{
 },true);
 document.getElementById("pal-q").addEventListener("input",()=>{pal.i=0;document.getElementById("pal-ans").hidden=true;paintPal()});
 document.getElementById("pal-list").addEventListener("click",e=>{const it=e.target.closest("[data-i]");if(it)pick(Number(it.dataset.i))});
-document.getElementById("pal").addEventListener("click",e=>{const c=e.target.closest("[data-carry]");if(c){closePal();setTimeout(()=>ask(c.dataset.carry),0)}else if(e.target.id==="pal"||e.target.closest("[data-pal-close]"))closePal()});
+PAL.addEventListener("click",e=>{const c=e.target.closest("[data-carry]");if(c){closePal();setTimeout(()=>ask(c.dataset.carry),0)}else if(e.target.id==="pal"||e.target.closest("[data-pal-close]"))leavePal()});
 document.addEventListener("click",e=>{
  const t=e.target;
  if(t.closest("[data-unsheet]")){sheet=null;paintSheet();return}

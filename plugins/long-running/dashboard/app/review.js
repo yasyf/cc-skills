@@ -1,43 +1,13 @@
 const VERDICT_TONE = { you: 'bad', approved: 'ok', held: 'warn' };
 const VERDICT_WORD = { you: 'Waiting on you', approved: 'Approved', held: 'Held' };
-const embed = { number: null, head: null, row: false };
+const embed = { number: null, head: null, row: false, started: null };
 const pending = { number: null, holding: false, error: '', note: '' };
 
-const REVIEW_LISTS = [['', 'Your merge taps'], ['flight', 'In flight'], ['landed', 'Landed']];
-function reviewList(list = '') {
-  const prs = Object.entries(state.model.prs).map(([n, pr]) => ({ n: Number(n), ...pr }));
-  const flight = prs.filter((pr) => pr.state === 'open' && !boardRow(pr.n));
-  const landed = prs.filter((pr) => pr.state === 'landed').sort((a, b) => String(b.landed_at).localeCompare(String(a.landed_at)));
-  const counts = { '': state.model.board.rows.filter((r) => verdictState(r) === 'you').length, flight: flight.length, landed: landed.length };
-  const chips = `<div class="filters review-lists">${REVIEW_LISTS.map(([id, label]) => `<a href="#/review${id ? `/${id}` : ''}" class="${id === list ? 'on' : ''}">${label} <b>${counts[id]}</b></a>`).join('')}</div>`;
-  if (list === 'landed') return `${chips}<div class="rows">${landed.map((pr) => {
-    const go = approvedAt(pr.n);
-    return `<a class="row approved" href="#/review/${pr.n}"><span class="title">${esc(plainTitle(pr.n))}</span>
-      <span class="chips"><span class="pill ok">Landed ${clock(pr.landed_at)}</span>${go ? `<span class="pill">Approved ${clock(go)}</span>` : ''}<span class="pill">#${pr.n}</span></span></a>`;
-  }).join('') || '<p class="dim">Nothing from this drive has landed yet.</p>'}</div>`;
-  if (list === 'flight') return `${chips}<div class="rows">${flight.map((pr) => {
-    const s = prState(pr.n);
-    return `<a class="row" href="#/review/${pr.n}"><span class="title">${esc(plainTitle(pr.n))}</span>
-      <span class="chips"><span class="pill ${STATE_TONE[s]}">${STATE_WORD[s]}</span>${testPill(pr)}<span class="pill">#${pr.n}</span></span></a>`;
-  }).join('') || '<p class="dim">No other pull request is open.</p>'}</div>`;
-  const groups = new Map();
-  for (const row of state.model.board.rows) {
-    if (!groups.has(row.group)) groups.set(row.group, []);
-    groups.get(row.group).push(row);
-  }
-  const order = { you: 0, held: 1, approved: 2 };
-  const html = [...groups.entries()].map(([group, rows]) => `<div class="group-h" data-assist-stack="${esc(group)}">${esc(group)}</div><div class="rows">${rows
-    .sort((a, b) => order[verdictState(a)] - order[verdictState(b)])
-    .map((r) => {
-      const v = verdictState(r);
-      return `<a class="row ${v}" href="#/review/${r.number}"><span class="title">${esc(r.title)}</span>
-        <span class="chips"><span class="pill ${VERDICT_TONE[v]}">${VERDICT_WORD[v]}</span>${testPill(state.model.prs[r.number] ?? {})}<span class="pill">#${r.number}</span></span></a>`;
-    }).join('')}</div>`).join('');
-  return `${chips}${html || '<p class="dim">No merge waits on your tap.</p>'}`;
-}
 function approvedAt(n) {
   return state.model.records.findLast((r) => r.kind === 'go' && r.refs?.prs?.includes(n))?.at;
 }
+const REVIEW_WORD = { APPROVED: 'The reviewer bot approved it', CHANGES_REQUESTED: 'The reviewer bot asked for changes', DISMISSED: 'The reviewer bot’s review was dismissed' };
+const TEST_WORD = { success: 'Pass', failure: 'Failing', pending: 'Running' };
 function testPill(pr) {
   if (pr.test_state === 'success') return '<span class="pill ok">Tests pass</span>';
   if (pr.test_state === 'failure') return '<span class="pill bad">Tests failing</span>';
@@ -45,9 +15,9 @@ function testPill(pr) {
   return '';
 }
 function reviewPR(n, tab) {
-  if (n === 'landed' || n === 'flight') return reviewList(n);
   const row = boardRow(n);
   const gh = `https://github.com/${state.model.repo}/pull/${n}`;
+  const open = `<a class="pill" href="${gh}" target="_blank" rel="noopener">Open on GitHub ›</a><a class="pill" href="https://app.graphite.com/github/pr/${state.model.repo}/${n}" target="_blank" rel="noopener">Open in Graphite ›</a>`;
   if (!row) {
     if (!state.model.prs[n]) return `<p>#${n} is not part of this drive. <a href="${gh}" target="_blank" rel="noopener">Open it on GitHub</a>.</p>`;
     const s = prState(n);
@@ -55,47 +25,59 @@ function reviewPR(n, tab) {
     const go = approvedAt(Number(n));
     const when = s === 'landed' ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[s];
     return `<div class="pr-head"><div class="kick muted">${s === 'landed' ? 'Landed' : 'Nothing for you to tap'}</div><h1>${esc(plainTitle(n))}</h1>
-      <span class="pill ${STATE_TONE[s]}">${when}</span>${go ? `<span class="pill ok">You approved ${clock(go)}</span>` : ''}<a class="pill" href="${gh}" target="_blank" rel="noopener">#${n}</a>${s === 'landed' || s === 'failing' ? '' : testPill(pr)}</div>${prFacts(n)}`;
+      <span class="pill ${STATE_TONE[s]}">${when}</span>${go ? `<span class="pill ok">You approved ${clock(go)}</span>` : ''}${open}${s === 'landed' || s === 'failing' ? '' : testPill(pr)}</div>
+      ${reviewTabs(n, tab)}${tab === 'code' ? '' : `${prFacts(n)}${prText(n)}`}`;
   }
   const v = verdictState(row);
   const rows = state.model.board.rows.filter((r) => r.group === row.group);
   const index = rows.indexOf(row);
   const next = state.model.board.rows.find((r) => r.number !== row.number && verdictState(r) === 'you');
   const step = (r, label, key) => (r ? `<a class="btn" href="#/review/${r.number}" title="${key}">${label}</a>` : '');
-  return `<div class="pr-head" data-assist-pr="${n}"><div class="kick">${esc(row.group)} · ${index + 1} of ${rows.length}</div><h1>${esc(row.title)}</h1>
-    <a class="pill" href="${gh}" target="_blank" rel="noopener">#${n} at ${esc(row.head.slice(0, 7))}</a>${testPill(state.model.prs[n] ?? {})}
+  const group = state.model.needs.find((item) => item.kind === 'prs' && [...item.prs, ...item.others].some((r) => r.number === row.number));
+  const w = rowWords(row);
+  const node = blockerNode(n);
+  const since = verdictState(row) === 'you' || !SETTLED.test(w.blocker.trim()) ? waitingSince(row.number) : null;
+  const carried = row.carried?.length ? '<p class="mr-waits">Your earlier approval carries to this version; the review line names the fix.</p>' : '';
+  return `<div class="pr-head"><div class="kick">${esc(rewritten('groups', group?.key)?.title ?? row.group)} · ${index + 1} of ${rows.length}</div><h1>${esc(w.title)}</h1>
+    ${open}${testPill(state.model.prs[n] ?? {})}
     <span class="actions">${step(rows[index - 1], '‹', 'K')}${step(rows[index + 1], '›', 'J')}${next ? step(next, 'Next waiting on you ›', 'N') : ''}</span></div>
     <div class="decide">${decideBar(row, v)}</div><div class="bar-bottom decide">${decideBar(row, v)}</div>
-    <div class="tiles">${factTiles(row).map(([key, label, short, tone, full]) => `<details class="tile ${tone}" data-id="fact-${n}-${key}"${state.open.has(`fact-${n}-${key}`) ? ' open' : ''}><summary><span class="tile-k">${label}</span><b>${esc(short)}</b></summary><p>${inline(full)}</p></details>`).join('')}</div>
-    <nav class="subtabs review-tabs"><a href="#/review/${n}" class="${tab === 'notes' ? '' : 'on'}">Code and review</a><a href="#/review/${n}/notes" class="${tab === 'notes' ? 'on' : ''}">Full text and notes</a></nav>`;
+    ${reviewTabs(n, tab)}${tab === 'code' ? '' : `<div class="pr-facts">${carried}${rowFacts(row)}<dl class="mr-f"><dt>Tests</dt><dd>${TEST_WORD[state.model.prs[n]?.test_state] ?? 'Not known'}</dd><dt>Blocks landing</dt><dd>${node ? `${esc(node.text)}${forSince(node.since)}` : `${esc(w.blocker || 'Nothing')}${since ? `<small class="pg-for">${blockedFor(since)}</small>` : ''}`}</dd>${node?.how ? `<dt>What happens next</dt><dd>${esc(node.how)}</dd>` : ''}</dl></div>${prText(n)}`}`;
 }
-function clip(text) {
-  const first = String(text ?? '').split(/(?<=[.:;])\s|,\s/)[0].replace(/[.:;]$/, '');
-  return first.length > 48 ? `${first.slice(0, first.lastIndexOf(' ', 46))}…` : first;
+function reviewTabs(n, tab) {
+  return `<nav class="subtabs review-tabs"><a href="#/review/${n}" class="${tab === 'code' ? '' : 'on'}">What it does</a><a href="#/review/${n}/code" class="${tab === 'code' ? 'on' : ''}">Code and review</a></nav>`;
 }
-function factTiles(row) {
-  const tests = state.model.prs[row.number]?.test_state;
-  const tiles = [
-    ['plan', 'Plan', /^matches/i.test(row.plan) ? 'Matches' : clip(row.plan), /^matches/i.test(row.plan) ? 'ok' : 'warn', row.plan],
-    ['risk', 'Risk', clip(row.risk), /^low/i.test(row.risk) ? 'ok' : /^high/i.test(row.risk) ? 'bad' : 'warn', row.risk],
-    ['review', 'Review and CI', tests === 'success' ? 'Tests pass' : tests === 'failure' ? 'Tests failing' : tests === 'pending' ? 'Tests running' : clip(row.review), tests === 'failure' || /fail|red/i.test(row.review) ? 'bad' : tests === 'pending' ? 'warn' : 'ok', row.review],
-    ['blocker', 'Blocks landing', /^nothing/i.test(row.blocker) ? 'Nothing' : clip(row.blocker), /^nothing/i.test(row.blocker) ? 'ok' : /^GitHub has not/.test(row.blocker) ? 'warn' : 'bad', row.blocker],
-  ];
-  if (row.carried?.length) tiles.push(['carried', 'Earlier tap', `Carries from ${row.carried[0].slice(0, 7)}`, 'ok', `Your verdict at ${row.carried.map((h) => h.slice(0, 7)).join(', ')} still stands for this commit.`]);
-  return tiles;
+const described = {};
+function prText(n) {
+  const head = boardRow(n)?.head ?? state.model.prs[n]?.head ?? '';
+  const key = `${n}@${head}`;
+  if (!(key in described)) {
+    described[key] = null;
+    fetch(`/api/pr/${n}`, { cache: 'no-store' })
+      .then((res) => res.json())
+      .catch((failure) => ({ error: failure.message }))
+      .then((out) => { described[key] = out; render(); });
+  }
+  const pr = described[key];
+  if (!pr) return '<p class="dim pr-wait">Reading the description and the reviewer bot’s summary…</p>';
+  if (pr.error) return `<p class="pr-wait">The description is unavailable right now${/rate limit/i.test(pr.error) ? ': GitHub is limiting requests' : ''}. <a href="https://github.com/${esc(state.model.repo)}/pull/${n}" target="_blank" rel="noopener">Open it on GitHub ↗</a></p>`;
+  const bot = pr.eli5 ?? pr.summary;
+  const reviewed = pr.review && `<p class="pr-reviewed">${REVIEW_WORD[pr.review.state] ?? 'The reviewer bot reviewed it'} at ${clock(pr.review.at)}.</p>`;
+  const body = (pr.body ?? '').replace(/<!--[\s\S]*?-->/g, '').trim();
+  return `${bot ? `<section class="pr-read pr-eli5"><div class="kick muted">${pr.eli5 ? 'In plain words, from the reviewer bot' : 'The reviewer bot’s summary'}</div>${reviewed || ''}<div class="md">${markdown(bot)}</div></section>` : reviewed ? `<section class="pr-read">${reviewed}</section>` : ''}
+    <section class="pr-read"><div class="kick muted">The pull request’s description</div><div class="md">${body ? markdown(body) : '<p class="dim">Its author wrote no description.</p>'}</div></section>`;
 }
 function decideBar(row, v) {
-  const head = esc(row.head.slice(0, 7));
   const busy = pending.number === row.number && !pending.holding && !pending.error;
   if (pending.number === row.number && pending.holding) {
-    return `<form class="hold-form" data-hold="${row.number}"><input name="note" placeholder="Why hold? (optional)" value="${esc(pending.note)}"><button class="btn hold">Hold at ${head}</button><button type="button" class="btn" data-decide="cancel">Cancel</button></form>`;
+    return `<form class="hold-form" data-hold="${row.number}"><input name="note" placeholder="Why hold? (optional)" value="${esc(pending.note)}"><button class="btn hold">Hold</button><button type="button" class="btn" data-decide="cancel">Cancel</button></form>`;
   }
-  if (busy) return `<span class="decided sending">${DECIDE_WORD[pending.verdict]} ${head}…</span>`;
+  if (busy) return `<span class="decided sending">${DECIDE_WORD[pending.verdict]}…</span>`;
   const error = pending.number === row.number && pending.error ? `<span class="pill bad">Not recorded: ${esc(pending.error)}</span><button class="btn" data-decide="${pending.verdict}">Retry</button>` : '';
   if (v === 'approved' || v === 'held') {
-    return `<span class="decided ${v}">${v === 'approved' ? '✓ You approved' : '‖ You held'} ${head}${row.verdict.at ? ` at ${clock(row.verdict.at)}` : ''}${row.verdict.note ? `: ${esc(row.verdict.note)}` : ''}</span><button class="btn" data-decide="cleared">Undo</button>${error}`;
+    return `<span class="decided ${v}">${v === 'held' ? '‖ You held' : row.ci_fix_go ? '✓ CI fix, landing without your tap' : '✓ You approved'}${row.verdict?.at ? ` at ${clock(row.verdict.at)}` : ''}${row.verdict?.note ? `: ${esc(row.verdict.note)}` : ''}</span><button class="btn" data-decide="cleared">Undo</button>${error}`;
   }
-  return `<button class="btn pri" data-decide="approved" data-head="${esc(row.head)}" title="A">✓ Approve ${head}</button><button class="btn hold" data-decide="hold" title="H">‖ Hold</button>${error}`;
+  return `<button class="btn pri" data-decide="approved" data-head="${esc(row.head)}" title="A">✓ Approve</button><button class="btn hold" data-decide="hold" title="H">‖ Hold</button>${error}`;
 }
 const DECIDE_WORD = { approved: 'Approving', rejected: 'Holding', cleared: 'Undoing' };
 async function decide(row, verdict, note, advance = true) {
@@ -165,7 +147,7 @@ document.addEventListener('keydown', (e) => {
   else if (key === 'j') go(rows[index + 1]);
   else if (key === 'k') go(rows[index - 1]);
   else if (key === 'n') go(state.model.board.rows.find((x) => x.number !== row.number && verdictState(x) === 'you'));
-  else if (key === 'f') location.hash = `#/review/${row.number}${r.tab === 'notes' ? '' : '/notes'}`;
+  else if (key === 'f') location.hash = `#/review/${row.number}${r.tab === 'code' ? '' : '/code'}`;
   else return;
   e.preventDefault();
 });
@@ -187,33 +169,36 @@ function syncReviewEmbed(r) {
     el.replaceChildren();
     return;
   }
-  el.dataset.tab = row && r.tab === 'notes' ? 'notes' : 'code';
-  if (embed.number !== number || embed.row !== Boolean(row)) el.innerHTML = '<div class="pane code"></div>';
-  if (el.dataset.tab === 'notes' && !el.querySelector('.pane.verdict')) {
-    const theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    const verdict = `${state.model.board.url}?block=${encodeURIComponent(row.block)}&row=${number}&theme=${theme}`;
-    el.insertAdjacentHTML('afterbegin', `<div class="pane verdict"><iframe title="Verdict on #${number}" src="${esc(verdict)}"></iframe></div>`);
+  el.dataset.tab = r.tab === 'code' ? 'code' : 'text';
+  if (embed.number !== number || embed.row !== Boolean(row)) {
+    Object.assign(embed, { number, head: null, row: Boolean(row) });
+    el.innerHTML = '<div class="pane code"></div>';
   }
-  if (embed.number === number && embed.head === head && embed.row === Boolean(row)) return;
-  Object.assign(embed, { number, head, row: Boolean(row) });
   const code = el.querySelector('.pane.code');
-  code.innerHTML = `<p class="dim pane-wait">Opening the review of #${number}…</p>`;
+  if (embed.started !== number) {
+    if (!code.querySelector('[data-start-review]')) code.innerHTML = `<div class="pane-wait"><p>The code review opens its own review session for this pull request, so it starts only when you ask.</p><button class="btn pri" data-start-review="${number}">Start the code review</button></div>`;
+    return;
+  }
+  if (embed.head === head) return;
+  embed.head = head;
+  code.innerHTML = '<p class="dim pane-wait">Opening the code and review…</p>';
   fetch(`/api/review/${number}`, { cache: 'no-store' })
     .then((res) => res.json())
     .then(({ url, assistant, stale, error }) => {
       if (embed.number !== number) return;
       code.innerHTML = url
         ? `${stale ? STALE_LINE : ''}${assistant ? ASSISTANT_LINE : ''}<iframe title="Code and review of #${number}" src="${esc(url)}" allow="clipboard-write"></iframe>`
-        : `<div class="pane-wait"><b>The code view is unavailable right now${/rate limit/i.test(error) ? ': GitHub is limiting requests' : ''}.</b> What this pull request changes and where it stands are above. <a href="https://github.com/${esc(state.model.repo)}/pull/${number}" target="_blank" rel="noopener">Open it on GitHub ↗</a><details><summary class="dim">The error</summary><p class="dim">${esc(error)}</p></details></div>
+        : `<div class="pane-wait"><b>The code view is unavailable right now${/rate limit/i.test(error) ? ': GitHub is limiting requests' : ''}.</b> What this pull request changes and where it stands are above. <a href="https://github.com/${esc(state.model.repo)}/pull/${number}" target="_blank" rel="noopener">Open it on GitHub ↗</a></div>
           <form class="assist-line pr-ask" data-ask-pr="${number}"><input name="q" placeholder="Ask about #${number}: it answers from its facts, your rulings and the drive's records"><button class="btn pri">Ask</button></form><div class="pr-answer"></div>`;
     });
 }
-window.addEventListener('message', (e) => {
-  if (e.data?.type !== 'cc-present.height') return;
-  const frame = $('#embed .verdict iframe');
-  if (frame && e.source === frame.contentWindow) frame.style.height = `${e.data.px}px`;
+document.addEventListener('click', (e) => {
+  const start = e.target.closest('[data-start-review]');
+  if (!start) return;
+  embed.started = Number(start.dataset.startReview);
+  syncReviewEmbed(route());
 });
 setInterval(() => {
   const r = route();
-  if (r.screen === 'review' && embed.number && !document.hidden) fetch(`/api/review/${embed.number}`, { cache: 'no-store' });
+  if (r.screen === 'review' && embed.number && embed.started === embed.number && !document.hidden) fetch(`/api/review/${embed.number}`, { cache: 'no-store' });
 }, 5 * 60 * 1000);

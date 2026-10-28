@@ -78,7 +78,7 @@ def test_the_ledger_owner_and_active_lanes_a_ruling_names_are_the_fixers():
 def test_a_blocker_on_a_change_with_fixers_never_reads_no_one_assigned(tmp_path, monkeypatch):
     prompts = []
 
-    def stubborn(name, prompt, schema):
+    def stubborn(name, prompt, schema, system):
         prompts.append(prompt)
         return blocked("nobody")
 
@@ -96,7 +96,7 @@ def test_an_open_blocker_or_work_row_without_its_start_time_is_sent_back(tmp_pat
     undated = blocked("fixing")
     undated["work"] = [{"item": "viewer", "workers": ["p8a-step7"], "title": "Cloud viewer reads chats", "status": "Fixing", "latest": "Moving the callers off the deleted store.", "unblocks": "viewer", "since": ""}]
 
-    def reply(name, prompt, schema):
+    def reply(name, prompt, schema, system):
         prompts.append(prompt)
         return undated
 
@@ -114,7 +114,7 @@ def test_nothing_waits_on_the_owner_when_his_board_asks_nothing(tmp_path, monkey
     phantom = blocked("you")
     phantom["work"] = [{"item": "replica-release", "workers": ["release-5"], "title": "Release of the chat replica changes", "status": "Ready for you", "latest": "Waits on your release-order choice.", "unblocks": "", "since": "3:55 PM"}]
 
-    def reply(name, prompt, schema):
+    def reply(name, prompt, schema, system):
         prompts.append(prompt)
         return json.loads(json.dumps(phantom))
 
@@ -146,7 +146,7 @@ def test_each_change_carries_the_newest_records_about_it():
 def test_a_headline_without_how_long_the_blocker_has_waited_is_sent_back(tmp_path, monkeypatch):
     prompts = []
 
-    def reply(name, prompt, schema):
+    def reply(name, prompt, schema, system):
         prompts.append(prompt)
         return blocked("fixing")
 
