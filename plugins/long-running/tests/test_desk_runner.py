@@ -179,6 +179,7 @@ class FakeShell(runner_module.Shell):
         self.builds: dict[str, dict] = {}
         self.annotations: dict[str, list[dict]] = {}
         self.go_imports: set[tuple[str, str, str]] = set()
+        self.merge_bases: dict[str, str] = {}
         self.local_heads: set[str] = set()
         self.commit_statuses: dict[str, list[dict]] = {}
         self.grade_refs: dict[str, str] = {}
@@ -303,6 +304,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, json.dumps(self.prompt_watch), "")
         if name == "stack-enqueue":
             return self.stack_enqueue(argv[1:])
+        if argv[:5] == ["git", "-C", str(self.root / "checkout"), "merge-base", "HEAD"]:
+            return runner_module.Done(0, f"{self.merge_bases[argv[5]]}\n", "") if argv[5] in self.merge_bases else runner_module.Done(1, "", "")
         if argv[:5] == ["git", "-C", str(self.root / "checkout"), "merge-base", "--is-ancestor"]:
             return runner_module.Done(0 if tuple(argv[5:]) in self.ancestors else 1, "", "")
         if argv[:2] == ["git", "-C"] and argv[2] in self.worktrees:
@@ -10331,6 +10334,32 @@ def test_a_package_that_fails_to_build_holds_the_head_only_when_it_imports_a_pac
     assert (shell.enqueues() == []) == held
     assert [blocker["text"].split("; ", 1)[1].split(" fails")[0] for blocker in blockers(shell)] == (["BUILD-FAILED #29020: sand/next/internal/localrun"] if held else [])
     assert "cccc333333" in shell.local_heads
+
+
+@pytest.mark.parametrize(
+    ("base_error", "held"),
+    [(LOCALRUN_ERROR, False), ("go/sand/next/internal/localrun/localrun.go:12:2: undefined: vmrun.Open", True)],
+    ids=["inherited", "introduced"],
+)
+def test_a_build_failure_its_merge_base_fails_with_the_same_error_is_inherited_and_holds_nothing(shell, config, tmp_path, base_error, held):
+    build_failed_checked(config)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    shell.files["29020"] = ["go/sand/next/internal/vm_run/reader.go"]
+    shell.go_imports.add(("cccc333333", "go/sand/next/internal/localrun", "sand/next/internal/vm_run"))
+    shell.merge_bases["cccc333333"] = "bbbb222222"
+    soft_failed_build(shell, "bbbb222222", "85300", ("sand/next/internal/localrun", base_error))
+    soft_failed_build(shell, "cccc333333", "85356", ("sand/next/internal/localrun", LOCALRUN_ERROR))
+    landing_pass(shell, config)
+    inherited = [post for post in notes(shell) if "INHERITED-BUILD-FAILURE" in post["text"]]
+    if held:
+        assert shell.enqueues() == [] and not inherited
+        assert [blocker["text"].split("; ", 1)[1].split(" fails")[0] for blocker in blockers(shell)] == ["BUILD-FAILED #29020: sand/next/internal/localrun"]
+        return
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and blockers(shell) == []
+    [note] = inherited
+    assert note["to"] == LANE
+    assert note["text"].endswith(f"WARNING INHERITED-BUILD-FAILURE #29020, and the head is not held for it: sand/next/internal/localrun fails to build at cccc333 on https://buildkite.com/forge/test/builds/85356: {LOCALRUN_ERROR}, as it does at its base bbbb222 on https://buildkite.com/forge/test/builds/85300")
 
 
 def test_a_head_that_changes_nothing_in_the_tree_is_never_held_for_its_build_failures(shell, config, tmp_path):

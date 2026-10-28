@@ -332,7 +332,9 @@ context whose list names each package a build failed to compile with its first c
 `annotations`, a command that prints one build's annotations, such as `tools/ci bk api /pipelines/{pipeline}/builds/{number}/annotations`.
 A head whose PR changes a file under `tree` gets one `BUILD-FAILED` blocker per head and package to its lane while a finished build at it
 lists a package the PR changes, or one whose Go files import a package the PR changes, by the head's tree in the landing checkout; it is
-held until a new head's build no longer lists it. The colour of the step that posts the annotation never counts, since it may soft-fail, and a
+held until a new head's build no longer lists it. A package the same pipeline's finished build at the head's merge base with the trunk
+lists with the same compile error is inherited, not the PR's: the head is not held for it and gets one `INHERITED-BUILD-FAILURE` `note` per head
+and package to its lane instead. The colour of the step that posts the annotation never counts, since it may soft-fail, and a
 head that changes nothing under `tree` is never held for a package another PR broke. A read that fails holds nothing (0afd2f6). A finder ok of an older head
 carries to a head with no finder record when both heads' own patches match, as a fidelity ok does, or when a fidelity desk's `fidelity: ok <head> carried from <earlier head>` grade, read along its chain, reaches a head whose finder verdict is ok, unless the grade says the change adds new behavior. A PR whose body opens with "Red by design", or whose lane's newest
 `contract` record with `--pr` naming it names its failing run ("red by design", "fails in run", "failing run"), draws no
@@ -4346,6 +4348,7 @@ class Landing:
         self.files: dict[tuple[str, str], list[str]] = {}
         self.annotated: dict[str, dict[str, str]] = {}
         self.imported: dict[tuple[str, str, frozenset[str]], bool] = {}
+        self.bases: dict[str, str] = {}
         self.read_only = False
         self.viewer = ""
         self.reported: dict[tuple[str, str, bool], tuple[datetime | None, list[str]]] = {}
@@ -5389,27 +5392,57 @@ class Landing:
         return self.carried_by_fidelity(pr, sha, lambda old: (graded_old := newest_finder(grades, old)) is not None and graded_old["grade"] in OLD_APP_PASSES), None
 
     def check_build_failed(self, graded: Graded) -> dict[str, merge_queue.State]:
-        """Each head that `build_failure` finds breaking a package's build fails `BUILD-FAILED`, with one blocker to its lane per head and package."""
-        states = {pr: merge_queue.State(merge_queue.FAIL, f"BUILD-FAILED #{pr}: {failure}") for pr, sha in graded.heads.items() if (failure := self.build_failure(pr, sha))}
+        """Each head that `build_failure` finds breaking a package's build fails `BUILD-FAILED`, with one blocker to its lane per head and package; each failure it finds inherited from the head's base gets one `note` per head and package instead."""
+        failures = {pr: self.build_failure(pr, sha) for pr, sha in graded.heads.items()}
+        states = {pr: merge_queue.State(merge_queue.FAIL, f"BUILD-FAILED #{pr}: {failure}") for pr, (failure, _) in failures.items() if failure}
         if graded.act:
             for pr, state in states.items():
                 self.refuse_head(f"build-failed:{pr}:{graded.heads[pr]}:{state.reason.split()[2]}", pr, graded, state.reason, states)
+            for pr, (_, inherited) in failures.items():
+                for failure in inherited:
+                    self.warn_head(f"build-inherited:{pr}:{graded.heads[pr]}:{failure.split()[0]}", pr, graded, f"INHERITED-BUILD-FAILURE #{pr}, and the head is not held for it: {failure}")
         return states
 
-    def build_failure(self, pr: str, sha: str) -> str:
-        """The first package a finished build at `sha` failed to build that `pr` changes, or that imports a package `pr` changes, with its first compile error, or empty. Only a PR that changes a file under `landing.build_failures.tree` is read."""
+    def build_failure(self, pr: str, sha: str) -> tuple[str, list[str]]:
+        """The first package a finished build at `sha` failed to build that `pr` changes, or that imports a package `pr` changes, with its first compile error, or empty; and each such failure that the same pipeline's finished build at the head's merge base with the trunk lists with the same error, which the head inherits and is not held for. Only a PR that changes a file under `landing.build_failures.tree` is read."""
         spec = self.landing_config["build_failures"]
         files, _ = self.changed_files(pr, sha)
         if not (touched := {os.path.dirname(name) for name in files or [] if name.startswith(spec["tree"])}):
-            return ""
+            return "", []
+        inherited = []
         for url, state, _ in self.ci_builds(sha) or []:
             if state not in ("success", "failure"):
                 continue
             for package, error in self.build_failures(url).items():
                 directory = os.path.dirname(error.split(":", 1)[0])
-                if directory in touched or self.imports(sha, directory, frozenset(filter(None, (import_path(package, directory, other) for other in touched)))):
-                    return f"{package} fails to build at {sha[:7]} on {url}: {error}"
-        return ""
+                if not (directory in touched or self.imports(sha, directory, frozenset(filter(None, (import_path(package, directory, other) for other in touched))))):
+                    continue
+                failure = f"{package} fails to build at {sha[:7]} on {url}: {error}"
+                base, base_url = self.base_build(sha, url)
+                if not base_url or self.build_failures(base_url).get(package) != error:
+                    return failure, inherited
+                inherited.append(f"{failure}, as it does at its base {base[:7]} on {base_url}")
+        return "", inherited
+
+    def base_build(self, sha: str, url: str) -> tuple[str, str]:
+        """The merge base of `sha` with the trunk the landing checkout stands at, and the URL of the finished build there of the pipeline `url` ran; an empty URL when either does not read."""
+        if not (base := self.merge_base(sha)):
+            return "", ""
+        pipeline = BUILD_URL.search(url)["pipeline"]
+        return base, next((built for built, state, _ in self.ci_builds(base) or [] if state in ("success", "failure") and BUILD_URL.search(built)["pipeline"] == pipeline), "")
+
+    def merge_base(self, sha: str) -> str:
+        """The commit where `sha` left the trunk the landing checkout stands at, read once per head; empty, and read again next pass, when the checkout cannot read it."""
+        if sha not in self.bases:
+            if not self.local_commit(sha) or (done := self.shell.run(["git", "-C", str(self.checkout), "merge-base", "HEAD", sha])).code:
+                return ""
+            self.bases[sha] = done.out.strip()
+        return self.bases[sha]
+
+    def local_commit(self, sha: str) -> bool:
+        """Whether the landing checkout holds `sha`, fetching it when it lacks it."""
+        git = ["git", "-C", str(self.checkout)]
+        return not (self.shell.run([*git, "cat-file", "-e", f"{sha}^{{commit}}"]).code and self.shell.run([*git, "fetch", "-q", "--no-tags", "origin", sha]).code)
 
     def build_failures(self, url: str) -> dict[str, str]:
         """Each package the `landing.build_failures.context` annotation of the finished build at `url` names, with its first compile error, read once per build; empty, and read again next pass, when the read fails."""
@@ -5424,10 +5457,9 @@ class Landing:
         """Whether a Go file directly in `directory` at `sha` imports one of `paths`, read in the landing checkout, which fetches `sha` when it lacks it; False when neither reads."""
         key = (sha, directory, paths)
         if key not in self.imported:
-            git = ["git", "-C", str(self.checkout)]
-            if not paths or (self.shell.run([*git, "cat-file", "-e", f"{sha}^{{commit}}"]).code and self.shell.run([*git, "fetch", "-q", "--no-tags", "origin", sha]).code):
+            if not paths or not self.local_commit(sha):
                 return False
-            self.imported[key] = self.shell.run([*git, "grep", "-q", "-F", *(arg for path in sorted(paths) for arg in ("-e", f'"{path}"')), sha, "--", f":(glob){directory}/*.go"]).code == 0
+            self.imported[key] = self.shell.run(["git", "-C", str(self.checkout), "grep", "-q", "-F", *(arg for path in sorted(paths) for arg in ("-e", f'"{path}"')), sha, "--", f":(glob){directory}/*.go"]).code == 0
         return self.imported[key]
 
     def check_fidelity(self, graded: Graded) -> dict[str, merge_queue.State]:
