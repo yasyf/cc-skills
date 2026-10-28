@@ -61,6 +61,14 @@ function tapped(tap) {
   settle(state.model);
   render();
 }
+function unask(model) {
+  const open = new Set(model.needs.flatMap((n) => (n.kind === 'card' ? [n.card.id] : n.prs.map((pr) => String(pr.number)))));
+  const owners = [...open].map((ask) => model.prs[ask]?.lane).filter(Boolean);
+  const asked = (w) => (w.asks ?? []).some((ask) => open.has(String(ask).replace(/^#/, ''))) || w.workers.some((lane) => owners.some((owner) => sameWorker(owner, lane)));
+  for (const w of [...(model.brief?.work ?? []), ...(model.pages?.work?.running ?? [])]) {
+    if (w.status === 'Ready for you' && !asked(w)) Object.assign(w, { status: 'Stuck', latest: 'Off your board now; its next step is being rewritten.' });
+  }
+}
 function settle(model) {
   state.taps = state.taps.filter((t) => t.seq > (model.board.seq ?? 0));
   const cards = [...model.board.cards, ...model.needs.filter((item) => item.kind === 'card').map((item) => item.card)];
@@ -299,6 +307,7 @@ async function load() {
   if (!model.prs) return setTimeout(load, 1000);
   if ((model.board.seq ?? 0) < (state.model?.board.seq ?? 0)) return;
   settle(model);
+  unask(model);
   state.model = model;
   state.drive = new Map(model.drive.prs.map((e) => [e.number, e]));
   state.version = model.version;

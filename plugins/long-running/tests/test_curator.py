@@ -112,7 +112,7 @@ def test_an_open_blocker_or_work_row_without_its_start_time_is_sent_back(tmp_pat
 def test_nothing_waits_on_the_owner_when_his_board_asks_nothing(tmp_path, monkeypatch):
     prompts = []
     phantom = blocked("you")
-    phantom["work"] = [{"item": "replica-release", "workers": ["release-5"], "title": "Release of the chat replica changes", "status": "Ready for you", "latest": "Waits on your release-order choice.", "unblocks": "", "since": "3:55 PM"}]
+    phantom["work"] = [{"item": "replica-release", "workers": ["release-5"], "title": "Release of the chat replica changes", "status": "Ready for you", "latest": "Waits on your release-order choice.", "unblocks": "", "since": "3:55 PM", "asks": ["card-release-order"]}]
 
     def reply(name, prompt, schema, system):
         prompts.append(prompt)
@@ -123,9 +123,20 @@ def test_nothing_waits_on_the_owner_when_his_board_asks_nothing(tmp_path, monkey
     curator.dir, curator.path = tmp_path, tmp_path / "brief.json"
     curator.curate()
     written = json.loads(curator.path.read_text())
-    assert "nothing on his board waits on him" in prompts[1]
+    assert "may not wait on him" in prompts[1]
     assert [n for p in written["paths"] for n in p["nodes"] if n["state"] == "you"] == []
     assert written["work"] == []
+
+
+def test_a_row_waits_on_the_owner_only_while_its_ask_is_open():
+    open_card = {"kind": "card", "card": {"id": "card-gateway", "title": "Should a model call name its run?"}}
+    rows = [
+        {"item": "gateway", "status": "Ready for you", "asks": ["card-gateway"]},
+        {"item": "forks", "status": "Ready for you", "asks": ["43736"]},
+        {"item": "viewer", "status": "Stuck", "asks": []},
+    ]
+    kept = brief.without_phantoms({"paths": [], "work": rows}, brief.owner_asks([open_card]))
+    assert [row["item"] for row in kept["work"]] == ["gateway", "viewer"]
 
 
 def test_a_resolved_blocker_leaves_the_writers_facts():

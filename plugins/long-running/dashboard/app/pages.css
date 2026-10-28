@@ -44,6 +44,7 @@ a.pg-row:hover .pg-cells > b { color: var(--accent); }
 .wk-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; padding: 11px 16px; border-bottom: 1px solid var(--line); color: var(--ink); }
 .wk-row:last-child { border-bottom: 0; }
 .wk-row:hover { background: var(--surface-2); text-decoration: none; }
+.wk-body > a, .wk-side a { color: inherit; }
 .wk-body b { display: block; font-weight: 600; font-size: 14px; }
 .wk-line { display: block; margin-top: 2px; color: var(--ink-2); font-size: 13px; }
 .wk-line .pg-state { margin-right: 6px; color: var(--ink); }
