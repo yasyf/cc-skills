@@ -833,7 +833,7 @@ def pr_diff(args: argparse.Namespace, shell: ledger.Shell, repo: str, base: str,
     git = ["git", "-C", checkout]
     if not FULL_SHA.fullmatch(head):
         head = shell.run(ghread.read("api", f"repos/{repo}/commits/{head}", "--jq", ".sha")).strip()
-    tip = base if FULL_SHA.fullmatch(base) else shell.run([*git, "ls-remote", "--exit-code", "origin", f"refs/heads/{base}"]).split()[0]
+    tip = base if FULL_SHA.fullmatch(base) else shell.run([*git, "ls-remote", "--exit-code", "origin", base if base.startswith("refs/") else f"refs/heads/{base}"]).split()[0]
     if absent := missing_commits(shell, git, (tip, head)):
         shell.run([*git, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", *absent])
     kept = state_dir(args) / "check-pr" / f"{shell.run([*git, 'merge-base', tip, head]).strip()}-{head}.diff"
