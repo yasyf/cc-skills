@@ -355,7 +355,8 @@ logs one `GITHUB-BACKOFF` naming the calls left and the reset per quota window; 
 stay on cci, so both run on the first pass after the reset. A quota read that fails logs `QUOTA-READ-FAILED` once an hour, and the pass runs. A `cci tail` that fails in a landing pass
 ends that pass before it gates or enqueues further; it logs `CCI-TAIL-FAILED` and the runner keeps running.
 An incident fix PR on the trunk, one whose ledger lane is an `incident-` or `outage-` lane or a fix lane the runner clocks, or whose
-number an open executor incident names as its `repair_pr`, is never enqueued: in the pass its head reads `APPROVED` and every
+number an open executor incident names as its `repair_pr`, and no root decide naming it says it is not an incident fix or takes it
+off the incident path, which logs `INCIDENT-TAG-CLEARED` once and gates it as a normal row, is never enqueued: in the pass its head reads `APPROVED` and every
 required check passes, `rulings.py check-pr --incident` names none of `RULINGS-UNCITED`, `RESERVED-NO-ANSWER`, or `TEST-REMOVED`,
 and the holds file, read again just before, holds no line over it,
 the runner runs `gh pr merge <n> --squash --match-head-commit <head>` once per head, recorded as
@@ -630,6 +631,7 @@ DEQUEUE_ORDERS = "dequeue-orders"
 PULLED_HEADS = "pulled-heads"
 DEQUEUE_ORDER = re.compile(r"(?:\A\s*|\b(?:landing-desk|desk-runner):\s*)dequeue\s+#(\d+)\b", re.IGNORECASE)
 INCIDENT_NAME = re.compile(r"^(?:incident|outage)-")
+INCIDENT_CLEARED = re.compile(r"not an incident fix|off the incident path", re.IGNORECASE)
 EXECUTOR_SETTLED = frozenset({"closed", "recovered"})
 SQUASH_PASS = "pass"
 LANDED_BY_SQUASH = "landed by plain squash"
@@ -4393,6 +4395,7 @@ class Landing:
         self.body_preconditions: dict[tuple[str, str], list[str]] = {}
         self.said_preconditions: dict[str, list[tuple[str, str]]] = {}
         self.gos: list[dict] | None = None
+        self.cleared: dict[str, int] = {}
         self.going = threading.Lock()
         self.read: dict[str, tuple[datetime, list[dict]]] = {}
         self.review_titles: dict[str, str] = {}
@@ -6044,12 +6047,20 @@ class Landing:
             self.restack(top, rows)
 
     def is_incident(self, pr: str, row: dict) -> bool:
-        """Whether a ledger row is an incident fix's: its lane is an `incident-` or `outage-` lane or a fix lane the runner launched on the incident clock, or an open incident in the executor's store names the PR as its repair."""
+        """Whether a ledger row is an incident fix's: its lane is an `incident-` or `outage-` lane or a fix lane the runner launched on the incident clock, or an open incident in the executor's store names the PR as its repair, and no root decide naming it took it off the incident path."""
         lane = row.get("lane", "")
-        if INCIDENT_NAME.match(lane) or (lane_container(lane) in self.book.store.ids() and fix_launch(self.book.load(lane_container(lane)))):
-            return True
         store = actions.Store()
-        return any(str(incident.facts.get("repair_pr")) == pr for incident in map(store.load, store.ids()) if "adopted" in incident.facts and incident.status not in EXECUTOR_SETTLED and not incident.facts.get("not_ours"))
+        tagged = INCIDENT_NAME.match(lane) or (lane_container(lane) in self.book.store.ids() and fix_launch(self.book.load(lane_container(lane)))) or any(str(incident.facts.get("repair_pr")) == pr for incident in map(store.load, store.ids()) if "adopted" in incident.facts and incident.status not in EXECUTOR_SETTLED and not incident.facts.get("not_ours"))
+        return bool(tagged) and not self.incident_cleared(pr)
+
+    def incident_cleared(self, pr: str) -> bool:
+        """Whether a root decide naming `pr` says it is not an incident fix or takes it off the incident path, read once a pass; the runner then gates it as a normal row and logs `INCIDENT-TAG-CLEARED` once per decide."""
+        if pr not in self.cleared:
+            drive = self.runner.config.drive
+            self.cleared[pr] = next((record["seq"] for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--pr", f"{self.repo}#{pr}") if record["lane"] == ROOT and record["drive"] == drive and record["kind"] in ("decide", "decision") and INCIDENT_CLEARED.search(full_text(record))), 0)
+            if seq := self.cleared[pr]:
+                self.runner.escalate(f"incident-tag-cleared:{pr}:{seq}", "INCIDENT-TAG-CLEARED", f"#{pr}", f"root decide #{seq} took #{pr} off the incident path, so the runner never squashes it and gates it as a normal row, landing it only through the queue once its go and the owner's tap name its head")
+        return bool(self.cleared[pr])
 
     def incident_rows(self, open_rows: dict[str, dict]) -> list[str]:
         return [pr for pr, row in open_rows.items() if row.get("ours") and row.get("base") == TRUNK and self.is_incident(pr, row)]
@@ -6845,7 +6856,7 @@ class Landing:
     def gate_pass(self) -> None:
         self.sessions, self.live, self.dead, self.designed_red, self.full_runs_read, self.said_preconditions = {}, None, {}, {}, {}, {}
         self.grading, self.grade_tried = True, set()
-        self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why = None, False, None, None, None, set(), {}
+        self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why, self.cleared = None, False, None, None, None, set(), {}, {}
         if self.quota_low():
             return
         with ThreadPoolExecutor(1) as pool:

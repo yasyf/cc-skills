@@ -5447,6 +5447,16 @@ def test_an_approved_green_incident_fix_is_merged_by_plain_squash_once_and_never
     assert (squash.status, squash.response["sha"]) == ("completed", INCIDENT_SQUASH)
 
 
+
+def test_a_root_decide_taking_an_incident_fix_off_the_incident_path_stops_its_squash_and_logs_once(shell, config, tmp_path):
+    incident_pr(shell)
+    shell.records.append({"seq": 9500, "drive": "d1", "lane": "root", "kind": "decide", "to": ["desk-runner"], "refs": {"prs": ["Forge-AI/monorepo#36650"]}, "text": "#36650 is NOT an incident fix; take it off the incident path; it lands only on his tap", "at": actions.stamp(shell.clock)})
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert merges(shell) == [] and shell.enqueues() == []
+    assert [line.split(" ", 1)[0] for line in escalations(shell) if "INCIDENT-TAG-CLEARED" in line] == ["INCIDENT-TAG-CLEARED"]
+
+
 def test_a_drive_whose_checks_wait_for_a_go_squashes_an_approved_green_incident_fix_only_once_its_ruling_checks_pass(shell, config, tmp_path):
     raw = json.loads(config.read_text())
     raw["landing"]["checks_wait_for_go"] = 34700
