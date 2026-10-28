@@ -1358,7 +1358,7 @@ def test_an_incident_launch_on_load_starts_anyway_while_a_normal_launch_beside_i
     assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)]]
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
     assert incident(tmp_path, "desk-lane-other-lane").actions["R639"].status == "accepted"
-    assert [line.split()[0] for line in escalations(shell)] == ["LOAD-HIGH", "LOAD-INCIDENT"]
+    assert [line.split()[0] for line in escalations(shell)] == ["LOAD-HIGH", "LOAD-INCIDENT", "LAUNCHED"]
     assert escalations(shell)[1] == f"LOAD-INCIDENT desk-lane-{LANE}/R638:load {LANE}: R638 launches on load 140 above 8 cores: an incident fix lane is never held for load"
 
 
