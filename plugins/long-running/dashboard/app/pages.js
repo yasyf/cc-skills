@@ -77,8 +77,8 @@ function prTruth(n) {
   const evidence = state.model.evidence[n];
   const work = curated('work');
   const said = work?.pull_requests?.find((pr) => pr.number === Number(n));
-  if (said && !(evidence && new Date(evidence.at) > new Date(work.at))) return { blocks: said.stage, next: said.next, since: sinceClock(said.since) };
   if (evidence) return { blocks: evidence.state, next: evidence.next, since: evidence.since };
+  if (said) return { blocks: said.stage, next: said.next, since: sinceClock(said.since) };
   const node = blockerNode(n);
   if (node) return { blocks: node.text, next: node.how, since: sinceClock(node.since) };
   const row = stackRow(n);
