@@ -8,8 +8,10 @@ this script detached. The job reads the PR through ccx's gateway, retrying a fai
 `RETRY_SECONDS`, and skips a closed PR or a head that is no longer the PR's live head. It reads the
 PR's own commits as the head's commits no commit on the base branch's current tip matches by patch,
 so a parent restacked onto a newer trunk adds nothing. A head after one an earlier finder record
-graded is a fixed head: it reads only its own commits the graded head lacks by patch, runs no row
-pass, and posts nothing when there are none. A whole pass writes the head's
+graded, or after the head its `head` record replaced when the PR has any finder review, is a fixed
+head: `git range-diff` pairs its own commits with that head's, and it reads only the hunks of each
+changed pair and each new commit, runs no row pass, and posts nothing when every pair is equal. A
+whole pass writes the head's
 required register rows to `DIR/rows.md` with `rulings.py slice --required`. It fills
 `reference/finder-desk-brief.md` and runs `codex-ask -m <model> --schema findings` in the drive's
 checkout. A reply that names no verdict for a row key the slice printed, or gives no reasoning in
@@ -41,7 +43,7 @@ BRIEF = SCRIPTS.parent / "reference" / "finder-brief.md"
 TEMPLATE = SCRIPTS.parent / "reference" / "finder-desk-brief.md"
 ROWS_STEP = SCRIPTS.parent / "reference" / "finder-desk-rows.md"
 SCOPED_STEP = (
-    "2. This head fixes one an earlier finder record graded, so it gets no row pass. Name an owner row\n"
+    "2. This head follows an earlier reviewed head, so it gets no row pass. Name an owner row\n"
     "   only when a hunk this pass reads breaks it, as one major finding whose defect starts\n"
     '   "row <key> missing:".'
 )
@@ -51,6 +53,8 @@ RESULT = "result.json"
 LOG = "job.log"
 HEAD_SHA = re.compile(r"(?<!was )\b[0-9a-f]{40}\b")
 FULL_SHA = re.compile(r"\b[0-9a-f]{40}\b")
+WAS = re.compile(r"\(was ([0-9a-f]{7,40})\b")
+RANGE_PAIR = re.compile(r"^\s*(?:\d+|-+):\s+(?:[0-9a-f]+|-+)\s+([=!<>])\s+(?:\d+|-+):\s+([0-9a-f]+|-+)", re.MULTILINE)
 ROW_KEY = re.compile(r"^### (\S+) \|", re.MULTILINE)
 REPLY_FILE = re.compile(r"^REPLY_FILE: (\S+)$", re.MULTILINE)
 MAJORS = frozenset({"blocker", "major"})
@@ -89,14 +93,17 @@ def since(reviews: list[dict], records: list[dict], head: str) -> tuple[str, dic
     return full, {"seq": prior["seq"], "lane": prior["lane"], "head": prior["head"], "text": prior["text"]}
 
 
-def scope(job: dict, view: dict, own: list[str], last: str, new: list[str]) -> str:
+def scope(job: dict, own: list[str], last: str, pairs: str, changed: list[tuple[str, str]]) -> str:
     whole = f"`git diff {own[0]}^ {job['head']}`"
     if not last:
         return f"This pass reads the PR's whole change: {whole}."
+    amended = " ".join(sha for mark, sha in changed if mark == "!") or "none"
+    added = " ".join(sha for mark, sha in changed if mark == ">") or "none"
     return (
-        f"The finder last graded {last}. This pass reads only the commits this head carries that neither "
-        f"{view['baseRefName']} nor {last[:12]} carries by patch, each with `git show <sha>`: {' '.join(new)}. "
-        f"The PR's whole change, for context only, is {whole}."
+        f"An earlier head, {last}, was reviewed. `git range-diff {pairs}` pairs its own commits with this head's; "
+        f"a `<` line is a commit the base now carries. This pass reads only what changed: for each amended commit, "
+        f"only the hunks the range-diff shows for its pair ({amended}); each new commit whole with `git show <sha>` "
+        f"({added}). The PR's whole change, for context only, is {whole}."
     )
 
 
@@ -110,7 +117,7 @@ def prior_text(job: dict) -> str:
     )
 
 
-def prompt(job: dict, view: dict, base: str, own: list[str], last: str, new: list[str], rows: Path | None, plan: str) -> str:
+def prompt(job: dict, view: dict, base: str, own: list[str], last: str, pairs: str, changed: list[tuple[str, str]], rows: Path | None, plan: str) -> str:
     return TEMPLATE.read_text().format(
         repo=job["repo"],
         pr=job["pr"],
@@ -119,7 +126,7 @@ def prompt(job: dict, view: dict, base: str, own: list[str], last: str, new: lis
         base_oid=base,
         checkout=job["checkout"],
         fetch=f"{job['head']} {base}",
-        scope=scope(job, view, own, last, new),
+        scope=scope(job, own, last, pairs, changed),
         prior=prior_text(job),
         rows_step=ROWS_STEP.read_text().format(rows=rows).rstrip() if rows else SCOPED_STEP,
         plan=plan or "none; the register names no plan",
@@ -184,10 +191,8 @@ def resolve(shell: Shell, job: dict, named: str) -> str:
         return ""
 
 
-def graded(shell: Shell, job: dict) -> str:
-    """The full head the PR's last finder record graded, from the checkout or fetched when spelled whole, empty when neither has it."""
-    if not (named := job["since"] or (job["prior"] or {}).get("head", "")):
-        return ""
+def fetched(shell: Shell, job: dict, named: str) -> str:
+    """`named` as a full sha, from the checkout or fetched when spelled whole, empty when neither has it."""
     if (full := resolve(shell, job, named)) or not FULL_SHA.fullmatch(named):
         return full
     try:
@@ -195,6 +200,25 @@ def graded(shell: Shell, job: dict) -> str:
     except subprocess.CalledProcessError:
         return ""
     return resolve(shell, job, named)
+
+
+def reviewed(shell: Shell, job: dict) -> str:
+    """The head this pass reads since: the one the PR's last finder record graded, else the head the `head` record replaced, empty when neither resolves."""
+    named = [job["since"], (job["prior"] or {}).get("head", ""), job["previous"]]
+    return next((full for name in named if name and (full := fetched(shell, job, name))), "")
+
+
+def previous(record: dict | None) -> str:
+    """The head a `head` record says it replaced, `(was <sha>)`, empty when it names none."""
+    return found[1] if record and (found := WAS.search(record["text"])) else ""
+
+
+def range_pairs(shell: Shell, job: dict, base: str, last: str, own: list[str]) -> tuple[str, list[tuple[str, str]]]:
+    """The `git range-diff` ranges pairing `last`'s own commits with the head's, and each head commit it marks amended (`!`) or new (`>`)."""
+    earlier = beyond(shell, job, base, last)
+    pairs = f"{earlier[0] + '^' if earlier else last}..{last} {own[0]}^..{job['head']}"
+    marks = RANGE_PAIR.findall(git(shell, job, "range-diff", "--no-patch", "--no-color", *pairs.split()))
+    return pairs, [(mark, sha) for mark, sha in marks if mark in "!>"]
 
 
 def post(shell: Shell, job: dict, text: str, body: Path) -> str:
@@ -214,19 +238,19 @@ def run(directory: Path, shell: Shell) -> dict:
         return {"skipped": f"{pr} moved to {view['headRefOid'][:12]}"}
     base = git(shell, job, "ls-remote", "origin", f"refs/heads/{view['baseRefName']}").split()[0]
     git(shell, job, "fetch", "--no-write-fetch-head", "-q", "origin", head, base)
-    last = graded(shell, job)
+    last = reviewed(shell, job)
     if not (own := beyond(shell, job, base, head)):
         return {"skipped": f"{pr} at {head[:12]} carries no commit {view['baseRefName']} lacks"}
-    new = [sha for sha in own if sha in set(beyond(shell, job, last, head))] if last else []
-    if last and not new:
-        return {"skipped": f"{pr} at {head[:12]} carries no commit {last[:12]} lacks, which cci #{job['prior']['seq']} graded"}
+    pairs, changed = range_pairs(shell, job, base, last, own) if last else ("", [])
+    if last and not changed:
+        return {"skipped": f"{pr} at {head[:12]} replays every own commit of {last[:12]} patch for patch"}
     rows = None if last else directory / "rows.md"
     keys: list[str] = []
     if rows:
         rows.write_text(shell.run(rulings(job, "slice", "--required", "--pr", pr, "--head", head, "--base", view["baseRefName"]), timeout=SLICE_SECONDS))
         keys = ROW_KEY.findall(rows.read_text())
     question = directory / "question-1.md"
-    question.write_text(prompt(job, view, base, own, last, new, rows, shell.run(rulings(job, "plan")).strip()))
+    question.write_text(prompt(job, view, base, own, last, pairs, changed, rows, shell.run(rulings(job, "plan")).strip()))
     reply = ask(shell, job, directory, question, 1)
     if short := shortfalls(keys, reply):
         retry = directory / "question-2.md"

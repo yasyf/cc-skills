@@ -385,7 +385,8 @@ queued head of the same PR settles as superseded. A head some lane's `finder:` r
 writes `<config dir>/finder-desk/<pr>-<head12>/job.json` and starts `finder.py` on that directory detached, which runs
 `codex-ask -m <finder.model, default sol> --schema findings` in `finder.checkout`, default `landing.checkout`, over
 the head's own commits against the base branch's current tip, or over what changed since the head the PR's newest finder
-record at another head read (finder.py), and posts
+record at another head read, else since the head its `head` record replaced when the PR has any finder review
+(finder.py), and posts
 `finder: ok <head> …` or `finder: major <head> <n> open: …` under lane `finder-desk` to the head's lane and each
 `finder.to` address. A pass whose job wrote an error, or no result within `finder.timeout_minutes` (default 60), logs
 `FINDER-FAILED` once. `show` lists each queued and running pass.
@@ -3918,7 +3919,8 @@ class Runner:
         """Settle a head some lane's finder record already names, or write the pass's job and start finder.py on it detached, reading since the head the PR's newest finder record at another head read."""
         job = json.loads(action.target)
         records = cci.records(self.cci_tail, self.config.drive, "--kind=review", "--kind=head", "--pr", f"{repo}#{job['pr']}")
-        reviews = finder_records(finder_reviews_in(records, self.config.drive, repo, job["pr"]))
+        named = finder_reviews_in(records, self.config.drive, repo, job["pr"])
+        reviews = finder_records(named)
         if answered := newest_finder(reviews, job["head"]):
             self.finder_settled(action.action_id, {"answered": f"cci #{answered['seq']} from {answered['lane']}"})
             return False
@@ -3935,6 +3937,7 @@ class Runner:
                     "head": job["head"],
                     "since": last,
                     "prior": prior,
+                    "previous": finder.previous(next((record for record in records if record["seq"] == job["seq"]), None)) if named else "",
                     "lane": job["lane"],
                     "to": spec.get("to", []),
                     "checkout": spec.get("checkout") or landing["checkout"],

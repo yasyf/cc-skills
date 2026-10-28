@@ -10088,7 +10088,7 @@ def test_each_head_starts_one_finder_at_once_however_many_records_name_it(shell,
     orca_pass(shell, config)
     assert shell.finder_jobs == [config.resolve().parent / "finder-desk" / f"43439-{FINDER_HEAD[:12]}"]
     assert finder_jobs(shell) == [
-        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "lane": "p8a-step9", "to": [], "checkout": str(config.parent / "checkout"), "model": "sol"}
+        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "previous": "", "lane": "p8a-step9", "to": [], "checkout": str(config.parent / "checkout"), "model": "sol"}
     ]
 
 
@@ -10145,6 +10145,18 @@ def test_a_newer_head_supersedes_the_queued_one_and_reads_since_the_head_the_las
     assert (first["head"], first["since"]) == (FINDER_OLD, "")
     assert (second["head"], second["since"]) == (FINDER_HEAD, FINDER_OLD)
     assert second["prior"] == {"seq": review, "lane": "p8a-step9", "head": FINDER_OLD[:7], "text": f"finder: major {FINDER_OLD[:7]} 1 open: walk.go:9 skips the volume link"}
+
+
+def test_a_head_after_a_finder_review_carries_the_head_its_head_record_replaced(shell, config):
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    finder_review(shell, "43299", "p8b-step8 finder (gpt-6.1-sol, one pass, never re-run) on #43299 S8.3: major 1; each major fixed or rebutted below")
+    head_record(shell, "43299", FINDER_HEAD, text=f"HEAD #43299 {FINDER_HEAD} (was {FINDER_OLD}): restack onto #42751", fields={})
+    head_record(shell, "43439", FINDER_OLD, text=f"HEAD #43439 {FINDER_OLD} (was {FINDER_HEAD})", fields={})
+    orca_pass(shell, config)
+    (shell.finder_jobs[0] / "result.json").write_text(json.dumps({"skipped": "replay"}))
+    orca_pass(shell, config)
+    assert [(job["pr"], job["previous"]) for job in finder_jobs(shell)] == [("43299", FINDER_OLD), ("43439", "")]
 
 
 def test_a_finder_that_fails_or_writes_nothing_by_its_deadline_escalates_once(shell, config):
