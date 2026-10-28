@@ -2368,18 +2368,31 @@ Incident launches name `--model incident --effort xhigh`: `gpt-6.1-sol`, a
 launch needs a reporting route, never another launch. Inline lanes still use
 `Skill(codex)` or `codex:codex-wrapper`; one-off questions use `codex-ask`.
 
-**O16. Place each lane on a Sprite or the Mac; high-CPU lanes default to a Sprite.**
-The launching model places a lane on its brief's `ccx:` line, with `place=remote` for
-a Sprite or `place=local` for the Mac. With neither key, a `cpu=high` lane goes to a
-Sprite and every other lane launches locally; `cpu=high` marks a sweep or
-heavy research. An explicit `place=` wins over `cpu=high` in both directions. Fable, incident, an incident clock fallback, and a standing
-desk's `role=desk` or `role=watch` brief launch locally whatever the line says. [Lane brief](#lane-brief)
-says what a Sprite holds and when to choose each.
+**O16. Place each lane on a Sprite or the Mac; lanes default to a Sprite unless marked `place=local` or local-only.**
+The launching model places a lane on its brief's `ccx:` line, with `place=remote` or no
+`place=` for a Sprite and `place=local` for the Mac. Any other `place=` value, such as
+`place=orca`, is refused with `LAUNCH-FAILED`, naming the value and the two valid ones,
+`place=remote` and `place=local`. `cpu=high` is still accepted on the line but no longer
+decides placement: a `cpu=high` lane goes to a Sprite unless its line says
+`place=local`. Fable, incident, an incident clock fallback, and a standing desk's
+`role=desk` or `role=watch` brief launch locally whatever the line says. A remote launch
+whose brief names this Mac (an absolute `/Users/` path, a `~/` or `$HOME` path, or a
+`cci` command invocation outside the `Register slice:` to `slice-hash:` block) is
+refused with `LAUNCH-FAILED`, naming each reference found and the remedy: inline that
+context with repo-relative paths, or mark the brief `place=local`.
+[Lane brief](#lane-brief) says what a Sprite holds and when to choose each.
 
-A Sprite launch needs `orca.sprite` configured; without it every lane launches
-locally. It runs the repository's `worker-launch.sh` and never waits on Mac load,
-while a lane placed local still waits under O14. The runner counts no Sprites and
-sets no limit of its own: the provider admits or refuses each one.
+A Sprite launch needs `orca.sprite` (`orca.sprite.launcher`, with `orca.sprite.env`)
+configured; without it the runner refuses each remote launch with `LAUNCH-FAILED`,
+naming the missing `orca.sprite` and the config shape to add, and launches nothing
+locally. The runner reads its config only when it starts (or when it re-executes into
+a newer installed plugin version), and the root never restarts, kills, or signals a
+live runner; after adding `orca.sprite`, the root runs
+`desk-runner.py handoff --config <config> --desk <desk>`, which stops the live runner
+at the end of its pass and starts the next one with the same config. A Sprite launch
+runs the repository's `worker-launch.sh` and never waits on Mac load, while a lane
+placed local still waits under O14. The runner counts no Sprites and sets no limit of
+its own: the provider admits or refuses each one.
 A lane name a Sprite refuses starts the same lane locally under O14's load hold. A
 failed Sprite launch starts it locally at once only when its receipts prove
 worker-start never ran: the brief's `.worker` directory holds
@@ -2723,16 +2736,15 @@ to the orca-desk, and `helper`, `reader`, `watch`, `export`, `evidence`, `handof
 `comms`, and `triage` lanes need no root task. On Orca, `desk` and `watch` make a
 standing desk: `orca-launch.sh` gives it a contract that loops until rotation and
 sends `worker_done` only then, naming the handoff doc
-([its brief](reference/orca-lane-brief.md#a-standing-desks-brief)). `cpu=high` marks a
-sweep or heavy research lane, which goes to a Sprite by default. `place=remote` or
-`place=local` places any lane yourself and wins over that default (O16).
+([its brief](reference/orca-lane-brief.md#a-standing-desks-brief)). No `place=` sends the lane to a Sprite by default; `place=remote` is explicit for the
+same route, and `place=local` keeps a Mac-bound lane on the Mac (O16).
 
 A brief states the outcome ("one failing database never blocks a release"), never a
 design ("report it in the Switch; reuse the handoffz and census readers"). Step 0 of
 `Do:` is the lane's own search for an existing grader.
 
 ```
-ccx: role=<role> [cpu=high] [place=remote|local] tooling-lane=<key, for a tooling lane only>
+ccx: role=<role> [place=local] tooling-lane=<key, for a tooling lane only>
 Authority: <what you do without asking; what stops for the owner>.
 Verified facts, do not re-derive: <ids, shas, URLs, state already confirmed>.
 Design rulings, verbatim: <each owner ruling on the subsystem this lane touches, quoted
@@ -2855,21 +2867,24 @@ For implementation lanes, prefer the repository's canonical remote
 entrypoint when it provides one. In Forge-AI/monorepo, follow
 [the Orca skill](https://github.com/Forge-AI/monorepo/blob/dev/.agents/skills/orca/SKILL.md).
 It defaults to Sprite prepare+attach and the already-owned native Run with its
-sole inbox consumer. The orca desk calls it for a brief placed remote, by
-`place=remote` or by `cpu=high` with no `place=` (O16), and runs every other lane
-through `orca-launch.sh`. Preserve explicit model, effort, and Codex service tier.
+sole inbox consumer. The orca desk calls it for a brief placed remote, by omitting
+`place=` or by `place=remote` (O16), and runs every other lane through
+`orca-launch.sh`. Preserve explicit model, effort, and Codex service tier.
 
-Placement is yours to decide for every lane that is not `cpu=high`, and for a
-`cpu=high` lane that cannot leave the Mac. A Sprite holds only the brief and a
-shallow checkout of the ref its config names, `dev` in Forge-AI/monorepo. It has no
-Mac path, scratch file, local worktree, or unpushed commit, no Keychain, and no
-credential that lives only on the Mac.
+Placement defaults to a Sprite (`place=remote` or no `place=`); `cpu=high` is still
+accepted on the `ccx:` line, but a `cpu=high` lane goes to a Sprite unless its line
+says `place=local`. A Sprite holds only the brief and a shallow checkout of the ref
+its config names, `dev` in Forge-AI/monorepo. It has no Mac path, scratch file, local
+worktree, or unpushed commit, no Keychain, and no credential that lives only on the
+Mac.
 
-Write `place=remote` when the lane can work inside those limits, with every fact in
-the brief by value and everything it builds on already pushed. Write `place=local`
-when the lane reads a file, worktree, or branch only the Mac has, needs a Mac-only
-credential, or drives something on the Mac itself. Without `orca.sprite` every lane
-launches locally, and a Sprite fallback starts the same brief locally, so a brief
+Omit `place=` when the lane can work inside those limits, with every needed fact
+inlined, repo-relative paths only, everything it builds on already pushed, and status,
+`ask`, and `worker_done` on its Dispatch rather than `cci` or the ledger. Write
+`place=local` when the lane reads a file, worktree, or branch only the Mac has, needs
+a Mac-only credential, drives something on the Mac, or posts on `cci` or the ledger.
+Without `orca.sprite` the desk refuses each remote launch with `LAUNCH-FAILED` and
+starts nothing locally. A Sprite fallback starts the same brief locally, so a brief
 placed remote must also run from a local worktree.
 
 A Sprite lane commits, pushes its branch, and opens its PR from the VM like any

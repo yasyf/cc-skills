@@ -445,22 +445,29 @@ default; `to` lists cci addresses that get every finder record besides the head'
 `repo` defaults to `landing.repo`; `timeout_minutes`, 60 by default, fails a pass with no
 result. The runner reads the object every pass, so adding or changing it needs no restart.
 
-`orca.sprite` is optional. With it, a launch whose brief's `ccx:` line says
-`place=remote`, or `cpu=high` with no `place=`, runs `orca.sprite.launcher`, the
+`orca.sprite` is required for remote launches. A launch whose brief's `ccx:` line says
+`place=remote`, or has no `place=` at all, runs `orca.sprite.launcher`, the
 repository's `worker-launch.sh`, on a Sprite, with `orca.sprite.env` and `WORKER_RUN`
-set by the runner. The runner sets no Sprite limit: the
-provider admits or refuses each one. `place=local` keeps a `cpu=high` launch on the Mac.
-Fable, incident, an incident clock fallback, and a `role=desk` or `role=watch` brief
-launch locally whatever the line says, and so does every launch when `orca.sprite` is
-absent.
+set by the runner. Without `orca.sprite` the runner refuses each remote launch with
+`LAUNCH-FAILED`, naming the missing `orca.sprite` and the config shape shown below, and
+launches nothing locally. The runner sets no Sprite limit: the provider admits or
+refuses each one. `cpu=high` no longer decides placement: a `cpu=high` launch goes to a
+Sprite unless its line says `place=local`. A brief whose line says `place=local`, Fable,
+incident, an incident clock fallback, and a `role=desk` or `role=watch` brief launch
+locally whatever the line says.
 
-Set `CC_REMOTE_CONFIG` in `orca.sprite.env`: without it cc-remote reads
-`~/.config/cc-remote/config.yaml`, and every Sprite launch falls back to local. The
-runner reads its config only at start. A lane name a Sprite refuses, and a Sprite
-launch whose receipts prove worker-start never ran, a provider capacity refusal among
-them, each start the same launch locally and log `SPRITE-FALLBACK` with the reason. A Sprite
-launch with no ready line and no such proof logs `SPRITE-UNVERIFIABLE` and launches
-nothing locally.
+The repository's `worker-launch.sh` defaults `CC_REMOTE_CONFIG` to its own checkout's
+`tools/cc-remote/config.yaml` and `WORKER_CC_REMOTE` to that checkout's
+`tools/cc-remote/bin/cc-remote`; setting `CC_REMOTE_CONFIG` in `orca.sprite.env` pins
+which checkout's config a Sprite launch uses. The live runners are protected, and the
+root never restarts, kills, or signals one: a runner reads its config only at start
+and when it re-executes into a newer installed plugin version, so after adding
+`orca.sprite` the root runs `desk-runner.py handoff --config <config> --desk <desk>`,
+which stops the live runner at the end of its pass and starts the next one with the
+same config. A lane name a Sprite refuses, and a Sprite launch whose receipts prove
+worker-start never ran, a provider capacity refusal among them, each start the same
+launch locally and log `SPRITE-FALLBACK` with the reason. A Sprite launch with no ready
+line and no such proof logs `SPRITE-UNVERIFIABLE` and launches nothing locally.
 A Sprite launch that prints nothing is `UNVERIFIABLE` and is never relaunched.
 
 Generated fix briefs are attachments on `orca.briefs.log`. The runner checks that
