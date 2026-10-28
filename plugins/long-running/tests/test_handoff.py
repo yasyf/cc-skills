@@ -701,7 +701,7 @@ def random_store(seed: int) -> list[dict]:
     return [
         stored(
             key,
-            by="".join(rng.sample([other for other in [*keys, "f"] if other != key], rng.randint(0, 2))),
+            by="".join(rng.sample(pool := [other for other in [*keys, "f"] if other != key], rng.randint(0, min(2, len(pool))))),
             label=rng.choice([PROGRESS, PROGRESS, "progress:other"]),
             deleted=rng.random() < 0.15,
             made=rng.random() < 0.3,
