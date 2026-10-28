@@ -3417,12 +3417,13 @@ screen with `orca terminal read --screen` and puts each terminal in exactly one 
 | `approval` | an approval dialog, such as a hook's ask, a tool permission, or a trust check | one, on the first poll that sees it |
 | `question` | a question picker | one, on the first poll that sees it; none on the coordinator's terminal |
 | `stale` | the agent's own input box, with `agentWait` still set | none; it resolves the prompt's record |
-| `unknown` | nothing the watch can read, or a wait whose screen matches no dialog or input box it knows | one `report` to `root` after three polls |
-| `unreachable` | nothing, because the remote host does not answer | one `report` to `root` after three polls |
+| `unknown` | nothing the watch can read, or a wait whose screen matches no dialog or input box it knows | one `report` to `desk-runner` after three polls |
+| `unreachable` | nothing, because the remote host does not answer | one `report` to `desk-runner` after three polls |
 | `clear` | a working or idle agent with `agentWait` unset | none |
 
 After an `unknown` or `unreachable` report, the watch posts one `READABLE` report to
-`root` once three polls in a row read the terminal again. A shorter read posts nothing,
+`desk-runner` once three polls in a row read the terminal again. Neither reaches root,
+whose window every record addressed to it lands in. A shorter read posts nothing,
 so a terminal or `worker-list` that flaps under load raises no second record for the
 same unread state.
 
