@@ -389,7 +389,7 @@ or a post that prints no `#<seq>`, is posted again on the next pass and escalate
 `deadlines.release_start_minutes` step. A worker's question escalates to root as `DECIDE`, and only a reply this
 drive's root posts with `--re` on that `DECIDE` or on the lane's own record answers it.
 With a `finder` object in runner.json, read again every pass, each orca pass also dispatches the finder
-(reference/finder-brief.md) on every drive head, beside the fidelity desks and never after them; a head whose PR a root `go` names starts first. Each `head` record
+(reference/finder-brief.md) on every drive head, beside the fidelity desks and never after them; a head whose PR a root `go` names starts first. Each `head` or `opened` record
 past the saved sequence that names a PR of `finder.repo`, default `landing.repo`, and a full head, its `commit` field or
 the first full sha of its text that no `was` precedes, queues one `finder:<pr>:<head>` action in the `desk-finder`
 container, so a head two records name queues once; a first read starts at the newest record. At most `finder.concurrent`
@@ -3913,15 +3913,15 @@ class Runner:
             self.tail_failed(failure)
 
     def queue_finders(self, repo: str) -> None:
-        """Accept one `finder:<pr>:<head>` action per PR and full head the drive's `head` records past the saved sequence name, so a head two records name queues once; a first read starts at the newest record."""
+        """Accept one `finder:<pr>:<head>` action per PR and full head the drive's `head` and `opened` records past the saved sequence name, so a head two records name queues once; a first read starts at the newest record."""
         cursor = self.book.load(FINDER).facts.get(FINDER_CURSOR)
         if cursor is None:
             newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
             self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_CURSOR: max((record["seq"] for record in newest), default=0)}))
             return
-        read = cci.records(self.cci_tail, self.config.drive, "--kind=head", since=cursor)
+        read = cci.records(self.cci_tail, self.config.drive, "--kind=head", "--kind=opened", since=cursor)
         for record in read:
-            if record["kind"] != "head" or record["drive"] != self.config.drive:
+            if record["kind"] not in ("head", "opened") or record["drive"] != self.config.drive:
                 continue
             for pr, head in finder.heads(record, repo):
                 self.book.accept(FINDER, f"finder:{pr}:{head}", "finder", json.dumps({"pr": pr, "head": head, "lane": record["lane"], "seq": record["seq"]}), f"cci#{record['seq']}", None)

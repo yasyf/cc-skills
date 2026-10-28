@@ -10197,6 +10197,15 @@ def test_each_head_starts_one_finder_at_once_however_many_records_name_it(shell,
     ]
 
 
+def test_an_opened_record_naming_a_full_head_starts_its_finder(shell, config):
+    finder_config(config)
+    orca_pass(shell, config)
+    head_record(shell, "44099", FINDER_HEAD, kind="opened", fields={}, source="claim", text="opened #Forge-AI/monorepo#44099")
+    head_record(shell, "44099", FINDER_HEAD, kind="opened", fields={}, text=f"OPENED #44099 at {FINDER_HEAD}, on dev")
+    orca_pass(shell, config)
+    assert [(job["pr"], job["head"]) for job in finder_jobs(shell)] == [("44099", FINDER_HEAD)]
+
+
 def test_a_head_a_lane_already_ran_the_finder_on_starts_no_second_pass(shell, config):
     finder_config(config)
     orca_pass(shell, config)
