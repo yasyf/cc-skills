@@ -27,11 +27,20 @@ ROWS = (
 )
 REASONS = "The resubscribe hunks keep the fetched position across a cut, and every caller passes it through unchanged. "
 SWEPT = REASONS + "rows met: rule/949e6be; n/a: prompt/1026-105052; pending: "
+PARENT = "0b0e1f2a3c4d5e6f708192a3b4c5d6e7f8091a2b"
+EARLIER = (f"{OLD_OWN}^..{OLD}", f"{OWN}^..{HEAD}")
+
+
+def pairs(*marks: str) -> str:
+    """`git range-diff --no-patch` output: one parent commit only the earlier head carried, then one line per own commit."""
+    lines = [f" 1:  {PARENT[:11]} <  -:  ----------- api: the parent's commit before its restack"]
+    lines += [f" {index}:  {OLD_OWN[:11]} {mark}  {index - 1}:  {OWN[:11]} sand: the head's own commit" for index, mark in enumerate(marks, 2)]
+    return "\n".join(lines) + "\n"
 
 
 
 class Fake:
-    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0, gone: tuple[str, ...] = ()):
+    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0, gone: tuple[str, ...] = (), ranges: dict | None = None):
         self.tmp_path = tmp_path
         self.replies = list(replies)
         self.state = state
@@ -40,6 +49,7 @@ class Fake:
         self.resolve = resolve or {}
         self.failures = failures
         self.gone = gone
+        self.ranges = ranges or {}
         self.calls: list[tuple[list[str], Path | None]] = []
         self.posted: list[dict] = []
 
@@ -72,6 +82,9 @@ class Fake:
             if any(sha in self.gone for sha in argv):
                 raise subprocess.CalledProcessError(128, argv, stderr="fatal: remote error: upload-pack: not our ref")
             return ""
+        if argv[0] == "range-diff":
+            assert argv[1:3] == ["--no-patch", "--no-color"]
+            return self.ranges[tuple(argv[3:])]
         if argv[0] == "rev-parse":
             if (full := self.resolve.get(argv[-1].removesuffix("^{commit}"))) is None:
                 raise subprocess.CalledProcessError(1, argv)
@@ -87,7 +100,7 @@ class Fake:
 def job(tmp_path: Path, **changes) -> Path:
     directory = tmp_path / "finder-desk" / f"43299-{HEAD[:12]}"
     directory.mkdir(parents=True)
-    spec = {"drive": "d1", "repo": REPO, "pr": "43299", "head": HEAD, "since": "", "prior": None, "lane": "p8a-step9", "to": ["root"], "checkout": str(tmp_path / "checkout"), "model": "sol"}
+    spec = {"drive": "d1", "repo": REPO, "pr": "43299", "head": HEAD, "since": "", "prior": None, "previous": "", "lane": "p8a-step9", "to": ["root"], "checkout": str(tmp_path / "checkout"), "model": "sol"}
     (directory / finder.JOB).write_text(json.dumps(spec | changes))
     return directory
 
@@ -161,12 +174,12 @@ def test_majors_past_ccis_limit_post_a_clipped_line_that_still_reads_major_with_
 def test_a_pass_after_an_earlier_finder_reads_since_that_head_and_checks_its_majors(tmp_path):
     prior = {"seq": 149302, "lane": "p8a-step9", "head": "a269784", "text": "finder: major a269784 1 open: walk.go:9 skips the volume link"}
     directory = job(tmp_path, since=OLD, prior=prior)
-    shell = Fake(tmp_path, [reply()], own={(BASE, HEAD): [OLD_OWN, OWN], (OLD, HEAD): [OWN, NEWER]}, resolve={OLD: OLD})
+    shell = Fake(tmp_path, [reply()], own={(BASE, HEAD): [OWN], (BASE, OLD): [OLD_OWN]}, resolve={OLD: OLD}, ranges={EARLIER: pairs("=", "!")})
     finder.main([str(directory)], shell)
     question = (directory / "question-1.md").read_text()
     assert "Run nothing that builds" in question and "Change no file, branch, or ref" in question
     assert f"origin {HEAD} {BASE}`" in question
-    assert f"neither dev nor {OLD[:12]} carries by patch, each with `git show <sha>`: {OWN}." in question and f"`git diff {OLD_OWN}^ {HEAD}`" in question
+    assert f"`git range-diff {OLD_OWN}^..{OLD} {OWN}^..{HEAD}`" in question and f"the range-diff shows for its pair ({OWN[:11]}); each new commit whole with `git show <sha>` (none)" in question and f"`git diff {OWN}^ {HEAD}`" in question
     assert "cci #149302 from p8a-step9 at a269784" in question and "walk.go:9 skips the volume link" in question
     assert "/plans/durable/plan/plan.md" in question and finder.SCOPED_STEP in question
     assert "rows.md" not in question and not (directory / "rows.md").exists()
@@ -239,22 +252,31 @@ def test_a_failed_pr_read_is_retried_once_after_a_pause(tmp_path, monkeypatch):
     assert "TLS handshake timeout" in result(again)["error"]
 
 
-def test_a_restacked_head_whose_every_own_commit_the_graded_head_carries_by_patch_posts_nothing(tmp_path):
+def test_a_replay_onto_a_moved_parent_whose_every_own_commit_pairs_equal_posts_nothing(tmp_path):
     prior = {"seq": 149302, "lane": "p8a-step9", "head": "a269784", "text": "finder: ok a269784"}
     directory = job(tmp_path, prior=prior)
-    shell = Fake(tmp_path, [], own={(BASE, HEAD): [OWN], (OLD, HEAD): [NEWER]}, resolve={"a269784": OLD})
+    shell = Fake(tmp_path, [], own={(BASE, HEAD): [OWN], (BASE, OLD): [OLD_OWN]}, resolve={"a269784": OLD}, ranges={EARLIER: pairs("=", "=")})
     finder.main([str(directory)], shell)
     assert not shell.asks() and not shell.posted
-    assert result(directory) == {"skipped": f"{REPO}#43299 at {HEAD[:12]} carries no commit {OLD[:12]} lacks, which cci #149302 graded"}
+    assert result(directory) == {"skipped": f"{REPO}#43299 at {HEAD[:12]} replays every own commit of {OLD[:12]} patch for patch"}
+
+
+def test_a_head_whose_only_finder_review_names_no_head_reads_since_the_head_its_head_record_replaced(tmp_path):
+    directory = job(tmp_path, previous=OLD)
+    shell = Fake(tmp_path, [], own={(BASE, HEAD): [OWN], (BASE, OLD): [OLD_OWN]}, resolve={OLD: OLD}, ranges={EARLIER: pairs("=", "=")})
+    finder.main([str(directory)], shell)
+    assert not shell.asks() and not shell.posted
+    assert result(directory) == {"skipped": f"{REPO}#43299 at {HEAD[:12]} replays every own commit of {OLD[:12]} patch for patch"}
+    assert finder.previous({"text": f"HEAD #43299 {HEAD} (was {OLD}): restack onto #42751"}) == OLD and finder.previous({"text": f"HEAD #43299 {HEAD}"}) == ""
 
 
 def test_a_fixed_head_named_short_by_the_last_finder_record_reads_only_its_new_commits(tmp_path):
     prior = {"seq": 149302, "lane": "p8a-step9", "head": "a269784", "text": "finder: ok a269784"}
     directory = job(tmp_path, prior=prior)
-    shell = Fake(tmp_path, [reply()], own={(BASE, HEAD): [OLD_OWN, OWN], (OLD, HEAD): [OWN]}, resolve={"a269784": OLD})
+    shell = Fake(tmp_path, [reply()], own={(BASE, HEAD): [OWN], (BASE, OLD): [OLD_OWN]}, resolve={"a269784": OLD}, ranges={EARLIER: pairs("=", ">")})
     finder.main([str(directory)], shell)
     question = (directory / "question-1.md").read_text()
-    assert f"`git show <sha>`: {OWN}." in question and finder.SCOPED_STEP in question and not (directory / "rows.md").exists()
+    assert f"for its pair (none); each new commit whole with `git show <sha>` ({OWN[:11]})" in question and finder.SCOPED_STEP in question and not (directory / "rows.md").exists()
     assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over {OLD[:7]}..{HEAD[:7]}: no majors"
 
 
