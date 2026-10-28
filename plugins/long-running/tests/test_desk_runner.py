@@ -5254,6 +5254,25 @@ def test_a_drive_naming_the_old_app_check_enqueues_every_head_and_warns_once_on_
     assert all(note["to"] == f"{LANE},fidelity-desk" for note in pending)
 
 
+def test_an_old_app_grade_posted_after_the_pass_scanned_its_reviews_draws_no_warning(shell, config, tmp_path):
+    """Oct 27 #156087: a fidelity desk's old-app line landed while a long landing pass ran, after its one review scan, and the pass still warned OLD-APP-PENDING on that head."""
+    old_app_checked(config)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    scan = shell.cci_tail
+    late = {"seq": 99999, "drive": "d1", "lane": "fidelity-desk", "kind": "review", "to": ["root"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": "old-app: unchanged cccc333"}
+
+    def grade_lands_after_the_scan(argv: list[str]) -> runner_module.Done:
+        done = scan(argv)
+        if "--kind=review" in argv and "--kind=head" in argv and not done.out and late not in shell.records:
+            shell.records.append(late)
+        return done
+
+    shell.cci_tail = grade_lands_after_the_scan
+    landing_pass(shell, config)
+    assert not [note for note in notes(shell) if "OLD-APP-PENDING #29020" in post_body(note)]
+
+
 @pytest.mark.parametrize(("session", "posted", "to"), [(True, False, f"{LANE},fidelity-desk"), (False, True, f"{LANE},fidelity-desk"), (False, False, "fidelity-desk")], ids=["live", "no-session", "dead"])
 def test_an_old_app_warning_reaches_its_living_lane_and_the_fidelity_lanes_and_never_the_root(shell, config, tmp_path, session, posted, to):
     old_app_checked(config)

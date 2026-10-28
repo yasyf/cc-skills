@@ -5276,6 +5276,13 @@ class Landing:
                 self.reviews = cci.records(self.runner.cci_tail, self.runner.config.drive, "--kind=review", "--kind=head")
         return self.reviews
 
+    def rescanned_reviews(self) -> list[dict]:
+        """The pass's scanned reviews plus every `review` and `head` record posted since that scan, so a grade that lands while a long pass runs is read before the pass warns that it is missing."""
+        scanned = self.scanned_reviews()
+        with self.scanning:
+            self.reviews = [*scanned, *cci.records(self.runner.cci_tail, self.runner.config.drive, "--kind=review", "--kind=head", since=max((record["seq"] for record in scanned), default=0))]
+        return self.reviews
+
     def finder_reviews(self, pr: str) -> list[dict]:
         """Every finder review about `pr`."""
         return finder_reviews_in(self.scanned_reviews(), self.runner.config.drive, self.repo, pr)
@@ -5361,15 +5368,22 @@ class Landing:
         if not graded.act:
             return {}
         for pr, sha in graded.heads.items():
-            grades = old_app_grades_in(self.scanned_reviews(), self.runner.config.drive, self.fidelity_lanes, self.repo, pr)
-            if (newest := newest_finder(grades, sha)) and newest["grade"] in OLD_APP_PASSES:
-                continue
-            if not newest and self.carried_by_fidelity(pr, sha, lambda old: (graded_old := newest_finder(grades, old)) is not None and graded_old["grade"] in OLD_APP_PASSES):
+            passes, newest = self.old_app(pr, sha, self.scanned_reviews())
+            if not passes:
+                passes, newest = self.old_app(pr, sha, self.rescanned_reviews())
+            if passes:
                 continue
             why = f"{newest['lane']} graded this head on cci #{newest['seq']}: {newest['text']}" if newest else f"no `old-app:` grade from {self.fidelity_names} names this head; grade it `old-app: unchanged {sha[:7]}`, `old-app: bug fix {sha[:7]}` or `old-app: CHANGES {sha[:7]} <what changes>`"
             text = f"OLD-APP-PENDING #{pr}, and the head is not held for it: {why}"
             self.warn_head(f"old-app:{pr}:{sha[:7]}:{hashlib.sha1(text.encode()).hexdigest()[:8]}", pr, graded, text, also=self.fidelity_to)
         return {}
+
+    def old_app(self, pr: str, sha: str, reviews: list[dict]) -> tuple[bool, dict | None]:
+        """Whether `pr` at `sha` stands at `unchanged` or `bug fix` in `reviews`, by its newest `old-app:` grade or, with none, along a chain of fidelity carries, and that newest grade."""
+        grades = old_app_grades_in(reviews, self.runner.config.drive, self.fidelity_lanes, self.repo, pr)
+        if newest := newest_finder(grades, sha):
+            return newest["grade"] in OLD_APP_PASSES, newest
+        return self.carried_by_fidelity(pr, sha, lambda old: (graded_old := newest_finder(grades, old)) is not None and graded_old["grade"] in OLD_APP_PASSES), None
 
     def check_build_failed(self, graded: Graded) -> dict[str, merge_queue.State]:
         """Each head that `build_failure` finds breaking a package's build fails `BUILD-FAILED`, with one blocker to its lane per head and package."""
