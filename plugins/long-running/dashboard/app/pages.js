@@ -159,13 +159,25 @@ function partPage(part) {
     ['Landed', part.landed.length ? `<ul class="pg-changes">${part.landed.map((name) => `<li>${esc(name)}</li>`).join('')}</ul>` : ''],
   ]);
 }
+function liveSince(table) {
+  const [head, rule, ...rows] = table.trim().split('\n');
+  const col = head.split('|').findIndex((cell) => /blocked since/i.test(cell));
+  const stamp = /\bsince (?:about )?(\d{1,2}:\d{2} [AP]M)(?: ((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}))?/i;
+  const timed = (cell) => {
+    const found = stamp.exec(cell);
+    if (!found) return cell;
+    const iso = found[2] ? new Date(`${found[2]}, ${new Date().getFullYear()} ${found[1]}`).toISOString() : sinceClock(found[1]);
+    return `${cell.replace(/,?\s*\b\d+ h(?: \d+ min)?\b|,?\s*\b\d+ min\b|,?\s*\b\d+ hours?\b/g, '').trim()}; ${blockedFor(iso).replace(/, since .*/, '')} now`;
+  };
+  return [head, rule, ...rows.map((row) => row.split('|').map((cell, i) => (i === col ? ` ${timed(cell.trim())} ` : cell)).join('|'))].join('\n');
+}
 function statusScreen() {
   const m = state.model;
   const red = Object.entries(m.prs).filter(([, pr]) => pr.state === 'open' && (pr.test_state === 'failure' || pr.mergeable_state === 'dirty')).map(([n, pr]) => ({ n, pr, t: prTruth(n) }));
   const problem = (pr) => [pr.mergeable_state === 'dirty' ? 'Merge conflict with its base' : '', pr.test_state === 'failure' ? (pr.failing_checks ?? []).some((c) => /release-pr-check/.test(c.name)) ? 'Tests and the release check fail' : 'Tests fail' : ''].filter(Boolean).join('; ');
   const prRow = ({ n, pr, t }) => `<div class="pg-row"><span class="pg-cells"><b><a href="#/review/${n}">${esc(shortName(n) ?? plainTitle(n))}</a></b><span>${esc(problem(pr))}</span><span>${esc(t.blocks || 'Not known')}</span><span class="st-for">${t.since ? blockedFor(t.since) : '<span class="pg-none">Not known</span>'}</span><span>${esc(t.next || 'No step named yet')}${pr.lane ? ` · <a href="#/worker/${encodeURIComponent(pr.lane)}">${esc(workerName(pr.lane))}</a>` : ''}</span></span></div>`;
   return `<div class="pg">${pageHead('Status')}<p class="pg-lead">Each step of the plan, exactly what blocks it, for how long, and what is being done to unblock it, from the owner table; then every open pull request whose tests fail or that conflicts with its base.</p>
-    <section class="pg-sec"><h2>Every step of the plan</h2><div class="md prose st-table">${markdown(m.status_table.split(/\n\s*\n/)[0])}</div></section>
+    <section class="pg-sec"><h2>Every step of the plan</h2><div class="md prose st-table">${markdown(liveSince(m.status_table.split(/\n\s*\n/)[0]))}</div></section>
     <section class="pg-sec"><h2>Failing tests and merge conflicts <span class="pg-n">${red.length}</span></h2>${red.length ? `<div class="pg-table st-prs">${tableHead('Change', 'Problem', 'Where it stands', 'For', 'What is being done')}${red.map(prRow).join('')}</div>` : '<p class="pg-none">No open pull request has failing tests or a merge conflict.</p>'}</section></div>`;
 }
 function sameWorker(a, b) {
