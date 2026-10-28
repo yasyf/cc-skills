@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 import drive
+import lanes
 import ledger
 import pytest
 from conftest import LEDGER, gateway
@@ -188,3 +189,44 @@ def test_pr_owed_reads_a_root_ruling_addressed_to_the_lane_as_the_answer(home, c
     shell.records = [posted(5, "inc-llmgw-fix", "mechanism", "333417098 fired on OpenAI 499s"), posted(6, "root", "decide", "CLEAR, NOT counted", to=["inc-llmgw-fix", "alerts-desk"], re=5)]
 
     assert pr_owed(shell, "inc-llmgw-fix", capsys) == (1, "not owed: no mechanism of inc-llmgw-fix waits on a PR")
+
+
+def task(task_id: str, created: str, title: str, spec: str = "") -> dict:
+    return {"id": task_id, "created_at": created, "task_title": title, "display_name": title, "spec": spec}
+
+
+def dispatch(dispatch_id: str, task_id: str, outcome: str) -> dict:
+    return {"dispatchId": dispatch_id, "taskId": task_id, "projection": {"outcome": outcome}}
+
+
+TASKS = [
+    task("task_launch", "2026-10-27 09:00:00", "node-test", "Lane node-test: read the whole brief at /home/agent/briefs/node-test.md"),
+    task("task_followup", "2026-10-28 08:10:44", "node-test follow-up", "Follow-up for lane node-test under this new Dispatch: read the whole file"),
+    task("task_spec_only", "2026-10-28 09:00:00", "", "Follow-up for lane node-test under this new Dispatch: read the whole file"),
+    task("task_sibling", "2026-10-28 18:00:00", "node-test-2", "Lane node-test-2: read the whole brief at /home/agent/briefs/node-test-2.md"),
+    task("task_prefixed", "2026-10-28 18:30:00", "dagger-node-test", "Lane dagger-node-test: read the whole brief at /home/agent/briefs/dagger-node-test.md"),
+]
+
+
+def test_an_orca_task_names_a_lane_by_its_title_its_follow_up_title_or_its_spec_never_a_sibling_lane():
+    assert [entry["id"] for entry in TASKS if "node-test" in lanes.task_lanes(entry)] == ["task_launch", "task_followup", "task_spec_only"]
+
+
+def test_a_lane_reports_every_in_progress_dispatch_of_its_tasks_newest_first():
+    workers = [
+        dispatch("ctx_launch", "task_launch", "succeeded"),
+        dispatch("ctx_followup", "task_followup", "in_progress"),
+        dispatch("ctx_spec_only", "task_spec_only", "in_progress"),
+        dispatch("ctx_sibling", "task_sibling", "in_progress"),
+    ]
+    assert lanes.lane_dispatches("node-test", TASKS, workers) == ["ctx_spec_only", "ctx_followup"]
+
+
+def test_a_lane_with_no_dispatch_in_progress_reports_its_newest_tasks_dispatch():
+    workers = [dispatch("ctx_launch", "task_launch", "succeeded"), dispatch("ctx_followup", "task_followup", "failed"), dispatch("ctx_prefixed", "task_prefixed", "in_progress")]
+    assert lanes.lane_dispatches("node-test", TASKS, workers) == ["ctx_followup"]
+
+
+def test_a_dispatch_id_is_its_own_lane_and_an_unknown_lane_reports_nothing():
+    assert lanes.lane_dispatches("ctx_4a4f4a384983", [], []) == ["ctx_4a4f4a384983"]
+    assert lanes.lane_dispatches("no-such-lane", TASKS, [dispatch("ctx_launch", "task_launch", "in_progress")]) == []
