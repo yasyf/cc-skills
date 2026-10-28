@@ -17,7 +17,7 @@ def model():
     return {
         "records": [record(-30, "p8f-replica-3", "#43421 opened.", "opened"), *rulings, record(25, "p8a-step7", "Moving the run store callers.", "report")],
         "workers": [{"lane": "p8a-step7", "at": T0.isoformat(), "prs": []}, {"lane": "p8a-step5-4", "at": T0.isoformat(), "prs": []}],
-        "drive": {"prs": [{"number": 43421, "state": "failing", "worker": {"lane": "p8f-replica-3", "at": T0.isoformat()}, "owner": "p8f-replica-3", "next": "p8f-replica-3 fixes the tests."}]},
+        "drive": {"prs": [{"number": 43421, "state": "failing", "worker": {"lane": "p8f-replica-3", "at": T0.isoformat()}, "owner": "p8f-replica-3", "next": "p8f-replica-3 fixes buildkite/test."}]},
         "prs": {"43421": {"title": "Cloud viewer reads chats through the replica"}},
         "now": {"releases": []},
         "steps": [],
@@ -107,3 +107,37 @@ def test_an_open_blocker_or_work_row_without_its_start_time_is_sent_back(tmp_pat
     assert len(prompts) == 2
     assert "paths.0.nodes.0.since" in prompts[1]
     assert "work.0.since" in prompts[1]
+
+
+def test_nothing_waits_on_the_owner_when_his_board_asks_nothing(tmp_path, monkeypatch):
+    prompts = []
+    phantom = blocked("you")
+    phantom["work"] = [{"item": "replica-release", "workers": ["release-5"], "title": "Release of the chat replica changes", "status": "Ready for you", "latest": "Waits on your release-order choice.", "unblocks": "", "since": "3:55 PM"}]
+
+    def reply(name, prompt, schema):
+        prompts.append(prompt)
+        return json.loads(json.dumps(phantom))
+
+    monkeypatch.setattr(brief, "run_model", reply)
+    curator = Curator({"brief_dir": str(tmp_path), "milestones": []}, model, lambda: None)
+    curator.dir, curator.path = tmp_path, tmp_path / "brief.json"
+    curator.curate()
+    written = json.loads(curator.path.read_text())
+    assert "nothing on his board waits on him" in prompts[1]
+    assert [n for p in written["paths"] for n in p["nodes"] if n["state"] == "you"] == []
+    assert written["work"] == []
+
+
+def test_a_resolved_blocker_leaves_the_writers_facts():
+    m = model()
+    m["records"] += [{**record(26, "p8a-step9", "The current app check expects the earlier release.", "blocker"), "seq": 10}, {**record(27, "root", "Fixed by pinning the baseline.", "decision"), "seq": 11, "resolves": 10}]
+    facts = digest(m, {"milestones": []}, None, T0 + dt.timedelta(minutes=30))
+    assert not any("current app check" in line for line in facts["recent_trouble"])
+
+
+def test_each_change_carries_the_newest_records_about_it():
+    m = model()
+    m["records"].append(record(28, "p8a-step7", "#43421 waits on the replay onto dev, due 8:01 PM.", "report"))
+    [change] = digest(m, {"milestones": []}, None, T0 + dt.timedelta(minutes=30))["open_changes"]
+    assert "waits on the replay onto dev, due 8:01 PM" in change["newest_records"][-1]
+    assert change["next"] == ""

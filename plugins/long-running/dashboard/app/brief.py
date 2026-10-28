@@ -21,6 +21,8 @@ SUCCESSOR = re.compile(r"-\d+$")
 ROOT = {"root", "main"}
 PR_MENTION = re.compile(r"#(\d{4,6})\b")
 CLOCK = re.compile(r"\d{1,2}:\d{2} [AP]M")
+CHECK_PLACEHOLDER = re.compile(r"\bfixes [\w-]+/[\w-]+\.?$")
+BYSTANDERS = ("dashboard", "register", "cc-present", "desk-runner", "stall-watch")
 FINDING = re.compile(r"finding|defect|blocker|must|fails?\b", re.I)
 QUIET = ("--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--tools", "", "--no-session-persistence")
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -125,6 +127,8 @@ Rules for every string:
 - Every change's state comes from open_changes alone (landed changes are absent from it); never call a change queued, merged or failing unless open_changes says so, and never let the headline, the chart and a work row disagree about one.
 - A change that fails only because another change or the shared code is broken is being fixed by that other change's worker: name them, never nobody.
 - One fact, one wording: a node and the work row for the same work must agree (coverage, state, next step).
+- A blocker and a work row state the newest fact about their change, from its newest_records and coordinator_rulings, never an older state left in its next or blocker; since is when that newest state began.
+- Nothing waits on the owner unless waiting_on_owner lists it: no node is you and no work row is Ready for you otherwise.
 - status_paragraphs sit above your page and the owner reads them first: call each change by the same name they use, and never contradict them unless open_changes or a coordinator ruling is newer. When two changes share a subject, such as two cloud viewer changes, name each by what sets it apart.
 - Say new app and current app, never new tree or old tree; name a test by what it proves.
 - Name every thing you mention by what it does for users. Never write an unnamed reference such as "the second part", "two changes", "other work" or "their worker"; say which part, which changes, which work.
@@ -179,11 +183,11 @@ def named_changes(model):
 
 def open_changes(model):
     active = {w["lane"] for w in model["workers"]}
-    rulings = {}
+    rulings, mentions = {}, {}
     for r in model["records"]:
-        if r["lane"] in ROOT:
-            for n in set(PR_MENTION.findall(r["text"])):
-                rulings.setdefault(int(n), []).append(r)
+        for n in set(PR_MENTION.findall(r["text"])):
+            if r["lane"] in ROOT or not r["lane"].startswith(BYSTANDERS):
+                (rulings if r["lane"] in ROOT else mentions).setdefault(int(n), []).append(r)
     changes = []
     for e in model["drive"]["prs"]:
         if e["state"] == "landed":
@@ -191,8 +195,9 @@ def open_changes(model):
         owner = e.get("owner") or (e.get("worker") or {}).get("lane")
         said = rulings.get(e["number"], [])[-3:]
         named = next((found for r in reversed(said) if (found := sorted(lane for lane in active if re.search(rf"(?<![\w-]){re.escape(lane)}(?![\w-])", r["text"])))), [])
-        changes.append({"number": e["number"], "title": clip(model["prs"].get(str(e["number"]), {}).get("title", ""), 120), "state": e["state"], "owner": owner, "next": clip(e.get("next") or "", 160), "blocker": clip(e.get("blocker") or "", 160), "base": e.get("base"), "base_failing": e.get("base_failing"),
-                        "coordinator_rulings": [f"{clock(at(r['at']))}: {clip(r['text'], 500)}" for r in said], "fixers": named or sorted(lane for lane in active if owner and base_lane(lane) == base_lane(owner))})
+        changes.append({"number": e["number"], "title": clip(model["prs"].get(str(e["number"]), {}).get("title", ""), 120), "state": e["state"], "owner": owner, "next": "" if CHECK_PLACEHOLDER.search(e.get("next") or "") else clip(e.get("next") or "", 160), "blocker": clip(e.get("blocker") or "", 160), "base": e.get("base"), "base_failing": e.get("base_failing"),
+                        "coordinator_rulings": [f"{clock(at(r['at']))}: {clip(r['text'], 300)}" for r in said],
+                        "newest_records": [f"{clock(at(r['at']))} {r['kind']} from {r['lane']}: {clip(r['text'], 220)}" for r in mentions.get(e["number"], [])[-2:]], "fixers": named or sorted(lane for lane in active if owner and base_lane(lane) == base_lane(owner))})
     return changes
 
 
@@ -200,6 +205,25 @@ def undated(brief):
     nodes = [f"paths.{i}.nodes.{j}.since" for i, path in enumerate(brief["paths"]) for j, node in enumerate(path["nodes"]) if node["state"] != "done" and not CLOCK.fullmatch(node.get("since", ""))]
     rows = [f"work.{i}.since" for i, row in enumerate(brief["work"]) if not CLOCK.fullmatch(row.get("since", ""))]
     return [f"{path}: empty; give the Pacific clock time of the record that started this wait" for path in nodes + rows]
+
+
+def phantoms(brief, needs):
+    if needs:
+        return []
+    nodes = [f"paths.{i}.nodes.{j}.state" for i, path in enumerate(brief["paths"]) for j, node in enumerate(path["nodes"]) if node["state"] == "you"]
+    rows = [f"work.{i}.status" for i, row in enumerate(brief["work"]) if row["status"] == "Ready for you"]
+    return [f"{path}: nothing on his board waits on him, so nothing here may wait on him" for path in nodes + rows]
+
+
+def without_phantoms(brief, needs):
+    if needs:
+        return brief
+    for path in brief["paths"]:
+        gone = {node["id"] for node in path["nodes"] if node["state"] == "you"}
+        path["nodes"] = [node for node in path["nodes"] if node["id"] not in gone]
+        path["edges"] = [edge for edge in path["edges"] if edge["from"] not in gone and edge["to"] not in gone]
+    brief["work"] = [row for row in brief["work"] if row["status"] != "Ready for you"]
+    return brief
 
 
 def unassigned(brief, changes):
@@ -214,7 +238,8 @@ def digest(model, config, previous, now):
     for worker in model["workers"][:14]:
         mine = [r for r in records if r["lane"] == worker["lane"]][-3:]
         workers.append({"worker": worker["lane"], "last_report": clock(at(worker["at"])), "pull_requests": worker["prs"][:6], "records": [f"{clock(at(r['at']))} {r['kind']}: {clip(r['text'], 280)}" for r in mine]})
-    recent = [r for r in records if r["kind"] in TROUBLE_KINDS and now - at(r["at"]) <= TROUBLE_WINDOW and r["lane"] != "desk-runner" and not r["text"].startswith("Register classify")]
+    closed = {r["resolves"] for r in records if r.get("resolves")}
+    recent = [r for r in records if r["kind"] in TROUBLE_KINDS and r.get("seq") not in closed and now - at(r["at"]) <= TROUBLE_WINDOW and r["lane"] != "desk-runner" and not r["text"].startswith("Register classify")]
     trouble = [f"{clock(at(r['at']))} {r['kind']} from {r['lane']}: {clip(r['text'], 260)}" for r in recent if r["lane"] not in ROOT][-30:]
     rulings = [f"{clock(at(r['at']))} {r['kind']}: {clip(r['text'], 700)}" for r in recent if r["lane"] in ROOT][-15:]
     states = {}
@@ -293,11 +318,11 @@ class Curator:
         prompt = json.dumps(facts, indent=1)
         model_name = self.config.get("curator_model", "claude-opus-5-5")
         brief = run_model(model_name, prompt, SCHEMA)
-        problems = gate(brief, lanes) + undated(brief) + [f"paths.{i}.nodes.{j}.state: change {node['change']} is being fixed by {', '.join(names)}; its state is fixing and how names them by their work" for i, j, node, names in unassigned(brief, facts["open_changes"])]
+        problems = gate(brief, lanes) + undated(brief) + phantoms(brief, facts["waiting_on_owner"]) + [f"paths.{i}.nodes.{j}.state: change {node['change']} is being fixed by {', '.join(names)}; its state is fixing and how names them by their work" for i, j, node, names in unassigned(brief, facts["open_changes"])]
         if problems:
             brief = run_model(model_name, prompt + "\n\nYOUR LAST ANSWER BROKE THESE RULES; return the whole object again with each fixed:\n" + "\n".join(problems) + "\n\nLAST ANSWER:\n" + json.dumps(brief), SCHEMA)
             problems = gate(brief, lanes)
-        brief = self.keep_passing(brief, problems, lanes)
+        brief = without_phantoms(self.keep_passing(brief, problems, lanes), facts["waiting_on_owner"])
         for _, _, node, _ in unassigned(brief, facts["open_changes"]):
             node["state"] = "fixing"
         brief["at"] = now.isoformat()

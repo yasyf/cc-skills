@@ -233,7 +233,7 @@ function storyBody(item) {
   const latest = lines[0];
   const shown = story.open ? lines : lines.slice(0, 3);
   const hidden = lines.length - shown.length;
-  return `<div class="nw-storyhead"><h3>${esc(w.title)}</h3><p class="now"><span class="chip st-${esc(w.status.toLowerCase().replace(/\s+/g, '-'))}">${esc(w.status)}</span>${waited(w.since) ? `<span class="for">${waited(w.since)}.</span> ` : ''}<b>Now:</b> ${esc(w.latest)}</p>
+  return `<div class="nw-storyhead"><h3>${esc(w.title)}</h3><p class="now"><span class="chip st-${esc(w.status.toLowerCase().replace(/\s+/g, '-'))}">${esc(w.status)}</span>${waited(w.since) ? `<span class="for">${waited(w.since)}.</span> ` : ''}<b>Now:</b> ${esc(latest ? latest.line : w.latest)}</p>
     ${latest ? `<p class="nw-sub">Latest update ${esc(latest.at)}</p>` : ''}</div>
     ${story.status ? `<p class="catching">${/^(Catching|Opening)/.test(story.status) ? '<i></i>' : ''}${esc(story.status)}</p>` : ''}
     ${story.draft ? `<div class="beat draft"><span class="t"></span><span class="ln">${esc(story.draft)}<i class="cursor"></i></span></div>` : ''}

@@ -1,3 +1,4 @@
+import json
 import re
 import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -9,6 +10,7 @@ from playwright.sync_api import sync_playwright
 APP = Path(__file__).resolve().parents[1] / "dashboard" / "app"
 MODEL = Path(__file__).resolve().parent / "fixtures" / "now-model.json"
 LAPTOP = {"width": 1440, "height": 900}
+STORY = {"type": "saved", "status": None, "draft": None, "lines": [{"type": "line", "at": "7:20 PM", "mark": "progress", "line": "Three files still use the deleted store; the reader change removes them."}, {"type": "line", "at": "6:02 PM", "mark": "finding", "line": "The build fails in 41 packages."}]}
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -19,6 +21,8 @@ class Handler(SimpleHTTPRequestHandler):
         path = self.path.split("?")[0]
         if path == "/api/model":
             return self.reply(MODEL.read_bytes(), "application/json")
+        if path.startswith("/api/story/"):
+            return self.reply(f"data: {json.dumps(STORY)}\n\n".encode(), "text/event-stream")
         if path.startswith("/api/"):
             return self.reply(b"", "text/event-stream")
         return super().do_GET()
@@ -99,3 +103,10 @@ def test_needs_you_headings_are_one_neutral_color(page):
         .map((h) => h.textContent)""")
     assert page.locator(".bcard > header .nmark").count() == 0
     assert loud == []
+
+
+def test_a_storys_now_line_is_its_newest_update(page):
+    item = json.loads(MODEL.read_text())["brief"]["work"][0]["item"]
+    page.goto(page.url.split("#")[0] + f"#/story/{item}")
+    page.wait_for_selector(".nw-storyhead .nw-sub")
+    assert "Three files still use the deleted store" in page.locator(".nw-storyhead .now").inner_text()
