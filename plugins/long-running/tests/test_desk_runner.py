@@ -7622,10 +7622,29 @@ def test_a_fresh_order_a_fresh_spawn_or_a_report_the_root_settled_logs_no_lane_g
     assert not [line for line in escalations(shell) if line.startswith("LANE-GONE")]
 
 
+@pytest.mark.parametrize(
+    ("kind", "text", "gone"),
+    [
+        ("decide", "Owners for the reds: team 10 -> drive-watchdog; #29020 stays with p8-lane, READY", False),
+        ("note", "p8-lane: FYI the seed moved", False),
+        ("ask", "which seed did #29020 run on?", True),
+        ("correction", "p8-lane: rebase onto the new seed", True),
+    ],
+    ids=["decide-listing-the-lane", "note", "ask", "correction-ordering-the-lane"],
+)
+def test_a_lane_with_no_session_is_gone_only_when_a_root_record_it_owes_goes_unanswered(shell, config, tmp_path, kind, text, gone):
+    cci_record(shell, lane="p8-lane", kind="head", text="HEAD #29020 cccc333333", at=actions.stamp(shell.clock - timedelta(minutes=40)))
+    cci_record(shell, kind=kind, to=["p8-lane", "drive-watchdog"], text=text, at=actions.stamp(shell.clock - timedelta(minutes=30)))
+    shell.gone.add("p8-lane")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert len([line for line in escalations(shell) if line.startswith("LANE-GONE lane-gone:p8-lane ")]) == gone
+
+
 @pytest.mark.parametrize("lane", ["stall-watch", "prompt-watch"])
 def test_a_root_order_to_a_runner_child_pass_logs_no_lane_gone(shell, config, tmp_path, lane):
     cci_record(shell, lane=lane, kind="urgent", to=["root"], text="STALE #29020 at cccc333, 130 min: held", at=actions.stamp(shell.clock - timedelta(minutes=40)))
-    cci_record(shell, kind="note", to=[lane], text="closing the stale alarms on #29020", at=actions.stamp(shell.clock - timedelta(minutes=30)))
+    cci_record(shell, kind="decide", to=[lane], text=f"{lane}: close the stale alarms on #29020", at=actions.stamp(shell.clock - timedelta(minutes=30)))
     shell.gone.add(lane)
     orca_pass(shell, config)
     orca_pass(shell, config)

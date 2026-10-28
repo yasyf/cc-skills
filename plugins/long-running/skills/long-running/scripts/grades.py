@@ -186,6 +186,13 @@ def precondition_sentences(text: str) -> list[str]:
     return [" ".join(text[start:end].split()) for start, end in zip(cuts[::2], cuts[1::2]) if PRECONDITION.search(masked[start:end])]
 
 
+def owes(record: dict, lane: str) -> bool:
+    """Whether a record addressed to `lane` waits on its answer: an `ask`, or a `decide` or `correction` whose text gives `lane` or a numbered successor an order as `<lane>: ...`; a lane only listed as a recipient owes nothing."""
+    if record["kind"] == "ask":
+        return True
+    return record["kind"] in ("decide", "correction") and re.search(rf"(?<![\w-]){re.escape(lane)}(?:-\d+)?:", full_text(record)) is not None
+
+
 def full_text(record: dict) -> str:
     """The whole text of `record`: the body file cci spilled it to when it ran past cci's text limit, else its text."""
     spilled = Path(record.get("refs", {}).get("path") or "")
