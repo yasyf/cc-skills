@@ -305,8 +305,11 @@ class Stories:
             return found
 
     def transcript(self, workers):
-        candidates = [path for lane in workers for path in self.transcripts.glob(f"agent-a{re.sub(r'-\d+$', '', lane)}*.jsonl")]
-        return max(candidates, key=lambda p: p.stat().st_mtime, default=None)
+        for lane in workers:
+            candidates = list(self.transcripts.glob(f"agent-a{re.sub(r'-\d+$', '', lane)}-*.jsonl"))
+            if candidates:
+                return max(candidates, key=lambda p: p.stat().st_mtime)
+        return None
 
     def started(self, story):
         with self.lock:
