@@ -275,6 +275,7 @@ function render() {
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
   const typing = document.activeElement?.matches('#main input, #main textarea') ? document.activeElement : null;
   const caret = typing && [typing.name, typing.dataset.draft ?? '', typing.selectionStart, typing.selectionEnd];
+  const spot = !typing && state.shown === location.hash && focusSpot();
   $('#main').innerHTML = (screens[r.screen] ?? nowScreen)() + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources failed: ${esc(Object.values(m.errors).join('; '))}. ` : ''}All times Pacific.</div>`;
   decorate(r);
   paintModal();
@@ -285,6 +286,7 @@ function render() {
   }
   const again = caret && [...$('#main').querySelectorAll(`[name="${caret[0]}"]`)].find((el) => (el.dataset.draft ?? '') === caret[1]);
   if (again) { again.focus(); again.setSelectionRange(caret[2], caret[3]); }
+  if (spot) refocus(spot);
   window.scrollTo(0, y);
   for (const [id, left, top] of kept) { const el = document.querySelector(`[data-keep-scroll="${id}"]`); if (el) [el.scrollLeft, el.scrollTop] = [left, top]; }
   syncReviewEmbed(r);
@@ -297,6 +299,21 @@ function render() {
   else if (r.screen === 'work' && r.id) follow(decodeURIComponent(r.id));
   else unfollow();
   tickFresh();
+}
+const FOCUSABLE = 'a[href], button, summary, input, select, textarea, [tabindex]';
+function signature(el) {
+  return [...el.attributes].filter((a) => a.name !== 'class').map((a) => `${a.name}=${a.value}`).join(' ');
+}
+function focusSpot() {
+  const el = document.activeElement;
+  if (!el || !$('#main').contains(el)) return null;
+  const stops = [...$('#main').querySelectorAll(FOCUSABLE)];
+  const sig = signature(el);
+  return { sig, nth: stops.filter((x) => signature(x) === sig).indexOf(el), at: stops.indexOf(el) };
+}
+function refocus(spot) {
+  const stops = [...$('#main').querySelectorAll(FOCUSABLE)];
+  (stops.filter((x) => signature(x) === spot.sig)[spot.nth] ?? stops[spot.at])?.focus({ preventScroll: true });
 }
 function tickFresh() {
   const m = state.model;
@@ -358,32 +375,40 @@ document.addEventListener('submit', (e) => {
   e.preventDefault();
   ask(e.target.q.value);
 });
+function leave(to) {
+  if (history.state?.inApp) history.back();
+  else location.replace(to);
+}
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && state.overlay) closeSheet();
-  else if (e.key === 'Escape' && route().screen === 'story') location.hash = '#/';
-  else if (e.key === 'Escape' && route().screen === 'work' && route().id) location.hash = '#/work';
+  else if (e.key === 'Escape' && ov.embedCard) { ov.embedCard = null; render(); }
+  else if (e.key === 'Escape' && route().screen === 'story') leave('#/');
+  else if (e.key === 'Escape' && route().screen === 'work' && route().id) leave('#/work');
   if (e.key === 'Enter' && !e.shiftKey && e.target.matches('#ask textarea')) { e.preventDefault(); ask(e.target.value); }
 });
 function paintModal() {
   const root = document.getElementById('modal-root') ?? document.body.appendChild(Object.assign(document.createElement('div'), { id: 'modal-root' }));
-  const ms = /^m(\d+)$/.exec(state.overlay ?? '');
-  const p = ms && curated('plan');
+  const [, kind, at] = /^([ms])(\d+)$/.exec(state.overlay ?? '') ?? [];
+  const p = kind === 'm' && curated('plan');
+  const step = kind === 's' && statusRows().rows[at];
   const held = root.contains(document.activeElement) ? document.activeElement.getAttribute('href') : null;
-  const html = p ? `<div class="overlay" data-close="1"><div class="sheet ms-sheet" role="dialog" aria-modal="true" aria-label="${esc(state.model.milestones[ms[1]] ?? 'Milestone')}"><button class="btn close" data-close="1">Close <kbd>Esc</kbd></button>${milestonePage(p, Number(ms[1]))}<p class="acts ms-out"><a class="btn" data-out href="#/plan/m${ms[1]}">Open as its own page ›</a></p></div></div>` : '';
+  const sheet = (label, body) => `<div class="overlay" data-close="1"><div class="sheet ms-sheet" role="dialog" aria-modal="true" aria-label="${esc(label)}"><button class="btn close" data-close="1">Close <kbd>Esc</kbd></button>${body}</div></div>`;
+  const html = p ? sheet(state.model.milestones[at] ?? 'Milestone', `${milestonePage(p, Number(at))}<p class="acts ms-out"><a class="btn" data-out href="#/plan/m${at}">Open as its own page ›</a></p>`)
+    : step ? sheet(step[0], statusStep(step)) : '';
   if (state.modalHtml !== html) {
     const opening = !state.modalHtml;
     root.innerHTML = html;
     state.modalHtml = html;
     if (opening && html) root.firstElementChild.classList.add('enter');
   }
-  document.body.classList.toggle('modal-open', Boolean(p));
+  document.body.classList.toggle('modal-open', Boolean(html));
   if (held) root.querySelector(`a[href="${CSS.escape(held)}"]`)?.focus();
 }
 document.addEventListener('click', (e) => {
-  const link = e.target.closest('a[href^="#/plan/m"]');
+  const link = e.target.closest('a[href^="#/plan/m"], a[href^="#/status/s"]');
   if (!link || e.metaKey || e.ctrlKey || e.shiftKey) return;
   if (link.hasAttribute('data-out')) { state.overlay = null; return; }
-  const ms = /^#\/plan\/(m\d+)$/.exec(link.getAttribute('href'));
+  const ms = /^#\/(?:plan|status)\/([ms]\d+)$/.exec(link.getAttribute('href'));
   if (!ms || (link.closest('.pg-page') && !link.closest('#modal-root'))) return;
   e.preventDefault();
   e.stopImmediatePropagation();
@@ -414,6 +439,7 @@ window.addEventListener('popstate', (e) => {
   (state.opener?.isConnected ? state.opener : href && document.querySelector(`#main a[href="${CSS.escape(href)}"]`))?.focus();
 });
 window.addEventListener('hashchange', () => {
+  if (!history.state) history.replaceState({ inApp: true }, '');
   state.overlay = null;
   render();
   window.scrollTo(0, history.state?.y ?? 0);
