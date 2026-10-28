@@ -5824,6 +5824,40 @@ def test_an_incident_fix_landing_owes_its_release_with_no_label_or_release_with_
     assert late["text"].startswith("#36642 5e11a9d0c2: landed 3 minutes ago as an incident fix, and no cci `release` record since targets a component or names #36642. Start the release its squash needs now and post `release --build <url> --target <component>`") and "repeats every 3 minutes" in late["text"]
 
 
+def clearing_record(shell: FakeShell, pr: str, kind: str, seq: int) -> None:
+    text = "no release is owed for it" if kind == "release" else "not an incident fix, off the incident path: no squash"
+    shell.records.append({"seq": seq, "drive": "d1", "lane": "root", "kind": kind, "status": "open", "to": ["desk-runner"], "refs": {"prs": [f"Forge-AI/monorepo#{pr}"]}, "text": f"#{pr}: {text}", "at": actions.stamp(shell.clock)})
+
+
+@pytest.mark.parametrize("kind", ["go", "decide", "release"])
+def test_a_squashed_fix_whose_incident_tag_is_cleared_before_its_landing_is_read_owes_no_release(shell, config, tmp_path, kind):
+    """#44193: the runner squashed a fix, a root decide then took it off the incident path, and the runner still posted the release its squash owed and pressed it every 10 minutes."""
+    incident_pr(shell)
+    shell.bodies["36650"] = "Fixes the sand migrate check.\n"
+    landing_pass(shell, config)
+    assert len(merges(shell)) == 1
+    clearing_record(shell, "36650", kind, 9502)
+    shell.sleep(60)
+    shell.rows = [shell.rows[0] | {"state": "landed", "landed_sha": INCIDENT_SQUASH, "landed_at": actions.stamp(shell.now())}]
+    landing_pass(shell, config)
+    shell.sleep(15 * 60)
+    landing_pass(shell, config)
+    assert [post for post in shell.posts if post["kind"] in ("release", "blocker")] == []
+
+
+@pytest.mark.parametrize("kind", ["go", "decide"])
+def test_an_incident_landing_whose_tag_is_cleared_after_its_release_record_stops_its_blockers(shell, config, tmp_path, kind):
+    live_clock(tmp_path, shell)
+    land_incident(shell, config)
+    landing_pass(shell, config)
+    assert [post["kind"] for post in shell.posts] == ["release"]
+    clearing_record(shell, "36642", kind, 9503)
+    shell.sleep(3 * 60)
+    landing_pass(shell, config)
+    assert blockers(shell) == []
+    assert incident(tmp_path, "desk-landing").actions["release:36642"].verification_receipt["cleared"]
+
+
 def test_an_incident_fix_landing_settles_only_on_a_release_record_with_a_build(shell, config, tmp_path):
     live_clock(tmp_path, shell)
     land_incident(shell, config, FAST_BODY)
