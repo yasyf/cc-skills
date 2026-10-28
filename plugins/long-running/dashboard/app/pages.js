@@ -301,7 +301,7 @@ function reviewScreen(list) {
     ${needsTotal() ? '' : '<p class="pg-lead">Nothing waits on you. When a change or a question needs you, it shows here and in the band on Now.</p>'}
     ${needsTotal() && !merges ? '<p class="pg-rel">No change waits on your approval right now.</p>' : ''}
     ${merges}
-    ${cards.length ? `<section class="pg-sec"><h2>Questions</h2><div class="mr-list">${cards.map(boardCard).join('')}</div></section>` : ''}</div>`;
+    ${cards.length ? `<section class="pg-sec" id="review-questions"><h2>Questions</h2><div class="mr-list">${cards.map(boardCard).join('')}</div></section>` : ''}</div>`;
 }
 
 function historyEntry(e) {

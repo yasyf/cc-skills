@@ -291,9 +291,9 @@ function render() {
   for (const [id, left, top] of kept) { const el = document.querySelector(`[data-keep-scroll="${id}"]`); if (el) [el.scrollLeft, el.scrollTop] = [left, top]; }
   syncReviewEmbed(r);
   syncCardEmbed(r);
-  if (r.screen === 'review' && r.id === 'q' && r.tab && state.focused !== location.hash) {
+  if (r.screen === 'review' && r.id === 'q' && state.focused !== location.hash) {
     state.focused = location.hash;
-    document.getElementById(`card-${decodeURIComponent(r.tab)}`)?.scrollIntoView({ block: 'center' });
+    (r.tab ? document.getElementById(`card-${decodeURIComponent(r.tab)}`) : document.getElementById('review-questions'))?.scrollIntoView({ block: r.tab ? 'center' : 'start' });
   }
   if ((screens[r.screen] ?? nowScreen) === nowScreen) mountNow();
   else if (r.screen === 'work' && r.id) follow(decodeURIComponent(r.id));
@@ -304,15 +304,15 @@ const FOCUSABLE = 'a[href], button, summary, input, select, textarea, [tabindex]
 function signature(el) {
   return [...el.attributes].filter((a) => a.name !== 'class').map((a) => `${a.name}=${a.value}`).join(' ');
 }
-function focusSpot() {
+function focusSpot(root = $('#main')) {
   const el = document.activeElement;
-  if (!el || !$('#main').contains(el)) return null;
-  const stops = [...$('#main').querySelectorAll(FOCUSABLE)];
+  if (!el || !root.contains(el)) return null;
+  const stops = [...root.querySelectorAll(FOCUSABLE)];
   const sig = signature(el);
   return { sig, nth: stops.filter((x) => signature(x) === sig).indexOf(el), at: stops.indexOf(el) };
 }
-function refocus(spot) {
-  const stops = [...$('#main').querySelectorAll(FOCUSABLE)];
+function refocus(spot, root = $('#main')) {
+  const stops = [...root.querySelectorAll(FOCUSABLE)];
   (stops.filter((x) => signature(x) === spot.sig)[spot.nth] ?? stops[spot.at])?.focus({ preventScroll: true });
 }
 function tickFresh() {
@@ -391,7 +391,7 @@ function paintModal() {
   const [, kind, at] = /^([ms])(\d+)$/.exec(state.overlay ?? '') ?? [];
   const p = kind === 'm' && curated('plan');
   const step = kind === 's' && statusRows().rows[at];
-  const held = root.contains(document.activeElement) ? document.activeElement.getAttribute('href') : null;
+  const spot = focusSpot(root);
   const sheet = (label, body) => `<div class="overlay" data-close="1"><div class="sheet ms-sheet" role="dialog" aria-modal="true" aria-label="${esc(label)}"><button class="btn close" data-close="1">Close <kbd>Esc</kbd></button>${body}</div></div>`;
   const html = p ? sheet(state.model.milestones[at] ?? 'Milestone', `${milestonePage(p, Number(at))}<p class="acts ms-out"><a class="btn" data-out href="#/plan/m${at}">Open as its own page ›</a></p>`)
     : step ? sheet(step[0], statusStep(step)) : '';
@@ -402,7 +402,7 @@ function paintModal() {
     if (opening && html) root.firstElementChild.classList.add('enter');
   }
   document.body.classList.toggle('modal-open', Boolean(html));
-  if (held) root.querySelector(`a[href="${CSS.escape(held)}"]`)?.focus();
+  if (spot) refocus(spot, root);
 }
 document.addEventListener('click', (e) => {
   const step = !e.target.closest('a') && e.target.closest('.st-table tr[data-step]');
@@ -446,7 +446,7 @@ window.addEventListener('hashchange', () => {
   if (!history.state) history.replaceState({ inApp: true }, '');
   state.overlay = null;
   render();
-  window.scrollTo(0, history.state?.y ?? 0);
+  if (!/^#\/review\/q(\/|$)/.test(location.hash)) window.scrollTo(0, history.state?.y ?? 0);
 });
 function keepScroll() {
   history.replaceState({ ...history.state, y: window.scrollY }, '');
