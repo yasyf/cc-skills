@@ -10329,3 +10329,77 @@ def test_the_build_failed_check_without_its_config_refuses_to_start(shell, confi
     raw = json.loads(config.read_text())
     raw["landing"]["checks"] = [*runner_module.merge_queue.CHECKS, "build-failed"]
     assert "runs the build-failed check with no landing.build_failures or no landing.ci_build" in runner_module.mq_config_fault(raw["landing"])
+
+
+DESK = "landing-desk-3"
+
+
+def desk_lane(config: Path) -> None:
+    raw = json.loads(config.read_text())
+    raw["landing"]["desk_lane"] = DESK
+    config.write_text(json.dumps(raw))
+
+
+def heard(shell: FakeShell, label: str) -> list[str]:
+    return [post["to"] for post in shell.posts if post_body(post).startswith(label)]
+
+
+def test_with_a_desk_lane_queued_and_landed_go_to_the_desk_and_the_owning_lane_and_never_to_root(shell, config, tmp_path):
+    merge_mode(config, "every")
+    desk_lane(config)
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    landing_pass(shell, config)
+    shell.rows[0] |= {"state": "landed", "landed_sha": "dddd444444"}
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert (heard(shell, "QUEUED"), heard(shell, "LANDED")) == ([f"{DESK},{LANE}"], [f"{DESK},{LANE}"])
+
+
+def test_with_a_desk_lane_a_merge_ask_skips_root(shell, config, tmp_path):
+    board_surface(config)
+    desk_lane(config)
+    lone_green_pr(shell)
+    shell.queue["29020"] = "not queued"
+    shell.pr_status["29020"] = {"verdict": "landable"}
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert heard(shell, "MERGE-ASK") == [f"{DESK},{LANE}"] and escalations(shell) == []
+
+
+def test_with_a_desk_lane_a_below_blocked_note_skips_root(shell, config, tmp_path):
+    board_surface(config)
+    desk_lane(config)
+    two_pr_stack(shell)
+    merge_go(shell, "29031", "merge #29031 at dddd444")
+    landing_pass(shell, config)
+    assert heard(shell, "BELOW-BLOCKED") == [f"{DESK},{LANE}"]
+
+
+def test_with_a_desk_lane_a_carried_tap_tells_the_desk_the_board_and_the_owning_lane(shell, config, tmp_path):
+    board_surface(config)
+    board_lane(config)
+    desk_lane(config)
+    lone_green_pr(shell)
+    tap(shell, "29020", "aaaa111111")
+    head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): restack onto dev, range-diff patch-identical (3 commits)")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert heard(shell, "TAP-CARRIED") == [f"{DESK},board-refresher,{LANE}"]
+
+
+def test_with_a_desk_lane_only_the_first_go_unqueued_for_a_pr_reaches_root(shell, config, tmp_path):
+    merge_mode(config, "every")
+    desk_lane(config)
+    gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
+    shell.queue["33001"] = "not queued"
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    shell.rows[0] |= {"head": "bbbb222222", "reported_head": "bbbb222222"}
+    shell.gates["33001"] = [gate("#33001 BLOCKED bbbb222222 merge conflict (graphite CONFLICT)")]
+    merge_go(shell, "33001", "merge #33001 at bbbb222")
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert heard(shell, "GO-UNQUEUED") == ["root", f"{DESK},{LANE}"]

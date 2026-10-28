@@ -1568,9 +1568,34 @@ class Runner:
     def now(self) -> datetime:
         return self.shell.now()
 
-    def escalate(self, key: str, kind: str, about: str, text: str, subject: str = "") -> None:
-        """Record one escalation per key; `flush` posts it to root through cci with its subject, the key unless given, as its topic, so cci delivers only the newest report on a subject the root has not read yet."""
-        self.record(f"escalation:{key}", f"{kind} {subject or key} {about}: {' '.join(text.split())}")
+    def escalate(self, key: str, kind: str, about: str, text: str, subject: str = "", to: str = "") -> None:
+        """Record one escalation per key; `flush` posts it to root through cci with its subject, the key unless given, as its topic, so cci delivers only the newest report on a subject the root has not read yet. With `to`, it goes to those lanes instead, posted at once and recorded only once posted, so a failed post runs again on the next pass."""
+        action_id, line = f"escalation:{key}", f"{kind} {subject or key} {about}: {' '.join(text.split())}"
+        if not to:
+            self.record(action_id, line)
+            return
+        if self.book.known(RUNNER, action_id):
+            return
+        done = self.post_escalation(line, to, action_id)
+        if done.code != 0:
+            print(f"escalation {key} to {to} left for the next pass; cci post exited {done.code}: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
+            return
+        self.record(action_id, line)
+        self.book.attempt(RUNNER, lambda incident: (incident.start(action_id, self.now()), incident.complete(action_id, {"at": self.book.stamp(), "posted": done.out.strip(), "to": to})))
+
+    def raised_before(self, key: str, subject: str) -> bool:
+        """Whether an escalation under another key already named `subject`."""
+        return any(action.action_id != f"escalation:{key}" and action.target.split()[1] == subject for action in self.book.actions(RUNNER, kind="escalation"))
+
+    def landing_lanes(self, member: str) -> list[str]:
+        """The lanes `landing.<member>` names, one or a list, re-read on every use."""
+        configured = json.loads(self.config.source.read_text()).get("landing", {}).get(member, [])
+        return [configured] if isinstance(configured, str) else list(configured)
+
+    def post_escalation(self, line: str, to: str, action_id: str) -> Done:
+        label, topic = line.split()[:2]
+        message = self.message_file(topic)
+        return self.cci_post(ESCALATION_KINDS.get(label, "defect" if label.endswith("-FAILED") else "report"), line, to, topic, action_id, message.read_text() if message.is_file() else "")
 
     def record(self, action_id: str, line: str) -> None:
         self.book.accept(RUNNER, action_id, "escalation", line, "runner", None)
@@ -1620,14 +1645,12 @@ class Runner:
             self.release_deferred()
         held = set(self.book.load(RUNNER).facts.get(DEFERRED, {"ids": []})["ids"])
         for action in self.book.actions(RUNNER, kind="escalation", status="accepted"):
-            label, topic = action.target.split()[:2]
+            label = action.target.split()[0]
             if clocks and label in DEFERRABLE and action.target.split()[2].rstrip(":") not in incident:
                 if action.action_id not in held:
                     self.defer(action, clocks)
                 continue
-            kind = ESCALATION_KINDS.get(label, "defect" if label.endswith("-FAILED") else "report")
-            message = self.message_file(topic)
-            done = self.cci_post(kind, action.target, "root", topic, action.action_id, message.read_text() if message.is_file() else "")
+            done = self.post_escalation(action.target, ROOT, action.action_id)
             if done.code != 0:
                 failures.append(f"cci post exited {done.code}: {(done.err or done.out).strip()[:300]}")
                 continue
@@ -3428,7 +3451,9 @@ class Runner:
                 said = f"its last record is #{last['seq']} {last['kind']} at {pacific(actions.parse_stamp(last['at']))}" if last else f"it posted nothing in the last {LANE_ORDER_WINDOW.seconds // 3600} h"
                 sight = f"cci last saw it {whole_minutes(seen, now)} min ago" if seen else "cci lists no session for it"
                 orders_named = ", ".join(f"#{order['seq']}" for order in unanswered)
-                self.escalate(f"lane-gone:{lane}:{unanswered[-1]['seq']}", "LANE-GONE", lane, f"root {orders_named} to {lane} unanswered; {said}, and {sight}; a roster or cci miss is not absence: SendMessage it and spawn a successor only when it has not answered in 5 minutes", f"lane-gone:{lane}")
+                key, subject = f"lane-gone:{lane}:{unanswered[-1]['seq']}", f"lane-gone:{lane}"
+                to = ",".join(dict.fromkeys([*desks, *self.landing_lanes("board_lane"), lane])) if self.raised_before(key, subject) and (desks := self.landing_lanes("desk_lane")) else ""
+                self.escalate(key, "LANE-GONE", lane, f"root {orders_named} to {lane} unanswered; {said}, and {sight}; a roster or cci miss is not absence: SendMessage it and spawn a successor only when it has not answered in 5 minutes", subject, to)
         except CciTailFailed as failure:
             self.tail_failed(failure)
 
@@ -4624,7 +4649,7 @@ class Landing:
             on = [f"{named(untapped)} with no go at that head"] * bool(untapped) + [f"{named(on_hold)}, which a hold covers"] * bool(on_hold) + [f"{named(broken)}, red on CI or conflicting with its base"] * bool(broken)
             asks = ["the owner taps each parent's merge row and root posts `go #<parent> at <head>`"] * bool(untapped) + ["the stack waits for each hold to lift"] * bool(on_hold) + ["each red or conflicting parent's lane makes it green and mergeable"] * bool(broken)
             label = "BELOW-HELD" if len(on_hold) == len(parents) else "BELOW-BLOCKED"
-            self.post_record("note", key, ROOT, f"{label} above #{lowest}: root gos name {named(gone)}, stacked on {' and '.join(on)}, so none of them is enqueued, and the stack below #{lowest} lands without them; {'; '.join(asks)}", lowest)
+            self.post_record("note", key, ROOT if label == "BELOW-HELD" else self.landing_audience([*parents, *gone], open_rows, ROOT), f"{label} above #{lowest}: root gos name {named(gone)}, stacked on {' and '.join(on)}, so none of them is enqueued, and the stack below #{lowest} lands without them; {'; '.join(asks)}", lowest)
 
     def stack_trees(self, rows: dict[str, dict], held: list[str]) -> list[list[str]]:
         """The tips to gate, as `trees` groups them or one tip each under the whole-stack policy, over the rows no hold covers, so no call names a held PR or one stacked above it; every tip at or above an incident fix is left out."""
@@ -5571,8 +5596,14 @@ class Landing:
 
     @property
     def board_lanes(self) -> list[str]:
-        configured = self.landing_config.get("board_lane", [])
-        return [configured] if isinstance(configured, str) else list(configured)
+        return self.runner.landing_lanes("board_lane")
+
+    def landing_audience(self, prs: list[str], rows: dict[str, dict], unstaffed: str) -> str:
+        """Who hears a landing record in root's place: each `landing.desk_lane`, each `landing.board_lane`, and each PR's owning lane, as its live successor; `unstaffed` while no desk lane is named."""
+        if not (desks := self.runner.landing_lanes("desk_lane")):
+            return unstaffed
+        owners = filter(None, (rows.get(pr, {}).get("lane") for pr in prs))
+        return ",".join(dict.fromkeys(map(self.successor, [*desks, *self.board_lanes, *owners])))
 
     def carry_taps(self, rows: dict[str, dict]) -> None:
         """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head when a chain of `head` records reading `<new> (was <old>)` and fidelity carries calls each move patch-identical: `cc-present verdict carry` records it, so the row shows his tap and asks nothing, and one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads. A tap whose new head a record names with no such chain, a fixed version, is never carried: a record saying the head adds new behavior draws one `TAP-NOT-CARRIED` note to the same lanes saying the board needs a new row, and a fidelity ok grade of the head that names none draws one `TAP-KEPT` note saying his tap keeps over that review fix, so root posts the go naming the fix and the row lists it (rule 399b5fa, root #151306). A head a root `go` or a patch-identical fidelity carry grade already names is settled and gets no such note, and a carry onto a merge block the board no longer holds has nothing to carry, so it logs no `TAP-CARRY-FAILED` (root #151003, #151839)."""
@@ -5602,7 +5633,7 @@ class Landing:
             moves = head_moves(reviews, drive, self.fidelity_lanes, self.repo, pr)
             settled = bool(self.head_gos(pr, head) or graded and any(seq == graded["seq"] and identical for _, _, identical, seq in moves))
             if chain := patch_chain(moves, head, entry["head"]):
-                self.carry_tap(session, block, pr, tapped, head, chain, to)
+                self.carry_tap(session, block, pr, tapped, head, chain, self.landing_audience([pr], rows, to))
                 continue
             if settled:
                 continue
@@ -5656,6 +5687,7 @@ class Landing:
                 + (f"; no go until the lane's title fix: cci #{stale[0]['seq']} says `{stale[1]}`" if stale else "")
                 + authorize,
                 f"merge-ask:{pr}",
+                self.landing_audience([pr], rows, ""),
             )
 
     def stale_title(self, pr: str) -> tuple[dict, str] | None:
@@ -5755,7 +5787,7 @@ class Landing:
             outcome, out = self.dequeue(key, prefix, rows, late)
         self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": out, "drive": self.runner.config.drive, "at": self.book.stamp()}))
         if outcome in BELIEVED_QUEUED:
-            self.post_record("report", f"queued:{key}", self.queue_audience(prefix, rows), f"QUEUED {self.queue_line(enqueued_heads(key))}: the landing runner put it in the merge queue at {pacific(self.runner.now())}", prefix[-1])
+            self.post_record("report", f"queued:{key}", self.landing_audience(prefix, rows, self.queue_audience(prefix, rows)), f"QUEUED {self.queue_line(enqueued_heads(key))}: the landing runner put it in the merge queue at {pacific(self.runner.now())}", prefix[-1])
         if outcome in ("stranded", "failed", "unsettled"):
             self.runner.escalate(key, f"ENQUEUE-{outcome.upper()}", numbered(tops), last)
 
@@ -5881,7 +5913,7 @@ class Landing:
             self.book.attempt(LANDING, lambda incident, key=action.action_id: incident.verify(key, receipt))
             landed = ", ".join(f"#{pr} as {sha[:10]}" for pr, sha in receipt["landed"].items())
             text = f"LANDED {landed}: through the merge queue, which the landing runner entered at {pacific(actions.parse_stamp(action.started_at or action.accepted_at))} with {self.queue_line(enqueued_heads(action.action_id))}"
-            self.post_record("landed", f"landed:{action.action_id}", self.queue_audience(prefix, rows), text, prefix[-1])
+            self.post_record("landed", f"landed:{action.action_id}", self.landing_audience(prefix, rows, self.queue_audience(prefix, rows)), text, prefix[-1])
         for action in self.book.actions(LANDING, kind="enqueue", status="verified"):
             top = action.target.split(",")[-1]
             self.restack(top, rows)
@@ -5994,7 +6026,9 @@ class Landing:
             _, pr, head, gos, at, why = min(group)
             above = [f"#{other}" for _, other, *_ in sorted(group) if other != pr]
             waits = f"; {', '.join(above)} above it in the stack from #{bottom} wait on it too" if above else ""
-            self.runner.escalate(f"go-unqueued:{pr}@{head}", "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and root go #{gos[0]['seq']} at {pacific(actions.parse_stamp(gos[0]['at']))} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}{waits}", f"go-unqueued:{pr}")
+            key, subject = f"go-unqueued:{pr}@{head}", f"go-unqueued:{pr}"
+            to = self.landing_audience([pr], rows, "") if self.runner.raised_before(key, subject) else ""
+            self.runner.escalate(key, "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and root go #{gos[0]['seq']} at {pacific(actions.parse_stamp(gos[0]['at']))} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}{waits}", subject, to)
 
     def announce(self, pr: str, row: dict, key: str, head: str, commit: str) -> None:
         """Post `landed` for a squash the runner made, under its key so a repost returns the stored record; a post that fails runs again on the next pass."""
