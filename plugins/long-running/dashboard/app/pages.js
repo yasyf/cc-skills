@@ -66,7 +66,7 @@ function stackRow(n) {
 }
 function prTruth(n) {
   const board = boardRow(n);
-  if (board && verdictState(board) === 'you') return { blocks: rowWords(board).blocker, next: '', since: waitingSince(Number(n)) };
+  if (board && verdictState(board) === 'you') return { blocks: rowWords(board).blocker, next: '', since: waitingSince(Number(n)) ?? stackRow(n)?.since };
   const said = curated('work')?.pull_requests?.find((pr) => pr.number === Number(n));
   if (said) return { blocks: said.stage, next: said.next, since: sinceClock(said.since) };
   const node = blockerNode(n);
@@ -83,7 +83,7 @@ function truthFacts(n, landed) {
 function stackLine(row) {
   const t = prTruth(row.pr);
   const l = { stage: t.blocks, next: t.next, since: t.since };
-  return `<div class="wk-row"><span class="wk-body"><a href="#/review/${row.pr}"><b>${esc(shortName(row.pr) ?? plainTitle(row.pr))}</b></a><span class="wk-line">${row.stale ? `${dotted('Stuck', 'bad')} ` : ''}${esc(l.stage.replace(/\.$/, ''))}.${l.next ? ` Next, ${esc(l.next.replace(/\.$/, ''))}.` : ''}</span></span><span class="wk-side"><a href="#/worker/${encodeURIComponent(row.owner)}">${esc(workerName(row.owner))}</a>${row.live ? '' : ', not running'}<br>${blockedFor(l.since)}</span></div>`;
+  return `<div class="wk-row"><span class="wk-body"><a href="#/review/${row.pr}"><b>${esc(shortName(row.pr) ?? plainTitle(row.pr))}</b></a><span class="wk-line">${row.stale ? `${dotted('Stuck', 'bad')} ` : ''}${esc(l.stage.replace(/\.$/, ''))}.${l.next ? ` Next, ${esc(l.next.replace(/\.$/, ''))}.` : ''}</span></span><span class="wk-side"><a href="#/worker/${encodeURIComponent(row.owner)}">${esc(workerName(row.owner))}</a>${row.live ? '' : ', not running'}${l.since ? `<br>${blockedFor(l.since)}` : ''}</span></div>`;
 }
 function blockerNode(n) {
   return (state.model.brief?.paths ?? []).flatMap((path) => path.nodes).find((x) => String(x.change) === String(n));
