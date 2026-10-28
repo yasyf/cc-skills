@@ -250,7 +250,7 @@ blockers and restacks. Every queue call goes through the repository adapter `lan
 `ledger.py label`; the landing desk refuses to start with `MQ-CONFIG-INVALID` on an adapter, a check, or a high-risk setting it cannot run.
 Each prefix passes the check registry, `landing.checks` in order, every built-in when it names none: `hold`, `precondition`,
 `rules-review`, `rulings`, `fidelity`, `finder`, and `merge-mode` are the desk's own, and `approvals` and `required-ci` are the adapter's verdict;
-`old-app` runs only when `landing.checks` names it. Trees gate in
+`old-app` and `build-failed` run only when `landing.checks` names them. Trees gate in
 `(priority, root PR)` order, a tree's priority the lowest ledger `priority` among its PRs, and accepted enqueues run one parallel
 wave per priority, lower first. A check that reads no verdict first settles its tips through `ledger.py landed`, which
 reads each tip's squash on the freshly fetched trunk, and drops every tip whose row then reads landed; only the tips left
@@ -323,7 +323,14 @@ that head came after it or a root `decision` replies to it, directly or along a 
 or whose newest fails, gets one `FINDER-PENDING` blocker per head and failing record to its lane (E4.1). A record the runner cannot read for a verdict or a head
 gets one `note` to its lane naming the line it reads. The `old-app` check reads a fidelity lane's `old-app: unchanged`, `old-app: bug fix` or
 `old-app: CHANGES` line, in a review or the body a fidelity grade spills to, at the head the finder rule reads; a head whose newest grade is
-neither of the first two, carried along a chain of fidelity carries, gets one `OLD-APP-PENDING` warning to its lane and the fidelity lanes and is not held for it. A finder ok of an older head
+neither of the first two, carried along a chain of fidelity carries, gets one `OLD-APP-PENDING` warning to its lane and the fidelity lanes and is not held for it.
+The `build-failed` check reads `landing.build_failures`: `tree`, a path prefix such as `go/sand/next/`; `context`, the Buildkite annotation
+context whose list names each package a build failed to compile with its first compile error, such as `go-build-failed-sand-next-tests`; and
+`annotations`, a command that prints one build's annotations, such as `tools/ci bk api /pipelines/{pipeline}/builds/{number}/annotations`.
+A head whose PR changes a file under `tree` gets one `BUILD-FAILED` blocker per head and package to its lane while a finished build at it
+lists a package the PR changes, or one whose Go files import a package the PR changes, by the head's tree in the landing checkout; it is
+held until a new head's build no longer lists it. The colour of the step that posts the annotation never counts, since it may soft-fail, and a
+head that changes nothing under `tree` is never held for a package another PR broke. A read that fails holds nothing (0afd2f6). A finder ok of an older head
 carries to a head with no finder record when both heads' own patches match, as a fidelity ok does, or when a fidelity desk's `fidelity: ok <head> carried from <earlier head>` grade, read along its chain, reaches a head whose finder verdict is ok, unless the grade says the change adds new behavior. A PR whose body opens with "Red by design", or whose lane's newest
 `contract` record with `--pr` naming it names its failing run ("red by design", "fails in run", "failing run"), draws no
 blocker for its failing required checks, and a blocker relay already sent on it draws no `DEADLINE`.
@@ -497,6 +504,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import hashlib
+import html
 import itertools
 import json
 import os
@@ -587,10 +595,10 @@ DIFF_MEDIA = "Accept: application/vnd.github.diff"
 ALLOW_ESCAPES = "--allow-escape-sequences"
 HOLD_LABEL = "hold"
 MERGE_MODES = ("every", "high-risk", "auto")
-ACCEPT_CHECKS = ("precondition", "rules-review", "rulings", "fidelity", "finder", "old-app", "merge-mode")
+ACCEPT_CHECKS = ("precondition", "rules-review", "rulings", "fidelity", "finder", "old-app", "build-failed", "merge-mode")
 HOLD_CHECKS = ("hold",)
-ENQUEUE_CHECKS = ("precondition", "rules-review", "rulings", "fidelity", "finder", "old-app", "merge-mode")
-CHECK_STAGES = {"hold": "enqueue", "precondition": "accept, enqueue", "rules-review": "accept, enqueue", "rulings": "accept, enqueue", "fidelity": "accept, enqueue", "finder": "accept, enqueue", "old-app": "accept, enqueue", "merge-mode": "accept, enqueue", "approvals": "adapter check", "required-ci": "adapter check"}
+ENQUEUE_CHECKS = ("precondition", "rules-review", "rulings", "fidelity", "finder", "old-app", "build-failed", "merge-mode")
+CHECK_STAGES = {"hold": "enqueue", "precondition": "accept, enqueue", "rules-review": "accept, enqueue", "rulings": "accept, enqueue", "fidelity": "accept, enqueue", "finder": "accept, enqueue", "old-app": "accept, enqueue", "build-failed": "accept, enqueue", "merge-mode": "accept, enqueue", "approvals": "adapter check", "required-ci": "adapter check"}
 DEFAULT_PRIORITY = 100
 HIGH_RISK_STARTER = ("*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "*creds*")
 PULLED = "pulled"
@@ -630,6 +638,8 @@ RELEASE_BUILDS = "release-builds"
 FREEZES = "freezes"
 FROZE = re.compile(r"\bfroze (?P<scope>\S+) until (?P<until>\S+) as freeze (?P<id>[\w.-]*\w)")
 BUILD_URL = re.compile(r"/(?P<pipeline>[\w.-]+)/builds/(?P<number>\d+)/?$")
+LIST_ITEM = re.compile(r"<li>(.*?)</li>", re.DOTALL)
+HTML_TAG = re.compile(r"<[^>]+>")
 CONFLICT_BLOCKER = "GitHub reads it as conflicting against its base; run ccx vcs stack submit from the branch's worktree"
 REDUNDANT_SKIP = re.compile(r"redundant within its stack", re.IGNORECASE)
 BUILDS_PATH = re.compile(r"/builds/\d+")
@@ -4225,6 +4235,22 @@ def trunk_red(history: list[dict], check: str) -> TrunkRed | None | bool:
     return TrunkRed(first["oid"], datetime.fromisoformat(first["committedDate"]), landed[1] if landed else "", run[0][1]["targetUrl"] or "")
 
 
+def build_failures_in(body: str) -> dict[str, str]:
+    """Each package a build-failure annotation's list names, with the compile error after it."""
+    items = (html.unescape(HTML_TAG.sub("", item)).split(None, 1) for item in LIST_ITEM.findall(body))
+    return {item[0]: item[1].strip() for item in items if len(item) == 2}
+
+
+def import_path(package: str, directory: str, other: str) -> str | None:
+    """The import path of the package in `other`, by the module root that `package`, whose directory is `directory`, shares with it; None when `other` is outside that module."""
+    parts, dirs = package.split("/"), directory.split("/")
+    shared = len(os.path.commonprefix([parts[::-1], dirs[::-1]]))
+    root, module = "/".join(dirs[: len(dirs) - shared]), "/".join(parts[: len(parts) - shared])
+    if (relative := os.path.relpath(other, root or ".")).startswith(".."):
+        return None
+    return module if relative == "." else "/".join(filter(None, (module, relative)))
+
+
 def failed_steps(build: dict) -> list[str]:
     return sorted({job.get("step_key") or job["name"] for job in build.get("jobs", []) if job.get("type") == "script" and job.get("state") == "failed" and not job.get("soft_failed")})
 
@@ -4287,7 +4313,9 @@ class Landing:
         self.landed: set[str] = set()
         self.patch_ids: dict[tuple[int, str], str] = {}
         self.commit_counts: dict[tuple[str, str], int] = {}
-        self.risky: dict[tuple[str, str], list[str]] = {}
+        self.files: dict[tuple[str, str], list[str]] = {}
+        self.annotated: dict[str, dict[str, str]] = {}
+        self.imported: dict[tuple[str, str, frozenset[str]], bool] = {}
         self.read_only = False
         self.viewer = ""
         self.reported: dict[tuple[str, str, bool], tuple[datetime | None, list[str]]] = {}
@@ -5149,7 +5177,7 @@ class Landing:
         return None
 
     def check(self, name: str, graded: Graded) -> dict[str, merge_queue.State]:
-        return {"hold": self.check_hold, "precondition": self.check_precondition, "rules-review": self.check_rules_review, "rulings": self.check_rulings, "fidelity": self.check_fidelity, "finder": self.check_finder, "old-app": self.check_old_app, "merge-mode": self.check_merge_mode}[name](graded)
+        return {"hold": self.check_hold, "precondition": self.check_precondition, "rules-review": self.check_rules_review, "rulings": self.check_rulings, "fidelity": self.check_fidelity, "finder": self.check_finder, "old-app": self.check_old_app, "build-failed": self.check_build_failed, "merge-mode": self.check_merge_mode}[name](graded)
 
     def check_hold(self, graded: Graded) -> dict[str, merge_queue.State]:
         return {pr: merge_queue.State(merge_queue.FAIL, reason) for pr, reason in self.holding(list(graded.heads), graded.rows, graded.accepted_at).items()}
@@ -5313,6 +5341,48 @@ class Landing:
             self.warn_head(f"old-app:{pr}:{sha[:7]}:{hashlib.sha1(text.encode()).hexdigest()[:8]}", pr, graded, text, also=self.fidelity_to)
         return {}
 
+    def check_build_failed(self, graded: Graded) -> dict[str, merge_queue.State]:
+        """Each head that `build_failure` finds breaking a package's build fails `BUILD-FAILED`, with one blocker to its lane per head and package."""
+        states = {pr: merge_queue.State(merge_queue.FAIL, f"BUILD-FAILED #{pr}: {failure}") for pr, sha in graded.heads.items() if (failure := self.build_failure(pr, sha))}
+        if graded.act:
+            for pr, state in states.items():
+                self.refuse_head(f"build-failed:{pr}:{graded.heads[pr]}:{state.reason.split()[2]}", pr, graded, state.reason, states)
+        return states
+
+    def build_failure(self, pr: str, sha: str) -> str:
+        """The first package a finished build at `sha` failed to build that `pr` changes, or that imports a package `pr` changes, with its first compile error, or empty. Only a PR that changes a file under `landing.build_failures.tree` is read."""
+        spec = self.landing_config["build_failures"]
+        files, _ = self.changed_files(pr, sha)
+        if not (touched := {os.path.dirname(name) for name in files or [] if name.startswith(spec["tree"])}):
+            return ""
+        for url, state, _ in self.ci_builds(sha) or []:
+            if state not in ("success", "failure"):
+                continue
+            for package, error in self.build_failures(url).items():
+                directory = os.path.dirname(error.split(":", 1)[0])
+                if directory in touched or self.imports(sha, directory, frozenset(filter(None, (import_path(package, directory, other) for other in touched)))):
+                    return f"{package} fails to build at {sha[:7]} on {url}: {error}"
+        return ""
+
+    def build_failures(self, url: str) -> dict[str, str]:
+        """Each package the `landing.build_failures.context` annotation of the finished build at `url` names, with its first compile error, read once per build; empty, and read again next pass, when the read fails."""
+        if url not in self.annotated:
+            spec = self.landing_config["build_failures"]
+            if not (argv := release_build_argv(self.checkout, spec["annotations"], url)) or (done := self.shell.run(argv)).code:
+                return {}
+            self.annotated[url] = {package: error for annotation in json.loads(done.out) if annotation.get("context") == spec["context"] for package, error in build_failures_in(annotation.get("body_html") or "").items()}
+        return self.annotated[url]
+
+    def imports(self, sha: str, directory: str, paths: frozenset[str]) -> bool:
+        """Whether a Go file directly in `directory` at `sha` imports one of `paths`, read in the landing checkout, which fetches `sha` when it lacks it; False when neither reads."""
+        key = (sha, directory, paths)
+        if key not in self.imported:
+            git = ["git", "-C", str(self.checkout)]
+            if not paths or (self.shell.run([*git, "cat-file", "-e", f"{sha}^{{commit}}"]).code and self.shell.run([*git, "fetch", "-q", "--no-tags", "origin", sha]).code):
+                return False
+            self.imported[key] = self.shell.run([*git, "grep", "-q", "-F", *(arg for path in sorted(paths) for arg in ("-e", f'"{path}"')), sha, "--", f":(glob){directory}/*.go"]).code == 0
+        return self.imported[key]
+
     def check_fidelity(self, graded: Graded) -> dict[str, merge_queue.State]:
         ungraded = self.ungraded(graded.heads)
         if graded.act and ungraded:
@@ -5392,17 +5462,23 @@ class Landing:
         return [reserved_row(line) for line in self.rulings_report(pr, sha) if cause(line) == RESERVED_TOUCH]
 
     def risky_paths(self, pr: str, sha: str) -> list[str] | None:
-        """The changed files of `pr` at `sha` that a `landing.high_risk_paths` glob names, read once per head; None when GitHub refuses the read, which escalates once per head."""
-        if (pr, sha) not in self.risky:
+        """The changed files of `pr` at `sha` that a `landing.high_risk_paths` glob names; None when GitHub refuses the read, which escalates once per head."""
+        files, refused = self.changed_files(pr, sha)
+        if files is None:
+            if not self.read_only:
+                self.runner.escalate(f"files:{pr}:{sha}", "FILES-READ-FAILED", f"#{pr}", f"GitHub refused the changed files of #{pr}: {refused}; merge mode high-risk enqueues nothing in its prefix until they read")
+            return None
+        globs = self.landing_config["high_risk_paths"]
+        return [name for name in files if any(fnmatch(name, glob) for glob in globs)]
+
+    def changed_files(self, pr: str, sha: str) -> tuple[list[str] | None, str]:
+        """The changed files of `pr` at `sha`, read once per head, or None with the last line GitHub's refusal printed."""
+        if (pr, sha) not in self.files:
             done = self.shell.run(ghread.read("api", "--paginate", f"repos/{self.repo}/pulls/{pr}/files", "--jq", ".[].filename"))
             if done.code:
-                last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
-                if not self.read_only:
-                    self.runner.escalate(f"files:{pr}:{sha}", "FILES-READ-FAILED", f"#{pr}", f"GitHub refused the changed files of #{pr}: {last[0]}; merge mode high-risk enqueues nothing in its prefix until they read")
-                return None
-            globs = self.landing_config["high_risk_paths"]
-            self.risky[(pr, sha)] = [name for name in done.out.splitlines() if any(fnmatch(name, glob) for glob in globs)]
-        return self.risky[(pr, sha)]
+                return None, ((done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"])[0]
+            self.files[(pr, sha)] = done.out.splitlines()
+        return self.files[(pr, sha)], ""
 
     def checks_paused(self) -> bool:
         """Whether `landing.checks_wait_for_go` names a cci sequence no root `go` record on this drive has come after yet: until one does, the pass runs no gate, so no `stack-enqueue --check`, MERGE-ASK, flake retry, or enqueue, and logs one `GATE-PAUSED` per sequence; an approved, green incident fix still lands by plain squash."""
@@ -6721,6 +6797,9 @@ def mq_config_fault(landing: dict) -> str:
     if unknown := [name for name in landing.get("checks", merge_queue.CHECKS) if name not in known]:
         faults.append(f"lists {', '.join(unknown)} under landing.checks, which is no built-in check of {', '.join(known)}")
         members.append(f'"checks": {json.dumps([name for name in landing["checks"] if name in known])}')
+    if "build-failed" in landing.get("checks", merge_queue.CHECKS) and not (landing.get("build_failures") and landing.get("ci_build")):
+        faults.append("runs the build-failed check with no landing.build_failures or no landing.ci_build, so no build at a head could be read")
+        members.append('"build_failures": {"tree": "<path prefix>", "context": "<annotation context>", "annotations": "tools/ci bk api /pipelines/{pipeline}/builds/{number}/annotations"}')
     if landing["merge_mode"] == "high-risk" and not landing.get("high_risk_paths"):
         faults.append("runs merge mode high-risk with no landing.high_risk_paths globs, so no PR would read as high-risk")
         members.append(f'"high_risk_paths": {json.dumps(list(HIGH_RISK_STARTER))}')

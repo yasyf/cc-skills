@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import html
 import importlib.util
 import itertools
 import json
@@ -175,6 +176,9 @@ class FakeShell(runner_module.Shell):
         self.registered: list[list[str]] = []
         self.root_drives: list[str] = ["d1"]
         self.builds: dict[str, dict] = {}
+        self.annotations: dict[str, list[dict]] = {}
+        self.go_imports: set[tuple[str, str, str]] = set()
+        self.local_heads: set[str] = set()
         self.commit_statuses: dict[str, list[dict]] = {}
         self.grade_refs: dict[str, str] = {}
         self.grade_starts: list[dict] = []
@@ -310,6 +314,16 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, json.dumps(self.pr_lists.get(argv[argv.index("--head") + 1], [])), "")
         if argv[:3] == ["git", "-C", str(self.root / "checkout")] and argv[3:] == ["ls-remote", "origin", "refs/heads/dev"]:
             return runner_module.Done(0, f"{self.trunk[0]['oid']}\trefs/heads/dev\n" if self.trunk else "", "")
+        if argv[:5] == ["git", "-C", str(self.root / "checkout"), "cat-file", "-e"]:
+            return runner_module.Done(0 if argv[5].removesuffix("^{commit}") in self.local_heads else 128, "", "")
+        if argv[:6] == ["git", "-C", str(self.root / "checkout"), "fetch", "-q", "--no-tags"] and argv[6] == "origin" and argv[7:] != ["refs/heads/dev"]:
+            self.local_heads.add(argv[7])
+            return runner_module.Done(0, "", "")
+        if argv[:6] == ["git", "-C", str(self.root / "checkout"), "grep", "-q", "-F"]:
+            sha, _, pathspec = argv[-3:]
+            directory = pathspec.removeprefix(":(glob)").removesuffix("/*.go")
+            imported = [argv[i + 1].strip('"') for i in range(6, len(argv) - 3, 2)]
+            return runner_module.Done(0 if any((sha, directory, path) in self.go_imports for path in imported) else 1, "", "")
         if argv[:3] == ["git", "-C", str(self.root / "checkout")]:
             assert argv[3:] in (["fetch", "-q", "--no-tags", "--refmap=", "origin", "refs/heads/dev"], ["merge", "-q", "--ff-only", "FETCH_HEAD"])
             return runner_module.Done(128, "", self.advance_error) if self.advance_error and argv[3] == "merge" else runner_module.Done(0, "", "")
@@ -417,6 +431,8 @@ class FakeShell(runner_module.Shell):
                 return runner_module.Done(1, "", self.grade_error)
             self.builds[number] = {"state": "running", "commit": body["commit"], "jobs": []}
             return runner_module.Done(0, json.dumps({"web_url": f"https://buildkite.com/forge/{argv[7].split('/')[2]}/builds/{number}"}), "")
+        if argv[:3] == [str(self.root / "checkout/tools/ci"), "bk", "api"] and argv[3].endswith("/annotations"):
+            return runner_module.Done(0, json.dumps(self.annotations.get(argv[3].split("/")[4], [])), "")
         if argv[:3] == [str(self.root / "checkout/tools/ci"), "bk", "api"]:
             build = self.builds[argv[3].rsplit("/", 1)[1]]
             return runner_module.Done(0, build if isinstance(build, str) else json.dumps(build), "")
@@ -10184,3 +10200,95 @@ def test_a_runner_with_no_finder_config_starts_no_finder(shell, config, tmp_path
     head_record(shell, "43439", FINDER_HEAD)
     orca_pass(shell, config)
     assert not shell.finder_jobs and not (tmp_path / "store" / "desk-finder.json").exists()
+
+
+def build_failed_checked(config: Path) -> None:
+    raw = json.loads(config.read_text())
+    raw["landing"]["checks"] = [*runner_module.merge_queue.CHECKS, "build-failed"]
+    raw["landing"]["ci_build"] = "tools/ci bk api /pipelines/{pipeline}/builds/{number}"
+    raw["landing"]["build_failures"] = {"tree": "go/sand/next/", "context": "go-build-failed-sand-next-tests", "annotations": "tools/ci bk api /pipelines/{pipeline}/builds/{number}/annotations"}
+    config.write_text(json.dumps(raw))
+
+
+LOCALRUN_ERROR = "go/sand/next/internal/localrun/localrun.go:49:21: undefined: vmrun.ReadMeta"
+
+
+def build_failed_annotation(*lines: tuple[str, str], context: str = "go-build-failed-sand-next-tests") -> dict:
+    items = "".join(f"<li><code>{package}</code> <code>{html.escape(error)}</code></li>\n" for package, error in lines)
+    return {"context": context, "style": "error", "body_html": f"<ul>\n{items}</ul>\n"}
+
+
+def soft_failed_build(shell: FakeShell, sha: str, number: str, *lines: tuple[str, str]) -> None:
+    built(shell, sha, number, FULL_BUILD)
+    shell.annotations[number] = [build_failed_annotation(*lines)] if lines else []
+
+
+def test_build_failures_in_reads_each_package_and_its_first_error_from_the_annotation_html():
+    body = build_failed_annotation(("sand/next/internal/localrun", LOCALRUN_ERROR), ("sand/next/cmd/runtime-api", 'go/sand/next/cmd/runtime-api/main.go:31:2: package "x" & <y> is not in std'))["body_html"]
+    assert runner_module.build_failures_in(body) == {"sand/next/internal/localrun": LOCALRUN_ERROR, "sand/next/cmd/runtime-api": 'go/sand/next/cmd/runtime-api/main.go:31:2: package "x" & <y> is not in std'}
+
+
+@pytest.mark.parametrize(
+    ("package", "directory", "other", "path"),
+    [
+        ("sand/next/internal/localrun", "go/sand/next/internal/localrun", "go/sand/next/internal/vm_run", "sand/next/internal/vm_run"),
+        ("example.com/svc/api", "services/svc/api", "services/svc/store", "example.com/svc/store"),
+        ("example.com/svc/api", "services/svc/api", "services/svc", "example.com/svc"),
+        ("example.com/svc/api", "services/svc/api", "tools/other", None),
+    ],
+)
+def test_import_path_maps_a_directory_to_its_import_path_by_the_failing_packages_module(package, directory, other, path):
+    assert runner_module.import_path(package, directory, other) == path
+
+
+def test_a_head_whose_build_cannot_compile_a_package_it_changes_is_held_until_a_new_head_builds_it(shell, config, tmp_path):
+    build_failed_checked(config)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    shell.files["29020"] = ["go/sand/next/internal/localrun/localrun.go"]
+    soft_failed_build(shell, "cccc333333", "85356", ("sand/next/internal/localrun", LOCALRUN_ERROR))
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [blocker] = blockers(shell)
+    assert blocker["to"] == LANE and blocker["topic"] == "29020"
+    assert blocker["text"] == f"#29020 cccc333333: nothing in #29020 was enqueued; BUILD-FAILED #29020: sand/next/internal/localrun fails to build at cccc333 on https://buildkite.com/forge/test/builds/85356: {LOCALRUN_ERROR}"
+    shell.rows[0] |= {"head": "dddd444444", "reported_head": "dddd444444"}
+    shell.gates["29020"] = [gate("#29020 GREEN dddd444444 graphite READY", would="#29020")]
+    grade(shell, "29020", "ok F307 at dddd444.")
+    shell.files["29020"] = ["go/sand/next/internal/localrun/localrun.go"]
+    soft_failed_build(shell, "dddd444444", "85400")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
+@pytest.mark.parametrize(("imports", "held"), [(True, True), (False, False)], ids=["importer", "unrelated"])
+def test_a_package_that_fails_to_build_holds_the_head_only_when_it_imports_a_package_the_pr_changes(shell, config, tmp_path, imports, held):
+    build_failed_checked(config)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    shell.files["29020"] = ["go/sand/next/internal/vm_run/reader.go", "go/sand/next/internal/vm_run/reader_test.go"]
+    if imports:
+        shell.go_imports.add(("cccc333333", "go/sand/next/internal/localrun", "sand/next/internal/vm_run"))
+    soft_failed_build(shell, "cccc333333", "85356", ("sand/next/internal/localrun", LOCALRUN_ERROR))
+    landing_pass(shell, config)
+    assert (shell.enqueues() == []) == held
+    assert [blocker["text"].split("; ", 1)[1].split(" fails")[0] for blocker in blockers(shell)] == (["BUILD-FAILED #29020: sand/next/internal/localrun"] if held else [])
+    assert "cccc333333" in shell.local_heads
+
+
+def test_a_head_that_changes_nothing_in_the_tree_is_never_held_for_its_build_failures(shell, config, tmp_path):
+    build_failed_checked(config)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    shell.files["29020"] = ["go/sand/internal/localrun/localrun.go", "api/src/index.ts"]
+    soft_failed_build(shell, "cccc333333", "85356", ("sand/next/internal/localrun", LOCALRUN_ERROR))
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and blockers(shell) == []
+    assert not [call for call in shell.calls if call[-1].endswith("/annotations")]
+
+
+def test_the_build_failed_check_without_its_config_refuses_to_start(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    raw["landing"]["checks"] = [*runner_module.merge_queue.CHECKS, "build-failed"]
+    assert "runs the build-failed check with no landing.build_failures or no landing.ci_build" in runner_module.mq_config_fault(raw["landing"])
