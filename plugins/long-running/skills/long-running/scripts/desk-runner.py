@@ -229,7 +229,8 @@ that launches it by hand, whatever held it; no incident clock defers it. `rebind
 binding first. No Mac launch starts while the 1-minute load
 is above the core count, because an Orca worktree checkout times out under that load, and
 each ten minutes of it logs one `LOAD-HIGH` blocker telling the root to move the load. An
-incident or `--owner-directed` launch fails at once with `LAUNCH-FAILED`; any other launch
+incident launch is never held: it starts anyway and logs one `LOAD-INCIDENT` report naming
+the load. An `--owner-directed` launch fails at once with `LAUNCH-FAILED`; any other launch
 waits for at most `deadlines.load_hold_minutes`, then reports the failure to root through
 cci and the Run mailbox. With `orca.sprite` configured, a launch whose brief's `ccx:` line
 says `place=remote`, or `cpu=high` with no `place=`, runs `orca.sprite.launcher`, the
@@ -2736,11 +2737,13 @@ class Runner:
         refusal = self.sprite_refusal(lane, spec)
         if refusal is not None and (held := self.load_refusal()):
             self.move_load(held)
-            if spec["urgent"]:
-                self.refuse_launch(container, lane, action, held, "the root launches it in-process or once the load is moved")
-            elif self.now() - actions.parse_stamp(action.accepted_at) >= timedelta(minutes=self.config.load_hold_minutes):
-                self.expire_launch(container, lane, action, held)
-            return
+            if spec["model"] != INCIDENT_MODEL:
+                if spec["urgent"]:
+                    self.refuse_launch(container, lane, action, held, "the root launches it in-process or once the load is moved")
+                elif self.now() - actions.parse_stamp(action.accepted_at) >= timedelta(minutes=self.config.load_hold_minutes):
+                    self.expire_launch(container, lane, action, held)
+                return
+            self.escalate(f"{container}/{action.action_id}:load", "LOAD-INCIDENT", lane, f"{action.action_id} launches on {held}: an incident fix lane is never held for load")
         if not self.book.attempt(container, lambda incident: incident.start(action.action_id, self.now(), deadline=actions.parse_stamp(action.deadline))):
             return
         if refusal is None:
@@ -2787,7 +2790,7 @@ class Runner:
         self.escalate(f"load:{actions.stamp(self.now())[:15]}", "LOAD-HIGH", "runner", f"{held}: Orca launches are refused while it lasts, because a worktree checkout times out under it. root: move the load off this Mac now; a pass, backfill, dry run, or bulk rewrite runs on in-region compute")
 
     def refuse_launch(self, container: str, lane: str, action: actions.Action, held: str, remedy: str) -> None:
-        """Fail a launch at once that cannot wait: an incident or owner-directed one on load, or any on an unbound runner."""
+        """Fail a launch at once that cannot wait: an owner-directed one on load, or any on an unbound runner."""
         key = action.action_id
         text = f"{key} refused on {held}; nothing was launched, and {remedy}"
         if self.book.attempt(container, lambda incident: incident.fail(key, text)):

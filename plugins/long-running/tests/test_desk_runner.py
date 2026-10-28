@@ -1345,12 +1345,26 @@ def launches(shell: FakeShell) -> list[list[str]]:
     return [call for call in shell.calls if Path(call[0]).name == "orca-launch.sh"]
 
 
-@pytest.mark.parametrize(("model", "flags"), [("incident", ()), ("opus", ("--owner-directed",))])
-def test_an_incident_or_owner_directed_launch_on_load_fails_at_once_and_tells_the_root_to_move_the_load(shell, config, tmp_path, model, flags):
+def test_an_incident_launch_on_load_starts_anyway_while_a_normal_launch_beside_it_is_held(shell, config, tmp_path):
+    """drive-watchdog-2, cci #157631: the load gate refused incident fix lanes R84845 and R84846 at load 45 and 71."""
     brief = tmp_path / "fix.md"
     brief.write_text("brief")
     shell.cpu_load = 140
-    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", model, "--effort", "xhigh", "--brief", str(brief), *flags)
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "incident", "--effort", "xhigh", "--brief", str(brief))
+    cli(shell, config, "launch", "--key", "R639", "--lane", "other-lane", "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)]]
+    assert incident(tmp_path, "desk-lane-other-lane").actions["R639"].status == "accepted"
+    assert [line.split()[0] for line in escalations(shell)] == ["LOAD-HIGH", "LOAD-INCIDENT"]
+    assert escalations(shell)[1] == f"LOAD-INCIDENT desk-lane-{LANE}/R638:load {LANE}: R638 launches on load 140 above 8 cores: an incident fix lane is never held for load"
+
+
+def test_an_owner_directed_launch_on_load_fails_at_once_and_tells_the_root_to_move_the_load(shell, config, tmp_path):
+    brief = tmp_path / "fix.md"
+    brief.write_text("brief")
+    shell.cpu_load = 140
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief), "--owner-directed")
     orca_pass(shell, config)
     orca_pass(shell, config)
     assert launches(shell) == []
