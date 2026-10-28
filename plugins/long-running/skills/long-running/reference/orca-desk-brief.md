@@ -743,7 +743,8 @@ record already names starts nothing. Each pass runs `finder.py` detached, which 
 `codex-ask --schema findings` from `reference/finder-desk-brief.md` over the head's own
 commits against the base branch's current tip, or only since the head the PR's last finder
 record graded, skipping a patch-identical restack and a head the PR no longer carries, and posts `finder: ok <head> …` or
-`finder: major <head> <n> open: …` under lane `finder-desk` to the head's lane. A pass
+`finder: major <head> <n> open: …` under lane `finder-desk` to the head's lane, root and the
+runner, whose landing check reads finder records by address. A pass
 that fails, or writes no result within `finder.timeout_minutes`, posts one
 `FINDER-FAILED` to the root; the lane then runs that head's pass by hand. `show` lists
 each queued and running pass.
