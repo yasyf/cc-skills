@@ -552,6 +552,21 @@ class Drive:
             mine = [r for r in self.records if re.sub(r"-\d+$", "", r["lane"]) in bases and r["kind"] not in ("state", "review")]
         return [f"[{dt.datetime.fromisoformat(r['at'].replace('Z', '+00:00')).astimezone(PACIFIC).strftime('%-I:%M %p')}] {r['kind']}: {r['text'][:600]}" for r in mine[-12:]]
 
+    def follow_mirror(self):
+        while True:
+            try:
+                with urllib.request.urlopen(f"{self.config['mirror']}/api/model", timeout=60) as response:
+                    model = json.load(response)
+            except urllib.error.URLError:
+                time.sleep(30)
+                continue
+            self.curator.brief = model["brief"]
+            for name, curator in self.pages.items():
+                curator.brief = model["pages"][name]
+            self.touch()
+            self.bump()
+            time.sleep(30)
+
     def bump(self):
         with self.changed:
             self.version += 1
@@ -998,6 +1013,8 @@ def handler(drive):
             self.wfile.write(body)
 
         def story(self, item):
+            if "mirror" in drive.config:
+                return self.relay(f"{drive.config['mirror']}/api/story/{item}")
             work = drive.work(item)
             if work is None:
                 return self.send(404, "text/plain", b"no such work")
@@ -1022,6 +1039,23 @@ def handler(drive):
                 return
             finally:
                 story.leave(viewer)
+
+        def relay(self, url):
+            try:
+                upstream = urllib.request.urlopen(url, timeout=60)
+            except urllib.error.HTTPError as error:
+                return self.send(error.code, "text/plain", error.read())
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            with upstream:
+                try:
+                    for line in upstream:
+                        self.wfile.write(line)
+                        self.wfile.flush()
+                except OSError:
+                    return
 
         def stream(self):
             self.send_response(200)
@@ -1054,7 +1088,8 @@ def main():
     drive = Drive(config, ReviewAssistant(config, args.config.parent / "reviews", f"http://{config['host']}:{config['port']}/api/model"))
     after = drive.load_records()
     drive.load_gos()
-    for target, rest in ((drive.follow_code, ()), *((curator.loop, ()) for curator in drive.curators), (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.follow_status, ()), (drive.rebuild_loop, ()), (drive.follow_paths, ())):
+    writers = [(drive.follow_mirror, ())] if "mirror" in config else [(curator.loop, ()) for curator in drive.curators]
+    for target, rest in ((drive.follow_code, ()), *writers, (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.follow_status, ()), (drive.rebuild_loop, ()), (drive.follow_paths, ())):
         threading.Thread(target=target, args=rest, daemon=True).start()
     server = ThreadingHTTPServer((config["host"], config["port"]), handler(drive))
     server.daemon_threads = True
