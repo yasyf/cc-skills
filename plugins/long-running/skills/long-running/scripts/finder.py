@@ -26,7 +26,9 @@ checkout. A reply that names no verdict for a row key the slice printed, or give
 it posts nothing. The verdict is posted under lane `finder-desk` as `finder: ok <head> …` or
 `finder: major <head> <n> open: …`, kind `review`, with `--pr <repo>#<n>`,
 `--id finder:<repo>#<n>:<head>`, and the whole reply on `--path`, to the lane that posted the head
-and every `finder.to` address. `DIR/result.json` is written last, `{"error": …}` when the job
+and every `finder.to` address. A blocker or major stands only when one of its cites names a line
+the PR's own diff adds or changes; it and every finding the reply marks `census:` are appended to
+`<config dir>/finder-desk/census-<date>.md` instead, with one `finder census:` note to root per head. `DIR/result.json` is written last, `{"error": …}` when the job
 raised, and the runner settles the dispatch from it.
 """
 
@@ -64,6 +66,9 @@ TEXT_PR = re.compile(r"(?:\b([\w.-]+/[\w.-]+))?#(\d+)\b")
 WAS = re.compile(r"\(was ([0-9a-f]{7,40})\b")
 RANGE_PAIR = re.compile(r"^\s*(?:\d+|-+):\s+([0-9a-f]+|-+)\s+([=!<>])\s+(?:\d+|-+):\s+([0-9a-f]+|-+)", re.MULTILINE)
 DIFF_FILE = re.compile(r"^diff --git a/\S+ b/(\S+)$")
+HUNK = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@")
+CITE = re.compile(r"([\w./@+-]+):(\d+)(?:-(\d+))?")
+CENSUS = "census:"
 ROW_KEY = re.compile(r"^### (\S+) \|", re.MULTILINE)
 REPLY_FILE = re.compile(r"^REPLY_FILE: (\S+)$", re.MULTILINE)
 MAJORS = frozenset({"blocker", "major"})
@@ -136,7 +141,39 @@ def prior_text(job: dict) -> str:
     )
 
 
-def prompt(job: dict, view: dict, base: str, own: list[str], last: str, pairs: str, changed: list[tuple[str, str]], rows: Path | None, plan: str) -> str:
+def hunks(diff: str) -> dict[str, list[tuple[int, int]]]:
+    """Each file's new-side line ranges a `git diff --unified=0` adds or changes, a pure deletion as the line it follows."""
+    ranges: dict[str, list[tuple[int, int]]] = {}
+    path = ""
+    for line in diff.splitlines():
+        if found := DIFF_FILE.match(line):
+            path = found[1]
+        elif found := HUNK.match(line):
+            start = int(found[1])
+            ranges.setdefault(path, []).append((start, start + max(int(found[2] or 1), 1) - 1))
+    return ranges
+
+
+def in_diff(cite: str, touched: dict[str, list[tuple[int, int]]]) -> bool:
+    return any(
+        (path == named or path.endswith(f"/{named}") or named.endswith(f"/{path}")) and start <= int(last or first) and int(first) <= end
+        for named, first, last in CITE.findall(cite)
+        for path, spans in touched.items()
+        for start, end in spans
+    )
+
+
+def triage(findings: list[dict], touched: dict[str, list[tuple[int, int]]]) -> tuple[list[dict], list[dict]]:
+    """The findings that stand, and the census: each finding marked `census:` and each blocker or major none of whose cites names a line the diff touched."""
+    census = [finding for finding in findings if finding["defect"].startswith(CENSUS) or (finding["severity"] in MAJORS and not in_diff(finding["cite"], touched))]
+    return [finding for finding in findings if finding not in census], census
+
+
+def hunk_lines(touched: dict[str, list[tuple[int, int]]]) -> str:
+    return "\n".join(f"- {path}: {', '.join(str(start) if start == end else f'{start}-{end}' for start, end in spans)}" for path, spans in touched.items())
+
+
+def prompt(job: dict, view: dict, base: str, own: list[str], last: str, pairs: str, changed: list[tuple[str, str]], rows: Path | None, plan: str, touched: dict[str, list[tuple[int, int]]]) -> str:
     return TEMPLATE.read_text().format(
         repo=job["repo"],
         pr=job["pr"],
@@ -148,6 +185,7 @@ def prompt(job: dict, view: dict, base: str, own: list[str], last: str, pairs: s
         scope=scope(job, own, last, pairs, changed),
         prior=prior_text(job),
         rows_step=ROWS_STEP.read_text().format(rows=rows).rstrip() if rows else SCOPED_STEP,
+        hunks=hunk_lines(touched),
         plan=plan or "none; the register names no plan",
         body=view["body"].strip() or "(empty)",
     )
@@ -268,6 +306,15 @@ def drops_carried(shell: Shell, job: dict, base: str, left: str, right: str) -> 
     return True
 
 
+def record_census(shell: Shell, job: dict, directory: Path, census: list[dict]) -> str:
+    path = directory.parent / f"census-{time.strftime('%Y-%m-%d')}.md"
+    with path.open("a") as file:
+        file.writelines(f"- {job['repo']}#{job['pr']} {job['head'][:12]} {' '.join(finding['cite'].split())}: {' '.join(finding['defect'].removeprefix(CENSUS).split())}\n" for finding in census)
+    pr = f"{job['repo']}#{job['pr']}"
+    text = f"finder census: {len(census)} dev-only findings on #{job['pr']} appended to {path}"
+    return shell.run(["cci", "post", "--drive", job["drive"], "--lane", LANE, "--kind", "note", "--to", "root", "--pr", pr, "--id", f"finder-census:{pr}:{job['head']}", "--text", text]).strip()
+
+
 def post(shell: Shell, job: dict, text: str, body: Path) -> str:
     to = ",".join(dict.fromkeys(filter(None, [job["lane"], *job["to"]])))
     argv = ["cci", "post", "--drive", job["drive"], "--lane", LANE, "--kind", "review", "--pr", f"{job['repo']}#{job['pr']}", "--id", f"finder:{job['repo']}#{job['pr']}:{job['head']}", "--path", str(body)]
@@ -298,12 +345,13 @@ def run(directory: Path, shell: Shell) -> dict:
         body.write_text(f"{text}\n\n{replayed}.\n\n#{earlier['seq']}: {earlier['text']}\n")
         return {"verdict": text.split()[1], "record": text, "posted": post(shell, job, text, body)}
     rows = None if last else directory / "rows.md"
+    touched = hunks(git(shell, job, "diff", "--unified=0", "--no-color", "--no-ext-diff", f"{own[0]}^", head))
     keys: list[str] = []
     if rows:
         rows.write_text(shell.run(rulings(job, "slice", "--required", "--pr", pr, "--head", head, "--base", view["baseRefName"]), timeout=SLICE_SECONDS))
         keys = ROW_KEY.findall(rows.read_text())
     question = directory / "question-1.md"
-    question.write_text(prompt(job, view, base, own, last, pairs, changed, rows, shell.run(rulings(job, "plan")).strip()))
+    question.write_text(prompt(job, view, base, own, last, pairs, changed, rows, shell.run(rulings(job, "plan")).strip(), touched))
     reply = ask(shell, job, directory, question, 1)
     if short := shortfalls(keys, reply):
         retry = directory / "question-2.md"
@@ -314,10 +362,12 @@ def run(directory: Path, shell: Shell) -> dict:
             raise JobFailed(f"two replies gave {'; and '.join(short)}")
     if (now := view_pr(shell, job)["headRefOid"]) != head:
         return {"skipped": f"{pr} moved to {now[:12]} while codex read {head[:12]}"}
-    text = record_text(job, view, last, json.loads(reply)["findings"])
+    findings, census = triage(json.loads(reply)["findings"], touched)
+    text = record_text(job, view, last, findings)
     body = directory / "record.md"
     body.write_text(f"{text}\n\n{reply.strip()}\n")
-    return {"verdict": text.split()[1], "record": text, "posted": post(shell, job, text, body)}
+    outcome = {"verdict": text.split()[1], "record": text, "posted": post(shell, job, text, body)}
+    return outcome | ({"census": record_census(shell, job, directory, census)} if census else {})
 
 
 def failure(error: Exception) -> str:

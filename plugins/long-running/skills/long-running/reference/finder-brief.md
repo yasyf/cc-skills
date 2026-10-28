@@ -39,6 +39,11 @@ The reply follows the `findings` schema, so the codex plugin needs nothing new:
   pending row in force is read against the rows it would have excepted.
 - Defect findings keep the schema's severities. A `blocker` counts as a major and a
   `nit` as a minor.
+- A major cites at least one `path:line` inside a hunk the diff adds or changes
+  (`git diff --unified=0 origin/<base>...<sha>`). A finding that rests only on lines
+  the diff leaves as they were is a census finding, its defect starting `census:`: the
+  lane appends it to `<drive scratch>/finder-desk/census-<YYYY-MM-DD>.md` with the PR,
+  head, cite, and claim, and posts one `finder census:` note to root, never a major.
 - Every test the head adds or changes asserts only behavior a plan line, sub-plan
   line, or owner ruling names (e20e623). `swept` cites that line for each test as
   `tests: <test> <- <plan cite>; ...`. A test that pins drive-era behavior the plan
@@ -90,6 +95,8 @@ Do three things and report all three in the findings schema.
 
 1. Find defects in the diff: wrong results, broken callers, lost data, races,
    tests that assert less than they claim. Rate each blocker, major, minor, or nit.
+   A major cites at least one `path:line` inside a hunk the diff adds or changes; a
+   finding on lines the diff leaves as they were starts its defect with "census:".
 
 2. Read the head against each owner row below. For each row, ask whether any line
    of the head keeps, offers, recommends, budgets, or tests what the words ban,
