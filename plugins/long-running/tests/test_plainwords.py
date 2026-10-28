@@ -27,6 +27,7 @@ LANES = ("p8f-replica-4", "landing-desk-3")
         "Threads link Sentry issues through cc-slack",
         "Codex: the pause hit a stand-in; sleep loop now waits on events",
         "Server-acknowledgement ask declined.",
+        "The fix is 2,678 lines and passes",
         "Blob storage credentials re-mint after an hour",
         "Two release-order footers are wrong",
         "Step 11 waits on the replica",

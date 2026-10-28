@@ -20,6 +20,7 @@ CHECKS = (
     ("an unnamed part", re.compile(r"\b(?:first|second|third|other) part\b|\bthe first's\b", re.I)),
     ("a code identifier", re.compile(r"\b[a-z]+[A-Z][A-Za-z]*\b|\bsandsql-(?!server\b)[a-z-]+|\bcc-[a-z]+")),
     ("a build or runtime mechanism", re.compile(r"\b(?:crates?|corpus|wasm|OPFS|typecheck|go vet|pods?|executor|devhost|re-?mint\w*|query[ -]plan|spill read|footers?|stacked change|parent copy|harness|compaction|protocol|token component|store pin|stand-in|sleep loops?|wait group|inbox rows?|admission)\b", re.I)),
+    ("a patch size", re.compile(r"\b\d[\d,]* (?:changed )?lines\b", re.I)),
     ("a declined ask", re.compile(r"\b(?:asks?|requests?|suggestions?) (?:was |were )?declined\b", re.I)),
     ("a counted finding", re.compile(r"\b(?:first|second|third|fourth|fifth|one|two|three|four|five|six|\d+)\s+(?:\w+\s+)?(?:findings?|points?)\b|\bfound\s+(?:one|two|three|four|five|six|several|\d+)\s+(?:\w+\s+)?(?:problems?|issues?|bugs?|things)\b", re.I)),
 )
