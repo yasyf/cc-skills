@@ -22,6 +22,14 @@ Read the code around every changed symbol at that sha, its callers and callees i
    removes, or behavior nothing names, is one finding, severity major, defect starting
    "test <name> pins unplanned behavior:".
 
+Every blocker or major, row and test findings included, cites at least one `path:line`
+inside a hunk the PR's own commits add or change. These are those hunks, as new-file line
+ranges:
+{hunks}
+A finding that rests only on lines the change leaves as they were is a census finding:
+start its defect with "census:". The desk files census findings, and any major with no cite
+in these ranges, in the drive's census file for root, never on the record as a major.
+
 Open `swept` with your reasoning: one sentence per group of related hunks, saying what the
 group changes and why it holds or what breaks. A reply whose `swept` carries no reasoning is
 asked again.

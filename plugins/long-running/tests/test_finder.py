@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import finder
@@ -35,6 +36,10 @@ def patch(*lines: str) -> str:
     return "diff --git a/go/follow.go b/go/follow.go\nindex 1111111..2222222 100644\n--- a/go/follow.go\n+++ b/go/follow.go\n@@ -1,3 +1,3 @@\n" + "".join(f"{line}\n" for line in lines)
 
 
+DIFF = "".join(
+    f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -{line},0 +{line},3 @@\n+changed()\n"
+    for path, line in [("go/sand/internal/replica/follow.go", 40), ("rust/crates/sandsql-journal/src/replica.rs", 2946), ("go/poll.go", 9), *((f"go/sand/file{index}.go", 1) for index in range(4))]
+)
 LANDED = {PARENT[:11]: "diff --git a/api/parent.go b/api/parent.go\n--- a/api/parent.go\n+++ b/api/parent.go\n@@ -0,0 +1 @@\n+landed()\n", f"{BASE}:api/parent.go": "landed()\n"}
 
 
@@ -95,6 +100,9 @@ class Fake:
             return self.ranges[tuple(argv[3:])]
         if argv[0] == "show":
             return self.shows[argv[-1]]
+        if argv[0] == "diff":
+            assert argv[1:] == ["--unified=0", "--no-color", "--no-ext-diff", f"{OWN}^", HEAD]
+            return DIFF
         if argv[0] == "rev-parse":
             if (full := self.resolve.get(argv[-1].removesuffix("^{commit}"))) is None:
                 raise subprocess.CalledProcessError(1, argv)
@@ -172,13 +180,35 @@ def test_blockers_and_majors_post_finder_major_one_clause_each_and_minors_stay_o
     assert "a name reads oddly" not in text and "a name reads oddly" in (directory / "record.md").read_text()
 
 
+def test_a_major_whose_cites_name_no_changed_line_and_a_census_finding_go_to_the_census_file_with_one_note_to_root(tmp_path):
+    directory = job(tmp_path)
+    stands = finding("blocker", "go/x.go:3, go/sand/internal/replica/follow.go:41-44", "the marker is dropped")
+    dev_only = finding("major", "go/sand/internal/replica/follow.go:12", "the drain loop skips a closed mount")
+    marked = finding("minor", "go/poll.go:9", "census: the poll interval predates this PR")
+    shell = Fake(tmp_path, [reply(stands, dev_only, marked)])
+    finder.main([str(directory)], shell)
+    review, note = shell.posted
+    assert review["--text"] == f"finder: major {HEAD} 1 open: go/x.go:3, go/sand/internal/replica/follow.go:41-44 the marker is dropped"
+    census = tmp_path / "finder-desk" / f"census-{time.strftime('%Y-%m-%d')}.md"
+    assert note["--kind"] == "note" and note["--lane"] == finder.LANE and note["--to"] == "root" and note["--id"] == f"finder-census:{REPO}#43299:{HEAD}"
+    assert note["--text"] == f"finder census: 2 dev-only findings on #43299 appended to {census}"
+    assert census.read_text() == f"- {REPO}#43299 {HEAD[:12]} go/sand/internal/replica/follow.go:12: the drain loop skips a closed mount\n- {REPO}#43299 {HEAD[:12]} go/poll.go:9: the poll interval predates this PR\n"
+    assert "- go/sand/internal/replica/follow.go: 40-42\n" in (directory / "question-1.md").read_text()
+    assert result(directory)["census"] == "#150001"
+
+
+def test_hunks_read_new_side_ranges_a_bare_count_as_one_line_and_a_deletion_as_the_line_it_follows():
+    diff = "diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n@@ -3 +3 @@\n-x\n+y\n@@ -9,2 +8,0 @@\n-p\n-q\n@@ -20,0 +21,4 @@\n+n\n"
+    assert finder.hunks(diff) == {"a.go": [(3, 3), (8, 8), (21, 24)]}
+
+
 def test_majors_past_ccis_limit_post_a_clipped_line_that_still_reads_major_with_the_whole_reply_on_its_path(tmp_path):
     directory = job(tmp_path)
-    shell = Fake(tmp_path, [reply(*(finding("major", f"go/sand/file{index}.go:{index}", "the follower keeps a stale incarnation after a swap " * 3) for index in range(4)))])
+    shell = Fake(tmp_path, [reply(*(finding("major", f"go/sand/file{index}.go:{index + 1}", "the follower keeps a stale incarnation after a swap " * 3) for index in range(4)))])
     finder.main([str(directory)], shell)
     text = shell.posted[0]["--text"]
     assert len(text) == finder.CCI_TEXT and text.endswith("…") and finder_grade(text) == FINDER_FAIL
-    assert (directory / "record.md").read_text().count("go/sand/file3.go:3") == 2
+    assert (directory / "record.md").read_text().count("go/sand/file3.go:4") == 2
 
 
 def test_a_pass_after_an_earlier_finder_reads_since_that_head_and_checks_its_majors(tmp_path):
