@@ -90,12 +90,15 @@ function journey(b) {
   const fill = lastLive > 0 ? (lastLive / list.length) * 100 : 0;
   return `<div class="nw-panel">${progressLabel()}
     <div class="nw-journey" style="--n:${list.length}"><i class="fill" style="width:${fill}%"></i>${list.map((s, i) => `<a class="ms ms-${s.state}${i === cur ? ' cur' : ''}" href="#/plan/m${i}"><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.why ? `<span class="why">${esc(s.why)}</span>` : ''}</a>`).join('')}</div>
-    ${b.progress.sentence ? `<p class="nw-sent">${esc(b.progress.sentence)}</p>` : ''}
+    <p class="nw-sent">${list.filter((s) => s.state === 'live').length} of ${list.length} milestones are live. ${esc(b.progress.sentence ?? '')} ${codeLine()}</p>
     </div>`;
 }
 function progressLabel() {
+  return `<p class="nw-lab">${esc(state.model.milestones_label)}</p>`;
+}
+function codeLine() {
   const t = tally(state.model.drive.prs);
-  return `<p class="nw-lab"><span>${esc(state.model.milestones_label)}</span><span class="nw-code">Code: ${t.landed} of ${t.total} changes merged</span></p>`;
+  return `<span class="nw-code">Code: ${t.landed} of ${t.total} changes merged.</span>`;
 }
 function compact(b) {
   const list = stops(b);
@@ -243,12 +246,13 @@ function storyBody(item) {
   const latest = lines[0];
   const shown = story.open ? lines : lines.slice(0, 3);
   const hidden = lines.length - shown.length;
-  return `<div class="nw-storyhead"><h3>${esc(w.title)}</h3><p class="meta"><span class="chip ${slug(w.status)}">${esc(w.status)}</span>${esc(waited(w.since))}</p><p class="now"><b>Now</b>${esc(latest ? latest.line : w.latest)}</p>
+  return `<div class="nw-storyhead"><h3>${esc(w.title)}</h3>${w.goal ? `<p class="goal">${esc(w.goal)}</p>` : ''}<p class="meta"><span class="chip ${slug(w.status)}">${esc(w.status)}</span>${esc(waited(w.since))}</p><p class="now"><b>Now</b>${esc(latest ? latest.line : w.latest)}</p>
     ${latest ? `<p class="nw-sub"><i></i>Latest update ${esc(latest.at)} · new lines appear as it works</p>` : ''}</div>
     ${story.status ? `<p class="catching">${/^(Catching|Opening)/.test(story.status) ? '<i></i>' : ''}${esc(story.status)}</p>` : ''}
     ${story.draft ? `<div class="beat draft"><span class="t"></span><span class="ln">${esc(story.draft)}<i class="cursor"></i></span></div>` : ''}
     ${shown.map((l) => `<div class="beat ${esc(l.mark)}"><span class="t">${esc(l.at)}</span><span class="mk">${MARK_WORD[l.mark]}</span><span class="ln">${esc(l.line)}</span></div>`).join('')}
-    ${hidden ? `<button class="linkish" data-story-more>${hidden} earlier update${hidden === 1 ? '' : 's'} today</button>` : ''}`;
+    ${hidden ? `<button class="linkish" data-story-more>${hidden} earlier update${hidden === 1 ? '' : 's'} today</button>` : ''}
+    <a class="nw-raw" href="/api/transcript/${encodeURIComponent(item)}" target="_blank" rel="noopener">Open the full transcript ›</a>`;
 }
 
 const DIAGRAMS = {

@@ -50,6 +50,7 @@ ASSIST = HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assi
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
 RECORD_ROUTE = re.compile(r"/record/(\d+)")
 STORY_ROUTE = re.compile(r"/api/story/([a-z0-9-]+)")
+TRANSCRIPT_ROUTE = re.compile(r"/api/transcript/([a-z0-9-]+)")
 ROW_FACTS = ("number", "head", "key", "title", "change", "plan", "risk", "review", "blocker", "md", "block", "state", "ci_fix_go")
 CONFLICT = "Conflicts with its base, so it cannot land until its worker rebases it."
 UNCHECKED = "GitHub has not yet rechecked whether it merges cleanly."
@@ -977,6 +978,12 @@ def handler(drive):
                 return self.send(200, "application/json", json.dumps({**AI_CONFIG, "key": os.environ["CEREBRAS_API_KEY"]}).encode())
             if found := STORY_ROUTE.fullmatch(path):
                 return self.story(found[1])
+            if found := TRANSCRIPT_ROUTE.fullmatch(path):
+                work = drive.work(found[1])
+                transcript = work and drive.stories.transcript(work["workers"])
+                if transcript is None:
+                    return self.send(404, "text/plain; charset=utf-8", b"This worker's transcript is not on this Mac.")
+                return self.send(200, "text/plain; charset=utf-8", run(["cc-transcript", "show", str(transcript), "--no-junk", "--width", "300"]).encode())
             if found := RECORD_ROUTE.fullmatch(path):
                 try:
                     return self.send(200, "text/plain; charset=utf-8", run(["cci", "show", found[1]]).encode())

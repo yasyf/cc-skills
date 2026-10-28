@@ -104,11 +104,12 @@ SCHEMA = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["item", "workers", "title", "status", "latest", "unblocks", "since"],
+                "required": ["item", "workers", "title", "goal", "status", "latest", "unblocks", "since"],
                 "properties": {
                     "item": {"type": "string", "description": "stable short id, lowercase words joined by dashes, kept across briefs"},
                     "workers": {"type": "array", "items": {"type": "string"}},
                     "title": {"type": "string"},
+                    "goal": {"type": "string", "description": "what the work is for, in user terms, at most 20 words"},
                     "status": {"enum": ["Under review", "Ready for you", "Ready to merge", "Testing", "Building", "Rolling out", "Stuck", "Waiting on tests", "Fixing", "Investigating"]},
                     "latest": {"type": "string"},
                     "unblocks": {"type": "string", "description": "id of the blocker node this work fixes, or empty"},
@@ -152,7 +153,7 @@ Fields:
 - progress.sentence: at most 25 words: what ships before the next milestone. Never repeat the headline.
 - paths: the dependency chart of blockers. One path per milestone that something blocks (at most two, the next milestone first). nodes are the things that must happen before that milestone, each one stuck, being fixed, waiting on the owner, or done; edges go from a node to the node that waits on it ("from" must finish before "to"). A node with no outgoing edge leads straight to the milestone. Use at most three nodes per path: the biggest things in the way, merged where they share a fix. state: fixing (a worker reported on it in the last 20 minutes), you (the owner's tap or answer), nobody (no worker owns it, or its worker has been silent an hour; a blocker whose reporting worker states the fix it is making is that worker's, fixing), waiting (tests, the merge process, a reviewer), done. how always names who acts next and the specific fix they make, never a goal like "make it compile" (write "the cloud runs worker moves the 22 files still using the deleted session store"): a worker named by its work ("the cloud runs worker"), you, the coordinator, the merge process, or the automated review. Never write "not known" in how; when the next step is undecided, say who decides it. When a review finding or a failing test holds a change, how says what the finding or failure is and the change that answers it, such as "the agent machines worker makes a failed restore retry", never "answers the review" or "fixes its failing tests". For nobody, say "The coordinator assigns a worker" plus when it was raised. A decision the owner already made is done: drop it, and never ask him again for something he approved. item names the work item fixing it.
 - calm: when nothing blocks the next milestone, one sentence saying so and what ships next; else empty.
-- work: up to eight pieces of work being done now, most important first (fixing a blocker, then the next milestone, then the rest). Never a coordinator (merge process, board upkeep, review graders, monitors). title at most 8 words, named for what it makes for users, never who makes it. latest at most 16 words: the newest real progress. workers lists the worker names doing it (facts only, never shown). item is a stable id; reuse the previous brief's id for the same work. since is the Pacific clock time its current status began.
+- work: up to eight pieces of work being done now, most important first (fixing a blocker, then the next milestone, then the rest). Never a coordinator (merge process, board upkeep, review graders, monitors). title at most 8 words, named for what it makes for users, never who makes it. goal at most 20 words: what this work changes for users once it lands, such as "A release no longer breaks customer runs; affected runs retry once and carry on." latest at most 16 words: the newest real progress. workers lists the worker names doing it (facts only, never shown). item is a stable id; reuse the previous brief's id for the same work. since is the Pacific clock time its current status began.
 - since, on every node not done and every work row: the time of the record that started the wait, such as the push its tests run on, the hold, the review request, or the card going up. The page shows how long that has been."""
 
 
@@ -179,7 +180,7 @@ def slot_of(path):
     if path[:1] == ("paths",):
         return {"text": "node", "how": "how"}.get(path[-1])
     if path[:1] == ("work",):
-        return {"title": "title", "latest": "latest"}.get(path[-1])
+        return {"title": "title", "goal": "line", "latest": "latest"}.get(path[-1])
     if path[:1] == ("because",):
         return "sentence"
     return SLOTS.get(tuple(path))
