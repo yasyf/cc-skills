@@ -29,7 +29,7 @@ function writing(title) {
   return `<div class="pg">${pageHead(title)}<p class="pg-wait">Writing this page from the drive's records. It appears here within a few minutes.</p></div>`;
 }
 function dotted(label, tone) {
-  return `<span class="pg-state"><i class="pg-dot ${tone ?? ''}"></i>${esc(label)}</span>`;
+  return `<span class="pg-state ${tone ?? ''}">${esc(label)}</span>`;
 }
 function cellText(text, empty, since = '') {
   return text ? `<span>${esc(text)}${forSince(since)}</span>` : `<span class="pg-none">${empty}</span>`;
@@ -83,7 +83,7 @@ function truthFacts(n, landed) {
 function stackLine(row) {
   const t = prTruth(row.pr);
   const l = { stage: t.blocks, next: t.next, since: t.since };
-  return `<div class="wk-row"><span class="wk-body"><a href="#/review/${row.pr}"><b>${esc(shortName(row.pr) ?? plainTitle(row.pr))}</b></a><span class="wk-line">${row.stale ? `${dotted('Stuck', 'bad')} ` : ''}${esc(l.stage.replace(/\.$/, ''))}.${l.next ? ` Next, ${esc(l.next.replace(/\.$/, ''))}.` : ''}</span></span><span class="wk-side"><a href="#/worker/${encodeURIComponent(row.owner)}">${esc(workerName(row.owner))}</a>${row.live ? '' : ', not running'}${l.since ? `<br>${blockedFor(l.since)}` : ''}</span></div>`;
+  return `<div class="wk-row"><span class="wk-body"><a href="#/review/${row.pr}"><b>${esc(shortName(row.pr) ?? plainTitle(row.pr))}</b></a><span class="wk-line">${esc(l.stage.replace(/\.$/, ''))}.${l.next ? ` <span class="wk-next">Next: ${esc(l.next.replace(/\.$/, ''))}.</span>` : ''}</span></span><span class="wk-side"><a href="#/worker/${encodeURIComponent(row.owner)}">${esc(workerName(row.owner))}</a>${row.live ? '' : ', not running'}${l.since ? `<br>${blockedFor(l.since)}` : ''}</span></div>`;
 }
 function blockerNode(n) {
   return (state.model.brief?.paths ?? []).flatMap((path) => path.nodes).find((x) => String(x.change) === String(n));
@@ -184,7 +184,7 @@ function workScreen(item) {
   return `<div class="pg">${pageHead('Work', p)}
     <section class="pg-sec"><h2>Active work <span class="pg-n">${p.running.length}</span></h2><div class="pg-list">${running.slice(0, RUNNING_AT_REST).join('') || '<p class="pg-none">No work is running right now.</p>'}</div>
     ${rest.length ? fold('wk-more', `More active work <span class="pg-n">${rest.length}</span>`, `<div class="pg-list">${rest.join('')}</div>`, p.running.slice(RUNNING_AT_REST).some((w) => w.item === item)) : ''}</section>
-    <section class="pg-sec"><h2>Open pull requests <span class="pg-n">${m.stack.length}</span></h2>${stuck.length ? `<div class="pg-list">${stuck.map(stackLine).join('')}</div>` : '<p class="pg-none">None has sat in one state for two hours.</p>'}
+    <section class="pg-sec"><h2>Open pull requests <span class="pg-n">${m.stack.length}</span></h2>${stuck.length ? `<p class="wk-caption">${dotted('Stuck', 'bad')} These have sat in one state for two hours or more.</p><div class="pg-list">${stuck.map(stackLine).join('')}</div>` : '<p class="pg-none">None has sat in one state for two hours.</p>'}
     ${moving.length ? fold('wk-prs', `Moving <span class="pg-n">${moving.length}</span>`, `<div class="pg-list">${moving.map(stackLine).join('')}</div>`) : ''}</section>
     ${finished.length ? `<section class="pg-sec">${fold('wk-finished', `Finished today <span class="pg-n">${finished.length}</span>`, `<div class="pg-list">${finished.join('')}</div>`, p.finished.some((w) => w.item === item))}</section>` : ''}
     ${helpers ? `<section class="pg-sec">${fold('wk-helpers', `Keeping the drive running <span class="pg-n">${p.helpers.length}</span>`, `<ul class="wk-helpers">${helpers}</ul>`)}</section>` : ''}</div>`;
