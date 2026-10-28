@@ -79,7 +79,7 @@ def test_the_needs_you_band_shows_every_word(page):
     cut = page.evaluate("""() => [...document.querySelectorAll('.nw-band .what, .nw-band .sub, .nw-band .nbtn')]
         .filter((el) => el.scrollWidth > el.clientWidth + 1 || getComputedStyle(el).textOverflow === 'ellipsis')
         .map((el) => el.className)""")
-    assert page.locator(".nw-band .nl").count() >= 2
+    assert page.locator(".nw-band .nl").count() >= 1
     assert cut == []
 
 

@@ -337,8 +337,8 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowRight' && !state.overlay) setScrub(ov.scrub + 1);
   else if (e.key === 'ArrowLeft' && !state.overlay) setScrub(ov.scrub - 1);
   else if (e.key === 'n' && ov.scrub) setScrub(0);
-  else if (e.key === 'p' && !state.overlay) { state.overlay = 'plan'; render(); }
-  else if (e.key === 'Enter' && e.target.dataset?.track !== undefined) { ov.track = e.target.dataset.track; state.overlay = 'track'; render(); }
+  else if (e.key === 'p' && !state.overlay) location.hash = '#/plan';
+  else if (e.key === 'Enter' && e.target.dataset?.track !== undefined) location.hash = `#/plan/${encodeURIComponent(e.target.dataset.track)}`;
 });
 window.addEventListener('resize', () => { if (route().screen === 'overview' && state.model) mountOverview(); });
 Object.assign(window, { showOnly, tally });

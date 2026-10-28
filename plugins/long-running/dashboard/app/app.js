@@ -277,6 +277,7 @@ function render() {
   const caret = typing && [typing.name, typing.dataset.draft ?? '', typing.selectionStart, typing.selectionEnd];
   $('#main').innerHTML = (screens[r.screen] ?? nowScreen)() + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources failed: ${esc(Object.values(m.errors).join('; '))}. ` : ''}All times Pacific.</div>`;
   decorate(r);
+  paintModal();
   const again = caret && [...$('#main').querySelectorAll(`[name="${caret[0]}"]`)].find((el) => (el.dataset.draft ?? '') === caret[1]);
   if (again) { again.focus(); again.setSelectionRange(caret[2], caret[3]); }
   window.scrollTo(0, y);
@@ -344,13 +345,6 @@ document.addEventListener('click', (e) => {
     if (state.overlay) closeSheet();
     return;
   }
-  const overlay = e.target.closest('[data-overlay]');
-  if (overlay && !e.target.closest('a.d')) {
-    e.preventDefault();
-    state.overlay = overlay.dataset.overlay;
-    render();
-    document.getElementById(`pstep-${overlay.dataset.step ?? 0}`)?.scrollIntoView({ block: 'center' });
-  }
   const suggestion = e.target.closest('[data-ask]');
   if (suggestion) ask(suggestion.dataset.ask);
 });
@@ -365,6 +359,37 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'Escape' && route().screen === 'work' && route().id) location.hash = '#/work';
   if (e.key === 'Enter' && !e.shiftKey && e.target.matches('#ask textarea')) { e.preventDefault(); ask(e.target.value); }
 });
+function paintModal() {
+  const root = document.getElementById('modal-root') ?? document.body.appendChild(Object.assign(document.createElement('div'), { id: 'modal-root' }));
+  const ms = /^m(\d+)$/.exec(state.overlay ?? '');
+  const p = ms && curated('plan');
+  const held = root.contains(document.activeElement) ? document.activeElement.getAttribute('href') : null;
+  root.innerHTML = p ? `<div class="overlay" data-close="1"><div class="sheet ms-sheet" role="dialog" aria-modal="true" aria-label="${esc(state.model.milestones[ms[1]] ?? 'Milestone')}"><button class="btn close" data-close="1">Close <kbd>Esc</kbd></button>${milestonePage(p, Number(ms[1]))}<p class="acts ms-out"><a class="btn" data-out href="#/plan/m${ms[1]}">Open as its own page ›</a></p></div></div>` : '';
+  document.body.classList.toggle('modal-open', Boolean(p));
+  if (held) root.querySelector(`a[href="${CSS.escape(held)}"]`)?.focus();
+}
+document.addEventListener('click', (e) => {
+  const link = e.target.closest('a[href^="#/plan/m"]');
+  if (!link || e.metaKey || e.ctrlKey || e.shiftKey) return;
+  if (link.hasAttribute('data-out')) { state.overlay = null; return; }
+  const ms = /^#\/plan\/(m\d+)$/.exec(link.getAttribute('href'));
+  if (!ms || (link.closest('.pg-page') && !link.closest('#modal-root'))) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  if (!state.overlay) state.opener = link;
+  state.overlay = ms[1];
+  render();
+  document.querySelector('#modal-root .close')?.focus();
+}, true);
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab' || !state.overlay) return;
+  const stops = [...document.querySelectorAll('#modal-root a[href], #modal-root button')];
+  const at = stops.indexOf(document.activeElement);
+  if (at === -1 || (e.shiftKey && at === 0) || (!e.shiftKey && at === stops.length - 1)) {
+    e.preventDefault();
+    stops.at(e.shiftKey ? -1 : 0)?.focus();
+  }
+});
 function closeSheet() {
   if (history.state?.sheet) return history.back();
   state.overlay = null;
@@ -374,8 +399,10 @@ window.addEventListener('popstate', (e) => {
   if (e.state?.sheet || !state.overlay) return;
   state.overlay = null;
   render();
+  const href = state.opener?.getAttribute('href');
+  (state.opener?.isConnected ? state.opener : href && document.querySelector(`#main a[href="${CSS.escape(href)}"]`))?.focus();
 });
-window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); });
+window.addEventListener('hashchange', () => { state.overlay = null; window.scrollTo(0, 0); render(); });
 window.addEventListener('DOMContentLoaded', () => {
   setInterval(tickFresh, 1000);
   load();
