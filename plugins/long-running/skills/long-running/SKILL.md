@@ -1622,13 +1622,16 @@ carries its grade, below) is that gate's record there, and nobody re-grades it.
 `landing.desk_lane` in `runner.json` names a lane, one or a list, the runner's
 `QUEUED`, `LANDED`, `TAP-CARRIED`, `MERGE-ASK`, `BELOW-BLOCKED` and `FORK-DEFERRED` records go to that
 lane, each `landing.board_lane`, and the PR's owning lane, each read as its live
-successor, and not to root. A `GO-UNQUEUED` for a PR, or a `LANE-GONE` for a lane, goes to
-root the first time and to those lanes after. Without `landing.desk_lane` they go to root.
+successor, and not to root. A `GO-UNQUEUED` for a PR goes to root the first time and to
+those lanes after. A `LANE-GONE` for a lane goes to root every time, and to those lanes and
+the gone lane too after the first, since only root relaunches a lane. Without
+`landing.desk_lane` they go to root.
 
 *Prevents Oct 26 11:33 PM: a go'd, approved, all-green PR sat out of the queue for 45
 minutes because no desk checked how long a go had waited. Oct 27 7:07 PM: the bot held
 a green PR on 2 blocking findings five minutes after its push, and the runner and root read
-it as no verdict for 19 minutes.*
+it as no verdict for 19 minutes. Oct 28 12:31 AM: repeat `LANE-GONE` records for two
+lanes went to the desks only, and root, the one lane that relaunches, learned 25 minutes late twice.*
 
 With `landing.merge_ask_surface` set to `board`, the root asks every merge question
 on its own board, and under `every` the runner checks only heads a root `go` names.
