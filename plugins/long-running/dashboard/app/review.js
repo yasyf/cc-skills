@@ -1,6 +1,6 @@
 const VERDICT_TONE = { you: 'bad', approved: 'ok', held: 'warn' };
 const VERDICT_WORD = { you: 'Waiting on you', approved: 'Approved', held: 'Held' };
-const embed = { number: null, head: null, row: false };
+const embed = { number: null, head: null, row: false, started: null };
 const pending = { number: null, holding: false, error: '', note: '' };
 
 function approvedAt(n) {
@@ -166,10 +166,17 @@ function syncReviewEmbed(r) {
     return;
   }
   el.dataset.tab = r.tab === 'code' ? 'code' : 'text';
-  if (embed.number !== number || embed.row !== Boolean(row)) el.innerHTML = '<div class="pane code"></div>';
-  if (embed.number === number && embed.head === head && embed.row === Boolean(row)) return;
-  Object.assign(embed, { number, head, row: Boolean(row) });
+  if (embed.number !== number || embed.row !== Boolean(row)) {
+    Object.assign(embed, { number, head: null, row: Boolean(row) });
+    el.innerHTML = '<div class="pane code"></div>';
+  }
   const code = el.querySelector('.pane.code');
+  if (embed.started !== number) {
+    if (!code.querySelector('[data-start-review]')) code.innerHTML = `<div class="pane-wait"><p>The code review opens its own review session for this pull request, so it starts only when you ask.</p><button class="btn pri" data-start-review="${number}">Start the code review</button></div>`;
+    return;
+  }
+  if (embed.head === head) return;
+  embed.head = head;
   code.innerHTML = '<p class="dim pane-wait">Opening the code and review…</p>';
   fetch(`/api/review/${number}`, { cache: 'no-store' })
     .then((res) => res.json())
@@ -181,7 +188,13 @@ function syncReviewEmbed(r) {
           <form class="assist-line pr-ask" data-ask-pr="${number}"><input name="q" placeholder="Ask about #${number}: it answers from its facts, your rulings and the drive's records"><button class="btn pri">Ask</button></form><div class="pr-answer"></div>`;
     });
 }
+document.addEventListener('click', (e) => {
+  const start = e.target.closest('[data-start-review]');
+  if (!start) return;
+  embed.started = Number(start.dataset.startReview);
+  syncReviewEmbed(route());
+});
 setInterval(() => {
   const r = route();
-  if (r.screen === 'review' && embed.number && !document.hidden) fetch(`/api/review/${embed.number}`, { cache: 'no-store' });
+  if (r.screen === 'review' && embed.number && embed.started === embed.number && !document.hidden) fetch(`/api/review/${embed.number}`, { cache: 'no-store' });
 }, 5 * 60 * 1000);
