@@ -94,9 +94,9 @@ HISTORY_SCHEMA = strict({
 })
 
 HISTORY_PROMPT = PAGE_PROMPT.format(what="the History page of a live dashboard that a busy engineering lead reads to catch up on the day. It is the day as a short curated timeline: his decisions, releases, incidents, and what landed, grouped by feature.", fields="""- since: copy day_starts.
-- summary: up to two sentences of at most 30 words each: what people can do now that they could not this morning, and what is still in the way. Name behaviors, never the mechanisms behind them.
+- summary: up to two sentences of at most 30 words each: what people can do now that they could not this morning, and what is still in the way. Name behaviors, never the mechanisms behind them. Never say how many changes or questions wait on Yasyf: the Review tab's live count says that, and a written count goes stale.
 - entries: newest first, at most 40. Never a heartbeat, a status post, a command receipt, a worker handover, or a coordinator starting a worker. Each release in releases that went live since day_starts is a release entry.
-- An incident or stuck entry says whether it is settled now and how, from later events, or who is on it; never "not known" when a later event answers it. One that affected Yasyf's own decisions or approvals names which ones and whether they were kept.
+- An incident or stuck entry says whether it is settled now and how, from later events, or who is on it; never "not known" when a later event answers it. One that affected Yasyf's own decisions or approvals names which ones and whether they were kept. An entry still waits on one of his board questions only while that question is in open_questions; once it has left them, the entry says he answered it.
 - kind: decision (the owner's own choice or approval of a design or plan), release (something went live to users), incident (something broke for users), fixed (an incident's fix went live), landed (changes merged), approved (he approved changes to merge), blocked (something got stuck), unblocked (it moved again).
 - His decisions are entries of their own, said in his terms, such as "You chose five tabs for the dashboard".
 - Group landings and approvals by feature: one entry per feature per hour at most, naming each change in words in the detail. changes holds the pull request numbers the entry covers (facts only, never shown).
@@ -287,6 +287,7 @@ def history_digest(model, config, previous, now):
         "releases": [{k: r.get(k) for k in ("name", "state", "went_wrong")} for r in model["now"].get("releases", [])],
         "coordinator_rulings": rulings(model["records"], now),
         "open_changes": open_changes(model, change_records(model, now)),
+        "open_questions": [item["card"]["title"] for item in model["needs"] if item["kind"] == "card"],
         "landed": [
             {"at": clock(at(pr["landed_at"])), "number": int(n), "title": pr.get("title"), "part": steps.get(entries.get(int(n), {}).get("step"))}
             for n, pr in sorted(model["prs"].items(), key=lambda item: item[1].get("landed_at") or "")

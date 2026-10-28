@@ -65,12 +65,12 @@ function prBody(pr) {
 }
 function prText(n) {
   const pr = describe(n);
-  if (!pr) return '<p class="dim pr-wait">Reading the description and the reviewer bot’s summary…</p>';
+  if (!pr) return '<p class="dim pr-wait">Reading the description and what the reviewer bot says it does…</p>';
   if (pr.error) return `<p class="pr-wait">The description is unavailable right now${/rate limit/i.test(pr.error) ? ': GitHub is limiting requests' : ''}. <a href="https://github.com/${esc(state.model.repo)}/pull/${n}" target="_blank" rel="noopener">Open it on GitHub ↗</a></p>`;
   const reviewed = pr.review && `<p class="pr-reviewed">${REVIEW_WORD[pr.review.state] ?? 'The reviewer bot reviewed it'} at ${clock(pr.review.at)}.</p>`;
   const bot = pr.eli5 || pr.diagram
     ? `<section class="pr-read pr-eli5"><div class="kick muted">What it does, from the reviewer bot</div>${reviewed || ''}${pr.eli5 ? `<div class="md">${markdown(pr.eli5)}</div>` : ''}${pr.diagram ? diagramFigure(pr.diagram) : ''}</section>`
-    : pr.summary ? `<section class="pr-read pr-eli5"><div class="kick muted">The reviewer bot’s summary</div>${reviewed || ''}<div class="md">${markdown(pr.summary)}</div></section>` : reviewed ? `<section class="pr-read">${reviewed}</section>` : '';
+    : reviewed ? `<section class="pr-read">${reviewed}</section>` : '';
   const body = prBody(pr);
   return `${bot}
     <section class="pr-read"><div class="kick muted">The pull request’s description</div><div class="md">${body ? markdown(body) : '<p class="dim">Its author wrote no description.</p>'}</div></section>`;
@@ -97,7 +97,7 @@ function prPeek(n) {
   if (!pr) return '<div class="mr-peek dim">Reading what it does…</div>';
   if (pr.error) return '<div class="mr-peek dim">What it does is unavailable right now.</div>';
   const body = prBody(pr);
-  const [kick, text] = pr.eli5 ? ['What it does, from the reviewer bot', pr.eli5] : body ? ['From its description', body] : ['', ''];
+  const [kick, text] = pr.eli5 ? ['What it does, from the reviewer bot', pr.eli5] : body ? ['From its description', /^#{1,4}\s*Summary\s*\n+([\s\S]*?)(?=^#{1,4}\s|(?![\s\S]))/m.exec(body)?.[1].trim() || body] : ['', ''];
   return text ? `<div class="mr-peek"><div class="kick muted">${kick}</div><div class="md">${markdown(text)}</div></div>` : '<div class="mr-peek dim">Its author wrote no description.</div>';
 }
 function decideBar(row, v) {

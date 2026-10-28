@@ -234,8 +234,8 @@ body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); bo
 .mr-t { transition: color .15s; }
 .mr:hover .mr-t { color: #fff; }
 .mr-acts .btn.pri { box-shadow: 0 0 16px -4px color-mix(in srgb, var(--ok) 70%, transparent); }
-.mr-group h3 { display: flex; align-items: center; gap: 10px; }
-.mr-group h3::before { content: ""; flex: none; width: 3px; height: 1.05em; border-radius: 2px; background: var(--amber); box-shadow: 0 0 10px color-mix(in srgb, var(--amber) 70%, transparent); }
+.mr-group > h3 { display: flex; align-items: center; gap: 10px; }
+.mr-group > h3::before { content: ""; flex: none; width: 3px; height: 1.05em; border-radius: 2px; background: var(--amber); box-shadow: 0 0 10px color-mix(in srgb, var(--amber) 70%, transparent); }
 .mr-group .pg-rel { padding-left: 13px; }
 .mr-peek { position: absolute; left: 14px; right: 14px; top: calc(100% - 8px); padding: 12px 16px; border-radius: 12px; background: var(--panel-face); border: 1.5px solid color-mix(in srgb, var(--ok) 45%, transparent); box-shadow: 0 24px 50px -14px rgba(0, 0, 0, .85), 0 0 24px -8px color-mix(in srgb, var(--ok) 50%, transparent); opacity: 0; transform: translateY(-4px); pointer-events: none; visibility: hidden; transition: opacity .16s ease, transform .16s ease, visibility 0s linear .16s; }
 .mr:is(:hover, :has(.mr-t:focus-visible)) .mr-peek { opacity: 1; transform: none; visibility: visible; transition-delay: .35s, .35s, 0s; }

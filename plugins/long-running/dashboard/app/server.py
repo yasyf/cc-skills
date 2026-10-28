@@ -74,7 +74,6 @@ PR_FACTS = "{body: .body, head: .head.sha}"
 BOT_COMMENTS = '[.[] | select(.user.type == "Bot") | .body]'
 BOT_REVIEW = '[.[] | select(.user.type == "Bot" and .state != "COMMENTED") | {state: .state, at: .submitted_at}] | last'
 ELI5 = re.compile(r"^### ELI5\n+(.+?)\s*(?=^### |^<sub>|^<!--|\Z)", re.S | re.M)
-BOT_SUMMARY = "<!-- pr-reviewer bot summary -->"
 BOT_COMPANION = "<!-- pr-reviewer bot companion -->"
 COMPANION_DIAGRAM = re.compile(r"^### (?!ELI5)(.+)\n+```mermaid\n(.*?)\n```", re.S | re.M)
 STORE = Path.home() / ".cc-present" / "cc-interact-v1" / "state.db"
@@ -110,9 +109,7 @@ def cci(path, **query):
 def bot_words(comments):
     eli5 = next((found[1] for body in comments if (found := ELI5.search(body))), None)
     diagram = next(({"title": found[1].strip(), "source": found[2]} for body in comments if body.startswith(BOT_COMPANION) and (found := COMPANION_DIAGRAM.search(body))), None)
-    summary = next((body for body in comments if body.startswith(BOT_SUMMARY)), "").partition("<details>")[0]
-    lead = [part.strip() for part in summary.split("\n\n") if part.strip() and not part.lstrip().startswith((">", "**Since", "<!--", "No new findings"))]
-    return {"eli5": eli5, "diagram": diagram, "summary": "\n\n".join(lead) or None}
+    return {"eli5": eli5, "diagram": diagram}
 
 
 def plan_prs(text):

@@ -139,22 +139,17 @@ def test_work_waits_from_the_change_s_last_push_like_review():
 
 
 COMPANION = "<!-- pr-reviewer bot companion -->\n\n### ELI5\n\nEditing a message now starts a new chat instead of failing.\n\n### Read in this order\n\n| File | What it settles |\n\n<sub>`606342b`</sub>"
-SUMMARY = "<!-- pr-reviewer bot summary -->\n\n> [!TIP]\n> **No blocking findings**\n\n**Since [`606342b`](x):** `startHeadless` arms its timers.\n\nA CLI that fails to start now fails the test.\n\n<details><summary>All findings</summary>\n\n| Finding |\n\n</details>"
 
 
 def test_the_review_page_quotes_the_bot_s_eli5_section_alone():
-    assert bot_words([SUMMARY, COMPANION])["eli5"] == "Editing a message now starts a new chat instead of failing."
+    assert bot_words([COMPANION])["eli5"] == "Editing a message now starts a new chat instead of failing."
 
 
-def test_without_an_eli5_the_bot_s_plain_summary_stands_in():
-    assert bot_words([SUMMARY]) == {"eli5": None, "diagram": None, "summary": "A CLI that fails to start now fails the test."}
-
-
-def test_a_diagram_only_companion_gives_its_titled_diagram_and_an_incremental_summary_is_dropped():
+def test_a_diagram_only_companion_gives_its_titled_diagram():
     companion = "<!-- pr-reviewer bot companion -->\n\n### GitHub merge state gates untracked dev PRs\n\n```mermaid\nflowchart LR\n    CLI -->|\"enqueue\"| Queue\n```\n\n<sub>`7bed615`</sub>"
     summary = "<!-- pr-reviewer bot summary -->\n\n> [!TIP]\n> **No blocking findings**\n\n**Since [`7bed615`](x):** Adds a fallback.\n\nNo new findings at this head. The existing thread still applies.\n\n<details></details>"
     diagram = {"title": "GitHub merge state gates untracked dev PRs", "source": "flowchart LR\n    CLI -->|\"enqueue\"| Queue"}
-    assert bot_words([summary, companion]) == {"eli5": None, "diagram": diagram, "summary": None}
+    assert bot_words([summary, companion]) == {"eli5": None, "diagram": diagram}
 
 
 def test_an_eli5_companion_gives_its_prose_and_the_diagram_after_it():
