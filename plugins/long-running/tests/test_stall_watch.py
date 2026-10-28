@@ -517,6 +517,39 @@ def test_a_hold_on_an_owner_card_waits_while_the_card_is_unanswered_and_stales_o
         assert shell.post(topic)["text"] == "#401 at abc1234 is held on eviction-route-choice, each waiting on the owner's tap, his board answer, or the merge queue, since 10:30 AM"
 
 
+@pytest.mark.parametrize(
+    ("records", "text"),
+    [
+        ([record(1, "api-lane", "report", f"READY #101 at {HEAD[:7]}", 60, "101")], None),
+        ([record(1, "api-lane", "state", "pushed the fix", 60)], "its last record, state #1 at 12:00 PM, explains no silence"),
+        ([record(1, "api-lane", "report", f"READY #101 at {HEAD[:7]}", 60, "101"), record(2, "board-refresher", "ask", "which tests does #101 run?", 45, status="open", to=["api-lane"])], "it owes a reply to #2 (ask from board-refresher at 12:15 PM)"),
+    ],
+    ids=["last-record-ready", "last-record-explains-nothing", "owes-an-ask"],
+)
+def test_a_quiet_lane_with_no_open_pr_is_idle_after_a_ready_record_unless_it_owes_a_reply(config, tmp_path, records, text):
+    task(tmp_path, 1, "api-lane", minutes_ago=90)
+    shell = FakeShell(records, [])
+    shell.answer = lambda question: {"explained": False}
+
+    watch(shell, config)
+
+    assert shell.topics() == (["lane:api-lane"] if text else [])
+    if text:
+        assert text in shell.post("lane:api-lane")["text"]
+
+
+@pytest.mark.parametrize(("ready", "stalls"), [(False, []), (True, ["board:101:abc1234"])], ids=["row-pulled", "row-due-after-ready"])
+def test_a_merge_row_root_pulled_by_a_decide_is_not_missing_until_the_lane_posts_ready(config, ready, stalls):
+    records = [head(1, "101", HEAD, 40), finder(2, "101", HEAD, 20), fidelity(3, "101", HEAD, 20), record(4, "root", "decide", "Confirmed: pull #101's tap row until api-lane posts READY with the red fixed", 15, "101")]
+    if ready:
+        records.append(record(5, "api-lane", "report", f"READY #101 at {HEAD[:7]}", 5, "101"))
+    shell = FakeShell(records, [row("101")])
+
+    watch(shell, config)
+
+    assert shell.topics() == stalls
+
+
 def test_a_pr_that_moved_less_than_two_hours_ago_is_not_stale_and_a_new_state_on_the_same_head_counts_from_the_pass_that_saw_it(config):
     shell = FakeShell([*graded(1, "101", HEAD, 100), *graded(4, "102", OTHER, 300)], [row("101", mergeable_state="dirty"), row("102", OTHER, mergeable_state="dirty")])
     shell.doc = {"blocks": [{"id": f"merge:101:{HEAD[:7]}", "type": "card", "children": []}, {"id": f"merge:102:{OTHER[:7]}", "type": "card", "children": []}]}
