@@ -7,6 +7,7 @@ import urllib.parse
 
 import pytest
 from holds import Entry
+from pages import stamp
 from review_assistant import ReviewAssistant
 from server import QUEUED_NEXT, Drive, drive_prs, drive_workers, journeys, needs, parse_plan, plan_prs, step_rows, release_path, paths_current, hold_reasons, verdict_state, with_conflicts
 
@@ -487,12 +488,15 @@ def test_merge_needs_keep_the_board_groups_and_each_rows_facts():
         ("done", "All approved", "Nothing left.", [board_row(43300, "approved")]),
         ("gate", "Release 1 waits on this", "The first release cannot start without it.", [board_row(43258, "you")]),
     )
-    rows = Drive({"board_url": "http://board/p/x"}, None).read_board(store)["rows"]
+    board = Drive({"board_url": "http://board/p/x"}, None).read_board(store)
+    stamp(board)
+    rows = board["rows"]
 
     out = needs(rows, [], [], "http://board/p/x", set())
 
     assert [(item["group"], item["relation"]) for item in out] == [("Faster tools", "Four tooling changes; none reaches a user."), ("Release 1 waits on this", "The first release cannot start without it.")]
-    assert out[0]["prs"] == [{"number": 43246, "head": "43246aaaa", "title": "T43246", "change": "C43246", "plan": "P43246", "risk": "R43246", "review": "V43246", "blocker": "B43246", "md": "M", "block": "merge-prs", "state": "you"}]
+    assert out[0]["prs"] == [{"number": 43246, "head": "43246aaaa", "title": "T43246", "change": "C43246", "plan": "P43246", "risk": "R43246", "review": "V43246", "blocker": "B43246", "md": "M", "block": "merge-prs", "state": "you", "key": rows[1]["key"], "ci_fix_go": None}]
+    assert out[0]["key"] != out[1]["key"]
     assert [row["number"] for row in out[0]["others"]] == [43243]
     assert out[1]["source"] == {"label": "Merge board: Release 1 waits on this", "href": "http://board/p/x"}
     assert "1 pull request in “Release 1 waits on this”" in out[1]["why"]

@@ -136,3 +136,28 @@ story writer per piece of work on the first view:
 
 A writer stays three minutes after its last viewer leaves, and at most four run at once.
 The app cannot be restarted while a writer runs, so close story tabs before a deploy.
+
+## The other pages
+
+The app has five tabs, Now, Plan, Work, Review, and History. Ask has no tab; open it from the Jump palette with Command-K.
+
+Plan, Work, History, and Review each have their own curator using the same machinery as the Now page. Each curator makes one model call per page when a record that can change that page arrives. At most one run happens per page at a time, never on a timer, and each page enforces its own minimum gap between runs. Every output passes the plain-words gate. A failing string goes back to the model once and otherwise keeps its last passing text.
+
+| Page | What it shows | Runs on | Minimum gap |
+| --- | --- | --- | --- |
+| Plan | One row per milestone with its state and what it waits on, where a milestone not started says only that it follows the one above; what it ships and what went wrong open on click. One row per open plan part with state, what blocks it, and who acts next; what it delivers and its changes by name, with landed ones on one line, open on click. Parts not started and parts done each fold into one list. A milestone on the Now page links to its row. | `blocker`, `ask`, `answer`, `decide`, `go`, `landed`, `release`, `incident`, `hold`, `lift`, and `defect` records, plus `steps.json` writes | 3 minutes |
+| Work | Every piece of work today. The three most important running items show at rest and the rest fold under a count. Finished items and the helpers that keep the drive running sit behind folds. A row opens its live story in place. Work still waiting on a release, an approval, tests or another change stays running. | `state`, `head`, `report`, `opened`, `blocker`, `landed`, `review`, `done`, `stopped`, `stand-down`, and `handoff` records | 3 minutes |
+| Review | Every merge row waiting on the owner as four plain lines, for users, plan, risk, and review naming codex or the reviewer bot, with what it waits on above them when that is more than his approval. Groups get a plain title and one line on how their changes relate. Each open board question shows as one plain question, what the recommended answer changes, and the recommended answer's button, with the other answers one click away; its background stays on the board, linked to that question. A question leaves the page as soon as an owner answer recorded in cc-notes names its card id. The tab count, the band on Now, and the Review page read one list. A pull request opens on what it does: its four plain lines, the ELI5 section of the reviewer bot's comment, or the bot's summary when it wrote none, and the pull request's own description; the code and its review session sit on the second tab. | `review`, `head`, `go`, and `report` records, plus board changes | 1 minute |
+| History | The day as a short timeline of the owner's decisions, releases, incidents, and what landed grouped by feature, each one line with its detail on click, under the time the page covers. At rest it shows the six newest decisions, releases, incidents, fixes and changes that got stuck or moved again; older events, landings and approvals fold under a count. No heartbeats or receipts. | `owner`, `release`, `incident`, `mechanism`, `fix-live`, `hold`, `lift`, `blocker`, `go`, and `landed` records | 5 minutes |
+
+Review rows are the merge board's own text. The Review curator rewrites only the failing fields of a row that fails the plain-words gate, plus every group title and every open question. Each row, group, and question carries a key hashed from its source text, so a rewrite stays until the board changes that text, and a fallback never borrows another entry's words.
+
+Every blocked or waiting row on Plan, Work and Review says how long it has waited and since when, such as "for 40 min, since 5:48 PM", counted from the record that started the wait. Every page reads each change's state from the same list the Now page uses, `open_changes` in `dashboard/app/brief.py`, so no two pages disagree about a change. Work and History read their records straight from the bus for their own window, not from the app's recent-records buffer. Work reads the last 12 hours. History reads since midnight Pacific, covering at least eight hours.
+
+Each page's output is saved beside the brief as `plan.json`, `work.json`, `history.json`, and `review.json`, with the last 50 versions under `history/<page>/`.
+
+## Add a page
+
+Define a `Page` in `dashboard/app/pages.py`. It holds a name, a prompt built from the shared `RULES`, and a JSON schema. Its `digest(model, config, previous, now)` returns the facts, or `None` to skip the run. Its `slot_of(path)` maps each rendered field to a plain-words word limit. It also names the record kinds that wake it and its minimum gap.
+
+Add the page to `PAGES`. The server runs its curator and serves its output as `model.pages.<name>`. Render it from `dashboard/app/pages.js` and add its tab to the `tabs` list in `render()` in `app.js`. When a digest needs older records than the app holds, call `model["fetch"](kinds, since)`.

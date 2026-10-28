@@ -7,6 +7,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+from typing import Callable, NamedTuple
 from zoneinfo import ZoneInfo
 
 import plainwords
@@ -19,6 +20,7 @@ TROUBLE_WINDOW = dt.timedelta(hours=3)
 TROUBLE_KINDS = {"blocker", "incident", "mechanism", "fix-live", "ask", "decide", "decision", "hold", "lift"}
 SUCCESSOR = re.compile(r"-\d+$")
 ROOT = {"root", "main"}
+COORDINATORS = re.compile(r"^(root|main)$|(^|-)desk(-|$)|refresher|watchdog|register|landing|(^|-)board(-|$)|prompt|fidelity|progress|comms|tooling|finder|sweep|batch-post")
 PR_MENTION = re.compile(r"#(\d{4,6})\b")
 CLOCK = re.compile(r"\d{1,2}:\d{2} [AP]M")
 WAITED = re.compile(r"\bfor \d+ (?:min|minutes?|hours?|h)\b|\bsince \d{1,2}:\d{2} [AP]M\b")
@@ -27,6 +29,7 @@ BYSTANDERS = ("dashboard", "register", "cc-present", "desk-runner", "stall-watch
 FINDING = re.compile(r"finding|defect|blocker|must|fails?\b", re.I)
 QUIET = ("--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--tools", "", "--no-session-persistence")
 PACIFIC = ZoneInfo("America/Los_Angeles")
+IDENTITY = ("key", "id", "item", "number", "title")
 SLOTS = {
     ("headline",): "headline",
     ("because",): "sentence",
@@ -116,13 +119,15 @@ SCHEMA = {
     },
 }
 
-PROMPT = """You write the main page of a live dashboard that a busy engineering lead reads at a glance. It answers four questions: overall progress, what is being worked on, the biggest blockers, and how each blocker is being unblocked. The user message is the drive's facts as JSON. Return one JSON object matching the schema.
-
-Rules for every string:
-- Written for a human who never reads the agents' records. Plain English, short sentences, the product names users know (Sand, Iris, SandSQL, S3, codex) where they are the fact.
-- Never a record number, pull request number, release code (R1, P8), step number, hash, file path, branch, URL, worker name from worker_names, or these coined words: lane, desk, watchdog, finder, slice, census, fidelity, register, mirror, forest, tap row, ci-grade, rider, carry, restack, rebase, enqueue, old world, new world, cherry-pick. Say "a worker", "the merge process", "the automated review", "old code", "new code" instead. Describe what changed for users or what is left, never git mechanics.
+RULES = """Rules for every string:
+- Written for a human who never reads the agents' records. Plain English, short sentences. Use the real system names where they are the fact (Sand, Iris, SandSQL, sandsql-server, S3, Litestream, the api, Buildkite), never a generic stand-in such as "the database server" or "cloud storage".
+- Never a record number, pull request number, release code (R1, P8), step number, hash, file path, branch, URL, worker name from worker_names, or these coined words: lane, desk, watchdog, finder, slice, census, fidelity, register, mirror, forest, tap row, ci-grade, rider, carry, restack, rebase, enqueue, old world, new world, cherry-pick. Say "a worker", "the merge process", "old code", "new code" instead. Describe what changed for users or what is left, never git mechanics.
+- Never a branch, command, crate or package name (dev, main, "sand sql blob", "ssql"); say what it does for users. Spell SandSQL as SandSQL.
 - Times are Pacific clock times like 12:40 PM, never later than the facts' now.
+- Lead with what a person can now do or what is still broken for them. Leave build and runtime mechanisms out (credentials, tokens, timers, polling, query plans, packages, crates, build checks, machines, hosts, ports, description footers, stacked changes) unless the decision is about that mechanism; say the behavior instead.
+- A problem says whether it is still open and who is on it, or when and how it was settled.
 - Never guess. If a fact is not known, say "not known".
+- Name each reviewer as what it is: codex, the reviewer bot, or Yasyf; never "the automated review" or "a second AI model".
 - Never count findings, points, fixes or approvals ("one finding", "the third point", "the first fix"); say what each one is, who raised it, and who is answering it. Leave out anything you cannot name.
 - coordinator_rulings are the coordinator's decisions; where they name a blocker's fixers or a change's state, they override every other record. Each entry of open_changes carries the coordinator's last rulings about it, its owner, and its fixers; a node about a change with fixers is fixing and its how names them by their work.
 - Every change's state comes from open_changes alone (landed changes are absent from it); never call a change queued, merged or failing unless open_changes says so, and never let the headline, the chart and a work row disagree about one.
@@ -133,7 +138,11 @@ Rules for every string:
 - status_paragraphs sit above your page and the owner reads them first: call each change by the same name they use, and never contradict them unless open_changes or a coordinator ruling is newer. When two changes share a subject, such as two cloud viewer changes, name each by what sets it apart.
 - Say new app and current app, never new tree or old tree; name a test by what it proves.
 - Name every thing you mention by what it does for users. Never write an unnamed reference such as "the second part", "two changes", "other work" or "their worker"; say which part, which changes, which work.
-- Keep every string from previous_brief whose facts did not change and that follows these rules, word for word; rewrite any that breaks a rule.
+- Keep every string from previous_brief whose facts did not change and that follows these rules, word for word; rewrite any that breaks a rule."""
+
+PROMPT = """You write the main page of a live dashboard that a busy engineering lead reads at a glance. It answers four questions: overall progress, what is being worked on, the biggest blockers, and how each blocker is being unblocked. The user message is the drive's facts as JSON. Return one JSON object matching the schema.
+
+""" + RULES + """
 
 Fields:
 - headline: one sentence, at most 25 words, written from the Main work entry of status_paragraphs, that a person could read aloud at standup: where we are, what is next, and the one thing in the way with how long it has waited, such as "for 51 minutes, since 6:58 PM".
@@ -174,6 +183,23 @@ def slot_of(path):
     if path[:1] == ("because",):
         return "sentence"
     return SLOTS.get(tuple(path))
+
+
+def said(record, limit):
+    return f"{clock(at(record['at']))} {record['kind']} from {record['lane']}: {clip(record['text'], limit)}"
+
+
+def recent(records, now):
+    closed = {r["resolves"] for r in records if r.get("resolves")}
+    return [r for r in records if r["kind"] in TROUBLE_KINDS and r.get("seq") not in closed and now - at(r["at"]) <= TROUBLE_WINDOW and r["lane"] != "desk-runner" and not r["text"].startswith("Register classify")]
+
+
+def trouble(records, now):
+    return [said(r, 260) for r in recent(records, now) if r["lane"] not in ROOT][-30:]
+
+
+def rulings(records, now):
+    return [f"{clock(at(r['at']))} {r['kind']}: {clip(r['text'], 700)}" for r in recent(records, now) if r["lane"] in ROOT][-15:]
 
 
 def named_changes(model):
@@ -244,10 +270,6 @@ def digest(model, config, previous, now):
     for worker in model["workers"][:14]:
         mine = [r for r in records if r["lane"] == worker["lane"]][-3:]
         workers.append({"worker": worker["lane"], "last_report": clock(at(worker["at"])), "pull_requests": worker["prs"][:6], "records": [f"{clock(at(r['at']))} {r['kind']}: {clip(r['text'], 280)}" for r in mine]})
-    closed = {r["resolves"] for r in records if r.get("resolves")}
-    recent = [r for r in records if r["kind"] in TROUBLE_KINDS and r.get("seq") not in closed and now - at(r["at"]) <= TROUBLE_WINDOW and r["lane"] != "desk-runner" and not r["text"].startswith("Register classify")]
-    trouble = [f"{clock(at(r['at']))} {r['kind']} from {r['lane']}: {clip(r['text'], 260)}" for r in recent if r["lane"] not in ROOT][-30:]
-    rulings = [f"{clock(at(r['at']))} {r['kind']}: {clip(r['text'], 700)}" for r in recent if r["lane"] in ROOT][-15:]
     states = {}
     for entry in model["drive"]["prs"]:
         states[entry["state"]] = states.get(entry["state"], 0) + 1
@@ -260,8 +282,8 @@ def digest(model, config, previous, now):
         "open_changes": open_changes(model),
         "waiting_on_owner": [{k: n.get(k) for k in ("kind", "title", "question", "number", "change", "risk")} for n in model.get("needs", [])][:8],
         "workers": workers,
-        "recent_trouble": trouble,
-        "coordinator_rulings": rulings,
+        "recent_trouble": trouble(records, now),
+        "coordinator_rulings": rulings(records, now),
         "review_findings": [f"{clock(at(r['at']))} from {r['lane']}: {clip(r['text'], 300)}" for r in records if r["kind"] == "review" and now - at(r["at"]) <= WORDS_WINDOW and FINDING.search(r["text"])][-10:],
         "owner_words": [f"{clock(at(w['at']))}: {clip(w['title'] + ' ' + w['text'], 300)}" for w in model["words"] if now - at(w["at"]) <= WORDS_WINDOW][-12:],
         "drive_summary": {k: model["story"].get(k) for k in ("now", "users_now")},
@@ -272,18 +294,69 @@ def digest(model, config, previous, now):
 
 
 
-def run_model(model_name, prompt, schema):
-    out = subprocess.run(["claude", "-p", *QUIET, "--model", model_name, "--effort", "medium", "--output-format", "json", "--json-schema", json.dumps(schema), "--system-prompt", PROMPT], input=prompt, capture_output=True, text=True, timeout=600, check=True)
+def string(description=None):
+    return {"type": "string", **({"description": description} if description else {})}
+
+
+def strict(properties, **extra):
+    return {"type": "object", "additionalProperties": False, "required": list(properties), "properties": properties, **extra}
+
+
+def listing(item, **extra):
+    return {"type": "array", "items": item, **extra}
+
+
+def now_checks(brief, facts):
+    return undated(brief) + unwaited(brief) + phantoms(brief, facts["waiting_on_owner"]) + [f"paths.{i}.nodes.{j}.state: change {node['change']} is being fixed by {', '.join(names)}; its state is fixing and how names them by their work" for i, j, node, names in unassigned(brief, facts["open_changes"])]
+
+
+def now_settle(brief, facts):
+    without_phantoms(brief, facts["waiting_on_owner"])
+    for _, _, node, _ in unassigned(brief, facts["open_changes"]):
+        node["state"] = "fixing"
+
+
+def unchecked(brief, facts):
+    return []
+
+
+def unsettled(brief, facts):
+    pass
+
+
+class Page(NamedTuple):
+    name: str
+    prompt: str
+    schema: dict
+    digest: Callable
+    slot_of: Callable
+    kinds: frozenset
+    gap: int
+    checks: Callable = unchecked
+    settle: Callable = unsettled
+
+
+NOW = Page("brief", PROMPT, SCHEMA, digest, slot_of, frozenset(CURATOR_KINDS), MIN_GAP, now_checks, now_settle)
+
+
+def twin(old, value, index):
+    if not isinstance(old, list):
+        return None
+    key = next((k for k in IDENTITY if isinstance(value, dict) and k in value), None)
+    if key is None:
+        return old[index] if index < len(old) else None
+    return next((o for o in old if isinstance(o, dict) and o.get(key) == value[key]), None)
+
+
+def run_model(model_name, prompt, schema, system):
+    out = subprocess.run(["claude", "-p", *QUIET, "--model", model_name, "--effort", "medium", "--output-format", "json", "--json-schema", json.dumps(schema), "--system-prompt", system], input=prompt, capture_output=True, text=True, timeout=600, check=True)
     result = json.loads(out.stdout)
     return result.get("structured_output") or json.loads(result["result"])
 
 
-def gate(brief, lanes):
-    return plainwords.check(brief, slot_of, tuple(lanes))
-
-
 class Curator:
-    def __init__(self, config, live_model, on_brief):
+    def __init__(self, config, live_model, on_brief, page=NOW):
+        self.page = page
         self.config = config
         self.live_model = live_model
         self.on_brief = on_brief
@@ -293,13 +366,13 @@ class Curator:
         self.running = False
 
     def poke(self, kind=None):
-        if kind is None or kind in CURATOR_KINDS:
+        if kind is None or kind in self.page.kinds:
             self.dirty.set()
 
     def loop(self):
         self.dir = Path(self.config["brief_dir"])
         self.dir.mkdir(parents=True, exist_ok=True)
-        self.path = self.dir / "brief.json"
+        self.path = self.dir / f"{self.page.name}.json"
         self.brief = json.loads(self.path.read_text()) if self.path.exists() else None
         self.dirty.set()
         while True:
@@ -314,23 +387,27 @@ class Curator:
                 self.error = f"{type(error).__name__}: {str(error)[:300]}"
             finally:
                 self.running = False
-            time.sleep(max(0.0, MIN_GAP - (time.monotonic() - started)))
+            time.sleep(max(0.0, self.page.gap - (time.monotonic() - started)))
 
     def curate(self):
         model = self.live_model()
         now = dt.datetime.now(dt.timezone.utc)
-        facts = digest(model, self.config, self.brief, now)
-        lanes = facts["worker_names"]
+        facts = self.page.digest(model, self.config, self.brief, now)
+        if facts is None:
+            return
+        lanes = tuple(facts["worker_names"])
         prompt = json.dumps(facts, indent=1)
-        model_name = self.config.get("curator_model", "claude-opus-5-5")
-        brief = run_model(model_name, prompt, SCHEMA)
-        problems = gate(brief, lanes) + undated(brief) + unwaited(brief) + phantoms(brief, facts["waiting_on_owner"]) + [f"paths.{i}.nodes.{j}.state: change {node['change']} is being fixed by {', '.join(names)}; its state is fixing and how names them by their work" for i, j, node, names in unassigned(brief, facts["open_changes"])]
+
+        def write(text):
+            return run_model(self.config.get("curator_model", "claude-opus-5-5"), text, self.page.schema, self.page.prompt)
+
+        brief = write(prompt)
+        problems = plainwords.check(brief, self.page.slot_of, lanes) + self.page.checks(brief, facts)
         if problems:
-            brief = run_model(model_name, prompt + "\n\nYOUR LAST ANSWER BROKE THESE RULES; return the whole object again with each fixed:\n" + "\n".join(problems) + "\n\nLAST ANSWER:\n" + json.dumps(brief), SCHEMA)
-            problems = gate(brief, lanes)
-        brief = without_phantoms(self.keep_passing(brief, problems, lanes), facts["waiting_on_owner"])
-        for _, _, node, _ in unassigned(brief, facts["open_changes"]):
-            node["state"] = "fixing"
+            brief = write(prompt + "\n\nYOUR LAST ANSWER BROKE THESE RULES; return the whole object again with each fixed:\n" + "\n".join(problems) + "\n\nLAST ANSWER:\n" + json.dumps(brief))
+            problems = plainwords.check(brief, self.page.slot_of, lanes)
+        brief = self.keep_passing(brief, problems, lanes)
+        self.page.settle(brief, facts)
         brief["at"] = now.isoformat()
         brief["violations"] = problems
         self.write(brief)
@@ -339,28 +416,21 @@ class Curator:
         if not problems:
             return brief
         failing = {p.split(":", 1)[0] for p in problems}
-        stale = self.brief or {}
 
-        def fix(value, path):
+        def fix(value, old, path):
             if isinstance(value, dict):
-                return {k: fix(v, (*path, k)) for k, v in value.items()}
+                return {k: fix(v, old.get(k) if isinstance(old, dict) else None, (*path, k)) for k, v in value.items()}
             if isinstance(value, list):
-                return [fix(v, (*path, i)) for i, v in enumerate(value)]
+                return [fix(v, twin(old, v, i), (*path, i)) for i, v in enumerate(value)]
             if ".".join(map(str, path)) not in failing:
                 return value
-            old = stale
-            for key in path:
-                try:
-                    old = old[key]
-                except (KeyError, IndexError, TypeError):
-                    return ""
-            return old if isinstance(old, str) and not plainwords.violations(old, slot_of(path) or "line", tuple(lanes)) else ""
+            return old if isinstance(old, str) and not plainwords.violations(old, self.page.slot_of(path) or "line", tuple(lanes)) else ""
 
-        return fix(brief, ())
+        return fix(brief, self.brief, ())
 
     def write(self, brief):
-        history = self.dir / "history"
-        history.mkdir(exist_ok=True)
+        history = self.dir / "history" / self.page.name
+        history.mkdir(parents=True, exist_ok=True)
         stamp = brief["at"].replace(":", "")
         (history / f"{stamp}.json").write_text(json.dumps(brief, indent=1))
         for old in sorted(history.glob("*.json"))[:-HISTORY]:

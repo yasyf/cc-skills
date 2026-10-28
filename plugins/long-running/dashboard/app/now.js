@@ -7,7 +7,9 @@ function view(key) {
   return new URLSearchParams(location.search).get(key) ?? state.model.views?.[key] ?? VIEWS[key];
 }
 function workItem(item) {
-  return state.model.brief?.work.find((w) => w.item === item);
+  const work = state.model.pages?.work;
+  const finished = (work?.finished ?? []).map((w) => ({ ...w, status: 'Finished', latest: w.result }));
+  return [...(state.model.brief?.work ?? []), ...(work?.running ?? []), ...finished].find((w) => w.item === item);
 }
 function minutesOf(t) {
   const [, h, mm, ap] = /(\d+):(\d+) ([AP]M)/.exec(t ?? '') ?? [0, 0, 0, 'AM'];
@@ -50,7 +52,7 @@ function band(b) {
   if (!m.needs.length) return '';
   const rows = m.needs.slice(0, 2).map(needLine).join('');
   const more = m.needs.length - 2;
-  return `<div class="nw-band needs nw-needs"><div class="side"><span class="tag">Needs you</span>${more > 0 ? `<a class="more" href="#/now">${more} more ›</a>` : ''}</div><div class="rows">${rows}</div></div>`;
+  return `<div class="nw-band needs nw-needs"><div class="side"><span class="tag">Needs you</span>${more > 0 ? `<a class="more" href="#/review">${more} more ›</a>` : ''}</div><div class="rows">${rows}</div></div>`;
 }
 function needLine(item) {
   const line = (what, why, acts, sub) => `<div class="nl"><span class="what"${why ? ` title="${esc(why)}"` : ''}>${esc(what)}${sub ? `<span class="sub">${esc(sub)}</span>` : ''}</span><span class="acts">${acts}</span></div>`;
@@ -59,15 +61,17 @@ function needLine(item) {
     const busy = pending.number === r.number && !pending.error;
     return line(plainTitle(r.number).replace(/^#\d+\s*/, ''), item.why, `<button class="nbtn pri" data-approve="${r.number}" data-head="${esc(r.head)}"${busy || !boardRow(r.number) ? ' disabled' : ''}>${busy ? 'Sending' : 'Approve'}</button><a class="nbtn" href="#/review/${r.number}">Details</a>`);
   }
-  if (item.kind === 'prs') return line(`${item.prs.length} changes wait on your approval`, item.group, '<a class="nbtn pri" href="#/now">Review them</a>');
+  if (item.kind === 'prs') return line(`${item.prs.length} changes wait on your approval`, item.group, '<a class="nbtn pri" href="#/review">Review them</a>');
   if (item.kind === 'card') {
     const c = item.card;
     const rec = c.options.find((o) => o.recommended);
     const busy = sending(c.choice ?? c.id) ? ' disabled' : '';
-    if (!rec) return line(c.title, item.why, '<a class="nbtn" href="#/now">Choose an answer</a>');
-    return line(c.title, item.why, `<button class="nbtn pri" data-choose="${esc(rec.id)}" data-card="${esc(c.id)}" data-choice="${esc(c.choice)}"${busy}>Pick it</button><a class="nbtn" href="#/now">Other answers</a>`, `Recommended: ${rec.label.replace(/\s*\(Recommended\)\s*$/i, '')}`);
+    const said = rewritten('cards', c.key);
+    const question = said?.question ?? c.title;
+    if (!rec) return line(question, item.why, '<a class="nbtn" href="#/review">Choose an answer</a>');
+    return line(question, item.why, `<button class="nbtn pri" data-choose="${esc(rec.id)}" data-card="${esc(c.id)}" data-choice="${esc(c.choice)}"${busy}>Pick it</button><a class="nbtn" href="#/review">Other answers</a>`, `Recommended: ${said?.answers?.[c.options.indexOf(rec)] || rec.label.replace(/\s*\(Recommended\)\s*$/i, '')}`);
   }
-  return line(item.ask.what, item.why, item.ask.link ? `<a class="nbtn" href="${esc(item.ask.link)}" target="_blank" rel="noopener">${esc(item.ask.link_text ?? 'Open')}</a>` : '<a class="nbtn" href="#/now">Details</a>');
+  return line(item.ask.what, item.why, item.ask.link ? `<a class="nbtn" href="${esc(item.ask.link)}" target="_blank" rel="noopener">${esc(item.ask.link_text ?? 'Open')}</a>` : '<a class="nbtn" href="#/review">Details</a>');
 }
 
 function readouts(b) {
@@ -185,7 +189,7 @@ function workList(b) {
   const rows = b.work.slice(0, view('work') === 'rows5' ? 5 : 3);
   const more = b.work.length - rows.length;
   if (!rows.length) return '<div class="nw-calm">No work is running right now.</div>';
-  return `<div class="nw-work">${rows.map(workRow).join('')}${more ? `<a class="more" href="#/workers">${more} more piece${more === 1 ? '' : 's'} of work ›</a>` : ''}</div>`;
+  return `<div class="nw-work">${rows.map(workRow).join('')}${more ? `<a class="more" href="#/work">${more} more piece${more === 1 ? '' : 's'} of work ›</a>` : ''}</div>`;
 }
 function workRow(w) {
   return `<a class="wr" href="${storyHref(w.item)}">
