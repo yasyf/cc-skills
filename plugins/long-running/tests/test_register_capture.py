@@ -171,6 +171,33 @@ def test_a_queued_prompt_carrying_a_screenshot_lands_at_the_next_hook_with_the_t
     assert before <= datetime.strptime(landed["at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC) <= datetime.now(UTC)
 
 
+def slack_message(**fields) -> str:
+    payload = {"type": "slack.message", "watch_id": 18, "kind": "dm", "channel_id": "D0C4HQWPLCC", "thread_ts": "1792842193.708029", "ts": "1793159602.693499", "user": "U05FTPXU8PP", "user_name": "Yasyf", "from_claude": False, "text": "Meant to approve 43807"} | fields
+    return f'<channel source="plugin:cc-slack:cc-slack" subject_id="50c3b930" type="slack.message">\n{json.dumps(payload)}\n</channel>'
+
+
+def test_an_owner_slack_dm_lands_once_with_its_slack_time_and_no_prompt_hook(root):
+    root.queued(slack_message(), "2026-10-28T03:53:25.695Z")
+
+    root.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
+    root.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
+    root.fire(StopEvent)
+
+    assert root.captures() == [
+        {"digest": digest("1793159602.693499"), "at": "2026-10-28T03:53:22Z", "session": SESSION, "source": "slack", "text": "Meant to approve 43807"}
+    ]
+
+
+@pytest.mark.parametrize("fields", [{"user": "U01OTHER"}, {"from_claude": True}, {"kind": "thread"}])
+def test_a_slack_message_that_is_not_the_owners_dm_lands_nothing(root, fields):
+    root.queued(slack_message(**fields), "2026-10-28T03:53:25.695Z")
+
+    root.fire(PostToolUseEvent, tool_name="Bash", tool_input={"command": "ls"})
+    root.fire(StopEvent)
+
+    assert root.captures() == []
+
+
 OWNER_WORDS = "we shoudknt need a pin PR bc we shoildnt be deleting thr old stuff jntil cutover"
 RELAY = (
     '<cross-session-message from="uds:/tmp/cc-socks/37625.sock" from-name="ai-oncall-improvement-plan" from-mode="bypass">\n'
