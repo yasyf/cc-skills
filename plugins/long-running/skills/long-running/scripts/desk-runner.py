@@ -5147,7 +5147,7 @@ class Landing:
             return
         prefix = batched
         if fork := unlanded_fork(prefix, open_rows):
-            self.runner.escalate(f"fork:{base}", "FORK-DEFERRED", numbered(tips), f"{numbered(prefix)} fork off #{fork}, which has not landed; Graphite keeps one linear chain per batch, so they enqueue once #{fork} lands")
+            self.runner.escalate(f"fork:{base}", "FORK-DEFERRED", numbered(tips), f"{numbered(prefix)} fork off #{fork}, which has not landed; Graphite keeps one linear chain per batch, so they enqueue once #{fork} lands", "", self.landing_audience(prefix, rows, ""))
             return
         while prefix and (refused := self.accept_prefix(prefix, verdicts, rows)) and not self.whole():
             out = cut_out(prefix, refused, open_rows)
