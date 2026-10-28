@@ -8,7 +8,10 @@ name; and the head branch of each PR the lane's records name. Only paths that ex
 A lane with no worktree on this machine, such as an Orca worker on a paired remote server, is
 read from the drive's Orca Run instead: ``orca_status`` matches the lane to the Run's tasks by
 title, display name, or the lane its spec opens with, and reports each matching dispatch. A drive
-that recorded no Run reads the newest Run its root terminal coordinates.
+that recorded no Run reads the newest Run its root terminal coordinates. A lane that is an
+in-process teammate of the drive's root sessions also gets a line: ``teammate_status`` finds it in Claude
+Code's team config ``teams/session-<id prefix>/config.json`` and reads its state from the tail of its
+transcript ``projects/*/<session>/subagents/agent-*.jsonl``.
 Every call goes through ``run``, which returns stdout and raises CalledProcessError on a
 nonzero exit. STDLIB ONLY.
 """
@@ -20,7 +23,7 @@ import re
 import subprocess
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import cci
@@ -43,6 +46,10 @@ SPEC_LANE = re.compile(r"^(?:Lane|Follow-up for lane) ([\w.-]+)[:\s]")
 IN_PROGRESS = "in_progress"
 HEARTBEAT = "heartbeat"
 INBOX_READ = 500
+TEAMMATE = "in_process_teammate"
+TEAMMATE_STALLED = timedelta(hours=1)
+TRANSCRIPT_TAIL = 1 << 20
+TURN_ENTRIES = frozenset({"assistant", "user"})
 
 
 @dataclass
@@ -303,6 +310,84 @@ def orca_status(lane: str, run_id: str | None, now: datetime, run: Run) -> list[
     if (dispatches := lane_dispatches(lane, tasks, workers)) and run_id and tasks:
         contexts[run_id] = run_context(run, run_id, tasks)
     return [orca_worker(dispatch, contexts, now, run) for dispatch in dispatches]
+
+
+@dataclass
+class Teammate:
+    name: str
+    session: str
+    agent_type: str = ""
+    model: str = ""
+    state: str = ""
+    active_minutes: int | None = None
+    started: str = ""
+
+    def line(self) -> str:
+        active = "no transcript" if self.active_minutes is None else f"last activity {self.active_minutes} min ago"
+        kind = ", ".join(part for part in (self.agent_type, self.model) if part)
+        return f"- in-process teammate {self.name} of session {self.session[:8]} ({kind}): {self.state}, {active}, started {self.started or 'unknown'}"
+
+
+def team_members(lane: str, team: dict) -> list[dict]:
+    """The team config's members the lane names, by name or by the name before the `@` of its agent id."""
+    return [member for member in team.get("members") or [] if lane in (member.get("name"), (member.get("agentId") or "").partition("@")[0])]
+
+
+def turn_state(last: dict | None, now: datetime) -> str:
+    """`idle` once the teammate's last turn ended, `running` while it is mid-turn with activity in the last hour, `stalled mid-turn` past that."""
+    if last is None:
+        return "state unknown"
+    if last.get("type") == "assistant" and (last.get("message") or {}).get("stop_reason") == "end_turn":
+        return "idle"
+    active = minutes_since(last.get("timestamp"), now)
+    return "running" if active is not None and active < TEAMMATE_STALLED.total_seconds() // 60 else "stalled mid-turn"
+
+
+def last_turn_entry(transcript: Path) -> dict | None:
+    """The transcript's newest assistant or user entry, from its last megabyte."""
+    with transcript.open("rb") as handle:
+        handle.seek(max(0, transcript.stat().st_size - TRANSCRIPT_TAIL))
+        lines = handle.read().splitlines()[1:] if handle.tell() else handle.read().splitlines()
+    for line in reversed(lines):
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if entry.get("type") in TURN_ENTRIES:
+            return entry
+    return None
+
+
+def teammate_transcript(config_dir: Path, session: str, name: str) -> Path | None:
+    """The newest transcript of the session's in-process teammate with this name."""
+    transcripts = [
+        meta.with_name(meta.name.removesuffix(".meta.json") + ".jsonl")
+        for meta in config_dir.glob(f"projects/*/{session}/subagents/agent-*.meta.json")
+        if (shown := json.loads(meta.read_text())).get("taskKind") == TEAMMATE and shown.get("name") == name
+    ]
+    return max((path for path in transcripts if path.is_file()), key=lambda path: path.stat().st_mtime, default=None)
+
+
+def teammate_status(lane: str, sessions: Iterable[str], config_dir: Path, now: datetime) -> list[Teammate]:
+    """Each in-process teammate of the drive's root sessions the lane names, with its agent type, model, turn state, last activity, and when it joined."""
+    found: list[Teammate] = []
+    for session in sessions:
+        config = config_dir / "teams" / f"session-{session[:8]}" / "config.json"
+        if not config.is_file() or (team := json.loads(config.read_text())).get("leadSessionId") != session:
+            continue
+        for member in team_members(lane, team):
+            last = last_turn_entry(transcript) if (transcript := teammate_transcript(config_dir, session, member["name"])) else None
+            joined = member.get("joinedAt")
+            found.append(Teammate(
+                member["name"],
+                session,
+                agent_type=member.get("agentType", ""),
+                model=member.get("model", ""),
+                state=turn_state(last, now),
+                active_minutes=minutes_since(last.get("timestamp"), now) if last else None,
+                started=datetime.fromtimestamp(joined / 1000, timezone.utc).strftime("%Y-%m-%dT%H:%MZ") if joined else "",
+            ))
+    return found
 
 
 def summary(lane: str, worktrees: list[Worktree]) -> str:

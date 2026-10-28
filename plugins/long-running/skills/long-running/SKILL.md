@@ -668,7 +668,10 @@ this Mac, such as an Orca worker on a paired remote server, reads from the drive
 Run instead, or `--run <run>`: one line per dispatch whose task title, display name, or
 spec names the lane, with its worktree, environment, branch, stage, outcome, liveness,
 last update and heartbeat, terminal, and last message to the Run. A `ctx_` dispatch id
-works as the lane. With none it prints `no worktree found for lane <lane>` and exits 1.
+works as the lane. A lane that is an in-process teammate of the drive's root session
+also gets a line naming its agent type, model, whether it runs or sits idle, its last
+activity, and when it joined. With none it prints `no worktree found for lane <lane>`
+and exits 1.
 A worktree named after its branch
 still resolves, because the pack's `announce_lane_worktree` hook posts
 `WORKTREE <lane> <path> <branch>` the first time a lane runs a command inside a

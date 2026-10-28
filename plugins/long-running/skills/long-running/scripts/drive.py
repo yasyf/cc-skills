@@ -57,7 +57,9 @@ commits ahead of ``origin/<trunk>``, the last commit's age, whether the branch i
 with CI state. A lane with no worktree here, such as an Orca worker on a paired remote server, falls back to
 ``lanes.orca_status`` over ``--run``, the drive's Orca run, or else the newest Run its root terminal coordinates: one line per matching dispatch with its worktree,
 environment, branch, stage, outcome, liveness, last update and heartbeat, terminal, and last message to the Run.
-A ``ctx_`` lane names that dispatch directly. With none found it prints ``no worktree found for lane <lane>``
+A ``ctx_`` lane names that dispatch directly. A lane that is an in-process teammate of the drive's root sessions
+also gets a line from ``lanes.teammate_status``: its agent type, model, whether it runs or sits idle, its last
+activity, and when it joined. With none found it prints ``no worktree found for lane <lane>``
 and exits 1.
 
 ``pr-owed`` answers whether a lane still owes a PR for its mechanism, from the drive's records of the last 12 hours.
@@ -115,8 +117,12 @@ STACK = "stack.json"
 VERSION_PART = re.compile(r"\d+")
 
 
+def config_dir() -> Path:
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+
+
 def drives_dir() -> Path:
-    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "long-running" / "drives"
+    return config_dir() / "long-running" / "drives"
 
 
 def plugin_manifest() -> dict:
@@ -429,9 +435,10 @@ def cmd_lane_status(args: argparse.Namespace, shell: ledger.Shell) -> int:
         records = [record for record in cci.records(shell.run, drive, "--lane", args.lane, since=since) if record["drive"] == drive and record["lane"] == args.lane]
         worktrees = lanes.lane_status(args.lane, records, receipt_dirs(entry), Path(entry["checkout"]), entry["repo"], trunk_of(shell, entry["checkout"]), now, shell.run)
     run = args.run or (entry or {}).get("orca_run") or (lanes.coordinated_run(shell.run, entry["root_terminal"]) if entry and entry.get("root_terminal") else None)
-    found = worktrees or lanes.orca_status(args.lane, run, now, shell.run)
+    teammates = lanes.teammate_status(args.lane, (entry or {}).get("sessions") or [], config_dir(), now)
+    found = [*(worktrees or lanes.orca_status(args.lane, run, now, shell.run)), *teammates]
     if not found:
-        print(f"no worktree found for lane {args.lane}" + (f", and no Orca dispatch in run {run}" if run else ""))
+        print(f"no worktree found for lane {args.lane}" + (f", no Orca dispatch in run {run}" if run else "") + ", and no in-process teammate of the drive's root sessions")
         return 1
     print("\n".join(worktree.line() for worktree in found))
     return 0
