@@ -10,8 +10,10 @@ PR's own commits as the head's commits no commit on the base branch's current ti
 so a parent restacked onto a newer trunk adds nothing. A head after one an earlier finder record
 graded, or after the head its `head` record replaced when the PR has any finder review, is a fixed
 head: `git range-diff` pairs its own commits with that head's, and it reads only the hunks of each
-changed pair and each new commit, runs no row pass, and posts nothing when every pair is equal. A
-whole pass writes the head's
+changed pair and each new commit, and runs no row pass. A changed pair that adds no line and drops only
+hunks the base now carries is a carry, and a head whose every pair is equal or a carry posts nothing.
+Every pass hands codex the PR's earlier finder records and their answers, and a finding they closed
+is not raised again. A whole pass writes the head's
 required register rows to `DIR/rows.md` with `rulings.py slice --required`. It fills
 `reference/finder-desk-brief.md` and runs `codex-ask -m <model> --schema findings` in the drive's
 checkout. A reply that names no verdict for a row key the slice printed, or gives no reasoning in
@@ -54,7 +56,8 @@ LOG = "job.log"
 HEAD_SHA = re.compile(r"(?<!was )\b[0-9a-f]{40}\b")
 FULL_SHA = re.compile(r"\b[0-9a-f]{40}\b")
 WAS = re.compile(r"\(was ([0-9a-f]{7,40})\b")
-RANGE_PAIR = re.compile(r"^\s*(?:\d+|-+):\s+(?:[0-9a-f]+|-+)\s+([=!<>])\s+(?:\d+|-+):\s+([0-9a-f]+|-+)", re.MULTILINE)
+RANGE_PAIR = re.compile(r"^\s*(?:\d+|-+):\s+([0-9a-f]+|-+)\s+([=!<>])\s+(?:\d+|-+):\s+([0-9a-f]+|-+)", re.MULTILINE)
+DIFF_FILE = re.compile(r"^diff --git a/\S+ b/(\S+)$")
 ROW_KEY = re.compile(r"^### (\S+) \|", re.MULTILINE)
 REPLY_FILE = re.compile(r"^REPLY_FILE: (\S+)$", re.MULTILINE)
 MAJORS = frozenset({"blocker", "major"})
@@ -74,7 +77,7 @@ class JobFailed(RuntimeError):
 
 class Shell:
     def run(self, argv: list[str], cwd: Path | None = None, timeout: int = READ_SECONDS) -> str:
-        return subprocess.run(argv, cwd=cwd, capture_output=True, text=True, check=True, timeout=timeout).stdout
+        return subprocess.run(argv, cwd=cwd, capture_output=True, text=True, errors="replace", check=True, timeout=timeout).stdout
 
 
 def heads(record: dict, repo: str) -> list[tuple[str, str]]:
@@ -108,12 +111,13 @@ def scope(job: dict, own: list[str], last: str, pairs: str, changed: list[tuple[
 
 
 def prior_text(job: dict) -> str:
-    if not (prior := job["prior"]):
+    if not (history := job["history"]):
         return ""
+    listed = "".join(f"- cci #{record['seq']} from {record['lane']}: {record['text']}" + (f" (whole record: {record['path']})" if record["path"] else "") + "\n" for record in history)
     return (
-        f"The PR's last finder record, cci #{prior['seq']} from {prior['lane']} at {prior['head']}, said: {prior['text']}\n"
-        "Read each major it names against this head: one the head fixes, or one the PR body rebuts in a way the code "
-        "bears out, is no longer open; any other is a finding again.\n\n"
+        f"The PR's earlier finder records and the lanes' answers to them, oldest first:\n{listed}"
+        "A finding one of them raised is closed when the head fixes it or an answer rebuts it in a way the code bears "
+        "out; never raise a closed finding again. Raise one only when a hunk this pass reads reintroduces it.\n\n"
     )
 
 
@@ -214,11 +218,39 @@ def previous(record: dict | None) -> str:
 
 
 def range_pairs(shell: Shell, job: dict, base: str, last: str, own: list[str]) -> tuple[str, list[tuple[str, str]]]:
-    """The `git range-diff` ranges pairing `last`'s own commits with the head's, and each head commit it marks amended (`!`) or new (`>`)."""
+    """The `git range-diff` ranges pairing `last`'s own commits with the head's, and each head commit it marks amended (`!`) or new (`>`), leaving out an amended commit that only drops hunks `base` carries."""
     earlier = beyond(shell, job, base, last)
     pairs = f"{earlier[0] + '^' if earlier else last}..{last} {own[0]}^..{job['head']}"
     marks = RANGE_PAIR.findall(git(shell, job, "range-diff", "--no-patch", "--no-color", *pairs.split()))
-    return pairs, [(mark, sha) for mark, sha in marks if mark in "!>"]
+    return pairs, [(mark, sha) for left, mark, sha in marks if mark == ">" or (mark == "!" and not drops_carried(shell, job, base, left, sha))]
+
+
+def patch_lines(shell: Shell, job: dict, sha: str) -> set[tuple[str, str, str]]:
+    """Each added or removed line of `sha`'s patch as `(file, sign, stripped text)`, blank lines left out."""
+    lines, path = set(), ""
+    for line in git(shell, job, "show", "--format=", "--no-color", "--no-ext-diff", sha).splitlines():
+        if found := DIFF_FILE.match(line):
+            path = found[1]
+        elif line.startswith(("+", "-")) and not line.startswith(("+++", "---")) and line[1:].strip():
+            lines.add((path, line[0], line[1:].strip()))
+    return lines
+
+
+def drops_carried(shell: Shell, job: dict, base: str, left: str, right: str) -> bool:
+    """Whether `right` adds no line `left` lacks and every line it drops is where `base` already has it: an added line present, a removed line gone."""
+    earlier, later = patch_lines(shell, job, left), patch_lines(shell, job, right)
+    if later - earlier:
+        return False
+    texts: dict[str, set[str]] = {}
+    for path, sign, text in earlier - later:
+        if path not in texts:
+            try:
+                texts[path] = {line.strip() for line in git(shell, job, "show", f"{base}:{path}").splitlines()}
+            except subprocess.CalledProcessError:
+                texts[path] = set()
+        if (text in texts[path]) != (sign == "+"):
+            return False
+    return True
 
 
 def post(shell: Shell, job: dict, text: str, body: Path) -> str:
@@ -243,7 +275,7 @@ def run(directory: Path, shell: Shell) -> dict:
         return {"skipped": f"{pr} at {head[:12]} carries no commit {view['baseRefName']} lacks"}
     pairs, changed = range_pairs(shell, job, base, last, own) if last else ("", [])
     if last and not changed:
-        return {"skipped": f"{pr} at {head[:12]} replays every own commit of {last[:12]} patch for patch"}
+        return {"skipped": f"{pr} at {head[:12]} replays every own commit of {last[:12]}, patch for patch or dropping only hunks {view['baseRefName']} carries"}
     rows = None if last else directory / "rows.md"
     keys: list[str] = []
     if rows:

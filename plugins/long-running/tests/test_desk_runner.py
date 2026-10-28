@@ -10088,7 +10088,7 @@ def test_each_head_starts_one_finder_at_once_however_many_records_name_it(shell,
     orca_pass(shell, config)
     assert shell.finder_jobs == [config.resolve().parent / "finder-desk" / f"43439-{FINDER_HEAD[:12]}"]
     assert finder_jobs(shell) == [
-        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "previous": "", "lane": "p8a-step9", "to": [], "checkout": str(config.parent / "checkout"), "model": "sol"}
+        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "previous": "", "history": [], "lane": "p8a-step9", "to": [], "checkout": str(config.parent / "checkout"), "model": "sol"}
     ]
 
 
@@ -10157,6 +10157,8 @@ def test_a_head_after_a_finder_review_carries_the_head_its_head_record_replaced(
     (shell.finder_jobs[0] / "result.json").write_text(json.dumps({"skipped": "replay"}))
     orca_pass(shell, config)
     assert [(job["pr"], job["previous"]) for job in finder_jobs(shell)] == [("43299", FINDER_OLD), ("43439", "")]
+    [named] = finder_jobs(shell)[0]["history"]
+    assert named["lane"] == "p8a-step6b-creds-6" and named["text"].startswith("p8b-step8 finder (gpt-6.1-sol, one pass")
 
 
 def test_a_finder_that_fails_or_writes_nothing_by_its_deadline_escalates_once(shell, config):
