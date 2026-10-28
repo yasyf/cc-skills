@@ -23,6 +23,8 @@ OLD_OWN = "f0e1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d"
 NEWER = "5be7c0de5be7c0de5be7c0de5be7c0de5be7c0de"
 TRUNK = "9d1e2f3a4b5c6d7e8f9011a2b3c4d5e6f7a8b9c0"
 LANDED_ON_TRUNK = "4d2ea9dfbad0c1e2f3a4b5c6d7e8f9011a2b3c4d"
+PARENT_TIP = "3c5e7a9b1d2f4a6c8e0b1d3f5a7c9e1b2d4f6a8c"
+MOVED = "8a6c4e2f0b9d7a5c3e1f8b6d4a2c0e9f7b5d3a1c"
 ROWS = (
     f"Required rows for {REPO}#43299 at {HEAD}\n\n## Every global, pending and touched row (2)\n\n"
     "### rule/949e6be | scope | in-force | said 1 | 2026-10-22\n> it should be a ssql replica that is live streaming, not polled\n\n"
@@ -54,7 +56,7 @@ def pairs(*marks: str) -> str:
 
 
 class Fake:
-    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0, gone: tuple[str, ...] = (), ranges: dict | None = None, shows: dict | None = None, trunk: str = BASE):
+    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0, gone: tuple[str, ...] = (), ranges: dict | None = None, shows: dict | None = None, trunk: str = BASE, history: tuple[str, ...] = (), pulls: dict | None = None):
         self.tmp_path = tmp_path
         self.replies = list(replies)
         self.state = state
@@ -65,6 +67,8 @@ class Fake:
         self.gone = gone
         self.ranges = ranges or {}
         self.trunk = trunk
+        self.history = history
+        self.pulls = pulls
         self.shows = LANDED | ({OLD_OWN[:11]: patch("-poll()", "+stream()"), OWN[:11]: patch("-poll()", "+stream()", "+resubscribe()")} if shows is None else shows)
         self.calls: list[tuple[list[str], Path | None]] = []
         self.posted: list[dict] = []
@@ -92,6 +96,8 @@ class Fake:
         raise AssertionError(f"unexpected call {argv}")
 
     def git(self, argv: list[str]) -> str:
+        if argv[0] == "ls-remote" and argv[-1] == "refs/pull/*/head":
+            return "".join(f"{sha}\trefs/pull/{number}/head\n" for sha, number in self.pulls.items())
         if argv[0] == "ls-remote":
             return f"{self.trunk}\tHEAD\n" if argv[-1] == "HEAD" else f"{BASE}\trefs/heads/dev\n"
         if argv[0] == "fetch":
@@ -110,6 +116,13 @@ class Fake:
             if (full := self.resolve.get(argv[-1].removesuffix("^{commit}"))) is None:
                 raise subprocess.CalledProcessError(1, argv)
             return f"{full}\n"
+        if argv[0] == "merge-base":
+            if self.pulls is not None:
+                raise subprocess.CalledProcessError(1, argv)
+            return ""
+        if argv[:2] == ["rev-list", "--topo-order"]:
+            assert argv[2:] == [HEAD, f"^{self.trunk}"]
+            return "".join(f"{sha}\n" for sha in self.history)
         if argv[0] == "rev-list":
             return "".join(f"{sha}\n" for sha in self.own.get(tuple(argv[-1].split("...")), []))
         raise AssertionError(f"unexpected git {argv}")
@@ -175,6 +188,19 @@ def test_a_head_rebased_past_its_stale_base_branch_onto_the_trunk_reads_and_scop
     assert f"the range-diff shows for its pair ({OWN[:11]}); each new commit whole with `git show <sha>` (none)" in question and LANDED_ON_TRUNK[:11] not in question
     assert [argv for argv, _ in shell.calls if argv[:2] == ["git", "diff"]] == [["git", "diff", "--unified=0", "--no-color", "--no-ext-diff", f"{OWN}^", HEAD]]
     assert shell.posted[0]["--text"].startswith(f"finder: major {HEAD} 1 open")
+
+
+def test_a_replay_whose_parent_was_restacked_past_its_stale_graphite_base_carries_the_graded_verdict_and_reads_none_of_the_parents_commits(tmp_path):
+    prior = {"seq": 165658, "lane": "finder-desk", "head": "a269784", "text": "finder: ok a269784 sol finder over delta 6ec2c60..a269784: no majors"}
+    directory = job(tmp_path, since=OLD, prior=prior)
+    own = {(BASE, HEAD): [MOVED, OWN], (PARENT_TIP, HEAD): [OWN], (TRUNK, HEAD): [MOVED, OWN], (BASE, OLD): [OLD_OWN], (PARENT_TIP, OLD): [OLD_OWN], (TRUNK, OLD): [OLD_OWN]}
+    restacked = f" -:  ----------- >  1:  {MOVED[:11]} runs: the cloud-runs batch the parent was restacked onto\n 1:  {OLD_OWN[:11]} =  2:  {OWN[:11]} sand: the head's own commit\n"
+    ranges = {EARLIER: f" 1:  {OLD_OWN[:11]} =  1:  {OWN[:11]} sand: the head's own commit\n", (f"{OLD_OWN}^..{OLD}", f"{MOVED}^..{HEAD}"): restacked}
+    pulls = {HEAD: 43299, PARENT_TIP: 43736, NEWER: 44038}
+    shell = Fake(tmp_path, [reply(finding("major", "go/runs/batch.go:12", "the batch drops a run"))], own=own, resolve={OLD: OLD}, ranges=ranges, trunk=TRUNK, history=(HEAD, OWN, PARENT_TIP, MOVED), pulls=pulls)
+    finder.main([str(directory)], shell)
+    assert not shell.asks() and [post["--text"] for post in shell.posted] == [f"finder: ok {HEAD[:7]} carried from #165658"]
+    assert not [argv for argv, _ in shell.calls if argv[:2] == ["git", "diff"]]
 
 
 def test_a_requested_full_pass_at_a_head_a_delta_record_graded_reads_the_whole_change_at_the_live_head_and_says_so(tmp_path):

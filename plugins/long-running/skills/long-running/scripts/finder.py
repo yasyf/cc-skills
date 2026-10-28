@@ -9,9 +9,11 @@
 STDLIB ONLY. desk-runner.py's orca desk writes `DIR/job.json` for each head it dispatches and starts
 this script detached. The job reads the PR through ccx's gateway, retrying a failed read once after
 `RETRY_SECONDS`, and skips a closed PR or a head that is no longer the PR's live head. It reads the
-PR's own commits as the head's commits no commit on the base branch's current tip, nor on the
-trunk's, matches by patch, so neither a parent restacked onto a newer trunk nor a stale base branch
-the head was rebased past, such as a graphite-base, adds a commit. A head after one an earlier finder record
+PR's own commits as the head's commits no commit on its parent's tip, nor on the trunk's, matches
+by patch, so neither a parent restacked onto a newer trunk nor a stale base branch the head was
+rebased past adds a commit. The parent is the base branch's tip when the head carries it, else the
+newest pull request head in the head's history the trunk lacks: a graphite-base a raw push left at
+the parent's old tip names none of the commits the restacked parent added. A head after one an earlier finder record
 graded, or after the head its `head` record replaced when the PR has any finder review, is a fixed
 head: `git range-diff` pairs its own commits with that head's, and it reads only the hunks of each
 changed pair, each new commit, and each dropped commit the base lacks, and runs no row pass. A changed pair that adds no line and drops only
@@ -253,6 +255,17 @@ def beyond(shell: Shell, job: dict, others: tuple[str, ...], head: str) -> list[
     return [sha for sha in first if all(sha in commits for commits in rest)]
 
 
+def parent(shell: Shell, job: dict, base: str, trunk: str) -> str:
+    """The tip the PR's own commits sit on: `base` when the head carries it, else the newest pull request head in the head's history `trunk` lacks, else `base`."""
+    head = job["head"]
+    try:
+        git(shell, job, "merge-base", "--is-ancestor", base, head)
+        return base
+    except subprocess.CalledProcessError:
+        pulls = {line.split("\t")[0] for line in git(shell, job, "ls-remote", "origin", "refs/pull/*/head").splitlines()}
+        return next((sha for sha in git(shell, job, "rev-list", "--topo-order", head, f"^{trunk}").split() if sha != head and sha in pulls), base)
+
+
 def resolve(shell: Shell, job: dict, named: str) -> str:
     try:
         return git(shell, job, "rev-parse", "--verify", "--quiet", f"{named}^{{commit}}")
@@ -346,6 +359,7 @@ def run(directory: Path, shell: Shell) -> dict:
     base = git(shell, job, "ls-remote", "origin", f"refs/heads/{view['baseRefName']}").split()[0]
     trunk = git(shell, job, "ls-remote", "origin", "HEAD").split()[0]
     git(shell, job, "fetch", "--no-write-fetch-head", "-q", "origin", head, base, trunk)
+    base = parent(shell, job, base, trunk)
     last = reviewed(shell, job)
     if not (own := beyond(shell, job, (base, trunk), head)):
         return {"skipped": f"{pr} at {head[:12]} carries no commit {view['baseRefName']} lacks"}
