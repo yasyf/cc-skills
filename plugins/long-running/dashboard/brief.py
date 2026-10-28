@@ -181,7 +181,7 @@ def digest(model, config, previous, now):
     for worker in model["workers"][:14]:
         mine = [r for r in records if r["lane"] == worker["lane"]][-3:]
         workers.append({"worker": worker["lane"], "last_report": clock(at(worker["at"])), "pull_requests": worker["prs"][:6], "records": [f"{clock(at(r['at']))} {r['kind']}: {clip(r['text'], 280)}" for r in mine]})
-    trouble = [f"{clock(at(r['at']))} {r['kind']} from {r['lane']}: {clip(r['text'], 260)}" for r in records if r["kind"] in TROUBLE_KINDS and now - at(r["at"]) <= TROUBLE_WINDOW and r["lane"] != "desk-runner" and not r["text"].startswith("Register classify")][-30:]
+    trouble = [f"{clock(at(r['at']))} {r['kind']} from {r['lane']}: {clip(r['text'], 700 if r['lane'] in ('root', 'main') else 260)}" for r in records if r["kind"] in TROUBLE_KINDS and now - at(r["at"]) <= TROUBLE_WINDOW and r["lane"] != "desk-runner" and not r["text"].startswith("Register classify")][-30:]
     states = {}
     for entry in model["drive"]["prs"]:
         states[entry["state"]] = states.get(entry["state"], 0) + 1
