@@ -44,7 +44,7 @@ and, across the drive:
               done or READY one
     ask       a lane's `ask` to root is open, and no root record answers it
     stale     an open PR, held or not, has kept one head and one state for `stall.minutes.stale`: in the
-              merge queue, held, needs a restack, conflicting, red, waiting on the PR below it, building,
+              merge queue, held, on a drifted graphite-base, conflicting, red, waiting on the PR below it, building,
               held or not yet reviewed by the reviewer bot, green with a go, or green with none; no
               other stall names it, a green PR whose merge row waits on the owner's tap at its head,
               and a held PR whose holds-file line names open PRs that each wait on that tap, sit in
@@ -138,10 +138,10 @@ HELD = "held: "
 OWNER_WAITS = frozenset({TAP_WAIT, IN_QUEUE})
 RED = "red on "
 CONFLICTS = "conflicts with its base"
-RESTACK = "needs a restack: the PR below it landed"
+BASE_DRIFT = "base drifted to "
 BOT_HOLDS = "the reviewer bot holds it"
 NO_VERDICT = "no reviewer bot verdict on this head"
-LANE_OWES = (RED, CONFLICTS, RESTACK, BOT_HOLDS, NO_VERDICT)
+LANE_OWES = (RED, CONFLICTS, BASE_DRIFT, BOT_HOLDS, NO_VERDICT)
 PR_REF = re.compile(r"#(\d+)")
 SETTLED = frozenset({"done", "ready"})
 READY = re.compile(r"\b(?:READY|DONE)\b")
@@ -378,7 +378,7 @@ def stack_row(pr: str, row: dict, rows: dict[str, dict], owner: str, held: bool,
     elif held:
         state, step = f"{HELD}{clip(row.get('hold_reason') or 'a hold record covers it')}", f"lift the hold on #{pr} or do what it waits on"
     elif row.get("base", "").startswith("graphite-base/"):
-        state, step = RESTACK, f"restack {named} onto its new parent with `ccx vcs ship --tip-only` and post HEAD"
+        state, step = f"{BASE_DRIFT}{row['base']}", f"resubmit {named} with `ccx vcs ship --tip-only` and post HEAD"
     elif row.get("mergeable_state") == "dirty":
         state, step = CONFLICTS, f"restack {named} and post HEAD"
     elif row.get("test_state") == "failure":

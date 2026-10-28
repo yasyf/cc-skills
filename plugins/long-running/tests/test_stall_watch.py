@@ -402,7 +402,7 @@ def stack(config: Path) -> dict[str, dict]:
     [
         ({"test_state": "failure", "failing_checks": json.dumps([{"name": "buildkite/test"}])}, "red on buildkite/test", "fix the red build of #101 at abc1234"),
         ({"mergeable_state": "dirty"}, "conflicts with its base", "restack #101 at abc1234 and post HEAD"),
-        ({"base": "graphite-base/101"}, "needs a restack: the PR below it landed", "restack #101 at abc1234 onto its new parent with `ccx vcs ship --tip-only` and post HEAD"),
+        ({"base": "graphite-base/101"}, "base drifted to graphite-base/101", "resubmit #101 at abc1234 with `ccx vcs ship --tip-only` and post HEAD"),
         ({"ai_review": "failure"}, "the reviewer bot holds it", "answer each blocking finding on #101 with a fix or a one-line rebuttal"),
     ],
 )
@@ -419,6 +419,17 @@ def test_a_pr_in_one_state_for_two_hours_posts_one_stale_record_naming_its_owner
     shell.records += graded(4, "101", OTHER, 5)
     watch(shell, config)
     assert opened(config) == {}
+
+
+def test_a_graphite_base_under_an_open_parent_reads_as_a_drifted_base_never_a_landed_parent(config):
+    shell = FakeShell([*graded(1, "100", HEAD, 150), *graded(4, "101", HEAD, 150)], [row("100", test_state="pending"), row("101", base="graphite-base/101")])
+    shell.doc = {"blocks": [{"id": f"merge:101:{HEAD[:7]}", "type": "card", "children": []}]}
+
+    watch(shell, config)
+
+    text = shell.post("stale:101:abc1234")["text"]
+    assert text == "STALE #101 at abc1234, 150 min: base drifted to graphite-base/101 | owner api-lane | resubmit #101 at abc1234 with `ccx vcs ship --tip-only` and post HEAD"
+    assert "landed" not in text
 
 
 def merge_mode(config: Path, mode: str) -> None:
