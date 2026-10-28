@@ -332,7 +332,7 @@ func TestPsScopedDoesNotClassifyOtherLanes(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, bin, "--ps", "selected/review")
+	command := exec.CommandContext(ctx, bin, "--ps", "selected/review") //nolint:gosec // drives the built binary under test
 	command.Env = dispatchEnv(shortHome(t), "", runs, mustTempDir(t), runs)
 	out, err := command.CombinedOutput()
 	if err != nil {
@@ -359,7 +359,7 @@ func TestPsScopedExpandsOnlyRequestedRootAndDeduplicates(t *testing.T) {
 	second := agedNamedLane(t, root, "second")
 	agedNamedLane(t, filepath.Join(runs, "codex-run.other"), "excluded")
 
-	command := exec.Command(codexAskBin(t), "--ps", "selected", "selected/first", second)
+	command := exec.Command(codexAskBin(t), "--ps", "selected", "selected/first", second) //nolint:gosec // drives the built binary under test
 	command.Env = dispatchEnv(shortHome(t), "", runs, mustTempDir(t), runs)
 	out, err := command.CombinedOutput()
 	if err != nil {
