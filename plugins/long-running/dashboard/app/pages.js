@@ -106,7 +106,7 @@ function partPage(part) {
 }
 function workerScreen(lane) {
   const m = state.model;
-  const prs = Object.entries(m.prs).filter(([, pr]) => pr.lane === lane && pr.state !== 'landed').map(([n]) => Number(n));
+  const prs = Object.entries(m.prs).filter(([, pr]) => pr.lane === lane && pr.state === 'open').map(([n]) => Number(n));
   const said = m.records.findLast((r) => r.lane === lane);
   const work = curated('work');
   const piece = [...(work?.running ?? []), ...(work?.finished ?? [])].find((w) => w.workers.includes(lane));
