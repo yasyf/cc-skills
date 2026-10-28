@@ -106,6 +106,7 @@ class FakeShell(runner_module.Shell):
         self.enqueue_out: dict[str, tuple[int, str]] = {}
         self.statuses = ""
         self.combined_statuses: dict[str, list[dict]] = {}
+        self.review_runs: dict[str, list[str]] = {}
         self.status_read_error = ""
         self.advance_error = ""
         self.diffs: dict[str, str] = {}
@@ -474,8 +475,14 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(1, "", self.status_read_error)
         if self.trunk and f'object(expression: "{self.trunk[0]["oid"]}") {{ ... on Commit {{ history(' in query:
             return runner_module.Done(0, json.dumps({"data": {"repository": {"object": {"history": {"nodes": self.trunk}}}}}), "")
-        heads = re.findall(r'(h\d+): object\(expression: "([0-9a-f]+)"\) \{ \.\.\. on Commit \{ status \{ contexts \{ context state description \} \} \} \}', query)
-        commits = {alias: {"status": {"contexts": [{"description": None, **status, "state": status["state"].upper()} for status in self.combined_statuses[sha]]} if sha in self.combined_statuses else None} for alias, sha in heads}
+        heads = re.findall(r'(h\d+): object\(expression: "([0-9a-f]+)"\) \{ \.\.\. on Commit \{ status \{ contexts \{ context state description \} \} checkSuites\(last: 10, filterBy: \{checkName: "ai-review"\}\) \{ nodes \{ checkRuns\(last: 1, filterBy: \{checkName: "ai-review"\}\) \{ nodes \{ title startedAt \} \} \} \} \} \}', query)
+        commits = {
+            alias: {
+                "status": {"contexts": [{"description": None, **status, "state": status["state"].upper()} for status in self.combined_statuses[sha]]} if sha in self.combined_statuses else None,
+                "checkSuites": {"nodes": [{"checkRuns": {"nodes": [{"title": title, "startedAt": f"2026-10-27T19:0{index}:00Z"}]}} for index, title in enumerate(self.review_runs.get(sha, []))]},
+            }
+            for alias, sha in heads
+        }
         return runner_module.Done(0, json.dumps({"data": {"repository": commits}}), "")
 
     def cci_tail(self, argv: list[str]) -> runner_module.Done:
@@ -5453,6 +5460,35 @@ def test_a_green_head_a_go_names_still_out_of_the_queue_five_minutes_on_escalate
     [line] = unqueued(shell)
     assert line.startswith("GO-UNQUEUED go-unqueued:33001 #33001: #33001 is green at aaaa111111 and root go #")
     assert "yet it is not in the queue after 6 minutes" in line
+
+
+HELD_TWO = "🛑 Held — 2 blocking open; security: high; confidentiality: high"
+
+
+def test_a_go_named_green_head_the_review_bot_holds_names_its_findings_in_go_unqueued_and_tells_its_lane_once(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
+    shell.queue["33001"] = "not queued"
+    shell.review_runs["aaaa111111"] = ["ℹ️ Waiting for restack — push or comment @forge-pr-reviewer review", HELD_TWO]
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [line] = unqueued(shell)
+    assert line.endswith(f"minutes; the review bot holds it on 2 blocking findings; {LANE} fixes or accepts them")
+    assert [post_body(post) for post in blockers(shell) if "review bot" in post_body(post)] == [f"#33001 aaaa111111: the review bot holds it on 2 blocking findings; {LANE} fixes or accepts them"]
+
+
+def test_a_go_named_green_head_the_review_bot_waits_to_see_restacked_says_so_in_go_unqueued_and_tells_no_lane(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
+    shell.queue["33001"] = "not queued"
+    shell.review_runs["aaaa111111"] = [HELD_TWO, "ℹ️ Waiting for restack — push or comment @forge-pr-reviewer review"]
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [line] = unqueued(shell)
+    assert line.endswith("minutes; the review bot waits for a restack push")
+    assert [post for post in blockers(shell) if "review bot" in post_body(post)] == []
 
 
 def test_a_go_named_head_that_waits_on_a_reserved_row_tap_says_so_in_its_go_unqueued(shell, config, tmp_path):
