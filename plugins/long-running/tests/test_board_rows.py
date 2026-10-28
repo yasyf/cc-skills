@@ -228,6 +228,9 @@ def test_a_root_ruling_that_supersedes_the_pr_fails_it_with_that_seq_until_a_lat
         ("(2) is #42590's declared red, closed by step 10, no action", False),
         ("#42590 now superseded by #43001", True),
         ("#42590 (4d8b3a1) landed on dev", True),
+        ("3:32 AM root: finder major #160051 on #42590 is closed: refuted by the lane at #160239 on fidelity #160071 and root #160081", False),
+        ("the red check of #42590 is closed", False),
+        ("the flake in #42590 was closed", False),
     ],
 )
 def test_a_closing_ruling_must_tie_the_word_to_the_pr(text: str, closed: bool) -> None:
