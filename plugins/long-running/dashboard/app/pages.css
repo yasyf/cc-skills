@@ -143,3 +143,7 @@ a.pg-row:hover .pg-cells > b { color: var(--accent); }
 @media (prefers-reduced-motion: reduce) { #main.enter > .pg, .pg-fold[open] > :not(summary), .pg-wait::after { animation: none; } }
 .wk-caption { display: flex; align-items: center; gap: 8px; margin: -2px 0 8px; color: var(--ink-2); font-size: 13px; }
 .wk-next { color: var(--ink-3); }
+.st-parts .pg-thead, .st-parts .pg-cells { grid-template-columns: minmax(0, 1fr) minmax(0, .75fr) minmax(0, 1.6fr) minmax(0, .8fr) minmax(0, 1.6fr); }
+.st-prs .pg-thead, .st-prs .pg-cells { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, .7fr) minmax(0, 1.5fr); }
+.st-prs .pg-cells > b:first-child { padding-left: 16px; }
+.st-for { color: var(--ink-2); font-size: 12.5px; }

@@ -267,10 +267,10 @@ function render() {
   if (state.overlay && !history.state?.sheet) history.pushState({ sheet: true }, '');
   document.title = m.title;
   $('.brand').textContent = m.title;
-  const tabs = [['overview', 'Now'], ['plan', 'Plan'], ['work', 'Work'], ['review', 'Review', needsTotal()], ['history', 'History']];
+  const tabs = [['overview', 'Now'], ['plan', 'Plan'], ['status', 'Status'], ['work', 'Work'], ['review', 'Review', needsTotal()], ['history', 'History']];
   $('#kbtn').classList.toggle('on', r.screen === 'jump');
   $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${r.screen === id || (id === 'overview' && r.screen === 'story') ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="count">${count}</span>` : ''}</a>`).join('');
-  const screens = { overview: nowScreen, story: nowScreen, plan: () => planScreen(r.id), work: () => workScreen(r.id && decodeURIComponent(r.id)), review: () => (/^\d+$/.test(r.id ?? '') ? reviewPR(r.id, r.tab) : reviewScreen(r.id ?? '')), history: () => historyScreen(r.id), ask: askScreen, jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>`, worker: () => workerScreen(decodeURIComponent(r.id ?? '')) };
+  const screens = { overview: nowScreen, story: nowScreen, plan: () => planScreen(r.id), work: () => workScreen(r.id && decodeURIComponent(r.id)), review: () => (/^\d+$/.test(r.id ?? '') ? reviewPR(r.id, r.tab) : reviewScreen(r.id ?? '')), history: () => historyScreen(r.id), ask: askScreen, status: statusScreen, jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>`, worker: () => workerScreen(decodeURIComponent(r.id ?? '')) };
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
   const typing = document.activeElement?.matches('#main input, #main textarea') ? document.activeElement : null;
@@ -369,7 +369,13 @@ function paintModal() {
   const ms = /^m(\d+)$/.exec(state.overlay ?? '');
   const p = ms && curated('plan');
   const held = root.contains(document.activeElement) ? document.activeElement.getAttribute('href') : null;
-  root.innerHTML = p ? `<div class="overlay" data-close="1"><div class="sheet ms-sheet" role="dialog" aria-modal="true" aria-label="${esc(state.model.milestones[ms[1]] ?? 'Milestone')}"><button class="btn close" data-close="1">Close <kbd>Esc</kbd></button>${milestonePage(p, Number(ms[1]))}<p class="acts ms-out"><a class="btn" data-out href="#/plan/m${ms[1]}">Open as its own page ›</a></p></div></div>` : '';
+  const html = p ? `<div class="overlay" data-close="1"><div class="sheet ms-sheet" role="dialog" aria-modal="true" aria-label="${esc(state.model.milestones[ms[1]] ?? 'Milestone')}"><button class="btn close" data-close="1">Close <kbd>Esc</kbd></button>${milestonePage(p, Number(ms[1]))}<p class="acts ms-out"><a class="btn" data-out href="#/plan/m${ms[1]}">Open as its own page ›</a></p></div></div>` : '';
+  if (state.modalHtml !== html) {
+    const opening = !state.modalHtml;
+    root.innerHTML = html;
+    state.modalHtml = html;
+    if (opening && html) root.firstElementChild.classList.add('enter');
+  }
   document.body.classList.toggle('modal-open', Boolean(p));
   if (held) root.querySelector(`a[href="${CSS.escape(held)}"]`)?.focus();
 }
