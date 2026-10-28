@@ -83,7 +83,7 @@ const ai={};
 const pal={i:0,items:[],busy:null};
 let sheet=null;
 const short=(s,n)=>{const t=String(s??"").replace(/\s+/g," ").trim();return t.length<=n?t:t.slice(0,t.lastIndexOf(" ",n))+"…"};
-const words=()=>state.model.words??[];
+const words=()=>state.words??[];
 const waiting=()=>state.model.board.rows.filter(r=>verdictState(r)==="you");
 const openCards=()=>state.model.board.cards;
 function digest(){

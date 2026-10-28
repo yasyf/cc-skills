@@ -78,8 +78,19 @@ the model does not carry yet, add it to `Drive.live` in `server.py` from a local
 never poll GitHub for it.
 
 The model is megabytes and its version moves several times a minute. The server gzips any
-response over 4 KB. The page runs one model fetch at a time and fetches a version that
-arrives mid-fetch once that fetch ends.
+response over 4 KB. A script in the page head starts the model download before the app's
+scripts load.
+
+The browser gets a lean model. Its records and lanes keep only their seq, lane,
+kind, time, text and refs, and the owner's recorded words come from `/api/words` after
+the first paint, fetched again only when `words_at` moves. A test copy mirrors the full
+model from `/api/model?full=1`. The page runs one model fetch at a time and fetches a
+version that arrives mid-fetch once that fetch ends.
+
+The server names its build with a hash of its code, puts it in the page as
+`<meta name="build">`, and sends it first on every `/api/stream` connection. A page that
+reconnects to a different build reloads itself, waiting while the owner types, presses,
+or sends a decision, so a deploy never leaves him on a stale page.
 
 ## Where the words come from
 
@@ -138,7 +149,9 @@ string he flagged to `tests/test_plainwords.py`.
 Clicking a piece of work opens its story at `#/story/<item>`. The server starts one
 story writer per piece of work on the first view:
 
-1. It finds the newest transcript of the first worker listed for the work that has one,
+1. Each piece of work lists the pull requests it makes, and the workers that own those come
+   first, before the workers the curator named. It finds the newest transcript of the first
+   of those workers that has one,
    so a worker's successor continues the same story. List the work's own worker first, so a
    shared helper listed after it never lends the story its other work.
 2. It sends the last 30 minutes of that transcript and asks for three to five lines. A

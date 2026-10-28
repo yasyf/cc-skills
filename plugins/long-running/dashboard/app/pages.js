@@ -90,7 +90,8 @@ function latestWord(n) {
   return state.model.latest_words[n] ?? null;
 }
 function workWord(item) {
-  for (const lane of workItem(item)?.workers ?? []) {
+  const w = workItem(item);
+  for (const lane of new Set([...(w?.changes ?? []).map((n) => state.model.prs[n]?.lane).filter(Boolean), ...(w?.workers ?? [])])) {
     const prs = Object.entries(state.model.prs).filter(([, pr]) => pr.state === 'open' && sameWorker(pr.lane, lane)).map(([n]) => n);
     const word = prs.length ? prs.map(latestWord).filter(Boolean).sort((a, b) => new Date(a.at) - new Date(b.at)).at(-1) : state.model.records.findLast((r) => sameWorker(r.lane, lane));
     if (word) return word;
