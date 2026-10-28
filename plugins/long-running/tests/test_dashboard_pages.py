@@ -147,16 +147,22 @@ def test_the_review_page_quotes_the_bot_s_eli5_section_alone():
 
 
 def test_without_an_eli5_the_bot_s_plain_summary_stands_in():
-    assert bot_words([SUMMARY]) == {"eli5": None, "summary": "A CLI that fails to start now fails the test."}
+    assert bot_words([SUMMARY]) == {"eli5": None, "diagram": None, "summary": "A CLI that fails to start now fails the test."}
 
 
-def test_without_an_eli5_the_companion_s_title_says_what_it_does_and_an_incremental_summary_is_dropped():
-    companion = "<!-- pr-reviewer bot companion -->\n### GitHub merge state gates untracked dev PRs\n\n```mermaid\nflowchart LR\n```"
+def test_a_diagram_only_companion_gives_its_titled_diagram_and_an_incremental_summary_is_dropped():
+    companion = "<!-- pr-reviewer bot companion -->\n\n### GitHub merge state gates untracked dev PRs\n\n```mermaid\nflowchart LR\n    CLI -->|\"enqueue\"| Queue\n```\n\n<sub>`7bed615`</sub>"
     summary = "<!-- pr-reviewer bot summary -->\n\n> [!TIP]\n> **No blocking findings**\n\n**Since [`7bed615`](x):** Adds a fallback.\n\nNo new findings at this head. The existing thread still applies.\n\n<details></details>"
-    assert bot_words([summary, companion]) == {"eli5": "GitHub merge state gates untracked dev PRs", "summary": None}
+    diagram = {"title": "GitHub merge state gates untracked dev PRs", "source": "flowchart LR\n    CLI -->|\"enqueue\"| Queue"}
+    assert bot_words([summary, companion]) == {"eli5": None, "diagram": diagram, "summary": None}
 
 
-def test_a_companion_section_that_is_not_a_diagram_title_is_not_taken_for_what_the_change_does():
+def test_an_eli5_companion_gives_its_prose_and_the_diagram_after_it():
+    companion = "<!-- pr-reviewer bot companion -->\n\n### ELI5\n\nShared chats fork from the sharer's backups.\n\n### Share forks restore base files first\n\n```mermaid\nflowchart LR\n  A --> B\n```\n\n<sub>`fd04919`</sub>"
+    words = bot_words([companion])
+    assert (words["eli5"], words["diagram"]) == ("Shared chats fork from the sharer's backups.", {"title": "Share forks restore base files first", "source": "flowchart LR\n  A --> B"})
+
+
+def test_a_companion_section_that_is_not_a_diagram_gives_no_diagram():
     companion = "<!-- pr-reviewer bot companion -->\n<!-- ships-with -->\n### Ships with\n- `api`, `dashboard` ship in the same release\n<!-- /ships-with -->"
-    assert bot_words([companion])["eli5"] is None
-
+    assert bot_words([companion])["diagram"] is None

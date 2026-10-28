@@ -281,6 +281,7 @@ function render() {
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
   $('#main').innerHTML = (screens[r.screen] ?? nowScreen)() + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources failed: ${esc(Object.values(m.errors).join('; '))}. ` : ''}All times Pacific.</div>`;
   decorate(r);
+  holdPeek();
   paintModal();
   if (state.shown !== location.hash) {
     state.shown = location.hash;
@@ -327,9 +328,17 @@ function tickFresh() {
   el.textContent = age > LATE_MS ? `Not updated since ${clock(m.built_at)}` : `Updated ${Math.max(0, Math.round(age / 1000))} s ago · Pacific time`;
 }
 
-async function load() {
+let loading = null;
+function load() {
+  loading ??= fetchModel().finally(() => {
+    loading = null;
+    if (state.wanted !== undefined && state.wanted !== state.fetched) load();
+  });
+}
+async function fetchModel() {
   const res = await fetch('/api/model', { cache: 'no-store' });
   const model = await res.json();
+  state.fetched = model.version;
   if (!model.prs) return setTimeout(load, 1000);
   if ((model.board.seq ?? 0) < (state.model?.board.seq ?? 0)) return;
   settle(model);
@@ -349,7 +358,10 @@ for (const type of ['pointerup', 'pointercancel']) {
 }
 function connect() {
   const es = new EventSource('/api/stream');
-  es.addEventListener('version', (e) => { if (Number(e.data) !== state.version) load(); });
+  es.addEventListener('version', (e) => {
+    state.wanted = Number(e.data);
+    if (state.wanted !== state.version) load();
+  });
   es.onerror = () => { es.close(); setTimeout(connect, 3000); };
 }
 document.addEventListener('toggle', (e) => {
@@ -462,4 +474,3 @@ window.addEventListener('DOMContentLoaded', () => {
   load();
   connect();
 });
-
