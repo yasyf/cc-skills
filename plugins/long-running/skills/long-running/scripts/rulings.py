@@ -833,18 +833,21 @@ def pr_diff(args: argparse.Namespace, shell: ledger.Shell, repo: str, base: str,
     git = ["git", "-C", checkout]
     if not FULL_SHA.fullmatch(head):
         head = shell.run(ghread.read("api", f"repos/{repo}/commits/{head}", "--jq", ".sha")).strip()
-    pinned = f"refs/rulings/{head}-{os.getpid()}"
-    shell.run([*git, "fetch", "-q", "origin", f"+{base}:{pinned}", head])
-    try:
-        kept = state_dir(args) / "check-pr" / f"{shell.run([*git, 'merge-base', pinned, head]).strip()}-{head}.diff"
-        if not kept.is_file():
-            kept.parent.mkdir(parents=True, exist_ok=True)
-            staged = kept.with_suffix(f".{os.getpid()}")
-            shell.run([*git, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--find-copies-harder", "-l0", f"-U{LOOKBACK}", "--src-prefix=a/", "--dst-prefix=b/", f"--output={staged}", f"{pinned}...{head}"])
-            staged.replace(kept)
-        return parse_diff(kept.read_text(errors="replace"))
-    finally:
-        shell.run([*git, "update-ref", "-d", pinned])
+    tip = base if FULL_SHA.fullmatch(base) else shell.run([*git, "ls-remote", "--exit-code", "origin", f"refs/heads/{base}"]).split()[0]
+    if absent := missing_commits(shell, git, (tip, head)):
+        shell.run([*git, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", *absent])
+    kept = state_dir(args) / "check-pr" / f"{shell.run([*git, 'merge-base', tip, head]).strip()}-{head}.diff"
+    if not kept.is_file():
+        kept.parent.mkdir(parents=True, exist_ok=True)
+        staged = kept.with_suffix(f".{os.getpid()}")
+        shell.run([*git, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--find-copies-harder", "-l0", f"-U{LOOKBACK}", "--src-prefix=a/", "--dst-prefix=b/", f"--output={staged}", f"{tip}...{head}"])
+        staged.replace(kept)
+    return parse_diff(kept.read_text(errors="replace"))
+
+
+def missing_commits(shell: ledger.Shell, git: list[str], shas: Iterable[str]) -> list[str]:
+    """The shas of `shas` the checkout lacks, read without a lazy fetch."""
+    return [line.split()[0] for line in shell.run([*git, "--no-lazy-fetch", "cat-file", "--batch-check"], stdin="".join(f"{sha}\n" for sha in shas)).splitlines() if line.endswith(" missing")]
 
 
 def pull(args: argparse.Namespace, shell: ledger.Shell) -> tuple[str, str]:

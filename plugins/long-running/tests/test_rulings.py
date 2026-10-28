@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-import os
 import re
 import subprocess
 from datetime import UTC, datetime
@@ -359,9 +358,11 @@ class RegisterShell(ledger.Shell):
         diff: str = "",
         records: list[dict] | None = None,
         board: dict | None = None,
+        present: frozenset[str] = frozenset(),
     ) -> None:
         self.board = board or {}
         self.rows = {key: dict(fields) for key, fields in rows.items()}
+        self.present = present
         self.answers = [dict(answer, tags=list(answer["tags"])) if "tags" in answer else dict(answer) for answer in answers or []]
         self.diff = diff
         self.records = records or []
@@ -404,7 +405,11 @@ class RegisterShell(ledger.Shell):
                 return json.dumps(self.board)
             case ["gh", "api", "repos/acme/app/compare/main...cafef00d", "-H", rulings.DIFF_MEDIA, "--allow-escape-sequences"]:
                 return self.diff
-            case ["git", "-C", "/repo", "fetch", "-q", "origin", _, _] | ["git", "-C", "/repo", "update-ref", "-d", _]:
+            case ["git", "-C", "/repo", "ls-remote", "--exit-code", "origin", ref]:
+                return f"{BASE_TIP}\t{ref}\n"
+            case ["git", "-C", "/repo", "--no-lazy-fetch", "cat-file", "--batch-check"]:
+                return "".join(f"{sha} commit 1\n" if sha in self.present else f"{sha} missing\n" for sha in (stdin or "").split())
+            case ["git", "-C", "/repo", "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", *_]:
                 return ""
             case ["gh", "api", "repos/acme/app/commits/cafef00d", "--jq", ".sha"]:
                 return f"{FULL_HEAD}\n"
@@ -1346,7 +1351,7 @@ class LargeDiff(RegisterShell):
         match gateway(argv):
             case ["gh", "api", path, "-H", _, "--allow-escape-sequences"] if "/compare/" in path:
                 raise subprocess.CalledProcessError(1, argv, stderr="HTTP 406: Sorry, the diff exceeded the maximum number of files (300).")
-            case ["git", "-C", "/repo", "diff", *_, output, spec] if spec == f"refs/rulings/{FULL_HEAD}-{os.getpid()}...{FULL_HEAD}":
+            case ["git", "-C", "/repo", "diff", *_, output, spec] if spec == f"{BASE_TIP}...{FULL_HEAD}":
                 Path(output.removeprefix("--output=")).write_bytes(DIFF.encode() + FIXTURES_DIFF)
                 self.calls.append(argv)
                 return ""
@@ -1354,6 +1359,7 @@ class LargeDiff(RegisterShell):
 
 
 FULL_HEAD = "cafef00d" + "0" * 32
+BASE_TIP = "ba5e0000" + "0" * 32
 
 
 def test_the_drive_checkout_diff_fetches_the_full_sha_an_abbreviated_head_names(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
@@ -1364,7 +1370,18 @@ def test_the_drive_checkout_diff_fetches_the_full_sha_an_abbreviated_head_names(
 
     assert code == 0
     assert "rule/bbbbbbb" in required(out)
-    assert ["git", "-C", REPO, "fetch", "-q", "origin", f"+main:refs/rulings/{FULL_HEAD}-{os.getpid()}", FULL_HEAD] in shell.calls
+    assert ["git", "-C", REPO, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", BASE_TIP, FULL_HEAD] in shell.calls
+
+
+def test_the_drive_checkout_diff_fetches_nothing_the_checkout_already_holds(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
+    """Oct 27: every slice and grade fetched the base and head again, 17 to 100 seconds each in the shared monorepo checkout, although the lanes pushed both from worktrees of that same repository."""
+    shell = RegisterShell(seeded(package), diff=DIFF, present=frozenset({BASE_TIP, FULL_HEAD}))
+
+    code, out = ran(capsys, shell, "slice", "--required", "--pr", "acme/app#12", "--head", FULL_HEAD, "--base", "main")
+
+    assert code == 0
+    assert "rule/bbbbbbb" in required(out)
+    assert not [argv for argv in shell.calls if "fetch" in argv]
 
 
 def test_the_required_slice_diffs_a_large_pr_in_the_drive_checkout_and_counts_a_binary_file_by_name(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
@@ -1375,7 +1392,6 @@ def test_the_required_slice_diffs_a_large_pr_in_the_drive_checkout_and_counts_a_
 
     assert code == 0
     assert {"rule/bbbbbbb", "rule/2345678"} <= set(required(out))
-    assert shell.calls[-1] == ["git", "-C", REPO, "update-ref", "-d", f"refs/rulings/{FULL_HEAD}-{os.getpid()}"]
 
 
 def test_sweep_reads_the_drive_register_whatever_checkout_repo_names(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
