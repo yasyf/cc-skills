@@ -35,7 +35,7 @@ def drive(*rows, cards=(), groups=()):
     stamp(board)
     needs = [{"kind": "card", "card": card} for card in board["cards"]]
     needs += [{"kind": "prs", "key": key, "group": "Tooling PRs whose workers died, re-owned", "relation": "Three small tooling fixes.", "prs": board["rows"]} for key in groups]
-    return {"board": board, "needs": needs, "records": [], "lanes": [], "workers": [], "prs": {}, "drive": {"prs": []}}
+    return {"board": board, "needs": needs, "records": [], "lanes": [], "workers": [], "prs": {}, "drive": {"prs": []}, "fetch": lambda kinds, since: []}
 
 
 def rewrite_of(model, row, **fields):

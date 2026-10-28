@@ -64,20 +64,25 @@ function ledgerWords(text) {
 function stackRow(n) {
   return state.model.stack.find((row) => row.pr === String(n));
 }
-function landing(row) {
-  const said = curated('work')?.pull_requests?.find((pr) => pr.number === Number(row.pr));
-  if (said) return { stage: said.stage, next: said.next, since: sinceClock(said.since) ?? row.since, by: '' };
-  const by = `, by <a href="#/worker/${encodeURIComponent(row.owner)}">${esc(workerName(row.owner))}</a>${row.live ? '' : ', not running now'}`;
-  return { stage: ledgerWords(row.state), next: /^land #\d+ first$/.test(row.next) ? '' : ledgerWords(row.next), since: row.since, by };
-}
-function stackFacts(n) {
+function prTruth(n) {
+  const board = boardRow(n);
+  if (board && verdictState(board) === 'you') return { blocks: rowWords(board).blocker, next: '', since: waitingSince(Number(n)) };
+  const said = curated('work')?.pull_requests?.find((pr) => pr.number === Number(n));
+  if (said) return { blocks: said.stage, next: said.next, since: sinceClock(said.since) };
+  const node = blockerNode(n);
+  if (node) return { blocks: node.text, next: node.how, since: sinceClock(node.since) };
   const row = stackRow(n);
-  if (!row) return '';
-  const l = landing(row);
-  return `<dt>Landing stage</dt><dd>${esc(l.stage)}<small class="pg-for">${blockedFor(l.since)}</small></dd>${l.next ? `<dt>Next to land it</dt><dd>${esc(l.next.replace(/^./, (c) => c.toUpperCase()))}${l.by}</dd>` : ''}`;
+  if (row) return { blocks: ledgerWords(row.state), next: /^land #\d+ first$/.test(row.next) ? '' : ledgerWords(row.next), since: row.since };
+  const e = state.drive.get(Number(n));
+  return { blocks: e?.blocker ?? '', next: e?.next ?? '', since: null };
+}
+function truthFacts(n, landed) {
+  const t = prTruth(n);
+  return `<dt>Blocks landing</dt><dd>${t.blocks ? `${esc(t.blocks)}${t.since ? `<small class="pg-for">${blockedFor(t.since)}</small>` : ''}` : landed ? 'Nothing: it landed' : 'Nothing'}</dd>${t.next ? `<dt>What happens next</dt><dd>${esc(t.next.replace(/^./, (c) => c.toUpperCase()))}</dd>` : ''}`;
 }
 function stackLine(row) {
-  const l = landing(row);
+  const t = prTruth(row.pr);
+  const l = { stage: t.blocks, next: t.next, since: t.since };
   return `<div class="wk-row"><span class="wk-body"><a href="#/review/${row.pr}"><b>${esc(shortName(row.pr) ?? plainTitle(row.pr))}</b></a><span class="wk-line">${row.stale ? `${dotted('Stuck', 'bad')} ` : ''}${esc(l.stage.replace(/\.$/, ''))}.${l.next ? ` Next, ${esc(l.next.replace(/\.$/, ''))}.` : ''}</span></span><span class="wk-side"><a href="#/worker/${encodeURIComponent(row.owner)}">${esc(workerName(row.owner))}</a>${row.live ? '' : ', not running'}<br>${blockedFor(l.since)}</span></div>`;
 }
 function blockerNode(n) {
@@ -158,11 +163,9 @@ function workerScreen(lane) {
   const said = m.records.findLast((r) => sameWorker(r.lane, lane));
   const work = curated('work');
   const piece = [...(work?.running ?? []), ...(work?.finished ?? [])].find((w) => w.workers.some((x) => sameWorker(x, lane)));
-  const waits = m.drive.prs.filter((e) => sameWorker(e.owner, lane) && e.state !== 'landed' && e.blocker);
   return detailPage(['#/work', 'Work'], 'Worker', workerName(said?.lane ?? lane), piece ? `<p class="pg-stateline">On <a href="#/work/${encodeURIComponent(piece.item)}">${esc(piece.title)} ›</a></p>` : '', [
-    ['Its pull requests', prs.length ? `<ul class="pg-changes">${prs.map((n) => `<li><a href="#/review/${n}">${esc(plainTitle(n))}</a><span>${esc(STATE_WORD[prState(n)] ?? '')}</span></li>`).join('')}</ul>` : 'None open'],
+    ['Its pull requests and what each waits on', prs.length ? `<ul class="pg-changes">${prs.map((n) => `<li><a href="#/review/${n}">${esc(plainTitle(n))}</a><span>${esc(prTruth(n).blocks || STATE_WORD[prState(n)] || '')}</span></li>`).join('')}</ul>` : 'None open'],
     ['Its last word', said ? `${esc(SAID[said.kind] ?? KIND_WORD[said.kind] ?? said.kind)} at ${clock(said.at)} <a href="/record/${said.seq}" target="_blank" rel="noopener">Read it ↗</a>` : 'Nothing today'],
-    ['What it waits on', waits.length ? `<ul class="pg-changes">${waits.map((e) => `<li><a href="#/review/${e.number}">${esc(blockerNode(e.number)?.text ?? (stackRow(e.number) ? landing(stackRow(e.number)).stage : e.blocker))}</a></li>`).join('')}</ul>` : 'Nothing'],
   ]);
 }
 function workScreen(item) {
