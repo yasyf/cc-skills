@@ -539,7 +539,6 @@ def test_a_quiet_lane_with_no_open_pr_is_idle_after_a_ready_record_unless_it_owe
         assert text in shell.post("lane:api-lane")["text"]
 
 
-@pytest.mark.parametrize(("ready", "stalls"), [(False, []), (True, ["board:101:abc1234"])], ids=["row-pulled", "row-due-after-ready"])
 @pytest.mark.parametrize(("text", "stalls"), [("Owners for the reds: #101 stays with api-lane, READY", []), ("api-lane: rebase #101 on dev", ["lane:api-lane"])], ids=["listed-as-recipient", "given-an-order"])
 def test_a_lane_owes_a_root_decide_only_when_it_gives_the_lane_an_order(config, tmp_path, text, stalls):
     task(tmp_path, 1, "api-lane", minutes_ago=90)
@@ -550,6 +549,7 @@ def test_a_lane_owes_a_root_decide_only_when_it_gives_the_lane_an_order(config, 
     assert shell.topics() == stalls
 
 
+@pytest.mark.parametrize(("ready", "stalls"), [(False, []), (True, ["board:101:abc1234"])], ids=["row-pulled", "row-due-after-ready"])
 def test_a_merge_row_root_pulled_by_a_decide_is_not_missing_until_the_lane_posts_ready(config, ready, stalls):
     records = [head(1, "101", HEAD, 40), finder(2, "101", HEAD, 20), fidelity(3, "101", HEAD, 20), record(4, "root", "decide", "Confirmed: pull #101's tap row until api-lane posts READY with the red fixed", 15, "101")]
     if ready:
