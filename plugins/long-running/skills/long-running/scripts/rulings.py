@@ -2270,7 +2270,7 @@ def cmd_check_pr(args: argparse.Namespace, shell: ledger.Shell) -> int:
     findings = Findings([], [])
     repo, number = pull(args, shell)
     loaded = findings.read("the register", lambda: Register.load(args, shell, drive_checkout(args)))
-    view = findings.read(f"{repo}#{number}", lambda: json.loads(shell.run(ghread.read("pr", "view", number, "--repo", repo, "--json", "body,baseRefName,comments"))))
+    view = findings.read(f"{repo}#{number}", lambda: json.loads(shell.run(ghread.read("pr", "view", number, "--repo", repo, "--json", "body,baseRefName,comments", max_age=ghread.FRESH))))
     diff = findings.read(f"the diff of {repo}#{number}", lambda: pr_diff(args, shell, repo, args.base or view["baseRefName"], args.head)) if view else None
     if loaded and view and diff:
         comments = tuple(comment.get("body") or "" for comment in view.get("comments") or [])

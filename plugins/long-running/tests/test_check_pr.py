@@ -7,6 +7,7 @@ import json
 import subprocess
 from pathlib import Path
 
+import ghread
 import ledger
 import pytest
 import rulings
@@ -155,6 +156,19 @@ def test_a_rulings_line_in_a_pr_comment_cites_the_row(package: Path, state: Path
     uncited = CLEAN.replace("- bbbbbbb: Drain the pool when a run closes.", "- ccccccc: Cards quote the words they ask about.")
 
     assert check(capsys, CheckShell(pinned(package), body=uncited, comments=("Second-model review: ok.", "## Rulings\n\n- bbbbbbb: Drain the pool when a run closes."))) == (0, [])
+
+
+class CachedViewShell(CheckShell):
+    def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
+        if gateway(argv)[1:3] == ["pr", "view"] and argv[argv.index("--max-age") + 1] != ghread.FRESH:
+            return json.dumps({"body": self.body, "baseRefName": "main", "comments": []})
+        return super().run(argv, stdin, cwd)
+
+
+def test_a_rulings_comment_posted_moments_ago_cites_the_row(package: Path, state: Path, registered: Path, capsys) -> None:
+    uncited = CLEAN.replace("- bbbbbbb: Drain the pool when a run closes.", "- ccccccc: Cards quote the words they ask about.")
+
+    assert check(capsys, CachedViewShell(pinned(package), body=uncited, comments=("## Rulings\n\n- bbbbbbb: Drain the pool when a run closes.",))) == (0, [])
 
 
 def test_a_reserved_touch_needs_an_answer_cited_or_tapped_for_this_pr(package: Path, state: Path, registered: Path, capsys) -> None:
