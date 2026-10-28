@@ -13,7 +13,8 @@ its ledger row names, it finds:
 
     go        a root go names the head, no `QUEUED` record names the PR at it, and no hold covers a PR
               below it; the stall belongs to the first PR of its stack, from the bottom, with no go
-              or with a red, conflicting or unfinished build, else to the landing desk, and every go
+              or with a red, conflicting or unfinished build, or whose newest ai-review run the review
+              bot titles Held or Waiting for restack, else to the landing desk, and every go
               in one stack shares one stall naming the stack's bottom and that blocker; a go a
               fidelity carry moved to a new head counts from the carry grade, not the go
     tap       the owner's board tap approves the head, and no go names it
@@ -72,6 +73,7 @@ import actions
 import board_rows
 import cci
 import drive
+import ghread
 import grades
 import holds
 
@@ -497,7 +499,13 @@ class Pass:
                 return member, owns, f"restack {named}: GitHub reads it as conflicting against its base"
             if other.get("test_state") != "success":
                 return member, owns, f"{named} has no green build yet ({other.get('test_state') or 'no state'}); the go waits on it"
+            if other.get("ai_review") == "neutral" and (waits := grades.review_bot_wait(self.review_title(other["head"]), owns)):
+                return member, owns, f"{named}: {waits}"
         return pr, RUNNER, f"the landing desk has not queued it: read its newest GO-UNQUEUED, BELOW-BLOCKED or BELOW-HELD line for #{pr} and the runner's heartbeat (`drive.py digest`)"
+
+    def review_title(self, head: str) -> str:
+        done = self.shell.run(ghread.read("api", f"repos/{self.watch.landing['repo']}/commits/{head}/check-runs?check_name={grades.REVIEW_BOT_CHECK}", "--jq", ".check_runs | max_by(.started_at) | .output.title // \"\""))
+        return done.out.strip() if done.code == 0 else ""
 
     def carry(self, pr: str, head: str, head_at: datetime, tap: tuple[str, str], about: list[dict], newest: dict, fidelity_lanes: list[str]) -> Question:
         tapped, how = tap

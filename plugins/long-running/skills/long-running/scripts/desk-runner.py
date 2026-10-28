@@ -4167,7 +4167,8 @@ def prefix_tops(prefix: list[str], rows: dict[str, dict]) -> list[str]:
 
 def heads_query(repo: str, shas: list[str]) -> str:
     owner, name = repo.split("/")
-    fields = " ".join(f'h{index}: object(expression: "{sha}") {{ ... on Commit {{ status {{ contexts {{ context state description }} }} }} }}' for index, sha in enumerate(shas))
+    review = f'checkSuites(last: 10, filterBy: {{checkName: "{grades.REVIEW_BOT_CHECK}"}}) {{ nodes {{ checkRuns(last: 1, filterBy: {{checkName: "{grades.REVIEW_BOT_CHECK}"}}) {{ nodes {{ title startedAt }} }} }} }}'
+    fields = " ".join(f'h{index}: object(expression: "{sha}") {{ ... on Commit {{ status {{ contexts {{ context state description }} }} {review} }} }}' for index, sha in enumerate(shas))
     return f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'
 
 
@@ -4310,6 +4311,7 @@ class Landing:
         self.gos: list[dict] | None = None
         self.going = threading.Lock()
         self.read: dict[str, tuple[datetime, list[dict]]] = {}
+        self.review_titles: dict[str, str] = {}
         self.unread: dict[str, dict[str, str]] = {}
         self.reading = threading.Lock()
         self.labels_read: dict[str, bool] = {}
@@ -5001,7 +5003,7 @@ class Landing:
             return next((statuses for head, (at, statuses) in self.read.items() if same_head(head, sha) and now - at < HEAD_FLOOR), None)
 
     def read_heads(self, heads: dict[str, str]) -> dict[str, list[dict] | None]:
-        """The commit statuses of each head in `heads`, a sha to the PR it heads: one GraphQL query per `HEADS_PER_QUERY` heads not read in the last `HEAD_FLOOR`. A head GitHub refuses or does not know reads None and joins `unread` under its cause, which `report_unread` logs at the end of the pass."""
+        """The commit statuses of each head in `heads`, a sha to the PR it heads, and into `review_titles` the title of the review bot's newest `ai-review` run on it: one GraphQL query per `HEADS_PER_QUERY` heads not read in the last `HEAD_FLOOR`. A head GitHub refuses or does not know reads None and joins `unread` under its cause, which `report_unread` logs at the end of the pass."""
         found = {sha: statuses for sha in heads if (statuses := self.cached(sha)) is not None}
         due = sorted(set(heads) - set(found))
         for start in range(0, len(due), HEADS_PER_QUERY):
@@ -5017,8 +5019,10 @@ class Landing:
                         self.unread.setdefault(why, {})[heads[sha]] = sha
                     continue
                 statuses = [{"context": context["context"], "state": context["state"].lower(), "description": context["description"] or ""} for context in (commit["status"] or {"contexts": []})["contexts"]]
+                runs = [run for suite in commit["checkSuites"]["nodes"] for run in suite["checkRuns"]["nodes"]]
                 with self.reading:
                     self.read[sha] = (now, statuses)
+                    self.review_titles[sha] = max(runs, key=lambda run: run["startedAt"] or "", default={"title": ""})["title"] or ""
                 found[sha] = statuses
         return found
 
@@ -5884,7 +5888,7 @@ class Landing:
             self.book.attempt(LANDING, lambda incident, key=action.action_id: incident.action(key).response.update({UNGRADED_READ: self.book.stamp()}))
 
     def unqueued_gos(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Escalate `GO-UNQUEUED` once per head and stack for the lowest open, green, unheld PR of each stack a root `go` names at its ledger head that the pass's queue read still finds out of the queue five minutes after that go, or after the fidelity grade that carried it to that head, naming the stack's bottom and the gone PRs above that wait on it (root #151213), whoever enqueued it, naming the reserved rows below or at it that this runner's check-pr reads still wait on his tap, else the outcome of the newest enqueue at that head accepted since the go, so an attempt that ran before the go never reads as the reason. A head stacked on a parent no go names, one a hold covers, or one red on CI or conflicting with its base, is left to `refuse_ungone_parents`' one `BELOW-BLOCKED` or `BELOW-HELD` note per stack (root #142036, #142931, #145011)."""
+        """Escalate `GO-UNQUEUED` once per head and stack for the lowest open, green, unheld PR of each stack a root `go` names at its ledger head that the pass's queue read still finds out of the queue five minutes after that go, or after the fidelity grade that carried it to that head, naming the stack's bottom and the gone PRs above that wait on it (root #151213), whoever enqueued it, naming what the review bot's newest `ai-review` run on that head says when it holds the PR or waits for a restack push (root #154137), else the reserved rows below or at it that this runner's check-pr reads still wait on his tap, else the outcome of the newest enqueue at that head accepted since the go, so an attempt that ran before the go never reads as the reason. A head stacked on a parent no go names, one a hold covers, or one red on CI or conflicting with its base, is left to `refuse_ungone_parents`' one `BELOW-BLOCKED` or `BELOW-HELD` note per stack (root #142036, #142931, #145011)."""
         queued = {pr for prs in self.believed_queued(rows).values() for pr in prs}
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         now = self.runner.now()
@@ -5899,7 +5903,9 @@ class Landing:
                 continue
             tried = sorted((action for action in self.book.actions(LANDING, kind="enqueue") if action.response and head.startswith(enqueued_heads(action.action_id).get(pr) or "-") and actions.parse_stamp(action.accepted_at) >= at), key=lambda action: action.accepted_at)
             reserved = [f"{reserved_row(line)[0]} on #{below}" for below in sorted(downstack(open_rows, pr), key=int) if (kept := self.reported.get((below, open_rows[below].get("head", "")[:7], False))) for line in kept[1] if cause(line) == RESERVED_TOUCH]
-            if reserved:
+            if bot := self.review_bot(pr, head, row):
+                why = bot
+            elif reserved:
                 why = f"it waits on his tap authorizing {', '.join(reserved)}, as MERGE-ASK says; a go never authorizes a reserved row (C224)"
             elif tried:
                 why = f"its newest enqueue since the go ended {tried[-1].response['outcome']}: {' '.join(tried[-1].response.get('out', '').split())[-300:]}"
@@ -6505,9 +6511,20 @@ class Landing:
         for pr, head in landable.items():
             self.failing(ACCEPT_CHECKS, Graded({pr: head}, rows, self.runner.now(), act=True))
         for pr, (head, entry) in told.items():
+            self.review_bot(pr, head, open_rows[pr])
             if why := status_blocker(entry, "ci-red" not in entry["verdict"] or not self.red_by_design(pr)) or self.unproven_why.get(pr, ""):
                 key = f"conflict:{pr}:{open_rows[pr].get('base', '')}" if why == CONFLICT_BLOCKER else blocker_key(pr, head)
                 self.route(key, self.owner(pr, open_rows[pr]), f"#{pr} {head}: {why}", pr)
+
+    def review_bot(self, pr: str, head: str, row: dict) -> str:
+        """What the review bot's newest `ai-review` run on `head`, from the pass's head read, says `pr` waits on, or empty; a Held verdict tells the owning lane once per head (root #154137)."""
+        title = self.review_titles.get(head, "")
+        if not grades.REVIEW_BOT_HELD.search(title):
+            return grades.review_bot_wait(title, "")
+        lane = self.owner(pr, row)
+        why = grades.review_bot_wait(title, lane)
+        self.route(f"bot-held:{pr}:{head[:10]}", lane, f"#{pr} {head}: {why}", pr)
+        return why
 
     def routed(self, key: str, lane: str) -> bool:
         container = lane_container(lane)

@@ -1610,12 +1610,18 @@ until it reads.
 **Five minutes from go to queue.** A green PR a root `go` names at its head is in the
 merge queue within five minutes of that go. After each enqueue wave the runner logs one
 `GO-UNQUEUED` per head still out, naming the newest enqueue outcome that kept it out, and
-the root clears that one thing in the same turn or spawns the lane that does. A missing
+the root clears that one thing in the same turn or spawns the lane that does. When the
+review bot's newest `ai-review` run on that head reads Held, the line says the bot holds
+it on N blocking findings and the owning lane gets one record per head to fix or accept
+them; a Waiting for restack run reads as waiting for a restack push. Neither is a missing
+verdict. A missing
 gate record is never the reason: a fidelity or finder carry at the new head (a restack
 carries its grade, below) is that gate's record there, and nobody re-grades it.
 
 *Prevents Oct 26 11:33 PM: a go'd, approved, all-green PR sat out of the queue for 45
-minutes because no desk checked how long a go had waited.*
+minutes because no desk checked how long a go had waited. Oct 27 7:07 PM: the bot held
+a green PR on 2 blocking findings five minutes after its push, and the runner and root read
+it as no verdict for 19 minutes.*
 
 With `landing.merge_ask_surface` set to `board`, the root asks every merge question
 on its own board, and under `every` the runner checks only heads a root `go` names.

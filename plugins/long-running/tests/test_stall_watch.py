@@ -55,6 +55,7 @@ class FakeShell(stall_watch.Shell):
         self.ledger_code = 0
         self.posts: list[list[str]] = []
         self.prompts: list[str] = []
+        self.review_titles: dict[str, str] = {}
 
     def run(self, argv, stdin=None, env=None, timeout=stall_watch.COMMAND_SECONDS):
         if argv[:2] == ["cci", "tail"]:
@@ -74,6 +75,10 @@ class FakeShell(stall_watch.Shell):
             questions = json.loads(stdin.split("Questions:\n", 1)[1])
             verdicts = [{"id": question["id"], "why": "the record says so"} | self.answer(question) for question in questions]
             return stall_watch.Done(self.judge_code, json.dumps({"structured_output": {"verdicts": verdicts}}) if self.judge_code == 0 else "", "boom" if self.judge_code else "")
+        if argv[:3] == ["ccx", "vcs", "gh"]:
+            endpoint = argv[argv.index("--") + 2]
+            assert endpoint.endswith("/check-runs?check_name=ai-review")
+            return stall_watch.Done(0, self.review_titles[endpoint.split("/")[4]] + "\n", "")
         if Path(argv[1]).name == "ledger.py":
             return stall_watch.Done(self.ledger_code, json.dumps(self.rows) if self.ledger_code == 0 else "", "ccn down" if self.ledger_code else "")
         raise AssertionError(f"unexpected command {argv}")
@@ -183,6 +188,24 @@ def test_a_root_go_no_queued_record_names_goes_to_whoever_holds_its_next_step(co
     assert "owner desk-runner | the landing desk has not queued it" in shell.post("go:101:abc1234")["text"]
     assert shell.post("go:102:fedcba9")["to"] == "root,api-lane@d1"
     assert "fix the red build of #102 at fedcba9" in shell.post("go:102:fedcba9")["text"]
+
+
+@pytest.mark.parametrize(
+    ("title", "step"),
+    [
+        ("🛑 Held — 2 blocking open; security: high", "#101 at abc1234: the review bot holds it on 2 blocking findings; api-lane fixes or accepts them"),
+        ("ℹ️ Waiting for restack — push or comment @forge-pr-reviewer review", "#101 at abc1234: the review bot waits for a restack push"),
+    ],
+)
+def test_a_go_whose_green_head_the_review_bot_holds_or_waits_to_see_restacked_goes_to_its_lane_not_the_landing_desk(config, title, step):
+    records = [head(1, "101", HEAD, 30), finder(2, "101", HEAD, 25), fidelity(3, "101", HEAD, 25), record(4, "root", "go", f"go #101 at {HEAD[:7]}", 12)]
+    shell = FakeShell(records, [row("101", ai_review="neutral")])
+    shell.review_titles[HEAD] = title
+
+    watch(shell, config)
+
+    assert shell.post("go:101:abc1234")["to"] == "root,api-lane@d1"
+    assert f"owner api-lane | {step}" in shell.post("go:101:abc1234")["text"]
 
 
 def test_gos_stacked_on_one_parent_post_once_naming_the_parent_and_a_held_parent_draws_none(config, tmp_path):

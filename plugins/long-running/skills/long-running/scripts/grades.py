@@ -38,6 +38,9 @@ CARRIES_GO = re.compile(r"^(?!.*\bnew behaviou?r\b).*(?:\bpatch-identical\b|\bte
 HEAD_MOVE = re.compile(r"\b([0-9a-f]{7,40})\s*\(was ([0-9a-f]{7,40})\)", re.IGNORECASE)
 PATCH_IDENTICAL = re.compile(r"(?<!\bnot )\bpatch-identical\b", re.IGNORECASE)
 ADDS_BEHAVIOR = re.compile(r"(?<!\bno )(?<!\bwithout )\bnew behaviou?r\b", re.IGNORECASE)
+REVIEW_BOT_CHECK = "ai-review"
+REVIEW_BOT_HELD = re.compile(r"\bHeld — (?:(\d+) blocking open\b)?")
+REVIEW_BOT_RESTACK = "Waiting for restack"
 
 
 def names_head(named: str, sha: str) -> bool:
@@ -260,3 +263,13 @@ def withdraws(record: dict, seq: int) -> bool:
     if record.get("re") == seq and WITHDRAWN.match(record["text"]):
         return True
     return re.search(rf"#{seq}\b(?:(?!\bnot\b)[^.;:\n])*\bwithdrawn\b", record["text"], re.IGNORECASE) is not None
+
+
+def review_bot_wait(title: str, lane: str) -> str:
+    """What the title of the review bot's newest `ai-review` run on a green head says the PR waits on, naming `lane` to fix or accept a Held verdict's findings; empty for any other verdict."""
+    if REVIEW_BOT_RESTACK in title:
+        return "the review bot waits for a restack push"
+    if not (held := REVIEW_BOT_HELD.search(title)):
+        return ""
+    findings = f"{held[1]} blocking findings" if held[1] else title[held.end() :].strip() or "blocking findings"
+    return f"the review bot holds it on {findings}; {lane or 'its lane'} fixes or accepts them"
