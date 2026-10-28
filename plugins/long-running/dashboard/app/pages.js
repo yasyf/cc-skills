@@ -83,10 +83,9 @@ function prTruth(n) {
   const e = state.drive.get(Number(n));
   return { blocks: e?.blocker ?? '', next: e?.next ?? '', since: null };
 }
-const WORD_KINDS = new Set(['decide', 'decision', 'owner', 'answer', 'hold', 'lift', 'go', 'blocker', 'head', 'review', 'landed', 'opened', 'report']);
 function latestWord(n) {
   const mention = new RegExp(`#${n}(?!\\d)`);
-  return state.model.records.findLast((r) => WORD_KINDS.has(r.kind) && !/^(dashboard|register|cc-present|desk-runner|stall-watch)/.test(r.lane) && ((r.refs?.prs ?? []).some((p) => String(p).replace(/.*#/, '') === String(n)) || mention.test(r.text)));
+  return state.model.records.findLast((r) => !/^(dashboard|register|cc-present|desk-runner|stall-watch)/.test(r.lane) && ((r.refs?.prs ?? []).some((p) => String(p).replace(/.*#/, '') === String(n)) || mention.test(r.text)));
 }
 function workWord(item) {
   const lanes = workItem(item)?.workers ?? [];
