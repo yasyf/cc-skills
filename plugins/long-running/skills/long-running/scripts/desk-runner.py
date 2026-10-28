@@ -318,8 +318,9 @@ and every PR above it out, and the refused PR's blocker names it as the cut. Gra
 prefix that forks enqueues one call per chain in the same pass, bottom chain first, each naming its top with `--partial`; a
 prefix stacked on an open fork outside it logs `FORK-DEFERRED` and waits until that fork lands. The `finder` check reads every review record that names the finder, from any lane, as a verdict in plain
 words: `finder: ok`, "no majors", "no findings" or "ok" pass, and `finder: major` or "N major" fail. The head is the record's first short
-sha, or else the head the PR's newest `head` record named before it. The newest record naming the head must pass; a head with none, or
-whose newest fails, gets one `FINDER-PENDING` blocker per head to its lane (E4.1). A record the runner cannot read for a verdict or a head
+sha, or else the head the PR's newest `head` record named before it. The newest record naming the head must pass, unless a root `go` at
+that head came after it or a root `decision` replies to it, directly or along a chain of `--re` replies (rule 2cc5a1f3); a head with none,
+or whose newest fails, gets one `FINDER-PENDING` blocker per head and failing record to its lane (E4.1). A record the runner cannot read for a verdict or a head
 gets one `note` to its lane naming the line it reads. The `old-app` check reads a fidelity lane's `old-app: unchanged`, `old-app: bug fix` or
 `old-app: CHANGES` line, in a review or the body a fidelity grade spills to, at the head the finder rule reads; a head whose newest grade is
 neither of the first two, carried along a chain of fidelity carries, gets one `OLD-APP-PENDING` warning to its lane and the fidelity lanes and is not held for it. A finder ok of an older head
@@ -4559,7 +4560,7 @@ class Landing:
         return {pr for pr, row in rows.items() if row.get("state", "open") == "open" and not gone_at(gos, pr, row.get("head", ""))}
 
     def refuse_ungone_parents(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Post one note to the root per stack holding rows a root `go` names at their heads above a parent nothing can land past: one `unpassed` keeps out, one a hold covers, one red on CI, or one that conflicts with its base. It posts again only when that stack's set of such parents changes, never for a head that moves: the whole stack waits, `unqueued_gos` never reads it as an unqueued go, and the root hears which parents need the owner's tap, which wait on a hold, and which need their lane. A stack whose every such parent is held reads `BELOW-HELD` (root #142036, #142931, #145011)."""
+        """Post one note to the root per lowest such parent, naming the rows a root `go` names at their heads above a parent nothing can land past, and saying the stack below it lands without them (root #152548): one `unpassed` keeps out, one a hold covers, one red on CI, or one that conflicts with its base. It posts again only when that stack's set of such parents changes, never for a head that moves: the whole stack waits, `unqueued_gos` never reads it as an unqueued go, and the root hears which parents need the owner's tap, which wait on a hold, and which need their lane. A stack whose every such parent is held reads `BELOW-HELD` (root #142036, #142931, #145011)."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}
         red = {pr for pr, row in open_rows.items() if row.get("test_state") == "failure" or row.get("mergeable_state") == "dirty"}
         holding = set(held)
@@ -4569,17 +4570,17 @@ class Landing:
         for pr in sorted(open_rows, key=int):
             if pr in self.below_blocking or not gone_at(gos, pr, open_rows[pr]["head"]) or not (parents := downstack(open_rows, pr) & self.below_blocking):
                 continue
-            bottom = min(downstack(open_rows, pr), key=lambda below: (len(downstack(open_rows, below)), int(below)))
-            gone, waiting = stacks.setdefault(bottom, ([], set()))
+            lowest = min(parents, key=lambda below: (len(downstack(open_rows, below)), int(below)))
+            gone, waiting = stacks.setdefault(lowest, ([], set()))
             gone.append(pr)
             waiting.update(parents)
 
         def named(prs: list[str]) -> str:
             return " and ".join(f"#{pr} at {open_rows[pr]['head'][:10]}" for pr in prs)
 
-        for bottom, (gone, waiting) in stacks.items():
+        for lowest, (gone, waiting) in stacks.items():
             parents = sorted(waiting, key=int)
-            key = f"go-parents:{bottom}:" + ",".join(parents)
+            key = f"go-parents:{lowest}:" + ",".join(parents)
             if self.book.known(LANDING, key):
                 continue
             on_hold = [parent for parent in parents if parent in holding]
@@ -4588,7 +4589,7 @@ class Landing:
             on = [f"{named(untapped)} with no go at that head"] * bool(untapped) + [f"{named(on_hold)}, which a hold covers"] * bool(on_hold) + [f"{named(broken)}, red on CI or conflicting with its base"] * bool(broken)
             asks = ["the owner taps each parent's merge row and root posts `go #<parent> at <head>`"] * bool(untapped) + ["the stack waits for each hold to lift"] * bool(on_hold) + ["each red or conflicting parent's lane makes it green and mergeable"] * bool(broken)
             label = "BELOW-HELD" if len(on_hold) == len(parents) else "BELOW-BLOCKED"
-            self.post_record("note", key, ROOT, f"{label} stack of #{bottom}: root gos name {named(gone)}, stacked on {' and '.join(on)}, so nothing in the stack is enqueued; {'; '.join(asks)}", bottom)
+            self.post_record("note", key, ROOT, f"{label} above #{lowest}: root gos name {named(gone)}, stacked on {' and '.join(on)}, so none of them is enqueued, and the stack below #{lowest} lands without them; {'; '.join(asks)}", lowest)
 
     def stack_trees(self, rows: dict[str, dict], held: list[str]) -> list[list[str]]:
         """The tips to gate, as `trees` groups them or one tip each under the whole-stack policy, over the rows no hold covers, so no call names a held PR or one stacked above it; every tip at or above an incident fix is left out."""
@@ -5253,23 +5254,37 @@ class Landing:
         return False
 
     def check_finder(self, graded: Graded) -> dict[str, merge_queue.State]:
-        """Each head with no finder record, or whose newest names an open major, fails `FINDER-PENDING`, with one blocker to its lane per head (E4.1)."""
-        states = {}
+        """Each head with no finder record, or whose newest names an open major that root has not settled, fails `FINDER-PENDING`, with one blocker to its lane per head and failing record (E4.1)."""
+        states, failed = {}, {}
         for pr, sha in graded.heads.items():
             if graded.act:
                 for record in self.finder_reviews(pr):
                     if not (record["grade"] and record["head"]):
                         self.ask_finder_line(pr, record)
-            if (verdict := self.finder(pr, sha)) and verdict["grade"] == FINDER_PASS:
+            if (verdict := self.finder(pr, sha)) and (verdict["grade"] == FINDER_PASS or self.root_answered(pr, sha, verdict)):
                 continue
             if not verdict and self.finder_carried(pr, sha):
                 continue
             why = f"{verdict['lane']} posted on cci #{verdict['seq']}: {verdict['text']}" if verdict else f"no `finder:` review record names this head; run the sol finder {finder.BRIEF} names and post its record"
             states[pr] = merge_queue.State(merge_queue.FAIL, f"FINDER-PENDING #{pr}: {why}")
+            failed[pr] = f":{verdict['seq']}" if verdict else ""
         if graded.act:
             for pr, state in states.items():
-                self.refuse_head(f"finder:{pr}:{graded.heads[pr]}", pr, graded, state.reason, states)
+                self.refuse_head(f"finder:{pr}:{graded.heads[pr]}{failed[pr]}", pr, graded, state.reason, states)
         return states
+
+    def root_answered(self, pr: str, sha: str, verdict: dict) -> bool:
+        """Whether root settled `verdict`, a failing finder record at `sha`: a root `go` naming `pr` at `sha` posted after it, or a root `decision` replying to it directly or along a chain of `--re` replies, since root refutes an edge-case finding in one line (rule 2cc5a1f3, root #152572)."""
+        if any(go["seq"] > verdict["seq"] for go in self.head_gos(pr, sha)):
+            return True
+        answered = {verdict["seq"]}
+        for record in cci.records(self.runner.cci_tail, self.runner.config.drive, since=verdict["seq"]):
+            if record.get("re") not in answered:
+                continue
+            if record["lane"] == ROOT and record["kind"] == "decision":
+                return True
+            answered.add(record["seq"])
+        return False
 
     def ask_finder_line(self, pr: str, record: dict) -> None:
         key = f"finder-line:{record['seq']}"
