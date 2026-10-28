@@ -254,6 +254,15 @@ def test_a_go_the_landing_desk_queued_at_its_head_is_no_stall(config):
     assert shell.topics() == []
 
 
+def test_a_go_the_landing_desk_enqueued_by_hand_at_its_head_is_no_stall(config):
+    records = [head(1, "101", HEAD, 30), finder(2, "101", HEAD, 25), fidelity(3, "101", HEAD, 25), record(4, "root", "go", f"go #101 at {HEAD[:7]}", 12)]
+    records.append(record(5, "landing-desk-3", "report", f"QUEUED #101 at {HEAD[:10]} (go #4): enqueued by hand after the runner skipped it", 8))
+    shell = FakeShell(records, [row("101")])
+
+    watch(shell, config)
+
+    assert shell.topics() == []
+
 def test_a_graded_pr_missing_from_the_board_and_a_tap_no_go_follows_each_post_until_the_board_and_root_catch_up(config):
     records = [head(1, "101", HEAD, 40), finder(2, "101", HEAD, 20), fidelity(3, "101", HEAD, 20), head(4, "102", OTHER, 40), finder(5, "102", OTHER, 30), fidelity(6, "102", OTHER, 30)]
     shell = FakeShell(records, [row("101"), row("102", OTHER)])

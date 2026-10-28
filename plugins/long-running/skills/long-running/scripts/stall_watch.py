@@ -111,6 +111,7 @@ SCRIPTS = Path(__file__).resolve().parent
 LANE = "stall-watch"
 ROOT = "root"
 RUNNER = "desk-runner"
+LANDING_DESK = "landing-desk"
 ROOT_NAMES = frozenset({ROOT, "main"})
 NOT_LANES = frozenset({*ROOT_NAMES, "team-lead", LANE, RUNNER})
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -557,7 +558,7 @@ class Pass:
         reviews = [record for record in records if record["kind"] in ("review", "head")]
         fidelity = [record for record in reviews if record["kind"] == "review" and record["lane"] in fidelity_lanes and record["text"].startswith(grades.FIDELITY_GRADES)]
         gos += grades.carried_gos(gos, fidelity, repo, lambda pr, head: True)
-        queued = {(pr, sha) for record in records if record["lane"] == RUNNER and record["kind"] == "report" and QUEUED.match(record["text"]) for pr, sha in grades.GO_HEAD.findall(record["text"])}
+        queued = {(pr, sha) for record in records if (record["lane"] == RUNNER or record["lane"].startswith(LANDING_DESK)) and record["kind"] == "report" and QUEUED.match(record["text"]) for pr, sha in grades.GO_HEAD.findall(record["text"])}
         hold_lines = holds.read(Path(landing["holds"]).expanduser())
         held = holds.held(hold_lines, rows) | set(cci.held_prs(self.tail, drive_name))
         for entry in hold_lines:
