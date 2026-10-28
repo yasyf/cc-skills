@@ -15,10 +15,13 @@ function minutesOf(t) {
   const [, h, mm, ap] = /(\d+):(\d+) ([AP]M)/.exec(t ?? '') ?? [0, 0, 0, 'AM'];
   return (Number(h) % 12 + (ap === 'PM' ? 12 : 0)) * 60 + Number(mm);
 }
+function minutesAgo(t) {
+  const [h, m] = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: 'numeric', hourCycle: 'h23' }).format(new Date()).split(':').map(Number);
+  return (h * 60 + m - minutesOf(t) + 1440) % 1440;
+}
 function lasted(since) {
   if (!/^\d{1,2}:\d{2} [AP]M$/.test(since ?? '')) return '';
-  const [h, m] = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: 'numeric', hourCycle: 'h23' }).format(new Date()).split(':').map(Number);
-  const mins = (h * 60 + m - minutesOf(since) + 1440) % 1440;
+  const mins = minutesAgo(since);
   return `for ${mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}`}`;
 }
 function waited(since) {
@@ -253,7 +256,7 @@ function storyPage(item) {
 function storyBody(item) {
   const w = workItem(item);
   if (!w) return '<p class="nw-calm">This work finished or is no longer on the main page.</p>';
-  const lines = [...story.lines].sort((x, y) => minutesOf(y.at) - minutesOf(x.at));
+  const lines = [...story.lines].sort((x, y) => minutesAgo(x.at) - minutesAgo(y.at));
   const latest = lines[0];
   const shown = story.open ? lines : lines.slice(0, 3);
   const hidden = lines.length - shown.length;

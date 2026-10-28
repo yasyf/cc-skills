@@ -148,3 +148,10 @@ def test_the_review_page_quotes_the_bot_s_eli5_section_alone():
 
 def test_without_an_eli5_the_bot_s_plain_summary_stands_in():
     assert bot_words([SUMMARY]) == {"eli5": None, "summary": "A CLI that fails to start now fails the test."}
+
+
+def test_without_an_eli5_the_companion_s_title_says_what_it_does_and_an_incremental_summary_is_dropped():
+    companion = "<!-- pr-reviewer bot companion -->\n### GitHub merge state gates untracked dev PRs\n\n```mermaid\nflowchart LR\n```"
+    summary = "<!-- pr-reviewer bot summary -->\n\n> [!TIP]\n> **No blocking findings**\n\n**Since [`7bed615`](x):** Adds a fallback.\n\nNo new findings at this head. The existing thread still applies.\n\n<details></details>"
+    assert bot_words([summary, companion]) == {"eli5": "GitHub merge state gates untracked dev PRs", "summary": None}
+

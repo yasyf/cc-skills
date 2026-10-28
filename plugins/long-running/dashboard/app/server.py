@@ -50,6 +50,7 @@ AI_CONFIG = {"endpoint": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b"}
 ASSIST = HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
 RECORD_ROUTE = re.compile(r"/record/(\d+)")
+LANE_ROUTE = re.compile(r"/api/lane/([\w.-]+)")
 SOURCE_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>{title}</title><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"></head><body><main class="wrap pg"><header class="pg-h"><div><h1>{title}</h1></div></header><pre class="src-text">{text}</pre></main></body></html>'
 STORY_ROUTE = re.compile(r"/api/story/([a-z0-9-]+)")
 TRANSCRIPT_ROUTE = re.compile(r"/api/transcript/([a-z0-9-]+)")
@@ -67,6 +68,8 @@ BOT_COMMENTS = '[.[] | select(.user.type == "Bot") | .body]'
 BOT_REVIEW = '[.[] | select(.user.type == "Bot" and .state != "COMMENTED") | {state: .state, at: .submitted_at}] | last'
 ELI5 = re.compile(r"^### ELI5\n+(.+?)\s*(?=^### |^<sub>|^<!--|\Z)", re.S | re.M)
 BOT_SUMMARY = "<!-- pr-reviewer bot summary -->"
+BOT_COMPANION = "<!-- pr-reviewer bot companion -->"
+COMPANION_TITLE = re.compile(r"^### (?!ELI5)(.+)$", re.M)
 STORE = Path.home() / ".cc-present" / "cc-interact-v1" / "state.db"
 ASKS = {"choice": "choices", "approval": "decisions", "input": "inputs"}
 NATIVE = {*ASKS, "record", "display.page"}
@@ -98,9 +101,9 @@ def cci(path, **query):
 
 
 def bot_words(comments):
-    eli5 = next((found[1] for body in comments if (found := ELI5.search(body))), None)
+    eli5 = next((found[1] for body in comments if (found := ELI5.search(body))), None) or next((found[1] for body in comments if body.startswith(BOT_COMPANION) and (found := COMPANION_TITLE.search(body))), None)
     summary = next((body for body in comments if body.startswith(BOT_SUMMARY)), "").partition("<details>")[0]
-    lead = [part.strip() for part in summary.split("\n\n") if part.strip() and not part.lstrip().startswith((">", "**Since", "<!--"))]
+    lead = [part.strip() for part in summary.split("\n\n") if part.strip() and not part.lstrip().startswith((">", "**Since", "<!--", "No new findings"))]
     return {"eli5": eli5, "summary": "\n\n".join(lead) or None}
 
 
@@ -616,6 +619,12 @@ class Drive:
     def ccn(self, *args):
         return run(["ccn", *args], cwd=self.config["checkout"])
 
+    def posted(self, lane):
+        found, query = [], {"drive": self.config["drive"], "lane": lane, "limit": 500, "since_time": (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")}
+        while len(page := cci("records", **query)) == 500:
+            found, query = page, {"drive": self.config["drive"], "lane": lane, "limit": 500, "since": page[-1]["seq"]}
+        return [{k: r[k] for k in ("seq", "kind", "at")} for r in [*found, *page][-8:][::-1]]
+
     def fetch(self, kinds, since):
         found, after = [], 0
         while True:
@@ -991,6 +1000,8 @@ def handler(drive):
                 if transcript is None:
                     return self.send(404, "text/plain; charset=utf-8", b"This worker's transcript is not on this Mac.")
                 return self.source("The transcript this story reads", run(["cc-transcript", "show", str(transcript), "--no-junk", "--width", "300"]))
+            if found := LANE_ROUTE.fullmatch(path):
+                return self.send(200, "application/json", json.dumps(drive.posted(found[1])).encode())
             if found := RECORD_ROUTE.fullmatch(path):
                 try:
                     return self.source("The record this links to", run(["cci", "show", found[1]]))
