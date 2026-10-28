@@ -46,6 +46,8 @@ function plural(n, word) {
 function plainTitle(n) {
   const row = boardRow(n);
   if (row) return row.title;
+  const said = state.model.pages?.work?.pull_requests?.find((pr) => pr.number === Number(n))?.title;
+  if (said) return said;
   const title = state.model.prs[n]?.title ?? `Pull request ${n}`;
   return title.replace(/^[\w./-]+:\s*/, '').replace(/^[^\w#]+/, '').replace(/^./, (c) => c.toUpperCase());
 }
