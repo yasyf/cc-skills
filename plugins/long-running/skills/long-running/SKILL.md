@@ -1585,11 +1585,13 @@ change is one edit plus an `answer supersede`, with no restart.
 
 `landing.tap_rules` maps a register row key to path globs, such as
 `{"rule/82317b0": ["go/sand/next/*", "infra/ci/src/pipelines/test/sand.ts"]}`. In every
-merge mode, a head whose changed files a row's globs name, or do not read, waits while
-`rulings.py rows` does not read that row out of force, until an approval on the root's
-board names that head. A root `go` never stands in for that tap. The runner posts one
-`TAP-REQUIRED` blocker per head, naming the row, to the PR's lane, the root, and each
-`landing.board_lane`.
+merge mode, a head whose changed files a row's globs name waits, while `rulings.py rows`
+lists that row in force, until an approval on the root's board names that head. A root
+`go` never stands in for that tap. The runner posts one `TAP-REQUIRED` blocker per head,
+naming the row, to the PR's lane, the root, and each `landing.board_lane`. When the changed
+files, the register, or the board do not read, it never guesses a merge: the head stays
+unqueued, and one `TAP-UNREAD` warning goes to the PR's lane, the root, and each
+`landing.desk_lane`.
 
 Under `every`, and under `high-risk` for a PR whose changed files match a glob in
 `landing.high_risk_paths`, a prefix that passes every other gate is not enqueued.

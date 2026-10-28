@@ -201,6 +201,7 @@ class FakeShell(runner_module.Shell):
         self.unknown_blocks: set[str] = set()
         self.carries: list[dict[str, str]] = []
         self.register: dict[str, dict] = {}
+        self.board_error = ""
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -276,6 +277,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, f"url: http://127.0.0.1:4100/a/board\nslack: https://example.slack.com/archives/D0OWNER/p{ts.replace('.', '')}?thread_ts=1700000000.000100\n", "")
         if argv[:3] == ["cc-present", "outcomes", "--no-doc"]:
             assert argv[3:] == ["--session", "s-root"]
+            if self.board_error:
+                return runner_module.Done(1, "", self.board_error)
             return runner_module.Done(0, json.dumps({"interactions": {"triage": self.board}, "rounds": []}, indent=2), "")
         if argv[:3] == ["cc-present", "verdict", "carry"]:
             carry = dict(zip(argv[3::2], argv[4::2], strict=True))
@@ -2986,6 +2989,30 @@ def test_a_go_on_a_head_a_tap_rule_names_enqueues_only_on_the_owners_board_tap_a
     assert shell.enqueues() == []
     [blocker] = refusals
     assert "root" in blocker["to"].split(",") and post_body(blocker).endswith("; TAP-REQUIRED rule/82317b0: it lands only on the owner's tap at this head, and a root go is no tap; no approval on the root's board names cccc333333")
+
+
+@pytest.mark.parametrize("state", ["board unread", "row absent", "row superseded"])
+def test_a_tap_rule_never_guesses_a_merge_on_an_unread_board_and_gates_only_while_its_row_is_in_force(shell, config, state):
+    merge_mode(config, "every")
+    raw = json.loads(config.read_text())
+    raw["landing"]["tap_rules"] = {"rule/82317b0": ["go/sand/next/*"]}
+    config.write_text(json.dumps(raw))
+    shell.register = {} if state == "row absent" else {"rule/82317b0": {"kind": "order", "status": "superseded" if state == "row superseded" else "in-force"}}
+    shell.board_error = "cc-present: board offline" if state == "board unread" else ""
+    lone_green_pr(shell)
+    shell.files["29020"] = ["go/sand/next/vm/run.go"]
+    grade(shell, "29020", "ok F307 at cccc333.")
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    warnings = [post_body(post) for post in notes(shell) if "TAP-UNREAD" in post_body(post)]
+    assert not [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    if state != "board unread":
+        assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and warnings == []
+        return
+    assert shell.enqueues() == []
+    [warning] = warnings
+    assert warning.endswith("WARNING TAP-UNREAD #29020: the root board did not read, so the runner leaves it unqueued for the landing desk")
 
 
 def test_the_prs_a_root_go_names_enqueue_before_any_status_read_of_the_rest_of_the_ledger(shell, config, tmp_path):
