@@ -5458,7 +5458,7 @@ def test_a_root_decide_taking_an_incident_fix_off_the_incident_path_stops_its_sq
 @pytest.mark.parametrize("kind", ["go", "hold", "lift"])
 def test_a_root_go_hold_or_lift_saying_not_an_incident_fix_stops_its_squash(shell, config, tmp_path, kind):
     incident_pr(shell)
-    shell.records.append({"seq": 9501, "drive": "d1", "lane": "root", "kind": kind, "to": ["desk-runner"], "refs": {"prs": ["Forge-AI/monorepo#36650"]}, "text": f"{kind} #36650 at {INCIDENT_HEAD[:7]}: normal queue landing at that head only, not an incident fix, off the incident path: no squash", "at": actions.stamp(shell.clock)})
+    shell.records.append({"seq": 9501, "drive": "d1", "lane": "root", "kind": kind, "status": "open", "to": ["desk-runner"], "refs": {"prs": ["Forge-AI/monorepo#36650"]}, "text": f"{kind} #36650 at {INCIDENT_HEAD[:7]}: normal queue landing at that head only, not an incident fix, off the incident path: no squash", "at": actions.stamp(shell.clock)})
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert merges(shell) == []
