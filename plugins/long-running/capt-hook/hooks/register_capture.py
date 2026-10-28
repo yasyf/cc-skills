@@ -29,6 +29,8 @@ TRIGGERS = (
     ("i", "do", "not", "understand"),
 )
 TOKEN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*|[?.!,;:\n]")
+SLACK_MESSAGE = re.compile(r'<channel source="plugin:cc-slack:cc-slack"[^>]*type="slack\.message">\s*(?P<payload>\{.*\})\s*</channel>', re.DOTALL)
+OPERATOR = "U05FTPXU8PP"
 PASTED_IMAGE = re.compile(r"\[Image #\d+\]")
 ENDS = frozenset({"?", ".", "!", ",", ";", ":", "\n", "and", "or", "but", "wtf"})
 LEADING = frozenset({"a", "an", "the", "this", "that", "these", "those"})
@@ -216,6 +218,25 @@ def stamped(prompt: dict, seen: dict[str, datetime], ending: bool) -> dict:
     return prompt
 
 
+def slack_dms(evt: BaseHookEvent) -> list[dict]:
+    messages = (
+        json.loads(found["payload"])
+        for event in evt.ctx.t.events
+        if isinstance(event, AttachmentEvent) and event.attachment_type == "queued_command" and event.detail.prompt and (found := SLACK_MESSAGE.search(event.detail.prompt))
+    )
+    return [
+        {
+            "digest": hashlib.sha256(f"{evt.session_id}\0{message['ts']}".encode()).hexdigest()[:DIGEST_CHARS],
+            "at": datetime.fromtimestamp(float(message["ts"]), UTC).strftime(STAMP),
+            "session": evt.session_id,
+            "source": "slack",
+            "text": message["text"],
+        }
+        for message in messages
+        if message["kind"] == "dm" and message["user"] == OPERATOR and not message["from_claude"]
+    ]
+
+
 def capture(prompt: dict) -> dict:
     kept = {key: prompt[key] for key in ("relayed_from", "answer") if key in prompt}
     return {"digest": prompt["digest"], "at": prompt["at"], "session": prompt["session"], "source": prompt["source"], "text": CREDENTIAL.sub(REDACTED, prompt["text"])} | kept
@@ -239,7 +260,8 @@ def capture(prompt: dict) -> dict:
     },
 )
 def stamp_owner_prompts(evt: BaseHookEvent) -> HookResult | None:
-    if not PendingPrompts.load(evt).prompts or not (which := drive_args(evt)):
+    dms = slack_dms(evt)
+    if not (PendingPrompts.load(evt).prompts or dms) or not (which := drive_args(evt)):
         return None
     with PendingPrompts.mutate(evt) as pending:
         seen = stamps(evt)
@@ -248,11 +270,15 @@ def stamp_owner_prompts(evt: BaseHookEvent) -> HookResult | None:
             pending.prompts = [with_answer(evt, prompt) for prompt in pending.prompts]
         except READ_ERRORS as error:
             failed_open(evt, "stamp_owner_prompts", error)
-        if not (landed := [capture(prompt) for prompt in pending.prompts if landing(evt, prompt)]):
+        landed = [capture(prompt) for prompt in pending.prompts if landing(evt, prompt)]
+        if not (landed or dms):
             return None
         try:
             path = captures(read_register(evt, which))
             earlier = [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.is_file() else []
+            landed += [capture(dm) for dm in dms if dm["digest"] not in {entry["digest"] for entry in earlier}]
+            if not landed:
+                return None
             relays = [entry for entry in [*earlier, *landed] if entry["source"] == "relay"]
             landed = [line | ({"supersedes": names} if line["source"] == "prompt" and (names := repeated(line, relays)) else {}) for line in landed]
             with path.open("a") as file:
