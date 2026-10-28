@@ -546,7 +546,7 @@ def test_a_wait_with_a_screen_that_shows_no_known_prompt_is_unknown_and_reported
 
     assert rows[ROOT]["state"] == "unknown"
     [report] = shell.posts
-    assert report["--to"] == "root" and report["--kind"] == "report"
+    assert report["--to"] == "desk-runner" and report["--kind"] == "report"
     capture = home / "scratch" / "release-v3" / "prompt-watch" / "screens" / Path(rows[ROOT]["unread_capture"]).name
     assert whole(report) == (
         f"UNKNOWN coordinator (coordinator) terminal={ROOT}: agentWait via hook is set and the screen shows neither a known dialog nor an input box; "
@@ -592,7 +592,7 @@ def test_an_unread_terminal_reports_once_and_reads_again_only_after_three_polls_
     rows = poll(shell)
 
     [_, readable] = shell.posts
-    assert readable["--to"] == "root" and readable["--kind"] == "report" and readable["--topic"] == "prompt:coordinator"
+    assert readable["--to"] == "desk-runner" and readable["--kind"] == "report" and readable["--topic"] == "prompt:coordinator"
     assert whole(readable) == f"READABLE coordinator (coordinator) terminal={ROOT}: read for 3 polls in a row since the watch reported it unknown"
     assert rows[ROOT]["state"] == "clear" and "reported" not in rows[ROOT] and "readable" not in rows[ROOT]
     poll(shell, 2)
@@ -710,7 +710,7 @@ def test_an_unreachable_remote_host_is_its_own_state_reported_once_and_never_a_p
 
     assert rows[f"dispatch:{GONE}"]["state"] == "unreachable"
     [report] = shell.posts
-    assert report["--to"] == "root" and report["--kind"] == "report"
+    assert report["--to"] == "desk-runner" and report["--kind"] == "report"
     assert report["--text"] == (
         f"UNREACHABLE {GONE} (worker) terminal=unresolved: remote_runtime_unavailable: Could not connect to the remote Orca runtime.; "
         "unread for 3 polls, so whether it waits on a prompt is not known"

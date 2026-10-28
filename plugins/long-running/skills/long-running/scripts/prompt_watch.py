@@ -43,8 +43,8 @@ drive's newest root session, when no supervisor is registered, when the supervis
 unreachable, and when the prompt is still open five minutes after the supervisor was told.
 A supervisor that holds a foreground wait is never idle, so it keeps
 `cci watch --drive <cci drive> --to <its lane> --for 0` in that wait and the record ends it,
-as the root's Monitor does for `root`. A terminal unknown or unreachable for three polls in a row is one `report` to `root`,
-and three polls in a row that read it again are one `READABLE` report. A shorter read posts nothing, so a terminal
+as the root's Monitor does for `root`. A terminal unknown or unreachable for three polls in a row is one `report` to `desk-runner`,
+never to root, whose window each record lands in, and three polls in a row that read it again are one `READABLE` report to the same lane. A shorter read posts nothing, so a terminal
 or `worker-list` that flaps under load raises no second record for the same unread state.
 When a prompt leaves the screen, or its terminal leaves the watch, an `unblock` record resolves
 each record it raised, and an `info` card in the same thread says the owner's prompt cleared.
@@ -109,6 +109,7 @@ import prompt_screen
 
 SCRIPT = Path(__file__).resolve()
 LANE = "prompt-watch"
+RUNNER = "desk-runner"
 ROOT = "root"
 OWNER = "owner"
 SLACK_CARDS = "slack_cards"
@@ -502,7 +503,7 @@ class Watch:
                 row["detail"] = f"{seen.detail}; screen saved at {row['unread_capture']}"
             if row["unseen"] >= UNSEEN_POLLS and row.get("reported") != seen.state:
                 text = f"{seen.state.upper()} {subject.name} ({subject.role}) {where(row)}: {row['detail']}; unread for {row['unseen']} polls, so whether it waits on a prompt is not known"
-                if self.post(entry, "report", ROOT, subject.name, text):
+                if self.post(entry, "report", RUNNER, subject.name, text):
                     row["reported"] = seen.state
             return
         row["unseen"] = 0
@@ -512,7 +513,7 @@ class Watch:
             row["readable"] = row.get("readable", 0) + 1
             if row["readable"] >= UNSEEN_POLLS:
                 text = f"READABLE {subject.name} ({subject.role}) {where(row)}: read for {row['readable']} polls in a row since the watch reported it {row['reported']}"
-                if self.post(entry, "report", ROOT, subject.name, text):
+                if self.post(entry, "report", RUNNER, subject.name, text):
                     for key in ("reported", "readable"):
                         row.pop(key)
         if seen.state not in PROMPTS:
