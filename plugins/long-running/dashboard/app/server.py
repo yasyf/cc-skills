@@ -52,6 +52,7 @@ PR_ROUTE = re.compile(r"/api/pr/(\d+)")
 RECORD_ROUTE = re.compile(r"/record/(\d+)")
 LANE_ROUTE = re.compile(r"/api/lane/([\w.-]+)")
 REGISTER_DAY = dt.timedelta(days=1)
+REGISTER_SHOWN = 25
 SOURCE_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>{title}</title><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"></head><body><main class="wrap pg"><a class="pg-back" href="/">‹ The drive dashboard</a><header class="pg-h"><div><h1>{title}</h1></div></header><pre class="src-text">{text}</pre></main></body></html>'
 STORY_ROUTE = re.compile(r"/api/story/([a-z0-9-]+)")
 TRANSCRIPT_ROUTE = re.compile(r"/api/transcript/([a-z0-9-]+)")
@@ -622,7 +623,7 @@ class Drive:
 
     def register_log(self):
         since = time.time() - REGISTER_DAY.total_seconds()
-        entries = sorted((f for f in Path(self.config["register"]).glob("announce-*.md") if f.stat().st_mtime > since), key=lambda f: f.stat().st_mtime, reverse=True)
+        entries = sorted((f for f in Path(self.config["register"]).glob("announce-*.md") if f.stat().st_mtime > since), key=lambda f: f.stat().st_mtime, reverse=True)[:REGISTER_SHOWN]
         return "\n\n\n".join(f.read_text().strip() for f in entries) or "Nothing registered in the last day."
 
     def posted(self, lane):
