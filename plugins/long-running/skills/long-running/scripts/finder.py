@@ -13,8 +13,10 @@ PR's own commits as the head's commits no commit on the base branch's current ti
 so a parent restacked onto a newer trunk adds nothing. A head after one an earlier finder record
 graded, or after the head its `head` record replaced when the PR has any finder review, is a fixed
 head: `git range-diff` pairs its own commits with that head's, and it reads only the hunks of each
-changed pair and each new commit, and runs no row pass. A changed pair that adds no line and drops only
-hunks the base now carries is a carry, and a head whose every pair is equal or a carry posts nothing.
+changed pair, each new commit, and each dropped commit the base lacks, and runs no row pass. A changed pair that adds no line and drops only
+hunks the base now carries is a carry, and a head whose every pair is equal or a carry posts the
+graded head's verdict as `finder: ok|major <head7> carried from #<seq>`, or nothing when no finder
+record graded that head.
 Every pass hands codex the PR's earlier finder records and their answers, and a finding they closed
 is not raised again. A whole pass writes the head's
 required register rows to `DIR/rows.md` with `rulings.py slice --required`. It fills
@@ -41,7 +43,7 @@ from pathlib import Path
 
 import drive
 import ghread
-from grades import names_head, repo_prs
+from grades import finder_grade, names_head, repo_prs
 
 SCRIPTS = Path(__file__).resolve().parent
 BRIEF = SCRIPTS.parent / "reference" / "finder-brief.md"
@@ -113,11 +115,13 @@ def scope(job: dict, own: list[str], last: str, pairs: str, changed: list[tuple[
         return f"This pass reads the PR's whole change: {whole}."
     amended = " ".join(sha for mark, sha in changed if mark == "!") or "none"
     added = " ".join(sha for mark, sha in changed if mark == ">") or "none"
+    dropped = " ".join(sha for mark, sha in changed if mark == "<") or "none"
     return (
         f"An earlier head, {last}, was reviewed. `git range-diff {pairs}` pairs its own commits with this head's; "
-        f"a `<` line is a commit the base now carries. This pass reads only what changed: for each amended commit, "
+        f"a `<` line is a commit the base now carries, or one this head dropped. This pass reads only what changed: for each amended commit, "
         f"only the hunks the range-diff shows for its pair ({amended}); each new commit whole with `git show <sha>` "
-        f"({added}). The PR's whole change, for context only, is {whole}."
+        f"({added}); and the removal of each dropped commit the base lacks, read with `git show <sha>` ({dropped}). "
+        f"The PR's whole change, for context only, is {whole}."
     )
 
 
@@ -229,11 +233,11 @@ def previous(record: dict | None) -> str:
 
 
 def range_pairs(shell: Shell, job: dict, base: str, last: str, own: list[str]) -> tuple[str, list[tuple[str, str]]]:
-    """The `git range-diff` ranges pairing `last`'s own commits with the head's, and each head commit it marks amended (`!`) or new (`>`), leaving out an amended commit that only drops hunks `base` carries."""
+    """The `git range-diff` ranges pairing `last`'s own commits with the head's, each head commit it marks amended (`!`) or new (`>`), leaving out an amended commit that only drops hunks `base` carries, and each earlier commit it marks dropped (`<`) that `base` does not carry."""
     earlier = beyond(shell, job, base, last)
     pairs = f"{earlier[0] + '^' if earlier else last}..{last} {own[0]}^..{job['head']}"
     marks = RANGE_PAIR.findall(git(shell, job, "range-diff", "--no-patch", "--no-color", *pairs.split()))
-    return pairs, [(mark, sha) for left, mark, sha in marks if mark == ">" or (mark == "!" and not drops_carried(shell, job, base, left, sha))]
+    return pairs, [(mark, left if mark == "<" else sha) for left, mark, sha in marks if mark == ">" or (mark in "!<" and not drops_carried(shell, job, base, left, sha))]
 
 
 def patch_lines(shell: Shell, job: dict, sha: str) -> set[tuple[str, str, str]]:
@@ -248,8 +252,8 @@ def patch_lines(shell: Shell, job: dict, sha: str) -> set[tuple[str, str, str]]:
 
 
 def drops_carried(shell: Shell, job: dict, base: str, left: str, right: str) -> bool:
-    """Whether `right` adds no line `left` lacks and every line it drops is where `base` already has it: an added line present, a removed line gone."""
-    earlier, later = patch_lines(shell, job, left), patch_lines(shell, job, right)
+    """Whether `right`, or no commit when it is all dashes, adds no line `left` lacks and every line it drops is where `base` already has it: an added line present, a removed line gone."""
+    earlier, later = patch_lines(shell, job, left), set() if not right.strip("-") else patch_lines(shell, job, right)
     if later - earlier:
         return False
     texts: dict[str, set[str]] = {}
@@ -286,7 +290,13 @@ def run(directory: Path, shell: Shell) -> dict:
         return {"skipped": f"{pr} at {head[:12]} carries no commit {view['baseRefName']} lacks"}
     pairs, changed = range_pairs(shell, job, base, last, own) if last else ("", [])
     if last and not changed:
-        return {"skipped": f"{pr} at {head[:12]} replays every own commit of {last[:12]}, patch for patch or dropping only hunks {view['baseRefName']} carries"}
+        replayed = f"{pr} at {head[:12]} replays every own commit of {last[:12]}, patch for patch or dropping only hunks {view['baseRefName']} carries"
+        if not ((earlier := job["prior"]) and names_head(earlier["head"], last)):
+            return {"skipped": replayed}
+        text = f"finder: {finder_grade(earlier['text'])} {head[:7]} carried from #{earlier['seq']}"
+        body = directory / "record.md"
+        body.write_text(f"{text}\n\n{replayed}.\n\n#{earlier['seq']}: {earlier['text']}\n")
+        return {"verdict": text.split()[1], "record": text, "posted": post(shell, job, text, body)}
     rows = None if last else directory / "rows.md"
     keys: list[str] = []
     if rows:

@@ -1514,7 +1514,8 @@ when it has none, from the first `<owner/repo>#<n>` or `#<n>` of its text, besid
 over the head's own commits, those no commit on the base branch's current tip matches by
 patch, from `reference/finder-desk-brief.md`, which forbids any local build or test. A head
 after one the PR's last finder record graded reads only what changed since, with no row
-pass, and posts nothing when its own change is patch-identical to the graded head's. A
+pass, and when its own change is patch-identical to the graded head's it posts that grade
+as `finder: ok|major <head7> carried from #<seq>`, so the head never reads ungraded. A
 head the PR no longer carries when the pass starts or finishes posts nothing. It posts
 `finder: ok <head>` or `finder: major <head> <n> open: …` under lane `finder-desk` to
 the head's lane. A head reaches the finder once, a head some lane's

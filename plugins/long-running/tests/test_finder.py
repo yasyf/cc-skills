@@ -35,6 +35,9 @@ def patch(*lines: str) -> str:
     return "diff --git a/go/follow.go b/go/follow.go\nindex 1111111..2222222 100644\n--- a/go/follow.go\n+++ b/go/follow.go\n@@ -1,3 +1,3 @@\n" + "".join(f"{line}\n" for line in lines)
 
 
+LANDED = {PARENT[:11]: "diff --git a/api/parent.go b/api/parent.go\n--- a/api/parent.go\n+++ b/api/parent.go\n@@ -0,0 +1 @@\n+landed()\n", f"{BASE}:api/parent.go": "landed()\n"}
+
+
 def pairs(*marks: str) -> str:
     """`git range-diff --no-patch` output: one parent commit only the earlier head carried, then one line per own commit."""
     lines = [f" 1:  {PARENT[:11]} <  -:  ----------- api: the parent's commit before its restack"]
@@ -54,7 +57,7 @@ class Fake:
         self.failures = failures
         self.gone = gone
         self.ranges = ranges or {}
-        self.shows = {OLD_OWN[:11]: patch("-poll()", "+stream()"), OWN[:11]: patch("-poll()", "+stream()", "+resubscribe()")} if shows is None else shows
+        self.shows = LANDED | ({OLD_OWN[:11]: patch("-poll()", "+stream()"), OWN[:11]: patch("-poll()", "+stream()", "+resubscribe()")} if shows is None else shows)
         self.calls: list[tuple[list[str], Path | None]] = []
         self.posted: list[dict] = []
 
@@ -262,13 +265,19 @@ def test_a_failed_pr_read_is_retried_once_after_a_pause(tmp_path, monkeypatch):
     assert "TLS handshake timeout" in result(again)["error"]
 
 
-def test_a_replay_onto_a_moved_parent_whose_every_own_commit_pairs_equal_posts_nothing(tmp_path):
-    prior = {"seq": 149302, "lane": "p8a-step9", "head": "a269784", "text": "finder: ok a269784"}
+@pytest.mark.parametrize("graded", ["finder: ok a269784 sol finder over dev...a269784: no majors", "finder: major a269784 1 open: walk.go:9 skips the volume link"])
+def test_a_replay_onto_a_moved_parent_whose_every_own_commit_pairs_equal_posts_the_graded_heads_verdict_as_carried(tmp_path, graded):
+    prior = {"seq": 149302, "lane": "finder-desk", "head": "a269784", "text": graded}
     directory = job(tmp_path, prior=prior)
     shell = Fake(tmp_path, [], own={(BASE, HEAD): [OWN], (BASE, OLD): [OLD_OWN]}, resolve={"a269784": OLD}, ranges={EARLIER: pairs("=", "=")})
     finder.main([str(directory)], shell)
-    assert not shell.asks() and not shell.posted
-    assert result(directory) == {"skipped": f"{REPO}#43299 at {HEAD[:12]} replays every own commit of {OLD[:12]}, patch for patch or dropping only hunks dev carries"}
+    verdict = finder_grade(graded)
+    [post] = shell.posted
+    assert not shell.asks() and post["--text"] == f"finder: {verdict} {HEAD[:7]} carried from #149302"
+    assert post["--kind"] == "review" and post["--pr"] == f"{REPO}#43299" and post["--to"] == "p8a-step9,root" and post["--id"] == f"finder:{REPO}#43299:{HEAD}"
+    assert finder_grade(post["--text"]) == verdict and graded_head(post["--text"]) == HEAD[:7]
+    assert graded in (directory / "record.md").read_text()
+    assert result(directory) == {"verdict": verdict, "record": post["--text"], "posted": "#150001"}
 
 
 def test_a_head_whose_only_finder_review_names_no_head_reads_since_the_head_its_head_record_replaced(tmp_path):
@@ -346,8 +355,7 @@ def test_an_amended_commit_that_only_drops_a_hunk_the_base_now_carries_is_a_carr
     shows = {OLD_OWN[:11]: patch("-poll()", "+stream()", "+azurePrefix()"), OWN[:11]: patch("-poll()", "+stream()"), f"{BASE}:go/follow.go": "func f() {\n\tazurePrefix()\n}\n"}
     shell = Fake(tmp_path, [], own={(BASE, HEAD): [OWN], (BASE, OLD): [OLD_OWN]}, resolve={OLD: OLD}, ranges={EARLIER: pairs("=", "!")}, shows=shows)
     finder.main([str(directory)], shell)
-    assert not shell.asks() and not shell.posted
-    assert result(directory) == {"skipped": f"{REPO}#43299 at {HEAD[:12]} replays every own commit of {OLD[:12]}, patch for patch or dropping only hunks dev carries"}
+    assert not shell.asks() and [post["--text"] for post in shell.posted] == [f"finder: ok {HEAD[:7]} carried from #149302"]
 
 
 def test_an_amended_commit_that_drops_a_hunk_the_base_lacks_is_read(tmp_path):
@@ -358,3 +366,12 @@ def test_an_amended_commit_that_drops_a_hunk_the_base_lacks_is_read(tmp_path):
     finder.main([str(directory)], shell)
     assert f"the range-diff shows for its pair ({OWN[:11]})" in (directory / "question-1.md").read_text()
     assert len(shell.posted) == 1
+
+
+def test_a_replay_that_drops_an_earlier_commit_the_base_lacks_reads_its_removal_and_carries_nothing(tmp_path):
+    prior = {"seq": 149302, "lane": "p8a-step9", "head": "a269784", "text": "finder: ok a269784"}
+    directory = job(tmp_path, since=OLD, prior=prior)
+    shell = Fake(tmp_path, [reply()], own={(BASE, HEAD): [OWN], (BASE, OLD): [OLD_OWN]}, resolve={OLD: OLD}, ranges={EARLIER: pairs("=", "=")}, shows={f"{BASE}:api/parent.go": "pending()\n"})
+    finder.main([str(directory)], shell)
+    assert f"the removal of each dropped commit the base lacks, read with `git show <sha>` ({PARENT[:11]})" in (directory / "question-1.md").read_text()
+    assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over {OLD[:7]}..{HEAD[:7]}: no majors"
