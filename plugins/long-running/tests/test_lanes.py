@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 import drive
@@ -125,7 +126,7 @@ def test_a_commit_past_the_pushed_head_reads_as_not_pushed(home, capsys):
 def test_a_lane_with_no_worktree_says_so_and_exits_nonzero(home, capsys):
     worktree(home, "inc-other-fix", "--detach")
 
-    assert lane_status(LaneShell(), LANE, capsys) == (1, f"no worktree found for lane {LANE}\n")
+    assert lane_status(LaneShell(), LANE, capsys) == (1, f"no worktree found for lane {LANE}, and no in-process teammate of the drive's root sessions\n")
 
 
 def test_worktree_posts_one_record_naming_the_lanes_worktree_and_branch(home, tmp_path):
@@ -230,3 +231,32 @@ def test_a_lane_with_no_dispatch_in_progress_reports_its_newest_tasks_dispatch()
 def test_a_dispatch_id_is_its_own_lane_and_an_unknown_lane_reports_nothing():
     assert lanes.lane_dispatches("ctx_4a4f4a384983", [], []) == ["ctx_4a4f4a384983"]
     assert lanes.lane_dispatches("no-such-lane", TASKS, [dispatch("ctx_launch", "task_launch", "in_progress")]) == []
+
+
+TEAM = {"members": [
+    {"agentId": "team-lead@session-d0f40a25", "name": "team-lead"},
+    {"agentId": "scale-out@session-d0f40a25", "name": "scale-out"},
+    {"agentId": "scale-out-2@session-d0f40a25", "name": "scale-out-2"},
+]}
+
+
+def test_a_teammate_is_named_by_its_name_or_its_agent_id_never_by_a_prefix():
+    assert [member["name"] for member in lanes.team_members("scale-out", TEAM)] == ["scale-out"]
+    assert lanes.team_members("scale", TEAM) == []
+
+
+NOW = datetime(2026, 10, 28, 23, 45, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize(
+    ("last", "state"),
+    [
+        ({"type": "assistant", "timestamp": "2026-10-27T09:36:26Z", "message": {"stop_reason": "end_turn"}}, "idle"),
+        ({"type": "assistant", "timestamp": "2026-10-28T23:42:12Z", "message": {"stop_reason": "tool_use"}}, "running"),
+        ({"type": "user", "timestamp": "2026-10-28T23:40:00Z", "message": {"content": [{"type": "tool_result"}]}}, "running"),
+        ({"type": "user", "timestamp": "2026-10-27T07:12:19Z", "message": {"content": [{"type": "tool_result"}]}}, "stalled mid-turn"),
+        (None, "state unknown"),
+    ],
+)
+def test_a_teammate_whose_last_turn_ended_is_idle_and_one_mid_turn_runs_until_an_hour_passes(last, state):
+    assert lanes.turn_state(last, NOW) == state
