@@ -62,7 +62,9 @@ and, across the drive:
 
 Each kind counts once it is as old as `stall.minutes` says: go 10, tap 10, finder 30, fidelity 30,
 board 15, carry 20 (one fidelity pass), lane 30, ask 15, stale 120. A PR's head is as old as the first record about the
-PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record.
+PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record. A board
+stall counts from the latest of its finder ok, its fidelity ok, and its ledger row's `green_at`, the refresh that
+first read the head's build green, since the board refresher puts a row up only once the build is green.
 Two questions need judgment, and one headless Claude call per pass
 (`stall.model`, default claude-sonnet-5-5, at low effort) answers all of them: whether a PR's new head is
 a patch-identical restack of the tapped one or adds no new behavior, read from its lane's `head` records, and whether a quiet
@@ -628,12 +630,12 @@ class Pass:
                 if not board.shows(pr, head) and self.now - head_at >= self.watch.age("carry"):
                     questions.append(self.carry(pr, head, head_at, taps[-1], about, announced[-1], fidelity_lanes))
                 continue
-            if row.get("test_state") != "success" or not (landing.get("merge_mode") == "every" or waits.get(pr) == f"merge:{pr}:{short(head)}"):
+            if not row.get("green_at") or not (landing.get("merge_mode") == "every" or waits.get(pr) == f"merge:{pr}:{short(head)}"):
                 continue
             finder_ok = [record for record in finders if record["grade"] == grades.FINDER_PASS]
             if not finder_ok or not standing or not all(grade["text"].startswith(grades.FIDELITY_OK) for grade in standing):
                 continue
-            ready = max(at(record) for record in [*finder_ok, *standing])
+            ready = max(actions.parse_stamp(row["green_at"]), *(at(record) for record in [*finder_ok, *standing]))
             if board.shows(pr, head) or pr in self.hold_gates or self.now - ready < self.watch.age("board"):
                 continue
             pulls = [record for record in records if record["lane"] in ROOT_NAMES and record["kind"] in ("decide", "decision") and grades.about_pr(record, repo, pr) and PULLED.search(grades.full_text(record))]
@@ -641,7 +643,7 @@ class Pass:
                 continue
             card = f"merge:{pr}:{short(head)}"
             told = f"; the landing desk recorded its card {card} as posted, yet the board holds none" if card in cards else ""
-            stalls.append(Stall(f"board:{pr}:{short(head)}", "board", ready, subject, f"finder ok and fidelity ok since {pacific(ready)}, and the owner's board holds no row or card for it at this head{told}", (self.watch.board_lane,), f"put the merge row for {subject} on the owner's board", pr))
+            stalls.append(Stall(f"board:{pr}:{short(head)}", "board", ready, subject, f"finder ok, fidelity ok and a green build since {pacific(ready)}, and the owner's board holds no row or card for it at this head{told}", (self.watch.board_lane,), f"put the merge row for {subject} on the owner's board", pr))
         for bottom, group in waiting.items():
             group.sort(key=lambda entry: entry[2])
             blocker, owner, step = group[0][3]
