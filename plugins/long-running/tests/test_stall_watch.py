@@ -403,7 +403,6 @@ def stack(config: Path) -> dict[str, dict]:
         ({"mergeable_state": "dirty"}, "conflicts with its base", "restack #101 at abc1234 and post HEAD"),
         ({"base": "graphite-base/101"}, "needs a restack: the PR below it landed", "restack #101 at abc1234 onto its new parent with `ccx vcs ship --tip-only` and post HEAD"),
         ({"ai_review": "failure"}, "the reviewer bot holds it", "answer each blocking finding on #101 with a fix or a one-line rebuttal"),
-        ({}, "green, and no go names this head", "root posts `go #101 at abc1234` or puts its merge row on the owner's board"),
     ],
 )
 def test_a_pr_in_one_state_for_two_hours_posts_one_stale_record_naming_its_owner_and_next_step_until_its_state_moves(config, fields, state, step):
@@ -419,6 +418,37 @@ def test_a_pr_in_one_state_for_two_hours_posts_one_stale_record_naming_its_owner
     shell.records += graded(4, "101", OTHER, 5)
     watch(shell, config)
     assert opened(config) == {}
+
+
+def merge_mode(config: Path, mode: str) -> None:
+    raw = json.loads(config.read_text())
+    raw["landing"]["merge_mode"] = mode
+    config.write_text(json.dumps(raw))
+
+
+@pytest.mark.parametrize(
+    ("board", "verdict", "topic", "post"),
+    [
+        (True, "", "tap-wait:101:abc1234", {"to": "root", "kind": "state", "text": "#101 at abc1234 waits on the owner's tap since 10:30 AM"}),
+        (True, "rejected", "stale:101:abc1234", {"to": "root,api-lane@d1", "kind": "urgent", "text": "STALE #101 at abc1234, 150 min: green, and no go names this head | owner api-lane | root posts `go #101 at abc1234` or puts its merge row on the owner's board"}),
+        (False, "", "stale:101:abc1234", {"to": "root,api-lane@d1", "kind": "urgent", "text": "STALE #101 at abc1234, 150 min: green, and no go names this head | owner api-lane | root posts `go #101 at abc1234` or puts its merge row on the owner's board"}),
+    ],
+    ids=["live-tap-row", "rejected-tap-row", "no-tap-row"],
+)
+def test_a_green_head_with_no_go_waits_on_a_live_tap_row_with_one_state_record_and_stales_without_one(config, board, verdict, topic, post):
+    merge_mode(config, "ask")
+    shell = FakeShell(graded(1, "101", HEAD, 150), [row("101")])
+    if board:
+        shell.doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": 101, "head": HEAD[:7]}]}]}]}
+    if verdict:
+        shell.triage = {"merge-prs": {"101": {"verdict": verdict, "head": HEAD[:7], "at": stamp(140)}}}
+
+    watch(shell, config)
+    shell.clock += timedelta(minutes=40)
+    watch(shell, config)
+
+    assert shell.topics() == [topic]
+    assert shell.post(topic) == post
 
 
 def test_a_pr_that_moved_less_than_two_hours_ago_is_not_stale_and_a_new_state_on_the_same_head_counts_from_the_pass_that_saw_it(config):
