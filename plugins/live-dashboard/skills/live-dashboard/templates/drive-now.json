@@ -1,0 +1,46 @@
+{
+ "title": "Your drive",
+ "drive": "your-drive",
+ "keeper_lane": "dashboard-keeper",
+ "checkout": "/Users/you/code/monorepo",
+ "ledger": "<cc-notes ledger id>",
+ "board_session": "<root session id>",
+ "board_url": "http://your-mac:61118/p/your-board",
+ "repo": "your-org/your-repo",
+ "progress_label": "progress:your-plan",
+ "release_doc": "<release plan doc id>",
+ "story": "/Users/you/.claude/scratch/your-drive/drive-dashboard/story.json",
+ "steps": "/Users/you/.claude/scratch/your-drive/progress-desk/steps.json",
+ "holds": "/Users/you/.claude/scratch/your-drive/holds.md",
+ "status_now": "/Users/you/.claude/scratch/your-drive/progress-desk/status-now.json",
+ "paths_cache": "/Users/you/.claude/scratch/your-drive/dashboard/paths.json",
+ "host": "<tailnet address>",
+ "port": 61210,
+ "milestones_label": "Milestones to everyone on Iris",
+ "milestones": [
+  {"name": "Sand keeps working in the cloud", "release": "R1"},
+  {"name": "Iris chats use the new AI service", "release": "R2"},
+  {"name": "Today's desktop app update", "release": "R3"},
+  {"name": "Iris runs on new cloud code", "release": "R4"},
+  {"name": "New Iris Mac app, platform team first", "release": "R5"},
+  {"name": "Unused chats cleaned up", "release": "R6"},
+  {"name": "Test customer teams move to Iris", "release": "R7"},
+  {"name": "Everyone on Iris, old code removed", "release": "R8"}
+ ],
+ "views": {"progress": "journey", "blockers": "chart", "story": "column", "work": "rows3", "diagram": "end-state"},
+ "brief_dir": "/Users/you/.claude/scratch/your-drive/dashboard/brief",
+ "stories_dir": "/Users/you/.claude/scratch/your-drive/dashboard/stories",
+ "transcripts": "/Users/you/.claude/projects/-Users-you-code-monorepo/<root session id>/subagents",
+ "curator_model": "claude-opus-5-5",
+ "story_model": "claude-sonnet-5-5",
+ "trees": [
+  {"name": "New tree", "prefixes": ["go/sand/next/"]},
+  {"name": "Old tree", "prefixes": ["go/sand/"]},
+  {"name": "Shared", "prefixes": []}
+ ],
+ "parts": [
+  {"key": "agent", "name": "Agent", "home": "mac", "becomes": "Runs every chat on new code", "scopes": ["sand"]},
+  {"key": "api", "name": "API", "home": "cloud", "becomes": "Cloud chats run on new code", "scopes": ["api"]},
+  {"key": "tools", "name": "Tools", "home": "tools", "becomes": "Ships each piece safely", "scopes": []}
+ ]
+}

@@ -133,9 +133,8 @@ function destination() {
     <div class="link"><i class="stream a"></i><i class="stream b"></i><button class="gauge" data-key style="--p:${pct(t)}"><b>${pct(t)}<small>%</small></b><span>of the end state landed</span></button>${back.length ? `<button class="plusn" data-back title="Landed since you last looked">+${back.length}</button>` : ''}</div>
     ${machine('mac', 'Your Mac')}</div>
     <div class="runway" data-part="tools"><span class="rl pl">Tools</span><div class="lights">${byLight(tools).map((e) => dot(e.number)).join('')}</div></div>
-    ${replay()}
     <div class="foot"><p class="endline"><b>End state.</b> Mac and cloud both run the new code, chats follow live between them, and the old code stays until cutover.</p>
-    <div class="legend"><span><i class="dot s-done"></i>landed</span><span><i class="dot s-queued"></i>approved</span><span><i class="dot s-doing"></i>moving now</span><span><i class="dot s-failing"></i>own tests failing</span><span><i class="dot s-waiting"></i>waiting</span><span><i class="dot s-you"></i>you</span></div></div>
+    <div class="legend"><span><i class="dot s-done"></i>landed</span><span><i class="dot s-queued"></i>approved</span><span><i class="dot s-doing"></i>moving now</span><span><i class="dot s-failing"></i>own tests failing</span><span><i class="dot s-waiting"></i>waiting</span><span><i class="dot s-held"></i>held</span><span><i class="dot s-you"></i>you</span></div></div>
   </section>`;
 }
 function replay() {
@@ -600,7 +599,7 @@ document.addEventListener('mouseover', (e) => {
   highlight(area ? numbersFor(area) : null);
 });
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.ck, .overlay, .rellist, .pr-facts, #cardembed')) return;
+  if (!e.target.closest('.ck, .overlay, .rellist, .pr-facts, #cardembed, .nw-needs')) return;
   const away = () => (route().screen === 'overview' ? render() : (location.hash = '#/'));
   if (e.metaKey || e.ctrlKey) return;
   const light = e.target.closest('.ck .dot[data-n], .overlay [data-pr]');

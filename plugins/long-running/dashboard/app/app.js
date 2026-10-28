@@ -339,7 +339,7 @@ function needRow(r) {
     ? `<span class="decided sending">${DECIDE_WORD[row.pending]} ${esc(r.head.slice(0, 7))}…</span>`
     : r.state === 'you'
       ? `<button class="btn pri" data-tap="approved" data-n="${r.number}" data-head="${esc(r.head)}">✓ Approve ${esc(r.head.slice(0, 7))}</button><button class="btn hold" data-tap="rejected" data-n="${r.number}" data-head="${esc(r.head)}">‖ Hold</button>`
-      : `<span class="pill ${r.state === 'approved' ? 'ok' : 'warn'}">${r.state === 'approved' ? '✓ Approved' : '‖ Held'}</span>`;
+      : `<span class="pill ${r.state === 'approved' ? 'ok' : 'warn'}">${r.ci_fix_go ? '✓ CI fix, landing without your tap' : r.state === 'approved' ? '✓ Approved' : '‖ Held'}</span>`;
   const stuck = r.blocker && !/^nothing/i.test(r.blocker);
   return `<li class="nrow ${r.state}"><div class="nt"><a href="#/review/${r.number}">#${r.number} ${esc(shortName(r.number) ?? r.title)}</a><span class="dim">at ${esc(r.head.slice(0, 7))}</span></div>
     ${r.md ? `<div class="md nmd">${markdown(r.md)}</div>` : `<p class="nline">${inline(r.change)}</p>`}${stuck ? `<p class="nline bad">⚠ ${inline(r.blocker)}</p>` : ''}
@@ -369,10 +369,12 @@ function boardPart(part, card) {
   if (part.kind === 'page') return `<section class="brec prose">${markdown(part.md)}</section>`;
   if (part.kind === 'choice') {
     if (part.answer) return `<section class="bpick done"><span class="pill ok">✓ You picked</span> ${esc(pickedLabel(part))}</section>`;
-    return `<section class="bpick">${part.prompt ? `<h4>${inline(part.prompt)}</h4>` : ''}<div class="bopts">${part.options.map((o) => `<article class="bopt${o.recommended ? ' rec' : ''}">
-      ${o.recommended ? '<span class="bstamp">★ Recommended</span>' : ''}<b>${inline(o.label.replace(/\s*\(Recommended\)\s*$/i, ''))}</b>${factGrid(o.facts)}
-      ${o.detail?.pros?.length || o.detail?.cons?.length ? `<details data-id="pc-${esc(o.id)}"${state.open.has(`pc-${o.id}`) ? ' open' : ''}><summary>Pros and cons</summary>${prosCons(o.detail)}</details>` : ''}
-      ${o.hint ? `<details data-id="hint-${esc(o.id)}"${state.open.has(`hint-${o.id}`) ? ' open' : ''}><summary>What it means</summary><p>${inline(o.hint)}</p></details>` : ''}
+    const rows = Math.max(0, ...part.options.map((o) => o.facts.length));
+    return `<section class="bpick">${part.prompt ? `<h4>${inline(part.prompt)}</h4>` : ''}<div class="bopts" style="--rows:${rows + 5}">${part.options.map((o) => `<article class="bopt">
+      <span class="bstamp">${o.recommended ? 'Recommended' : ''}</span><b>${inline(o.label.replace(/\s*\(Recommended\)\s*$/i, ''))}</b>
+      ${Array.from({ length: rows }, (_, i) => o.facts[i] ? factGrid([o.facts[i]]) : '<i></i>').join('')}
+      ${o.detail?.pros?.length || o.detail?.cons?.length ? `<details data-id="pc-${esc(o.id)}"${state.open.has(`pc-${o.id}`) ? ' open' : ''}><summary>Pros and cons</summary>${prosCons(o.detail)}</details>` : '<i></i>'}
+      ${o.hint ? `<details data-id="hint-${esc(o.id)}"${state.open.has(`hint-${o.id}`) ? ' open' : ''}><summary>What it means</summary><p>${inline(o.hint)}</p></details>` : '<i></i>'}
       <button class="btn${o.recommended ? ' pri' : ''}" data-choose="${esc(o.id)}" data-choice="${esc(part.id)}"${busy}>Pick this</button></article>`).join('')}</div>
       <form class="note" data-answer="${esc(card.id)}" data-choice="${esc(part.id)}"><input name="text" data-draft="${esc(part.id)}" value="${esc(ov.drafts[part.id] ?? '')}" placeholder="Something else: write your answer"><button class="btn ghost"${busy}>Send</button></form>${sentNote(part.id)}</section>`;
   }
@@ -390,11 +392,15 @@ function boardPart(part, card) {
 }
 function boardCard(item) {
   const c = item.card;
-  const body = c.embed
-    ? `<div class="acts"><button class="btn pri" data-embed-card="${esc(c.id)}">${ov.embedCard === c.id ? 'Showing the card ›' : 'Answer it here ›'}</button></div>`
-    : c.parts.map((part) => boardPart(part, c)).join('');
-  return `<article class="card bcard" id="card-${esc(c.id)}"><header><span class="nmark">?</span><h3>${inline(c.title)}</h3>${c.chips.map((chip) => `<span class="pill${chip.tone === 'flag' ? ' warn' : ''}">${esc(chip.label)}</span>`).join('')}<a class="nsrc" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">On your board ›</a></header>
-    ${c.summary ? `<p class="nwhy">${inline(c.summary)}</p>` : ''}${body}${c.embed ? '' : sentNote(c.id)}</article>`;
+  const header = `<header><h3>${esc(words(c.title))}</h3>${c.chips.map((chip) => `<span class="pill${chip.tone === 'flag' ? ' warn' : ''}">${esc(chip.label)}</span>`).join('')}<a class="nsrc" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">On your board ›</a></header>`;
+  if (c.embed) return `<article class="card bcard" id="card-${esc(c.id)}">${header}${c.summary ? `<p class="nwhy">${inline(c.summary)}</p>` : ''}<div class="acts"><button class="btn pri" data-embed-card="${esc(c.id)}">${ov.embedCard === c.id ? 'Showing the card ›' : 'Answer it here ›'}</button></div></article>`;
+  const settled = (part) => part.answer || part.kind === 'record' || part.kind === 'page';
+  const back = c.parts.filter(settled);
+  const answered = back.filter((part) => part.answer).length;
+  const fold = c.summary || back.length
+    ? `<details class="bback" data-id="back-${esc(c.id)}"${state.open.has(`back-${c.id}`) ? ' open' : ''}><summary>Background${answered ? ` and your ${plural(answered, 'earlier answer')}` : ''}</summary>${c.summary ? `<p class="nwhy">${inline(c.summary)}</p>` : ''}${back.map((part) => boardPart(part, c)).join('')}</details>`
+    : '';
+  return `<article class="card bcard" id="card-${esc(c.id)}">${header}${c.parts.filter((part) => !settled(part)).map((part) => boardPart(part, c)).join('')}${fold}${sentNote(c.id)}</article>`;
 }
 function syncCardEmbed(r) {
   const host = $('#cardembed');
@@ -420,7 +426,7 @@ function needsScreen() {
   const others = items.filter((item) => item.kind === 'ask');
   return `<h2 class="sec">Needs you ${needsTotal() ? `<span class="pill bad">${needsTotal()}</span>` : ''}</h2>
     ${items.filter((item) => item.kind === 'prs').map(needGroup).join('')}
-    ${cards.length ? `<h2 class="sec">Questions on your board <span class="dim">${cards.length} open; a pick here is recorded on the board</span></h2>${cards.map(boardCard).join('')}` : ''}
+    ${cards.map(boardCard).join('')}
     ${others.length ? `<h2 class="sec">Other asks</h2><ul class="card nothers">${others.map(needOther).join('')}</ul>` : ''}
     ${items.length ? '' : `<div class="card nzero"><b>No decisions now.</b> When a pull request or a question waits on you, it shows here and on the Overview with its buttons.</div>`}
     ${mergeCard()}`;
@@ -430,7 +436,7 @@ function mergeCard() {
   if (!merge) return '';
   const table = (t) => `<div class="tablewrap"><table><thead><tr>${t.columns.map((c) => `<th${c.align === 'right' ? ' class="num"' : ''}>${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${t.rows.map((r) => `<tr>${t.columns.map((c) => `<td data-h="${esc(c.label)}"${c.align === 'right' ? ' class="num"' : ''}>${esc(r[c.key] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   const waiting = state.model.board.rows.filter((row) => verdictState(row) === 'you').length;
-  return `<div class="card prose mergecard bcard"><header><span class="nmark">⇄</span><h3>${inline(merge.title || 'Merge board')}</h3><span class="pill${waiting ? ' warn' : ''}">${waiting ? `${waiting} need${waiting === 1 ? 's' : ''} your tap` : 'nothing needs your tap'}</span><a class="nsrc" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">On your board ›</a></header><p><b>${waiting ? `${plural(waiting, 'pull request')} wait${waiting === 1 ? 's' : ''} on your tap, listed above.` : 'Nothing needs your tap.'}</b></p>
+  return `<div class="card prose mergecard bcard"><header><h3>${inline(merge.title || 'Merge board')}</h3><span class="pill${waiting ? ' warn' : ''}">${waiting ? `${waiting} need${waiting === 1 ? 's' : ''} your tap` : 'nothing needs your tap'}</span><a class="nsrc" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">On your board ›</a></header><p><b>${waiting ? `${plural(waiting, 'pull request')} wait${waiting === 1 ? 's' : ''} on your tap, listed above.` : 'Nothing needs your tap.'}</b></p>
     ${merge.summary ? `<details data-id="merge-note"${state.open.has('merge-note') ? ' open' : ''}><summary>The board's note</summary><p>${inline(merge.summary)}</p></details>` : ''}
     <details data-id="merge-tables"${state.open.has('merge-tables') ? ' open' : ''}><summary>By feature</summary>${merge.tables.map(table).join('')}</details>
     ${merge.pages.map((md) => markdown(md)).join('')}</div>`;
@@ -495,16 +501,16 @@ function render() {
   document.title = m.title;
   $('.brand').textContent = m.title;
   const waiting = m.board.rows.filter((row) => verdictState(row) === 'you').length;
-  const tabs = [['overview', 'Overview'], ['status', 'Status'], ['now', 'Needs you', needsTotal()], ['review', 'Review', waiting], ['releases', 'Releases'], ['workers', 'Workers'], ['timeline', 'Timeline'], ['ask', 'Ask']];
-  $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${r.screen === id ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="pill bad count">${count}</span>` : ''}</a>`).join('');
-  const over = (body) => () => `${overview()}<div class="overlay route" data-close="1" data-route="${esc(location.hash)}"><div class="sheet route"><button class="btn close" data-close="1">Close</button>${body()}</div></div>`;
-  const screens = { overview, status: over(statusScreen), now: over(needsScreen), review: overRoute(r) ? over(() => reviewList(r.id ?? '')) : () => reviewPR(r.id, r.tab), releases: over(releases), workers: over(workers), timeline: over(timelineScreen), ask: over(askScreen) };
+  const tabs = [['overview', 'Now'], ['status', 'Plan'], ['workers', 'Work'], ['review', 'Review', waiting], ['timeline', 'History'], ['ask', 'Ask']];
+  $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${r.screen === id || (id === 'overview' && r.screen === 'story') ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="pill bad count">${count}</span>` : ''}</a>`).join('');
+  const over = (body) => () => `${nowScreen()}<div class="overlay route" data-close="1" data-route="${esc(location.hash)}"><div class="sheet route"><button class="btn close" data-close="1">Close</button>${body()}</div></div>`;
+  const screens = { overview: nowScreen, story: nowScreen, status: over(statusScreen), now: over(needsScreen), review: overRoute(r) ? over(() => reviewList(r.id ?? '')) : () => reviewPR(r.id, r.tab), releases: over(releases), workers: over(workers), timeline: over(timelineScreen), ask: over(askScreen) };
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
   const sheetY = $('.overlay.route')?.dataset.route === location.hash ? [$('.overlay.route').scrollTop, $('.sheet.route').scrollTop] : [0, 0];
   const typing = document.activeElement?.matches('#main input, #main textarea') ? document.activeElement : null;
   const caret = typing && [typing.name, typing.dataset.draft ?? '', typing.selectionStart, typing.selectionEnd];
-  $('#main').innerHTML = (screens[r.screen] ?? overview)() + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources failed: ${esc(Object.values(m.errors).join('; '))}. ` : ''}All times Pacific.</div>`;
+  $('#main').innerHTML = (screens[r.screen] ?? nowScreen)() + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources failed: ${esc(Object.values(m.errors).join('; '))}. ` : ''}All times Pacific.</div>`;
   decorate(r);
   const again = caret && [...$('#main').querySelectorAll(`[name="${caret[0]}"]`)].find((el) => (el.dataset.draft ?? '') === caret[1]);
   if (again) { again.focus(); again.setSelectionRange(caret[2], caret[3]); }
@@ -517,7 +523,8 @@ function render() {
     state.statusFocus = location.hash;
     document.getElementById(`st-${r.id}`)?.scrollIntoView({ block: 'center' });
   }
-  if (overRoute(r) || (screens[r.screen] ?? overview) === overview) mountOverview();
+  if (overRoute(r) || (screens[r.screen] ?? nowScreen) === nowScreen) mountNow();
+  else unfollow();
   state.seen = new Set(timeline().map((e) => e.id));
   tickFresh();
 }
@@ -591,7 +598,7 @@ document.addEventListener('submit', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && state.overlay) closeSheet();
-  else if (e.key === 'Escape' && overRoute(route())) location.hash = '#/';
+  else if (e.key === 'Escape' && (overRoute(route()) || route().screen === 'story')) location.hash = '#/';
   if (e.key === 'Enter' && !e.shiftKey && e.target.matches('#ask textarea')) { e.preventDefault(); ask(e.target.value); }
 });
 function closeSheet() {

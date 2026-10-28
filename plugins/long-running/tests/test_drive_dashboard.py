@@ -692,3 +692,17 @@ def test_review_assistant_queues_each_request_attempt_once_and_only_his_comments
         assistant.offer(7, event)
     queued = [assistant.queues[7].get_nowait() for _ in range(assistant.queues[7].qsize())]
     assert [e.get("request", {}).get("attempt") or e["id"] for e in queued] == [1, 2, "c3"]
+
+
+def test_a_ci_fix_on_a_root_go_lands_without_his_tap_and_reports_no_defect():
+    drive = Drive({"board_url": "http://board/p/x"}, None)
+    reported = []
+    drive.report_defect = reported.append
+    drive.note_go({"kind": "go", "text": "go #43644 at a3f2ce2 (CI fix: tests and build fixes; lands on a root go without a tap)"})
+    drive.note_go({"kind": "go", "text": "go #43700 at b4e5f6a (his tap on the board)"})
+    rows = [{"number": n, "head": head, "verdict": None} for n, head in ((43644, "a3f2ce2"), (43700, "b4e5f6a"))]
+
+    drive.check_gos(rows)
+
+    assert [(r["state"], r["ci_fix_go"]) for r in rows] == [("approved", True), ("approved", False)]
+    assert reported == ["#43700 has a root go at b4e5f6a but the board store holds no approval at that head; the dashboard shows it approved, landing"]

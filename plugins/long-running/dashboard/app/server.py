@@ -2,6 +2,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import queue
 import re
 import sqlite3
 import subprocess
@@ -15,15 +16,20 @@ import uuid
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
+import plainwords
+from brief import Curator
 from review_assistant import ReviewAssistant
+from story import Stories
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills" / "long-running" / "scripts"))
 import holds
 
 HERE = Path(__file__).resolve().parent
+PACIFIC = ZoneInfo("America/Los_Angeles")
 CCI = "http://127.0.0.1:7377/v1"
-TIMELINE_KINDS = ["state", "head", "review", "owner", "go", "landed", "release", "incident", "mechanism", "fix-live", "opened", "report", "hold", "lift", "blocker", "defect", "correction", "decide", "ask", "answer"]
+TIMELINE_KINDS = ["state", "head", "review", "owner", "go", "landed", "release", "incident", "mechanism", "fix-live", "opened", "report", "hold", "lift", "blocker", "defect", "correction", "decide", "decision", "ask", "answer"]
 TIMELINE_WINDOW = dt.timedelta(hours=24)
 LEDGER_KINDS = {"landed", "go", "opened", "head", "hold", "lift"}
 LIVE_SOURCES = ["cc-present store: taps and questions", "cci bus: records and workers", "drive ledger in cc-notes: pull request states, re-read on every landing, go, head, opened, hold or lift record", "progress-desk steps.json: the step rows"]
@@ -32,6 +38,7 @@ SLOW_REFRESH = 300
 PLAN_HEADING = "\n## Ordered plan of action"
 PLAN_ITEM = re.compile(r"^\d+\. (.+)$")
 GO = re.compile(r"^go #(\d+) at (\w+)")
+CI_FIX = re.compile(r"\bCI fix\b", re.I)
 PR_REF = re.compile(r"#(\d{4,6})\b")
 PR_RANGE = re.compile(r"#(\d{4,6})-#(\d{4,6})")
 REVIEW_ROUTE = re.compile(r"/api/review/(\d+)")
@@ -39,6 +46,7 @@ AI_CONFIG = {"endpoint": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b"}
 ASSIST = HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
 RECORD_ROUTE = re.compile(r"/record/(\d+)")
+STORY_ROUTE = re.compile(r"/api/story/([a-z0-9-]+)")
 ROW_FACTS = ("number", "head", "title", "change", "plan", "risk", "review", "blocker", "md", "block", "state")
 CONFLICT = "Conflicts with its base, so it cannot land until its worker rebases it."
 UNCHECKED = "GitHub has not yet rechecked whether it merges cleanly."
@@ -63,7 +71,7 @@ SEVERITY = {"blocker": "bad", "defect": "bad", "incident": "bad", "ask": "you", 
 TONE_RANK = {"bad": 3, "you": 2, "ok": 1, "info": 0}
 COORDINATORS = re.compile(r"^(root|main)$|(^|-)desk(-|$)|refresher|watchdog|register|landing|(^|-)board(-|$)|prompt|fidelity|progress|comms|tooling|finder|sweep|batch-post")
 PR_MENTION = re.compile(r"#(4\d{4})\b")
-STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css"), "/overview.js": ("overview.js", "text/javascript"), "/overview.css": ("overview.css", "text/css"), "/cockpit.css": ("cockpit.css", "text/css")}
+STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css"), "/overview.js": ("overview.js", "text/javascript"), "/overview.css": ("overview.css", "text/css"), "/cockpit.css": ("cockpit.css", "text/css"), "/now.js": ("now.js", "text/javascript"), "/now.css": ("now.css", "text/css")}
 
 
 def gh(repo, *args):
@@ -501,7 +509,37 @@ class Drive:
         self.reported_build = None
         self.gos = {}
         self.carried = {}
+        self.ci_fixes = set()
         self.board_raw = None
+        self.curator = Curator(config, self.curator_model, self.bump)
+        self.status_now = None
+        self.stories = Stories(config, self.lane_names, self.worker_reports)
+
+    def curator_model(self):
+        while "prs" not in self.model:
+            time.sleep(1)
+        with self.lock:
+            model = dict(self.model)
+        return self.live(model)
+
+    def lane_names(self):
+        with self.lock:
+            return tuple({record["lane"] for record in self.records})
+
+    def worker_reports(self, workers):
+        bases = {re.sub(r"-\d+$", "", lane) for lane in workers}
+        with self.lock:
+            mine = [r for r in self.records if re.sub(r"-\d+$", "", r["lane"]) in bases and r["kind"] not in ("state", "review")]
+        return [f"[{dt.datetime.fromisoformat(r['at'].replace('Z', '+00:00')).astimezone(PACIFIC).strftime('%-I:%M %p')}] {r['kind']}: {r['text'][:600]}" for r in mine[-12:]]
+
+    def bump(self):
+        with self.changed:
+            self.version += 1
+            self.changed.notify_all()
+
+    def work(self, item):
+        brief = self.curator.brief or {}
+        return next((w for w in brief.get("work", []) if w["item"] == item), None)
 
     def review_url(self, number):
         pr = self.model["prs"].get(str(number), {})
@@ -565,6 +603,7 @@ class Drive:
                             with self.lock:
                                 self.records.append(record)
                             self.touch(slow=record["kind"] in LEDGER_KINDS)
+                            self.curator.poke(record["kind"])
             except OSError as error:
                 self.errors["records"] = f"{type(error).__name__}: {error}"
                 time.sleep(5)
@@ -574,6 +613,7 @@ class Drive:
             watch = subprocess.Popen(["cc-present", "watch", "--session", self.config["board_session"]], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
             for _ in watch.stdout:
                 self.touch()
+                self.curator.poke()
             watch.wait()
             time.sleep(5)
 
@@ -585,7 +625,33 @@ class Drive:
             if stamp != seen:
                 seen = stamp
                 self.touch()
+                self.curator.poke()
             time.sleep(1)
+
+    def follow_status(self):
+        status = Path(self.config["status_now"])
+        seen = None
+        while True:
+            stamp = status.stat().st_mtime_ns if status.exists() else None
+            if stamp != seen:
+                seen = stamp
+                fresh = json.loads(status.read_text()) if stamp else None
+                lanes = self.lane_names()
+                if fresh is None or not any(plainwords.violations(p["text"], "sentence", lanes) for p in fresh["paragraphs"]):
+                    self.status_now = fresh
+                    self.bump()
+                    self.curator.poke()
+            time.sleep(1)
+
+    def follow_code(self):
+        sources = [*HERE.glob("*.py")]
+        seen = {path: path.stat().st_mtime_ns for path in sources}
+        while all(path.stat().st_mtime_ns == stamp for path, stamp in seen.items()):
+            time.sleep(2)
+        while self.curator.running:
+            time.sleep(1)
+        self.stories.stop_all()
+        os.execv(sys.executable, [sys.executable, *sys.argv])
 
     def follow_paths(self):
         cache_file = Path(self.config["paths_cache"])
@@ -651,6 +717,8 @@ class Drive:
         if record["kind"] == "go" and (found := GO.match(record["text"])):
             self.gos[int(found[1])] = found[2]
             self.carried[int(found[1])] = bool(set(re.findall(r"\b[0-9a-f]{7,40}\b", record["text"][found.end():])) - {found[2]})
+            if CI_FIX.search(record["text"]):
+                self.ci_fixes.add(int(found[1]))
 
     def load_gos(self):
         after = 0
@@ -667,8 +735,9 @@ class Drive:
             row["go_head"] = self.gos.get(row["number"])
             stored = verdict_state({**row, "go_head": None}) == "approved"
             row["state"] = verdict_state(row)
+            row["ci_fix_go"] = row["state"] == "approved" and not stored and row["number"] in self.ci_fixes
             key = (row["number"], row["head"])
-            if row["state"] == "approved" and not stored and not self.carried.get(row["number"]) and key not in self.reported:
+            if row["state"] == "approved" and not stored and not row["ci_fix_go"] and not self.carried.get(row["number"]) and key not in self.reported:
                 self.reported.add(key)
                 self.report_defect(f"#{row['number']} has a root go at {row['head']} but the board store holds no approval at that head; the dashboard shows it approved, landing")
 
@@ -709,6 +778,12 @@ class Drive:
             "live": LIVE_SOURCES,
             "needs": need_items,
             "journeys": journeys(drive, steps, releases, need_items, model["records"], model["prs"], progress.get("now", {}), model["tree_names"], now),
+            "brief": self.curator.brief,
+            "brief_error": self.curator.error,
+            "status_now": self.status_now,
+            "milestones": [m["name"] for m in self.config["milestones"]],
+            "milestones_label": self.config["milestones_label"],
+            "views": self.config.get("views", {}),
         }
 
     def report_defect(self, text):
@@ -720,7 +795,12 @@ class Drive:
             self.slow_at = time.monotonic()
         with self.lock:
             records = list(self.records)
-        lanes = cci("lanes", drive=self.config["drive"])
+        try:
+            lanes = cci("lanes", drive=self.config["drive"])
+            self.errors.pop("lanes", None)
+        except OSError as error:
+            lanes = self.model.get("lanes", [])
+            self.errors["lanes"] = f"the cci daemon at {CCI} did not answer ({error}); workers are as of the last answer"
         return {
             **self.slow,
             "title": self.config["title"],
@@ -820,7 +900,7 @@ def handler(drive):
                 name, kind = STATIC[path]
                 body = (HERE / name).read_text()
                 if name == "index.html":
-                    for asset in ("app.js", "app.css", "review.js", "review.css", "overview.js", "overview.css", "cockpit.css"):
+                    for asset in ("app.js", "app.css", "review.js", "review.css", "overview.js", "overview.css", "cockpit.css", "now.js", "now.css"):
                         body = body.replace(f"/{asset}", f"/{asset}?v={(HERE / asset).stat().st_mtime_ns}")
                     body = body.replace("</body>", ASSIST.read_text() + "</body>")
                 return self.send(200, kind, body.encode())
@@ -838,6 +918,8 @@ def handler(drive):
                 return self.send(200, "application/json", json.dumps({"url": url, "assistant": int(found[1]) in drive.assistant.watching, "stale": int(found[1]) in drive.assistant.stale}).encode())
             if path == "/ai.json":
                 return self.send(200, "application/json", json.dumps({**AI_CONFIG, "key": os.environ["CEREBRAS_API_KEY"]}).encode())
+            if found := STORY_ROUTE.fullmatch(path):
+                return self.story(found[1])
             if found := RECORD_ROUTE.fullmatch(path):
                 try:
                     return self.send(200, "text/plain; charset=utf-8", run(["cci", "show", found[1]]).encode())
@@ -873,6 +955,32 @@ def handler(drive):
             self.end_headers()
             self.wfile.write(body)
 
+        def story(self, item):
+            work = drive.work(item)
+            if work is None:
+                return self.send(404, "text/plain", b"no such work")
+            story = drive.stories.story(item, work)
+            viewer = story.join()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            try:
+                opening = {"type": "saved", "lines": story.lines(), "status": story.status, "draft": story.draft}
+                self.wfile.write(f"data: {json.dumps(opening)}\n\n".encode())
+                self.wfile.flush()
+                while True:
+                    try:
+                        entry = viewer.get(timeout=15)
+                        self.wfile.write(f"data: {json.dumps(entry)}\n\n".encode())
+                    except queue.Empty:
+                        self.wfile.write(b": keep-alive\n\n")
+                    self.wfile.flush()
+            except OSError:
+                return
+            finally:
+                story.leave(viewer)
+
         def stream(self):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -904,7 +1012,7 @@ def main():
     drive = Drive(config, ReviewAssistant(config, args.config.parent / "reviews", f"http://{config['host']}:{config['port']}/api/model"))
     after = drive.load_records()
     drive.load_gos()
-    for target, rest in ((drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.rebuild_loop, ()), (drive.follow_paths, ())):
+    for target, rest in ((drive.follow_code, ()), (drive.curator.loop, ()), (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.follow_status, ()), (drive.rebuild_loop, ()), (drive.follow_paths, ())):
         threading.Thread(target=target, args=rest, daemon=True).start()
     server = ThreadingHTTPServer((config["host"], config["port"]), handler(drive))
     server.daemon_threads = True

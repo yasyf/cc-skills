@@ -3136,8 +3136,10 @@ asking what it owns gets `ledger.py show --red`, never the raw table.
 From the drive's first plan, the root runs the app in `dashboard/app/`:
 `python3 dashboard/app/server.py --config <state dir>/dashboard.json`, where the config
 names the drive, ledger, board session and URL, repo, progress-doc label, release doc,
-story file, keeper lane, host, and port. It serves Overview, Needs you, Review, Releases,
-Workers, Timeline, and Ask from the cci daemon's record stream, `cc-present watch` on the
+story file, keeper lane, host, and port, plus the Now page's milestones, views, brief and
+story directories, and transcript directory; `/live-dashboard`'s
+`templates/drive-now.json` is the template and `reference/drive-now-page.md` says how a
+drive fits it. It serves Now, Plan, Work, Review, History, and Ask from the cci daemon's record stream, `cc-present watch` on the
 board, the ledger, the drive's cc-notes answers, and the newest progress doc carrying
 `## Ordered plan of action`. A build failure posts one `defect` record to root.
 
@@ -3152,9 +3154,13 @@ since the owner last looked, the Timeline with the day in five sentences, and ev
 request and stack offers a plain-words summary. The `/live-dashboard` layout below is the
 older view, kept for drives that do not run the app.
 
-The dashboard is the owner's view, and it answers four questions in this order: what
-waits on me, what is broken, what is live, and what is in flight. Review comes after
-them. The `drive` preset already lays the page out that way:
+The Now page answers the owner's four questions (answer 78353511): overall progress,
+what is being worked on, the biggest blockers, and how each is being unblocked. Every
+string on it is written by Claude Opus 5.5 from the drive's records and passes
+`dashboard/app/plainwords.py`; a click on a piece of work opens a live story that Claude
+Sonnet 5.5 writes from that worker's transcript. The `/live-dashboard` drive preset
+below answers an older order: what waits on me, what is broken, what is live, and what
+is in flight. Review comes after them. The `drive` preset already lays the page out that way:
 
 - `lr.needs-owner` is pinned in the first section. It shows owner tasks, cci asks and
   decides addressed `--to owner`, and boards that are still asking.

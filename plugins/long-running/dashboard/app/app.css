@@ -239,23 +239,24 @@ h2.sec a { margin-left: auto; font: 600 13px var(--sans); }
 .bcard { margin-bottom: 16px; }
 .bcard > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 10px; }
 .bcard > header h3 { margin: 0; font-size: 17px; flex: 1 1 320px; }
-.bcard > header .nmark { width: 18px; }
+.bcard > header .nsrc { color: var(--ink-3); font-weight: 500; }
 .brec { margin-top: 14px; }
 .brec h4, .bpick h4 { margin: 0 0 6px; font-size: 14px; }
 .bfacts { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 5px 14px; margin: 0; font-size: 13px; }
 .bfacts dt { color: var(--ink-3); } .bfacts dd { margin: 0; color: var(--ink-2); }
 .bfacts dd.t-good { color: var(--ok); } .bfacts dd.t-warn { color: var(--warn); } .bfacts dd.t-bad { color: var(--bad); }
 .nsent { display: block; margin-top: 8px; font: normal 650 12.5px var(--sans); color: var(--ok); } .nsent.bad { color: var(--bad); }
-.bpick { margin-top: 12px; padding: 12px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); }
-.bpick.done { padding: 9px 12px; font-size: 13.5px; color: var(--ink-2); }
-.bopts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
-.bopt { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); }
-.bopt.rec { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn) inset; }
+.bpick { margin-top: 14px; }
+.bpick.done { margin-top: 0; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13.5px; color: var(--ink-2); }
+.bopts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 10px; }
+.bopt { position: relative; display: grid; grid-template-rows: subgrid; grid-row: span var(--rows); row-gap: 6px; padding: 12px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); margin-bottom: 10px; }
+.bopt > i { display: block; }
 .bopt > b { font-size: 14px; line-height: 1.35; }
 .bopt .bfacts { grid-template-columns: 74px minmax(0, 1fr); font-size: 12.5px; }
 .bopt details { font-size: 12.5px; color: var(--ink-2); } .bopt summary { cursor: pointer; color: var(--accent); }
-.bopt .btn { margin-top: auto; align-self: flex-start; }
-.bstamp { align-self: flex-start; padding: 2px 8px; border-radius: 999px; font: 700 11px var(--sans); letter-spacing: .03em; text-transform: uppercase; background: var(--warn-soft); color: var(--warn); }
+.bopt .btn { align-self: end; justify-self: start; }
+.bstamp { font: 600 12px var(--sans); color: var(--ok); }
+.bback { margin-top: 12px; font-size: 13.5px; } .bback > summary { cursor: pointer; color: var(--accent); } .bback > .nwhy { margin: 8px 0 0; }
 .bpick .note { display: flex; gap: 8px; margin-top: 10px; } .bpick .note input { flex: 1; min-width: 0; }
 .bpick .pros li::marker { content: "+ "; color: var(--ok); } .bpick .cons li::marker { content: "− "; color: var(--bad); }
 #cardembed { position: fixed; z-index: 60; top: 64px; right: 20px; bottom: 20px; width: min(720px, calc(100vw - 40px)); display: flex; flex-direction: column; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); overflow: hidden; }
@@ -273,7 +274,7 @@ h2.sec a { margin-left: auto; font: 600 13px var(--sans); }
 details.brec > summary { display: flex; align-items: baseline; gap: 10px; cursor: pointer; list-style: none; } details.brec > summary::-webkit-details-marker { display: none; }
 details.brec > summary h4 { margin: 0; } details.brec > summary::before { content: "▸"; color: var(--accent); } details.brec[open] > summary::before { content: "▾"; }
 details.brec[open] > summary { margin-bottom: 6px; }
-@media (max-width: 760px) { .bcard > header .nmark { display: none; } .bpick .note { flex-wrap: wrap; } .bpick .note input { flex-basis: 100%; } }
+@media (max-width: 760px) { .bpick .note { flex-wrap: wrap; } .bpick .note input { flex-basis: 100%; } }
 .mergecard { max-width: none; }
 .note input, .note textarea, #ask textarea { padding: 7px 10px; border-radius: 9px; border: 1px solid var(--surface-3); background: var(--bg); color: var(--ink); font: 13.5px var(--sans); }
 .note input:focus, .note textarea:focus, #ask textarea:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
