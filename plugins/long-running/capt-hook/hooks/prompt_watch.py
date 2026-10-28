@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, Tool, on
@@ -28,7 +29,7 @@ def entry_of(evt: BaseHookEvent) -> dict | None:
 
 
 def watch_prompts(evt: BaseHookEvent, entry: dict) -> None:
-    argv = ["python3", str(script("prompt_watch.py")), "start", "--drive", entry["drive"]]
+    argv = [sys.executable, str(script("prompt_watch.py")), "start", "--drive", entry["drive"]]
     if evt.session_id in entry["sessions"] and (handle := reqenv.getenv("ORCA_TERMINAL_HANDLE")):
         argv += ["--root-terminal", handle]
     subprocess.Popen(argv, env=dict(reqenv.env_map()), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)

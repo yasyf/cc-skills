@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# ///
 """Render the owner report table for the drive dashboard's Plan table panel.
 
     plan-table.py --doc ID --out PATH [--retro-log ID] [--repo PATH]

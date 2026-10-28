@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# ///
 """The incident executor: one durable owner for an active incident, from intake to the final reply.
 
     incident.py open    --kind pr-review|alert --thread URL --onset ISO --reported ISO --bus ID --comms-lane NAME --root-lane NAME

@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# ///
 """Post every keyed orca desk line in one command: allocate the next `R<n>`, stamp the clock, post the line to `orca-desk` on cci, and for a launch wait for the runner's verdict.
 
     desk-launch.py incident <name> <fix-brief> [<evidence-brief>] [--drive D] [--lane L] [--timeout-seconds S]

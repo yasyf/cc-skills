@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# ///
 """Edit the root's landing holds file, the one desk-runner.py reads before every enqueue.
 
 `add --pr <n> --reason R` writes `#<n> R`, `add --lane <name> --reason R` writes

@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# ///
 """The merge-row gate: every merge row the owner sees names its PR's current head, carries what he needs to decide, in words written after that head, and keeps his verdict.
 
     board_rows.py --config RUNNER_JSON --check [--json] [--session ID] [--finders DIR] BLOCK_JSON

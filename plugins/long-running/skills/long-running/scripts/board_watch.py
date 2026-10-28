@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# ///
 """The board recorder: one reader per cc-present board that keeps every owner interaction as a capture.
 
     board_watch.py start --session ID (--program SLUG | --drive ID) [--state-dir DIR]
