@@ -447,7 +447,6 @@ def test_codex_ask_pins_model_and_quiet_exec(templates_dir):
             "syscall.Flock",
             "syscall.LOCK_SH",
             "syscall.LOCK_EX",
-            # --sweep prunes only codex-ask's own minted dirs
         "runPrefixes",
         # exit 0 + empty reply is a silent codex death, treated as failure
         "codex exited 0 but wrote no reply",
@@ -1381,9 +1380,6 @@ def _sweep(script, runs):
 
 
 def test_codex_ask_ps_lists_and_sweep_prunes(templates_dir, tmp_path):
-    # --ps walks the runs base, emits one JSONL record per run with the right
-    # state, tolerates an empty dir, and deletes nothing; only --sweep prunes
-    # long-terminal (never live) runs.
     script = _codex_ask(templates_dir)
     runs = tmp_path / "runs"
     runs.mkdir()
@@ -1397,9 +1393,6 @@ def test_codex_ask_ps_lists_and_sweep_prunes(templates_dir, tmp_path):
     assert recs["empty"]["state"] == "no-run"
     assert recs["done"]["reply_file"].endswith("codex-r-x")
 
-    # a codex-ask-minted terminal run past the prune age survives --ps and is
-    # deleted only by --sweep; a caller-named lane (no codex-ask prefix) is
-    # emitted but never pruned by either
     old = _craft_lane(runs / "codex-ask.old", reply="x\n", status="0", log=COMPLETED)
     safe = _craft_lane(runs / "notmine", reply="x\n", status="0", log=COMPLETED)
     stale = time.time() - 10 * 24 * 3600
@@ -1691,8 +1684,6 @@ def test_codex_ask_ps_expands_fanout_root(templates_dir, tmp_path):
 
 
 def test_codex_ask_runs_dir_guard(templates_dir, tmp_path):
-    # CODEX_ASK_RUNS_DIR must be absolute and outside the repo, so a --sweep prune can
-    # never rmtree source dirs.
     script = _codex_ask(templates_dir)
     stub_bin = tmp_path / "bin"
     stub_bin.mkdir()
