@@ -103,6 +103,11 @@ const HOME = { mac: 'Your Mac', cloud: 'The cloud', tools: 'Release and tools' }
 function sheet(body, small = '') {
   return `<div class="overlay" data-close="1"><div class="sheet${small}"><button class="btn close" data-close="1">Close</button>${body}</div></div>`;
 }
+function namedWorkers(html) {
+  const lanes = [...new Set(state.model.records.map((r) => r.lane))].sort((a, b) => b.length - a.length);
+  if (!lanes.length) return html;
+  return html.replace(new RegExp(`(?<![\\w-])(${lanes.join('|')})(?![\\w-])`, 'g'), (lane) => `<a href="#/worker/${encodeURIComponent(lane)}">${esc(workerName(lane))}</a>`);
+}
 function prFacts(n) {
   const m = state.model;
   const t = truth(n);
@@ -117,7 +122,7 @@ function prFacts(n) {
   return `<dl class="facts pr-facts"><dt>Where it stands</dt><dd>${stands}${t.read_at ? ` <small class="dim">read ${agoWords(t.read_at)}</small>` : ''}</dd>
     <dt>Blocks landing</dt><dd${blocks ? ` class="${/^GitHub has not/.test(blocks) ? 'warn' : 'bad'}"` : ''}>${blocks ? `${inline(blocks)}${node ? forSince(node.since) : ''}` : pr.landed_at ? 'Nothing: it landed' : 'Nothing'}</dd>
     <dt>Tests</dt><dd>${TEST_WORD[pr.test_state] ?? 'Not known'}${t.checks.length ? `: ${t.checks.map((c) => `<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.name)} ↗</a>`).join(', ')}` : ''}</dd>
-    ${node?.how || t.next ? `<dt>What happens next</dt><dd>${inline(node?.how ?? t.next)}</dd>` : ''}
+    ${node?.how || t.next ? `<dt>What happens next</dt><dd>${node ? inline(node.how) : namedWorkers(inline(t.next))}</dd>` : ''}
     <dt>Who is on it</dt><dd>${t.owner ? `<a href="#/worker/${encodeURIComponent(t.owner)}">${esc(workerName(t.owner))}</a>, ${w?.live ? 'working now' : t.word ? `last word ${agoWords(t.word.at)}` : 'no word from it on this pull request'}` : 'No worker named'}</dd>
     ${row?.change ? `<dt>What changes for a user</dt><dd>${inline(row.change)}</dd>` : ''}
     <dt>Part of the plan</dt><dd>${step ? `<a href="#/plan/${encodeURIComponent(step.id)}">${esc(step.label ?? step.title)}</a>` : part ? `${esc(part.name)}: ${esc(part.becomes)}` : 'Not in a part of the plan'}</dd></dl>`;
