@@ -39,7 +39,7 @@ LEDGER_KINDS = {"landed", "go", "opened", "head", "hold", "lift"}
 LIVE_SOURCES = ["cc-present store: taps and questions", "cci bus: records and workers", "drive ledger in cc-notes: pull request states, re-read on every landing, go, head, opened, hold or lift record", "progress-desk steps.json: the step rows"]
 REBUILD_AFTER = 2.0
 WORD_BYSTANDERS = ("dashboard", "register", "cc-present", "desk-runner")
-PR_WORD = re.compile(r"#(\d{5})(?!\d)")
+PR_NAMED = re.compile(r"#(\d{5})(?!\d)")
 SLOW_REFRESH = 300
 PLAN_HEADING = "\n## Ordered plan of action"
 PLAN_ITEM = re.compile(r"^\d+\. (.+)$")
@@ -654,7 +654,7 @@ class Drive:
             return
         refs = {re.search(r"(\d+)$", str(ref))[1] for ref in (record.get("refs") or {}).get("prs") or []}
         with self.lock:
-            for number in refs | set(PR_WORD.findall(record["text"])):
+            for number in refs | set(PR_NAMED.findall(record["text"])):
                 self.latest_words[number] = {k: record[k] for k in ("seq", "at", "lane", "kind")}
 
     def words(self):
