@@ -474,10 +474,10 @@ def test_a_quiet_lane_with_open_prs_stalls_only_when_it_owes_a_record_or_a_fix(c
 
 @pytest.mark.parametrize(
     ("gate", "stales"),
-    [({}, []), ({"test_state": "failure"}, ["stale:201:abc1234", "stale:202:abc1234", "stale:303:abc1234"])],
+    [({}, []), ({"test_state": "failure"}, ["stale:303:abc1234"])],
     ids=["gates-on-the-tap-list", "a-gate-is-red"],
 )
-def test_a_held_batch_whose_holds_line_names_prs_on_or_stacked_above_the_tap_list_posts_one_state_record_per_head_and_a_red_gate_stales_it(config, tmp_path, gate, stales):
+def test_a_held_batch_whose_holds_line_names_prs_on_or_stacked_above_the_tap_list_posts_one_state_record_per_head_and_a_red_gate_stales_only_itself(config, tmp_path, gate, stales):
     merge_mode(config, "ask")
     (tmp_path / "holds.md").write_text("#201 held (root #159418): lands after #301 and #302\n#202 held (root #159418): same batch as #201\n")
     records = [*graded(1, "201", HEAD, 150), *graded(4, "202", HEAD, 150), *graded(7, "301", HEAD, 150), *graded(10, "302", HEAD, 150), *graded(13, "303", HEAD, 150)]
@@ -491,6 +491,20 @@ def test_a_held_batch_whose_holds_line_names_prs_on_or_stacked_above_the_tap_lis
     if not stales:
         assert [topic for topic in shell.topics() if topic.startswith("tap-wait:")] == ["tap-wait:digest"]
         assert shell.post("tap-wait:digest")["text"].startswith("4 heads wait on the owner's tap: #201 at abc1234 is held on #301, #303, each waiting on the owner's tap, his board answer, or the merge queue, since 10:30 AM; #202 at abc1234 is held on #301, #303")
+
+
+@pytest.mark.parametrize(("tap", "stales"), [(None, []), ("approved", ["stale:201:abc1234"])], ids=["parent-untapped", "parent-tapped"])
+def test_a_row_held_behind_an_open_untapped_parent_never_stales(config, tmp_path, tap, stales):
+    merge_mode(config, "ask")
+    (tmp_path / "holds.md").write_text("#201 lands as the top of the cloud-runs batch above #301 (root 162279)\n")
+    shell = FakeShell([*graded(1, "201", HEAD, 150), *graded(4, "301", HEAD, 150)], [row("201"), row("301", test_state="pending")])
+    shell.doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": 301, "head": HEAD[:7]}]}]}]}
+    if tap:
+        shell.triage = {"merge-prs": {"301": {"verdict": tap, "head": HEAD[:7], "at": stamp(140)}}}
+
+    watch(shell, config)
+
+    assert sorted(topic for topic in shell.topics() if topic.startswith("stale:201")) == stales
 
 
 @pytest.mark.parametrize(

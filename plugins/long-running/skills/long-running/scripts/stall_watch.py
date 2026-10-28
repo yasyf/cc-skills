@@ -55,7 +55,9 @@ and, across the drive:
               the earlier of its board row's write and the head's READY record; a PR that waits on the PR
               below it posts nothing itself and is listed on the stale PR its stack waits on, and a
               PR whose owning lane has no live record in the window goes to root; a changed state on
-              the same head counts from the pass that saw it change
+              the same head counts from the pass that saw it change; a held PR whose holds-file line
+              names an open PR the owner has not tapped at its head is never stale, until that PR lands,
+              is tapped, or the hold lifts
 
 Each kind counts once it is as old as `stall.minutes` says: go 10, tap 10, finder 30, fidelity 30,
 board 15, carry 20 (one fidelity pass), lane 30, ask 15, stale 120. A PR's head is as old as the first record about the
@@ -413,6 +415,7 @@ class Pass:
         self.tap_waits: dict[str, tuple[str, str]] | None = None
         self.hold_gates: dict[str, list[str]] = {}
         self.hold_asks: dict[str, set[str]] = {}
+        self.tapped: set[str] = set()
 
     def tail(self, argv: list[str]) -> str:
         done = self.shell.run(argv)
@@ -560,6 +563,7 @@ class Pass:
                 self.hold_gates.setdefault(named, []).extend(gate for gate in PR_REF.findall(entry.line) if gate != named)
                 if board:
                     self.hold_asks.setdefault(named, set()).update(board.open_asks(named, entry.line))
+        self.tapped = {pr for pr, row in rows.items() if board and (tap := board.taps.get(pr) or {}).get("verdict") == "approved" and tap.get("head") and grades.names_head(tap["head"], row.get("head", ""))}
         facts = self.landing_facts()
         waits = {pr: wait["key"] for pr, wait in facts.get(MERGE_WAITS, {}).items()}
         cards = set(facts.get(MERGE_CARDS, {}))
@@ -675,7 +679,7 @@ class Pass:
                 self.tap_waits[f"{pr}:{short(found['head'])}"] = (pr, f"{subject} {TAP_WAIT} since {pacific(since)}")
             elif stale and found["state"].startswith(HELD) and (gates := self.owner_gates(pr, found_by_pr, {pr})):
                 self.tap_waits[f"{pr}:{short(found['head'])}"] = (pr, f"{subject} is held on {', '.join(sorted(gates))}, each waiting on the owner's tap, his board answer, or the merge queue, since {pacific(since)}")
-            elif stale and pr not in stalled:
+            elif stale and pr not in stalled and not (found["state"].startswith(HELD) and any(gate in found_by_pr and gate not in self.tapped for gate in self.hold_gates.get(pr, []))):
                 standing[pr] = (found, since, live)
         rows = {found["pr"]: found for found in self.stack}
         above: dict[str, list[str]] = {}
