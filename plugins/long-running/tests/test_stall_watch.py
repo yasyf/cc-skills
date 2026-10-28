@@ -41,7 +41,8 @@ def fidelity(seq: int, pr: str, sha: str, minutes_ago: float) -> dict:
 
 
 def row(pr: str, sha: str = HEAD, **fields) -> dict:
-    return {"pr": pr, "head": sha, "lane": "api-lane", "state": "open", "test_state": "success", "ai_review": "success", "branch": f"b{pr}", "base": "dev"} | fields
+    graded = {"pr": pr, "head": sha, "lane": "api-lane", "state": "open", "test_state": "success", "ai_review": "success", "branch": f"b{pr}", "base": "dev"} | fields
+    return {"green_at": stamp(60) if graded["test_state"] == "success" else ""} | graded
 
 
 class FakeShell(stall_watch.Shell):
@@ -599,6 +600,19 @@ def test_a_merge_row_root_pulled_by_a_decide_is_not_missing_until_the_lane_posts
     if ready:
         records.append(record(5, "api-lane", "report", f"READY #101 at {HEAD[:7]}", 5, "101"))
     shell = FakeShell(records, [row("101")])
+
+    watch(shell, config)
+
+    assert shell.topics() == stalls
+
+
+@pytest.mark.parametrize(
+    ("fields", "stalls"),
+    [({"test_state": "pending"}, []), ({"green_at": stamp(5)}, []), ({"green_at": stamp(16)}, ["board:101:abc1234"])],
+    ids=["build-running", "green-5-min-ago", "green-16-min-ago"],
+)
+def test_a_board_stall_counts_from_the_build_turning_green_when_it_greens_after_the_grades(config, fields, stalls):
+    shell = FakeShell([head(1, "101", HEAD, 40), finder(2, "101", HEAD, 20), fidelity(3, "101", HEAD, 20)], [row("101", **fields)])
 
     watch(shell, config)
 

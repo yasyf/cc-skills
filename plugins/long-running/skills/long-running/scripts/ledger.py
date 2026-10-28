@@ -1621,13 +1621,20 @@ def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: d
     for key in sorted((set(wanted) | set(registered)) - settled, key=int):
         if key in reopenable and state["prs"][key]["state"] != "OPEN":
             continue
+        was = every.get(key, {})
         fields = grade(state["prs"][key], scope.repo)
-        fields["failing_checks"] = with_errors(shell, fields["failing_checks"], every.get(key, {}).get("failing_checks"))
+        fields["failing_checks"] = with_errors(shell, fields["failing_checks"], was.get("failing_checks"))
+        if fields["test_state"] != "success":
+            fields["green_at"] = ""
+        elif (was.get("head"), was.get("test_state")) == (fields["head"], "success"):
+            fields["green_at"] = was.get("green_at", moment)
+        else:
+            fields["green_at"] = moment
         fields["last_refresh"] = moment
         if key not in known:
             fields["first_seen"] = moment
-        if key in registered and not every.get(key, {}).get("reassigned") and not every.get(key, {}).get("unadmitted"):
-            fields |= {"lane": registered[key], "registered": registered[key]} | ({} if every.get(key, {}).get("step") else step_field(steps.get(registered[key])))
+        if key in registered and not was.get("reassigned") and not was.get("unadmitted"):
+            fields |= {"lane": registered[key], "registered": registered[key]} | ({} if was.get("step") else step_field(steps.get(registered[key])))
         if key in lanes:
             fields["lane"] = lanes[key]
         rows.append({"key": scope.store(key), "fields": fields})

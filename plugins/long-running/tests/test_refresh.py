@@ -6,6 +6,7 @@ import time
 from datetime import timedelta
 
 import ledger
+import pytest
 from conftest import DIRTY_HEAD, LEDGER, LISTED_HEAD, MOVED_HEAD, FakeShell
 
 
@@ -54,6 +55,34 @@ def test_row_carries_the_whole_graded_schema(lock, red_routes):
     assert fields["ai_review"] == "success"
     assert fields["changed_files"] == "38"
     assert fields["first_seen"] == fields["last_refresh"]
+
+
+GREEN = "2026-10-28T22:00:00Z"
+
+
+@pytest.mark.parametrize(
+    ("stored", "kept"),
+    [
+        ({}, False),
+        ({"head": MOVED_HEAD, "test_state": "success", "green_at": GREEN}, True),
+        ({"head": LISTED_HEAD, "test_state": "success", "green_at": GREEN}, False),
+        ({"head": MOVED_HEAD, "test_state": "pending", "green_at": GREEN}, False),
+    ],
+    ids=["first-green-read", "still-green-at-the-head", "green-at-a-new-head", "green-again-after-a-rerun"],
+)
+def test_green_at_is_the_refresh_that_first_read_the_heads_build_green(lock, stored, kept):
+    shell = FakeShell(rows=[{"key": "21052", "fields": stored}] if stored else [])
+    refresh(shell, lock, pr=["21052"])
+
+    fields = shell.fields("21052")
+    assert fields["green_at"] == (GREEN if kept else fields["last_refresh"])
+
+
+def test_a_build_that_is_not_green_clears_green_at(lock, red_routes):
+    shell = FakeShell(rows=[{"key": "21052", "fields": {"head": MOVED_HEAD, "test_state": "success", "green_at": GREEN}}], routes=red_routes)
+    refresh(shell, lock, pr=["21052"])
+
+    assert shell.fields("21052")["green_at"] == ""
 
 
 def test_ai_review_absent_when_no_such_check_run(lock):

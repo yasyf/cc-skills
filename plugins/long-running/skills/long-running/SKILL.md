@@ -2552,7 +2552,7 @@ to `landing.desk_lane` when `runner.json` names one, else to root.
 | `tap` | the owner approved a head on the board, and no go names it | 10 | root and `landing.go_lanes` |
 | `finder` | a `head` record names the head, and no finder review does | 30 | the PR's lane |
 | `fidelity` | a `head` record names the head, and no fidelity grade does | 30 | `landing.fidelity_lane` |
-| `board` | finder ok, fidelity ok, a green build, a wait on the owner's tap, and no board row or `merge:<pr>:<sha7>` card at the head | 15 | `stall.board_lane`, root by default |
+| `board` | finder ok, fidelity ok, a green build, a wait on the owner's tap, and no board row or `merge:<pr>:<sha7>` card at the head, counted from the latest of the two grades and the ledger row's `green_at` | 15 | `stall.board_lane`, root by default |
 | `carry` | a tap or go names an earlier head, nothing carries it to this head, and the board shows no row at it | 15 | the fidelity lane when Sonnet reads a patch-identical restack, else root, to ask the owner again |
 | `lane` | a lane with an in-progress task on root's task list stays silent past the time its last record promised, or past 30 minutes | 30 | the lane, or root when the lane posted nothing in the window |
 | `ask` | a lane's ask to root is open, and no root record answers it | 15 | root |
