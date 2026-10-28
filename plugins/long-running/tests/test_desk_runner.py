@@ -10088,7 +10088,7 @@ def test_each_head_starts_one_finder_at_once_however_many_records_name_it(shell,
     orca_pass(shell, config)
     assert shell.finder_jobs == [config.resolve().parent / "finder-desk" / f"43439-{FINDER_HEAD[:12]}"]
     assert finder_jobs(shell) == [
-        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "previous": "", "history": [], "lane": "p8a-step9", "to": [], "checkout": str(config.parent / "checkout"), "model": "sol"}
+        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "previous": "", "history": [], "lane": "p8a-step9", "to": ["root", "desk-runner"], "checkout": str(config.parent / "checkout"), "model": "sol"}
     ]
 
 
@@ -10110,7 +10110,7 @@ def test_finders_past_the_cap_wait_queued_and_start_as_running_ones_finish(shell
     orca_pass(shell, config)
     orca_pass(shell, config)
     assert [job["pr"] for job in finder_jobs(shell)] == ["43439", "43299"]
-    assert {(job["model"], tuple(job["to"])) for job in finder_jobs(shell)} == {("astra", ("fidelity-desk",))}
+    assert {(job["model"], tuple(job["to"])) for job in finder_jobs(shell)} == {("astra", ("root", "desk-runner", "fidelity-desk"))}
     cli(shell, config, "show")
     shown = capsys.readouterr().out
     assert f"finder #42784 {heads['42784'][:12]}: queued" in shown and f"finder #43299 {heads['43299'][:12]}: running since" in shown

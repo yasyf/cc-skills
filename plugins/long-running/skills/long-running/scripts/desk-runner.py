@@ -387,8 +387,8 @@ writes `<config dir>/finder-desk/<pr>-<head12>/job.json` and starts `finder.py` 
 the head's own commits against the base branch's current tip, or over what changed since the head the PR's newest finder
 record at another head read, else since the head its `head` record replaced when the PR has any finder review
 (finder.py), and posts
-`finder: ok <head> …` or `finder: major <head> <n> open: …` under lane `finder-desk` to the head's lane and each
-`finder.to` address. A pass whose job wrote an error, or no result within `finder.timeout_minutes` (default 60), logs
+`finder: ok <head> …` or `finder: major <head> <n> open: …` under lane `finder-desk` to the head's lane, root, the runner
+and each `finder.to` address, since the landing runner reads finder records by address. A pass whose job wrote an error, or no result within `finder.timeout_minutes` (default 60), logs
 `FINDER-FAILED` once. `show` lists each queued and running pass.
 Between orca passes the runner waits ten seconds, cut short within a quarter second by a desk
 inbox append or an exiting launch, and its sweep shows only dispatches it has not
@@ -3940,7 +3940,7 @@ class Runner:
                     "previous": finder.previous(next((record for record in records if record["seq"] == job["seq"]), None)) if named else "",
                     "history": [{"seq": record["seq"], "lane": record["lane"], "text": record["text"], "path": (record.get("refs") or {}).get("path", "")} for record in named],
                     "lane": job["lane"],
-                    "to": spec.get("to", []),
+                    "to": [ROOT, RUNNER, *spec.get("to", [])],
                     "checkout": spec.get("checkout") or landing["checkout"],
                     "model": spec.get("model", FINDER_MODEL),
                 }
