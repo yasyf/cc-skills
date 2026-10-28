@@ -1752,10 +1752,12 @@ def test_a_blocker_goes_to_the_newest_head_opened_ready_or_claim_poster_and_the_
         ("p8a-step6b-creds-3", ["yasyf/cc-skills#29020"], "takes its tooling PR", "p8a-step6b-creds-2"),
         ("root", [], "p8a-step6b-creds-3 owns #29020", "p8a-step6b-creds-2"),
         ("root", ["Forge-AI/monorepo#29020"], "p8a-step6b-creds-3 owns #29020", "p8a-step6b-creds-2"),
+        ("fidelity-desk-3", [], "fidelity-desk-3 claim: grading #29020 cccc333", "p8a-step6b-creds-2"),
+        ("fidelity-desk", ["Forge-AI/monorepo#29020"], "grading #29020 cccc333", "p8a-step6b-creds-2"),
     ],
-    ids=["text-only", "repo-qualified", "mentioned-after-the-clause", "another-repo-in-text", "another-repo-in-refs", "root-text", "root-refs"],
+    ids=["text-only", "repo-qualified", "mentioned-after-the-clause", "another-repo-in-text", "another-repo-in-refs", "root-text", "root-refs", "fidelity-successor-text", "fidelity-refs"],
 )
-def test_a_lanes_claim_takes_the_blocker_for_the_prs_it_lists_and_roots_does_not(shell, config, claimer, refs, text, to):
+def test_a_lanes_claim_takes_the_blocker_for_the_prs_it_lists_and_roots_and_desks_do_not(shell, config, claimer, refs, text, to):
     shell.rows = [ONE_ROW | {"lane": "chat-move-r4"}]
     shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED")]
     shell.records = [
@@ -4310,7 +4312,7 @@ def test_a_head_with_no_finder_record_is_refused_finder_pending_once(shell, conf
     landing_pass(shell, config)
     assert shell.enqueues() == []
     [blocker] = blockers(shell)
-    assert blocker["to"] == LANE and blocker["topic"] == "29020"
+    assert blocker["to"] == f"{LANE},finder-desk" and blocker["topic"] == "29020"
     assert blocker["text"] == f"#29020 cccc333333: nothing in #29020 was enqueued; FINDER-PENDING #29020: no `finder:` review record names this head; run the sol finder {runner_module.finder.BRIEF} names and post its record"
 
 

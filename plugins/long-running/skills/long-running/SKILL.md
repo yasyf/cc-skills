@@ -1475,7 +1475,8 @@ the landing runner take the PR out before any enqueue of its next pass. It says
 `mq.py hold <n> --reason R` and `mq.py lift <n>` write the holds file through
 `holds.py`, and `mq.py status` prints what the queue holds and the order it gates.
 A PR's lane, for every blocker and restack the runner routes, is the poster
-of the newest cci `head`, `opened`, `ready`, or `claim` record naming it, else
+of the newest cci `head`, `opened`, `ready`, or `claim` record naming it, never root's
+or a desk's, since a fidelity desk claims the heads it grades without owning them, else
 the lane that registered its ledger row; a cci blocker also goes to the root
 when `cci who` lists no live session for that lane. A lane with no live session
 or dispatch and no cci record on the drive in the last 60 minutes is dead: its
@@ -1502,7 +1503,7 @@ to start without `landing.fidelity_lane` and posts `FIDELITY-LANE-UNSET` to the 
 
 The `finder` check needs the newest `finder:` review record naming the head, from
 any lane, to read `finder: ok`. A head with none, or whose newest is `finder: major`,
-gets one `FINDER-PENDING #<n>` blocker per head to its lane. A finder pass answers a
+gets one `FINDER-PENDING #<n>` blocker per head to its lane and `finder-desk`. A finder pass answers a
 major with a new head's record or a later `finder: ok <head7> answered: <how>`.
 
 The orca desk runner posts that record itself once `runner.json` carries a `finder`

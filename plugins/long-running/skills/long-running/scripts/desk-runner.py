@@ -324,7 +324,7 @@ prefix stacked on an open fork outside it logs `FORK-DEFERRED` and waits until t
 words: `finder: ok`, "no majors", "no findings" or "ok" pass, and `finder: major` or "N major" fail. The head is the record's first short
 sha, or else the head the PR's newest `head` record named before it. The newest record naming the head must pass, unless a root `go` at
 that head came after it or a root `decision` replies to it, directly or along a chain of `--re` replies (rule 2cc5a1f3); a head with none,
-or whose newest fails, gets one `FINDER-PENDING` blocker per head and failing record to its lane (E4.1). A record the runner cannot read for a verdict or a head
+or whose newest fails, gets one `FINDER-PENDING` blocker per head and failing record to its lane and `finder-desk` (E4.1). A record the runner cannot read for a verdict or a head
 gets one `note` to its lane naming the line it reads. The `old-app` check reads a fidelity lane's `old-app: unchanged`, `old-app: bug fix` or
 `old-app: CHANGES` line, in a review or the body a fidelity grade spills to, at the head the finder rule reads; a head whose newest grade is
 neither of the first two, carried along a chain of fidelity carries, gets one `OLD-APP-PENDING` warning to its lane and the fidelity lanes and is not held for it.
@@ -5332,7 +5332,7 @@ class Landing:
         return False
 
     def check_finder(self, graded: Graded) -> dict[str, merge_queue.State]:
-        """Each head with no finder record, or whose newest names an open major that root has not settled, fails `FINDER-PENDING`, with one blocker to its lane per head and failing record (E4.1)."""
+        """Each head with no finder record, or whose newest names an open major that root has not settled, fails `FINDER-PENDING`, with one blocker to its lane and `finder-desk` per head and failing record (E4.1)."""
         states, failed = {}, {}
         for pr, sha in graded.heads.items():
             if graded.act:
@@ -5348,7 +5348,7 @@ class Landing:
             failed[pr] = f":{verdict['seq']}" if verdict else ""
         if graded.act:
             for pr, state in states.items():
-                self.refuse_head(f"finder:{pr}:{graded.heads[pr]}{failed[pr]}", pr, graded, state.reason, states)
+                self.refuse_head(f"finder:{pr}:{graded.heads[pr]}{failed[pr]}", pr, graded, state.reason, states, also=[finder.LANE])
         return states
 
     def root_answered(self, pr: str, sha: str, verdict: dict) -> bool:
@@ -6566,8 +6566,9 @@ class Landing:
         return bool(dispatch and dispatch.status not in INACTIVE) or self.session_live(lane)
 
     def owner(self, pr: str, row: dict) -> str:
-        """The lane that owns `pr` now, read as its live `successor`: the poster of the newest `head`, `opened`, `ready`, or `claim` record naming it on this drive, a lane's claim that lists it in its text alone included and the root's claims left out, or of a `ledger.py report` on it, else the lane that registered its ledger row."""
+        """The lane that owns `pr` now, read as its live `successor`: the poster of the newest `head`, `opened`, `ready`, or `claim` record naming it on this drive, a lane's claim that lists it in its text alone included and the root's and the desks' claims left out, since a fidelity desk claims the heads it grades and never owns them (fidelity-desk-3 #158865), or of a `ledger.py report` on it, else the lane that registered its ledger row."""
         drive = self.runner.config.drive
+        desks = [*self.fidelity_lanes, finder.LANE]
         posted = cci.records(self.runner.cci_tail, drive, "--pr", f"{self.repo}#{pr}", *(f"--kind={kind}" for kind in OWNER_KINDS))
         claims = [
             record
@@ -6575,7 +6576,7 @@ class Landing:
             if record["drive"] == drive and record["kind"] in OWNER_KINDS and (record["kind"] != "report" or cci.lane_report(record)) and not root_claim(record) and pr in dict(repo_prs(record, self.repo))
         ]
         claims += [record for record in self.claims() if record["drive"] == drive and record["kind"] == "claim" and not root_claim(record) and pr in claimed_prs(record, self.repo)]
-        newest = max(claims, key=lambda record: record["seq"], default=None)
+        newest = max((record for record in claims if not any(record["lane"] == desk or succeeds(record["lane"], desk) for desk in desks)), key=lambda record: record["seq"], default=None)
         lane = newest["lane"] if newest else row.get("lane", "")
         return self.successor(lane) if lane else lane
 
