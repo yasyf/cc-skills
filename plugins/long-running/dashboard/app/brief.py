@@ -121,7 +121,7 @@ Rules for every string:
 - Times are Pacific clock times like 12:40 PM, never later than the facts' now.
 - Never guess. If a fact is not known, say "not known".
 - Never count findings, points, fixes or approvals ("one finding", "the third point", "the first fix"); say what each one is, who raised it, and who is answering it. Leave out anything you cannot name.
-- coordinator_rulings are the coordinator's decisions; where they name a blocker's fixers or a change's state, they override every other record. Each entry of open_changes carries the latest ruling about it and its fixers; a node about a change with fixers is fixing and its how names them by their work.
+- coordinator_rulings are the coordinator's decisions; where they name a blocker's fixers or a change's state, they override every other record. Each entry of open_changes carries the coordinator's last rulings about it, its owner, and its fixers; a node about a change with fixers is fixing and its how names them by their work.
 - Every change's state comes from open_changes alone (landed changes are absent from it); never call a change queued, merged or failing unless open_changes says so, and never let the headline, the chart and a work row disagree about one.
 - A change that fails only because another change or the shared code is broken is being fixed by that other change's worker: name them, never nobody.
 - One fact, one wording: a node and the work row for the same work must agree (coverage, state, next step).
@@ -177,22 +177,21 @@ def named_changes(model):
 
 
 def open_changes(model):
-    lanes = {r["lane"] for r in model["records"]} | {w["lane"] for w in model["workers"]}
     active = {w["lane"] for w in model["workers"]}
     rulings = {}
     for r in model["records"]:
         if r["lane"] in ROOT:
-            for n in PR_MENTION.findall(r["text"]):
-                rulings[int(n)] = r
+            for n in set(PR_MENTION.findall(r["text"])):
+                rulings.setdefault(int(n), []).append(r)
     changes = []
     for e in model["drive"]["prs"]:
         if e["state"] == "landed":
             continue
-        worker = (e.get("worker") or {}).get("lane") or e.get("owner")
-        ruling = rulings.get(e["number"])
-        named = sorted(lane for lane in lanes - ROOT if ruling and re.search(rf"(?<![\w-]){re.escape(lane)}(?![\w-])", ruling["text"]))
-        changes.append({"number": e["number"], "title": clip(model["prs"].get(str(e["number"]), {}).get("title", ""), 120), "state": e["state"], "worker": worker, "next": clip(e.get("next") or "", 160), "blocker": clip(e.get("blocker") or "", 160), "base": e.get("base"), "base_failing": e.get("base_failing"),
-                        "coordinator_ruling": ruling and f"{clock(at(ruling['at']))}: {clip(ruling['text'], 500)}", "fixers": named or sorted(lane for lane in active if worker and base_lane(lane) == base_lane(worker))})
+        owner = e.get("owner") or (e.get("worker") or {}).get("lane")
+        said = rulings.get(e["number"], [])[-3:]
+        named = next((found for r in reversed(said) if (found := sorted(lane for lane in active if re.search(rf"(?<![\w-]){re.escape(lane)}(?![\w-])", r["text"])))), [])
+        changes.append({"number": e["number"], "title": clip(model["prs"].get(str(e["number"]), {}).get("title", ""), 120), "state": e["state"], "owner": owner, "next": clip(e.get("next") or "", 160), "blocker": clip(e.get("blocker") or "", 160), "base": e.get("base"), "base_failing": e.get("base_failing"),
+                        "coordinator_rulings": [f"{clock(at(r['at']))}: {clip(r['text'], 500)}" for r in said], "fixers": named or sorted(lane for lane in active if owner and base_lane(lane) == base_lane(owner))})
     return changes
 
 

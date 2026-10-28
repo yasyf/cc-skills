@@ -37,14 +37,14 @@ def test_a_change_keeps_the_coordinators_ruling_after_many_later_rulings():
     facts = digest(model(), {"milestones": []}, None, T0 + dt.timedelta(minutes=30))
     [change] = facts["open_changes"]
     assert change["fixers"] == ["p8a-step5-4", "p8a-step7"]
-    assert "its fixers are p8a-step7 and p8a-step5-4" in change["coordinator_ruling"]
+    assert "its fixers are p8a-step7 and p8a-step5-4" in " ".join(change["coordinator_rulings"])
     assert not any("#43421" in r for r in facts["coordinator_rulings"])
 
 
 def test_an_active_worker_is_the_fixer_when_no_ruling_names_one():
     m = model()
     m["records"] = [r for r in m["records"] if "#43421" not in r["text"]]
-    m["drive"]["prs"][0]["worker"] = {"lane": "p8a-step7", "at": T0.isoformat()}
+    m["drive"]["prs"][0]["owner"] = "p8a-step7"
     [change] = digest(m, {"milestones": []}, None, T0)["open_changes"]
     assert change["fixers"] == ["p8a-step7"]
 
@@ -52,10 +52,21 @@ def test_an_active_worker_is_the_fixer_when_no_ruling_names_one():
 def test_a_successor_of_the_changes_worker_is_its_fixer():
     m = model()
     m["records"] = [r for r in m["records"] if "#43421" not in r["text"]]
-    m["drive"]["prs"][0]["worker"] = {"lane": "p8f-replica-6", "at": T0.isoformat()}
+    m["drive"]["prs"][0]["owner"] = "p8f-replica-6"
     m["workers"].append({"lane": "p8f-replica-7", "at": T0.isoformat(), "prs": []})
     [change] = digest(m, {"milestones": []}, None, T0)["open_changes"]
     assert change["fixers"] == ["p8f-replica-7"]
+
+
+def test_the_ledger_owner_and_active_lanes_a_ruling_names_are_the_fixers():
+    m = model()
+    m["records"] = [r for r in m["records"] if "#43421" not in r["text"]] + [record(40, "root", "#43421 was p8f-replica-3's, which finished; landing-desk-3 re-owns its row to p8a-step7.")]
+    [change] = digest(m, {"milestones": []}, None, T0)["open_changes"]
+    assert change["fixers"] == ["p8a-step7"]
+    m["records"] = m["records"][:-1]
+    m["drive"]["prs"][0]["owner"] = "p8a-step7"
+    [change] = digest(m, {"milestones": []}, None, T0)["open_changes"]
+    assert (change["owner"], change["fixers"]) == ("p8a-step7", ["p8a-step7"])
 
 
 def test_a_blocker_on_a_change_with_fixers_never_reads_no_one_assigned(tmp_path, monkeypatch):

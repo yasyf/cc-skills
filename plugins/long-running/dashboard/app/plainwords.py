@@ -5,7 +5,7 @@ import re
 LIMITS = {"headline": 25, "stuck": 18, "unblock": 16, "how": 12, "node": 10, "title": 8, "latest": 16, "story": 30, "sentence": 40, "line": 20}
 COINED = ("lane", "desk", "watchdog", "finder", "slice", "census", "fidelity", "register", "mirror", "forest", "tap row", "ci-grade", "rider", "carry", "old world", "new world", "new tree", "old tree")
 GIT_VERBS = ("restack", "rebase", "enqueue", "cherry-pick")
-VAGUE_FIX = re.compile(r"\b(?:names?|answers?|address(?:es)?|fix(?:es)?|clears?|resolves?) (?:the|its|a|each) (?:finding|review|feedback|comments?|failing tests|failures?)\b(?!['’]s| (?:that|about|on|in|where|by)\b)", re.I)
+VAGUE_FIX = re.compile(r"\b(?:names?|answers?|address(?:es)?|fix(?:es)?|clears?|resolves?|settles?|handles?) (?:the|its|a|each) (?:review hold|hold|blocker|finding|review|feedback|comments?|failing tests|failures?)\b(?!['’]s| (?:that|about|on|in|where|by)\b)", re.I)
 CHECKS = (
     ("a release or plan code", re.compile(r"\b(?:R\d{1,2}|P\d{1,2}[a-z]?|step \d+[a-z]?)\b")),
     ("a record number", re.compile(r"#1\d{5}\b|\brecords? \d{3,}|\bseq\b", re.I)),
