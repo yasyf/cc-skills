@@ -38,16 +38,39 @@ function forSince(label) {
   const iso = sinceClock(label);
   return iso ? `<small class="pg-for">${blockedFor(iso)}</small>` : '';
 }
+const named = (n) => `“${shortName(n) ?? plainTitle(n)}”`;
+const LEDGER_WORDS = [
+  [/^waits on #(\d+) below it$/, (n) => `Waits for ${named(n)} below it to land`],
+  [/^land #(\d+) first$/, (n) => `${named(n)} lands first`],
+  [/^held: a hold record covers it$/, () => 'Held by the coordinator'],
+  [/^held: (?:root cci hold: )?(.+?)(?: \(hold records[^)]*\))?$/, (why) => `Held by the coordinator: ${why}`],
+  [/^in the merge queue$/, () => 'In the merge queue'],
+  [/^green with a go, not queued$/, () => 'Approved and passing, not yet in the merge queue'],
+  [/^green, and no go names this head$/, () => 'Passing; this version is not approved yet'],
+  [/^needs a restack: the PR below it landed$/, () => 'Needs rebuilding on the change below it, which landed'],
+  [/^red on .+$/, () => 'Its tests fail'],
+  [/^fix the red build of #\d+ at \w+$/, () => 'its worker fixes the failing tests'],
+  [/^lift the hold on #\d+ or do what it waits on$/, () => 'the coordinator lifts the hold, or its worker does what the hold waits on'],
+  [/^restack #\d+ at \w+ onto its new parent/, () => 'its worker rebuilds it on the landed change'],
+  [/^root posts `go #\d+ at \w+`/, () => 'the coordinator approves this version or puts it on your board'],
+  [/^the landing desk enqueues #\d+ at \w+$/, () => 'the merge process queues it'],
+  [/^the landing desk reads why the merge queue still holds #\d+ at \w+$/, () => 'the merge process finds out why the queue still holds it'],
+];
+function ledgerWords(text) {
+  const hit = LEDGER_WORDS.find(([pattern]) => pattern.test(text));
+  if (hit) return hit[1](...text.match(hit[0]).slice(1));
+  return text.replace(/`[^`]*`/g, '').replace(/\b[0-9a-f]{7,40}\b/g, '').replace(/#(\d{4,6})\b/g, (_, n) => named(n)).replace(/\s+/g, ' ').trim();
+}
 function stackRow(n) {
   return state.model.stack.find((row) => row.pr === String(n));
 }
 function stackFacts(n) {
   const row = stackRow(n);
   if (!row) return '';
-  return `<dt>Landing stage</dt><dd>${esc(row.state)}<small class="pg-for">${blockedFor(row.since)}</small></dd><dt>Next to land it</dt><dd>${esc(row.next)}, by <a href="#/worker/${encodeURIComponent(row.owner)}">${esc(workerName(row.owner))}</a>${row.live ? '' : ', not running now'}</dd>`;
+  return `<dt>Landing stage</dt><dd>${esc(ledgerWords(row.state))}<small class="pg-for">${blockedFor(row.since)}</small></dd><dt>Next to land it</dt><dd>${esc(ledgerWords(row.next).replace(/^./, (c) => c.toUpperCase()))}, by <a href="#/worker/${encodeURIComponent(row.owner)}">${esc(workerName(row.owner))}</a>${row.live ? '' : ', not running now'}</dd>`;
 }
 function stackLine(row) {
-  return `<a class="wk-row" href="#/review/${row.pr}"><span class="wk-body"><b>${esc(shortName(row.pr) ?? plainTitle(row.pr))}</b><span class="wk-line">${row.stale ? `${dotted('Stuck', 'bad')} ` : ''}${esc(row.state)}. Next: ${esc(row.next)}.</span></span><span class="wk-side">${esc(workerName(row.owner))}${row.live ? '' : ', not running'}<br>${blockedFor(row.since)}</span></a>`;
+  return `<a class="wk-row" href="#/review/${row.pr}"><span class="wk-body"><b>${esc(shortName(row.pr) ?? plainTitle(row.pr))}</b><span class="wk-line">${row.stale ? `${dotted('Stuck', 'bad')} ` : ''}${esc(ledgerWords(row.state))}. Next, ${esc(ledgerWords(row.next))}.</span></span><span class="wk-side">${esc(workerName(row.owner))}${row.live ? '' : ', not running'}<br>${blockedFor(row.since)}</span></a>`;
 }
 function blockerNode(n) {
   return (state.model.brief?.paths ?? []).flatMap((path) => path.nodes).find((x) => String(x.change) === String(n));
