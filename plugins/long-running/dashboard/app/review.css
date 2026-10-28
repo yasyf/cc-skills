@@ -28,6 +28,7 @@ body:has(#embed:not([hidden])[data-tab="code"]) .foot { display: none; }
 }
 .pr-facts { margin: 16px 0 4px; padding: 14px 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
 .pr-facts .mr-f { margin: 0; }
+.pr-facts .mr-f + .mr-f { margin-top: 9px; }
 .review-lists { display: flex; gap: 6px; margin: 4px 0 18px; }
 .review-lists a { padding: 7px 14px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-2); font-weight: 650; }
 .review-lists a.on { background: var(--ink); border-color: var(--ink); color: var(--bg); }

@@ -278,6 +278,11 @@ function render() {
   $('#main').innerHTML = (screens[r.screen] ?? nowScreen)() + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources failed: ${esc(Object.values(m.errors).join('; '))}. ` : ''}All times Pacific.</div>`;
   decorate(r);
   paintModal();
+  if (state.shown !== location.hash) {
+    state.shown = location.hash;
+    $('#main').classList.add('enter');
+    setTimeout(() => $('#main').classList.remove('enter'), 220);
+  }
   const again = caret && [...$('#main').querySelectorAll(`[name="${caret[0]}"]`)].find((el) => (el.dataset.draft ?? '') === caret[1]);
   if (again) { again.focus(); again.setSelectionRange(caret[2], caret[3]); }
   window.scrollTo(0, y);
