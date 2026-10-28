@@ -78,7 +78,7 @@ WORK_PROMPT = PAGE_PROMPT.format(what="the Work page of a live dashboard that a 
 - Leave out any piece of work whose purpose the facts do not say. Rolling out means a deploy is running now; a change that ships with the next release is Waiting for release.
 - Name whoever acts by their job, such as "the cloud runs worker", "codex" or "the merge process", never just "a worker".
 - helpers: the workers that keep the drive running rather than build something (the merge process, board upkeep, review graders, monitors, the dashboard's own workers, release checks). One entry per job, at most eight, jobs whose latest report is a failure or waits on someone first. name: at most 6 words for the job, such as "Merge process" or "Board upkeep". latest: at most 16 words, its state now with the time, such as "Landed the cloud runs fix at 4:40 PM"; never an old failure that a later report settled.
-- pull_requests: one entry per entry of ledger_pull_requests, same number. stage: at most 14 words, what holds the change now; next: at most 12 words, who acts next and what they do. Take both from the newest of its newest_records and coordinator_rulings when they say something its ledger_stage or ledger_next does not, else put the ledger's words in plain terms. A hold names what must happen for it to lift, never "the hold" or "a dependency" alone. Name the change below by what it does, never by number. since: the Pacific clock time of the record that started this stage, or ledger_since when no newer record changed it.""")
+- pull_requests: one entry per entry of ledger_pull_requests, same number. stage: at most 14 words, what holds the change now; next: at most 12 words, who acts next and what they do. Take both from the newest of its newest_records and coordinator_rulings when they say something its ledger_stage or ledger_next does not, else put the ledger's words in plain terms. A hold names what must happen for it to lift, in the ruling's own terms, such as which release or which change landing; never "the hold", "a dependency" or "a later release" alone. A wait on another change landing first stays in stage until a record says that change landed. A worker a ruling stood down is never the one who acts next. Name the change below by what it does, never by number. since: the Pacific clock time of the record that started this stage, or ledger_since when no newer record changed it.""")
 
 HISTORY_SCHEMA = strict({
     "since": string("copy day_starts"),
@@ -207,8 +207,8 @@ def ledger_rows(model, records):
             "ledger_stage": row["state"],
             "ledger_next": row["next"],
             "ledger_since": clock(at(row["since"])),
-            "coordinator_rulings": [said(r, 300) for r in rulings.get(int(row["pr"]), [])[-2:]],
-            "newest_records": [said(r, 220) for r in mentions.get(int(row["pr"]), [])[-3:]],
+            "coordinator_rulings": [said(r, 300) for r in rulings.get(int(row["pr"]), [])[-5:]],
+            "newest_records": [said(r, 220) for r in mentions.get(int(row["pr"]), [])[-4:]],
         }
         for row in model["stack"]
     ]
