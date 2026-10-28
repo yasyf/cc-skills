@@ -125,6 +125,7 @@ Rules for every string:
 - Every change's state comes from open_changes alone (landed changes are absent from it); never call a change queued, merged or failing unless open_changes says so, and never let the headline, the chart and a work row disagree about one.
 - A change that fails only because another change or the shared code is broken is being fixed by that other change's worker: name them, never nobody.
 - One fact, one wording: a node and the work row for the same work must agree (coverage, state, next step).
+- status_paragraphs sit above your page and the owner reads them first: call each change by the same name they use, and never contradict them unless open_changes or a coordinator ruling is newer. When two changes share a subject, such as two cloud viewer changes, name each by what sets it apart.
 - Say new app and current app, never new tree or old tree; name a test by what it proves.
 - Name every thing you mention by what it does for users. Never write an unnamed reference such as "the second part", "two changes", "other work" or "their worker"; say which part, which changes, which work.
 - Keep every string from previous_brief whose facts did not change and that follows these rules, word for word; rewrite any that breaks a rule.
@@ -233,6 +234,7 @@ def digest(model, config, previous, now):
         "review_findings": [f"{clock(at(r['at']))} from {r['lane']}: {clip(r['text'], 300)}" for r in records if r["kind"] == "review" and now - at(r["at"]) <= WORDS_WINDOW and FINDING.search(r["text"])][-10:],
         "owner_words": [f"{clock(at(w['at']))}: {clip(w['title'] + ' ' + w['text'], 300)}" for w in model["words"] if now - at(w["at"]) <= WORDS_WINDOW][-12:],
         "drive_summary": {k: model["story"].get(k) for k in ("now", "users_now")},
+        "status_paragraphs": [f"{p['label']}: {p['text']}" for p in (model.get("status_now") or {}).get("paragraphs", [])],
         "previous_brief": previous and {k: previous[k] for k in SCHEMA["required"]},
         "worker_names": sorted(lanes),
     }

@@ -24,6 +24,7 @@ def model():
         "needs": [],
         "words": [],
         "story": {},
+        "status_now": {"at": T0.isoformat(), "paragraphs": [{"label": "Main work", "text": "The cloud viewer reading chats through the storage engine passed its tests and can land."}]},
     }
 
 
@@ -39,6 +40,11 @@ def test_a_change_keeps_the_coordinators_ruling_after_many_later_rulings():
     assert change["fixers"] == ["p8a-step5-4", "p8a-step7"]
     assert "its fixers are p8a-step7 and p8a-step5-4" in " ".join(change["coordinator_rulings"])
     assert not any("#43421" in r for r in facts["coordinator_rulings"])
+
+
+def test_the_writer_reads_the_status_paragraphs_the_owner_sees_above_its_page():
+    facts = digest(model(), {"milestones": []}, None, T0)
+    assert facts["status_paragraphs"] == ["Main work: The cloud viewer reading chats through the storage engine passed its tests and can land."]
 
 
 def test_an_active_worker_is_the_fixer_when_no_ruling_names_one():

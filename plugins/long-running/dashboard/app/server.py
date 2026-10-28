@@ -640,6 +640,7 @@ class Drive:
                 if fresh is None or not any(plainwords.violations(p["text"], "sentence", lanes) for p in fresh["paragraphs"]):
                     self.status_now = fresh
                     self.bump()
+                    self.curator.poke()
             time.sleep(1)
 
     def follow_code(self):
