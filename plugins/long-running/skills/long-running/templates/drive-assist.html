@@ -1,11 +1,10 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:d055f742e7cd — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:a6e0916f1e07 — do not edit; edit the source and rerun -->
 .ai { color: var(--owner); }
 html:not(.ai-on) .ai-only { display: none !important; }
-#pal { position: fixed; inset: 180px 0 0; z-index: 30; display: flex; justify-content: center; align-items: start; padding: 0 14px 14px; pointer-events: none; }
-#pal .box { pointer-events: auto; }
+#pal { margin-top: 18px; }
 #pal[hidden], #ash[hidden] { display: none; }
-#pal .box { width: min(680px, 100%); max-height: 76vh; display: flex; flex-direction: column; background: var(--surface); border-radius: 16px; box-shadow: 0 24px 60px -12px rgba(0,0,0,.45); overflow: hidden; }
+#pal .box { width: 100%; max-height: 70vh; display: flex; flex-direction: column; background: var(--surface); border-radius: 16px; box-shadow: 0 24px 60px -12px rgba(0,0,0,.45); overflow: hidden; }
 #pal input { border: 0; outline: 0; padding: 18px 20px; font: 500 18px var(--sans); background: transparent; color: var(--ink); border-bottom: 1px solid var(--line); }
 #pal .list { overflow-y: auto; padding: 6px 0 10px; }
 #pal .gh { padding: 10px 20px 4px; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); }
@@ -63,9 +62,10 @@ html:not(.ai-on) .ai-only { display: none !important; }
   .as-nl .acts .btn { flex: 1; }
 }
 </style>
-<div id="pal" hidden><div class="box"><input id="pal-q" placeholder="Jump to a change, a part of the plan, a piece of work, or ask a question" autocomplete="off" spellcheck="false"><div id="pal-ans" class="ans" hidden></div><div id="pal-list" class="list"></div><div class="foot"><span><kbd>Up</kbd> <kbd>Down</kbd> to move</span><span><kbd>Enter</kbd> to open</span><span class="ai-only"><kbd>Tab</kbd> to ask the assistant</span><button class="palx" type="button" data-pal-close><kbd>Esc</kbd> to close</button></div></div></div>
+<div id="pal" hidden><div class="box"><input id="pal-q" name="jump" placeholder="Jump to a change, a part of the plan, a piece of work, or ask a question" autocomplete="off" spellcheck="false"><div id="pal-ans" class="ans" hidden></div><div id="pal-list" class="list"></div><div class="foot"><span><kbd>Up</kbd> <kbd>Down</kbd> to move</span><span><kbd>Enter</kbd> to open</span><span class="ai-only"><kbd>Tab</kbd> to ask the assistant</span><button class="palx" type="button" data-pal-close><kbd>Esc</kbd> to close</button></div></div></div>
 <aside id="ash" hidden></aside>
 <script>
+const PAL=document.getElementById("pal");
 (()=>{
 const META={rev:0};
 const SLUG="drive-dashboard";
@@ -484,9 +484,9 @@ function needsYou(){
 }
 
 function decorate(r){
- if(r.screen==="jump"){if(document.getElementById("pal").hidden)showPal()}else closePal();
  const top=document.querySelector(".top");
  const main=document.getElementById("main");
+ if(r.screen==="jump"){main.querySelector(".pg").append(PAL);if(PAL.hidden)showPal()}else{if(PAL.parentElement!==document.body)document.body.append(PAL);closePal()}
  if(r.screen==="timeline"&&r.id!=="hour")main.querySelector(".filters")?.insertAdjacentHTML("beforebegin",narration());
  main.querySelectorAll("[data-assist-pr]").forEach(n=>{const k=prKey(n.dataset.assistPr);n.insertAdjacentHTML("afterend",ai[k]?aiBox(k,"In plain words"):`<button class="aibtn ai-only" data-sum-pr="${n.dataset.assistPr}">✦ Explain it in plain words</button>`)});
  main.querySelectorAll("[data-assist-stack]").forEach(n=>{const g=n.dataset.assistStack,k=stackKey(g);n.insertAdjacentHTML("beforeend",ai[k]?"":` <button class="aibtn ai-only" data-sum-stack="${esc(g)}">✦ Summarize the stack</button>`);if(ai[k])n.insertAdjacentHTML("afterend",aiBox(k,"The stack in plain words"))});
@@ -617,13 +617,13 @@ function results(raw){
 }
 function openPal(){location.hash="#/jump"}
 function showPal(){
- document.getElementById("pal").hidden=false;
+ PAL.hidden=false;
  const input=document.getElementById("pal-q");
  input.value="";input.focus();
  document.getElementById("pal-ans").hidden=true;
  paintPal();
 }
-function closePal(){document.getElementById("pal").hidden=true;pal.busy=null}
+function closePal(){PAL.hidden=true;pal.busy=null}
 function leavePal(){location.hash="#/"}
 function paintPal(){
  const {items,q}=results(document.getElementById("pal-q").value);
@@ -675,7 +675,7 @@ function paintSheet(){
 }
 
 document.addEventListener("keydown",e=>{
- const palOpen=!document.getElementById("pal").hidden;
+ const palOpen=!PAL.hidden;
  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){e.preventDefault();palOpen?leavePal():openPal();return}
  if(!palOpen&&e.key==="/"&&!e.target.closest("input,textarea")){e.preventDefault();openPal();return}
  if(!palOpen){if(e.key==="Escape"&&sheet){sheet=null;paintSheet()}return}
@@ -688,7 +688,7 @@ document.addEventListener("keydown",e=>{
 },true);
 document.getElementById("pal-q").addEventListener("input",()=>{pal.i=0;document.getElementById("pal-ans").hidden=true;paintPal()});
 document.getElementById("pal-list").addEventListener("click",e=>{const it=e.target.closest("[data-i]");if(it)pick(Number(it.dataset.i))});
-document.getElementById("pal").addEventListener("click",e=>{const c=e.target.closest("[data-carry]");if(c){closePal();setTimeout(()=>ask(c.dataset.carry),0)}else if(e.target.id==="pal"||e.target.closest("[data-pal-close]"))leavePal()});
+PAL.addEventListener("click",e=>{const c=e.target.closest("[data-carry]");if(c){closePal();setTimeout(()=>ask(c.dataset.carry),0)}else if(e.target.id==="pal"||e.target.closest("[data-pal-close]"))leavePal()});
 document.addEventListener("click",e=>{
  const t=e.target;
  if(t.closest("[data-unsheet]")){sheet=null;paintSheet();return}
