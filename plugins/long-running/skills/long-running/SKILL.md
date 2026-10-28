@@ -1620,7 +1620,7 @@ carries its grade, below) is that gate's record there, and nobody re-grades it.
 
 **The landing desk hears the landing runner's routine records.** When
 `landing.desk_lane` in `runner.json` names a lane, one or a list, the runner's
-`QUEUED`, `LANDED`, `TAP-CARRIED`, `MERGE-ASK` and `BELOW-BLOCKED` records go to that
+`QUEUED`, `LANDED`, `TAP-CARRIED`, `MERGE-ASK`, `BELOW-BLOCKED` and `FORK-DEFERRED` records go to that
 lane, each `landing.board_lane`, and the PR's owning lane, each read as its live
 successor, and not to root. A `GO-UNQUEUED` for a PR, or a `LANE-GONE` for a lane, goes to
 root the first time and to those lanes after. Without `landing.desk_lane` they go to root.

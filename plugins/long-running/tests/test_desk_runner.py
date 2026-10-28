@@ -10403,3 +10403,20 @@ def test_with_a_desk_lane_only_the_first_go_unqueued_for_a_pr_reaches_root(shell
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert heard(shell, "GO-UNQUEUED") == ["root", f"{DESK},{LANE}"]
+
+
+def test_with_a_desk_lane_a_fork_deferred_batch_skips_root(shell, config, tmp_path):
+    merge_mode(config, "every")
+    desk_lane(config)
+    heads, green, queued = five_pr_fork(shell)
+    shell.gates["31003"] = [gate(*green.values()), gate(green["31001"], green["31002"], green["31003"], would="#31001 #31002 #31003")]
+    for pr in ("31001", "31002", "31003"):
+        grade(shell, pr, f"ok F307 at {heads[pr][:7]}.")
+    landing_pass(shell, config)
+    for pr in ("31004", "31005"):
+        grade(shell, pr, f"ok F307 at {heads[pr][:7]}.")
+    shell.gates["31003"] = [gate(*queued.values(), green["31004"], green["31005"])]
+    shell.gates["31003 31005"] = [gate(*queued.values(), green["31004"], green["31005"], would="#31004 #31005")]
+    landing_pass(shell, config)
+    [to] = heard(shell, "FORK-DEFERRED")
+    assert to.split(",")[0] == DESK and "root" not in to.split(",")
