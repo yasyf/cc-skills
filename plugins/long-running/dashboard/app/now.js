@@ -124,7 +124,11 @@ function unfinished(path) {
 function blockers(b) {
   const paths = b.paths.map(unfinished).filter((p) => p.nodes.length);
   if (!paths.length) return `<div class="nw-calm"><span class="ok">✓</span>${esc(b.calm || 'Nothing is stuck.')}</div>`;
-  return view('blockers') === 'cards' ? cards(paths) : `<div class="nw-chart">${paths.map(chart).join('')}</div>`;
+  return view('blockers') === 'cards' ? cards(paths) : `<div class="nw-chart">${chart(paths[0], 0)}${paths.slice(1).map(laterPath).join('')}</div>`;
+}
+function laterPath(path) {
+  const you = path.nodes.filter((n) => n.state === 'you').length;
+  return `<a class="nw-later" href="#/plan/m${path.milestone}"><span class="plab">To ${esc(state.model.milestones[path.milestone] ?? 'a later milestone')}</span>${path.nodes.length} more in the way${you ? `, ${you} waiting on you` : ''} ›</a>`;
 }
 function depthOf(path) {
   const out = new Map(path.nodes.map((n) => [n.id, []]));
@@ -148,9 +152,10 @@ function chart(path, index) {
   const name = state.model.milestones[path.milestone] ?? 'the next milestone';
   const key = `p${index}`;
   const edges = [...[...out].flatMap(([from, tos]) => tos.map((to) => [from, to])), ...path.nodes.filter((n) => !out.get(n.id).length).map((n) => [n.id, '@goal'])];
-  return `<div class="nw-path" data-path="${key}" data-edges="${esc(JSON.stringify(edges))}" style="grid-template-columns:repeat(${layers.length}, minmax(0, 1fr)) 92px"><svg class="arrows" aria-hidden="true"></svg>
+  return `<div class="nw-path" data-path="${key}" data-edges="${esc(JSON.stringify(edges))}"><svg class="arrows" aria-hidden="true"></svg>
+    <p class="plab">To ${esc(name)}</p>
     ${layers.map((d) => `<div class="layer">${path.nodes.filter((n) => depth.get(n.id) === d).map((n) => node(n, key)).join('')}</div>`).join('')}
-    <div class="layer goal-col"><div class="nd goal" data-node="${key}:@goal">${esc(name)}</div></div></div>`;
+    <div class="layer"><div class="nd goal" data-node="${key}:@goal"><span class="w">Then</span>${esc(name)}</div></div></div>`;
 }
 function node(n, key) {
   const work = n.item && workItem(n.item);
@@ -178,16 +183,10 @@ function drawArrows() {
     const lines = JSON.parse(box.dataset.edges).map(([from, to]) => {
       const a = at(from), b = at(to);
       if (!a || !b) return '';
-      const x2 = b.left - origin.left - 2, y2 = b.top + b.height / 2 - origin.top;
-      const blocked = [...box.querySelectorAll('.nd')].some((n) => { const r = n.getBoundingClientRect(); return r.left > a.right - 1 && r.right < b.left + 1 && r.top < a.bottom && r.bottom > a.top; });
-      if (blocked) {
-        const x1 = a.left + a.width / 2 - origin.left, y1 = a.bottom - origin.top;
-        const low = Math.max(y1, b.bottom - origin.top) + 9;
-        return `<path d="M${x1} ${y1} L${x1} ${low - 6} Q${x1} ${low} ${x1 + 6} ${low} L${x2 - 14} ${low} Q${x2 - 8} ${low} ${x2 - 8} ${low - 6} L${x2 - 8} ${y2 + 6} Q${x2 - 8} ${y2} ${x2} ${y2}" marker-end="url(#nw-head)"/>`;
-      }
-      const x1 = a.right - origin.left, y1 = a.top + a.height / 2 - origin.top;
-      const mid = (x1 + x2) / 2;
-      return `<path d="M${x1} ${y1} C${mid} ${y1} ${mid} ${y2} ${x2} ${y2}" marker-end="url(#nw-head)"/>`;
+      const x1 = a.left + a.width / 2 - origin.left, y1 = a.bottom - origin.top;
+      const x2 = Math.min(Math.max(x1, b.left - origin.left + 16), b.right - origin.left - 16), y2 = b.top - origin.top - 1;
+      const mid = (y1 + y2) / 2;
+      return `<path d="M${x1} ${y1} C${x1} ${mid} ${x2} ${mid} ${x2} ${y2}" marker-end="url(#nw-head)"/>`;
     }).join('');
     svg.innerHTML = `<defs><marker id="nw-head" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z"/></marker></defs>${lines}`;
   }
@@ -246,7 +245,7 @@ function storyBody(item) {
   const latest = lines[0];
   const shown = story.open ? lines : lines.slice(0, 3);
   const hidden = lines.length - shown.length;
-  return `<div class="nw-storyhead"><h3>${esc(w.title)}</h3>${w.goal ? `<p class="goal">${esc(w.goal)}</p>` : ''}<p class="meta"><span class="chip ${slug(w.status)}">${esc(w.status)}</span>${esc(waited(w.since))}</p><p class="now"><b>Now</b>${esc(latest ? latest.line : w.latest)}</p>
+  return `<div class="nw-storyhead"><h3>${esc(w.title)}</h3>${w.goal ? `<p class="goal">${esc(w.goal)}</p>` : ''}<p class="meta"><span class="chip ${slug(w.status)}">${esc(w.status)}</span> <span>${esc(waited(w.since))}</span></p><p class="now"><b>Now</b>${esc(latest ? latest.line : w.latest)}</p>
     ${latest ? `<p class="nw-sub"><i></i>Latest update ${esc(latest.at)} · new lines appear as it works</p>` : ''}</div>
     ${story.status ? `<p class="catching">${/^(Catching|Opening)/.test(story.status) ? '<i></i>' : ''}${esc(story.status)}</p>` : ''}
     ${story.draft ? `<div class="beat draft"><span class="t"></span><span class="ln">${esc(story.draft)}<i class="cursor"></i></span></div>` : ''}
