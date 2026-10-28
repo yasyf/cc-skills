@@ -166,3 +166,13 @@ h2.sec a { margin-left: auto; font: 600 13px var(--sans); }
 #cardembed { bottom: auto; max-height: calc(100vh - 84px); }
 @media (max-width: 1420px) { .top { gap: 12px; } #kbtn { width: auto; min-width: 0; } #kbtn > span { display: none; } }
 body:has(#pal:not([hidden])) .foot { display: none; }
+#modal-root .ms-sheet { max-width: 760px; }
+#modal-root .ms-sheet .pg-back { display: none; }
+#modal-root .ms-sheet .pg-page { padding: 0; }
+#modal-root .ms-out { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+#modal-root .overlay { animation: modal-fade .14s ease-out; }
+#modal-root .sheet { animation: modal-rise .18s ease-out; }
+body.modal-open { overflow: hidden; }
+@keyframes modal-fade { from { opacity: 0; } }
+@keyframes modal-rise { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) { #modal-root .overlay, #modal-root .sheet { animation: none; } }
