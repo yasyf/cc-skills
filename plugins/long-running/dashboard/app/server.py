@@ -561,9 +561,8 @@ class Drive:
             return tuple({record["lane"] for record in self.records})
 
     def worker_reports(self, workers):
-        bases = {re.sub(r"-\d+$", "", lane) for lane in workers}
         with self.lock:
-            mine = [r for r in self.records if re.sub(r"-\d+$", "", r["lane"]) in bases and r["kind"] not in ("state", "review")]
+            mine = next((found for lane in workers if (found := [r for r in self.records if re.sub(r"-\d+$", "", r["lane"]) == re.sub(r"-\d+$", "", lane) and r["kind"] not in ("state", "review")])), [])
         return [f"[{dt.datetime.fromisoformat(r['at'].replace('Z', '+00:00')).astimezone(PACIFIC).strftime('%-I:%M %p')}] {r['kind']}: {r['text'][:600]}" for r in mine[-12:]]
 
     def follow_mirror(self):

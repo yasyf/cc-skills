@@ -134,9 +134,12 @@ string he flagged to `tests/test_plainwords.py`.
 Clicking a piece of work opens its story at `#/story/<item>`. The server starts one
 story writer per piece of work on the first view:
 
-1. It finds the newest transcript whose name carries one of the work's workers, so a
-   worker's successor continues the same story.
-2. It sends the last 30 minutes of that transcript and asks for three to five lines.
+1. It finds the newest transcript of the first worker listed for the work that has one,
+   so a worker's successor continues the same story. List the work's own worker first, so a
+   shared helper listed after it never lends the story its other work.
+2. It sends the last 30 minutes of that transcript and asks for three to five lines. A
+   transcript older than two hours gives way to the last twelve records of that same
+   first worker, and the work's latest word comes from that worker's open changes.
 3. It watches the file for writes and sends new events when the worker says something,
    a tool fails, or it pushes, opens a pull request, or posts a record.
 4. Each line passes the plain-words gate before it is saved and shown.
