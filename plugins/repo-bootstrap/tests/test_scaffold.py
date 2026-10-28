@@ -27,9 +27,9 @@ DATE = datetime.date(2026, 6, 8)
 
 CASK_DEQUARANTINE_GATE = (
     'run "/usr/bin/codesign", args: ["--verify", "--strict", '
-    '"-R=anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] '
+    "'-R=anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] "
     "and certificate leaf[field.1.2.840.113635.100.6.1.13] "
-    'and certificate leaf[subject.OU] = \\"SXKCTF23Q2\\"", "--", "{{ "{{staged_path}}" }}/codex-ask"]'
+    """and certificate leaf[subject.OU] = "SXKCTF23Q2"', "--", "{{ "{{staged_path}}" }}/codex-ask"]"""
 )
 CASK_DEQUARANTINE_STRIP = (
     'run "/usr/bin/xattr", args: ["-d", "com.apple.quarantine", "{{ "{{staged_path}}" }}/codex-ask"], '
