@@ -39,7 +39,9 @@ body:has(.nw) { background: #080a0d; }
 .nw-journey { display: grid; grid-template-columns: repeat(var(--n), 1fr); position: relative; margin: 2px 0 0; }
 .nw-journey::before { content: ""; position: absolute; left: calc(50% / var(--n)); right: calc(50% / var(--n)); top: 7px; height: 2px; background: var(--line2); }
 .nw-journey .fill { position: absolute; left: calc(50% / var(--n)); top: 7px; height: 2px; background: var(--done); }
-.nw-journey .ms { text-align: center; position: relative; padding: 0 6px; display: flex; flex-direction: column; align-items: center; }
+.nw-journey .ms { text-align: center; position: relative; padding: 0 6px; display: flex; flex-direction: column; align-items: center; color: var(--ink); }
+.nw-journey a.ms:hover { text-decoration: none; }
+.nw-journey a.ms:hover .nm { color: var(--doing); }
 .nw-journey .dot { width: 16px; height: 16px; border-radius: 50%; margin-bottom: 6px; border: 2px solid var(--ink3); background: var(--bg); position: relative; z-index: 1; }
 .nw-journey .ms-live .dot { background: var(--done); border-color: var(--done); }
 .nw-journey .ms-progress .dot { border-color: var(--doing); background: radial-gradient(var(--doing) 35%, var(--bg) 42%); }
@@ -60,8 +62,8 @@ body:has(.nw) { background: #080a0d; }
 .nw-line { margin: 3px 0 0; }
 .nw-line.ms-paused { color: var(--you); } .nw-line.ms-broken { color: var(--bad); }
 .nw-seg { display: grid; grid-auto-flow: column; gap: 3px; margin-bottom: 8px; }
-.nw-seg i { height: 6px; border-radius: 3px; background: var(--line2); }
-.nw-seg i.ms-live { background: var(--done); } .nw-seg i.ms-progress, .nw-seg i.ms-next { background: var(--doing); } .nw-seg i.ms-paused { background: var(--you); } .nw-seg i.ms-broken { background: var(--bad); }
+.nw-seg a { height: 6px; border-radius: 3px; background: var(--line2); }
+.nw-seg a.ms-live { background: var(--done); } .nw-seg a.ms-progress, .nw-seg a.ms-next { background: var(--doing); } .nw-seg a.ms-paused { background: var(--you); } .nw-seg a.ms-broken { background: var(--bad); }
 
 .nw-cols { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(360px, 1fr); gap: 18px; align-items: start; }
 .nw-cols section { margin: 0; }

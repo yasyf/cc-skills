@@ -9,6 +9,7 @@ from playwright.sync_api import sync_playwright
 
 APP = Path(__file__).resolve().parents[1] / "dashboard" / "app"
 MODEL = Path(__file__).resolve().parent / "fixtures" / "now-model.json"
+ASSIST = APP.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
 LAPTOP = {"width": 1440, "height": 900}
 STORY = {"type": "saved", "status": None, "draft": None, "lines": [{"type": "line", "at": "7:20 PM", "mark": "progress", "line": "Three files still use the deleted store; the reader change removes them."}, {"type": "line", "at": "6:02 PM", "mark": "finding", "line": "The build fails in 41 packages."}]}
 
@@ -19,6 +20,8 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
+        if path == "/":
+            return self.reply((APP / "index.html").read_text().replace("</body>", ASSIST.read_text() + "</body>").encode(), "text/html")
         if path == "/api/model":
             return self.reply(MODEL.read_bytes(), "application/json")
         if path.startswith("/api/story/"):
@@ -110,3 +113,9 @@ def test_a_storys_now_line_is_its_newest_update(page):
     page.goto(page.url.split("#")[0] + f"#/story/{item}")
     page.wait_for_selector(".nw-storyhead .nw-sub")
     assert "Three files still use the deleted store" in page.locator(".nw-storyhead .now").inner_text()
+
+
+def test_every_milestone_links_to_its_own_page(page):
+    now(page)
+    hrefs = page.locator(".nw-journey a.ms").evaluate_all("(links) => links.map((a) => a.getAttribute('href'))")
+    assert hrefs == [f"#/plan/m{i}" for i in range(len(json.loads(MODEL.read_text())["milestones"]))]

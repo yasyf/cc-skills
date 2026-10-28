@@ -84,7 +84,7 @@ function journey(b) {
   const cur = list.findIndex((s) => s.state === 'next');
   const fill = lastLive > 0 ? (lastLive / list.length) * 100 : 0;
   return `<div class="nw-panel">
-    <div class="nw-journey" style="--n:${list.length}"><i class="fill" style="width:${fill}%"></i>${list.map((s, i) => `<div class="ms ms-${s.state}${i === cur ? ' cur' : ''}"><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.why ? `<span class="why">${esc(s.why)}</span>` : ''}</div>`).join('')}</div>
+    <div class="nw-journey" style="--n:${list.length}"><i class="fill" style="width:${fill}%"></i>${list.map((s, i) => `<a class="ms ms-${s.state}${i === cur ? ' cur' : ''}" href="#/plan/m${i}"><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.why ? `<span class="why">${esc(s.why)}</span>` : ''}</a>`).join('')}</div>
     </div>`;
 }
 function compact(b) {
@@ -92,7 +92,7 @@ function compact(b) {
   const live = list.filter((s) => s.state === 'live');
   const next = list.find((s) => s.state === 'next');
   const odd = list.filter((s) => ['paused', 'broken'].includes(s.state));
-  return `<div class="nw-panel"><div class="nw-seg">${list.map((s) => `<i class="ms-${s.state}" title="${esc(`${s.name}: ${s.label}`)}"></i>`).join('')}</div>
+  return `<div class="nw-panel"><div class="nw-seg">${list.map((s, i) => `<a class="ms-${s.state}" href="#/plan/m${i}" title="${esc(`${s.name}: ${s.label}`)}"></a>`).join('')}</div>
     <p class="nw-sent"><b>${live.length} of ${list.length} milestones live</b>${live.length ? `: ${esc(live.map((s) => s.name).join(', '))}` : ''}.</p>
     ${next ? `<p class="nw-line">Next: <b>${esc(next.name)}</b>${next.why ? `, ${esc(next.why)}` : ''}.</p>` : ''}
     ${odd.map((s) => `<p class="nw-line ms-${s.state}">${esc(s.name)}: ${esc(s.label)}${s.why ? `, ${esc(s.why)}` : ''}.</p>`).join('')}
