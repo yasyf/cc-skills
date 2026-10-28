@@ -38,6 +38,8 @@ TIMELINE_WINDOW = dt.timedelta(hours=24)
 LEDGER_KINDS = {"landed", "go", "opened", "head", "hold", "lift"}
 LIVE_SOURCES = ["cc-present store: taps and questions", "cci bus: records and workers", "drive ledger in cc-notes: pull request states, re-read on every landing, go, head, opened, hold or lift record", "progress-desk steps.json: the step rows"]
 REBUILD_AFTER = 2.0
+WORD_BYSTANDERS = ("dashboard", "register", "cc-present", "desk-runner")
+PR_WORD = re.compile(r"#(\d{5})(?!\d)")
 SLOW_REFRESH = 300
 PLAN_HEADING = "\n## Ordered plan of action"
 PLAN_ITEM = re.compile(r"^\d+\. (.+)$")
@@ -525,6 +527,7 @@ class Drive:
         self.lock = threading.Lock()
         self.changed = threading.Condition(self.lock)
         self.records = deque(maxlen=4000)
+        self.latest_words = {}
         self.version = 0
         self.model = {}
         self.slow = {}
@@ -646,8 +649,22 @@ class Drive:
                 return found
             after = page[-1]["seq"]
 
+    def note_word(self, record):
+        if record["lane"].startswith(WORD_BYSTANDERS):
+            return
+        refs = {re.search(r"(\d+)$", str(ref))[1] for ref in (record.get("refs") or {}).get("prs") or []}
+        with self.lock:
+            for number in refs | set(PR_WORD.findall(record["text"])):
+                self.latest_words[number] = {k: record[k] for k in ("seq", "at", "lane", "kind")}
+
+    def words(self):
+        with self.lock:
+            return dict(self.latest_words)
+
     def load_records(self):
         self.records.extend(self.fetch(TIMELINE_KINDS, dt.datetime.now(dt.timezone.utc) - TIMELINE_WINDOW))
+        for record in self.records:
+            self.note_word(record)
         return self.records[-1]["seq"] if self.records else 0
 
     def follow_records(self, after):
@@ -661,6 +678,7 @@ class Drive:
                             record = json.loads(line[6:])
                             after = record["seq"]
                             self.note_go(record)
+                            self.note_word(record)
                             with self.lock:
                                 self.records.append(record)
                             self.touch(slow=record["kind"] in LEDGER_KINDS)
@@ -868,6 +886,7 @@ class Drive:
             "stack": json.loads(Path(self.config["stack"]).read_text())["prs"],
             "status_table": Path(self.config["status_table"]).read_text(),
             "register_log": "register" in self.config,
+            "latest_words": self.words(),
             "pages": {name: curator.brief for name, curator in self.pages.items()},
             "milestones": [m["name"] for m in self.config["milestones"]],
             "milestones_label": self.config["milestones_label"],

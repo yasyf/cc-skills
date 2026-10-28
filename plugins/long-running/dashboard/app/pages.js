@@ -84,8 +84,7 @@ function prTruth(n) {
   return { blocks: e?.blocker ?? '', next: e?.next ?? '', since: null };
 }
 function latestWord(n) {
-  const mention = new RegExp(`#${n}(?!\\d)`);
-  return state.model.records.findLast((r) => !/^(dashboard|register|cc-present|desk-runner|stall-watch)/.test(r.lane) && ((r.refs?.prs ?? []).some((p) => String(p).replace(/.*#/, '') === String(n)) || mention.test(r.text)));
+  return state.model.latest_words[n] ?? null;
 }
 function workWord(item) {
   const lanes = workItem(item)?.workers ?? [];

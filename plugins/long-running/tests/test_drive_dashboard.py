@@ -744,3 +744,11 @@ def test_a_go_the_coordinator_withdraws_stops_counting_as_a_ci_fix():
     drive.note_go({"kind": "go", "lane": "root", "text": "go #44087 at 1a2b3c4 CI fix: new-tree test repair", "refs": {}})
     drive.note_go({"kind": "decide", "lane": "root", "text": "landing-desk-3 is right; go #161978 on #44087 is withdrawn: every new-tree fix goes to his tap.", "refs": {"prs": ["pr:Forge-AI/monorepo#44087"]}})
     assert (drive.gos, drive.ci_fixes) == ({}, set())
+
+
+def test_a_pull_requests_latest_word_is_the_newest_record_naming_it_outside_the_dashboard_lanes():
+    drive = Drive({"board_url": "http://board/p/x"}, None)
+    drive.note_word({"seq": 1, "at": "2026-10-28T15:01:23Z", "lane": "stall-watch", "kind": "blocker", "text": "#43876 at e00b045 waits on the owner's tap", "refs": {}})
+    drive.note_word({"seq": 2, "at": "2026-10-28T15:02:00Z", "lane": "dashboard-user-test-2", "kind": "report", "text": "#43876 row is stale", "refs": {}})
+    drive.note_word({"seq": 3, "at": "2026-10-28T15:03:00Z", "lane": "root", "kind": "decide", "text": "go #161978 is withdrawn", "refs": {"prs": ["pr:Forge-AI/monorepo#44087"]}})
+    assert {n: w["seq"] for n, w in drive.words().items()} == {"43876": 1, "44087": 3}
