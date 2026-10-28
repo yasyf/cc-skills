@@ -7622,6 +7622,16 @@ def test_a_fresh_order_a_fresh_spawn_or_a_report_the_root_settled_logs_no_lane_g
     assert not [line for line in escalations(shell) if line.startswith("LANE-GONE")]
 
 
+@pytest.mark.parametrize("lane", ["stall-watch", "prompt-watch"])
+def test_a_root_order_to_a_runner_child_pass_logs_no_lane_gone(shell, config, tmp_path, lane):
+    cci_record(shell, lane=lane, kind="urgent", to=["root"], text="STALE #29020 at cccc333, 130 min: held", at=actions.stamp(shell.clock - timedelta(minutes=40)))
+    cci_record(shell, kind="note", to=[lane], text="closing the stale alarms on #29020", at=actions.stamp(shell.clock - timedelta(minutes=30)))
+    shell.gone.add(lane)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert not [line for line in escalations(shell) if line.startswith("LANE-GONE")]
+
+
 def test_a_lane_cci_lists_under_another_lane_by_its_agent_name_is_not_gone(shell, config, tmp_path):
     cci_record(shell, lane="p8-lane", kind="head", text="HEAD #29020 cccc333333", at=actions.stamp(shell.clock - timedelta(minutes=40)))
     cci_record(shell, kind="decide", to=["p8-lane"], text="p8-lane: rebase onto the new seed", at=actions.stamp(shell.clock - timedelta(minutes=30)))
