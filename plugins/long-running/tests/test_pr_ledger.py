@@ -5,7 +5,9 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from captain_hook.context import HookContext
 from captain_hook.events import PostToolUseEvent
+from captain_hook.snapshots.client import EvidenceIncomplete
 from captain_hook.testing.helpers import build_context
 
 from hooks.tests.ledger_fixtures import FIXTURES
@@ -68,6 +70,48 @@ def test_an_unnamed_subagent_records_under_its_nearest_named_parent(tmp_path):
     (subagents / "agent-a3d0ef77.jsonl").write_text("")
 
     assert lane_name(event(tmp_path, "a3d0ef77")) == "release-fix"
+
+
+IN_PROCESS_LANE = "ap8a-step5-5-e7b153ce1ea9184c"
+
+
+def in_process_lane_with_unloadable_transcript(tmp_path, monkeypatch) -> PostToolUseEvent:
+    lanes = tmp_path / SESSION / "subagents"
+    lanes.mkdir(parents=True)
+    (lanes / f"agent-{IN_PROCESS_LANE}.meta.json").write_text(
+        json.dumps({"name": "p8a-step5-5", "agentType": "p8a-step5-5", "taskKind": "in_process_teammate", "spawnedAgentType": "long-running:lane-ship"})
+    )
+    evt = event(tmp_path, IN_PROCESS_LANE)
+
+    def deadline(self):
+        raise EvidenceIncomplete("deadline", "foreground transcript deadline exhausted")
+
+    monkeypatch.setattr(HookContext, "t", property(deadline))
+    return evt
+
+
+def test_an_in_process_lane_is_named_without_loading_its_transcript(tmp_path, monkeypatch):
+    monkeypatch.delenv("CLAUDE_LONG_RUNNING_LANE", raising=False)
+
+    assert lane_name(in_process_lane_with_unloadable_transcript(tmp_path, monkeypatch)) == "p8a-step5-5"
+
+
+def test_a_pr_an_in_process_lane_shipped_registers_under_that_lane_without_a_warning(tmp_path, monkeypatch):
+    from hooks import pr_ledger
+
+    monkeypatch.delenv("CLAUDE_LONG_RUNNING_LANE", raising=False)
+    calls = []
+
+    def record(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "registered p8a-step5-5 #28534", "")
+
+    monkeypatch.setattr(pr_ledger.subprocess, "run", record)
+    evt = in_process_lane_with_unloadable_transcript(tmp_path, monkeypatch)
+    evt._raw["tool_response"] = (FIXTURES / "ccx-ship-gt.txt").read_text()
+
+    assert pr_ledger.record_opened_prs(evt) is None
+    assert calls[0][calls[0].index("--lane") + 1] == "p8a-step5-5"
 
 
 def test_an_unnamed_session_falls_back_to_its_lane_env_then_the_root_lane(tmp_path, monkeypatch):
