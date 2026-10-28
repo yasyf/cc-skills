@@ -147,7 +147,7 @@ a.pg-row:hover .pg-cells > b { color: var(--accent); }
 .pg-h h1 { background: linear-gradient(180deg, #ffffff 30%, #b9c4d2); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .pg-sec h2::after { content: ""; flex: 1; align-self: center; height: 1px; margin-left: 4px; background: linear-gradient(90deg, var(--line), transparent 70%); }
 .pg-n { padding: 0 6px; border-radius: 999px; background: var(--surface-3); color: var(--ink-2); font-size: 10.5px; line-height: 1.6; }
-.pg-state { gap: 6px; box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 22%, transparent); }
+.pg-state { gap: 6px; box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 12%, transparent); }
 .pg-state::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .pg-state.ok::before { width: 7px; height: 4px; border-radius: 0; background: none; border-left: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateY(-1px) rotate(-45deg); }
 .pg-state.acc::before { animation: pg-pulse 1.8s ease-out infinite; }
