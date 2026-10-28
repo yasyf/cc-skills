@@ -202,7 +202,7 @@ OVERZEALOUS = [
 INCIDENT_WINDOW = timedelta(hours=6)
 INCIDENT_STORE = [sys.executable, str(script("actions.py")), "list", "--json"]
 INCIDENT_DIGEST = ["cci", "digest", "--json", "--since", "6h", "--budget", "4000000"]
-INCIDENT_CLOSEOUT = ["cci", "grep", r"->\s\S+\s(re\s#[0-9]+\s)?(FIX-LIVE|Incident\sclosed)", "--ignore-case=false", "--lane", "root", "--json", "-n", "1", "--since", "6h"]
+INCIDENT_CLOSEOUT = ["cci", "grep", "--ignore-case=false", "--lane", "root", "--json", "-n", "1", "--since", "6h", "--", r"->\s\S+\s(re\s#[0-9]+\s)?(FIX-LIVE|Incident\sclosed)"]
 SETTLED_INCIDENT = ("closed", "recovered")
 INCIDENT_SOURCE_TIMEOUT_SECONDS = 10
 PLAN_MODE_IN_INCIDENT = (
