@@ -31,6 +31,7 @@ TRIGGERS = (
 TOKEN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*|[?.!,;:\n]")
 SLACK_MESSAGE = re.compile(r'<channel source="plugin:cc-slack:cc-slack"[^>]*type="slack\.message">\s*(?P<payload>\{.*\})\s*</channel>', re.DOTALL)
 OPERATOR = "U05FTPXU8PP"
+FALLBACK_POST = "_(Yasyf's Claude)_"
 PASTED_IMAGE = re.compile(r"\[Image #\d+\]")
 ENDS = frozenset({"?", ".", "!", ",", ";", ":", "\n", "and", "or", "but", "wtf"})
 LEADING = frozenset({"a", "an", "the", "this", "that", "these", "those"})
@@ -233,7 +234,7 @@ def slack_dms(evt: BaseHookEvent) -> list[dict]:
             "text": message["text"],
         }
         for message in messages
-        if message["kind"] == "dm" and message["user"] == OPERATOR and not message["from_claude"]
+        if message["kind"] == "dm" and message["user"] == OPERATOR and not message["from_claude"] and not message["text"].startswith(FALLBACK_POST)
     ]
 
 
