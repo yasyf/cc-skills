@@ -663,9 +663,9 @@ class Drive:
             return dict(self.latest_words)
 
     def note_evidence(self, record):
-        if record["kind"] != "evidence":
+        attrs = (record.get("fields") or {}).get("attrs") or {}
+        if record["kind"] != "evidence" or "state" not in attrs:
             return
-        attrs = record["fields"]["attrs"]
         with self.lock:
             for number in (record.get("refs") or {}).get("prs") or []:
                 self.evidence[str(number)] = {"state": attrs["state"], "owner": attrs["owner"], "since": attrs["since"], "next": attrs.get("next", ""), "at": record["at"], "seq": record["seq"]}
