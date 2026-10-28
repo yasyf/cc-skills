@@ -156,18 +156,12 @@ function partPage(part) {
   ]);
 }
 function statusScreen() {
-  const p = curated('plan');
-  if (!p) return writing('Status');
   const m = state.model;
-  const order = { stuck: 0, you: 1, waiting: 2, doing: 3, later: 4, done: 5 };
-  const parts = [...p.parts].sort((a, b) => order[a.state] - order[b.state]);
-  const blocked = (since) => (sinceClock(since) ? blockedFor(sinceClock(since)) : '');
-  const partRow = (part) => `<a class="pg-row" href="#/plan/${encodeURIComponent(part.id)}"><span class="pg-cells"><b>${esc(part.name)}</b>${dotted(part.label, PART_TONE[part.state])}${cellText(part.blocks, 'Nothing')}<span class="st-for">${blocked(part.since) || `<span class="pg-none">${part.blocks && part.state !== 'done' ? 'Start not known' : 'Not blocked'}</span>`}</span>${cellText(part.doing, part.state === 'done' ? 'Done' : 'Not started')}</span></a>`;
   const red = Object.entries(m.prs).filter(([, pr]) => pr.state === 'open' && (pr.test_state === 'failure' || pr.mergeable_state === 'dirty')).map(([n, pr]) => ({ n, pr, t: prTruth(n) }));
   const problem = (pr) => [pr.mergeable_state === 'dirty' ? 'Merge conflict with its base' : '', pr.test_state === 'failure' ? (pr.failing_checks ?? []).some((c) => /release-pr-check/.test(c.name)) ? 'Tests and the release check fail' : 'Tests fail' : ''].filter(Boolean).join('; ');
   const prRow = ({ n, pr, t }) => `<div class="pg-row"><span class="pg-cells"><b><a href="#/review/${n}">${esc(shortName(n) ?? plainTitle(n))}</a></b><span>${esc(problem(pr))}</span><span>${esc(t.blocks || 'Not known')}</span><span class="st-for">${t.since ? blockedFor(t.since) : '<span class="pg-none">Not known</span>'}</span><span>${esc(t.next || 'No step named yet')}${pr.lane ? ` · <a href="#/worker/${encodeURIComponent(pr.lane)}">${esc(workerName(pr.lane))}</a>` : ''}</span></span></div>`;
-  return `<div class="pg">${pageHead('Status', p)}<p class="pg-lead">Each part of the plan, what blocks it, for how long, and what is being done to unblock it; then every open pull request whose tests fail or that conflicts with its base.</p>
-    <section class="pg-sec"><h2>Every part of the plan <span class="pg-n">${parts.length}</span></h2><div class="pg-table st-parts">${tableHead('Part', 'State', 'What blocks it', 'Blocked for', 'What we are doing to unblock it')}${parts.map(partRow).join('')}</div></section>
+  return `<div class="pg">${pageHead('Status')}<p class="pg-lead">Each step of the plan, exactly what blocks it, for how long, and what is being done to unblock it, from the owner table; then every open pull request whose tests fail or that conflicts with its base.</p>
+    <section class="pg-sec"><h2>Every step of the plan</h2><div class="md prose st-table">${markdown(m.status_table)}</div></section>
     <section class="pg-sec"><h2>Failing tests and merge conflicts <span class="pg-n">${red.length}</span></h2>${red.length ? `<div class="pg-table st-prs">${tableHead('Change', 'Problem', 'Where it stands', 'For', 'What is being done')}${red.map(prRow).join('')}</div>` : '<p class="pg-none">No open pull request has failing tests or a merge conflict.</p>'}</section></div>`;
 }
 function sameWorker(a, b) {
