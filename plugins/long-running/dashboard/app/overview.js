@@ -64,7 +64,7 @@ function destination() {
   const back = landedSinceLook();
   const tools = state.model.drive.prs.filter((e) => e.part === 'tools');
   return `<section class="hero"><div class="machines">${machine('cloud', 'The cloud')}
-    <div class="link"><i class="stream a"></i><i class="stream b"></i><button class="gauge" data-key style="--p:${pct(t)}"><b>${pct(t)}<small>%</small></b><span>of the end state landed</span></button>${back.length ? `<button class="plusn" data-back title="Landed since you last looked">+${back.length}</button>` : ''}</div>
+    <div class="link"><i class="stream a"></i><i class="stream b"></i><div class="gauge" style="--p:${pct(t)}"><b>${pct(t)}<small>%</small></b><span>of the end state landed</span></div>${back.length ? `<button class="plusn" data-back title="Landed since you last looked">+${back.length}</button>` : ''}</div>
     ${machine('mac', 'Your Mac')}</div>
     <div class="runway" data-part="tools"><span class="rl pl">Tools</span><div class="lights">${byLight(tools).map((e) => dot(e.number)).join('')}</div></div>
     <div class="foot"><p class="endline"><b>End state.</b> Mac and cloud both run the new code, chats follow live between them, and the old code stays until cutover.</p>
@@ -307,7 +307,6 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('[data-unfold]')) { ov.unfold = !ov.unfold; return render(); }
   if (e.target.closest('[data-jump]')) return (location.hash = '#/jump');
   if (e.target.closest('[data-stop]')) return (location.hash = '#/plan');
-  if (e.target.closest('[data-key]')) return;
   if (e.target.closest('[data-only-clear]')) return showOnly(null);
   const rel = e.target.closest('[data-release]');
   if (rel) return (location.hash = '#/plan');

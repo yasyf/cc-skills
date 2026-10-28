@@ -6,7 +6,7 @@ import json
 import re
 
 import plainwords
-from brief import COORDINATORS, PACIFIC, RULES, SCHEMA, Page, at, clip, clock, listing, open_changes, rulings, said, strict, string, trouble
+from brief import COORDINATORS, PACIFIC, RULES, SCHEMA, Page, at, clip, clock, listing, open_changes, owner_asks, rulings, said, strict, string, trouble, unasked
 
 WORK_WINDOW = dt.timedelta(hours=12)
 MIN_DAY = dt.timedelta(hours=8)
@@ -65,7 +65,7 @@ PLAN_PROMPT = PAGE_PROMPT.format(what="the Plan page of a live dashboard that a 
 
 WORK_ITEM = {"item": string("stable id, lowercase words joined by dashes"), "workers": listing(string()), "title": string()}
 WORK_SCHEMA = strict({
-    "running": listing(strict({**WORK_ITEM, "status": STATUS, "latest": string(), "started": string("Pacific clock time, such as 1:05 PM"), "blocked_since": string("Pacific clock time it started waiting, or empty")})),
+    "running": listing(strict({**WORK_ITEM, "status": STATUS, "latest": string(), "started": string("Pacific clock time, such as 1:05 PM"), "blocked_since": string("Pacific clock time it started waiting, or empty"), "asks": listing(string("the ask of a waiting_on_owner entry"))})),
     "finished": listing(strict({**WORK_ITEM, "outcome": {"enum": ["delivered", "stopped"]}, "result": string(), "at": string("Pacific clock time")})),
     "helpers": listing(strict({"workers": listing(string()), "name": string(), "latest": string()})),
     "pull_requests": listing(strict({"number": {"type": "integer"}, "stage": string(), "next": string(), "since": string("Pacific clock time")})),
@@ -73,7 +73,7 @@ WORK_SCHEMA = strict({
 
 WORK_PROMPT = PAGE_PROMPT.format(what="the Work page of a live dashboard that a busy engineering lead reads. It lists every piece of work in the drive today: what runs now, what finished and its result, and the helpers that keep the drive running.", fields="""- A piece of work is what is being made, never a worker. Several workers on one thing, and a worker's successor (a name ending in -2 or -3), are one piece.
 - running: every piece of work with a worker that reported in the last two hours, or whose result still waits on a release, an approval, tests or another change, most important first: fixing a blocker, then the next milestone, then the rest. item: reuse the id and title of the same work from main_page_work or previous. title: at most 8 words, what it makes for users. status: one of the listed words; "Ready for you" only when one of its open_pull_requests waits on Yasyf's approval, "Landing" when he approved them and they wait to land. latest: at most 16 words, the newest real progress, said as what works or what is still broken for users. started: the Pacific clock time its first worker started today. blocked_since: when its status is Stuck, Ready for you, Waiting on tests or Under review, the Pacific clock time of the record that started that wait (the push, the hold, the failing check, the review request); else empty. For work waiting on one of its open_pull_requests, blocked_since is that request's waiting_since, so Work and Review agree. The page shows how long from blocked_since, so latest never repeats when the wait began. workers: the worker names (facts only, never shown).
-- Say a piece of work waits on the owner (status Ready for you) only when an entry of open_questions or an open pull request in his review asks it, naming that question or change; otherwise name who it waits on.
+- Say a piece of work waits on the owner (status Ready for you) only when an entry of waiting_on_owner asks it, naming that question or change; otherwise name who it waits on. asks: for Ready for you, the ask of each waiting_on_owner entry it waits on; else empty.
 - finished: only work that delivered its result, or stopped for good with nothing left to do, newest first. Work stopped to wait for a decision is running with status Stuck or Ready for you. Work that still waits on a release, an approval, tests, a merge or another worker is running, never finished; so is work whose merge is not known. outcome: delivered or stopped. title as above. result: at most 16 words, what it delivered for users, or for stopped work why it stopped and who took it over. at: the Pacific clock time of its last report.
 - Leave out any piece of work whose purpose the facts do not say. Rolling out means a deploy is running now; a change that ships with the next release is Waiting for release.
 - Name whoever acts by their job, such as "the cloud runs worker", "codex" or "the merge process", never just "a worker".
@@ -186,6 +186,16 @@ def work_slot(path):
     return None
 
 
+def work_checks(brief, facts):
+    return [f"running.{i}.status: no entry of waiting_on_owner it names in asks is open, so it may not wait on him" for i, row in enumerate(brief["running"]) if unasked(row, facts["waiting_on_owner"])]
+
+
+def work_settle(brief, facts):
+    for row in brief["running"]:
+        if unasked(row, facts["waiting_on_owner"]):
+            row["status"] = "Stuck"
+
+
 def ledger_rows(model):
     return [
         {
@@ -234,7 +244,7 @@ def work_digest(model, config, previous, now):
         "now": clock(now),
         "window": f"since {clock(now - WORK_WINDOW)}",
         "main_page_work": [{k: w[k] for k in ("item", "title", "workers")} for w in brief.get("work", [])],
-        "open_questions": open_questions(model),
+        "waiting_on_owner": owner_asks(model["needs"]),
         "coordinator_rulings": rulings(model["records"], now),
         "open_changes": open_changes(model),
         "workers": workers,
@@ -331,7 +341,7 @@ def review_digest(model, config, previous, now):
 
 PAGES = (
     Page("plan", PLAN_PROMPT, PLAN_SCHEMA, plan_digest, plan_slot, frozenset({"blocker", "ask", "answer", "decide", "go", "landed", "release", "incident", "mechanism", "fix-live", "hold", "lift", "defect"}), 180),
-    Page("work", WORK_PROMPT, WORK_SCHEMA, work_digest, work_slot, frozenset({*WORK_KINDS, "head", "review", "defect", "fix-live", "go"}), 180),
+    Page("work", WORK_PROMPT, WORK_SCHEMA, work_digest, work_slot, frozenset({*WORK_KINDS, "head", "review", "defect", "fix-live", "go"}), 180, work_checks, work_settle),
     Page("history", HISTORY_PROMPT, HISTORY_SCHEMA, history_digest, history_slot, frozenset({*HISTORY_KINDS, "go", "landed"}), 300),
     Page("review", REVIEW_PROMPT, REVIEW_SCHEMA, review_digest, review_slot, frozenset({"review", "head", "go", "report"}), 60),
 )

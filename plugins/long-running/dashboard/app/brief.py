@@ -104,7 +104,7 @@ SCHEMA = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["item", "workers", "title", "goal", "status", "latest", "unblocks", "since"],
+                "required": ["item", "workers", "title", "goal", "status", "latest", "unblocks", "since", "asks"],
                 "properties": {
                     "item": {"type": "string", "description": "stable short id, lowercase words joined by dashes, kept across briefs"},
                     "workers": {"type": "array", "items": {"type": "string"}},
@@ -114,6 +114,7 @@ SCHEMA = {
                     "latest": {"type": "string"},
                     "unblocks": {"type": "string", "description": "id of the blocker node this work fixes, or empty"},
                     "since": {"type": "string", "description": "Pacific clock time its current status began, such as 5:52 PM"},
+                    "asks": {"type": "array", "items": {"type": "string"}, "description": "for Ready for you, the ask of each waiting_on_owner entry it waits on; else empty"},
                 },
             },
         },
@@ -135,7 +136,7 @@ RULES = """Rules for every string:
 - A change that fails only because another change or the shared code is broken is being fixed by that other change's worker: name them, never nobody.
 - One fact, one wording: a node and the work row for the same work must agree (coverage, state, next step).
 - A blocker and a work row state the newest fact about their change, from its newest_records and coordinator_rulings, never an older state left in its next or blocker; since is when that newest state began.
-- Nothing waits on the owner unless waiting_on_owner lists it: no node is you and no work row is Ready for you otherwise.
+- Nothing waits on the owner unless waiting_on_owner lists it: no node is you and no work row is Ready for you otherwise. A Ready for you row lists the ask of each entry it waits on in asks.
 - status_paragraphs sit above your page and the owner reads them first: call each change by the same name they use, and never contradict them unless open_changes or a coordinator ruling is newer. When two changes share a subject, such as two cloud viewer changes, name each by what sets it apart.
 - Say new app and current app, never new tree or old tree; name a test by what it proves.
 - Name every thing you mention by what it does for users. Never write an unnamed reference such as "the second part", "two changes", "other work" or "their worker"; say which part, which changes, which work.
@@ -240,22 +241,30 @@ def unwaited(brief):
     return ["headline: say the one thing in the way and how long it has waited, such as 'for 51 minutes, since 6:58 PM'"] if stuck and not WAITED.search(brief["headline"]) else []
 
 
+def owner_asks(needs):
+    cards = [{"ask": n["card"]["id"], "what": n["card"]["title"]} for n in needs if n["kind"] == "card"]
+    prs = [{"ask": str(pr["number"]), "what": pr["title"]} for n in needs if n["kind"] == "prs" for pr in n["prs"]]
+    return (cards + prs)[:12]
+
+
+def unasked(row, needs):
+    return row["status"] == "Ready for you" and not {ask.lstrip("#") for ask in row["asks"]} & {n["ask"] for n in needs}
+
+
 def phantoms(brief, needs):
-    if needs:
-        return []
-    nodes = [f"paths.{i}.nodes.{j}.state" for i, path in enumerate(brief["paths"]) for j, node in enumerate(path["nodes"]) if node["state"] == "you"]
-    rows = [f"work.{i}.status" for i, row in enumerate(brief["work"]) if row["status"] == "Ready for you"]
-    return [f"{path}: nothing on his board waits on him, so nothing here may wait on him" for path in nodes + rows]
+    nodes = [] if needs else [f"paths.{i}.nodes.{j}.state" for i, path in enumerate(brief["paths"]) for j, node in enumerate(path["nodes"]) if node["state"] == "you"]
+    rows = [f"work.{i}.status" for i, row in enumerate(brief["work"]) if unasked(row, needs)]
+    return [f"{path}: no entry of waiting_on_owner it names in asks is open, so it may not wait on him" for path in nodes + rows]
 
 
 def without_phantoms(brief, needs):
+    brief["work"] = [row for row in brief["work"] if not unasked(row, needs)]
     if needs:
         return brief
     for path in brief["paths"]:
         gone = {node["id"] for node in path["nodes"] if node["state"] == "you"}
         path["nodes"] = [node for node in path["nodes"] if node["id"] not in gone]
         path["edges"] = [edge for edge in path["edges"] if edge["from"] not in gone and edge["to"] not in gone]
-    brief["work"] = [row for row in brief["work"] if row["status"] != "Ready for you"]
     return brief
 
 
@@ -281,7 +290,7 @@ def digest(model, config, previous, now):
         "code": {"tracked_changes": len(model["drive"]["prs"]), "by_state": states},
         "changes_named_by_milestones": named_changes(model),
         "open_changes": open_changes(model),
-        "waiting_on_owner": [{k: n.get(k) for k in ("kind", "title", "question", "number", "change", "risk")} for n in model.get("needs", [])][:8],
+        "waiting_on_owner": owner_asks(model["needs"]),
         "workers": workers,
         "recent_trouble": trouble(records, now),
         "coordinator_rulings": rulings(records, now),

@@ -78,7 +78,7 @@ function stackFacts(n) {
 }
 function stackLine(row) {
   const l = landing(row);
-  return `<a class="wk-row" href="#/review/${row.pr}"><span class="wk-body"><b>${esc(shortName(row.pr) ?? plainTitle(row.pr))}</b><span class="wk-line">${row.stale ? `${dotted('Stuck', 'bad')} ` : ''}${esc(l.stage.replace(/\.$/, ''))}.${l.next ? ` Next, ${esc(l.next.replace(/\.$/, ''))}.` : ''}</span></span><span class="wk-side">${esc(workerName(row.owner))}${row.live ? '' : ', not running'}<br>${blockedFor(l.since)}</span></a>`;
+  return `<div class="wk-row"><span class="wk-body"><a href="#/review/${row.pr}"><b>${esc(shortName(row.pr) ?? plainTitle(row.pr))}</b></a><span class="wk-line">${row.stale ? `${dotted('Stuck', 'bad')} ` : ''}${esc(l.stage.replace(/\.$/, ''))}.${l.next ? ` Next, ${esc(l.next.replace(/\.$/, ''))}.` : ''}</span></span><span class="wk-side"><a href="#/worker/${encodeURIComponent(row.owner)}">${esc(workerName(row.owner))}</a>${row.live ? '' : ', not running'}<br>${blockedFor(l.since)}</span></div>`;
 }
 function blockerNode(n) {
   return (state.model.brief?.paths ?? []).flatMap((path) => path.nodes).find((x) => String(x.change) === String(n));
