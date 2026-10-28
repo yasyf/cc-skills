@@ -305,6 +305,18 @@ def test_a_tap_at_an_earlier_head_keeps_over_a_fix_with_no_new_behavior_and_only
     assert f"| owner root | {step}" in shell.post("carry:101:abc1234")["text"]
 
 
+def test_a_root_go_that_opens_with_its_clock_time_settles_the_carry_of_its_head(config):
+    fixed = f"HEAD #101 {HEAD} (was {OLD}): answers the reviewer bot's finding with a nil check and its test"
+    go = record(3, "root", "go", f"1:19 AM go #101 at {HEAD} (his tap kept per the re-tap rule, 399b5fa).", 18, "101")
+    shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 40, fixed), go], [row("101")])
+    shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": OLD[:7], "at": stamp(60)}}}
+    shell.answer = lambda question: {}
+
+    watch(shell, config)
+
+    assert not [topic for topic in shell.topics() if topic.startswith("carry:")] and shell.prompts == []
+
+
 def test_a_failed_sonnet_call_leaves_the_carry_to_both_owners_and_asks_again_next_pass(config):
     shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 20)], [row("101")])
     shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": OLD[:7], "at": stamp(60)}}}

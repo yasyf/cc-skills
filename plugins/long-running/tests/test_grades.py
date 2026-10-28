@@ -16,3 +16,10 @@ def test_a_head_move_counts_as_patch_identical_once_a_fidelity_grade_at_its_new_
     ]
     moves = grades.head_moves(found, "d1", ["fidelity-desk-3"], "Forge-AI/monorepo", "29020")
     assert grades.patch_chain(moves, "dddd444444", "bbbb222222") == [3, 1]
+
+
+def test_a_go_that_opens_with_its_clock_time_names_its_heads():
+    assert grades.go_heads({"text": "1:19 AM go #43421 at e63e524f1a6981c77ff969c578e1a208a44d1dba (restack onto dev; his tap kept per the re-tap rule)."}) == {"43421": "e63e524f1a6981c77ff969c578e1a208a44d1dba"}
+    assert grades.go_heads({"text": "2:02 AM go #43911 at 52a51b6 (his tap on the board at 2:02 AM). Enqueue."}) == {"43911": "52a51b6"}
+    assert grades.go_heads({"text": "12:40 PM merge #43735 at 2d12b6f and #43421 at e63e524"}) == {"43735": "2d12b6f", "43421": "e63e524"}
+    assert grades.go_heads({"text": "1:19 AM no go #43421 at e63e524 until the finder reads it"}) == {}
