@@ -369,10 +369,12 @@ function boardPart(part, card) {
   if (part.kind === 'page') return `<section class="brec prose">${markdown(part.md)}</section>`;
   if (part.kind === 'choice') {
     if (part.answer) return `<section class="bpick done"><span class="pill ok">✓ You picked</span> ${esc(pickedLabel(part))}</section>`;
-    return `<section class="bpick">${part.prompt ? `<h4>${inline(part.prompt)}</h4>` : ''}<div class="bopts">${part.options.map((o) => `<article class="bopt${o.recommended ? ' rec' : ''}">
-      ${o.recommended ? '<span class="bstamp">★ Recommended</span>' : ''}<b>${inline(o.label.replace(/\s*\(Recommended\)\s*$/i, ''))}</b>${factGrid(o.facts)}
-      ${o.detail?.pros?.length || o.detail?.cons?.length ? `<details data-id="pc-${esc(o.id)}"${state.open.has(`pc-${o.id}`) ? ' open' : ''}><summary>Pros and cons</summary>${prosCons(o.detail)}</details>` : ''}
-      ${o.hint ? `<details data-id="hint-${esc(o.id)}"${state.open.has(`hint-${o.id}`) ? ' open' : ''}><summary>What it means</summary><p>${inline(o.hint)}</p></details>` : ''}
+    const rows = Math.max(0, ...part.options.map((o) => o.facts.length));
+    return `<section class="bpick">${part.prompt ? `<h4>${inline(part.prompt)}</h4>` : ''}<div class="bopts" style="--rows:${rows + 5}">${part.options.map((o) => `<article class="bopt">
+      <span class="bstamp">${o.recommended ? 'Recommended' : ''}</span><b>${inline(o.label.replace(/\s*\(Recommended\)\s*$/i, ''))}</b>
+      ${Array.from({ length: rows }, (_, i) => o.facts[i] ? factGrid([o.facts[i]]) : '<i></i>').join('')}
+      ${o.detail?.pros?.length || o.detail?.cons?.length ? `<details data-id="pc-${esc(o.id)}"${state.open.has(`pc-${o.id}`) ? ' open' : ''}><summary>Pros and cons</summary>${prosCons(o.detail)}</details>` : '<i></i>'}
+      ${o.hint ? `<details data-id="hint-${esc(o.id)}"${state.open.has(`hint-${o.id}`) ? ' open' : ''}><summary>What it means</summary><p>${inline(o.hint)}</p></details>` : '<i></i>'}
       <button class="btn${o.recommended ? ' pri' : ''}" data-choose="${esc(o.id)}" data-choice="${esc(part.id)}"${busy}>Pick this</button></article>`).join('')}</div>
       <form class="note" data-answer="${esc(card.id)}" data-choice="${esc(part.id)}"><input name="text" data-draft="${esc(part.id)}" value="${esc(ov.drafts[part.id] ?? '')}" placeholder="Something else: write your answer"><button class="btn ghost"${busy}>Send</button></form>${sentNote(part.id)}</section>`;
   }
@@ -390,11 +392,15 @@ function boardPart(part, card) {
 }
 function boardCard(item) {
   const c = item.card;
-  const body = c.embed
-    ? `<div class="acts"><button class="btn pri" data-embed-card="${esc(c.id)}">${ov.embedCard === c.id ? 'Showing the card ›' : 'Answer it here ›'}</button></div>`
-    : c.parts.map((part) => boardPart(part, c)).join('');
-  return `<article class="card bcard" id="card-${esc(c.id)}"><header><span class="nmark">?</span><h3>${inline(c.title)}</h3>${c.chips.map((chip) => `<span class="pill${chip.tone === 'flag' ? ' warn' : ''}">${esc(chip.label)}</span>`).join('')}<a class="nsrc" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">On your board ›</a></header>
-    ${c.summary ? `<p class="nwhy">${inline(c.summary)}</p>` : ''}${body}${c.embed ? '' : sentNote(c.id)}</article>`;
+  const header = `<header><span class="nmark">?</span><h3>${inline(c.title)}</h3>${c.chips.map((chip) => `<span class="pill${chip.tone === 'flag' ? ' warn' : ''}">${esc(chip.label)}</span>`).join('')}<a class="nsrc" href="${esc(state.model.board.url)}" target="_blank" rel="noopener">On your board ›</a></header>`;
+  if (c.embed) return `<article class="card bcard" id="card-${esc(c.id)}">${header}${c.summary ? `<p class="nwhy">${inline(c.summary)}</p>` : ''}<div class="acts"><button class="btn pri" data-embed-card="${esc(c.id)}">${ov.embedCard === c.id ? 'Showing the card ›' : 'Answer it here ›'}</button></div></article>`;
+  const settled = (part) => part.answer || part.kind === 'record' || part.kind === 'page';
+  const back = c.parts.filter(settled);
+  const answered = back.filter((part) => part.answer).length;
+  const fold = c.summary || back.length
+    ? `<details class="bback" data-id="back-${esc(c.id)}"${state.open.has(`back-${c.id}`) ? ' open' : ''}><summary>Background${answered ? ` and your ${plural(answered, 'earlier answer')}` : ''}</summary>${c.summary ? `<p class="nwhy">${inline(c.summary)}</p>` : ''}${back.map((part) => boardPart(part, c)).join('')}</details>`
+    : '';
+  return `<article class="card bcard" id="card-${esc(c.id)}">${header}${c.parts.filter((part) => !settled(part)).map((part) => boardPart(part, c)).join('')}${fold}${sentNote(c.id)}</article>`;
 }
 function syncCardEmbed(r) {
   const host = $('#cardembed');
@@ -420,7 +426,7 @@ function needsScreen() {
   const others = items.filter((item) => item.kind === 'ask');
   return `<h2 class="sec">Needs you ${needsTotal() ? `<span class="pill bad">${needsTotal()}</span>` : ''}</h2>
     ${items.filter((item) => item.kind === 'prs').map(needGroup).join('')}
-    ${cards.length ? `<h2 class="sec">Questions on your board <span class="dim">${cards.length} open; a pick here is recorded on the board</span></h2>${cards.map(boardCard).join('')}` : ''}
+    ${cards.map(boardCard).join('')}
     ${others.length ? `<h2 class="sec">Other asks</h2><ul class="card nothers">${others.map(needOther).join('')}</ul>` : ''}
     ${items.length ? '' : `<div class="card nzero"><b>No decisions now.</b> When a pull request or a question waits on you, it shows here and on the Overview with its buttons.</div>`}
     ${mergeCard()}`;
