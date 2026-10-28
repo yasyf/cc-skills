@@ -122,7 +122,7 @@ function prFacts(n) {
     <dt>Tests</dt><dd>${TEST_WORD[pr.test_state] ?? 'Not known'}${t.checks.length ? `: ${t.checks.map((c) => `<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.name)} ↗</a>`).join(', ')}` : ''}</dd>
     <dt>Who is on it</dt><dd>${t.owner ? `<a href="#/worker/${encodeURIComponent(t.owner)}">${esc(workerName(t.owner))}</a>, ${w?.live ? 'working now' : t.word ? `last word ${agoWords(t.word.at)}` : 'no word from it on this pull request'}` : 'No worker named'}</dd>
     ${row?.change ? `<dt>What changes for a user</dt><dd>${inline(row.change)}</dd>` : ''}
-    <dt>Part of the plan</dt><dd>${step ? `<a href="#/plan/${encodeURIComponent(step.id)}">${esc(step.label ?? step.title)}</a>` : part ? `${esc(part.name)}: ${esc(part.becomes)}` : 'Not in a part of the plan'}</dd></dl>`;
+    <dt>Part of the plan</dt><dd>${step ? `<a href="#/plan/${encodeURIComponent(step.id)}">${esc(step.label ?? step.title)}</a>` : 'Not in a part of the plan'}</dd>${part ? `<dt>Where it runs</dt><dd>${esc(part.name)}: ${esc(part.becomes)}</dd>` : ''}</dl>`;
 }
 function prSheet() {
   const m = state.model;
