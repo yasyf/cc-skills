@@ -4550,7 +4550,7 @@ class Landing:
         return gone
 
     def pull_ordered(self, rows: dict[str, dict]) -> set[str]:
-        """Take out of the queue each PR a root record on this drive orders out, one that opens with `dequeue #<n>` or says `landing-desk: dequeue #<n>` outside quotes and code, so no order waits on a lane reading the bus (root #146459). It runs before any enqueue of the pass. Each order is kept in the desk store until it settles, its progress saved one order at a time, and says `DEQUEUED` only from a status read: one taken after the dequeue that finds the PR out of the queue, when the PR's lane and every drive naming it hear it stopped, or one that finds it already out. Either way the PR's head is latched out until `mq.py requeue`. A read that still finds it queued or landed, a refused dequeue, or no open ledger row says `DEQUEUE-FAILED`. Returns the PRs this pass keeps out of every check and enqueue: each with an open order, and each whose ledger head is latched out."""
+        """Take out of the queue each PR a root record on this drive orders out, one that opens with `dequeue #<n>` or says `landing-desk: dequeue #<n>` outside quotes and code, or a `withdraw` of a root `go` naming a PR this desk enqueued at that go's head, so no order waits on a lane reading the bus (root #146459). It runs before any enqueue of the pass. Each order is kept in the desk store until it settles, its progress saved one order at a time, and says `DEQUEUED` only from a status read: one taken after the dequeue that finds the PR out of the queue, when the PR's lane and every drive naming it hear it stopped, or one that finds it already out. Either way the PR's head is latched out until `mq.py requeue`. A read that still finds it queued or landed, a refused dequeue, or no open ledger row says `DEQUEUE-FAILED`. Returns the PRs this pass keeps out of every check and enqueue: each with an open order, and each whose ledger head is latched out."""
         if DEQUEUE_READ not in self.book.load(LANDING).facts:
             self.book.edit(LANDING, lambda incident: incident.facts.setdefault(DEQUEUE_READ, self.started))
         facts = self.book.load(LANDING).facts
@@ -4604,7 +4604,7 @@ class Landing:
         return None
 
     def dequeue_orders(self, read: int | str) -> tuple[dict[str, dict], int | str]:
-        """Each order a root record on this drive posted after `read` gives, keyed by record and PR, and the read to start from next time: the newest seq read, else `read`."""
+        """Each order a root record on this drive posted after `read` gives, keyed by record and PR, and the read to start from next time: the newest seq read, else `read`. A root `withdraw` that resolves or answers a root `go` orders out each PR of that go an enqueue of this desk admitted at the head the go names (root #162011)."""
         drive = self.runner.config.drive
         records = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, since=read) if record["lane"] == ROOT and record["drive"] == drive]
         orders = {
@@ -4612,6 +4612,15 @@ class Landing:
             for record in records
             for pr in DEQUEUE_ORDER.findall(QUOTED_SPAN.sub("", QUOTED_BLOCK.sub("", full_text(record))))
         }
+        if withdrawn := {seq: record["seq"] for record in records if record["kind"] == "withdraw" for seq in closes(record)}:
+            admitted = [(pr, sha) for action in self.book.actions(LANDING, kind="enqueue", status="completed") if action.response["outcome"] in BELIEVED_QUEUED for pr, sha in enqueued_heads(action.action_id).items()]
+            for go in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go"):
+                if go["seq"] in withdrawn and (go["lane"], go["drive"], go["kind"]) == (ROOT, drive, "go"):
+                    orders |= {
+                        f"{withdrawn[go['seq']]}:{pr}": {"pr": pr, "why": f"root #{withdrawn[go['seq']]} withdrew go #{go['seq']}"}
+                        for pr, head in go_heads(go).items()
+                        if any(pr == queued and names_head(head, sha) for queued, sha in admitted)
+                    }
         return orders, max((record["seq"] for record in records), default=read)
 
     def latch_pulled(self, pr: str, head: str, why: str) -> None:
@@ -5256,7 +5265,7 @@ class Landing:
         if self.book.known(LANDING, key):
             return
         owner = self.owner(pr, graded.rows.get(pr, {}))
-        self.post_blocker(key, ",".join([*(self.reach(owner) if owner else [ROOT]), *also]), f"{self.dead_note(owner)}#{pr} {graded.heads[pr]}: {self.left(list(graded.heads), refused, graded.rows)}; {why}", pr)
+        self.post_blocker(key, ",".join(dict.fromkeys([*(self.reach(owner) if owner else [ROOT]), *also])), f"{self.dead_note(owner)}#{pr} {graded.heads[pr]}: {self.left(list(graded.heads), refused, graded.rows)}; {why}", pr)
 
     def warn_head(self, key: str, pr: str, graded: Graded, why: str, also: Iterable[str] = ()) -> None:
         """Post one `note` warning per `key` to the lane that owns `pr` and to each lane of `also`. The lanes of `also` act on it, so it skips a dead owner and never reaches the root; with no `also`, the root stands in for an owner lane with no live session, or for none (root #142931)."""
@@ -5479,7 +5488,39 @@ class Landing:
             self.record_waits(graded.heads, waiting)
         if graded.act and waiting:
             self.ask_owner(graded.heads, waiting, graded.rows)
-        return {pr: merge_queue.State(merge_queue.PENDING, f"merge mode {self.merge_mode} waits for the owner's Merge answer at {graded.heads[pr][:7]}") for pr in waiting}
+        untapped = self.untapped({pr: sha for pr, sha in graded.heads.items() if pr not in waiting})
+        if graded.act:
+            for pr, why in untapped.items():
+                self.refuse_head(f"tap-rule:{pr}:{graded.heads[pr]}", pr, graded, why, untapped, also=[ROOT, *self.board_lanes])
+        return {pr: merge_queue.State(merge_queue.PENDING, f"merge mode {self.merge_mode} waits for the owner's Merge answer at {graded.heads[pr][:7]}") for pr in waiting} | {pr: merge_queue.State(merge_queue.PENDING, why) for pr, why in untapped.items()}
+
+    def untapped(self, heads: dict[str, str]) -> dict[str, str]:
+        """Each PR of `heads` whose changed files a glob of a `landing.tap_rules` row names, or do not read, while the register does not read that row out of force, with why it waits: no approval on the root's board names its head, and a root `go` never stands in for the owner's tap (rule/82317b0)."""
+        if not (rules := self.landing_config.get("tap_rules")):
+            return {}
+        touching = {}
+        for pr, sha in heads.items():
+            files, _ = self.changed_files(pr, sha)
+            if found := [rule for rule, globs in rules.items() if files is None or any(fnmatch(name, glob) for name in files for glob in globs)]:
+                touching[pr] = found
+        if not touching:
+            return {}
+        done = self.rulings_py("rows")
+        register = json.loads(done.out)["rows"] if done.code == 0 else {}
+        session = self.root_session()
+        try:
+            verdicts = board_rows.verdicts_of(self.present(["cc-present", "outcomes", "--no-doc", "--session", session])) if session else None
+        except board_rows.ReadFailed:
+            verdicts = None
+        waits = {}
+        for pr, found in touching.items():
+            if not (found := [rule for rule in found if register.get(rule, {}).get("status", "in-force") == "in-force"]):
+                continue
+            if verdicts is not None and any(entry["verdict"] == "approved" and names_head(heads[pr], entry.get("head") or "") for by_row in verdicts.values() for row, entry in by_row.items() if row == pr):
+                continue
+            unread = "the root's board did not read" if verdicts is None else f"no approval on the root's board names {heads[pr][:10]}"
+            waits[pr] = f"TAP-REQUIRED {','.join(found)}: it lands only on the owner's tap at this head, and a root go is no tap; {unread}"
+        return waits
 
     def record_waits(self, heads: dict[str, str], waiting: dict[str, list[str]]) -> None:
         """Keep, for `show`, what each graded head still waits on: its merge-ask key and the reserved rows only the owner's tap authorizes. A head that stopped waiting drops out, and the heads of other stacks keep theirs."""
