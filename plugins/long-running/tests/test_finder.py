@@ -21,6 +21,8 @@ STALE_BASE = "c3a3afc0307096aabf6d24513b2436d1bb23bbe8"
 OWN = "e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4"
 OLD_OWN = "f0e1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d"
 NEWER = "5be7c0de5be7c0de5be7c0de5be7c0de5be7c0de"
+TRUNK = "9d1e2f3a4b5c6d7e8f9011a2b3c4d5e6f7a8b9c0"
+LANDED_ON_TRUNK = "4d2ea9dfbad0c1e2f3a4b5c6d7e8f9011a2b3c4d"
 ROWS = (
     f"Required rows for {REPO}#43299 at {HEAD}\n\n## Every global, pending and touched row (2)\n\n"
     "### rule/949e6be | scope | in-force | said 1 | 2026-10-22\n> it should be a ssql replica that is live streaming, not polled\n\n"
@@ -52,7 +54,7 @@ def pairs(*marks: str) -> str:
 
 
 class Fake:
-    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0, gone: tuple[str, ...] = (), ranges: dict | None = None, shows: dict | None = None):
+    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0, gone: tuple[str, ...] = (), ranges: dict | None = None, shows: dict | None = None, trunk: str = BASE):
         self.tmp_path = tmp_path
         self.replies = list(replies)
         self.state = state
@@ -62,6 +64,7 @@ class Fake:
         self.failures = failures
         self.gone = gone
         self.ranges = ranges or {}
+        self.trunk = trunk
         self.shows = LANDED | ({OLD_OWN[:11]: patch("-poll()", "+stream()"), OWN[:11]: patch("-poll()", "+stream()", "+resubscribe()")} if shows is None else shows)
         self.calls: list[tuple[list[str], Path | None]] = []
         self.posted: list[dict] = []
@@ -90,7 +93,7 @@ class Fake:
 
     def git(self, argv: list[str]) -> str:
         if argv[0] == "ls-remote":
-            return f"{BASE}\trefs/heads/dev\n"
+            return f"{self.trunk}\tHEAD\n" if argv[-1] == "HEAD" else f"{BASE}\trefs/heads/dev\n"
         if argv[0] == "fetch":
             if any(sha in self.gone for sha in argv):
                 raise subprocess.CalledProcessError(128, argv, stderr="fatal: remote error: upload-pack: not our ref")
@@ -159,6 +162,19 @@ def test_a_head_whose_parent_was_restacked_reads_only_its_own_commits_against_th
     assert rev_list == ["git", "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{BASE}...{HEAD}"]
     question = (directory / "question-1.md").read_text()
     assert f"`git diff {OWN}^ {HEAD}`" in question and f"{BASE}...{HEAD}" not in question and f"{STALE_BASE}...{HEAD}" not in question
+
+
+def test_a_head_rebased_past_its_stale_base_branch_onto_the_trunk_reads_and_scopes_only_its_own_commits(tmp_path):
+    prior = {"seq": 161820, "lane": "finder-desk", "head": "a269784", "text": "finder: ok a269784"}
+    directory = job(tmp_path, since=OLD, prior=prior)
+    own = {(BASE, HEAD): [LANDED_ON_TRUNK, OWN], (TRUNK, HEAD): [OWN], (BASE, OLD): [OLD_OWN], (TRUNK, OLD): [OLD_OWN]}
+    shell = Fake(tmp_path, [reply(finding("major", "go/sand/internal/replica/follow.go:41"))], own=own, resolve={OLD: OLD}, ranges={EARLIER: pairs("!")}, trunk=TRUNK)
+    finder.main([str(directory)], shell)
+    question = (directory / "question-1.md").read_text()
+    assert f"`git range-diff {OLD_OWN}^..{OLD} {OWN}^..{HEAD}`" in question and f"`git diff {OWN}^ {HEAD}`" in question
+    assert f"the range-diff shows for its pair ({OWN[:11]}); each new commit whole with `git show <sha>` (none)" in question and LANDED_ON_TRUNK[:11] not in question
+    assert [argv for argv, _ in shell.calls if argv[:2] == ["git", "diff"]] == [["git", "diff", "--unified=0", "--no-color", "--no-ext-diff", f"{OWN}^", HEAD]]
+    assert shell.posted[0]["--text"].startswith(f"finder: major {HEAD} 1 open")
 
 
 def test_a_head_that_carries_no_commit_the_base_lacks_runs_no_finder(tmp_path):

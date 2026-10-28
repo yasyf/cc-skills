@@ -9,8 +9,9 @@
 STDLIB ONLY. desk-runner.py's orca desk writes `DIR/job.json` for each head it dispatches and starts
 this script detached. The job reads the PR through ccx's gateway, retrying a failed read once after
 `RETRY_SECONDS`, and skips a closed PR or a head that is no longer the PR's live head. It reads the
-PR's own commits as the head's commits no commit on the base branch's current tip matches by patch,
-so a parent restacked onto a newer trunk adds nothing. A head after one an earlier finder record
+PR's own commits as the head's commits no commit on the base branch's current tip, nor on the
+trunk's, matches by patch, so neither a parent restacked onto a newer trunk nor a stale base branch
+the head was rebased past, such as a graphite-base, adds a commit. A head after one an earlier finder record
 graded, or after the head its `head` record replaced when the PR has any finder review, is a fixed
 head: `git range-diff` pairs its own commits with that head's, and it reads only the hunks of each
 changed pair, each new commit, and each dropped commit the base lacks, and runs no row pass. A changed pair that adds no line and drops only
@@ -236,9 +237,10 @@ def git(shell: Shell, job: dict, *argv: str) -> str:
     return shell.run(["git", *argv], cwd=Path(job["checkout"]), timeout=SLICE_SECONDS).strip()
 
 
-def beyond(shell: Shell, job: dict, other: str, head: str) -> list[str]:
-    """The commits `head` carries, oldest first, that no commit since its merge-base with `other` matches by patch."""
-    return git(shell, job, "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{other}...{head}").split()
+def beyond(shell: Shell, job: dict, others: tuple[str, ...], head: str) -> list[str]:
+    """The commits `head` carries, oldest first, that no commit since its merge-base with any of `others` matches by patch."""
+    first, *rest = (git(shell, job, "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{other}...{head}").split() for other in dict.fromkeys(others))
+    return [sha for sha in first if all(sha in commits for commits in rest)]
 
 
 def resolve(shell: Shell, job: dict, named: str) -> str:
@@ -270,9 +272,9 @@ def previous(record: dict | None) -> str:
     return found[1] if record and (found := WAS.search(record["text"])) else ""
 
 
-def range_pairs(shell: Shell, job: dict, base: str, last: str, own: list[str]) -> tuple[str, list[tuple[str, str]]]:
+def range_pairs(shell: Shell, job: dict, base: str, trunk: str, last: str, own: list[str]) -> tuple[str, list[tuple[str, str]]]:
     """The `git range-diff` ranges pairing `last`'s own commits with the head's, each head commit it marks amended (`!`) or new (`>`), leaving out an amended commit that only drops hunks `base` carries, and each earlier commit it marks dropped (`<`) that `base` does not carry."""
-    earlier = beyond(shell, job, base, last)
+    earlier = beyond(shell, job, (base, trunk), last)
     pairs = f"{earlier[0] + '^' if earlier else last}..{last} {own[0]}^..{job['head']}"
     marks = RANGE_PAIR.findall(git(shell, job, "range-diff", "--no-patch", "--no-color", *pairs.split()))
     return pairs, [(mark, left if mark == "<" else sha) for left, mark, sha in marks if mark == ">" or (mark in "!<" and not drops_carried(shell, job, base, left, sha))]
@@ -331,11 +333,12 @@ def run(directory: Path, shell: Shell) -> dict:
     if view["headRefOid"] != head:
         return {"skipped": f"{pr} moved to {view['headRefOid'][:12]}"}
     base = git(shell, job, "ls-remote", "origin", f"refs/heads/{view['baseRefName']}").split()[0]
-    git(shell, job, "fetch", "--no-write-fetch-head", "-q", "origin", head, base)
+    trunk = git(shell, job, "ls-remote", "origin", "HEAD").split()[0]
+    git(shell, job, "fetch", "--no-write-fetch-head", "-q", "origin", head, base, trunk)
     last = reviewed(shell, job)
-    if not (own := beyond(shell, job, base, head)):
+    if not (own := beyond(shell, job, (base, trunk), head)):
         return {"skipped": f"{pr} at {head[:12]} carries no commit {view['baseRefName']} lacks"}
-    pairs, changed = range_pairs(shell, job, base, last, own) if last else ("", [])
+    pairs, changed = range_pairs(shell, job, base, trunk, last, own) if last else ("", [])
     if last and not changed:
         replayed = f"{pr} at {head[:12]} replays every own commit of {last[:12]}, patch for patch or dropping only hunks {view['baseRefName']} carries"
         if not ((earlier := job["prior"]) and names_head(earlier["head"], last)):
