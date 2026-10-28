@@ -22,6 +22,7 @@ from review_assistant import ReviewAssistant
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from brief import Curator
+import plainwords
 from story import Stories
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills" / "long-running" / "scripts"))
@@ -636,8 +637,11 @@ class Drive:
             stamp = status.stat().st_mtime_ns if status.exists() else None
             if stamp != seen:
                 seen = stamp
-                self.status_now = json.loads(status.read_text()) if stamp else None
-                self.bump()
+                fresh = json.loads(status.read_text()) if stamp else None
+                lanes = self.lane_names()
+                if fresh is None or not any(plainwords.violations(p["text"], "sentence", lanes) for p in fresh["paragraphs"]):
+                    self.status_now = fresh
+                    self.bump()
             time.sleep(1)
 
     def follow_code(self):
