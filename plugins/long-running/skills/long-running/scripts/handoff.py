@@ -319,6 +319,10 @@ def active_progress(shell: ledger.Shell, repo: str, program: str) -> list[dict]:
     return ccn_json(shell, repo, "doc", "list", "--label", f"progress:{program}") or []
 
 
+def progress_records(shell: ledger.Shell, repo: str, program: str) -> list[dict]:
+    return ccn_json(shell, repo, "doc", "list", "--label", f"progress:{program}", "--include-superseded", "--full") or []
+
+
 def doc_body(shell: ledger.Shell, repo: str, doc_id: str) -> str:
     return ccn_json(shell, repo, "doc", "show", doc_id)["body"]
 
@@ -340,18 +344,19 @@ def edited_in_place(shell: ledger.Shell, repo: str, doc: dict) -> bool:
     return made is not None and narrative_of(made) != narrative_of(doc["body"])
 
 
-def lineage(shell: ledger.Shell, repo: str, program: str, docs: list[dict]) -> list[dict]:
-    label, seen, shown, queue = f"progress:{program}", set(), [], [doc["id"] for doc in docs]
+def lineage(progress_docs: list[dict], docs: list[dict]) -> list[dict]:
+    by_id, supersedes = {doc["id"]: doc for doc in progress_docs}, {}
+    for doc in progress_docs:
+        for newer in doc.get("superseded_by", []):
+            supersedes.setdefault(newer, []).append(doc["id"])
+    seen, shown, queue = set(), [], [doc["id"] for doc in docs]
     while queue:
-        if (doc_id := queue.pop()) in seen:
+        if (doc_id := queue.pop()) in seen or doc_id not in by_id:
             continue
         seen.add(doc_id)
-        doc = ccn_json(shell, repo, "doc", "show", doc_id)
-        if label not in doc["tags"]:
-            continue
-        shown.append(doc)
+        shown.append(doc := by_id[doc_id])
         if not generated(doc["body"]):
-            queue += doc.get("supersedes") or []
+            queue += sorted(supersedes.get(doc_id, []))
     return shown
 
 
@@ -528,8 +533,9 @@ def build(args: argparse.Namespace, shell: ledger.Shell) -> tuple[Handoff, str |
     if ledger_id := args.ledger or (registry or {}).get("ledger"):
         handoff.asks = open_asks(shell, ledger_id)
     handoff.plan_progress = plans.summary_lines(plans.read(lambda *argv: shell.run(["ccn", "-R", args.repo, *argv]), args.program))
-    docs = active_progress(shell, args.repo, args.program)
-    shown = lineage(shell, args.repo, args.program, docs)
+    progress_docs = progress_records(shell, args.repo, args.program)
+    docs = [doc for doc in progress_docs if not doc.get("superseded_by")]
+    shown = lineage(progress_docs, docs)
     records = sorted((doc for doc in shown if not generated(doc["body"])), key=lambda doc: doc["created_at"])
     handoffs = [doc for doc in shown if generated(doc["body"])]
     active = {doc["id"] for doc in docs}
