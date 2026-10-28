@@ -3938,6 +3938,7 @@ class Runner:
                     "since": last,
                     "prior": prior,
                     "previous": finder.previous(next((record for record in records if record["seq"] == job["seq"]), None)) if named else "",
+                    "history": [{"seq": record["seq"], "lane": record["lane"], "text": record["text"], "path": (record.get("refs") or {}).get("path", "")} for record in named],
                     "lane": job["lane"],
                     "to": spec.get("to", []),
                     "checkout": spec.get("checkout") or landing["checkout"],
