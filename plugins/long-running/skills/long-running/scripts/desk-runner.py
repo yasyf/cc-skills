@@ -355,8 +355,8 @@ logs one `GITHUB-BACKOFF` naming the calls left and the reset per quota window; 
 stay on cci, so both run on the first pass after the reset. A quota read that fails logs `QUOTA-READ-FAILED` once an hour, and the pass runs. A `cci tail` that fails in a landing pass
 ends that pass before it gates or enqueues further; it logs `CCI-TAIL-FAILED` and the runner keeps running.
 An incident fix PR on the trunk, one whose ledger lane is an `incident-` or `outage-` lane or a fix lane the runner clocks, or whose
-number an open executor incident names as its `repair_pr`, and no root go, hold, lift or decide naming it says it is not an incident fix or takes it
-off the incident path, which logs `INCIDENT-TAG-CLEARED` once and gates it as a normal row, is never enqueued: in the pass its head reads `APPROVED` and every
+number an open executor incident names as its `repair_pr`, and no root go, hold, lift, decide or release naming it says it is not an incident fix, takes it
+off the incident path, or owes no release, which also settles any release its landing owes, which logs `INCIDENT-TAG-CLEARED` once and gates it as a normal row, is never enqueued: in the pass its head reads `APPROVED` and every
 required check passes, `rulings.py check-pr --incident` names none of `RULINGS-UNCITED`, `RESERVED-NO-ANSWER`, or `TEST-REMOVED`,
 and the holds file, read again just before, holds no line over it,
 the runner runs `gh pr merge <n> --squash --match-head-commit <head>` once per head, recorded as
@@ -631,8 +631,8 @@ DEQUEUE_ORDERS = "dequeue-orders"
 PULLED_HEADS = "pulled-heads"
 DEQUEUE_ORDER = re.compile(r"(?:\A\s*|\b(?:landing-desk|desk-runner):\s*)dequeue\s+#(\d+)\b", re.IGNORECASE)
 INCIDENT_NAME = re.compile(r"^(?:incident|outage)-")
-INCIDENT_CLEARED = re.compile(r"not an incident fix|off the incident path", re.IGNORECASE)
-INCIDENT_CLEARING_KINDS = frozenset({"go", "hold", "lift", "decide", "decision"})
+INCIDENT_CLEARED = re.compile(r"not an incident fix|off the incident path|no release is owed", re.IGNORECASE)
+INCIDENT_CLEARING_KINDS = frozenset({"go", "hold", "lift", "decide", "decision", "release"})
 EXECUTOR_SETTLED = frozenset({"closed", "recovered"})
 SQUASH_PASS = "pass"
 LANDED_BY_SQUASH = "landed by plain squash"
@@ -6048,14 +6048,14 @@ class Landing:
             self.restack(top, rows)
 
     def is_incident(self, pr: str, row: dict) -> bool:
-        """Whether a ledger row is an incident fix's: its lane is an `incident-` or `outage-` lane or a fix lane the runner launched on the incident clock, or an open incident in the executor's store names the PR as its repair, and no root go, hold, lift or decide naming it took it off the incident path."""
+        """Whether a ledger row is an incident fix's: its lane is an `incident-` or `outage-` lane or a fix lane the runner launched on the incident clock, or an open incident in the executor's store names the PR as its repair, and no root go, hold, lift, decide or release naming it took it off the incident path."""
         lane = row.get("lane", "")
         store = actions.Store()
         tagged = INCIDENT_NAME.match(lane) or (lane_container(lane) in self.book.store.ids() and fix_launch(self.book.load(lane_container(lane)))) or any(str(incident.facts.get("repair_pr")) == pr for incident in map(store.load, store.ids()) if "adopted" in incident.facts and incident.status not in EXECUTOR_SETTLED and not incident.facts.get("not_ours"))
         return bool(tagged) and not self.incident_cleared(pr)
 
     def incident_cleared(self, pr: str) -> bool:
-        """Whether a root go, hold, lift or decide naming `pr` says it is not an incident fix or takes it off the incident path, read once a pass; the runner then gates it as a normal row and logs `INCIDENT-TAG-CLEARED` once per record."""
+        """Whether a root go, hold, lift, decide or release naming `pr` says it is not an incident fix, takes it off the incident path, or owes no release, read once a pass; the runner then gates it as a normal row and logs `INCIDENT-TAG-CLEARED` once per record."""
         if pr not in self.cleared:
             drive = self.runner.config.drive
             self.cleared[pr] = next((record["seq"] for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--pr", f"{self.repo}#{pr}") if record["lane"] == ROOT and record["drive"] == drive and record["kind"] in INCIDENT_CLEARING_KINDS and INCIDENT_CLEARED.search(full_text(record))), 0)
@@ -6184,7 +6184,7 @@ class Landing:
         judged = []
         for pr in sorted(landed - set(read), key=int):
             row = rows[pr]
-            incident = self.squashed(pr) or self.is_incident(pr, row)
+            incident = (self.squashed(pr) or self.is_incident(pr, row)) and not self.incident_cleared(pr)
             if (incident or MERGE_FAST in row.get("labels", "").split(",")) and not self.accept_release(pr, row, incident, row["landed_at"] < self.started):
                 continue
             judged.append(pr)
@@ -6197,7 +6197,7 @@ class Landing:
                 self.publish_line(action)
 
     def squashed(self, pr: str) -> bool:
-        """Whether this runner merged the PR by plain squash, so its landing owes a release however the PR's incident reads now."""
+        """Whether this runner merged the PR by plain squash, so its landing owes a release however the PR's incident reads now, unless a root record clears its incident tag."""
         return any(action.action_id.startswith(f"land:{pr}@") and action.status == "completed" for action in self.book.actions(LANDING, kind="squash"))
 
     def accept_release(self, pr: str, row: dict, incident: bool, before_start: bool) -> bool:
@@ -6229,9 +6229,12 @@ class Landing:
         return ""
 
     def press_release(self, action: actions.Action) -> None:
-        """Post one record per step since the landing while no one has started or acknowledged its release: the `release` record first, then a `blocker` with the minutes elapsed. A step is `deadlines.incident_release_minutes` while an incident clock runs and `deadlines.release_start_minutes` otherwise. An incident fix's landing settles only on a `release` record with a build, a `fix-live` record, or a root `--resolves` on one of the runner's records about it, and a root record that holds it after it landed is answered once."""
+        """Post one record per step since the landing while no one has started or acknowledged its release: the `release` record first, then a `blocker` with the minutes elapsed. A step is `deadlines.incident_release_minutes` while an incident clock runs and `deadlines.release_start_minutes` otherwise. An incident fix's landing settles only on a `release` record with a build, a `fix-live` record, or a root `--resolves` on one of the runner's records about it, and a root record that holds it after it landed is answered once. A root record clearing its incident tag settles it, before or after the landing."""
         landed, key, posted = json.loads(action.target), action.action_id, (action.response or {}).get("posted", {})
         incident = landed.get("incident", False)
+        if incident and self.incident_cleared(landed["pr"]):
+            self.book.attempt(LANDING, lambda incident: incident.verify(key, {"cci": self.cleared[landed["pr"]], "cleared": True, "at": self.book.stamp()}))
+            return
         closing = set(posted.values()) | self.held_lines(landed["pr"])
         if settled := self.release_started(landed) or (closing and self.acknowledged(closing, ("resolves",) if incident else ("re", "resolves"))):
             refs = settled.get("refs") or {}
