@@ -303,8 +303,7 @@ const FOCUSABLE = 'a[href], button, summary, input, select, textarea, [tabindex]
 function signature(el) {
   return [...el.attributes].filter((a) => a.name !== 'class').map((a) => `${a.name}=${a.value}`).join(' ');
 }
-function focusSpot(root = $('#main')) {
-  const el = document.activeElement;
+function focusSpot(root = $('#main'), el = document.activeElement) {
   if (!el || !root.contains(el)) return null;
   const stops = [...root.querySelectorAll(FOCUSABLE)];
   const sig = signature(el);
@@ -456,13 +455,15 @@ window.addEventListener('hashchange', () => {
   if (!history.state) history.replaceState({ inApp: true }, '');
   state.overlay = null;
   render();
+  if (history.state?.spot) refocus(history.state.spot);
   if (!/^#\/review\/q(\/|$)/.test(location.hash)) window.scrollTo(0, history.state?.y ?? 0);
 });
-function keepScroll() {
-  history.replaceState({ ...history.state, y: window.scrollY }, '');
+function keepScroll(link) {
+  history.replaceState({ ...history.state, y: window.scrollY, spot: focusSpot($('#main'), link) }, '');
 }
 document.addEventListener('click', (e) => {
-  if (e.target.closest('a[href^="#"]') && !e.defaultPrevented) keepScroll();
+  const link = e.target.closest('a[href^="#"]');
+  if (link && !e.defaultPrevented) keepScroll(link);
 }, true);
 window.addEventListener('DOMContentLoaded', () => {
   setInterval(tickFresh, 1000);
