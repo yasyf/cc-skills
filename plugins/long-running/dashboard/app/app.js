@@ -402,7 +402,16 @@ window.addEventListener('popstate', (e) => {
   const href = state.opener?.getAttribute('href');
   (state.opener?.isConnected ? state.opener : href && document.querySelector(`#main a[href="${CSS.escape(href)}"]`))?.focus();
 });
-window.addEventListener('hashchange', () => { state.overlay = null; window.scrollTo(0, 0); render(); });
+window.addEventListener('hashchange', () => {
+  state.overlay = null;
+  render();
+  window.scrollTo(0, history.state?.y ?? 0);
+});
+let scrollSave = 0;
+window.addEventListener('scroll', () => {
+  clearTimeout(scrollSave);
+  scrollSave = setTimeout(() => history.replaceState({ ...history.state, y: window.scrollY }, ''), 120);
+}, { passive: true });
 window.addEventListener('DOMContentLoaded', () => {
   setInterval(tickFresh, 1000);
   load();
