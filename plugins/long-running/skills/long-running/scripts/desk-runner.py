@@ -546,6 +546,8 @@ import inboxes
 import lanes
 import merge_queue
 import prompt_screen
+import prompt_watch
+import stall_watch
 from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, closes, fidelity_carries, fidelity_grades, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
 from grades import QUOTED_BLOCK, QUOTED_SPAN
 from grades import WITHDRAWN as WITHDRAWN_OPENING
@@ -566,6 +568,7 @@ SLACK_MESSAGE = re.compile(r"^slack: \S*/p(\d{10})(\d{6})\b", re.MULTILINE)
 RULING_ROUNDS = "cards/rounds"
 RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
+RUNNER_LANES = frozenset({RUNNER, ORCA_DESK, finder.LANE, stall_watch.LANE, prompt_watch.LANE})
 FINDER = "desk-finder"
 FINDER_CURSOR = "cursor"
 FINDER_CONCURRENT = 2
@@ -3427,7 +3430,7 @@ class Runner:
             self.tail_failed(failure)
 
     def lanes_gone(self) -> None:
-        """Log one `LANE-GONE` per lane and newest order for each lane a root `decide`, `ask` or `note` addressed in the last `LANE_ORDER_WINDOW`, whose oldest unanswered order is `LANE_SILENT` old, that has posted nothing since, neither it nor a numbered successor (`<lane>-<n>`), that no later root `stand-down` or `stopped` retired, whose newest record does not end its work (`done`, `handoff`, `stand-down`, `stopped`, `not-ours`), whose records are not all `defect` records, as a build script's are (root #152067), whose dispatch the runner did not withdraw and Orca does not show active, with no session `cci who` announced in the last `LANE_SPAWN_GRACE`, and no earlier LANE-GONE of it the root resolved or answered in the window, once its newest record and `cci who`'s last sight of it, by lane or agent name, are both `LANE_SILENT` old, naming the unanswered orders and its last record, so the root pings it and spawns a successor only when the ping goes unanswered (root #147167, drive-watchdog #147921)."""
+        """Log one `LANE-GONE` per lane and newest order for each lane, other than the runner's own lanes and its child passes `stall-watch` and `prompt-watch`, that a root `decide`, `ask` or `note` addressed in the last `LANE_ORDER_WINDOW`, whose oldest unanswered order is `LANE_SILENT` old, that has posted nothing since, neither it nor a numbered successor (`<lane>-<n>`), that no later root `stand-down` or `stopped` retired, whose newest record does not end its work (`done`, `handoff`, `stand-down`, `stopped`, `not-ours`), whose records are not all `defect` records, as a build script's are (root #152067), whose dispatch the runner did not withdraw and Orca does not show active, with no session `cci who` announced in the last `LANE_SPAWN_GRACE`, and no earlier LANE-GONE of it the root resolved or answered in the window, once its newest record and `cci who`'s last sight of it, by lane or agent name, are both `LANE_SILENT` old, naming the unanswered orders and its last record, so the root pings it and spawns a successor only when the ping goes unanswered (root #147167, drive-watchdog #147921)."""
         try:
             now, drive = self.now(), self.config.drive
             records = [record for record in cci.records(self.cci_tail, drive, since=actions.stamp(now - LANE_ORDER_WINDOW)) if record["drive"] == drive]
@@ -3435,7 +3438,7 @@ class Runner:
             for record in records:
                 if record["lane"] == ROOT and record["kind"] in LANE_ORDER_KINDS:
                     for lane in record.get("to") or []:
-                        if lane not in (ROOT, "main", "all", RUNNER, ORCA_DESK, finder.LANE) and not lane.startswith("peer:"):
+                        if lane not in {ROOT, "main", "all", *RUNNER_LANES} and not lane.startswith("peer:"):
                             orders.setdefault(lane, []).append(record)
             sessions: list[dict] = []
             if orders:
