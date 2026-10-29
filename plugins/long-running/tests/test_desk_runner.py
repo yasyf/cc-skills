@@ -854,6 +854,55 @@ def incident(tmp_path: Path, name: str) -> actions.Incident:
     return actions.Store(tmp_path / "store").load(name)
 
 
+@pytest.mark.parametrize("existing_landing", [False, True])
+def test_render_decodes_each_incident_once(shell, config, tmp_path, monkeypatch, existing_landing):
+    store = actions.Store(tmp_path / "store")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
+    with store.owned(runner_module.RUNNER, 0) as current:
+        current.facts[runner_module.BINDING] = {"bound": True, "at": actions.stamp(shell.now()), "terminal": "term_root", "run": "run_1", "generation": 3, "via": "config"}
+        current.facts[runner_module.DEFERRED] = {"incident": "api-fix", "ids": ["first", "second"]}
+        for key in ("first", "second"):
+            current.accept(key, "escalation", f"held {key}", key, shell.now())
+    if existing_landing:
+        runner_module.seed_policy(runner)
+        runner.accept_policy("new-policy", "whole", "new-head", "owner ruling", "a1b2c3d4e5")
+    lane = runner_module.LANE_PREFIX + LANE
+    for name, kind in ((lane, "relay"), (runner_module.FINDER, "finder"), (runner_module.FIDELITY, "fidelity")):
+        current = actions.Incident(name, name, 0, actions.stamp(shell.now()), {})
+        current.accept("job", kind, json.dumps({"pr": 42, "head": "abcdef1234567890"}), "authority", shell.now())
+        store.create(current)
+    decoded = []
+    load = actions.Incident.load
+
+    def counted(record):
+        decoded.append(record["incident_id"])
+        return load(record)
+
+    monkeypatch.setattr(actions.Incident, "load", staticmethod(counted))
+    view = runner.render()
+    at = runner_module.pacific(shell.now())
+    expected = [f"# desk-runner {at}", f"binding: terminal term_root coordinates run_1 at generation 3, via config; checked {at}", "deferred during api-fix: 2", "- held first", "- held second"]
+    if existing_landing:
+        expected.append("landing policy: whole at new-head (owner ruling)")
+    expected += ["finder #42 abcdef123456: queued", "fidelity #42 abcdef123456: queued", f"## {lane} owner {lane} generation 0", f"- job relay [accepted] accepted {at}", "## desk-landing owner desk-landing generation 0"]
+    assert view == "\n".join(expected) + "\n"
+    assert sorted(decoded) == sorted([runner_module.RUNNER, lane, runner_module.FINDER, runner_module.FIDELITY, *([runner_module.LANDING] if existing_landing else [])])
+    assert store.path(runner_module.LANDING).is_file()
+
+
+def test_render_reloads_incidents_on_every_call(shell, config, tmp_path):
+    store = actions.Store(tmp_path / "store")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
+    runner_module.seed_policy(runner)
+    before = runner.render()
+    runner.accept_policy("new-policy", "whole", "new-head", "owner ruling", "a1b2c3d4e5")
+    shell.sleep(60)
+    after = runner.render()
+    assert "landing policy: prefix at a1b2c3d4e5" in before
+    assert "landing policy: whole at new-head" in after
+    assert f"# desk-runner {runner_module.pacific(shell.now())}\n" in after
+
+
 def thread(key: str) -> str:
     return f"desk-lane-{LANE}/{key}"
 

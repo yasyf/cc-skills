@@ -1735,6 +1735,12 @@ def resends(tries: list[actions.Action]) -> list[actions.Action]:
     return [attempt for attempt in tries if RESEND in attempt.action_id]
 
 
+def active_policy(incident: actions.Incident) -> actions.Action | None:
+    verified = [action for action in incident.actions.values() if action.kind == "policy" and action.status == "verified"]
+    superseded = {json.loads(action.target)["supersedes"] for action in verified}
+    return next((action for action in verified if json.loads(action.target)["revision"] not in superseded), None)
+
+
 class Runner:
     def __init__(self, shell: Shell, config: Config, store: actions.Store):
         self.shell = shell
@@ -2689,10 +2695,7 @@ class Runner:
         return self.book.accept(self.lane(lane), key, "launch", target, key, self.now() + timedelta(minutes=self.config.launch_minutes))
 
     def landing_policy(self) -> actions.Action | None:
-        self.book.ensure(LANDING, LANDING)
-        verified = self.book.actions(LANDING, kind="policy", status="verified")
-        superseded = {json.loads(action.target)["supersedes"] for action in verified}
-        return next((action for action in verified if json.loads(action.target)["revision"] not in superseded), None)
+        return active_policy(self.book.ensure(LANDING, LANDING))
 
     def accept_policy(self, key: str, rule: str, revision: str, source: str, supersedes: str) -> tuple[actions.Action, bool]:
         current = self.landing_policy()
@@ -4536,13 +4539,15 @@ class Runner:
             self.book.attempt(FIDELITY, lambda incident: incident.fail(action.action_id, why))
 
     def render(self) -> str:
-        lines = [f"# desk-runner {pacific(self.now())}", self.binding_line(self.book.load(RUNNER).facts.get(BINDING))]
-        if held := self.book.load(RUNNER).facts.get(DEFERRED):
+        runner = self.book.load(RUNNER)
+        landing = self.book.ensure(LANDING, LANDING)
+        lines = [f"# desk-runner {pacific(self.now())}", self.binding_line(runner.facts.get(BINDING))]
+        if held := runner.facts.get(DEFERRED):
             lines.append(f"deferred during {held['incident']}: {len(held['ids'])}")
-            lines += [f"- {self.book.load(RUNNER).actions[key].target}" for key in held["ids"]]
-        for lane, mechanism in ((self.book.load(RUNNER).facts.get(PR_SILENT) or {}).get("lanes") or {}).items():
+            lines += [f"- {runner.actions[key].target}" for key in held["ids"]]
+        for lane, mechanism in ((runner.facts.get(PR_SILENT) or {}).get("lanes") or {}).items():
             lines.append(f"pr-silent {lane}: {mechanism['mark']} #{mechanism['seq']} {whole_minutes(actions.parse_stamp(mechanism['at']), self.now())} min ago, no OPENED or BLOCKER; code state: `drive.py lane-status {lane}`")
-        if policy := self.landing_policy():
+        if policy := active_policy(landing):
             held = json.loads(policy.target)
             lines.append(f"landing policy: {held['rule']} at {held['revision']} ({policy.authority_ref})")
         if self.book.store.path(FINDER).is_file():
@@ -4556,7 +4561,7 @@ class Runner:
                     job = json.loads(action.target)
                     lines.append(f"fidelity #{job['pr']} {job['head'][:12]}: {f'running since {pacific(actions.parse_stamp(action.started_at))}' if action.started_at else 'queued'}")
         for container in [*self.book.containers(LANE_PREFIX), LANDING]:
-            incident = self.book.load(container)
+            incident = landing if container == LANDING else self.book.load(container)
             lines.append(f"## {container} owner {incident.owner} generation {incident.owner_generation}{f' pending {incident.pending_owner}' if incident.pending_owner else ''}")
             if clock := incident.facts.get(CLOCK):
                 lines.append(self.clock_line(clock))
