@@ -63,14 +63,14 @@ function band(b) {
   const rows = approvals + questions;
   return `<div class="nw-band needs nw-needs"><div class="head"><span class="tag">Needs you</span></div><div class="rows">${rows}</div></div>`;
 }
-const FEATURE = { 'New tree': 'New app', 'Old tree': "Today's app", Shared: 'Shared code and CI' };
 function approvalLine(prs) {
   const features = new Map();
-  for (const { pr, item } of prs) {
-    const feature = FEATURE[state.drive.get(pr.number)?.tree] ?? (/new (tree|app)/i.test(item.group) ? FEATURE['New tree'] : /today's app|old (tree|world)/i.test(item.group) ? FEATURE['Old tree'] : item.group);
+  for (const { item } of prs) {
+    const feature = rewritten('groups', item.key)?.title ?? item.group;
     features.set(feature, (features.get(feature) ?? 0) + 1);
   }
-  const split = [...features].map(([feature, count]) => `${feature} ${count}`).join(' · ');
+  const listed = [...features].sort((x, y) => y[1] - x[1]);
+  const split = [...listed.slice(0, 3).map(([feature, count]) => `${feature} ${count}`), ...(listed.length > 3 ? [`${listed.length - 3} more groups`] : [])].join(' · ');
   return `<div class="nl"><span class="what">${prs.length} changes wait on your approval<span class="sub">${esc(split)}</span></span><span class="acts"><a class="nbtn pri" href="#/review">Review them</a></span></div>`;
 }
 function needLine(item) {
