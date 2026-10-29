@@ -6807,7 +6807,7 @@ class Landing:
                 continue
             if not (gos := self.head_gos(pr, head)) or now - (at := min(max(actions.parse_stamp(go["at"]), actions.parse_stamp(go.get("graded_at") or go["at"])) for go in gos)) < GO_TO_QUEUE:
                 continue
-            if (queue := self.queue_states()) is None or queue.get(pr) not in OUT_OF_QUEUE:
+            if (queue := self.queue_states()) is None or queue.get(pr) not in OUT_OF_QUEUE or self.refused_at_head(stack, open_rows):
                 continue
             tried = sorted((action for action in self.book.actions(LANDING, kind="enqueue") if action.response and head.startswith(enqueued_heads(action.action_id).get(pr) or "-") and actions.parse_stamp(action.accepted_at) >= at), key=lambda action: action.accepted_at)
             reserved = [f"{reserved_row(line)[0]} on #{below}" for below in sorted(downstack(open_rows, pr), key=int) if (kept := self.reported.get((below, open_rows[below].get("head", "")[:7], False))) for line in kept[1] if cause(line) == RESERVED_TOUCH]
@@ -6833,6 +6833,14 @@ class Landing:
             key, subject = f"go-unqueued:{pr}@{head}", f"go-unqueued:{pr}"
             to = self.landing_audience([pr], rows, "") if self.runner.raised_before(key, subject) else ""
             self.runner.escalate(key, "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and root go #{gos[0]['seq']} at {pacific(actions.parse_stamp(gos[0]['at']))} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}{waits}; owner lane {owner}", subject, to)
+
+    def refused_at_head(self, members: set[str], open_rows: dict[str, dict]) -> bool:
+        """Whether this runner posted a `blocker` for a PR of `members` at its current head: that refusal is the record, so no `GO-UNQUEUED` repeats it (root, Oct 29 10:35 AM)."""
+        for action in self.book.actions(LANDING, kind="bus"):
+            target = json.loads(action.target)
+            if target.get("kind") == "blocker" and (pr := str(target["pr"])) in members and (sha := re.search(rf":{pr}:([0-9a-f]{{7,40}})", action.action_id)) and names_head(sha[1], open_rows[pr].get("head", "")):
+                return True
+        return False
 
     def last_refusal(self, members: set[str], open_rows: dict[str, dict], since: datetime) -> tuple[str, str] | None:
         """The newest refusal any PR of `members` stands under, with the lane that owns that PR: a blocker this runner routed for its current head or base, a refusal it escalated since `since`, or a `blocker` record a `landing.desk_lane` lane posted naming it since then (root, Oct 29 2:37 AM)."""
@@ -7498,7 +7506,7 @@ class Landing:
         self.post_record("blocker", key, to, text, pr, cause=cause)
 
     def post_record(self, kind: str, key: str, to: str, text: str, pr: str, cause: str = "", re_seq: str = "") -> None:
-        self.book.accept(LANDING, key, "bus", json.dumps({"lane": to, "pr": pr, "text": text} | ({"cause": cause} if cause else {})), key, None)
+        self.book.accept(LANDING, key, "bus", json.dumps({"lane": to, "pr": pr, "text": text, "kind": kind} | ({"cause": cause} if cause else {})), key, None)
         self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
         done = self.runner.cci_post(kind, text, to, pr, key, flags=["--re", re_seq] if re_seq else None)
         if done.code == 0:
