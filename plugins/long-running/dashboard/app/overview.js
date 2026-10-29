@@ -119,10 +119,10 @@ function prFacts(n) {
   const stands = `${pr.landed_at ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[t.state]}${t.base ? ` · stacked on #${t.base}${t.base_failing ? ', whose tests fail' : ''}` : ''}`;
   return `<dl class="facts pr-facts"><dt>Where it stands</dt><dd>${stands}${t.read_at ? ` <small class="dim">read ${agoWords(t.read_at)}</small>` : ''}</dd>
     ${truthFacts(n, Boolean(pr.landed_at))}
-    <dt>Tests</dt><dd>${TEST_WORD[pr.test_state] ?? 'Not known'}${t.checks.length ? `: ${t.checks.map((c) => `<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.name)} ↗</a>`).join(', ')}` : ''}</dd>
+    <dt>Tests</dt><dd>${testLight(n)}${t.checks.length ? `: ${t.checks.map((c) => `<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.name)} ↗</a>`).join(', ')}` : ''}</dd>
     <dt>Who is on it</dt><dd>${t.owner ? `<a href="#/worker/${encodeURIComponent(t.owner)}">${esc(workerName(t.owner))}</a>, ${w?.live ? 'working now' : t.word ? `last word ${agoWords(t.word.at)}` : 'no word from it on this pull request'}` : 'No worker named'}</dd>
     ${row?.change ? `<dt>What changes for a user</dt><dd>${inline(row.change)}</dd>` : ''}
-    <dt>Part of the plan</dt><dd>${step ? `<a href="#/plan/${encodeURIComponent(step.id)}">${esc(step.label ?? step.title)}</a>` : 'Not in a part of the plan'}</dd>${part ? `<dt>Where it runs</dt><dd>${esc(part.name)}: ${esc(part.becomes)}</dd>` : ''}</dl>`;
+    <dt>Part of the plan</dt><dd>${step ? `<a href="#/plan/${encodeURIComponent(step.id)}">${esc(step.label ?? step.title)}</a>` : 'No plan part recorded for it yet'}</dd>${part ? `<dt>Where it runs</dt><dd>${esc(part.name)}: ${esc(part.becomes)}</dd>` : ''}</dl>`;
 }
 function prSheet() {
   const m = state.model;
