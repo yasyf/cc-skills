@@ -109,7 +109,7 @@ class FakeShell(ledger.Shell):
             return json.dumps(self.stacks[str(cwd)])
         if argv[0] == "ccx" and argv[1:4] == ["vcs", "stack", "list-batch"]:
             return json.dumps([
-                {"path": path, "listing": self.stacks[path]} if path in self.stacks else {"path": path, "listing": None, "error": "ccx: stack list: detached HEAD; no stack to resolve"}
+                {"path": path, "listing": self.stacks[path]} if path in self.stacks else {"path": path, "listing": None, "error": "stack list: detached HEAD; no stack to resolve"}
                 for path in argv[4:]
             ])
         if argv[0] == "ccx":

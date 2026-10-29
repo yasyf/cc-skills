@@ -1458,7 +1458,10 @@ def lane_stacks(shell: Shell, ccx: str, registrations: list[dict[str, str]]) -> 
     results = {}
     if paths:
         try:
-            results = {result["path"]: result for result in json.loads(shell.run([ccx, "vcs", "stack", "list-batch", *paths]))}
+            for result in json.loads(shell.run([ccx, "vcs", "stack", "list-batch", *paths])):
+                if error := result.get("error"):
+                    result["error"] = f"ccx: {error}"
+                results[result["path"]] = result
         except subprocess.CalledProcessError as failure:
             results = {path: {"error": (failure.stderr or "").strip() or str(failure)} for path in paths}
     stacks = {}
