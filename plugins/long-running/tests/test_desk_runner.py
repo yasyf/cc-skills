@@ -1847,6 +1847,20 @@ def test_a_blocker_whose_lane_has_no_session_and_no_record_in_an_hour_goes_to_ro
     assert (blocker["to"], dead) == (to, to == "root")
 
 
+def test_a_dead_owner_lanes_blocker_goes_to_the_restack_lane_the_drive_names_not_root(shell, config):
+    raw = json.loads(config.read_text())
+    raw["landing"]["restack_lane"] = "restack-worker"
+    config.write_text(json.dumps(raw))
+    shell.rows = [ONE_ROW | {"lane": "chat-move-r4"}]
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED")]
+    shell.records = [{"seq": 34766, "drive": "d1", "lane": "p8e-desktop-ship-3", "kind": "head", "to": ["root"], "refs": {"prs": [29020]}, "text": "#29020 head", "source": "post", "at": actions.stamp(shell.clock - timedelta(minutes=61))}]
+    shell.gone = {"p8e-desktop-ship-3"}
+    landing_pass(shell, config)
+    [blocker] = blockers(shell)
+    assert blocker["to"] == "restack-worker"
+    assert post_body(blocker).startswith("owner lane dead: p8e-desktop-ship-3 has no live session and no record in 60 min, so this comes to restack-worker; #29020 cccc333333: ")
+
+
 CONFLICT = "GitHub reads CONFLICTING (DIRTY) against dev; run ccx vcs stack submit from the branch's worktree: cd /w && ccx vcs stack submit"
 
 
@@ -3592,6 +3606,8 @@ def test_a_board_tap_carries_itself_to_a_patch_identical_restack_once_a_record_s
     assert shell.board["merge-rows"]["29020"]["head"] == "cccc333333" and shell.board["merge-rows"]["29020"]["carriedFrom"] == "aaaa111111"
     [note] = tap_notes(shell)
     assert note["to"] == "root,board-refresher"
+    [go] = [post for post in shell.posts if post["kind"] == "go"]
+    assert go["text"].startswith(f"go #29020 at cccc333 TAP-CARRIED: the owner's tap at aaaa111111 carries to cccc333333, a patch-identical restack, per {cited}")
     assert note["text"] == f"TAP-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, a patch-identical restack, per {cited}, recorded with cc-present verdict carry; the row asks no new tap"
     assert [line for line in escalations(shell) if line.startswith("TAP-")] == []
 

@@ -6369,12 +6369,12 @@ class Landing:
         return True
 
     def go_lane(self, lane: str) -> bool:
-        return lane == ROOT or any(lane == delegate or succeeds(lane, delegate) for delegate in self.landing_config.get("go_lanes", []))
+        return lane in (ROOT, RUNNER) or any(lane == delegate or succeeds(lane, delegate) for delegate in self.landing_config.get("go_lanes", []))
 
     def go_records(self) -> list[dict]:
         """Every `go` record on this drive from the root or a `landing.go_lanes` lane or its numbered successor, read by lane when no lane is delegated."""
         drive = self.runner.config.drive
-        lanes = () if self.landing_config.get("go_lanes") else ("--lane", ROOT)
+        lanes = () if self.landing_config.get("go_lanes") else ("--lane", ROOT, "--lane", RUNNER)
         return [record for record in cci.records(self.cci_tail, drive, *lanes, "--kind=go") if (record["drive"], record["kind"]) == (drive, "go") and self.go_lane(record["lane"])]
 
     def root_gos(self) -> list[dict]:
@@ -6512,7 +6512,9 @@ class Landing:
             graded = newest_naming(fidelity_grades_in(reviews, drive, self.fidelity_lanes, self.repo, pr), head)
             moves = head_moves(reviews, drive, self.fidelity_lanes, self.repo, pr)
             if chain := patch_chain(moves, head, entry["head"]):
-                self.carry_tap(session, block, pr, tapped, head, f"patch-identical restack, per {', '.join(f'cci #{seq}' for seq in chain)}", self.landing_audience([pr], rows, to))
+                why = f"patch-identical restack, per {', '.join(f'cci #{seq}' for seq in chain)}"
+                if self.carry_tap(session, block, pr, tapped, head, why, self.landing_audience([pr], rows, to)) and not self.head_gos(pr, head):
+                    self.post_record("go", f"tap-go:{pr}:{head}", self.landing_audience([pr], rows, to), f"go #{pr} at {head[:7]} TAP-CARRIED: the owner's tap at {tapped[:10]} carries to {head[:10]}, a {why}; the runner posts this go itself, so no root hop (owner, Oct 29 2:06 PM)", pr)
                 continue
             said = [record for record in reviews if record["kind"] == "head" and about_pr(record, self.repo, pr) and names_head(graded_head(record["text"]), head)]
             adds = [record for record in [*said, *([graded] if graded else [])] if ADDS_BEHAVIOR.search(full_text(record))]
@@ -6541,16 +6543,18 @@ class Landing:
                 board = "; ".join(f"{entry['verdict']} at {(entry.get('head') or '')[:10]} on block {block}" for block, entry in held) or f"no verdict for #{pr}"
                 self.runner.escalate(f"go-tap-missing:{go['seq']}:{pr}", "GO-TAP-MISSING", f"#{pr}", f"root go cci #{go['seq']} says the owner tapped #{pr} at {head[:10]}, but no approval on the root's board names {head[:10]} or a head the go names; the board holds {board}. Withdraw the go, or post it again citing the board verdict at this head or the carry to it")
 
-    def carry_tap(self, session: str, block: str, pr: str, tapped: str, head: str, why: str, to: str) -> None:
+    def carry_tap(self, session: str, block: str, pr: str, tapped: str, head: str, why: str, to: str) -> bool:
+        """Carry the owner's tap on `pr` from `tapped` to `head` on the board and post `TAP-CARRIED` once; whether the board took it."""
         done = self.present(["cc-present", "verdict", "carry", "--session", session, "--block", block, "--row", pr, "--head", head, "--note", why])
         if done.code:
             why = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
             if UNKNOWN_BLOCK.search(why):
-                return
+                return False
             self.runner.escalate(f"tap-carry:{pr}:{head[:7]}:{hashlib.sha1(VOLATILE.sub('', why).encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", f"#{pr}", f"cc-present verdict carry refused the owner's tap on #{pr} from {tapped[:10]} to {head[:10]}: {why}; the next pass tries again")
-            return
+            return False
         if not self.book.known(LANDING, key := f"tap-carried:{block}:{pr}:{head}"):
             self.post_record("note", key, to, f"TAP-CARRIED #{pr}: the owner's tap at {tapped[:10]} on board block {block} now stands at {head[:10]}, a {why}, recorded with cc-present verdict carry; the row asks no new tap", pr)
+        return True
 
     def ask_owner(self, heads: dict[str, str], waiting: dict[str, list[str]], rows: dict[str, dict]) -> None:
         """Ask one merge card per waiting PR and head in the drive root's session, and log one `MERGE-ASK` naming it for the root, who answers the tap; nothing in the prefix is enqueued until a root `go` names each waiting head. A head touching a reserved row gets the row's key and first sentence in its card's question, whose tap is the authorization. A PR whose newest fidelity grade says `title: stale` still gets its card, and its `MERGE-ASK` and a blocker to its lane carry that line, since root posts no go until the lane's title fix (root #137006)."""
@@ -7638,7 +7642,7 @@ class Landing:
         lane = self.successor(lane)
         if self.session_live(lane):
             return [lane]
-        return [ROOT] if self.lane_dead(lane) else [lane, ROOT]
+        return (self.runner.landing_lanes("restack_lane") or [ROOT]) if self.lane_dead(lane) else [lane, ROOT]
 
     def lane_dead(self, lane: str) -> bool:
         """Whether `lane` has no live dispatch or session and posted nothing on this drive under either of its `lane_aliases` in the last `DEAD_LANE`, read once per lane a pass."""
@@ -7653,7 +7657,7 @@ class Landing:
 
     def dead_note(self, lane: str) -> str:
         """The words that open a blocker `reach` sends to the root alone because its owner lane is dead."""
-        return f"owner lane dead: {lane} has no live session and no record in {DEAD_LANE.seconds // 60} min, so this comes to root; " if lane and self.lane_dead(lane) else ""
+        return f"owner lane dead: {lane} has no live session and no record in {DEAD_LANE.seconds // 60} min, so this comes to {', '.join(self.runner.landing_lanes('restack_lane')) or 'root'}; " if lane and self.lane_dead(lane) else ""
 
     def session_live(self, lane: str) -> bool:
         """Whether `cci who` lists a live session for `lane`, read once per lane a pass; a read that times out reads as no session."""

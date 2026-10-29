@@ -307,6 +307,15 @@ def test_a_go_held_finder_pending_draws_no_stall_while_the_finder_desk_holds_a_p
         assert "| owner api-lane, finder-desk | FINDER-PENDING: the runner's newest blocker for #101 at abc1234, cci #5:" in shell.post("go:101:abc1234")["text"]
 
 
+def test_a_graded_pr_missing_from_the_board_belongs_to_the_drives_board_lane_not_root(config):
+    raw = json.loads(config.read_text())
+    raw["landing"]["board_lane"] = "board-refresher-2"
+    config.write_text(json.dumps(raw))
+    shell = FakeShell([head(1, "101", HEAD, 40), finder(2, "101", HEAD, 20), fidelity(3, "101", HEAD, 20)], [row("101")])
+    watch(shell, config)
+    assert "| owner board-refresher-2 |" in shell.post("board:101:abc1234")["text"]
+
+
 def test_a_graded_pr_missing_from_the_board_and_a_tap_no_go_follows_each_post_until_the_board_and_root_catch_up(config):
     records = [head(1, "101", HEAD, 40), finder(2, "101", HEAD, 20), fidelity(3, "101", HEAD, 20), head(4, "102", OTHER, 40), finder(5, "102", OTHER, 30), fidelity(6, "102", OTHER, 30)]
     shell = FakeShell(records, [row("101"), row("102", OTHER)])

@@ -111,7 +111,7 @@ posts once while it stands: `cci post --lane stall-watch --kind urgent --to root
 for a stale PR. A stall every owner of which is a desk, a lane named `<x>-desk` or `<x>-desk-<n>`, goes to
 its owners and not to root; one the desk runner owns goes to `landing.desk_lane` when the config names one.
 An id that no longer stands clears, and posts again if it stalls again, but never sooner than `REPEAT` after
-its last post; a source that does not read keeps the stalls it would have cleared. `stall.board_lane` (default root) owns missing board rows. State lives in
+its last post; a source that does not read keeps the stalls it would have cleared. `stall.board_lane`, else the first `landing.board_lane`, else root, owns missing board rows. State lives in
 `stall-watch.json` beside `orca.desk_inbox`, under a lock a second pass meets by exiting. Each pass also
 writes `stack.json` there: one row per open PR with its head, base, the PR below it, its state and next
 step in words, its owning lane and whether that lane is live, and since when the state stood; the
@@ -314,7 +314,7 @@ class Watch:
             minutes=MINUTES | stall.get("minutes", {}),
             window=timedelta(hours=stall.get("window_hours", WINDOW_HOURS)),
             model=stall.get("model", MODEL),
-            board_lane=stall.get("board_lane", ROOT),
+            board_lane=stall.get("board_lane") or next(iter(lanes_of(landing.get("board_lane", []))), ROOT),
             quiet_lanes=stall.get("quiet_lanes", [*landing.get("go_lanes", []), *lanes_of(landing.get("board_lane", []))]),
             stacks=path.with_name(f"{path.stem}.{STACKS_FILE}"),
         )
@@ -785,7 +785,7 @@ class Pass:
         go_lanes = [ROOT, *landing.get("go_lanes", [])]
         exempt = landing.get("exempt_grades", [landing.get("port_phrase", grades.PORT_PHRASE), *grades.TEST_ONLY_PHRASES])
         closed = {seq for record in records if record["lane"] in ROOT_NAMES for seq in grades.closes(record)}
-        gos = [record | {"voided": set()} for record in records if record["kind"] == "go" and record["lane"] in go_lanes and record["seq"] not in closed and grades.go_heads(record)]
+        gos = [record | {"voided": set()} for record in records if record["kind"] == "go" and record["lane"] in [*go_lanes, RUNNER] and record["seq"] not in closed and grades.go_heads(record)]
         reviews = [record for record in records if record["kind"] in ("review", "head")]
         fidelity = [record for record in reviews if record["kind"] == "review" and record["lane"] in fidelity_lanes and record["text"].startswith(grades.FIDELITY_GRADES)]
         gos += grades.carried_gos(gos, fidelity, repo, lambda pr, head: True)
