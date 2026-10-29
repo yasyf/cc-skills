@@ -1,4 +1,4 @@
-const VIEWS = { progress: 'journey', blockers: 'chart', story: 'column', work: 'rows3', diagram: 'end-state' };
+const VIEWS = { progress: 'journey', story: 'column', diagram: 'end-state' };
 const NODE_WORD = { fixing: 'Being fixed', you: 'Needs you', nobody: 'No one assigned', waiting: 'Waiting', done: 'Done' };
 const MARK_WORD = { progress: 'Progress', finding: 'Found', stuck: 'Stuck', done: 'Done' };
 const story = { item: null, es: null, lines: [], draft: null, status: null, open: false };
@@ -15,7 +15,6 @@ function minutesOf(t) {
   const [, h, mm, ap] = /(\d+):(\d+) ([AP]M)/.exec(t ?? '') ?? [0, 0, 0, 'AM'];
   return (Number(h) % 12 + (ap === 'PM' ? 12 : 0)) * 60 + Number(mm);
 }
-const QUIET_MS = 5 * 60000;
 function minutesAgo(t) {
   const [h, m] = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: 'numeric', hourCycle: 'h23' }).format(new Date()).split(':').map(Number);
   return (h * 60 + m - minutesOf(t) + 1440) % 1440;
@@ -48,10 +47,7 @@ function nowScreen() {
     <p class="nw-sub">Written from the drive's records at ${clock(b.at)}. <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>
     ${state.open.has('nw-why') ? `<ul class="nw-why">${b.because.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     <section><h2 class="nw-h">Overall progress</h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
-    <div class="nw-cols">
-      <section><h2 class="nw-h">Biggest blockers, and how each is being unblocked</h2>${blockers(b)}</section>
-      <section><h2 class="nw-h">${r.screen === 'story' ? 'Live story' : 'Being worked on now'}</h2>${r.screen === 'story' ? storyColumn(r.id) : workList(b)}</section>
-    </div>`}
+    ${r.screen === 'story' ? `<div class="nw-cols"><section><h2 class="nw-h">Also being worked on</h2>${alsoList(b)}</section><section><h2 class="nw-h">Live story</h2>${storyColumn(r.id)}</section></div>` : `<section><h2 class="nw-h">Also being worked on</h2>${alsoList(b)}</section>`}`}
     ${diagramSlot()}
   </div>`;
 }
@@ -99,13 +95,18 @@ function needLine(item) {
 function stops(b) {
   return state.model.milestones.map((name, i) => ({ name, ...(b.progress.stops[i] ?? { state: 'not', label: 'Not known', why: '' }) }));
 }
+function current(b, list) {
+  const next = list.findIndex((s) => s.state === 'next');
+  return next >= 0 ? next : b.paths.map(unfinished).find((p) => p.nodes.length)?.milestone ?? list.findIndex((s) => s.state !== 'live');
+}
 function journey(b) {
   const list = stops(b);
   const lastLive = list.map((s) => s.state).lastIndexOf('live');
-  const cur = list.findIndex((s) => s.state === 'next');
+  const cur = current(b, list);
   const fill = lastLive > 0 ? (lastLive / list.length) * 100 : 0;
   return `<div class="nw-panel">${progressLabel()}
     <div class="nw-journey" style="--n:${list.length}"><i class="fill" style="width:${fill}%"></i>${list.map((s, i) => `<a class="ms ms-${s.state}${i === cur ? ' cur' : ''}" href="#/plan/m${i}"><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.why ? `<span class="why">${esc(s.why)}</span>` : ''}</a>`).join('')}</div>
+    ${hang(b, list, cur)}
     <p class="nw-sent">${list.filter((s) => s.state === 'live').length} of ${list.length} milestones are live. ${esc(b.progress.sentence ?? '')}</p><p class="nw-code">${codeLine()}</p>
     </div>`;
 }
@@ -122,6 +123,7 @@ function compact(b) {
   const next = list.find((s) => s.state === 'next');
   const odd = list.filter((s) => ['paused', 'broken'].includes(s.state));
   return `<div class="nw-panel">${progressLabel()}<div class="nw-seg">${list.map((s, i) => `<a class="ms-${s.state}" href="#/plan/m${i}" title="${esc(`${s.name}: ${s.label}`)}"></a>`).join('')}</div>
+    ${hang(b, list, current(b, list))}
     <p class="nw-sent"><b>${live.length} of ${list.length} milestones live</b>${live.length ? `: ${esc(live.map((s) => s.name).join(', '))}` : ''}.</p>
     ${next ? `<p class="nw-line">Next: <b>${esc(next.name)}</b>${next.why ? `, ${esc(next.why)}` : ''}.</p>` : ''}
     ${odd.map((s) => `<p class="nw-line ms-${s.state}">${esc(s.name)}: ${esc(s.label)}${s.why ? `, ${esc(s.why)}` : ''}.</p>`).join('')}
@@ -136,11 +138,6 @@ function unfinished(path) {
     edges = [...edges.filter((e) => e.from !== d.id && e.to !== d.id), ...into.flatMap((from) => outof.map((to) => ({ from, to })))];
   }
   return { ...path, nodes: path.nodes.filter((n) => n.state !== 'done'), edges };
-}
-function blockers(b) {
-  const paths = b.paths.map(unfinished).filter((p) => p.nodes.length);
-  if (!paths.length) return `<div class="nw-calm"><span class="ok">✓</span>${esc(b.calm || 'Nothing is stuck.')}</div>`;
-  return view('blockers') === 'cards' ? `${cards([paths[0]])}${paths.slice(1).map(laterPath).join('')}` : `<div class="nw-chart">${chart(paths[0], 0)}${paths.slice(1).map(laterPath).join('')}</div>`;
 }
 function laterPath(path) {
   const name = state.model.milestones[path.milestone] ?? 'a later milestone';
@@ -162,74 +159,46 @@ function depthOf(path) {
   };
   return [new Map(path.nodes.map((n) => [n.id, depth(n.id)])), out];
 }
-function chart(path, index) {
-  const [depth, out] = depthOf(path);
-  const layers = [...new Set(depth.values())].sort((a, b) => b - a);
-  const name = state.model.milestones[path.milestone] ?? 'the next milestone';
-  const key = `p${index}`;
-  const edges = [...[...out].flatMap(([from, tos]) => tos.map((to) => [from, to])), ...path.nodes.filter((n) => !out.get(n.id).length).map((n) => [n.id, '@goal'])];
-  return `<div class="nw-path" data-path="${key}" data-edges="${esc(JSON.stringify(edges))}"><svg class="arrows" aria-hidden="true"></svg>
-    <p class="plab">To ${esc(name)}</p>
-    ${layers.map((d) => `<div class="layer">${path.nodes.filter((n) => depth.get(n.id) === d).map((n) => node(n, key)).join('')}</div>`).join('')}
-    <div class="layer"><div class="nd goal" data-node="${key}:@goal"><span class="w">Then</span>${esc(name)}</div></div></div>`;
-}
 function nodeWord(n) {
   return (n.change && latestWord(n.change)) || (n.item && workWord(n.item));
 }
-function node(n, key) {
-  const work = n.item && workItem(n.item);
-  const tag = work ? `a href="${storyHref(n.item)}"` : 'div';
-  return `<${tag} class="nd ${n.state}" data-node="${key}:${esc(n.id)}"><span class="w">${NODE_WORD[n.state]}${waited(n.since) ? ` <i>${waited(n.since)}</i>` : ''}${nodeWord(n) ? ` <i>· ${wordAt(nodeWord(n))}</i>` : ''}</span>${esc(n.text)}
-    ${n.how ? `<span class="how">${esc(n.how)}</span>` : ''}</${work ? 'a' : 'div'}>`;
+function hang(b, list, at) {
+  if (at < 0) return '';
+  const paths = b.paths.map(unfinished).filter((p) => p.nodes.length);
+  const nodes = paths.filter((p) => p.milestone === at).flatMap((p) => {
+    const [depth] = depthOf(p);
+    return [...p.nodes].sort((x, y) => depth.get(x.id) - depth.get(y.id));
+  });
+  const feeding = b.work.filter((w) => nodes.some((n) => n.id === w.unblocks || n.item === w.item));
+  const body = nodes.length || feeding.length
+    ? `${nodes.length ? `<p class="hl">Holding it up, nearest first</p><div class="chain">${nodes.map(hangNode).join('')}</div>` : ''}${feeding.length ? `<p class="hl">Work feeding it</p><div class="feed">${feeding.map(hangWork).join('')}</div>` : ''}`
+    : `<div class="nw-calm"><span class="ok">✓</span>${esc(b.calm || 'Nothing is stuck.')}</div>`;
+  return `<div class="nw-hang ms-${list[at].state}" style="--n:${list.length};--at:${at}"><i class="stem"></i><div class="col">${body}</div></div>
+    ${paths.filter((p) => p.milestone !== at).map(laterPath).join('')}`;
 }
-function cards(paths) {
-  const rank = { nobody: 0, you: 1, fixing: 2, waiting: 3 };
-  const list = paths.flatMap((p) => p.nodes.filter((n) => n.state !== 'done').map((n) => ({ ...n, holds: state.model.milestones[p.milestone] }))).sort((a, b) => rank[a.state] - rank[b.state]);
-  return `<div class="nw-cards">${list.map((n) => {
-    const work = n.item && workItem(n.item);
-    return `<div class="blk ${n.state}"><div class="stuck"><div class="t">${esc(n.text)}</div><div class="meta">Holds up <b>${esc(n.holds ?? 'the next milestone')}</b>${waited(n.since) ? ` · ${waited(n.since)}` : ''}</div></div>
-      <div class="unb"><span class="chip ${n.state}">${NODE_WORD[n.state]}</span>${esc(n.how)}${work ? ` <a href="${storyHref(n.item)}">Live story ›</a>` : ''}</div></div>`;
-  }).join('')}</div>`;
+function clockLine(since, word) {
+  return [waited(since), wordAt(word)].filter(Boolean).join(', ');
 }
-function drawArrows() {
-  for (const box of document.querySelectorAll('.nw-path')) {
-    const svg = box.querySelector('svg.arrows');
-    const origin = box.getBoundingClientRect();
-    svg.setAttribute('viewBox', `0 0 ${origin.width} ${origin.height}`);
-    svg.setAttribute('width', origin.width);
-    svg.setAttribute('height', origin.height);
-    const at = (id) => box.querySelector(`[data-node="${CSS.escape(`${box.dataset.path}:${id}`)}"]`)?.getBoundingClientRect();
-    const lines = JSON.parse(box.dataset.edges).map(([from, to]) => {
-      const a = at(from), b = at(to);
-      if (!a || !b) return '';
-      const x1 = a.left + a.width / 2 - origin.left, y1 = a.bottom - origin.top;
-      const x2 = Math.min(Math.max(x1, b.left - origin.left + 16), b.right - origin.left - 16), y2 = b.top - origin.top - 1;
-      const mid = (y1 + y2) / 2;
-      return `<path d="M${x1} ${y1} C${x1} ${mid} ${x2} ${mid} ${x2} ${y2}" marker-end="url(#nw-head)"/>`;
-    }).join('');
-    svg.innerHTML = `<defs><marker id="nw-head" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z"/></marker></defs>${lines}`;
-  }
+function hangNode(n) {
+  const tag = n.item && workItem(n.item) ? 'a' : 'div';
+  const when = clockLine(n.since, nodeWord(n));
+  return `<${tag} class="hc ${esc(n.state)}"${tag === 'a' ? ` href="${storyHref(n.item)}"` : ''}><span class="bar">${NODE_WORD[n.state]}</span><span class="in"><b>${esc(n.text)}</b>${n.how ? `<span class="how">${esc(n.how)}</span>` : ''}${when ? `<span class="when">${when}</span>` : ''}</span></${tag}>`;
 }
-
-function workList(b) {
-  if (view('work') === 'boxes') return `<div class="nw-boxes">${b.work.map((w) => `<a class="bx" href="${storyHref(w.item)}"><b>${esc(w.title)}</b><span class="chip ${slug(w.status)}">${esc(w.status)}</span>${waited(w.since) ? `<span class="for">${waited(w.since)}</span>` : ''}<span>${esc(w.latest)}</span></a>`).join('')}</div>`;
-  const rows = b.work.slice(0, view('work') === 'rows5' ? 5 : 3);
-  const more = b.work.length - rows.length;
-  if (!rows.length) return '<div class="nw-calm">No work is running right now.</div>';
-  return `<div class="nw-work">${rows.map(workRow).join('')}${more ? `<a class="more" href="#/work">${more} more piece${more === 1 ? '' : 's'} of work ›</a>` : ''}</div>`;
+function hangWork(w) {
+  const when = clockLine(w.since, workWord(w.item));
+  return `<a class="hc ${slug(w.status)}" href="${storyHref(w.item)}"><span class="bar">${esc(w.status)}</span><span class="in"><b>${esc(w.title)}</b><span class="how">${esc(w.latest)}</span>${when ? `<span class="when">${when}</span>` : ''}<span class="open">Live story ›</span></span></a>`;
 }
-function workRow(w) {
+function alsoList(b) {
+  const at = current(b, stops(b));
+  const fed = new Set(b.paths.map(unfinished).filter((p) => p.milestone === at).flatMap((p) => p.nodes).flatMap((n) => [n.id, n.item]).filter(Boolean));
+  const rows = b.work.filter((w) => !fed.has(w.unblocks) && !fed.has(w.item));
+  if (!rows.length) return '<div class="nw-calm">Nothing else is running right now.</div>';
+  return `<div class="nw-work nw-also">${rows.map(alsoRow).join('')}<a class="more" href="#/work">All work ›</a></div>`;
+}
+function alsoRow(w) {
   return `<a class="wr ${slug(w.status)}" href="${storyHref(w.item)}"><span class="pulse"></span>
-    <span class="body"><b>${esc(w.title)}</b><span class="line"><span class="chip ${slug(w.status)}">${esc(w.status)}</span>${esc(w.latest)}</span>${quietLine(w)}</span>
-    <span class="side">${lasted(w.since) ? `<span>${lasted(w.since)}</span><span>since ${esc(w.since)}</span>` : ''}${workWord(w.item) ? `<span>${wordAt(workWord(w.item))}</span>` : ''}<span class="open">Live story ›</span></span></a>`;
-}
-
-function quietLine(w) {
-  const word = workWord(w.item);
-  if (word && Date.now() - new Date(word.at) < QUIET_MS) return '';
-  const n = (w.changes ?? []).find((c) => prState(c) !== 'landed');
-  const waits = n && prTruth(n).blocks;
-  return waits ? `<span class="quiet">${word ? `Quiet since ${clock(word.at)}` : 'Quiet'}; waits on ${esc(waits.replace(/^./, (c) => c.toLowerCase()).replace(/\.$/, ''))}.</span>` : '';
+    <span class="body"><b>${esc(w.title)}</b><span class="line"><span class="chip ${slug(w.status)}">${esc(w.status)}</span>${esc(w.latest)}</span></span>
+    <span class="side">${lasted(w.since) ? `<span>${lasted(w.since)}</span>` : ''}<span class="open">Live story ›</span></span></a>`;
 }
 function follow(item) {
   if (story.item === item && story.es) return;
@@ -297,10 +266,8 @@ function mountNow() {
   const r = route();
   if (r.screen === 'story' && r.id) follow(decodeURIComponent(r.id));
   else unfollow();
-  drawArrows();
   mountOverview();
 }
 document.addEventListener('click', (e) => {
   if (e.target.closest('[data-story-more]')) { story.open = true; paintStory(); }
 });
-window.addEventListener('resize', () => drawArrows());
