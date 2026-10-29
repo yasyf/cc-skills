@@ -3237,6 +3237,8 @@ def test_the_legacy_port_phrase_key_still_sets_the_port_grade_phrase(shell, conf
         ("docs/slack.md", True),
         ("go/sand/next/vm/fakes/clock.go", True),
         ("dashboard/e2e/realServe.ts", True),
+        ("go/sand/internal/iris/iriseval/evals/platform-tasks/unlink-the-resolved-blocker/eval.yaml", True),
+        ("go/sand/internal/iris/iriseval/evalset.go", False),
         ("dashboard/src/a.spec.ts", True),
         ("tools/rulings_test.py", True),
         ("go/sand/next/tests/helpers.go", True),
