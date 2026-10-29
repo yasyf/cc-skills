@@ -184,7 +184,7 @@ SQUASH_SUBJECT = re.compile(r"\(#(\d+)\)$")
 SETTLE_WORKERS = 8
 REFRESH_BATCH = 25
 PR_STATE_MAX_AGE = "2m"
-REFRESH_WORKERS = 8
+REFRESH_WORKERS = 16
 TERMINAL_STATES = frozenset({LANDED, CLOSED_WITHOUT_SQUASH})
 REOPEN_WINDOW = timedelta(hours=24)
 WATCH_P0_EVENTS = frozenset({"ejected", "conflicting", "red"})

@@ -252,6 +252,24 @@ def test_refresh_batches_run_at_most_refresh_workers_at_once(lock, red_routes, m
     assert shell.peak == 2
 
 
+def test_a_drives_dozen_refresh_batches_read_in_one_round(lock, red_routes, monkeypatch):
+    held = [str(20961 + pr) for pr in range(12)]
+    both = threading.Barrier(len(held), timeout=5)
+
+    class Gathering(FakeShell):
+        def _pr_state(self, argv):
+            both.wait()
+            number = argv[-1]
+            state = json.loads(super()._pr_state([*argv[:-1], "20961"]))
+            state["prs"] = {number: state["prs"]["20961"] | {"number": int(number)}}
+            return json.dumps(state)
+
+    monkeypatch.setattr(ledger, "REFRESH_BATCH", 1)
+    shell = Gathering(rows=[{"key": pr, "fields": {"head": "stale"}} for pr in held], routes=red_routes)
+    refresh(shell, lock)
+    assert len(shell.state_calls()) == len(held)
+
+
 def test_refresh_polls_the_rows_while_the_lane_stacks_list(lock, red_routes, tmp_path):
     class Listing(FakeShell):
         def __init__(self, **kwargs):
