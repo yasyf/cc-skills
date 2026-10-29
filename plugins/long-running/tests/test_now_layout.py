@@ -183,3 +183,36 @@ def test_a_question_opens_in_a_panel_with_its_answers(page):
     page.goto(page.url.split("#")[0] + f"#/~question/{card['id']}")
     page.wait_for_selector(".pr-drawer.front .bq")
     assert page.locator(".pr-drawer.front [data-choose]").count() == len(card["options"])
+
+
+def test_the_live_feed_sits_between_the_picture_and_the_milestones(page):
+    now(page)
+    assert page.locator(".nw-diagram").bounding_box()["y"] < page.locator(".nw-live").bounding_box()["y"] < page.locator(".nw-spine").bounding_box()["y"]
+
+
+def test_tapping_a_worker_swaps_the_live_feed_to_its_story_and_back(page):
+    now(page)
+    item = json.loads(MODEL.read_text())["brief"]["work"][0]["item"]
+    page.locator(f'.nw-live .wr[data-feed="{item}"]').click()
+    page.wait_for_selector(".nw-live .nw-storyhead .nw-sub")
+    assert "Three files still use the deleted store" in page.locator(".nw-live .nw-storyhead .now").inner_text()
+    page.locator(".nw-live [data-feed-all]").click()
+    page.wait_for_selector(".nw-live .nw-work")
+
+
+def test_a_latest_word_says_what_it_was(page):
+    now(page)
+    model = json.loads(MODEL.read_text())
+    record = model["records"][-1]
+    item = next(w["item"] for w in model["brief"]["work"] if record["lane"] in (w.get("workers") or []))
+    assert page.locator(f'.nw-live .wr[data-feed="{item}"] .said').inner_text() == model["said"][str(record["seq"])]
+
+
+def test_blockers_and_work_share_the_full_width_under_the_milestones(page):
+    now(page)
+    slot = page.locator(".nw-slot").bounding_box()
+    pan = page.locator(".nw-slot .pan.focus").bounding_box()
+    assert pan["width"] > slot["width"] * 0.95
+    cols = [page.locator(".nw-slot .pan.focus .two > div").nth(i).bounding_box() for i in range(page.locator(".nw-slot .pan.focus .two > div").count())]
+    assert len(cols) == 2
+    assert cols[1]["x"] >= cols[0]["x"] + cols[0]["width"] and abs(cols[1]["y"] - cols[0]["y"]) < 2
