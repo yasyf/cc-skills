@@ -143,7 +143,7 @@ def test_a_head_no_finder_names_posts_one_urgent_record_to_root_and_its_lane_unt
 
     assert shell.topics() == ["finder:101:abc1234"]
     assert shell.post("finder:101:abc1234")["kind"] == "urgent"
-    assert shell.post("finder:101:abc1234")["to"] == "root,api-lane@d1"
+    assert shell.post("finder:101:abc1234")["to"] == "api-lane@d1"
     assert shell.post("finder:101:abc1234")["text"].startswith("STALL finder #101 at abc1234, 40 min: no finder review names this head")
     shell.records.append(finder(5, "101", HEAD, 1))
     watch(shell, config)
@@ -272,7 +272,7 @@ def test_a_go_the_runner_refused_names_its_newest_open_blocker_for_that_head_and
     records = gone("101", HEAD)
     records.append(record(5, "desk-runner", "blocker", f"#101 {OLD[:10]}: nothing in #101 was enqueued; BUILD-FAILED #101: an older head", 11, to=["api-lane"], topic="101"))
     records.append(record(6, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; FINDER-PENDING #101: an answered finding", 10, to=["api-lane"], topic="101", status="closed"))
-    records.append(record(7, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; TAP-REQUIRED rule/82317b0: it lands only on the owner's tap at this head", 9, to=["api-lane", "board-refresher"], topic="101", status="open"))
+    records.append(record(7, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; MERGE-ASK rule/82317b0: it lands only on the owner's tap at this head", 9, to=["api-lane", "board-refresher"], topic="101", status="open"))
     records.append(record(8, "desk-runner", "note", f"#101 {HEAD[:10]}: WARNING `rulings.py check-pr` warns at {HEAD[:10]}, and the head is not held for it", 8, to=["api-lane"], topic="101"))
     shell = FakeShell(records, [row("101")])
 
@@ -280,7 +280,7 @@ def test_a_go_the_runner_refused_names_its_newest_open_blocker_for_that_head_and
 
     post = shell.post("go:101:abc1234")
     assert post["to"] == "root,api-lane@d1,board-refresher@d1"
-    assert post["text"].endswith(f"| owner api-lane, board-refresher | TAP-REQUIRED: the runner's newest blocker for #101 at abc1234, cci #7: #101 {HEAD[:10]}: nothing in #101 was enqueued; TAP-REQUIRED rule/82317b0: it lands only on the owner's tap at this head")
+    assert post["text"].endswith(f"| owner api-lane, board-refresher | MERGE-ASK: the runner's newest blocker for #101 at abc1234, cci #7: #101 {HEAD[:10]}: nothing in #101 was enqueued; MERGE-ASK rule/82317b0: it lands only on the owner's tap at this head")
 
 
 def finder_pass(tmp_path: Path, pr: str, sha: str, status: str) -> None:
@@ -850,3 +850,125 @@ def test_a_stall_that_clears_and_comes_back_posts_again_only_thirty_minutes_afte
     shell.clock += timedelta(minutes=1)
     watch(shell, config)
     assert shell.topics() == ["finder:101:abc1234", "finder:101:abc1234"]
+
+
+BOTTOM = "e3ff0636bdb2e8c5b8b02852444fc2366ecd0416"
+TOP = "09c18630ab2e8c5b8b02852444fc2366ecd04160"
+MOVED = "a01e2016f80e1f4cae7683e8818ed80a072fcd54"
+LANDING_BLOCKER = (
+    "landing-desk-3 2:14 AM: stack-enqueue refuses two tapped stacks on Graphite records. p8a-step7: #44141 09c1863 sits on "
+    "dar-p8a-step7-team-reds-listed-team (closed #44140's branch), which Graphite does not track, so #44139 cannot carry it; "
+    "run ccx vcs stack submit from #44141's worktree to put it on #44139, post HEAD. p8f-replica-9: #43736 b57f618 is still on "
+    "graphite-base/43736 after #44127 landed; restack it onto dev, post HEADs."
+)
+
+
+def tonight(config: Path) -> FakeShell:
+    """#44141, go'd on #44139, sits on closed #44140's untracked branch; landing-desk-3 posts the blocker #173678 at NOW and p8a-step7 stays silent."""
+    desk_lane(config, "landing-desk-3")
+    rows = [
+        row("44139", BOTTOM, lane="p8a-step7", branch="dar-p8a-step7-a"),
+        row("44141", TOP, lane="p8a-step7", branch="dar-p8a-step7-b", base="dar-p8a-step7-team-reds-listed-team"),
+    ]
+    records = [
+        record(173026, "root", "go", f"go #44139 at {BOTTOM[:7]}, #44141 at {TOP[:7]}", 40),
+        record(173678, "landing-desk-3", "blocker", LANDING_BLOCKER, 0, to=["p8a-step7", "p8f-replica-9", "root"], status="open"),
+    ]
+    return FakeShell(records, rows)
+
+
+def refusal_topics(shell: FakeShell) -> list[str]:
+    return [topic for topic in shell.topics() if topic.startswith(("refusal:", "successor:"))]
+
+
+def test_a_landing_refusal_no_lane_answers_escalates_to_root_and_its_lane_at_10_minutes_and_asks_root_for_a_successor_at_20(config):
+    shell = tonight(config)
+    shell.clock = NOW + timedelta(minutes=9)
+    watch(shell, config)
+    assert refusal_topics(shell) == []
+
+    shell.clock = NOW + timedelta(minutes=10)
+    watch(shell, config)
+    assert refusal_topics(shell) == ["refusal:44141:09c1863:parent"]
+    post = shell.post("refusal:44141:09c1863:parent")
+    assert (post["kind"], post["to"]) == ("urgent", "root,p8a-step7@d1")
+    assert post["text"].startswith("STALL refusal #44141 at 09c1863, 10 min: landing-desk-3 refused to queue it at ")
+    assert "| owner p8a-step7 | p8a-step7: run ccx vcs stack submit from #44141's worktree to put it on #44139, post HEAD, then post HEAD or `cci post --re 173678`" in post["text"]
+
+    shell.clock = NOW + timedelta(minutes=15)
+    watch(shell, config)
+    assert refusal_topics(shell) == ["refusal:44141:09c1863:parent"]
+
+    shell.clock = NOW + timedelta(minutes=20)
+    watch(shell, config)
+    assert refusal_topics(shell) == ["refusal:44141:09c1863:parent", "successor:44141:09c1863:parent"]
+    successor = shell.post("successor:44141:09c1863:parent")
+    assert successor["to"] == "root"
+    assert "| owner root | spawn a successor to p8a-step7, which has not acted on #173678 in 20 min; the successor's first step: run ccx vcs stack submit from #44141's worktree" in successor["text"]
+
+
+def test_a_head_record_from_the_refused_lane_clears_its_refusal(config):
+    shell = tonight(config)
+    shell.records.append(record(174232, "p8a-step7", "head", f"HEAD #44141 {MOVED}: patch-identical, restacked onto #44139", -21, "44141"))
+    shell.clock = NOW + timedelta(minutes=22)
+    watch(shell, config)
+    assert not [topic for topic in shell.topics() if topic.startswith(("refusal:", "successor:"))]
+
+
+@pytest.mark.parametrize("cause", ["needs-restack", "conflicting against its base", "GitHub is computing mergeability", "TAP-REQUIRED rule/82317b0", "FOREIGN #44999"])
+def test_each_landing_refusal_cause_is_tracked_and_routed_to_the_lane_that_acts(config, cause):
+    desk_lane(config, "landing-desk-3")
+    records = [*gone("101", HEAD), record(5, "desk-runner", "blocker", f"#101 {HEAD[:10]}: {cause}", 11, to=["api-lane", "root"])]
+    shell = FakeShell(records, [row("101")])
+    watch(shell, config)
+    [topic] = [topic for topic in shell.topics() if topic.startswith("refusal:")]
+    to = shell.post(topic)["to"]
+    expected = {"computing": "landing-desk-3@d1", "TAP": "root", "FOREIGN": "root"}
+    assert to == next((lanes for word, lanes in expected.items() if word in cause), "root,api-lane@d1")
+
+
+def test_a_refusal_for_a_pr_no_go_or_tap_names_is_not_tracked(config):
+    shell = FakeShell([head(1, "101", HEAD, 30), finder(2, "101", HEAD, 25), fidelity(3, "101", HEAD, 25), record(5, "desk-runner", "blocker", f"#101 {HEAD[:10]}: needs-restack", 11, to=["api-lane"])], [row("101")])
+    watch(shell, config)
+    assert not [topic for topic in shell.topics() if topic.startswith("refusal:")]
+
+
+def desk_job(tmp_path: Path, desk: str, kind: str, pr: str, sha: str, started_minutes_ago: float | None) -> None:
+    store = actions.Store(tmp_path / "store")
+    store.create(actions.Incident(desk, desk, 0, stamp(60), {}))
+    with store.owned(desk, 0) as incident:
+        incident.accept(f"{kind}:{pr}:{sha}", kind, json.dumps({"pr": pr, "head": sha, "lane": "api-lane", "seq": 1, "full": False}), "cci#1", NOW - timedelta(minutes=60))
+        if started_minutes_ago is not None:
+            incident.start(f"{kind}:{pr}:{sha}", NOW - timedelta(minutes=started_minutes_ago))
+
+
+@pytest.mark.parametrize(("started", "stalls"), [(None, []), (10, []), (30, ["finder:101:abc1234"])])
+def test_a_head_in_the_finder_queue_draws_no_finder_stall_until_its_pass_runs_past_25_minutes_and_then_only_the_desk_hears(config, tmp_path, started, stalls):
+    desk_lane(config, "landing-desk-3")
+    desk_job(tmp_path, "desk-finder", "finder", "101", HEAD, started)
+    shell = FakeShell([head(1, "101", HEAD, 50), fidelity(2, "101", HEAD, 45)], [row("101")])
+    watch(shell, config)
+    assert [topic for topic in shell.topics() if topic.startswith("finder:")] == stalls
+    for topic in stalls:
+        assert shell.post(topic)["to"] == "landing-desk-3@d1"
+
+
+@pytest.mark.parametrize(("started", "stalls"), [(None, []), (30, ["fidelity:101:abc1234"])])
+def test_a_head_in_the_fidelity_queue_draws_no_fidelity_stall_until_its_grade_runs_past_25_minutes(config, tmp_path, started, stalls):
+    desk_lane(config, "landing-desk-3")
+    desk_job(tmp_path, "desk-fidelity", "fidelity", "101", HEAD, started)
+    shell = FakeShell([head(1, "101", HEAD, 50), finder(2, "101", HEAD, 45)], [row("101")])
+    watch(shell, config)
+    assert [topic for topic in shell.topics() if topic.startswith("fidelity:")] == stalls
+    for topic in stalls:
+        assert "root" not in shell.post(topic)["to"].split(",")
+
+
+def test_a_board_line_spares_root_while_the_board_refresher_posted_about_the_pr_in_the_last_ten_minutes(config):
+    raw = json.loads(config.read_text())
+    raw["landing"]["board_lane"] = "board-refresher"
+    config.write_text(json.dumps(raw))
+    records = [head(1, "101", HEAD, 40), finder(2, "101", HEAD, 20), fidelity(3, "101", HEAD, 20), record(4, "board-refresher-2", "note", "row up for #101", 5, "101")]
+    shell = FakeShell(records, [row("101")])
+    watch(shell, config)
+    assert not [topic for topic in shell.topics() if topic.startswith("board:")]

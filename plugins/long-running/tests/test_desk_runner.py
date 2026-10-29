@@ -5782,6 +5782,23 @@ def test_a_green_head_a_go_names_still_out_of_the_queue_five_minutes_on_escalate
     assert "yet it is not in the queue after 6 minutes" in line
 
 
+def test_go_unqueued_names_the_landing_desks_newest_blocker_on_the_head_and_the_owner_lane_that_acts(shell, config, tmp_path):
+    merge_mode(config, "every")
+    desk_lane(config)
+    gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
+    shell.queue["33001"] = "not queued"
+    shell.sleep(60)
+    blocker = f"{LANE}: #33001 aaaa111 sits on closed #33000's untracked branch; run ccx vcs stack submit from #33001's worktree, post HEAD"
+    shell.records.append({"seq": 34900, "drive": "d1", "lane": DESK, "kind": "blocker", "to": [LANE, "root"], "refs": {}, "text": blocker, "at": actions.stamp(shell.clock), "status": "open"})
+    shell.sleep(5 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [line] = unqueued(shell)
+    assert f"its newest refusal is {DESK}'s blocker #34900 at " in line
+    assert "untracked branch; run ccx vcs stack submit from #33001's worktree" in line
+    assert line.endswith(f"; owner lane {LANE}")
+
+
 HELD_TWO = "🛑 Held — 2 blocking open; security: high; confidentiality: high"
 
 
@@ -5794,7 +5811,7 @@ def test_a_go_named_green_head_the_review_bot_holds_names_its_findings_in_go_unq
     landing_pass(shell, config)
     landing_pass(shell, config)
     [line] = unqueued(shell)
-    assert line.endswith(f"minutes; the review bot holds it on 2 blocking findings; {LANE} fixes or accepts them")
+    assert f"minutes; the review bot holds it on 2 blocking findings; {LANE} fixes or accepts them; owner lane " in line
     assert [post_body(post) for post in blockers(shell) if "review bot" in post_body(post)] == [f"#33001 aaaa111111: the review bot holds it on 2 blocking findings; {LANE} fixes or accepts them"]
 
 
@@ -5807,7 +5824,7 @@ def test_a_go_named_green_head_the_review_bot_waits_to_see_restacked_says_so_in_
     landing_pass(shell, config)
     landing_pass(shell, config)
     [line] = unqueued(shell)
-    assert line.endswith("minutes; the review bot waits for a restack push")
+    assert "minutes; the review bot waits for a restack push; owner lane " in line
     assert [post for post in blockers(shell) if "review bot" in post_body(post)] == []
 
 
@@ -5820,7 +5837,7 @@ def test_a_go_named_head_that_waits_on_a_reserved_row_tap_says_so_in_its_go_unqu
     landing_pass(shell, config)
     landing_pass(shell, config)
     [line] = unqueued(shell)
-    assert line.endswith("it waits on his tap authorizing reserved/user-data on #33001, as MERGE-ASK says; a go never authorizes a reserved row (C224)")
+    assert "it waits on his tap authorizing reserved/user-data on #33001, as MERGE-ASK says; a go never authorizes a reserved row (C224); owner lane " in line
 
 
 def test_a_go_named_green_head_above_a_parent_no_go_names_draws_one_below_blocked_note_and_no_go_unqueued(shell, config, tmp_path):
@@ -5886,7 +5903,7 @@ def test_go_named_green_heads_out_of_the_queue_in_one_stack_draw_one_go_unqueued
     landing_pass(shell, config)
     [line] = unqueued(shell)
     assert line.startswith("GO-UNQUEUED go-unqueued:29020 #29020: #29020 is green at cccc333333 and root go #")
-    assert line.endswith("; #29031 above it in the stack from #29020 wait on it too")
+    assert "; #29031 above it in the stack from #29020 wait on it too; owner lane " in line
 
 
 def test_a_go_a_fidelity_carry_moved_to_a_new_head_counts_its_five_minutes_from_the_carry_grade(shell, config, tmp_path):
@@ -5920,7 +5937,7 @@ def test_go_unqueued_never_cites_an_enqueue_attempt_from_before_the_go(shell, co
     shell.sleep(6 * 60)
     landing_pass(shell, config)
     [line] = unqueued(shell)
-    assert line.endswith("no enqueue was accepted for it since the go")
+    assert "no enqueue was accepted for it since the go" in line
 
 
 def test_a_go_named_head_the_queue_already_holds_from_a_hand_enqueue_escalates_nothing(shell, config, tmp_path):

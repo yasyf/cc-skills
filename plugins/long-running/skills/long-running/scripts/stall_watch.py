@@ -24,9 +24,27 @@ its ledger row names, it finds:
               a head whose blocker is FINDER-PENDING while the finder desk holds a pass on it queued
               or running draws none, since the desk's own FINDER-DESK-STALLED covers a stalled
               queue; a go a fidelity carry moved to a new head counts from the carry grade, not the go
+              a go whose stack holds a PR a standing refusal names draws none, since that refusal's
+              own stall names its lane and command
+    refusal   the desk runner or a landing desk lane refused to queue a PR a root go or the owner's
+              tap names, at the head the refusal names: it needs a restack, conflicts with its base,
+              sits on an untracked or closed parent or lost its Graphite parent, GitHub is still
+              computing its mergeability, or the runner says FOREIGN, TAP-REQUIRED, CONTRACT-MISSING,
+              PARKED, UNOWNED, NOT-QUEUEABLE or ENQUEUE-*; it is an open action naming the PR, its head,
+              the reason, the lane that must act (the refusal's `owner <lane>` or `<lane>: #<pr>`
+              words, root for FOREIGN and TAP-REQUIRED, the landing desk for mergeability, else the
+              PR's lane) and the command the refusal quotes, and it stands until that lane posts a
+              `head` record naming a PR the refusal names or answers it by `--re`, a record closes it,
+              a QUEUED record names the PR, or the PR moves off that head or leaves the ledger; at
+              `stall.minutes.refusal` it posts to root and the lane, naming the command, and at
+              `stall.minutes.successor` it posts again, to root alone, as `successor`, asking root to
+              spawn the lane's successor to run it
     tap       the owner's board tap approves the head, and no go names it
-    finder    a `head` record names the head, and no finder review does
-    fidelity  a `head` record names the head, and no fidelity grade does
+    finder    a `head` record names the head, and no finder review does, and the finder desk holds
+              no queued pass on the head, nor a running one younger than `stall.minutes.running`;
+              a pass past that is the desk runner's to stop and requeue
+    fidelity  a `head` record names the head, and no fidelity grade does, and the fidelity desk holds
+              no queued grade on it, nor a running one younger than `stall.minutes.running`
     board     a finder ok and a fidelity ok name the head, its build is green, it waits on the owner's
               tap (merge mode every, or the landing desk records it waiting on `merge:<pr>:<sha7>`),
               the board holds no row or card for it at that head, no holds-file line leads with it, and no
@@ -67,8 +85,8 @@ and, across the drive:
               is tapped, or the hold lifts; each PR in the run of PR numbers a holds-file
               line leads with counts as held here
 
-Each kind counts once it is as old as `stall.minutes` says: go 10, tap 10, finder 30, fidelity 30,
-board 15, carry 20 (one fidelity pass), lane 30, ask 15, stale 120. A PR's head is as old as the first record about the
+Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, successor 20, tap 10, finder 30,
+fidelity 30, running 25, board 15, carry 20 (one fidelity pass), lane 30, ask 15, stale 120. A PR's head is as old as the first record about the
 PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record. A board
 stall counts from the latest of its finder ok, its fidelity ok, and its ledger row's `green_at`, the refresh that
 first read the head's build green, since the board refresher puts a row up only once the build is green.
@@ -126,8 +144,10 @@ NOT_LANES = frozenset({*ROOT_NAMES, "team-lead", LANE, RUNNER})
 PACIFIC = ZoneInfo("America/Los_Angeles")
 MODEL = "claude-sonnet-5-5"
 WINDOW_HOURS = 24
-MINUTES = {"go": 10, "tap": 10, "finder": 30, "fidelity": 30, "board": 15, "carry": 20, "lane": 30, "ask": 15, "stale": 120}
-PR_KINDS = frozenset({"go", "tap", "finder", "fidelity", "board", "carry", "stale"})
+MINUTES = {"go": 10, "refusal": 10, "successor": 20, "tap": 10, "finder": 30, "fidelity": 30, "running": 25, "board": 15, "carry": 20, "lane": 30, "ask": 15, "stale": 120}
+DESK_KINDS = frozenset({"finder", "fidelity"})
+QUIET = timedelta(minutes=10)
+PR_KINDS = frozenset({"go", "refusal", "successor", "tap", "finder", "fidelity", "board", "carry", "stale"})
 BOARD_KINDS = frozenset({"tap", "board", "carry"})
 REVIEW_HELD = frozenset({"neutral", "failure"})
 PROMISE_FLOOR = timedelta(minutes=10)
@@ -140,7 +160,33 @@ COMMAND_SECONDS = 120
 JUDGE_SECONDS = 300
 LANDING = "desk-landing"
 FINDER_DESK = "desk-finder"
+FIDELITY_DESK = "desk-fidelity"
+QUEUE_LIVE = frozenset({"accepted", "started"})
 FINDER_PENDING = "FINDER-PENDING"
+REFUSAL_KINDS = frozenset({"blocker", "report", "note", "defect", "urgent"})
+REFUSAL_LABELS = frozenset({"FOREIGN", "TAP-REQUIRED", "CONTRACT-MISSING", "PARKED", "UNOWNED", "NOT-QUEUEABLE", "ENQUEUE-STRANDED", "ENQUEUE-FAILED", "ENQUEUE-UNSETTLED"})
+STACK_NOTES = ("BELOW-BLOCKED", "BELOW-HELD", "QUEUED")
+REFUSAL_CAUSES = (
+    ("parent", re.compile(r"\buntracked\b|\b(?:does|do) not track\b|\bnot tracked\b|\blost (?:its )?(?:recorded )?(?:Graphite )?parent\b|\bclosed (?:PR |#\d+)", re.IGNORECASE)),
+    ("restack", re.compile(r"\bneeds-restack\b|\bgraphite-base/|\brestack\b", re.IGNORECASE)),
+    ("conflict", re.compile(r"\bconflict", re.IGNORECASE)),
+    ("mergeability", re.compile(r"\bmergeability\b|\bmergeable(?:_state)? (?:is )?unknown\b", re.IGNORECASE)),
+)
+REFUSAL_SUBJECT = re.compile(r"(?:\b([a-z][\w-]*):\s+)?#(\d+):?\s+(?:at\s+)?([0-9a-f]{7,40})\b")
+REFUSAL_LABEL = re.compile(r"\b[A-Z][A-Z-]*[A-Z]\b")
+REFUSAL_SHA = re.compile(r"\bat ([0-9a-f]{7,40})\b")
+REFUSAL_COMMAND = re.compile(r"`([^`]+)`|\brun\s+([^.;]+)")
+REFUSAL_OWNER = re.compile(r"\bowner lane ([a-z][\w-]*)")
+RESTACK_COMMAND = "run `ccx vcs stack submit` from #{pr}'s worktree and post HEAD"
+CAUSE_COMMANDS = {
+    "parent": RESTACK_COMMAND,
+    "restack": RESTACK_COMMAND,
+    "conflict": RESTACK_COMMAND,
+    "mergeability": "enqueue #{pr} again once GitHub has computed its mergeability",
+    "TAP-REQUIRED": "put the merge row for #{pr} at {sha} on the owner's board",
+    "CONTRACT-MISSING": "post the contract record #{pr} at {sha} lacks",
+    "FOREIGN": "admit or hold the PR the batch for #{pr} would carry",
+}
 HEAD_BLOCKERS = ("GO-UNQUEUED", "BELOW-BLOCKED", "BELOW-HELD", "MERGE-ASK", "AWAITS-GO")
 BLOCKER_LABEL = re.compile(r"\b[A-Z]+(?:-[A-Z]+)+\b")
 MERGE_WAITS = "merge_waits"
@@ -238,11 +284,13 @@ class Watch:
     window: timedelta
     model: str
     board_lane: str
+    quiet_lanes: list[str]
 
     @classmethod
     def load(cls, path: Path) -> Watch:
         raw = json.loads(path.read_text())
         stall = raw.get("stall") or {}
+        landing = raw.get("landing") or {}
         return cls(
             drive=raw["drive"],
             state=Path(raw["orca"]["desk_inbox"]).expanduser().parent / STATE,
@@ -252,6 +300,7 @@ class Watch:
             window=timedelta(hours=stall.get("window_hours", WINDOW_HOURS)),
             model=stall.get("model", MODEL),
             board_lane=stall.get("board_lane", ROOT),
+            quiet_lanes=stall.get("quiet_lanes", [*landing.get("go_lanes", []), *lanes_of(landing.get("board_lane", []))]),
         )
 
     def age(self, kind: str) -> timedelta:
@@ -272,6 +321,7 @@ class Stall:
     owner: tuple[str, ...]
     step: str
     pr: str = ""
+    quiet: bool = False
 
     def line(self, now: datetime) -> str:
         word = "STALE" if self.kind == "stale" else f"STALL {self.kind}"
@@ -279,7 +329,7 @@ class Stall:
 
     def to(self, drive_name: str, desk_lanes: list[str]) -> str:
         lanes = [named for lane in self.owner for named in (desk_lanes if lane == RUNNER else [lane]) if named not in ROOT_NAMES]
-        desks = lanes and all(lane == RUNNER or DESK.fullmatch(lane) for lane in self.owner)
+        desks = lanes and (self.quiet or self.kind in DESK_KINDS or all(lane == RUNNER or DESK.fullmatch(lane) for lane in self.owner))
         return ",".join(dict.fromkeys([*([] if desks else [ROOT]), *(f"{lane}@{drive_name}" for lane in lanes)]))
 
 
@@ -427,6 +477,57 @@ def blocks_head(record: dict, pr: str, head: str) -> bool:
     )
 
 
+@dataclass(frozen=True)
+class Refusal:
+    record: dict
+    pr: str
+    sha: str
+    said: str
+    named: str
+
+    @property
+    def cause(self) -> str | None:
+        if found := next((cause for cause, pattern in REFUSAL_CAUSES if pattern.search(self.said)), None):
+            return found
+        return next((label for label in REFUSAL_LABEL.findall(self.said) if label in REFUSAL_LABELS), None)
+
+    def owner(self, lane: str) -> str:
+        cause = self.cause
+        if found := REFUSAL_OWNER.search(self.said):
+            return found[1]
+        if cause in ("FOREIGN", "TAP-REQUIRED"):
+            return ROOT
+        if cause == "mergeability":
+            return RUNNER
+        addressed = {to.split("@", 1)[0] for to in self.record.get("to") or []}
+        return self.named if self.named in addressed else lane
+
+    def command(self, head: str) -> str:
+        if found := REFUSAL_COMMAND.search(self.said):
+            return f"`{found[1]}`" if found[1] else f"run {found[2].strip()}"
+        return CAUSE_COMMANDS.get(self.cause or "", "act on cci #{seq}, then post HEAD or `cci post --re {seq}`").format(pr=self.pr, sha=short(head), seq=self.record["seq"])
+
+
+def refusals_in(record: dict, repo: str) -> list[Refusal]:
+    """Each PR and head `record` refuses, with the words about it: the text from each `#<pr> <sha>` pair, and a `<lane>: ` before it, to the next pair; a record with no pair refuses the PR its refs or its first `#<pr>` names, at the first `at <sha>` it says."""
+    text = grades.full_text(record)
+    pairs = list(REFUSAL_SUBJECT.finditer(text))
+    if pairs:
+        return [Refusal(record, found[2], found[3], text[0 if found is pairs[0] else found.start() : following.start() if following else len(text)], found[1] or "") for found, following in zip(pairs, [*pairs[1:], None], strict=True)]
+    named = [pr for pr, _ in grades.repo_prs(record, repo)] if record.get("refs", {}).get("prs") else PR_REF.findall(text)[:1]
+    sha = found[1] if (found := REFUSAL_SHA.search(text)) else ""
+    return [Refusal(record, pr, sha, text, "") for pr in named]
+
+
+def refuses(record: dict, desks: list[str]) -> bool:
+    return (
+        record["kind"] in REFUSAL_KINDS
+        and (record["lane"] == RUNNER or record["lane"] in desks or record["lane"].startswith(LANDING_DESK))
+        and record.get("status") != "closed"
+        and not record["text"].startswith(STACK_NOTES)
+    )
+
+
 def successor_of(lane: str) -> re.Pattern[str]:
     return re.compile(rf"{re.escape(lane)}(?:-\d+)?")
 
@@ -443,6 +544,8 @@ class Pass:
         self.hold_gates: dict[str, list[str]] = {}
         self.hold_asks: dict[str, set[str]] = {}
         self.tapped: set[str] = set()
+        self.refused: set[str] = set()
+        self.queues: dict[str, list[actions.Action]] = {}
 
     def tail(self, argv: list[str]) -> str:
         done = self.shell.run(argv)
@@ -569,11 +672,78 @@ class Pass:
         store = actions.Store(self.watch.store)
         return store.load(LANDING).facts if store.path(LANDING).is_file() else {}
 
+    def queued(self, desk: str, pr: str, head: str) -> actions.Action | None:
+        """The queued or running pass `desk` holds on `pr` at `head`, a full pass on the PR included, read once a pass."""
+        if desk not in self.queues:
+            store = actions.Store(self.watch.store)
+            self.queues[desk] = [action for action in store.load(desk).actions.values() if action.status in QUEUE_LIVE] if store.path(desk).is_file() else []
+        return next((action for action in self.queues[desk] if (job := json.loads(action.target))["pr"] == pr and (job.get("full") or grades.names_head(job["head"], head))), None)
+
+    def desk_runs(self, desk: str) -> bool:
+        return actions.Store(self.watch.store).path(desk).is_file()
+
+    def handled(self, records: list[dict], pr: str) -> bool:
+        """Whether a `stall.quiet_lanes` lane, such as the go sweep or the board refresher, posted about `pr` in the last ten minutes, so its STALE or board line spares root."""
+        families = [successor_of(lane) for lane in self.watch.quiet_lanes]
+        for record in reversed(records):
+            if self.now - at(record) >= QUIET:
+                return False
+            if any(family.fullmatch(record["lane"]) for family in families) and grades.about_pr(record, self.watch.landing["repo"], pr):
+                return True
+        return False
+
     def finder_holds(self, pr: str, head: str) -> bool:
-        store = actions.Store(self.watch.store)
-        if not store.path(FINDER_DESK).is_file():
-            return False
-        return any(action.kind == "finder" and action.status in ("accepted", "started") and (job := json.loads(action.target))["pr"] == pr and (job.get("full") or grades.names_head(job["head"], head)) for action in store.load(FINDER_DESK).actions.values())
+        return self.queued(FINDER_DESK, pr, head) is not None
+
+    def overran(self, desk: str, pr: str, head: str) -> datetime | None:
+        """When the pass `desk` runs on `pr` at `head` started, once it has run `stall.minutes.running`; None while it waits in the queue or runs younger."""
+        job = self.queued(desk, pr, head)
+        started = actions.parse_stamp(job.started_at) if job and job.status == "started" and job.started_at else None
+        return started if started and self.now - started >= self.watch.age("running") else None
+
+    def refusals(self, records: list[dict], rows: dict[str, dict], approved: set[str], lanes: dict[str, str], holding: Callable[[str], bool]) -> list[Stall]:
+        """Each standing landing refusal, once per PR, head and cause, from its oldest refusal record no later act answered: a `refusal` stall at `stall.minutes.refusal`, and a `successor` stall to root at `stall.minutes.successor`."""
+        repo = self.watch.landing["repo"]
+        closed = {seq for record in records for seq in grades.closes(record)}
+        standing: dict[str, tuple[Refusal, str, str]] = {}
+        for record in records:
+            if not refuses(record, self.watch.desk_lanes) or record["seq"] in closed:
+                continue
+            found = refusals_in(record, repo)
+            named = {refusal.pr for refusal in found}
+            for refusal in found:
+                row = rows.get(refusal.pr)
+                if not row or refusal.pr not in approved or holding(refusal.pr) or not refusal.cause or refusal.sha and not grades.names_head(refusal.sha, row.get("head", "")):
+                    continue
+                owner = refusal.owner(lanes.get(refusal.pr, ROOT))
+                if self.answered(records, record, refusal.pr, row["head"], named, owner):
+                    continue
+                self.refused.add(refusal.pr)
+                key = f"{refusal.pr}:{short(row['head'])}:{refusal.cause.lower()}"
+                if key not in standing:
+                    standing[key] = (refusal, owner, row["head"])
+        stalls = []
+        for key, (refusal, owner, head) in standing.items():
+            since, seq = at(refusal.record), refusal.record["seq"]
+            subject, command = f"#{refusal.pr} at {short(head)}", refusal.command(head)
+            what = f"{refusal.record['lane']} refused to queue it at {pacific(since)} in #{seq}: {clip(refusal.said)}; {owner} has posted no HEAD and no answer since"
+            if self.now - since >= self.watch.age("refusal"):
+                stalls.append(Stall(f"refusal:{key}", "refusal", since, subject, what, (owner,), f"{owner}: {command}, then post HEAD or `cci post --re {seq}`", refusal.pr))
+            if self.now - since >= self.watch.age("successor") and owner not in ROOT_NAMES:
+                stalls.append(Stall(f"successor:{key}", "successor", since, subject, what, (ROOT,), f"spawn a successor to {owner}, which has not acted on #{seq} in {int((self.now - since).total_seconds() // 60)} min; the successor's first step: {command}", refusal.pr))
+        return stalls
+
+    def answered(self, records: list[dict], refusal: dict, pr: str, head: str, named: set[str], owner: str) -> bool:
+        """Whether a record after `refusal` queued `pr` at `head`, or came from `owner` or any numbered lane of its family answering it by `--re` or as a `head` record naming a PR it names."""
+        family, repo = successor_of(re.sub(r"-\d{1,2}$", "", owner)), self.watch.landing["repo"]
+        for record in records:
+            if record["seq"] <= refusal["seq"]:
+                continue
+            if (record["lane"] == RUNNER or record["lane"].startswith(LANDING_DESK)) and record["kind"] == "report" and QUEUED.match(record["text"]) and any(named_pr == pr and grades.names_head(sha, head) for named_pr, sha in grades.GO_HEAD.findall(record["text"])):
+                return True
+            if family.fullmatch(record["lane"]) and (record.get("re") == refusal["seq"] or record["kind"] == "head" and any(grades.about_pr(record, repo, other) for other in named)):
+                return True
+        return False
 
     def prs(self, records: list[dict], session: str | None) -> tuple[list[Stall], list[Question], list[dict]]:
         landing = self.watch.landing
@@ -605,6 +775,8 @@ class Pass:
         questions: list[Question] = []
         waiting: dict[str, list[tuple[str, datetime, int, tuple[str, tuple[str, ...], str]]]] = {}
         entries: list[dict] = []
+        lanes: dict[str, str] = {}
+        boards: dict[str, list[Stall]] = {}
 
         def holding(pr: str) -> bool:
             return pr in held or bool(rows[pr].get("hold_until")) and actions.parse_stamp(rows[pr]["hold_until"]) > self.now
@@ -617,7 +789,7 @@ class Pass:
             head_at = at(announced[0]) if announced else None
             going = grades.gone_at(gos, pr, head)
             in_queue = any(named == pr and grades.names_head(sha, head) for named, sha in queued)
-            lane = row.get("lane") or next((record["lane"] for record in reversed(announced) if record["kind"] == "head"), ROOT)
+            lane = lanes[pr] = row.get("lane") or next((record["lane"] for record in reversed(announced) if record["kind"] == "head"), ROOT)
             tapping = board is not None and board.shows(pr, head) and not board_rows.at_head(board.taps.get(pr), "rejected", head)
             readied = [at(record) for record in announced if record["kind"] == "ready" or READY.search(record["text"])]
             tap_at = min([*readied, *([live] if (live := board.live_at(pr, head)) else [])], default=None) if tapping else None
@@ -647,9 +819,17 @@ class Pass:
             reached = carried_heads(head, grades.fidelity_carries(graded))
             finders = [record for record in grades.finder_records(grades.finder_reviews_in(about, drive_name, repo, pr)) if any(grades.names_head(record["head"], sha) for sha in reached)]
             if not finders and self.now - head_at >= self.watch.age("finder"):
-                stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", head_at, subject, f"no finder review names this head, first named {pacific(head_at)} in #{announced[0]['seq']}", (lane,), f"run the finder (reference/finder-brief.md) on {subject} and post its review", pr))
+                if started := self.overran(FINDER_DESK, pr, head):
+                    stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", started, subject, f"the finder desk's pass on this head has run since {pacific(started)}", (RUNNER,), f"read `desk-runner.py show`, then stop and requeue the finder pass on {subject}", pr))
+                elif not self.finder_holds(pr, head) and self.desk_runs(FINDER_DESK):
+                    stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", head_at, subject, f"no finder review names this head, and the finder desk holds no pass on it, first named {pacific(head_at)} in #{announced[0]['seq']}", (RUNNER,), f"read `desk-runner.py show` for why the finder desk queued no pass on {subject} from its head record", pr))
+                elif not self.finder_holds(pr, head):
+                    stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", head_at, subject, f"no finder review names this head, first named {pacific(head_at)} in #{announced[0]['seq']}", (lane,), f"run the finder (reference/finder-brief.md) on {subject} and post its review", pr))
             if not standing and fidelity_lanes and self.now - head_at >= self.watch.age("fidelity"):
-                stalls.append(Stall(f"fidelity:{pr}:{short(head)}", "fidelity", head_at, subject, f"no fidelity grade names this head, first named {pacific(head_at)} in #{announced[0]['seq']}", tuple(fidelity_lanes), f"grade {subject} and post its `fidelity: ok` or `fidelity: missing` line", pr))
+                if started := self.overran(FIDELITY_DESK, pr, head):
+                    stalls.append(Stall(f"fidelity:{pr}:{short(head)}", "fidelity", started, subject, f"the fidelity desk's grade of this head has run since {pacific(started)}", (RUNNER,), f"read `desk-runner.py show`, then stop and requeue the fidelity grade of {subject}", pr))
+                elif self.queued(FIDELITY_DESK, pr, head) is None:
+                    stalls.append(Stall(f"fidelity:{pr}:{short(head)}", "fidelity", head_at, subject, f"no fidelity grade names this head, and the fidelity desk holds none queued, first named {pacific(head_at)} in #{announced[0]['seq']}", tuple(fidelity_lanes), f"grade {subject} and post its `fidelity: ok` or `fidelity: missing` line", pr))
             if board is None:
                 continue
             taps = [(sha, f"root go #{go['seq']}") for go in gos if (sha := grades.go_heads(go).get(pr))]
@@ -676,8 +856,19 @@ class Pass:
                 continue
             card = f"merge:{pr}:{short(head)}"
             told = f"; the landing desk recorded its card {card} as posted, yet the board holds none" if card in cards else ""
-            stalls.append(Stall(f"board:{pr}:{short(head)}", "board", ready, subject, f"finder ok, fidelity ok and a green build since {pacific(ready)}, and the owner's board holds no row or card for it at this head{told}", (self.watch.board_lane,), f"put the merge row for {subject} on the owner's board", pr))
+            quiet = self.handled(records, pr)
+            if not (quiet and self.watch.board_lane in ROOT_NAMES):
+                boards.setdefault((downstack(rows, row) or [pr])[-1], []).append(Stall(f"board:{pr}:{short(head)}", "board", ready, subject, f"finder ok, fidelity ok and a green build since {pacific(ready)}, and the owner's board holds no row or card for it at this head{told}", (self.watch.board_lane,), f"put the merge row for {subject} on the owner's board", pr, quiet))
+        for group in boards.values():
+            first, *rest = sorted(group, key=lambda stall: len(downstack(rows, rows[stall.pr])))
+            above = f"; {', '.join(f'#{stall.pr}' for stall in rest)} above it in its stack wait on their rows too" if rest else ""
+            quiet = all(stall.quiet for stall in group)
+            stalls.append(Stall(first.id + (":quiet" if quiet else ""), first.kind, min(stall.since for stall in group), first.subject, first.what + above, first.owner, first.step + (f", and the rows for {', '.join(stall.subject for stall in rest)}" if rest else ""), first.pr, quiet))
+        approved = {pr for go in gos for pr in grades.go_heads(go)} | {pr for pr, tap in (board.taps if board else {}).items() if tap.get("verdict") == "approved"}
+        stalls += self.refusals(records, rows, approved, lanes, holding)
         for bottom, group in waiting.items():
+            if any(member in self.refused for pr, *_ in group for member in [pr, *downstack(rows, rows[pr])]):
+                continue
             group.sort(key=lambda entry: entry[2])
             blocker, owner, step = group[0][3]
             named = [f"#{pr}" for pr, *_ in group]
@@ -736,7 +927,10 @@ class Pass:
             if not live:
                 what += f"; {found['owner']} has posted nothing live in {int(self.watch.window.total_seconds() // 3600)} h"
             subject = f"#{pr} at {short(found['head'])}"
-            stalls.append(Stall(f"stale:{pr}:{short(found['head'])}", "stale", since, subject, what, (found["owner"],) if live else (ROOT,), found["next"], pr))
+            quiet = self.handled(records, pr)
+            if quiet and not live:
+                continue
+            stalls.append(Stall(f"stale:{pr}:{short(found['head'])}{':quiet' if quiet else ''}", "stale", since, subject, what, (found["owner"],) if live else (ROOT,), found["next"], pr, quiet))
         return stalls
 
     def owner_gates(self, pr: str, found_by_pr: dict[str, dict], seen: set[str]) -> set[str] | None:
