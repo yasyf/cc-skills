@@ -829,6 +829,55 @@ def test_classify_posts_one_record_per_batch_however_many_rows_and_captures_it_t
     assert [post[index + 1] for index, flag in enumerate(post) if flag == "--to"] == ["lane-a", "lane-b", "lane-c"]
 
 
+def test_classify_loads_the_register_once_and_walks_the_briefs_once_per_batch(
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    walks: list[Path] = []
+    monkeypatch.setattr(rulings, "briefs", lambda root: walks.append(root) or [])
+    captured(state, capture("1", "no parked worker here"), capture("2", "no parked worker there"))
+    shell = RegisterShell(seeded(package), records=LIVE)
+    one = [{"text": "One more line.", "direction": "removes"}]
+
+    code, _ = classify(
+        tmp_path,
+        capsys,
+        shell,
+        {"digest": "1" * 16, "extends": "rule/aaaaaaa", "words": "no parked worker here", "implications": one},
+        {"digest": "2" * 16, "extends": "rule/aaaaaaa", "words": "no parked worker there", "implications": one},
+    )
+
+    assert code == 0
+    assert [argv[3:5] for argv in shell.calls].count(["ledger", "show"]) == 1
+    assert walks == [state]
+
+
+def test_classify_walks_no_briefs_for_a_row_with_no_names(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch) -> None:
+    walks: list[Path] = []
+    monkeypatch.setattr(rulings, "briefs", lambda root: walks.append(root) or [])
+    captured(state, capture("1", "drain the pool when a run closes, every time"))
+
+    code, out = classify(tmp_path, capsys, RegisterShell(seeded(package), records=LIVE), {"digest": "1" * 16, "extends": "rule/bbbbbbb", "words": "drain the pool when a run closes"})
+
+    assert code == 0
+    assert json.loads(out)["hits"] == []
+    assert walks == []
+
+
+def test_briefs_skip_a_copied_source_tree_and_anything_below_three_levels(state: Path) -> None:
+    (state / "briefs").mkdir()
+    (state / "briefs" / "lane-a.md").write_text("Brief.\n")
+    (state / "lane-b" / "sub").mkdir(parents=True)
+    (state / "lane-b" / "sub" / "agent-brief.md").write_text("Brief.\n")
+    copied = state / "finder-1" / "review-source"
+    (copied / "reference").mkdir(parents=True)
+    (copied / ".claude-plugin").mkdir()
+    (copied / "reference" / "orca-lane-brief.md").write_text("Not a drive brief.\n")
+    (state / "desk" / "pr-1" / "head" / "tree").mkdir(parents=True)
+    (state / "desk" / "pr-1" / "head" / "tree" / "brief.md").write_text("Too deep.\n")
+
+    assert rulings.briefs(state) == [state / "briefs" / "lane-a.md", state / "lane-b" / "sub" / "agent-brief.md"]
+
+
 @pytest.mark.parametrize("at", [AT, "2026-10-23 5:30 AM PT"])
 def test_classify_reads_a_capture_stamped_in_iso_or_in_the_hooks_older_pacific_form(
     home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys, at: str
