@@ -1,7 +1,8 @@
-const VIEWS = { progress: 'journey', story: 'column', diagram: 'end-state' };
+const VIEWS = { progress: 'journey', diagram: 'end-state', v: 'b' };
 const NODE_WORD = { fixing: 'Being fixed', you: 'Needs you', nobody: 'No one assigned', waiting: 'Waiting', done: 'Done' };
 const MARK_WORD = { progress: 'Progress', finding: 'Found', stuck: 'Stuck', done: 'Done' };
 const NODE_TONE = { fixing: 'acc', you: 'you', nobody: 'bad', waiting: '', done: 'ok' };
+const hover = { at: null, timer: 0, lock: 0, hold: 0 };
 const story = { item: null, es: null, lines: [], draft: null, status: null, open: false };
 
 function view(key) {
@@ -99,18 +100,33 @@ function current(b, list) {
 function journey(b) {
   const list = spine(b);
   const cur = current(b, list);
+  const focus = hover.at ?? cur;
   const lastLive = list.map((s) => s.state).lastIndexOf('live');
-  const open = (i) => (i === cur) !== state.open.has(`ms${i}`);
-  const widths = list.map((s, i) => `minmax(0, ${open(i) ? 3.6 : s.state === 'live' ? 0.75 : s.left.length || s.work.length ? 1.5 : 1}fr)`).join(' ');
+  const rest = list.map((s) => (s.state === 'live' ? 0.75 : s.left.length || s.work.length ? 1.5 : 1));
   return `<div class="nw-panel">${progressLabel()}
-    <div class="nw-journey nw-spine" style="--n:${list.length};grid-template-columns:${widths}">${list.map((s, i) => {
-      const cls = ['sp', `ms-${s.state}`, i === cur && 'cur', open(i) && 'open', i > 0 && i <= lastLive && 'l-on', i < lastLive && 'r-on'].filter(Boolean).join(' ');
-      return `<div class="${cls}"><a class="ms ms-${s.state}${i === cur ? ' cur' : ''}" href="#/plan/m${i}"><span class="here">${i === cur ? 'Drive is here' : ''}</span><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.why ? `<span class="why">${esc(s.why)}</span>` : ''}${open(i) ? '<i class="stem"></i>' : ''}</a>
-        <div class="bd">${open(i) ? openStop(s, b, i === cur) : shutStop(s, list[i - 1])}</div></div>`;
+    <div class="nw-journey nw-spine" data-cur="${cur}" data-rest="${rest.join(' ')}" style="--n:${list.length};--hold:${hover.hold ?? 0}px;grid-template-columns:${spineCols(rest, focus)}">${list.map((s, i) => {
+      const cls = ['sp', `ms-${s.state}`, i === cur && 'cur', i === focus && 'focus', i > 0 && i <= lastLive && 'l-on', i < lastLive && 'r-on'].filter(Boolean).join(' ');
+      return `<div class="${cls}" data-i="${i}"><a class="ms ms-${s.state}${i === cur ? ' cur' : ''}" href="#/plan/m${i}"><span class="here">${i === cur ? 'Drive is here' : ''}</span><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.why ? `<span class="why">${esc(s.why)}</span>` : ''}<i class="stem"></i></a>
+        <div class="bd"><div class="full">${openStop(s, b, i === cur)}</div><div class="brief">${shutStop(s, list[i - 1])}</div></div></div>`;
     }).join('')}</div>
     ${tray(b)}
     <p class="nw-sent">${list.filter((s) => s.state === 'live').length} of ${list.length} milestones are live. ${esc(b.progress.sentence ?? '')}</p><p class="nw-code">${codeLine()}</p>
     </div>`;
+}
+function spineCols(rest, focus) {
+  return rest.map((w, i) => `minmax(0, ${i === focus ? 3.6 : w}fr)`).join(' ');
+}
+function spineFocus(i) {
+  const sp = $('.nw-spine');
+  if (!sp || hover.at === i) return;
+  const cur = Number(sp.dataset.cur);
+  const f = i ?? cur;
+  if (hover.at === null) hover.hold = sp.querySelector('.sp.focus .bd')?.offsetHeight ?? 0;
+  sp.style.setProperty('--hold', `${hover.hold}px`);
+  hover.at = i === cur ? null : i;
+  hover.lock = Date.now() + 260;
+  sp.style.gridTemplateColumns = spineCols(sp.dataset.rest.split(' ').map(Number), f);
+  for (const el of sp.children) el.classList.toggle('focus', Number(el.dataset.i) === f);
 }
 function placed(b) {
   return b.work.map((w) => ({ ...w, at: b.paths.find((p) => p.nodes.some((n) => n.id === w.unblocks || n.item === w.item))?.milestone ?? -1 }));
@@ -126,15 +142,26 @@ function spine(b) {
     return { ...s, i, done: paths.flatMap((p) => p.nodes).filter((n) => n.state === 'done'), left, work: work.filter((w) => w.at === i) };
   });
 }
+function leadOf(s) {
+  return s.work.find((w) => s.left.some((n) => n.id === w.unblocks || n.item === w.item)) ?? s.work[0];
+}
+function focusLane() {
+  const b = state.model.brief;
+  if (!b) return null;
+  const list = spine(b);
+  const s = list[current(b, list)];
+  return s ? leadOf(s)?.item : null;
+}
 function openStop(s, b, cur) {
   const left = s.left.length ? `<p class="hl">Holding it up, nearest first</p><div class="chain">${s.left.map(hangNode).join('')}</div>` : '';
-  const feed = s.work.length ? `<p class="hl">Work feeding it</p><div class="feed">${s.work.map(hangWork).join('')}</div>` : '';
-  const done = s.done.length ? `<p class="hl">Done so far</p><ul class="did">${s.done.map((n) => `<li>${esc(n.text)}</li>`).join('')}</ul>` : '';
+  const lead = leadOf(s);
+  const feed = s.work.length ? `<p class="hl">Work feeding it</p><div class="feed">${[lead, ...s.work.filter((w) => w !== lead)].map((w) => hangWork(w, w === lead)).join('')}</div>` : '';
+  const done = s.done.length ? `<div class="hg did-hg" tabindex="0"><p class="hl">Done so far <span class="hg-n">${s.done.length}</span></p><ul class="did hg-body">${s.done.map((n) => `<li>${esc(n.text)}</li>`).join('')}</ul></div>` : '';
   const calm = s.state === 'live' ? 'Live. Nothing is left to do here.' : cur ? b.calm || 'Nothing is stuck.' : 'Nothing is recorded as holding it up yet.';
-  return `<div class="nw-col ms-${s.state}">${left || feed ? left + feed : `<div class="nw-calm"><span class="ok">✓</span>${esc(calm)}</div>`}${done}<button class="linkish tg" data-toggle="ms${s.i}">Fold it to one line</button></div>`;
+  return `<div class="nw-col ms-${s.state}">${left || feed ? left + feed : `<div class="nw-calm"><span class="ok">✓</span>${esc(calm)}</div>`}${done}</div>`;
 }
 function shutStop(s, before) {
-  const tg = s.left.length || s.work.length || s.done.length ? `<button class="linkish tg" data-toggle="ms${s.i}">Open ›</button>` : '';
+  const tg = s.left.length || s.work.length || s.done.length ? `<a class="tg" href="#/plan/m${s.i}">Open ›</a>` : '';
   if (s.state === 'live') return `<div class="shut live"><span class="dn">✓ Done${s.done.length ? `, ${s.done.length} step${s.done.length === 1 ? '' : 's'}` : ''}</span>${tg}</div>`;
   const rank = { nobody: 0, you: 1, fixing: 2, waiting: 3 };
   const next = [...s.left].sort((x, y) => y.depth - x.depth || rank[x.state] - rank[y.state])[0];
@@ -146,7 +173,7 @@ function shutStop(s, before) {
 function tray(b) {
   const loose = placed(b).filter((w) => w.at < 0);
   if (!loose.length) return '';
-  return `<div class="nw-tray"><span class="k">Feeding no milestone</span>${loose.map((w) => `<a class="tw ${slug(w.status)}${onStory(w.item) ? ' on' : ''}" href="${storyHref(w.item)}" title="${esc(w.latest)}"><span class="pulse"></span>${esc(w.title)}<span class="chip ${slug(w.status)}">${esc(w.status)}</span></a>`).join('')}<a class="more" href="#/work">All work ›</a></div>`;
+  return `<div class="nw-tray hg" tabindex="0"><span class="k">Feeding no milestone <span class="hg-n">${loose.length}</span></span><span class="hg-body">${loose.map((w) => `<a class="tw ${slug(w.status)}${onStory(w.item) ? ' on' : ''}" href="${storyHref(w.item)}" title="${esc(w.latest)}"><span class="pulse"></span>${esc(w.title)}<span class="chip ${slug(w.status)}">${esc(w.status)}</span></a>`).join('')}</span><a class="more" href="#/work">All work ›</a></div>`;
 }
 function onStory(item) {
   const r = route();
@@ -208,9 +235,9 @@ function hangNode(n) {
   const when = clockLine(n.since, nodeWord(n));
   return `<a class="hc ${esc(n.state)}" href="#/blocker/${encodeURIComponent(n.id)}"><span class="bar">${NODE_WORD[n.state]}</span><span class="in"><b>${esc(n.text)}</b>${n.how ? `<span class="how">${esc(n.how)}</span>` : ''}${when ? `<span class="when">${when}</span>` : ''}</span></a>`;
 }
-function hangWork(w) {
+function hangWork(w, lead) {
   const when = clockLine(w.since, workWord(w.item));
-  return `<a class="hc ${slug(w.status)}${onStory(w.item) ? ' on' : ''}" href="${storyHref(w.item)}"><span class="bar">${esc(w.status)}</span><span class="in"><b>${esc(w.title)}</b><span class="how">${esc(w.latest)}</span>${when ? `<span class="when">${when}</span>` : ''}<span class="open">Live story ›</span></span></a>`;
+  return `<a class="hc lane ${lead ? 'lead' : 'rest'} ${slug(w.status)}${onStory(w.item) ? ' on' : ''}" href="${storyHref(w.item)}"><span class="bar">${esc(w.status)}</span><span class="in"><b>${esc(w.title)}</b><span class="how">${esc(w.latest)}</span>${when ? `<span class="when">${when}</span>` : ''}<span class="open">Live story ›</span></span></a>`;
 }
 function follow(item) {
   if (story.item === item && story.es) return;
@@ -307,7 +334,7 @@ const DIAGRAMS = {
 };
 function diagramSlot() {
   const body = DIAGRAMS[view('diagram')]();
-  return body ? `<section class="nw-diagram">${body}</section>` : '';
+  return body ? `<section class="nw-diagram hg" tabindex="0">${body}</section>` : '';
 }
 
 function mountNow() {
@@ -315,4 +342,16 @@ function mountNow() {
 }
 document.addEventListener('click', (e) => {
   if (e.target.closest('[data-story-more]')) { story.open = true; paintStory(); }
+});
+document.addEventListener('pointerover', (e) => {
+  if (e.pointerType === 'touch') return;
+  const col = e.target.closest?.('.nw-spine .sp');
+  clearTimeout(hover.timer);
+  if (col) hover.timer = setTimeout(() => spineFocus(Number(col.dataset.i)), Math.max(140, hover.lock - Date.now()));
+  else if (hover.at !== null) hover.timer = setTimeout(() => spineFocus(null), 320);
+});
+document.addEventListener('focusin', (e) => {
+  const col = e.target.closest?.('.nw-spine .sp');
+  if (col) spineFocus(Number(col.dataset.i));
+  else if (hover.at !== null && e.target.closest?.('#main')) spineFocus(null);
 });
