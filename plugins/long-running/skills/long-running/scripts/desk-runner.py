@@ -6165,12 +6165,14 @@ class Landing:
         return True
 
     def root_gos(self) -> list[dict]:
-        """The root's `go` records on this drive, read once per pass and again before each enqueue wave and each flake retry, without any that a later root record resolves, answers with a `withdraw`, or names by `#<seq>` or `--re` with the word "withdrawn", plus the gos a fidelity desk's `ok H carried from G` grade carries from G to H. Each carries `voided`, the PRs of its clause that a later root `withdraw` record, or one opening `WITHDRAWN`, names, which it no longer lets merge nor carries to a later head."""
+        """The `go` records of the root and of each `landing.go_lanes` lane or its numbered successor on this drive, read once per pass and again before each enqueue wave and each flake retry, without any that a later root record resolves, answers with a `withdraw`, or names by `#<seq>` or `--re` with the word "withdrawn", plus the gos a fidelity desk's `ok H carried from G` grade carries from G to H. Each carries `voided`, the PRs of its clause that a later root `withdraw` record, or one opening `WITHDRAWN`, names, which it no longer lets merge nor carries to a later head."""
         with self.going:
             if self.gos is None:
                 drive = self.runner.config.drive
-                gos = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if (record["lane"], record["drive"], record["kind"]) == (ROOT, drive, "go")]
-                later = [record | {"text": full_text(record)} for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, since=min(go["seq"] for go in gos)) if record["lane"] == ROOT and record["drive"] == drive] if gos else []
+                delegates = self.landing_config.get("go_lanes", [])
+                gos = [record for record in cci.records(self.runner.cci_tail, drive, "--kind=go") if (record["drive"], record["kind"]) == (drive, "go") and (record["lane"] == ROOT or any(record["lane"] == lane or succeeds(record["lane"], lane) for lane in delegates))]
+                lanes = sorted({ROOT, *(go["lane"] for go in gos)})
+                later = [record | {"text": full_text(record)} for record in cci.records(self.runner.cci_tail, drive, *(flag for lane in lanes for flag in ("--lane", lane)), since=min(go["seq"] for go in gos)) if record["lane"] in lanes and record["drive"] == drive] if gos else []
                 closed = {seq for record in later for seq in closes(record)} | {go["seq"] for go in gos for record in later if record["seq"] > go["seq"] and withdraws(record, go["seq"])}
                 withdrawals = [record for record in later if record["kind"] == "withdraw" or WITHDRAWN_OPENING.match(record["text"])]
                 posted = [go | {"voided": {pr for pr in go_heads(go) if any(record["seq"] > go["seq"] and about_pr(record, self.repo, pr) for record in withdrawals)}} for go in gos if go["seq"] not in closed]
