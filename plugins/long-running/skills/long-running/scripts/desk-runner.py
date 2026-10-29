@@ -348,7 +348,8 @@ carries to a head with no finder record when both heads' own patches match, as a
 `contract` record with `--pr` naming it names its failing run ("red by design", "fails in run", "failing run"), draws no
 blocker for its failing required checks, and a blocker relay already sent on it draws no `DEADLINE`.
 The `rulings` check runs `rulings.py check-pr` once per head a pass and holds no head: each cause it prints but `RESERVED-NO-ANSWER`,
-which merge mode settles, is a warning, one `note` record per head and set of causes to the PR's lane (4236611). A run that exits with a code other than 0 or 1 or
+which merge mode settles, is a warning, one `note` record per head and set of causes to the PR's lane (4236611); a head warns again only for a cause
+none of its earlier warnings named, and never once an `answer` replies to or resolves one of them. A run that exits with a code other than 0 or 1 or
 prints a line naming no cause passes the head with nothing posted, and so does each `BLOCKER` line it prints: the check fails open.
 Each pass reads the commit statuses of every open row's head in one GraphQL query, and reuses a
 head's statuses for 60 s; a head read that fails counts as unread for that pass, and the pass ends with one
@@ -589,6 +590,7 @@ import merge_queue
 import prompt_screen
 import prompt_watch
 import stall_watch
+import testfiles
 from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
 from grades import carry_of
 from grades import carries as carry_grade
@@ -611,9 +613,11 @@ EXEMPT_GO = re.compile(r"\bgo\s+(?:port|test-only|ci-only)\s+#\d+|\bpure port\b|
 TEST_ONLY_CLAIM = re.compile(r"\b(?:test|ci)-only\b", re.IGNORECASE)
 TAP_CLAIM = re.compile(r"(?<![\w-])(?<!\bno )(?<!\bnot )(?<!\bwithout )(?<!\bwithout his )(?<!\bwithout your )(?:taps?|tapped|approved|(?:his|your|the owner's)\s+approval)(?![\w-])", re.IGNORECASE)
 OLD_APP_LINE = re.compile(r"^old-app:\s*(?:unchanged|bug fix|changes)\b.*$", re.IGNORECASE | re.MULTILINE)
-TEST_FILES = ("*_test.go", "*.test.ts", "*.test.tsx")
-TEST_DIRS = frozenset({"__tests__", "testdata", "fixtures"})
-CI_PREFIXES = (".buildkite/", ".github/", "tools/ci/")
+TEST_DIRS = frozenset({"__tests__", "testdata", "fixtures", "docs"})
+CI_PREFIXES = (".buildkite/", ".github/", "tools/ci/", "infra/ci/")
+TOOLING_GLOBS = (".agents/skills/*/scripts/*", ".agents/skills/*/tests/*")
+PORT_PREFIXES = ("go/sand/next/",)
+OWNER_CITE = re.compile(r"#\s*owner:\s*[0-9a-f]{7,40}\b")
 MERGE_CARD_FIELDS = "title,author,additions,deletions,reviewDecision"
 SLACK_MESSAGE = re.compile(r"^slack: \S*/p(\d{10})(\d{6})\b", re.MULTILINE)
 RULING_ROUNDS = "cards/rounds"
@@ -1172,7 +1176,8 @@ def is_test_or_ci_file(name: str) -> bool:
     path = PurePosixPath(name)
     return (
         name.startswith(CI_PREFIXES)
-        or any(fnmatch(path.name, glob) for glob in TEST_FILES)
+        or testfiles.test_file(name)
+        or any(fnmatch(name, glob) for glob in TOOLING_GLOBS)
         or not TEST_DIRS.isdisjoint(path.parts[:-1])
         or (path.suffix in (".yml", ".yaml") and "buildkite" in path.name)
     )
@@ -5806,14 +5811,23 @@ class Landing:
         self.post_record("note", key, ",".join(self.reach(owner) if owner else [ROOT]), f"{self.dead_note(owner)}#{pr} {graded.heads[pr]}: WARNING {why}", pr)
 
     def check_rulings(self, graded: Graded) -> dict[str, merge_queue.State]:
-        """No head fails here (4236611): each cause `rulings.py check-pr` prints for a head is a warning, one `note` record to its lane per head and set of causes. A reserved touch is merge mode's to settle: it sends the card whose tap authorizes it, and holds the head until then."""
+        """No head fails here (4236611): each cause `rulings.py check-pr` prints for a head is a warning, one `note` record to its lane per head and set of causes. A head warns again only for a cause none of its earlier warnings named, and never once an `answer` replies to or resolves one of them (cci #182230). A reserved touch is merge mode's to settle: it sends the card whose tap authorizes it, and holds the head until then."""
         if graded.act:
             self.read_reports(graded.heads)
             for pr, sha in graded.heads.items():
-                if warnings := [line for line in self.rulings_report(pr, sha) if cause(line) != RESERVED_TOUCH]:
+                if (warnings := [line for line in self.rulings_report(pr, sha) if cause(line) != RESERVED_TOUCH]) and not self.rulings_settled(pr, sha, warnings):
                     text = f"`rulings.py check-pr` warns at {sha[:10]}, and the head is not held for it: {'; '.join(warnings)}"
                     self.warn_head(f"rulings:{pr}:{sha[:7]}:{hashlib.sha1(text.encode()).hexdigest()[:8]}", pr, graded, text)
         return {}
+
+    def rulings_settled(self, pr: str, sha: str, warnings: list[str]) -> bool:
+        """Whether the warnings `check_rulings` posted for `pr` at `sha` already name every line of `warnings`, or an `answer` replies to or resolves one of them."""
+        posted = [action for action in self.book.actions(LANDING, kind="bus") if action.action_id.startswith(f"rulings:{pr}:{sha[:7]}:")]
+        named = {line for action in posted for line in json.loads(action.target)["text"].partition("the head is not held for it: ")[2].split("; ")}
+        if set("; ".join(warnings).split("; ")) <= named:
+            return True
+        seqs = {int(seq[1]) for action in posted if (seq := POSTED.search((action.response or {}).get("posted", "")))}
+        return bool(seqs) and any(seqs & {record.get("re"), record.get("resolves")} for record in cci.records(self.runner.cci_tail, self.runner.config.drive, "--kind=answer", since=min(seqs)))
 
     def scanned_reviews(self) -> list[dict]:
         """The drive's `review` and `head` records, scanned once a pass, so a review whose text names the PR but whose refs do not still counts."""
@@ -6064,22 +6078,28 @@ class Landing:
                 continue
             if any(entry["verdict"] == "approved" and names_head(heads[pr], entry.get("head") or "") for by_row in verdicts.values() for row, entry in by_row.items() if board_rows.pr_of(row) == pr):
                 continue
-            mismatch = f"TEST-ONLY-MISMATCH {mismatched[pr]} is neither a test nor CI configuration, so the test-only claim does not hold; " if mismatched[pr] else ""
-            waits[pr] = f"{mismatch}TAP-REQUIRED {','.join(found)}: it lands only on the owner's tap at this head, and a root go is no tap; no approval on the root's board names {heads[pr][:10]}"
+            waits[pr] = f"{mismatched[pr]}TAP-REQUIRED {','.join(found)}: it lands only on the owner's tap at this head, and a root go is no tap; no approval on the root's board names {heads[pr][:10]}"
         return waits, unread, exempt
 
     def exempt_admitted(self, pr: str, sha: str) -> tuple[str, str]:
-        """The `EXEMPT-ADMITTED` note for `pr` at `sha` when it lands on a go with no board tap, and the first changed file that breaks a test-only claim (06288326, owner Oct 28 8:45 PM): the head grades ok by `fidelity`'s rule, `exempt_class` finds one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first) in its grades, and any root or `landing.go_lanes` go names the head, whatever its words (root #181182). A test-only or CI-only class is checked against the PR's changed files: the note is empty and the file is returned when one is neither a test nor CI configuration."""
+        """The `EXEMPT-ADMITTED` note for `pr` at `sha` when it lands on a go with no board tap, and why its whole diff breaks the class its grade claims (06288326, owner Oct 28 8:45 PM): the head grades ok by `fidelity`'s rule, `exempt_class` finds one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first) in its grades, and any root or `landing.go_lanes` go names the head, whatever its words (root #181182). Both classes are checked against every file the PR changes against its base, never the grade's words alone (root #182391): a test-only or CI-only class fails on a file outside the test, CI, skill-script and docs set, and a port class on a file outside `PORT_PREFIXES` unless a `Rulings` comment clears its interaction."""
         if not (go := next(iter(self.head_gos(pr, sha)), None)) or not self.fidelity(pr, sha).ok:
             return "", ""
         if not (found := self.exempt_class(pr, sha, ())):
             return "", ""
         grade, said = found
+        files, _ = self.changed_files(pr, sha)
         if TEST_ONLY_CLAIM.search(said):
-            files, _ = self.changed_files(pr, sha)
             if offender := next((name for name in files if not is_test_or_ci_file(name)), ""):
-                return "", offender
+                return "", f"TEST-ONLY-MISMATCH {offender} is neither a test nor CI configuration, so the test-only claim does not hold; "
+        elif (offender := next((name for name in files if not name.startswith(PORT_PREFIXES)), "")) and not self.interaction_cleared(pr):
+            return "", f"PORT-MISMATCH {offender} is outside {','.join(PORT_PREFIXES)} and no Rulings comment clears its interaction, so the port claim does not hold; "
         return f"EXEMPT-ADMITTED #{pr} at {sha[:10]}: fidelity grade cci #{grade['seq']} says \"{said}\" and go #{go['seq']} names it, so it lands with no board tap (06288326)", ""
+
+    def interaction_cleared(self, pr: str) -> bool:
+        """Whether a comment on `pr` under a `Rulings` heading has a line that names the change's interaction and cites the owner's answer as `# owner: <answer id>`."""
+        done = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "comments"))
+        return done.code == 0 and any("interaction" in line.casefold() and OWNER_CITE.search(line) for comment in json.loads(done.out)["comments"] if finder.RULINGS_HEADING.search(comment["body"]) for line in comment["body"].splitlines())
 
     def exempt_class(self, pr: str, sha: str, seen: tuple[str, ...]) -> tuple[dict, str] | None:
         """The standing ok grade at `sha`, a desk's before the pipeline's, newest first, that says one of `landing.exempt_grades`, with that phrase; a patch-identical carry grade with none is read back along the heads it carries from."""

@@ -1558,7 +1558,9 @@ text grades and the sweep. A failed pass is one `FIDELITY-FAILED` to them, and t
 The `rulings` check runs `rulings.py check-pr --repo <checkout> --drive <drive>
 --pr <owner/repo>#<n> --head <sha> --base <base>` once per head a pass and holds no
 head (4236611). Each cause it prints but `RESERVED-NO-ANSWER` is a warning: one cci
-`note` per head and set of causes to the PR's lane. A reserved touch is merge mode's
+`note` per head and set of causes to the PR's lane. A head warns again only for a cause
+none of its earlier warnings named, and never once an `answer` replies to or resolves
+one of them. A reserved touch is merge mode's
 to settle, because merge mode sends the card whose tap authorizes it.
 A `NAME-HIT` clears once a line of the body's `## Rulings` cites the hit's row by key or
 answer id, quotes at least four of the owner's words from it verbatim, and follows the quote
@@ -1623,11 +1625,15 @@ CI-only PR (owner, Oct 28 8:45 PM): a head whose newest fidelity grade says one 
 first) and whose root go reads `go port|test-only|ci-only #<n> at <sha>` or says pure port,
 test-only or CI-only lands on that go, with one `EXEMPT-ADMITTED` note to the root and each
 `landing.board_lane` naming the grade and the go. A grade saying the port touches rebuild
-code keeps the tap. A test-only or CI-only claim, in the grade phrase or the go, is also
-checked against the PR's changed files: a file outside `*_test.go`, `*.test.ts`,
-`*.test.tsx`, `__tests__/`, `testdata/`, `fixtures/`, `.buildkite/`, `.github/`, `tools/ci/`
-and buildkite yaml keeps the tap, and the `TAP-REQUIRED` blocker opens with
-`TEST-ONLY-MISMATCH` naming the first such file. The runner posts one `TAP-REQUIRED` blocker per head,
+code keeps the tap. Either class is also checked against every file the PR changes
+against its base, never the grade's words alone (root #182391). A test-only or CI-only
+claim keeps the tap on a file that is not a test file by `testfiles.py`, under
+`__tests__/`, `testdata/`, `fixtures/`, `docs/`, `.buildkite/`, `.github/`, `tools/ci/`,
+`infra/ci/`, `.agents/skills/*/scripts/` or `.agents/skills/*/tests/`, or buildkite yaml,
+and the `TAP-REQUIRED` blocker opens with `TEST-ONLY-MISMATCH` naming the first such file.
+A port claim keeps the tap on a file outside `go/sand/next/`, with `PORT-MISMATCH` naming
+it, unless a PR comment under a `## Rulings` heading has a line that names the interaction
+and cites the owner's answer as `# owner: <answer id>`. The runner posts one `TAP-REQUIRED` blocker per head,
 naming the row, to the PR's lane, the root, and each `landing.board_lane`. When the changed
 files, the register, or the board do not read, it never guesses a merge: the head stays
 unqueued, and one `TAP-UNREAD` warning goes to the PR's lane, the root, and each

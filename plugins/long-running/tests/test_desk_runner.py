@@ -127,6 +127,7 @@ class FakeShell(runner_module.Shell):
         self.queue: dict[str, str] = {}
         self.pr_status: dict[str, dict] = {}
         self.bodies: dict[str, str] = {}
+        self.comments: dict[str, list[str]] = {}
         self.rows: list[dict] = []
         self.ledger_code = 0
         self.launch_line = ""
@@ -445,6 +446,9 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "body":
             assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "body"]
             return runner_module.Done(0, json.dumps({"body": self.bodies.get(argv[3], "")}), "")
+        if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "comments":
+            assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "comments"]
+            return runner_module.Done(0, json.dumps({"comments": [{"body": body} for body in self.comments.get(argv[3], [])]}), "")
         if len(argv) > 2 and Path(argv[1]).name == "rulings.py":
             return self.rulings(argv[2:])
         if len(argv) > 1 and Path(argv[1]).name == "ledger.py":
@@ -3183,6 +3187,28 @@ def test_a_test_only_claim_over_a_pr_that_changes_non_test_code_is_refused_namin
     assert len(refusals) == 1 and "TEST-ONLY-MISMATCH go/sand/next/vm/run.go is neither a test nor CI configuration" in refusals[0] and "other.go" not in refusals[0]
 
 
+@pytest.mark.parametrize(
+    ("comments", "admitted"),
+    [
+        ([], False),
+        (["## Rulings\n\nThe api change only forwards the ported call; no interaction. # owner: 4c20204"], True),
+        (["## Rulings\n\nno interaction, by my read"], False),
+        (["The api change has no interaction. # owner: 4c20204"], False),
+    ],
+    ids=["no-comment", "owner-cleared", "uncited", "no-rulings-heading"],
+)
+def test_a_port_claim_over_a_pr_that_changes_a_file_outside_the_port_tree_waits_for_the_tap_unless_a_rulings_comment_clears_it(shell, config, comments, admitted):
+    tap_ruled_pr(shell, config, ["go/sand/next/vm/run.go", "api/src/routes/run.ts"])
+    shell.comments["29020"] = comments
+    grade(shell, "29020", "ok cccc333 pure port, no interaction: it moves run.go and its route.")
+    merge_go(shell, "29020", "go port #29020 at cccc333")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    refusals = [post_body(post) for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    assert bool(shell.enqueues()) is admitted and bool([note for note in notes(shell) if "EXEMPT-ADMITTED" in post_body(note)]) is admitted
+    assert refusals == ([] if admitted else [refusals[0]]) and all("PORT-MISMATCH api/src/routes/run.ts is outside go/sand/next/" in refusal for refusal in refusals)
+
+
 def test_the_legacy_port_phrase_key_still_sets_the_port_grade_phrase(shell, config):
     tap_ruled_pr(shell, config, ["go/sand/next/vm/run.go"], port_phrase="straight port")
     grade(shell, "29020", "ok cccc333 straight port of old-tree #43020.")
@@ -3205,6 +3231,15 @@ def test_the_legacy_port_phrase_key_still_sets_the_port_grade_phrase(shell, conf
         (".github/workflows/ci.yml", True),
         ("infra/pipelines/dev.buildkite.yaml", True),
         ("tools/ci/main.go", True),
+        ("infra/ci/agents.ts", True),
+        (".agents/skills/submit-pr/scripts/ship.py", True),
+        (".agents/skills/submit-pr/tests/test_ship.py", True),
+        ("docs/slack.md", True),
+        ("go/sand/next/vm/fakes/clock.go", True),
+        ("dashboard/e2e/realServe.ts", True),
+        ("dashboard/src/a.spec.ts", True),
+        ("tools/rulings_test.py", True),
+        ("go/sand/next/tests/helpers.go", True),
         ("go/sand/internal/vm/run.go", False),
         ("dashboard/src/a.ts", False),
         ("api/src/testing.ts", False),
@@ -5382,6 +5417,27 @@ def test_a_rulings_warning_posts_once_per_head_whether_the_pass_names_it_by_full
     for head in ("cccc333333" + "d" * 30, "cccc333333"):
         landing.check_rulings(runner_module.Graded({"29020": head}, rows, shell.now(), act=True))
     assert len([post for post in shell.posts if post["kind"] == "note" and "warns at cccc333333" in post["text"]]) == 1
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "answered", "warnings"),
+    [
+        ("NAME-HIT rule/8aeaaff go/x.go:5 writer\nCONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n", "NAME-HIT rule/8aeaaff go/x.go:5 writer\n", False, 1),
+        ("NAME-HIT rule/8aeaaff go/x.go:5 writer\n", "NAME-HIT rule/8aeaaff go/x.go:5 writer\nRULINGS-PLAIN a code symbol\n", True, 1),
+        ("NAME-HIT rule/8aeaaff go/x.go:5 writer\n", "NAME-HIT rule/8aeaaff go/x.go:5 writer\nRULINGS-PLAIN a code symbol\n", False, 2),
+    ],
+)
+def test_a_rulings_warning_posts_again_at_its_head_only_for_a_new_cause_before_the_lane_answers(shell, config, tmp_path, first, second, answered, warnings):
+    lone_green_pr(shell)
+    for out in (first, second):
+        shell.check_pr["29020"] = (1, out)
+        runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+        landing = runner_module.Landing(runner, runner.config.landing)
+        landing.reports_file.unlink(missing_ok=True)
+        landing.check_rulings(runner_module.Graded({"29020": "cccc333333"}, landing.rows(), shell.now(), act=True))
+        if answered:
+            shell.records.append({"seq": 900, "drive": "d1", "lane": LANE, "kind": "answer", "to": ["desk-runner"], "resolves": 1, "text": "both hits are unrelated words; head unchanged"})
+    assert len([post for post in shell.posts if post["kind"] == "note" and "warns at cccc333333" in post["text"]]) == warnings
 
 
 def test_mq_why_names_the_adapters_approval_and_ci_verdicts(shell, config, tmp_path, capsys):
