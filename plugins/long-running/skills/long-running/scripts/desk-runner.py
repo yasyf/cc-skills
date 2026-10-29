@@ -7764,7 +7764,7 @@ class Landing:
         if not lane:
             self.runner.escalate(key, "UNOWNED", f"#{pr}", text)
         elif self.lane_dead(lane):
-            self.post_blocker(key, ROOT, self.dead_note(lane) + text, pr, cause)
+            self.post_blocker(key, ",".join(self.restack_lanes()), self.dead_note(lane) + text, pr, cause)
         elif self.runner.orca.receipt(lane):
             relay, _ = self.runner.accept_relay(key, lane, text, "", self.runner.config.start_minutes)
             if (dispatch := self.runner.orca.show(lane)) and dispatch.status not in INACTIVE:
