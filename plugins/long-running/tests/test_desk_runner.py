@@ -11369,6 +11369,28 @@ def test_the_alive_record_names_the_passs_own_command_over_a_longer_one_a_worker
     assert shell.alive == [f"landing alive {shell.clock.astimezone(runner_module.PACIFIC):%-I:%M %p} pass 1 running `cci tail --drive d1` for 1m05s"]
 
 
+def test_a_pr_query_reads_only_the_records_after_the_newest_it_kept_and_drops_one_that_expired():
+    posted = [{"seq": 4, "text": "a"}, {"seq": 8, "text": "c"}]
+    calls: list[str] = []
+
+    def run(argv: list[str]) -> str:
+        since = int(argv[argv.index("--since") + 1])
+        calls.append(str(since))
+        return "".join(json.dumps(record) + "\n" for record in posted if record["seq"] > since)
+
+    tail = runner_module.cci.Tail(run)
+    tail.remember()
+    query = ("d1", "--pr", "Forge-AI/monorepo#29020")
+    assert [record["seq"] for record in runner_module.cci.records(tail, *query)] == [4, 8]
+    tail.forget()
+    posted.append({"seq": 11, "text": "d"})
+    assert [record["seq"] for record in runner_module.cci.records(tail, *query)] == [4, 8, 11]
+    tail.forget()
+    tail.grown[(query[0], query[1:])][0]["expires_at"] = "2000-01-01T00:00:00Z"
+    assert [record["seq"] for record in runner_module.cci.records(tail, *query)] == [8, 11]
+    assert calls == ["0", "8", "11"]
+
+
 def test_a_cci_page_under_half_the_budget_is_the_last_one_read(monkeypatch):
     monkeypatch.setattr(runner_module.cci, "PAGE_BYTES", 400)
     pages = [[{"seq": 1, "text": "x" * 120}, {"seq": 2, "text": "x" * 120}], [{"seq": 3, "text": "y"}], []]
