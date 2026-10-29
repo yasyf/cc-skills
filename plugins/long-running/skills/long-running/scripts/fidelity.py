@@ -10,7 +10,8 @@ STDLIB ONLY. desk-runner.py's orca desk writes `DIR/job.json` for each head it d
 this script detached. The job reads the PR, skips a closed PR or a head that is no longer its live
 head, and takes the PR's own commits as finder.py does. When `git patch-id --stable` of those
 commits matches the same number of commits up to an earlier head every fidelity lane's newest grade
-of which is ok, it posts `fidelity: ok <head> carried from <earlier>`, with the earlier head's
+of which is ok, or a `missing` the job's `settled` map names, it posts `fidelity: ok <head> carried from
+<earlier>`, citing the root `decide` that settled a carried `missing`, with the earlier head's
 `old-app:` line and no model call. The carry repeats no exempt phrase when a root `class wrong`
 decision answers the carried grade or a grade it was carried from, else each one the newest
 fidelity-desk ok grade on the PR says, else each one the carried grade says. Otherwise it fills
@@ -19,7 +20,9 @@ fidelity-desk ok grade on the PR says, else each one the carried grade says. Oth
 `codex-ask -m <model> --schema fidelity.schema.json` in the drive's checkout. A reply that leaves
 a row ungraded, keys a `missing` line on anything but a plan line or an owner row, or gives no
 reasoning in `swept` is asked once more; a second such reply fails the job. A head that moved while
-codex read it posts nothing. Each line is posted under lane `fidelity-pipeline`, kind `review`, to the
+codex read it posts nothing. The question lists every point of a `missing` grade root settled, and a
+reply's `missing` entry that repeats one word for word is dropped; a reply left with none posts ok citing
+the settling decide. Each line is posted under lane `fidelity-pipeline`, kind `review`, to the
 head's lane and every `to` address: `fidelity: ok`, one `fidelity: missing` per broken row, or
 `fidelity: reader` to the human fidelity desks as well, then one `touches <key>` per reserved row and
 the `old-app:` line against the job's baseline. `DIR/result.json` is written last, `{"error": …}`
@@ -60,16 +63,20 @@ def patch_id(shell: finder.Shell, job: dict, start: str, end: str) -> str:
 
 
 def carry(shell: finder.Shell, job: dict, own: list[str]) -> dict | None:
-    """The newest earlier head whose every fidelity lane stands at ok and whose last `len(own)` commits have the head's patch, with that ok grade and the patch id."""
+    """The newest earlier head whose every fidelity lane stands at ok, or at a `missing` a root `decide` settled, and whose last `len(own)` commits have the head's patch, with that lane's newest grade and the patch id."""
     ours = patch_id(shell, job, f"{own[0]}^", job["head"])
-    oks = [grade for grade in sorted(job["grades"], key=lambda grade: grade["seq"], reverse=True) if grade["text"].startswith(FIDELITY_OK)]
-    for named in dict.fromkeys(head for grade in oks if (head := graded_head(grade["text"][len(FIDELITY_OK) :])) and not names_head(head, job["head"])):
+    oks = [grade for grade in sorted(job["grades"], key=lambda grade: grade["seq"], reverse=True) if passes(job, grade)]
+    for named in dict.fromkeys(head for grade in oks if (head := graded_head(grade["text"].split(maxsplit=2)[2])) and not names_head(head, job["head"])):
         stand = standing(job["grades"], job["lanes"], named)
-        if not stand or not all(grade["text"].startswith(FIDELITY_OK) for grade in stand) or not (full := finder.fetched(shell, job, named)):
+        if not stand or not all(passes(job, grade) for grade in stand) or not (full := finder.fetched(shell, job, named)):
             continue
         if ours and patch_id(shell, job, f"{full}~{len(own)}", full) == ours:
             return {"head": full, "grade": max(stand, key=lambda grade: grade["seq"]), "patch": ours}
     return None
+
+
+def passes(job: dict, grade: dict) -> bool:
+    return grade["text"].startswith(FIDELITY_OK) or (grade["text"].startswith(FIDELITY_MISSING) and str(grade["seq"]) in job["settled"])
 
 
 def exempt_phrases(job: dict, text: str) -> list[str]:
@@ -91,7 +98,8 @@ def carried_class(job: dict, grade: dict) -> str:
 def carried_lines(job: dict, found: dict) -> list[tuple[str, list[str]]]:
     head, earlier, grade = job["head"], found["head"], found["grade"]
     said = carried_class(job, grade)
-    lines = [(f"{FIDELITY_OK} {head} {said}carried from {earlier[:7]} (cci #{grade['seq']}), patch-identical by git patch-id over its own commits.", [])]
+    settled = f" Root settled its missing points at #{root}." if (root := job["settled"].get(str(grade["seq"]))) else ""
+    lines = [(f"{FIDELITY_OK} {head} {said}carried from {earlier[:7]} (cci #{grade['seq']}), patch-identical by git patch-id over its own commits.{settled}", [])]
     if (old_app := newest_finder(job["old_apps"], earlier)) and (parts := OLD_APP_LINE.match(old_app["line"])):
         lines.append((f"old-app: {parts[1]} {head[:7]} {parts[2]}".rstrip(), []))
     return lines
@@ -117,7 +125,24 @@ def prompt(job: dict, view: dict, base: str, own: list[str], rows: Path, plan: s
         contract=job["contract"].strip() or "(the lane posted none)",
         body=view["body"].strip() or "(empty)",
         rulings=finder.rulings_comments(view),
+        settled="".join(f"- {point} (root #{root})\n" for point, root in settled_points(job).items()) or "(none)",
     )
+
+
+def settled_points(job: dict) -> dict[str, int]:
+    """Each point of a `fidelity: missing` grade on the PR that a root `decide` settled, with that decide."""
+    return {point: root for grade in job["grades"] if grade["text"].startswith(FIDELITY_MISSING) and (root := job["settled"].get(str(grade["seq"]))) for point in grade["text"][len(FIDELITY_MISSING) :].split(maxsplit=2)[2].split("; ")}
+
+
+def unsettled(job: dict, reply: dict) -> dict:
+    """`reply` less each `missing` entry that repeats a settled point word for word, read as ok citing the settling decides when none is left."""
+    if reply["verdict"] != "missing" or not (points := settled_points(job)):
+        return reply
+    kept = [entry for entry in reply["missing"] if " ".join(entry["line"].split()) not in points]
+    if kept:
+        return reply | {"missing": kept}
+    roots = ", ".join(f"#{root}" for root in sorted({points[" ".join(entry["line"].split())] for entry in reply["missing"]}))
+    return reply | {"verdict": "ok", "missing": [], "summary": f"{reply['summary']} Every missing point is one root settled at {roots}."}
 
 
 def baseline(job: dict) -> str:
@@ -211,7 +236,7 @@ def run(directory: Path, shell: finder.Shell) -> dict:
             raise finder.JobFailed(f"two replies gave {'; and '.join(short)}")
     if (now := finder.view_pr(shell, job)["headRefOid"]) != head:
         return {"skipped": f"{pr} moved to {now[:12]} while codex read {head[:12]}"}
-    lines = graded_lines(job, reply)
+    lines = graded_lines(job, reply := unsettled(job, reply))
     body.write_text("\n".join(text for text, _ in lines) + f"\nchecked {','.join(reply['checked'])} names {'|'.join(reply['names'])}\n\n{json.dumps(reply, indent=2)}\n")
     return {"verdict": reply["verdict"], "posted": post(shell, job, lines, body)}
 

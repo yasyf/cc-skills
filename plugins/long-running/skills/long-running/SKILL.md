@@ -1554,7 +1554,10 @@ that grade with no model call, as `fidelity: ok <head> carried from <earlier>` w
 `old-app:` line. Its `pure port, no interaction` or `test-only or CI-only, no non-test code`
 class comes from a root `decide` record that answers the carried grade, or a grade it was
 carried from, with `class wrong`, which drops the class; else from the newest fidelity-desk ok
-grade on the PR; else from the carried grade. Any other head gets one codex read from `reference/fidelity-job-brief.md`
+grade on the PR; else from the carried grade. A `missing` grade a root `decide` settled, by
+`--re` or `--resolves` or by saying settled about the PR, counts as ok for a carry, which cites that
+decide. A new head's codex read lists the settled points, a `missing` entry that repeats one word
+for word is dropped, and a reply left with none posts ok citing the decide. Any other head gets one codex read from `reference/fidelity-job-brief.md`
 over its own diff, its required register rows, the plan, the lane's newest contract and the
 PR body, graded by `reference/fidelity-desk-brief.md`, and posts its fidelity line, one
 `touches <key>` per reserved row and its `old-app:` line. A head codex cannot settle goes to
