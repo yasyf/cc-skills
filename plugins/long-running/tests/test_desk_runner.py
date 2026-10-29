@@ -3017,12 +3017,88 @@ def test_a_pure_port_lands_on_a_root_go_with_no_board_tap_only_when_grade_and_go
     landing_pass(shell, config)
     landing_pass(shell, config)
     refusals = [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
-    admissions = [post_body(post) for post in notes(shell) if "PORT-ADMITTED" in post_body(post)]
+    admissions = [post_body(post) for post in notes(shell) if "EXEMPT-ADMITTED" in post_body(post)]
     if not admitted:
         assert shell.enqueues() == [] and len(refusals) == 1 and admissions == []
         return
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and refusals == []
-    assert admissions == [f"PORT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} calls it a pure port and root go #{seq + 2} names it, so it lands with no board tap (06288326)"]
+    assert admissions == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "pure port, no interaction" and root go #{seq + 2} names it, so it lands with no board tap (06288326)']
+
+
+TEST_ONLY_GRADE = "ok cccc333 test-only or CI-only, no non-test code: it adds cases and a pipeline step."
+
+
+def tap_ruled_pr(shell, config, files, **landing):
+    merge_mode(config, "every")
+    raw = json.loads(config.read_text())
+    raw["landing"]["tap_rules"] = {"rule/82317b0": ["go/sand/next/*"]}
+    raw["landing"] |= landing
+    config.write_text(json.dumps(raw))
+    shell.register = {"rule/82317b0": {"kind": "order", "status": "in-force"}}
+    lone_green_pr(shell)
+    shell.files["29020"] = files
+
+
+@pytest.mark.parametrize(
+    "go",
+    ["go test-only #29020 at cccc333", "go ci-only #29020 at cccc333", "go #29020 at cccc333, test-only", "go #29020 at cccc333, CI-only", "go port #29020 at cccc333"],
+    ids=["go-test-only", "go-ci-only", "plain-go-test-only", "plain-go-ci-only", "go-port"],
+)
+def test_a_test_only_pr_lands_on_a_root_go_with_no_board_tap_and_one_exempt_admitted_note(shell, config, go):
+    tap_ruled_pr(shell, config, ["go/sand/next/vm/run_test.go", "go/sand/next/testdata/a.json", ".buildkite/pipeline.yml"])
+    seq = grade(shell, "29020", TEST_ONLY_GRADE)
+    merge_go(shell, "29020", go)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    refusals = [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    admissions = [post_body(post) for post in notes(shell) if "EXEMPT-ADMITTED" in post_body(post)]
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and refusals == []
+    assert admissions == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "test-only or CI-only, no non-test code" and root go #{seq + 2} names it, so it lands with no board tap (06288326)']
+
+
+@pytest.mark.parametrize("go", ["go test-only #29020 at cccc333", "go port #29020 at cccc333"], ids=["go-test-only", "go-port"])
+def test_a_test_only_claim_over_a_pr_that_changes_non_test_code_is_refused_naming_the_first_non_test_file(shell, config, go):
+    tap_ruled_pr(shell, config, ["go/sand/next/vm/run_test.go", "go/sand/next/vm/run.go", "go/sand/next/vm/other.go"])
+    grade(shell, "29020", TEST_ONLY_GRADE)
+    merge_go(shell, "29020", go)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    refusals = [post_body(post) for post in blockers(shell) if "TEST-ONLY-MISMATCH" in post_body(post)]
+    assert shell.enqueues() == [] and [note for note in notes(shell) if "EXEMPT-ADMITTED" in post_body(note)] == []
+    assert len(refusals) == 1 and "TEST-ONLY-MISMATCH go/sand/next/vm/run.go is neither a test nor CI configuration" in refusals[0] and "other.go" not in refusals[0]
+
+
+def test_the_legacy_port_phrase_key_still_sets_the_port_grade_phrase(shell, config):
+    tap_ruled_pr(shell, config, ["go/sand/next/vm/run.go"], port_phrase="straight port")
+    grade(shell, "29020", "ok cccc333 straight port of old-tree #43020.")
+    merge_go(shell, "29020", "go port #29020 at cccc333")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
+@pytest.mark.parametrize(
+    ("name", "exempt"),
+    [
+        ("go/sand/internal/vm/run_test.go", True),
+        ("dashboard/src/a.test.ts", True),
+        ("dashboard/src/a.test.tsx", True),
+        ("api/src/__tests__/x.ts", True),
+        ("go/sand/internal/testdata/golden.json", True),
+        ("dashboard/fixtures/a.json", True),
+        (".buildkite/pipeline.yml", True),
+        (".github/workflows/ci.yml", True),
+        ("infra/pipelines/dev.buildkite.yaml", True),
+        ("tools/ci/main.go", True),
+        ("go/sand/internal/vm/run.go", False),
+        ("dashboard/src/a.ts", False),
+        ("api/src/testing.ts", False),
+        ("infra/pipelines/dev.yml", False),
+        ("go/sand/mytestdata_test_helper.go", False),
+    ],
+)
+def test_only_test_files_and_ci_configuration_count_as_exempt(name, exempt):
+    assert runner_module.is_test_or_ci_file(name) is exempt
 
 
 @pytest.mark.parametrize("state", ["board unread", "row absent", "row superseded"])
