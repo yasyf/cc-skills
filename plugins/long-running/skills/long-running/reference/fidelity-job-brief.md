@@ -69,3 +69,7 @@ PR body, never edited after the PR opens:
 
 PR comments under a `Rulings` heading, which correct and extend the body:
 {rulings}
+
+Missing points root settled on this PR. Do not raise one again, in these words or others, unless
+this head changes the code it cites:
+{settled}

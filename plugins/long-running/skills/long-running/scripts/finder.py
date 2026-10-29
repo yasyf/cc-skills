@@ -20,10 +20,13 @@ head: `git range-diff` pairs its own commits with that head's, and it reads only
 changed pair, each new commit, and each dropped commit the base lacks, and runs no row pass. A changed pair that adds no line and drops only
 hunks the base now carries is a carry, and a head whose every pair is equal or a carry posts the
 graded head's verdict as `finder: ok|major <head7> carried from #<seq>`, or nothing when no finder
-record graded that head.
+record graded that head. A major that root settled, or one carried from a record root settled, carries as
+`finder: ok <head7> carried from #<seq>, settled by root #<decide>`: the job's `settled` maps each finder
+record a root `decide` names by `--re` or `--resolves`, or that a root `decide` about the PR saying
+settled came after, to that decide.
 Every pass hands codex the PR's earlier finder records and their answers, and a finding they closed
 is not raised again. A whole pass writes the head's
-required register rows to `DIR/rows.md` with `rulings.py slice --required`. A `full` job, which a `decide` or `ask` to the finder desk queues, reads the PR's
+required register rows to `DIR/rows.md` with `rulings.py slice --required`. A `full` job, which only a root `ask` to the finder desk saying `finder: whole` queues, reads the PR's
 whole own change at its live head whatever earlier records graded. It fills
 `reference/finder-desk-brief.md` and runs `codex-ask -m <model> --schema findings` in the drive's
 checkout. A reply that names no verdict for a row key the slice printed, or gives no reasoning in
@@ -51,7 +54,7 @@ from pathlib import Path
 
 import drive
 import ghread
-from grades import finder_grade, names_head, repo_prs
+from grades import FINDER_PASS, finder_grade, names_head, repo_prs
 
 SCRIPTS = Path(__file__).resolve().parent
 BRIEF = SCRIPTS.parent / "reference" / "finder-brief.md"
@@ -68,7 +71,8 @@ RESULT = "result.json"
 LOG = "job.log"
 PID = "pid"
 CANCELLED = "cancelled"
-WHOLE_ASKED = re.compile(r"\bwhole[- ]diff\b|\bfull pass\b|\b[0-9a-f]{7,40}\b", re.IGNORECASE)
+WHOLE_ASKED = "finder: whole"
+CARRIED_FROM = re.compile(r"\bcarried from #(\d+)")
 WHOLE_READ = "over whole "
 HEAD_SHA = re.compile(r"(?<!was )\b[0-9a-f]{40}\b")
 FULL_SHA = re.compile(r"\b[0-9a-f]{40}\b")
@@ -117,8 +121,8 @@ def text_pr(text: str, repo: str) -> list[str]:
 
 
 def requested(record: dict, repo: str) -> list[str]:
-    """The PRs a `decide` or `ask` to the finder desk asks a whole pass over: it names a head, or says whole-diff or full pass (root #162320)."""
-    if LANE not in (record.get("to") or []) or not WHOLE_ASKED.search(record["text"]):
+    """The PRs an `ask` to the finder desk asks a whole pass over by saying `finder: whole`; a `decide` asks none, since root settles findings in one (root #182759)."""
+    if record["kind"] != "ask" or LANE not in (record.get("to") or []) or WHOLE_ASKED not in record["text"].casefold():
         return []
     return [pr for pr, _ in repo_prs(record, repo)] if (record.get("refs") or {}).get("prs") else text_pr(record["text"], repo)
 
@@ -392,6 +396,8 @@ def run(directory: Path, shell: Shell) -> dict:
         if not ((earlier := job["prior"]) and names_head(earlier["head"], last)):
             return {"skipped": replayed}
         text = f"finder: {finder_grade(earlier['text'])} {head[:7]} carried from #{earlier['seq']}"
+        if finder_grade(earlier["text"]) != FINDER_PASS and (root := settled_by(job, earlier)):
+            text = f"finder: {FINDER_PASS} {head[:7]} carried from #{earlier['seq']}, settled by root #{root}"
         body = directory / "record.md"
         body.write_text(f"{text}\n\n{replayed}.\n\n#{earlier['seq']}: {earlier['text']}\n")
         return {"verdict": text.split()[1], "record": text, "posted": post(shell, job, text, body)}
@@ -421,6 +427,16 @@ def run(directory: Path, shell: Shell) -> dict:
     body.write_text(f"{text}\n\n{reply.strip()}\n")
     outcome = {"verdict": text.split()[1], "record": text, "posted": post(shell, job, text, body)}
     return outcome | ({"census": record_census(shell, job, directory, census)} if census else {})
+
+
+def settled_by(job: dict, record: dict | None) -> int | None:
+    """The root `decide` that settled `record` or a finder record it was carried from."""
+    by_seq = {earlier["seq"]: earlier for earlier in job["history"]}
+    while record:
+        if root := job["settled"].get(str(record["seq"])):
+            return root
+        record = by_seq.get(int(carried[1])) if (carried := CARRIED_FROM.search(record["text"])) else None
+    return None
 
 
 def failure(error: Exception) -> str:

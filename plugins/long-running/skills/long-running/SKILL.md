@@ -1528,6 +1528,11 @@ patch, from `reference/finder-desk-brief.md`, which forbids any local build or t
 after one the PR's last finder record graded reads only what changed since, with no row
 pass, and when its own change is patch-identical to the graded head's it posts that grade
 as `finder: ok|major <head7> carried from #<seq>`, so the head never reads ungraded. A
+major root settled carries as `finder: ok <head7> carried from #<seq>, settled by root
+#<decide>`: a root `decide` settles a finder record it names by `--re` or `--resolves`,
+every finder record on the PR before it when it is about the PR and says settled, and every
+carry of a settled record. Only a root `ask` to `finder-desk` saying `finder: whole` queues a
+whole-PR pass; a `decide` never does. A
 head the PR no longer carries when the pass starts or finishes posts nothing. It posts
 `finder: ok <head>` or `finder: major <head> <n> open: …` under lane `finder-desk` to
 the head's lane. A head reaches the finder once, a head some lane's
@@ -1549,7 +1554,10 @@ that grade with no model call, as `fidelity: ok <head> carried from <earlier>` w
 `old-app:` line. Its `pure port, no interaction` or `test-only or CI-only, no non-test code`
 class comes from a root `decide` record that answers the carried grade, or a grade it was
 carried from, with `class wrong`, which drops the class; else from the newest fidelity-desk ok
-grade on the PR; else from the carried grade. Any other head gets one codex read from `reference/fidelity-job-brief.md`
+grade on the PR; else from the carried grade. A `missing` grade a root `decide` settled, by
+`--re` or `--resolves` or by saying settled about the PR, counts as ok for a carry, which cites that
+decide. A new head's codex read lists the settled points, a `missing` entry that repeats one word
+for word is dropped, and a reply left with none posts ok citing the decide. Any other head gets one codex read from `reference/fidelity-job-brief.md`
 over its own diff, its required register rows, the plan, the lane's newest contract and the
 PR body, graded by `reference/fidelity-desk-brief.md`, and posts its fidelity line, one
 `touches <key>` per reserved row and its `old-app:` line. A head codex cannot settle goes to

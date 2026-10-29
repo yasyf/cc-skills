@@ -98,6 +98,7 @@ def job(tmp_path: Path, **changes) -> Path:
         "grades": [DESK_OK],
         "old_apps": [DESK_OLD_APP],
         "corrected": [],
+        "settled": {},
         "contract": "contract: builds the resubscribe from the fetched position; deletes nothing",
         "exempt": {"port": PORT_PHRASE, "test-only": TEST_ONLY_PHRASE},
         "exempt_grades": [PORT_PHRASE, TEST_ONLY_PHRASE],
@@ -162,6 +163,42 @@ def test_a_carry_takes_its_class_from_a_root_correction_then_the_newest_desk_gra
     shell = Fake(tmp_path, patches=SAME)
     assert fidelity.main([str(directory)], shell) == 0
     assert shell.texts()[0] == f"fidelity: ok {HEAD} {said}carried from {OLD[:7]} (cci #170003), patch-identical by git patch-id over its own commits."
+
+
+SETTLED_POINT = "an empty listing returns TxNotAvailable at plan.rs:108 before subscribing"
+OPEN_POINT = "replica.go:452 rejects a stopped share below its stop"
+PIPELINE_MISSING = {"seq": 170006, "lane": fidelity.LANE, "text": f"fidelity: missing {OLD} plan:811,rule/8330d10 {SETTLED_POINT}; {OPEN_POINT}"}
+
+
+@pytest.mark.parametrize("settled", [{"170006": 170007}, {}], ids=["root-settled", "unsettled"])
+def test_a_patch_identical_head_carries_a_missing_root_settled_as_ok_citing_the_decide(tmp_path, settled):
+    directory = job(tmp_path, grades=[PIPELINE_MISSING], settled=settled)
+    shell = Fake(tmp_path, [reply()], SAME)
+    fidelity.main([str(directory)], shell)
+    if not settled:
+        assert len(shell.asks()) == 1
+        return
+    assert not shell.asks()
+    assert shell.texts()[0] == f"fidelity: ok {HEAD} carried from {OLD[:7]} (cci #170006), patch-identical by git patch-id over its own commits. Root settled its missing points at #170007."
+
+
+@pytest.mark.parametrize(
+    ("missing", "posted"),
+    [
+        ([SETTLED_POINT, OPEN_POINT], f"fidelity: missing {HEAD} plan:811 {SETTLED_POINT}; {OPEN_POINT}"),
+        ([SETTLED_POINT], f"fidelity: ok {HEAD} Resubscribes from the fetched position after a cut. Every missing point is one root settled at #170007."),
+        ([f"  {SETTLED_POINT} ", "a new point"], f"fidelity: missing {HEAD} plan:811 a new point"),
+    ],
+    ids=["unsettled-point-kept", "all-settled", "settled-dropped"],
+)
+def test_a_new_heads_missing_point_that_repeats_a_settled_one_word_for_word_is_dropped(tmp_path, missing, posted):
+    settled = {"170006": 170007} if missing != [SETTLED_POINT, OPEN_POINT] else {}
+    directory = job(tmp_path, grades=[PIPELINE_MISSING | {"text": f"fidelity: missing {OLD} plan:811 {SETTLED_POINT}"}], settled=settled)
+    shell = Fake(tmp_path, [reply(verdict="missing" if missing else "ok", missing=tuple({"key": "plan:811", "line": line} for line in missing))], {(f"{OWN}^", HEAD): "5f1e", (f"{OLD}~1", OLD): "77aa"})
+    fidelity.main([str(directory)], shell)
+    assert shell.texts()[0] == posted
+    if settled:
+        assert f"- {SETTLED_POINT} (root #170007)" in (directory / "question-1.md").read_text()
 
 
 @pytest.mark.parametrize(
