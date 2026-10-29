@@ -7638,11 +7638,15 @@ class Landing:
         return self.claims_read
 
     def reach(self, lane: str) -> list[str]:
-        """Who a blocker for `lane` goes to, read as its live `successor`: the lane while `cci who` lists a live session for it, the lane and the root while it is otherwise alive, and the root alone once `lane_dead` reads it dead, since nothing reads a dead lane's mail (root #131190)."""
+        """Who a blocker for `lane` goes to, read as its live `successor`: the lane while `cci who` lists a live session for it, the lane and the root while it is otherwise alive, and the `restack_lanes` once `lane_dead` reads it dead, since nothing reads a dead lane's mail (root #131190)."""
         lane = self.successor(lane)
         if self.session_live(lane):
             return [lane]
-        return (self.runner.landing_lanes("restack_lane") or [ROOT]) if self.lane_dead(lane) else [lane, ROOT]
+        return self.restack_lanes() if self.lane_dead(lane) else [lane, ROOT]
+
+    def restack_lanes(self) -> list[str]:
+        """The live successors of the lanes `landing.restack_lane` names, which take a dead owner lane's PRs, or the root while none is named or every one named is dead, so a dead restack worker never swallows them."""
+        return [lane for lane in map(self.successor, self.runner.landing_lanes("restack_lane")) if not self.lane_dead(lane)] or [ROOT]
 
     def lane_dead(self, lane: str) -> bool:
         """Whether `lane` has no live dispatch or session and posted nothing on this drive under either of its `lane_aliases` in the last `DEAD_LANE`, read once per lane a pass."""
@@ -7657,7 +7661,7 @@ class Landing:
 
     def dead_note(self, lane: str) -> str:
         """The words that open a blocker `reach` sends to the root alone because its owner lane is dead."""
-        return f"owner lane dead: {lane} has no live session and no record in {DEAD_LANE.seconds // 60} min, so this comes to {', '.join(self.runner.landing_lanes('restack_lane')) or 'root'}; " if lane and self.lane_dead(lane) else ""
+        return f"owner lane dead: {lane} has no live session and no record in {DEAD_LANE.seconds // 60} min, so this comes to {', '.join(self.restack_lanes())}; " if lane and self.lane_dead(lane) else ""
 
     def session_live(self, lane: str) -> bool:
         """Whether `cci who` lists a live session for `lane`, read once per lane a pass; a read that times out reads as no session."""

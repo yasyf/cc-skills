@@ -1861,6 +1861,19 @@ def test_a_dead_owner_lanes_blocker_goes_to_the_restack_lane_the_drive_names_not
     assert post_body(blocker).startswith("owner lane dead: p8e-desktop-ship-3 has no live session and no record in 60 min, so this comes to restack-worker; #29020 cccc333333: ")
 
 
+def test_a_dead_owner_lanes_blocker_goes_to_root_when_the_restack_lane_is_dead_too(shell, config):
+    raw = json.loads(config.read_text())
+    raw["landing"]["restack_lane"] = "restack-worker"
+    config.write_text(json.dumps(raw))
+    shell.rows = [ONE_ROW | {"lane": "chat-move-r4"}]
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED")]
+    shell.records = [{"seq": 34766, "drive": "d1", "lane": "p8e-desktop-ship-3", "kind": "head", "to": ["root"], "refs": {"prs": [29020]}, "text": "#29020 head", "source": "post", "at": actions.stamp(shell.clock - timedelta(minutes=61))}]
+    shell.gone = {"p8e-desktop-ship-3", "restack-worker"}
+    landing_pass(shell, config)
+    [blocker] = blockers(shell)
+    assert blocker["to"] == "root"
+
+
 CONFLICT = "GitHub reads CONFLICTING (DIRTY) against dev; run ccx vcs stack submit from the branch's worktree: cd /w && ccx vcs stack submit"
 
 
