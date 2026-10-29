@@ -83,7 +83,7 @@ function diagramFigure(diagram) {
   if (!diagrams.has(diagram.source)) {
     diagrams.set(diagram.source, null);
     mermaidLoad ??= import('https://cdn.jsdelivr.net/npm/mermaid@12.2.0/dist/mermaid.esm.min.mjs').then(({ default: mermaid }) => {
-      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'base', fontFamily: getComputedStyle(document.body).getPropertyValue('--sans'), flowchart: { curve: 'basis', padding: 14, useMaxWidth: false }, themeVariables: { darkMode: true, background: '#0d1015', primaryColor: '#121a24', primaryTextColor: '#eceff3', primaryBorderColor: '#3ddc97', lineColor: '#6b7480', secondaryColor: '#151a21', tertiaryColor: '#11151b', edgeLabelBackground: '#0d1015', fontSize: '13px' } });
+      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true, theme: 'base', fontFamily: getComputedStyle(document.body).getPropertyValue('--sans'), flowchart: { curve: 'basis', padding: 14, useMaxWidth: false }, themeVariables: { darkMode: true, background: '#0d1015', primaryColor: '#121a24', primaryTextColor: '#eceff3', primaryBorderColor: '#3ddc97', lineColor: '#6b7480', secondaryColor: '#151a21', tertiaryColor: '#11151b', edgeLabelBackground: '#0d1015', fontSize: '13px' } });
       return mermaid;
     });
     const id = `diagram-${diagrams.size}`;
