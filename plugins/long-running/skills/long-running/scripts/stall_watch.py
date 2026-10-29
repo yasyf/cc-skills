@@ -166,6 +166,7 @@ FINDER_PENDING = "FINDER-PENDING"
 REFUSAL_KINDS = frozenset({"blocker", "report", "note", "defect", "urgent"})
 REFUSAL_LABELS = frozenset({"FOREIGN", "TAP-REQUIRED", "CONTRACT-MISSING", "PARKED", "UNOWNED", "NOT-QUEUEABLE", "ENQUEUE-STRANDED", "ENQUEUE-FAILED", "ENQUEUE-UNSETTLED"})
 STACK_NOTES = ("BELOW-BLOCKED", "BELOW-HELD", "QUEUED")
+WARNS_ONLY = re.compile(r"\bWARNING\b|\bis not held for it\b")
 REFUSAL_CAUSES = (
     ("parent", re.compile(r"\buntracked\b|\b(?:does|do) not track\b|\bnot tracked\b|\blost (?:its )?(?:recorded )?(?:Graphite )?parent\b|\bclosed (?:PR |#\d+)", re.IGNORECASE)),
     ("restack", re.compile(r"\bneeds-restack\b|\bgraphite-base/|\brestack\b", re.IGNORECASE)),
@@ -525,6 +526,7 @@ def refuses(record: dict, desks: list[str]) -> bool:
         and (record["lane"] == RUNNER or record["lane"] in desks or record["lane"].startswith(LANDING_DESK))
         and record.get("status") != "closed"
         and not record["text"].startswith(STACK_NOTES)
+        and not WARNS_ONLY.search(record["text"])
     )
 
 
@@ -729,9 +731,14 @@ class Pass:
             what = f"{refusal.record['lane']} refused to queue it at {pacific(since)} in #{seq}: {clip(refusal.said)}; {owner} has posted no HEAD and no answer since"
             if self.now - since >= self.watch.age("refusal"):
                 stalls.append(Stall(f"refusal:{key}", "refusal", since, subject, what, (owner,), f"{owner}: {command}, then post HEAD or `cci post --re {seq}`", refusal.pr))
-            if self.now - since >= self.watch.age("successor") and owner not in ROOT_NAMES:
+            if self.now - since >= self.watch.age("successor") and owner not in ROOT_NAMES and not self.rotating(records, owner, seq):
                 stalls.append(Stall(f"successor:{key}", "successor", since, subject, what, (ROOT,), f"spawn a successor to {owner}, which has not acted on #{seq} in {int((self.now - since).total_seconds() // 60)} min; the successor's first step: {command}", refusal.pr))
         return stalls
+
+    def rotating(self, records: list[dict], owner: str, seq: int) -> bool:
+        """Whether a successor or handoff lane of `owner`'s family, any lane but `owner` itself, posted since record `seq`, so its rotation already runs."""
+        family = re.compile(rf"{re.escape(re.sub(r'-\d{1,2}$', '', owner))}(?:-\d{{1,2}})?(?:-handoff)?")
+        return any(record["seq"] > seq and record["lane"] != owner and family.fullmatch(record["lane"]) for record in records)
 
     def answered(self, records: list[dict], refusal: dict, pr: str, head: str, named: set[str], owner: str) -> bool:
         """Whether a record after `refusal` queued `pr` at `head`, or came from `owner` or any numbered lane of its family answering it by `--re` or as a `head` record naming a PR it names."""
