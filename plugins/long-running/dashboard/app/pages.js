@@ -135,8 +135,9 @@ function fold(id, label, body, open = false) {
   return `<details class="pg-fold" data-id="${esc(id)}"${state.open.has(id) || open ? ' open' : ''}><summary>${label}</summary>${body}</details>`;
 }
 
-function answerLink(card) {
-  return card && state.model.board.cards.some((c) => c.id === card && c.decides) ? `<a class="pg-go" href="#/review/q/${encodeURIComponent(card)}">Answer it on Review ›</a>` : '';
+function answerHere(card) {
+  const item = openQuestion(card);
+  return item ? boardCard(item) : '';
 }
 function milestoneOf(p, i) {
   return p.milestones[i] ?? { state: 'not', label: 'Not known', ships: '', waits: '', since: '', card: '', note: '', unblock: '' };
@@ -173,7 +174,7 @@ function milestonePage(p, i) {
   const chain = `<div class="nw ms-chain">${nodes.length ? `<section><h2 class="nw-h">What stands in the way, in order</h2><div class="nw-chain">${nodes.map(chainCard).join('')}<div class="cn goal"><span class="w">Then</span>${esc(names[i])}</div></div></section>` : ''}
     ${feeding.length ? `<section><h2 class="nw-h">Work on it</h2><div class="nw-feed">${feeding.map(feedCard).join('')}</div></section>` : ''}
     ${prs.length ? `<section><h2 class="nw-h">Its pull requests <span class="pg-n">${prs.length}</span></h2><ul class="pg-changes ms-prs">${prs.map(changeLine).join('')}</ul></section>` : ''}</div>`;
-  return detailPage(['#/plan', 'Plan'], `${esc(state.model.milestones_label)} · ${i + 1} of ${names.length}`, names[i], `<p class="pg-stateline">${dotted(s.label, STOP_TONE[s.state])}${answerLink(s.card)}</p>`, [
+  return detailPage(['#/plan', 'Plan'], `${esc(state.model.milestones_label)} · ${i + 1} of ${names.length}`, names[i], `<p class="pg-stateline">${dotted(s.label, STOP_TONE[s.state])}</p>${answerHere(s.card)}`, [
     ['What it waits on', s.waits ? `${esc(s.waits)}${forSince(s.since)}` : esc(s.state === 'not' ? 'The milestone above' : s.state === 'live' ? 'Nothing: it is live' : 'Nothing open')],
     ['What we are doing to unblock it', esc(s.unblock ?? '')],
     ['What it ships', esc(s.ships)],
@@ -182,7 +183,7 @@ function milestonePage(p, i) {
 }
 function partPage(part) {
   const changes = part.changes.map((c) => `<li class="${light(prState(c.number))}"><a href="#/review/${c.number}">${esc(c.name)}</a><span>${esc(c.state)}</span></li>`).join('');
-  return detailPage(['#/plan', 'Plan'], 'Part of the plan', part.name, `<p class="pg-stateline">${dotted(part.label, PART_TONE[part.state])}${answerLink(part.card)}</p>`, [
+  return detailPage(['#/plan', 'Plan'], 'Part of the plan', part.name, `<p class="pg-stateline">${dotted(part.label, PART_TONE[part.state])}</p>${answerHere(part.card)}`, [
     ['What it delivers', esc(part.delivers)],
     ['What blocks it', part.blocks ? `${esc(part.blocks)}${forSince(part.since)}` : ''],
     ['What we are doing to unblock it', esc(part.doing)],
