@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import actions
+import cci
 import mq as mq_module
 import pytest
 from conftest import gateway
@@ -3901,6 +3902,7 @@ def test_a_merge_card_is_edited_in_place_when_its_question_changes_and_never_pos
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert len(shell.pr_cards) == 1
+    shell.register["reserved/user-data"] = {"kind": "reserved", "status": "in-force", "words": "User data stays where it is."}
     shell.check_pr["29020"] = (1, RESERVED)
     landing_pass(shell, config)
     landing_pass(shell, config)
@@ -4364,6 +4366,7 @@ def test_a_reserved_touch_found_after_the_enqueue_was_accepted_enqueues_nothing(
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
     landing_of(shell, config, tmp_path).accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}}, [])
+    shell.register["reserved/user-data"] = {"kind": "reserved", "status": "in-force", "words": "User data stays where it is."}
     shell.check_pr["29020"] = (1, RESERVED)
     landing_of(shell, config, tmp_path).enqueue()
     assert shell.enqueues() == []
@@ -4749,6 +4752,54 @@ def test_a_heads_rulings_check_runs_once_across_passes(shell, config, tmp_path):
     landing.run()
     landing.run()
     assert sorted(call[call.index("--pr") + 1] for call in shell.calls if "check-pr" in call) == ["Forge-AI/monorepo#29020", "Forge-AI/monorepo#29031"]
+
+
+def test_a_heads_final_rulings_check_survives_a_runner_restart_until_a_reserved_row_changes(shell, config, tmp_path):
+    shell.check_pr["29020"] = (1, "NAME-HIT rule/394dfd6 go/x.go:5 sync\n")
+
+    def restarted() -> list[str]:
+        return landing_of(shell, config, tmp_path).rulings_report("29020", "cccc333333")
+
+    def checks() -> int:
+        return sum("check-pr" in call for call in shell.calls)
+
+    assert restarted() == restarted() == ["NAME-HIT rule/394dfd6 go/x.go:5 sync"] and checks() == 1
+    shell.register["reserved/user-data"] = {"kind": "reserved", "status": "in-force", "words": "User data stays where it is."}
+    assert restarted() == ["NAME-HIT rule/394dfd6 go/x.go:5 sync"] and checks() == 2
+
+
+def test_one_cci_read_answers_every_filter_until_the_index_goes_stale(shell, config, tmp_path, monkeypatch):
+    monkeypatch.setattr(cci, "INDEX_FRESH", timedelta(minutes=1))
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s1")
+    at = actions.stamp(shell.clock)
+    head = {"seq": 40001, "drive": "d1", "lane": LANE, "kind": "head", "to": [], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": "lane-a cccc333333", "at": at}
+    review = {"seq": 40002, "drive": "d1", "lane": "fidelity-desk", "kind": "review", "to": ["root"], "refs": {"prs": [29031]}, "text": "fidelity: ok dddd444", "at": at}
+    go = {"seq": 40003, "drive": "d1", "lane": "root", "kind": "go", "to": [LANE], "refs": {}, "text": "go #29020", "at": at}
+    expired = {"seq": 40004, "drive": "d1", "lane": "root", "kind": "go", "to": [LANE], "refs": {}, "text": "go #29031", "at": at, "expires_at": actions.stamp(shell.clock - timedelta(minutes=1))}
+    mail = {"seq": 40005, "drive": "d2", "lane": "peer-lane", "kind": "note", "to": ["peer:s1"], "refs": {}, "text": "hello", "at": at}
+    shell.records += [head, review, go, expired, mail]
+    reads = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store")).cci_reads
+
+    def tails() -> list[list[str]]:
+        return [call for call in shell.calls if call[:2] == ["cci", "tail"]]
+
+    assert cci.records(reads, "d1", "--pr", "Forge-AI/monorepo#29020") == [head]
+    assert cci.records(reads, "d1", "--kind=review", "--pr", "29031") == [review]
+    assert cci.records(reads, "d1", "--lane", "root", "--kind=go") == [go, mail]
+    assert cci.records(reads, "d1", since=40002) == [go, mail]
+    assert cci.records(reads, "d1", "--limit", "1") == [mail]
+    assert len(tails()) == 2
+    later = {"seq": 40006, "drive": "d1", "lane": "root", "kind": "go", "to": [LANE], "refs": {}, "text": "go #29031", "at": at}
+    shell.records.append(later)
+    assert cci.records(reads, "d1", "--lane", "root", "--kind=go") == [go, mail]
+    reads.stale("d1")
+    assert cci.records(reads, "d1", "--lane", "root", "--kind=go") == [go, mail, later]
+    assert len(tails()) == 4
+    shell.clock += timedelta(minutes=2)
+    cci.records(reads, "d1", "--kind=go")
+    assert len(tails()) == 5
+    cci.held_prs(reads, "d1")
+    assert "--kind=hold" in tails()[-1]
 
 
 @pytest.mark.parametrize("page", [1, 25])

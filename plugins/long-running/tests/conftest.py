@@ -13,9 +13,11 @@ from __future__ import annotations
 import json
 import subprocess
 from copy import deepcopy
+from datetime import timedelta
 from pathlib import Path
 from urllib.parse import unquote_plus
 
+import cci
 import ghread
 import ledger
 import pytest
@@ -417,6 +419,13 @@ class FakeShell(ledger.Shell):
 @pytest.fixture(autouse=True)
 def outside_orca(monkeypatch) -> None:
     monkeypatch.delenv("ORCA_TERMINAL_HANDLE", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def live_cci_reads(monkeypatch) -> None:
+    monkeypatch.setattr(cci, "INDEX_FRESH", timedelta(0))
+    for name in ("CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "CCI_AGENT_ID"):
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture

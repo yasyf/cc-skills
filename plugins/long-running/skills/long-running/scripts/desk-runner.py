@@ -717,6 +717,8 @@ POSTED_SEQ = re.compile(r"#(\d+)")
 HEAD_FLOOR = timedelta(seconds=60)
 BODY_MAX_AGE = timedelta(minutes=5)
 CHECK_PR_REREAD = timedelta(minutes=5)
+CHECK_PR_KEPT = "desk-check-pr"
+CHECK_PR_HELD = 500
 TRUNK_REREAD = timedelta(minutes=5)
 QUEUED_STATE = "queued"
 STATUS_SETTLED = frozenset({QUEUED_STATE, "landed"})
@@ -1603,6 +1605,7 @@ class Runner:
         self.alive_posted: dict[str, datetime] = {}
         self.stall_pass: subprocess.Popen | None = None
         self.stall_started = datetime.min.replace(tzinfo=timezone.utc)
+        self.cci_reads = cci.Index(self.cci_tail, self.now)
         self.book.ensure(RUNNER, RUNNER)
 
     def now(self) -> datetime:
@@ -1674,7 +1677,9 @@ class Runner:
             argv += ["--path", str(body)]
         if len(text) > CCI_TEXT:
             text = text[: CCI_TEXT - 1] + "…"
-        return self.shell.run([*argv, "--text", text])
+        done = self.shell.run([*argv, "--text", text])
+        self.cci_reads.stale(drive or self.config.drive)
+        return done
 
     def flush(self) -> bool:
         """Post each accepted escalation to root. While an incident clock runs, a DEADLINE, UNACKED, HOLDS-UNREAD, LIVENESS, STALE-MAIL, or RECLAIM about anything outside the incident waits in the view, and the pass after the last clock ends posts them as one DEFERRED record."""
@@ -1961,11 +1966,11 @@ class Runner:
         cursor = self.book.load(RUNNER).facts.get(fact)
         try:
             if cursor is None:
-                newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
+                newest = cci.records(self.cci_reads, self.config.drive, "--limit", "1")
                 self.book.edit(RUNNER, lambda incident: incident.facts.update({fact: max((record["seq"] for record in newest), default=0)}))
                 return
-            addressed = cci.records(self.cci_tail, self.config.drive, "--to", ORCA_DESK, since=cursor)
-            replies = [record for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, since=cursor) if record.get("re")]
+            addressed = cci.records(self.cci_reads, self.config.drive, "--to", ORCA_DESK, since=cursor)
+            replies = [record for record in cci.records(self.cci_reads, self.config.drive, "--lane", ROOT, since=cursor) if record.get("re")]
             already_read = f"import:{self.config.desk_inbox.resolve()}"
             for record in sorted({record["seq"]: record for record in [*addressed, *replies]}.values(), key=lambda record: record["seq"]):
                 if record.get("re"):
@@ -2274,7 +2279,7 @@ class Runner:
         own = set(lane_aliases(lane))
         launch = fix_launch(self.book.load(lane_container(first)))
         since = actions.parse_stamp(launch.verification_receipt["at"]) if launch else datetime.min.replace(tzinfo=timezone.utc)
-        posted = cci.records(self.cci_tail, self.config.drive, *(arg for name in sorted(owners | own | {ROOT}) for arg in ("--lane", name)), *(f"--kind={kind}" for kind in (*INCIDENT_ENDS, STOPPED)))
+        posted = cci.records(self.cci_reads, self.config.drive, *(arg for name in sorted(owners | own | {ROOT}) for arg in ("--lane", name)), *(f"--kind={kind}" for kind in (*INCIDENT_ENDS, STOPPED)))
         for record in posted:
             at = actions.parse_stamp(record["at"])
             if record["drive"] != self.config.drive or at < since:
@@ -2289,10 +2294,10 @@ class Runner:
 
     def incident_owner(self, slug: str, lane: str) -> str:
         """Who else holds the incident `slug`, as `<lane>@<drive> <kind> #<seq>`, or empty while this drive does: the root's `done` that resolves a record naming the slug, its `stopped` addressed to `lane`, or another drive's root `answer` addressed to `root@<this drive>` that names the slug."""
-        named = {record["seq"] for record in cci.records(self.cci_tail, self.config.drive, "--kind=incident") if record["drive"] == self.config.drive and (record.get("topic") == slug or slug in record["text"])}
+        named = {record["seq"] for record in cci.records(self.cci_reads, self.config.drive, "--kind=incident") if record["drive"] == self.config.drive and (record.get("topic") == slug or slug in record["text"])}
         names = set(lane_aliases(lane))
-        posted = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, "--kind=done", "--kind=stopped", since=min(named, default=0))
-        answered = cci.records(self.cci_tail, self.config.drive, "--reader", ROOT, "--kind=answer")
+        posted = cci.records(self.cci_reads, self.config.drive, "--lane", ROOT, "--kind=done", "--kind=stopped", since=min(named, default=0))
+        answered = cci.records(self.cci_reads, self.config.drive, "--reader", ROOT, "--kind=answer")
         claims = [
             *(record for record in posted if record["drive"] == self.config.drive and ((record["kind"] == "done" and record.get("resolves") in named) or (record["kind"] == STOPPED and names & set(record.get("to") or [])))),
             *(record for record in answered if record["drive"] != self.config.drive and record["lane"] == ROOT and record["kind"] == "answer" and f"{ROOT}@{self.config.drive}" in (record.get("to") or []) and slug in record["text"]),
@@ -2366,7 +2371,7 @@ class Runner:
     def lane_records(self, lane: str, *kinds: str) -> list[dict]:
         """A lane's own cci records of these kinds, or of every kind when none is named, on this drive, under either of its `lane_aliases`; `cci tail` also returns the caller's peer mail, which is dropped."""
         names = lane_aliases(lane)
-        posted = cci.records(self.cci_tail, self.config.drive, *(arg for name in names for arg in ("--lane", name)), *(f"--kind={kind}" for kind in kinds))
+        posted = cci.records(self.cci_reads, self.config.drive, *(arg for name in names for arg in ("--lane", name)), *(f"--kind={kind}" for kind in kinds))
         return [record for record in posted if record["drive"] == self.config.drive and record["lane"] in names and (not kinds or record["kind"] in kinds)]
 
     def holds(self, slug: str) -> list[actions.Action]:
@@ -2610,7 +2615,7 @@ class Runner:
         """Why a silent cut's manual release must not launch: the root resolved its CUT-SILENT, or the order was answered or closed since; empty while none did."""
         if posted := POSTED.search(silent.response.get("posted", "")):
             seq = int(posted[1])
-            replies = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, since=seq)
+            replies = cci.records(self.cci_reads, self.config.drive, "--lane", ROOT, since=seq)
             if resolved := next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, self.config.drive) and record.get("resolves") == seq), None):
                 return f"#{resolved['seq']} resolves CUT-SILENT #{seq}"
         return self.cut_closed(key, clock) or self.cut_answer(clock)
@@ -3362,13 +3367,13 @@ class Runner:
     def stood_down(self, lane: str, launched: datetime) -> str:
         """The root's `stand-down` or `stopped` addressed to the lane since its launch, as `#<seq>`, or empty."""
         names = set(lane_aliases(lane))
-        posted = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, f"--kind={STAND_DOWN}", f"--kind={STOPPED}")
+        posted = cci.records(self.cci_reads, self.config.drive, "--lane", ROOT, f"--kind={STAND_DOWN}", f"--kind={STOPPED}")
         return next((f"#{record['seq']}" for record in posted if record["drive"] == self.config.drive and record["lane"] == ROOT and names & set(record.get("to") or []) and actions.parse_stamp(record["at"]) >= launched), "")
 
     def decided(self, lane: str, launched: datetime) -> str:
         """The root's `decide` since the lane's launch that is addressed to the lane or names it, as `#<seq>`, or empty."""
         names = set(lane_aliases(lane))
-        posted = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, f"--kind={CLOCK_DECIDE}")
+        posted = cci.records(self.cci_reads, self.config.drive, "--lane", ROOT, f"--kind={CLOCK_DECIDE}")
         return next((f"#{record['seq']}" for record in posted if record["drive"] == self.config.drive and record["lane"] == ROOT and record["kind"] == CLOCK_DECIDE and names_lane(record, names) and actions.parse_stamp(record["at"]) >= launched), "")
 
     def incident_keys(self, lane: str, launch: actions.Action) -> set[str]:
@@ -3397,7 +3402,7 @@ class Runner:
         if not siblings:
             return []
         names = {name for sibling in siblings for name in lane_aliases(sibling)}
-        posted = cci.records(self.cci_tail, self.config.drive, *(arg for name in sorted(names) for arg in ("--lane", name)))
+        posted = cci.records(self.cci_reads, self.config.drive, *(arg for name in sorted(names) for arg in ("--lane", name)))
         stamps = [record["at"] for record in posted if record["drive"] == self.config.drive and record["lane"] in names and clock_mark(record) in CLOCK_MILESTONES]
         for sibling in siblings:
             if lane_container(sibling) in self.book.store.ids():
@@ -3459,7 +3464,7 @@ class Runner:
         """Log one `LANE-GONE` per lane and newest order for each lane, other than the runner's own lanes and its child passes `stall-watch` and `prompt-watch`, that a root `ask` addressed, or a root `decide` or `correction` gave an order as `<lane>: ...`, in the last `LANE_ORDER_WINDOW`, whose oldest unanswered order is `LANE_SILENT` old, that has posted nothing since, neither it nor a numbered successor (`<lane>-<n>`), that no later root `stand-down` or `stopped` retired, whose newest record does not end its work (`done`, `handoff`, `stand-down`, `stopped`, `not-ours`), whose records are not all `defect` records, as a build script's are (root #152067), whose dispatch the runner did not withdraw and Orca does not show active, with no session `cci who` announced in the last `LANE_SPAWN_GRACE`, and no earlier LANE-GONE of it the root resolved or answered in the window, once its newest record and `cci who`'s last sight of it, by lane or agent name, are both `LANE_SILENT` old, naming the unanswered orders and its last record, so the root pings it and spawns a successor only when the ping goes unanswered (root #147167, drive-watchdog #147921)."""
         try:
             now, drive = self.now(), self.config.drive
-            records = [record for record in cci.records(self.cci_tail, drive, since=actions.stamp(now - LANE_ORDER_WINDOW)) if record["drive"] == drive]
+            records = [record for record in cci.records(self.cci_reads, drive, since=actions.stamp(now - LANE_ORDER_WINDOW)) if record["drive"] == drive]
             orders: dict[str, list[dict]] = {}
             for record in records:
                 if record["lane"] == ROOT:
@@ -3508,7 +3513,7 @@ class Runner:
     def class_unowned(self) -> None:
         """Log one `CLASS-UNOWNED` for each class record that names an incident key and, `deadlines.pr_silent_minutes` after it, has no later root GO, decide, or decision naming one of its keys."""
         try:
-            records = [record for record in cci.records(self.cci_tail, self.config.drive, since=actions.stamp(self.now() - PR_SILENT_HORIZON)) if record["drive"] == self.config.drive]
+            records = [record for record in cci.records(self.cci_reads, self.config.drive, since=actions.stamp(self.now() - PR_SILENT_HORIZON)) if record["drive"] == self.config.drive]
         except CciTailFailed as failure:
             self.tail_failed(failure)
             return
@@ -3555,7 +3560,7 @@ class Runner:
         pending = {lane: dict(mechanism) for lane, mechanism in (kept.get("lanes") or {}).items()}
         answered = dict(kept.get("answered") or {})
         state = {key: value for key, value in kept.items() if key == "cursor"}
-        for record in cci.records(self.cci_tail, self.config.drive, since=kept.get("cursor") or actions.stamp(self.now() - PR_SILENT_HORIZON)):
+        for record in cci.records(self.cci_reads, self.config.drive, since=kept.get("cursor") or actions.stamp(self.now() - PR_SILENT_HORIZON)):
             if record["drive"] != self.config.drive:
                 continue
             state["cursor"] = max(state.get("cursor", 0), record["seq"])
@@ -3604,7 +3609,7 @@ class Runner:
 
     def lane_worktrees(self, lane: str) -> list[lanes.Worktree]:
         """What code the lane holds, by `lanes.lane_status` over the runner's launch receipts, the lane's cci records of the last day, and the briefs checkout's worktrees."""
-        records = [record for record in cci.records(self.cci_tail, self.config.drive, "--lane", lane, since=actions.stamp(self.now() - LANE_RECORDS)) if record["drive"] == self.config.drive and record["lane"] == lane]
+        records = [record for record in cci.records(self.cci_reads, self.config.drive, "--lane", lane, since=actions.stamp(self.now() - LANE_RECORDS)) if record["drive"] == self.config.drive and record["lane"] == lane]
         repo = (self.config.landing or {}).get("repo", "")
         return lanes.lane_status(lane, records, [self.config.receipts], Path(self.config.briefs_repo), repo, TRUNK, self.now(), self.checked)
 
@@ -3662,12 +3667,12 @@ class Runner:
         drive = self.config.drive
         cursor = self.book.load(RUNNER).facts.get(RELEASE_CURSOR)
         if cursor is None:
-            newest = cci.records(self.cci_tail, drive, "--limit", "1")
+            newest = cci.records(self.cci_reads, drive, "--limit", "1")
             self.book.edit(RUNNER, lambda incident: incident.facts.update({RELEASE_CURSOR: max((record["seq"] for record in newest), default=0)}))
             return
         builds: dict[str, dict] = {}
         freezes: dict[str, dict] = {}
-        for record in cci.records(self.cci_tail, drive, "--kind=release", "--kind=hold", since=cursor):
+        for record in cci.records(self.cci_reads, drive, "--kind=release", "--kind=hold", since=cursor):
             cursor = max(cursor, record["seq"])
             if record["drive"] != drive or record["lane"] in (RUNNER, ROOT):
                 continue
@@ -3790,11 +3795,11 @@ class Runner:
     def open_cut_clocks(self) -> None:
         cursor = self.book.load(RUNNER).facts.get(CUT_CURSOR)
         if cursor is None:
-            newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
+            newest = cci.records(self.cci_reads, self.config.drive, "--limit", "1")
             self.book.edit(RUNNER, lambda incident: incident.facts.update({CUT_CURSOR: max((record["seq"] for record in newest), default=0)}))
             return
         clocks: dict[str, dict] = {}
-        orders = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, *(f"--kind={kind}" for kind in CUT_KINDS), since=cursor)
+        orders = cci.records(self.cci_reads, self.config.drive, "--lane", ROOT, *(f"--kind={kind}" for kind in CUT_KINDS), since=cursor)
         for record in orders:
             cursor = max(cursor, record["seq"])
             lanes = [lane for lane in record.get("to") or [] if RELEASE_LANE.search(lane)]
@@ -3829,7 +3834,7 @@ class Runner:
                 return not targets or bool(targets & components)
             return bool(clock["pr"]) and record["lane"] != RUNNER and bool(targets & components or names_pr(record, clock["pr"]))
 
-        posted = cci.records(self.cci_tail, self.config.drive, *(f"--kind={kind}" for kind in kinds))
+        posted = cci.records(self.cci_reads, self.config.drive, *(f"--kind={kind}" for kind in kinds))
         return [record for record in posted if record["drive"] == self.config.drive and record["kind"] in kinds and (actions.parse_stamp(record["at"]) >= since or record["seq"] == clock.get("resolves")) and answers(record)]
 
     def cut_answer(self, clock: dict) -> str:
@@ -3872,13 +3877,13 @@ class Runner:
         since, prs = actions.parse_stamp(clock["since"]), set(clock.get("prs", []))
         if key.startswith("go:"):
             seq = int(key.removeprefix("go:"))
-            replies = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, since=seq)
+            replies = cci.records(self.cci_reads, self.config.drive, "--lane", ROOT, since=seq)
             if resolved := next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, self.config.drive) and record.get("resolves") == seq), None):
                 return f"#{resolved['seq']} resolves"
         if not prs:
             return ""
         repo = self.config.landing["repo"] if self.config.landing else ""
-        posted = cci.records(self.cci_tail, self.config.drive, *(f"--kind={kind}" for kind in SETTLING_KINDS))
+        posted = cci.records(self.cci_reads, self.config.drive, *(f"--kind={kind}" for kind in SETTLING_KINDS))
         named = next(
             (
                 record
@@ -3953,10 +3958,10 @@ class Runner:
         """Accept one `finder:<pr>:<head>` action per PR and full head the drive's `head` and `opened` records past the saved sequence name, so a head two records name queues once; a first read starts at the newest record."""
         cursor = self.book.load(FINDER).facts.get(FINDER_CURSOR)
         if cursor is None:
-            newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
+            newest = cci.records(self.cci_reads, self.config.drive, "--limit", "1")
             self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_CURSOR: max((record["seq"] for record in newest), default=0)}))
             return
-        read = cci.records(self.cci_tail, self.config.drive, "--kind=head", "--kind=opened", "--kind=decide", "--kind=ask", since=cursor)
+        read = cci.records(self.cci_reads, self.config.drive, "--kind=head", "--kind=opened", "--kind=decide", "--kind=ask", since=cursor)
         for record in read:
             if record["drive"] != self.config.drive:
                 continue
@@ -3993,7 +3998,7 @@ class Runner:
         running = len(self.book.actions(FINDER, kind="finder", status="started"))
         if not newest or running >= spec.get("concurrent", FINDER_CONCURRENT):
             return
-        going = {pr for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, "--kind=go") if (record["lane"], record["kind"]) == (ROOT, "go") for pr in go_heads(record)}
+        going = {pr for record in cci.records(self.cci_reads, self.config.drive, "--lane", ROOT, "--kind=go") if (record["lane"], record["kind"]) == (ROOT, "go") for pr in go_heads(record)}
         for action in sorted(newest.values(), key=lambda action: (not full_pass(action), json.loads(action.target)["pr"] not in going, json.loads(action.target)["seq"])):
             if running >= spec.get("concurrent", FINDER_CONCURRENT):
                 return
@@ -4003,7 +4008,7 @@ class Runner:
         """Settle a head some lane's finder record already names, or a full pass a whole-range finder record posted after the PR's newest `head` record answered, or after the request when no `head` record names the PR, or write the pass's job and start finder.py on it detached, reading since the head the PR's newest finder record at another head read, or the whole change for a full pass."""
         job = json.loads(action.target)
         full = full_pass(action)
-        records = cci.records(self.cci_tail, self.config.drive, "--kind=review", "--kind=head", "--pr", f"{repo}#{job['pr']}")
+        records = cci.records(self.cci_reads, self.config.drive, "--kind=review", "--kind=head", "--pr", f"{repo}#{job['pr']}")
         named = finder_reviews_in(records, self.config.drive, repo, job["pr"])
         reviews = finder_records(named)
         moved = max((record["seq"] for record in records if record["kind"] == "head"), default=job["seq"])
@@ -4400,6 +4405,9 @@ class Landing:
         self.read_only = False
         self.viewer = ""
         self.reported: dict[tuple[str, str, bool], tuple[datetime | None, list[str]]] = {}
+        self.kept_reports: dict[str, list[str]] | None = None
+        self.reserved_rows = ""
+        self.keeping = threading.Lock()
         self.bodies: dict[str, tuple[datetime, str]] = {}
         self.trunk_read: tuple[str, datetime, bool, dict] | None = None
         self.unchecked: set[str] = set()
@@ -4439,7 +4447,9 @@ class Landing:
         self.book.ensure(LANDING, LANDING)
 
     def ledger_py(self, *argv: str) -> Done:
-        return self.shell.run([sys.executable, str(SCRIPTS / "ledger.py"), "-C", str(self.checkout), *argv], env={"CLAUDE_LONG_RUNNING_DRIVE": self.runner.config.drive})
+        done = self.shell.run([sys.executable, str(SCRIPTS / "ledger.py"), "-C", str(self.checkout), *argv], env={"CLAUDE_LONG_RUNNING_DRIVE": self.runner.config.drive})
+        self.runner.cci_reads.stale(self.runner.config.drive)
+        return done
 
     def rulings_py(self, verb: str, *argv: str) -> Done:
         return self.shell.run([sys.executable, str(SCRIPTS / "rulings.py"), verb, "--repo", str(self.checkout), "--drive", self.runner.config.drive, *argv])
@@ -4460,13 +4470,13 @@ class Landing:
         if self.holds_unread(entries, rows):
             return None
         numbers = holds.held(entries, rows) | {pr for pr, row in rows.items() if row.get("rules_blocked") or HOLD_LABEL in row.get("labels", "").split(",")}
-        numbers |= cci.held_prs(self.runner.cci_tail, self.runner.config.drive).keys()
+        numbers |= cci.held_prs(self.runner.cci_reads, self.runner.config.drive).keys()
         return sorted(numbers, key=int)
 
     def hold_sources(self, prs: list[str], rows: dict[str, dict]) -> str:
         """Each of `prs` with where its hold stands: the holds file, an open cci `hold` record by seq, a rules-review block, or GitHub's `hold` label, so a reader finds the hold the runner obeys."""
         filed = holds.held(holds.read(self.holds), rows)
-        posted = cci.held_prs(self.runner.cci_tail, self.runner.config.drive)
+        posted = cci.held_prs(self.runner.cci_reads, self.runner.config.drive)
 
         def where(pr: str) -> str:
             row = rows.get(pr, {})
@@ -4652,7 +4662,7 @@ class Landing:
     def dequeue_orders(self, read: int | str) -> tuple[dict[str, dict], int | str]:
         """Each order a root record on this drive posted after `read` gives, keyed by record and PR, and the read to start from next time: the newest seq read, else `read`. A root `withdraw` that resolves or answers a root `go` orders out each PR of that go an enqueue of this desk admitted at the head the go names (root #162011)."""
         drive = self.runner.config.drive
-        records = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, since=read) if record["lane"] == ROOT and record["drive"] == drive]
+        records = [record for record in cci.records(self.runner.cci_reads, drive, "--lane", ROOT, since=read) if record["lane"] == ROOT and record["drive"] == drive]
         orders = {
             f"{record['seq']}:{pr}": {"pr": pr, "why": f"root #{record['seq']} ordered it out"}
             for record in records
@@ -4660,7 +4670,7 @@ class Landing:
         }
         if withdrawn := {seq: record["seq"] for record in records if record["kind"] == "withdraw" for seq in closes(record)}:
             admitted = [(pr, sha) for action in self.book.actions(LANDING, kind="enqueue", status="completed") if action.response["outcome"] in {*BELIEVED_QUEUED, PULLED} for pr, sha in enqueued_heads(action.action_id).items()]
-            for go in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go"):
+            for go in cci.records(self.runner.cci_reads, drive, "--lane", ROOT, "--kind=go"):
                 if go["seq"] in withdrawn and (go["lane"], go["drive"], go["kind"]) == (ROOT, drive, "go"):
                     orders |= {
                         f"{withdrawn[go['seq']]}:{pr}": {"pr": pr, "why": f"root #{withdrawn[go['seq']]} withdrew go #{go['seq']}"}
@@ -4943,7 +4953,7 @@ class Landing:
         if TRUNK_UNREAD_FACT in self.book.load(LANDING).facts and (streak := self.book.edit(LANDING, lambda incident: incident.facts.pop(TRUNK_UNREAD_FACT, None))):
             since = actions.parse_stamp(streak["since"])
             self.runner.escalate(f"trunk-read-recovered:{streak['since']}", "TRUNK-READ-RECOVERED", "landing", f"{TRUNK}'s {check} statuses read again; from {pacific(since)} for {whole_minutes(since, self.runner.now())} min no pass gated ({streak['error']})")
-        posted = cci.trunk(cci.records(self.runner.cci_tail, self.runner.config.drive, f"--topic={cci.TRUNK_TOPIC}"))
+        posted = cci.trunk(cci.records(self.runner.cci_reads, self.runner.config.drive, f"--topic={cci.TRUNK_TOPIC}"))
         red = trunk_red(target["history"]["nodes"], check)
         if red is False:
             return True
@@ -5022,7 +5032,7 @@ class Landing:
         if lane not in self.full_runs_read:
             drive = self.runner.config.drive
             since = actions.stamp(self.runner.now() - FULL_RUN_WINDOW)
-            self.full_runs_read[lane] = [record for record in cci.records(self.runner.cci_tail, drive, "--kind=note", "--kind=report", "--lane", lane, since=since) if record["drive"] == drive and FULL_RUN_GREEN.search(record["text"])]
+            self.full_runs_read[lane] = [record for record in cci.records(self.runner.cci_reads, drive, "--kind=note", "--kind=report", "--lane", lane, since=since) if record["drive"] == drive and FULL_RUN_GREEN.search(record["text"])]
         found = []
         for record in self.full_runs_read[lane]:
             named = {number for number, _ in repo_prs(record, self.repo)}
@@ -5056,7 +5066,7 @@ class Landing:
         return " or ".join(self.fidelity_lanes)
 
     def grades(self, pr: str) -> list[dict]:
-        return fidelity_grades(self.runner.cci_tail, self.runner.config.drive, self.fidelity_lanes, self.repo, pr)
+        return fidelity_grades(self.runner.cci_reads, self.runner.config.drive, self.fidelity_lanes, self.repo, pr)
 
     def standing(self, grades: list[dict], sha: str) -> list[dict]:
         return standing(grades, self.fidelity_lanes, sha)
@@ -5066,7 +5076,7 @@ class Landing:
         grades = self.grades(pr)
         newest = self.standing(grades, sha)
         misses = [grade for grade in newest if grade["text"].startswith(FIDELITY_MISSING)]
-        accepted = {seq for record in cci.records(self.runner.cci_tail, self.runner.config.drive, "--lane", ROOT, "--pr", f"{self.repo}#{pr}") if record["lane"] == ROOT for seq in closes(record)} if misses else set()
+        accepted = {seq for record in cci.records(self.runner.cci_reads, self.runner.config.drive, "--lane", ROOT, "--pr", f"{self.repo}#{pr}") if record["lane"] == ROOT for seq in closes(record)} if misses else set()
         if missing := max((grade for grade in misses if grade["seq"] not in accepted), key=lambda record: record["seq"], default=None):
             return Grade(False, missing, f"{missing['lane']} graded this head on cci #{missing['seq']}: {missing['text']}")
         if newest:
@@ -5294,11 +5304,14 @@ class Landing:
             list(pool.map(lambda item: self.rulings_report(*item), heads.items()))
 
     def rulings_report(self, pr: str, sha: str, incident: bool = False) -> list[str]:
-        """The cause lines `rulings.py check-pr` prints for `pr` at `sha`, run once per head and kept across passes, except an incident fix's, a timeout, a run that does not read, and a reserved-row cause an owner answer can clear, which run again once `CHECK_PR_REREAD` has passed, so a head waiting on an answer costs GitHub one read per interval rather than one per pass (root #146561). A run killed at CHECK_PR_SECONDS reads as one `CHECK-PR-TIMEOUT` warning that the head's rulings are unproven this pass. Any other run that exits with a code other than 0 or 1, whose exit code disagrees with its cause lines, or that prints a line whose first word names no cause, reads as no cause. The check fails open on what it cannot read (0afd2f6, 4236611) and posts nothing about it; a cause it did read stands beside a `BLOCKER` line."""
+        """The cause lines `rulings.py check-pr` prints for `pr` at `sha`, run once per head and kept across passes and restarts in the `desk-check-pr` book, the newest CHECK_PR_HELD heads, except an incident fix's, a timeout, a run that does not read, and a reserved-row cause an owner answer can clear, which run again once `CHECK_PR_REREAD` has passed, so a head waiting on an answer costs GitHub one read per interval rather than one per pass (root #146561). A run killed at CHECK_PR_SECONDS reads as one `CHECK-PR-TIMEOUT` warning that the head's rulings are unproven this pass. Any other run that exits with a code other than 0 or 1, whose exit code disagrees with its cause lines, or that prints a line whose first word names no cause, reads as no cause. The check fails open on what it cannot read (0afd2f6, 4236611) and posts nothing about it; a cause it did read stands beside a `BLOCKER` line."""
         key = (pr, sha[:7], incident)
         now = self.runner.now()
         if (kept := self.reported.get(key)) and (kept[0] is None or now - kept[0] < CHECK_PR_REREAD):
             return kept[1]
+        if not incident and (causes := self.restarted_reports().get(f"{pr}@{sha[:7]}")) is not None:
+            self.reported[key] = (None, causes)
+            return causes
         done = self.rulings_py("check-pr", "--pr", f"{self.repo}#{pr}", "--head", sha, *(("--incident",) if incident else ()))
         lines = [line.strip() for line in done.out.splitlines() if line.strip()]
         causes = [line for line in lines if cause(line) in CHECK_PR_CAUSES]
@@ -5309,7 +5322,19 @@ class Landing:
             causes = []
         final = not incident and done.code in (0, 1) and not unread and not any(cause(line) == RESERVED_TOUCH for line in causes)
         self.reported[key] = (None if final else now, causes)
+        if final and self.reserved_rows:
+            self.book.edit(CHECK_PR_KEPT, lambda kept: keep_report(kept.facts, self.reserved_rows, f"{pr}@{sha[:7]}", causes))
         return causes
+
+    def restarted_reports(self) -> dict[str, list[str]]:
+        """The final `check-pr` causes an earlier runner kept per `<pr>@<head>`, read once per runner, and only while the register's reserved rows read as they did when it kept them: a new or changed reserved row can hold a head an earlier check passed, so it drops every kept report; a register that does not read keeps none and stores none."""
+        with self.keeping:
+            if self.kept_reports is None:
+                done = self.rulings_py("rows")
+                self.reserved_rows = reserved_fingerprint(json.loads(done.out)["rows"]) if done.code == 0 else ""
+                facts = self.book.ensure(CHECK_PR_KEPT, LANDING).facts
+                self.kept_reports = dict(facts.get("reports") or {}) if self.reserved_rows and facts.get("reserved") == self.reserved_rows else {}
+            return self.kept_reports
 
     def refuse_head(self, key: str, pr: str, graded: Graded, why: str, refused: Iterable[str], also: Iterable[str] = ()) -> None:
         """Post one blocker per `key` to the lane that owns `pr`, and the root when that lane has no live session or there is none, and to each lane of `also`."""
@@ -5342,14 +5367,14 @@ class Landing:
         """The drive's `review` and `head` records, scanned once a pass, so a review whose text names the PR but whose refs do not still counts."""
         with self.scanning:
             if self.reviews is None:
-                self.reviews = cci.records(self.runner.cci_tail, self.runner.config.drive, "--kind=review", "--kind=head")
+                self.reviews = cci.records(self.runner.cci_reads, self.runner.config.drive, "--kind=review", "--kind=head")
         return self.reviews
 
     def rescanned_reviews(self) -> list[dict]:
         """The pass's scanned reviews plus every `review` and `head` record posted since that scan, so a grade that lands while a long pass runs is read before the pass warns that it is missing."""
         scanned = self.scanned_reviews()
         with self.scanning:
-            self.reviews = [*scanned, *cci.records(self.runner.cci_tail, self.runner.config.drive, "--kind=review", "--kind=head", since=max((record["seq"] for record in scanned), default=0))]
+            self.reviews = [*scanned, *cci.records(self.runner.cci_reads, self.runner.config.drive, "--kind=review", "--kind=head", since=max((record["seq"] for record in scanned), default=0))]
         return self.reviews
 
     def finder_reviews(self, pr: str) -> list[dict]:
@@ -5376,7 +5401,7 @@ class Landing:
     def carried_by_fidelity(self, pr: str, sha: str, passes: Callable[[str], bool]) -> bool:
         """Whether a chain of fidelity carries runs from `sha` back to a head that `passes`, such as one whose newest finder verdict is ok (root #139077)."""
         drive = self.runner.config.drive
-        withdrawn = {seq for lane in self.fidelity_lanes for record in cci.records(self.runner.cci_tail, drive, "--kind=withdraw", "--lane", lane) for seq in closes(record)}
+        withdrawn = {seq for lane in self.fidelity_lanes for record in cci.records(self.runner.cci_reads, drive, "--kind=withdraw", "--lane", lane) for seq in closes(record)}
         carries = fidelity_carries([grade for grade in self.grades(pr) if grade["seq"] not in withdrawn])
         seen: set[str] = set()
         frontier = [sha]
@@ -5416,7 +5441,7 @@ class Landing:
         if any(go["seq"] > verdict["seq"] for go in self.head_gos(pr, sha)):
             return True
         answered = {verdict["seq"]}
-        for record in cci.records(self.runner.cci_tail, self.runner.config.drive, since=verdict["seq"]):
+        for record in cci.records(self.runner.cci_reads, self.runner.config.drive, since=verdict["seq"]):
             if record.get("re") not in answered:
                 continue
             if record["lane"] == ROOT and record["kind"] == "decision":
@@ -5629,7 +5654,7 @@ class Landing:
             self.body_preconditions[(pr, sha)] = precondition_sentences(body)
         if pr not in self.said_preconditions:
             drive = self.runner.config.drive
-            records = cci.records(self.runner.cci_tail, drive, "--pr", f"{self.repo}#{pr}")
+            records = cci.records(self.runner.cci_reads, drive, "--pr", f"{self.repo}#{pr}")
             self.said_preconditions[pr] = [(f"cci #{record['seq']}", sentence) for record in records if record["drive"] == drive and record["lane"] != RUNNER and about_pr(record, self.repo, pr) for sentence in precondition_sentences(full_text(record))]
         return [("the PR body", sentence) for sentence in self.body_preconditions.get((pr, sha), [])] + self.said_preconditions[pr]
 
@@ -5688,7 +5713,7 @@ class Landing:
         if not (after := self.landing_config.get("checks_wait_for_go")):
             return False
         drive = self.runner.config.drive
-        if any((record["kind"], record["lane"], record["drive"]) == ("go", ROOT, drive) for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go", since=after)):
+        if any((record["kind"], record["lane"], record["drive"]) == ("go", ROOT, drive) for record in cci.records(self.runner.cci_reads, drive, "--lane", ROOT, "--kind=go", since=after)):
             return False
         self.runner.escalate(f"gate-paused:{after}", "GATE-PAUSED", "landing", f"landing.checks_wait_for_go is {after}, so the gate runs no stack-enqueue --check until a root go record comes after cci #{after}; ledger refresh, reconcile, head reads and restack routes go on")
         return True
@@ -5698,12 +5723,12 @@ class Landing:
         with self.going:
             if self.gos is None:
                 drive = self.runner.config.drive
-                gos = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if (record["lane"], record["drive"], record["kind"]) == (ROOT, drive, "go")]
-                later = [record | {"text": full_text(record)} for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, since=min(go["seq"] for go in gos)) if record["lane"] == ROOT and record["drive"] == drive] if gos else []
+                gos = [record for record in cci.records(self.runner.cci_reads, drive, "--lane", ROOT, "--kind=go") if (record["lane"], record["drive"], record["kind"]) == (ROOT, drive, "go")]
+                later = [record | {"text": full_text(record)} for record in cci.records(self.runner.cci_reads, drive, "--lane", ROOT, since=min(go["seq"] for go in gos)) if record["lane"] == ROOT and record["drive"] == drive] if gos else []
                 closed = {seq for record in later for seq in closes(record)} | {go["seq"] for go in gos for record in later if record["seq"] > go["seq"] and withdraws(record, go["seq"])}
                 withdrawals = [record for record in later if record["kind"] == "withdraw" or WITHDRAWN_OPENING.match(record["text"])]
                 posted = [go | {"voided": {pr for pr in go_heads(go) if any(record["seq"] > go["seq"] and about_pr(record, self.repo, pr) for record in withdrawals)}} for go in gos if go["seq"] not in closed]
-                graders = [record for lane in self.fidelity_lanes for record in cci.records(self.runner.cci_tail, drive, "--kind=review", "--kind=withdraw", "--lane", lane) if record["drive"] == drive and record["lane"] == lane] if posted else []
+                graders = [record for lane in self.fidelity_lanes for record in cci.records(self.runner.cci_reads, drive, "--kind=review", "--kind=withdraw", "--lane", lane) if record["drive"] == drive and record["lane"] == lane] if posted else []
                 unsaid = closed | {seq for record in graders for seq in closes(record)}
                 self.gos = posted + carried_gos(posted, [record for record in graders if record["kind"] == "review" and record["seq"] not in unsaid], self.repo, self.old_app_lands())
             return self.gos
@@ -5797,7 +5822,7 @@ class Landing:
         if not moved:
             return
         drive = self.runner.config.drive
-        withdrawn = {seq for record in cci.records(self.runner.cci_tail, drive, "--kind=withdraw") if record["kind"] == "withdraw" and record["drive"] == drive for seq in closes(record)}
+        withdrawn = {seq for record in cci.records(self.runner.cci_reads, drive, "--kind=withdraw") if record["kind"] == "withdraw" and record["drive"] == drive for seq in closes(record)}
         reviews = [record for record in self.scanned_reviews() if record["seq"] not in withdrawn]
         to = ",".join([ROOT, *self.board_lanes])
         for block, pr, entry in moved:
@@ -6020,7 +6045,7 @@ class Landing:
         drive = self.runner.config.drive
 
         def about_pr(kind: str) -> list[dict]:
-            found = cci.records(self.runner.cci_tail, drive, f"--kind={kind}", "--pr", f"{self.repo}#{pr}")
+            found = cci.records(self.runner.cci_reads, drive, f"--kind={kind}", "--pr", f"{self.repo}#{pr}")
             return [record for record in found if (record["kind"], record["drive"]) == (kind, drive) and pr in dict(repo_prs(record, self.repo))]
 
         if not (posted := [record for record in about_pr("hold") if pr in cci.held_by(record)]):
@@ -6104,7 +6129,7 @@ class Landing:
         """Whether a root go, hold, lift, decide or release naming `pr` says it is not an incident fix, takes it off the incident path, or owes no release, read once a pass; the runner then gates it as a normal row and logs `INCIDENT-TAG-CLEARED` once per record."""
         if pr not in self.cleared:
             drive = self.runner.config.drive
-            self.cleared[pr] = next((record["seq"] for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--pr", f"{self.repo}#{pr}") if record["lane"] == ROOT and record["drive"] == drive and record["kind"] in INCIDENT_CLEARING_KINDS and INCIDENT_CLEARED.search(full_text(record))), 0)
+            self.cleared[pr] = next((record["seq"] for record in cci.records(self.runner.cci_reads, drive, "--lane", ROOT, "--pr", f"{self.repo}#{pr}") if record["lane"] == ROOT and record["drive"] == drive and record["kind"] in INCIDENT_CLEARING_KINDS and INCIDENT_CLEARED.search(full_text(record))), 0)
             if seq := self.cleared[pr]:
                 self.runner.escalate(f"incident-tag-cleared:{pr}:{seq}", "INCIDENT-TAG-CLEARED", f"#{pr}", f"root record #{seq} took #{pr} off the incident path, so the runner never squashes it and gates it as a normal row, landing it only through the queue once its go and the owner's tap name its head")
         return bool(self.cleared[pr])
@@ -6314,7 +6339,7 @@ class Landing:
         """Answer each open root `hold` posted after an incident fix landed that names its PR or is addressed to the release owner with one RELEASE-HELD-AFTER-LANDING line: its cut is owed now. Only a `hold` record is a hold, and the root's `--resolves` on it ends it."""
         drive, pr, since = self.runner.config.drive, landed["pr"], actions.parse_stamp(landed["landed_at"])
         owner = self.release_owner.removeprefix("peer:")
-        for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=hold"):
+        for record in cci.records(self.runner.cci_reads, drive, "--lane", ROOT, "--kind=hold"):
             if (record["lane"], record["drive"], record["kind"]) != (ROOT, drive, "hold") or record["status"] != "open" or actions.parse_stamp(record["at"]) < since:
                 continue
             if names_pr(record, pr) or any(owner in lane for lane in record.get("to") or []):
@@ -6358,7 +6383,7 @@ class Landing:
     def release_started(self, landed: dict) -> dict | None:
         """The drive's first cci `release` or `fix-live` record after the landing, from any lane but the runner's own, that names one of the landing's components as a target or its PR. An incident fix's landing needs a `fix-live` record, a root `release` record naming its PR, which says the release that carries it (root #143767), or a build on the record and a target: one of its components, or any when it names none."""
         drive, since, names = self.runner.config.drive, actions.parse_stamp(landed["landed_at"]), (int(landed["pr"]), f"{self.repo}#{landed['pr']}")
-        releases = cci.records(self.runner.cci_tail, drive, *(f"--kind={kind}" for kind in SETTLING_KINDS))
+        releases = cci.records(self.runner.cci_reads, drive, *(f"--kind={kind}" for kind in SETTLING_KINDS))
 
         def names_landing(record: dict) -> bool:
             refs = record["refs"]
@@ -6383,7 +6408,7 @@ class Landing:
     def acknowledged(self, seqs: set[int], links: tuple[str, ...]) -> dict | None:
         """The drive root's first cci record that carries one of `links`, `--re` or `--resolves`, for one of the records the runner posted about a landing's release."""
         drive = self.runner.config.drive
-        replies = cci.records(self.runner.cci_tail, drive, "--lane", ROOT, since=min(seqs))
+        replies = cci.records(self.runner.cci_reads, drive, "--lane", ROOT, since=min(seqs))
         return next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, drive) and seqs & {record.get(link) for link in links}), None)
 
     def held_lines(self, pr: str) -> set[int]:
@@ -6503,7 +6528,7 @@ class Landing:
             raise CciTailFailed(f"cci drive ls exited {done.code}: {(done.err or done.out).strip()[:300]}")
         drive = self.runner.config.drive
         others = [entry["drive"] for entry in json.loads(done.out) if entry["drive"] != drive]
-        return [drive, *(other for other in others if any(record["drive"] == other for record in cci.records(self.runner.cci_tail, other, "--pr", f"{self.repo}#{pr}")))]
+        return [drive, *(other for other in others if any(record["drive"] == other for record in cci.records(self.runner.cci_reads, other, "--pr", f"{self.repo}#{pr}")))]
 
     def tell_stopped(self, pr: str, row: dict, text: str) -> None:
         """Post one cci `stopped` record about a dequeued PR to each drive that names it: to the PR's lane on this drive, and to the root on every other."""
@@ -6703,7 +6728,7 @@ class Landing:
         """The lane that owns `pr` now, read as its live `successor`: the poster of the newest `head`, `opened`, `ready`, or `claim` record naming it on this drive, a lane's claim that lists it in its text alone included and the root's and the desks' claims left out, since a fidelity desk claims the heads it grades and never owns them (fidelity-desk-3 #158865), or of a `ledger.py report` on it, else the lane that registered its ledger row."""
         drive = self.runner.config.drive
         desks = [*self.fidelity_lanes, finder.LANE]
-        posted = cci.records(self.runner.cci_tail, drive, "--pr", f"{self.repo}#{pr}", *(f"--kind={kind}" for kind in OWNER_KINDS))
+        posted = cci.records(self.runner.cci_reads, drive, "--pr", f"{self.repo}#{pr}", *(f"--kind={kind}" for kind in OWNER_KINDS))
         claims = [
             record
             for record in posted
@@ -6718,7 +6743,7 @@ class Landing:
         """The drive's `claim` records, from one scan a pass, so a claim that names its PRs only in its text still moves them."""
         with self.scanning:
             if self.claims_read is None:
-                self.claims_read = cci.records(self.runner.cci_tail, self.runner.config.drive, "--kind=claim")
+                self.claims_read = cci.records(self.runner.cci_reads, self.runner.config.drive, "--kind=claim")
         return self.claims_read
 
     def reach(self, lane: str) -> list[str]:
@@ -6736,7 +6761,7 @@ class Landing:
 
     def posted_lately(self, lane: str) -> bool:
         drive, names = self.runner.config.drive, lane_aliases(lane)
-        posted = cci.records(self.runner.cci_tail, drive, *(arg for name in names for arg in ("--lane", name)), since=actions.stamp(self.runner.now() - DEAD_LANE))
+        posted = cci.records(self.runner.cci_reads, drive, *(arg for name in names for arg in ("--lane", name)), since=actions.stamp(self.runner.now() - DEAD_LANE))
         return any(record["drive"] == drive and record["lane"] in names for record in posted)
 
     def dead_note(self, lane: str) -> str:
@@ -6947,6 +6972,20 @@ class Landing:
                 self.unqueued_gos(rows, held)
                 self.tell_unpassed(rows, held)
         self.runner.overdue(LANDING, "landing")
+
+
+def keep_report(facts: dict, reserved: str, key: str, causes: list[str]) -> None:
+    reports = facts["reports"] if facts.get("reserved") == reserved else {}
+    reports.pop(key, None)
+    reports[key] = causes
+    while len(reports) > CHECK_PR_HELD:
+        reports.pop(next(iter(reports)))
+    facts.update(reserved=reserved, reports=reports)
+
+
+def reserved_fingerprint(rows: dict[str, dict]) -> str:
+    reserved = {key: {name: value for name, value in fields.items() if name != "updated_at"} for key, fields in rows.items() if fields.get("kind") == "reserved"}
+    return hashlib.sha256(json.dumps(reserved, sort_keys=True).encode()).hexdigest()
 
 
 def seed_policy(runner: Runner) -> None:
