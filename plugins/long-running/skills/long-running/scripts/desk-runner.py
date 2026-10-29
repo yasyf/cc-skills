@@ -389,13 +389,17 @@ later commit running, for one of its components when it names any. Each record c
 or a post that prints no `#<seq>`, is posted again on the next pass and escalated to root as `RELEASE-FAILED`, once per
 `deadlines.release_start_minutes` step. A worker's question escalates to root as `DECIDE`, and only a reply this
 drive's root posts with `--re` on that `DECIDE` or on the lane's own record answers it.
-With a `finder` object in runner.json, read again every pass, each orca pass also dispatches the finder
-(reference/finder-brief.md) on every drive head, beside the fidelity desks and never after them; a head whose PR a root `go` names starts first. Each `head` or `opened` record
+With a `finder` object in runner.json, read again every pass, each orca pass, and a thread of the orca desk every 15 seconds
+between them, dispatches the finder (reference/finder-brief.md) on every drive head, beside the fidelity desks and never
+after them, so a slot a finished pass frees refills in seconds. A head whose PR a root `go` or an owner's board tap names
+starts first, then a head of a PR a finder pass already graded, which carries or reads only a delta. Each `head` or `opened` record
 past the saved sequence that names a PR of `finder.repo`, default `landing.repo`, and a full head, its `commit` field or
 the first full sha of its text that no `was` precedes, queues one `finder:<pr>:<head>` action in the `desk-finder`
 container, so a head two records name queues once; a first read starts at the newest record. At most `finder.concurrent`
 passes (default 2) run at once and the rest wait queued; each PR's newest queued head starts, oldest first, and an older
-queued head of the same PR settles as superseded. A head some lane's `finder:` record already names starts nothing. A `decide`
+queued head of the same PR settles as superseded, and so does a running pass of it: the runner writes its job's `cancelled`
+mark and runs `codex-ask --cancel` on each codex run the pass started. Before it starts any, one fresh GraphQL read of every
+queued PR settles a head whose PR is closed, or no longer at that head, as skipped. A head some lane's `finder:` record already names starts nothing. A `decide`
 or `ask` to `finder-desk` that names a PR and a head, or says whole-diff or full pass, queues one `full` pass of that PR that
 starts ahead of the rest and wins over its queued heads: it reads the PR's whole own change at its live head even when a record
 names that head, unless a whole-range finder record about the PR is newer than its newest `head` record. A pass
@@ -613,6 +617,8 @@ FINDER_STALLED = "stalled"
 FIDELITY = "desk-fidelity"
 FIDELITY_CONCURRENT = 6
 FIDELITY_MINUTES = 60
+FINDER_EVERY = timedelta(seconds=15)
+FINDER_TAPS_EVERY = timedelta(minutes=5)
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
 ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker", "GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": "blocker"}
@@ -1641,6 +1647,8 @@ class Runner:
         self.alive_posted: dict[str, datetime] = {}
         self.stall_pass: subprocess.Popen | None = None
         self.stall_started = datetime.min.replace(tzinfo=timezone.utc)
+        self.finding = threading.Lock()
+        self.taps: tuple[datetime, set[str]] = (datetime.min.replace(tzinfo=timezone.utc), set())
         self.book.ensure(RUNNER, RUNNER)
 
     def now(self) -> datetime:
@@ -3974,18 +3982,35 @@ class Runner:
         return f"- incident clock [{status}] launched {pacific(launched)}; {reached or 'no milestone yet'}"
 
     def finders(self) -> None:
-        """Dispatch one finder pass per drive head while runner.json carries `finder` (reference/finder-brief.md): queue each new `head` record's PR and full head, settle the passes that wrote a result, then start the newest queued head of each PR, up to `finder.concurrent` at once."""
+        """Dispatch one finder pass per drive head while runner.json carries `finder` (reference/finder-brief.md): queue each new `head` record's PR and full head, settle the passes that wrote a result, then start the newest queued head of each PR, up to `finder.concurrent` at once. The orca pass and the `keep_finding` thread take turns under one lock."""
         if (spec := json.loads(self.config.source.read_text()).get("finder")) is None:
             return
         repo = spec.get("repo") or self.config.landing["repo"]
-        self.book.ensure(FINDER, FINDER)
-        try:
-            self.queue_finders(repo)
-            self.settle_finders()
-            self.start_finders(spec, repo)
-            self.watch_finder_desk(spec)
-        except CciTailFailed as failure:
-            self.tail_failed(failure)
+        with self.finding:
+            self.book.ensure(FINDER, FINDER)
+            try:
+                self.queue_finders(repo)
+                self.settle_finders()
+                self.start_finders(spec, repo)
+                self.watch_finder_desk(spec)
+            except CciTailFailed as failure:
+                self.tail_failed(failure)
+
+    def keep_finding(self) -> threading.Event:
+        """Run the finder desk every `FINDER_EVERY` from a daemon thread until the returned event is set, so a slot a finished pass frees refills in seconds rather than on the next orca pass, which runs for minutes. A loop that raises the same twice running stops, and the orca pass still runs the desk."""
+        stop = threading.Event()
+
+        def loop() -> None:
+            while not stop.wait(FINDER_EVERY.total_seconds()):
+                try:
+                    self.finders()
+                except Exception as error:
+                    if self.pass_raised(FINDER, error):
+                        return
+                self.passes[FINDER] += 1
+
+        threading.Thread(target=loop, name="finders", daemon=True).start()
+        return stop
 
     def queue_finders(self, repo: str) -> None:
         """Accept one `finder:<pr>:<head>` action per PR and full head the drive's `head` and `opened` records past the saved sequence name, so a head two records name queues once; a first read starts at the newest record."""
@@ -4033,20 +4058,71 @@ class Runner:
             self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_SETTLED: self.book.stamp()}))
 
     def start_finders(self, spec: dict, repo: str) -> None:
-        """Start the newest queued head of each PR, a requested full pass over any head, full passes first, then those a root `go` names, then oldest first, while fewer than `finder.concurrent` passes run; an older queued head of the same PR settles as superseded."""
+        """Start the newest queued head of each PR, a requested full pass over any head, while fewer than `finder.concurrent` passes run: full passes first, then those a root `go` or an owner's board tap names, then heads of a PR a finder pass already graded, which carry or read only a delta, then oldest first. An older queued head of the same PR settles as superseded, and so does a running pass of it, its codex run cancelled. A queued head whose PR is closed, or no longer at that head, settles as skipped without a pass."""
         newest: dict[str, actions.Action] = {}
         for action in sorted(self.book.actions(FINDER, kind="finder", status="accepted"), key=lambda action: (full_pass(action), json.loads(action.target)["seq"])):
             if (older := newest.get(pr := json.loads(action.target)["pr"])) is not None:
                 self.finder_settled(older.action_id, {"superseded": json.loads(action.target)["head"]})
             newest[pr] = action
-        running = len(self.book.actions(FINDER, kind="finder", status="started"))
+        running = 0
+        for action in self.book.actions(FINDER, kind="finder", status="started"):
+            running += not self.cancel_finder(action, newest.get(json.loads(action.target)["pr"]))
         if not newest or running >= spec.get("concurrent", FINDER_CONCURRENT):
             return
-        going = {pr for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, "--kind=go") if (record["lane"], record["kind"]) == (ROOT, "go") for pr in go_heads(record)}
-        for action in sorted(newest.values(), key=lambda action: (not full_pass(action), json.loads(action.target)["pr"] not in going, json.loads(action.target)["seq"])):
+        live = self.live_heads(repo, list(newest))
+        for pr, action in list(newest.items()):
+            job = json.loads(action.target)
+            if (state := live.get(pr)) and (state["state"] == "CLOSED" or job["head"] and state["headRefOid"] != job["head"]):
+                self.finder_settled(action.action_id, {"skipped": f"#{pr} is closed" if state["state"] == "CLOSED" else f"#{pr} moved to {state['headRefOid'][:12]}"})
+                del newest[pr]
+        going = self.tapped() | {pr for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, "--kind=go") if (record["lane"], record["kind"]) == (ROOT, "go") for pr in go_heads(record)}
+        graded = {json.loads(action.target)["pr"] for action in self.book.actions(FINDER, kind="finder", status="verified") if "verdict" in (action.response or {})}
+        for action in sorted(newest.values(), key=lambda action: (not full_pass(action), (pr := json.loads(action.target)["pr"]) not in going, pr not in graded, json.loads(action.target)["seq"])):
             if running >= spec.get("concurrent", FINDER_CONCURRENT):
                 return
             running += self.start_finder(spec, repo, action)
+
+    def cancel_finder(self, action: actions.Action, queued: actions.Action | None) -> bool:
+        """Settle a running pass as superseded when a newer head of its PR is queued, write its job's `cancelled` mark so it asks codex nothing, and cancel each codex run it started, since a head that moves while codex reads it posts nothing."""
+        job = json.loads(action.target)
+        if queued is None or full_pass(action) or full_pass(queued) or json.loads(queued.target)["seq"] <= job["seq"]:
+            return False
+        head = json.loads(queued.target)["head"]
+        directory = Path(action.dispatch_id)
+        (directory / finder.CANCELLED).write_text(f"{head}\n")
+        for run in sorted(directory.glob("codex-*")):
+            self.shell.run(["codex-ask", "--cancel", str(run)])
+        self.finder_settled(action.action_id, {"superseded": head})
+        return True
+
+    def live_heads(self, repo: str, prs: list[str]) -> dict[str, dict]:
+        """Each of `prs` GitHub answered for, to its `state` and `headRefOid`, read fresh in one GraphQL query; a read that fails answers for none, and each pass then reads its PR itself."""
+        owner, name = repo.split("/")
+        fields = " ".join(f"p{pr}: pullRequest(number: {pr}) {{ state headRefOid }}" for pr in prs)
+        done = self.shell.run(ghread.read("api", "graphql", "-f", f'query=query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}', max_age=ghread.FRESH), env={"GH_REPO": repo})
+        if done.code != 0:
+            print(f"finder live heads did not read: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
+            return {}
+        answered = (json.loads(done.out).get("data") or {}).get("repository") or {}
+        return {alias.removeprefix("p"): state for alias, state in answered.items() if state}
+
+    def tapped(self) -> set[str]:
+        """The PRs an owner's approval on the root's board names, read at most every `FINDER_TAPS_EVERY`; a board that does not read names none."""
+        read, taps = self.taps
+        if self.now() - read < FINDER_TAPS_EVERY:
+            return taps
+        try:
+            verdicts = board_rows.verdicts_of(self.shell.run(["cc-present", "outcomes", "--no-doc", "--session", session])) if (session := self.root_session()) else {}
+        except board_rows.ReadFailed:
+            verdicts = {}
+        taps = {pr for rows in verdicts.values() for row, entry in rows.items() if entry["verdict"] == "approved" and (pr := board_rows.pr_of(row))}
+        self.taps = (self.now(), taps)
+        return taps
+
+    def root_session(self) -> str | None:
+        """The drive root's newest session in the drive registry, whose board holds the merge cards and rows the owner taps."""
+        entry = next((entry for entry in drive.drives() if drive.cci_drive(entry) == self.config.drive and entry["sessions"]), None)
+        return entry["sessions"][-1] if entry else None
 
     def start_finder(self, spec: dict, repo: str, action: actions.Action) -> bool:
         """Settle a head some lane's finder record already names, or a full pass a whole-range finder record posted after the PR's newest `head` record answered, or after the request when no `head` record names the PR, or write the pass's job and start finder.py on it detached, reading since the head the PR's newest finder record at another head read, or the whole change for a full pass."""
@@ -5816,7 +5892,7 @@ class Landing:
             return {}, unread, exempt
         done = self.rulings_py("rows")
         register = json.loads(done.out)["rows"] if done.code == 0 else None
-        session = self.root_session()
+        session = self.runner.root_session()
         try:
             verdicts = board_rows.verdicts_of(self.present(["cc-present", "outcomes", "--no-doc", "--session", session])) if session else None
         except board_rows.ReadFailed:
@@ -5989,7 +6065,7 @@ class Landing:
         posted = self.book.load(LANDING).facts.get(MERGE_CARDS, {}).get(waits)
         if posted and posted["question"] == detail:
             return posted["ts"]
-        if not (session := self.root_session()):
+        if not (session := self.runner.root_session()):
             self.runner.escalate("merge-card:unset", "MERGE-CARD-FAILED", "landing", f"no drive registry entry for {self.runner.config.drive} names a root session, so no merge card posts | run `drive.py start --drive <drive> --ledger <ledger>` from the root session; the next pass posts the cards")
             return None
         view = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", MERGE_CARD_FIELDS))
@@ -6001,11 +6077,6 @@ class Landing:
             return None
         self.book.edit(LANDING, lambda incident: incident.facts.setdefault(MERGE_CARDS, {}).update({waits: {"ts": ts, "question": detail}}))
         return ts
-
-    def root_session(self) -> str | None:
-        """The drive root's newest session in the drive registry, whose board holds the merge cards and rows the owner taps."""
-        entry = next((entry for entry in drive.drives() if drive.cci_drive(entry) == self.runner.config.drive and entry["sessions"]), None)
-        return entry["sessions"][-1] if entry else None
 
     def present(self, argv: list[str], stdin: str | None = None) -> Done:
         try:
@@ -6028,7 +6099,7 @@ class Landing:
         """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head when a chain of `head` records reading `<new> (was <old>)` and fidelity carries calls each move patch-identical: `cc-present verdict carry` records it, so the row shows his tap and asks nothing, and one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads. A tap whose new head a record names with no such chain, a fixed version, is never carried: a record saying the head adds new behavior draws one `TAP-NOT-CARRIED` note to the same lanes saying the board needs a new row, and a fidelity ok grade of the head that names none draws one `TAP-KEPT` note saying his tap keeps over that review fix, so root posts the go naming the fix and the row lists it (rule 399b5fa, root #151306). Once root posts that go, the runner carries the tap to the fix itself the same way, citing the grade and the go. A head a root `go` or a patch-identical fidelity carry grade already names is otherwise settled and gets no such note, and a carry onto a merge block the board no longer holds has nothing to carry, so it logs no `TAP-CARRY-FAILED` (root #151003, #151839)."""
         if self.landing_config.get("merge_ask_surface", "slack") != "board":
             return
-        if not (session := self.root_session()):
+        if not (session := self.runner.root_session()):
             self.runner.escalate("tap-carry:unset", "TAP-CARRY-FAILED", "landing", f"no drive registry entry for {self.runner.config.drive} names a root session, so no board tap carries to a restacked head | run `drive.py start --drive <drive> --ledger <ledger>` from the root session; the next pass carries them")
             return
         try:
@@ -7248,6 +7319,8 @@ def run_orca(runner: Runner, once: bool) -> int:
         runner.escalate(f"briefs-log:{runner.config.briefs_log or 'unset'}", "BRIEFS-LOG-FAILED", "runner", f"the briefs log did not resolve at start: {failure}; each brief attach retries it")
     swept = rotated = datetime.min.replace(tzinfo=timezone.utc)
     runner.keep_alive("orca")
+    if not once:
+        runner.keep_finding()
     while True:
         if runner.now() - rotated >= ROTATE_EVERY:
             runner.rotate_inboxes()

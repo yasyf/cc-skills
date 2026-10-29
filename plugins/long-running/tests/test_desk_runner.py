@@ -205,6 +205,7 @@ class FakeShell(runner_module.Shell):
         self.carries: list[dict[str, str]] = []
         self.register: dict[str, dict] = {}
         self.board_error = ""
+        self.pr_heads: dict[str, tuple[str, str]] = {}
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -287,6 +288,8 @@ class FakeShell(runner_module.Shell):
                 return runner_module.Done(1, "", self.pr_card_error)
             ts = self.slack_ts.setdefault(card["id"], f"17000000{len(self.slack_ts) + 1:02d}.000100")
             return runner_module.Done(0, f"url: http://127.0.0.1:4100/a/board\nslack: https://example.slack.com/archives/D0OWNER/p{ts.replace('.', '')}?thread_ts=1700000000.000100\n", "")
+        if argv[:2] == ["codex-ask", "--cancel"]:
+            return runner_module.Done(0, "", "")
         if argv[:3] == ["cc-present", "outcomes", "--no-doc"]:
             assert argv[3:] == ["--session", "s-root"]
             if self.board_error:
@@ -496,6 +499,8 @@ class FakeShell(runner_module.Shell):
         assert query.startswith('query { repository(owner: "Forge-AI", name: "monorepo") { ')
         if self.status_read_error:
             return runner_module.Done(1, "", self.status_read_error)
+        if pulls := re.findall(r"p(\d+): pullRequest\(number: \1\) \{ state headRefOid \}", query):
+            return runner_module.Done(0, json.dumps({"data": {"repository": {f"p{pr}": dict(zip(("state", "headRefOid"), self.pr_heads[pr])) if pr in self.pr_heads else None for pr in pulls}}}), "")
         if self.trunk and f'object(expression: "{self.trunk[0]["oid"]}") {{ ... on Commit {{ history(' in query:
             return runner_module.Done(0, json.dumps({"data": {"repository": {"object": {"history": {"nodes": self.trunk}}}}}), "")
         heads = re.findall(r'(h\d+): object\(expression: "([0-9a-f]+)"\) \{ \.\.\. on Commit \{ status \{ contexts \{ context state description \} \} checkSuites\(last: 10, filterBy: \{checkName: "ai-review"\}\) \{ nodes \{ checkRuns\(last: 1, filterBy: \{checkName: "ai-review"\}\) \{ nodes \{ title startedAt \} \} \} \} \} \}', query)
@@ -10687,6 +10692,76 @@ def test_a_queued_head_whose_pr_a_root_go_names_starts_before_older_heads(shell,
     shell.records.append({"seq": 149900, "drive": "d1", "lane": "root", "kind": "go", "to": ["landing-desk"], "refs": {}, "text": f"go #43601 at {heads['43601'][:10]}", "at": actions.stamp(shell.clock)})
     orca_pass(shell, config)
     assert [job["pr"] for job in finder_jobs(shell)] == ["43601"]
+
+
+def test_a_queued_head_whose_pr_an_owner_tapped_starts_before_older_heads(shell, config):
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    heads = {pr: hashlib.sha1(pr.encode()).hexdigest() for pr in ("43439", "43299", "43601")}
+    for pr, head in heads.items():
+        head_record(shell, pr, head)
+    shell.board = {"pr-groups": {"43601": {"verdict": "approved", "head": heads["43601"]}, "43439": {"verdict": None}}}
+    orca_pass(shell, config)
+    assert [job["pr"] for job in finder_jobs(shell)] == ["43601"]
+
+
+def test_a_head_of_a_pr_a_finder_pass_graded_starts_before_older_ungraded_heads(shell, config):
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    head_record(shell, "43299", FINDER_OLD)
+    orca_pass(shell, config)
+    head_record(shell, "43439", hashlib.sha1(b"43439").hexdigest())
+    head_record(shell, "43299", FINDER_HEAD)
+    (shell.finder_jobs[0] / "result.json").write_text(json.dumps({"verdict": "ok", "record": f"finder: ok {FINDER_OLD}", "posted": "#150001"}))
+    orca_pass(shell, config)
+    assert [(job["pr"], job["head"]) for job in finder_jobs(shell)] == [("43299", FINDER_OLD), ("43299", FINDER_HEAD)]
+
+
+def test_a_running_pass_whose_pr_queues_a_newer_head_is_cancelled_and_frees_its_slot(shell, config):
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    head_record(shell, "43299", FINDER_OLD)
+    orca_pass(shell, config)
+    [running] = shell.finder_jobs
+    (running / "codex-1").mkdir()
+    head_record(shell, "43299", FINDER_HEAD)
+    orca_pass(shell, config)
+    assert [job["head"] for job in finder_jobs(shell)] == [FINDER_OLD, FINDER_HEAD]
+    assert (running / runner_module.finder.CANCELLED).read_text() == f"{FINDER_HEAD}\n"
+    assert ["codex-ask", "--cancel", str(running / "codex-1")] in shell.calls
+    assert incident(config.parent, "desk-finder").actions[f"finder:43299:{FINDER_OLD}"].response["superseded"] == FINDER_HEAD
+    assert not finder_failures(shell)
+
+
+def test_a_queued_head_whose_pr_closed_or_moved_settles_skipped_and_starts_no_pass(shell, config):
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    heads = {pr: hashlib.sha1(pr.encode()).hexdigest() for pr in ("43439", "43299", "42784")}
+    for pr, head in heads.items():
+        head_record(shell, pr, head)
+    shell.pr_heads = {"43439": ("CLOSED", heads["43439"]), "43299": ("OPEN", FINDER_HEAD), "42784": ("MERGED", heads["42784"])}
+    orca_pass(shell, config)
+    assert [job["pr"] for job in finder_jobs(shell)] == ["42784"]
+    finder = incident(config.parent, "desk-finder").actions
+    assert finder[f"finder:43439:{heads['43439']}"].response["skipped"] == "#43439 is closed"
+    assert finder[f"finder:43299:{heads['43299']}"].response["skipped"] == f"#43299 moved to {FINDER_HEAD[:12]}"
+
+
+def test_the_finder_thread_refills_a_freed_slot_before_the_next_orca_pass(shell, config, tmp_path, monkeypatch):
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    head_record(shell, "43299", FINDER_OLD)
+    orca_pass(shell, config)
+    (shell.finder_jobs[0] / "result.json").write_text(json.dumps({"verdict": "ok", "record": f"finder: ok {FINDER_HEAD}", "posted": "#150001"}))
+    monkeypatch.setattr(runner_module, "FINDER_EVERY", timedelta(milliseconds=10))
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    stop = runner.keep_finding()
+    deadline = time.monotonic() + 5
+    while len(shell.finder_jobs) < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    stop.set()
+    assert [job["pr"] for job in finder_jobs(shell)] == ["43439", "43299"]
 
 
 def test_a_newer_head_supersedes_the_queued_one_and_reads_since_the_head_the_last_finder_read(shell, config):
