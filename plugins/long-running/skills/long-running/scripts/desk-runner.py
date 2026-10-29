@@ -5068,8 +5068,8 @@ class Landing:
         }
         if withdrawn := {seq: record["seq"] for record in records if record["kind"] == "withdraw" for seq in closes(record)}:
             admitted = [(pr, sha) for action in self.book.actions(LANDING, kind="enqueue", status="completed") if action.response["outcome"] in {*BELIEVED_QUEUED, PULLED} for pr, sha in enqueued_heads(action.action_id).items()]
-            for go in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go"):
-                if go["seq"] in withdrawn and (go["lane"], go["drive"], go["kind"]) == (ROOT, drive, "go"):
+            for go in self.go_records():
+                if go["seq"] in withdrawn:
                     orders |= {
                         f"{withdrawn[go['seq']]}:{pr}": {"pr": pr, "why": f"root #{withdrawn[go['seq']]} withdrew go #{go['seq']}"}
                         for pr, head in go_heads(go).items()
@@ -6164,13 +6164,23 @@ class Landing:
         self.runner.escalate(f"gate-paused:{after}", "GATE-PAUSED", "landing", f"landing.checks_wait_for_go is {after}, so the gate runs no stack-enqueue --check until a root go record comes after cci #{after}; ledger refresh, reconcile, head reads and restack routes go on")
         return True
 
+    def go_lane(self, lane: str) -> bool:
+        return lane == ROOT or any(lane == delegate or succeeds(lane, delegate) for delegate in self.landing_config.get("go_lanes", []))
+
+    def go_records(self) -> list[dict]:
+        """Every `go` record on this drive from the root or a `landing.go_lanes` lane or its numbered successor, read by lane when no lane is delegated."""
+        drive = self.runner.config.drive
+        lanes = () if self.landing_config.get("go_lanes") else ("--lane", ROOT)
+        return [record for record in cci.records(self.runner.cci_tail, drive, *lanes, "--kind=go") if (record["drive"], record["kind"]) == (drive, "go") and self.go_lane(record["lane"])]
+
     def root_gos(self) -> list[dict]:
-        """The root's `go` records on this drive, read once per pass and again before each enqueue wave and each flake retry, without any that a later root record resolves, answers with a `withdraw`, or names by `#<seq>` or `--re` with the word "withdrawn", plus the gos a fidelity desk's `ok H carried from G` grade carries from G to H. Each carries `voided`, the PRs of its clause that a later root `withdraw` record, or one opening `WITHDRAWN`, names, which it no longer lets merge nor carries to a later head."""
+        """The `go` records of the root and of each `landing.go_lanes` lane or its numbered successor on this drive, read once per pass and again before each enqueue wave and each flake retry, without any that a later root record resolves, answers with a `withdraw`, or names by `#<seq>` or `--re` with the word "withdrawn", plus the gos a fidelity desk's `ok H carried from G` grade carries from G to H. Each carries `voided`, the PRs of its clause that a later root `withdraw` record, or one opening `WITHDRAWN`, names, which it no longer lets merge nor carries to a later head."""
         with self.going:
             if self.gos is None:
                 drive = self.runner.config.drive
-                gos = [record for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, "--kind=go") if (record["lane"], record["drive"], record["kind"]) == (ROOT, drive, "go")]
-                later = [record | {"text": full_text(record)} for record in cci.records(self.runner.cci_tail, drive, "--lane", ROOT, since=min(go["seq"] for go in gos)) if record["lane"] == ROOT and record["drive"] == drive] if gos else []
+                gos = self.go_records()
+                lanes = sorted({ROOT, *self.landing_config.get("go_lanes", []), *(go["lane"] for go in gos)})
+                later = [record | {"text": full_text(record)} for record in cci.records(self.runner.cci_tail, drive, *(flag for lane in lanes for flag in ("--lane", lane)), since=min(go["seq"] for go in gos)) if record["lane"] in lanes and record["drive"] == drive] if gos else []
                 closed = {seq for record in later for seq in closes(record)} | {go["seq"] for go in gos for record in later if record["seq"] > go["seq"] and withdraws(record, go["seq"])}
                 withdrawals = [record for record in later if record["kind"] == "withdraw" or WITHDRAWN_OPENING.match(record["text"])]
                 posted = [go | {"voided": {pr for pr in go_heads(go) if any(record["seq"] > go["seq"] and about_pr(record, self.repo, pr) for record in withdrawals)}} for go in gos if go["seq"] not in closed]
