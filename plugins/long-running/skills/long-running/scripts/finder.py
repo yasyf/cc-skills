@@ -8,8 +8,9 @@
 
 STDLIB ONLY. desk-runner.py's orca desk writes `DIR/job.json` for each head it dispatches and starts
 this script detached. The job reads the PR through ccx's gateway, retrying a failed read once after
-`RETRY_SECONDS`, and skips a closed PR or a head that is no longer the PR's live head. It reads the
-PR's own commits as the head's commits no commit on its parent's tip, nor on the trunk's, matches
+`RETRY_SECONDS`, and a fetch git killed on a zero ref another lane's `git worktree add` left in the
+shared checkout once after the same pause. It skips a closed PR or a head that is no longer the
+PR's live head. It reads the PR's own commits as the head's commits no commit on its parent's tip, nor on the trunk's, matches
 by patch, so neither a parent restacked onto a newer trunk nor a stale base branch the head was
 rebased past adds a commit. The parent is the base branch's tip when the head carries it, else the
 newest pull request head in the head's history the trunk lacks: a graphite-base a raw push left at
@@ -68,7 +69,8 @@ WHOLE_ASKED = re.compile(r"\bwhole[- ]diff\b|\bfull pass\b|\b[0-9a-f]{7,40}\b", 
 WHOLE_READ = "over whole "
 HEAD_SHA = re.compile(r"(?<!was )\b[0-9a-f]{40}\b")
 FULL_SHA = re.compile(r"\b[0-9a-f]{40}\b")
-TEXT_PR = re.compile(r"(?:\b([\w.-]+/[\w.-]+))?#(\d+)\b")
+TEXT_PR = re.compile(r"\b([\w.-]+/[\w.-]+)#(\d+)\b|(?<![\w/])#(\d{4,})\b")
+ZERO_REF = re.compile(r"bad object (?:0{40}|worktrees/\S+/HEAD)")
 WAS = re.compile(r"\(was ([0-9a-f]{7,40})\b")
 RANGE_PAIR = re.compile(r"^\s*(?:\d+|-+):\s+([0-9a-f]+|-+)\s+([=!<>])\s+(?:\d+|-+):\s+([0-9a-f]+|-+)", re.MULTILINE)
 DIFF_FILE = re.compile(r"^diff --git a/\S+ b/(\S+)$")
@@ -105,9 +107,9 @@ def heads(record: dict, repo: str) -> list[tuple[str, str]]:
 
 
 def text_pr(text: str, repo: str) -> list[str]:
-    """The first `repo#N` the text names, else its first bare `#N`."""
+    """The first `repo#N` the text names, else its first bare `#N` of four or more digits, as a bare `#5` is an audit or step number (#170072)."""
     named = TEXT_PR.findall(text)
-    return next(([number] for owner, number in named if owner.lower() == repo.lower()), next(([number] for owner, number in named if not owner), []))
+    return next(([number] for owner, number, _ in named if owner.lower() == repo.lower()), next(([bare] for _, _, bare in named if bare), []))
 
 
 def requested(record: dict, repo: str) -> list[str]:
@@ -249,6 +251,17 @@ def git(shell: Shell, job: dict, *argv: str) -> str:
     return shell.run(["git", *argv], cwd=Path(job["checkout"]), timeout=SLICE_SECONDS).strip()
 
 
+def fetch(shell: Shell, job: dict, *shas: str) -> None:
+    """Fetch `shas`, once more after `RETRY_SECONDS` when the connectivity walk died on a zero ref a lane creating a worktree in the shared checkout had not yet written."""
+    try:
+        git(shell, job, "fetch", "--no-write-fetch-head", "-q", "origin", *shas)
+    except subprocess.CalledProcessError as error:
+        if not ZERO_REF.search(error.stderr):
+            raise
+        time.sleep(RETRY_SECONDS)
+        git(shell, job, "fetch", "--no-write-fetch-head", "-q", "origin", *shas)
+
+
 def beyond(shell: Shell, job: dict, others: tuple[str, ...], head: str) -> list[str]:
     """The commits `head` carries, oldest first, that no commit since its merge-base with any of `others` matches by patch."""
     first, *rest = (git(shell, job, "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{other}...{head}").split() for other in dict.fromkeys(others))
@@ -278,7 +291,7 @@ def fetched(shell: Shell, job: dict, named: str) -> str:
     if (full := resolve(shell, job, named)) or not FULL_SHA.fullmatch(named):
         return full
     try:
-        git(shell, job, "fetch", "--no-write-fetch-head", "-q", "origin", named)
+        fetch(shell, job, named)
     except subprocess.CalledProcessError:
         return ""
     return resolve(shell, job, named)
@@ -358,7 +371,7 @@ def run(directory: Path, shell: Shell) -> dict:
     job["head"] = head = view["headRefOid"]
     base = git(shell, job, "ls-remote", "origin", f"refs/heads/{view['baseRefName']}").split()[0]
     trunk = git(shell, job, "ls-remote", "origin", "HEAD").split()[0]
-    git(shell, job, "fetch", "--no-write-fetch-head", "-q", "origin", head, base, trunk)
+    fetch(shell, job, head, base, trunk)
     base = parent(shell, job, base, trunk)
     last = reviewed(shell, job)
     if not (own := beyond(shell, job, (base, trunk), head)):
