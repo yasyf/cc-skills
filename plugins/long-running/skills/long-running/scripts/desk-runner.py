@@ -7106,8 +7106,9 @@ class Landing:
         heads = {pr: open_rows[pr]["head"] for pr in prefix}
         base = "enqueue:" + ",".join(f"{pr}@{heads[pr][:10]}" for pr in prefix)
         key = f"{base}#{OVERFLOW}-{len([action for action in self.book.actions(LANDING, kind='enqueue') if action.action_id.split('#')[0] == base]) + 1}"
-        self.book.accept(LANDING, key, "enqueue", ",".join(prefix), OVERFLOW, self.runner.now() + timedelta(minutes=self.runner.config.enqueue_minutes))
-        if not self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now())):
+        deadline = self.runner.now() + timedelta(minutes=self.runner.config.enqueue_minutes)
+        self.book.accept(LANDING, key, "enqueue", ",".join(prefix), OVERFLOW, deadline)
+        if not self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now(), deadline=deadline)):
             return
         outcome, out, last = self.adapter.enqueue([top], self.whole(), heads)
         self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": out, "drive": self.runner.config.drive, "at": self.book.stamp(), OVERFLOW: True}))
