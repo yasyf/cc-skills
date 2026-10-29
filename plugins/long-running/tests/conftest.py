@@ -107,6 +107,11 @@ class FakeShell(ledger.Shell):
             if str(cwd) not in self.stacks:
                 raise subprocess.CalledProcessError(1, argv, stderr="ccx: stack list: detached HEAD; no stack to resolve")
             return json.dumps(self.stacks[str(cwd)])
+        if argv[0] == "ccx" and argv[1:4] == ["vcs", "stack", "list-batch"]:
+            return json.dumps([
+                {"path": path, "listing": self.stacks[path]} if path in self.stacks else {"path": path, "listing": None, "error": "stack list: detached HEAD; no stack to resolve"}
+                for path in argv[4:]
+            ])
         if argv[0] == "ccx":
             self.ccx_calls.append(list(argv))
             watched = argv[4 : argv.index("--repo")]
