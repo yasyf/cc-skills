@@ -6151,7 +6151,7 @@ def test_an_old_app_grade_posted_after_the_pass_scanned_its_reviews_draws_no_war
 
     def grade_lands_after_the_scan(argv: list[str]) -> runner_module.Done:
         done = scan(argv)
-        if "--kind=review" in argv and "--kind=head" in argv and not done.out and late not in shell.records:
+        if "--kind=review" in argv and "--kind=head" in argv and late not in shell.records:
             shell.records.append(late)
         return done
 
