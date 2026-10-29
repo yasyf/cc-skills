@@ -7481,7 +7481,8 @@ class Landing:
             done = self.shell.run([*git, "worktree", "list", "--porcelain"])
         if not done.code:
             trees = [dict(line.partition(" ")[::2] for line in entry.splitlines()) for entry in done.out.strip().split("\n\n")]
-            tree = next((tree for tree in trees if os.path.realpath(tree.get("worktree", "")) == os.path.realpath(self.checkout)), None)
+            mine = [tree for tree in trees if os.path.realpath(path := tree.get("worktree", "")) == os.path.realpath(self.checkout) or (os.path.exists(path) and self.checkout.exists() and os.path.samefile(path, self.checkout))]
+            tree = mine[0] if mine else None
             if tree is None or not tree.get("HEAD", "").strip("0"):
                 done = self.rebuild(registered=tree is not None)
             else:
@@ -7494,13 +7495,15 @@ class Landing:
         return not done.code
 
     def rebuild(self, registered: bool) -> Done:
-        """Reset the checkout to the fetched trunk head with a clean tree, first registering it afresh through `git worktree add --no-checkout` and `git worktree repair` when its repository lists it no more, and log `MIRROR-REBUILT` to root naming what it found."""
+        """Reset the checkout to the fetched trunk head with a clean tree, first registering it afresh through `git worktree add --no-checkout` and `git worktree repair` when its repository lists it no more, carrying its old index over so the reset removes files the trunk no longer tracks, and log `MIRROR-REBUILT` to root naming what it found."""
         git = ["git", "-C", str(self.checkout)]
         if (head := self.shell.run([*git, "rev-parse", "--verify", "-q", "FETCH_HEAD^{commit}"])).code:
             return head
         sha = head.out.strip()
         if not registered:
             branch = self.shell.run([*git, "symbolic-ref", "-q", "--short", "HEAD"])
+            if (index := self.shell.run([*git, "rev-parse", "--path-format=absolute", "--git-path", "index"])).code:
+                return index
             with tempfile.TemporaryDirectory(dir=self.checkout.parent) as scratch:
                 staged = Path(scratch) / self.checkout.name
                 for argv in (
@@ -7510,6 +7513,10 @@ class Landing:
                 ):
                     if (done := self.shell.run(argv)).code:
                         return done
+            if (fresh := self.shell.run([*git, "rev-parse", "--path-format=absolute", "--git-path", "index"])).code:
+                return fresh
+            if (done := self.shell.run(["cp", index.out.strip(), fresh.out.strip()])).code:
+                return done
         if (done := self.shell.run([*git, "reset", "-q", "--hard", sha])).code:
             return done
         found = "was on a branch with no commit" if registered else "was not a registered worktree of its repository"
