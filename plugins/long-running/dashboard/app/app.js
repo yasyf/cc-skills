@@ -462,19 +462,26 @@ window.addEventListener('popstate', (e) => {
   (state.opener?.isConnected ? state.opener : href && document.querySelector(`#main a[href="${CSS.escape(href)}"]`))?.focus();
 });
 window.addEventListener('hashchange', () => {
+  const returning = history.state?.y !== undefined;
   if (!history.state) history.replaceState({ inApp: true }, '');
   state.overlay = null;
   render();
-  if (history.state?.spot) refocus(history.state.spot);
   if (!/^#\/review\/q(\/|$)/.test(location.hash)) window.scrollTo(0, history.state?.y ?? 0);
+  if (history.state?.spot) refocus(history.state.spot);
+  else if (returning) focusInView();
 });
-function keepScroll(link) {
-  history.replaceState({ ...history.state, y: window.scrollY, spot: focusSpot($('#main'), link) }, '');
-}
 document.addEventListener('click', (e) => {
-  const link = e.target.closest('a[href^="#"]');
-  if (link && !e.defaultPrevented) keepScroll(link);
+  const control = e.target.closest(FOCUSABLE);
+  if (control && !e.defaultPrevented) history.replaceState({ ...history.state, y: window.scrollY, spot: focusSpot($('#main'), control) }, '');
 }, true);
+function focusInView() {
+  for (const el of $('#main').querySelectorAll(FOCUSABLE)) {
+    const box = el.getBoundingClientRect();
+    if (box.height === 0 || box.top < 0) continue;
+    el.focus({ preventScroll: true });
+    if (document.activeElement === el) return;
+  }
+}
 window.addEventListener('DOMContentLoaded', () => {
   setInterval(tickFresh, 1000);
   load();

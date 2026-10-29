@@ -72,6 +72,7 @@ function stackRow(n) {
   return state.model.stack.find((row) => row.pr === String(n));
 }
 function prTruth(n) {
+  if (prState(n) === 'landed') return { blocks: '', next: '', since: null };
   const board = boardRow(n);
   if (board && verdictState(board) === 'you') return { blocks: rowWords(board).blocker, next: '', since: waitingSince(Number(n)) ?? stackRow(n)?.since };
   const evidence = state.model.evidence[n];

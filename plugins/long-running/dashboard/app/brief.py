@@ -153,7 +153,7 @@ PROMPT = """You write the main page of a live dashboard that a busy engineering 
 """ + RULES + """
 
 Fields:
-- headline: one sentence, at most 25 words, written from the Main work entry of status_paragraphs, that a person could read aloud at standup: where we are, what is next, and the one thing in the way with how long it has waited, such as "for 51 minutes, since 6:58 PM".
+- headline: one sentence, at most 25 words, written from the Main work entry of status_paragraphs, that a person could read aloud at standup: where we are, what is next, and the one thing in the way with how long it has waited, such as "for 51 minutes, since 6:58 PM". Never a count of approvals, taps or questions waiting on Yasyf: the needs band beside it gives the live total, and a second number reads as a contradiction.
 - because: up to three short sentences naming the facts the headline rests on.
 - band: kind "incident" only for a customer-facing incident from the last three hours that has no fix live yet, with one sentence of what is broken and the fix; else kind "none" and empty text.
 - progress.stops: exactly one entry per milestone, in order. state is live, progress (being built or tested now), next (the next one to ship), paused, broken (a problem is stopping it), or not (not started). label is two to four words such as "Live", "Next", "Being tested", "Stuck in testing", "Not started". why is at most three words for paused or broken, else empty.
