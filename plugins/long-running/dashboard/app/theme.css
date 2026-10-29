@@ -5,15 +5,15 @@
 :root:is([data-v=b], [data-v=c]) .nw-spine .sp:not(.focus) .bd > .brief { display: none; }
 :root:is([data-v=b], [data-v=c]) .nw .hg:not(:hover, :focus-within) .hg-body { display: none; }
 :root:is([data-v=b], [data-v=c]) .nw .hg:is(:hover, :focus-within) .hg-body { animation: nw-grow .18s ease-out; }
-:root:is([data-v=b], [data-v=c]) .nw-col .feed .lane.rest:not(:hover, :focus-visible) :is(.how, .when, .open) { display: none; }
+:root:is([data-v=b], [data-v=c]) .nw-col .feed .lane.rest:not(.you, .st-ready-for-you, .st-needs-you):not(:hover, :focus-visible) :is(.how, .when, .open) { display: none; }
 :root:is([data-v=b], [data-v=c]) .nw-tray:not(:hover, :focus-within) { padding: 6px 0; }
 :root:is([data-v=b], [data-v=c]) .nw-tray .k { cursor: default; }
 :root:is([data-v=b], [data-v=c]) .wk-active > .wk-row:not(.lead) { opacity: var(--lane-dim); transition: opacity .18s ease-out; }
 :root:is([data-v=b], [data-v=c]) .wk-active > .wk-row:not(.lead):is(:hover, :focus-visible) { opacity: 1; }
 :root[data-v=c] .nw-spine .sp:not(.focus) .ms :is(.st, .why) { display: none; }
-:root[data-v=c] .nw-col .chain .hc:not(:first-child) { opacity: var(--lane-dim); transition: opacity .18s ease-out; }
-:root[data-v=c] .nw-col .chain .hc:not(:first-child):not(:hover, :focus-visible) :is(.how, .when) { display: none; }
-:root[data-v=c] .nw-col .chain .hc:not(:first-child):is(:hover, :focus-visible) { opacity: 1; }
+:root[data-v=c] .nw-col .chain .hc:not(:first-child):not(.you, .st-ready-for-you, .st-needs-you) { opacity: var(--lane-dim); transition: opacity .18s ease-out; }
+:root[data-v=c] .nw-col .chain .hc:not(:first-child):not(.you, .st-ready-for-you, .st-needs-you):not(:hover, :focus-visible) :is(.how, .when) { display: none; }
+:root[data-v=c] .nw-col .chain .hc:not(:first-child):not(.you, .st-ready-for-you, .st-needs-you):is(:hover, :focus-visible) { opacity: 1; }
 :root[data-v=c] .nw-diagram:not(:hover, :focus-within) :is(.nw-cap, .ck, .nw-parts) { display: none; }
 :root[data-v=c] .nw-diagram:not(:hover, :focus-within) > .nw-h::after { content: "  ›  hover to open"; color: var(--ink-3); font-weight: 600; letter-spacing: .04em; text-transform: none; }
 :root[data-v=c] .wk-active > .wk-row:not(.lead):not(:hover, :focus-visible) .wk-line { display: none; }

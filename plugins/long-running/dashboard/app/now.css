@@ -245,8 +245,8 @@
 .nw-spine .focus .bd { min-height: var(--hold, 0px); }
 .nw-spine .focus .bd > .full { animation: nw-grow .22s ease-out; }
 @keyframes nw-grow { from { opacity: 0; transform: translateY(-4px); } }
-.nw-col .feed .lane.rest { opacity: var(--lane-dim); transition: opacity .18s ease-out; }
-.nw-col .feed .lane.rest:is(:hover, :focus-visible) { opacity: 1; }
+.nw-col .feed .lane.rest:not(.you, .st-ready-for-you, .st-needs-you) { opacity: var(--lane-dim); transition: opacity .18s ease-out; }
+.nw-col .feed .lane.rest:not(.you, .st-ready-for-you, .st-needs-you):is(:hover, :focus-visible) { opacity: 1; }
 .nw .hg-n { display: inline-block; min-width: 18px; margin-left: 4px; padding: 0 5px; border-radius: 5px; background: var(--line2); color: var(--ink2); font-size: 10.5px; text-align: center; letter-spacing: 0; }
 .nw .hg:focus { outline: none; }
 .nw .hg:focus-visible { outline: 2px solid var(--doing); outline-offset: 3px; border-radius: 8px; }
