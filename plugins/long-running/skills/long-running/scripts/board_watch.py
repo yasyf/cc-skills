@@ -11,17 +11,17 @@ closes; the `start_board_watch` hook launches it detached, once per board sessio
 line is appended verbatim to `<state dir>/boards/<session>-events.jsonl`. Each owner interaction
 is appended to `<state dir>/owner-prompts.jsonl` as one capture line,
 `{"digest", "at", "session", "source": "board", "block", "text"}`, where `digest` is the first 16
-hex digits of sha256 over `session`, `text` and `block` joined by NUL and `at` is the arrival
-time in UTC. A triage row's note also carries the row's `row` id and `verdict`, and its digest
-takes the row id in place of the block:
+hex digits of sha256 over `session`, `text`, `block` and the event's line number in the events
+file joined by NUL and `at` is the arrival time in UTC. A triage row's note also carries the row's
+`row` id and `verdict`, and its digest takes the row id in place of the block:
 
     write-in   choice.selected with `other`, and input.submitted: the text the owner typed
     note       feedback.created, the note on a decision.created, and each row note a triage.decided carries
     pick       choice.selected option ids, as the option labels in the board's current document
     verdict    decision.created: an approval's exact prompt, marked `"verdict": "approved"`, or `rejected` or `cleared`
 
-A write-in a later pick replaces survives as its own capture. A capture already in the file is
-not written again. A pick or approval whose block is missing from the board's document gets no
+A write-in a later pick replaces survives as its own capture, and every tap is its own capture,
+so a burst that returns to an earlier pick keeps all its taps and the last one stays last. A pick or approval whose block is missing from the board's document gets no
 capture, so no option id or bare verdict stands in for the owner's words; its event line stays. The state directory resolves as `rulings.py` resolves it; `--state-dir`
 overrides it. A second watch of the same board exits at once.
 
@@ -112,8 +112,8 @@ def find(value: object, block: str) -> dict | None:
     return None
 
 
-def digest(session: str, text: str, block: str) -> str:
-    return hashlib.sha256("\0".join([session, text, block]).encode()).hexdigest()[:16]
+def digest(session: str, text: str, block: str, line: int) -> str:
+    return hashlib.sha256("\0".join([session, text, block, str(line)]).encode()).hexdigest()[:16]
 
 
 def picked(found: dict | None, ids: list[str]) -> str | None:
@@ -155,18 +155,18 @@ def texts(event: dict, session: str, doc: dict | None) -> list[str]:
     return [*([verdict] if verdict else []), *written] if event.get("type") == "decision.created" else [*written, *([verdict] if verdict else [])]
 
 
-def captures(event: dict, session: str, doc: dict | None, moment: datetime) -> list[dict]:
+def captures(event: dict, session: str, doc: dict | None, moment: datetime, line: int) -> list[dict]:
     block = event.get("blockId", "")
     if event.get("type") == "triage.decided":
         return [
-            {"digest": digest(session, row["note"], row_id), "at": stamp(moment), "session": session, "source": SOURCE, "block": block, "row": row_id, "verdict": row["verdict"], "text": CREDENTIAL.sub(REDACTED, row["note"])}
+            {"digest": digest(session, row["note"], row_id, line), "at": stamp(moment), "session": session, "source": SOURCE, "block": block, "row": row_id, "verdict": row["verdict"], "text": CREDENTIAL.sub(REDACTED, row["note"])}
             for row_id, row in event["verdicts"].items()
             if row.get("note")
         ]
     said = texts(event, session, doc)
     approval = event.get("type") == "decision.created" and event.get("verdict") == "approved" and bool(said) and said[0] == (find(doc, block) or {}).get("prompt")
     return [
-        {"digest": digest(session, text, block), "at": stamp(moment), "session": session, "source": SOURCE, "block": block, "text": CREDENTIAL.sub(REDACTED, text)} | ({"verdict": "approved"} if approval and index == 0 else {})
+        {"digest": digest(session, text, block, line), "at": stamp(moment), "session": session, "source": SOURCE, "block": block, "text": CREDENTIAL.sub(REDACTED, text)} | ({"verdict": "approved"} if approval and index == 0 else {})
         for index, text in enumerate(said)
     ]
 
@@ -277,7 +277,7 @@ def record(line: str, state: Path, session: str, shell: Shell, seen: set[str], b
     if owner:
         announce(event, line, session, doc, shell, bus)
     with (state / CAPTURES).open("a") as sink:
-        for capture in captures(event, session, doc, shell.now()):
+        for capture in captures(event, session, doc, shell.now(), bus.lines):
             if capture["digest"] not in seen:
                 sink.write(json.dumps(capture, ensure_ascii=False) + "\n")
                 seen.add(capture["digest"])

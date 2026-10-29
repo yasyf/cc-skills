@@ -61,6 +61,7 @@ def test_every_owner_interaction_is_captured_in_order(tmp_path: Path) -> None:
         ("update-confirm-ok", CONFIRMED),
         ("banner-ok", "rejected"),
         ("banner-ok", "keep the old banner text"),
+        ("share-open-pick", "Yes, read-only"),
     ]
     assert {capture["source"] for capture in captured} == {"board"}
     assert {capture["at"] for capture in captured} == {"2026-01-02T03:04:05Z"}
@@ -72,10 +73,10 @@ def test_a_write_in_then_a_pick_on_one_block_yields_two_captures(tmp_path: Path)
     assert [capture["text"] for capture in picks] == ["only for the team, and only read-only", "Yes, read-only"]
 
 
-def test_the_digest_joins_session_text_and_block_with_nul(tmp_path: Path) -> None:
+def test_the_digest_joins_session_text_block_and_event_line_with_nul(tmp_path: Path) -> None:
     approval = next(capture for capture in run(tmp_path) if capture["block"] == "update-confirm-ok")
 
-    assert approval["digest"] == hashlib.sha256(f"{SESSION}\0{CONFIRMED}\0update-confirm-ok".encode()).hexdigest()[:16]
+    assert approval["digest"] == hashlib.sha256("\0".join([SESSION, CONFIRMED, "update-confirm-ok", "6"]).encode()).hexdigest()[:16]
     assert approval["session"] == SESSION
 
 
@@ -91,11 +92,21 @@ def test_each_event_line_is_kept_verbatim(tmp_path: Path) -> None:
     assert (tmp_path / "boards" / f"{SESSION}-events.jsonl").read_text() == (FIXTURES / "stream.jsonl").read_text()
 
 
-def test_a_repeated_pick_or_a_rerun_writes_no_duplicate_capture(tmp_path: Path) -> None:
-    first = run(tmp_path)
+class BurstShell(RecordedShell):
+    def watch(self, session: str):
+        for option in ("snapshot", "transcript", "snapshot"):
+            yield json.dumps({"blockId": "q8-choice", "optionIds": [f"q8-{option}"], "schemaVersion": 1, "type": "choice.selected"}) + "\n"
 
-    assert len({capture["digest"] for capture in first}) == len(first)
-    assert run(tmp_path) == first
+
+BURST_DOC = {"blocks": [{"id": "q8-choice", "type": "choice", "options": [{"id": "q8-snapshot", "label": "The transcript plus the latest snapshot"}, {"id": "q8-transcript", "label": "Only the transcript"}]}]}
+
+
+def test_a_burst_that_returns_to_an_earlier_pick_captures_every_tap_in_order(tmp_path: Path) -> None:
+    captured = run(tmp_path, BurstShell(doc=BURST_DOC))
+
+    assert [capture["text"] for capture in captured] == ["The transcript plus the latest snapshot", "Only the transcript", "The transcript plus the latest snapshot"]
+    assert {capture["at"] for capture in captured} == {"2026-01-02T03:04:05Z"}
+    assert len({capture["digest"] for capture in captured}) == 3
 
 
 def test_a_second_watch_of_the_same_board_exits_at_once(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -143,13 +154,13 @@ def test_each_note_on_a_triage_row_is_captured_with_its_row_and_verdict(tmp_path
         ("merge-triage", "merge-row-101", "approved", "group these three", "2026-01-02T03:04:05Z"),
         ("merge-triage", "merge-row-102", "rejected", "group these three", "2026-01-02T03:04:05Z"),
     ]
-    assert captured[0]["digest"] == hashlib.sha256(f"{SESSION}\0group these three\0merge-row-101".encode()).hexdigest()[:16]
+    assert captured[0]["digest"] == hashlib.sha256("\0".join([SESSION, "group these three", "merge-row-101", "2"]).encode()).hexdigest()[:16]
 
 
 def test_a_credential_in_a_board_note_is_redacted_in_its_capture() -> None:
     event = {"type": "triage.decided", "blockId": "notes", "verdicts": {"r1": {"verdict": "ok", "note": "token api-0f3c2b1a-9d8e-4f7a-b6c5-1a2b3c4d5e6f works"}}}
 
-    [capture] = board_watch.captures(event, SESSION, None, ARRIVED)
+    [capture] = board_watch.captures(event, SESSION, None, ARRIVED, 1)
 
     assert capture["text"] == "token [credential redacted] works"
 
@@ -227,5 +238,5 @@ def test_a_tap_resolves_open_asks_naming_its_block_or_card_but_not_a_longer_id(t
 def test_a_refused_post_is_reported_and_the_watch_keeps_recording(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     captured = run(tmp_path, RecordedShell(refused=True))
 
-    assert len(captured) == 7
+    assert len(captured) == 8
     assert capsys.readouterr().out.count("failed: refused") == 7
