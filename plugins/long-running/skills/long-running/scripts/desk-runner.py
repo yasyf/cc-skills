@@ -470,7 +470,7 @@ under `every`, under `high-risk` for a PR whose changed files a `landing.high_ri
 every mode for a head `check-pr` reads as touching a reserved row no answer authorizes, a prefix
 that would enqueue posts one PR card per waiting PR and head instead, logs one `MERGE-ASK` naming it, which with a blocker to the PR's lane quotes a `title: stale` line from the PR's newest fidelity grade, and enqueues once a root `go` record names each
 waiting PR and its head by a short sha in a `go` or `merge` clause, `go #<n> at <sha>`, wherever in the text that clause
-starts, or carries one: a fidelity desk's `fidelity: ok <head> carried from <earlier head>` that calls the change patch-identical or test-only, on a PR whose go names the earlier head, is a go at the new head, and a carried grade for added behavior carries nothing; a clause ending `with #<a> #<b>` binds its PRs and those into one batch that enqueues whole or not at all, one `BATCH-WAITS` line to root naming the PRs a partial batch keeps out; `show` names the `merge:<pr>:<short sha>` key each ready head still waits on. The card goes through `cc-present ask` with `--session` set to the drive root's newest session in the drive registry,
+starts, or carries one: a fidelity desk's `fidelity: ok <head>` grade naming the earlier head whose first sentence says patch-identical, tap carries, no new behavior, test-only, or pure replay, on a PR whose go names the earlier head, is a go at the new head, and a carried grade for added behavior carries nothing; a clause ending `with #<a> #<b>` binds its PRs and those into one batch that enqueues whole or not at all, one `BATCH-WAITS` line to root naming the PRs a partial batch keeps out; `show` names the `merge:<pr>:<short sha>` key each ready head still waits on. The card goes through `cc-present ask` with `--session` set to the drive root's newest session in the drive registry,
 so it lands on the root's board and in the root's Slack status thread like every other card: the question, the PR's title, author, size, and review state, the
 PR linked with its live checks, waiting on `merge:<pr>:<short sha>` with `Merge (Recommended)`, `Hold`, `Other`, and `Explain more` (93037c3); a card already
 open for the head is edited in place, never re-posted, and a post that fails
@@ -481,8 +481,9 @@ its ledger head, moves to that head through `cc-present verdict carry` once `hea
 call each move between the two patch-identical, with one `TAP-CARRIED` note naming both heads to root and each lane `landing.board_lane`
 names, one lane or a list. A new head a record names with no such chain, a fixed version, is never carried. A record saying it adds new
 behavior draws one `TAP-NOT-CARRIED` note to the same lanes saying the board needs a new row; a fidelity ok grade naming none draws one
-`TAP-KEPT` note saying his tap keeps over that review fix and root posts its go naming the fix (rule 399b5fa); a root `go` or a
-patch-identical fidelity carry grade naming that head draws neither. A board that does not read, or a carry cc-present refuses for any cause but an absent merge block, which leaves nothing to carry, logs `TAP-CARRY-FAILED` once per
+`TAP-KEPT` note saying his tap keeps over that review fix and root posts its go naming the fix (rule 399b5fa), and once that go
+names the head the runner carries the tap there itself, citing the grade and the go; a root `go` or a
+patch-identical fidelity carry grade naming that head otherwise draws neither. A board that does not read, or a carry cc-present refuses for any cause but an absent merge block, which leaves nothing to carry, logs `TAP-CARRY-FAILED` once per
 cause and tries again next pass. Under `every` the runner
 then bars each open PR no root `go` names at its head like a held one: no check or enqueue call names it or sweeps it in, and a PR
 stacked on it waits. The pass's one `ccx vcs pr status` read routes it instead: a conflict, red CI, or requested changes is that head's
@@ -5735,7 +5736,7 @@ class Landing:
         return ",".join(dict.fromkeys(map(self.successor, [*desks, *self.board_lanes, *owners])))
 
     def carry_taps(self, rows: dict[str, dict]) -> None:
-        """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head when a chain of `head` records reading `<new> (was <old>)` and fidelity carries calls each move patch-identical: `cc-present verdict carry` records it, so the row shows his tap and asks nothing, and one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads. A tap whose new head a record names with no such chain, a fixed version, is never carried: a record saying the head adds new behavior draws one `TAP-NOT-CARRIED` note to the same lanes saying the board needs a new row, and a fidelity ok grade of the head that names none draws one `TAP-KEPT` note saying his tap keeps over that review fix, so root posts the go naming the fix and the row lists it (rule 399b5fa, root #151306). A head a root `go` or a patch-identical fidelity carry grade already names is settled and gets no such note, and a carry onto a merge block the board no longer holds has nothing to carry, so it logs no `TAP-CARRY-FAILED` (root #151003, #151839)."""
+        """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head when a chain of `head` records reading `<new> (was <old>)` and fidelity carries calls each move patch-identical: `cc-present verdict carry` records it, so the row shows his tap and asks nothing, and one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads. A tap whose new head a record names with no such chain, a fixed version, is never carried: a record saying the head adds new behavior draws one `TAP-NOT-CARRIED` note to the same lanes saying the board needs a new row, and a fidelity ok grade of the head that names none draws one `TAP-KEPT` note saying his tap keeps over that review fix, so root posts the go naming the fix and the row lists it (rule 399b5fa, root #151306). Once root posts that go, the runner carries the tap to the fix itself the same way, citing the grade and the go. A head a root `go` or a patch-identical fidelity carry grade already names is otherwise settled and gets no such note, and a carry onto a merge block the board no longer holds has nothing to carry, so it logs no `TAP-CARRY-FAILED` (root #151003, #151839)."""
         if self.landing_config.get("merge_ask_surface", "slack") != "board":
             return
         if not (session := self.root_session()):
@@ -5760,22 +5761,24 @@ class Landing:
             head, tapped = heads[pr], entry.get("carriedFrom") or entry["head"]
             graded = newest_naming(fidelity_grades_in(reviews, drive, self.fidelity_lanes, self.repo, pr), head)
             moves = head_moves(reviews, drive, self.fidelity_lanes, self.repo, pr)
-            settled = bool(self.head_gos(pr, head) or graded and any(seq == graded["seq"] and identical for _, _, identical, seq in moves))
             if chain := patch_chain(moves, head, entry["head"]):
-                self.carry_tap(session, block, pr, tapped, head, chain, self.landing_audience([pr], rows, to))
-                continue
-            if settled:
+                self.carry_tap(session, block, pr, tapped, head, f"patch-identical restack, per {', '.join(f'cci #{seq}' for seq in chain)}", self.landing_audience([pr], rows, to))
                 continue
             said = [record for record in reviews if record["kind"] == "head" and about_pr(record, self.repo, pr) and names_head(graded_head(record["text"]), head)]
             adds = [record for record in [*said, *([graded] if graded else [])] if ADDS_BEHAVIOR.search(full_text(record))]
+            kept = not adds and graded and graded["text"].startswith(FIDELITY_OK)
+            if kept and (gos := self.head_gos(pr, head)):
+                self.carry_tap(session, block, pr, tapped, head, f"review fix with no new behavior, per fidelity grade cci #{graded['seq']} and root go cci #{gos[-1]['seq']} (rule 399b5fa)", self.landing_audience([pr], rows, to))
+                continue
+            if self.head_gos(pr, head) or graded and any(seq == graded["seq"] and identical for _, _, identical, seq in moves):
+                continue
             if adds and not self.book.known(LANDING, key := f"tap-new-row:{block}:{pr}:{tapped}:{head}"):
                 self.post_record("note", key, to, f"TAP-NOT-CARRIED #{pr}: the owner's tap at {tapped[:10]} on board block {block} does not carry to {head[:10]}, since cci #{adds[-1]['seq']} says that head adds new behavior; the board needs a new row for #{pr} at {head[:10]}", pr)
-            elif not adds and graded and graded["text"].startswith(FIDELITY_OK) and not self.book.known(LANDING, key := f"tap-kept:{block}:{pr}:{tapped}:{head}"):
+            elif kept and not self.book.known(LANDING, key := f"tap-kept:{block}:{pr}:{tapped}:{head}"):
                 self.post_record("note", key, to, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} on board block {block} keeps at {head[:10]}, a review fix with no new behavior per fidelity grade cci #{graded['seq']} (rule 399b5fa); root posts `go #{pr} at {head[:10]}` naming the fix, and the row lists the fix", pr)
 
-    def carry_tap(self, session: str, block: str, pr: str, tapped: str, head: str, chain: list[int], to: str) -> None:
-        cited = ", ".join(f"cci #{seq}" for seq in chain)
-        done = self.present(["cc-present", "verdict", "carry", "--session", session, "--block", block, "--row", pr, "--head", head, "--note", f"patch-identical restack, per {cited}"])
+    def carry_tap(self, session: str, block: str, pr: str, tapped: str, head: str, why: str, to: str) -> None:
+        done = self.present(["cc-present", "verdict", "carry", "--session", session, "--block", block, "--row", pr, "--head", head, "--note", why])
         if done.code:
             why = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
             if UNKNOWN_BLOCK.search(why):
@@ -5783,7 +5786,7 @@ class Landing:
             self.runner.escalate(f"tap-carry:{pr}:{head[:7]}:{hashlib.sha1(VOLATILE.sub('', why).encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", f"#{pr}", f"cc-present verdict carry refused the owner's tap on #{pr} from {tapped[:10]} to {head[:10]}: {why}; the next pass tries again")
             return
         if not self.book.known(LANDING, key := f"tap-carried:{block}:{pr}:{head}"):
-            self.post_record("note", key, to, f"TAP-CARRIED #{pr}: the owner's tap at {tapped[:10]} on board block {block} now stands at {head[:10]}, patch-identical per {cited}, recorded with cc-present verdict carry; the row asks no new tap", pr)
+            self.post_record("note", key, to, f"TAP-CARRIED #{pr}: the owner's tap at {tapped[:10]} on board block {block} now stands at {head[:10]}, a {why}, recorded with cc-present verdict carry; the row asks no new tap", pr)
 
     def ask_owner(self, heads: dict[str, str], waiting: dict[str, list[str]], rows: dict[str, dict]) -> None:
         """Ask one merge card per waiting PR and head in the drive root's session, and log one `MERGE-ASK` naming it for the root, who answers the tap; nothing in the prefix is enqueued until a root `go` names each waiting head. A head touching a reserved row gets the row's key and first sentence in its card's question, whose tap is the authorization. A PR whose newest fidelity grade says `title: stale` still gets its card, and its `MERGE-ASK` and a blocker to its lane carry that line, since root posts no go until the lane's title fix (root #137006)."""
