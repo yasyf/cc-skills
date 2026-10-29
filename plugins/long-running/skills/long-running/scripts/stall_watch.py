@@ -166,6 +166,7 @@ FINDER_PENDING = "FINDER-PENDING"
 REFUSAL_KINDS = frozenset({"blocker", "report", "note", "defect", "urgent"})
 REFUSAL_LABELS = frozenset({"FOREIGN", "TAP-REQUIRED", "CONTRACT-MISSING", "PARKED", "UNOWNED", "NOT-QUEUEABLE", "ENQUEUE-STRANDED", "ENQUEUE-FAILED", "ENQUEUE-UNSETTLED"})
 STACK_NOTES = ("BELOW-BLOCKED", "BELOW-HELD", "QUEUED")
+WARNS_ONLY = re.compile(r"\bWARNING\b|\bis not held for it\b")
 REFUSAL_CAUSES = (
     ("parent", re.compile(r"\buntracked\b|\b(?:does|do) not track\b|\bnot tracked\b|\blost (?:its )?(?:recorded )?(?:Graphite )?parent\b|\bclosed (?:PR |#\d+)", re.IGNORECASE)),
     ("restack", re.compile(r"\bneeds-restack\b|\bgraphite-base/|\brestack\b", re.IGNORECASE)),
@@ -525,6 +526,7 @@ def refuses(record: dict, desks: list[str]) -> bool:
         and (record["lane"] == RUNNER or record["lane"] in desks or record["lane"].startswith(LANDING_DESK))
         and record.get("status") != "closed"
         and not record["text"].startswith(STACK_NOTES)
+        and not WARNS_ONLY.search(record["text"])
     )
 
 

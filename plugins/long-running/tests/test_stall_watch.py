@@ -972,3 +972,10 @@ def test_a_board_line_spares_root_while_the_board_refresher_posted_about_the_pr_
     shell = FakeShell(records, [row("101")])
     watch(shell, config)
     assert not [topic for topic in shell.topics() if topic.startswith("board:")]
+
+
+def test_a_runner_warning_that_holds_nothing_is_no_refusal(config):
+    warning = f"#101 {HEAD[:10]}: WARNING `rulings.py check-pr` warns at {HEAD[:10]}, and the head is not held for it: CONTRACT-MISSING api-lane has no contract"
+    shell = FakeShell([*gone("101", HEAD), record(5, "desk-runner", "note", warning, 30, to=["api-lane", "root"])], [row("101")])
+    watch(shell, config)
+    assert not [topic for topic in shell.topics() if topic.startswith(("refusal:", "successor:"))]
