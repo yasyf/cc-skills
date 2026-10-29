@@ -5549,6 +5549,7 @@ def land_fast(shell: FakeShell, config: Path, body: str = FAST_BODY, labels: str
     landing_pass(shell, config)
     shell.sleep(180)
     shell.rows = [fast_row(shell, labels, lane)]
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": lane, "kind": "landed", "to": ["root"], "refs": {"prs": ["Forge-AI/monorepo#36642"]}, "text": "#36642 landed", "at": actions.stamp(shell.now())})
 
 
 def body_reads(shell: FakeShell) -> list[list[str]]:
@@ -5920,6 +5921,19 @@ def test_a_green_head_a_go_names_that_enqueues_escalates_nothing(shell, config, 
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["33001", "--partial"]]
     assert unqueued(shell) == []
+
+
+def test_a_pr_landed_with_no_enqueue_of_the_runners_own_posts_landed_to_its_lane_once(shell, config, tmp_path):
+    shell.rows = single_row()
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite CONFLICTING")]
+    shell.pr_status["29020"] = {"queue": "not queued", "verdict": "blocked:ci-pending"}
+    landing_pass(shell, config)
+    shell.rows[0] |= {"state": "landed", "landed_sha": "dddd444444"}
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [landed] = [post for post in shell.posts if post["text"].startswith("LANDED")]
+    assert (landed["kind"], landed["to"], landed["id"]) == ("landed", f"root,{LANE}", "landed:29020")
+    assert landed["text"].startswith("LANDED #29020 as dddd444444: merged into dev with no enqueue of the landing runner's own")
 
 
 def test_a_runner_enqueue_posts_queued_and_then_landed_naming_the_go(shell, config, tmp_path):
@@ -10475,12 +10489,32 @@ def test_a_trunk_job_any_open_rows_build_runs_is_a_landing_red_even_when_the_new
     built(shell, "cccc333333", "78214", script_build("sanddb-http", "sand-tests"))
     built(shell, "dddd444444", "78286", script_build("sand-tests"))
     built(shell, "bbbb", "29019", script_build("sanddb-http", "sand-tests", failed="sanddb-http"))
+    built(shell, "aaaa", "29018", script_build("sanddb-http", "sand-tests"))
     shell.trunk = [trunk_commit("b", "FAILURE", "29019", "2026-10-01T17:50:00Z"), trunk_commit("a", "SUCCESS", "29018", "2026-10-01T17:40:00Z")]
 
     landing.watch_trunk(OPEN_ROWS)
 
     [(kind, _, text)] = trunk_posts(shell)
     assert kind == "incident" and text.startswith("DEV-RED since 10:50 AM: dev's buildkite/test fails sanddb-http")
+
+
+def test_a_trunk_build_green_only_because_a_job_soft_fails_posts_post_merge_red_once_naming_the_prs_landed_since_the_last_build(shell, config, tmp_path):
+    with_ci_build(config)
+    desk_lane(config)
+    landing = trunk_watch(shell, config, tmp_path)
+    built(shell, "aaaa", "29018", script_build("sand-tests", "new-tree"))
+    built(shell, "cccc", "29020", {"jobs": [{"type": "script", "name": "sand-tests", "state": "passed"}, {"type": "script", "name": "new-tree", "state": "failed", "soft_failed": True}]})
+    shell.trunk = [trunk_commit("c", "SUCCESS", "29020", "2026-10-01T17:55:00Z"), trunk_commit("b", None, "29019", "2026-10-01T17:50:00Z"), trunk_commit("a", "SUCCESS", "29018", "2026-10-01T17:40:00Z")]
+    rows = {"29019": {"state": "landed", "lane": "lane-b"}, "29020": {"state": "landed", "lane": "lane-c"}}
+
+    landing.watch_trunk(rows)
+    landing.watch_trunk(rows)
+
+    [red] = [post for post in shell.posts if post["text"].startswith("POST-MERGE-RED")]
+    assert red["to"] == f"root,{DESK},lane-c,lane-b"
+    assert "dev's build https://buildkite.com/forge/test/builds/29020 has jobs failing that https://buildkite.com/forge/test/builds/29018 did not: new-tree soft-failed. Landed between the two: #29020, #29019." in red["text"]
+    assert trunk_posts(shell) == []
+    assert len([call for call in shell.calls if call[1:3] == ["bk", "api"]]) == 2
 
 
 FINDER_HEAD = "7414944e30bfec89dee45328414dbc1016e35afa"

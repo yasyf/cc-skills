@@ -1657,7 +1657,9 @@ carries its grade, below) is that gate's record there, and nobody re-grades it.
 `landing.desk_lane` in `runner.json` names a lane, one or a list, the runner's
 `QUEUED`, `LANDED`, `TAP-CARRIED`, `MERGE-ASK`, `BELOW-BLOCKED` and `FORK-DEFERRED` records go to that
 lane, each `landing.board_lane`, and the PR's owning lane, each read as its live
-successor, and not to root. A `GO-UNQUEUED` for a PR goes to root the first time and to
+successor, and not to root. A ledger row that settles landed with no enqueue or squash of the
+runner's own, queued by hand or landed in a batch it did not enqueue, gets its own `LANDED`
+record the pass the ledger reads its squash. A `GO-UNQUEUED` for a PR goes to root the first time and to
 those lanes after. A `LANE-GONE` for a lane goes to root every time, and to those lanes and
 the gone lane too after the first, since only root relaunches a lane. Without
 `landing.desk_lane` they go to root.
@@ -1765,7 +1767,12 @@ topic, naming the jobs, the first red commit and the PR that landed it, saying n
 land until it is fixed, again every 30 minutes while red. The runner holds no row and
 the queue keeps running: its required checks hold what cannot land. A run whose failed jobs no PR build runs posts `POST-MERGE-RED`: landing continues
 and a fix is owed. `DEV-GREEN` posts once when it passes. The fix lane names its PR with
-`cci post --topic dev-red --pr <n>`. While DEV-RED stands, `board_rows.py` keeps every
+`cci post --topic dev-red --pr <n>`. With `landing.ci_build` set too, each newer finished
+trunk build is read once and compared with the one before it: a job name that fails or
+soft-fails more often in the newer build posts one `POST-MERGE-RED` to root, each
+`landing.desk_lane` and the lanes of the PRs that landed between the two builds, naming the
+build, the jobs and those PRs, so a build that passes only because its failing jobs soft-fail
+still reads red. While DEV-RED stands, `board_rows.py` keeps every
 tap row on the board and opens the merge card's prompt with `dev's test build is red since
 <time>; nothing lands until #<fix> fixes it.`, and the pack refuses a READY report or a
 root ruling that calls a head "green except" a job, a job "known red", or a trunk "red by
