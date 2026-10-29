@@ -319,25 +319,92 @@ document.addEventListener('pointerout', (e) => {
 function holdPeek() {
   if (peek.n !== null && performance.now() - peek.at > 350) document.querySelector(`.mr[data-peek="${peek.n}"]`)?.classList.add('held');
 }
+const leaf = { at: 0, key: null, hash: null };
+function waitingLeaves() {
+  const needs = state.model.needs;
+  return [
+    ...needs.filter((item) => item.kind === 'prs').flatMap((group) => group.prs.map((row) => ({ kind: 'pr', row, group }))),
+    ...needs.filter((item) => item.kind !== 'prs').map((item) => ({ kind: item.kind === 'card' ? 'card' : 'ask', item })),
+  ];
+}
+function leafKey(l) {
+  return l.kind === 'pr' ? `pr-${l.row.number}` : l.kind === 'card' ? `card-${l.item.card.id}` : `ask-${l.item.ask.what}`;
+}
+function leafTitle(l) {
+  if (l.kind === 'pr') return prTitle(l.row.number);
+  if (l.kind === 'card') return rewritten('cards', l.item.card.key)?.question ?? words(l.item.card.title);
+  return l.item.ask.what;
+}
+function placeLeaf(leaves) {
+  const r = route();
+  if (leaf.hash !== location.hash) {
+    leaf.hash = location.hash;
+    const card = r.id === 'q' && leaves.find((l) => l.kind === 'card' && (!r.tab || l.item.card.id === decodeURIComponent(r.tab)));
+    if (card) leaf.key = leafKey(card);
+  }
+  const found = leaves.findIndex((l) => leafKey(l) === leaf.key);
+  leaf.at = found >= 0 ? found : Math.max(0, Math.min(leaf.at, leaves.length - 1));
+  leaf.key = leafKey(leaves[leaf.at]);
+}
+function turnLeaf(to) {
+  const leaves = waitingLeaves();
+  if (!leaves[to]) return;
+  Object.assign(leaf, { at: to, key: leafKey(leaves[to]) });
+  if (location.hash !== '#/review') history.replaceState(history.state, '', '#/review');
+  leaf.hash = location.hash;
+  render();
+  window.scrollTo(0, 0);
+}
 function reviewScreen(list) {
   const m = state.model;
-  if (list === 'q') list = '';
   const decided = m.board.rows.filter((r) => verdictState(r) !== 'you');
-  const chips = `<nav class="pg-filters"><a href="#/review" class="${list ? '' : 'on'}">Waiting on you <b>${needsTotal()}</b></a><a href="#/review/decided" class="${list === 'decided' ? 'on' : ''}">You approved or held <b>${decided.length}</b></a></nav>`;
-  if (list === 'decided') return `<div class="pg">${pageHead('Review', curated('review'))}${chips}<div class="mr-list">${decided.map(mergeRow).join('') || '<p class="pg-none">Nothing you approved is still waiting to land.</p>'}</div></div>`;
-  const merges = m.needs.filter((item) => item.kind === 'prs').map((g) => {
-    const words = rewritten('groups', g.key);
-    const relation = words ? words.relation : g.relation;
-    const head = g.prs.length > 1 ? `<h3>${esc(words?.title ?? g.group)}</h3>${relation ? `<p class="pg-rel">${esc(relation)}</p>` : ''}` : '';
-    return `<section class="pg-sec mr-group">${head}<div class="mr-list">${g.prs.map(mergeRow).join('')}</div></section>`;
-  }).join('');
-  const cards = m.needs.filter((item) => item.kind === 'card');
-  return `<div class="pg">${pageHead('Review', curated('review'))}${chips}
-    ${needsTotal() ? '' : '<p class="pg-lead">Nothing waits on you. When a change or a question needs you, it shows here and in the band on Now.</p>'}
-    ${needsTotal() && !merges ? '<p class="pg-rel">No change waits on your approval right now.</p>' : ''}
-    ${merges}
-    ${cards.length ? `<section class="pg-sec" id="review-questions"><h2>Questions</h2><div class="mr-list">${cards.map(boardCard).join('')}</div></section>` : ''}</div>`;
+  const head = pageHead('Review', curated('review'));
+  const chips = `<nav class="pg-filters"><a href="#/review" class="${list === 'decided' ? '' : 'on'}">Waiting on you <b>${needsTotal()}</b></a><a href="#/review/decided" class="${list === 'decided' ? 'on' : ''}">You approved or held <b>${decided.length}</b></a></nav>`;
+  if (list === 'decided') return `<div class="pg">${head}${chips}<div class="mr-list">${decided.map(mergeRow).join('') || '<p class="pg-none">Nothing you approved is still waiting to land.</p>'}</div></div>`;
+  const leaves = waitingLeaves();
+  if (!leaves.length) return `<div class="pg">${head}${chips}<p class="pg-lead">Nothing waits on you. When a change or a question needs you, it shows here and on Now.</p></div>`;
+  placeLeaf(leaves);
+  const at = leaf.at;
+  for (const near of [leaves[at - 1], leaves[at], leaves[at + 1]]) if (near?.kind === 'pr') describe(near.row.number);
+  const turn = (to, label, key) => `<button class="btn" data-leaf="${to}"${leaves[to] ? '' : ' disabled'}>${label}<kbd>${key}</kbd></button>`;
+  const contents = leaves.map((l, i) => `<li class="mr${i === at ? ' on' : ''}"${l.kind === 'pr' ? ` data-peek="${l.row.number}"` : ''}><button class="mr-t" data-leaf="${i}">${esc(leafTitle(l))}</button>${l.kind === 'pr' ? prPeek(l.row.number) : ''}</li>`).join('');
+  return `<div class="pg rv">${head}${chips}
+    <div class="rv-prog"><b>${at + 1} of ${leaves.length}</b><span class="bar"><i style="width:${((at + 1) / leaves.length) * 100}%"></i></span><span>K and J turn the page</span></div>
+    ${leafPage(leaves[at])}
+    <div class="rv-turn">${turn(at - 1, '‹ Previous', 'K')}${turn(at + 1, 'Next ›', 'J')}</div>
+    <section class="rv-toc pg-sec"><h2>Everything waiting on you <span class="pg-n">${leaves.length}</span></h2><ol>${contents}</ol></section></div>`;
 }
+function leafPage(l) {
+  if (l.kind === 'card') return `<div class="rv-leaf rv-card"><div class="kick">A question for you</div>${boardCard(l.item)}</div>`;
+  if (l.kind === 'ask') return `<div class="rv-leaf"><div class="kick">A question for you</div><p class="rv-title">${esc(l.item.ask.what)}</p>${l.item.why ? `<p class="mr-why">${esc(l.item.why)}</p>` : ''}${l.item.ask.link ? `<p class="bq-acts"><a class="btn" href="${esc(l.item.ask.link)}" target="_blank" rel="noopener">${esc(l.item.ask.link_text ?? 'Open')}</a></p>` : ''}</div>`;
+  const { row, group } = l;
+  const n = row.number;
+  const w = rowWords(row);
+  const busy = pending.number === n && !pending.error;
+  const said = rewritten('groups', group.key);
+  const relation = said ? said.relation : group.relation;
+  const pr = describe(n);
+  const [kick, text] = pr && !pr.error ? botPlain(pr) : ['', ''];
+  const bot = !pr ? '<p class="pr-wait">Reading what the reviewer bot says it does…</p>' : pr.error ? '<p class="pr-wait">What it does is unavailable right now.</p>' : text ? `<div class="kick muted">${kick}</div><div class="md">${markdown(text)}</div>` : '<p class="pr-wait">Its author wrote no description.</p>';
+  return `<article class="rv-leaf mr t-you" data-peek="${n}"><div class="kick">${group.prs.length > 1 ? esc(said?.title ?? group.group) : 'A change waiting on you'}</div>${group.prs.length > 1 && relation ? `<p class="pg-rel">${esc(relation)}</p>` : ''}
+    <a class="rv-title mr-t" href="#/review/${n}">${esc(w.title)}</a>
+    <div class="mr-acts"><button class="btn pri" data-approve="${n}" data-head="${esc(row.head)}"${busy ? ' disabled' : ''}>${busy ? 'Sending' : 'Approve'}</button><button class="btn" data-hold-row="${n}"${busy ? ' disabled' : ''}>Hold</button><a class="btn ghost" href="#/review/${n}">Its code and review ›</a></div>
+    ${waitLine(row, w)}${row.carried?.length ? '<p class="mr-waits">Your earlier approval carries to this version; the review line names the fix.</p>' : ''}${rowFacts(row)}
+    ${pending.number === n && pending.error ? `<p class="mr-err">Not recorded: ${esc(pending.error)}</p>` : ''}
+    <section class="rv-bot">${bot}</section>${changeBox(n, row.head)}</article>`;
+}
+document.addEventListener('click', (e) => {
+  const to = e.target.closest('[data-leaf]');
+  if (to) turnLeaf(Number(to.dataset.leaf));
+});
+document.addEventListener('keydown', (e) => {
+  const r = route();
+  if (r.screen !== 'review' || (r.id && r.id !== 'q') || state.overlay || e.metaKey || e.ctrlKey || e.altKey || e.target.closest('input, textarea, select, [contenteditable]')) return;
+  const key = e.key.toLowerCase();
+  if (key !== 'j' && key !== 'k') return;
+  e.preventDefault();
+  turnLeaf(leaf.at + (key === 'j' ? 1 : -1));
+});
 
 function historyEntry(e) {
   const id = `hs-${e.at}-${e.title}`;

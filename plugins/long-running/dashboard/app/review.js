@@ -83,7 +83,7 @@ function diagramFigure(diagram) {
   if (!diagrams.has(diagram.source)) {
     diagrams.set(diagram.source, null);
     mermaidLoad ??= import('https://cdn.jsdelivr.net/npm/mermaid@12.2.0/dist/mermaid.esm.min.mjs').then(({ default: mermaid }) => {
-      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true, theme: 'base', fontFamily: getComputedStyle(document.body).getPropertyValue('--sans'), flowchart: { curve: 'basis', padding: 14, useMaxWidth: false }, themeVariables: { darkMode: true, background: '#0d1015', primaryColor: '#121a24', primaryTextColor: '#eceff3', primaryBorderColor: '#3ddc97', lineColor: '#6b7480', secondaryColor: '#151a21', tertiaryColor: '#11151b', edgeLabelBackground: '#0d1015', fontSize: '13px' } });
+      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true, theme: 'base', fontFamily: getComputedStyle(document.body).getPropertyValue('--sans'), flowchart: { curve: 'basis', padding: 14, useMaxWidth: false }, themeVariables: { darkMode: false, background: '#fbf8f1', primaryColor: '#fbf8f1', primaryTextColor: '#1d1a16', primaryBorderColor: '#1d1a16', lineColor: '#8b8477', secondaryColor: '#f0ebdf', tertiaryColor: '#f6f2e9', edgeLabelBackground: '#fbf8f1', clusterBkg: '#f6f2e9', clusterBorder: '#cfc6b3', actorBkg: '#fbf8f1', actorBorder: '#1d1a16', signalColor: '#4b463e', signalTextColor: '#1d1a16', noteBkgColor: '#f6e4da', noteBorderColor: '#b5401c', noteTextColor: '#1d1a16', fontSize: '14px' } });
       return mermaid;
     });
     const id = `diagram-${diagrams.size}`;
@@ -94,13 +94,17 @@ function diagramFigure(diagram) {
   }
   return `<figure class="bot-diagram" data-keep-scroll="diagram"><figcaption>${esc(diagram.title)}</figcaption>${diagrams.get(diagram.source) ?? '<div class="dg-wait">Drawing the diagram…</div>'}</figure>`;
 }
+function botPlain(pr) {
+  const body = prBody(pr);
+  const said = pr.eli5 ?? pr.summary;
+  if (said) return ['What it does, from the reviewer bot', said];
+  return body ? ['From its description', /^#{1,4}\s*Summary\s*\n+([\s\S]*?)(?=^#{1,4}\s|(?![\s\S]))/m.exec(body)?.[1].trim() || body] : ['', ''];
+}
 function prPeek(n) {
   const pr = described[describedKey(n)];
   if (!pr) return '<div class="mr-peek dim">Reading what it does…</div>';
   if (pr.error) return '<div class="mr-peek dim">What it does is unavailable right now.</div>';
-  const body = prBody(pr);
-  const said = pr.eli5 ?? pr.summary;
-  const [kick, text] = said ? ['What it does, from the reviewer bot', said] : body ? ['From its description', /^#{1,4}\s*Summary\s*\n+([\s\S]*?)(?=^#{1,4}\s|(?![\s\S]))/m.exec(body)?.[1].trim() || body] : ['', ''];
+  const [kick, text] = botPlain(pr);
   return text ? `<div class="mr-peek"><div class="kick muted">${kick}</div><div class="md">${markdown(text)}</div></div>` : '<div class="mr-peek dim">Its author wrote no description.</div>';
 }
 function decideBar(row, v) {
