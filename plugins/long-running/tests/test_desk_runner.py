@@ -4916,6 +4916,19 @@ def test_a_grade_posted_with_the_owner_repo_reference_counts_and_one_for_another
     assert not [call for call in shell.calls if call[:2] == ["cci", "tail"] and "--kind=review" in call and "--pr" in call]
 
 
+def test_a_fidelity_desk_ok_stands_over_a_pipeline_missing_at_the_same_head(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-pipeline"]
+    config.write_text(json.dumps(raw))
+    lone_green_pr(shell)
+    grade(shell, "29020", "missing cccc333 plan:112 the plan names no gallery field", lane="fidelity-pipeline")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    grade(shell, "29020", "ok cccc333 a line-for-line port of the old-tree commit")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
 def test_a_missing_from_one_fidelity_lane_is_never_cleared_by_a_later_ok_from_another(shell, config, tmp_path):
     raw = json.loads(config.read_text())
     raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-desk-7"]
