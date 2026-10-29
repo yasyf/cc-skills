@@ -89,7 +89,7 @@ function diagramFigure(diagram) {
     const id = `diagram-${diagrams.size}`;
     mermaidLoad
       .then((mermaid) => mermaid.render(id, diagram.source))
-      .then(({ svg }) => svg, () => `<pre><code>${esc(diagram.source)}</code></pre>`)
+      .then(({ svg }) => svg, () => '')
       .then((drawn) => { diagrams.set(diagram.source, drawn); render(); });
   }
   return `<figure class="bot-diagram" data-keep-scroll="diagram"><figcaption>${esc(diagram.title)}</figcaption>${diagrams.get(diagram.source) ?? '<div class="dg-wait">Drawing the diagram…</div>'}</figure>`;
