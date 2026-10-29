@@ -539,8 +539,9 @@ object, such as `"landing": {"env": {"AWS_PROFILE": "release-operator"}}`, is me
 each time `run` starts, a re-execution included, and is carried by its restart command and its `handoff` successor. `handoff` stops the live runner at the next
 boundary between the steps of its pass, or between the PRs and stacks a landing step works through, and starts the next one with the same config and desk, appending to `<desk>-runner.log`. Each `run` holds
 `<config>.<desk>.lock` for its life and refuses to start, naming the holder's pid, while another runner holds it; `handoff` stops
-that holder and waits up to 20 minutes, as long as a slow pass takes, for it to exit; past that it starts nothing and logs
-`HANDOFF-STALLED` to root with the pid. `handoff` stops nothing while the install lacks a runtime brief or any file of
+that holder and waits up to 20 minutes, as long as a slow pass takes, for it to exit, or for its heartbeat to show it
+re-executed into the handoff's own version under the same pid, which withdraws the stop and starts nothing; past that it
+starts nothing and logs `HANDOFF-STALLED` to root with the pid. `handoff` stops nothing while the install lacks a runtime brief or any file of
 `reference/` or `scripts/` that the marketplace copy it was installed from holds. `drive.py digest`
 prints each desk's running and installed versions.
 While ruling cards `rulings.py classify` wrote queue under the drive's `cards/`, the landing runner logs one `RULING-ASK`
@@ -1950,7 +1951,7 @@ class Runner:
             return holder
 
     def handoff(self, desk: str) -> int:
-        """Stop the runner holding `desk`'s lock at its next step boundary, wait until it has exited, then start its successor; refuse, naming its pid, when it still runs after HANDOFF_WAIT (#140225). Refuse before stopping anything when the install lacks a brief the runner, finder, or incident job reads, or any reference or script file the marketplace copy it was installed from holds."""
+        """Stop the runner holding `desk`'s lock at its next step boundary, wait until it has exited, then start its successor; a runner whose heartbeat, written after the stop was asked, shows it re-executed into this version under the same pid has handed over in place, so its stop is withdrawn and no successor starts (root, Oct 29 11:46 AM); refuse, naming its pid, when neither happens within HANDOFF_WAIT (#140225). Refuse before stopping anything when the install lacks a brief the runner, finder, or incident job reads, or any reference or script file the marketplace copy it was installed from holds."""
         if missing := list(dict.fromkeys([*(f"{path.parent.name}/{path.name}" for path in BRIEF_FILES if not path.exists()), *install_gaps()])):
             print(f"desk-runner handoff: this install lacks {', '.join(missing)}, so no runner was stopped; reinstall the plugin and hand off again", file=sys.stderr)
             return 1
@@ -1958,8 +1959,16 @@ class Runner:
         if pid is not None:
             marker = self.stop_marker()
             marker.write_text(f"{pid}\n")
-            deadline = self.now() + HANDOFF_WAIT
+            asked = self.now()
+            deadline = asked + HANDOFF_WAIT
             while self.desk_holder(desk) == pid:
+                if self.reexecuted(desk, pid, asked):
+                    marker.unlink(missing_ok=True)
+                    self.shell.sleep(WAKE_SECONDS)
+                    if self.desk_holder(desk) == pid:
+                        print(f"desk-runner handoff: runner {pid} re-executed into {RUNNING_VERSION} in place, so no successor started")
+                        return 0
+                    break
                 if self.now() >= deadline:
                     why = f"runner {pid} still runs the {desk} desk after {HANDOFF_WAIT}, so no successor started; {marker} stays, the runner exits at the end of its pass, and the next `desk-runner.py handoff --desk {desk}` starts the successor"
                     self.escalate(f"handoff:{desk}:{pid}", "HANDOFF-STALLED", "runner", why)
@@ -1970,6 +1979,13 @@ class Runner:
         started = self.shell.spawn([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk], self.runner_log(desk), self.config.desk_env[desk], append=True)
         print(f"desk-runner handoff: {f'runner {pid} exited' if pid is not None else f'no live {desk} runner'}; started runner {started.pid}, logging to {self.runner_log(desk)}")
         return 0
+
+    def reexecuted(self, desk: str, pid: int, since: datetime) -> bool:
+        heartbeat = self.config.desk_inbox.parent / HEARTBEATS[desk]
+        if not heartbeat.is_file():
+            return False
+        beat = json.loads(heartbeat.read_text())
+        return beat["pid"] == pid and beat.get("version") == RUNNING_VERSION and datetime.fromisoformat(beat["at"]) >= since
 
     def binding(self, via: str = "") -> dict:
         """Ask Orca whether the Run's coordinator is a live terminal that coordinates it, and record the answer, with how it was obtained, in the runner's state."""
