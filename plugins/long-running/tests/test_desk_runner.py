@@ -4829,6 +4829,20 @@ def test_a_heads_final_rulings_check_survives_a_runner_restart_and_an_unread_one
     assert sorted(call[call.index("--pr") + 1] for call in shell.calls if "check-pr" in call) == ["Forge-AI/monorepo#29020", "Forge-AI/monorepo#29031", "Forge-AI/monorepo#29031"]
 
 
+def test_kept_rulings_checks_outlive_a_release_that_changes_only_the_plumbing_rulings_reads_through(shell, config, tmp_path, monkeypatch):
+    two_pr_stack(shell)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    runner_module.Landing(runner, runner.config.landing).rulings_report("29020", "cccc333333")
+    plumbing = tmp_path / "scripts"
+    plumbing.mkdir()
+    for path in runner_module.SCRIPTS.glob("*.py"):
+        (plumbing / path.name).write_bytes(path.read_bytes() + (b"\n" if path.stem in ("ledger", "grades", "cci", "drive", "ghread") else b""))
+    monkeypatch.setattr(runner_module, "SCRIPTS", plumbing)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    runner_module.Landing(runner, runner.config.landing).rulings_report("29020", "cccc333333")
+    assert len([call for call in shell.calls if "check-pr" in call]) == 1
+
+
 def test_a_pass_reads_a_repeated_cci_query_once_until_the_runner_posts(shell, config, tmp_path):
     two_pr_stack(shell)
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
