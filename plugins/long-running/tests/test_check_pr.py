@@ -96,8 +96,8 @@ class CheckShell(RegisterShell):
                 return json.dumps({"body": self.body, "baseRefName": "main", "comments": [{"body": comment} for comment in self.comments]})
             case ["cci", "tail", "--drive", "brook-cci", "--since", since, "--json", "--budget", _, "--pr", "acme/app#12"]:
                 return "".join(json.dumps(record) + "\n" for record in self.pr_records if record["seq"] > int(since))
-            case ["cci", "tail", "--drive", "brook-cci", "--since", since, "--json", "--budget", _, "--kind", "review"]:
-                return "".join(json.dumps(record) + "\n" for record in self.reviews if record["seq"] > int(since))
+            case ["cci", "tail", "--drive", "brook-cci", "--since", since, "--json", "--budget", _, "--kind", "review", "--kind", "answer"]:
+                return "".join(json.dumps(record) + "\n" for record in self.reviews if record["seq"] > int(since) and record["kind"] in ("review", "answer"))
         return super().run(argv, stdin, cwd)
 
 
@@ -495,6 +495,23 @@ def test_the_lane_of_the_head_needs_a_desks_newest_grade_ok_for_its_current_slic
 def test_a_desks_grade_names_the_lane_after_an_optional_head_and_before_an_optional_stamp(package: Path, state: Path, registered: Path, capsys, text: str, expected: tuple[int, list[str]]) -> None:
     rows = pinned(package)
     assert check(capsys, CheckShell(rows, reviews=[dict(graded(current_stamp(rows, None)), text=text)])) == expected
+
+
+@pytest.mark.parametrize(
+    ("kind", "text", "expected"),
+    [
+        ("answer", "read-back lane-a: ok. It matches the record.", (0, [])),
+        ("answer", "readback: ok lane-a", (0, [])),
+        ("review", "read-back lane-a: ok", (0, [])),
+        ("answer", "read-back lane-a: missing\nrule/bbbbbbb the drain line", (1, ["CONTRACT-MISSING lane-a: the newest grade, #9, is missing: rule/bbbbbbb the drain line"])),
+        ("answer", "read-back lane-b: ok. It matches the record.", (1, ["CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back"])),
+        ("note", "readback: ok lane-a", (1, ["CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back"])),
+    ],
+    ids=["answer-said-ok", "answer-canonical-ok", "review-said-ok", "answer-said-missing", "answer-another-lane", "note-is-no-grade"],
+)
+def test_a_desks_read_back_grade_counts_as_an_answer_or_a_review_in_either_phrasing(package: Path, state: Path, registered: Path, capsys, kind: str, text: str, expected: tuple[int, list[str]]) -> None:
+    rows = pinned(package)
+    assert check(capsys, CheckShell(rows, reviews=[dict(graded(current_stamp(rows, None)), kind=kind, text=text)])) == expected
 
 
 def test_a_desks_ok_stands_until_a_newer_grade_whatever_the_register_gains_after_it(package: Path, state: Path, registered: Path, capsys) -> None:
