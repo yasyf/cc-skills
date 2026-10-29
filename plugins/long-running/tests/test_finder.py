@@ -139,7 +139,7 @@ class Fake:
 def job(tmp_path: Path, **changes) -> Path:
     directory = tmp_path / "finder-desk" / f"43299-{HEAD[:12]}"
     directory.mkdir(parents=True)
-    spec = {"drive": "d1", "repo": REPO, "pr": "43299", "head": HEAD, "since": "", "prior": None, "previous": "", "history": [], "lane": "p8a-step9", "to": ["root"], "checkout": str(tmp_path / "checkout"), "model": "sol", "full": False}
+    spec = {"drive": "d1", "repo": REPO, "pr": "43299", "head": HEAD, "since": "", "prior": None, "previous": "", "history": [], "settled": {}, "lane": "p8a-step9", "to": ["root"], "checkout": str(tmp_path / "checkout"), "model": "sol", "full": False}
     (directory / finder.JOB).write_text(json.dumps(spec | changes))
     return directory
 
@@ -222,20 +222,21 @@ def test_a_requested_full_pass_at_a_head_a_delta_record_graded_reads_the_whole_c
 
 
 @pytest.mark.parametrize(
-    ("to", "text", "prs"),
+    ("kind", "to", "text", "prs"),
     [
-        (["finder-desk", "p8b-step10"], "finder-desk: one whole-diff pass on #44114 over its own commits", ["44114"]),
-        (["finder-desk"], "finder-desk: run #44114 at 7d13a98 again", ["44114"]),
-        (["finder-desk"], "finder-desk: thanks for #44114", []),
-        (["p8b-step10"], "whole-diff pass on #44114", []),
-        (["finder-desk"], "Audit #5: the finder outage gates PRs; a hold cannot be met at 60ab5df", []),
-        (["finder-desk"], "Audit #5: #44095's hold cannot be met at 60ab5df", ["44095"]),
-        (["finder-desk"], f"whole-diff pass on pr:{REPO}#77 after yasyf/cc-skills#9940", ["77"]),
-        (["finder-desk"], "whole-diff pass on yasyf/cc-skills#9940", []),
+        ("ask", ["finder-desk", "p8b-step10"], "finder-desk: finder: whole on #44114 over its own commits", ["44114"]),
+        ("ask", ["finder-desk"], "Finder: whole #44114, please", ["44114"]),
+        ("ask", ["finder-desk"], "finder-desk: run #44114 at 7d13a98 again", []),
+        ("ask", ["finder-desk"], "finder-desk: one whole-diff pass on #44114", []),
+        ("decide", ["finder-desk"], "re #182756: the carried major on #44764 8b4019d is settled", []),
+        ("decide", ["finder-desk"], "finder: whole #44114", []),
+        ("ask", ["p8b-step10"], "finder: whole #44114", []),
+        ("ask", ["finder-desk"], f"finder: whole pr:{REPO}#77 after yasyf/cc-skills#9940", ["77"]),
+        ("ask", ["finder-desk"], "finder: whole yasyf/cc-skills#9940", []),
     ],
 )
-def test_a_decide_or_ask_to_the_finder_desk_requests_a_full_pass_when_it_names_a_head_or_asks_for_the_whole_diff(to, text, prs):
-    assert finder.requested({"to": to, "text": text, "refs": {}}, REPO) == prs
+def test_only_an_ask_to_the_finder_desk_saying_finder_whole_requests_a_full_pass(kind, to, text, prs):
+    assert finder.requested({"kind": kind, "to": to, "text": text, "refs": {}}, REPO) == prs
 
 
 def test_a_head_that_carries_no_commit_the_base_lacks_runs_no_finder(tmp_path):
@@ -394,6 +395,25 @@ def test_a_fetch_git_killed_on_another_lanes_zero_worktree_ref_is_retried_once_a
     with pytest.raises(subprocess.CalledProcessError):
         finder.main([str(again)], Fake(tmp_path, [], races=2))
     assert "bad object 0000000000000000000000000000000000000000" in result(again)["error"]
+
+
+@pytest.mark.parametrize(
+    ("graded", "settled", "carried"),
+    [
+        ("finder: major a269784 1 open: walk.go:9 skips the volume link", {"149302": 149400}, "finder: ok {head} carried from #149302, settled by root #149400"),
+        ("finder: major a269784 carried from #149100", {"149100": 149150}, "finder: ok {head} carried from #149302, settled by root #149150"),
+        ("finder: major a269784 1 open: walk.go:9 skips the volume link", {"149100": 149150}, "finder: major {head} carried from #149302"),
+    ],
+    ids=["settled", "settled-upchain", "unsettled"],
+)
+def test_a_carried_major_root_settled_carries_as_ok_citing_the_root_decide(tmp_path, graded, settled, carried):
+    prior = {"seq": 149302, "lane": "finder-desk", "head": "a269784", "text": graded}
+    history = [{"seq": 149100, "lane": "finder-desk", "text": "finder: major 9f00e11 1 open: walk.go:9 skips the volume link", "path": ""}, prior | {"path": ""}]
+    directory = job(tmp_path, prior=prior, history=history, settled=settled)
+    shell = Fake(tmp_path, [], own={(BASE, HEAD): [OWN], (BASE, OLD): [OLD_OWN]}, resolve={"a269784": OLD}, ranges={EARLIER: pairs("=", "=")})
+    finder.main([str(directory)], shell)
+    [post] = shell.posted
+    assert not shell.asks() and post["--text"] == carried.format(head=HEAD[:7])
 
 
 @pytest.mark.parametrize("graded", ["finder: ok a269784 sol finder over dev...a269784: no majors", "finder: major a269784 1 open: walk.go:9 skips the volume link"])

@@ -411,8 +411,8 @@ container, so a head two records name queues once; a first read starts at the ne
 passes (default 2) run at once and the rest wait queued; each PR's newest queued head starts, longest waiting first, and an older
 queued head of the same PR settles as superseded, and so does a running pass of it: the runner writes its job's `cancelled`
 mark and runs `codex-ask --cancel` on each codex run the pass started. Before it starts any, one fresh GraphQL read of every
-queued PR settles a head whose PR is closed, or no longer at that head, as skipped. A head some lane's `finder:` record already names starts nothing. A `decide`
-or `ask` to `finder-desk` that names a PR and a head, or says whole-diff or full pass, queues one `full` pass of that PR that
+queued PR settles a head whose PR is closed, or no longer at that head, as skipped. A head some lane's `finder:` record already names starts nothing. A root
+`ask` to `finder-desk` that names a PR and says `finder: whole` queues one `full` pass of that PR that
 starts ahead of the rest and wins over its queued heads: it reads the PR's whole own change at its live head even when a record
 names that head, unless a whole-range finder record about the PR is newer than its newest `head` record. A pass
 writes `<config dir>/finder-desk/<pr>-<head12>/job.json` and starts `finder.py` on that directory detached, which runs
@@ -4134,12 +4134,12 @@ class Runner:
             newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
             self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_CURSOR: max((record["seq"] for record in newest), default=0)}))
             return
-        read = cci.records(self.cci_tail, self.config.drive, "--kind=head", "--kind=opened", "--kind=decide", "--kind=ask", since=cursor)
+        read = cci.records(self.cci_tail, self.config.drive, "--kind=head", "--kind=opened", "--kind=ask", since=cursor)
         for record in read:
             if record["drive"] != self.config.drive:
                 continue
-            if record["kind"] in ("decide", "ask"):
-                for pr in finder.requested(record, repo):
+            if record["kind"] == "ask":
+                for pr in finder.requested(record, repo) if record["lane"] == ROOT else ():
                     self.book.accept(FINDER, f"finder:{pr}:whole:{record['seq']}", "finder", json.dumps({"pr": pr, "head": "", "lane": record["lane"], "seq": record["seq"], "full": True}), f"cci#{record['seq']}", None)
                 continue
             for pr, head in finder.heads(record, repo):
@@ -4272,6 +4272,7 @@ class Runner:
                     "prior": prior,
                     "previous": finder.previous(next((record for record in records if record["seq"] == job["seq"]), None)) if named and not full else "",
                     "history": [{"seq": record["seq"], "lane": record["lane"], "text": record["text"], "path": (record.get("refs") or {}).get("path", "")} for record in named],
+                    "settled": self.root_settled(repo, job["pr"], named),
                     "lane": job["lane"],
                     "to": [ROOT, RUNNER, *spec.get("to", [])],
                     "checkout": spec.get("checkout") or landing["checkout"],
@@ -4286,6 +4287,19 @@ class Runner:
         process = self.shell.spawn([sys.executable, str(SCRIPTS / "finder.py"), str(directory)], directory / finder.LOG, {})
         (directory / finder.PID).write_text(f"{process.pid}\n")
         return True
+
+    def root_settled(self, repo: str, pr: str, named: list[dict]) -> dict[str, int]:
+        """Each finder record of `named` a root `decide` settled, keyed by its seq, with the oldest such decide: one naming it by `--re` or `--resolves`, or one about `pr` that says settled and came after it (root #182456)."""
+        if not (seqs := {record["seq"] for record in named}):
+            return {}
+        settled: dict[str, int] = {}
+        for decide in cci.records(self.cci_tail, self.config.drive, "--kind=decide", "--lane", ROOT, since=min(seqs)):
+            if (decide["kind"], decide["lane"], decide["drive"]) != ("decide", ROOT, self.config.drive):
+                continue
+            named_by = {decide.get("re"), decide.get("resolves")} & seqs
+            said = {seq for seq in seqs if seq < decide["seq"]} if "settled" in decide["text"].casefold() and about_pr(decide, repo, pr) else set()
+            settled |= {str(seq): decide["seq"] for seq in named_by | said if str(seq) not in settled}
+        return settled
 
     def finder_settled(self, key: str, response: dict) -> None:
         def settle(incident: actions.Incident) -> None:

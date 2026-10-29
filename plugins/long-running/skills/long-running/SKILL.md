@@ -1528,6 +1528,11 @@ patch, from `reference/finder-desk-brief.md`, which forbids any local build or t
 after one the PR's last finder record graded reads only what changed since, with no row
 pass, and when its own change is patch-identical to the graded head's it posts that grade
 as `finder: ok|major <head7> carried from #<seq>`, so the head never reads ungraded. A
+major root settled carries as `finder: ok <head7> carried from #<seq>, settled by root
+#<decide>`: a root `decide` settles a finder record it names by `--re` or `--resolves`,
+every finder record on the PR before it when it is about the PR and says settled, and every
+carry of a settled record. Only a root `ask` to `finder-desk` saying `finder: whole` queues a
+whole-PR pass; a `decide` never does. A
 head the PR no longer carries when the pass starts or finishes posts nothing. It posts
 `finder: ok <head>` or `finder: major <head> <n> open: …` under lane `finder-desk` to
 the head's lane. A head reaches the finder once, a head some lane's

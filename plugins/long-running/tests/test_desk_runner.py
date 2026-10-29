@@ -11116,7 +11116,7 @@ def test_each_head_starts_one_finder_at_once_however_many_records_name_it(shell,
     orca_pass(shell, config)
     assert shell.finder_jobs == [config.resolve().parent / "finder-desk" / f"43439-{FINDER_HEAD[:12]}"]
     assert finder_jobs(shell) == [
-        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "previous": "", "history": [], "lane": "p8a-step9", "to": ["root", "desk-runner"], "checkout": str(config.parent / "checkout"), "model": "sol", "full": False}
+        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "previous": "", "history": [], "settled": {}, "lane": "p8a-step9", "to": ["root", "desk-runner"], "checkout": str(config.parent / "checkout"), "model": "sol", "full": False}
     ]
 
 
@@ -11145,7 +11145,7 @@ def test_a_full_pass_request_at_a_head_a_delta_record_graded_starts_a_whole_pass
     finder_review(shell, "44114", f"finder: major {FINDER_HEAD} 21 open over delta {FINDER_OLD[:7]}..{FINDER_HEAD[:7]}: go/a.go:1 drops a write", lane="finder-desk")
     head_record(shell, "43299", FINDER_OLD)
     seq = 149000 + len(shell.records)
-    shell.records.append({"seq": seq, "drive": "d1", "lane": "root", "kind": "decide", "to": ["finder-desk", "p8b-step10"], "refs": {"prs": ["Forge-AI/monorepo#44114"]}, "text": f"finder-desk: one whole-diff pass on #44114 over its own commits at {FINDER_HEAD[:7]}", "source": "post", "at": actions.stamp(shell.clock)})
+    shell.records.append({"seq": seq, "drive": "d1", "lane": "root", "kind": "ask", "to": ["finder-desk", "p8b-step10"], "refs": {"prs": ["Forge-AI/monorepo#44114"]}, "text": f"finder-desk: finder: whole on #44114 over its own commits at {FINDER_HEAD[:7]}", "source": "post", "at": actions.stamp(shell.clock)})
     orca_pass(shell, config)
     assert shell.finder_jobs == [config.resolve().parent / "finder-desk" / f"44114-whole-{seq}"]
     [whole] = finder_jobs(shell)
@@ -11155,6 +11155,43 @@ def test_a_full_pass_request_at_a_head_a_delta_record_graded_starts_a_whole_pass
     shell.records.append({"seq": seq + 10, "drive": "d1", "lane": "root", "kind": "decide", "to": ["finder-desk"], "refs": {"prs": ["Forge-AI/monorepo#44114"]}, "text": "finder-desk: the whole-diff pass on #44114 is still owed", "source": "post", "at": actions.stamp(shell.clock)})
     orca_pass(shell, config)
     assert [job["pr"] for job in finder_jobs(shell)] == ["44114", "43299"]
+
+
+@pytest.mark.parametrize(
+    ("lane", "kind", "text"),
+    [
+        ("root", "decide", "re #182756: the carried major on #44114 at {head} is settled"),
+        ("root", "decide", "finder: whole #44114, one whole-diff pass at {head}"),
+        ("p8b-step10", "ask", "finder: whole #44114 at {head}"),
+    ],
+    ids=["root-decide", "root-decide-saying-whole", "lane-ask"],
+)
+def test_a_root_decide_or_a_lane_ask_on_a_pr_with_a_finder_record_starts_no_whole_pass(shell, config, lane, kind, text):
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    head_record(shell, "44114", FINDER_HEAD)
+    finder_review(shell, "44114", f"finder: major {FINDER_HEAD} 1 open over delta {FINDER_OLD[:7]}..{FINDER_HEAD[:7]}: go/a.go:1 drops a write", lane="finder-desk")
+    orca_pass(shell, config)
+    started = list(shell.finder_jobs)
+    shell.records.append({"seq": 149000 + len(shell.records), "drive": "d1", "lane": lane, "kind": kind, "to": ["finder-desk"], "refs": {"prs": ["Forge-AI/monorepo#44114"]}, "text": text.format(head=FINDER_HEAD[:7]), "source": "post", "at": actions.stamp(shell.clock)})
+    orca_pass(shell, config)
+    assert shell.finder_jobs == started and not [job for job in shell.finder_jobs if "-whole-" in job.name]
+
+
+def test_a_finder_job_carries_each_finder_record_a_root_decide_settled(shell, config):
+    finder_config(config)
+    orca_pass(shell, config)
+    first = finder_review(shell, "44114", f"finder: major {FINDER_OLD} 1 open over whole {FINDER_OLD[:7]}^..{FINDER_OLD[:7]}: go/a.go:1 drops a write", lane="finder-desk")
+    carried = finder_review(shell, "44114", f"finder: major {FINDER_OLD[:7]} carried from #{first}", lane="finder-desk")
+    for re_seq, text in ((first, "re: the write is dropped on purpose"), (carried + 1000, "#44114: the carried major is settled")):
+        shell.records.append({"seq": 149000 + len(shell.records), "drive": "d1", "lane": "root", "kind": "decide", "to": ["finder-desk"], "re": re_seq, "resolves": re_seq, "refs": {"prs": ["Forge-AI/monorepo#44114"]}, "text": text, "at": actions.stamp(shell.clock)})
+    decides = [record["seq"] for record in shell.records if record["kind"] == "decide"]
+    shell.records.append({"seq": 149000 + len(shell.records), "drive": "d1", "lane": "p8b-step10", "kind": "decide", "to": ["finder-desk"], "resolves": carried, "refs": {"prs": ["Forge-AI/monorepo#44114"]}, "text": "settled, I think", "at": actions.stamp(shell.clock)})
+    later = finder_review(shell, "44114", f"finder: major {FINDER_OLD[:7]} 1 open over delta: go/b.go:2 a new finding", lane="finder-desk")
+    head_record(shell, "44114", FINDER_HEAD)
+    orca_pass(shell, config)
+    [job] = finder_jobs(shell)
+    assert job["settled"] == {str(first): decides[0], str(carried): decides[1]} and str(later) not in job["settled"]
 
 
 def test_finders_past_the_cap_wait_queued_and_start_as_running_ones_finish(shell, config, capsys):
