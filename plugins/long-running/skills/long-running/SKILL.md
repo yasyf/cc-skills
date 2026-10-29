@@ -1545,9 +1545,11 @@ object: `{"model": "sol", "concurrent": 6, "baseline": "<live old-app baseline>"
 `landing.fidelity_lane` so its grades count. On every `head` or `opened` record it starts one
 `fidelity.py` pass for the PR's newest head that no fidelity lane has graded. A head whose own
 commits have the same `git patch-id` as an earlier head every fidelity lane graded ok takes
-that grade with no model call, as `fidelity: ok <head> carried from <earlier>`, keeping its
-`pure port, no interaction` or `test-only or CI-only, no non-test code` words and its
-`old-app:` line. Any other head gets one codex read from `reference/fidelity-job-brief.md`
+that grade with no model call, as `fidelity: ok <head> carried from <earlier>` with its
+`old-app:` line. Its `pure port, no interaction` or `test-only or CI-only, no non-test code`
+class comes from a root `decide` record that answers the carried grade, or a grade it was
+carried from, with `class wrong`, which drops the class; else from the newest fidelity-desk ok
+grade on the PR; else from the carried grade. Any other head gets one codex read from `reference/fidelity-job-brief.md`
 over its own diff, its required register rows, the plan, the lane's newest contract and the
 PR body, graded by `reference/fidelity-desk-brief.md`, and posts its fidelity line, one
 `touches <key>` per reserved row and its `old-app:` line. A head codex cannot settle goes to

@@ -10,8 +10,10 @@ STDLIB ONLY. desk-runner.py's orca desk writes `DIR/job.json` for each head it d
 this script detached. The job reads the PR, skips a closed PR or a head that is no longer its live
 head, and takes the PR's own commits as finder.py does. When `git patch-id --stable` of those
 commits matches the same number of commits up to an earlier head every fidelity lane's newest grade
-of which is ok, it posts `fidelity: ok <head> carried from <earlier>`, keeping each exempt phrase the
-earlier grade said and its `old-app:` line, with no model call. Otherwise it fills
+of which is ok, it posts `fidelity: ok <head> carried from <earlier>`, with the earlier head's
+`old-app:` line and no model call. The carry repeats no exempt phrase when a root `class wrong`
+decision answers the carried grade or a grade it was carried from, else each one the newest
+fidelity-desk ok grade on the PR says, else each one the carried grade says. Otherwise it fills
 `reference/fidelity-job-brief.md` with the head's own hunks, its required register rows
 (`rulings.py slice --required`), the plan, the lane's newest contract and the PR body, and runs
 `codex-ask -m <model> --schema fidelity.schema.json` in the drive's checkout. A reply that leaves
@@ -41,6 +43,7 @@ TEMPLATE = SCRIPTS.parent / "reference" / "fidelity-job-brief.md"
 RUBRIC = SCRIPTS.parent / "reference" / "fidelity-desk-brief.md"
 SCHEMA = SCRIPTS / "fidelity.schema.json"
 LANE = "fidelity-pipeline"
+CARRIED_SEQ = re.compile(r"\bcarried from [0-9a-f]{7,40} \(cci #(\d+)\)")
 JOB = "job.json"
 RESULT = "result.json"
 LOG = "job.log"
@@ -73,9 +76,21 @@ def exempt_phrases(job: dict, text: str) -> list[str]:
     return [phrase for phrase in job["exempt_grades"] if phrase.casefold() in text.casefold()]
 
 
+def carried_class(job: dict, grade: dict) -> str:
+    by_seq = {record["seq"]: record for record in job["grades"]}
+    chain, record = set(), grade
+    while record:
+        chain.add(record["seq"])
+        record = by_seq.get(int(carried[1])) if (carried := CARRIED_SEQ.search(record["text"])) else None
+    if chain & set(job["corrected"]):
+        return ""
+    desk = max((record for record in job["grades"] if record["lane"] != LANE and record["text"].startswith(FIDELITY_OK)), key=lambda record: record["seq"], default=grade)
+    return "".join(f"{phrase}: " for phrase in exempt_phrases(job, desk["text"]))
+
+
 def carried_lines(job: dict, found: dict) -> list[tuple[str, list[str]]]:
     head, earlier, grade = job["head"], found["head"], found["grade"]
-    said = "".join(f"{phrase}: " for phrase in exempt_phrases(job, grade["text"]))
+    said = carried_class(job, grade)
     lines = [(f"{FIDELITY_OK} {head} {said}carried from {earlier[:7]} (cci #{grade['seq']}), patch-identical by git patch-id over its own commits.", [])]
     if (old_app := newest_finder(job["old_apps"], earlier)) and (parts := OLD_APP_LINE.match(old_app["line"])):
         lines.append((f"old-app: {parts[1]} {head[:7]} {parts[2]}".rstrip(), []))

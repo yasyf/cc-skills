@@ -97,6 +97,7 @@ def job(tmp_path: Path, **changes) -> Path:
         "lanes": ["fidelity-desk-4", "fidelity-desk-5", fidelity.LANE],
         "grades": [DESK_OK],
         "old_apps": [DESK_OLD_APP],
+        "corrected": [],
         "contract": "contract: builds the resubscribe from the fetched position; deletes nothing",
         "exempt": {"port": PORT_PHRASE, "test-only": TEST_ONLY_PHRASE},
         "exempt_grades": [PORT_PHRASE, TEST_ONLY_PHRASE],
@@ -138,6 +139,29 @@ def test_a_restack_patch_identical_to_a_graded_ok_head_carries_its_port_phrase_a
     assert carries(grade) and graded_head(grade) == HEAD and OLD_APP.search(old_app)[1] == "unchanged"
     assert all(post["--lane"] == fidelity.LANE and post["--to"] == "p8a-step9,root,desk-runner,board-refresher-2" for post in shell.posted)
     assert result(directory) == {"verdict": "carried", "from": OLD, "posted": ["#150002", "#150003"]}
+
+
+PIPELINE_TEST_ONLY = {"seq": 170003, "lane": fidelity.LANE, "text": f"fidelity: ok {OLD} {TEST_ONLY_PHRASE}: carried from {MOVED[:7]} (cci #170000), patch-identical by git patch-id over its own commits."}
+FIRST_TEST_ONLY = {"seq": 170000, "lane": fidelity.LANE, "text": f"fidelity: ok {MOVED} {TEST_ONLY_PHRASE}: the added commit fixes a test."}
+DESK_TAP_ROW = {"seq": 170004, "lane": "fidelity-desk-4", "text": f"fidelity: ok {MOVED} tap row: it ends a moved share's watch, an on-purpose old-app fix."}
+
+
+@pytest.mark.parametrize(
+    ("grades", "corrected", "said"),
+    [
+        ([FIRST_TEST_ONLY, PIPELINE_TEST_ONLY], [], f"{TEST_ONLY_PHRASE}: "),
+        ([FIRST_TEST_ONLY, PIPELINE_TEST_ONLY, DESK_TAP_ROW], [], ""),
+        ([FIRST_TEST_ONLY, PIPELINE_TEST_ONLY], [170003], ""),
+        ([FIRST_TEST_ONLY, PIPELINE_TEST_ONLY], [170000], ""),
+        ([FIRST_TEST_ONLY, PIPELINE_TEST_ONLY, {**DESK_TAP_ROW, "text": f"fidelity: ok {MOVED} {TEST_ONLY_PHRASE}: every commit is a test."}], [170003], ""),
+    ],
+    ids=["own-phrase", "desk-tap-row", "root-corrected", "root-corrected-upchain", "root-over-desk"],
+)
+def test_a_carry_takes_its_class_from_a_root_correction_then_the_newest_desk_grade_then_its_own_prior_phrase(tmp_path, grades, corrected, said):
+    directory = job(tmp_path, grades=grades, corrected=corrected)
+    shell = Fake(tmp_path, patches=SAME)
+    assert fidelity.main([str(directory)], shell) == 0
+    assert shell.texts()[0] == f"fidelity: ok {HEAD} {said}carried from {OLD[:7]} (cci #170003), patch-identical by git patch-id over its own commits."
 
 
 @pytest.mark.parametrize(
