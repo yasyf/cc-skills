@@ -113,7 +113,7 @@ def carried_gos(gos: list[dict], grades: list[dict], repo: str, lands: Callable[
     gone = {(pr, sha): go for go in gos for pr, sha in go_heads(go).items() if pr not in go.get("voided", ())}
     carried: list[dict] = []
     while fresh := [
-        (pr, found[1].lower(), source, grade["at"])
+        (pr, found[0], source, grade["at"])
         for grade in grades
         if carries(grade["text"]) and (found := carry_of(grade["text"]))
         for pr, _ in repo_prs(grade, repo)
