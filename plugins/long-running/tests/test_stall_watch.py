@@ -619,6 +619,44 @@ def test_a_board_stall_counts_from_the_build_turning_green_when_it_greens_after_
     assert shell.topics() == stalls
 
 
+def exempt_grades(config: Path, phrases: list[str]) -> None:
+    raw = json.loads(config.read_text())
+    raw["landing"]["exempt_grades"] = phrases
+    config.write_text(json.dumps(raw))
+
+
+@pytest.mark.parametrize(
+    ("grade", "phrases", "stalls"),
+    [
+        ("ok", None, ["board:101:abc1234"]),
+        ("ok pure port, no interaction: it only ports old-tree #43020.", None, []),
+        ("ok test-only or CI-only, no non-test code: it only edits tests.", None, []),
+        ("ok pure port, no interaction: it only ports old-tree #43020.", ["trivial move"], ["board:101:abc1234"]),
+        ("ok trivial move: it only renames a file.", ["trivial move"], []),
+    ],
+    ids=["plain-ok", "pure-port", "test-only", "port-phrase-replaced-by-config", "configured-phrase"],
+)
+def test_a_head_whose_fidelity_grade_says_it_lands_with_no_board_row_draws_no_board_stall(config, grade, phrases, stalls):
+    if phrases:
+        exempt_grades(config, phrases)
+    graded = record(3, "fidelity-desk", "review", f"fidelity: {grade.replace('ok', 'ok ' + HEAD[:7], 1)}", 20, "101")
+    shell = FakeShell([head(1, "101", HEAD, 40), finder(2, "101", HEAD, 20), graded], [row("101")])
+
+    watch(shell, config)
+
+    assert shell.topics() == stalls
+
+
+@pytest.mark.parametrize(("speaker", "text", "stalls"), [("root", "#101 gets no row: it lands on my go", []), ("root", "#102 gets no row: it lands on my go", ["board:101:abc1234"]), ("api-lane", "#101 needs no row", ["board:101:abc1234"])], ids=["root-says-no-row", "root-names-another-pr", "a-lane-is-not-root"])
+def test_a_root_record_that_says_a_pr_gets_no_row_draws_no_board_stall(config, speaker, text, stalls):
+    records = [head(1, "101", HEAD, 40), finder(2, "101", HEAD, 20), fidelity(3, "101", HEAD, 20), record(4, speaker, "decide", text, 15)]
+    shell = FakeShell(records, [row("101")])
+
+    watch(shell, config)
+
+    assert shell.topics() == stalls
+
+
 def tap_row(pr: str, sha: str = HEAD, written: float | None = None) -> dict:
     return {"number": int(pr), "head": sha[:7]} | ({"textAt": stamp(written)} if written is not None else {})
 

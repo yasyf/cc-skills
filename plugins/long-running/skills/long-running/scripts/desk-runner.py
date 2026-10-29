@@ -553,7 +553,7 @@ import prompt_screen
 import prompt_watch
 import stall_watch
 from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, closes, fidelity_carries, fidelity_grades, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
-from grades import QUOTED_BLOCK, QUOTED_SPAN
+from grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE
 from grades import WITHDRAWN as WITHDRAWN_OPENING
 from grades import owes
 from grades import REVIEW_BOT_CHECK, REVIEW_BOT_HELD, review_bot_wait, withdraws
@@ -568,8 +568,6 @@ RULING_CARDS = "cards"
 MERGE_CARDS = "merge_asks"
 MERGE_WAITS = "merge_waits"
 MERGE_ASK_SURFACES = ("slack", "board")
-PORT_PHRASE = "pure port, no interaction"
-TEST_ONLY_PHRASE = "test-only or CI-only, no non-test code"
 EXEMPT_GO = re.compile(r"\bgo\s+(?:port|test-only|ci-only)\s+#\d+|\bpure port\b|\b(?:test|ci)-only\b", re.IGNORECASE)
 TEST_ONLY_CLAIM = re.compile(r"\b(?:test|ci)-only\b", re.IGNORECASE)
 TEST_FILES = ("*_test.go", "*.test.ts", "*.test.tsx")
