@@ -412,6 +412,18 @@ third failure logs `FINDER-FAILED` once. A head the landing check refuses `FINDE
 attempt when no pass on it waits or runs, so a job a pass skipped while its PR was closed, or one no record queued, runs again.
 While passes wait queued and none has settled for 15 minutes, one `FINDER-DESK-STALLED` per streak names how many wait and each
 running pass's age. `show` lists each queued and running pass.
+With a `fidelity` object in runner.json, each orca pass also dispatches one fidelity grade per drive head the same
+way: each `head` or `opened` record queues one `fidelity:<pr>:<head>:<seq>` action in the `desk-fidelity` container,
+the newest queued head of each PR starts while fewer than `fidelity.concurrent` (default 6) run, and a head any
+fidelity lane, `fidelity-pipeline` included, already graded or sent to a reader starts nothing. A pass writes
+`<config dir>/fidelity-pipeline/<pr>-<head12>-<seq>/job.json` and starts `fidelity.py` on it detached, which carries
+an earlier head's ok with no model call when its own commits are patch-identical, else runs `codex-ask -m
+<fidelity.model, default sol>` over the head's own diff, its required register rows, the plan, the lane's newest
+contract and the PR body, and posts the fidelity line and the `old-app:` line against `fidelity.baseline` under lane
+`fidelity-pipeline` to the head's lane, root, the runner and each `fidelity.to` address; a head it cannot settle goes to
+the other `landing.fidelity_lane` lanes as `fidelity: reader`. A pass whose job wrote an error, or no result within
+`fidelity.timeout_minutes` (default 60), fails at once and logs `FIDELITY-FAILED` to those lanes; the next `head`
+record for the PR queues it again. `show` lists each queued and running pass.
 Between orca passes the runner waits ten seconds, cut short within a quarter second by a desk
 inbox append or an exiting launch, and its sweep shows only dispatches it has not
 named for reclaim, once each in a `RECLAIM` line that names `gc` and then `orca.gc` for the worktrees.
@@ -550,6 +562,7 @@ import actions
 import board_rows
 import cci
 import drive
+import fidelity
 import finder
 import ghread
 import holds
@@ -578,6 +591,7 @@ MERGE_WAITS = "merge_waits"
 MERGE_ASK_SURFACES = ("slack", "board")
 EXEMPT_GO = re.compile(r"\bgo\s+(?:port|test-only|ci-only)\s+#\d+|\bpure port\b|\b(?:test|ci)-only\b", re.IGNORECASE)
 TEST_ONLY_CLAIM = re.compile(r"\b(?:test|ci)-only\b", re.IGNORECASE)
+OLD_APP_LINE = re.compile(r"^old-app:\s*(?:unchanged|bug fix|changes)\b.*$", re.IGNORECASE | re.MULTILINE)
 TEST_FILES = ("*_test.go", "*.test.ts", "*.test.tsx")
 TEST_DIRS = frozenset({"__tests__", "testdata", "fixtures"})
 CI_PREFIXES = (".buildkite/", ".github/", "tools/ci/")
@@ -586,7 +600,7 @@ SLACK_MESSAGE = re.compile(r"^slack: \S*/p(\d{10})(\d{6})\b", re.MULTILINE)
 RULING_ROUNDS = "cards/rounds"
 RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
-RUNNER_LANES = frozenset({RUNNER, ORCA_DESK, finder.LANE, stall_watch.LANE, prompt_watch.LANE})
+RUNNER_LANES = frozenset({RUNNER, ORCA_DESK, finder.LANE, fidelity.LANE, stall_watch.LANE, prompt_watch.LANE})
 FINDER = "desk-finder"
 FINDER_CURSOR = "cursor"
 FINDER_CONCURRENT = 2
@@ -596,6 +610,9 @@ FINDER_ATTEMPTS = 3
 FINDER_STALLED_AFTER = timedelta(minutes=15)
 FINDER_SETTLED = "settled_at"
 FINDER_STALLED = "stalled"
+FIDELITY = "desk-fidelity"
+FIDELITY_CONCURRENT = 6
+FIDELITY_MINUTES = 60
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
 ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker", "GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": "blocker"}
@@ -796,7 +813,7 @@ INCIDENT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9_.-]*) (?P<link>\S+) repo
 INCIDENT_BAR = timedelta(minutes=20)
 ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
 UNFIXED_TEMPLATE = SCRIPTS.parent / "reference" / "unfixed-case-brief.md"
-BRIEF_FILES = (MANUAL_TEMPLATE, ALERT_TEMPLATE, UNFIXED_TEMPLATE, finder.TEMPLATE, finder.ROWS_STEP, incident.TEMPLATE)
+BRIEF_FILES = (MANUAL_TEMPLATE, ALERT_TEMPLATE, UNFIXED_TEMPLATE, finder.TEMPLATE, finder.ROWS_STEP, fidelity.TEMPLATE, fidelity.RUBRIC, incident.TEMPLATE)
 SLICE_LINE = "Register slice:"
 SLICE_HEADER = re.compile(rf"^{SLICE_LINE}", re.MULTILINE)
 INCIDENT_STEP = "incident"
@@ -4125,6 +4142,122 @@ class Runner:
         running = ", ".join(f"#{job['pr']} {job['head'][:12] or 'whole'} for {whole_minutes(actions.parse_stamp(action.started_at), self.now())} min" for action in passes if action.status == "started" for job in [json.loads(action.target)])
         self.escalate(f"finder-desk:{streak['since']}", "FINDER-DESK-STALLED", finder.LANE, f"{len(queued)} queued, and no finder pass has settled since {pacific(since)}; running (at most {spec.get('concurrent', FINDER_CONCURRENT)} at once): {running or 'none'}; each pass logs to job.log in its directory under {self.config.source.parent / finder.LANE}")
 
+    def fidelities(self) -> None:
+        """Dispatch one fidelity grade per drive head while runner.json carries `fidelity`: queue each new `head` or `opened` record's PR and full head, settle the passes that wrote a result, then start the newest queued head of each PR, up to `fidelity.concurrent` at once."""
+        if (spec := json.loads(self.config.source.read_text()).get("fidelity")) is None:
+            return
+        repo = spec.get("repo") or self.config.landing["repo"]
+        self.book.ensure(FIDELITY, FIDELITY)
+        try:
+            self.queue_fidelities(repo)
+            self.settle_fidelities()
+            self.start_fidelities(spec, repo)
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+
+    def queue_fidelities(self, repo: str) -> None:
+        """Accept one `fidelity:<pr>:<head>:<seq>` action per PR, full head and record past the saved sequence, so the next `head` record for a PR queues a pass again after one failed; a first read starts at the newest record."""
+        cursor = self.book.load(FIDELITY).facts.get(FINDER_CURSOR)
+        if cursor is None:
+            newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
+            self.book.edit(FIDELITY, lambda incident: incident.facts.update({FINDER_CURSOR: max((record["seq"] for record in newest), default=0)}))
+            return
+        read = cci.records(self.cci_tail, self.config.drive, "--kind=head", "--kind=opened", since=cursor)
+        for record in read:
+            if record["drive"] == self.config.drive:
+                for pr, head in finder.heads(record, repo):
+                    self.book.accept(FIDELITY, f"fidelity:{pr}:{head}:{record['seq']}", "fidelity", json.dumps({"pr": pr, "head": head, "lane": record["lane"], "seq": record["seq"]}), f"cci#{record['seq']}", None)
+        if read:
+            self.book.edit(FIDELITY, lambda incident: incident.facts.update({FINDER_CURSOR: read[-1]["seq"]}))
+
+    def settle_fidelities(self) -> None:
+        for action in self.book.actions(FIDELITY, kind="fidelity", status="started"):
+            result = Path(action.dispatch_id) / fidelity.RESULT
+            if not result.is_file():
+                if self.now() >= actions.parse_stamp(action.deadline):
+                    self.fidelity_failed(action, f"no result {whole_minutes(actions.parse_stamp(action.started_at), self.now())} min after it started")
+                continue
+            outcome = json.loads(result.read_text())
+            if "error" in outcome:
+                self.fidelity_failed(action, outcome["error"])
+            else:
+                self.settle(FIDELITY, action.action_id, outcome)
+
+    def start_fidelities(self, spec: dict, repo: str) -> None:
+        """Start the newest queued head of each PR, oldest PR first, while fewer than `fidelity.concurrent` passes run; an older queued head of the same PR settles as superseded."""
+        newest: dict[str, actions.Action] = {}
+        for action in sorted(self.book.actions(FIDELITY, kind="fidelity", status="accepted"), key=lambda action: json.loads(action.target)["seq"]):
+            if (older := newest.get(pr := json.loads(action.target)["pr"])) is not None:
+                self.settle(FIDELITY, older.action_id, {"superseded": json.loads(action.target)["head"]})
+            newest[pr] = action
+        running = len(self.book.actions(FIDELITY, kind="fidelity", status="started"))
+        for action in newest.values():
+            if running >= spec.get("concurrent", FIDELITY_CONCURRENT):
+                return
+            running += self.start_fidelity(spec, repo, action)
+
+    def start_fidelity(self, spec: dict, repo: str, action: actions.Action) -> bool:
+        """Settle a head a fidelity lane already graded or sent to a reader, or write the pass's job, with every fidelity grade and `old-app:` line on the PR and the lane's newest contract, and start fidelity.py on it detached."""
+        job = json.loads(action.target)
+        drive, landing = self.config.drive, self.config.landing or {}
+        lanes = list(dict.fromkeys([*self.landing_lanes("fidelity_lane"), fidelity.LANE]))
+        records = cci.records(self.cci_tail, drive, "--kind=review", "--kind=head", "--pr", f"{repo}#{job['pr']}")
+        grades = [record | {"text": full_text(record)} for record in fidelity_grades_in(records, drive, lanes, repo, job["pr"])]
+        sent = [record for record in records if (record["kind"], record["lane"]) == ("review", fidelity.LANE) and record["text"].startswith(fidelity.READER)]
+        if answered := newest_naming(grades, job["head"]) or newest_naming(sent, job["head"]):
+            self.settle(FIDELITY, action.action_id, {"answered": f"cci #{answered['seq']} from {answered['lane']}"})
+            return False
+        contracts = [record for record in cci.records(self.cci_tail, drive, "--kind=contract", "--lane", job["lane"]) if (record["kind"], record["lane"]) == ("contract", job["lane"])]
+        contract = max((record for record in contracts if about_pr(record, repo, job["pr"])), key=lambda record: record["seq"], default=None) or max(contracts, key=lambda record: record["seq"], default=None)
+        directory = self.config.source.parent / fidelity.LANE / f"{job['pr']}-{job['head'][:12]}-{job['seq']}"
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / fidelity.JOB).write_text(
+            json.dumps(
+                {
+                    "drive": drive,
+                    "repo": repo,
+                    "pr": job["pr"],
+                    "head": job["head"],
+                    "lane": job["lane"],
+                    "to": [ROOT, RUNNER, *spec.get("to", [])],
+                    "readers": [lane for lane in lanes if lane != fidelity.LANE],
+                    "lanes": lanes,
+                    "grades": [{key: grade[key] for key in ("seq", "lane", "text")} for grade in grades],
+                    "old_apps": [{"seq": grade["seq"], "lane": grade["lane"], "head": grade["head"], "line": OLD_APP_LINE.search(full_text(grade))[0]} for grade in old_app_grades_in(records, drive, lanes, repo, job["pr"])],
+                    "contract": full_text(contract) if contract else "",
+                    "exempt": {"port": landing.get("port_phrase", PORT_PHRASE), "test-only": TEST_ONLY_PHRASE},
+                    "exempt_grades": landing.get("exempt_grades", [landing.get("port_phrase", PORT_PHRASE), TEST_ONLY_PHRASE]),
+                    "baseline": spec.get("baseline", ""),
+                    "checkout": spec.get("checkout") or landing["checkout"],
+                    "model": spec.get("model", FINDER_MODEL),
+                }
+            )
+        )
+        deadline = self.now() + timedelta(minutes=spec.get("timeout_minutes", FIDELITY_MINUTES))
+        if not self.book.attempt(FIDELITY, lambda incident: incident.start(action.action_id, self.now(), deadline=deadline, dispatch_id=str(directory))):
+            return False
+        self.shell.spawn([sys.executable, str(SCRIPTS / "fidelity.py"), str(directory)], directory / fidelity.LOG, {})
+        return True
+
+    def settle(self, container: str, key: str, response: dict) -> None:
+        def settled(incident: actions.Incident) -> None:
+            if incident.action(key).status == "accepted":
+                incident.start(key, self.now())
+            incident.complete(key, response | {"at": self.book.stamp()})
+            incident.verify(key, response)
+
+        self.book.attempt(container, settled)
+
+    def fidelity_failed(self, action: actions.Action, why: str) -> None:
+        """Tell the human fidelity desks, then fail the pass; a post that fails leaves the pass started, so the next orca pass tells them again."""
+        job = json.loads(action.target)
+        key = f"fidelity:{job['pr']}:{job['head']}:{job['seq']}"
+        readers = [lane for lane in self.landing_lanes("fidelity_lane") if lane != fidelity.LANE]
+        log = Path(action.dispatch_id) / fidelity.LOG
+        self.escalate(key, "FIDELITY-FAILED", job["lane"], f"#{job['pr']} {job['head'][:12]}: the fidelity pass failed: {why}; its log is {log}; a fidelity desk grades it by hand, and the next head record for #{job['pr']} queues the pass again", to=",".join(readers))
+        if self.book.known(RUNNER, f"escalation:{key}"):
+            self.book.attempt(FIDELITY, lambda incident: incident.fail(action.action_id, why))
+
     def render(self) -> str:
         lines = [f"# desk-runner {pacific(self.now())}", self.binding_line(self.book.load(RUNNER).facts.get(BINDING))]
         if held := self.book.load(RUNNER).facts.get(DEFERRED):
@@ -4140,6 +4273,11 @@ class Runner:
                 if action.status in ("accepted", "started"):
                     job = json.loads(action.target)
                     lines.append(f"finder #{job['pr']} {job['head'][:12]}: {f'running since {pacific(actions.parse_stamp(action.started_at))}' if action.started_at else 'queued'}")
+        if self.book.store.path(FIDELITY).is_file():
+            for action in self.book.actions(FIDELITY, kind="fidelity"):
+                if action.status in ("accepted", "started"):
+                    job = json.loads(action.target)
+                    lines.append(f"fidelity #{job['pr']} {job['head'][:12]}: {f'running since {pacific(actions.parse_stamp(action.started_at))}' if action.started_at else 'queued'}")
         for container in [*self.book.containers(LANE_PREFIX), LANDING]:
             incident = self.book.load(container)
             lines.append(f"## {container} owner {incident.owner} generation {incident.owner_generation}{f' pending {incident.pending_owner}' if incident.pending_owner else ''}")
@@ -7133,6 +7271,7 @@ def run_orca(runner: Runner, once: bool) -> int:
             runner.cut_clock()
             runner.release_coupling()
             runner.finders()
+            runner.fidelities()
         except OrcaUnreachable as down:
             runner.orca_down(down)
         except Exception as error:

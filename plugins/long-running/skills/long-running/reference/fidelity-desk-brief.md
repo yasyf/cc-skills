@@ -141,6 +141,15 @@ A `missing` on a merged head marks its row `broken` through `rulings.py status`,
 and the head that fixes it, once graded ok, marks the row in force. Nothing
 reverts on its own (36a298d).
 
+## The pipeline
+
+When `runner.json` carries a `fidelity` object, the orca desk runner grades heads itself
+under lane `fidelity-pipeline` (`scripts/fidelity.py`): a patch-identical restack of a
+head graded ok carries that grade with no model call, and any other head gets one codex
+read against this brief. A desk then grades a head only when the pipeline posts
+`fidelity: reader <head> <why>` to it, or `FIDELITY-FAILED` names it. Read-backs, text
+grades, and the sweep stay with the desks.
+
 ## Text mode
 
 Text mode grades a board round, a plan revision, a reply to the owner, the seeded
