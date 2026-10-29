@@ -1,6 +1,8 @@
 import contextlib
 import datetime as dt
+import io
 import itertools
+import json
 import queue
 import urllib.error
 import urllib.parse
@@ -779,3 +781,146 @@ def test_the_newest_evidence_record_is_a_pull_requests_state_owner_and_clock():
     drive.note_evidence({**record, "seq": 11, "kind": "evidence", "text": "another lane's evidence with no row attributes"})
     drive.note_evidence({**record, "seq": 12, "fields": {"attrs": {"actor": "platy"}}})
     assert drive.evidences()["44087"] == {"state": "Out of the queue until its tests pass", "owner": "merge-process", "since": "2026-10-28T20:10:00Z", "next": "", "at": "2026-10-28T20:20:00Z", "seq": 10}
+
+
+def mirror_drive(monkeypatch):
+    drive = Drive({"board_url": "http://board/p/x", "mirror": "http://canonical", "title": "Preview", "repo": "owner/repo", "trees": []}, None)
+    calls = []
+
+    def rejected(*args, **kwargs):
+        calls.append((args, kwargs))
+        pytest.fail("a mirror queried the ledger instead of its canonical model")
+
+    drive.ccn = rejected
+    drive.read_slow = rejected
+    monkeypatch.setattr("server.cci", lambda *args, **kwargs: [])
+    return drive, calls
+
+
+def mirror_model(drive):
+    return {
+        "prs": {"42": {"state": "closed", "labels": "externally-merged"}},
+        "plan": [{"title": "Canonical plan"}],
+        "plan_at": "2026-10-29T10:00:00Z",
+        "story": {"title": "Canonical story"},
+        "words": [{"id": "answer", "text": "Canonical answer"}],
+        "brief": {"title": "Canonical brief"},
+        "pages": {name: {"title": name} for name in drive.pages},
+    }
+
+
+def test_a_mirror_waits_for_its_canonical_startup_without_local_queries(monkeypatch):
+    drive, calls = mirror_drive(monkeypatch)
+    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: io.BytesIO(b'{"version": 0}'))
+
+    assert drive.build(refresh_slow=True) == {}
+    drive.read_mirror()
+    assert drive.build(refresh_slow=True) == {}
+    assert calls == []
+
+
+def test_mirrored_slow_fields_survive_local_invalidation_bursts_without_cli_reads(monkeypatch):
+    drive, calls = mirror_drive(monkeypatch)
+    upstream = mirror_model(drive)
+    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: io.BytesIO(json.dumps(upstream).encode()))
+    drive.read_mirror()
+    stamp = drive.slow_at
+
+    for _ in range(50):
+        drive.touch(slow=True)
+        model = drive.build(refresh_slow=True)
+        assert model["words"] == upstream["words"]
+        assert model["plan"] == upstream["plan"]
+        assert model["plan_at"] == upstream["plan_at"]
+        assert model["story"] == upstream["story"]
+        assert model["prs"]["42"]["state"] == "landed"
+        assert model["title"] == "Preview"
+        assert model["repo"] == "owner/repo"
+
+    assert drive.slow_at == stamp
+    assert calls == []
+    upstream["words"] = [{"id": "answer-2", "text": "Updated upstream"}]
+    drive.read_mirror()
+    assert drive.build(refresh_slow=False)["words"] == upstream["words"]
+
+
+def test_idle_mirrors_do_not_rebuild_on_the_canonical_slow_poll_timer(monkeypatch):
+    drive, calls = mirror_drive(monkeypatch)
+    drive.model = {"existing": True}
+    drive.slow_at = 0.0
+    drive.dirty_at = 0.0
+    monkeypatch.setattr("server.time.monotonic", lambda: 10000.0)
+
+    drive.rebuild()
+
+    assert drive.model == {"existing": True}
+    assert calls == []
+
+
+def test_mirror_refresh_uses_only_existing_canonical_version_events(monkeypatch):
+    drive, calls = mirror_drive(monkeypatch)
+    reads = []
+    drive.read_mirror = lambda: reads.append("model")
+    lines = iter([b"event: build\n", b"data: build-1\n", b"\n", b"event: version\n", b"data: 1\n", b"\n", b": keep-alive\n", b"\n", b"event: version\n", b"data: 2\n"])
+    streams = iter([contextlib.nullcontext(lines)])
+
+    class Stop(Exception):
+        pass
+
+    def urlopen(url, **kwargs):
+        assert url == "http://canonical/api/stream"
+        stream = next(streams, None)
+        if stream is None:
+            raise Stop
+        return stream
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    with pytest.raises(Stop):
+        drive.follow_mirror()
+
+    assert reads == ["model", "model"]
+    assert calls == []
+
+
+@pytest.mark.parametrize("failure", [urllib.error.URLError("offline"), ConnectionResetError("reset"), TimeoutError("timed out")])
+def test_a_mirror_connection_failure_preserves_its_prior_snapshot_and_retry_policy(monkeypatch, failure):
+    drive, calls = mirror_drive(monkeypatch)
+    drive.slow = {"words": [{"text": "Already observed"}]}
+    sleeps = []
+    attempts = iter([failure])
+
+    class Stop(Exception):
+        pass
+
+    def urlopen(*args, **kwargs):
+        failure = next(attempts, None)
+        if failure is None:
+            raise Stop
+        raise failure
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    monkeypatch.setattr("server.time.sleep", sleeps.append)
+    with pytest.raises(Stop):
+        drive.follow_mirror()
+
+    assert drive.slow == {"words": [{"text": "Already observed"}]}
+    assert sleeps == [30]
+    assert calls == []
+
+
+def test_the_canonical_owner_still_refreshes_its_own_slow_sources(monkeypatch):
+    drive, calls = mirror_drive(monkeypatch)
+    del drive.config["mirror"]
+    reads = []
+    upstream = mirror_model(drive)
+
+    def read_slow():
+        reads.append("ledger")
+        return {key: upstream[key] for key in ("prs", "plan", "plan_at", "story", "words")}
+
+    drive.read_slow = read_slow
+    drive.build(refresh_slow=True)
+    drive.build(refresh_slow=False)
+
+    assert reads == ["ledger"]
+    assert calls == []

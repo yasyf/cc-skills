@@ -106,6 +106,12 @@ def run(argv, cwd=None):
     return subprocess.run(argv, cwd=cwd, capture_output=True, text=True, check=True, timeout=60).stdout
 
 
+def external_merges(prs):
+    for pr in prs.values():
+        if pr.get("state") == "closed" and "externally-merged" in (pr.get("labels") or "").split(","):
+            pr["state"] = "landed"
+
+
 def cci(path, **query):
     url = f"{CCI}/{path}?" + "&".join(f"{k}={v}" for k, values in query.items() for v in (values if isinstance(values, list) else [values]))
     with urllib.request.urlopen(url, timeout=30) as response:
@@ -598,17 +604,31 @@ class Drive:
     def follow_mirror(self):
         while True:
             try:
-                with urllib.request.urlopen(f"{self.config['mirror']}/api/model?full=1", timeout=60) as response:
-                    model = json.load(response)
-            except urllib.error.URLError:
+                with urllib.request.urlopen(f"{self.config['mirror']}/api/stream", timeout=None) as stream:
+                    event = None
+                    for line in stream:
+                        if line.startswith(b"event: "):
+                            event = line[7:].strip()
+                        elif line.startswith(b"data: ") and event == b"version":
+                            self.read_mirror()
+            except OSError:
                 time.sleep(30)
-                continue
-            self.curator.brief = model["brief"]
-            for name, curator in self.pages.items():
-                curator.brief = model["pages"][name]
-            self.touch()
-            self.bump()
-            time.sleep(30)
+
+    def read_mirror(self):
+        with urllib.request.urlopen(f"{self.config['mirror']}/api/model?full=1", timeout=60) as response:
+            model = json.load(response)
+        if "prs" not in model:
+            return
+        slow = {key: model[key] for key in ("prs", "plan", "plan_at", "story", "words")}
+        external_merges(slow["prs"])
+        with self.lock:
+            self.slow = slow
+            self.slow_at = time.monotonic()
+        self.curator.brief = model["brief"]
+        for name, curator in self.pages.items():
+            curator.brief = model["pages"][name]
+        self.touch()
+        self.bump()
 
     def bump(self):
         with self.changed:
@@ -815,7 +835,7 @@ class Drive:
     def touch(self, slow=False):
         with self.lock:
             self.dirty_at = self.dirty_at or time.monotonic()
-            if slow:
+            if slow and "mirror" not in self.config:
                 self.slow_at = 0.0
 
     def rebuild_loop(self):
@@ -826,7 +846,7 @@ class Drive:
     def rebuild(self):
         with self.lock:
             due = self.dirty_at and time.monotonic() - self.dirty_at >= REBUILD_AFTER
-        stale = time.monotonic() - self.slow_at >= SLOW_REFRESH
+        stale = "mirror" not in self.config and time.monotonic() - self.slow_at >= SLOW_REFRESH
         if not due and not stale:
             return
         with self.lock:
@@ -951,9 +971,17 @@ class Drive:
         subprocess.run(["cci", "post", "--drive", self.config["drive"], "--lane", self.config["keeper_lane"], "--to", ",".join(self.config["defects_to"]), "--kind", "defect", "--text", f"drive dashboard build failed: {text}"[:390]], capture_output=True)
 
     def build(self, refresh_slow):
-        if refresh_slow or not self.slow:
+        if "mirror" in self.config:
+            with self.lock:
+                slow = self.slow
+            if not slow:
+                return {}
+        elif refresh_slow or not self.slow:
             self.slow = self.read_slow()
             self.slow_at = time.monotonic()
+            slow = self.slow
+        else:
+            slow = self.slow
         with self.lock:
             records = list(self.records)
         try:
@@ -963,7 +991,7 @@ class Drive:
             lanes = self.model.get("lanes", [])
             self.errors["lanes"] = f"the cci daemon at {CCI} did not answer ({error}); workers are as of the last answer"
         return {
-            **self.slow,
+            **slow,
             "title": self.config["title"],
             "repo": self.config["repo"],
             "records": records[-1500:],
@@ -977,9 +1005,7 @@ class Drive:
     def read_slow(self):
         ledger = json.loads(self.ccn("ledger", "show", self.config["ledger"], "--json"))
         prs = {row["key"]: {k: json.loads(v) if k == "failing_checks" else v for k, v in row["fields"].items() if not k.startswith("progress_")} for row in ledger["rows"] if row["key"].isdigit()}
-        for pr in prs.values():
-            if pr.get("state") == "closed" and "externally-merged" in (pr.get("labels") or "").split(","):
-                pr["state"] = "landed"
+        external_merges(prs)
         plan_at, plan = self.read_plan()
         story = json.loads(Path(self.config["story"]).read_text())
         for ask in story.get("asks", []):
