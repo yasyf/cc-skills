@@ -26,7 +26,7 @@ function reviewPR(n, tab) {
     const when = s === 'landed' ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[s];
     return `<div class="pr-head"><div class="kick muted">${s === 'landed' ? 'Landed' : 'Nothing for you to tap'}</div><h1>${esc(prTitle(n))}</h1>
       <span class="pill ${STATE_TONE[s]}">${when}</span>${go ? `<span class="pill ok">You approved ${clock(go)}</span>` : ''}${open}${s === 'landed' || s === 'failing' ? '' : testPill(pr)}</div>
-      ${reviewTabs(n, tab)}${tab === 'code' ? '' : `${prFacts(n)}${prText(n)}`}`;
+      ${s === 'landed' ? '' : changeBox(n, pr.head)}${reviewTabs(n, tab)}${tab === 'code' ? '' : `${prFacts(n)}${prText(n)}`}`;
   }
   const v = verdictState(row);
   const rows = state.model.board.rows.filter((r) => r.group === row.group);
@@ -40,11 +40,11 @@ function reviewPR(n, tab) {
   return `<div class="pr-head"><div class="kick">${esc(rewritten('groups', group?.key)?.title ?? row.group)} · ${index + 1} of ${rows.length}</div><h1>${esc(w.title)}</h1>
     ${open}${testPill(state.model.prs[n] ?? {})}
     <span class="actions">${step(rows[index - 1], '‹', 'K')}${step(rows[index + 1], '›', 'J')}${next ? step(next, 'Next waiting on you ›', 'N') : ''}</span></div>
-    <div class="decide">${decideBar(row, v)}</div><div class="bar-bottom decide">${decideBar(row, v)}</div>
+    <div class="decide">${decideBar(row, v)}</div><div class="bar-bottom decide">${decideBar(row, v)}</div>${changeBox(n, row.head)}
     ${reviewTabs(n, tab)}${tab === 'code' ? '' : `<div class="pr-facts">${carried}${rowFacts(row)}<dl class="mr-f"><dt>Tests</dt><dd>${TEST_WORD[state.model.prs[n]?.test_state] ?? 'Not known'}</dd>${truthFacts(n, false)}</dl></div>${prText(n)}`}`;
 }
 function reviewTabs(n, tab) {
-  return `<nav class="subtabs review-tabs"><a href="#/review/${n}" class="${tab === 'code' ? '' : 'on'}">What it does</a><a href="#/review/${n}/code" class="${tab === 'code' ? 'on' : ''}">Code and review</a></nav>`;
+  return `<nav class="subtabs review-tabs"><a href="#/review/${n}" class="${tab === 'code' ? '' : 'on'}">What it does</a><a href="#/review/${n}/code" class="${tab === 'code' ? 'on' : ''}">Code and review<kbd>C</kbd></a></nav>`;
 }
 const described = {};
 function describedKey(n) {
@@ -181,7 +181,8 @@ document.addEventListener('keydown', (e) => {
   else if (key === 'j') go(rows[index + 1]);
   else if (key === 'k') go(rows[index - 1]);
   else if (key === 'n') go(state.model.board.rows.find((x) => x.number !== row.number && verdictState(x) === 'you'));
-  else if (key === 'f') location.hash = `#/review/${row.number}${r.tab === 'code' ? '' : '/code'}`;
+  else if (key === 'c') location.hash = `#/review/${row.number}${r.tab === 'code' ? '' : '/code'}`;
+  else if (key === 'o') $('#main [data-key="o"]').click();
   else return;
   e.preventDefault();
 });
@@ -236,13 +237,49 @@ setInterval(() => {
   const r = route();
   if (r.screen === 'review' && embed.number && embed.started === embed.number && !document.hidden) fetch(`/api/review/${embed.number}`, { cache: 'no-store' });
 }, 5 * 60 * 1000);
-const PR_KEYS = { a: '[data-decide="approved"]', h: '[data-decide="hold"]', n: '[data-key="n"]', j: '[data-key="j"]', k: '[data-key="k"]', o: '[data-key="o"]' };
-document.addEventListener('keydown', (e) => {
-  const r = route();
-  const pick = PR_KEYS[e.key.toLowerCase()];
-  if (!pick || e.metaKey || e.ctrlKey || e.altKey || e.target.closest('input, textarea, select, [contenteditable]') || r.screen !== 'review' || !/^\d+$/.test(r.id ?? '') || state.overlay) return;
-  const target = $(`#main ${pick}`);
-  if (!target) return;
+const changeDrafts = {};
+const sentChanges = [];
+const changesSending = new Set();
+const changesUnsent = {};
+function changeAsks(n) {
+  const asks = [...state.model.records, ...sentChanges].filter((r) => r.lane === 'owner-board' && r.kind === 'ask' && r.refs?.prs?.includes(Number(n)));
+  return [...new Map(asks.map((r) => [r.seq, r])).values()].sort((a, b) => a.seq - b.seq);
+}
+function changeBox(n, head) {
+  const thread = changeAsks(n).map((ask) => {
+    const replies = state.model.records.filter((r) => r.seq > ask.seq && (r.re === ask.seq || r.text.includes(`#${ask.seq}`)));
+    return `<div class="fb-said">${dotted('Change requested', 'you')}<span class="fb-words">${esc(ask.text)}</span><small>${clock(ask.at)}</small>${replies.map((r) => `<div class="fb-reply"><b>${esc(workerName(r.lane))}</b> ${esc(r.text.length > 220 ? `${r.text.slice(0, 220)}…` : r.text)} <a href="/record/${r.seq}" target="_blank" rel="noopener">${clock(r.at)} ↗</a></div>`).join('') || '<div class="fb-reply dim">No reply yet.</div>'}</div>`;
+  }).join('');
+  const busy = changesSending.has(Number(n));
+  return `<div class="fb-box">${thread}<form class="fb" data-change="${n}" data-head="${esc(head ?? '')}"><kbd>F</kbd><input name="change" data-draft="${n}" value="${esc(changeDrafts[n] ?? '')}" placeholder="Tell Claude what to change" autocomplete="off"${busy ? ' disabled' : ''}><button class="btn"${busy ? ' disabled' : ''}>${busy ? 'Sending' : 'Send'}</button>${changesUnsent[n] ? `<span class="pill bad">Not sent: ${esc(changesUnsent[n])}</span>` : ''}</form></div>`;
+}
+document.addEventListener('input', (e) => {
+  const form = e.target.closest('[data-change]');
+  if (form) changeDrafts[form.dataset.change] = e.target.value;
+});
+document.addEventListener('submit', async (e) => {
+  const form = e.target.closest('[data-change]');
+  if (!form) return;
   e.preventDefault();
-  target.click();
+  const n = Number(form.dataset.change);
+  const text = (changeDrafts[n] ?? '').trim();
+  if (!text) return;
+  changesSending.add(n);
+  delete changesUnsent[n];
+  render();
+  const res = await fetch('/api/change', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ number: n, head: form.dataset.head, text }) });
+  const out = await res.json();
+  changesSending.delete(n);
+  if (res.ok) {
+    sentChanges.push({ seq: out.seq, lane: 'owner-board', kind: 'ask', at: new Date().toISOString(), text, refs: { prs: [n] } });
+    changeDrafts[n] = '';
+  } else changesUnsent[n] = out.error;
+  render();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key.toLowerCase() !== 'f' || e.metaKey || e.ctrlKey || e.altKey || e.target.closest('input, textarea, select, [contenteditable]') || route().screen !== 'review' || state.overlay) return;
+  const input = $(`#main .mr[data-peek="${peek.n}"] [data-change] input`) ?? document.activeElement.closest?.('.mr')?.querySelector('[data-change] input') ?? $('#main [data-change] input');
+  if (!input) return;
+  e.preventDefault();
+  input.focus();
 });

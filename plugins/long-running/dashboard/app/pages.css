@@ -253,3 +253,16 @@ body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); bo
 @media (prefers-reduced-motion: reduce) { .mr, .mr-peek { transition: none; } .mr:hover { transform: none; } .dg-wait { animation: none; } }
 @media (hover: none) { .mr-peek { display: none; } }
 :is(.btn, .pill) kbd { margin-left: 7px; padding: 0 5px; border-radius: 4px; font: 600 10px/16px var(--mono); color: inherit; opacity: .65; box-shadow: inset 0 0 0 1px currentColor; }
+.fb-box { margin-top: 12px; }
+.fb { display: flex; align-items: center; gap: 8px; }
+.fb input { flex: 1; min-width: 0; padding: 7px 11px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255, 255, 255, .03); color: var(--ink); font: inherit; transition: border-color .15s, box-shadow .15s; }
+.fb input::placeholder { color: var(--ink-3); }
+.fb input:focus { outline: none; border-color: color-mix(in srgb, var(--accent) 60%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.fb > kbd { padding: 0 5px; border-radius: 4px; font: 600 10px/16px var(--mono); color: var(--ink-3); box-shadow: inset 0 0 0 1px currentColor; }
+.fb .btn { min-height: 30px; padding: 4px 12px; font-size: 13px; border-radius: 8px; }
+.fb-said { margin: 0 0 8px; padding: 8px 12px; border-radius: 8px; background: color-mix(in srgb, var(--owner) 8%, transparent); box-shadow: inset 2px 0 0 var(--owner); }
+.fb-words { margin: 0 8px 0 6px; color: var(--ink); }
+.fb-said small { color: var(--ink-3); }
+.fb-reply { margin-top: 6px; color: var(--ink-2); font-size: 13px; }
+.fb-reply b { color: var(--ink); font-weight: 600; }
+.review-tabs kbd { margin-left: 7px; padding: 0 5px; border-radius: 4px; font: 600 10px/16px var(--mono); opacity: .55; box-shadow: inset 0 0 0 1px currentColor; }

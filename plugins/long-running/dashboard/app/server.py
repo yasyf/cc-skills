@@ -55,7 +55,7 @@ REVIEW_ROUTE = re.compile(r"/api/review/(\d+)")
 AI_CONFIG = {"endpoint": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b"}
 ASSIST = HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
 BUILD = hashlib.sha1(b"".join(path.read_bytes() for path in sorted([*HERE.iterdir(), ASSIST]) if path.suffix in (".js", ".css", ".html", ".py"))).hexdigest()[:12]
-CLIENT_RECORD = ("seq", "lane", "kind", "at", "text", "refs")
+CLIENT_RECORD = ("seq", "lane", "kind", "at", "text", "refs", "re")
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
 RECORD_ROUTE = re.compile(r"/record/(\d+)")
 LANE_ROUTE = re.compile(r"/api/lane/([\w.-]+)")
@@ -624,6 +624,12 @@ class Drive:
         run(["cci", "post", "--drive", self.config["drive"], "--lane", lane, "--kind", kind, "--to", "root", "--text", f"Asked on the dashboard: {text}"])
         return 200, {}
 
+    def change_request(self, number, head, text):
+        if "mirror" in self.config:
+            return 409, {"error": "a test copy sends no change requests"}
+        seq = run(["cci", "post", "--drive", self.config["drive"], "--lane", "owner-board", "--kind", "ask", "--to", "root", "--pr", str(number), "--attr", f"head={head}", "--text", text]).strip().splitlines()[-1].lstrip("#")
+        return 200, {"seq": int(seq)}
+
     def interact(self, interaction):
         origin, _, subject = self.config["board_url"].partition("/p/")
         request = urllib.request.Request(f"{origin}/api/interactions", method="POST", headers={"Content-Type": "application/json"}, data=json.dumps({"subject": subject, "nonce": str(uuid.uuid4()), "interaction": interaction}).encode())
@@ -1081,7 +1087,7 @@ def handler(drive):
             self.send(404, "text/plain", b"not found")
 
         def do_POST(self):
-            if self.path not in ("/api/verdict", "/api/answer", "/api/asked"):
+            if self.path not in ("/api/verdict", "/api/answer", "/api/asked", "/api/change"):
                 return self.send(404, "text/plain", b"not found")
             if self.headers.get_content_type() != "application/json":
                 return self.send(415, "text/plain", b"Content-Type must be application/json")
@@ -1090,6 +1096,8 @@ def handler(drive):
                 status, out = drive.answer(body)
             elif self.path == "/api/asked":
                 status, out = drive.asked(body["text"])
+            elif self.path == "/api/change":
+                status, out = drive.change_request(int(body["number"]), body["head"], body["text"].strip())
             else:
                 status, out = drive.decide(body["block"], body["number"], body["verdict"], body.get("head"), body.get("note"))
             self.send(status, "application/json", json.dumps(out).encode())
