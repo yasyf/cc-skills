@@ -348,7 +348,8 @@ carries to a head with no finder record when both heads' own patches match, as a
 `contract` record with `--pr` naming it names its failing run ("red by design", "fails in run", "failing run"), draws no
 blocker for its failing required checks, and a blocker relay already sent on it draws no `DEADLINE`.
 The `rulings` check runs `rulings.py check-pr` once per head a pass and holds no head: each cause it prints but `RESERVED-NO-ANSWER`,
-which merge mode settles, is a warning, one `note` record per head and set of causes to the PR's lane (4236611). A run that exits with a code other than 0 or 1 or
+which merge mode settles, is a warning, one `note` record per head and set of causes to the PR's lane (4236611); a head warns again only for a cause
+none of its earlier warnings named, and never once an `answer` replies to or resolves one of them. A run that exits with a code other than 0 or 1 or
 prints a line naming no cause passes the head with nothing posted, and so does each `BLOCKER` line it prints: the check fails open.
 Each pass reads the commit statuses of every open row's head in one GraphQL query, and reuses a
 head's statuses for 60 s; a head read that fails counts as unread for that pass, and the pass ends with one
@@ -5806,14 +5807,23 @@ class Landing:
         self.post_record("note", key, ",".join(self.reach(owner) if owner else [ROOT]), f"{self.dead_note(owner)}#{pr} {graded.heads[pr]}: WARNING {why}", pr)
 
     def check_rulings(self, graded: Graded) -> dict[str, merge_queue.State]:
-        """No head fails here (4236611): each cause `rulings.py check-pr` prints for a head is a warning, one `note` record to its lane per head and set of causes. A reserved touch is merge mode's to settle: it sends the card whose tap authorizes it, and holds the head until then."""
+        """No head fails here (4236611): each cause `rulings.py check-pr` prints for a head is a warning, one `note` record to its lane per head and set of causes. A head warns again only for a cause none of its earlier warnings named, and never once an `answer` replies to or resolves one of them (cci #182230). A reserved touch is merge mode's to settle: it sends the card whose tap authorizes it, and holds the head until then."""
         if graded.act:
             self.read_reports(graded.heads)
             for pr, sha in graded.heads.items():
-                if warnings := [line for line in self.rulings_report(pr, sha) if cause(line) != RESERVED_TOUCH]:
+                if (warnings := [line for line in self.rulings_report(pr, sha) if cause(line) != RESERVED_TOUCH]) and not self.rulings_settled(pr, sha, warnings):
                     text = f"`rulings.py check-pr` warns at {sha[:10]}, and the head is not held for it: {'; '.join(warnings)}"
                     self.warn_head(f"rulings:{pr}:{sha[:7]}:{hashlib.sha1(text.encode()).hexdigest()[:8]}", pr, graded, text)
         return {}
+
+    def rulings_settled(self, pr: str, sha: str, warnings: list[str]) -> bool:
+        """Whether the warnings `check_rulings` posted for `pr` at `sha` already name every line of `warnings`, or an `answer` replies to or resolves one of them."""
+        posted = [action for action in self.book.actions(LANDING, kind="bus") if action.action_id.startswith(f"rulings:{pr}:{sha[:7]}:")]
+        named = {line for action in posted for line in json.loads(action.target)["text"].partition("the head is not held for it: ")[2].split("; ")}
+        if set("; ".join(warnings).split("; ")) <= named:
+            return True
+        seqs = {int(seq[1]) for action in posted if (seq := POSTED.search((action.response or {}).get("posted", "")))}
+        return bool(seqs) and any(seqs & {record.get("re"), record.get("resolves")} for record in cci.records(self.runner.cci_tail, self.runner.config.drive, "--kind=answer", since=min(seqs)))
 
     def scanned_reviews(self) -> list[dict]:
         """The drive's `review` and `head` records, scanned once a pass, so a review whose text names the PR but whose refs do not still counts."""

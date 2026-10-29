@@ -1558,7 +1558,9 @@ text grades and the sweep. A failed pass is one `FIDELITY-FAILED` to them, and t
 The `rulings` check runs `rulings.py check-pr --repo <checkout> --drive <drive>
 --pr <owner/repo>#<n> --head <sha> --base <base>` once per head a pass and holds no
 head (4236611). Each cause it prints but `RESERVED-NO-ANSWER` is a warning: one cci
-`note` per head and set of causes to the PR's lane. A reserved touch is merge mode's
+`note` per head and set of causes to the PR's lane. A head warns again only for a cause
+none of its earlier warnings named, and never once an `answer` replies to or resolves
+one of them. A reserved touch is merge mode's
 to settle, because merge mode sends the card whose tap authorizes it.
 A `NAME-HIT` clears once a line of the body's `## Rulings` cites the hit's row by key or
 answer id, quotes at least four of the owner's words from it verbatim, and follows the quote

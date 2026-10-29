@@ -5384,6 +5384,27 @@ def test_a_rulings_warning_posts_once_per_head_whether_the_pass_names_it_by_full
     assert len([post for post in shell.posts if post["kind"] == "note" and "warns at cccc333333" in post["text"]]) == 1
 
 
+@pytest.mark.parametrize(
+    ("first", "second", "answered", "warnings"),
+    [
+        ("NAME-HIT rule/8aeaaff go/x.go:5 writer\nCONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n", "NAME-HIT rule/8aeaaff go/x.go:5 writer\n", False, 1),
+        ("NAME-HIT rule/8aeaaff go/x.go:5 writer\n", "NAME-HIT rule/8aeaaff go/x.go:5 writer\nRULINGS-PLAIN a code symbol\n", True, 1),
+        ("NAME-HIT rule/8aeaaff go/x.go:5 writer\n", "NAME-HIT rule/8aeaaff go/x.go:5 writer\nRULINGS-PLAIN a code symbol\n", False, 2),
+    ],
+)
+def test_a_rulings_warning_posts_again_at_its_head_only_for_a_new_cause_before_the_lane_answers(shell, config, tmp_path, first, second, answered, warnings):
+    lone_green_pr(shell)
+    for out in (first, second):
+        shell.check_pr["29020"] = (1, out)
+        runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+        landing = runner_module.Landing(runner, runner.config.landing)
+        landing.reports_file.unlink(missing_ok=True)
+        landing.check_rulings(runner_module.Graded({"29020": "cccc333333"}, landing.rows(), shell.now(), act=True))
+        if answered:
+            shell.records.append({"seq": 900, "drive": "d1", "lane": LANE, "kind": "answer", "to": ["desk-runner"], "resolves": 1, "text": "both hits are unrelated words; head unchanged"})
+    assert len([post for post in shell.posts if post["kind"] == "note" and "warns at cccc333333" in post["text"]]) == warnings
+
+
 def test_mq_why_names_the_adapters_approval_and_ci_verdicts(shell, config, tmp_path, capsys):
     lone_green_pr(shell)
     grade_gated_heads_ok(shell)
