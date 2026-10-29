@@ -89,3 +89,11 @@ def test_prefers_a_versioned_python_over_an_older_bare_python3(tmp_path: Path):
         fake.chmod(0o755)
     out = subprocess.run([str(cache / "0.7.44" / "bin" / "tool.py")], capture_output=True, text=True, check=True, env={"PATH": str(pythons)})
     assert out.stdout.strip() == "python3.13"
+
+
+def test_skips_a_newer_sibling_whose_install_has_its_bin_but_not_yet_its_scripts(tmp_path: Path):
+    cache = plugin_cache(tmp_path, {"0.7.518": False, "0.7.519": False})
+    for tool in ("tool.py", "tool.sh"):
+        (cache / "0.7.519" / "skills" / "long-running" / "scripts" / tool).unlink()
+    assert run(cache, "0.7.518") == "0.7.518 py a b c"
+    assert run(cache, "0.7.518", "tool.sh") == "0.7.518 sh a b c"

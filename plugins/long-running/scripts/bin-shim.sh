@@ -27,7 +27,7 @@ if is_version "${ROOT##*/}"; then
   for sibling in "${ROOT%/*}"/*/; do
     sibling=${sibling%/}
     is_version "${sibling##*/}" || continue
-    [ ! -e "$sibling/.orphaned_at" ] && [ -x "$sibling/bin/$TOOL" ] || continue
+    [ ! -e "$sibling/.orphaned_at" ] && [ -x "$sibling/bin/$TOOL" ] && [ -e "$sibling/skills/long-running/scripts/$TOOL" ] || continue
     if version_gt "${sibling##*/}" "${newest##*/}"; then
       newest=$sibling
     fi
