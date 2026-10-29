@@ -32,9 +32,8 @@ SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
 QUOTED_BLOCK = re.compile(r"```.*?(?:```|\Z)|^[ \t]*>[^\n]*", re.DOTALL | re.MULTILINE)
 QUOTED_SPAN = re.compile(r"(`+)[^\n]*?\1|\"[^\"\n]*\"|“[^”]*”")
 WITHDRAWN = re.compile(r"^\s*withdrawn\b", re.IGNORECASE)
-CARRIED = re.compile(rf"^{FIDELITY_OK} ([0-9a-f]{{7,40}}) (?:carried from|patch-identical(?: in substance)? to(?:, with no root go at,)?) ([0-9a-f]{{7,40}})\b", re.IGNORECASE)
-NEW_BEHAVIOR = re.compile(r"\bnew behaviou?r\b", re.IGNORECASE)
-CARRIES_GO = re.compile(r"^(?!.*\bnew behaviou?r\b).*(?:\bpatch-identical\b|\btest-only\b)", re.IGNORECASE | re.DOTALL)
+CARRY_SAYS = re.compile(r"(?<!\bnot )\bpatch-identical\b|\btap carries\b|\bno new behaviou?r\b|\btest-only\b|\bpure replay\b", re.IGNORECASE)
+CARRY_FORM = re.compile(rf"\bcarried\b|{CARRY_SAYS.pattern}", re.IGNORECASE)
 HEAD_MOVE = re.compile(r"\b([0-9a-f]{7,40})\s*\(was ([0-9a-f]{7,40})\)", re.IGNORECASE)
 PATCH_IDENTICAL = re.compile(r"(?<!\bnot )\bpatch-identical\b", re.IGNORECASE)
 ADDS_BEHAVIOR = re.compile(r"(?<!\bno )(?<!\bwithout )\bnew behaviou?r\b", re.IGNORECASE)
@@ -110,15 +109,15 @@ def go_batch(record: dict) -> set[str]:
 
 
 def carried_gos(gos: list[dict], grades: list[dict], repo: str, lands: Callable[[str, str], bool]) -> list[dict]:
-    """The gos a fidelity desk carries: a root go naming a PR at head G and a `fidelity: ok H carried from G` or `fidelity: ok H patch-identical to G` grade on that PR, a patch-identical replay or a test-only fix, make a go at H when `lands(pr, H)`, and so on along each chain of carries, so a replayed head never waits for root to post its go again (root #136770, #143450). A carried go keeps its source go's seq, time and `with` batch, so it never reads as a newer root decision or frees a PR from its batch, and records its grade's time as `graded_at`, when the carried head became ready to queue."""
+    """The gos a fidelity desk carries: a root go naming a PR at head G and a fidelity grade of H on that PR that names G and `carries`, such as `fidelity: ok H carried: patch-identical to G` or `fidelity: ok H, tap carries (399b5fa): pure replay of G`, make a go at H when `lands(pr, H)`, and so on along each chain of carries, so a replayed head never waits for root to post its go again (root #136770, #143450). A carried go keeps its source go's seq, time and `with` batch, so it never reads as a newer root decision or frees a PR from its batch, and records its grade's time as `graded_at`, when the carried head became ready to queue."""
     gone = {(pr, sha): go for go in gos for pr, sha in go_heads(go).items() if pr not in go.get("voided", ())}
     carried: list[dict] = []
     while fresh := [
-        (pr, found[1].lower(), source, grade["at"])
+        (pr, found[0], source, grade["at"])
         for grade in grades
-        if (found := CARRIED.match(grade["text"])) and CARRIES_GO.match(SENTENCE_BREAK.split(grade["text"], maxsplit=1)[0])
+        if carries(grade["text"]) and (found := carry_of(grade["text"]))
         for pr, _ in repo_prs(grade, repo)
-        if (source := reached(gone, pr, found[2].lower())) and not reached(gone, pr, found[1].lower()) and lands(pr, found[1].lower())
+        if (source := next(filter(None, (reached(gone, pr, earlier) for earlier in found[1])), None)) and not reached(gone, pr, found[0]) and lands(pr, found[0])
     ]:
         for pr, head, source, graded_at in fresh:
             bound = " ".join(f"#{mate}" for mate in sorted(go_batch(source) - {pr}, key=int))
@@ -129,15 +128,15 @@ def carried_gos(gos: list[dict], grades: list[dict], repo: str, lands: Callable[
 
 
 def fidelity_carries(grades: list[dict]) -> list[tuple[str, str]]:
-    """Each `(H, G)` a `fidelity: ok H carried from G` grade names, unless it says the change adds new behavior: the desk read H as G's change, so G's finder verdict stands for H (root #139077)."""
-    return [(found[1].lower(), found[2].lower()) for grade in grades if (found := CARRIED.match(grade["text"])) and not NEW_BEHAVIOR.search(grade["text"])]
+    """Each `(H, G)` a carry grade of H naming G states, unless it says the change adds new behavior: the desk read H as G's change, so G's finder verdict stands for H (root #139077)."""
+    return [(found[0], earlier) for grade in grades if not ADDS_BEHAVIOR.search(grade["text"]) and (found := carry_of(grade["text"])) for earlier in found[1]]
 
 
 def head_moves(found: list[dict], drive: str, lanes: list[str], repo: str, pr: str) -> list[tuple[str, str, bool, int]]:
-    """Each move of `pr` from an old head to a new one that a record of `found` states, as `(new, old, patch-identical, seq)`: a `head` record's `<new> (was <old>)`, patch-identical when the words after it, up to the end of its sentence or the next move, say so and name no new behavior, or when a fidelity lane's grade of `<new>` that names no old head calls it patch-identical; and a fidelity lane's `fidelity: ok <new> carried from <old>` or `patch-identical [in substance] to <old>` grade, patch-identical when its first sentence says so and it names no new behavior."""
+    """Each move of `pr` from an old head to a new one that a record of `found` states, as `(new, old, patch-identical, seq)`: a `head` record's `<new> (was <old>)`, patch-identical when the words after it, up to the end of its sentence or the next move, say so and name no new behavior, or when a fidelity lane's grade of `<new>` that names no old head calls it patch-identical; and each `(new, old)` a fidelity lane's carry grade states, patch-identical when `carries` says so."""
     moves = []
     mine = [record for record in found if record["drive"] == drive and about_pr(record, repo, pr)]
-    graded = [graded_head(record["text"][len(FIDELITY_OK) :]) for record in mine if record["kind"] == "review" and record["lane"] in lanes and record["text"].startswith(FIDELITY_OK) and not CARRIED.match(record["text"]) and identical(record["text"])]
+    graded = [graded_head(record["text"][len(FIDELITY_OK) :]) for record in mine if record["kind"] == "review" and record["lane"] in lanes and record["text"].startswith(FIDELITY_OK) and identical(record["text"])]
     for record in mine:
         text = record["text"]
         if record["kind"] == "head":
@@ -145,14 +144,27 @@ def head_moves(found: list[dict], drive: str, lanes: list[str], repo: str, pr: s
             for move, after in pairwise([*named, None]):
                 said = SENTENCE_BREAK.split(text[move.start() : after.start() if after else len(text)], maxsplit=1)[0]
                 moves.append((move[1].lower(), move[2].lower(), bool(PATCH_IDENTICAL.search(said)) and not ADDS_BEHAVIOR.search(said) or any(names_head(sha, move[1]) for sha in graded), record["seq"]))
-        elif record["kind"] == "review" and record["lane"] in lanes and (carried := CARRIED.match(text)):
-            moves.append((carried[1].lower(), carried[2].lower(), identical(text), record["seq"]))
+        elif record["kind"] == "review" and record["lane"] in lanes and (found := carry_of(text)):
+            moves.extend((found[0], earlier, carries(text), record["seq"]) for earlier in found[1])
     return moves
 
 
 def identical(grade: str) -> bool:
     """Whether a fidelity grade calls its head patch-identical in its first sentence and names no new behavior anywhere."""
     return bool(PATCH_IDENTICAL.search(SENTENCE_BREAK.split(grade, maxsplit=1)[0])) and not ADDS_BEHAVIOR.search(grade)
+
+
+def carry_of(text: str) -> tuple[str, list[str]] | None:
+    """The head a `fidelity: ok <new>` grade carries to and every other head it names, when it says carried, patch-identical, tap carries, no new behavior, test-only, or pure replay, in whatever words surround them."""
+    if not text.startswith(FIDELITY_OK) or not CARRY_FORM.search(text) or not (new := graded_head(text[len(FIDELITY_OK) :]).lower()):
+        return None
+    earlier = list(dict.fromkeys(sha.lower() for sha in SHORT_SHA.findall(text) if not names_head(sha.lower(), new)))
+    return (new, earlier) if earlier else None
+
+
+def carries(grade: str) -> bool:
+    """Whether a carry grade's first sentence says patch-identical, tap carries, no new behavior, test-only, or pure replay, and it adds no new behavior anywhere, so a go or tap at the head it names stands at its new head; a bare `carried from` carries only a finder verdict."""
+    return bool(CARRY_SAYS.search(SENTENCE_BREAK.split(grade, maxsplit=1)[0])) and not ADDS_BEHAVIOR.search(grade)
 
 
 def patch_chain(moves: list[tuple[str, str, bool, int]], head: str, tapped: str) -> list[int]:

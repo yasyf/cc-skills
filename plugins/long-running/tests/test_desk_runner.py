@@ -3297,7 +3297,7 @@ def tap_notes(shell: FakeShell) -> list[dict]:
     return [post for post in notes(shell) if post["text"].startswith("TAP-")]
 
 
-@pytest.mark.parametrize("restack", ["head", "fidelity", "no new behavior", "chain"])
+@pytest.mark.parametrize("restack", ["head", "fidelity", "no new behavior", "chain", "carried: patch-identical to", "tap carries"])
 def test_a_board_tap_carries_itself_to_a_patch_identical_restack_once_a_record_says_so(shell, config, tmp_path, restack):
     board_surface(config)
     board_lane(config)
@@ -3311,6 +3311,10 @@ def test_a_board_tap_carries_itself_to_a_patch_identical_restack_once_a_record_s
         seqs = [grade(shell, "29020", "ok cccc333333 patch-identical to, with no root go at, aaaa111111 (#34700), patch-identical (patch-id 5ebf1cae3e6e).", lane="fidelity-desk")]
     elif restack == "no new behavior":
         seqs = [grade(shell, "29020", "ok cccc333333 carried from aaaa111111, patch-identical replay with no new behavior.")]
+    elif restack == "carried: patch-identical to":
+        seqs = [grade(shell, "29020", "ok cccc333333 carried: patch-identical to aaaa111 (ok #165915), on dev after the batch landed. A pure replay, so his 6:03 PM tap on aaaa111 carries under 399b5fa.")]
+    elif restack == "tap carries":
+        seqs = [grade(shell, "29020", "ok cccc333, tap carries (399b5fa): patch-identical replay of aaaa111 onto the restacked #42810. old-app: unchanged vs c57cad26 (release 10435).")]
     else:
         older = head_record(shell, "29020", "HEAD #29020 bbbb222222 (was aaaa111111): restack, range-diff patch-identical")
         seqs = [grade(shell, "29020", "ok cccc333333 carried from bbbb222222, patch-identical replay onto dev."), older]
@@ -3321,7 +3325,7 @@ def test_a_board_tap_carries_itself_to_a_patch_identical_restack_once_a_record_s
     assert shell.board["merge-rows"]["29020"]["head"] == "cccc333333" and shell.board["merge-rows"]["29020"]["carriedFrom"] == "aaaa111111"
     [note] = tap_notes(shell)
     assert note["to"] == "root,board-refresher"
-    assert note["text"] == f"TAP-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, patch-identical per {cited}, recorded with cc-present verdict carry; the row asks no new tap"
+    assert note["text"] == f"TAP-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, a patch-identical restack, per {cited}, recorded with cc-present verdict carry; the row asks no new tap"
     assert [line for line in escalations(shell) if line.startswith("TAP-")] == []
 
 
@@ -3400,6 +3404,30 @@ def test_a_board_tap_at_an_ungraded_fixed_head_asks_for_nothing_until_its_grade_
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert shell.carries == [] and tap_notes(shell) == []
+
+
+def test_a_kept_tap_carries_to_the_review_fix_once_root_posts_its_go_and_the_tap_rule_admits_the_head(shell, config, tmp_path):
+    board_surface(config)
+    board_lane(config)
+    raw = json.loads(config.read_text())
+    raw["landing"]["tap_rules"] = {"rule/82317b0": ["go/sand/next/*"]}
+    config.write_text(json.dumps(raw))
+    shell.register = {"rule/82317b0": {"kind": "order", "status": "in-force"}}
+    lone_green_pr(shell)
+    shell.files["29020"] = ["go/sand/next/vm/run.go"]
+    tap(shell, "29020", "aaaa111111")
+    graded = grade(shell, "29020", "ok cccc333333 restacked from aaaa111 (ok #166024) onto #44069 21c80e5. Its one commit changes only context lines. The added and removed lines are the same as at aaaa111.")
+    landing_pass(shell, config)
+    assert shell.carries == [] and [note["text"].split(":")[0] for note in tap_notes(shell)] == ["TAP-KEPT #29020"]
+    merge_go(shell, "29020", "go #29020 at cccc333333: carried from his tap on aaaa111 (go at that head), no new behavior (rule 399b5fa).")
+    go = shell.records[-1]["seq"]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    why = f"review fix with no new behavior, per fidelity grade cci #{graded} and root go cci #{go} (rule 399b5fa)"
+    assert shell.carries == [{"--session": "s-root", "--block": "merge-rows", "--row": "29020", "--head": "cccc333333", "--note": why}]
+    assert [note["text"] for note in tap_notes(shell)][1:] == [f"TAP-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, a {why}, recorded with cc-present verdict carry; the row asks no new tap"]
+    assert not [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
 def test_a_fixed_head_a_root_go_names_asks_the_board_for_no_new_row(shell, config, tmp_path):
@@ -3618,7 +3646,16 @@ def test_a_root_go_carries_along_the_fidelity_desks_carried_grades_to_the_replay
     assert [call[1:] for call in shell.enqueues()] == ([["33001", "--partial"]] if lands else [])
 
 
-@pytest.mark.parametrize("words", ["ok cccc333 carried from aaaa111 (patch-identical replay)", "ok cccc333 patch-identical to, with no root go at, aaaa111 (#143075), patch-identical (patch-id 6424ab2b7f99). Carried under root #131054."], ids=["carried-from", "patch-identical-to"])
+@pytest.mark.parametrize(
+    "words",
+    [
+        "ok cccc333 carried from aaaa111 (patch-identical replay)",
+        "ok cccc333 patch-identical to, with no root go at, aaaa111 (#143075), patch-identical (patch-id 6424ab2b7f99). Carried under root #131054.",
+        "ok cccc333 carried: patch-identical to aaaa111 (ok #165915), on dev after the batch landed. A pure replay, so his 6:03 PM tap on aaaa111 carries under 399b5fa.",
+        "ok cccc333, tap carries (399b5fa): patch-identical replay of aaaa111 onto the restacked #42810. old-app: unchanged vs c57cad26 (release 10435).",
+    ],
+    ids=["carried-from", "patch-identical-to", "carried-patch-identical", "tap-carries"],
+)
 @pytest.mark.parametrize(("old_app", "lands"), [(None, False), ("old-app: unchanged cccc333 go/sand/next only", True), ("old-app: CHANGES cccc333 the bundled server writes a new journal format", False)], ids=["ungraded", "unchanged", "changes"])
 def test_with_the_old_app_check_a_root_go_carries_on_either_desks_carry_words_once_the_head_grades_old_app_unchanged(shell, config, tmp_path, words, old_app, lands):
     merge_mode(config, "every")

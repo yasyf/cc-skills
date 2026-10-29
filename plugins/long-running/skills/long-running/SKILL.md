@@ -1701,14 +1701,16 @@ Take an approval on a `pr-groups` row at an older head of an open PR, with no ve
 the PR's current head. The runner moves it to the current head with `cc-present verdict
 carry` when records chain the two heads and call each move patch-identical. A lane's
 `head` record reading `<new> (was <old>): restack, range-diff patch-identical` is one
-such move. A fidelity grade reading `fidelity: ok <new> patch-identical to <old>`, or
-`carried from <old>` with patch-identical and no new behavior, is another. One
+such move. A fidelity grade of `<new>` that names `<old>` anywhere and says patch-identical,
+tap carries, no new behavior, test-only, or pure replay in its first sentence, with no added
+behavior, is another. One
 `TAP-CARRIED` note naming both heads goes to root and each lane `landing.board_lane`
 names, one lane or a list. A new head that a record names but no such chain reaches is a
 fixed version, and its tap stays at the old head. One `TAP-NOT-CARRIED` note to the same
 lanes says the board needs a new row at that head. For a review fix, the
-root posts `go #<n> at <new head>` naming the fix, and the row lists his approved head in
-`carried` and names the fix in one plain line, so he is never asked again. A head that
+root posts `go #<n> at <new head>` naming the fix, and the runner then carries the tap to
+that head itself, citing the fidelity grade and the go, so the row lists his approved head
+in `carried` and he is never asked again. A head that
 adds behavior asks again, with one line saying what is new. Every verdict is read live
 from the cc-present store (`cc-present outcomes`) and the root's `go` records at the
 moment it is used; no writer, row, card, or dashboard keeps a copy. Owner, 12:28 PM Oct
