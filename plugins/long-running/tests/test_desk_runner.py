@@ -5780,7 +5780,23 @@ def test_a_green_head_a_go_names_still_out_of_the_queue_five_minutes_on_escalate
     [line] = unqueued(shell)
     assert line.startswith("GO-UNQUEUED go-unqueued:33001 #33001: #33001 is green at aaaa111111 and root go #")
     assert "yet it is not in the queue after 6 minutes" in line
-    assert "its newest refusal is the blocker routed at " in line and "merge conflict" in line
+
+
+def test_go_unqueued_names_the_landing_desks_newest_blocker_on_the_head_and_the_owner_lane_that_acts(shell, config, tmp_path):
+    merge_mode(config, "every")
+    desk_lane(config)
+    gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
+    shell.queue["33001"] = "not queued"
+    shell.sleep(60)
+    blocker = f"{LANE}: #33001 aaaa111 sits on closed #33000's untracked branch; run ccx vcs stack submit from #33001's worktree, post HEAD"
+    shell.records.append({"seq": 34900, "drive": "d1", "lane": DESK, "kind": "blocker", "to": [LANE, "root"], "refs": {}, "text": blocker, "at": actions.stamp(shell.clock), "status": "open"})
+    shell.sleep(5 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [line] = unqueued(shell)
+    assert f"its newest refusal is {DESK}'s blocker #34900 at " in line
+    assert "untracked branch; run ccx vcs stack submit from #33001's worktree" in line
+    assert line.endswith(f"; owner lane {LANE}")
 
 
 HELD_TWO = "🛑 Held — 2 blocking open; security: high; confidentiality: high"
