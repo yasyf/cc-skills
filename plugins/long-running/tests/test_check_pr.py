@@ -174,14 +174,19 @@ def test_a_rulings_comment_posted_moments_ago_cites_the_row(package: Path, state
 def test_a_reserved_touch_needs_an_answer_cited_or_tapped_for_this_pr(package: Path, state: Path, registered: Path, capsys) -> None:
     refused = (1, ["RESERVED-NO-ANSWER reserved/cloud-delete\tNothing deletes a cloud bucket without my word."])
     tapped = dict(BUCKET_ANSWER, title="Merge #12?", body="Owner tapped Merge.")
-    touching = [LANE_HEAD, FINDER_OK, {"seq": 12, "kind": "review", "lane": "fidelity-desk", "text": f"fidelity: missing {HEAD[:7]} touches reserved/cloud-delete"}]
 
     assert check(capsys, CheckShell(pinned(package), diff=BUCKET_DIFF)) == refused
-    assert check(capsys, CheckShell(pinned(package), records=touching)) == refused
     assert check(capsys, CheckShell(pinned(package), diff=BUCKET_DIFF, answers=[BUCKET_ANSWER])) == refused
     assert check(capsys, CheckShell(pinned(package), diff=BUCKET_DIFF, answers=[dict(tapped, title="Merge #13?")])) == refused
     assert check(capsys, CheckShell(pinned(package), body=citing("- abcdef1: the cleanup may delete the old bucket."), diff=BUCKET_DIFF, answers=[BUCKET_ANSWER])) == (0, [])
     assert check(capsys, CheckShell(pinned(package), diff=BUCKET_DIFF, answers=[tapped])) == (0, [])
+
+
+def test_a_graders_touches_tag_alone_is_no_reserved_touch(package: Path, state: Path, registered: Path, capsys) -> None:
+    tagged = [LANE_HEAD, FINDER_OK, *({"seq": seq, "kind": "review", "lane": "fidelity-pipeline", "text": text} for seq, text in ((12, "touches reserved/cloud-delete"), (13, "touches rule/1375cff"), (14, f"fidelity: missing {HEAD[:7]} touches reserved/cloud-delete")))]
+
+    assert check(capsys, CheckShell(pinned(package), records=tagged)) == (0, [])
+    assert check(capsys, CheckShell(pinned(package), records=tagged, diff=BUCKET_DIFF)) == (1, ["RESERVED-NO-ANSWER reserved/cloud-delete\tNothing deletes a cloud bucket without my word."])
 
 
 def test_a_test_fake_that_names_a_reserved_op_is_no_reserved_touch(package: Path, state: Path, registered: Path, capsys) -> None:

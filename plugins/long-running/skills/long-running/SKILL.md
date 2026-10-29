@@ -1771,8 +1771,8 @@ A repository the runner's own GitHub account owns, the login `gh api user` print
 lands once green under every merge mode, with no card (de6c88c). A reserved touch
 there still asks.
 
-A head that `check-pr` reads as touching a reserved row, by an `ops` match or a
-grader's `touches <key>`, waits for the owner in every mode. Its `MERGE-ASK` names
+A head whose own diff matches a reserved row's `ops` waits for the owner in every
+mode; a grader's `touches <key>` line alone never holds a head. Its `MERGE-ASK` names
 the row's key and the first sentence of its words. The card quotes both, and the
 owner's tap on it is the authorization. After a Merge tap the root runs
 `rulings.py authorize --drive <drive> --row <key> --action <the tap's ts>`, whose

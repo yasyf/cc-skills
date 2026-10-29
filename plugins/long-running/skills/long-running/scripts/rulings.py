@@ -253,7 +253,6 @@ TEST_DEFINITION = re.compile(
     r"|(?:pub\s+)?(?:async\s+)?fn\s+(?P<rs>\w+)\s*\(|(?:it|test)\s*\(\s*(?P<quote>[\"'`])(?P<ts>.+?)(?P=quote))"
 )
 FINDER = re.compile(r"^finder: (?P<verdict>\S+) (?P<head>[0-9a-f]{7,40})\b")
-TOUCHES = re.compile(r"\btouches ((?:rule|prompt|design|exception|reserved)/\S+)")
 READBACK_GRADE = re.compile(r"^readback: (?P<verdict>ok|missing) (?:[0-9a-f]{7,40} )?(?P<lane>\S+)(?: (?P<rest>.*))?$", re.DOTALL)
 READBACK_SAID = re.compile(r"^read-back (?P<lane>\S+): (?P<verdict>ok|missing)\b[.:,;]?(?:\s+(?P<rest>.*))?$", re.DOTALL)
 READBACK_KINDS = ("review", "answer")
@@ -2216,9 +2215,8 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
     uncited = [key for key in facts["touched"] if not cites(head, key, rulings[key])]
     if uncited:
         findings.refusals.append(f"RULINGS-UNCITED {','.join(uncited)}\tcite them under a ## Rulings heading in one PR comment, never by editing the body (427c9c93)")
-    touches = {found[1] for record in records or [] if record.get("kind") == "review" for found in TOUCHES.finditer(record.get("text") or "")}
     for key, fields in rulings.items():
-        if fields.get("kind") == "reserved" and (key in touches or key in facts["reserved"]):
+        if fields.get("kind") == "reserved" and key in facts["reserved"]:
             if findings.read(f"the authorizes:{key} answers", lambda key=key: authorized(loaded, head, key)) is False:
                 findings.refusals.append(f"RESERVED-NO-ANSWER {key}\t{first_sentence(fields.get('words') or '')}")
     findings.refusals += findings.read("the removed tests", lambda: removed_tests(loaded, head, findings, args.incident, loaded.plan(args.plan))) or []
