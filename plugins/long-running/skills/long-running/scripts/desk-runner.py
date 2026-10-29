@@ -3603,7 +3603,7 @@ class Runner:
         if self.withdrawn_by(lane) or any(action.target.startswith("OUTCOME ") and f" dispatch={dispatch}:" in action.target for action in self.book.actions(RUNNER, kind="escalation")):
             return
         drive = self.config.drive
-        last = max((record for record in cci.records(self.cci_tail, drive, "--lane", lane, "--limit", "1") if record["drive"] == drive), key=lambda record: record["seq"], default=None)
+        last = max((record for record in cci.records(self.cci_tail, drive, "--lane", lane) if (record["drive"], record["lane"]) == (drive, lane)), key=lambda record: record["seq"], default=None)
         if last and last["kind"] in LANE_ENDED_KINDS:
             return
         said = "it has posted no record"
@@ -7156,6 +7156,7 @@ class Landing:
             self.runner.checkpoint()
             self.failing(ACCEPT_CHECKS, Graded({pr: head}, rows, self.runner.now(), act=True))
         for pr, (head, entry) in told.items():
+            self.runner.checkpoint()
             self.review_bot(pr, head, open_rows[pr])
             if why := status_blocker(entry, "ci-red" not in entry["verdict"] or not self.red_by_design(pr)) or self.unproven_why.get(pr, ""):
                 key = f"conflict:{pr}:{open_rows[pr].get('base', '')}" if why == CONFLICT_BLOCKER else blocker_key(pr, head)
