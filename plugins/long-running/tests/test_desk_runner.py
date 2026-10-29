@@ -3620,7 +3620,7 @@ def test_a_board_tap_carries_itself_to_a_patch_identical_restack_once_a_record_s
     [note] = tap_notes(shell)
     assert note["to"] == "root,board-refresher"
     [go] = [post for post in shell.posts if post["kind"] == "go"]
-    assert go["text"].startswith(f"go #29020 at cccc333 TAP-CARRIED: the owner's tap at aaaa111111 carries to cccc333333, a patch-identical restack, per {cited}")
+    assert go["text"].startswith("go #29020 at cccc333 TAP-CARRIED: the owner's tap at aaaa111111 carries to cccc333333, a patch-identical restack; the runner posts this go itself")
     assert note["text"] == f"TAP-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, a patch-identical restack, per {cited}, recorded with cc-present verdict carry; the row asks no new tap"
     assert [line for line in escalations(shell) if line.startswith("TAP-")] == []
 
