@@ -332,6 +332,20 @@ def test_a_graded_pr_missing_from_the_board_and_a_tap_no_go_follows_each_post_un
     assert opened(config) == {}
 
 
+def test_a_go_from_a_numbered_successor_of_a_go_lane_settles_the_tap(config):
+    raw = json.loads(config.read_text())
+    raw["landing"]["go_lanes"] = ["go-sweep-5"]
+    config.write_text(json.dumps(raw))
+    records = [head(1, "102", OTHER, 40), finder(2, "102", OTHER, 30), fidelity(3, "102", OTHER, 30), record(4, "go-sweep-6", "go", f"go #102 at {OTHER[:7]}", 1)]
+    shell = FakeShell(records, [row("102", OTHER)])
+    shell.doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": 102, "head": OTHER[:7]}]}]}]}
+    shell.triage = {"merge-prs": {"102": {"verdict": "approved", "head": OTHER[:7], "at": stamp(12)}}}
+
+    watch(shell, config)
+
+    assert "tap:102:fedcba9" not in shell.topics()
+
+
 def test_a_tap_at_an_earlier_head_asks_sonnet_once_whether_the_new_head_replays_it(config):
     restack = f"HEAD #101 {HEAD} (was {OLD}): restack, range-diff patch-identical (3 commits)"
     shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 20, restack)], [row("101")])

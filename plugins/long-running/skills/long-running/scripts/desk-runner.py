@@ -602,7 +602,7 @@ import prompt_watch
 import stall_watch
 import testfiles
 from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
-from grades import carry_of
+from grades import carry_of, delegated, succeeds
 from grades import carries as carry_grade
 from grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
 from grades import WITHDRAWN as WITHDRAWN_OPENING
@@ -844,7 +844,6 @@ LANE_SILENT = timedelta(minutes=15)
 LANE_SPAWN_GRACE = timedelta(minutes=10)
 LANE_GONE_REPORT = re.compile(r"\bLANE-GONE lane-gone:([^:\s]+)[:\s]")
 LANE_ENDED_KINDS = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
-LANE_NUMBER = re.compile(r"(.+?)(?:-(\d+))?")
 HANDOFF_WAIT = timedelta(minutes=20)
 RELAY_REF = re.compile(r"(?:^|cci#)(R?\d+)$")
 RUN_REF = re.compile(r"R\d+|\d+")
@@ -1365,13 +1364,6 @@ def applying_fault(landing: dict | None) -> str:
     except re.error as failure:
         return f"landing.applying.step is no regular expression: {failure}"
     return "" if {"component", "env"} <= set(groups) else "landing.applying.step has no `component` and `env` named groups"
-
-
-def succeeds(name: str, lane: str) -> bool:
-    """Whether `name` is a numbered successor of `lane`: the same base with a higher `-<n>` suffix, where a bare name counts as 1."""
-    base, number = LANE_NUMBER.fullmatch(lane).groups()
-    other, later = LANE_NUMBER.fullmatch(name).groups()
-    return other == base and later is not None and int(later) > int(number or 1)
 
 
 def pacific(moment: datetime) -> str:
@@ -6372,7 +6364,7 @@ class Landing:
         return True
 
     def go_lane(self, lane: str) -> bool:
-        return lane in (ROOT, RUNNER) or any(lane == delegate or succeeds(lane, delegate) for delegate in self.landing_config.get("go_lanes", []))
+        return lane in (ROOT, RUNNER) or delegated(lane, self.landing_config.get("go_lanes", []))
 
     def go_records(self) -> list[dict]:
         """Every `go` record on this drive from the root or a `landing.go_lanes` lane or its numbered successor, read by lane when no lane is delegated."""
@@ -7645,7 +7637,7 @@ class Landing:
             if record["drive"] == drive and record["kind"] in OWNER_KINDS and (record["kind"] != "report" or cci.lane_report(record)) and not root_claim(record) and pr in dict(repo_prs(record, self.repo))
         ]
         claims += [record for record in self.claims() if record["drive"] == drive and record["kind"] == "claim" and not root_claim(record) and pr in claimed_prs(record, self.repo)]
-        newest = max((record for record in claims if not any(record["lane"] == desk or succeeds(record["lane"], desk) for desk in desks)), key=lambda record: record["seq"], default=None)
+        newest = max((record for record in claims if not delegated(record["lane"], desks)), key=lambda record: record["seq"], default=None)
         lane = newest["lane"] if newest else row.get("lane", "")
         return self.successor(lane) if lane else lane
 
