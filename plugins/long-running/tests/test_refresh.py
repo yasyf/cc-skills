@@ -356,6 +356,19 @@ def test_refresh_without_registered_worktrees_starts_no_stack_process():
     assert shell.calls == []
 
 
+def test_batched_stack_results_keep_relative_and_parent_path_operands(tmp_path, monkeypatch):
+    (tmp_path / "child").mkdir()
+    monkeypatch.chdir(tmp_path)
+    paths = ["child/..", str(tmp_path / "child" / "..")]
+    shell = FakeShell()
+    for path in paths:
+        shell.stacks[path] = {"root": str(tmp_path), "branches": [{"branch": "lane/fix"}]}
+    registrations = [{"lane": str(index), "worktree": path} for index, path in enumerate(paths)]
+
+    assert ledger.lane_stacks(shell, "ccx", registrations) == {"0": ["lane/fix"], "1": ["lane/fix"]}
+    assert shell.calls == [["ccx", "vcs", "stack", "list-batch", *paths]]
+
+
 def test_grade_reads_a_ccx_record():
     record = {
         "number": 190,
