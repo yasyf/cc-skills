@@ -3,7 +3,7 @@ import datetime as dt
 import pytest
 from brief import Curator
 from pages import PAGES, REVIEW_SCHEMA, open_question, plan_slot, review_digest, review_slot, stamp, waiting_since
-from server import bot_words, unanswered
+from server import bot_words, drawable, unanswered
 
 NOW = dt.datetime(2026, 10, 27, 23, 0, tzinfo=dt.timezone.utc)
 ROW = {
@@ -181,3 +181,13 @@ def test_a_later_run_s_plain_lead_still_says_what_the_change_does():
 def test_a_lead_that_counts_new_findings_is_not_taken_for_what_it_does():
     summary = "<!-- pr-reviewer bot summary -->\n\n> [!WARNING]\n> **1 non-blocking**\n\nOne new nonblocking finding: the old release still reads the next tree's config.\n\n<details></details>"
     assert bot_words([summary])["summary"] is None
+
+
+def test_a_sequence_participant_named_like_a_mermaid_keyword_is_renamed_where_it_is_an_id():
+    source = "sequenceDiagram\n    participant Actor as Session actor\n    participant End\n    Host->>Actor: Halt the Actor turns\n    Note over Actor,End: closes"
+    assert drawable(source) == "sequenceDiagram\n    participant Actor_ as Session actor\n    participant End_ as End\n    Host->>Actor_: Halt the Actor turns\n    Note over Actor_,End_: closes"
+
+
+def test_a_flowchart_is_drawn_as_written():
+    source = "flowchart LR\n    Actor --> End"
+    assert drawable(source) == source
