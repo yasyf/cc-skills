@@ -36,7 +36,7 @@ it posts nothing. The verdict is posted under lane `finder-desk` as `finder: ok 
 `review`, with `--pr <repo>#<n>`, `--id finder:<repo>#<n>:<head>` and `:whole` for a `full` job, and the whole reply on `--path`, to the lane that posted the head
 and every `finder.to` address. A blocker or major stands only when one of its cites names a line
 the PR's own diff adds or changes; it and every finding the reply marks `census:` are appended to
-`<config dir>/finder-desk/census-<date>.md` instead, with one `finder census:` note to root per head. `DIR/result.json` is written last, `{"error": …}` when the job
+`<config dir>/finder-desk/census-<date>.md` instead, with one `finder census:` note per head to the lane that posted the head and every `finder.to` address. `DIR/result.json` is written last, `{"error": …}` when the job
 raised, and the runner settles the dispatch from it. A job whose `DIR/cancelled` the runner wrote, as a newer head of the
 PR queued, asks codex nothing; the runner cancels a codex run already reading it.
 """
@@ -364,7 +364,8 @@ def record_census(shell: Shell, job: dict, directory: Path, census: list[dict]) 
         file.writelines(f"- {job['repo']}#{job['pr']} {job['head'][:12]} {' '.join(finding['cite'].split())}: {' '.join(finding['defect'].removeprefix(CENSUS).split())}\n" for finding in census)
     pr = f"{job['repo']}#{job['pr']}"
     text = f"finder census: {len(census)} dev-only findings on #{job['pr']} appended to {path}"
-    return shell.run(["cci", "post", "--drive", job["drive"], "--lane", LANE, "--kind", "note", "--to", "root", "--pr", pr, "--id", f"finder-census:{pr}:{job['head']}", "--text", text]).strip()
+    to = ",".join(dict.fromkeys(filter(None, [job["lane"], *job["to"]])))
+    return shell.run(["cci", "post", "--drive", job["drive"], "--lane", LANE, "--kind", "note", "--to", to, "--pr", pr, "--id", f"finder-census:{pr}:{job['head']}", "--text", text]).strip()
 
 
 def post(shell: Shell, job: dict, text: str, body: Path) -> str:

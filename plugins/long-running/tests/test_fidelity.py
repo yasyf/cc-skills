@@ -92,7 +92,7 @@ def job(tmp_path: Path, **changes) -> Path:
         "pr": "43299",
         "head": HEAD,
         "lane": "p8a-step9",
-        "to": ["root", "desk-runner", "board-refresher-2"],
+        "to": ["desk-runner", "board-refresher-2"],
         "readers": ["fidelity-desk-4", "fidelity-desk-5"],
         "lanes": ["fidelity-desk-4", "fidelity-desk-5", fidelity.LANE],
         "grades": [DESK_OK],
@@ -138,7 +138,7 @@ def test_a_restack_patch_identical_to_a_graded_ok_head_carries_its_port_phrase_a
     assert grade == f"fidelity: ok {HEAD} {PORT_PHRASE}: carried from {OLD[:7]} (cci #170001), patch-identical by git patch-id over its own commits."
     assert old_app == f"old-app: unchanged {HEAD[:7]} baseline {BASELINE}; go/sand/next only"
     assert carries(grade) and graded_head(grade) == HEAD and OLD_APP.search(old_app)[1] == "unchanged"
-    assert all(post["--lane"] == fidelity.LANE and post["--to"] == "p8a-step9,root,desk-runner,board-refresher-2" for post in shell.posted)
+    assert all(post["--lane"] == fidelity.LANE and post["--to"] == "p8a-step9,desk-runner,board-refresher-2" for post in shell.posted)
     assert result(directory) == {"verdict": "carried", "from": OLD, "posted": ["#150002", "#150003"]}
 
 
@@ -252,7 +252,7 @@ def test_a_head_codex_cannot_settle_goes_to_the_human_fidelity_desks(tmp_path):
     fidelity.main([str(directory)], shell)
     reader, touches, _ = shell.posted
     assert reader["--text"] == f"{fidelity.READER} {HEAD} deletes the eviction path, a reserved row no answer authorizes"
-    assert reader["--to"] == "p8a-step9,root,desk-runner,board-refresher-2,fidelity-desk-4,fidelity-desk-5" and touches["--to"] == "p8a-step9,root,desk-runner,board-refresher-2"
+    assert reader["--to"] == "p8a-step9,desk-runner,board-refresher-2,fidelity-desk-4,fidelity-desk-5" and touches["--to"] == "p8a-step9,desk-runner,board-refresher-2"
 
 
 @pytest.mark.parametrize(

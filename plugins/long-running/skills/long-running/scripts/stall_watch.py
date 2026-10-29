@@ -339,9 +339,10 @@ class Stall:
         word = "STALE" if self.kind == "stale" else f"STALL {self.kind}"
         return f"{word} {self.subject}, {int((now - self.since).total_seconds() // 60)} min: {self.what} | owner {', '.join(self.owner)} | {self.step}"
 
-    def to(self, drive_name: str, desk_lanes: list[str]) -> str:
+    def to(self, drive_name: str, desk_lanes: list[str], live: Callable[[str], bool]) -> str:
+        """The lanes the stall names, with the root too unless desks own it or every lane it names is live, so root hears only what no live lane will act on (root, Oct 29 2:10 PM)."""
         lanes = [named for lane in self.owner for named in (desk_lanes if lane == RUNNER else [lane]) if named not in ROOT_NAMES]
-        desks = lanes and (self.quiet or self.kind in DESK_KINDS or all(lane == RUNNER or DESK.fullmatch(lane) for lane in self.owner))
+        desks = lanes and (self.quiet or self.kind in DESK_KINDS or all(lane == RUNNER or DESK.fullmatch(lane) for lane in self.owner) or all(map(live, lanes)))
         return ",".join(dict.fromkeys([*([] if desks else [ROOT]), *(f"{lane}@{drive_name}" for lane in lanes)]))
 
 
@@ -551,6 +552,7 @@ class Pass:
         self.watch = watch
         self.now = shell.now()
         self.unread: set[str] = set()
+        self.lane_newest: dict[str, dict] = {}
         self.states: dict[str, dict] = {}
         self.stack: list[dict] | None = None
         self.tap_waits: dict[str, tuple[str, str]] | None = None
@@ -567,6 +569,11 @@ class Pass:
             raise ReadFailed(f"{' '.join(argv[:2])} exited {done.code}: {(done.err or done.out).strip()[:300]}")
         return done.out
 
+    def lane_live(self, lane: str) -> bool:
+        """Whether `lane` or its numbered successor posted in the window, its newest record no end of the lane."""
+        last = max((record for name, record in self.lane_newest.items() if successor_of(lane).fullmatch(name)), key=lambda record: record["seq"], default=None)
+        return last is not None and last["kind"] not in ENDED
+
     def warn(self, kinds: frozenset[str] | set[str], why: str) -> None:
         self.unread |= kinds
         print(f"WARN {why}; the {', '.join(sorted(kinds))} stalls it would clear stay open", file=sys.stderr)
@@ -574,6 +581,7 @@ class Pass:
     def run(self, dry_run: bool) -> int:
         saved = json.loads(self.watch.state.read_text()) if self.watch.state.is_file() else {"open": {}, "verdicts": {}}
         records = [record for record in cci.records(self.tail, self.watch.drive, since=actions.stamp(self.now - self.watch.window)) if record["drive"] == self.watch.drive]
+        self.lane_newest = {record["lane"]: record for record in records}
         if (session := root_session(self.watch.drive)) is None:
             self.warn(BOARD_KINDS | {"lane"}, f"no drive registry entry for {self.watch.drive} names a root session, so neither the board nor the task list read")
         stalls, questions, entries = self.prs(records, session)
@@ -635,7 +643,7 @@ class Pass:
         return 1 if failed else 0
 
     def post(self, stall: Stall) -> Done:
-        argv = ["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", "urgent", "--to", stall.to(self.watch.drive, self.watch.desk_lanes), "--topic", stall.id]
+        argv = ["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", "urgent", "--to", stall.to(self.watch.drive, self.watch.desk_lanes, self.lane_live), "--topic", stall.id]
         if stall.pr:
             argv += ["--pr", f"{self.watch.landing['repo']}#{stall.pr}"]
         return self.shell.run([*argv, "--text", stall.line(self.now)])
