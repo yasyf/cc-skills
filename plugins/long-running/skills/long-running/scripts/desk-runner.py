@@ -368,6 +368,9 @@ the runner runs `gh pr merge <n> --squash --match-head-commit <head>` once per h
 `land:<pr>@<head>`, and posts `landed` to the PR's lane and the root; a merge GitHub refuses logs `SQUASH-FAILED`. A head
 those checks name is not merged: it draws one `RULINGS-REFUSED` blocker to the PR's lane and the root per head and set of causes,
 and merges in the first pass they clear (45200f2). Every other cause `check-pr` names stays a warning (4236611).
+In a pass whose ledger reads a PR newly landed, the runner reads `git worktree list --porcelain` of the checkout once and runs
+`ccx vcs worktree rm --path <tree>` on each worktree whose branch is a landed PR's head branch and no open PR's; a refusal, such as a
+dirty tree or one a live process works in, logs `WORKTREE-KEPT` once per tree, is never forced, and is tried again in the next pass that reads a new landing.
 Neither grade
 gates the merge: a landed fix whose head has no counted fidelity ok or no finder ok 30 minutes on logs `UNGRADED-30` once (d968e1d). A PR whose ledger row lands carrying the `merge-fast`
 label, and whose body has a `Release-With:` line, or an incident fix's PR whatever its label and body, a PR this runner
@@ -620,6 +623,7 @@ FINDER_MODEL = "sol"
 FINDER_ATTEMPTS = 3
 FINDER_STALLED_AFTER = timedelta(minutes=15)
 FINDER_SETTLED = "settled_at"
+FINDER_SKIPS = {"CLOSED": "#{pr} is closed", "NOT_FOUND": "#{pr} is no pull request in {repo}"}
 FINDER_STALLED = "stalled"
 FIDELITY = "desk-fidelity"
 FIDELITY_CONCURRENT = 6
@@ -677,6 +681,7 @@ MERGE_FAST = "merge-fast"
 RELEASE_WITH = re.compile(r"^Release-With:[ \t]*(\S.*)$", re.MULTILINE)
 RELEASE_READ = "release-read"
 LANDED_READ = "landed-read"
+LANDED_TIDIED = "landed-tidied"
 DEQUEUE_READ = "dequeue-read"
 DEQUEUE_ORDERS = "dequeue-orders"
 PULLED_HEADS = "pulled-heads"
@@ -4156,7 +4161,7 @@ class Runner:
             self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_SETTLED: self.book.stamp()}))
 
     def start_finders(self, spec: dict, repo: str) -> None:
-        """Start the newest queued head of each PR, a requested full pass over any head, while fewer than `finder.concurrent` passes run: full passes first, then those a root `go` or an owner's board tap names, then heads of a PR a finder pass or a lane's finder record already graded, which carry or read only a delta, then the PR waiting longest, counted from the first of its heads a newer one superseded. An older queued head of the same PR settles as superseded, and so does a running pass of it, its codex run cancelled. A queued head whose PR is closed, or no longer at that head, settles as skipped without a pass."""
+        """Start the newest queued head of each PR, a requested full pass over any head, while fewer than `finder.concurrent` passes run: full passes first, then those a root `go` or an owner's board tap names, then heads of a PR a finder pass or a lane's finder record already graded, which carry or read only a delta, then the PR waiting longest, counted from the first of its heads a newer one superseded. An older queued head of the same PR settles as superseded, and so does a running pass of it, its codex run cancelled. A queued head whose PR is closed, or no longer at that head, or whose number names no PR, settles as skipped without a pass."""
         newest: dict[str, actions.Action] = {}
         for action in sorted(self.book.actions(FINDER, kind="finder", status="accepted"), key=lambda action: (full_pass(action), json.loads(action.target)["seq"])):
             if (older := newest.get(pr := json.loads(action.target)["pr"])) is not None:
@@ -4170,8 +4175,8 @@ class Runner:
         live = self.live_heads(repo, list(newest))
         for pr, action in list(newest.items()):
             job = json.loads(action.target)
-            if (state := live.get(pr)) and (state["state"] == "CLOSED" or job["head"] and state["headRefOid"] != job["head"]):
-                self.finder_settled(action.action_id, {"skipped": f"#{pr} is closed" if state["state"] == "CLOSED" else f"#{pr} moved to {state['headRefOid'][:12]}"})
+            if (state := live.get(pr)) and (state["state"] in FINDER_SKIPS or job["head"] and state["headRefOid"] != job["head"]):
+                self.finder_settled(action.action_id, {"skipped": FINDER_SKIPS.get(state["state"], "#{pr} moved to {head}").format(pr=pr, repo=repo, head=state["headRefOid"][:12])})
                 del newest[pr]
         going = self.tapped() | {pr for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, "--kind=go") if (record["lane"], record["kind"]) == (ROOT, "go") for pr in go_heads(record)}
         history: dict[str, list[actions.Action]] = {}
@@ -4197,15 +4202,17 @@ class Runner:
         return True
 
     def live_heads(self, repo: str, prs: list[str]) -> dict[str, dict]:
-        """Each of `prs` GitHub answered for, to its `state` and `headRefOid`, read fresh in one GraphQL query; a read that fails answers for none, and each pass then reads its PR itself."""
+        """Each of `prs` GitHub answered for, to its `state` and `headRefOid`, read fresh in one GraphQL query, with state `NOT_FOUND` for a number that names no pull request in `repo`, such as a cci seq a record bound as one (#177997), which GitHub answers beside the rest; a read that answers for none answers none, and each pass then reads its PR itself."""
         owner, name = repo.split("/")
         fields = " ".join(f"p{pr}: pullRequest(number: {pr}) {{ state headRefOid }}" for pr in prs)
         done = self.shell.run(ghread.read("api", "graphql", "-f", f'query=query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}', max_age=ghread.FRESH), env={"GH_REPO": repo})
-        if done.code != 0:
+        read = json.loads(done.out) if done.out.lstrip().startswith("{") else {}
+        answered = (read.get("data") or {}).get("repository") or {}
+        if not answered:
             print(f"finder live heads did not read: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
             return {}
-        answered = (json.loads(done.out).get("data") or {}).get("repository") or {}
-        return {alias.removeprefix("p"): state for alias, state in answered.items() if state}
+        missing = {error["path"][-1] for error in read.get("errors") or [] if error.get("type") == "NOT_FOUND"}
+        return {alias.removeprefix("p"): state or {"state": "NOT_FOUND", "headRefOid": ""} for alias, state in answered.items() if state or alias in missing}
 
     def tapped(self) -> set[str]:
         """The PRs an owner's approval on the root's board names, read at most every `FINDER_TAPS_EVERY`; a board that does not read names none."""
@@ -6580,6 +6587,26 @@ class Landing:
         if settled:
             self.book.edit(LANDING, lambda incident: incident.facts[LANDED_READ].extend(settled))
 
+    def remove_landed_worktrees(self, rows: dict[str, dict]) -> None:
+        """In a pass whose ledger reads a PR landed that no earlier pass tidied, read the checkout's worktrees once and remove each one whose branch is a landed PR's head branch and no open PR's through `ccx vcs worktree rm --path`, which refuses a dirty tree or one a live process works in; a refusal logs `WORKTREE-KEPT` once per tree, is never forced, and is tried again in the next pass that reads a new landing."""
+        landed = {pr for pr, row in rows.items() if row.get("state") == "landed"}
+        if landed <= set(self.book.load(LANDING).facts.get(LANDED_TIDIED, [])):
+            return
+        live = {row["branch"] for row in rows.values() if row.get("state", "open") == "open" and row.get("branch")}
+        branches = {f"refs/heads/{rows[pr]['branch']}": pr for pr in landed if rows[pr].get("branch") and rows[pr]["branch"] not in live}
+        listed = self.shell.run(["git", "-C", str(self.checkout), "worktree", "list", "--porcelain"])
+        if listed.code:
+            print(f"landed worktrees did not list: {(listed.err or listed.out).strip()[:300]}", file=sys.stderr)
+            return
+        for entry in listed.out.strip().split("\n\n"):
+            tree = dict(line.partition(" ")[::2] for line in entry.splitlines())
+            if (pr := branches.get(tree.get("branch", ""))) is None:
+                continue
+            done = self.shell.run(["ccx", "vcs", "worktree", "rm", "--path", tree["worktree"]])
+            if done.code:
+                self.runner.escalate(f"worktree-kept:{tree['worktree']}", "WORKTREE-KEPT", f"#{pr}", f"{tree['worktree']} stays on landed #{pr}'s branch: {(done.err or done.out).strip()[:300]}")
+        self.book.edit(LANDING, lambda incident: incident.facts.update({LANDED_TIDIED: sorted(landed, key=int)}))
+
     def is_incident(self, pr: str, row: dict) -> bool:
         """Whether a ledger row is an incident fix's: its lane is an `incident-` or `outage-` lane or a fix lane the runner launched on the incident clock, or an open incident in the executor's store names the PR as its repair, and no root go, hold, lift, decide or release naming it took it off the incident path."""
         lane = row.get("lane", "")
@@ -7471,6 +7498,7 @@ class Landing:
             self.reconcile,
             lambda: self.verify(rows),
             lambda: self.announce_landings(rows),
+            lambda: self.remove_landed_worktrees(rows),
             lambda: self.releases(rows),
             self.ungraded_after,
             lambda: self.verify_restacks(rows),

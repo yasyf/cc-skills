@@ -167,7 +167,10 @@ match a chunk the desk already graded is not re-read before a push; its earlier 
 - A read-back is a lane's `contract` record: one line per slice row saying
   what it builds, moves, or deletes and what it leaves alone, and a verdict per
   `rulings.py sweep` hit. `rulings.py readback --lane <lane> --contract <seq>`
-  prints the grade request. Accept with `readback: ok <lane> <slice-hash>`, or
+  prints the grade request. A read-back with no `Register slice:` line is graded
+  against the slice the lane's brief carries; with none there either, readback
+  prints `READBACK-NO-SLICE` and the `--step` command the root runs, which writes
+  the slice into the brief named for the lane. Accept with `readback: ok <lane> <slice-hash>`, or
   return `readback: missing <lane> <key> <one line>`. The runner refuses the lane's
   READY, its first PR, and its first new branch until one is accepted. A grade stands
   until a desk posts a newer one: rows added to the register never void it or
