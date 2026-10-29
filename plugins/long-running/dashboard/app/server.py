@@ -201,7 +201,7 @@ class Drive:
         key = run(["git", "for-each-ref", "--format=%(objectname)", refs], cwd=self.config["checkout"])
         args = (kind, verb, *rest)
         if self.notes.get(args, (None,))[0] != key:
-            self.notes[args] = (key, run(["ccn", *args], cwd=self.config["checkout"]))
+            self.notes[args] = (key, run(["ccn", *args, "--repo", self.config["checkout"]], cwd=self.config["checkout"]))
         return self.notes[args][1]
 
     def load_records(self):
