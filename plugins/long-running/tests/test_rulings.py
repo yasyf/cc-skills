@@ -1602,6 +1602,21 @@ def test_a_read_back_with_no_slice_line_names_the_roots_command_then_takes_the_s
     ]
 
 
+def test_a_step_for_a_lane_with_no_brief_writes_one_the_next_readback_reads(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
+    _, sliced = ran(capsys, RegisterShell(seeded(package)), "slice", "--lane", "lane-a", "--step", "1.9")
+    body = tmp_path / "readback.md"
+    body.write_text("rule/aaaaaaa: builds nothing in relay-server\n")
+    records = [{"seq": 500, "kind": "contract", "lane": "lane-a", "text": "read-back", "refs": {"path": str(body)}, "at": AT}]
+    brief = state / "briefs" / "lane-a.md"
+
+    assert ran(capsys, RegisterShell(seeded(package), records=records), "readback", "--lane", "lane-a", "--contract", "500", "--step", "1.9")[0] == 0
+    assert brief.read_text().startswith("Register slice: lane=lane-a step=1.9\n")
+    assert rulings.SLICE_HASH.search(brief.read_text())["hash"] == rulings.SLICE_HASH.search(sliced)["hash"]
+    code, out = ran(capsys, RegisterShell(seeded(package), records=records), "readback", "--lane", "lane-a", "--contract", "500")
+    assert code == 0
+    assert out.splitlines()[0] == f"WARNING READBACK-SLICE-FROM-BRIEF #500: the read-back names no `Register slice:` line; graded against the slice in {brief}"
+
+
 def test_a_read_back_whose_slice_gained_a_row_still_goes_to_the_desk_with_the_row_as_a_warning(
     home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
 ) -> None:
