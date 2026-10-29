@@ -5078,6 +5078,69 @@ def test_independent_stacks_enqueue_concurrently_with_one_queued_report_each(she
     assert sorted(post["text"].split(" at ")[0] for post in shell.posts if post["kind"] == "report" and post["text"].startswith("QUEUED ")) == ["QUEUED #29020", "QUEUED #29040"]
 
 
+def test_a_slow_stack_check_holds_no_other_stack_out_of_the_queue(shell, config, tmp_path, monkeypatch):
+    lone_green_pr(shell)
+    shell.rows.append({"pr": "29040", "lane": LANE, "branch": "b/1", "base": "dev", "head": "eeee555555", "state": "open", "reported_head": "eeee555555"})
+    shell.gates["29040"] = [gate("#29040 GREEN eeee555555 graphite READY", would="#29040")]
+    shell.enqueue_out["29040"] = (0, "enqueue #29040: {}\n")
+    for pr, sha in (("29020", "cccc333"), ("29040", "eeee555")):
+        grade(shell, pr, f"ok {sha}")
+    other_queued = threading.Event()
+    waited: list[bool] = []
+    stacks, chains = runner_module.Landing.proven_stacks, runner_module.Landing.enqueue_chains
+
+    def slow(self, tips):
+        if tips == ["29020"]:
+            waited.append(other_queued.wait(5))
+        return stacks(self, tips)
+
+    def chained(self, tops, heads, whole):
+        done = chains(self, tops, heads, whole)
+        if tops == ["29040"]:
+            other_queued.set()
+        return done
+
+    monkeypatch.setattr(runner_module.Landing, "proven_stacks", slow)
+    monkeypatch.setattr(runner_module.Landing, "enqueue_chains", chained)
+    landing_pass(shell, config)
+    assert waited == [True]
+    assert [call[1] for call in shell.enqueues()] == ["29040", "29020"]
+
+
+def test_a_landable_stack_the_gate_never_settles_goes_straight_to_the_queue_five_minutes_on(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.queue["33001"] = "not queued"
+    shell.gates["33001"] = [(runner_module.TIMED_OUT, "", "stack-enqueue --check timed out after 60s and was killed")]
+    overflow = landing_of(shell, config, tmp_path)
+    landing_pass(shell, config)
+    overflow.overflow()
+    assert shell.enqueues() == []
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    overflow.overflow()
+    landing_pass(shell, config)
+    overflow.overflow()
+    assert [call[1:] for call in shell.enqueues()] == [["33001", "--partial"]]
+    queued = [post["text"] for post in shell.posts if post["kind"] == "report" and post["text"].startswith("QUEUED #33001 at aaaa111111")]
+    assert len(queued) == 1 and "overflow put it straight in the merge queue" in queued[0]
+
+
+def test_the_overflow_leaves_a_landable_stack_the_runner_refused_at_its_head(shell, config, tmp_path):
+    tap_ruled_pr(shell, config, ["go/sand/next/vm/run_test.go", "go/sand/next/vm/run.go"])
+    shell.rows = [dict(row, test_state="success") for row in shell.rows]
+    shell.queue["29020"] = "not queued"
+    grade(shell, "29020", TEST_ONLY_GRADE)
+    merge_go(shell, "29020", "go test-only #29020 at cccc333")
+    overflow = landing_of(shell, config, tmp_path)
+    landing_pass(shell, config)
+    overflow.overflow()
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    overflow.overflow()
+    assert [post for post in blockers(shell) if "TEST-ONLY-MISMATCH" in post_body(post)] and shell.enqueues() == []
+
+
 def test_heads_no_go_names_are_told_new_heads_first_within_the_pass_budget(shell, config, tmp_path, monkeypatch):
     monkeypatch.setattr(runner_module, "GATE_WORKERS", 1)
     two_pr_stack(shell)

@@ -1689,7 +1689,9 @@ read GitHub refuses logs `FILES-READ-FAILED`, and nothing in that prefix enqueue
 until it reads.
 
 **Five minutes from go to queue.** A green PR a root `go` names at its head is in the
-merge queue within five minutes of that go. After each enqueue wave the runner logs one
+merge queue within five minutes of that go. A stack the passes leave out that long, unheld and
+unrefused, goes straight into the queue through the runner's overflow, which posts a QUEUED
+report naming itself (owner 9524276). After each enqueue wave the runner logs one
 `GO-UNQUEUED` per head still out, naming the newest enqueue outcome that kept it out, and
 the root clears that one thing in the same turn or spawns the lane that does. When the
 review bot's newest `ai-review` run on that head reads Held, the line says the bot holds
@@ -2265,9 +2267,9 @@ keeps what a diff alone decides, the rows it touches, the reserved rows it hits 
 scope row, per head, base, diff and set of rows, so a big diff is graded once. It diffs with
 git's copy detection, so a file copied from one the base still holds adds only the lines it
 changes, and its other lines match no ruling. That diff is kept per merge base and head, and
-`check-pr` runs four heads at a time, since each diffs on this machine. Within a pass the landing runner
+`check-pr` runs eight heads at a time, since each diffs on this machine. Within a pass the landing runner
 reads `cci who` once per lane and a PR's landed state and red-by-design body once per PR.
-Right after the gate checks it runs `check-pr` for every head it may enqueue, four at a time.
+Right after the gate checks it runs `check-pr` for every head it may enqueue, eight at a time.
 A blocker still re-reads its gate just before the send. The
 merge-mode check runs before the other checks, so a green head gets its merge card without
 waiting for its grades; it still enqueues only once every check passes. A pass that raises logs its traceback, posts one `blocker` to the root naming
