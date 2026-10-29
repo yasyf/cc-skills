@@ -7106,7 +7106,7 @@ class Landing:
         heads = {pr: open_rows[pr]["head"] for pr in prefix}
         base = "enqueue:" + ",".join(f"{pr}@{heads[pr][:10]}" for pr in prefix)
         key = f"{base}#{OVERFLOW}-{len([action for action in self.book.actions(LANDING, kind='enqueue') if action.action_id.split('#')[0] == base]) + 1}"
-        self.book.accept(LANDING, key, "enqueue", ",".join(prefix), OVERFLOW, None)
+        self.book.accept(LANDING, key, "enqueue", ",".join(prefix), OVERFLOW, self.runner.now() + timedelta(minutes=self.runner.config.enqueue_minutes))
         if not self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now())):
             return
         outcome, out, last = self.adapter.enqueue([top], self.whole(), heads)
@@ -7799,7 +7799,7 @@ class Landing:
     def post_record(self, kind: str, key: str, to: str, text: str, pr: str, cause: str = "", re_seq: str = "") -> None:
         self.book.accept(LANDING, key, "bus", json.dumps({"lane": to, "pr": pr, "text": text, "kind": kind} | ({"cause": cause} if cause else {})), key, None)
         self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
-        done = self.runner.cci_post(kind, text, to, pr, key, flags=["--re", re_seq] if re_seq else None)
+        done = self.runner.cci_post(kind, text, to, pr, key, pr=pr, flags=["--re", re_seq] if re_seq else None)
         if done.code == 0:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"posted": done.out.strip()[:200], "at": self.book.stamp()}))
         else:
