@@ -140,7 +140,7 @@ def lane_name(evt: BaseHookEvent) -> str | None:
 
 
 def incident_lane(evt: BaseHookEvent, lane: str) -> bool:
-    return bool(INCIDENT_NAME.match(lane)) or session_annotations(evt).get("incident") not in (None, NOT_AN_INCIDENT)
+    return bool(INCIDENT_NAME.match(lane)) or bool(lane) and session_annotations(evt).get("incident") not in (None, NOT_AN_INCIDENT)
 
 
 def named_repo(call: Call) -> str | None:
@@ -306,8 +306,11 @@ def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
     if evt.agent_id and not reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") and not CompactionState.load(evt).active:
         return None
     entry = drive_entry(evt)
+    verbs = [verb for call in evt.cmd.calls() if (verb := landing_verb(call)) and (verb == "mq.py enqueue" or not outside_drive_repo(evt, call, entry))]
+    if not verbs:
+        return None
     incident = incident_lane(evt, lane)
-    verb = next((verb for call in evt.cmd.calls() if (verb := landing_verb(call)) and (verb in ENQUEUERS or not incident) and (verb == "mq.py enqueue" or not outside_drive_repo(evt, call, entry))), None)
+    verb = next((verb for verb in verbs if verb in ENQUEUERS or not incident), None)
     if verb and incident:
         return evt.block(INCIDENT_REFUSAL.format(lane=lane))
     return evt.block(REFUSAL.format(lane=lane or "unnamed", verb=verb)) if verb else None
@@ -407,13 +410,12 @@ def merge_causes(call: Call, entry: dict, cwd: str, incident: bool) -> tuple[str
 def rulings_at_merge(evt: BaseHookEvent) -> HookResult | None:
     if (entry := drive_entry(evt)) is None:
         return None
+    merges = [call for call in evt.cmd.calls() if landing_verb(call) == "gh pr merge" and not outside_drive_repo(evt, call, entry)]
+    if not merges:
+        return None
     lane = lane_name(evt) or ""
     incident = incident_lane(evt, lane)
-    found = [
-        checked
-        for call in evt.cmd.calls()
-        if landing_verb(call) == "gh pr merge" and not outside_drive_repo(evt, call, entry) and (checked := merge_causes(call, entry, str(call.cwd or evt.cwd), incident))
-    ]
+    found = [checked for call in merges if (checked := merge_causes(call, entry, str(call.cwd or evt.cwd), incident))]
     if incident and found:
         return evt.block("\n".join(INCIDENT_RULINGS_REFUSAL.format(pr=pr, head=head, lane=lane, causes=causes) for pr, head, causes in found))
     advice = [RULINGS_ADVICE.format(causes=causes, pr=pr, head=head) for pr, head, causes in found]
