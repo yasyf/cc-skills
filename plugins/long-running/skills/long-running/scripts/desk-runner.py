@@ -397,11 +397,12 @@ drive's root posts with `--re` on that `DECIDE` or on the lane's own record answ
 With a `finder` object in runner.json, read again every pass, each orca pass, and a thread of the orca desk every 15 seconds
 between them, dispatches the finder (reference/finder-brief.md) on every drive head, beside the fidelity desks and never
 after them, so a slot a finished pass frees refills in seconds. A head whose PR a root `go` or an owner's board tap names
-starts first, then a head of a PR a finder pass already graded, which carries or reads only a delta. Each `head` or `opened` record
+starts first, then a head of a PR a finder pass already graded, which carries or reads only a delta, then the PR that has
+waited longest, counted from the first of its heads a newer one superseded, so a PR whose head keeps moving keeps its place. Each `head` or `opened` record
 past the saved sequence that names a PR of `finder.repo`, default `landing.repo`, and a full head, its `commit` field or
 the first full sha of its text that no `was` precedes, queues one `finder:<pr>:<head>` action in the `desk-finder`
 container, so a head two records name queues once; a first read starts at the newest record. At most `finder.concurrent`
-passes (default 2) run at once and the rest wait queued; each PR's newest queued head starts, oldest first, and an older
+passes (default 2) run at once and the rest wait queued; each PR's newest queued head starts, longest waiting first, and an older
 queued head of the same PR settles as superseded, and so does a running pass of it: the runner writes its job's `cancelled`
 mark and runs `codex-ask --cancel` on each codex run the pass started. Before it starts any, one fresh GraphQL read of every
 queued PR settles a head whose PR is closed, or no longer at that head, as skipped. A head some lane's `finder:` record already names starts nothing. A `decide`
@@ -1151,6 +1152,16 @@ def is_test_or_ci_file(name: str) -> bool:
         or not TEST_DIRS.isdisjoint(path.parts[:-1])
         or (path.suffix in (".yml", ".yaml") and "buildkite" in path.name)
     )
+
+
+def queued_since(passes: list[actions.Action], action: actions.Action) -> tuple[str, int]:
+    """When the PR of `action` began waiting for a finder pass, and the record that queued it: the oldest head in the unbroken run of its heads a newer one superseded just before `action`, so a PR whose head keeps moving keeps its place in line."""
+    first = action
+    for earlier in reversed(passes[: passes.index(action)]):
+        if "superseded" not in (earlier.response or {}):
+            break
+        first = earlier
+    return first.accepted_at, json.loads(first.target)["seq"]
 
 
 def full_pass(action: actions.Action) -> bool:
@@ -4129,7 +4140,7 @@ class Runner:
             self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_SETTLED: self.book.stamp()}))
 
     def start_finders(self, spec: dict, repo: str) -> None:
-        """Start the newest queued head of each PR, a requested full pass over any head, while fewer than `finder.concurrent` passes run: full passes first, then those a root `go` or an owner's board tap names, then heads of a PR a finder pass already graded, which carry or read only a delta, then oldest first. An older queued head of the same PR settles as superseded, and so does a running pass of it, its codex run cancelled. A queued head whose PR is closed, or no longer at that head, settles as skipped without a pass."""
+        """Start the newest queued head of each PR, a requested full pass over any head, while fewer than `finder.concurrent` passes run: full passes first, then those a root `go` or an owner's board tap names, then heads of a PR a finder pass or a lane's finder record already graded, which carry or read only a delta, then the PR waiting longest, counted from the first of its heads a newer one superseded. An older queued head of the same PR settles as superseded, and so does a running pass of it, its codex run cancelled. A queued head whose PR is closed, or no longer at that head, settles as skipped without a pass."""
         newest: dict[str, actions.Action] = {}
         for action in sorted(self.book.actions(FINDER, kind="finder", status="accepted"), key=lambda action: (full_pass(action), json.loads(action.target)["seq"])):
             if (older := newest.get(pr := json.loads(action.target)["pr"])) is not None:
@@ -4147,8 +4158,11 @@ class Runner:
                 self.finder_settled(action.action_id, {"skipped": f"#{pr} is closed" if state["state"] == "CLOSED" else f"#{pr} moved to {state['headRefOid'][:12]}"})
                 del newest[pr]
         going = self.tapped() | {pr for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, "--kind=go") if (record["lane"], record["kind"]) == (ROOT, "go") for pr in go_heads(record)}
-        graded = {json.loads(action.target)["pr"] for action in self.book.actions(FINDER, kind="finder", status="verified") if "verdict" in (action.response or {})}
-        for action in sorted(newest.values(), key=lambda action: (not full_pass(action), (pr := json.loads(action.target)["pr"]) not in going, pr not in graded, json.loads(action.target)["seq"])):
+        history: dict[str, list[actions.Action]] = {}
+        for action in sorted(self.book.actions(FINDER, kind="finder"), key=lambda action: action.accepted_at):
+            history.setdefault(json.loads(action.target)["pr"], []).append(action)
+        graded = {pr for pr, passes in history.items() if any({"verdict", "answered"} & set(action.response or {}) for action in passes)}
+        for action in sorted(newest.values(), key=lambda action: (not full_pass(action), (pr := json.loads(action.target)["pr"]) not in going, pr not in graded, queued_since(history[pr], action))):
             if running >= spec.get("concurrent", FINDER_CONCURRENT):
                 return
             running += self.start_finder(spec, repo, action)

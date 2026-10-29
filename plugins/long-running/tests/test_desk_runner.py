@@ -10821,6 +10821,22 @@ def test_a_head_of_a_pr_a_finder_pass_graded_starts_before_older_ungraded_heads(
     assert [(job["pr"], job["head"]) for job in finder_jobs(shell)] == [("43299", FINDER_OLD), ("43299", FINDER_HEAD)]
 
 
+def test_a_pr_whose_head_moves_while_it_waits_keeps_its_place_ahead_of_prs_queued_after_its_first_head(shell, config):
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    head_record(shell, "43601", hashlib.sha1(b"43601").hexdigest())
+    orca_pass(shell, config)
+    head_record(shell, "44802", FINDER_OLD)
+    head_record(shell, "43439", hashlib.sha1(b"43439").hexdigest())
+    orca_pass(shell, config)
+    shell.clock += timedelta(minutes=5)
+    head_record(shell, "44802", FINDER_HEAD)
+    orca_pass(shell, config)
+    (shell.finder_jobs[0] / "result.json").write_text(json.dumps({"verdict": "ok", "record": "finder: ok", "posted": "#150001"}))
+    orca_pass(shell, config)
+    assert [(job["pr"], job["head"]) for job in finder_jobs(shell)][1] == ("44802", FINDER_HEAD)
+
+
 def test_a_running_pass_whose_pr_queues_a_newer_head_is_cancelled_and_frees_its_slot(shell, config):
     finder_config(config, concurrent=1)
     orca_pass(shell, config)
