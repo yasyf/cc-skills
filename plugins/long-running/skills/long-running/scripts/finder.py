@@ -28,7 +28,7 @@ Every pass hands codex the PR's earlier finder records and their answers, and a 
 is not raised again. A whole pass writes the head's
 required register rows to `DIR/rows.md` with `rulings.py slice --required`. A `full` job, which only a root `ask` to the finder desk saying `finder: whole` queues, reads the PR's
 whole own change at its live head whatever earlier records graded. It fills
-`reference/finder-desk-brief.md` and runs `codex-ask -m <model> --schema findings` in the drive's
+`reference/finder-desk-brief.md` and runs `codex-ask -m <model> --schema findings`, with `--incident` when the job is `fast`, in the drive's
 checkout. A reply that names no verdict for a row key the slice printed, or gives no reasoning in
 `swept`, is asked once more; a second such reply fails the job. A head that moved while codex read
 it posts nothing. The verdict is posted under lane `finder-desk` as `finder: ok <head> …` or
@@ -234,7 +234,7 @@ def rulings(job: dict, verb: str, *argv: str) -> list[str]:
 
 
 def ask(shell: Shell, job: dict, directory: Path, question: Path, attempt: int) -> str:
-    out = shell.run(["codex-ask", "-m", job["model"], "--schema", "findings", "-s", str(directory / f"codex-{attempt}"), str(question)], cwd=Path(job["checkout"]), timeout=FINDER_SECONDS)
+    out = shell.run(["codex-ask", "-m", job["model"], *(["--incident"] if job["fast"] else []), "--schema", "findings", "-s", str(directory / f"codex-{attempt}"), str(question)], cwd=Path(job["checkout"]), timeout=FINDER_SECONDS)
     return Path(REPLY_FILE.search(out)[1]).read_text()
 
 

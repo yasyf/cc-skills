@@ -11473,7 +11473,7 @@ def test_each_head_starts_one_finder_at_once_however_many_records_name_it(shell,
     orca_pass(shell, config)
     assert shell.finder_jobs == [config.resolve().parent / "finder-desk" / f"43439-{FINDER_HEAD[:12]}"]
     assert finder_jobs(shell) == [
-        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "previous": "", "history": [], "settled": {}, "lane": "p8a-step9", "to": ["desk-runner"], "checkout": str(config.parent / "checkout"), "model": "sol", "full": False}
+        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "previous": "", "history": [], "settled": {}, "lane": "p8a-step9", "to": ["desk-runner"], "checkout": str(config.parent / "checkout"), "model": "sol", "fast": True, "full": False}
     ]
 
 
@@ -11579,6 +11579,26 @@ def test_a_queued_head_whose_pr_a_root_go_names_starts_before_older_heads(shell,
     shell.records.append({"seq": 149900, "drive": "d1", "lane": "root", "kind": "go", "to": ["landing-desk"], "refs": {}, "text": f"go #43601 at {heads['43601'][:10]}", "at": actions.stamp(shell.clock)})
     orca_pass(shell, config)
     assert [job["pr"] for job in finder_jobs(shell)] == ["43601"]
+
+
+def test_a_queued_head_the_ledger_ranks_first_starts_before_a_root_go_and_older_heads(shell, config):
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    heads = {pr: hashlib.sha1(pr.encode()).hexdigest() for pr in ("43439", "43299", "43601", "45244")}
+    for pr, head in heads.items():
+        head_record(shell, pr, head)
+    shell.records.append({"seq": 149900, "drive": "d1", "lane": "root", "kind": "go", "to": ["landing-desk"], "refs": {}, "text": f"go #43601 at {heads['43601'][:10]}", "at": actions.stamp(shell.clock)})
+    shell.rows = [{"pr": "43601", "priority": 100}, {"pr": "45244", "priority": 0}]
+    orca_pass(shell, config)
+    assert [job["pr"] for job in finder_jobs(shell)] == ["45244"]
+
+
+def test_a_finder_job_asks_at_the_fast_tier_unless_runner_json_turns_it_off(shell, config):
+    finder_config(config, fast=False)
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    assert [job["fast"] for job in finder_jobs(shell)] == [False]
 
 
 def test_a_queued_head_whose_pr_an_owner_tapped_starts_before_older_heads(shell, config):
@@ -11835,6 +11855,7 @@ def test_each_head_starts_one_fidelity_pass_carrying_the_prs_grades_old_app_line
         "baseline": BASELINE,
         "checkout": str(config.parent / "checkout"),
         "model": "sol",
+        "fast": True,
     }
 
 
@@ -11856,20 +11877,30 @@ def test_a_head_a_fidelity_lane_already_graded_or_sent_to_a_reader_starts_no_pas
     assert not shell.fidelity_jobs
 
 
-def test_fidelity_passes_past_six_wait_queued_and_show_lists_queued_and_running_ones(shell, config, capsys):
+def test_fidelity_passes_past_eight_wait_queued_and_show_lists_queued_and_running_ones(shell, config, capsys):
     fidelity_config(config)
     orca_pass(shell, config)
-    heads = {str(pr): hashlib.sha1(str(pr).encode()).hexdigest() for pr in range(43430, 43437)}
+    heads = {str(pr): hashlib.sha1(str(pr).encode()).hexdigest() for pr in range(43430, 43439)}
     for pr, head in heads.items():
         head_record(shell, pr, head)
     orca_pass(shell, config)
-    assert [job["pr"] for job in fidelity_jobs(shell)] == list(heads)[:6]
+    assert [job["pr"] for job in fidelity_jobs(shell)] == list(heads)[:8]
     cli(shell, config, "show")
     shown = capsys.readouterr().out
-    assert f"fidelity #43436 {heads['43436'][:12]}: queued" in shown and f"fidelity #43430 {heads['43430'][:12]}: running since" in shown
+    assert f"fidelity #43438 {heads['43438'][:12]}: queued" in shown and f"fidelity #43430 {heads['43430'][:12]}: running since" in shown
     (shell.fidelity_jobs[0] / "result.json").write_text(json.dumps({"verdict": "carried", "posted": ["#150001"]}))
     orca_pass(shell, config)
     assert [job["pr"] for job in fidelity_jobs(shell)] == list(heads)
+
+
+def test_a_fidelity_head_the_ledger_ranks_first_starts_before_older_heads_and_asks_at_the_fast_tier(shell, config):
+    fidelity_config(config, concurrent=1)
+    orca_pass(shell, config)
+    for pr in ("43439", "43299", "45244"):
+        head_record(shell, pr, hashlib.sha1(pr.encode()).hexdigest())
+    shell.rows = [{"pr": "45244", "priority": 0}]
+    orca_pass(shell, config)
+    assert [(job["pr"], job["fast"]) for job in fidelity_jobs(shell)] == [("45244", True)]
 
 
 def test_a_failed_fidelity_pass_fails_at_once_to_the_human_desks_and_the_next_head_record_queues_it_again(shell, config):

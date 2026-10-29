@@ -105,6 +105,7 @@ def job(tmp_path: Path, **changes) -> Path:
         "baseline": BASELINE,
         "checkout": str(tmp_path / "checkout"),
         "model": "sol",
+        "fast": True,
     }
     (directory / fidelity.JOB).write_text(json.dumps(spec | changes))
     return directory
@@ -215,7 +216,7 @@ def test_a_head_that_matches_no_head_every_lane_graded_ok_is_read_by_codex(tmp_p
     shell = Fake(tmp_path, [reply()], patches)
     fidelity.main([str(directory)], shell)
     [ask] = shell.asks()
-    assert ask[:5] == ["codex-ask", "-m", "sol", "--schema", str(fidelity.SCHEMA)]
+    assert ask[:6] == ["codex-ask", "-m", "sol", "--incident", "--schema", str(fidelity.SCHEMA)]
     assert shell.texts()[0].startswith(f"fidelity: ok {HEAD} Resubscribes")
 
 

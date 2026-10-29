@@ -17,7 +17,7 @@ decision answers the carried grade or a grade it was carried from, else each one
 fidelity-desk ok grade on the PR says, else each one the carried grade says. Otherwise it fills
 `reference/fidelity-job-brief.md` with the head's own hunks, its required register rows
 (`rulings.py slice --required`), the plan, the lane's newest contract and the PR body, and runs
-`codex-ask -m <model> --schema fidelity.schema.json` in the drive's checkout. A reply that leaves
+`codex-ask -m <model> --schema fidelity.schema.json`, with `--incident` when the job is `fast`, in the drive's checkout. A reply that leaves
 a row ungraded, keys a `missing` line on anything but a plan line or an owner row, or gives no
 reasoning in `swept` is asked once more; a second such reply fails the job. A head that moved while
 codex read it posts nothing. The question lists every point of a `missing` grade root settled, and a
@@ -186,7 +186,7 @@ def graded_lines(job: dict, reply: dict) -> list[tuple[str, list[str]]]:
 
 
 def ask(shell: finder.Shell, job: dict, directory: Path, question: Path, attempt: int) -> dict:
-    out = shell.run(["codex-ask", "-m", job["model"], "--schema", str(SCHEMA), "-s", str(directory / f"codex-{attempt}"), str(question)], cwd=Path(job["checkout"]), timeout=CODEX_SECONDS)
+    out = shell.run(["codex-ask", "-m", job["model"], *(["--incident"] if job["fast"] else []), "--schema", str(SCHEMA), "-s", str(directory / f"codex-{attempt}"), str(question)], cwd=Path(job["checkout"]), timeout=CODEX_SECONDS)
     return json.loads(Path(finder.REPLY_FILE.search(out)[1]).read_text())
 
 

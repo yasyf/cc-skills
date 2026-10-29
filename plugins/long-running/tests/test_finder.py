@@ -139,7 +139,7 @@ class Fake:
 def job(tmp_path: Path, **changes) -> Path:
     directory = tmp_path / "finder-desk" / f"43299-{HEAD[:12]}"
     directory.mkdir(parents=True)
-    spec = {"drive": "d1", "repo": REPO, "pr": "43299", "head": HEAD, "since": "", "prior": None, "previous": "", "history": [], "settled": {}, "lane": "p8a-step9", "to": ["desk-runner"], "checkout": str(tmp_path / "checkout"), "model": "sol", "full": False}
+    spec = {"drive": "d1", "repo": REPO, "pr": "43299", "head": HEAD, "since": "", "prior": None, "previous": "", "history": [], "settled": {}, "lane": "p8a-step9", "to": ["desk-runner"], "checkout": str(tmp_path / "checkout"), "model": "sol", "fast": True, "full": False}
     (directory / finder.JOB).write_text(json.dumps(spec | changes))
     return directory
 
@@ -171,6 +171,15 @@ def test_a_head_with_only_minors_posts_finder_ok_over_its_whole_change_to_the_he
     assert str(directory / "rows.md") in question and "Open `swept` with your reasoning" in question
     assert "## Rulings\n- the resubscribe test pins finder #150321's fix" in question and "LGTM from the review bot" not in question
     assert result(directory) == {"verdict": "ok", "record": post["--text"], "posted": "#150001"}
+
+
+@pytest.mark.parametrize(("fast", "tier"), [(True, ["--incident"]), (False, [])], ids=["fast", "standard"])
+def test_a_finder_pass_asks_codex_at_the_tier_its_job_names(tmp_path, fast, tier):
+    directory = job(tmp_path, fast=fast)
+    shell = Fake(tmp_path, [reply()])
+    finder.main([str(directory)], shell)
+    [(ask, _)] = shell.asks()
+    assert ask[: 5 + len(tier)] == ["codex-ask", "-m", "sol", *tier, "--schema", "findings"]
 
 
 def test_a_head_whose_parent_was_restacked_reads_only_its_own_commits_against_the_base_branchs_current_tip(tmp_path):
@@ -306,7 +315,7 @@ def test_a_pass_after_an_earlier_finder_reads_since_that_head_and_checks_its_maj
     assert "rows.md" not in question and not (directory / "rows.md").exists()
     assert not [argv for argv, _ in shell.calls if argv[2:3] == ["slice"]]
     [(ask, cwd)] = shell.asks()
-    assert ask[:5] == ["codex-ask", "-m", "sol", "--schema", "findings"] and ask[-1] == str(directory / "question-1.md") and cwd == tmp_path / "checkout"
+    assert ask[:6] == ["codex-ask", "-m", "sol", "--incident", "--schema", "findings"] and ask[-1] == str(directory / "question-1.md") and cwd == tmp_path / "checkout"
     assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over delta {OLD[:7]}..{HEAD[:7]}: no majors"
 
 
