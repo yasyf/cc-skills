@@ -535,7 +535,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from fnmatch import fnmatch
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from zoneinfo import ZoneInfo
 
 import actions
@@ -568,7 +568,12 @@ MERGE_CARDS = "merge_asks"
 MERGE_WAITS = "merge_waits"
 MERGE_ASK_SURFACES = ("slack", "board")
 PORT_PHRASE = "pure port, no interaction"
-PORT_GO = re.compile(r"\bgo\s+port\s+#\d+|\bpure port\b", re.IGNORECASE)
+TEST_ONLY_PHRASE = "test-only or CI-only, no non-test code"
+EXEMPT_GO = re.compile(r"\bgo\s+(?:port|test-only|ci-only)\s+#\d+|\bpure port\b|\b(?:test|ci)-only\b", re.IGNORECASE)
+TEST_ONLY_CLAIM = re.compile(r"\b(?:test|ci)-only\b", re.IGNORECASE)
+TEST_FILES = ("*_test.go", "*.test.ts", "*.test.tsx")
+TEST_DIRS = frozenset({"__tests__", "testdata", "fixtures"})
+CI_PREFIXES = (".buildkite/", ".github/", "tools/ci/")
 MERGE_CARD_FIELDS = "title,author,additions,deletions,reviewDecision"
 SLACK_MESSAGE = re.compile(r"^slack: \S*/p(\d{10})(\d{6})\b", re.MULTILINE)
 RULING_ROUNDS = "cards/rounds"
@@ -1078,6 +1083,16 @@ def successors(lane: str) -> re.Pattern[str]:
 def pr_family(lane: str) -> str:
     """The name one incident's fix lane and its Opus fallback share, so the first PR either opens settles both."""
     return lane.removesuffix(CLOCK_FALLBACK).removesuffix(FIX_ALIAS)
+
+
+def is_test_or_ci_file(name: str) -> bool:
+    path = PurePosixPath(name)
+    return (
+        name.startswith(CI_PREFIXES)
+        or any(fnmatch(path.name, glob) for glob in TEST_FILES)
+        or not TEST_DIRS.isdisjoint(path.parts[:-1])
+        or (path.suffix in (".yml", ".yaml") and "buildkite" in path.name)
+    )
 
 
 def full_pass(action: actions.Action) -> bool:
@@ -5521,9 +5536,9 @@ class Landing:
             self.record_waits(graded.heads, waiting)
         if graded.act and waiting:
             self.ask_owner(graded.heads, waiting, graded.rows)
-        untapped, unread, ported = self.untapped({pr: sha for pr, sha in graded.heads.items() if pr not in waiting})
+        untapped, unread, exempt = self.untapped({pr: sha for pr, sha in graded.heads.items() if pr not in waiting})
         if graded.act:
-            for pr, why in ported.items():
+            for pr, why in exempt.items():
                 if not self.book.known(LANDING, key := f"port:{pr}:{graded.heads[pr]}"):
                     self.post_record("note", key, ",".join([ROOT, *self.board_lanes]), why, pr)
             for pr, why in untapped.items():
@@ -5533,7 +5548,7 @@ class Landing:
         return {pr: merge_queue.State(merge_queue.PENDING, f"merge mode {self.merge_mode} waits for the owner's Merge answer at {graded.heads[pr][:7]}") for pr in waiting} | {pr: merge_queue.State(merge_queue.PENDING, why) for pr, why in (untapped | unread).items()}
 
     def untapped(self, heads: dict[str, str]) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
-        """Each PR of `heads` whose changed files a glob of a `landing.tap_rules` row names, while that row is in the register in force, and no approval on the root's board names its head, with why it waits, since a root `go` never stands in for the owner's tap (rule/82317b0); each PR whose changed files, register, or board did not read, with what did not, which the runner leaves unqueued for the landing desk rather than guess a merge (4236611); and each such PR the owner's port ruling admits with no tap, with its `PORT-ADMITTED` note (06288326)."""
+        """Each PR of `heads` whose changed files a glob of a `landing.tap_rules` row names, while that row is in the register in force, and no approval on the root's board names its head, with why it waits, since a root `go` never stands in for the owner's tap (rule/82317b0); each PR whose changed files, register, or board did not read, with what did not, which the runner leaves unqueued for the landing desk rather than guess a merge (4236611); and each such PR the owner's port and test-only rulings admit with no tap, with its `EXEMPT-ADMITTED` note (06288326)."""
         if not (rules := self.landing_config.get("tap_rules")):
             return {}, {}, {}
         touching, unread = {}, {}
@@ -5543,10 +5558,13 @@ class Landing:
                 unread[pr] = f"TAP-UNREAD #{pr}: its changed files did not read, so the runner leaves it unqueued for the landing desk"
             elif found := [rule for rule, globs in rules.items() if any(fnmatch(name, glob) for name in files for glob in globs)]:
                 touching[pr] = found
-        ported = {pr: why for pr in touching if (why := self.port_admitted(pr, heads[pr]))}
-        touching = {pr: found for pr, found in touching.items() if pr not in ported}
+        exempt, mismatched = {}, {}
+        for pr in touching:
+            exempt[pr], mismatched[pr] = self.exempt_admitted(pr, heads[pr])
+        exempt = {pr: why for pr, why in exempt.items() if why}
+        touching = {pr: found for pr, found in touching.items() if pr not in exempt}
         if not touching:
-            return {}, unread, ported
+            return {}, unread, exempt
         done = self.rulings_py("rows")
         register = json.loads(done.out)["rows"] if done.code == 0 else None
         session = self.root_session()
@@ -5563,17 +5581,23 @@ class Landing:
                 continue
             if any(entry["verdict"] == "approved" and names_head(heads[pr], entry.get("head") or "") for by_row in verdicts.values() for row, entry in by_row.items() if board_rows.pr_of(row) == pr):
                 continue
-            waits[pr] = f"TAP-REQUIRED {','.join(found)}: it lands only on the owner's tap at this head, and a root go is no tap; no approval on the root's board names {heads[pr][:10]}"
-        return waits, unread, ported
+            mismatch = f"TEST-ONLY-MISMATCH {mismatched[pr]} is neither a test nor CI configuration, so the test-only claim does not hold; " if mismatched[pr] else ""
+            waits[pr] = f"{mismatch}TAP-REQUIRED {','.join(found)}: it lands only on the owner's tap at this head, and a root go is no tap; no approval on the root's board names {heads[pr][:10]}"
+        return waits, unread, exempt
 
-    def port_admitted(self, pr: str, sha: str) -> str:
-        """The `PORT-ADMITTED` note for `pr` at `sha` when it lands on a root go with no board tap (06288326): the newest fidelity grade naming the head says `landing.port_phrase`, so it only ports merged old-tree work or trues up to dev and touches nothing the rebuild owns, and a root go names the head as `go port #<n> at <sha>` or says pure port; empty otherwise."""
-        if not (go := next((go for go in self.head_gos(pr, sha) if PORT_GO.search(go["text"])), None)):
-            return ""
+    def exempt_admitted(self, pr: str, sha: str) -> tuple[str, str]:
+        """The `EXEMPT-ADMITTED` note for `pr` at `sha` when it lands on a root go with no board tap, and the first changed file that breaks a test-only claim (06288326, owner Oct 28 8:45 PM): the newest fidelity grade naming the head says one of `landing.exempt_grades` (default `pure port, no interaction` and `test-only or CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first), and a root go names the head as `go port|test-only|ci-only #<n> at <sha>` or says pure port, test-only or CI-only. A grade phrase or a go that claims test-only or CI-only is checked against the PR's changed files: the note is empty and the file is returned when one is neither a test nor CI configuration."""
+        if not (go := next((go for go in self.head_gos(pr, sha) if EXEMPT_GO.search(go["text"])), None)):
+            return "", ""
         grade = max(self.standing(self.grades(pr), sha), key=lambda record: record["seq"], default=None)
-        if not grade or self.landing_config.get("port_phrase", PORT_PHRASE).casefold() not in grade["text"].casefold():
-            return ""
-        return f"PORT-ADMITTED #{pr} at {sha[:10]}: fidelity grade cci #{grade['seq']} calls it a pure port and root go #{go['seq']} names it, so it lands with no board tap (06288326)"
+        phrases = self.landing_config.get("exempt_grades", [self.landing_config.get("port_phrase", PORT_PHRASE), TEST_ONLY_PHRASE])
+        if not grade or not (said := next((phrase for phrase in phrases if phrase.casefold() in grade["text"].casefold()), None)):
+            return "", ""
+        if TEST_ONLY_CLAIM.search(said) or TEST_ONLY_CLAIM.search(go["text"]):
+            files, _ = self.changed_files(pr, sha)
+            if offender := next((name for name in files if not is_test_or_ci_file(name)), ""):
+                return "", offender
+        return f"EXEMPT-ADMITTED #{pr} at {sha[:10]}: fidelity grade cci #{grade['seq']} says \"{said}\" and root go #{go['seq']} names it, so it lands with no board tap (06288326)", ""
 
     def record_waits(self, heads: dict[str, str], waiting: dict[str, list[str]]) -> None:
         """Keep, for `show`, what each graded head still waits on: its merge-ask key and the reserved rows only the owner's tap authorizes. A head that stopped waiting drops out, and the heads of other stacks keep theirs."""
