@@ -8988,12 +8988,12 @@ def test_a_record_from_before_the_launch_does_not_stop_the_clock(shell, config, 
 
 
 @pytest.mark.parametrize(("model", "header", "clocked"), [
-    ("opus", "", False),
-    ("opus", "ccx: incident=none role=fix\n", False),
+    ("opus", "ccx: place=local\n", False),
+    ("opus", "ccx: incident=none role=fix place=local\n", False),
     ("incident", "ccx: role=evidence\n", False),
-    ("opus", "ccx: incident=327967001 role=retro\n", False),
-    ("opus", "ccx: role=incident\n", True),
-    ("sol", "ccx: incident=327967001 role=fix\n", True),
+    ("opus", "ccx: incident=327967001 role=retro place=local\n", False),
+    ("opus", "ccx: role=incident place=local\n", True),
+    ("sol", "ccx: incident=327967001 role=fix place=local\n", True),
     ("incident", "ccx: role=fix\n", True),
 ])
 def test_only_an_incident_fix_lane_is_clocked(shell, config, tmp_path, capsys, model, header, clocked):
@@ -9190,7 +9190,7 @@ def test_a_case_reported_again_launches_nothing_new(shell, config, tmp_path):
     assert len(incident_lines(shell)) == 2
 
 
-@pytest.mark.parametrize(("model", "header"), [("opus", ""), ("incident", "ccx: role=evidence\n")])
+@pytest.mark.parametrize(("model", "header"), [("opus", "ccx: place=local\n"), ("incident", "ccx: role=evidence\n")])
 def test_an_unfixed_line_from_a_lane_that_is_no_incident_fix_lane_launches_nothing(shell, config, tmp_path, model, header):
     clocked_lane(shell, config, tmp_path, model=model, header=header)
     shell.launch("by-hand", "ctx_by-hand")
