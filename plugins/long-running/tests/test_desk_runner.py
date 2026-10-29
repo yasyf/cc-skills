@@ -4738,6 +4738,19 @@ def test_a_finder_pending_head_with_no_pass_waiting_queues_one_and_again_once_a_
     assert passes() == [("finder:29020:cccc333333", "verified"), ("finder:29020:cccc333333#2", "accepted")]
 
 
+@pytest.mark.parametrize(("opened", "lane"), [("port-memory-3", "port-memory-3"), ("", LANE)], ids=["opened-lane", "no-record"])
+def test_a_finder_pending_pass_is_addressed_to_the_lane_that_opened_the_pr_not_its_worktree(shell, config, tmp_path, opened, lane):
+    finder_config(config)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333", finder=False)
+    if opened:
+        head_record(shell, "29020", "cccc333333", lane=opened, kind="opened", text="OPENED #29020 head cccc333")
+    landing_pass(shell, config)
+    orca_pass(shell, config)
+    [job] = shell.finder_jobs
+    assert json.loads((job / "job.json").read_text())["lane"] == lane
+
+
 PRECONDITION = "This lands only after the seed's read-back shows the pointer."
 
 

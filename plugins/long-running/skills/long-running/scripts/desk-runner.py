@@ -5919,7 +5919,7 @@ class Landing:
             for pr, state in states.items():
                 self.refuse_head(f"finder:{pr}:{graded.heads[pr]}{failed[pr]}", pr, graded, state.reason, states, also=[finder.LANE])
                 if not failed[pr]:
-                    self.runner.requeue_pending_finder(self.repo, pr, graded.heads[pr], graded.rows.get(pr, {}).get("lane") or ROOT)
+                    self.runner.requeue_pending_finder(self.repo, pr, graded.heads[pr], self.owner(pr, graded.rows.get(pr, {})) or ROOT)
         return states
 
     def root_answered(self, pr: str, sha: str, verdict: dict) -> bool:
