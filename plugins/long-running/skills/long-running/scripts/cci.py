@@ -6,6 +6,7 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 PAGE_BYTES = 4_000_000
 CLAIM_KINDS = ("opened", "head")
@@ -42,11 +43,12 @@ def lane_report(record: dict) -> bool:
 
 
 class Tail:
-    """A `cci tail` runner whose `records` answers repeat a query, between `remember` and `stop`, from what it read since the last `forget`, so a pass reads each query once."""
+    """A `cci tail` runner whose `records` answers repeat a query, between `remember` and `stop`, from what it read since the last `forget`, so a pass reads each query once. A `--pr` query read from the start keeps what it read for the runner's life and reads only the records after the newest it kept: cci scans every record of the drive for a `--pr` match from the start, and only from a recent seq is that scan cheap, while a record's text, kind, lane and closures never change after it is posted."""
 
     def __init__(self, run: Callable[[list[str]], str]):
         self.run = run
         self.read: dict[tuple[str, tuple[str, ...], str], list[dict]] | None = None
+        self.grown: dict[tuple[str, tuple[str, ...]], list[dict]] = {}
 
     def __call__(self, argv: list[str]) -> str:
         return self.run(argv)
@@ -63,22 +65,31 @@ class Tail:
 
 
 def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: int | str = 0) -> list[dict]:
-    """Every record on `drive` after `since`, a sequence or any `cci tail --since` time, that matches the `cci tail` filters, paged by sequence; touches no cursor. A `Tail` answers a query it read since its last `forget` without running cci."""
+    """Every record on `drive` after `since`, a sequence or any `cci tail --since` time, that matches the `cci tail` filters, paged by sequence; a page under half the budget is the last, since cci caps a record far below that; touches no cursor. A `Tail` answers a query it read since its last `forget` without running cci."""
     key = (drive, filters, str(since))
     read = run.read if isinstance(run, Tail) else None
     if read is not None and (kept := read.get(key)) is not None:
         return list(kept)
-    found: list[dict] = []
+    grown = run.grown if isinstance(run, Tail) and "--pr" in filters and str(since) == "0" else None
+    now = datetime.now(timezone.utc)
+    found = [record for record in (grown or {}).get((drive, filters), []) if not expired(record, now)]
+    since = found[-1]["seq"] if found else since
     while True:
         out = run(["cci", "tail", "--drive", drive, "--since", str(since), "--json", "--budget", str(PAGE_BYTES), *filters])
         page = [json.loads(line) for line in out.splitlines() if line.strip()]
-        if not page:
-            break
         found += page
+        if len(out.encode()) < PAGE_BYTES // 2:
+            break
         since = page[-1]["seq"]
+    if grown is not None:
+        grown[(drive, filters)] = found
     if read is not None:
         read[key] = found
     return list(found)
+
+
+def expired(record: dict, now: datetime) -> bool:
+    return bool(record.get("expires_at")) and datetime.fromisoformat(record["expires_at"]) <= now
 
 
 def held_prs(run: Callable[[list[str]], str], drive: str) -> dict[str, int]:
