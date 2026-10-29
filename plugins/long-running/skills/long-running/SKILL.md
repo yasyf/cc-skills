@@ -1691,13 +1691,15 @@ until it reads.
 **Five minutes from go to queue.** A green PR a root `go` names at its head is in the
 merge queue within five minutes of that go. A stack the passes leave out that long, unheld and
 unrefused, goes straight into the queue through the runner's overflow, which posts a QUEUED
-report naming itself (owner 9524276). After each enqueue wave the runner logs one
-`GO-UNQUEUED` per head still out, naming the newest enqueue outcome that kept it out, and
-the root clears that one thing in the same turn or spawns the lane that does. When the
-review bot's newest `ai-review` run on that head reads Held, the line says the bot holds
-it on N blocking findings and the owning lane gets one record per head to fix or accept
-them; a Waiting for restack run reads as waiting for a restack push. Neither is a missing
-verdict. A missing
+report naming itself (owner 9524276). The runner logs one `GO-UNQUEUED` per head still
+out only when its own newest enqueue of that head since the go ended blocked, failed,
+stranded or unsettled, never for backlog, naming that outcome, and the root clears that one
+thing in the same turn or spawns the lane that does. When the review bot's newest
+`ai-review` run on that head reads Held, the line says the bot holds it on N blocking
+findings, and the owning lane gets one record per head to fix or accept them whether or not
+an enqueue failed; a Waiting for restack run reads as waiting for a restack push. Neither is
+a missing verdict. Every landing pass posts one `state` record to root on topic
+`landing-state` with the queued, waiting, held and refused counts, so root never asks. A missing
 gate record is never the reason: a fidelity or finder carry at the new head (a restack
 carries its grade, below) is that gate's record there, and nobody re-grades it.
 

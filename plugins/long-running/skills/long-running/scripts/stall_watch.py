@@ -15,12 +15,14 @@ the holds file and the open `hold` records, the landing desk's store, the root's
 its ledger row names, it finds:
 
     go        a root go names the head, no `QUEUED` record names the PR at it, no hold covers a PR
-              below it, and the go is older than the landing runner's enqueue backlog: one minute per
-              green, go'd, unqueued stack, and never less than `stall.minutes.go`; the stall belongs to the first PR of its stack, from the bottom, with no go
+              below it, and the go is older than `stall.minutes.go`; the stall belongs to the first PR of its stack, from the bottom, with no go
               or with a red, conflicting or unfinished build, or whose newest ai-review run the review
               bot titles Held or Waiting for restack, else to the lanes the desk runner's newest open
               blocker line for that PR and head newer than the go goes to, naming its reason, such as FINDER-PENDING,
-              TAP-REQUIRED, BELOW-BLOCKED or GO-UNQUEUED, or to the landing desk when there is none,
+              TAP-REQUIRED, BELOW-BLOCKED or GO-UNQUEUED, else to the runner when the
+              `landing-stacks.json` beside the config shows the stack's worker on one step past that step's
+              budget, naming the step and the command in flight; a stack no worker holds is backlog the
+              runner's overflow enqueues, never a stall,
               and every go in one stack shares one stall naming the stack's bottom and that blocker;
               a head whose blocker is FINDER-PENDING while the finder desk holds a pass on it queued
               or running draws none, since the desk's own FINDER-DESK-STALLED covers a stalled
@@ -222,7 +224,7 @@ MERGE_CARD = re.compile(r"^merge:(\d+):([0-9a-f]{7,40})$")
 ENDED = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
 DESK = re.compile(r"(?:.+-)?desk(?:-\d{1,2})?")
 REPEAT = timedelta(minutes=30)
-ENQUEUE_CALL = timedelta(minutes=1)
+STACKS_FILE = "landing-stacks.json"
 GATE_REPEAT = timedelta(hours=1)
 WAITS_ON = re.compile(r"\b(?:waits?\s+(?:only\s+)?on|blocked\s+on)\s+#(\d+)|\bwhen\s+#(\d+)\s+lands\b", re.IGNORECASE)
 LANDED = re.compile(r"^LANDED\s+#(\d+)\b")
@@ -297,6 +299,7 @@ class Watch:
     model: str
     board_lane: str
     quiet_lanes: list[str]
+    stacks: Path
 
     @classmethod
     def load(cls, path: Path) -> Watch:
@@ -313,6 +316,7 @@ class Watch:
             model=stall.get("model", MODEL),
             board_lane=stall.get("board_lane", ROOT),
             quiet_lanes=stall.get("quiet_lanes", [*landing.get("go_lanes", []), *lanes_of(landing.get("board_lane", []))]),
+            stacks=path.with_name(f"{path.stem}.{STACKS_FILE}"),
         )
 
     def age(self, kind: str) -> timedelta:
@@ -557,7 +561,6 @@ class Pass:
         self.stack: list[dict] | None = None
         self.tap_waits: dict[str, tuple[str, str]] | None = None
         self.hold_gates: dict[str, list[str]] = {}
-        self.go_wait = watch.age("go")
         self.hold_asks: dict[str, set[str]] = {}
         self.tapped: set[str] = set()
         self.refused: set[str] = set()
@@ -789,8 +792,6 @@ class Pass:
         queued = {(pr, sha) for record in records if (record["lane"] == RUNNER or record["lane"].startswith(LANDING_DESK)) and record["kind"] == "report" and QUEUED.match(record["text"]) for pr, sha in grades.GO_HEAD.findall(record["text"])}
         hold_lines = holds.read(Path(landing["holds"]).expanduser())
         held = holds.held(hold_lines, rows) | set(cci.held_prs(self.tail, drive_name))
-        backlog = {(downstack(rows, row) or [pr])[-1] for pr, row in rows.items() if pr not in held and row.get("head") and row.get("test_state") == "success" and grades.gone_at(gos, pr, row["head"]) and not any(named == pr and grades.names_head(sha, row["head"]) for named, sha in queued)}
-        self.go_wait = max(self.watch.age("go"), len(backlog) * ENQUEUE_CALL)
         for entry in hold_lines:
             for named in PR_REF.findall(leading[0] if (leading := LEADING_PRS.match(entry.line)) else ""):
                 self.hold_gates.setdefault(named, []).extend(gate for gate in PR_REF.findall(entry.line) if gate != named)
@@ -986,7 +987,7 @@ class Pass:
         return None
 
     def unqueued(self, pr: str, row: dict, rows: dict[str, dict], below: list[str], gos: list[dict], since: datetime, queued: set[tuple[str, str]], lane: str, records: list[dict]) -> tuple[str, tuple[str, ...], str] | None:
-        if any(named == pr and grades.names_head(sha, row["head"]) for named, sha in queued) or self.now - since < self.go_wait:
+        if any(named == pr and grades.names_head(sha, row["head"]) for named, sha in queued) or self.now - since < self.watch.age("go"):
             return None
         for member in [*reversed(below), pr]:
             other = rows[member]
@@ -1004,13 +1005,29 @@ class Pass:
                 return member, (owns,), f"{named}: {waits}"
         blocker = max((record for record in records if blocks_head(record, pr, row["head"]) and at(record) >= since), key=lambda record: record["seq"], default=None)
         if blocker is None:
-            return pr, (RUNNER,), f"the landing desk has not queued it and posted no blocker for #{pr} at {short(row['head'])}: read the runner's heartbeat (`drive.py digest`)"
+            return self.stuck_step(pr, row["head"])
         said = grades.full_text(blocker)
         reason = found[0] if (found := BLOCKER_LABEL.search(said)) else "blocked"
         if reason == FINDER_PENDING and self.finder_holds(pr, row["head"]):
             return None
         owners = tuple(dict.fromkeys(ROOT if to in ROOT_NAMES else to for to in (address.split("@", 1)[0] for address in blocker.get("to") or [ROOT])))
         return pr, owners, f"{reason}: the runner's newest blocker for #{pr} at {short(row['head'])}, cci #{blocker['seq']}: {clip(said)}"
+
+    def stuck_step(self, pr: str, head: str) -> tuple[str, tuple[str, ...], str] | None:
+        """The landing runner's stack worker step that holds `pr` at `head` past its budget, from the `landing-stacks.json` the runner rewrites at every step; a stack no worker holds, or one inside its step's budget, waits on the runner's backlog or the overflow, which is no stall."""
+        try:
+            stacks = json.loads(self.watch.stacks.read_text())["stacks"].values()
+        except FileNotFoundError:
+            return None
+        for entry in stacks:
+            if not grades.names_head(entry["members"].get(pr, "-"), head):
+                continue
+            ran = self.now - actions.parse_stamp(entry["since"])
+            if ran.total_seconds() <= entry["budget"]:
+                return None
+            command = f", running `{entry['command']}` for {entry['command_seconds']} s" if entry.get("command") else ""
+            return pr, (RUNNER,), f"the landing runner's worker for the stack from #{entry['root']} has been on its {entry['step']} step for {int(ran.total_seconds() // 60)} min, past its {entry['budget'] // 60} min budget{command}"
+        return None
 
     def review_title(self, head: str) -> str:
         done = self.shell.run(ghread.read("api", f"repos/{self.watch.landing['repo']}/commits/{head}/check-runs?check_name={grades.REVIEW_BOT_CHECK}", "--jq", ".check_runs | max_by(.started_at) | .output.title // \"\""))

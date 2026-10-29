@@ -1011,8 +1011,8 @@ def test_unopened_work_that_waits_on_a_landed_pr_stalls_to_its_live_lane_hourly(
         assert post["to"] == "p8a-step7-2@d1" and post["text"].startswith(f"STALL gate p8a-step7-2 on #43736, {landed_ago} min: p8a-step7-2 said at cci #1 that work waits on #43736, and desk-runner posted it landed at cci #2")
 
 
-@pytest.mark.parametrize(("go_ago", "stalls"), [(17, False), (31, True)], ids=["inside-the-backlog", "past-the-backlog"])
-def test_a_go_waits_out_the_runners_enqueue_backlog_of_thirty_stacks_before_it_stalls(config, go_ago, stalls):
+@pytest.mark.parametrize("go_ago", [17, 31], ids=["a-recent-go", "an-old-go"])
+def test_go_named_stacks_no_runner_worker_holds_are_backlog_and_never_stall(config, go_ago):
     records, rows = [], []
     for index in range(30):
         pr, sha = str(200 + index), f"{index:02x}" + HEAD[2:]
@@ -1021,7 +1021,18 @@ def test_a_go_waits_out_the_runners_enqueue_backlog_of_thirty_stacks_before_it_s
     records.append(record(999, "desk-runner", "blocker", f"#200 {("00" + HEAD[2:])[:10]}: GO-UNQUEUED nothing in #200 was enqueued", 40, "200"))
     shell = FakeShell(records, rows)
     watch(shell, config)
+    assert [topic for topic in shell.topics() if topic.startswith("go:")] == []
+
+
+@pytest.mark.parametrize(("on_step", "stalls"), [(4, False), (8, True)], ids=["inside-its-budget", "past-its-budget"])
+def test_a_go_named_stack_whose_runner_worker_sits_on_one_step_past_its_budget_stalls_naming_the_step(config, on_step, stalls):
+    pr = "200"
+    records = [head(1, pr, HEAD, 60), finder(2, pr, HEAD, 50), fidelity(3, pr, HEAD, 50), record(4, "root", "go", f"go #{pr} at {HEAD[:7]}", 31)]
+    step = {"root": pr, "lane": "api-lane", "members": {pr: HEAD}, "step": "enqueue", "since": stamp(on_step), "budget": 300, "command": "stack-enqueue 200 --partial", "command_seconds": on_step * 60}
+    config.with_name(f"{config.stem}.landing-stacks.json").write_text(json.dumps({"at": stamp(0), "stacks": {pr: step}}))
+    shell = FakeShell(records, [row(pr)])
+    watch(shell, config)
     go_stalls = [topic for topic in shell.topics() if topic.startswith("go:")]
     assert bool(go_stalls) is stalls
     if stalls:
-        assert len(go_stalls) == 30 and "cci #999" not in shell.post("go:200:00c1234")["text"]
+        assert "the landing runner's worker for the stack from #200 has been on its enqueue step for 8 min, past its 5 min budget, running `stack-enqueue 200 --partial` for 480 s" in shell.post(go_stalls[0])["text"]

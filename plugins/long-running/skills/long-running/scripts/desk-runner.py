@@ -271,8 +271,14 @@ Right after the ledger and holds read, the pass reads the queue, then gates ever
 record names, sixteen trees at a time, so the only PRs that can land reach the queue before the ledger-wide head read and the gate
 over every other tree. Every gate checks only a tree holding a PR the queue read calls landable on PRs below it that are landable
 or queued, since a check of any other tree enqueues nothing and spends GitHub reads; each PR of the rest hears what its status
-entry asks of its lane. Each tree runs in a worker of its own from its check through its settling to the enqueue it accepts, so no
-stack waits on another stack's checks or enqueue. Beside the passes, an overflow thread reads afresh every minute and puts straight
+entry asks of its lane. Each tree runs in a stack worker of its own from its check through its settling to the enqueue it accepts, so no
+stack waits on another stack's checks or enqueue. The workers outlive the pass: the pass queues them with the lanes taking turns, waits for
+them at most 120 s, skips a tree whose worker still runs or waits, and its releases, announcements, worktree removal and restack checks run
+on a side worker, never ahead of the gate. Each worker writes its step and when it began to `<config>.landing-stacks.json`, which
+stall_watch reads to name a stack stuck past its step's budget. Every pass posts one `state` record to root on topic `landing-state`
+counting the queued, waiting, held and refused PRs, the workers running and the overflow's enqueues, with the pass's seconds.
+`GO-UNQUEUED` is raised only when the newest enqueue of a go'd head since its go ended blocked, failed, stranded or unsettled, never for
+backlog, and `OVERFLOW-STALLED` when the overflow thread finished no run in five minutes. Beside the passes, an overflow thread reads afresh every minute and puts straight
 into the queue, with none of the runner's checks, each stack that has stayed green, named at its heads by a root go, unheld, unqueued
 and unrefused for five minutes, posting a QUEUED report that names the overflow (owner 9524276). The queue read is one `ccx vcs pr status` call over every open row a pass,
 allowed 300 s, which the gate, the requeue and the landed check share. A PR body is read at most once per five minutes, a head's
@@ -571,7 +577,8 @@ import traceback
 from collections import Counter
 from contextlib import contextmanager
 from collections.abc import Callable, Iterable, Iterator
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import wait as finished_by
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from fnmatch import fnmatch
@@ -660,6 +667,7 @@ NOT_IDLE = "not idle: busy, prompt typed or asking, or output in the last 10 min
 MODELS = re.compile(r"opus|sonnet|fable|astra|codex|sol|incident|claude-[\w.-]+|gpt-[\w.-]+")
 INCIDENT_MODEL = "incident"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
+GO_UNQUEUED_OUTCOMES = frozenset({"blocked", "failed", "stranded", "unsettled"})
 RETRYABLE = frozenset({"blocked", "superseded", "foreign", "dropped", "refused", "dequeued"})
 BELIEVED_QUEUED = frozenset({"enqueued", "noop"})
 ADMITTED = BELIEVED_QUEUED | {"dropped", "ejected"}
@@ -676,6 +684,7 @@ OVERFLOW = "overflow"
 OVERFLOW_AFTER = timedelta(minutes=5)
 OVERFLOW_EVERY = timedelta(minutes=1)
 OVERFLOW_SEEN = "overflow-seen"
+OVERFLOW_STALLED = timedelta(minutes=5)
 OVERFLOW_RETRIES = frozenset({"superseded", "failed", "dropped"})
 UNGRADED_READ = "ungraded_read"
 DIFF_MEDIA = "Accept: application/vnd.github.diff"
@@ -763,6 +772,9 @@ CARD_STEPS = 1000
 CARD_NAME = 80
 CARD_LABEL = 75
 COMMAND_TIMEOUT_SECONDS = 1800
+ENQUEUE_SECONDS = 300
+LEDGER_SECONDS = 300
+FETCH_SECONDS = 120
 QUICK_SECONDS = 60
 CHECK_PR_SECONDS = 180
 GATE_CHECK_SECONDS = 60
@@ -776,6 +788,9 @@ STOP_CONFIRM = timedelta(seconds=30)
 STOP_POLL_SECONDS = 2
 SHOW_WORKERS = 8
 GATE_WORKERS = 16
+GATE_BUDGET = timedelta(seconds=120)
+STEP_BUDGETS = {"check": 180, "settle": 300, "enqueue": 300}
+STACKS_FILE = "landing-stacks.json"
 CHECK_PR_WORKERS = 8
 TELL_BUDGET = timedelta(seconds=60)
 REFRESH_EVERY = timedelta(minutes=2)
@@ -967,7 +982,18 @@ def time_bound(argv: list[str]) -> float:
         return GATE_CHECK_SECONDS
     if argv[:4] == ["ccx", "vcs", "pr", "status"]:
         return QUEUE_STATUS_SECONDS
+    if Path(argv[0]).name == "stack-enqueue":
+        return ENQUEUE_SECONDS
+    if len(argv) > 1 and Path(argv[1]).name == "ledger.py":
+        return LEDGER_SECONDS
+    if argv[0] == "git" and "fetch" in argv:
+        return FETCH_SECONDS
     return QUICK_SECONDS if quick(argv) else COMMAND_TIMEOUT_SECONDS
+
+
+def rereadable(argv: list[str]) -> bool:
+    """Whether `argv` only reads, so a run that timed out or failed on a transient network error may run once more."""
+    return argv[:2] in (["cci", "tail"], ["cci", "who"]) or argv[:3] == ghread.GATEWAY or argv[:4] == ["ccx", "vcs", "pr", "status"] or (Path(argv[0]).name == "stack-enqueue" and bool({"--check", "--status"} & set(argv)))
 
 
 def command_family(argv: list[str]) -> str:
@@ -1006,8 +1032,10 @@ class Shell:
     Input reaches a child from a file, never a pipe the runner writes while the child's output
     fills, and a child still running after COMMAND_TIMEOUT_SECONDS is killed and fails its pass.
     Output that is not UTF-8, such as a diff of a binary file, reads with each bad byte replaced.
-    A GitHub, cci or ccx read gets QUICK_SECONDS, a `--check` GATE_CHECK_SECONDS and `rulings.py check-pr` CHECK_PR_SECONDS; one that times out is logged and
-    reads as a failed command, never a fatal one. `in_progress` holds each thread's command in flight
+    A GitHub, cci or ccx read gets QUICK_SECONDS, a `--check` GATE_CHECK_SECONDS, `rulings.py check-pr` CHECK_PR_SECONDS, any other
+    `stack-enqueue` ENQUEUE_SECONDS, `ledger.py` LEDGER_SECONDS and `git fetch` FETCH_SECONDS; one that times out is logged and
+    reads as a failed command, never a fatal one. A read `rereadable` names runs once more when it timed out or failed on a transient
+    network error. `in_progress` holds each thread's command in flight
     and when it started, for the heartbeat.
     """
 
@@ -1017,6 +1045,12 @@ class Shell:
     spending = threading.Lock()
 
     def run(self, argv: list[str], stdin: str | None = None, env: dict[str, str] | None = None) -> Done:
+        done = self.run_once(argv, stdin, env)
+        if rereadable(argv) and done.code and (done.code == TIMED_OUT or merge_queue.TRANSIENT_FAILURE.search(done.err + done.out)):
+            done = self.run_once(argv, stdin, env)
+        return done
+
+    def run_once(self, argv: list[str], stdin: str | None, env: dict[str, str] | None) -> Done:
         timeout = time_bound(argv)
         started = time.monotonic()
         self.in_progress[threading.get_ident()] = (command_name(argv), started)
@@ -4618,6 +4652,18 @@ def stacked(open_rows: dict[str, dict]) -> set[str]:
     return {pr for pr, row in open_rows.items() if row.get("base") in branches}
 
 
+def stack_root(tree: list[str], open_rows: dict[str, dict]) -> str:
+    return min(downstack(open_rows, tree[0]), key=lambda pr: len(downstack(open_rows, pr)))
+
+
+def lane_turns(trees: list[list[str]], open_rows: dict[str, dict]) -> list[list[str]]:
+    """`trees` with the lanes taking turns, each lane's trees in their given order, so one lane's many stacks never go ahead of every other lane's."""
+    by_lane: dict[str, list[list[str]]] = {}
+    for tree in trees:
+        by_lane.setdefault(open_rows[stack_root(tree, open_rows)].get("lane", ""), []).append(tree)
+    return [tree for turn in itertools.zip_longest(*by_lane.values()) for tree in turn if tree]
+
+
 def under_hold(open_rows: dict[str, dict], held: list[str]) -> set[str]:
     by_branch = {row["branch"]: pr for pr, row in open_rows.items() if row.get("branch")}
     covered = set()
@@ -4865,6 +4911,17 @@ class Landing:
         self.told: dict[str, tuple[str, datetime]] = {}
         self.refresher: threading.Thread | None = None
         self.overflowing: threading.Thread | None = None
+        self.overflowed_at = time.monotonic()
+        self.overflower: Landing | None = None
+        self.held_now: list[str] = []
+        self.workers = ThreadPoolExecutor(GATE_WORKERS)
+        self.inflight: dict[str, tuple[str, Future]] = {}
+        self.dispatching = threading.Lock()
+        self.steps: dict[str, dict] = {}
+        self.stacks_file = runner.config.source.with_name(f"{runner.config.source.stem}.{STACKS_FILE}")
+        self.gate_deadline = time.monotonic()
+        self.side = ThreadPoolExecutor(1)
+        self.side_work: Future | None = None
         self.bodies: dict[str, tuple[datetime, str]] = {}
         self.trunk_read: tuple[str, datetime, bool, dict] | None = None
         self.unchecked: set[str] = set()
@@ -5190,25 +5247,80 @@ class Landing:
         return [kept for tree in trees if (kept := [tip for tip in tree if tip not in waiting])]
 
     def gate_trees(self, rows: dict[str, dict], held: list[str], trees: list[list[str]]) -> None:
-        """Run each tree of `trees` that `landable_trees` keeps through its own worker, `GATE_WORKERS` trees at a time, from its check through its settling to the enqueue of what it accepts, so no stack's checks or enqueue wait on another stack's of the same priority (landing-desk-3 #185922, owner 9524276); one wave per priority value, the lowest first, so a higher-priority stack reaches the queue first. Each enqueue still runs its stack's chains bottom-up."""
+        """Hand each tree of `trees` that `landable_trees` keeps to a stack worker that outlives the pass and runs its check, its settling and the enqueue of what it accepts, so no stack's checks or enqueue wait on another's (landing-desk-3 #185922, owner 9524276). A tree whose worker still runs or waits from an earlier pass is skipped, the drive runs `GATE_WORKERS` at once with the lanes taking turns in its queue, and the pass waits for its workers no longer than its `GATE_BUDGET`. One wave per priority value, the lowest first, so a higher-priority stack reaches the queue first. Each enqueue still runs its stack's chains bottom-up."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         waves: dict[int, list[list[str]]] = {}
         for tree in self.landable_trees(rows, trees):
             waves.setdefault(min(self.priority(open_rows, pr) for tip in tree for pr in downstack(open_rows, tip)), []).append(tree)
         for priority in sorted(waves):
-            with ThreadPoolExecutor(GATE_WORKERS) as pool:
-                list(pool.map(lambda tree: self.land_tree(rows, held, tree), waves[priority]))
+            self.await_workers([future for tree in lane_turns(waves[priority], open_rows) if (future := self.dispatch(tree, open_rows, lambda tree=tree: self.land_tree(rows, held, tree)))])
+
+    def dispatch(self, tree: list[str], open_rows: dict[str, dict], work: Callable[[], None]) -> Future | None:
+        """Queue `work` for a stack worker for `tree`, unless one for it still runs or waits."""
+        key, lane = ",".join(tree), open_rows[stack_root(tree, open_rows)].get("lane", "")
+        with self.dispatching:
+            if (running := self.inflight.get(key)) and not running[1].done():
+                return None
+            future = self.workers.submit(work)
+            self.inflight[key] = (lane, future)
+            return future
+
+    def await_workers(self, futures: list[Future]) -> None:
+        """Wait for `futures` until the pass's gate budget runs out, raising what a finished one raised; the rest run on into later passes."""
+        finished, _ = finished_by(futures, timeout=max(0.0, self.gate_deadline - time.monotonic()))
+        for future in finished:
+            future.result()
+
+    def surface(self) -> None:
+        """Raise the first error a stack worker or the side work raised after an earlier pass stopped waiting for it, dropping each finished one, so the pass counts it as its own."""
+        with self.dispatching:
+            finished = {key: future for key, (_, future) in self.inflight.items() if future.done()}
+            for key in finished:
+                del self.inflight[key]
+        side = self.side_work if self.side_work and self.side_work.done() else None
+        if side:
+            self.side_work = None
+        for future in [*finished.values(), *([side] if side else [])]:
+            if error := future.exception():
+                raise error
+
+    def drain(self) -> None:
+        """Wait for every stack worker and the side work, raising what any raised, for a `--once` pass whose process ends with it."""
+        for future in [future for _, future in list(self.inflight.values())] + ([self.side_work] if self.side_work else []):
+            future.result()
 
     def land_tree(self, rows: dict[str, dict], held: list[str], tree: list[str]) -> None:
-        self.runner.checkpoint()
-        self.settle_tree(rows, held, self.proven_stacks(tree))
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
-        members = {pr for tip in tree for pr in downstack(open_rows, tip)}
-        if accepted := [action for action in self.book.actions(LANDING, kind="enqueue", status="accepted") if set(action.target.split(",")) <= members]:
-            self.reread()
-            self.rescanned_reviews()
-            for action in accepted:
-                self.enqueue_one(action)
+        key = ",".join(tree)
+        try:
+            self.runner.checkpoint()
+            self.track(key, tree, open_rows, "check")
+            gated = self.proven_stacks(tree)
+            self.track(key, tree, open_rows, "settle")
+            self.settle_tree(rows, held, gated)
+            members = {pr for tip in tree for pr in downstack(open_rows, tip)}
+            if accepted := [action for action in self.book.actions(LANDING, kind="enqueue", status="accepted") if set(action.target.split(",")) <= members]:
+                self.reread()
+                self.rescanned_reviews()
+                for action in accepted:
+                    self.track(key, tree, open_rows, "enqueue")
+                    self.enqueue_one(action)
+        finally:
+            self.track(key, tree, open_rows, "")
+
+    def track(self, key: str, tree: list[str], open_rows: dict[str, dict], step: str) -> None:
+        """Record the step a stack worker is on, or that it ended, and rewrite `landing-stacks.json` beside the config, which stall_watch reads to name a stack stuck past its step's budget."""
+        root = stack_root(tree, open_rows)
+        with self.dispatching:
+            if step:
+                members = {pr: open_rows[pr].get("head", "") for tip in tree for pr in downstack(open_rows, tip)}
+                self.steps[key] = {"root": root, "lane": open_rows[root].get("lane", ""), "members": members, "step": step, "since": self.book.stamp(), "budget": STEP_BUDGETS[step], "thread": threading.get_ident()}
+            else:
+                self.steps.pop(key, None)
+            stacks = {key: {name: value for name, value in entry.items() if name != "thread"} | ({"command": command[0], "command_seconds": int(time.monotonic() - command[1])} if (command := Shell.in_progress.get(entry["thread"])) else {}) for key, entry in self.steps.items()}
+            staged = self.stacks_file.with_name(f".{self.stacks_file.name}.{threading.get_ident()}")
+            staged.write_text(json.dumps({"at": self.book.stamp(), "stacks": stacks}))
+            staged.replace(self.stacks_file)
 
     def landable_trees(self, rows: dict[str, dict], trees: list[list[str]]) -> list[list[str]]:
         """The trees of `trees` the pass is about to enqueue from, by its one status read: those holding a landable PR on PRs below it that are landable, queued, or landed. `stack-enqueue --check`, and the `rulings.py check-pr` an accepted prefix runs, run for no other tree (root #146561, #147019). A verdict counts as landable once a `queue-unknown` cause is set aside, since a label queue's state is not Graphite's to read, and once a lone `ci-unproven` cause is set aside for a head `unproven` finds proven, since only the runner reads the full builds that prove a redundant skip; `unproven` also starts the full build a head still needs. The PRs of each tree left out join `unchecked`, and `tell_unpassed` routes what each one's status entry asks of its lane. None are kept when the status read failed."""
@@ -6523,7 +6635,7 @@ class Landing:
         return any(not any(actions.parse_stamp(record["at"]) > at and goes(record, pr) for record in gos) for pr, at in dropped.items())
 
     def enqueue(self) -> None:
-        """Run every accepted enqueue, the lowest priority value first: one parallel wave per priority, so a higher-priority prefix reaches the queue before a lower one."""
+        """Run every accepted enqueue no stack worker has started, on the stack workers, the lowest priority value first: one parallel wave per priority, so a higher-priority prefix reaches the queue before a lower one, each waited for no longer than the pass's gate budget."""
         accepted = self.book.actions(LANDING, kind="enqueue", status="accepted")
         if not accepted:
             return
@@ -6535,8 +6647,7 @@ class Landing:
             self.runner.checkpoint()
             self.reread()
             self.rescanned_reviews()
-            with ThreadPoolExecutor(len(waves[priority])) as pool:
-                list(pool.map(self.enqueue_one, waves[priority]))
+            self.await_workers([self.workers.submit(self.enqueue_one, action) for action in waves[priority]])
 
     def enqueue_one(self, action: actions.Action) -> None:
         key = action.action_id
@@ -6602,7 +6713,6 @@ class Landing:
         outcome, outs, last = "noop", [], ""
         for top in tops:
             done, out, last = self.adapter.enqueue([top], whole, heads)
-            self.cci_tail.forget()
             outs.append(out)
             if done not in BELIEVED_QUEUED:
                 return done, "".join(outs)[-1500:], last
@@ -6632,7 +6742,7 @@ class Landing:
         drive = self.runner.config.drive
 
         def about_pr(kind: str) -> list[dict]:
-            found = cci.records(self.cci_tail, drive, f"--kind={kind}", "--pr", f"{self.repo}#{pr}")
+            found = cci.records(self.cci_tail.run, drive, f"--kind={kind}", "--pr", f"{self.repo}#{pr}")
             return [record for record in found if (record["kind"], record["drive"]) == (kind, drive) and pr in dict(repo_prs(record, self.repo))]
 
         if not (posted := [record for record in about_pr("hold") if pr in cci.held_by(record)]):
@@ -6662,7 +6772,6 @@ class Landing:
             if pr not in covered:
                 continue
             released, line = self.adapter.dequeue(pr)
-            self.cci_tail.forget()
             if not released:
                 failed.append(f"#{pr}: {line}")
                 continue
@@ -6853,26 +6962,23 @@ class Landing:
             if (queue := self.queue_states()) is None or queue.get(pr) not in OUT_OF_QUEUE or self.refused_at_head(stack, open_rows):
                 continue
             tried = sorted((action for action in self.book.actions(LANDING, kind="enqueue") if action.response and head.startswith(enqueued_heads(action.action_id).get(pr) or "-") and actions.parse_stamp(action.accepted_at) >= at), key=lambda action: action.accepted_at)
-            if tried and any(match["pr"] == pr and match["verdict"] == QUEUED_VERDICT and head.startswith(match["sha"]) for match in merge_queue.VERDICT_LINE.finditer(tried[-1].response.get("out", ""))):
+            bot = self.review_bot(pr, head, row)
+            if not tried or tried[-1].response.get("outcome") not in GO_UNQUEUED_OUTCOMES:
+                continue
+            if any(match["pr"] == pr and match["verdict"] == QUEUED_VERDICT and head.startswith(match["sha"]) for match in merge_queue.VERDICT_LINE.finditer(tried[-1].response.get("out", ""))):
                 continue
             reserved = [f"{reserved_row(line)[0]} on #{below}" for below in sorted(downstack(open_rows, pr), key=int) if (kept := self.reported.get((below, open_rows[below].get("head", "")[:7], False))) for line in kept[1] if cause(line) == RESERVED_TOUCH]
-            if bot := self.review_bot(pr, head, row):
+            if bot:
                 why = bot
             elif reserved:
                 why = f"it waits on his tap authorizing {', '.join(reserved)}, as MERGE-ASK says; a go never authorizes a reserved row (C224)"
-            elif tried:
-                why = f"its newest enqueue since the go ended {tried[-1].response['outcome']}: {' '.join(tried[-1].response.get('out', '').split())[-300:]}"
             else:
-                why = ""
+                why = f"its newest enqueue since the go ended {tried[-1].response['outcome']}: {' '.join(tried[-1].response.get('out', '').split())[-300:]}"
             bottom = min(stack, key=lambda member: len(downstack(open_rows, member)))
             stuck.setdefault(bottom, []).append((len(stack), pr, head, gos, at, why))
         for bottom, group in stuck.items():
             _, pr, head, gos, at, why = min(group)
             owner = self.owner(pr, open_rows[pr]) or ROOT
-            if not why:
-                members = {member for _, other, *_ in group for member in downstack(open_rows, other)}
-                refused = self.last_refusal(members, open_rows, at)
-                why, owner = refused or ("no enqueue was accepted for it since the go, and neither this runner nor the landing desk holds a refusal for any PR of its stack", owner)
             above = [f"#{other}" for _, other, *_ in sorted(group) if other != pr]
             waits = f"; {', '.join(above)} above it in the stack from #{bottom} wait on it too" if above else ""
             key, subject = f"go-unqueued:{pr}@{head}", f"go-unqueued:{pr}"
@@ -6881,7 +6987,7 @@ class Landing:
 
     def keep_overflowing(self) -> None:
         """Run `overflow` every `OVERFLOW_EVERY` from a daemon thread, on a Landing of its own that reads cci afresh, so no pass, however slow, holds a landable stack out of the queue (owner 9524276). An overflow that raises prints its traceback and the next one runs."""
-        mine = Landing(self.runner, self.runner.config.landing, cci.Tail(self.runner.cci_read))
+        mine = self.overflower = Landing(self.runner, self.runner.config.landing, cci.Tail(self.runner.cci_read))
 
         def loop() -> None:
             while True:
@@ -6894,6 +7000,26 @@ class Landing:
 
         self.overflowing = threading.Thread(target=loop, name="landing-overflow", daemon=True)
         self.overflowing.start()
+
+    def post_state(self, took: float) -> None:
+        """Post the pass's one `state` record to root on topic `landing-state`, which cci delivers newest-only, so root never asks what the runner is doing (owner 9524276): the open rows the queue holds, the green ones a root go names at their heads that are out of it and neither held nor refused, with the oldest stack step in flight, the held, the refused at their heads, the stack workers running, the overflow's enqueues this hour, and the pass's seconds. It logs `OVERFLOW-STALLED` once an hour while the overflow thread has finished no run in `OVERFLOW_STALLED`."""
+        open_rows = {pr: row for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"}
+        statuses, gos, held = self.statuses or {}, self.gos or [], set(self.held_now)
+        refused = {pr for pr in open_rows if self.refused_at_head({pr}, open_rows)}
+        queued = {pr for pr in open_rows if statuses.get(pr, {}).get("queue") == QUEUED_STATE}
+        waiting = [pr for pr, row in open_rows.items() if pr not in queued | held | refused and row.get("test_state") == "success" and row.get("head") and gone_at(gos, pr, row["head"])]
+        now = self.runner.now()
+        with self.dispatching:
+            oldest = min(self.steps.values(), key=lambda entry: entry["since"], default=None)
+            running = sum(1 for _, future in self.inflight.values() if not future.done())
+        hour = now - timedelta(hours=1)
+        overflowed = sum(1 for action in self.book.actions(LANDING, kind="enqueue") if f"#{OVERFLOW}-" in action.action_id and actions.parse_stamp(action.accepted_at) >= hour)
+        step = f" (oldest #{oldest['root']} {oldest['step']} {whole_minutes(actions.parse_stamp(oldest['since']), now)}m)" if oldest else ""
+        text = f"LANDING queued {len(queued)}, waiting {len(waiting)}{step}, held {len(held)}, refused {len(refused)}, in flight {running}, overflowed {overflowed} this hour; pass {took:.0f}s"
+        self.runner.cci_post("state", text, ROOT, "landing-state", f"landing-state:{self.book.stamp()}")
+        if self.overflower and (quiet := time.monotonic() - self.overflower.overflowed_at) > OVERFLOW_STALLED.total_seconds():
+            alive = self.overflowing is not None and self.overflowing.is_alive()
+            self.runner.escalate(f"overflow-stalled:{now:%Y%m%d%H}", "OVERFLOW-STALLED", "landing", f"the overflow thread has finished no run in {int(quiet // 60)} minutes{'' if alive else ' and is dead'}, so a stack the passes leave out waits on them alone; `desk-runner.py handoff` restarts the runner")
 
     def overflow(self) -> None:
         """Enqueue straight into the merge queue, through the adapter and with none of the runner's own checks, each stack that has stayed landable for `OVERFLOW_AFTER` since an overflow first found it so: every unqueued PR of it green at its ledger head, named at that head by a root go, under no hold, pull, or incident fix, with no enqueue of it running and nothing the runner decided against it at that head, which is a refusal `last_refusal` finds since the go, an enqueue outcome outside `OVERFLOW_RETRIES`, a drop still waiting on a go, or a reserved row no answer authorizes (C224). Each goes in as its stack's top, recorded as an enqueue and posted as a QUEUED report that names the overflow."""
@@ -6921,6 +7047,7 @@ class Landing:
                 list(pool.map(lambda top: self.overflow_one(top, open_rows, queue, actions.parse_stamp(since[top][1])), tops))
         finally:
             self.cci_tail.stop()
+            self.overflowed_at = time.monotonic()
 
     def overflow_landable(self, open_rows: dict[str, dict], held: list[str], queue: dict[str, str]) -> set[str]:
         covered = under_hold(open_rows, [*held, *self.incident_rows(open_rows)])
@@ -7664,9 +7791,10 @@ class Landing:
 
     def refresh(self) -> None:
         self.ledger_py("refresh", "--repo", self.repo, "--ledger", self.ledger)
+        self.ledger_py("reconcile", "--repo", self.repo, "--ledger", self.ledger, "--checkout", str(self.checkout))
 
     def keep_fresh(self) -> None:
-        """Refresh the ledger every `REFRESH_EVERY` from a daemon thread, so a pass reads the rows the last refresh wrote instead of waiting on ccx's GitHub reads; a pass refreshes itself while no such thread runs."""
+        """Refresh and reconcile the ledger every `REFRESH_EVERY` from a daemon thread, so a pass reads the rows the last refresh wrote instead of waiting on ccx's GitHub reads; a pass refreshes itself while no such thread runs."""
 
         def loop() -> None:
             while True:
@@ -7760,6 +7888,8 @@ class Landing:
     def gate_pass(self) -> None:
         self.sessions, self.live, self.dead, self.designed_red, self.full_runs_read, self.said_preconditions = {}, None, {}, {}, {}, {}
         self.grading, self.grade_tried = True, set()
+        self.gate_deadline = time.monotonic() + GATE_BUDGET.total_seconds()
+        self.surface()
         self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why, self.cleared = None, False, None, None, None, set(), {}, {}
         if self.quota_low():
             return
@@ -7768,8 +7898,6 @@ class Landing:
             if not (self.refresher and self.refresher.is_alive()):
                 self.refresh()
             advanced = advancing.result()
-        self.runner.checkpoint()
-        self.ledger_py("reconcile", "--repo", self.repo, "--ledger", self.ledger, "--checkout", str(self.checkout))
         self.runner.checkpoint()
         rows = self.rows()
         read = self.watch_trunk(rows or {})
@@ -7783,22 +7911,15 @@ class Landing:
             return
         self.carry_taps(rows)
         held = self.held(rows) if advanced and read and not unread else None
+        self.held_now = held or []
         gating = held is not None and not self.checks_paused()
         self.no_go = self.unpassed(rows) if gating else set()
         self.refuse_ungone_parents(rows, held or [])
         barred = sorted({*(held or []), *self.no_go, *self.pull_ordered(rows)}, key=int)
         gone = self.land_gone(rows, barred) if gating else set()
-        self.runner.steps(
-            lambda: self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}),
-            self.reconcile,
-            lambda: self.verify(rows),
-            lambda: self.announce_landings(rows),
-            lambda: self.remove_landed_worktrees(rows),
-            lambda: self.releases(rows),
-            self.ungraded_after,
-            lambda: self.verify_restacks(rows),
-            lambda: self.requeue(rows),
-        )
+        self.runner.steps(lambda: self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}), self.reconcile, lambda: self.requeue(rows))
+        if not (self.side_work and not self.side_work.done()):
+            self.side_work = self.side.submit(self.runner.steps, lambda: self.verify(rows), lambda: self.announce_landings(rows), lambda: self.remove_landed_worktrees(rows), lambda: self.releases(rows), self.ungraded_after, lambda: self.verify_restacks(rows))
         if held is not None:
             self.runner.steps(lambda: self.squash_incidents(rows, held))
             if gating:
@@ -7938,7 +8059,10 @@ def run_landing(runner: Runner, once: bool) -> int:
         started = runner.now()
         try:
             landing.run()
+            if once:
+                landing.drain()
         except StopRequested:
+            landing.workers.shutdown(cancel_futures=True)
             runner.flush()
             runner.stop_marker().unlink()
             return 0
@@ -7950,8 +8074,10 @@ def run_landing(runner: Runner, once: bool) -> int:
             if runner.pass_raised("landing", error):
                 return 1
         behind = runner.stale()
+        took = (runner.now() - started).total_seconds()
+        landing.post_state(took)
         runner.flush()
-        print(f"PASS landing {runner.passes['landing'] + 1} on {RUNNING_VERSION} took {(runner.now() - started).total_seconds():.0f}s: {runner.shell.pass_cost()}", file=sys.stderr, flush=True)
+        print(f"PASS landing {runner.passes['landing'] + 1} on {RUNNING_VERSION} took {took:.0f}s: {runner.shell.pass_cost()}", file=sys.stderr, flush=True)
         runner.beat("landing")
         if once:
             return 0
@@ -7959,6 +8085,7 @@ def run_landing(runner: Runner, once: bool) -> int:
             runner.stop_marker().unlink()
             return 0
         if behind:
+            finished_by([future for _, future in list(landing.inflight.values())] + ([landing.side_work] if landing.side_work else []))
             runner.reexec("landing")
 
 
