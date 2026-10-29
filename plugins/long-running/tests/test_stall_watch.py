@@ -979,3 +979,11 @@ def test_a_runner_warning_that_holds_nothing_is_no_refusal(config):
     shell = FakeShell([*gone("101", HEAD), record(5, "desk-runner", "note", warning, 30, to=["api-lane", "root"])], [row("101")])
     watch(shell, config)
     assert not [topic for topic in shell.topics() if topic.startswith(("refusal:", "successor:"))]
+
+
+def test_no_successor_is_asked_for_while_the_lanes_handoff_already_posts(config):
+    shell = tonight(config)
+    shell.records.append(record(173700, "p8a-step7-handoff", "state", "handoff of p8a-step7 under way", -5))
+    shell.clock = NOW + timedelta(minutes=20)
+    watch(shell, config)
+    assert refusal_topics(shell) == ["refusal:44141:09c1863:parent"]

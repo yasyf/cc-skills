@@ -731,9 +731,14 @@ class Pass:
             what = f"{refusal.record['lane']} refused to queue it at {pacific(since)} in #{seq}: {clip(refusal.said)}; {owner} has posted no HEAD and no answer since"
             if self.now - since >= self.watch.age("refusal"):
                 stalls.append(Stall(f"refusal:{key}", "refusal", since, subject, what, (owner,), f"{owner}: {command}, then post HEAD or `cci post --re {seq}`", refusal.pr))
-            if self.now - since >= self.watch.age("successor") and owner not in ROOT_NAMES:
+            if self.now - since >= self.watch.age("successor") and owner not in ROOT_NAMES and not self.rotating(records, owner, seq):
                 stalls.append(Stall(f"successor:{key}", "successor", since, subject, what, (ROOT,), f"spawn a successor to {owner}, which has not acted on #{seq} in {int((self.now - since).total_seconds() // 60)} min; the successor's first step: {command}", refusal.pr))
         return stalls
+
+    def rotating(self, records: list[dict], owner: str, seq: int) -> bool:
+        """Whether a successor or handoff lane of `owner`'s family, any lane but `owner` itself, posted since record `seq`, so its rotation already runs."""
+        family = re.compile(rf"{re.escape(re.sub(r'-\d{1,2}$', '', owner))}(?:-\d{{1,2}})?(?:-handoff)?")
+        return any(record["seq"] > seq and record["lane"] != owner and family.fullmatch(record["lane"]) for record in records)
 
     def answered(self, records: list[dict], refusal: dict, pr: str, head: str, named: set[str], owner: str) -> bool:
         """Whether a record after `refusal` queued `pr` at `head`, or came from `owner` or any numbered lane of its family answering it by `--re` or as a `head` record naming a PR it names."""
