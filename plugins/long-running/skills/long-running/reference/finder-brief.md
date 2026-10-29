@@ -48,7 +48,12 @@ The reply follows the `findings` schema, so the codex plugin needs nothing new:
   line, or owner ruling names (e20e623). `swept` cites that line for each test as
   `tests: <test> <- <plan cite>; ...`. A test that pins drive-era behavior the plan
   removes, or behavior nothing names, is one finding of severity `major`, its
-  `defect` starting `test <name> pins unplanned behavior:`.
+  `defect` starting `test <name> pins unplanned behavior:`. A port is a head whose PR
+  body, or fidelity grade, says it ports an old-tree PR by number. On a port, a test
+  that asserts what a test of that old-tree PR asserts is graded against the old-tree PR,
+  the contract (plan 0.4; rule 784f1ab: a port keeps its regression tests), cited in
+  `swept` as `tests: <test> <- old-tree #<n>`, and raises no such finding. A test with no
+  counterpart there, or asserting more than its counterpart, is graded against the plan.
 
 Every key the slice printed appears exactly once, as `met`, `n/a`, `pending`, or a
 `missing` finding. A reply that drops a key is no verdict: run the pass again.
@@ -119,6 +124,12 @@ Do three things and report all three in the findings schema.
    test in `swept` as "tests: <test> <- <plan cite>; ...". A test that pins
    drive-era behavior the plan removes, or behavior nothing names, is one finding,
    severity major, defect starting "test <name> pins unplanned behavior:".
+   A port is a head whose PR body, or fidelity grade, says it ports an old-tree PR by
+   number. On a port, a test that asserts what a test of that old-tree PR asserts is
+   graded against the old-tree PR, the contract (plan 0.4; rule 784f1ab: a port keeps its
+   regression tests): cite it as "tests: <test> <- old-tree #<n>" and raise no finding for
+   it. A test with no counterpart there, or asserting more than its counterpart, is graded
+   against the plan as above.
 
 Plan: <plan path>; sub-plans: <paths>
 
