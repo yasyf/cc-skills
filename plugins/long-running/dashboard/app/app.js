@@ -342,6 +342,10 @@ async function fetchModel() {
   state.version = model.version;
   if (state.pressing) state.owed = true;
   else render();
+  if (!state.painted) {
+    state.painted = true;
+    if (history.state?.spot) refocus(history.state.spot);
+  }
   if (model.words_at !== state.wordsAt) {
     state.wordsAt = model.words_at;
     fetch('/api/words', { cache: 'no-store' }).then((res) => res.json()).then((words) => { state.words = words; });

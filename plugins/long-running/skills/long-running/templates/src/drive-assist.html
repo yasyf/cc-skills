@@ -163,7 +163,7 @@ async function summarizePr(n){
  ai[key]={text:"",busy:true};render();
  const f=await prFacts(n);
  delete ai[key];
- stream(key,`Summarize this pull request for the owner deciding whether to approve it: one paragraph, at most four sentences, plain words. Say what changes for a person using the product, how big it is, the main risk, and what still blocks it.\n\n${row?rowFacts(row):`#${n} ${plainTitle(n)}, ${STATE_WORD[prState(n)]}.`}\nSize: ${stats(f)}`);
+ stream(key,`Summarize this pull request for the owner deciding whether to approve it: one paragraph, at most four sentences, plain words. Say what changes for a person using the product, how big it is, the main risk, and what still blocks it.\n\n${row?rowFacts(row):`#${n} ${prTitle(n)}, ${STATE_WORD[prState(n)]}.`}\nSize: ${stats(f)}`);
 }
 async function summarizeStack(group){
  const rows=state.model.board.rows.filter(r=>r.group===group);
@@ -300,7 +300,7 @@ async function filterBy(sentence){
  const facets={states:Object.keys(STATE_WORD),parts:m.parts.map(p=>p.key),steps:m.steps.map(x=>x.id),trees:[...new Set(prs.map(e=>e.tree))]};
  const schema={name:"filter",schema:{type:"object",additionalProperties:false,required:["states","parts","steps","trees","topic_prs"],properties:{states:{type:"array",items:{type:"string",enum:facets.states}},parts:{type:"array",items:{type:"string",enum:facets.parts}},steps:{type:"array",items:{type:"string",enum:facets.steps}},trees:{type:"array",items:{type:"string",enum:facets.trees}},topic_prs:{type:"array",items:{type:"integer"}}}}};
  try{
-  const f=await aiCached("filter",sentence,()=>aiOnce(compose(`Turn this filter into facets: "${sentence}". Fill states, parts, steps and trees only with what the sentence names; leave a facet empty when it says nothing about it. Use topic_prs only when the sentence names a topic no facet covers, listing the pull requests whose titles match it.\n\nStates: ${facets.states.map(k=>`${k} (${STATE_WORD[k]})`).join(", ")}\nParts: ${m.parts.map(p=>`${p.key} (${p.name})`).join(", ")}\nSteps: ${m.steps.map(x=>`${x.id} (${x.label}: ${x.title})`).join("; ")}\nTrees: ${facets.trees.join(", ")}\nPull requests:\n${prs.map(e=>`#${e.number} ${plainTitle(e.number)}`).join("\n")}`),{schema}));
+  const f=await aiCached("filter",sentence,()=>aiOnce(compose(`Turn this filter into facets: "${sentence}". Fill states, parts, steps and trees only with what the sentence names; leave a facet empty when it says nothing about it. Use topic_prs only when the sentence names a topic no facet covers, listing the pull requests whose titles match it.\n\nStates: ${facets.states.map(k=>`${k} (${STATE_WORD[k]})`).join(", ")}\nParts: ${m.parts.map(p=>`${p.key} (${p.name})`).join(", ")}\nSteps: ${m.steps.map(x=>`${x.id} (${x.label}: ${x.title})`).join("; ")}\nTrees: ${facets.trees.join(", ")}\nPull requests:\n${prs.map(e=>`#${e.number} ${prTitle(e.number)}`).join("\n")}`),{schema}));
   const hit=(list,v)=>!list.length||list.includes(v);
   const faceted=f.states.length||f.parts.length||f.steps.length||f.trees.length;
   const topic=new Set(f.topic_prs);
@@ -341,7 +341,7 @@ function entries(){
  if(openCards().length>3)add("Needs you","→",`All ${openCards().length} questions waiting on you`,"on Review",()=>{location.hash="#/review"});
  const said={};
  [...m.board.rows.map(r=>`#${r.number} ${r.title} ${r.change}`),...(m.board.merge?.pages??[]).flatMap(pg=>pg.split("\n"))].forEach(line=>{for(const [,n] of line.matchAll(/#(\d{5})\b/g))said[n]=`${said[n]??""} ${line.replace(/[|*`]/g," ")}`});
- Object.keys(m.prs).sort((a,b)=>b-a).forEach(n=>{const s=prState(n);if(s==="closed")return;add("Pull requests",`<i class="d ${s}"></i>`,`#${n} ${plainTitle(n)}`,`${STATE_WORD[s]}${said[n]?` · ${short(said[n].replace(/\s+/g," ").trim(),90)}`:""}`,()=>m.prs[n]?onOverview(()=>{ov.pr=Number(n);state.overlay="pr";render()}):window.open(prHref(n),"_blank"),`${n} ${m.prs[n].title??""} ${said[n]??""}`)});
+ Object.keys(m.prs).sort((a,b)=>b-a).forEach(n=>{const s=prState(n);if(s==="closed")return;add("Pull requests",`<i class="d ${s}"></i>`,`#${n} ${prTitle(n)}`,`${STATE_WORD[s]}${said[n]?` · ${short(said[n].replace(/\s+/g," ").trim(),90)}`:""}`,()=>m.prs[n]?onOverview(()=>{ov.pr=Number(n);state.overlay="pr";render()}):window.open(prHref(n),"_blank"),`${n} ${m.prs[n].title??""} ${said[n]??""}`)});
  [...new Set(m.board.rows.map(r=>r.group))].forEach(g=>{const rows=m.board.rows.filter(r=>r.group===g);add("Change groups","≡",g,`${rows.length} pull requests · ${rows.filter(r=>verdictState(r)==="you").length} waiting on you`,()=>openSheet({kind:"stack",id:g}),rows.map(r=>`#${r.number} ${r.title}`).join(" "))});
  (m.pages?.plan?.parts??[]).forEach(p=>add("Plan","▸",p.name,p.label,()=>{location.hash=`#/plan/${p.id}`},`${p.blocks} ${p.doing}`));
  (m.pages?.work?.running??[]).forEach(w=>add("Work","●",w.title,`${w.status} · ${w.latest}`,()=>{location.hash=`#/work/${encodeURIComponent(w.item)}`}));
@@ -366,7 +366,7 @@ function results(raw){
  if(q.length&&AI.key){const askRow={group:"Assistant",icon:"✦",label:`Ask: ${raw.trim()}`,sub:"answers from the drive's records, the plan and your words",go:()=>askInPal(raw.trim()),ask:true};QUESTION.test(raw.trim())?items.unshift(askRow):items.push(askRow)}
  return {items,q};
 }
-function openPal(){keepScroll();location.hash="#/jump"}
+function openPal(){history.replaceState({...history.state,y:scrollY},"");location.hash="#/jump"}
 function showPal(){
  PAL.hidden=false;
  const input=document.getElementById("pal-q");
