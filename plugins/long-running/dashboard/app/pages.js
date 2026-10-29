@@ -209,7 +209,7 @@ function statusRows() {
 function workerLinks(html) {
   return html.replace(/\[([^\]]+)\]\(worker:([\w-]+)\)/g, (_, said, lane) => {
     const item = [...(state.model.brief?.work ?? []), ...(state.model.pages?.work?.running ?? [])].find((w) => w.workers.some((x) => sameWorker(x, lane)))?.item;
-    return `<a class="st-worker" href="${item ? `#/story/${encodeURIComponent(item)}` : `#/worker/${encodeURIComponent(lane)}`}">${said}</a>`;
+    return `<a class="st-worker" href="#/worker/${encodeURIComponent(lane)}">${said}</a>${item ? ` <a class="st-worker st-story" href="#/story/${encodeURIComponent(item)}">live story ›</a>` : ''}`;
   });
 }
 function stepLight(cell) {
