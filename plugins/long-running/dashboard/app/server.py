@@ -95,7 +95,7 @@ BOXES = 12
 SEVERITY = {"blocker": "bad", "defect": "bad", "incident": "bad", "ask": "you", "owner": "you", "landed": "ok", "go": "ok", "fix-live": "ok"}
 TONE_RANK = {"bad": 3, "you": 2, "ok": 1, "info": 0}
 PR_MENTION = re.compile(r"#(4\d{4})\b")
-STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css"), "/overview.js": ("overview.js", "text/javascript"), "/overview.css": ("overview.css", "text/css"), "/cockpit.css": ("cockpit.css", "text/css"), "/now.js": ("now.js", "text/javascript"), "/now.css": ("now.css", "text/css"), "/pages.js": ("pages.js", "text/javascript"), "/pages.css": ("pages.css", "text/css")}
+STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css"), "/overview.js": ("overview.js", "text/javascript"), "/overview.css": ("overview.css", "text/css"), "/cockpit.css": ("cockpit.css", "text/css"), "/now.js": ("now.js", "text/javascript"), "/now.css": ("now.css", "text/css"), "/pages.js": ("pages.js", "text/javascript"), "/pages.css": ("pages.css", "text/css"), "/theme.css": ("theme.css", "text/css")}
 
 
 def gh(repo, *args):
