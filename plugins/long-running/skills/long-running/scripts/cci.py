@@ -41,16 +41,36 @@ def lane_report(record: dict) -> bool:
     return record.get("kind") == "report" and (record.get("text") or "").split(" ", 1)[0] in REPORT_VERDICTS
 
 
+class Tail:
+    """A `cci tail` runner whose `records` answers repeat a query from what it read since the last `forget`, so a pass reads each query once."""
+
+    def __init__(self, run: Callable[[list[str]], str]):
+        self.run = run
+        self.read: dict[tuple[str, tuple[str, ...], str], list[dict]] = {}
+
+    def __call__(self, argv: list[str]) -> str:
+        return self.run(argv)
+
+    def forget(self) -> None:
+        self.read.clear()
+
+
 def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: int | str = 0) -> list[dict]:
-    """Every record on `drive` after `since`, a sequence or any `cci tail --since` time, that matches the `cci tail` filters, paged by sequence; touches no cursor."""
+    """Every record on `drive` after `since`, a sequence or any `cci tail --since` time, that matches the `cci tail` filters, paged by sequence; touches no cursor. A `Tail` answers a query it read since its last `forget` without running cci."""
+    key = (drive, filters, str(since))
+    if isinstance(run, Tail) and (kept := run.read.get(key)) is not None:
+        return list(kept)
     found: list[dict] = []
     while True:
         out = run(["cci", "tail", "--drive", drive, "--since", str(since), "--json", "--budget", str(PAGE_BYTES), *filters])
         page = [json.loads(line) for line in out.splitlines() if line.strip()]
         if not page:
-            return found
+            break
         found += page
         since = page[-1]["seq"]
+    if isinstance(run, Tail):
+        run.read[key] = found
+    return list(found)
 
 
 def held_prs(run: Callable[[list[str]], str], drive: str) -> dict[str, int]:

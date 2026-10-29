@@ -3923,6 +3923,7 @@ def test_a_merge_card_is_edited_in_place_when_its_question_changes_and_never_pos
     landing_pass(shell, config)
     assert len(shell.pr_cards) == 1
     shell.check_pr["29020"] = (1, RESERVED)
+    config.with_name(f"{config.stem}.check-pr.json").unlink()
     landing_pass(shell, config)
     landing_pass(shell, config)
     first, second = shell.pr_cards
@@ -4792,6 +4793,81 @@ def test_a_heads_rulings_check_runs_once_across_passes(shell, config, tmp_path):
     assert sorted(call[call.index("--pr") + 1] for call in shell.calls if "check-pr" in call) == ["Forge-AI/monorepo#29020", "Forge-AI/monorepo#29031"]
 
 
+def test_a_heads_final_rulings_check_survives_a_runner_restart_and_an_unread_one_does_not(shell, config, tmp_path):
+    two_pr_stack(shell)
+    shell.check_pr["29020"] = (1, "NAME-HIT rule/394dfd6 go/x.go:5 sync\n")
+    shell.check_pr["29031"] = (0, "BLOCKER the diff of acme/app#29031: git fetch exited 128\n")
+    for _ in range(2):
+        runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+        landing = runner_module.Landing(runner, runner.config.landing)
+        assert landing.rulings_report("29020", "cccc333333") == ["NAME-HIT rule/394dfd6 go/x.go:5 sync"]
+        landing.rulings_report("29031", "dddd444444")
+    assert sorted(call[call.index("--pr") + 1] for call in shell.calls if "check-pr" in call) == ["Forge-AI/monorepo#29020", "Forge-AI/monorepo#29031", "Forge-AI/monorepo#29031"]
+
+
+def test_a_pass_reads_a_repeated_cci_query_once_until_the_runner_posts(shell, config, tmp_path):
+    two_pr_stack(shell)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    landing = runner_module.Landing(runner, runner.config.landing)
+
+    def withdraw_reads() -> int:
+        return len([call for call in shell.calls if call[:2] == ["cci", "tail"] and "--kind=withdraw" in call])
+
+    for pr, head in (("29020", "cccc333333"), ("29031", "dddd444444")):
+        landing.carried_by_fidelity(pr, head, lambda sha: False)
+    assert withdraw_reads() == len(landing.fidelity_lanes)
+    runner.cci_post("note", "a note", "root", "29020", "note:29020")
+    landing.carried_by_fidelity("29020", "cccc333333", lambda sha: False)
+    assert withdraw_reads() == 2 * len(landing.fidelity_lanes)
+
+
+def test_old_app_grades_are_read_once_per_pr_whatever_heads_a_carried_go_tries(shell, config, tmp_path, monkeypatch):
+    raw = json.loads(config.read_text())
+    raw["landing"]["checks"] = ["old-app"]
+    config.write_text(json.dumps(raw))
+    two_pr_stack(shell)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    landing = runner_module.Landing(runner, runner.config.landing)
+    read: list[str] = []
+    graded = runner_module.old_app_grades_in
+    monkeypatch.setattr(runner_module, "old_app_grades_in", lambda found, drive, lanes, repo, pr: read.append(pr) or graded(found, drive, lanes, repo, pr))
+    lands = landing.old_app_lands()
+    for pr, head in (("29020", "cccc333333"), ("29020", "aaaa111111"), ("29031", "dddd444444"), ("29031", "bbbb222222")):
+        assert not lands(pr, head)
+    assert read == ["29020", "29031"]
+
+
+def test_the_accept_checks_of_heads_no_go_names_run_in_parallel(shell, config, tmp_path, monkeypatch):
+    two_pr_stack(shell)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    landing = runner_module.Landing(runner, runner.config.landing)
+    rows = landing.rows()
+    landing.no_go = {"29020", "29031"}
+    both = threading.Barrier(2, timeout=5)
+    monkeypatch.setattr(runner_module.Landing, "failing", lambda self, stage, graded: both.wait() and None)
+    landing.tell_unpassed(rows, [])
+    assert not both.broken
+
+
+def test_heads_no_go_names_are_told_new_heads_first_within_the_pass_budget(shell, config, tmp_path, monkeypatch):
+    monkeypatch.setattr(runner_module, "GATE_WORKERS", 1)
+    two_pr_stack(shell)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    landing = runner_module.Landing(runner, runner.config.landing)
+    rows = landing.rows()
+    landing.no_go = {"29020", "29031"}
+    told: list[str] = []
+
+    def failing(self, stage, graded):
+        told.extend(graded.heads)
+        shell.clock += timedelta(seconds=61)
+
+    monkeypatch.setattr(runner_module.Landing, "failing", failing)
+    landing.tell_unpassed(rows, [])
+    landing.tell_unpassed(rows, [])
+    assert told == ["29020", "29031"]
+
+
 @pytest.mark.parametrize("page", [1, 25])
 def test_the_queue_status_read_covers_every_open_row_in_pages(shell, config, tmp_path, monkeypatch, page):
     monkeypatch.setattr(runner_module, "STATUS_PAGE", page)
@@ -4824,8 +4900,7 @@ def test_a_grade_posted_with_the_owner_repo_reference_counts_and_one_for_another
     shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "fidelity-desk", "kind": "review", "to": ["root"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": "fidelity: ok cccc333"})
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
-    tails = [call for call in shell.calls if call[:2] == ["cci", "tail"] and "--lane" in call and "fidelity-desk" in call]
-    assert tails and all(call[call.index("--pr") + 1] == "Forge-AI/monorepo#29020" for call in tails)
+    assert not [call for call in shell.calls if call[:2] == ["cci", "tail"] and "--kind=review" in call and "--pr" in call]
 
 
 def test_a_missing_from_one_fidelity_lane_is_never_cleared_by_a_later_ok_from_another(shell, config, tmp_path):

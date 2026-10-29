@@ -584,7 +584,7 @@ import merge_queue
 import prompt_screen
 import prompt_watch
 import stall_watch
-from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, closes, fidelity_carries, fidelity_grades, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
+from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
 from grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE
 from grades import WITHDRAWN as WITHDRAWN_OPENING
 from grades import owes
@@ -754,6 +754,7 @@ STOP_POLL_SECONDS = 2
 SHOW_WORKERS = 8
 GATE_WORKERS = 8
 CHECK_PR_WORKERS = 4
+TELL_BUDGET = timedelta(seconds=60)
 GATE_STATUSES = frozenset({"release-pr-check", "emergency-head"})
 RED_STATES = frozenset({"failure", "error"})
 RUN_NUMBERS = re.compile(r"\d+")
@@ -761,6 +762,7 @@ POSTED_SEQ = re.compile(r"#(\d+)")
 HEAD_FLOOR = timedelta(seconds=60)
 BODY_MAX_AGE = timedelta(minutes=5)
 CHECK_PR_REREAD = timedelta(minutes=5)
+RULINGS_SOURCES = ("rulings", "board_rows", "cci", "drive", "ghread", "grades", "testfiles", "ledger")
 TRUNK_REREAD = timedelta(minutes=5)
 QUEUED_STATE = "queued"
 STATUS_SETTLED = frozenset({QUEUED_STATE, "landed"})
@@ -956,6 +958,16 @@ def command_family(argv: list[str]) -> str:
         if len(verbs) == 3:
             break
     return " ".join([Path(words[0]).name, *verbs, *(["--check"] if "--check" in words else [])])
+
+
+def reserved_fingerprint(rows: dict[str, dict]) -> str:
+    reserved = {key: {name: value for name, value in fields.items() if name != "updated_at"} for key, fields in rows.items() if fields.get("kind") == "reserved"}
+    return hashlib.sha256(json.dumps(reserved, sort_keys=True).encode()).hexdigest()[:16]
+
+
+def rulings_digest() -> str:
+    """What `rulings.py check-pr` reads its causes with: its source and the sources of the modules it imports."""
+    return hashlib.sha256(b"".join((SCRIPTS / f"{name}.py").read_bytes() for name in RULINGS_SOURCES)).hexdigest()[:16]
 
 
 def command_name(argv: list[str]) -> str:
@@ -1682,6 +1694,7 @@ class Runner:
         self.stall_started = datetime.min.replace(tzinfo=timezone.utc)
         self.finding = threading.Lock()
         self.taps: tuple[datetime, set[str]] = (datetime.min.replace(tzinfo=timezone.utc), set())
+        self.cci_tail = cci.Tail(self.cci_read)
         self.book.ensure(RUNNER, RUNNER)
 
     def now(self) -> datetime:
@@ -1753,6 +1766,7 @@ class Runner:
             argv += ["--path", str(body)]
         if len(text) > CCI_TEXT:
             text = text[: CCI_TEXT - 1] + "…"
+        self.cci_tail.forget()
         return self.shell.run([*argv, "--text", text])
 
     def flush(self) -> bool:
@@ -2102,7 +2116,7 @@ class Runner:
             return ""
         return written if clipped_by_cci(kept) or kept_by_cci(written) == kept else kept
 
-    def cci_tail(self, argv: list[str]) -> str:
+    def cci_read(self, argv: list[str]) -> str:
         done = self.shell.run(argv)
         if done.code != 0:
             raise CciTailFailed(f"cci tail exited {done.code}: {(done.err or done.out).strip()[:300]}")
@@ -3828,6 +3842,7 @@ class Runner:
             for argv in (registry, ["cci", "claim", "--for", owner, "--build", build, "--rel", "started"])
             if (done := self.shell.run(argv)).code != 0
         ]
+        self.cci_tail.forget()
         if failures:
             self.escalate(f"release-claim:{build}", "RELEASE-CLAIM-FAILED", info["lane"], f"build {build} started by {owner}: {'; '.join(failures)}")
 
@@ -4774,7 +4789,13 @@ class Landing:
         self.bases: dict[str, str] = {}
         self.read_only = False
         self.viewer = ""
+        self.reports_file = runner.config.source.with_name(f"{runner.config.source.stem}.check-pr.json")
         self.reported: dict[tuple[str, str, bool], tuple[datetime | None, list[str]]] = {}
+        self.kept: dict[str, list[str]] | None = None
+        self.kept_under = ""
+        self.reporting = threading.Lock()
+        self.checking = threading.Semaphore(CHECK_PR_WORKERS)
+        self.told: dict[str, tuple[str, datetime]] = {}
         self.bodies: dict[str, tuple[datetime, str]] = {}
         self.trunk_read: tuple[str, datetime, bool, dict] | None = None
         self.unchecked: set[str] = set()
@@ -5464,7 +5485,7 @@ class Landing:
         return " or ".join(self.fidelity_lanes)
 
     def grades(self, pr: str) -> list[dict]:
-        return fidelity_grades(self.runner.cci_tail, self.runner.config.drive, self.fidelity_lanes, self.repo, pr)
+        return fidelity_grades_in(self.scanned_reviews(), self.runner.config.drive, self.fidelity_lanes, self.repo, pr)
 
     def standing(self, grades: list[dict], sha: str) -> list[dict]:
         return standing(grades, self.fidelity_lanes, sha)
@@ -5707,7 +5728,11 @@ class Landing:
         now = self.runner.now()
         if (kept := self.reported.get(key)) and (kept[0] is None or now - kept[0] < CHECK_PR_REREAD):
             return kept[1]
-        done = self.rulings_py("check-pr", "--pr", f"{self.repo}#{pr}", "--head", sha, *(("--incident",) if incident else ()))
+        if not incident and (causes := self.kept_reports().get(f"{pr}@{sha[:7]}")) is not None:
+            self.reported[key] = (None, causes)
+            return causes
+        with self.checking:
+            done = self.rulings_py("check-pr", "--pr", f"{self.repo}#{pr}", "--head", sha, *(("--incident",) if incident else ()))
         lines = [line.strip() for line in done.out.splitlines() if line.strip()]
         causes = [line for line in lines if cause(line) in CHECK_PR_CAUSES]
         unread = [line for line in lines if cause(line) == CHECK_PR_BLOCKER]
@@ -5717,7 +5742,29 @@ class Landing:
             causes = []
         final = not incident and done.code in (0, 1) and not unread and not any(cause(line) == RESERVED_TOUCH for line in causes)
         self.reported[key] = (None if final else now, causes)
+        if final and self.kept_under:
+            self.keep_reports()
         return causes
+
+    def kept_reports(self) -> dict[str, list[str]]:
+        """The final `check-pr` causes per `<pr>@<head>` an earlier runner wrote, read once per runner, while `rulings.py` and the modules it imports and the register's reserved rows read as they did then, since a new or changed reserved row can hold a head an earlier check passed; none when the register does not read, so a handoff or re-exec runs no kept head's check again."""
+        with self.reporting:
+            if self.kept is None:
+                done = self.rulings_py("rows")
+                self.kept_under = f"{rulings_digest()}:{reserved_fingerprint(json.loads(done.out)['rows'])}" if done.code == 0 else ""
+                try:
+                    kept = json.loads(self.reports_file.read_text())
+                except FileNotFoundError:
+                    kept = {}
+                self.kept = kept.get("reports", {}) if self.kept_under and kept.get("under") == self.kept_under else {}
+            return self.kept
+
+    def keep_reports(self) -> None:
+        with self.reporting:
+            reports = {f"{pr}@{sha}": causes for (pr, sha, incident), (at, causes) in list(self.reported.items()) if at is None and not incident}
+            staged = self.reports_file.with_name(f".{self.reports_file.name}.{threading.get_ident()}")
+            staged.write_text(json.dumps({"under": self.kept_under, "reports": (self.kept or {}) | reports}))
+            staged.replace(self.reports_file)
 
     def refuse_head(self, key: str, pr: str, graded: Graded, why: str, refused: Iterable[str], also: Iterable[str] = ()) -> None:
         """Post one blocker per `key` to the lane that owns `pr`, and the root when that lane has no live session or there is none, and to each lane of `also`."""
@@ -5756,6 +5803,7 @@ class Landing:
     def rescanned_reviews(self) -> list[dict]:
         """The pass's scanned reviews plus every `review` and `head` record posted since that scan, so a grade that lands while a long pass runs is read before the pass warns that it is missing."""
         scanned = self.scanned_reviews()
+        self.runner.cci_tail.forget()
         with self.scanning:
             self.reviews = [*scanned, *cci.records(self.runner.cci_tail, self.runner.config.drive, "--kind=review", "--kind=head", since=max((record["seq"] for record in scanned), default=0))]
         return self.reviews
@@ -6122,9 +6170,12 @@ class Landing:
         """Whether a carried go reaches `pr` at `head`: always, unless the drive runs the old-app check, and then once a fidelity lane's newest `old-app:` grade naming that head, as `check_old_app` reads it, says `unchanged` or `bug fix` (root #143450, #143861)."""
         if "old-app" not in self.checks:
             return lambda pr, head: True
+        graded: dict[str, list[dict]] = {}
 
         def lands(pr: str, head: str) -> bool:
-            newest = newest_finder(old_app_grades_in(self.scanned_reviews(), self.runner.config.drive, self.fidelity_lanes, self.repo, pr), head)
+            if pr not in graded:
+                graded[pr] = old_app_grades_in(self.scanned_reviews(), self.runner.config.drive, self.fidelity_lanes, self.repo, pr)
+            newest = newest_finder(graded[pr], head)
             return newest is not None and newest["grade"] in OLD_APP_PASSES
 
         return lands
@@ -6329,7 +6380,8 @@ class Landing:
             waves.setdefault(min(self.priority(rows, pr) for pr in action.target.split(",")), []).append(action)
         for priority in sorted(waves):
             self.runner.checkpoint()
-            self.gos = None
+            self.reread()
+            self.rescanned_reviews()
             with ThreadPoolExecutor(len(waves[priority])) as pool:
                 list(pool.map(self.enqueue_one, waves[priority]))
 
@@ -6941,7 +6993,7 @@ class Landing:
         waiting = [(action, pr, sha) for action in self.book.actions(LANDING, kind="enqueue", status="completed") for pr, sha in action.response.get("flaky", {}).items() if rows.get(pr, {}).get("head", "").startswith(sha)]
         if not waiting:
             return
-        self.gos = None
+        self.reread()
         gos = self.root_gos()
         for action, pr, sha in waiting:
             at = actions.parse_stamp(action.response["dropped_at"])
@@ -7257,18 +7309,26 @@ class Landing:
         return None if statuses is None else {pr: entry["queue"] for pr, entry in statuses.items()}
 
     def tell_unpassed(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Tell each PR `unpassed` keeps out of every check, and each PR of a tree `landable_trees` left unchecked, what the pass's one status read says, after the go'd trees enqueue: red CI or requested changes goes to its lane as that head's blocker, a conflict alone once per base, since a restack that keeps its base on purpose stays conflicting at every head, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM). It reads the root's gos again first, so a go posted while the pass ran asks nothing (root #143360)."""
+        """Tell each PR `unpassed` keeps out of every check, and each PR of a tree `landable_trees` left unchecked, what the pass's one status read says, after the go'd trees enqueue: red CI or requested changes goes to its lane as that head's blocker, a conflict alone once per base, since a restack that keeps its base on purpose stays conflicting at every head, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM), `GATE_WORKERS` heads at a time, heads not yet told at their head first and then the longest untold, starting none once `TELL_BUDGET` has passed, so a later pass tells the rest. It reads the root's gos again first, so a go posted while the pass ran asks nothing (root #143360)."""
         if not (self.no_go or self.unchecked) or (statuses := self.pr_statuses()) is None:
             return
-        self.gos = None
+        self.reread()
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         covered = under_hold(open_rows, held)
         told = {pr: (open_rows[pr]["head"], statuses[pr]) for pr in sorted((self.no_go | self.unchecked) - covered, key=int) if pr in statuses and pr in open_rows and open_rows[pr].get("head")}
         landable = {pr: head for pr, (head, entry) in told.items() if entry["verdict"] == LANDABLE and pr in self.no_go}
-        self.read_reports(landable)
-        for pr, head in landable.items():
-            self.runner.checkpoint()
-            self.failing(ACCEPT_CHECKS, Graded({pr: head}, rows, self.runner.now(), act=True))
+        deadline = self.runner.now() + TELL_BUDGET
+
+        def tell(pr: str, head: str) -> None:
+            if self.runner.now() < deadline:
+                self.runner.checkpoint()
+                self.failing(ACCEPT_CHECKS, Graded({pr: head}, rows, self.runner.now(), act=True))
+                self.told[pr] = (head, self.runner.now())
+
+        never = datetime.min.replace(tzinfo=timezone.utc)
+        due = sorted(landable, key=lambda pr: (self.told.get(pr, ("", never))[0] == landable[pr], self.told.get(pr, ("", never))[1]))
+        with ThreadPoolExecutor(GATE_WORKERS) as pool:
+            list(pool.map(lambda pr: tell(pr, landable[pr]), due))
         for pr, (head, entry) in told.items():
             self.runner.checkpoint()
             self.review_bot(pr, head, open_rows[pr])
@@ -7365,7 +7425,13 @@ class Landing:
             " and Some wrong waits for the owner's note naming the lines",
         )
 
+    def reread(self) -> None:
+        """Drop the pass's root gos and cci reads, so the next read sees records posted since."""
+        self.gos = None
+        self.runner.cci_tail.forget()
+
     def gate_pass(self) -> None:
+        self.runner.cci_tail.forget()
         self.sessions, self.live, self.dead, self.designed_red, self.full_runs_read, self.said_preconditions = {}, None, {}, {}, {}, {}
         self.grading, self.grade_tried = True, set()
         self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why, self.cleared = None, False, None, None, None, set(), {}, {}
@@ -7441,6 +7507,7 @@ def run_orca(runner: Runner, once: bool) -> int:
     if not once:
         runner.keep_finding()
     while True:
+        runner.cci_tail.forget()
         if runner.now() - rotated >= ROTATE_EVERY:
             runner.rotate_inboxes()
             rotated = runner.now()
