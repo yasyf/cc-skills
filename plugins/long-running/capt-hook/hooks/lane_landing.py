@@ -73,6 +73,11 @@ HAND_ENQUEUE_WARNING = (
     "A hand `stack-enqueue` is held to the landing runner's checks, and these heads fail them: {lines}. "
     "Clear each one before you enqueue, with a grade naming the head, a fidelity ok, or the owner's go."
 )
+HAND_ENQUEUE_TAP_REFUSAL = (
+    "A hand `stack-enqueue` lands nothing the landing runner refuses for the owner's tap, and these heads have no approval on the root's board: {lines}. "
+    "A root go is no tap: wait for his approval on the board row at that head, then enqueue."
+)
+TAP_REFUSAL = "TAP-REQUIRED"
 ADMIN_MERGE_REFUSAL = (
     "Incident fixes merge by plain squash once approved and green, never past review, so lane `{lane}` may not run `gh pr merge --admin`. "
     "Wait for the approval and the required checks, then run `gh pr merge <N> --squash`."
@@ -364,8 +369,10 @@ def hand_enqueue_meets_the_runner_checks(evt: BaseHookEvent) -> HookResult | Non
     if not gates or not (config := Path(entry["state_dir"]) / "runner.json").is_file():
         return None
     runs = [run_quietly([sys.executable, str(script("mq.py")), "--config", str(config), "gate", *args], str(evt.cwd)) for args in gates]
-    lines = "; ".join(line for done in runs if done is not None and done.returncode == 1 for line in done.stdout.splitlines() if line.strip())
-    return evt.context(HAND_ENQUEUE_WARNING.format(lines=lines)) if lines else None
+    failing = [line for done in runs if done is not None and done.returncode == 1 for line in done.stdout.splitlines() if line.strip()]
+    if untapped := [line for line in failing if TAP_REFUSAL in line]:
+        return evt.block(HAND_ENQUEUE_TAP_REFUSAL.format(lines="; ".join(untapped)))
+    return evt.context(HAND_ENQUEUE_WARNING.format(lines="; ".join(failing))) if failing else None
 
 
 def merge_target(call: Call) -> tuple[str, str]:

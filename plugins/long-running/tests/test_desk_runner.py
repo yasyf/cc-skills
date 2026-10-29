@@ -3593,6 +3593,34 @@ def test_a_fixed_head_a_root_go_names_asks_the_board_for_no_new_row(shell, confi
     assert shell.carries == [] and tap_notes(shell) == []
 
 
+@pytest.mark.parametrize(
+    ("said", "board", "holds"),
+    [
+        ("go #29020 at cccc333333: his tap on the board (watchdog #172407).", None, "no verdict for #29020"),
+        ("go #29020 at cccc333333: his tap on the board.", "aaaa111111", "approved at aaaa111111 on block merge-rows"),
+        ("go #29020 at cccc333333: tapped, the watchdog says.", "aaaa111111", "approved at aaaa111111 on block merge-rows"),
+        ("go #29020 at cccc333333: his board tap on merge-rows verdict 29020 head cccc333.", "cccc333333", ""),
+        ("go #29020 at cccc333333: TAP-KEPT from his tap at aaaa111 (#178242).", "aaaa111111", ""),
+        ("go port #29020 at cccc333333: pure port, no tap needed.", None, ""),
+        ("go #29020 at cccc333333: finder ok, fidelity ok, green.", None, ""),
+        ("go #29020 at cccc333333: lands without his approval, a CI fix.", None, ""),
+    ],
+    ids=["no-verdict", "verdict-at-another-head", "tapped", "verdict-at-head", "kept-tap-names-its-head", "pure-port", "no-tap-claimed", "negated-approval"],
+)
+def test_a_root_go_claiming_a_tap_the_board_does_not_hold_draws_one_go_tap_missing_naming_what_it_holds(shell, config, tmp_path, said, board, holds):
+    board_surface(config)
+    lone_green_pr(shell)
+    if board:
+        tap(shell, "29020", board)
+    merge_go(shell, "29020", said)
+    seq = shell.records[-1]["seq"]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    missing = [line for line in escalations(shell) if line.startswith("GO-TAP-MISSING")]
+    expected = f"GO-TAP-MISSING go-tap-missing:{seq}:29020 #29020: root go cci #{seq} says the owner tapped #29020 at cccc333333, but no approval on the root's board names cccc333333 or a head the go names; the board holds {holds}. Withdraw the go, or post it again citing the board verdict at this head or the carry to it"
+    assert missing == ([expected] if holds else [])
+
+
 @pytest.mark.parametrize("settled", ["go", "fidelity carry", "none"])
 def test_a_carry_onto_a_merge_block_the_board_dropped_is_nothing_to_carry_settled_or_not(shell, config, tmp_path, settled):
     board_surface(config)
@@ -5302,6 +5330,25 @@ def test_mq_enqueue_refuses_a_head_the_gate_does_not_pass_and_enqueues_nothing(s
     assert mq(shell, config, "enqueue", "29031") == 1
     assert capsys.readouterr().out.splitlines()[-1] == "REFUSED: a check above does not pass a head this enqueue puts in the queue"
     assert shell.enqueues() == []
+
+
+def test_mq_enqueue_refuses_a_go_named_head_the_owner_never_tapped_with_the_runners_tap_reason(shell, config, capsys):
+    merge_mode(config, "every")
+    raw = json.loads(config.read_text())
+    raw["landing"]["tap_rules"] = {"rule/82317b0": ["go/sand/next/*"]}
+    config.write_text(json.dumps(raw))
+    shell.register = {"rule/82317b0": {"kind": "order", "status": "in-force"}}
+    lone_green_pr(shell)
+    shell.files["29020"] = ["go/sand/next/vm/run.go"]
+    grade(shell, "29020", "ok F307 at cccc333.")
+    merge_go(shell, "29020", "go #29020 at cccc333: his tap on the board (watchdog #172407)")
+    assert mq(shell, config, "enqueue", "29020", "--partial") == 1
+    out = capsys.readouterr().out.splitlines()
+    assert "#29020 cccc333333 merge-mode pending TAP-REQUIRED rule/82317b0: it lands only on the owner's tap at this head, and a root go is no tap; no approval on the root's board names cccc333333" in out
+    assert out[-1] == "REFUSED: a check above does not pass a head this enqueue puts in the queue" and shell.enqueues() == []
+    tap(shell, "29020", "cccc333333")
+    assert mq(shell, config, "enqueue", "29020", "--partial") == 0
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
 def test_a_head_pushed_while_the_runner_enqueued_it_draws_one_note_naming_the_head_the_queue_took(shell, config, monkeypatch):

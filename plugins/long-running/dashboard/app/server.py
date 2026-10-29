@@ -79,7 +79,7 @@ def verdict_state(row):
     verdict = row["verdict"] or {}
     if verdict.get("verdict", "cleared") != "cleared" and (verdict.get("head") or "")[:7] in heads:
         return "approved" if verdict["verdict"] == "approved" else "held"
-    return "approved" if (row.get("go_head") or "")[:7] in heads else "you"
+    return "go" if (row.get("go_head") or "")[:7] in heads else "you"
 
 
 def activity(records, now):
@@ -313,12 +313,11 @@ class Drive:
                 gos[int(found[1])] = found[2]
         for row in rows:
             row["go_head"] = gos.get(row["number"])
-            stored = verdict_state({**row, "go_head": None}) == "approved"
             row["state"] = verdict_state(row)
             key = (row["number"], row["head"])
-            if row["state"] == "approved" and not stored and key not in self.reported:
+            if row["state"] == "go" and key not in self.reported:
                 self.reported.add(key)
-                self.report_defect(f"#{row['number']} has a root go at {row['head']} but the board store holds no approval at that head; the dashboard shows it approved, landing")
+                self.report_defect(f"#{row['number']} has a root go at {row['head']} but the board store holds no approval at that head; the dashboard shows it cleared to land by the coordinator, never approved by the owner")
 
     def board(self):
         subject = self.config["board_url"].rsplit("/p/", 1)[1]

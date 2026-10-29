@@ -244,3 +244,17 @@ def test_a_landing_desk_hand_enqueue_is_warned_only_when_the_runners_gate_names_
     assert advise(tmp_path, "stack-enqueue 43246 43243 --partial", "alanding-desk-1a2b") == ([lane_landing.HAND_ENQUEUE_WARNING.format(lines=FINDER_PENDING)] if warned else [])
     [call] = calls
     assert call[2:] == ["--config", str(tmp_path / "drive-state" / "runner.json"), "gate", "43246", "43243", "--partial"]
+
+
+TAP_REQUIRED = "#44705 cbc3f005e3 merge-mode pending TAP-REQUIRED rule/82317b0: it lands only on the owner's tap at this head, and a root go is no tap; no approval on the root's board names cbc3f005e3"
+
+
+def test_a_hand_enqueue_of_a_head_the_runner_refuses_for_the_owners_tap_is_refused_with_the_runners_reason(tmp_path, monkeypatch):
+    drive_registry(tmp_path, monkeypatch)
+    subagent(tmp_path, "alanding-desk-1a2b", name="landing-desk", agentType="long-running:lane")
+    gate_stub(monkeypatch, 1, f"{FINDER_PENDING}\n{TAP_REQUIRED}\n")
+
+    [refusal] = merge_results(tmp_path, "stack-enqueue 44705 43243 --partial", "alanding-desk-1a2b")
+
+    assert refusal.action == Action.block
+    assert refusal.message == lane_landing.HAND_ENQUEUE_TAP_REFUSAL.format(lines=TAP_REQUIRED)

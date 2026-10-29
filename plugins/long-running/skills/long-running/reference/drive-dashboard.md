@@ -72,6 +72,11 @@ The progress desk rewrites `steps.json` atomically on every pass:
 
 It writes no counts; the dashboard counts.
 
+A row or record the owner reads says he approved or tapped a PR only when the root's
+board holds his approval at that head (`cc-present outcomes --no-doc`), and gives its
+time. A root `go` alone reads "cleared to land by the coordinator at <time>", never "you
+approved it".
+
 ## Words at rest
 
 The Overview at rest shows at most 40 words. Numbers, percentages, times, PR numbers,
