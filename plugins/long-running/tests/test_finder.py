@@ -139,7 +139,7 @@ class Fake:
 def job(tmp_path: Path, **changes) -> Path:
     directory = tmp_path / "finder-desk" / f"43299-{HEAD[:12]}"
     directory.mkdir(parents=True)
-    spec = {"drive": "d1", "repo": REPO, "pr": "43299", "head": HEAD, "since": "", "prior": None, "previous": "", "history": [], "settled": {}, "lane": "p8a-step9", "to": ["root"], "checkout": str(tmp_path / "checkout"), "model": "sol", "full": False}
+    spec = {"drive": "d1", "repo": REPO, "pr": "43299", "head": HEAD, "since": "", "prior": None, "previous": "", "history": [], "settled": {}, "lane": "p8a-step9", "to": ["desk-runner"], "checkout": str(tmp_path / "checkout"), "model": "sol", "full": False}
     (directory / finder.JOB).write_text(json.dumps(spec | changes))
     return directory
 
@@ -163,7 +163,7 @@ def test_a_head_with_only_minors_posts_finder_ok_over_its_whole_change_to_the_he
     assert finder.main([str(directory)], shell) == 0
     [post] = shell.posted
     assert post["--drive"] == "d1" and post["--lane"] == finder.LANE and post["--kind"] == "review" and post["--pr"] == f"{REPO}#43299"
-    assert post["--to"] == "p8a-step9,root" and post["--id"] == f"finder:{REPO}#43299:{HEAD}" and post["--path"] == str(directory / "record.md")
+    assert post["--to"] == "p8a-step9,desk-runner" and post["--id"] == f"finder:{REPO}#43299:{HEAD}" and post["--path"] == str(directory / "record.md")
     assert post["--text"] == f"finder: ok {HEAD} sol finder over whole {OWN[:7]}^..{HEAD[:7]}: no majors"
     assert finder_grade(post["--text"]) == FINDER_PASS and graded_head(post["--text"]) == HEAD
     question = (directory / "question-1.md").read_text()
@@ -258,7 +258,7 @@ def test_blockers_and_majors_post_finder_major_one_clause_each_and_minors_stay_o
     assert "a name reads oddly" not in text and "a name reads oddly" in (directory / "record.md").read_text()
 
 
-def test_a_major_whose_cites_name_no_changed_line_and_a_census_finding_go_to_the_census_file_with_one_note_to_root(tmp_path):
+def test_a_major_whose_cites_name_no_changed_line_and_a_census_finding_go_to_the_census_file_with_one_note_to_the_lane_never_root(tmp_path):
     directory = job(tmp_path)
     stands = finding("blocker", "go/x.go:3, go/sand/internal/replica/follow.go:41-44", "the marker is dropped")
     dev_only = finding("major", "go/sand/internal/replica/follow.go:12", "the drain loop skips a closed mount")
@@ -268,7 +268,7 @@ def test_a_major_whose_cites_name_no_changed_line_and_a_census_finding_go_to_the
     review, note = shell.posted
     assert review["--text"] == f"finder: major {HEAD} 1 open over whole {OWN[:7]}^..{HEAD[:7]}: go/x.go:3, go/sand/internal/replica/follow.go:41-44 the marker is dropped"
     census = tmp_path / "finder-desk" / f"census-{time.strftime('%Y-%m-%d')}.md"
-    assert note["--kind"] == "note" and note["--lane"] == finder.LANE and note["--to"] == "root" and note["--id"] == f"finder-census:{REPO}#43299:{HEAD}"
+    assert note["--kind"] == "note" and note["--lane"] == finder.LANE and note["--to"] == "p8a-step9,desk-runner" and note["--id"] == f"finder-census:{REPO}#43299:{HEAD}"
     assert note["--text"] == f"finder census: 2 dev-only findings on #43299 appended to {census}"
     assert census.read_text() == f"- {REPO}#43299 {HEAD[:12]} go/sand/internal/replica/follow.go:12: the drain loop skips a closed mount\n- {REPO}#43299 {HEAD[:12]} go/poll.go:9: the poll interval predates this PR\n"
     assert "- go/sand/internal/replica/follow.go: 40-43\n" in (directory / "question-1.md").read_text()
@@ -425,7 +425,7 @@ def test_a_replay_onto_a_moved_parent_whose_every_own_commit_pairs_equal_posts_t
     verdict = finder_grade(graded)
     [post] = shell.posted
     assert not shell.asks() and post["--text"] == f"finder: {verdict} {HEAD[:7]} carried from #149302"
-    assert post["--kind"] == "review" and post["--pr"] == f"{REPO}#43299" and post["--to"] == "p8a-step9,root" and post["--id"] == f"finder:{REPO}#43299:{HEAD}"
+    assert post["--kind"] == "review" and post["--pr"] == f"{REPO}#43299" and post["--to"] == "p8a-step9,desk-runner" and post["--id"] == f"finder:{REPO}#43299:{HEAD}"
     assert finder_grade(post["--text"]) == verdict and graded_head(post["--text"]) == HEAD[:7]
     assert graded in (directory / "record.md").read_text()
     assert result(directory) == {"verdict": verdict, "record": post["--text"], "posted": "#150001"}

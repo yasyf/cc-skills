@@ -836,6 +836,10 @@ def landing_pass(shell: FakeShell, config: Path) -> None:
     assert cli(shell, config, "run", "--desk", "landing", "--once") == 0
 
 
+def said(shell: FakeShell) -> list[str]:
+    return [(Path(post["path"]).read_text() if "path" in post else post["text"]).splitlines()[0] for post in shell.posts]
+
+
 def escalations(shell: FakeShell) -> list[str]:
     return [Path(post["path"]).read_text().splitlines()[0] if "path" in post else post["text"] for post in shell.posts if post["to"] == "root"]
 
@@ -1611,8 +1615,8 @@ def test_a_prefix_holding_a_pr_no_drive_lane_opened_is_never_enqueued(shell, con
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert shell.enqueues() == []
-    lines = escalations(shell)
-    assert len(lines) == 1 and "FOREIGN" in lines[0] and "#28997" in lines[0] and "nothing was enqueued" in lines[0]
+    lines = [line for line in said(shell) if line.startswith("FOREIGN")]
+    assert len(lines) == 1 and "#28997" in lines[0] and "nothing was enqueued" in lines[0]
 
 
 def test_a_labelled_row_the_gate_admits_is_not_foreign_to_the_prefix_check_in_the_same_pass(shell, config, tmp_path):
@@ -2216,8 +2220,8 @@ def test_a_green_pr_no_drive_lane_opened_riding_a_fork_escalates_as_foreign(shel
     ]
     landing_pass(shell, config)
     landing_pass(shell, config)
-    lines = escalations(shell)
-    assert len(lines) == 1 and "FOREIGN" in lines[0] and "#36530 would ride the batch" in lines[0]
+    lines = [line for line in said(shell) if line.startswith("FOREIGN")]
+    assert len(lines) == 1 and "#36530 would ride the batch" in lines[0]
     assert shell.enqueues() == []
 
 
@@ -2265,7 +2269,7 @@ def test_fork_tips_a_joined_check_refuses_without_a_verdict_gate_alone_on_the_sa
     assert checks == [("36487",), ("36487", "36501"), ("36501",)]
     lines = escalations(shell)
     assert not [line for line in lines if "GATE-FAILED" in line]
-    assert sorted(line.split(" would ride")[0][-6:] for line in lines if "FOREIGN" in line) == ["#36530", "#36531"]
+    assert sorted(line.split(" would ride")[0][-6:] for line in said(shell) if line.startswith("FOREIGN")) == ["#36530", "#36531"]
 
 
 def test_a_fork_its_last_check_named_one_stack_is_gated_by_one_joined_check(shell, config, tmp_path):
@@ -4799,7 +4803,7 @@ def precondition_notes(shell: FakeShell) -> list[dict]:
 
 
 @pytest.mark.parametrize("say", [said_in_body, said_on_the_bus])
-def test_a_landing_precondition_warns_root_once_per_head_and_the_head_still_enqueues(shell, config, tmp_path, say):
+def test_a_landing_precondition_warns_the_owning_lane_not_root_once_per_head_and_the_head_still_enqueues(shell, config, tmp_path, say):
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
     where = say(shell)
@@ -4807,7 +4811,7 @@ def test_a_landing_precondition_warns_root_once_per_head_and_the_head_still_enqu
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and blockers(shell) == []
     [note] = precondition_notes(shell)
-    assert note["to"] == "root"
+    assert note["to"] == LANE
     assert note["text"].startswith(f'#29020 cccc333333: WARNING landing precondition: {where} says "{PRECONDITION}".')
 
 
@@ -6217,7 +6221,7 @@ def gone_green(shell: FakeShell, gate_line: str) -> None:
 
 
 def unqueued(shell: FakeShell) -> list[str]:
-    return [line for line in escalations(shell) if line.startswith("GO-UNQUEUED")]
+    return [line for line in said(shell) if line.startswith("GO-UNQUEUED")]
 
 
 def test_a_green_head_a_go_names_still_out_of_the_queue_five_minutes_on_escalates_once(shell, config, tmp_path):
@@ -11258,7 +11262,7 @@ def test_each_head_starts_one_finder_at_once_however_many_records_name_it(shell,
     orca_pass(shell, config)
     assert shell.finder_jobs == [config.resolve().parent / "finder-desk" / f"43439-{FINDER_HEAD[:12]}"]
     assert finder_jobs(shell) == [
-        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "previous": "", "history": [], "settled": {}, "lane": "p8a-step9", "to": ["root", "desk-runner"], "checkout": str(config.parent / "checkout"), "model": "sol", "full": False}
+        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "previous": "", "history": [], "settled": {}, "lane": "p8a-step9", "to": ["desk-runner"], "checkout": str(config.parent / "checkout"), "model": "sol", "full": False}
     ]
 
 
@@ -11345,7 +11349,7 @@ def test_finders_past_the_cap_wait_queued_and_start_as_running_ones_finish(shell
     orca_pass(shell, config)
     orca_pass(shell, config)
     assert [job["pr"] for job in finder_jobs(shell)] == ["43439", "43299"]
-    assert {(job["model"], tuple(job["to"])) for job in finder_jobs(shell)} == {("astra", ("root", "desk-runner", "fidelity-desk"))}
+    assert {(job["model"], tuple(job["to"])) for job in finder_jobs(shell)} == {("astra", ("desk-runner", "fidelity-desk"))}
     cli(shell, config, "show")
     shown = capsys.readouterr().out
     assert f"finder #42784 {heads['42784'][:12]}: queued" in shown and f"finder #43299 {heads['43299'][:12]}: running since" in shown
@@ -11607,7 +11611,7 @@ def test_each_head_starts_one_fidelity_pass_carrying_the_prs_grades_old_app_line
         "pr": "43439",
         "head": FINDER_HEAD,
         "lane": "p8a-step9",
-        "to": ["root", "desk-runner", "board-refresher-2"],
+        "to": ["desk-runner", "board-refresher-2"],
         "readers": ["fidelity-desk-4"],
         "lanes": ["fidelity-desk-4", "fidelity-pipeline"],
         "grades": [{"seq": graded, "lane": "fidelity-desk-4", "text": f"fidelity: ok {FINDER_OLD} pure port, no interaction: ports old-tree #41725"}],
@@ -11892,7 +11896,7 @@ def test_with_a_desk_lane_a_carried_tap_tells_the_desk_the_board_and_the_owning_
     assert heard(shell, "TAP-CARRIED") == [f"{DESK},board-refresher,{LANE}"]
 
 
-def test_with_a_desk_lane_only_the_first_go_unqueued_for_a_pr_reaches_root(shell, config, tmp_path):
+def test_with_a_desk_lane_every_go_unqueued_goes_to_the_desk_and_the_owning_lane_never_root(shell, config, tmp_path):
     merge_mode(config, "every")
     desk_lane(config)
     gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
@@ -11906,7 +11910,7 @@ def test_with_a_desk_lane_only_the_first_go_unqueued_for_a_pr_reaches_root(shell
     shell.sleep(6 * 60)
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert heard(shell, "GO-UNQUEUED") == ["root", f"{DESK},{LANE}"]
+    assert heard(shell, "GO-UNQUEUED") == [f"{DESK},{LANE}", f"{DESK},{LANE}"]
 
 
 def test_with_a_desk_lane_a_fork_deferred_batch_skips_root(shell, config, tmp_path):

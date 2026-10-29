@@ -4298,7 +4298,7 @@ class Runner:
                     "history": [{"seq": record["seq"], "lane": record["lane"], "text": record["text"], "path": (record.get("refs") or {}).get("path", "")} for record in named],
                     "settled": self.root_settled(repo, job["pr"], named),
                     "lane": job["lane"],
-                    "to": [ROOT, RUNNER, *spec.get("to", [])],
+                    "to": [RUNNER, *spec.get("to", [])],
                     "checkout": spec.get("checkout") or landing["checkout"],
                     "model": spec.get("model", FINDER_MODEL),
                     "full": full,
@@ -4460,7 +4460,7 @@ class Runner:
                     "pr": job["pr"],
                     "head": job["head"],
                     "lane": job["lane"],
-                    "to": [ROOT, RUNNER, *spec.get("to", [])],
+                    "to": [RUNNER, *spec.get("to", [])],
                     "readers": [lane for lane in lanes if lane != fidelity.LANE],
                     "lanes": lanes,
                     "grades": [{key: grade[key] for key in ("seq", "lane", "text")} for grade in grades],
@@ -5253,7 +5253,7 @@ class Landing:
             for pr, match in verdicts.items():
                 if match["verdict"] == "BLOCKED" and pr not in rows and self.adapter.rider(match):
                     if pr not in self.admit({pr: match["sha"]}):
-                        self.runner.escalate(f"unnamed:{pr}@{match['sha']}", "FOREIGN", numbered(tips), f"#{pr} would ride the batch, and {NOT_ADMITTED}; nothing was enqueued; {ADMIT_HOW.format(pr=pr)}")
+                        self.runner.escalate(f"unnamed:{pr}@{match['sha']}", "FOREIGN", numbered(tips), f"#{pr} would ride the batch, and {NOT_ADMITTED}; nothing was enqueued; {ADMIT_HOW.format(pr=pr)}", "", self.routine_audience(tips, rows))
                 elif match["verdict"] == "BLOCKED" and pr in rows and pr not in covered:
                     stack = set(verdicts) | downstack(open_rows, pr)
                     if self.adapter.failing_required(match) and self.red_by_design(pr):
@@ -5714,7 +5714,7 @@ class Landing:
         if foreign := [pr for pr in prefix if not rows.get(pr, {}).get("ours")]:
             admitted = self.admit({pr: rows.get(pr, {}).get("head") or (verdicts[pr]["sha"] if pr in verdicts else "") for pr in foreign if not rows.get(pr, {}).get("unadmitted")})
             if unclaimed := [pr for pr in foreign if pr not in admitted]:
-                self.runner.escalate(f"foreign:{base}", "FOREIGN", numbered(tips), f"the {self.adapter.kind} check would also enqueue {', '.join('#' + pr for pr in unclaimed)}, which the drive did not admit; nothing was enqueued")
+                self.runner.escalate(f"foreign:{base}", "FOREIGN", numbered(tips), f"the {self.adapter.kind} check would also enqueue {', '.join('#' + pr for pr in unclaimed)}, which the drive did not admit; nothing was enqueued", "", self.routine_audience(tips, rows))
             return
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         if out := cut_out(prefix, set(held), open_rows):
@@ -6092,7 +6092,7 @@ class Landing:
         if graded.act:
             for pr, why in exempt.items():
                 if not self.book.known(LANDING, key := f"port:{pr}:{graded.heads[pr]}"):
-                    self.post_record("note", key, ",".join([ROOT, *self.board_lanes]), why, pr)
+                    self.post_record("note", key, ",".join(dict.fromkeys([*self.routine_audience([pr], graded.rows).split(","), *self.board_lanes])), why, pr)
             for pr, why in untapped.items():
                 self.refuse_head(f"tap-rule:{pr}:{graded.heads[pr]}", pr, graded, why, untapped, also=[ROOT, *self.board_lanes])
             for pr, why in unread.items():
@@ -6183,7 +6183,7 @@ class Landing:
                 key = f"precondition:{pr}:{sha}"
                 if not self.book.known(LANDING, key) and (sentences := self.preconditions(pr, sha)):
                     said = "; ".join(f'{where} says "{sentence}"' for where, sentence in sentences)
-                    self.post_record("note", key, ROOT, f"#{pr} {sha}: WARNING landing precondition: {said}. The head stays landable; post a `hold` record on #{pr} if this is a real dependency", pr)
+                    self.post_record("note", key, self.routine_audience([pr], graded.rows), f"#{pr} {sha}: WARNING landing precondition: {said}. The head stays landable; post a `hold` record on #{pr} if this is a real dependency", pr)
         return {}
 
     def preconditions(self, pr: str, sha: str) -> list[tuple[str, str]]:
@@ -6359,6 +6359,11 @@ class Landing:
     @property
     def board_lanes(self) -> list[str]:
         return self.runner.landing_lanes("board_lane")
+
+    def routine_audience(self, prs: list[str], rows: dict[str, dict]) -> str:
+        """Who hears a routine landing record: each `landing.desk_lane` and each PR's owning lane as its live successor, and the root only for a PR whose owning lane is dead or unnamed (root, Oct 29 2:10 PM)."""
+        owners = [rows.get(pr, {}).get("lane", "") for pr in prs]
+        return ",".join(dict.fromkeys([*map(self.successor, self.runner.landing_lanes("desk_lane")), *(ROOT if not owner or self.lane_dead(owner) else self.successor(owner) for owner in owners)]))
 
     def landing_audience(self, prs: list[str], rows: dict[str, dict], unstaffed: str) -> str:
         """Who hears a landing record in root's place: each `landing.desk_lane`, each `landing.board_lane`, and each PR's owning lane, as its live successor; `unstaffed` while no desk lane is named."""
@@ -6871,7 +6876,7 @@ class Landing:
             above = [f"#{other}" for _, other, *_ in sorted(group) if other != pr]
             waits = f"; {', '.join(above)} above it in the stack from #{bottom} wait on it too" if above else ""
             key, subject = f"go-unqueued:{pr}@{head}", f"go-unqueued:{pr}"
-            to = self.landing_audience([pr], rows, "") if self.runner.raised_before(key, subject) else ""
+            to = self.routine_audience([pr], rows)
             self.runner.escalate(key, "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and root go #{gos[0]['seq']} at {pacific(actions.parse_stamp(gos[0]['at']))} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}{waits}; owner lane {owner}", subject, to)
 
     def keep_overflowing(self) -> None:

@@ -2895,6 +2895,8 @@ Mailbox: `mailbox:<lane>=<cursor file>` in every desk-wait call, <lane> being yo
   only after your turn ends; on `MAILBOX`, act on the text desk-wait prints with it.
   Run desk-wait as the Bash call itself and never filter or discard its output.
 Keep record text to one line; `cci post` spills text over 400 characters to a file, posts its first line, and prints the path. Attach a body you wrote with `--path` or `--ccn`. Orient with `cci digest --drive <drive>` when starting a new lane.
+Address `head` and `state` records `--to desk-runner,fidelity-pipeline,finder-desk,landing-desk`, never to root;
+  root hears asks, decides, blockers, defects, incidents, corrections and withdraws.
 Standing rules register: <id of the newest `standing-rules:<slug>` doc, or "none">.
   Claude lanes receive the register once at start through hooks.
   Above 9,000 characters, read it with `ccn doc show <id7>` before acting.

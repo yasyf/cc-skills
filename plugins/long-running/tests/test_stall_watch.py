@@ -189,7 +189,7 @@ def test_a_root_go_no_queued_record_names_goes_to_whoever_holds_its_next_step(co
     assert shell.topics() == ["go:101:abc1234", "go:102:fedcba9"]
     assert shell.post("go:101:abc1234")["to"] == "root"
     assert "owner desk-runner | the landing desk has not queued it" in shell.post("go:101:abc1234")["text"]
-    assert shell.post("go:102:fedcba9")["to"] == "root,api-lane@d1"
+    assert shell.post("go:102:fedcba9")["to"] == "api-lane@d1"
     assert "fix the red build of #102 at fedcba9" in shell.post("go:102:fedcba9")["text"]
 
 
@@ -207,7 +207,7 @@ def test_a_go_whose_green_head_the_review_bot_holds_or_waits_to_see_restacked_go
 
     watch(shell, config)
 
-    assert shell.post("go:101:abc1234")["to"] == "root,api-lane@d1"
+    assert shell.post("go:101:abc1234")["to"] == "api-lane@d1"
     assert f"owner api-lane | {step}" in shell.post("go:101:abc1234")["text"]
 
 
@@ -409,7 +409,7 @@ def test_one_sonnet_call_judges_every_quiet_lane_and_only_a_kept_promise_or_a_na
         {"kind": "silence", "lane": "lane-c", "last_at": stamp(20), "minutes_silent": 20, "last_record": "next state by 12:50 PM", "id": "lane:lane-c:3"},
     ]
     assert sorted(shell.topics()) == ["lane:lane-a", "lane:lane-c", "lane:lane-d"]
-    assert shell.post("lane:lane-a")["to"] == "root,lane-a@d1"
+    assert shell.post("lane:lane-a")["to"] == "lane-a@d1"
     assert "promised its next state by 12:50 PM" in shell.post("lane:lane-c")["text"]
     assert shell.post("lane:lane-d")["to"] == "root"
     assert "it owns task #4 in progress, given it by 12:15 PM, and has posted nothing since" in shell.post("lane:lane-d")["text"]
@@ -467,7 +467,7 @@ def test_a_pr_in_one_state_for_two_hours_posts_one_stale_record_naming_its_owner
     watch(shell, config)
 
     assert shell.topics() == ["stale:101:abc1234"]
-    assert shell.post("stale:101:abc1234") == {"to": "root,api-lane@d1", "kind": "urgent", "text": f"STALE #101 at abc1234, 150 min: {state} | owner api-lane | {step}"}
+    assert shell.post("stale:101:abc1234") == {"to": "api-lane@d1", "kind": "urgent", "text": f"STALE #101 at abc1234, 150 min: {state} | owner api-lane | {step}"}
     shell.rows[0] = row("101", OTHER, **fields)
     shell.records += graded(4, "101", OTHER, 5)
     watch(shell, config)
@@ -924,7 +924,7 @@ def test_each_landing_refusal_cause_is_tracked_and_routed_to_the_lane_that_acts(
     [topic] = [topic for topic in shell.topics() if topic.startswith("refusal:")]
     to = shell.post(topic)["to"]
     expected = {"computing": "landing-desk-3@d1", "TAP": "root", "FOREIGN": "root"}
-    assert to == next((lanes for word, lanes in expected.items() if word in cause), "root,api-lane@d1")
+    assert to == next((lanes for word, lanes in expected.items() if word in cause), "api-lane@d1")
 
 
 def test_a_refusal_for_a_pr_no_go_or_tap_names_is_not_tracked(config):
@@ -1000,7 +1000,7 @@ def test_no_successor_is_asked_for_while_the_lanes_handoff_already_posts(config)
     ],
     ids=["landed-31-min-ago", "inside-30-min", "an-hour-later", "successor-opened", "head-before-the-landing"],
 )
-def test_unopened_work_that_waits_on_a_landed_pr_stalls_to_root_and_the_lane_hourly(config, landed_ago, after, topics):
+def test_unopened_work_that_waits_on_a_landed_pr_stalls_to_its_live_lane_hourly(config, landed_ago, after, topics):
     said = record(1, "p8a-step7-2", "state", "p8a-step7-2: parts 2 and 3 wait only on #43736; I open both when #43736 lands", 120)
     landed = record(2, "desk-runner", "landed", "LANDED #43736 as 70ad7da45d: merged into dev", landed_ago, "43736")
     shell = FakeShell([said, landed, *after], [])
@@ -1008,7 +1008,7 @@ def test_unopened_work_that_waits_on_a_landed_pr_stalls_to_root_and_the_lane_hou
     assert [topic for topic in shell.topics() if topic.startswith("gate:")] == topics
     if topics:
         post = shell.post(topics[0])
-        assert post["to"] == "root,p8a-step7-2@d1" and post["text"].startswith(f"STALL gate p8a-step7-2 on #43736, {landed_ago} min: p8a-step7-2 said at cci #1 that work waits on #43736, and desk-runner posted it landed at cci #2")
+        assert post["to"] == "p8a-step7-2@d1" and post["text"].startswith(f"STALL gate p8a-step7-2 on #43736, {landed_ago} min: p8a-step7-2 said at cci #1 that work waits on #43736, and desk-runner posted it landed at cci #2")
 
 
 @pytest.mark.parametrize(("go_ago", "stalls"), [(17, False), (31, True)], ids=["inside-the-backlog", "past-the-backlog"])
