@@ -1009,3 +1009,19 @@ def test_unopened_work_that_waits_on_a_landed_pr_stalls_to_root_and_the_lane_hou
     if topics:
         post = shell.post(topics[0])
         assert post["to"] == "root,p8a-step7-2@d1" and post["text"].startswith(f"STALL gate p8a-step7-2 on #43736, {landed_ago} min: p8a-step7-2 said at cci #1 that work waits on #43736, and desk-runner posted it landed at cci #2")
+
+
+@pytest.mark.parametrize(("go_ago", "stalls"), [(17, False), (31, True)], ids=["inside-the-backlog", "past-the-backlog"])
+def test_a_go_waits_out_the_runners_enqueue_backlog_of_thirty_stacks_before_it_stalls(config, go_ago, stalls):
+    records, rows = [], []
+    for index in range(30):
+        pr, sha = str(200 + index), f"{index:02x}" + HEAD[2:]
+        records += [head(10 * index + 1, pr, sha, 60), finder(10 * index + 2, pr, sha, 50), fidelity(10 * index + 3, pr, sha, 50), record(10 * index + 4, "root", "go", f"go #{pr} at {sha[:7]}", go_ago)]
+        rows.append(row(pr, sha, branch=f"s{index}"))
+    records.append(record(999, "desk-runner", "blocker", f"#200 {("00" + HEAD[2:])[:10]}: GO-UNQUEUED nothing in #200 was enqueued", 40, "200"))
+    shell = FakeShell(records, rows)
+    watch(shell, config)
+    go_stalls = [topic for topic in shell.topics() if topic.startswith("go:")]
+    assert bool(go_stalls) is stalls
+    if stalls:
+        assert len(go_stalls) == 30 and "cci #999" not in shell.post("go:200:00c1234")["text"]

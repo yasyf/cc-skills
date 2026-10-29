@@ -14,11 +14,12 @@ the holds file and the open `hold` records, the landing desk's store, the root's
 `cc-present outcomes`, and the root session's task list. For every open PR no hold covers, at the head
 its ledger row names, it finds:
 
-    go        a root go names the head, no `QUEUED` record names the PR at it, and no hold covers a PR
-              below it; the stall belongs to the first PR of its stack, from the bottom, with no go
+    go        a root go names the head, no `QUEUED` record names the PR at it, no hold covers a PR
+              below it, and the go is older than the landing runner's enqueue backlog: one minute per
+              green, go'd, unqueued stack, and never less than `stall.minutes.go`; the stall belongs to the first PR of its stack, from the bottom, with no go
               or with a red, conflicting or unfinished build, or whose newest ai-review run the review
               bot titles Held or Waiting for restack, else to the lanes the desk runner's newest open
-              blocker line for that PR and head goes to, naming its reason, such as FINDER-PENDING,
+              blocker line for that PR and head newer than the go goes to, naming its reason, such as FINDER-PENDING,
               TAP-REQUIRED, BELOW-BLOCKED or GO-UNQUEUED, or to the landing desk when there is none,
               and every go in one stack shares one stall naming the stack's bottom and that blocker;
               a head whose blocker is FINDER-PENDING while the finder desk holds a pass on it queued
@@ -221,6 +222,7 @@ MERGE_CARD = re.compile(r"^merge:(\d+):([0-9a-f]{7,40})$")
 ENDED = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
 DESK = re.compile(r"(?:.+-)?desk(?:-\d{1,2})?")
 REPEAT = timedelta(minutes=30)
+ENQUEUE_CALL = timedelta(minutes=1)
 GATE_REPEAT = timedelta(hours=1)
 WAITS_ON = re.compile(r"\b(?:waits?\s+(?:only\s+)?on|blocked\s+on)\s+#(\d+)|\bwhen\s+#(\d+)\s+lands\b", re.IGNORECASE)
 LANDED = re.compile(r"^LANDED\s+#(\d+)\b")
@@ -553,6 +555,7 @@ class Pass:
         self.stack: list[dict] | None = None
         self.tap_waits: dict[str, tuple[str, str]] | None = None
         self.hold_gates: dict[str, list[str]] = {}
+        self.go_wait = watch.age("go")
         self.hold_asks: dict[str, set[str]] = {}
         self.tapped: set[str] = set()
         self.refused: set[str] = set()
@@ -778,6 +781,8 @@ class Pass:
         queued = {(pr, sha) for record in records if (record["lane"] == RUNNER or record["lane"].startswith(LANDING_DESK)) and record["kind"] == "report" and QUEUED.match(record["text"]) for pr, sha in grades.GO_HEAD.findall(record["text"])}
         hold_lines = holds.read(Path(landing["holds"]).expanduser())
         held = holds.held(hold_lines, rows) | set(cci.held_prs(self.tail, drive_name))
+        backlog = {(downstack(rows, row) or [pr])[-1] for pr, row in rows.items() if pr not in held and row.get("head") and row.get("test_state") == "success" and grades.gone_at(gos, pr, row["head"]) and not any(named == pr and grades.names_head(sha, row["head"]) for named, sha in queued)}
+        self.go_wait = max(self.watch.age("go"), len(backlog) * ENQUEUE_CALL)
         for entry in hold_lines:
             for named in PR_REF.findall(leading[0] if (leading := LEADING_PRS.match(entry.line)) else ""):
                 self.hold_gates.setdefault(named, []).extend(gate for gate in PR_REF.findall(entry.line) if gate != named)
@@ -973,7 +978,7 @@ class Pass:
         return None
 
     def unqueued(self, pr: str, row: dict, rows: dict[str, dict], below: list[str], gos: list[dict], since: datetime, queued: set[tuple[str, str]], lane: str, records: list[dict]) -> tuple[str, tuple[str, ...], str] | None:
-        if any(named == pr and grades.names_head(sha, row["head"]) for named, sha in queued) or self.now - since < self.watch.age("go"):
+        if any(named == pr and grades.names_head(sha, row["head"]) for named, sha in queued) or self.now - since < self.go_wait:
             return None
         for member in [*reversed(below), pr]:
             other = rows[member]
@@ -989,7 +994,7 @@ class Pass:
                 return member, (owns,), f"{named} has no green build yet ({other.get('test_state') or 'no state'}); the go waits on it"
             if other.get("ai_review") == "neutral" and (waits := grades.review_bot_wait(self.review_title(other["head"]), owns)):
                 return member, (owns,), f"{named}: {waits}"
-        blocker = max((record for record in records if blocks_head(record, pr, row["head"])), key=lambda record: record["seq"], default=None)
+        blocker = max((record for record in records if blocks_head(record, pr, row["head"]) and at(record) >= since), key=lambda record: record["seq"], default=None)
         if blocker is None:
             return pr, (RUNNER,), f"the landing desk has not queued it and posted no blocker for #{pr} at {short(row['head'])}: read the runner's heartbeat (`drive.py digest`)"
         said = grades.full_text(blocker)
