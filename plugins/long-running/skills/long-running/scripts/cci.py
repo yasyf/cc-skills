@@ -42,23 +42,31 @@ def lane_report(record: dict) -> bool:
 
 
 class Tail:
-    """A `cci tail` runner whose `records` answers repeat a query from what it read since the last `forget`, so a pass reads each query once."""
+    """A `cci tail` runner whose `records` answers repeat a query, between `remember` and `stop`, from what it read since the last `forget`, so a pass reads each query once."""
 
     def __init__(self, run: Callable[[list[str]], str]):
         self.run = run
-        self.read: dict[tuple[str, tuple[str, ...], str], list[dict]] = {}
+        self.read: dict[tuple[str, tuple[str, ...], str], list[dict]] | None = None
 
     def __call__(self, argv: list[str]) -> str:
         return self.run(argv)
 
+    def remember(self) -> None:
+        self.read = {}
+
     def forget(self) -> None:
-        self.read.clear()
+        if self.read is not None:
+            self.read = {}
+
+    def stop(self) -> None:
+        self.read = None
 
 
 def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: int | str = 0) -> list[dict]:
     """Every record on `drive` after `since`, a sequence or any `cci tail --since` time, that matches the `cci tail` filters, paged by sequence; touches no cursor. A `Tail` answers a query it read since its last `forget` without running cci."""
     key = (drive, filters, str(since))
-    if isinstance(run, Tail) and (kept := run.read.get(key)) is not None:
+    read = run.read if isinstance(run, Tail) else None
+    if read is not None and (kept := read.get(key)) is not None:
         return list(kept)
     found: list[dict] = []
     while True:
@@ -68,8 +76,8 @@ def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: i
             break
         found += page
         since = page[-1]["seq"]
-    if isinstance(run, Tail):
-        run.read[key] = found
+    if read is not None:
+        read[key] = found
     return list(found)
 
 

@@ -6449,6 +6449,7 @@ class Landing:
         outcome, outs, last = "noop", [], ""
         for top in tops:
             done, out, last = self.adapter.enqueue([top], whole, heads)
+            self.runner.cci_tail.forget()
             outs.append(out)
             if done not in BELIEVED_QUEUED:
                 return done, "".join(outs)[-1500:], last
@@ -6508,6 +6509,7 @@ class Landing:
             if pr not in covered:
                 continue
             released, line = self.adapter.dequeue(pr)
+            self.runner.cci_tail.forget()
             if not released:
                 failed.append(f"#{pr}: {line}")
                 continue
@@ -7039,6 +7041,7 @@ class Landing:
             owners = ", ".join(f"root@{other}" for other in others) or "no drive's root"
             return False, f"#{pr} is not this drive's: no enqueue of {self.runner.config.drive} admitted it and no lane of it opened it; ask {owners} to dequeue it"
         released, line = self.adapter.dequeue(pr)
+        self.runner.cci_tail.forget()
         if not released:
             return False, f"the {self.adapter.kind} queue did not let #{pr} go: {line}"
         for key, prs in self.believed_queued(rows).items():
@@ -7404,9 +7407,11 @@ class Landing:
 
     def run(self) -> None:
         self.ask_rulings()
+        self.runner.cci_tail.remember()
         try:
             self.gate_pass()
         finally:
+            self.runner.cci_tail.stop()
             self.report_unread()
 
     def ask_rulings(self) -> None:
@@ -7431,7 +7436,6 @@ class Landing:
         self.runner.cci_tail.forget()
 
     def gate_pass(self) -> None:
-        self.runner.cci_tail.forget()
         self.sessions, self.live, self.dead, self.designed_red, self.full_runs_read, self.said_preconditions = {}, None, {}, {}, {}, {}
         self.grading, self.grade_tried = True, set()
         self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why, self.cleared = None, False, None, None, None, set(), {}, {}
@@ -7507,7 +7511,6 @@ def run_orca(runner: Runner, once: bool) -> int:
     if not once:
         runner.keep_finding()
     while True:
-        runner.cci_tail.forget()
         if runner.now() - rotated >= ROTATE_EVERY:
             runner.rotate_inboxes()
             rotated = runner.now()

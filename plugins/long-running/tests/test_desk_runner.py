@@ -4387,6 +4387,7 @@ def test_a_reserved_touch_found_after_the_enqueue_was_accepted_enqueues_nothing(
     grade(shell, "29020", "ok cccc333")
     landing_of(shell, config, tmp_path).accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}}, [])
     shell.check_pr["29020"] = (1, RESERVED)
+    config.with_name(f"{config.stem}.check-pr.json").unlink()
     landing_of(shell, config, tmp_path).enqueue()
     assert shell.enqueues() == []
     [action] = enqueues_of(tmp_path).values()
@@ -4809,6 +4810,7 @@ def test_a_pass_reads_a_repeated_cci_query_once_until_the_runner_posts(shell, co
     two_pr_stack(shell)
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     landing = runner_module.Landing(runner, runner.config.landing)
+    runner.cci_tail.remember()
 
     def withdraw_reads() -> int:
         return len([call for call in shell.calls if call[:2] == ["cci", "tail"] and "--kind=withdraw" in call])
