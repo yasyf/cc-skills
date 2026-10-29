@@ -17,9 +17,13 @@ its ledger row names, it finds:
     go        a root go names the head, no `QUEUED` record names the PR at it, and no hold covers a PR
               below it; the stall belongs to the first PR of its stack, from the bottom, with no go
               or with a red, conflicting or unfinished build, or whose newest ai-review run the review
-              bot titles Held or Waiting for restack, else to the landing desk, and every go
-              in one stack shares one stall naming the stack's bottom and that blocker; a go a
-              fidelity carry moved to a new head counts from the carry grade, not the go
+              bot titles Held or Waiting for restack, else to the lanes the desk runner's newest open
+              blocker line for that PR and head goes to, naming its reason, such as FINDER-PENDING,
+              TAP-REQUIRED, BELOW-BLOCKED or GO-UNQUEUED, or to the landing desk when there is none,
+              and every go in one stack shares one stall naming the stack's bottom and that blocker;
+              a head whose blocker is FINDER-PENDING while the finder desk holds a pass on it queued
+              or running draws none, since the desk's own FINDER-DESK-STALLED covers a stalled
+              queue; a go a fidelity carry moved to a new head counts from the carry grade, not the go
     tap       the owner's board tap approves the head, and no go names it
     finder    a `head` record names the head, and no finder review does
     fidelity  a `head` record names the head, and no fidelity grade does
@@ -135,6 +139,10 @@ RECORD_CHARS = 1200
 COMMAND_SECONDS = 120
 JUDGE_SECONDS = 300
 LANDING = "desk-landing"
+FINDER_DESK = "desk-finder"
+FINDER_PENDING = "FINDER-PENDING"
+HEAD_BLOCKERS = ("GO-UNQUEUED", "BELOW-BLOCKED", "BELOW-HELD", "MERGE-ASK", "AWAITS-GO")
+BLOCKER_LABEL = re.compile(r"\b[A-Z]+(?:-[A-Z]+)+\b")
 MERGE_WAITS = "merge_waits"
 MERGE_CARDS = "merge_asks"
 STATE = "stall-watch.json"
@@ -409,6 +417,16 @@ def stack_row(pr: str, row: dict, rows: dict[str, dict], owner: str, held: bool,
     return {"pr": pr, "title": row.get("title", ""), "head": row["head"], "base": row.get("base", ""), "below": below, "waits": waits, "state": state, "next": step, "owner": owner}
 
 
+def blocks_head(record: dict, pr: str, head: str) -> bool:
+    return (
+        record["lane"] == RUNNER
+        and record.get("status") != "closed"
+        and (record["kind"] == "blocker" or record["text"].startswith(HEAD_BLOCKERS))
+        and re.search(rf"#{pr}\b", text := grades.full_text(record)) is not None
+        and any(grades.names_head(sha, head) for sha in grades.SHORT_SHA.findall(text))
+    )
+
+
 def successor_of(lane: str) -> re.Pattern[str]:
     return re.compile(rf"{re.escape(lane)}(?:-\d+)?")
 
@@ -548,8 +566,14 @@ class Pass:
         return {row["pr"]: row for row in json.loads(done.out)}
 
     def landing_facts(self) -> dict:
-        store = actions.Store(self.watch.store) if self.watch.store else None
-        return store.load(LANDING).facts if store and store.path(LANDING).is_file() else {}
+        store = actions.Store(self.watch.store)
+        return store.load(LANDING).facts if store.path(LANDING).is_file() else {}
+
+    def finder_holds(self, pr: str, head: str) -> bool:
+        store = actions.Store(self.watch.store)
+        if not store.path(FINDER_DESK).is_file():
+            return False
+        return any(action.kind == "finder" and action.status in ("accepted", "started") and (job := json.loads(action.target))["pr"] == pr and (job.get("full") or grades.names_head(job["head"], head)) for action in store.load(FINDER_DESK).actions.values())
 
     def prs(self, records: list[dict], session: str | None) -> tuple[list[Stall], list[Question], list[dict]]:
         landing = self.watch.landing
@@ -579,7 +603,7 @@ class Pass:
         cards = set(facts.get(MERGE_CARDS, {}))
         stalls: list[Stall] = []
         questions: list[Question] = []
-        waiting: dict[str, list[tuple[str, datetime, int, tuple[str, str, str]]]] = {}
+        waiting: dict[str, list[tuple[str, datetime, int, tuple[str, tuple[str, ...], str]]]] = {}
         entries: list[dict] = []
 
         def holding(pr: str) -> bool:
@@ -606,7 +630,7 @@ class Pass:
                 below = downstack(rows, row)
                 ready = min(max(at(go), actions.parse_stamp(go.get("graded_at") or go["at"])) for go in going)
                 since = max(ready, head_at) if head_at else ready
-                if not any(holding(parent) for parent in below) and (waits_on := self.unqueued(pr, row, rows, below, gos, since, queued, lane)):
+                if not any(holding(parent) for parent in below) and (waits_on := self.unqueued(pr, row, rows, below, gos, since, queued, lane, records)):
                     waiting.setdefault(below[-1] if below else pr, []).append((pr, since, len(below), waits_on))
                 continue
             tap = (board.taps.get(pr) if board else None) or {}
@@ -660,7 +684,7 @@ class Pass:
             listed = ", ".join(named[:LISTED]) + (f" and {len(named) - LISTED} more" if len(named) > LISTED else "")
             stack = f" in the stack from #{bottom}" if bottom != blocker or len(named) > 1 else ""
             sha = short(rows[blocker]["head"])
-            stalls.append(Stall(f"go:{blocker}:{sha}", "go", min(since for _, since, *_ in group), f"#{blocker} at {sha}", f"root go{'s name' if len(named) > 1 else ' names'} {listed}{stack}, and no QUEUED record does", (owner,), step, blocker))
+            stalls.append(Stall(f"go:{blocker}:{sha}", "go", min(since for _, since, *_ in group), f"#{blocker} at {sha}", f"root go{'s name' if len(named) > 1 else ' names'} {listed}{stack}, and no QUEUED record does", owner, step, blocker))
         return stalls, questions, entries
 
     def stale(self, entries: list[dict], saved: dict[str, dict], records: list[dict], stalled: set[str]) -> list[Stall]:
@@ -738,7 +762,7 @@ class Pass:
             return set() if below in seen else self.waits_on_owner(below, found_by_pr, seen | {below})
         return None
 
-    def unqueued(self, pr: str, row: dict, rows: dict[str, dict], below: list[str], gos: list[dict], since: datetime, queued: set[tuple[str, str]], lane: str) -> tuple[str, str, str] | None:
+    def unqueued(self, pr: str, row: dict, rows: dict[str, dict], below: list[str], gos: list[dict], since: datetime, queued: set[tuple[str, str]], lane: str, records: list[dict]) -> tuple[str, tuple[str, ...], str] | None:
         if any(named == pr and grades.names_head(sha, row["head"]) for named, sha in queued) or self.now - since < self.watch.age("go"):
             return None
         for member in [*reversed(below), pr]:
@@ -746,16 +770,24 @@ class Pass:
             named = f"#{member} at {short(other['head'])}"
             owns = lane if member == pr else other.get("lane") or ROOT
             if member != pr and not grades.gone_at(gos, member, other["head"]):
-                return member, ROOT, f"{named} has no go, and a stack enqueues from the bottom"
+                return member, (ROOT,), f"{named} has no go, and a stack enqueues from the bottom"
             if other.get("test_state") == "failure":
-                return member, owns, f"fix the red build of {named}; the go waits on it"
+                return member, (owns,), f"fix the red build of {named}; the go waits on it"
             if other.get("mergeable_state") == "dirty":
-                return member, owns, f"restack {named}: GitHub reads it as conflicting against its base"
+                return member, (owns,), f"restack {named}: GitHub reads it as conflicting against its base"
             if other.get("test_state") != "success":
-                return member, owns, f"{named} has no green build yet ({other.get('test_state') or 'no state'}); the go waits on it"
+                return member, (owns,), f"{named} has no green build yet ({other.get('test_state') or 'no state'}); the go waits on it"
             if other.get("ai_review") == "neutral" and (waits := grades.review_bot_wait(self.review_title(other["head"]), owns)):
-                return member, owns, f"{named}: {waits}"
-        return pr, RUNNER, f"the landing desk has not queued it: read its newest GO-UNQUEUED, BELOW-BLOCKED or BELOW-HELD line for #{pr} and the runner's heartbeat (`drive.py digest`)"
+                return member, (owns,), f"{named}: {waits}"
+        blocker = max((record for record in records if blocks_head(record, pr, row["head"])), key=lambda record: record["seq"], default=None)
+        if blocker is None:
+            return pr, (RUNNER,), f"the landing desk has not queued it and posted no blocker for #{pr} at {short(row['head'])}: read the runner's heartbeat (`drive.py digest`)"
+        said = grades.full_text(blocker)
+        reason = found[0] if (found := BLOCKER_LABEL.search(said)) else "blocked"
+        if reason == FINDER_PENDING and self.finder_holds(pr, row["head"]):
+            return None
+        owners = tuple(dict.fromkeys(ROOT if to in ROOT_NAMES else to for to in (address.split("@", 1)[0] for address in blocker.get("to") or [ROOT])))
+        return pr, owners, f"{reason}: the runner's newest blocker for #{pr} at {short(row['head'])}, cci #{blocker['seq']}: {clip(said)}"
 
     def review_title(self, head: str) -> str:
         done = self.shell.run(ghread.read("api", f"repos/{self.watch.landing['repo']}/commits/{head}/check-runs?check_name={grades.REVIEW_BOT_CHECK}", "--jq", ".check_runs | max_by(.started_at) | .output.title // \"\""))

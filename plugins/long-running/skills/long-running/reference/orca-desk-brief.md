@@ -745,9 +745,13 @@ commits against the base branch's current tip, or only since the head the PR's l
 record graded, skipping a patch-identical restack and a head the PR no longer carries, and posts `finder: ok <head> …` or
 `finder: major <head> <n> open: …` under lane `finder-desk` to the head's lane, root and the
 runner, whose landing check reads finder records by address. A pass
-that fails, or writes no result within `finder.timeout_minutes`, posts one
-`FINDER-FAILED` to the root; the lane then runs that head's pass by hand. `show` lists
-each queued and running pass.
+that fails, whose process exits with no result, or that writes no result within
+`finder.timeout_minutes` frees its slot that pass and runs again, up to three attempts;
+the third failure posts one `FINDER-FAILED` to the root, and the lane then runs that head's
+pass by hand. A head the landing check refuses `FINDER-PENDING` with no finder record and
+no pass waiting or running queues one again. While passes wait and none settles for 15
+minutes, the runner posts one `FINDER-DESK-STALLED` to the root, naming how many wait and
+each running pass's age. `show` lists each queued and running pass.
 
 ## Landing passes
 
@@ -932,6 +936,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `ORCA-INBOX` | Resolve the mailbox error without restarting Orca. |
 | `ORCA-UNREACHABLE` | None while it is brief; the runner retries with backoff and changes no dispatch or relay meanwhile. With no `ORCA-BACK` after ten minutes, check `orca status` and tell the owner; never restart Orca. |
 | `ORCA-BACK` | None; Orca answers again and the runner resumes every relay and launch where it stopped. |
+| `FINDER-DESK-STALLED` | Read each running pass's `job.log` the line names; a pass hung past its use, or a slot cap too low for the queue, is why nothing settles. Raise `finder.concurrent` in runner.json, or fix what the logs name; the runner reads runner.json again each pass. |
 
 The store deduplicates escalation keys. Liveness keys include the hour;
 `ORCA-INBOX` keys include a ten-minute bucket, so an unchanged fault can recur. Routine

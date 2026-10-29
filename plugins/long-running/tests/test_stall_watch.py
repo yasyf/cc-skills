@@ -264,6 +264,49 @@ def test_a_go_the_landing_desk_enqueued_by_hand_at_its_head_is_no_stall(config):
 
     assert shell.topics() == []
 
+def gone(pr: str, sha: str) -> list[dict]:
+    return [head(1, pr, sha, 30), finder(2, pr, sha, 25), fidelity(3, pr, sha, 25), record(4, "root", "go", f"go #{pr} at {sha[:7]}", 12)]
+
+
+def test_a_go_the_runner_refused_names_its_newest_open_blocker_for_that_head_and_goes_to_that_blockers_lanes(config):
+    records = gone("101", HEAD)
+    records.append(record(5, "desk-runner", "blocker", f"#101 {OLD[:10]}: nothing in #101 was enqueued; BUILD-FAILED #101: an older head", 11, to=["api-lane"], topic="101"))
+    records.append(record(6, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; FINDER-PENDING #101: an answered finding", 10, to=["api-lane"], topic="101", status="closed"))
+    records.append(record(7, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; TAP-REQUIRED rule/82317b0: it lands only on the owner's tap at this head", 9, to=["api-lane", "board-refresher"], topic="101", status="open"))
+    records.append(record(8, "desk-runner", "note", f"#101 {HEAD[:10]}: WARNING `rulings.py check-pr` warns at {HEAD[:10]}, and the head is not held for it", 8, to=["api-lane"], topic="101"))
+    shell = FakeShell(records, [row("101")])
+
+    watch(shell, config)
+
+    post = shell.post("go:101:abc1234")
+    assert post["to"] == "root,api-lane@d1,board-refresher@d1"
+    assert post["text"].endswith(f"| owner api-lane, board-refresher | TAP-REQUIRED: the runner's newest blocker for #101 at abc1234, cci #7: #101 {HEAD[:10]}: nothing in #101 was enqueued; TAP-REQUIRED rule/82317b0: it lands only on the owner's tap at this head")
+
+
+def finder_pass(tmp_path: Path, pr: str, sha: str, status: str) -> None:
+    store = actions.Store(tmp_path / "store")
+    store.create(actions.Incident("desk-finder", "desk-finder", 0, stamp(30), {}))
+    with store.owned("desk-finder", 0) as incident:
+        incident.accept(f"finder:{pr}:{sha}", "finder", json.dumps({"pr": pr, "head": sha, "lane": "api-lane", "seq": 1, "full": False}), "cci#1", NOW)
+        if status == "started":
+            incident.start(f"finder:{pr}:{sha}", NOW)
+
+
+@pytest.mark.parametrize(("status", "stalls"), [("accepted", []), ("started", []), (None, ["go:101:abc1234"])])
+def test_a_go_held_finder_pending_draws_no_stall_while_the_finder_desk_holds_a_pass_on_its_head(config, tmp_path, status, stalls):
+    if status:
+        finder_pass(tmp_path, "101", HEAD, status)
+    records = [*gone("101", HEAD)[:1], *gone("101", HEAD)[3:]]
+    records.append(record(5, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; FINDER-PENDING #101: no `finder:` review record names this head", 9, to=["api-lane", "finder-desk"], topic="101"))
+    shell = FakeShell([*records, fidelity(6, "101", HEAD, 25)], [row("101")])
+
+    watch(shell, config)
+
+    assert [topic for topic in shell.topics() if topic.startswith("go:")] == stalls
+    if stalls:
+        assert "| owner api-lane, finder-desk | FINDER-PENDING: the runner's newest blocker for #101 at abc1234, cci #5:" in shell.post("go:101:abc1234")["text"]
+
+
 def test_a_graded_pr_missing_from_the_board_and_a_tap_no_go_follows_each_post_until_the_board_and_root_catch_up(config):
     records = [head(1, "101", HEAD, 40), finder(2, "101", HEAD, 20), fidelity(3, "101", HEAD, 20), head(4, "102", OTHER, 40), finder(5, "102", OTHER, 30), fidelity(6, "102", OTHER, 30)]
     shell = FakeShell(records, [row("101"), row("102", OTHER)])
@@ -440,6 +483,20 @@ def test_a_graphite_base_under_an_open_parent_reads_as_a_drifted_base_never_a_la
     text = shell.post("stale:101:abc1234")["text"]
     assert text == "STALE #101 at abc1234, 150 min: base drifted to graphite-base/101 | owner api-lane | resubmit #101 at abc1234 with `ccx vcs ship --tip-only` and post HEAD"
     assert "landed" not in text
+
+
+def test_a_drifted_base_stale_stays_open_through_a_head_record_that_changes_nothing_and_clears_once_the_base_is_fixed(config):
+    shell = FakeShell(graded(1, "101", HEAD, 150), [row("101", base="graphite-base/101")])
+    shell.doc = {"blocks": [{"id": f"merge:101:{HEAD[:7]}", "type": "card", "children": []}]}
+
+    watch(shell, config)
+    shell.records.append(head(4, "101", HEAD, 1, f"HEAD #101 {HEAD} unchanged; resubmitted with ccx --tip-only"))
+    watch(shell, config)
+
+    assert "stale:101:abc1234" in opened(config)
+    shell.rows[0] = row("101")
+    watch(shell, config)
+    assert "stale:101:abc1234" not in opened(config) and shell.topics() == ["stale:101:abc1234"]
 
 
 def test_a_pr_in_a_holds_lines_leading_run_draws_no_board_stall(config, tmp_path):

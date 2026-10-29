@@ -65,6 +65,7 @@ LANE = "finder-desk"
 JOB = "job.json"
 RESULT = "result.json"
 LOG = "job.log"
+PID = "pid"
 WHOLE_ASKED = re.compile(r"\bwhole[- ]diff\b|\bfull pass\b|\b[0-9a-f]{7,40}\b", re.IGNORECASE)
 WHOLE_READ = "over whole "
 HEAD_SHA = re.compile(r"(?<!was )\b[0-9a-f]{40}\b")
