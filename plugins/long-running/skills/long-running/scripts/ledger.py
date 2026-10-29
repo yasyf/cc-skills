@@ -1451,17 +1451,27 @@ def lane_worktree(shell: Shell, args: argparse.Namespace) -> str:
     return listing["root"] if held and same_repo(origin_repo(shell, Path(listing["root"])), args.repo) else ""
 
 
-def lane_stack(shell: Shell, ccx: str, registration: dict[str, str]) -> list[str]:
-    """Every branch of the Graphite stack in the lane's registered worktree, so each branch `ccx vcs stack new` cuts there is tracked; none once the worktree is gone."""
-    worktree = registration.get("worktree")
-    if not worktree or not Path(worktree).is_dir():
-        return []
-    try:
-        listing = stack_listing(shell, ccx, Path(worktree))
-    except subprocess.CalledProcessError as failure:
-        print(f"ledger.py: lane {registration['lane']}'s worktree {worktree} lists no stack, so only its prefix is tracked: {(failure.stderr or '').strip() or failure}", file=sys.stderr)
-        return []
-    return [branch["branch"] for branch in listing["branches"]]
+def lane_stacks(shell: Shell, ccx: str, registrations: list[dict[str, str]]) -> dict[str, list[str]]:
+    """Resolve the registered worktrees' distinct stacks together, retaining each lane's membership and refusal."""
+    worktrees = {lane["lane"]: str(Path(worktree)) for lane in registrations if (worktree := lane.get("worktree")) and Path(worktree).is_dir()}
+    paths = list(dict.fromkeys(worktrees.values()))
+    results = {}
+    if paths:
+        try:
+            results = {result["path"]: result for result in json.loads(shell.run([ccx, "vcs", "stack", "list-batch", *paths]))}
+        except subprocess.CalledProcessError as failure:
+            results = {path: {"error": (failure.stderr or "").strip() or str(failure)} for path in paths}
+    stacks = {}
+    for lane in registrations:
+        stacks[lane["lane"]] = []
+        if not (path := worktrees.get(lane["lane"])):
+            continue
+        result = results[path]
+        if error := result.get("error"):
+            print(f"ledger.py: lane {lane['lane']}'s worktree {lane['worktree']} lists no stack, so only its prefix is tracked: {error}", file=sys.stderr)
+            continue
+        stacks[lane["lane"]] = [branch["branch"] for branch in result["listing"]["branches"]]
+    return stacks
 
 
 def foreign_prs(shell: Shell, args: argparse.Namespace, notes: Notes) -> list[str]:
@@ -1606,9 +1616,9 @@ def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: d
     known = sharded(every, args.shard)
     registrations = list(sharded(scope.lanes(stored), args.shard).values())
     wanted = sorted((set(known) | set(named)) - settled, key=int)
-    with ThreadPoolExecutor(REFRESH_WORKERS) as reads, ThreadPoolExecutor(max(1, len(registrations))) as listings:
+    with ThreadPoolExecutor(REFRESH_WORKERS) as reads:
         numbered = [reads.submit(pr_state, shell, args.ccx, scope.repo, list(chunk), []) for chunk in batched(wanted, REFRESH_BATCH)]
-        stacks = dict(zip((lane["lane"] for lane in registrations), listings.map(lambda lane: lane_stack(shell, args.ccx, lane), registrations), strict=True))
+        stacks = lane_stacks(shell, args.ccx, registrations)
         prefixes = sorted({lane["branch_prefix"] for lane in registrations} | {branch for branches in stacks.values() for branch in branches})
         state = merged_pr_state([*numbered, *(reads.submit(pr_state, shell, args.ccx, scope.repo, [], list(chunk)) for chunk in batched(prefixes, REFRESH_BATCH))])
     registered = {pr: lane["lane"] for lane in registrations for pr in prefix_prs(state, lane["branch_prefix"])}

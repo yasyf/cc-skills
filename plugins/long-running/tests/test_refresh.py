@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 import time
 from datetime import timedelta
@@ -283,7 +284,7 @@ def test_refresh_polls_the_rows_while_the_lane_stacks_list(lock, red_routes, tmp
             return super()._pr_state(argv)
 
         def run(self, argv, stdin=None, cwd=None):
-            if argv[1:4] == ["vcs", "stack", "list"]:
+            if argv[1:4] == ["vcs", "stack", "list-batch"]:
                 self.overlapped = self.polled.wait(5)
             return super().run(argv, stdin, cwd)
 
@@ -311,6 +312,48 @@ def test_refresh_resolves_all_registered_worktrees_in_one_process(lock, tmp_path
 
     calls = [argv for argv in shell.calls if argv[1:3] == ["vcs", "stack"]]
     assert calls == [["ccx", "vcs", "stack", "list-batch", *(registration["fields"]["worktree"] for registration in registrations)]]
+
+
+def test_batched_stack_membership_keeps_forks_and_lane_refusals_separate(tmp_path, capsys):
+    paths = {name: tmp_path / name for name in ("ancestor", "child", "broken")}
+    for path in paths.values():
+        path.mkdir()
+    registrations = [
+        {"lane": "ancestor", "worktree": str(paths["ancestor"])},
+        {"lane": "child", "worktree": str(paths["child"])},
+        {"lane": "same-child", "worktree": str(paths["child"])},
+        {"lane": "broken", "worktree": str(paths["broken"])},
+        {"lane": "gone", "worktree": str(tmp_path / "gone")},
+        {"lane": "unregistered"},
+    ]
+    shell = FakeShell()
+    shell.stacks[str(paths["ancestor"])] = {"root": str(paths["ancestor"]), "branches": [{"branch": name} for name in ("A", "B", "C")]}
+    shell.stacks[str(paths["child"])] = {"root": str(paths["child"]), "branches": [{"branch": name} for name in ("A", "B")]}
+
+    assert ledger.lane_stacks(shell, "ccx", registrations) == {"ancestor": ["A", "B", "C"], "child": ["A", "B"], "same-child": ["A", "B"], "broken": [], "gone": [], "unregistered": []}
+    assert shell.calls == [["ccx", "vcs", "stack", "list-batch", *(str(path) for path in paths.values())]]
+    assert capsys.readouterr().err == f"ledger.py: lane broken's worktree {paths['broken']} lists no stack, so only its prefix is tracked: ccx: stack list: detached HEAD; no stack to resolve\n"
+
+
+def test_a_failed_batch_keeps_each_lanes_prefix_without_retrying(tmp_path, capsys):
+    class Failing(FakeShell):
+        def run(self, argv, stdin=None, cwd=None):
+            self.calls.append(argv)
+            raise subprocess.CalledProcessError(1, argv, stderr="ccx: batch cancelled\n")
+
+    registrations = [{"lane": lane, "worktree": str(tmp_path)} for lane in ("one", "two")]
+    shell = Failing()
+
+    assert ledger.lane_stacks(shell, "ccx", registrations) == {"one": [], "two": []}
+    assert shell.calls == [["ccx", "vcs", "stack", "list-batch", str(tmp_path)]]
+    assert capsys.readouterr().err.splitlines() == [f"ledger.py: lane {lane}'s worktree {tmp_path} lists no stack, so only its prefix is tracked: ccx: batch cancelled" for lane in ("one", "two")]
+
+
+def test_refresh_without_registered_worktrees_starts_no_stack_process():
+    shell = FakeShell()
+
+    assert ledger.lane_stacks(shell, "ccx", [{"lane": "one"}, {"lane": "two", "worktree": ""}]) == {"one": [], "two": []}
+    assert shell.calls == []
 
 
 def test_grade_reads_a_ccx_record():
