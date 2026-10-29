@@ -142,7 +142,7 @@ def plan_slot(path):
 
 
 def open_questions(model):
-    return [{"id": card["id"], "question": card["title"], "recommended": card.get("recommended")} for card in model["board"]["cards"]]
+    return [{"id": card["id"], "question": card["title"], "recommended": card.get("recommended")} for card in model["board"]["cards"] if card["decides"]]
 
 
 def plan_digest(model, config, previous, now):
