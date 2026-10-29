@@ -30,6 +30,11 @@ CCN_NOT_FOUND = 3
 RECORD_REF = re.compile(r"#(\d{3,})\b")
 ANSWER_REF = re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
 REVERT = re.compile(r"\b(?:revert(?:s|ed|ing)?|roll(?:s|ed|ing)?[ -]?back|rollback|back(?:ing)? out)\b", re.IGNORECASE)
+REVERT_ORDER = re.compile(
+    r"(?:^[ \t]*(?:(?:[-*>]|\d+[.)])[ \t]+)?|[.;:!?][ \t]+|\b(?:then|and|please|must|now)[ \t]+)"
+    r"(?:revert|roll[ \t]+back|back[ \t]+out|rollback(?=[ \t]+(?:the|this|that|it|#\d|[0-9a-f]{7,40}\b|[\w./-]+[ \t]+(?:--)?to\b)))(?![\w-])",
+    re.IGNORECASE | re.MULTILINE,
+)
 UNDO_ACTS = {"cancel": re.compile(r"\bcancel(?:s|led|ling)?\b", re.IGNORECASE), "rollback": REVERT}
 DECLINED = re.compile(r"\W*(?:no|not|don'?t|do not|never|hold|reject(?:ed)?|decline[d]?)\b", re.IGNORECASE)
 PR_REF = re.compile(r"#(\d+)\b")
@@ -286,12 +291,24 @@ def reverts_need_an_owner_order(evt: BaseHookEvent) -> HookResult | None:
         revert("cci post --drive d --lane root --kind go --to inc-fix --text 'roll back the executor to 4120'", decide=CONFIRMED): Block(),
         revert("cci post --drive d --lane root --kind head --text 'reverted the local edit'", decide=CONFIRMED): Allow(),
         revert(tool="Agent", tool_input={"name": "inc-reader-fix", "prompt": "Fix the reader forward."}, decide=CONFIRMED): Allow(),
+        revert(
+            tool="Agent",
+            tool_input={
+                "name": "tooling-smoke-rollback-2",
+                "prompt": "Tooling lane tooling-smoke-rollback-2. Build the per-cluster smoke rollback on board card card-44061-rollback."
+                " Read the rollback rules in the release skill first; this is a forward fix to release tooling, not a revert.",
+            },
+            decide=CONFIRMED,
+        ): Allow(),
+        revert(tool="Agent", tool_input={"name": "inc-reader", "prompt": "The reader regressed. Revert PR #1203 and report the new head."}, decide=CONFIRMED): Block(),
+        revert(tool="Agent", tool_input={"name": "inc-sand", "prompt": "Steps:\n- rollback sand --to 905\n- post the head"}, decide=CONFIRMED): Block(),
+        revert(tool="Agent", tool_input={"name": "inc-sand", "prompt": "Ship the fix, then roll back the canary flag."}, decide=CONFIRMED): Block(),
         revert("git revert 5d0c9e1", commands={"ccn": (3, "not-found")}, decide=CONFIRMED): Allow(),
     },
 )
 def revert_orders_need_an_owner_order(evt: BaseHookEvent) -> HookResult | None:
     text = ordered_text(evt)
-    if not REVERT.search(text) or not CompactionState.load(evt).active or text_order_cited(evt, text):
+    if not REVERT_ORDER.search(text) or not CompactionState.load(evt).active or text_order_cited(evt, text):
         return None
     return evt.block(UNORDERED_REVERT, confirm=REVERT_JUDGE)
 
