@@ -7292,6 +7292,15 @@ def test_the_landing_loop_exits_on_its_stop_marker_within_one_interval_and_its_s
     assert [post["kind"] for post in shell.posts] == ["release", "blocker"]
 
 
+def test_handoff_to_an_install_missing_a_brief_stops_no_runner_and_starts_no_successor(shell, config, tmp_path, monkeypatch):
+    runner, held = live_runner(shell, config, tmp_path, "orca")
+    monkeypatch.setattr(runner_module, "BRIEF_FILES", (tmp_path / "install" / "reference" / "finder-desk-brief.md",))
+    assert cli(shell, config, "handoff", "--desk", "orca") == 1
+    assert not runner.stop_marker().exists()
+    assert shell.successors == []
+    held.close()
+
+
 @pytest.mark.parametrize("desk", ["orca", "landing"])
 def test_handoff_with_no_heartbeat_has_no_runner_to_stop_and_starts_one(shell, config, tmp_path, desk):
     assert cli(shell, config, "handoff", "--desk", desk) == 0
