@@ -784,7 +784,7 @@ def test_the_newest_evidence_record_is_a_pull_requests_state_owner_and_clock():
 
 
 def mirror_drive(monkeypatch):
-    drive = Drive({"board_url": "http://board/p/x", "mirror": "http://canonical", "title": "Preview", "repo": "owner/repo", "trees": []}, None)
+    drive = Drive({"board_url": "http://board/p/x", "mirror": "http://canonical", "drive": "test-drive", "title": "Preview", "repo": "owner/repo", "trees": []}, None)
     calls = []
 
     def rejected(*args, **kwargs):
