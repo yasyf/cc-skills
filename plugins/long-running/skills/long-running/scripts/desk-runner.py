@@ -761,6 +761,7 @@ SHOW_WORKERS = 8
 GATE_WORKERS = 8
 CHECK_PR_WORKERS = 4
 TELL_BUDGET = timedelta(seconds=60)
+REFRESH_EVERY = timedelta(minutes=2)
 GATE_STATUSES = frozenset({"release-pr-check", "emergency-head"})
 RED_STATES = frozenset({"failure", "error"})
 RUN_NUMBERS = re.compile(r"\d+")
@@ -4804,6 +4805,7 @@ class Landing:
         self.reporting = threading.Lock()
         self.checking = threading.Semaphore(CHECK_PR_WORKERS)
         self.told: dict[str, tuple[str, datetime]] = {}
+        self.refresher: threading.Thread | None = None
         self.bodies: dict[str, tuple[datetime, str]] = {}
         self.trunk_read: tuple[str, datetime, bool, dict] | None = None
         self.unchecked: set[str] = set()
@@ -7454,6 +7456,21 @@ class Landing:
                 receipt = {"head": row.get("head", ""), "state": row.get("state", ""), "at": self.book.stamp()}
                 self.book.attempt(container, lambda incident, key=action.action_id: incident.verify(key, receipt))
 
+    def refresh(self) -> None:
+        self.ledger_py("refresh", "--repo", self.repo, "--ledger", self.ledger)
+
+    def keep_fresh(self) -> None:
+        """Refresh the ledger every `REFRESH_EVERY` from a daemon thread, so a pass reads the rows the last refresh wrote instead of waiting on ccx's GitHub reads; a pass refreshes itself while no such thread runs."""
+
+        def loop() -> None:
+            while True:
+                started = time.monotonic()
+                self.refresh()
+                time.sleep(max(0.0, REFRESH_EVERY.total_seconds() - (time.monotonic() - started)))
+
+        self.refresher = threading.Thread(target=loop, name="landing-refresh", daemon=True)
+        self.refresher.start()
+
     def advance(self) -> bool:
         """Fast-forward the checkout to the remote trunk without writing a shared ref, so the pass gates with the trunk's adapter script; a checkout that cannot is escalated once per error."""
         git = ["git", "-C", str(self.checkout)]
@@ -7505,7 +7522,8 @@ class Landing:
             return
         with ThreadPoolExecutor(1) as pool:
             advancing = pool.submit(self.advance)
-            self.ledger_py("refresh", "--repo", self.repo, "--ledger", self.ledger)
+            if not (self.refresher and self.refresher.is_alive()):
+                self.refresh()
             advanced = advancing.result()
         self.runner.checkpoint()
         self.ledger_py("reconcile", "--repo", self.repo, "--ledger", self.ledger, "--checkout", str(self.checkout))
@@ -7668,6 +7686,8 @@ def run_landing(runner: Runner, once: bool) -> int:
         return 3
     seed_policy(runner)
     landing = Landing(runner, runner.config.landing)
+    if not once:
+        landing.keep_fresh()
     interval = runner.config.landing.get("interval_seconds", 180)
     runner.keep_alive("landing")
     while True:
