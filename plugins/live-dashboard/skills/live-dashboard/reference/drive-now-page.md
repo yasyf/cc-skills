@@ -154,7 +154,8 @@ story writer per piece of work on the first view:
    of those workers that has one,
    so a worker's successor continues the same story. List the work's own worker first, so a
    shared helper listed after it never lends the story its other work.
-2. It sends the last 30 minutes of that transcript and asks for three to five lines. A
+2. It sends the last 30 minutes of that transcript and asks for three to five lines,
+   naming the work's pull requests so a worker's other work never enters the story. A
    transcript older than two hours gives way to the last twelve records of that same
    first worker, and the work's latest word comes from that worker's open changes.
    A row on Now whose latest word is older than five minutes says so, and says what its
