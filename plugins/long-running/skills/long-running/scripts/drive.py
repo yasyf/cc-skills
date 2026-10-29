@@ -139,6 +139,16 @@ def newest_install() -> dict | None:
     return max(installs, key=lambda install: version_key(install["version"]), default=None)
 
 
+def marketplace_copy(path: Path) -> Path | None:
+    """``path``, inside this plugin's cache install, in the marketplace checkout Claude Code installed it from, or None when the plugin runs from no cache install."""
+    cache = PLUGIN.parents[2]
+    if cache.name != "cache":
+        return None
+    marketplace = cache.parent / "marketplaces" / PLUGIN.parents[1].name
+    source = next(entry["source"] for entry in load(marketplace / ".claude-plugin" / "marketplace.json")["plugins"] if entry["name"] == PLUGIN.parent.name)
+    return marketplace / source / path.relative_to(PLUGIN)
+
+
 def installed_version() -> str:
     return (newest_install() or {}).get("version", "")
 

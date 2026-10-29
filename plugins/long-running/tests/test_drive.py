@@ -499,3 +499,16 @@ def test_digest_prints_the_stack_ledger_the_stall_watch_wrote_and_marks_each_sta
         "STALE #201 abc1234 on dev: conflicts with its base | owner gone-lane, not live | since 2026-10-27T17:00:00Z | next: restack #201 at abc1234 and post HEAD",
         "#202 fedcba9 on #201: in the merge queue | owner api-lane | since 2026-10-27T19:30:00Z | next: the landing desk reads why the merge queue still holds #202 at fedcba9",
     ]
+
+
+def test_marketplace_copy_maps_a_cache_install_path_into_the_marketplace_checkout_it_came_from(tmp_path, monkeypatch):
+    plugins = tmp_path / ".claude/plugins"
+    plugin = plugins / "cache/skills/long-running/0.7.503"
+    marketplace = plugins / "marketplaces/skills"
+    (marketplace / ".claude-plugin").mkdir(parents=True)
+    (marketplace / ".claude-plugin/marketplace.json").write_text(json.dumps({"plugins": [{"name": "cc-inbox", "source": "./plugins/cc-inbox"}, {"name": "long-running", "source": "./plugins/long-running"}]}))
+    monkeypatch.setattr(drive, "PLUGIN", plugin)
+    assert drive.marketplace_copy(plugin / "skills/long-running") == marketplace / "plugins/long-running/skills/long-running"
+    checkout = tmp_path / "cc-skills/plugins/long-running"
+    monkeypatch.setattr(drive, "PLUGIN", checkout)
+    assert drive.marketplace_copy(checkout / "skills/long-running") is None

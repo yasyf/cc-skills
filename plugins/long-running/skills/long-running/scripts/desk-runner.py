@@ -48,7 +48,12 @@ answer, a runtime or connection error, a timeout, or output that is not its JSON
 pass stops there and changes no dispatch's liveness and no relay's state. The first
 such pass logs `ORCA-UNREACHABLE` once for the streak, each failed pass doubles the
 wait before the next, up to two minutes, and the first pass Orca answers again logs
-`ORCA-BACK`. `cci post` keeps only the first
+`ORCA-BACK`. Every pass Orca answers, the first after `ORCA-BACK` included, reads the Run's
+worker list once and logs one `LANE-GONE` for each lane with a receipt whose dispatch was
+live on the last pass Orca answered, or is still listed as dispatched, and that Orca now
+shows gone, completed or failed, or whose terminal Orca finds missing, unless the runner
+withdrew it, relayed its `worker_done`, or the lane's newest record ends its work; it names
+the dispatch, the lane's last record and its age, and the outage that just ended. `cci post` keeps only the first
 line of a text over its 400-character limit in the record, clipped, and writes the
 whole text to a file the record names by path. The runner reads a relay record's or a
 root reply's text from that file and relays all of it, line breaks kept: a relay's
@@ -520,11 +525,12 @@ Each pass of either desk writes its heartbeat beside `orca.desk_inbox`, naming i
 plugin version the runner runs. A runner behind the version `installed_plugins.json` lists posts nothing and re-executes into the installed version after
 that pass's wait, keeping its pid, config, and desk; `--once` never re-executes. An `env` object under a desk's config
 object, such as `"landing": {"env": {"AWS_PROFILE": "release-operator"}}`, is merged into that desk's process environment
-each time `run` starts, a re-execution included, and is carried by its restart command and its `handoff` successor. `handoff` stops the live runner at the end
-of its pass and starts the next one with the same config and desk, appending to `<desk>-runner.log`. Each `run` holds
+each time `run` starts, a re-execution included, and is carried by its restart command and its `handoff` successor. `handoff` stops the live runner at the next
+boundary between the steps of its pass, or between the PRs and stacks a landing step works through, and starts the next one with the same config and desk, appending to `<desk>-runner.log`. Each `run` holds
 `<config>.<desk>.lock` for its life and refuses to start, naming the holder's pid, while another runner holds it; `handoff` stops
 that holder and waits up to 20 minutes, as long as a slow pass takes, for it to exit; past that it starts nothing and logs
-`HANDOFF-STALLED` to root with the pid. `drive.py digest`
+`HANDOFF-STALLED` to root with the pid. `handoff` stops nothing while the install lacks a runtime brief or any file of
+`reference/` or `scripts/` that the marketplace copy it was installed from holds. `drive.py digest`
 prints each desk's running and installed versions.
 While ruling cards `rulings.py classify` wrote queue under the drive's `cards/`, the landing runner logs one `RULING-ASK`
 per board round, however many cards join it; the root runs `rulings.py round`, which puts at most ten of them on the live cc-present board as one
@@ -776,6 +782,7 @@ UNREAD = "unread"
 UNREACHABLE = frozenset({"runtime_unavailable", "remote_runtime_unavailable", "runtime_timeout", "invalid_runtime_response", UNPARSEABLE})
 ANSWER_CONFLICT = "answer_conflict"
 UNREACHABLE_FACT = "orca-unreachable"
+ORCA_LIVE = "orca-live"
 TRUNK_UNREAD_FACT = "trunk-unread"
 TRUNK_JOBS_FACT = "trunk-jobs"
 UNREACHABLE_WAIT = timedelta(minutes=2)
@@ -813,6 +820,7 @@ INCIDENT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9_.-]*) (?P<link>\S+) repo
 INCIDENT_BAR = timedelta(minutes=20)
 ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
 UNFIXED_TEMPLATE = SCRIPTS.parent / "reference" / "unfixed-case-brief.md"
+INSTALL_PARTS = ("reference", "scripts")
 BRIEF_FILES = (MANUAL_TEMPLATE, ALERT_TEMPLATE, UNFIXED_TEMPLATE, finder.TEMPLATE, finder.ROWS_STEP, fidelity.TEMPLATE, fidelity.RUBRIC, incident.TEMPLATE)
 SLICE_LINE = "Register slice:"
 SLICE_HEADER = re.compile(rf"^{SLICE_LINE}", re.MULTILINE)
@@ -906,6 +914,10 @@ class CciTailFailed(RuntimeError):
 
 
 class OrcaUnreachable(RuntimeError):
+    pass
+
+
+class StopRequested(Exception):
     pass
 
 
@@ -1450,6 +1462,7 @@ class Dispatch:
     status: str
     live: bool
     fenced: bool = False
+    missing: bool = False
 
 
 class Orca:
@@ -1505,6 +1518,7 @@ class Orca:
             status=result["dispatch"]["status"],
             live=observation.get("status") == "live",
             fenced=bool(result["dispatch"].get("capabilityRevokedAt")),
+            missing=observation.get("status") == "missing",
         )
 
     def stop(self, dispatch: str) -> tuple[str, str]:
@@ -1535,11 +1549,11 @@ class Orca:
         self.shell.run(["orca", "terminal", "send", "--terminal", terminal, "--text", text, "--enter", "--json"])
         return True
 
-    def workers(self) -> list[dict]:
+    def workers(self, *scope: str) -> list[dict]:
         rows: list[dict] = []
         cursor: list[str] = []
         while True:
-            page = self.ask("orchestration", "worker-list", "--run", self.config.run, "--limit", "100", *cursor)["result"]
+            page = self.ask("orchestration", "worker-list", "--run", self.config.run, *scope, "--limit", "100", *cursor)["result"]
             rows += page["workers"]
             if not (after := (page.get("page") or {}).get("nextCursor")):
                 return rows
@@ -1582,6 +1596,13 @@ class Orca:
         shared = any(row.get("tabId") == tab and row["handle"] != terminal for row in listed)
         closed = self.ask("terminal", "close", "--terminal", terminal, *(() if shared else ("--tab",)))
         return "" if closed.get("ok") else closed["error"]["code"]
+
+
+def install_gaps() -> list[str]:
+    """Each file under `reference/` or `scripts/` of the marketplace copy this install came from that the install lacks; none when the runner runs from no cache install."""
+    if not (source := drive.marketplace_copy(SCRIPTS.parent)):
+        return []
+    return sorted(str(path.relative_to(source)) for part in INSTALL_PARTS for path in (source / part).rglob("*") if path.is_file() and "__pycache__" not in path.parts and not (SCRIPTS.parent / path.relative_to(source)).exists())
 
 
 def drop_receipt(receipt: Path, read: str) -> None:
@@ -1848,6 +1869,16 @@ class Runner:
             self.shell.sleep(WAKE_SECONDS)
         return self.stop_requested()
 
+    def checkpoint(self) -> None:
+        """End the pass at this boundary between steps once `handoff` has asked this runner to stop."""
+        if self.stop_requested():
+            raise StopRequested
+
+    def steps(self, *steps: Callable[[], object]) -> None:
+        for step in steps:
+            self.checkpoint()
+            step()
+
     @contextmanager
     def desk_lock(self, desk: str) -> Iterator[int | None]:
         """Hold the lock one runner of `desk` on this config holds for its life while the block runs, yielding None when this process took it and the holder's pid when another runner holds it."""
@@ -1868,8 +1899,8 @@ class Runner:
             return holder
 
     def handoff(self, desk: str) -> int:
-        """Stop the runner holding `desk`'s lock at the end of its pass, wait until it has exited, then start its successor; refuse, naming its pid, when it still runs after HANDOFF_WAIT (#140225). Refuse before stopping anything when the install lacks a brief the runner, finder, or incident job reads."""
-        if missing := [path.name for path in BRIEF_FILES if not path.exists()]:
+        """Stop the runner holding `desk`'s lock at its next step boundary, wait until it has exited, then start its successor; refuse, naming its pid, when it still runs after HANDOFF_WAIT (#140225). Refuse before stopping anything when the install lacks a brief the runner, finder, or incident job reads, or any reference or script file the marketplace copy it was installed from holds."""
+        if missing := list(dict.fromkeys([*(f"{path.parent.name}/{path.name}" for path in BRIEF_FILES if not path.exists()), *install_gaps()])):
             print(f"desk-runner handoff: this install lacks {', '.join(missing)}, so no runner was stopped; reinstall the plugin and hand off again", file=sys.stderr)
             return 1
         pid = self.desk_holder(desk)
@@ -3542,6 +3573,46 @@ class Runner:
     def dispatch_active(self, lane: str) -> bool:
         return bool(self.orca.receipt(lane) and (shown := self.orca.show(lane)) and shown.status not in INACTIVE)
 
+    def dispatches_gone(self) -> None:
+        """Read the Run's worker list once and log one `LANE-GONE` for each lane with a receipt whose dispatch was live on the last pass Orca answered, or is still listed as dispatched, and that Orca now shows gone, completed or failed, or whose terminal Orca finds missing, unless the runner withdrew it, relayed its `worker_done`, or the lane's newest record ends its work; the dispatch is the evidence, so no `LANE_SILENT` wait applies."""
+        try:
+            statuses = {row["dispatchId"]: row["dispatchStatus"] for row in self.orca.workers("--include-remote")}
+            facts = self.book.load(RUNNER).facts
+            known, live = facts.get(ORCA_LIVE, {}), {}
+            for lane in self.orca.lanes():
+                if not (dispatch := self.orca.receipt(lane)):
+                    continue
+                listed = statuses.get(dispatch)
+                if listed and listed not in INACTIVE:
+                    shown = self.orca.show(lane, dispatch)
+                    if shown and shown.status not in INACTIVE and not shown.missing:
+                        live[lane] = dispatch
+                        continue
+                    state = f"{shown.status} with its terminal {shown.terminal} missing" if shown and shown.status not in INACTIVE else shown.status if shown else "gone"
+                elif known.get(lane) == dispatch:
+                    state = listed or "gone"
+                else:
+                    continue
+                self.lane_vanished(lane, dispatch, state, facts.get(UNREACHABLE_FACT))
+            if live != known:
+                self.book.edit(RUNNER, lambda incident: incident.facts.update({ORCA_LIVE: live}))
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+
+    def lane_vanished(self, lane: str, dispatch: str, state: str, outage: dict | None) -> None:
+        if self.withdrawn_by(lane) or any(action.target.startswith("OUTCOME ") and f" dispatch={dispatch}:" in action.target for action in self.book.actions(RUNNER, kind="escalation")):
+            return
+        drive = self.config.drive
+        last = max((record for record in cci.records(self.cci_tail, drive, "--lane", lane, "--limit", "1") if record["drive"] == drive), key=lambda record: record["seq"], default=None)
+        if last and last["kind"] in LANE_ENDED_KINDS:
+            return
+        said = "it has posted no record"
+        if last:
+            at = actions.parse_stamp(last["at"])
+            said = f"its last record is #{last['seq']} {last['kind']} at {pacific(at)}, {whole_minutes(at, self.now())} min ago"
+        down = f"; Orca gave no answer from {pacific(actions.parse_stamp(outage['since']))} until this pass ({outage['error']})" if outage else ""
+        self.escalate(f"lane-gone:{lane}:{dispatch}", "LANE-GONE", lane, f"Orca shows its dispatch {dispatch} {state}; {said}{down}; relaunch it from its brief and handoff", f"lane-gone:{lane}")
+
     def class_unowned(self) -> None:
         """Log one `CLASS-UNOWNED` for each class record that names an incident key and, `deadlines.pr_silent_minutes` after it, has no later root GO, decide, or decision naming one of its keys."""
         try:
@@ -4942,6 +5013,7 @@ class Landing:
         trees = self.landable_trees(rows, trees)
         with ThreadPoolExecutor(GATE_WORKERS) as pool:
             for gated in pool.map(self.proven_stacks, trees):
+                self.runner.checkpoint()
                 self.settle_tree(rows, held, gated)
                 self.enqueue()
 
@@ -5055,6 +5127,7 @@ class Landing:
         """Each tip's gate, joined with every other tip its own check names as one stack. When the last pass's check of the first tip named every other tip, one joined check over every tip gates the tree, and the solo checks run only when stack-enqueue refuses it."""
         gated = []
         while tips:
+            self.runner.checkpoint()
             first, *rest = tips
             tried = self.checked(tips) if rest and set(rest) <= self.stacks.get(first, set()) else None
             if tried and not verdictless(tried):
@@ -6169,6 +6242,7 @@ class Landing:
         for action in accepted:
             waves.setdefault(min(self.priority(rows, pr) for pr in action.target.split(",")), []).append(action)
         for priority in sorted(waves):
+            self.runner.checkpoint()
             self.gos = None
             with ThreadPoolExecutor(len(waves[priority])) as pool:
                 list(pool.map(self.enqueue_one, waves[priority]))
@@ -7079,6 +7153,7 @@ class Landing:
         landable = {pr: head for pr, (head, entry) in told.items() if entry["verdict"] == LANDABLE and pr in self.no_go}
         self.read_reports(landable)
         for pr, head in landable.items():
+            self.runner.checkpoint()
             self.failing(ACCEPT_CHECKS, Graded({pr: head}, rows, self.runner.now(), act=True))
         for pr, (head, entry) in told.items():
             self.review_bot(pr, head, open_rows[pr])
@@ -7185,7 +7260,9 @@ class Landing:
             advancing = pool.submit(self.advance)
             self.ledger_py("refresh", "--repo", self.repo, "--ledger", self.ledger)
             advanced = advancing.result()
+        self.runner.checkpoint()
         self.ledger_py("reconcile", "--repo", self.repo, "--ledger", self.ledger, "--checkout", str(self.checkout))
+        self.runner.checkpoint()
         rows = self.rows()
         read = self.watch_trunk(rows or {})
         if rows is None:
@@ -7203,22 +7280,20 @@ class Landing:
         self.refuse_ungone_parents(rows, held or [])
         barred = sorted({*(held or []), *self.no_go, *self.pull_ordered(rows)}, key=int)
         gone = self.land_gone(rows, barred) if gating else set()
-        self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")})
-        self.reconcile()
-        self.verify(rows)
-        self.announce_landings(rows)
-        self.releases(rows)
-        self.ungraded_after()
-        self.verify_restacks(rows)
-        self.requeue(rows)
+        self.runner.steps(
+            lambda: self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}),
+            self.reconcile,
+            lambda: self.verify(rows),
+            lambda: self.announce_landings(rows),
+            lambda: self.releases(rows),
+            self.ungraded_after,
+            lambda: self.verify_restacks(rows),
+            lambda: self.requeue(rows),
+        )
         if held is not None:
-            self.squash_incidents(rows, held)
+            self.runner.steps(lambda: self.squash_incidents(rows, held))
             if gating:
-                self.retry_flakes(rows)
-                self.gate(rows, barred, gone)
-                self.enqueue()
-                self.unqueued_gos(rows, held)
-                self.tell_unpassed(rows, held)
+                self.runner.steps(lambda: self.retry_flakes(rows), lambda: self.gate(rows, barred, gone), self.enqueue, lambda: self.unqueued_gos(rows, held), lambda: self.tell_unpassed(rows, held))
         self.runner.overdue(LANDING, "landing")
 
 
@@ -7255,23 +7330,15 @@ def run_orca(runner: Runner, once: bool) -> int:
         runner.follow_coordinator()
         try:
             if runner.check():
-                runner.reap()
-                runner.read_inbox()
-                runner.read_cci()
-                runner.deliver()
+                runner.steps(runner.reap, runner.read_inbox, runner.read_cci, runner.deliver)
                 if runner.now() - swept >= SWEEP_EVERY:
-                    runner.sweep()
+                    runner.steps(runner.sweep)
                     swept = runner.now()
-            runner.deadlines_orca()
-            runner.incident_clock()
-            runner.pr_silent()
-            runner.lanes_gone()
-            runner.class_unowned()
-            runner.in_process()
-            runner.cut_clock()
-            runner.release_coupling()
-            runner.finders()
-            runner.fidelities()
+            runner.steps(runner.deadlines_orca, runner.incident_clock, runner.pr_silent, runner.lanes_gone, runner.dispatches_gone, runner.class_unowned, runner.in_process, runner.cut_clock, runner.release_coupling, runner.finders, runner.fidelities)
+        except StopRequested:
+            runner.flush()
+            runner.stop_marker().unlink()
+            return 0
         except OrcaUnreachable as down:
             runner.orca_down(down)
         except Exception as error:
@@ -7357,6 +7424,10 @@ def run_landing(runner: Runner, once: bool) -> int:
         started = runner.now()
         try:
             landing.run()
+        except StopRequested:
+            runner.flush()
+            runner.stop_marker().unlink()
+            return 0
         except CciTailFailed as failure:
             runner.tail_failed(failure)
         except OrcaUnreachable as down:

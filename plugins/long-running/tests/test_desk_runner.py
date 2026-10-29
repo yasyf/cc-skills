@@ -596,7 +596,12 @@ class FakeShell(runner_module.Shell):
                 if not dispatch["settles_in"]:
                     dispatch["status"] = "failed"
             fence = {"capabilityRevokedAt": "2026-10-01T18:00:00Z"} if dispatch.get("fenced") else {}
+            if dispatch.get("missing"):
+                return self.ok({"dispatch": {"status": dispatch["status"], **fence}, "observation": {"status": "missing", "exactWorker": False}, "terminal": None})
             return self.ok({"dispatch": {"status": dispatch["status"], **fence}, "observation": {"status": "live", "agentWait": None}, "terminal": {"handle": dispatch["terminal"]}})
+        if verb == ["orchestration", "worker-list"]:
+            assert argv[2:] == ["--run", "run_1", "--include-remote", "--limit", "100"]
+            return self.ok({"workers": [{"dispatchId": dispatch, "dispatchStatus": entry["status"], "agentTerminalHandle": entry["terminal"]} for dispatch, entry in self.dispatches.items()], "page": {"nextCursor": None}})
         if verb in (["orchestration", "worker-stop"], ["orchestration", "worker-abandon"]):
             assert argv[2] == "--dispatch"
             dispatch = self.dispatches[argv[3]]
@@ -6527,7 +6532,7 @@ def test_a_delivered_relay_is_never_failed_or_reported_again_when_its_dispatch_e
     container = incident(tmp_path, f"desk-lane-{LANE}")
     assert (container.actions["R437"].status, container.actions["R440"].status) == ("accepted", "failed")
     assert len(shell.sends()) == 1
-    assert [line for line in escalations(shell) if not line.startswith("RECLAIM")] == [f"RELAY-FAILED R440 {LANE}: no live dispatch (ctx_a is completed); nothing was relayed"]
+    assert [line for line in escalations(shell) if not line.startswith(("RECLAIM", "LANE-GONE"))] == [f"RELAY-FAILED R440 {LANE}: no live dispatch (ctx_a is completed); nothing was relayed"]
 
 
 UNREACHABLE_FAILURES = [
@@ -7239,12 +7244,47 @@ def test_a_runner_behind_the_installed_plugin_re_executes_into_it_at_the_end_of_
     assert (tmp_path / "inbox" / runner_module.HEARTBEATS[desk]).is_file()
 
 
-def test_the_orca_loop_finishes_its_pass_and_exits_on_its_stop_marker(shell, config, tmp_path):
+def test_the_orca_loop_exits_on_its_stop_marker_at_the_first_step(shell, config, tmp_path):
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     runner.stop_marker().write_text(f"{os.getpid()}\n")
     assert runner_module.run_orca(runner, False) == 0
     assert (tmp_path / "inbox" / runner_module.HEARTBEATS["orca"]).is_file()
     assert not runner.stop_marker().exists()
+
+
+def test_a_stop_marker_written_during_an_orca_step_ends_the_pass_before_the_next_step(shell, config, tmp_path, monkeypatch):
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    run = shell.run
+
+    def stopping(argv, stdin=None, env=None):
+        if argv[:3] == ["orca", "orchestration", "inbox"]:
+            runner.stop_marker().write_text(f"{os.getpid()}\n")
+        return run(argv, stdin, env)
+
+    monkeypatch.setattr(shell, "run", stopping)
+    assert runner_module.run_orca(runner, False) == 0
+    assert not runner.stop_marker().exists()
+    after = shell.calls[next(index for index, call in enumerate(shell.calls) if call[:3] == ["orca", "orchestration", "inbox"]) + 1 :]
+    assert [call for call in after if call[:2] == ["cci", "tail"] or call[:3] == ["orca", "orchestration", "worker-list"]] == []
+
+
+def test_a_stop_marker_written_during_a_stack_check_ends_the_landing_pass_before_the_next_stack(shell, config, tmp_path):
+    prs = [str(29100 + n) for n in range(runner_module.GATE_WORKERS * 3)]
+    shell.rows = [{"pr": pr, "lane": LANE, "branch": f"g/{pr}", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"} for pr in prs]
+    shell.gates = {pr: [gate(f"#{pr} GREEN cccc333333 graphite READY")] for pr in prs}
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    check = shell.stack_enqueue
+
+    def stopping(argv):
+        if "--check" in argv:
+            runner.stop_marker().write_text(f"{os.getpid()}\n")
+        return check(argv)
+
+    shell.stack_enqueue = stopping
+    assert runner_module.run_landing(runner, False) == 0
+    assert not runner.stop_marker().exists()
+    checked = {call[1] for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call}
+    assert 1 <= len(checked) <= runner_module.GATE_WORKERS < len(prs)
 
 
 def test_a_stop_marker_naming_another_process_stops_nothing(shell, config, tmp_path):
@@ -7329,6 +7369,8 @@ def test_the_landing_loop_exits_on_its_stop_marker_within_one_interval_and_its_s
     before = shell.now()
     assert runner_module.run_landing(runner, False) == 0
     assert not runner.stop_marker().exists() and shell.now() - before < timedelta(seconds=180)
+    assert shell.posts == []
+    landing_pass(shell, config)
     assert [post["kind"] for post in shell.posts] == ["release"]
     landing_pass(shell, config)
     assert [post["kind"] for post in shell.posts] == ["release"]
@@ -7341,6 +7383,22 @@ def test_handoff_to_an_install_missing_a_brief_stops_no_runner_and_starts_no_suc
     runner, held = live_runner(shell, config, tmp_path, "orca")
     monkeypatch.setattr(runner_module, "BRIEF_FILES", (tmp_path / "install" / "reference" / "finder-desk-brief.md",))
     assert cli(shell, config, "handoff", "--desk", "orca") == 1
+    assert not runner.stop_marker().exists()
+    assert shell.successors == []
+    held.close()
+
+
+def test_handoff_to_an_install_missing_a_file_its_marketplace_copy_holds_stops_no_runner(shell, config, tmp_path, monkeypatch, capsys):
+    install, source = tmp_path / "cache/long-running/0.7.503/skill", tmp_path / "marketplaces/skills/skill"
+    for root, names in ((install, ["reference/finder-desk-brief.md", "scripts/desk-runner.py"]), (source, ["reference/finder-desk-brief.md", "reference/orca-lane-brief.md", "scripts/desk-runner.py", "scripts/lanes.py", "scripts/__pycache__/lanes.cpython-313.pyc"])):
+        for name in names:
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_text("")
+    monkeypatch.setattr(runner_module, "SCRIPTS", install / "scripts")
+    monkeypatch.setattr(runner_module.drive, "marketplace_copy", lambda path: source)
+    runner, held = live_runner(shell, config, tmp_path, "orca")
+    assert cli(shell, config, "handoff", "--desk", "orca") == 1
+    assert "this install lacks reference/orca-lane-brief.md, scripts/lanes.py, so no runner was stopped" in capsys.readouterr().err
     assert not runner.stop_marker().exists()
     assert shell.successors == []
     held.close()
@@ -7398,7 +7456,7 @@ def test_a_pass_that_raises_posts_a_blocker_and_the_runner_goes_on_until_the_sam
     ]
 
 
-def test_the_landing_loop_finishes_its_pass_and_exits_on_its_stop_marker(shell, config, tmp_path):
+def test_the_landing_loop_exits_on_its_stop_marker_at_the_first_step(shell, config, tmp_path):
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     runner.stop_marker().write_text(f"{os.getpid()}\n")
     assert runner_module.run_landing(runner, False) == 0
@@ -7816,6 +7874,51 @@ def cci_record(shell: FakeShell, **fields) -> int:
 
 
 LANE_GONE_ADVICE = "a roster or cci miss is not absence: SendMessage it and spawn a successor only when it has not answered in 5 minutes"
+
+
+def dispatch_gone_lines(shell: FakeShell) -> list[str]:
+    return [line for line in escalations(shell) if line.startswith("LANE-GONE ")]
+
+
+def test_an_orca_lane_whose_dispatch_failed_in_an_outage_is_lane_gone_on_the_first_pass_orca_answers(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    seq = cci_record(shell, lane=LANE, kind="report", text=f"REPORT {LANE}: rebased", at=actions.stamp(shell.clock))
+    orca_pass(shell, config)
+    shell.orca_down = UNREACHABLE_FAILURES[0]
+    shell.sleep(60)
+    orca_pass(shell, config)
+    shell.dispatches["ctx_a"]["status"] = "failed"
+    shell.orca_down = None
+    shell.sleep(60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert dispatch_gone_lines(shell) == [
+        f"LANE-GONE lane-gone:{LANE} {LANE}: Orca shows its dispatch ctx_a failed; its last record is #{seq} report at 11:00, 2 min ago;"
+        " Orca gave no answer from 11:01 until this pass (runtime_unavailable: Could not connect to the running Orca app. Restart Orca.); relaunch it from its brief and handoff"
+    ]
+    assert [line.split()[0] for line in escalations(shell) if line.startswith("ORCA-")] == ["ORCA-UNREACHABLE", "ORCA-BACK"]
+
+
+def test_an_orca_lane_whose_terminal_is_missing_is_lane_gone_on_that_pass(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
+    shell.dispatches["ctx_a"]["missing"] = True
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert dispatch_gone_lines(shell) == [f"LANE-GONE lane-gone:{LANE} {LANE}: Orca shows its dispatch ctx_a dispatched with its terminal term_ctx_a missing; it has posted no record; relaunch it from its brief and handoff"]
+
+
+@pytest.mark.parametrize("ended", ["done", "worker_done"])
+def test_an_orca_lane_that_ended_its_work_is_never_lane_gone_when_its_dispatch_settles(shell, config, tmp_path, ended):
+    shell.launch(LANE, "ctx_a")
+    orca_pass(shell, config)
+    if ended == "done":
+        lane_record(shell, LANE, "done")
+    else:
+        shell.receive({"type": "worker_done", "subject": "shipped", "payload": json.dumps({"dispatchId": "ctx_a", "outcome": "succeeded"})})
+    shell.dispatches["ctx_a"]["status"] = "completed"
+    orca_pass(shell, config)
+    assert dispatch_gone_lines(shell) == []
 
 
 @pytest.mark.parametrize(("seen_minutes_ago", "gone"), [(20, True), (5, False), (None, True)])
