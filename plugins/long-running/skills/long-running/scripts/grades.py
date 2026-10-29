@@ -115,7 +115,7 @@ def carried_gos(gos: list[dict], grades: list[dict], repo: str, lands: Callable[
     while fresh := [
         (pr, found[1].lower(), source, grade["at"])
         for grade in grades
-        if carries(grade["text"]) and (found := carried(grade["text"]))
+        if carries(grade["text"]) and (found := carry_of(grade["text"]))
         for pr, _ in repo_prs(grade, repo)
         if (source := next(filter(None, (reached(gone, pr, earlier) for earlier in found[1])), None)) and not reached(gone, pr, found[0]) and lands(pr, found[0])
     ]:
@@ -129,7 +129,7 @@ def carried_gos(gos: list[dict], grades: list[dict], repo: str, lands: Callable[
 
 def fidelity_carries(grades: list[dict]) -> list[tuple[str, str]]:
     """Each `(H, G)` a carry grade of H naming G states, unless it says the change adds new behavior: the desk read H as G's change, so G's finder verdict stands for H (root #139077)."""
-    return [(found[0], earlier) for grade in grades if not ADDS_BEHAVIOR.search(grade["text"]) and (found := carried(grade["text"])) for earlier in found[1]]
+    return [(found[0], earlier) for grade in grades if not ADDS_BEHAVIOR.search(grade["text"]) and (found := carry_of(grade["text"])) for earlier in found[1]]
 
 
 def head_moves(found: list[dict], drive: str, lanes: list[str], repo: str, pr: str) -> list[tuple[str, str, bool, int]]:
@@ -144,7 +144,7 @@ def head_moves(found: list[dict], drive: str, lanes: list[str], repo: str, pr: s
             for move, after in pairwise([*named, None]):
                 said = SENTENCE_BREAK.split(text[move.start() : after.start() if after else len(text)], maxsplit=1)[0]
                 moves.append((move[1].lower(), move[2].lower(), bool(PATCH_IDENTICAL.search(said)) and not ADDS_BEHAVIOR.search(said) or any(names_head(sha, move[1]) for sha in graded), record["seq"]))
-        elif record["kind"] == "review" and record["lane"] in lanes and (found := carried(text)):
+        elif record["kind"] == "review" and record["lane"] in lanes and (found := carry_of(text)):
             moves.extend((found[0], earlier, carries(text), record["seq"]) for earlier in found[1])
     return moves
 
@@ -154,7 +154,7 @@ def identical(grade: str) -> bool:
     return bool(PATCH_IDENTICAL.search(SENTENCE_BREAK.split(grade, maxsplit=1)[0])) and not ADDS_BEHAVIOR.search(grade)
 
 
-def carried(text: str) -> tuple[str, list[str]] | None:
+def carry_of(text: str) -> tuple[str, list[str]] | None:
     """The head a `fidelity: ok <new>` grade carries to and every other head it names, when it says carried, patch-identical, tap carries, no new behavior, test-only, or pure replay, in whatever words surround them."""
     if not text.startswith(FIDELITY_OK) or not CARRY_FORM.search(text) or not (new := graded_head(text[len(FIDELITY_OK) :]).lower()):
         return None
