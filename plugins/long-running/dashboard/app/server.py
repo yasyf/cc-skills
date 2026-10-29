@@ -176,6 +176,7 @@ class Drive:
         self.pr_facts = {}
         self.board_seq = None
         self.board_raw = None
+        self.notes = {}
 
     def review_url(self, number):
         pr = self.model["prs"].get(str(number), {})
@@ -195,8 +196,13 @@ class Drive:
         self.touch(slow=True)
         return 200, ""
 
-    def ccn(self, *args):
-        return run(["ccn", *args], cwd=self.config["checkout"])
+    def ccn(self, kind, verb, *rest):
+        refs = f"refs/cc-notes/{kind}s/{rest[0]}*" if verb == "show" else f"refs/cc-notes/{kind}s"
+        key = run(["git", "for-each-ref", "--format=%(objectname)", refs], cwd=self.config["checkout"])
+        args = (kind, verb, *rest)
+        if self.notes.get(args, (None,))[0] != key:
+            self.notes[args] = (key, run(["ccn", *args, "--repo", self.config["checkout"]], cwd=self.config["checkout"]))
+        return self.notes[args][1]
 
     def load_records(self):
         since = (dt.datetime.now(dt.timezone.utc) - TIMELINE_WINDOW).strftime("%Y-%m-%dT%H:%M:%SZ")

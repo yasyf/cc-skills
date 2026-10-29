@@ -168,3 +168,31 @@ def test_review_assistant_queues_each_request_attempt_once_and_only_his_comments
         assistant.offer(7, event)
     queued = [assistant.queues[7].get_nowait() for _ in range(assistant.queues[7].qsize())]
     assert [e.get("request", {}).get("attempt") or e["id"] for e in queued] == [1, 2, "c3"]
+
+
+def test_a_cc_notes_doc_is_read_once_until_its_ref_moves(monkeypatch):
+    refs = {"refs/cc-notes/docs/aaa1111": "oid-a1", "refs/cc-notes/docs/bbb2222": "oid-b1"}
+    bodies = {"aaa1111": "id: aaa1111\nupdated: first\n\nRelease one", "bbb2222": DOC}
+    shown = []
+
+    def run(argv, cwd=None):
+        assert cwd == "/repo"
+        if argv[0] == "git":
+            return "".join(f"{oid}\n" for ref, oid in sorted(refs.items()) if ref.startswith(argv[-1].rstrip("*")))
+        if argv[1:3] == ["doc", "list"]:
+            return "aaa1111\t2026-10-29\tprogress:x\tnot a plan\nbbb2222\t2026-10-29\tprogress:x\tplan\n"
+        shown.append(argv[3])
+        return bodies[argv[3]]
+
+    monkeypatch.setattr("server.run", run)
+    drive = Drive({"checkout": "/repo", "progress_label": "progress:x"}, None)
+    for _ in range(3):
+        assert drive.read_plan()[0] == "2026-10-27T06:30:00Z"
+        assert drive.read_doc("aaa1111") == {"markdown": "Release one", "updated": "first"}
+    assert shown == ["aaa1111", "bbb2222"]
+
+    bodies["aaa1111"] = "id: aaa1111\nupdated: second\n\nRelease two"
+    refs["refs/cc-notes/docs/aaa1111"] = "oid-a2"
+    assert drive.read_doc("aaa1111") == {"markdown": "Release two", "updated": "second"}
+    assert drive.read_plan()[0] == "2026-10-27T06:30:00Z"
+    assert shown == ["aaa1111", "bbb2222", "aaa1111"]
