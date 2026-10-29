@@ -172,7 +172,8 @@ REFUSAL_CAUSES = (
     ("conflict", re.compile(r"\bconflict", re.IGNORECASE)),
     ("mergeability", re.compile(r"\bmergeability\b|\bmergeable(?:_state)? (?:is )?unknown\b", re.IGNORECASE)),
 )
-REFUSAL_SUBJECT = re.compile(r"(?:\b([a-z][\w-]*):\s+)?#(\d+)\s+(?:at\s+)?([0-9a-f]{7,40})\b")
+REFUSAL_SUBJECT = re.compile(r"(?:\b([a-z][\w-]*):\s+)?#(\d+):?\s+(?:at\s+)?([0-9a-f]{7,40})\b")
+REFUSAL_LABEL = re.compile(r"\b[A-Z][A-Z-]*[A-Z]\b")
 REFUSAL_SHA = re.compile(r"\bat ([0-9a-f]{7,40})\b")
 REFUSAL_COMMAND = re.compile(r"`([^`]+)`|\brun\s+([^.;]+)")
 REFUSAL_OWNER = re.compile(r"\bowner lane ([a-z][\w-]*)")
@@ -488,7 +489,7 @@ class Refusal:
     def cause(self) -> str | None:
         if found := next((cause for cause, pattern in REFUSAL_CAUSES if pattern.search(self.said)), None):
             return found
-        return next((label for label in BLOCKER_LABEL.findall(self.said) if label in REFUSAL_LABELS), None)
+        return next((label for label in REFUSAL_LABEL.findall(self.said) if label in REFUSAL_LABELS), None)
 
     def owner(self, lane: str) -> str:
         cause = self.cause
@@ -512,7 +513,7 @@ def refusals_in(record: dict, repo: str) -> list[Refusal]:
     text = grades.full_text(record)
     pairs = list(REFUSAL_SUBJECT.finditer(text))
     if pairs:
-        return [Refusal(record, found[2], found[3], text[found.start() : following.start() if following else len(text)], found[1] or "") for found, following in zip(pairs, [*pairs[1:], None], strict=True)]
+        return [Refusal(record, found[2], found[3], text[0 if found is pairs[0] else found.start() : following.start() if following else len(text)], found[1] or "") for found, following in zip(pairs, [*pairs[1:], None], strict=True)]
     named = [pr for pr, _ in grades.repo_prs(record, repo)] if record.get("refs", {}).get("prs") else PR_REF.findall(text)[:1]
     sha = found[1] if (found := REFUSAL_SHA.search(text)) else ""
     return [Refusal(record, pr, sha, text, "") for pr in named]
@@ -715,7 +716,7 @@ class Pass:
                 if not row or refusal.pr not in approved or holding(refusal.pr) or not refusal.cause or refusal.sha and not grades.names_head(refusal.sha, row.get("head", "")):
                     continue
                 owner = refusal.owner(lanes.get(refusal.pr, ROOT))
-                if self.answered(records, record, refusal.pr, named, owner):
+                if self.answered(records, record, refusal.pr, row["head"], named, owner):
                     continue
                 self.refused.add(refusal.pr)
                 key = f"{refusal.pr}:{short(row['head'])}:{refusal.cause.lower()}"
@@ -732,13 +733,13 @@ class Pass:
                 stalls.append(Stall(f"successor:{key}", "successor", since, subject, what, (ROOT,), f"spawn a successor to {owner}, which has not acted on #{seq} in {int((self.now - since).total_seconds() // 60)} min; the successor's first step: {command}", refusal.pr))
         return stalls
 
-    def answered(self, records: list[dict], refusal: dict, pr: str, named: set[str], owner: str) -> bool:
-        """Whether a record after `refusal` queued `pr`, or came from `owner` or its successor answering it by `--re` or as a `head` record naming a PR it names."""
-        family, repo = successor_of(owner), self.watch.landing["repo"]
+    def answered(self, records: list[dict], refusal: dict, pr: str, head: str, named: set[str], owner: str) -> bool:
+        """Whether a record after `refusal` queued `pr` at `head`, or came from `owner` or any numbered lane of its family answering it by `--re` or as a `head` record naming a PR it names."""
+        family, repo = successor_of(re.sub(r"-\d{1,2}$", "", owner)), self.watch.landing["repo"]
         for record in records:
             if record["seq"] <= refusal["seq"]:
                 continue
-            if (record["lane"] == RUNNER or record["lane"].startswith(LANDING_DESK)) and record["kind"] == "report" and QUEUED.match(record["text"]) and pr in dict(grades.GO_HEAD.findall(record["text"])):
+            if (record["lane"] == RUNNER or record["lane"].startswith(LANDING_DESK)) and record["kind"] == "report" and QUEUED.match(record["text"]) and any(named_pr == pr and grades.names_head(sha, head) for named_pr, sha in grades.GO_HEAD.findall(record["text"])):
                 return True
             if family.fullmatch(record["lane"]) and (record.get("re") == refusal["seq"] or record["kind"] == "head" and any(grades.about_pr(record, repo, other) for other in named)):
                 return True
@@ -861,7 +862,8 @@ class Pass:
         for group in boards.values():
             first, *rest = sorted(group, key=lambda stall: len(downstack(rows, rows[stall.pr])))
             above = f"; {', '.join(f'#{stall.pr}' for stall in rest)} above it in its stack wait on their rows too" if rest else ""
-            stalls.append(Stall(first.id, first.kind, min(stall.since for stall in group), first.subject, first.what + above, first.owner, first.step + (f", and the rows for {', '.join(stall.subject for stall in rest)}" if rest else ""), first.pr, all(stall.quiet for stall in group)))
+            quiet = all(stall.quiet for stall in group)
+            stalls.append(Stall(first.id + (":quiet" if quiet else ""), first.kind, min(stall.since for stall in group), first.subject, first.what + above, first.owner, first.step + (f", and the rows for {', '.join(stall.subject for stall in rest)}" if rest else ""), first.pr, quiet))
         approved = {pr for go in gos for pr in grades.go_heads(go)} | {pr for pr, tap in (board.taps if board else {}).items() if tap.get("verdict") == "approved"}
         stalls += self.refusals(records, rows, approved, lanes, holding)
         for bottom, group in waiting.items():
@@ -928,7 +930,7 @@ class Pass:
             quiet = self.handled(records, pr)
             if quiet and not live:
                 continue
-            stalls.append(Stall(f"stale:{pr}:{short(found['head'])}", "stale", since, subject, what, (found["owner"],) if live else (ROOT,), found["next"], pr, quiet))
+            stalls.append(Stall(f"stale:{pr}:{short(found['head'])}{':quiet' if quiet else ''}", "stale", since, subject, what, (found["owner"],) if live else (ROOT,), found["next"], pr, quiet))
         return stalls
 
     def owner_gates(self, pr: str, found_by_pr: dict[str, dict], seen: set[str]) -> set[str] | None:

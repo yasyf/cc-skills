@@ -6665,6 +6665,8 @@ class Landing:
             ]
         if desks := self.runner.landing_lanes("desk_lane"):
             for record in cci.records(self.runner.cci_tail, self.runner.config.drive, "--kind=blocker", *(arg for desk in desks for arg in ("--lane", desk)), since=actions.stamp(since)):
+                if record["drive"] != self.runner.config.drive or record["kind"] != "blocker" or record["lane"] not in desks or record.get("status") == "closed":
+                    continue
                 found += [(actions.parse_stamp(record["at"]), member, f"{record['lane']}'s blocker #{record['seq']} at {pacific(actions.parse_stamp(record['at']))}: {full_text(record)}") for member in members if re.search(rf"#{member}\b", full_text(record))]
         if not found:
             return None
