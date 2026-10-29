@@ -356,6 +356,15 @@ def test_a_head_superseded_while_codex_read_it_posts_nothing(tmp_path):
     assert result(directory) == {"skipped": f"{REPO}#43299 moved to {NEWER[:12]} while codex read {HEAD[:12]}"}
 
 
+def test_a_job_the_runner_cancelled_for_a_newer_head_asks_codex_nothing(tmp_path):
+    directory = job(tmp_path)
+    (directory / finder.CANCELLED).write_text(f"{NEWER}\n")
+    shell = Fake(tmp_path, [])
+    assert finder.main([str(directory)], shell) == 0
+    assert not shell.asks() and not shell.posted
+    assert result(directory) == {"skipped": f"{REPO}#43299 at {HEAD[:12]} was superseded by {NEWER[:12]} before codex read it"}
+
+
 def test_a_failed_pr_read_is_retried_once_after_a_pause(tmp_path, monkeypatch):
     slept = []
     monkeypatch.setattr(finder.time, "sleep", slept.append)

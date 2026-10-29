@@ -34,7 +34,8 @@ it posts nothing. The verdict is posted under lane `finder-desk` as `finder: ok 
 and every `finder.to` address. A blocker or major stands only when one of its cites names a line
 the PR's own diff adds or changes; it and every finding the reply marks `census:` are appended to
 `<config dir>/finder-desk/census-<date>.md` instead, with one `finder census:` note to root per head. `DIR/result.json` is written last, `{"error": …}` when the job
-raised, and the runner settles the dispatch from it.
+raised, and the runner settles the dispatch from it. A job whose `DIR/cancelled` the runner wrote, as a newer head of the
+PR queued, asks codex nothing; the runner cancels a codex run already reading it.
 """
 
 from __future__ import annotations
@@ -66,6 +67,7 @@ JOB = "job.json"
 RESULT = "result.json"
 LOG = "job.log"
 PID = "pid"
+CANCELLED = "cancelled"
 WHOLE_ASKED = re.compile(r"\bwhole[- ]diff\b|\bfull pass\b|\b[0-9a-f]{7,40}\b", re.IGNORECASE)
 WHOLE_READ = "over whole "
 HEAD_SHA = re.compile(r"(?<!was )\b[0-9a-f]{40}\b")
@@ -394,6 +396,8 @@ def run(directory: Path, shell: Shell) -> dict:
         keys = ROW_KEY.findall(rows.read_text())
     question = directory / "question-1.md"
     question.write_text(prompt(job, view, base, own, last, pairs, changed, rows, shell.run(rulings(job, "plan")).strip(), touched))
+    if (cancelled := directory / CANCELLED).is_file():
+        return {"skipped": f"{pr} at {head[:12]} was superseded by {cancelled.read_text().strip()[:12]} before codex read it"}
     reply = ask(shell, job, directory, question, 1)
     if short := shortfalls(keys, reply):
         retry = directory / "question-2.md"
