@@ -785,7 +785,7 @@ class Pass:
         go_lanes = [ROOT, *landing.get("go_lanes", [])]
         exempt = landing.get("exempt_grades", [landing.get("port_phrase", grades.PORT_PHRASE), *grades.TEST_ONLY_PHRASES])
         closed = {seq for record in records if record["lane"] in ROOT_NAMES for seq in grades.closes(record)}
-        gos = [record | {"voided": set()} for record in records if record["kind"] == "go" and record["lane"] in [*go_lanes, RUNNER] and record["seq"] not in closed and grades.go_heads(record)]
+        gos = [record | {"voided": set()} for record in records if record["kind"] == "go" and (record["lane"] == RUNNER or grades.delegated(record["lane"], go_lanes)) and record["seq"] not in closed and grades.go_heads(record)]
         reviews = [record for record in records if record["kind"] in ("review", "head")]
         fidelity = [record for record in reviews if record["kind"] == "review" and record["lane"] in fidelity_lanes and record["text"].startswith(grades.FIDELITY_GRADES)]
         gos += grades.carried_gos(gos, fidelity, repo, lambda pr, head: True)

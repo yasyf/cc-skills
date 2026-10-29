@@ -8,6 +8,7 @@ from itertools import pairwise
 from pathlib import Path
 
 
+LANE_NUMBER = re.compile(r"(.+?)(?:-(\d+))?")
 FIDELITY_OK = "fidelity: ok"
 FIDELITY_MISSING = "fidelity: missing"
 FIDELITY_GRADES = (FIDELITY_OK, FIDELITY_MISSING)
@@ -44,6 +45,18 @@ ADDS_BEHAVIOR = re.compile(r"(?<!\bno )(?<!\bwithout )\bnew behaviou?r\b", re.IG
 REVIEW_BOT_CHECK = "ai-review"
 REVIEW_BOT_HELD = re.compile(r"\bHeld — (?:(\d+) blocking open\b)?")
 REVIEW_BOT_RESTACK = "Waiting for restack"
+
+
+def succeeds(name: str, lane: str) -> bool:
+    """Whether `name` is a numbered successor of `lane`: the same base with a higher `-<n>` suffix, where a bare name counts as 1."""
+    base, number = LANE_NUMBER.fullmatch(lane).groups()
+    other, later = LANE_NUMBER.fullmatch(name).groups()
+    return other == base and later is not None and int(later) > int(number or 1)
+
+
+def delegated(lane: str, delegates: list[str]) -> bool:
+    """Whether `lane` is one of `delegates` or a numbered successor of one, so a rotated go lane keeps its authority without a config edit."""
+    return any(lane == delegate or succeeds(lane, delegate) for delegate in delegates)
 
 
 def names_head(named: str, sha: str) -> bool:

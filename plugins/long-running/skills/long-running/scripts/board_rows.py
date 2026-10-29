@@ -319,9 +319,9 @@ def ruling_text(shell: Shell, record: dict) -> str:
 
 
 def root_rulings(shell: Shell, drive: str, lanes: list[str]) -> list[dict]:
-    """The go, decide and decision records of root and of each lane `landing.go_lanes` lets rule for it."""
+    """The go, decide and decision records of root and of each lane `landing.go_lanes` lets rule for it, or its numbered successor."""
     kinds = [f"--kind={kind}" for kind in sorted(cci.ROOT_ANSWER_KINDS)]
-    records = [record for lane in lanes for record in cci.records(tail(shell), drive, "--lane", lane, *kinds) if record["lane"] == lane and record["drive"] == drive and record["kind"] in cci.ROOT_ANSWER_KINDS]
+    records = [record for record in cci.records(tail(shell), drive, *kinds) if grades.delegated(record["lane"], lanes) and record["drive"] == drive and record["kind"] in cci.ROOT_ANSWER_KINDS]
     return [record | {"full": ruling_text(shell, record)} for record in records]
 
 
