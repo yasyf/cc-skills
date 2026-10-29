@@ -7273,11 +7273,12 @@ def test_a_stop_marker_written_during_a_stack_check_ends_the_landing_pass_before
     shell.rows = [{"pr": pr, "lane": LANE, "branch": f"g/{pr}", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"} for pr in prs]
     shell.gates = {pr: [gate(f"#{pr} GREEN cccc333333 graphite READY")] for pr in prs}
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
-    check = shell.stack_enqueue
+    check, lock = shell.stack_enqueue, threading.Lock()
 
     def stopping(argv):
-        if "--check" in argv:
-            runner.stop_marker().write_text(f"{os.getpid()}\n")
+        with lock:
+            if "--check" in argv and not runner.stop_marker().exists():
+                runner.stop_marker().write_text(f"{os.getpid()}\n")
         return check(argv)
 
     shell.stack_enqueue = stopping
