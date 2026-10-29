@@ -170,7 +170,7 @@ function shutStop(s, before) {
   const lead = next
     ? `<span class="k ${esc(next.state)}">Next step</span><span class="nx">${esc(next.text)}</span>${s.left.length > 1 ? `<span class="mo">and ${s.left.length - 1} more holding it</span>` : ''}`
     : before && s.state === 'not' ? `<span class="k">Starts after</span><span class="nx">${esc(before.name)}</span>` : '<span class="mo">No blockers recorded</span>';
-  return `<div class="shut">${lead}${s.work.map((w) => `<a class="wk ${slug(w.status)}${onStory(w.item) ? ' on' : ''}" href="${storyHref(w.item)}" title="${esc(`${w.status}: ${w.latest}`)}"><span class="pulse"></span><span>${esc(w.title)}</span></a>`).join('')}${tg}</div>`;
+  return `<div class="shut">${lead}${s.work.length ? `<span class="mo">${s.work.length === 1 ? 'One piece' : `${s.work.length} pieces`} of work feeding it</span>` : ''}${tg}</div>`;
 }
 function tray(b) {
   const loose = placed(b).filter((w) => w.at < 0);

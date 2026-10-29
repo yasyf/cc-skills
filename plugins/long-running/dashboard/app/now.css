@@ -173,12 +173,8 @@
 .nw-spine .shut .k:is(.fixing, .you, .nobody)::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--doing); box-shadow: 0 0 5px var(--doing); }
 .nw-spine .shut .k.you::before { background: var(--you); box-shadow: 0 0 5px var(--you); }
 .nw-spine .shut .k.nobody::before { background: var(--bad); box-shadow: 0 0 5px var(--bad); }
-.nw-spine .shut .nx { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; color: var(--ink); }
+.nw-spine .shut .nx { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; color: var(--ink); }
 .nw-spine .shut .mo { color: var(--ink3); font-size: 11.5px; }
-.nw-spine .shut .wk { display: grid; grid-template-columns: 7px minmax(0, 1fr); gap: 6px; padding-top: 5px; border-top: 1px solid var(--line); color: var(--ink); font-size: 11.5px; line-height: 1.3; }
-.nw-spine .shut .wk .pulse { width: 7px; height: 7px; margin-top: 4px; }
-.nw-spine .shut a.wk:hover { text-decoration: none; color: var(--doing); }
-.nw-spine .shut .wk.on { color: var(--doing); }
 
 .nw-col { box-sizing: border-box; display: flex; flex-direction: column; padding: 10px 12px 10px; border-radius: 12px; border: 1.5px dotted color-mix(in srgb, var(--tone) 55%, transparent); background: color-mix(in srgb, var(--tone) 4%, transparent); box-shadow: 0 0 22px color-mix(in srgb, var(--tone) 12%, transparent); }
 .nw-compact-col { max-width: 560px; margin: 0 0 12px; }
