@@ -610,6 +610,7 @@ MERGE_CARDS = "merge_asks"
 MERGE_WAITS = "merge_waits"
 MERGE_ASK_SURFACES = ("slack", "board")
 EXEMPT_GO = re.compile(r"\bgo\s+(?:port|test-only|ci-only)\s+#\d+|\bpure port\b|\b(?:test|ci)-only\b", re.IGNORECASE)
+CLASS_WRONG = re.compile(r"(?:re #\d+:\s*)?class wrong\b", re.IGNORECASE)
 TEST_ONLY_CLAIM = re.compile(r"\b(?:test|ci)-only\b", re.IGNORECASE)
 TAP_CLAIM = re.compile(r"(?<![\w-])(?<!\bno )(?<!\bnot )(?<!\bwithout )(?<!\bwithout his )(?<!\bwithout your )(?:taps?|tapped|approved|(?:his|your|the owner's)\s+approval)(?![\w-])", re.IGNORECASE)
 OLD_APP_LINE = re.compile(r"^old-app:\s*(?:unchanged|bug fix|changes)\b.*$", re.IGNORECASE | re.MULTILINE)
@@ -4399,7 +4400,7 @@ class Runner:
             running += self.start_fidelity(spec, repo, action)
 
     def start_fidelity(self, spec: dict, repo: str, action: actions.Action) -> bool:
-        """Settle a head a fidelity lane already graded or sent to a reader, or write the pass's job, with every fidelity grade and `old-app:` line on the PR and the lane's newest contract, and start fidelity.py on it detached."""
+        """Settle a head a fidelity lane already graded or sent to a reader, or write the pass's job, with every fidelity grade and `old-app:` line on the PR, the grades a root `class wrong` decision answers, and the lane's newest contract, and start fidelity.py on it detached."""
         job = json.loads(action.target)
         drive, landing = self.config.drive, self.config.landing or {}
         lanes = list(dict.fromkeys([*self.landing_lanes("fidelity_lane"), fidelity.LANE]))
@@ -4426,6 +4427,7 @@ class Runner:
                     "lanes": lanes,
                     "grades": [{key: grade[key] for key in ("seq", "lane", "text")} for grade in grades],
                     "old_apps": [{"seq": grade["seq"], "lane": grade["lane"], "head": grade["head"], "line": OLD_APP_LINE.search(full_text(grade))[0]} for grade in old_app_grades_in(records, drive, lanes, repo, job["pr"])],
+                    "corrected": [record["re"] for record in cci.records(self.cci_tail, drive, "--kind=decide", "--lane", ROOT, "--pr", f"{repo}#{job['pr']}") if (record["kind"], record["lane"]) == ("decide", ROOT) and record.get("re") and CLASS_WRONG.match(record["text"])],
                     "contract": full_text(contract) if contract else "",
                     "exempt": {"port": landing.get("port_phrase", PORT_PHRASE), "test-only": TEST_ONLY_PHRASE},
                     "exempt_grades": landing.get("exempt_grades", [landing.get("port_phrase", PORT_PHRASE), TEST_ONLY_PHRASE]),

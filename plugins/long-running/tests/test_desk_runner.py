@@ -11414,6 +11414,8 @@ def test_each_head_starts_one_fidelity_pass_carrying_the_prs_grades_old_app_line
     finder_review(shell, "43439", f"old-app: unchanged {FINDER_OLD[:7]} baseline {BASELINE}; go/sand/next only", lane="fidelity-desk-4")
     finder_review(shell, "43439", f"fidelity: ok {FINDER_OLD} a grade from a lane that is no fidelity lane", lane="p8a-step9")
     shell.records.append({"seq": 149900, "drive": "d1", "lane": "p8a-step9", "kind": "contract", "to": ["fidelity-desk-4"], "refs": {"prs": ["Forge-AI/monorepo#43439"]}, "text": "contract: builds the resubscribe; deletes nothing", "at": actions.stamp(shell.clock)})
+    for seq, lane, text in ((149901, "root", f"re #{graded}: class wrong, not a pure port."), (149902, "root", f"re #{graded}: go after the restack."), (149903, "p8a-step9", f"re #{graded}: class wrong, I think.")):
+        shell.records.append({"seq": seq, "drive": "d1", "lane": lane, "kind": "decide", "to": ["desk-runner"], "re": graded, "refs": {"prs": ["Forge-AI/monorepo#43439"]}, "text": text, "at": actions.stamp(shell.clock)})
     head_record(shell, "43439", FINDER_HEAD)
     second = head_record(shell, "43439", FINDER_HEAD, fields={}, text=f"#43439 HEAD {FINDER_HEAD} (was {FINDER_OLD}): restack, range-diff patch-identical")
     orca_pass(shell, config)
@@ -11431,6 +11433,7 @@ def test_each_head_starts_one_fidelity_pass_carrying_the_prs_grades_old_app_line
         "lanes": ["fidelity-desk-4", "fidelity-pipeline"],
         "grades": [{"seq": graded, "lane": "fidelity-desk-4", "text": f"fidelity: ok {FINDER_OLD} pure port, no interaction: ports old-tree #41725"}],
         "old_apps": [{"seq": graded + 1, "lane": "fidelity-desk-4", "head": FINDER_OLD[:7], "line": f"old-app: unchanged {FINDER_OLD[:7]} baseline {BASELINE}; go/sand/next only"}],
+        "corrected": [graded],
         "contract": "contract: builds the resubscribe; deletes nothing",
         "exempt": {"port": runner_module.PORT_PHRASE, "test-only": runner_module.TEST_ONLY_PHRASE},
         "exempt_grades": [runner_module.PORT_PHRASE, runner_module.TEST_ONLY_PHRASE],
