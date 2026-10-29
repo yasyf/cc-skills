@@ -2437,29 +2437,26 @@ Incident launches name `--model incident --effort xhigh`: `gpt-6.1-sol`, a
 launch needs a reporting route, never another launch. Inline lanes still use
 `Skill(codex)` or `codex:codex-wrapper`; one-off questions use `codex-ask`.
 
-**O16. Place each lane on a Sprite or the Mac; high-CPU lanes default to a Sprite.**
+**O16. Ordinary lanes default to a Sprite.**
 The launching model places a lane on its brief's `ccx:` line, with `place=remote` for
-a Sprite or `place=local` for the Mac. With neither key, a `cpu=high` lane goes to a
-Sprite and every other lane launches locally; `cpu=high` marks a sweep or
-heavy research. An explicit `place=` wins over `cpu=high` in both directions. Fable, incident, an incident clock fallback, and a standing
-desk's `role=desk` or `role=watch` brief launch locally whatever the line says. [Lane brief](#lane-brief)
-says what a Sprite holds and when to choose each.
+a Sprite or `place=local` for the Mac. With no `place=`, an ordinary lane goes to a
+Sprite, including lanes without `cpu=high`. Fable, incident, an incident clock
+fallback, and a standing desk's `role=desk` or `role=watch` brief launch locally
+whatever the line says. [Lane brief](#lane-brief) says what a Sprite holds and when
+to choose each.
 
-A Sprite launch needs `orca.sprite` configured; without it every lane launches
-locally. It runs the repository's `worker-launch.sh` and never waits on Mac load,
-while a lane placed local still waits under O14. The runner counts no Sprites and
-sets no limit of its own: the provider admits or refuses each one.
-A lane name a Sprite refuses starts the same lane locally under O14's load hold. A
-failed Sprite launch starts it locally at once only when its receipts prove
-worker-start never ran: the brief's `.worker` directory holds
-no `worker-start.json`, and `prepare.status` records a nonzero exit, or
-the runner saw the launcher exit with no prepare exit recorded. A Sprite the provider
-refuses for capacity is such a launch: `cc-remote orca prepare` exits nonzero at the
-create, before it provisions or attaches anything. Each logs
-`SPRITE-FALLBACK` with the reason. Any other Sprite launch without a ready line may
-have left a remote worker. The runner launches nothing locally, marks the launch
-`unverifiable`, and logs `SPRITE-UNVERIFIABLE` with the receipt directory and any Task
-and Dispatch; inspect them before relaunching. A Sprite launch that prints nothing is
+A Sprite launch needs `orca.sprite` configured. It runs the repository's
+`worker-launch.sh` and never waits on Mac load, while a lane placed local still
+waits under O14. The runner counts no Sprites and sets no limit of its own: the
+provider admits or refuses each one. Missing configuration, a lane name a Sprite
+refuses, or receipts proving worker-start never ran fail the launch with
+`LAUNCH-FAILED`; nothing starts locally in its place. The proof is read from the
+brief's `.worker` directory: no `worker-start.json`, and a nonzero exit in
+`prepare.status`, or no `prepare.status` when the runner itself saw the launcher
+exit. Any other Sprite launch without a ready line may have left a remote worker.
+The runner launches nothing locally, marks the launch `unverifiable`, and logs
+`SPRITE-UNVERIFIABLE` with the receipt directory and any Task and Dispatch;
+inspect them before relaunching. A Sprite launch that prints nothing is
 `UNVERIFIABLE` and is never relaunched.
 
 Model and effort are the same on either route, and the runner sets no Codex service
@@ -2796,8 +2793,8 @@ to the orca-desk, and `helper`, `reader`, `watch`, `export`, `evidence`, `handof
 standing desk: `orca-launch.sh` gives it a contract that loops until rotation and
 sends `worker_done` only then, naming the handoff doc
 ([its brief](reference/orca-lane-brief.md#a-standing-desks-brief)). `cpu=high` marks a
-sweep or heavy research lane, which goes to a Sprite by default. `place=remote` or
-`place=local` places any lane yourself and wins over that default (O16).
+sweep or heavy research lane. Ordinary lanes go to a Sprite by default;
+`place=local` keeps a lane on the Mac (O16).
 
 A brief states the outcome ("one failing database never blocks a release"), never a
 design ("report it in the Switch; reuse the handoffz and census readers"). Step 0 of
@@ -2927,12 +2924,11 @@ For implementation lanes, prefer the repository's canonical remote
 entrypoint when it provides one. In Forge-AI/monorepo, follow
 [the Orca skill](https://github.com/Forge-AI/monorepo/blob/dev/.agents/skills/orca/SKILL.md).
 It defaults to Sprite prepare+attach and the already-owned native Run with its
-sole inbox consumer. The orca desk calls it for a brief placed remote, by
-`place=remote` or by `cpu=high` with no `place=` (O16), and runs every other lane
-through `orca-launch.sh`. Preserve explicit model, effort, and Codex service tier.
+sole inbox consumer. The orca desk calls it for ordinary lanes by default (O16),
+and runs local lanes through `orca-launch.sh`. Preserve explicit model, effort,
+and Codex service tier.
 
-Placement is yours to decide for every lane that is not `cpu=high`, and for a
-`cpu=high` lane that cannot leave the Mac. A Sprite holds only the brief and a
+Use `place=local` for a lane that cannot leave the Mac. A Sprite holds only the brief and a
 shallow checkout of the ref its config names, `dev` in Forge-AI/monorepo. It has no
 Mac path, scratch file, local worktree, or unpushed commit, no Keychain, and no
 credential that lives only on the Mac.
@@ -2940,9 +2936,8 @@ credential that lives only on the Mac.
 Write `place=remote` when the lane can work inside those limits, with every fact in
 the brief by value and everything it builds on already pushed. Write `place=local`
 when the lane reads a file, worktree, or branch only the Mac has, needs a Mac-only
-credential, or drives something on the Mac itself. Without `orca.sprite` every lane
-launches locally, and a Sprite fallback starts the same brief locally, so a brief
-placed remote must also run from a local worktree.
+credential, or drives something on the Mac itself. Without `orca.sprite`, an ordinary
+lane fails with `LAUNCH-FAILED`; a failed Sprite launch never starts locally.
 
 A Sprite lane commits, pushes its branch, and opens its PR from the VM like any
 lane; the root pulls the branch when it needs the source locally. A remote worker keeps its runtime

@@ -445,22 +445,19 @@ default; `to` lists cci addresses that get every finder record besides the head'
 `repo` defaults to `landing.repo`; `timeout_minutes`, 60 by default, fails a pass with no
 result. The runner reads the object every pass, so adding or changing it needs no restart.
 
-`orca.sprite` is optional. With it, a launch whose brief's `ccx:` line says
-`place=remote`, or `cpu=high` with no `place=`, runs `orca.sprite.launcher`, the
+Ordinary launches require `orca.sprite` and run `orca.sprite.launcher`, the
 repository's `worker-launch.sh`, on a Sprite, with `orca.sprite.env` and `WORKER_RUN`
-set by the runner. The runner sets no Sprite limit: the
-provider admits or refuses each one. `place=local` keeps a `cpu=high` launch on the Mac.
-Fable, incident, an incident clock fallback, and a `role=desk` or `role=watch` brief
-launch locally whatever the line says, and so does every launch when `orca.sprite` is
-absent.
+set by the runner. Neither `place=remote` nor `cpu=high` is required. The runner sets
+no Sprite limit: the provider admits or refuses each one. `place=local` keeps a
+launch on the Mac. Fable, incident, an incident clock fallback, and a `role=desk` or
+`role=watch` brief launch locally whatever the line says.
 
 Set `CC_REMOTE_CONFIG` in `orca.sprite.env`: without it cc-remote reads
-`~/.config/cc-remote/config.yaml`, and every Sprite launch falls back to local. The
-runner reads its config only at start. A lane name a Sprite refuses, and a Sprite
-launch whose receipts prove worker-start never ran, a provider capacity refusal among
-them, each start the same launch locally and log `SPRITE-FALLBACK` with the reason. A Sprite
-launch with no ready line and no such proof logs `SPRITE-UNVERIFIABLE` and launches
-nothing locally.
+`~/.config/cc-remote/config.yaml`. The runner reads its config only at start.
+Missing `orca.sprite`, a lane name a Sprite refuses, and a Sprite launch whose
+receipts prove worker-start never ran each fail with `LAUNCH-FAILED`; nothing
+starts locally in its place. A Sprite launch with no ready line and no such proof
+logs `SPRITE-UNVERIFIABLE` and launches nothing locally.
 A Sprite launch that prints nothing is `UNVERIFIABLE` and is never relaunched.
 
 Generated fix briefs are attachments on `orca.briefs.log`. The runner checks that

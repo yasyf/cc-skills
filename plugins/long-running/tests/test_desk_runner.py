@@ -1312,7 +1312,7 @@ def test_a_worker_done_report_carries_its_body_by_path(shell, config, tmp_path):
 
 def test_a_launch_runs_detached_once_and_its_relays_wait_for_the_dispatch(shell, config, tmp_path):
     brief = tmp_path / "fix.md"
-    brief.write_text("brief")
+    brief.write_text("ccx: place=local\nbrief")
     shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "sol", "--effort", "xhigh", "--brief", str(brief))
     cli(shell, config, "relay", "--key", "R640", "--lane", LANE, "--text", "second 429")
@@ -1357,7 +1357,7 @@ def launches(shell: FakeShell) -> list[list[str]]:
 def test_an_incident_launch_on_load_starts_anyway_while_a_normal_launch_beside_it_is_held(shell, config, tmp_path):
     """drive-watchdog-2, cci #157631: the load gate refused incident fix lanes R84845 and R84846 at load 45 and 71."""
     brief = tmp_path / "fix.md"
-    brief.write_text("brief")
+    brief.write_text("ccx: place=local\nbrief")
     shell.cpu_load = 140
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "incident", "--effort", "xhigh", "--brief", str(brief))
     cli(shell, config, "launch", "--key", "R639", "--lane", "other-lane", "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
@@ -1373,7 +1373,7 @@ def test_an_incident_launch_on_load_starts_anyway_while_a_normal_launch_beside_i
 
 def test_an_owner_directed_launch_on_load_fails_at_once_and_tells_the_root_to_move_the_load(shell, config, tmp_path):
     brief = tmp_path / "fix.md"
-    brief.write_text("brief")
+    brief.write_text("ccx: place=local\nbrief")
     shell.cpu_load = 140
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief), "--owner-directed")
     orca_pass(shell, config)
@@ -1390,7 +1390,7 @@ def test_an_owner_directed_launch_on_load_fails_at_once_and_tells_the_root_to_mo
 
 def test_a_launch_held_by_load_starts_nothing_then_fails_loudly_at_the_hold_deadline(shell, config, tmp_path):
     brief = tmp_path / "fix.md"
-    brief.write_text("brief")
+    brief.write_text("ccx: place=local\nbrief")
     shell.cpu_load = 40
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
     for _ in range(4):
@@ -1458,7 +1458,7 @@ def test_an_accepted_launch_with_no_dispatch_a_minute_on_logs_one_launch_stalled
 
 def test_a_launch_the_runner_started_logs_no_launch_stalled(shell, config, tmp_path):
     brief = tmp_path / "fix.md"
-    brief.write_text("brief")
+    brief.write_text("ccx: place=local\nbrief")
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
     orca_pass(shell, config)
     shell.sleep(5 * 60)
@@ -6930,7 +6930,7 @@ def orca_calls(shell: FakeShell, verb: str) -> list[list[str]]:
 
 def accept_launch(shell: FakeShell, config: Path, tmp_path: Path) -> Path:
     brief = tmp_path / "fix.md"
-    brief.write_text("brief")
+    brief.write_text("ccx: place=local\nbrief")
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "sol", "--effort", "xhigh", "--brief", str(brief))
     return brief
 
@@ -7010,7 +7010,7 @@ def test_a_coordinator_that_dies_mid_run_fails_each_launch_at_once_and_escalates
     shell.dead = {"term_dead"}
     shell.generation = 4
     brief = tmp_path / "fix.md"
-    brief.write_text("brief")
+    brief.write_text("ccx: place=local\nbrief")
     for key in ("R638", "R639"):
         cli(shell, config, "launch", "--key", key, "--lane", LANE, "--model", model, "--effort", "xhigh", "--brief", str(brief), *flags)
         runner.deliver()
@@ -7486,7 +7486,7 @@ def test_an_inbox_relay_under_a_key_holding_another_relay_fails_visibly(shell, c
 
 def launch_brief(tmp_path: Path) -> Path:
     brief = tmp_path / "fix-brief.md"
-    brief.write_text(f"brief\n\nRegister slice: lane={LANE} step=1.9\n")
+    brief.write_text(f"ccx: place=local\nbrief\n\nRegister slice: lane={LANE} step=1.9\n")
     return brief
 
 
@@ -7696,7 +7696,7 @@ def test_an_inbox_launch_naming_a_pr_a_live_lane_holds_is_refused_as_a_duplicate
     clocked_lane(shell, config, tmp_path)
     holding(monkeypatch, tmp_path, ahead=ahead, pushed=pushed)
     brief = tmp_path / "cache.md"
-    brief.write_text("Finish the cache half of #1201.\n\nRegister slice: lane=api-cache step=1.9\n")
+    brief.write_text("ccx: place=local\nFinish the cache half of #1201.\n\nRegister slice: lane=api-cache step=1.9\n")
     desk_inbox(tmp_path, f"R11 orca-desk: launch api-cache {now}sol xhigh brief={brief}")
     orca_pass(shell, config)
     orca_pass(shell, config)
@@ -8841,7 +8841,7 @@ def test_a_cut_order_with_no_cut_for_four_minutes_escalates_once_and_launches_th
     [launch] = [call for call in launches(shell) if call[1] == "manual-release-sand"]
     assert launch[2:4] == ["opus", "xhigh"]
     brief = Path(launch[4]).read_text()
-    assert brief.startswith("ccx: lane=manual-release-sand role=release incident=none effort=xhigh\n") and hand in brief and f"after GO #{seq}" in brief
+    assert brief.startswith("ccx: lane=manual-release-sand role=release place=local incident=none effort=xhigh\n") and hand in brief and f"after GO #{seq}" in brief
 
 
 def test_a_manual_release_launch_stalls_sixty_seconds_after_its_acceptance_with_no_grace_added(shell, config, tmp_path):
@@ -8934,7 +8934,7 @@ def test_the_ready_threshold_names_the_missing_milestone_and_each_phases_minutes
 
 def test_an_opus_fallback_lane_is_clocked_and_gets_no_fallback_of_its_own(shell, config, tmp_path):
     backup = f"{LANE}-opus"
-    clocked_lane(shell, config, tmp_path, lane=backup, model="opus", header="ccx: role=incident\n")
+    clocked_lane(shell, config, tmp_path, lane=backup, model="opus", header="ccx: role=incident place=local\n")
     shell.sleep(15 * 60)
     orca_pass(shell, config)
     orca_pass(shell, config)
@@ -9002,12 +9002,12 @@ def test_a_record_from_before_the_launch_does_not_stop_the_clock(shell, config, 
 
 
 @pytest.mark.parametrize(("model", "header", "clocked"), [
-    ("opus", "", False),
-    ("opus", "ccx: incident=none role=fix\n", False),
+    ("opus", "ccx: place=local\n", False),
+    ("opus", "ccx: incident=none role=fix place=local\n", False),
     ("incident", "ccx: role=evidence\n", False),
-    ("opus", "ccx: incident=327967001 role=retro\n", False),
-    ("opus", "ccx: role=incident\n", True),
-    ("sol", "ccx: incident=327967001 role=fix\n", True),
+    ("opus", "ccx: incident=327967001 role=retro place=local\n", False),
+    ("opus", "ccx: role=incident place=local\n", True),
+    ("sol", "ccx: incident=327967001 role=fix place=local\n", True),
     ("incident", "ccx: role=fix\n", True),
 ])
 def test_only_an_incident_fix_lane_is_clocked(shell, config, tmp_path, capsys, model, header, clocked):
@@ -9204,7 +9204,7 @@ def test_a_case_reported_again_launches_nothing_new(shell, config, tmp_path):
     assert len(incident_lines(shell)) == 2
 
 
-@pytest.mark.parametrize(("model", "header"), [("opus", ""), ("incident", "ccx: role=evidence\n")])
+@pytest.mark.parametrize(("model", "header"), [("opus", "ccx: place=local\n"), ("incident", "ccx: role=evidence\n")])
 def test_an_unfixed_line_from_a_lane_that_is_no_incident_fix_lane_launches_nothing(shell, config, tmp_path, model, header):
     clocked_lane(shell, config, tmp_path, model=model, header=header)
     shell.launch("by-hand", "ctx_by-hand")
@@ -9674,8 +9674,20 @@ SPRITE_KEPT = "kept terminal term_s, worktree /home/sprite/repo, and the receipt
 PREPARED, STARTED, START_FAILED = {"prepare.status": "0\n"}, {"worker-start.status": "0\n"}, {"worker-start.status": "1\n"}
 
 
-@pytest.mark.parametrize("header", ["ccx: role=build cpu=high", "ccx: role=research place=remote", "ccx: place=remote role=build cpu=high"])
-def test_a_remote_placed_lane_launches_on_a_sprite_whatever_the_mac_load(shell, config, tmp_path, header):
+@pytest.mark.parametrize(
+    "header",
+    [
+        "ccx: role=build",
+        "ccx: role=build cpu=high",
+        "ccx: role=research place=remote",
+        "ccx: place=remote role=build cpu=high",
+        "ccx: role=build cpu=highest",
+        "ccx: role=build place=remotely",
+        "ccx: role=build place=locally",
+        "ccx: role=build\nplace=local",
+    ],
+)
+def test_an_ordinary_lane_launches_on_a_sprite_whatever_the_mac_load(shell, config, tmp_path, header):
     with_sprites(config)
     brief = lane_brief(tmp_path, header)
     shell.cpu_load = 140
@@ -9737,18 +9749,21 @@ def test_a_sprite_attempt_is_the_directory_worker_launch_names(tmp_path, name, e
     ],
     ids=["nothing-prepared", "prepare-unrecorded", "prepare-failed", "prepare-failed-restarted", "provider-refused", "provider-refused-restarted"],
 )
-def test_a_sprite_launch_that_stopped_before_worker_start_starts_the_same_launch_locally(shell, config, tmp_path, printed, receipts, restarted):
+def test_a_sprite_launch_that_stopped_before_worker_start_fails_and_never_launches_locally(shell, config, tmp_path, printed, receipts, restarted):
     with_sprites(config)
-    brief = lane_brief(tmp_path, "ccx: role=build cpu=high")
+    brief = lane_brief(tmp_path, "ccx: role=build")
+    attempt = tmp_path / "build.brief.worker"
     shell.sprite_line = f"{printed}\n"
     shell.sprite_receipts = receipts
-    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "sol", "--effort", "xhigh", "--brief", str(brief))
     sprite_passes(shell, config, tmp_path, restarted)
     assert sprite_launches(shell) == [[LAUNCHER, LANE, "gpt-6.1-sol", "xhigh", str(brief)]]
-    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "sol", "xhigh", str(brief)]]
-    assert f"SPRITE-FALLBACK desk-lane-{LANE}/R638:sprite {LANE}: R638 launches locally: {printed}" in escalations(shell)
-    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
+    assert launches(shell) == []
+    assert escalations(shell) == [
+        f"LAUNCH-FAILED desk-lane-{LANE}/R638 {LANE}: R638 refused on a Sprite that never started a worker: {printed}; "
+        f"nothing was launched, and its receipts are in {attempt}; the root submits it again under a new key"
+    ]
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "failed"
 
 
 @pytest.mark.parametrize(
@@ -9788,7 +9803,7 @@ def test_a_sprite_launch_that_stopped_before_worker_start_starts_the_same_launch
 )
 def test_a_sprite_launch_that_may_have_reached_worker_start_is_unverifiable_and_never_launches_locally(shell, config, tmp_path, printed, receipts, named, restarted):
     with_sprites(config)
-    brief = lane_brief(tmp_path, "ccx: role=build cpu=high")
+    brief = lane_brief(tmp_path, "ccx: role=build")
     attempt = tmp_path / "build.brief.worker"
     shell.sprite_line = f"{printed}\n"
     shell.sprite_receipts = receipts
@@ -9809,7 +9824,7 @@ def test_a_sprite_launch_that_may_have_reached_worker_start_is_unverifiable_and_
 
 def test_a_sprite_launch_that_prints_nothing_is_unverifiable_and_never_relaunched(shell, config, tmp_path):
     with_sprites(config)
-    brief = lane_brief(tmp_path, "ccx: role=build cpu=high")
+    brief = lane_brief(tmp_path, "ccx: role=build")
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "sol", "--effort", "xhigh", "--brief", str(brief))
     for _ in range(3):
         orca_pass(shell, config)
@@ -9819,39 +9834,56 @@ def test_a_sprite_launch_that_prints_nothing_is_unverifiable_and_never_relaunche
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "unverifiable"
 
 
-@pytest.mark.parametrize("header", ["ccx: role=build cpu=high", "ccx: role=research place=remote"])
-def test_a_lane_name_a_sprite_refuses_launches_locally(shell, config, tmp_path, header):
+@pytest.mark.parametrize("header", ["ccx: role=build", "ccx: role=research place=remote"])
+def test_a_lane_name_a_sprite_refuses_fails_and_never_launches_locally(shell, config, tmp_path, header):
     with_sprites(config)
     brief = lane_brief(tmp_path, header)
     lane = "api.build"
-    shell.launch_line = f"{lane} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     cli(shell, config, "launch", "--key", "R638", "--lane", lane, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
     orca_pass(shell, config)
     orca_pass(shell, config)
-    assert sprite_launches(shell) == []
-    assert launches(shell) == [[str(runner_module.LAUNCHER), lane, "opus", "xhigh", str(brief)]]
-    assert f"SPRITE-FALLBACK desk-lane-{lane}/R638:sprite {lane}: R638 launches locally: lane {lane} is not a Sprite name of up to 55 lowercase letters, digits, and dashes" in escalations(shell)
-    assert incident(tmp_path, f"desk-lane-{lane}").actions["R638"].status == "verified"
+    assert sprite_launches(shell) == [] and launches(shell) == []
+    assert escalations(shell) == [
+        f"LAUNCH-FAILED desk-lane-{lane}/R638 {lane}: R638 refused on lane {lane}, not a Sprite name of up to 55 lowercase letters, digits, and dashes; "
+        "nothing was launched, and the root submits it again under a new key once that is fixed"
+    ]
+    assert incident(tmp_path, f"desk-lane-{lane}").actions["R638"].status == "failed"
 
 
+@pytest.mark.parametrize("flags", [(), ("--owner-directed",)])
+@pytest.mark.parametrize("header", ["ccx: role=build", "ccx: role=build cpu=high", "ccx: role=research place=remote"])
+def test_an_ordinary_lane_with_no_sprite_config_fails_at_once_and_never_launches_locally(shell, config, tmp_path, header, flags):
+    brief = lane_brief(tmp_path, header)
+    shell.cpu_load = 140
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief), *flags)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert sprite_launches(shell) == [] and launches(shell) == []
+    assert [line for line in escalations(shell) if not line.startswith("LOAD-HIGH ")] == [
+        f"LAUNCH-FAILED desk-lane-{LANE}/R638 {LANE}: R638 refused on a runner config with no orca.sprite; nothing was launched, and the root submits it again under a new key once that is fixed"
+    ]
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "failed"
+
+
+@pytest.mark.parametrize("sprites", [True, False])
 @pytest.mark.parametrize(
     ("header", "model"),
     [
-        ("ccx: role=build", "opus"),
-        ("ccx: role=build cpu=highest", "opus"),
-        ("ccx: role=build place=remotely", "opus"),
-        ("ccx: role=build\nplace=remote", "opus"),
+        ("ccx: role=build place=local", "sol"),
         ("ccx: role=build cpu=high place=local", "opus"),
         ("ccx: role=build cpu=high", "fable"),
         ("ccx: role=build place=remote", "fable"),
+        ("ccx: role=build", "claude-fable-5-1"),
+        ("ccx: role=build place=remote", "claude-fable-5-1"),
         ("ccx: role=fix cpu=high", "incident"),
         ("ccx: role=fix place=remote", "incident"),
         ("ccx: role=desk place=remote", "opus"),
         ("ccx: role=watch cpu=high place=remote", "sonnet"),
     ],
 )
-def test_a_lane_placed_or_forced_local_never_leaves_the_mac(shell, config, tmp_path, header, model):
-    with_sprites(config)
+def test_a_lane_placed_or_forced_local_never_leaves_the_mac(shell, config, tmp_path, header, model, sprites):
+    if sprites:
+        with_sprites(config)
     brief = lane_brief(tmp_path, header)
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", model, "--effort", "xhigh", "--brief", str(brief), "--owner-directed")
     orca_pass(shell, config)
@@ -9860,7 +9892,7 @@ def test_a_lane_placed_or_forced_local_never_leaves_the_mac(shell, config, tmp_p
     assert not [call for call in shell.calls if call[0] == "sprite"]
 
 
-@pytest.mark.parametrize("header", ["ccx: role=build", "ccx: role=build cpu=high place=local"])
+@pytest.mark.parametrize("header", ["ccx: role=build place=local", "ccx: role=build cpu=high place=local"])
 def test_a_local_launch_beside_a_sprite_config_still_waits_on_load(shell, config, tmp_path, header):
     with_sprites(config)
     brief = lane_brief(tmp_path, header)
