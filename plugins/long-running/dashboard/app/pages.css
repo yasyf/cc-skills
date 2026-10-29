@@ -272,3 +272,4 @@ body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); bo
 .st-worker { color: var(--ink); border-bottom: 1px dashed color-mix(in srgb, var(--ok) 55%, transparent); text-decoration: none; }
 .st-worker:hover { color: var(--ok); }
 .st-story { color: var(--ok); font-size: .9em; border-bottom: 0; }
+.st-table td a, .st-prs a { display: inline-block; max-width: 100%; }

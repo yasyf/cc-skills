@@ -20,6 +20,8 @@ From top to bottom:
 
 1. A band, only when needed. A red band for a customer-facing incident with no fix live.
    An amber band with the buttons for each tap or question that waits on the owner.
+   Waiting approvals share one line and one Review button, with the count split by the
+   board's feature groups, largest first.
 2. The headline: one sentence of at most 25 words that a person could read aloud at
    standup.
 3. Overall progress: the drive's milestones, each with its state.
