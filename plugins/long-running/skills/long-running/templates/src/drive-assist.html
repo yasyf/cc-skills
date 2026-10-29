@@ -366,6 +366,7 @@ function results(raw){
  if(q.length&&AI.key){const askRow={group:"Assistant",icon:"✦",label:`Ask: ${raw.trim()}`,sub:"answers from the drive's records, the plan and your words",go:()=>askInPal(raw.trim()),ask:true};QUESTION.test(raw.trim())?items.unshift(askRow):items.push(askRow)}
  return {items,q};
 }
+function keepScroll(){history.replaceState({...history.state,y:scrollY},"")}
 function openPal(){keepScroll();location.hash="#/jump"}
 function showPal(){
  PAL.hidden=false;

@@ -1,4 +1,5 @@
-const VIEWS = { progress: 'journey', blockers: 'chart', story: 'column', work: 'rows3', diagram: 'end-state' };
+const VIEWS = { story: 'column', diagram: 'end-state' };
+const WIRE_TONE = { fixing: '#2f7bff', you: '#ffd400', nobody: '#ff4545', waiting: '#8a93a3', done: '#00e38c', work: '#b18cff' };
 const NODE_WORD = { fixing: 'Being fixed', you: 'Needs you', nobody: 'No one assigned', waiting: 'Waiting', done: 'Done' };
 const MARK_WORD = { progress: 'Progress', finding: 'Found', stuck: 'Stuck', done: 'Done' };
 const story = { item: null, es: null, lines: [], draft: null, status: null, open: false };
@@ -38,22 +39,99 @@ function nowScreen() {
   const m = state.model;
   const b = m.brief;
   const r = route();
-  if (!b) return `<div class="nw"><p class="nw-wait">Writing the first summary of the drive. It appears here in about a minute.</p>${diagramSlot()}</div>`;
-  const page = r.screen === 'story' && view('story') === 'page';
-  return `<div class="nw">
+  if (!b) return `<div class="nw sb-now"><p class="nw-wait">Writing the first summary of the drive. It appears here in about a minute.</p>${diagramSlot()}</div>`;
+  if (r.screen === 'story' && view('story') === 'page') return `<div class="nw">${band(b)}${storyPage(r.id)}${diagramSlot()}</div>`;
+  const list = stops(b);
+  const t = tally(m.drive.prs);
+  return `<div class="nw sb-now">
     ${band(b)}
-    ${page ? storyPage(r.id) : `
-    <h1 class="nw-head">${esc(b.headline)}</h1>
-    <p class="nw-sub">Written from the drive's records at ${clock(b.at)}. <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>
-    ${state.open.has('nw-why') ? `<ul class="nw-why">${b.because.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
-    <section><h2 class="nw-h">Overall progress</h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
-    <div class="nw-cols">
-      <section><h2 class="nw-h">Biggest blockers, and how each is being unblocked</h2>${blockers(b)}</section>
-      <section><h2 class="nw-h">${r.screen === 'story' ? 'Live story' : 'Being worked on now'}</h2>${r.screen === 'story' ? storyColumn(r.id) : workList(b)}</section>
-    </div>`}
+    <header class="sb-hero"><div class="sb-say"><h1 class="nw-head">${esc(b.headline)}</h1>
+      <p class="nw-sub">Written from the drive's records at ${clock(b.at)}. <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>
+      ${state.open.has('nw-why') ? `<ul class="nw-why">${b.because.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+      ${b.progress.sentence ? `<p class="sb-next">${esc(b.progress.sentence)}</p>` : ''}</div>
+      <div class="sb-stats"><div class="sb-stat ms"><b>${list.filter((s) => s.state === 'live').length}<small>/${list.length}</small></b><span>milestones live</span></div><div class="sb-stat code"><b>${t.landed}<small>/${t.total}</small></b><span>changes merged</span></div></div></header>
+    ${sbMap(b, list)}
     ${diagramSlot()}
-  </div>`;
+  </div>${r.screen === 'story' ? sbDrawer(workItem(decodeURIComponent(r.id ?? ''))?.title ?? 'Live story', `<div class="kick">Live story</div><div id="nw-story">${storyBody(decodeURIComponent(r.id ?? ''))}</div>`, `story-${r.id}`) : ''}`;
 }
+function sbMap(b, list) {
+  const m = state.model;
+  const plan = curated('plan');
+  const paths = b.paths.map(unfinished);
+  const edges = [];
+  const attached = new Set();
+  const columns = list.map((s, i) => {
+    const nodes = paths.filter((p) => p.milestone === i && p.nodes.length).flatMap((p) => {
+      const [depth, out] = depthOf(p);
+      const key = (id) => `n:${i}:${id}`;
+      for (const [from, tos] of out) for (const to of tos) edges.push([key(from), key(to), p.nodes.find((n) => n.id === from).state]);
+      for (const n of p.nodes) if (!out.get(n.id).length) edges.push([key(n.id), `ms:${i}`, n.state]);
+      return [...p.nodes].sort((x, y) => depth.get(x.id) - depth.get(y.id)).map((n) => ({ n, key: key(n.id) }));
+    });
+    const feeding = b.work.filter((w) => nodes.some(({ n }) => n.id === w.unblocks));
+    for (const w of feeding) {
+      attached.add(w.item);
+      edges.push([`w:${w.item}`, nodes.find(({ n }) => n.id === w.unblocks).key, 'work']);
+    }
+    const p = plan && milestoneOf(plan, i);
+    const quiet = s.state === 'live'
+      ? `<div class="sb-quiet ok"><b>✓ Live</b>${p?.ships ? `<span>${esc(p.ships)}</span>` : ''}</div>`
+      : s.state === 'not' ? `<div class="sb-quiet"><b>After ${esc(list[i - 1]?.name ?? 'the start')}</b>${p?.waits ? `<span>${esc(p.waits)}</span>` : ''}</div>`
+      : `<div class="sb-quiet"><b>${esc(s.label)}</b>${p?.waits ? `<span>${esc(p.waits)}${forSince(p.since)}</span>` : ''}${p?.unblock ? `<span class="sb-how">${esc(p.unblock)}</span>` : ''}</div>`;
+    const body = nodes.length || feeding.length ? `${nodes.map(({ n, key }) => sbNode(n, key)).join('')}${feeding.length ? `<p class="sb-feed">Work feeding it</p>${feeding.map(sbWork).join('')}` : ''}` : quiet;
+    return { width: nodes.length || feeding.length ? 2.2 : s.state === 'next' ? 1.5 : 1.15, html: `<section class="sb-col ms-${s.state}${s.state === 'next' ? ' cur' : ''}">
+      <a class="sb-ms" href="#/plan/m${i}" data-node="ms:${i}"><span class="sb-i">${i + 1}</span><b>${esc(s.name)}</b><span class="sb-st">${s.state === 'next' ? 'Next · ' : ''}${esc(s.state === 'next' ? 'the drive is here' : s.label)}</span>${s.why ? `<span class="sb-why">${esc(s.why)}</span>` : ''}</a>
+      <div class="sb-stack">${body}</div></section>` };
+  });
+  const loose = b.work.filter((w) => !attached.has(w.item));
+  return `<div class="sb-lab">${esc(m.milestones_label)} <span>left to right; lines show what unblocks what</span></div>
+    <div class="sb-map" data-edges="${esc(JSON.stringify(edges))}" style="grid-template-columns:${columns.map((c) => `minmax(0, ${c.width}fr)`).join(' ')}"><svg class="sb-wires" aria-hidden="true"></svg>${columns.map((c) => c.html).join('')}</div>
+    ${loose.length ? `<section class="sb-lane"><h2 class="nw-h">Also being worked on <span>${loose.length}</span><a href="#/work">All work ›</a></h2><div class="sb-lane-row">${loose.map(sbWork).join('')}</div></section>` : ''}
+    ${paths.some((p) => p.nodes.length) ? '' : `<div class="nw-calm"><span class="ok">✓</span>${esc(b.calm || 'Nothing is stuck.')}</div>`}`;
+}
+function sbNode(n, key) {
+  const work = n.item && workItem(n.item);
+  const tag = work ? 'a' : 'div';
+  const clockLine = [waited(n.since), nodeWord(n) && wordAt(nodeWord(n))].filter(Boolean).join(' · ');
+  return `<${tag} class="sb-node sb-${esc(n.state)}" data-node="${esc(key)}"${work ? ` href="${storyHref(n.item)}"` : ''}><span class="sb-tag">${NODE_WORD[n.state]}</span><b>${esc(n.text)}</b>${n.how ? `<span class="sb-how">${esc(n.how)}</span>` : ''}${clockLine ? `<span class="sb-clock">${clockLine}</span>` : ''}</${tag}>`;
+}
+function sbWork(w) {
+  const clockLine = [waited(w.since), wordAt(workWord(w.item))].filter(Boolean).join(' · ');
+  return `<a class="sb-work ${slug(w.status)}" href="${storyHref(w.item)}" data-node="w:${esc(w.item)}"><span class="sb-tag">${esc(w.status)}</span><b>${esc(w.title)}</b><span class="sb-how">${esc(w.latest)}</span>${clockLine ? `<span class="sb-clock">${clockLine}</span>` : ''}<span class="sb-open">Live story ›</span></a>`;
+}
+function sbWires() {
+  const map = document.querySelector('.sb-map');
+  if (!map) return;
+  const svg = map.querySelector('svg.sb-wires');
+  const o = map.getBoundingClientRect();
+  const at = new Map([...map.querySelectorAll('[data-node]')].map((el) => [el.dataset.node, el.getBoundingClientRect()]));
+  svg.setAttribute('viewBox', `0 0 ${o.width} ${o.height}`);
+  svg.setAttribute('width', o.width);
+  svg.setAttribute('height', o.height);
+  const lines = JSON.parse(map.dataset.edges).map(([from, to, tone]) => {
+    const a = at.get(from), b = at.get(to);
+    if (!a || !b) return '';
+    const near = a.top - b.bottom < 40 && Math.abs(a.left - b.left) < 4;
+    const d = near
+      ? `M${a.left + a.width / 2 - o.left} ${a.top - o.top} L${b.left + b.width / 2 - o.left} ${b.bottom - o.top + 1}`
+      : `M${a.left - o.left} ${a.top + Math.min(26, a.height / 2) - o.top} C${a.left - o.left - 30} ${a.top - o.top} ${b.left - o.left - 30} ${b.bottom - o.top} ${b.left - o.left} ${b.bottom - 14 - o.top}`;
+    return `<path stroke="${WIRE_TONE[tone]}" data-a="${esc(from)}" data-b="${esc(to)}" d="${d}" marker-end="url(#sb-head-${esc(tone)})"/>`;
+  }).join('');
+  svg.innerHTML = `<defs>${Object.entries(WIRE_TONE).map(([tone, color]) => `<marker id="sb-head-${tone}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="${color}"/></marker>`).join('')}</defs>${lines}`;
+  sbLight();
+}
+function sbLight() {
+  const map = document.querySelector('.sb-map');
+  if (!map) return;
+  map.classList.toggle('hl', Boolean(state.sbLit));
+  for (const path of map.querySelectorAll('svg.sb-wires path[data-a]')) path.classList.toggle('lit', path.dataset.a === state.sbLit || path.dataset.b === state.sbLit);
+}
+document.addEventListener('mouseover', (e) => {
+  const key = e.target.closest?.('.sb-map [data-node]')?.dataset.node ?? null;
+  if (key === state.sbLit) return;
+  state.sbLit = key;
+  sbLight();
+});
 
 function band(b) {
   const m = state.model;
@@ -98,35 +176,6 @@ function needLine(item) {
 function stops(b) {
   return state.model.milestones.map((name, i) => ({ name, ...(b.progress.stops[i] ?? { state: 'not', label: 'Not known', why: '' }) }));
 }
-function journey(b) {
-  const list = stops(b);
-  const lastLive = list.map((s) => s.state).lastIndexOf('live');
-  const cur = list.findIndex((s) => s.state === 'next');
-  const fill = lastLive > 0 ? (lastLive / list.length) * 100 : 0;
-  return `<div class="nw-panel">${progressLabel()}
-    <div class="nw-journey" style="--n:${list.length}"><i class="fill" style="width:${fill}%"></i>${list.map((s, i) => `<a class="ms ms-${s.state}${i === cur ? ' cur' : ''}" href="#/plan/m${i}"><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.why ? `<span class="why">${esc(s.why)}</span>` : ''}</a>`).join('')}</div>
-    <p class="nw-sent">${list.filter((s) => s.state === 'live').length} of ${list.length} milestones are live. ${esc(b.progress.sentence ?? '')}</p><p class="nw-code">${codeLine()}</p>
-    </div>`;
-}
-function progressLabel() {
-  return `<p class="nw-lab">${esc(state.model.milestones_label)}</p>`;
-}
-function codeLine() {
-  const t = tally(state.model.drive.prs);
-  return `Code: ${t.landed} of ${t.total} changes merged.`;
-}
-function compact(b) {
-  const list = stops(b);
-  const live = list.filter((s) => s.state === 'live');
-  const next = list.find((s) => s.state === 'next');
-  const odd = list.filter((s) => ['paused', 'broken'].includes(s.state));
-  return `<div class="nw-panel">${progressLabel()}<div class="nw-seg">${list.map((s, i) => `<a class="ms-${s.state}" href="#/plan/m${i}" title="${esc(`${s.name}: ${s.label}`)}"></a>`).join('')}</div>
-    <p class="nw-sent"><b>${live.length} of ${list.length} milestones live</b>${live.length ? `: ${esc(live.map((s) => s.name).join(', '))}` : ''}.</p>
-    ${next ? `<p class="nw-line">Next: <b>${esc(next.name)}</b>${next.why ? `, ${esc(next.why)}` : ''}.</p>` : ''}
-    ${odd.map((s) => `<p class="nw-line ms-${s.state}">${esc(s.name)}: ${esc(s.label)}${s.why ? `, ${esc(s.why)}` : ''}.</p>`).join('')}
-    <p class="nw-code"><a href="?progress=journey${location.hash}">All ${list.length} milestones ›</a></p></div>`;
-}
-
 function unfinished(path) {
   let edges = path.edges;
   for (const d of path.nodes.filter((n) => n.state === 'done')) {
@@ -135,15 +184,6 @@ function unfinished(path) {
     edges = [...edges.filter((e) => e.from !== d.id && e.to !== d.id), ...into.flatMap((from) => outof.map((to) => ({ from, to })))];
   }
   return { ...path, nodes: path.nodes.filter((n) => n.state !== 'done'), edges };
-}
-function blockers(b) {
-  const paths = b.paths.map(unfinished).filter((p) => p.nodes.length);
-  if (!paths.length) return `<div class="nw-calm"><span class="ok">✓</span>${esc(b.calm || 'Nothing is stuck.')}</div>`;
-  return view('blockers') === 'cards' ? `${cards([paths[0]])}${paths.slice(1).map(laterPath).join('')}` : `<div class="nw-chart">${chart(paths[0], 0)}${paths.slice(1).map(laterPath).join('')}</div>`;
-}
-function laterPath(path) {
-  const name = state.model.milestones[path.milestone] ?? 'a later milestone';
-  return `<div class="nw-later"><a class="plab" href="#/plan/m${path.milestone}">To ${esc(name)} ›</a><ul>${path.nodes.map((n) => `<li class="${esc(n.state)}"><p><b>${esc(n.text)}</b> <span title="${esc(NODE_WORD[n.state])}">${esc(n.how)}${lasted(n.since) ? ` · ${lasted(n.since)}` : ''}${nodeWord(n) ? ` · ${wordAt(nodeWord(n))}` : ''}</span></p></li>`).join('')}<li class="goal"><p><b>Then ${esc(name)}</b></p></li></ul></div>`;
 }
 function depthOf(path) {
   const out = new Map(path.nodes.map((n) => [n.id, []]));
@@ -161,68 +201,9 @@ function depthOf(path) {
   };
   return [new Map(path.nodes.map((n) => [n.id, depth(n.id)])), out];
 }
-function chart(path, index) {
-  const [depth, out] = depthOf(path);
-  const layers = [...new Set(depth.values())].sort((a, b) => b - a);
-  const name = state.model.milestones[path.milestone] ?? 'the next milestone';
-  const key = `p${index}`;
-  const edges = [...[...out].flatMap(([from, tos]) => tos.map((to) => [from, to])), ...path.nodes.filter((n) => !out.get(n.id).length).map((n) => [n.id, '@goal'])];
-  return `<div class="nw-path" data-path="${key}" data-edges="${esc(JSON.stringify(edges))}"><svg class="arrows" aria-hidden="true"></svg>
-    <p class="plab">To ${esc(name)}</p>
-    ${layers.map((d) => `<div class="layer">${path.nodes.filter((n) => depth.get(n.id) === d).map((n) => node(n, key)).join('')}</div>`).join('')}
-    <div class="layer"><div class="nd goal" data-node="${key}:@goal"><span class="w">Then</span>${esc(name)}</div></div></div>`;
-}
 function nodeWord(n) {
   return (n.change && latestWord(n.change)) || (n.item && workWord(n.item));
 }
-function node(n, key) {
-  const work = n.item && workItem(n.item);
-  const tag = work ? `a href="${storyHref(n.item)}"` : 'div';
-  return `<${tag} class="nd ${n.state}" data-node="${key}:${esc(n.id)}"><span class="w">${NODE_WORD[n.state]}${waited(n.since) ? ` <i>${waited(n.since)}</i>` : ''}${nodeWord(n) ? ` <i>· ${wordAt(nodeWord(n))}</i>` : ''}</span>${esc(n.text)}
-    ${n.how ? `<span class="how">${esc(n.how)}</span>` : ''}</${work ? 'a' : 'div'}>`;
-}
-function cards(paths) {
-  const rank = { nobody: 0, you: 1, fixing: 2, waiting: 3 };
-  const list = paths.flatMap((p) => p.nodes.filter((n) => n.state !== 'done').map((n) => ({ ...n, holds: state.model.milestones[p.milestone] }))).sort((a, b) => rank[a.state] - rank[b.state]);
-  return `<div class="nw-cards">${list.map((n) => {
-    const work = n.item && workItem(n.item);
-    return `<div class="blk ${n.state}"><div class="stuck"><div class="t">${esc(n.text)}</div><div class="meta">Holds up <b>${esc(n.holds ?? 'the next milestone')}</b>${waited(n.since) ? ` · ${waited(n.since)}` : ''}</div></div>
-      <div class="unb"><span class="chip ${n.state}">${NODE_WORD[n.state]}</span>${esc(n.how)}${work ? ` <a href="${storyHref(n.item)}">Live story ›</a>` : ''}</div></div>`;
-  }).join('')}</div>`;
-}
-function drawArrows() {
-  for (const box of document.querySelectorAll('.nw-path')) {
-    const svg = box.querySelector('svg.arrows');
-    const origin = box.getBoundingClientRect();
-    svg.setAttribute('viewBox', `0 0 ${origin.width} ${origin.height}`);
-    svg.setAttribute('width', origin.width);
-    svg.setAttribute('height', origin.height);
-    const at = (id) => box.querySelector(`[data-node="${CSS.escape(`${box.dataset.path}:${id}`)}"]`)?.getBoundingClientRect();
-    const lines = JSON.parse(box.dataset.edges).map(([from, to]) => {
-      const a = at(from), b = at(to);
-      if (!a || !b) return '';
-      const x1 = a.left + a.width / 2 - origin.left, y1 = a.bottom - origin.top;
-      const x2 = Math.min(Math.max(x1, b.left - origin.left + 16), b.right - origin.left - 16), y2 = b.top - origin.top - 1;
-      const mid = (y1 + y2) / 2;
-      return `<path d="M${x1} ${y1} C${x1} ${mid} ${x2} ${mid} ${x2} ${y2}" marker-end="url(#nw-head)"/>`;
-    }).join('');
-    svg.innerHTML = `<defs><marker id="nw-head" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z"/></marker></defs>${lines}`;
-  }
-}
-
-function workList(b) {
-  if (view('work') === 'boxes') return `<div class="nw-boxes">${b.work.map((w) => `<a class="bx" href="${storyHref(w.item)}"><b>${esc(w.title)}</b><span class="chip ${slug(w.status)}">${esc(w.status)}</span>${waited(w.since) ? `<span class="for">${waited(w.since)}</span>` : ''}<span>${esc(w.latest)}</span></a>`).join('')}</div>`;
-  const rows = b.work.slice(0, view('work') === 'rows5' ? 5 : 3);
-  const more = b.work.length - rows.length;
-  if (!rows.length) return '<div class="nw-calm">No work is running right now.</div>';
-  return `<div class="nw-work">${rows.map(workRow).join('')}${more ? `<a class="more" href="#/work">${more} more piece${more === 1 ? '' : 's'} of work ›</a>` : ''}</div>`;
-}
-function workRow(w) {
-  return `<a class="wr ${slug(w.status)}" href="${storyHref(w.item)}"><span class="pulse"></span>
-    <span class="body"><b>${esc(w.title)}</b><span class="line"><span class="chip ${slug(w.status)}">${esc(w.status)}</span>${esc(w.latest)}</span></span>
-    <span class="side">${lasted(w.since) ? `<span>${lasted(w.since)}</span><span>since ${esc(w.since)}</span>` : ''}${workWord(w.item) ? `<span>${wordAt(workWord(w.item))}</span>` : ''}<span class="open">Live story ›</span></span></a>`;
-}
-
 function follow(item) {
   if (story.item === item && story.es) return;
   story.es?.close();
@@ -246,9 +227,6 @@ function unfollow() {
 function paintStory() {
   const host = $('#nw-story');
   if (host) host.innerHTML = storyBody(story.item);
-}
-function storyColumn(item) {
-  return `<div class="nw-story-col"><a class="back" href="#/">‹ All work</a><div id="nw-story">${storyBody(item)}</div></div>`;
 }
 function storyPage(item) {
   const b = state.model.brief;
@@ -289,10 +267,10 @@ function mountNow() {
   const r = route();
   if (r.screen === 'story' && r.id) follow(decodeURIComponent(r.id));
   else unfollow();
-  drawArrows();
+  sbWires();
   mountOverview();
 }
 document.addEventListener('click', (e) => {
   if (e.target.closest('[data-story-more]')) { story.open = true; paintStory(); }
 });
-window.addEventListener('resize', () => drawArrows());
+window.addEventListener('resize', () => sbWires());

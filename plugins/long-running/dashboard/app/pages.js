@@ -292,15 +292,24 @@ function waitLine(row, w) {
   if (!SETTLED.test(w.blocker.trim())) return `<p class="mr-waits">${dotted('Waits on', 'warn')} ${esc(w.blocker)}${since ? `<small class="pg-for">${blockedFor(since)}</small>` : ''}</p>`;
   return verdictState(row) === 'you' && since ? `<p class="mr-waits">${dotted('Waiting on you', 'you')} ${blockedFor(since)}</p>` : '';
 }
-function mergeRow(row) {
+function sbRowCard(row) {
   const w = rowWords(row);
   const busy = pending.number === row.number && !pending.error;
-  const waits = waitLine(row, w);
-  const carried = row.carried?.length ? '<p class="mr-waits">Your earlier approval carries to this version; the review line names the fix.</p>' : '';
   const acts = verdictState(row) === 'you'
     ? `<button class="btn pri" data-approve="${row.number}" data-head="${esc(row.head)}"${busy ? ' disabled' : ''}>${busy ? 'Sending' : 'Approve'}</button><button class="btn" data-hold-row="${row.number}"${busy ? ' disabled' : ''}>Hold</button>`
     : verdictPill(row);
-  return `<article class="mr t-${verdictState(row)}" data-peek="${row.number}"><header><a class="mr-t" href="#/review/${row.number}">${esc(w.title)}</a><span class="mr-acts">${acts}<a class="btn ghost" href="#/review/${row.number}">Details</a></span></header>${waits}${carried}${rowFacts(row)}${pending.number === row.number && pending.error ? `<p class="mr-err">Not recorded: ${esc(pending.error)}</p>` : ''}${changeBox(row.number, row.head)}${prPeek(row.number)}</article>`;
+  const carried = row.carried?.length ? '<p class="mr-waits">Your earlier approval carries to this version; the review line names the fix.</p>' : '';
+  return `<article class="mr sb-card t-${verdictState(row)}" data-peek="${row.number}"><a class="mr-t" href="#/review/${row.number}">${esc(w.title)}</a>${waitLine(row, w)}${carried}${w.change ? `<p class="sb-line">${esc(w.change)}</p>` : ''}<div class="sb-acts">${acts}<a class="btn ghost" href="#/review/${row.number}">Details</a></div>${pending.number === row.number && pending.error ? `<p class="mr-err">Not recorded: ${esc(pending.error)}</p>` : ''}${changeBox(row.number, row.head)}${prPeek(row.number)}</article>`;
+}
+function sbPrCard(n, line, since) {
+  return `<article class="mr sb-card" data-peek="${n}"><a class="mr-t" href="#/review/${n}">${esc(prTitle(n))}</a>${line ? `<p class="sb-line">${esc(line)}</p>` : ''}${since ? `<p class="sb-clock">${since}</p>` : ''}${prPeek(n)}</article>`;
+}
+function pacificMidnight() {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: PACIFIC, hour: 'numeric', minute: 'numeric', second: 'numeric', hourCycle: 'h23' }).formatToParts(new Date()).map((x) => [x.type, Number(x.value)]));
+  return Date.now() - ((parts.hour * 60 + parts.minute) * 60 + parts.second) * 1000;
+}
+function sbColumn(id, label, count, body, empty) {
+  return `<section class="sb-kcol k-${id}"><header><b>${label}</b><span>${count}</span></header><div class="sb-kbody" data-keep-scroll="kb-${id}">${body || `<p class="sb-kempty">${empty}</p>`}</div></section>`;
 }
 const peek = { n: null, at: 0 };
 for (const kind of ['pointerover', 'focusin']) {
@@ -322,21 +331,38 @@ function holdPeek() {
 function reviewScreen(list) {
   const m = state.model;
   if (list === 'q') list = '';
-  const decided = m.board.rows.filter((r) => verdictState(r) !== 'you');
+  const rows = m.board.rows;
+  const onBoard = new Set(rows.map((r) => r.number));
+  const decided = rows.filter((r) => verdictState(r) !== 'you');
   const chips = `<nav class="pg-filters"><a href="#/review" class="${list ? '' : 'on'}">Waiting on you <b>${needsTotal()}</b></a><a href="#/review/decided" class="${list === 'decided' ? 'on' : ''}">You approved or held <b>${decided.length}</b></a></nav>`;
-  if (list === 'decided') return `<div class="pg">${pageHead('Review', curated('review'))}${chips}<div class="mr-list">${decided.map(mergeRow).join('') || '<p class="pg-none">Nothing you approved is still waiting to land.</p>'}</div></div>`;
+  const open = (n) => m.prs[n]?.state === 'open' && !onBoard.has(Number(n));
   const merges = m.needs.filter((item) => item.kind === 'prs').map((g) => {
     const words = rewritten('groups', g.key);
     const relation = words ? words.relation : g.relation;
-    const head = g.prs.length > 1 ? `<h3>${esc(words?.title ?? g.group)}</h3>${relation ? `<p class="pg-rel">${esc(relation)}</p>` : ''}` : '';
-    return `<section class="pg-sec mr-group">${head}<div class="mr-list">${g.prs.map(mergeRow).join('')}</div></section>`;
+    const head = g.prs.length > 1 ? `<h3 class="sb-group">${esc(words?.title ?? g.group)}</h3>${relation ? `<p class="pg-rel">${esc(relation)}</p>` : ''}` : '';
+    return `${head}${g.prs.map(sbRowCard).join('')}`;
   }).join('');
   const cards = m.needs.filter((item) => item.kind === 'card');
-  return `<div class="pg">${pageHead('Review', curated('review'))}${chips}
-    ${needsTotal() ? '' : '<p class="pg-lead">Nothing waits on you. When a change or a question needs you, it shows here and in the band on Now.</p>'}
-    ${needsTotal() && !merges ? '<p class="pg-rel">No change waits on your approval right now.</p>' : ''}
-    ${merges}
-    ${cards.length ? `<section class="pg-sec" id="review-questions"><h2>Questions</h2><div class="mr-list">${cards.map(boardCard).join('')}</div></section>` : ''}</div>`;
+  const you = `${merges}${cards.length ? `<div id="review-questions"><h3 class="sb-group">Questions <span>${cards.length}</span></h3>${cards.map(boardCard).join('')}</div>` : ''}`;
+  const heldNumbers = new Set([...m.drive.prs.filter((e) => e.state === 'held').map((e) => e.number), ...m.stack.filter((row) => /^held\b/.test(row.state)).map((row) => Number(row.pr))].filter(open));
+  const held = [...rows.filter((r) => verdictState(r) === 'held').map(sbRowCard), ...[...heldNumbers].map((n) => {
+    const t = prTruth(n);
+    return sbPrCard(n, t.blocks, t.since ? blockedFor(t.since) : '');
+  })];
+  const queued = m.drive.prs.filter((e) => e.state === 'queued' && open(e.number));
+  const landing = [...rows.filter((r) => verdictState(r) === 'approved').map(sbRowCard), ...queued.map((e) => {
+    const t = prTruth(e.number);
+    return sbPrCard(e.number, t.blocks || t.next || STATE_WORD.queued, t.since ? blockedFor(t.since) : '');
+  })];
+  const midnight = pacificMidnight();
+  const landed = Object.entries(m.prs).filter(([, pr]) => pr.landed_at && new Date(pr.landed_at) >= midnight).sort((a, b) => new Date(b[1].landed_at) - new Date(a[1].landed_at)).map(([n, pr]) => sbPrCard(n, '', `Landed ${clock(pr.landed_at)}`));
+  return `<div class="pg sb-review${list === 'decided' ? ' sb-decided' : ''}">${pageHead('Review', curated('review'), chips)}
+    <div class="sb-kanban">
+      ${sbColumn('you', 'Waiting on you', needsTotal(), you, 'Nothing waits on you. When a change or a question needs you, it shows here and in the band on Now.')}
+      ${sbColumn('held', 'Held', held.length, held.join(''), 'Nothing is held.')}
+      ${sbColumn('landing', 'Approved and landing', landing.length, landing.join(''), 'Nothing approved is waiting to land.')}
+      ${sbColumn('landed', 'Landed today', landed.length, landed.join(''), 'Nothing has landed yet today.')}
+    </div></div>`;
 }
 
 function historyEntry(e) {

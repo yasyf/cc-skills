@@ -271,10 +271,12 @@ function render() {
   const spotRoot = [$('#main'), $('#tabs')].find((el) => el.contains(document.activeElement));
   const spot = !typing && state.shown === location.hash && spotRoot && focusSpot(spotRoot);
   $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${r.screen === id || (id === 'overview' && r.screen === 'story') ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="count">${count}</span>` : ''}</a>`).join('');
-  const screens = { overview: nowScreen, story: nowScreen, plan: () => planScreen(r.id), work: () => workScreen(r.id && decodeURIComponent(r.id)), review: () => (/^\d+$/.test(r.id ?? '') ? reviewPR(r.id, r.tab) : reviewScreen(r.id ?? '')), history: () => historyScreen(r.id), ask: askScreen, status: statusScreen, jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>`, worker: () => workerScreen(decodeURIComponent(r.id ?? '')) };
+  const screens = { overview: nowScreen, story: nowScreen, plan: () => planScreen(r.id), work: () => workScreen(r.id && decodeURIComponent(r.id)), review: () => (/^\d+$/.test(r.id ?? '') ? reviewScreen('') + sbDrawer(prTitle(r.id), reviewPR(r.id, r.tab), `pr-${r.id}-${r.tab ?? ''}`) : reviewScreen(r.id ?? '')), history: () => historyScreen(r.id), ask: askScreen, status: statusScreen, jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>`, worker: () => workerScreen(decodeURIComponent(r.id ?? '')) };
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
+  const hadDrawer = Boolean($('#main .sb-drawer'));
   $('#main').innerHTML = (screens[r.screen] ?? nowScreen)() + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources failed: ${esc(Object.values(m.errors).join('; '))}. ` : ''}All times Pacific.</div>`;
+  if (!hadDrawer) $('#main .sb-drawer')?.classList.add('sb-in');
   decorate(r);
   holdPeek();
   paintModal();
@@ -289,6 +291,7 @@ function render() {
   window.scrollTo(0, y);
   for (const [id, left, top] of kept) { const el = document.querySelector(`[data-keep-scroll="${id}"]`); if (el) [el.scrollLeft, el.scrollTop] = [left, top]; }
   syncReviewEmbed(r);
+  sbPlaceEmbed();
   syncCardEmbed(r);
   if (r.screen === 'review' && r.id === 'q' && state.focused !== location.hash) {
     state.focused = location.hash;
@@ -299,6 +302,28 @@ function render() {
   else unfollow();
   tickFresh();
 }
+function sbDrawer(label, body, key) {
+  return `<div class="sb-scrim" data-drawer-close></div><aside class="sb-drawer" role="dialog" aria-label="${esc(label)}" data-keep-scroll="${esc(key)}"><button class="btn sb-x" data-drawer-close>Close <kbd>Esc</kbd></button>${body}</aside>`;
+}
+function inDrawer(hash = location.hash) {
+  return /^#\/(story\/[^/]+|review\/\d+)/.test(hash);
+}
+function closeDrawer() {
+  const depth = history.state?.drawer;
+  if (history.state?.inApp && depth) history.go(-depth);
+  else location.replace(route().screen === 'story' ? '#/' : '#/review');
+}
+function sbPlaceEmbed() {
+  const tabs = $('#main .sb-drawer .review-tabs');
+  if (tabs) $('#embed').style.setProperty('--sb-code-top', `${Math.max(64, tabs.getBoundingClientRect().bottom + 10)}px`);
+}
+document.addEventListener('scroll', (e) => { if (e.target.classList?.contains('sb-drawer')) sbPlaceEmbed(); }, true);
+window.addEventListener('resize', sbPlaceEmbed);
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('[data-drawer-close]')) return;
+  e.preventDefault();
+  closeDrawer();
+});
 const FOCUSABLE = 'a[href], button, summary, input, select, textarea, [tabindex]';
 function signature(el) {
   return [...el.attributes].filter((a) => a.name !== 'class').map((a) => `${a.name}=${a.value}`).join(' ');
@@ -401,7 +426,7 @@ function leave(to) {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && state.overlay) closeSheet();
   else if (e.key === 'Escape' && ov.embedCard) { ov.embedCard = null; render(); }
-  else if (e.key === 'Escape' && route().screen === 'story') leave('#/');
+  else if (e.key === 'Escape' && inDrawer()) closeDrawer();
   else if (e.key === 'Escape' && route().screen === 'work' && route().id) leave('#/work');
   if (e.key === 'Enter' && !e.shiftKey && e.target.matches('#ask textarea')) { e.preventDefault(); ask(e.target.value); }
 });
@@ -466,11 +491,14 @@ function focusOpener() {
 }
 window.addEventListener('hashchange', () => {
   const returning = history.state?.y !== undefined;
-  if (!history.state) history.replaceState({ inApp: true }, '');
+  if (!history.state) history.replaceState({ inApp: true, drawer: inDrawer() ? (state.drawerDepth ?? 0) + 1 : 0 }, '');
+  state.drawerDepth = history.state.drawer ?? 0;
   state.overlay = null;
   render();
-  if (!/^#\/review\/q(\/|$)/.test(location.hash)) window.scrollTo(0, history.state?.y ?? 0);
-  if (history.state?.spot) refocus(history.state.spot);
+  const opening = inDrawer() && history.state?.y === undefined;
+  if (!/^#\/review\/q(\/|$)/.test(location.hash) && !opening) window.scrollTo(0, history.state?.y ?? 0);
+  if (opening) $('#main .sb-drawer .sb-x')?.focus({ preventScroll: true });
+  else if (history.state?.spot) refocus(history.state.spot);
   else if (history.state?.sheet && state.opener) focusOpener();
   else if (returning) focusInView();
 });

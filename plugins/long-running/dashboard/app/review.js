@@ -280,7 +280,7 @@ document.addEventListener('submit', async (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key.toLowerCase() !== 'f' || e.metaKey || e.ctrlKey || e.altKey || e.target.closest('input, textarea, select, [contenteditable]') || route().screen !== 'review' || state.overlay) return;
-  const input = $(`#main .mr[data-peek="${peek.n}"] [data-change] input`) ?? document.activeElement.closest?.('.mr')?.querySelector('[data-change] input') ?? $('#main [data-change] input');
+  const input = $('#main .sb-drawer [data-change] input') ?? $(`#main .mr[data-peek="${peek.n}"] [data-change] input`) ?? document.activeElement.closest?.('.mr')?.querySelector('[data-change] input') ?? $('#main [data-change] input');
   if (!input) return;
   e.preventDefault();
   input.focus();
