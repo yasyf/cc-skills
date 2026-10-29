@@ -187,9 +187,9 @@ a.pg-row:hover .pg-cells > b { color: var(--accent); }
 
 :root { --lit-tone: var(--ok); --panel-face: radial-gradient(rgba(255, 255, 255, .03) 1px, transparent 1px) 0 0 / 14px 14px, radial-gradient(120% 90% at 50% 0%, #10161f 0%, rgba(8, 10, 13, 0) 70%), #0d1015; }
 * { --lit: color-mix(in srgb, var(--lit-tone) 50%, transparent); --lit-glow: 0 0 0 1px color-mix(in srgb, var(--lit-tone) 7%, transparent), 0 0 22px -8px color-mix(in srgb, var(--lit-tone) 55%, transparent); }
-:is(.mr, .pg-table, .pg-list, .pg-facts, .pr-facts, .pr-read, .st-table .tablewrap, .nw-panel, .nw-chart, .nw-cards .blk, .nw-work, .nw-calm, .wk-helpers, .chat, form.ask) { background: var(--panel-face); border: 1.5px solid var(--lit); box-shadow: var(--depth), var(--lit-glow); }
-:is(.mr.t-you, .nw-cards .blk.you) { --lit-tone: var(--amber); }
-:is(.mr.t-failing, .wk-stuck, .nw-cards .blk.nobody) { --lit-tone: var(--bad); }
+:is(.mr, .pg-table, .pg-list, .pg-facts, .pr-facts, .pr-read, .st-table .tablewrap, .nw-panel, .nw-work, .nw-calm, .wk-helpers, .chat, form.ask) { background: var(--panel-face); border: 1.5px solid var(--lit); box-shadow: var(--depth), var(--lit-glow); }
+.mr.t-you { --lit-tone: var(--amber); }
+:is(.mr.t-failing, .wk-stuck) { --lit-tone: var(--bad); }
 :is(.mr.t-held, .mr.t-waiting, .mr.t-closed, .mr.t-untracked) { --lit-tone: var(--ink-3); }
 body #pal .box { background: var(--panel-face); border: 1.5px solid var(--lit); box-shadow: 0 24px 60px -12px rgba(0, 0, 0, .45), var(--lit-glow); }
 body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); box-shadow: inset 2px 0 0 var(--ok); }
@@ -215,15 +215,6 @@ body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); bo
 .st-light.acc { --tone: var(--accent); } .st-light.bad { --tone: var(--bad); }
 .nw-band.needs { --lit-tone: var(--amber); border: 1.5px solid var(--lit); box-shadow: var(--depth), var(--lit-glow); background: radial-gradient(120% 90% at 50% 0%, #2a2010 0%, rgba(36, 28, 12, 0) 70%), #1d170b; }
 .nw-band.incident { --lit-tone: var(--bad); border: 1.5px solid var(--lit); box-shadow: var(--depth), var(--lit-glow); }
-.nw-journey .ms-live .dot { box-shadow: 0 0 10px color-mix(in srgb, var(--done) 70%, transparent); }
-.nw-journey :is(.ms-next, .ms-progress) .dot { box-shadow: 0 0 10px color-mix(in srgb, var(--doing) 60%, transparent); }
-.nw-journey .ms-broken .dot { box-shadow: 0 0 10px color-mix(in srgb, var(--bad) 70%, transparent); }
-.nw-journey .ms-paused .dot { box-shadow: 0 0 10px color-mix(in srgb, var(--you) 60%, transparent); }
-.nw-path .nd .w::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; box-sizing: border-box; border: 1.5px solid var(--ink3); vertical-align: 0; }
-.nw-path .nd.fixing .w::before { border: 0; background: var(--doing); box-shadow: 0 0 6px var(--doing); }
-.nw-path .nd.you .w::before { border: 0; background: var(--you); box-shadow: 0 0 6px var(--you); }
-.nw-path .nd.nobody .w::before { border-color: var(--bad); box-shadow: 0 0 6px color-mix(in srgb, var(--bad) 60%, transparent); }
-.nw-path .nd.goal .w::before { display: none; }
 .st-table tr[data-step] { cursor: pointer; }
 .st-table tr[data-step]:hover td { background: rgba(255, 255, 255, .02); }
 .st-prs .pg-state { white-space: normal; align-items: flex-start; }

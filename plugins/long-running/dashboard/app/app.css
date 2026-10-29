@@ -179,7 +179,7 @@ body.modal-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) { #modal-root .overlay, #modal-root .sheet { animation: none; } }
 
 :root { --lift: linear-gradient(180deg, rgba(255, 255, 255, .03), rgba(255, 255, 255, 0) 140px); --depth: inset 0 1px 0 rgba(255, 255, 255, .04), 0 14px 34px -20px rgba(0, 0, 0, .8); }
-:is(.pg-table, .pg-list, .pg-facts, .pr-facts, .nw-panel, .nw-chart, .nw-cards .blk, .nw-work, .nw-calm) { background-image: var(--lift); box-shadow: var(--depth); }
+:is(.pg-table, .pg-list, .pg-facts, .pr-facts, .nw-panel, .nw-work, .nw-calm) { background-image: var(--lift); box-shadow: var(--depth); }
 .tab { transition: color .15s, border-color .15s; }
 .tab.on { background: linear-gradient(180deg, transparent 55%, rgba(90, 169, 255, .09)); }
 #modal-root .overlay { backdrop-filter: blur(6px) saturate(120%); }
