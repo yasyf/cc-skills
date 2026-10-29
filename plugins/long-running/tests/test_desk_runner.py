@@ -3077,6 +3077,17 @@ def test_a_test_only_pr_lands_on_a_root_go_with_no_board_tap_and_one_exempt_admi
     assert admissions == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "test-only or CI-only, no non-test code" and root go #{seq + 2} names it, so it lands with no board tap (06288326)']
 
 
+@pytest.mark.parametrize("said", ["test-only, no non-test code", "CI-only, no non-test code"])
+def test_a_grade_saying_test_only_or_ci_only_alone_lands_on_a_root_go_with_no_board_tap(shell, config, said):
+    tap_ruled_pr(shell, config, ["go/sand/next/vm/run_test.go", ".buildkite/pipeline.yml"])
+    seq = grade(shell, "29020", f"ok cccc333 {said}: it adds cases and a pipeline step.")
+    merge_go(shell, "29020", "go test-only #29020 at cccc333")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and not [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    assert [post_body(post) for post in notes(shell) if "EXEMPT-ADMITTED" in post_body(post)] == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "{said}" and root go #{seq + 2} names it, so it lands with no board tap (06288326)']
+
+
 @pytest.mark.parametrize("go", ["go test-only #29020 at cccc333", "go port #29020 at cccc333"], ids=["go-test-only", "go-port"])
 def test_a_test_only_claim_over_a_pr_that_changes_non_test_code_is_refused_naming_the_first_non_test_file(shell, config, go):
     tap_ruled_pr(shell, config, ["go/sand/next/vm/run_test.go", "go/sand/next/vm/run.go", "go/sand/next/vm/other.go"])
@@ -3923,6 +3934,7 @@ def test_a_merge_card_is_edited_in_place_when_its_question_changes_and_never_pos
     landing_pass(shell, config)
     assert len(shell.pr_cards) == 1
     shell.check_pr["29020"] = (1, RESERVED)
+    config.with_name(f"{config.stem}.check-pr.json").unlink()
     landing_pass(shell, config)
     landing_pass(shell, config)
     first, second = shell.pr_cards
@@ -4386,6 +4398,7 @@ def test_a_reserved_touch_found_after_the_enqueue_was_accepted_enqueues_nothing(
     grade(shell, "29020", "ok cccc333")
     landing_of(shell, config, tmp_path).accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}}, [])
     shell.check_pr["29020"] = (1, RESERVED)
+    config.with_name(f"{config.stem}.check-pr.json").unlink()
     landing_of(shell, config, tmp_path).enqueue()
     assert shell.enqueues() == []
     [action] = enqueues_of(tmp_path).values()
@@ -4792,6 +4805,82 @@ def test_a_heads_rulings_check_runs_once_across_passes(shell, config, tmp_path):
     assert sorted(call[call.index("--pr") + 1] for call in shell.calls if "check-pr" in call) == ["Forge-AI/monorepo#29020", "Forge-AI/monorepo#29031"]
 
 
+def test_a_heads_final_rulings_check_survives_a_runner_restart_and_an_unread_one_does_not(shell, config, tmp_path):
+    two_pr_stack(shell)
+    shell.check_pr["29020"] = (1, "NAME-HIT rule/394dfd6 go/x.go:5 sync\n")
+    shell.check_pr["29031"] = (0, "BLOCKER the diff of acme/app#29031: git fetch exited 128\n")
+    for _ in range(2):
+        runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+        landing = runner_module.Landing(runner, runner.config.landing)
+        assert landing.rulings_report("29020", "cccc333333") == ["NAME-HIT rule/394dfd6 go/x.go:5 sync"]
+        landing.rulings_report("29031", "dddd444444")
+    assert sorted(call[call.index("--pr") + 1] for call in shell.calls if "check-pr" in call) == ["Forge-AI/monorepo#29020", "Forge-AI/monorepo#29031", "Forge-AI/monorepo#29031"]
+
+
+def test_a_pass_reads_a_repeated_cci_query_once_until_the_runner_posts(shell, config, tmp_path):
+    two_pr_stack(shell)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    landing = runner_module.Landing(runner, runner.config.landing)
+    runner.cci_tail.remember()
+
+    def withdraw_reads() -> int:
+        return len([call for call in shell.calls if call[:2] == ["cci", "tail"] and "--kind=withdraw" in call])
+
+    for pr, head in (("29020", "cccc333333"), ("29031", "dddd444444")):
+        landing.carried_by_fidelity(pr, head, lambda sha: False)
+    assert withdraw_reads() == len(landing.fidelity_lanes)
+    runner.cci_post("note", "a note", "root", "29020", "note:29020")
+    landing.carried_by_fidelity("29020", "cccc333333", lambda sha: False)
+    assert withdraw_reads() == 2 * len(landing.fidelity_lanes)
+
+
+def test_old_app_grades_are_read_once_per_pr_whatever_heads_a_carried_go_tries(shell, config, tmp_path, monkeypatch):
+    raw = json.loads(config.read_text())
+    raw["landing"]["checks"] = ["old-app"]
+    config.write_text(json.dumps(raw))
+    two_pr_stack(shell)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    landing = runner_module.Landing(runner, runner.config.landing)
+    read: list[str] = []
+    graded = runner_module.old_app_grades_in
+    monkeypatch.setattr(runner_module, "old_app_grades_in", lambda found, drive, lanes, repo, pr: read.append(pr) or graded(found, drive, lanes, repo, pr))
+    lands = landing.old_app_lands()
+    for pr, head in (("29020", "cccc333333"), ("29020", "aaaa111111"), ("29031", "dddd444444"), ("29031", "bbbb222222")):
+        assert not lands(pr, head)
+    assert read == ["29020", "29031"]
+
+
+def test_the_accept_checks_of_heads_no_go_names_run_in_parallel(shell, config, tmp_path, monkeypatch):
+    two_pr_stack(shell)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    landing = runner_module.Landing(runner, runner.config.landing)
+    rows = landing.rows()
+    landing.no_go = {"29020", "29031"}
+    both = threading.Barrier(2, timeout=5)
+    monkeypatch.setattr(runner_module.Landing, "failing", lambda self, stage, graded: both.wait() and None)
+    landing.tell_unpassed(rows, [])
+    assert not both.broken
+
+
+def test_heads_no_go_names_are_told_new_heads_first_within_the_pass_budget(shell, config, tmp_path, monkeypatch):
+    monkeypatch.setattr(runner_module, "GATE_WORKERS", 1)
+    two_pr_stack(shell)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    landing = runner_module.Landing(runner, runner.config.landing)
+    rows = landing.rows()
+    landing.no_go = {"29020", "29031"}
+    told: list[str] = []
+
+    def failing(self, stage, graded):
+        told.extend(graded.heads)
+        shell.clock += timedelta(seconds=61)
+
+    monkeypatch.setattr(runner_module.Landing, "failing", failing)
+    landing.tell_unpassed(rows, [])
+    landing.tell_unpassed(rows, [])
+    assert told == ["29020", "29031"]
+
+
 @pytest.mark.parametrize("page", [1, 25])
 def test_the_queue_status_read_covers_every_open_row_in_pages(shell, config, tmp_path, monkeypatch, page):
     monkeypatch.setattr(runner_module, "STATUS_PAGE", page)
@@ -4824,8 +4913,20 @@ def test_a_grade_posted_with_the_owner_repo_reference_counts_and_one_for_another
     shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "fidelity-desk", "kind": "review", "to": ["root"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": "fidelity: ok cccc333"})
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
-    tails = [call for call in shell.calls if call[:2] == ["cci", "tail"] and "--lane" in call and "fidelity-desk" in call]
-    assert tails and all(call[call.index("--pr") + 1] == "Forge-AI/monorepo#29020" for call in tails)
+    assert not [call for call in shell.calls if call[:2] == ["cci", "tail"] and "--kind=review" in call and "--pr" in call]
+
+
+def test_a_fidelity_desk_ok_stands_over_a_pipeline_missing_at_the_same_head(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-pipeline"]
+    config.write_text(json.dumps(raw))
+    lone_green_pr(shell)
+    grade(shell, "29020", "missing cccc333 plan:112 the plan names no gallery field", lane="fidelity-pipeline")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    grade(shell, "29020", "ok cccc333 a line-for-line port of the old-tree commit")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
 def test_a_missing_from_one_fidelity_lane_is_never_cleared_by_a_later_ok_from_another(shell, config, tmp_path):

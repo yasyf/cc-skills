@@ -41,16 +41,44 @@ def lane_report(record: dict) -> bool:
     return record.get("kind") == "report" and (record.get("text") or "").split(" ", 1)[0] in REPORT_VERDICTS
 
 
+class Tail:
+    """A `cci tail` runner whose `records` answers repeat a query, between `remember` and `stop`, from what it read since the last `forget`, so a pass reads each query once."""
+
+    def __init__(self, run: Callable[[list[str]], str]):
+        self.run = run
+        self.read: dict[tuple[str, tuple[str, ...], str], list[dict]] | None = None
+
+    def __call__(self, argv: list[str]) -> str:
+        return self.run(argv)
+
+    def remember(self) -> None:
+        self.read = {}
+
+    def forget(self) -> None:
+        if self.read is not None:
+            self.read = {}
+
+    def stop(self) -> None:
+        self.read = None
+
+
 def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: int | str = 0) -> list[dict]:
-    """Every record on `drive` after `since`, a sequence or any `cci tail --since` time, that matches the `cci tail` filters, paged by sequence; touches no cursor."""
+    """Every record on `drive` after `since`, a sequence or any `cci tail --since` time, that matches the `cci tail` filters, paged by sequence; touches no cursor. A `Tail` answers a query it read since its last `forget` without running cci."""
+    key = (drive, filters, str(since))
+    read = run.read if isinstance(run, Tail) else None
+    if read is not None and (kept := read.get(key)) is not None:
+        return list(kept)
     found: list[dict] = []
     while True:
         out = run(["cci", "tail", "--drive", drive, "--since", str(since), "--json", "--budget", str(PAGE_BYTES), *filters])
         page = [json.loads(line) for line in out.splitlines() if line.strip()]
         if not page:
-            return found
+            break
         found += page
         since = page[-1]["seq"]
+    if read is not None:
+        read[key] = found
+    return list(found)
 
 
 def held_prs(run: Callable[[list[str]], str], drive: str) -> dict[str, int]:

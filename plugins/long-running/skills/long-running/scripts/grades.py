@@ -7,7 +7,6 @@ from collections.abc import Callable
 from itertools import pairwise
 from pathlib import Path
 
-import cci
 
 FIDELITY_OK = "fidelity: ok"
 FIDELITY_MISSING = "fidelity: missing"
@@ -15,6 +14,7 @@ FIDELITY_GRADES = (FIDELITY_OK, FIDELITY_MISSING)
 GRADER_LINES = ("fidelity:", "old-app:", "touches ")
 PORT_PHRASE = "pure port, no interaction"
 TEST_ONLY_PHRASE = "test-only or CI-only, no non-test code"
+TEST_ONLY_PHRASES = (TEST_ONLY_PHRASE, "test-only, no non-test code", "CI-only, no non-test code")
 FINDER_PASS = "ok"
 FINDER_FAIL = "major"
 FINDER_NAMED = re.compile(r"\bfinder\b", re.IGNORECASE)
@@ -228,12 +228,8 @@ def closes(record: dict) -> set[int]:
     return closed | ({record["re"]} if record["kind"] == "withdraw" and record.get("re") else set())
 
 
-def fidelity_grades(tail: Callable[[list[str]], str], drive: str, lanes: list[str], repo: str, pr: str) -> list[dict]:
-    """Every grade a fidelity lane posted about `pr`, read by its `owner/repo#N` reference, which cci also matches to a post that named the bare number."""
-    return fidelity_grades_in([record for lane in lanes for record in cci.records(tail, drive, "--kind=review", "--lane", lane, "--pr", f"{repo}#{pr}")], drive, lanes, repo, pr)
-
-
 def fidelity_grades_in(reviews: list[dict], drive: str, lanes: list[str], repo: str, pr: str) -> list[dict]:
+    """Every grade a fidelity lane of `lanes` posted about `pr` among `reviews`, by an `owner/repo#N` reference to `repo` or a bare number."""
     return [record for record in reviews if record["kind"] == "review" and record["drive"] == drive and record["lane"] in lanes and record["text"].startswith(FIDELITY_GRADES) and pr in dict(repo_prs(record, repo))]
 
 
