@@ -30,7 +30,8 @@ live-dashboard start --dir ~/.claude/scratch/bot-test/dashboard
 `init` copies a preset into `layout.yaml` and writes a minimal `context.json` when none
 exists. `start` prints the link to give the owner; it is the tailnet URL when Tailscale
 runs. A long-running drive runs none of this: it starts long-running's own drive
-dashboard app from its first plan, as that skill's Drive dashboard section says.
+dashboard app from its first plan, as that skill's Drive dashboard section says. Its five pages, Now, Plan, Work, Review and
+History, start from `templates/drive-now.json`; `reference/drive-now-page.md` says what a drive sets.
 
 ## Commands
 
@@ -151,3 +152,4 @@ A card that needs one of these links to where it lives.
 | `reference/authoring.md` | Writing a local component or a pack |
 | `reference/keeping-live.md` | Keeping the layout honest over the task's life, or briefing the curator desk |
 | `reference/release.md` | Reading what the `release.*` cards compute |
+| `reference/drive-now-page.md` | Fitting a drive dashboard to the drive: milestones, views, the diagram slot, blocker sources, the Plan, Work, Review and History pages, adding a page |

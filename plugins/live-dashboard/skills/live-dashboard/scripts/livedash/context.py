@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 CCI_URL = "http://127.0.0.1:7377/v1"
+GATEWAY = ["env", "CCX_CALLER=live-dashboard", "ccx", "vcs", "gh", "--"]
 GRAPHQL_FLOOR = 500
 RATE_LIMIT_BACKOFF = 300.0
 RATE_LIMITED = re.compile(r"\b429\b|rate.?limit", re.IGNORECASE)
@@ -86,11 +87,11 @@ class Context:
         """Run one GraphQL query through `gh api graphql`; under 500 known quota it rereads the free `gh api rate_limit`
         at most once a minute, and refuses while the quota is still under 500."""
         if quota_refusal(self.now) and probe_due(self.now):
-            graphql = self.json(["gh", "api", "rate_limit"])["resources"]["graphql"]
+            graphql = self.json([*GATEWAY, "api", "rate_limit"])["resources"]["graphql"]
             record_quota({"remaining": graphql["remaining"], "resetAt": datetime.fromtimestamp(graphql["reset"], timezone.utc).isoformat()})
         if refusal := quota_refusal(self.now):
             raise RateLimited(refusal)
-        argv = ["gh", "api", "graphql", "-f", f"query={query.rstrip().removesuffix('}')} {RATE_LIMIT_QUERY} }}"]
+        argv = [*GATEWAY[:-1], "--max-age", "5m", "--", "api", "graphql", "-f", f"query={query.rstrip().removesuffix('}')} {RATE_LIMIT_QUERY} }}"]
         for name, value in variables.items():
             argv += ["-F" if isinstance(value, int) and not isinstance(value, bool) else "-f", f"{name}={value}"]
         data = self.json(argv)["data"]

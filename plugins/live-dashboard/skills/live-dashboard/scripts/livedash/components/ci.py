@@ -3,6 +3,7 @@ from __future__ import annotations
 from urllib.parse import urlencode
 
 from livedash import Col, Context, Table, component
+from livedash.context import GATEWAY
 
 BUILDKITE_TONE = {"passed": "ok", "failed": "bad", "failing": "bad", "canceled": "muted", "running": "warn", "scheduled": "warn", "blocked": "warn"}
 ACTIONS_TONE = {"success": "ok", "failure": "bad", "cancelled": "muted", "in_progress": "warn", "queued": "warn"}
@@ -23,7 +24,7 @@ def ci_builds(ctx: Context, *, source: str = "buildkite", pipeline: str | None =
     elif source == "github":
         if not repo:
             raise ValueError("a GitHub source needs `repo`")
-        runs = ctx.json(["gh", "run", "list", "-R", repo, "--limit", str(limit), "--json", "databaseId,displayTitle,status,conclusion,headBranch,createdAt,url,workflowName", *(["--branch", branch] if branch else [])])
+        runs = ctx.json([*GATEWAY[:-1], "--max-age", "5m", "--", "run", "list", "-R", repo, "--limit", str(limit), "--json", "databaseId,displayTitle,status,conclusion,headBranch,createdAt,url,workflowName", *(["--branch", branch] if branch else [])])
         rows = []
         for run in runs:
             state = run["conclusion"] or run["status"]

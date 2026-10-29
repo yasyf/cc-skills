@@ -3,20 +3,30 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="dark">
 <title>Drive</title>
+<script>window.firstModel = fetch('/api/model', { cache: 'no-store' }).then((res) => res.json());</script>
 <link rel="stylesheet" href="/app.css">
 <link rel="stylesheet" href="/review.css">
+<link rel="stylesheet" href="/overview.css">
+<link rel="stylesheet" href="/cockpit.css">
+<link rel="stylesheet" href="/now.css">
+<link rel="stylesheet" href="/pages.css">
 </head>
 <body>
 <header class="top">
   <a class="brand" href="#/"></a>
   <nav class="tabs" id="tabs"></nav>
+  <a class="kbtn" id="kbtn" href="#/jump">⌕ <span>Jump to anything</span><kbd>⌘K</kbd></a>
   <span class="fresh" id="fresh"></span>
 </header>
 <main id="main" class="wrap"><div class="sk"></div><div class="sk"></div><div class="sk"></div></main>
 <section id="embed" class="review-embed" hidden></section>
+<section id="cardembed" hidden></section>
 <script src="/review.js"></script>
+<script src="/overview.js"></script>
+<script src="/now.js"></script>
+<script src="/pages.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

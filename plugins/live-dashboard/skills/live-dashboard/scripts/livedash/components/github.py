@@ -6,6 +6,7 @@ from datetime import datetime
 from livedash import Col, Context, Table, Tile, Tiles, component, view
 from livedash.components import ledger as ledgers
 from livedash.components import stack
+from livedash.context import GATEWAY
 
 PR_FIELDS = """number title url isDraft additions deletions createdAt baseRefName headRefName headRefOid
 author { login }
@@ -171,7 +172,7 @@ def review_queue(
 @component("gh-quota", "GitHub API quota", question="How much GitHub API quota is left before cards stop refreshing?", reads=["gh api rate_limit"], every="2m")
 def quota(ctx: Context, *, floor: int = 500) -> Tiles:
     """REST core and GraphQL remaining quota from `gh api rate_limit`, which spends none; under `floor` reads bad."""
-    resources = ctx.json(["gh", "api", "rate_limit"])["resources"]
+    resources = ctx.json([*GATEWAY, "api", "rate_limit"])["resources"]
     tiles = []
     for name in ("core", "graphql"):
         limit = resources[name]
