@@ -590,6 +590,7 @@ import merge_queue
 import prompt_screen
 import prompt_watch
 import stall_watch
+import testfiles
 from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
 from grades import carry_of
 from grades import carries as carry_grade
@@ -612,9 +613,11 @@ EXEMPT_GO = re.compile(r"\bgo\s+(?:port|test-only|ci-only)\s+#\d+|\bpure port\b|
 TEST_ONLY_CLAIM = re.compile(r"\b(?:test|ci)-only\b", re.IGNORECASE)
 TAP_CLAIM = re.compile(r"(?<![\w-])(?<!\bno )(?<!\bnot )(?<!\bwithout )(?<!\bwithout his )(?<!\bwithout your )(?:taps?|tapped|approved|(?:his|your|the owner's)\s+approval)(?![\w-])", re.IGNORECASE)
 OLD_APP_LINE = re.compile(r"^old-app:\s*(?:unchanged|bug fix|changes)\b.*$", re.IGNORECASE | re.MULTILINE)
-TEST_FILES = ("*_test.go", "*.test.ts", "*.test.tsx")
-TEST_DIRS = frozenset({"__tests__", "testdata", "fixtures"})
-CI_PREFIXES = (".buildkite/", ".github/", "tools/ci/")
+TEST_DIRS = frozenset({"__tests__", "testdata", "fixtures", "docs"})
+CI_PREFIXES = (".buildkite/", ".github/", "tools/ci/", "infra/ci/")
+TOOLING_GLOBS = (".agents/skills/*/scripts/*", ".agents/skills/*/tests/*")
+PORT_PREFIXES = ("go/sand/next/",)
+OWNER_CITE = re.compile(r"#\s*owner:\s*[0-9a-f]{7,40}\b")
 MERGE_CARD_FIELDS = "title,author,additions,deletions,reviewDecision"
 SLACK_MESSAGE = re.compile(r"^slack: \S*/p(\d{10})(\d{6})\b", re.MULTILINE)
 RULING_ROUNDS = "cards/rounds"
@@ -1173,7 +1176,8 @@ def is_test_or_ci_file(name: str) -> bool:
     path = PurePosixPath(name)
     return (
         name.startswith(CI_PREFIXES)
-        or any(fnmatch(path.name, glob) for glob in TEST_FILES)
+        or testfiles.test_file(name)
+        or any(fnmatch(name, glob) for glob in TOOLING_GLOBS)
         or not TEST_DIRS.isdisjoint(path.parts[:-1])
         or (path.suffix in (".yml", ".yaml") and "buildkite" in path.name)
     )
@@ -6074,22 +6078,28 @@ class Landing:
                 continue
             if any(entry["verdict"] == "approved" and names_head(heads[pr], entry.get("head") or "") for by_row in verdicts.values() for row, entry in by_row.items() if board_rows.pr_of(row) == pr):
                 continue
-            mismatch = f"TEST-ONLY-MISMATCH {mismatched[pr]} is neither a test nor CI configuration, so the test-only claim does not hold; " if mismatched[pr] else ""
-            waits[pr] = f"{mismatch}TAP-REQUIRED {','.join(found)}: it lands only on the owner's tap at this head, and a root go is no tap; no approval on the root's board names {heads[pr][:10]}"
+            waits[pr] = f"{mismatched[pr]}TAP-REQUIRED {','.join(found)}: it lands only on the owner's tap at this head, and a root go is no tap; no approval on the root's board names {heads[pr][:10]}"
         return waits, unread, exempt
 
     def exempt_admitted(self, pr: str, sha: str) -> tuple[str, str]:
-        """The `EXEMPT-ADMITTED` note for `pr` at `sha` when it lands on a go with no board tap, and the first changed file that breaks a test-only claim (06288326, owner Oct 28 8:45 PM): the head grades ok by `fidelity`'s rule, `exempt_class` finds one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first) in its grades, and any root or `landing.go_lanes` go names the head, whatever its words (root #181182). A test-only or CI-only class is checked against the PR's changed files: the note is empty and the file is returned when one is neither a test nor CI configuration."""
+        """The `EXEMPT-ADMITTED` note for `pr` at `sha` when it lands on a go with no board tap, and why its whole diff breaks the class its grade claims (06288326, owner Oct 28 8:45 PM): the head grades ok by `fidelity`'s rule, `exempt_class` finds one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first) in its grades, and any root or `landing.go_lanes` go names the head, whatever its words (root #181182). Both classes are checked against every file the PR changes against its base, never the grade's words alone (root #182391): a test-only or CI-only class fails on a file outside the test, CI, skill-script and docs set, and a port class on a file outside `PORT_PREFIXES` unless a `Rulings` comment clears its interaction."""
         if not (go := next(iter(self.head_gos(pr, sha)), None)) or not self.fidelity(pr, sha).ok:
             return "", ""
         if not (found := self.exempt_class(pr, sha, ())):
             return "", ""
         grade, said = found
+        files, _ = self.changed_files(pr, sha)
         if TEST_ONLY_CLAIM.search(said):
-            files, _ = self.changed_files(pr, sha)
             if offender := next((name for name in files if not is_test_or_ci_file(name)), ""):
-                return "", offender
+                return "", f"TEST-ONLY-MISMATCH {offender} is neither a test nor CI configuration, so the test-only claim does not hold; "
+        elif (offender := next((name for name in files if not name.startswith(PORT_PREFIXES)), "")) and not self.interaction_cleared(pr):
+            return "", f"PORT-MISMATCH {offender} is outside {','.join(PORT_PREFIXES)} and no Rulings comment clears its interaction, so the port claim does not hold; "
         return f"EXEMPT-ADMITTED #{pr} at {sha[:10]}: fidelity grade cci #{grade['seq']} says \"{said}\" and go #{go['seq']} names it, so it lands with no board tap (06288326)", ""
+
+    def interaction_cleared(self, pr: str) -> bool:
+        """Whether a comment on `pr` under a `Rulings` heading has a line that names the change's interaction and cites the owner's answer as `# owner: <answer id>`."""
+        done = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "comments"))
+        return done.code == 0 and any("interaction" in line.casefold() and OWNER_CITE.search(line) for comment in json.loads(done.out)["comments"] if finder.RULINGS_HEADING.search(comment["body"]) for line in comment["body"].splitlines())
 
     def exempt_class(self, pr: str, sha: str, seen: tuple[str, ...]) -> tuple[dict, str] | None:
         """The standing ok grade at `sha`, a desk's before the pipeline's, newest first, that says one of `landing.exempt_grades`, with that phrase; a patch-identical carry grade with none is read back along the heads it carries from."""

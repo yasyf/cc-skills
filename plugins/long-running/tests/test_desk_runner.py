@@ -127,6 +127,7 @@ class FakeShell(runner_module.Shell):
         self.queue: dict[str, str] = {}
         self.pr_status: dict[str, dict] = {}
         self.bodies: dict[str, str] = {}
+        self.comments: dict[str, list[str]] = {}
         self.rows: list[dict] = []
         self.ledger_code = 0
         self.launch_line = ""
@@ -445,6 +446,9 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "body":
             assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "body"]
             return runner_module.Done(0, json.dumps({"body": self.bodies.get(argv[3], "")}), "")
+        if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "comments":
+            assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "comments"]
+            return runner_module.Done(0, json.dumps({"comments": [{"body": body} for body in self.comments.get(argv[3], [])]}), "")
         if len(argv) > 2 and Path(argv[1]).name == "rulings.py":
             return self.rulings(argv[2:])
         if len(argv) > 1 and Path(argv[1]).name == "ledger.py":
@@ -3183,6 +3187,28 @@ def test_a_test_only_claim_over_a_pr_that_changes_non_test_code_is_refused_namin
     assert len(refusals) == 1 and "TEST-ONLY-MISMATCH go/sand/next/vm/run.go is neither a test nor CI configuration" in refusals[0] and "other.go" not in refusals[0]
 
 
+@pytest.mark.parametrize(
+    ("comments", "admitted"),
+    [
+        ([], False),
+        (["## Rulings\n\nThe api change only forwards the ported call; no interaction. # owner: 4c20204"], True),
+        (["## Rulings\n\nno interaction, by my read"], False),
+        (["The api change has no interaction. # owner: 4c20204"], False),
+    ],
+    ids=["no-comment", "owner-cleared", "uncited", "no-rulings-heading"],
+)
+def test_a_port_claim_over_a_pr_that_changes_a_file_outside_the_port_tree_waits_for_the_tap_unless_a_rulings_comment_clears_it(shell, config, comments, admitted):
+    tap_ruled_pr(shell, config, ["go/sand/next/vm/run.go", "api/src/routes/run.ts"])
+    shell.comments["29020"] = comments
+    grade(shell, "29020", "ok cccc333 pure port, no interaction: it moves run.go and its route.")
+    merge_go(shell, "29020", "go port #29020 at cccc333")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    refusals = [post_body(post) for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    assert bool(shell.enqueues()) is admitted and bool([note for note in notes(shell) if "EXEMPT-ADMITTED" in post_body(note)]) is admitted
+    assert refusals == ([] if admitted else [refusals[0]]) and all("PORT-MISMATCH api/src/routes/run.ts is outside go/sand/next/" in refusal for refusal in refusals)
+
+
 def test_the_legacy_port_phrase_key_still_sets_the_port_grade_phrase(shell, config):
     tap_ruled_pr(shell, config, ["go/sand/next/vm/run.go"], port_phrase="straight port")
     grade(shell, "29020", "ok cccc333 straight port of old-tree #43020.")
@@ -3205,6 +3231,11 @@ def test_the_legacy_port_phrase_key_still_sets_the_port_grade_phrase(shell, conf
         (".github/workflows/ci.yml", True),
         ("infra/pipelines/dev.buildkite.yaml", True),
         ("tools/ci/main.go", True),
+        ("infra/ci/agents.ts", True),
+        (".agents/skills/submit-pr/scripts/ship.py", True),
+        (".agents/skills/submit-pr/tests/test_ship.py", True),
+        ("docs/slack.md", True),
+        ("go/sand/next/vm/fakes/clock.go", True),
         ("go/sand/internal/vm/run.go", False),
         ("dashboard/src/a.ts", False),
         ("api/src/testing.ts", False),
