@@ -69,6 +69,10 @@ and, across the drive:
               its answer to the reviewer bot is idle when it has open PRs or its last record is a
               done or READY one
     ask       a lane's `ask` to root is open, and no root record answers it
+    gate      a lane's `state` or `report` record says work waits on PR N (`waits on #N`, `waits only
+              on #N`, `blocked on #N`, `when #N lands`), the desk runner or a landing desk lane posted
+              N landed or QUEUED, and neither that lane nor a numbered successor of it has posted an
+              `opened` or `head` record since the later of the two; it posts again every hour it stands
     stale     an open PR, held or not, has kept one head and one state for `stall.minutes.stale`: in the
               merge queue, held, on a drifted graphite-base, conflicting, red, waiting on the PR below it, building,
               held or not yet reviewed by the reviewer bot, green with a go, or green with none; no
@@ -87,7 +91,7 @@ and, across the drive:
               line leads with counts as held here
 
 Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, successor 20, tap 10, finder 30,
-fidelity 30, running 25, board 15, carry 20 (one fidelity pass), lane 30, ask 15, stale 120. A PR's head is as old as the first record about the
+fidelity 30, running 25, board 15, carry 20 (one fidelity pass), lane 30, ask 15, gate 30, stale 120. A PR's head is as old as the first record about the
 PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record. A board
 stall counts from the latest of its finder ok, its fidelity ok, and its ledger row's `green_at`, the refresh that
 first read the head's build green, since the board refresher puts a row up only once the build is green.
@@ -145,7 +149,7 @@ NOT_LANES = frozenset({*ROOT_NAMES, "team-lead", LANE, RUNNER})
 PACIFIC = ZoneInfo("America/Los_Angeles")
 MODEL = "claude-sonnet-5-5"
 WINDOW_HOURS = 24
-MINUTES = {"go": 10, "refusal": 10, "successor": 20, "tap": 10, "finder": 30, "fidelity": 30, "running": 25, "board": 15, "carry": 20, "lane": 30, "ask": 15, "stale": 120}
+MINUTES = {"go": 10, "refusal": 10, "successor": 20, "tap": 10, "finder": 30, "fidelity": 30, "running": 25, "board": 15, "carry": 20, "lane": 30, "ask": 15, "gate": 30, "stale": 120}
 DESK_KINDS = frozenset({"finder", "fidelity"})
 QUIET = timedelta(minutes=10)
 PR_KINDS = frozenset({"go", "refusal", "successor", "tap", "finder", "fidelity", "board", "carry", "stale"})
@@ -217,6 +221,10 @@ MERGE_CARD = re.compile(r"^merge:(\d+):([0-9a-f]{7,40})$")
 ENDED = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
 DESK = re.compile(r"(?:.+-)?desk(?:-\d{1,2})?")
 REPEAT = timedelta(minutes=30)
+GATE_REPEAT = timedelta(hours=1)
+WAITS_ON = re.compile(r"\b(?:waits?\s+(?:only\s+)?on|blocked\s+on)\s+#(\d+)|\bwhen\s+#(\d+)\s+lands\b", re.IGNORECASE)
+LANDED = re.compile(r"^LANDED\s+#(\d+)\b")
+LANE_NUMBER = re.compile(r"-\d+$")
 SCHEMA = json.dumps(
     {
         "type": "object",
@@ -567,7 +575,7 @@ class Pass:
             self.warn(BOARD_KINDS | {"lane"}, f"no drive registry entry for {self.watch.drive} names a root session, so neither the board nor the task list read")
         stalls, questions, entries = self.prs(records, session)
         lane_stalls, lane_questions = self.lanes(records, session, entries)
-        stalls += lane_stalls + self.asks(records)
+        stalls += lane_stalls + self.asks(records) + self.gates(records)
         questions += lane_questions
         cached = saved.get("verdicts", {})
         fresh = self.judge([question.ask | {"id": question.key} for question in questions if question.key not in cached])
@@ -1087,6 +1095,35 @@ class Pass:
             and record["seq"] not in answered
             and self.now - at(record) >= self.watch.age("ask")
         ]
+
+
+    def gates(self, records: list[dict]) -> list[Stall]:
+        landed: dict[str, dict] = {}
+        for record in records:
+            if record["lane"] != RUNNER and not record["lane"].startswith(LANDING_DESK):
+                continue
+            if record["kind"] == "landed" and (gate := LANDED.match(record["text"])) or record["kind"] == "report" and QUEUED.match(record["text"]) and (gate := PR_REF.search(record["text"])):
+                landed.setdefault(gate[1], record)
+        waiting: dict[tuple[str, str], dict] = {}
+        for record in records:
+            if record["kind"] in ("state", "report") and record["lane"] not in NOT_LANES:
+                for found in WAITS_ON.finditer(record["text"]):
+                    waiting[(record["lane"], found[1] or found[2])] = record
+        stalls = []
+        for (lane, pr), said in waiting.items():
+            if not (gate := landed.get(pr)):
+                continue
+            since = max(at(said), at(gate))
+            family = re.compile(rf"{re.escape(LANE_NUMBER.sub('', lane))}(?:-\d+)?")
+            if self.now - since < self.watch.age("gate") or any(record["kind"] in ("opened", "head") and family.fullmatch(record["lane"]) and at(record) >= since for record in records):
+                continue
+            hour = (self.now - since - self.watch.age("gate")) // GATE_REPEAT
+            stalls.append(Stall(
+                f"gate:{lane}:{pr}:{hour}", "gate", since, f"{lane} on #{pr}",
+                f"{lane} said at cci #{said['seq']} that work waits on #{pr}, and {gate['lane']} posted it {'landed' if gate['kind'] == 'landed' else 'queued'} at cci #{gate['seq']}, {pacific(at(gate))}; {lane} has posted no OPENED or HEAD since",
+                (lane,), f"open the work that waited on #{pr} and post OPENED or HEAD, or post why it still waits",
+            ))
+        return stalls
 
 
 def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
