@@ -7775,6 +7775,24 @@ def test_a_handoff_whose_runner_still_runs_after_twenty_minutes_starts_no_succes
     assert f"runner {os.getpid()} still runs the orca desk after 0:20:00, so no successor started" in line and "handoff --desk orca` starts the successor" in line
 
 
+@pytest.mark.parametrize(("version", "in_place"), [(runner_module.RUNNING_VERSION, True), ("0.0.1", False)], ids=["re-executed", "old-version"])
+def test_a_handoff_whose_runner_re_executes_into_this_version_under_its_pid_is_done_with_no_successor(shell, config, tmp_path, monkeypatch, version, in_place):
+    runner, held = live_runner(shell, config, tmp_path, "orca")
+    sleep = shell.sleep
+
+    def beats(seconds):
+        sleep(seconds)
+        with monkeypatch.context() as patched:
+            patched.setattr(runner_module, "RUNNING_VERSION", version)
+            runner.write_heartbeat("orca")
+
+    monkeypatch.setattr(shell, "sleep", beats)
+    with held:
+        assert cli(shell, config, "handoff", "--desk", "orca") == (0 if in_place else 1)
+    stalled = [line for line in escalations(shell) if line.startswith("HANDOFF-STALLED ")]
+    assert shell.successors == [] and bool(stalled) is not in_place and runner.stop_marker().exists() is not in_place
+
+
 @pytest.mark.parametrize("desk", ["orca", "landing"])
 def test_a_second_runner_on_the_same_config_and_desk_refuses_to_start_and_names_the_first(shell, config, tmp_path, capsys, desk):
     _, held = live_runner(shell, config, tmp_path, desk)
