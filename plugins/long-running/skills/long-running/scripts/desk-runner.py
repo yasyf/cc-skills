@@ -584,7 +584,7 @@ import merge_queue
 import prompt_screen
 import prompt_watch
 import stall_watch
-from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
+from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
 from grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
 from grades import WITHDRAWN as WITHDRAWN_OPENING
 from grades import owes
@@ -6164,8 +6164,26 @@ class Landing:
                 posted = [go | {"voided": {pr for pr in go_heads(go) if any(record["seq"] > go["seq"] and about_pr(record, self.repo, pr) for record in withdrawals)}} for go in gos if go["seq"] not in closed]
                 graders = [record for lane in self.fidelity_lanes for record in cci.records(self.runner.cci_tail, drive, "--kind=review", "--kind=withdraw", "--lane", lane) if record["drive"] == drive and record["lane"] == lane] if posted else []
                 unsaid = closed | {seq for record in graders for seq in closes(record)}
-                self.gos = posted + carried_gos(posted, [record for record in graders if record["kind"] == "review" and record["seq"] not in unsaid], self.repo, self.old_app_lands())
+                lands = self.old_app_lands()
+                gos = posted + carried_gos(posted, [record for record in graders if record["kind"] == "review" and record["seq"] not in unsaid], self.repo, lands)
+                self.gos = gos + self.patch_carried(gos, lands)
             return self.gos
+
+    def patch_carried(self, gos: list[dict], lands: Callable[[str, str], bool]) -> list[dict]:
+        """The go each open row's head takes from a go of `gos` at an older head of its PR, newest first, whose own commits are patch-identical to the head's, once the head's fidelity grades stand ok, the human desks' over the pipeline's, and `lands` lets it, so a restack that moved the head needs no second go (root #178202)."""
+        carried = []
+        for pr, row in self.ledger_rows.items():
+            head = row.get("head", "")
+            if row.get("state", "open") != "open" or not head or gone_at(gos, pr, head):
+                continue
+            older = sorted((go for go in gos if pr in go_heads(go) and pr not in go.get("voided", ())), key=lambda go: go["seq"], reverse=True)
+            if not older or not lands(pr, head) or not (grade := self.fidelity(pr, head)).ok:
+                continue
+            if not (commits := self.own_commits(pr, head)) or not (ours := self.patch_id(pr, head, commits, escalate=False)):
+                continue
+            if source := next((go for go in older if self.patch_id(pr, go_heads(go)[pr], commits, escalate=False) == ours), None):
+                carried.append(carried_go(source, pr, head, grade.record["at"] if grade.record else source["at"]))
+        return carried
 
     def old_app_lands(self) -> Callable[[str, str], bool]:
         """Whether a carried go reaches `pr` at `head`: always, unless the drive runs the old-app check, and then once a fidelity lane's newest `old-app:` grade naming that head, as `check_old_app` reads it, says `unchanged` or `bug fix` (root #143450, #143861)."""

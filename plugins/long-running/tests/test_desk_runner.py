@@ -2916,6 +2916,18 @@ def merge_go(shell: FakeShell, pr: str, text: str) -> None:
     shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "root", "kind": "go", "to": ["desk-runner"], "refs": {"prs": [int(pr)]}, "text": text, "at": actions.stamp(shell.clock)})
 
 
+@pytest.mark.parametrize("identical", [True, False], ids=["patch-identical", "changed"])
+def test_a_go_at_an_older_head_carries_to_a_fidelity_ok_head_with_the_same_own_patch(shell, config, tmp_path, identical):
+    merge_mode(config, "every")
+    lone_green_pr(shell)
+    merge_go(shell, "29020", "go port #29020 at aaaa111")
+    grade(shell, "29020", "ok cccc333 pure port, no interaction; restacked onto dev")
+    shell.diffs["aaaa111"] = "diff --git a/x.go b/x.go\n+port\n"
+    shell.diffs["cccc333333"] = shell.diffs["aaaa111"] if identical else "diff --git a/x.go b/x.go\n+changed\n"
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == ([["29020", "--partial"]] if identical else [])
+
+
 def test_a_green_head_gets_its_merge_card_before_its_fidelity_grade_and_enqueues_only_once_graded(shell, config, tmp_path):
     merge_mode(config, "every")
     lone_green_pr(shell)
