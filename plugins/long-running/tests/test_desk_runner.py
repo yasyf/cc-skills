@@ -11262,7 +11262,7 @@ def test_each_head_starts_one_finder_at_once_however_many_records_name_it(shell,
     orca_pass(shell, config)
     assert shell.finder_jobs == [config.resolve().parent / "finder-desk" / f"43439-{FINDER_HEAD[:12]}"]
     assert finder_jobs(shell) == [
-        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "previous": "", "history": [], "settled": {}, "lane": "p8a-step9", "to": ["root", "desk-runner"], "checkout": str(config.parent / "checkout"), "model": "sol", "full": False}
+        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "previous": "", "history": [], "settled": {}, "lane": "p8a-step9", "to": ["desk-runner"], "checkout": str(config.parent / "checkout"), "model": "sol", "full": False}
     ]
 
 
@@ -11349,7 +11349,7 @@ def test_finders_past_the_cap_wait_queued_and_start_as_running_ones_finish(shell
     orca_pass(shell, config)
     orca_pass(shell, config)
     assert [job["pr"] for job in finder_jobs(shell)] == ["43439", "43299"]
-    assert {(job["model"], tuple(job["to"])) for job in finder_jobs(shell)} == {("astra", ("root", "desk-runner", "fidelity-desk"))}
+    assert {(job["model"], tuple(job["to"])) for job in finder_jobs(shell)} == {("astra", ("desk-runner", "fidelity-desk"))}
     cli(shell, config, "show")
     shown = capsys.readouterr().out
     assert f"finder #42784 {heads['42784'][:12]}: queued" in shown and f"finder #43299 {heads['43299'][:12]}: running since" in shown
@@ -11611,7 +11611,7 @@ def test_each_head_starts_one_fidelity_pass_carrying_the_prs_grades_old_app_line
         "pr": "43439",
         "head": FINDER_HEAD,
         "lane": "p8a-step9",
-        "to": ["root", "desk-runner", "board-refresher-2"],
+        "to": ["desk-runner", "board-refresher-2"],
         "readers": ["fidelity-desk-4"],
         "lanes": ["fidelity-desk-4", "fidelity-pipeline"],
         "grades": [{"seq": graded, "lane": "fidelity-desk-4", "text": f"fidelity: ok {FINDER_OLD} pure port, no interaction: ports old-tree #41725"}],

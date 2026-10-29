@@ -340,9 +340,9 @@ class Stall:
         return f"{word} {self.subject}, {int((now - self.since).total_seconds() // 60)} min: {self.what} | owner {', '.join(self.owner)} | {self.step}"
 
     def to(self, drive_name: str, desk_lanes: list[str], live: Callable[[str], bool]) -> str:
-        """The lanes the stall names, with the root too unless desks own it or every lane it names is live, so root hears only what no live lane will act on (root, Oct 29 2:10 PM)."""
+        """The lanes the stall names, with the root too unless desks own it or every lane it names is live and its step is not the root's, so root hears only what it must do or no live lane will act on (root, Oct 29 2:10 PM)."""
         lanes = [named for lane in self.owner for named in (desk_lanes if lane == RUNNER else [lane]) if named not in ROOT_NAMES]
-        desks = lanes and (self.quiet or self.kind in DESK_KINDS or all(lane == RUNNER or DESK.fullmatch(lane) for lane in self.owner) or all(map(live, lanes)))
+        desks = lanes and (self.quiet or self.kind in DESK_KINDS or all(lane == RUNNER or DESK.fullmatch(lane) for lane in self.owner) or (all(map(live, lanes)) and not self.step.startswith(f"{ROOT} ")))
         return ",".join(dict.fromkeys([*([] if desks else [ROOT]), *(f"{lane}@{drive_name}" for lane in lanes)]))
 
 
