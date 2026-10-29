@@ -569,7 +569,7 @@ import traceback
 from collections import Counter
 from contextlib import contextmanager
 from collections.abc import Callable, Iterable, Iterator
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from fnmatch import fnmatch
@@ -769,6 +769,7 @@ STOP_CONFIRM = timedelta(seconds=30)
 STOP_POLL_SECONDS = 2
 SHOW_WORKERS = 8
 GATE_WORKERS = 8
+ENQUEUE_WORKERS = 4
 CHECK_PR_WORKERS = 4
 TELL_BUDGET = timedelta(seconds=60)
 REFRESH_EVERY = timedelta(minutes=2)
@@ -782,6 +783,7 @@ CHECK_PR_REREAD = timedelta(minutes=5)
 RULINGS_SOURCES = ("rulings", "board_rows", "testfiles")
 TRUNK_REREAD = timedelta(minutes=5)
 QUEUED_STATE = "queued"
+QUEUED_VERDICT = "QUEUED"
 STATUS_SETTLED = frozenset({QUEUED_STATE, "landed"})
 HEADS_PER_QUERY = 100
 QUOTA_FLOOR = 1000
@@ -5180,13 +5182,19 @@ class Landing:
         return [kept for tree in trees if (kept := [tip for tip in tree if tip not in waiting])]
 
     def gate_trees(self, rows: dict[str, dict], held: list[str], trees: list[list[str]]) -> None:
-        """Check the trees of `trees` that `landable_trees` keeps, `GATE_WORKERS` at a time, and settle each in order as its checks come back: accept what it would enqueue and run that enqueue at once, so an accepted tree reaches the queue while the trees after it are still being checked."""
+        """Check the trees of `trees` that `landable_trees` keeps, `GATE_WORKERS` at a time, and settle each in order as its checks come back: accept what it would enqueue and start that enqueue at once, `ENQUEUE_WORKERS` stacks at a time, so an accepted tree reaches the queue while the trees after it are still being checked and other stacks' enqueues run (landing-desk-3 #185922). Each enqueue still runs its stack's chains bottom-up."""
         trees = self.landable_trees(rows, trees)
-        with ThreadPoolExecutor(GATE_WORKERS) as pool:
+        started: dict[str, Future] = {}
+        with ThreadPoolExecutor(GATE_WORKERS) as pool, ThreadPoolExecutor(ENQUEUE_WORKERS) as enqueuing:
             for gated in pool.map(self.proven_stacks, trees):
                 self.runner.checkpoint()
                 self.settle_tree(rows, held, gated)
-                self.enqueue()
+                if accepted := [action for action in self.book.actions(LANDING, kind="enqueue", status="accepted") if action.action_id not in started]:
+                    self.reread()
+                    self.rescanned_reviews()
+                    started |= {action.action_id: enqueuing.submit(self.enqueue_one, action) for action in accepted}
+        for running in started.values():
+            running.result()
 
     def landable_trees(self, rows: dict[str, dict], trees: list[list[str]]) -> list[list[str]]:
         """The trees of `trees` the pass is about to enqueue from, by its one status read: those holding a landable PR on PRs below it that are landable, queued, or landed. `stack-enqueue --check`, and the `rulings.py check-pr` an accepted prefix runs, run for no other tree (root #146561, #147019). A verdict counts as landable once a `queue-unknown` cause is set aside, since a label queue's state is not Graphite's to read, and once a lone `ci-unproven` cause is set aside for a head `unproven` finds proven, since only the runner reads the full builds that prove a redundant skip; `unproven` also starts the full build a head still needs. The PRs of each tree left out join `unchecked`, and `tell_unpassed` routes what each one's status entry asks of its lane. None are kept when the status read failed."""
@@ -6812,7 +6820,7 @@ class Landing:
             self.book.attempt(LANDING, lambda incident, key=action.action_id: incident.action(key).response.update({UNGRADED_READ: self.book.stamp()}))
 
     def unqueued_gos(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Escalate `GO-UNQUEUED` once per head and stack for the lowest open, green, unheld PR of each stack a root `go` names at its ledger head that the pass's queue read still finds out of the queue five minutes after that go, or after the fidelity grade that carried it to that head, naming the stack's bottom and the gone PRs above that wait on it (root #151213), whoever enqueued it, naming what the review bot's newest `ai-review` run on that head says when it holds the PR or waits for a restack push (root #154137), else the reserved rows below or at it that this runner's check-pr reads still wait on his tap, else the outcome of the newest enqueue at that head accepted since the go, so an attempt that ran before the go never reads as the reason. A head stacked on a parent no go names, one a hold covers, or one red on CI or conflicting with its base, is left to `refuse_ungone_parents`' one `BELOW-BLOCKED` or `BELOW-HELD` note per stack (root #142036, #142931, #145011)."""
+        """Escalate `GO-UNQUEUED` once per head and stack for the lowest open, green, unheld PR of each stack a root `go` names at its ledger head that the pass's queue read still finds out of the queue five minutes after that go, and whose newest enqueue since the go does not show it QUEUED at that head (#185418), or after the fidelity grade that carried it to that head, naming the stack's bottom and the gone PRs above that wait on it (root #151213), whoever enqueued it, naming what the review bot's newest `ai-review` run on that head says when it holds the PR or waits for a restack push (root #154137), else the reserved rows below or at it that this runner's check-pr reads still wait on his tap, else the outcome of the newest enqueue at that head accepted since the go, so an attempt that ran before the go never reads as the reason. A head stacked on a parent no go names, one a hold covers, or one red on CI or conflicting with its base, is left to `refuse_ungone_parents`' one `BELOW-BLOCKED` or `BELOW-HELD` note per stack (root #142036, #142931, #145011)."""
         queued = {pr for prs in self.believed_queued(rows).values() for pr in prs}
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         now = self.runner.now()
@@ -6826,6 +6834,8 @@ class Landing:
             if (queue := self.queue_states()) is None or queue.get(pr) not in OUT_OF_QUEUE or self.refused_at_head(stack, open_rows):
                 continue
             tried = sorted((action for action in self.book.actions(LANDING, kind="enqueue") if action.response and head.startswith(enqueued_heads(action.action_id).get(pr) or "-") and actions.parse_stamp(action.accepted_at) >= at), key=lambda action: action.accepted_at)
+            if tried and any(match["pr"] == pr and match["verdict"] == QUEUED_VERDICT and head.startswith(match["sha"]) for match in merge_queue.VERDICT_LINE.finditer(tried[-1].response.get("out", ""))):
+                continue
             reserved = [f"{reserved_row(line)[0]} on #{below}" for below in sorted(downstack(open_rows, pr), key=int) if (kept := self.reported.get((below, open_rows[below].get("head", "")[:7], False))) for line in kept[1] if cause(line) == RESERVED_TOUCH]
             if bot := self.review_bot(pr, head, row):
                 why = bot
