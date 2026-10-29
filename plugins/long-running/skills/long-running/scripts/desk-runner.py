@@ -405,8 +405,13 @@ the head's own commits against the base branch's current tip, or over what chang
 record at another head read, else since the head its `head` record replaced when the PR has any finder review
 (finder.py), and posts
 `finder: ok <head> …` or `finder: major <head> <n> open: …` under lane `finder-desk` to the head's lane, root, the runner
-and each `finder.to` address, since the landing runner reads finder records by address. A pass whose job wrote an error, or no result within `finder.timeout_minutes` (default 60), logs
-`FINDER-FAILED` once. `show` lists each queued and running pass.
+and each `finder.to` address, since the landing runner reads finder records by address. A pass whose job wrote an error, whose
+process (its pid in `pid` beside `job.json`) exited with no result, or that wrote no result within `finder.timeout_minutes` (default 60)
+fails that pass, freeing its slot, and its job queues again as `<key>#<n>` in its own `-<n>` directory, up to three attempts; the
+third failure logs `FINDER-FAILED` once. A head the landing check refuses `FINDER-PENDING` with no finder record queues one more
+attempt when no pass on it waits or runs, so a job a pass skipped while its PR was closed, or one no record queued, runs again.
+While passes wait queued and none has settled for 15 minutes, one `FINDER-DESK-STALLED` per streak names how many wait and each
+running pass's age. `show` lists each queued and running pass.
 Between orca passes the runner waits ten seconds, cut short within a quarter second by a desk
 inbox append or an exiting launch, and its sweep shows only dispatches it has not
 named for reclaim, once each in a `RECLAIM` line that names `gc` and then `orca.gc` for the worktrees.
@@ -587,9 +592,13 @@ FINDER_CURSOR = "cursor"
 FINDER_CONCURRENT = 2
 FINDER_MINUTES = 60
 FINDER_MODEL = "sol"
+FINDER_ATTEMPTS = 3
+FINDER_STALLED_AFTER = timedelta(minutes=15)
+FINDER_SETTLED = "settled_at"
+FINDER_STALLED = "stalled"
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker", "GITHUB-QUOTA-LOW": "urgent"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker", "GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 TRUNK = "dev"
@@ -976,6 +985,16 @@ class Shell:
         out.parent.mkdir(parents=True, exist_ok=True)
         with out.open("a" if append else "w") as sink:
             return subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=sink, stderr=subprocess.STDOUT, env={**os.environ, **env}, start_new_session=True)
+
+    def pid_alive(self, pid: int) -> bool:
+        """Whether a process with id `pid` exists; a child that exited is reaped at the next spawn."""
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            pass
+        return True
 
     def stat(self, path: Path) -> tuple[int, int] | None:
         try:
@@ -3947,6 +3966,7 @@ class Runner:
             self.queue_finders(repo)
             self.settle_finders()
             self.start_finders(spec, repo)
+            self.watch_finder_desk(spec)
         except CciTailFailed as failure:
             self.tail_failed(failure)
 
@@ -3971,18 +3991,29 @@ class Runner:
             self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_CURSOR: read[-1]["seq"]}))
 
     def settle_finders(self) -> None:
-        """Settle each started pass from the result its job wrote; one that wrote an error, or none by its deadline, logs `FINDER-FAILED` once."""
+        """Settle each started pass from the result its job wrote; one that wrote an error, whose process exited with no result, or that wrote none by its deadline fails, so its slot frees this pass."""
+        settled = False
         for action in self.book.actions(FINDER, kind="finder", status="started"):
-            result = Path(action.dispatch_id) / finder.RESULT
-            if not result.is_file():
-                if self.now() >= actions.parse_stamp(action.deadline):
-                    self.finder_failed(action, f"no result {whole_minutes(actions.parse_stamp(action.started_at), self.now())} min after it started")
-                continue
-            outcome = json.loads(result.read_text())
-            if "error" in outcome:
-                self.finder_failed(action, outcome["error"])
+            directory = Path(action.dispatch_id)
+            pid = directory / finder.PID
+            exited = pid.is_file() and not self.shell.pid_alive(int(pid.read_text()))
+            result = directory / finder.RESULT
+            ran = whole_minutes(actions.parse_stamp(action.started_at), self.now())
+            if result.is_file():
+                outcome = json.loads(result.read_text())
+                if "error" in outcome:
+                    self.finder_failed(action, outcome["error"])
+                else:
+                    self.finder_settled(action.action_id, outcome)
+            elif exited:
+                self.finder_failed(action, f"finder.py exited {ran} min after it started and wrote no result")
+            elif self.now() >= actions.parse_stamp(action.deadline):
+                self.finder_failed(action, f"no result {ran} min after it started")
             else:
-                self.finder_settled(action.action_id, outcome)
+                continue
+            settled = True
+        if settled:
+            self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_SETTLED: self.book.stamp()}))
 
     def start_finders(self, spec: dict, repo: str) -> None:
         """Start the newest queued head of each PR, a requested full pass over any head, full passes first, then those a root `go` names, then oldest first, while fewer than `finder.concurrent` passes run; an older queued head of the same PR settles as superseded."""
@@ -4013,7 +4044,8 @@ class Runner:
             self.finder_settled(action.action_id, {"answered": f"cci #{answered['seq']} from {answered['lane']}"})
             return False
         last, prior = ("", None) if full else finder.since(reviews, records, job["head"])
-        directory = self.config.source.parent / finder.LANE / (f"{job['pr']}-whole-{job['seq']}" if full else f"{job['pr']}-{job['head'][:12]}")
+        attempt = action.action_id.partition("#")[2]
+        directory = self.config.source.parent / finder.LANE / ((f"{job['pr']}-whole-{job['seq']}" if full else f"{job['pr']}-{job['head'][:12]}") + (f"-{attempt}" if attempt else ""))
         directory.mkdir(parents=True, exist_ok=True)
         landing = self.config.landing or {}
         (directory / finder.JOB).write_text(
@@ -4038,7 +4070,8 @@ class Runner:
         deadline = self.now() + timedelta(minutes=spec.get("timeout_minutes", FINDER_MINUTES))
         if not self.book.attempt(FINDER, lambda incident: incident.start(action.action_id, self.now(), deadline=deadline, dispatch_id=str(directory))):
             return False
-        self.shell.spawn([sys.executable, str(SCRIPTS / "finder.py"), str(directory)], directory / finder.LOG, {})
+        process = self.shell.spawn([sys.executable, str(SCRIPTS / "finder.py"), str(directory)], directory / finder.LOG, {})
+        (directory / finder.PID).write_text(f"{process.pid}\n")
         return True
 
     def finder_settled(self, key: str, response: dict) -> None:
@@ -4051,10 +4084,46 @@ class Runner:
         self.book.attempt(FINDER, settle)
 
     def finder_failed(self, action: actions.Action, why: str) -> None:
+        """Fail a pass and queue its job again, so a job runs at most `FINDER_ATTEMPTS` times; the last failure logs `FINDER-FAILED` once."""
         job = json.loads(action.target)
-        if self.book.attempt(FINDER, lambda incident: incident.fail(action.action_id, why)):
-            log = Path(action.dispatch_id) / finder.LOG
-            self.escalate(f"finder:{job['pr']}:{job['head']}", "FINDER-FAILED", job["lane"], f"#{job['pr']} {job['head'][:12]}: the finder desk's pass failed: {why}; its log is {log}; the lane runs the pass by hand from {finder.BRIEF}")
+        if not self.book.attempt(FINDER, lambda incident: incident.fail(action.action_id, why)) or self.requeue_finder(action.action_id.partition("#")[0], action.target, action.authority_ref):
+            return
+        log = Path(action.dispatch_id) / finder.LOG
+        self.escalate(f"finder:{job['pr']}:{job['head']}", "FINDER-FAILED", job["lane"], f"#{job['pr']} {job['head'][:12]}: the finder desk's pass failed on the last of its {FINDER_ATTEMPTS} attempts: {why}; its log is {log}; the lane runs the pass by hand from {finder.BRIEF}")
+
+    def requeue_finder(self, key: str, target: str, authority: str) -> bool:
+        """Accept one more attempt at the finder job `key` names, `key` itself first and then `<key>#<n>`, while it has had fewer than `FINDER_ATTEMPTS`."""
+        tried = sum(action.action_id.partition("#")[0] == key for action in self.book.actions(FINDER, kind="finder"))
+        if tried >= FINDER_ATTEMPTS:
+            return False
+        self.book.accept(FINDER, f"{key}#{tried + 1}" if tried else key, "finder", target, authority, None)
+        return True
+
+    def requeue_pending_finder(self, repo: str, pr: str, head: str, lane: str) -> None:
+        """Queue one more finder pass on a head the landing check refuses `FINDER-PENDING` with no finder record, while runner.json carries `finder` for `repo` and no pass that would answer it waits or runs, so a lost job, or a pass that skipped the PR while it was closed, runs again."""
+        if (spec := json.loads(self.config.source.read_text()).get("finder")) is None or (spec.get("repo") or self.config.landing["repo"]) != repo:
+            return
+        self.book.ensure(FINDER, FINDER)
+        jobs = [(action, job) for action in self.book.actions(FINDER, kind="finder") if (job := json.loads(action.target))["pr"] == pr]
+        if any(action.status in ("accepted", "started") and (job["full"] or names_head(job["head"], head)) for action, job in jobs):
+            return
+        tried = [action for action, job in jobs if not job["full"] and names_head(job["head"], head)]
+        key = tried[0].action_id.partition("#")[0] if tried else f"finder:{pr}:{head}"
+        self.requeue_finder(key, tried[-1].target if tried else json.dumps({"pr": pr, "head": head, "lane": lane, "seq": 0, "full": False}), "FINDER-PENDING")
+
+    def watch_finder_desk(self, spec: dict) -> None:
+        """Log one `FINDER-DESK-STALLED` per streak while passes wait queued and none has settled for `FINDER_STALLED_AFTER`, naming how many wait and each running pass's age; the streak ends once a pass settles or none waits."""
+        incident = self.book.load(FINDER)
+        passes = [action for action in incident.actions.values() if action.kind == "finder"]
+        queued = [action for action in passes if action.status == "accepted"]
+        quiet = max(stamp for stamp in (incident.facts.get(FINDER_SETTLED), min((action.accepted_at for action in queued), default="")) if stamp) if queued else ""
+        if not quiet or self.now() - (since := actions.parse_stamp(quiet)) < FINDER_STALLED_AFTER:
+            if FINDER_STALLED in incident.facts:
+                self.book.edit(FINDER, lambda incident: incident.facts.pop(FINDER_STALLED, None))
+            return
+        streak = self.book.edit(FINDER, lambda incident: dict(incident.facts.setdefault(FINDER_STALLED, {"since": actions.stamp(since)})))
+        running = ", ".join(f"#{job['pr']} {job['head'][:12] or 'whole'} for {whole_minutes(actions.parse_stamp(action.started_at), self.now())} min" for action in passes if action.status == "started" for job in [json.loads(action.target)])
+        self.escalate(f"finder-desk:{streak['since']}", "FINDER-DESK-STALLED", finder.LANE, f"{len(queued)} queued, and no finder pass has settled since {pacific(since)}; running (at most {spec.get('concurrent', FINDER_CONCURRENT)} at once): {running or 'none'}; each pass logs to job.log in its directory under {self.config.source.parent / finder.LANE}")
 
     def render(self) -> str:
         lines = [f"# desk-runner {pacific(self.now())}", self.binding_line(self.book.load(RUNNER).facts.get(BINDING))]
@@ -5429,7 +5498,7 @@ class Landing:
         return False
 
     def check_finder(self, graded: Graded) -> dict[str, merge_queue.State]:
-        """Each head with no finder record, or whose newest names an open major that root has not settled, fails `FINDER-PENDING`, with one blocker to its lane and `finder-desk` per head and failing record (E4.1)."""
+        """Each head with no finder record, or whose newest names an open major that root has not settled, fails `FINDER-PENDING`, with one blocker to its lane and `finder-desk` per head and failing record (E4.1); a head with no finder record queues a finder pass when none waits or runs on it."""
         states, failed = {}, {}
         for pr, sha in graded.heads.items():
             if graded.act:
@@ -5446,6 +5515,8 @@ class Landing:
         if graded.act:
             for pr, state in states.items():
                 self.refuse_head(f"finder:{pr}:{graded.heads[pr]}{failed[pr]}", pr, graded, state.reason, states, also=[finder.LANE])
+                if not failed[pr]:
+                    self.runner.requeue_pending_finder(self.repo, pr, graded.heads[pr], graded.rows.get(pr, {}).get("lane") or ROOT)
         return states
 
     def root_answered(self, pr: str, sha: str, verdict: dict) -> bool:

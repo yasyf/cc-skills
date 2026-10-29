@@ -1530,8 +1530,11 @@ head the PR no longer carries when the pass starts or finishes posts nothing. It
 `finder: ok <head>` or `finder: major <head> <n> open: …` under lane `finder-desk` to
 the head's lane. A head reaches the finder once, a head some lane's
 finder record already names gets no second pass, and the runner holds at most
-`concurrent` passes at once, queueing the rest. A failed pass is one `FINDER-FAILED`
-to root, and the lane runs that head's pass by hand. `finder-desk` posts once per pass, so `LANE-GONE` never counts it
+`concurrent` passes at once, queueing the rest. A failed pass, or one whose process
+exited with no result, frees its slot and runs again, up to three attempts; the third
+failure is one `FINDER-FAILED` to root, and the lane runs that head's pass by hand. A
+`FINDER-PENDING` head with no pass waiting or running queues one again, and passes left
+waiting 15 minutes with none settling are one `FINDER-DESK-STALLED` to root. `finder-desk` posts once per pass, so `LANE-GONE` never counts it
 as a lane.
 
 The `rulings` check runs `rulings.py check-pr --repo <checkout> --drive <drive>
