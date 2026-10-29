@@ -11340,12 +11340,46 @@ def test_a_pass_cost_groups_each_command_by_its_program_and_verbs(argv, family):
     assert runner_module.command_family(argv) == family
 
 
-def test_a_pass_cost_lists_the_costliest_families_and_starts_over():
+def test_a_pass_cost_lists_what_the_pass_itself_waited_on_then_every_thread_and_starts_over():
     shell = runner_module.Shell()
-    shell.spent = runner_module.Counter({"ledger.py refresh": 55.2, "stack-enqueue --check": 120.4, "cci tail": 1.0})
-    shell.called = runner_module.Counter({"ledger.py refresh": 1, "stack-enqueue --check": 14, "cci tail": 3})
-    assert shell.pass_cost() == "stack-enqueue --check 120s in 14, ledger.py refresh 55s in 1, cci tail 1s in 3"
-    assert shell.pass_cost() == ""
+    shell.spent = runner_module.Counter({"ledger.py refresh": 55.2, "stack-enqueue --check": 120.4, "cci tail": 31.0})
+    shell.called = runner_module.Counter({"ledger.py refresh": 1, "stack-enqueue --check": 14, "cci tail": 90})
+    shell.waited = runner_module.Counter({"cci tail": 30.2})
+    assert shell.pass_cost() == "the pass waited on cci tail 30s; all threads: stack-enqueue --check 120s in 14, ledger.py refresh 55s in 1, cci tail 31s in 90"
+    assert shell.pass_cost() == "the pass waited on nothing; all threads: "
+
+
+def test_a_command_the_pass_thread_runs_counts_as_waited_and_a_workers_does_not():
+    shell = runner_module.Shell()
+    shell.spent, shell.called, shell.waited = runner_module.Counter(), runner_module.Counter(), runner_module.Counter()
+    shell.run(["true"])
+    worker = threading.Thread(target=lambda: shell.run(["true"]))
+    worker.start()
+    worker.join()
+    assert (shell.called["true"], set(shell.waited)) == (2, {"true"})
+
+
+def test_the_alive_record_names_the_passs_own_command_over_a_longer_one_a_worker_runs(shell, config, tmp_path, monkeypatch):
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    monkeypatch.setitem(runner_module.Shell.in_progress, 1, ("ledger.py refresh --repo Forge-AI/monorepo", time.monotonic() - 600))
+    monkeypatch.setitem(runner_module.Shell.in_progress, threading.main_thread().ident, ("cci tail --drive d1", time.monotonic() - 65))
+
+    runner.post_alive("landing")
+
+    assert shell.alive == [f"landing alive {shell.clock.astimezone(runner_module.PACIFIC):%-I:%M %p} pass 1 running `cci tail --drive d1` for 1m05s"]
+
+
+def test_a_cci_page_under_half_the_budget_is_the_last_one_read(monkeypatch):
+    monkeypatch.setattr(runner_module.cci, "PAGE_BYTES", 400)
+    pages = [[{"seq": 1, "text": "x" * 120}, {"seq": 2, "text": "x" * 120}], [{"seq": 3, "text": "y"}], []]
+    calls: list[list[str]] = []
+
+    def run(argv: list[str]) -> str:
+        calls.append(argv)
+        return "".join(json.dumps(record) + "\n" for record in pages[len(calls) - 1])
+
+    assert [record["seq"] for record in runner_module.cci.records(run, "d1", "--kind=go")] == [1, 2, 3]
+    assert [call[call.index("--since") + 1] for call in calls] == ["0", "2"]
 
 
 def script_build(*steps: str, failed: str = "") -> dict:

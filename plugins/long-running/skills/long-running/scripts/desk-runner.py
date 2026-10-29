@@ -1042,6 +1042,7 @@ class Shell:
     in_progress: dict[int, tuple[str, float]] = {}
     spent: Counter[str] = Counter()
     called: Counter[str] = Counter()
+    waited: Counter[str] = Counter()
     spending = threading.Lock()
 
     def run(self, argv: list[str], stdin: str | None = None, env: dict[str, str] | None = None) -> Done:
@@ -1068,18 +1069,23 @@ class Shell:
             with self.spending:
                 self.spent[command_family(argv)] += time.monotonic() - started
                 self.called[command_family(argv)] += 1
+                if threading.current_thread() is threading.main_thread():
+                    self.waited[command_family(argv)] += time.monotonic() - started
         return Done(proc.returncode, proc.stdout, proc.stderr)
 
     def pass_cost(self) -> str:
-        """The seconds this pass's commands spent and how many calls spent them, the eight costliest families first, summed over parallel workers; the tally starts over."""
+        """The seconds the pass itself waited on its own commands, the four costliest families first, then the seconds every thread's commands spent and how many calls spent them, the eight costliest first; the tally starts over."""
         with self.spending:
-            costliest, called, self.spent, self.called = self.spent.most_common(8), self.called, Counter(), Counter()
-        return ", ".join(f"{family} {seconds:.0f}s in {called[family]}" for family, seconds in costliest)
+            waited, costliest, called, self.spent, self.called, self.waited = self.waited.most_common(4), self.spent.most_common(8), self.called, Counter(), Counter(), Counter()
+        return f"the pass waited on {', '.join(f'{family} {seconds:.0f}s' for family, seconds in waited) or 'nothing'}; all threads: " + ", ".join(f"{family} {seconds:.0f}s in {called[family]}" for family, seconds in costliest)
 
     def in_flight(self) -> tuple[str, float] | None:
-        """The longest-running command in flight and how many seconds it has run."""
+        """The pass's own command in flight and how many seconds it has run, else the longest-running command a worker has in flight."""
         now = time.monotonic()
-        return max(((name, now - started) for name, started in list(self.in_progress.values())), key=lambda item: item[1], default=None)
+        flights = dict(self.in_progress)
+        if own := flights.get(threading.main_thread().ident):
+            return own[0], now - own[1]
+        return max(((name, now - started) for name, started in flights.values()), key=lambda item: item[1], default=None)
 
     def adopt(self, values: dict[str, str]) -> None:
         os.environ.update(values)

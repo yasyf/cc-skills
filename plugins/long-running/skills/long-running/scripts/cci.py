@@ -63,7 +63,7 @@ class Tail:
 
 
 def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: int | str = 0) -> list[dict]:
-    """Every record on `drive` after `since`, a sequence or any `cci tail --since` time, that matches the `cci tail` filters, paged by sequence; touches no cursor. A `Tail` answers a query it read since its last `forget` without running cci."""
+    """Every record on `drive` after `since`, a sequence or any `cci tail --since` time, that matches the `cci tail` filters, paged by sequence; a page under half the budget is the last, since cci caps a record far below that; touches no cursor. A `Tail` answers a query it read since its last `forget` without running cci."""
     key = (drive, filters, str(since))
     read = run.read if isinstance(run, Tail) else None
     if read is not None and (kept := read.get(key)) is not None:
@@ -72,9 +72,9 @@ def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: i
     while True:
         out = run(["cci", "tail", "--drive", drive, "--since", str(since), "--json", "--budget", str(PAGE_BYTES), *filters])
         page = [json.loads(line) for line in out.splitlines() if line.strip()]
-        if not page:
-            break
         found += page
+        if len(out.encode()) < PAGE_BYTES // 2:
+            break
         since = page[-1]["seq"]
     if read is not None:
         read[key] = found
