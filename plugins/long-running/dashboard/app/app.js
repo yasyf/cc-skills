@@ -297,7 +297,7 @@ function render() {
   const screens = { overview: nowScreen, plan: planScreen, work: workScreen, review: () => reviewScreen(p.id ?? ''), history: () => historyScreen(p.id), ask: askScreen, status: statusScreen, jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>` };
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
-  $('#main').innerHTML = (screens[p.screen] ?? nowScreen)() + drawers(stack) + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources failed: ${esc(Object.values(m.errors).join('; '))}. ` : ''}All times Pacific.</div>`;
+  $('#main').innerHTML = (screens[p.screen] ?? nowScreen)() + drawers(stack) + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources could not be read just now (${esc(Object.keys(m.errors).join(', '))}). ` : ''}All times Pacific.</div>`;
   if (stack.length > (state.depth ?? 0)) $('#main .pr-drawer.front')?.classList.add('in');
   state.depth = stack.length;
   decorate(p);
@@ -387,7 +387,7 @@ function siblingsOf(link) {
   const kind = own.split('/')[0];
   const stop = link.closest('.pr-drawer') ?? $('#main');
   for (let el = link.parentElement; el && stop.contains(el); el = el.parentElement) {
-    const segs = [...new Set([...el.querySelectorAll('a[data-seg]:not([data-swap])')].map((a) => plain(a.dataset.seg)).filter((s) => s.split('/')[0] === kind))];
+    const segs = [...new Set([...el.querySelectorAll('a[data-seg]:not([data-swap])')].filter((l) => l.checkVisibility()).map((a) => plain(a.dataset.seg)).filter((s) => s.split('/')[0] === kind))];
     if (segs.length > 1) return segs;
   }
   return [own];

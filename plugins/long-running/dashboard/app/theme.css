@@ -1,22 +1,14 @@
 :root { --dim: .55; --lane-dim: .62; }
 :root[data-v=b] { --dim: .42; --lane-dim: .5; }
-:root[data-v=c] { --dim: .3; --lane-dim: .42; }
+:root[data-v=c] { --dim: .32; --lane-dim: .5; }
 
 :root:is([data-v=b], [data-v=c]) .nw-spine .sp:not(.focus) .bd > .brief { display: none; }
-:root:is([data-v=b], [data-v=c]) .nw .hg:not(:hover, :focus-within) .hg-body { display: none; }
-:root:is([data-v=b], [data-v=c]) .nw .hg:is(:hover, :focus-within) .hg-body { animation: nw-grow .18s ease-out; }
 :root:is([data-v=b], [data-v=c]) .nw-col .feed .lane.rest:not(.you, .st-ready-for-you, .st-needs-you):not(:hover, :focus-visible) :is(.how, .when, .open) { display: none; }
-:root:is([data-v=b], [data-v=c]) .nw-tray:not(:hover, :focus-within) { padding: 6px 0; }
-:root:is([data-v=b], [data-v=c]) .nw-tray .k { cursor: default; }
 :root:is([data-v=b], [data-v=c]) .wk-active > .wk-row:not(.lead) { opacity: var(--lane-dim); transition: opacity .18s ease-out; }
 :root:is([data-v=b], [data-v=c]) .wk-active > .wk-row:not(.lead):is(:hover, :focus-visible) { opacity: 1; }
-:root[data-v=c] .nw-spine .sp:not(.focus) .ms :is(.st, .why) { display: none; }
 :root[data-v=c] .nw-col .chain .hc:not(:first-child):not(.you, .st-ready-for-you, .st-needs-you) { opacity: var(--lane-dim); transition: opacity .18s ease-out; }
 :root[data-v=c] .nw-col .chain .hc:not(:first-child):not(.you, .st-ready-for-you, .st-needs-you):not(:hover, :focus-visible) :is(.how, .when) { display: none; }
 :root[data-v=c] .nw-col .chain .hc:not(:first-child):not(.you, .st-ready-for-you, .st-needs-you):is(:hover, :focus-visible) { opacity: 1; }
-:root[data-v=c] .nw-diagram:not(:hover, :focus-within) :is(.nw-cap, .ck, .nw-parts) { display: none; }
-:root[data-v=c] .nw-diagram:not(:hover, :focus-within) > .nw-h::after { content: "  ›  hover to open"; color: var(--ink-3); font-weight: 600; letter-spacing: .04em; text-transform: none; }
-:root[data-v=c] .wk-active > .wk-row:not(.lead):not(:hover, :focus-visible) .wk-line { display: none; }
 :root[data-v=c] .nw-sub, :root[data-v=c] .nw-code { opacity: .7; }
 
 :root[data-v=a] .mr { --tone: var(--line2, #2c343f); }
@@ -35,7 +27,6 @@
 :root[data-v=b] .nw-band .nl { border-radius: 4px; border: 0; background: #2a2109; }
 :root[data-v=b] .nw-band.incident { border: 0; border-left: 5px solid var(--bad); border-radius: 6px; }
 :root[data-v=b] .nw-journey .nm { font-weight: 600; }
-:root[data-v=b] .nw-journey .st { font: var(--caps); letter-spacing: .1em; text-transform: uppercase; margin-top: 3px; }
 :root[data-v=b] .nw-spine .cur .dot { box-shadow: 0 0 0 4px color-mix(in srgb, var(--tone) 28%, transparent); }
 :root[data-v=b] .nw-col { border-style: solid; border-width: 1.5px; border-radius: 8px; box-shadow: none; background: color-mix(in srgb, var(--tone) 5%, var(--panel)); }
 :root[data-v=b] .nw-spine .sp.focus { background: color-mix(in srgb, var(--tone) 7%, transparent); border-radius: 8px; }
@@ -265,9 +256,19 @@
 :root[data-v=c] .nw-tray { border-top: 2px solid var(--line); border-bottom: 2px solid var(--line); }
 :root[data-v=c] .nw-tray .tw { border-radius: 0; border: 2px solid var(--surface-3); }
 :root[data-v=c] .nw-tray .tw .chip { border-radius: 0; }
-:root[data-v=c] .nw .hg-n { border-radius: 0; background: var(--c-work); color: #000; font-weight: 900; }
 :root[data-v=c] .pr-drawer { border: 3px solid #fff; border-radius: 0; box-shadow: 0 30px 80px rgba(0, 0, 0, .8); background: #0a0b0e; }
 :root[data-v=c] .pr-drawer.under { border-color: var(--surface-3); }
 :root[data-v=c] .dr-bar { border-radius: 0; background: #000; border-bottom: 3px solid var(--surface-3); }
 :root[data-v=c] .dr-spine { font-weight: 800; }
 :root[data-v=c] .nw-col a.hc, :root[data-v=c] .nw a.cn { color: #fff; }
+
+:root[data-v=c] .wk-active > .wk-row:not(.lead):not(:hover, :focus-visible) .wk-latest { display: none; }
+:root[data-v=c] .wk-active > .wk-row b { color: #fff; }
+:root[data-v=b] .nw-journey .st { font-weight: 600; font-size: 11.5px; }
+:root[data-v=c] .nw-band.needs { background: #0c0d10; color: var(--ink); border: 3px solid var(--c-you); }
+:root[data-v=c] .nw-band .nl { background: #17140a; border-left-color: var(--c-you); }
+:root[data-v=c] .nw-band .nl .what, :root[data-v=c] .nw-band .nl a.what { color: #fff; }
+:root[data-v=c] .nw-band .nl .sub { color: #d9c79a; }
+:root[data-v=c] .nw .nw-band .nbtn, :root[data-v=c] .nw .nw-band .nbtn.pri { background: var(--c-you); border-color: var(--c-you); color: #000; }
+:root[data-v=c] .nw-spine .need { border-radius: 0; font-weight: 900; }
+:root[data-v=b] .nw-spine .need { border-radius: 3px; }
