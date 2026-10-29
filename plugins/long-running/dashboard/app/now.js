@@ -1,4 +1,4 @@
-const VIEWS = { progress: 'journey', diagram: 'end-state', v: 'b' };
+const VIEWS = { progress: 'journey', diagram: 'end-state' };
 const NODE_WORD = { fixing: 'Being fixed', you: 'Needs you', nobody: 'No one assigned', waiting: 'Waiting', done: 'Done' };
 const MARK_WORD = { progress: 'Progress', finding: 'Found', stuck: 'Stuck', done: 'Done' };
 const NODE_TONE = { fixing: 'acc', you: 'you', nobody: 'bad', waiting: '', done: 'ok' };
@@ -45,8 +45,8 @@ function nowScreen() {
     <h1 class="nw-head">${esc(b.headline)}</h1>
     <p class="nw-sub">Written from the drive's records at ${clock(b.at)}. <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>
     ${state.open.has('nw-why') ? `<ul class="nw-why">${b.because.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
-    <section><h2 class="nw-h">Overall progress</h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
     ${diagramSlot()}
+    <section><h2 class="nw-h">Overall progress</h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
   </div>`;
 }
 
@@ -109,7 +109,7 @@ function journey(b) {
     <div class="nw-journey nw-spine" style="--n:${list.length};grid-template-columns:${weight.map((w) => `minmax(0, ${w}fr)`).join(' ')}">${list.map((s, i) => {
       const cls = ['sp', `ms-${s.state}`, i === cur && 'cur', i === focus && 'focus', i > 0 && i <= lastLive && 'l-on', i < lastLive && 'r-on'].filter(Boolean).join(' ');
       return `<div class="${cls}" data-i="${i}"><a class="ms ms-${s.state}${i === cur ? ' cur' : ''}" href="#/plan/m${i}"><span class="here">${i === cur ? 'Drive is here' : ''}</span><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.why ? `<span class="why">${esc(s.why)}</span>` : ''}${waitsOnOwner(s) ? '<span class="need">Needs you</span>' : ''}</a>
-        <div class="bd"><div class="brief">${shutStop(s, list[i - 1])}</div><i class="stem"></i></div></div>`;
+        <div class="bd"><i class="stem"></i></div></div>`;
     }).join('')}</div>
     <div class="nw-slot" data-cur="${cur}" style="--hold:${hover.hold}px">${list.map((s, i) => `<div class="pan${i === focus ? ' focus' : ''}" data-i="${i}" style="--x:${center[i].toFixed(2)}%">${openStop(s, b, i === cur)}</div>`).join('')}</div>
     ${tray(b)}
@@ -155,27 +155,17 @@ function focusLane() {
   return s ? leadOf(s)?.item : null;
 }
 function openStop(s, b, cur) {
-  const left = s.left.length ? `<p class="hl">Holding it up, nearest first</p><div class="chain">${s.left.map(hangNode).join('')}</div>` : '';
+  const left = s.left.length ? `<p class="hl">What blocks it, nearest first</p><div class="chain">${s.left.map(hangNode).join('')}</div>` : '';
   const lead = leadOf(s);
-  const feed = s.work.length ? `<p class="hl">Work feeding it</p><div class="feed">${[lead, ...s.work.filter((w) => w !== lead)].map((w) => hangWork(w, w === lead)).join('')}</div>` : '';
-  const done = s.done.length ? fold(`done${s.i}`, `Done so far <span class="pg-n">${s.done.length}</span>`, `<ul class="did">${s.done.map((n) => `<li>${esc(n.text)}</li>`).join('')}</ul>`, view('v') === 'a') : '';
-  const calm = s.state === 'live' ? 'Live. Nothing is left to do here.' : cur ? b.calm || 'Nothing is stuck.' : 'Nothing is recorded as holding it up yet.';
+  const feed = s.work.length ? `<p class="hl">Work on it</p><div class="feed">${[lead, ...s.work.filter((w) => w !== lead)].map((w) => hangWork(w, w === lead)).join('')}</div>` : '';
+  const done = s.done.length ? fold(`done${s.i}`, `Done so far <span class="pg-n">${s.done.length}</span>`, `<ul class="did">${s.done.map((n) => `<li>${esc(n.text)}</li>`).join('')}</ul>`) : '';
+  const calm = s.state === 'live' ? 'Live. Nothing is left to do here.' : cur ? b.calm || 'Nothing is stuck.' : 'No blockers recorded yet.';
   return `<div class="nw-col ms-${s.state}">${left || feed ? left + feed : `<div class="nw-calm"><span class="ok">✓</span>${esc(calm)}</div>`}${done}</div>`;
-}
-function shutStop(s, before) {
-  const tg = s.left.length || s.work.length || s.done.length ? `<a class="tg" href="#/plan/m${s.i}">Open ›</a>` : '';
-  if (s.state === 'live') return `<div class="shut live"><span class="dn">✓ Done${s.done.length ? `, ${s.done.length} step${s.done.length === 1 ? '' : 's'}` : ''}</span>${tg}</div>`;
-  const rank = { nobody: 0, you: 1, fixing: 2, waiting: 3 };
-  const next = [...s.left].sort((x, y) => y.depth - x.depth || rank[x.state] - rank[y.state])[0];
-  const lead = next
-    ? `<span class="k ${esc(next.state)}">Next step</span><span class="nx">${esc(next.text)}</span>${s.left.length > 1 ? `<span class="mo">and ${s.left.length - 1} more holding it</span>` : ''}`
-    : before && s.state === 'not' ? `<span class="k">Starts after</span><span class="nx">${esc(before.name)}</span>` : '<span class="mo">No blockers recorded</span>';
-  return `<div class="shut">${lead}${s.work.length ? `<span class="mo">${s.work.length === 1 ? 'One piece' : `${s.work.length} pieces`} of work feeding it</span>` : ''}${tg}</div>`;
 }
 function tray(b) {
   const loose = placed(b).filter((w) => w.at < 0);
   if (!loose.length) return '';
-  return `<div class="nw-tray">${fold('tray', `Feeding no milestone <span class="pg-n">${loose.length}</span>`, `<div class="tws">${loose.map((w) => `<a class="tw ${slug(w.status)}${onStory(w.item) ? ' on' : ''}" href="${storyHref(w.item)}" title="${esc(w.latest)}"><span class="pulse"></span>${esc(w.title)}<span class="chip ${slug(w.status)}">${esc(w.status)}</span></a>`).join('')}</div>`, view('v') === 'a')}<a class="more" href="#/work">All work ›</a></div>`;
+  return `<div class="nw-tray">${fold('tray', `Work not tied to a milestone <span class="pg-n">${loose.length}</span>`, `<div class="tws">${loose.map((w) => `<a class="tw ${slug(w.status)}${onStory(w.item) ? ' on' : ''}" href="${storyHref(w.item)}" title="${esc(w.latest)}"><span class="pulse"></span>${esc(w.title)}<span class="chip ${slug(w.status)}">${esc(w.status)}</span></a>`).join('')}</div>`)}<a class="more" href="#/work">All work ›</a></div>`;
 }
 function onStory(item) {
   const r = route();
@@ -295,18 +285,18 @@ function blockerPage(id) {
   const work = n.item && workItem(n.item);
   const word = nodeWord(n);
   return detailPage(['#/', 'Now'], `Blocker · to ${esc(name)}`, n.text, `<p class="pg-stateline">${dotted(NODE_WORD[n.state], NODE_TONE[n.state])}<span class="muted">${esc(waited(n.since))}</span></p>`, [
-    ['Who does what', esc(n.how)],
+    ['Who is on it', esc(n.how)],
     ['Latest word', word ? wordLine(word) : ''],
-    ['The change', n.change ? `<ul class="pg-changes"><li class="${light(prState(n.change))}"><a href="#/review/${n.change}">${esc(prTitle(n.change))}</a><span>${esc(prTruth(n.change).blocks || STATE_WORD[prState(n.change)] || '')}</span></li></ul>` : ''],
+    ['The change', n.change ? `<ul class="pg-changes">${changeLine(n.change)}</ul>` : ''],
     ['The work on it', work ? `<a href="#/work/${encodeURIComponent(n.item)}">${esc(work.title)} ›</a><br><span class="muted">${esc(work.status)}: ${esc(work.latest)}</span>` : ''],
-    ['Clears first', before ? `<ul class="pg-changes">${before}</ul>` : ''],
-    ['Then frees', after ? `<ul class="pg-changes">${after}</ul>` : ''],
+    ['Must clear first', before ? `<ul class="pg-changes">${before}</ul>` : ''],
+    ['Unblocks next', after ? `<ul class="pg-changes">${after}</ul>` : ''],
     ['Milestone', `<a href="#/plan/m${path.milestone}">${esc(name)} ›</a>`],
   ]);
 }
 function workDrawer(item) {
   const w = workItem(item);
-  const changes = (w?.changes ?? []).map((n) => `<li class="${light(prState(n))}"><a href="#/review/${n}">${esc(prTitle(n))}</a><span>${esc(prTruth(n).blocks || STATE_WORD[prState(n)] || '')}</span></li>`).join('');
+  const changes = (w?.changes ?? []).map(changeLine).join('');
   const workers = (w?.workers ?? []).map((lane) => `<a href="#/worker/${encodeURIComponent(lane)}">${esc(workerName(lane))}</a>`).join(', ');
   return `<div class="nw dr-story"><div id="nw-story">${storyBody(item)}</div></div>${w ? `<dl class="pg-facts">${workers ? `<dt>Who is on it</dt><dd>${workers}</dd>` : ''}${changes ? `<dt>Its pull requests</dt><dd><ul class="pg-changes">${changes}</ul></dd>` : ''}</dl>` : ''}`;
 }
@@ -327,7 +317,7 @@ function storyBody(item) {
 }
 
 const DIAGRAMS = {
-  'end-state': () => ['How much of the end state has landed', `<p class="nw-cap">Each light is one change the drive tracks, placed where it runs: on your Mac, in the cloud, or in the tools that ship it. ${(() => { const t = tally(state.model.drive.prs); return `${t.landed} of ${t.total} have merged, so ${pct(t)}% of the end state is in.`; })()}</p><div class="ck ov">${destination()}<div id="tip" class="tip" hidden></div></div>`],
+  'end-state': () => ['How much of the finished product has merged', `<p class="nw-cap">Each light is one change the drive tracks, placed where it runs: on your Mac, in the cloud, or in the tools that ship it. ${(() => { const t = tally(state.model.drive.prs); return `${t.landed} of ${t.total} have merged, so ${pct(t)}% of the finished product is in.`; })()}</p><div class="ck ov">${destination()}<div id="tip" class="tip" hidden></div></div>`],
   parts: () => ['How much of each part has landed', `<div class="nw-panel nw-parts">${state.model.parts.map((p) => {
     const t = tally(state.model.drive.prs.filter((e) => e.part === p.key));
     return `<div class="pt"><b>${esc(p.name)}</b><span class="bar"><i style="width:${pct(t)}%"></i></span><span class="pc">${t.landed} of ${t.total}</span><span class="sub">${esc(p.becomes)}</span></div>`;
@@ -336,7 +326,7 @@ const DIAGRAMS = {
 };
 function diagramSlot() {
   const [title, body] = DIAGRAMS[view('diagram')]?.() ?? [];
-  return body ? `<section class="nw-diagram">${fold('diagram', `<h2 class="nw-h">${title}</h2>`, body, view('v') !== 'c')}</section>` : '';
+  return body ? `<section class="nw-diagram"><h2 class="nw-h">${title}</h2>${body}</section>` : '';
 }
 
 function mountNow() {

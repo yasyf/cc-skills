@@ -284,7 +284,6 @@ function render() {
   if (!m || !m.prs) return;
   const p = pageRoute();
   const stack = stackOf();
-  document.documentElement.dataset.v = view('v');
   document.title = m.title;
   $('.brand').textContent = m.title;
   const tabs = [['overview', 'Now'], ['plan', 'Plan'], ['status', 'Status'], ['work', 'Work'], ['review', 'Review', needsTotal()], ['history', 'History']];

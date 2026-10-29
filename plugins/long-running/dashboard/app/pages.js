@@ -171,8 +171,8 @@ function milestonePage(p, i) {
   const { nodes, feeding } = b ? milestoneChain(b, i) : { nodes: [], feeding: [] };
   const prs = [...new Set([...nodes.map((n) => n.change), ...feeding.flatMap((w) => w.changes ?? [])].filter(Boolean))];
   const chain = `<div class="nw ms-chain">${nodes.length ? `<section><h2 class="nw-h">What stands in the way, in order</h2><div class="nw-chain">${nodes.map(chainCard).join('')}<div class="cn goal"><span class="w">Then</span>${esc(names[i])}</div></div></section>` : ''}
-    ${feeding.length ? `<section><h2 class="nw-h">Work feeding it</h2><div class="nw-feed">${feeding.map(feedCard).join('')}</div></section>` : ''}
-    ${prs.length ? `<section><h2 class="nw-h">Its pull requests <span class="pg-n">${prs.length}</span></h2><ul class="pg-changes ms-prs">${prs.map((n) => `<li class="${light(prState(n))}"><a href="#/review/${n}">${esc(prTitle(n))}</a><span>${esc(prTruth(n).blocks || STATE_WORD[prState(n)] || '')}</span></li>`).join('')}</ul></section>` : ''}</div>`;
+    ${feeding.length ? `<section><h2 class="nw-h">Work on it</h2><div class="nw-feed">${feeding.map(feedCard).join('')}</div></section>` : ''}
+    ${prs.length ? `<section><h2 class="nw-h">Its pull requests <span class="pg-n">${prs.length}</span></h2><ul class="pg-changes ms-prs">${prs.map(changeLine).join('')}</ul></section>` : ''}</div>`;
   return detailPage(['#/plan', 'Plan'], `${esc(state.model.milestones_label)} · ${i + 1} of ${names.length}`, names[i], `<p class="pg-stateline">${dotted(s.label, STOP_TONE[s.state])}${answerLink(s.card)}</p>`, [
     ['What it waits on', s.waits ? `${esc(s.waits)}${forSince(s.since)}` : esc(s.state === 'not' ? 'The milestone above' : s.state === 'live' ? 'Nothing: it is live' : 'Nothing open')],
     ['What we are doing to unblock it', esc(s.unblock ?? '')],
@@ -299,15 +299,21 @@ function waitLine(row, w) {
   if (!SETTLED.test(w.blocker.trim())) return `<p class="mr-waits">${dotted('Waits on', 'warn')} ${esc(w.blocker)}${since ? `<small class="pg-for">${blockedFor(since)}</small>` : ''}</p>`;
   return verdictState(row) === 'you' && since ? `<p class="mr-waits">${dotted('Waiting on you', 'you')} ${blockedFor(since)}</p>` : '';
 }
-function mergeRow(row) {
-  const w = rowWords(row);
+function rowActs(row) {
   const busy = pending.number === row.number && !pending.error;
-  const waits = waitLine(row, w);
-  const carried = row.carried?.length ? '<p class="mr-waits">Your earlier approval carries to this version; the review line names the fix.</p>' : '';
-  const acts = verdictState(row) === 'you'
+  return verdictState(row) === 'you'
     ? `<button class="btn pri" data-approve="${row.number}" data-head="${esc(row.head)}"${busy ? ' disabled' : ''}>${busy ? 'Sending' : 'Approve'}</button><button class="btn" data-hold-row="${row.number}"${busy ? ' disabled' : ''}>Hold</button>`
     : verdictPill(row);
-  return `<article class="mr t-${verdictState(row)}" data-peek="${row.number}"><header><a class="mr-t" href="#/review/${row.number}">${esc(w.title)}</a><span class="mr-acts">${acts}<a class="btn ghost" href="#/review/${row.number}">Details</a></span></header>${waits}${carried}${rowFacts(row)}${pending.number === row.number && pending.error ? `<p class="mr-err">Not recorded: ${esc(pending.error)}</p>` : ''}${changeBox(row.number, row.head)}${prPeek(row.number)}</article>`;
+}
+function changeLine(n) {
+  const row = boardRow(n);
+  return `<li class="${light(prState(n))}"><a href="#/review/${n}">${esc(prTitle(n))}</a><span>${esc(prTruth(n).blocks || STATE_WORD[prState(n)] || '')}</span>${row && verdictState(row) === 'you' && prState(n) !== 'landed' ? `<span class="pg-acts">${rowActs(row)}</span>` : ''}</li>`;
+}
+function mergeRow(row) {
+  const w = rowWords(row);
+  const waits = waitLine(row, w);
+  const carried = row.carried?.length ? '<p class="mr-waits">Your earlier approval carries to this version; the review line names the fix.</p>' : '';
+  return `<article class="mr t-${verdictState(row)}" data-peek="${row.number}"><header><a class="mr-t" href="#/review/${row.number}">${esc(w.title)}</a><span class="mr-acts">${rowActs(row)}<a class="btn ghost" href="#/review/${row.number}">Details</a></span></header>${waits}${carried}${rowFacts(row)}${pending.number === row.number && pending.error ? `<p class="mr-err">Not recorded: ${esc(pending.error)}</p>` : ''}${changeBox(row.number, row.head)}${prPeek(row.number)}</article>`;
 }
 const peek = { n: null, at: 0 };
 for (const kind of ['pointerover', 'focusin']) {

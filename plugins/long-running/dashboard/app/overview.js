@@ -53,7 +53,7 @@ function machine(home, title) {
   const groups = parts.map((p) => [p, list.filter((e) => e.part === p.key && e.tree !== m.tree_names[1])]).filter(([, l]) => l.length).sort((a, b) => b[1].length - a[1].length);
   const p = pct(tally(list));
   return `<figure class="machine ${home}" data-zone="${home}" data-pct="${p}"><div class="shell"><svg class="ol" aria-hidden="true"></svg><span class="tag">${title} <em>${p}%</em></span>
-    <div class="screen">${groups.map(([part, l]) => cluster(part.name, l, part.key)).join('')}${old.length ? cluster('Old, kept', old, '', ' kept') : ''}</div></div>${home === 'mac' ? '<div class="kb"></div>' : ''}</figure>`;
+    <div class="screen">${groups.map(([part, l]) => cluster(part.name, l, part.key)).join('')}${old.length ? cluster('Old code', old, '', ' kept') : ''}</div></div>${home === 'mac' ? '<div class="kb"></div>' : ''}</figure>`;
 }
 function landedSinceLook() {
   const look = Number(localStorage.getItem('drive-last-look') ?? 0);
@@ -64,11 +64,11 @@ function destination() {
   const back = landedSinceLook();
   const tools = state.model.drive.prs.filter((e) => e.part === 'tools');
   return `<section class="hero"><div class="machines">${machine('cloud', 'The cloud')}
-    <div class="link"><i class="stream a"></i><i class="stream b"></i><div class="gauge" style="--p:${pct(t)}"><b>${pct(t)}<small>%</small></b><span>of the end state landed</span></div>${back.length ? `<button class="plusn" data-back title="Landed since you last looked">+${back.length}</button>` : ''}</div>
+    <div class="link"><i class="stream a"></i><i class="stream b"></i><div class="gauge" style="--p:${pct(t)}"><b>${pct(t)}<small>%</small></b><span>of the finished product merged</span></div>${back.length ? `<button class="plusn" data-back title="Landed since you last looked">+${back.length}</button>` : ''}</div>
     ${machine('mac', 'Your Mac')}</div>
     <div class="runway" data-part="tools"><span class="rl pl">Tools</span><div class="lights">${byLight(tools).map((e) => dot(e.number)).join('')}</div></div>
-    <div class="foot"><p class="endline"><b>End state.</b> Mac and cloud both run the new code, chats follow live between them, and the old code stays until cutover.</p>
-    <div class="legend"><span><i class="dot s-done"></i>landed</span><span><i class="dot s-queued"></i>approved</span><span><i class="dot s-doing"></i>moving now</span><span><i class="dot s-failing"></i>own tests failing</span><span><i class="dot s-waiting"></i>waiting</span><span><i class="dot s-held"></i>held</span><span><i class="dot s-you"></i>you</span></div></div>
+    <div class="foot"><p class="endline"><b>When it is done.</b> Mac and cloud both run the new code, chats follow live between them, and the old code stays until cutover.</p>
+    <div class="legend"><span><i class="dot s-done"></i>merged</span><span><i class="dot s-queued"></i>approved, not merged</span><span><i class="dot s-doing"></i>being worked on</span><span><i class="dot s-failing"></i>its tests fail</span><span><i class="dot s-waiting"></i>waiting</span><span><i class="dot s-held"></i>you held it</span><span><i class="dot s-you"></i>waits on you</span></div></div>
   </section>`;
 }
 function replay() {
