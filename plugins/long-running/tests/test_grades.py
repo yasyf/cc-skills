@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import grades
+import pytest
 
 
 def test_a_head_record_naming_no_earlier_head_states_no_move():
@@ -33,3 +34,17 @@ def test_a_carried_go_keeps_the_port_or_test_only_claim_of_the_go_it_carries():
     for source, carried in [("go port #44672 at 1ec2d0a", "go port #44672 at 7161713"), ("go #44672 at 1ec2d0a, a Test-only change", "go test-only #44672 at 7161713"), ("go #44672 at 1ec2d0a", "go #44672 at 7161713")]:
         [moved] = grades.carried_gos([go(source)], [grade], "Forge-AI/monorepo", lambda pr, head: True)
         assert moved["text"] == carried and grades.go_heads(moved) == {"44672": "7161713"}
+
+
+@pytest.mark.parametrize(
+    ("record", "seqs"),
+    [
+        ({"text": "go #12 and go #13 are withdrawn: the grades they cited moved"}, {12, 13}),
+        ({"re": 12, "text": "Withdrawn: the finder found a blocker"}, {12}),
+        ({"re": 12, "text": "go #12 is not withdrawn; the grade stands"}, set()),
+        ({"text": "Answering go #12: the fidelity grade #140953 it cited was withdrawn. The go stands."}, {140953}),
+        ({"text": "go #123 is withdrawn"}, {123}),
+    ],
+)
+def test_withdrawn_names_every_record_a_record_withdraws(record, seqs):
+    assert grades.withdrawn(record) == seqs

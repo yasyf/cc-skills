@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 LANE_NUMBER = re.compile(r"(.+?)(?:-(\d+))?")
+WITHDRAWN_NAMED = re.compile(r"#(\d+)\b(?=(?:(?!\bnot\b)[^.;:\n])*\bwithdrawn\b)", re.IGNORECASE)
 FIDELITY_OK = "fidelity: ok"
 FIDELITY_MISSING = "fidelity: missing"
 FIDELITY_GRADES = (FIDELITY_OK, FIDELITY_MISSING)
@@ -296,11 +297,10 @@ def old_app_grades_in(found: list[dict], drive: str, lanes: list[str], repo: str
     ]
 
 
-def withdraws(record: dict, seq: int) -> bool:
-    """Whether `record` withdraws the record `seq`: it answers it by `--re` and opens with "withdrawn", or names `#<seq>` and then "withdrawn" in the same clause, with no "not" between."""
-    if record.get("re") == seq and WITHDRAWN.match(record["text"]):
-        return True
-    return re.search(rf"#{seq}\b(?:(?!\bnot\b)[^.;:\n])*\bwithdrawn\b", record["text"], re.IGNORECASE) is not None
+def withdrawn(record: dict) -> set[int]:
+    """The records `record` withdraws: the one it answers by `--re` when it opens with "withdrawn", and each `#<seq>` it names with "withdrawn" later in the same clause and no "not" between."""
+    named = {int(seq) for seq in WITHDRAWN_NAMED.findall(record["text"])}
+    return named | {record["re"]} if record.get("re") and WITHDRAWN.match(record["text"]) else named
 
 
 def review_bot_wait(title: str, lane: str) -> str:
