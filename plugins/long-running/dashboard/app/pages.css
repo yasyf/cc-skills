@@ -187,7 +187,7 @@ a.pg-row:hover .pg-cells > b { color: var(--accent); }
 
 :root { --lit-tone: var(--ok); --panel-face: radial-gradient(rgba(255, 255, 255, .03) 1px, transparent 1px) 0 0 / 14px 14px, radial-gradient(120% 90% at 50% 0%, #10161f 0%, rgba(8, 10, 13, 0) 70%), #0d1015; }
 * { --lit: color-mix(in srgb, var(--lit-tone) 50%, transparent); --lit-glow: 0 0 0 1px color-mix(in srgb, var(--lit-tone) 7%, transparent), 0 0 22px -8px color-mix(in srgb, var(--lit-tone) 55%, transparent); }
-:is(.mr, .pg-table, .pg-list, .pg-facts, .pr-facts, .pr-read, .st-table .tablewrap, .nw-panel, .nw-chart, .nw-cards .blk, .nw-work, .nw-calm) { background: var(--panel-face); border: 1.5px solid var(--lit); box-shadow: var(--depth), var(--lit-glow); }
+:is(.mr, .pg-table, .pg-list, .pg-facts, .pr-facts, .pr-read, .st-table .tablewrap, .nw-panel, .nw-chart, .nw-cards .blk, .nw-work, .nw-calm, .wk-helpers, .chat, form.ask) { background: var(--panel-face); border: 1.5px solid var(--lit); box-shadow: var(--depth), var(--lit-glow); }
 :is(.mr.t-you, .nw-cards .blk.you) { --lit-tone: var(--amber); }
 :is(.mr.t-failing, .wk-stuck, .nw-cards .blk.nobody) { --lit-tone: var(--bad); }
 :is(.mr.t-held, .mr.t-waiting, .mr.t-closed, .mr.t-untracked) { --lit-tone: var(--ink-3); }
@@ -266,3 +266,7 @@ body #pal .it.on { background: color-mix(in srgb, var(--ok) 9%, transparent); bo
 .fb-reply { margin-top: 6px; color: var(--ink-2); font-size: 13px; }
 .fb-reply b { color: var(--ink); font-weight: 600; }
 .review-tabs kbd { margin-left: 7px; padding: 0 5px; border-radius: 4px; font: 600 10px/16px var(--mono); opacity: .55; box-shadow: inset 0 0 0 1px currentColor; }
+.wk-helpers, .chat, form.ask { border-radius: 12px; padding: 12px 16px; }
+.wr .quiet { display: block; margin-top: 3px; color: var(--amber); font-size: 12px; }
+.st-worker { color: var(--ink); border-bottom: 1px dashed color-mix(in srgb, var(--ok) 55%, transparent); text-decoration: none; }
+.st-worker:hover { color: var(--ok); }

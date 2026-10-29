@@ -206,12 +206,18 @@ function statusRows() {
   const [head, , ...rows] = liveSince(state.model.status_table.split(/\n\s*\n/)[0]).trim().split('\n').map(split);
   return { head, rows };
 }
+function workerLinks(html) {
+  return html.replace(/\[([^\]]+)\]\(worker:([\w-]+)\)/g, (_, said, lane) => {
+    const item = [...(state.model.brief?.work ?? []), ...(state.model.pages?.work?.running ?? [])].find((w) => w.workers.some((x) => sameWorker(x, lane)))?.item;
+    return `<a class="st-worker" href="${item ? `#/story/${encodeURIComponent(item)}` : `#/worker/${encodeURIComponent(lane)}`}">${said}</a>`;
+  });
+}
 function stepLight(cell) {
   return /^done\b/i.test(cell) ? 'ok' : /\b(red|fail|broken|stuck|conflict)/i.test(cell) ? 'bad' : /^not started|^later/i.test(cell) ? '' : 'acc';
 }
 function statusStep(row) {
   const { head } = statusRows();
-  return `<div class="pg pg-page"><div class="kick muted">Plan step</div><h1 class="pg-title">${esc(words(row[0]))}</h1><dl class="pg-facts">${row.slice(1).map((c, i) => `<dt>${esc(head[i + 1] ?? '')}</dt><dd>${inline(c)}</dd>`).join('')}</dl></div>`;
+  return `<div class="pg pg-page"><div class="kick muted">Plan step</div><h1 class="pg-title">${esc(words(row[0]))}</h1><dl class="pg-facts">${row.slice(1).map((c, i) => `<dt>${esc(head[i + 1] ?? '')}</dt><dd>${workerLinks(inline(c))}</dd>`).join('')}</dl></div>`;
 }
 function statusScreen() {
   const m = state.model;
@@ -220,7 +226,7 @@ function statusScreen() {
   const problem = (pr) => [pr.mergeable_state === 'dirty' ? 'Merge conflict with its base' : '', pr.test_state === 'failure' ? (pr.failing_checks ?? []).some((c) => /release-pr-check/.test(c.name)) ? 'Tests and the release check fail' : 'Tests fail' : ''].filter(Boolean).join('; ');
   const prRow = ({ n, pr, t }) => `<div class="pg-row"><span class="pg-cells"><b><a href="#/review/${n}">${esc(prTitle(n))}</a></b><span>${dotted(problem(pr), 'bad')}</span><span>${esc(t.blocks || 'Not known')}</span><span class="st-for">${t.since ? blockedFor(t.since) : '<span class="pg-none">Not known</span>'}</span><span>${esc(t.next || 'No step named yet')}${pr.lane ? ` · <a href="#/worker/${encodeURIComponent(pr.lane)}">${esc(workerName(pr.lane))}</a>` : ''}</span></span></div>`;
   return `<div class="pg">${pageHead('Status')}<p class="pg-lead">Each step of the plan, exactly what blocks it, for how long, and what is being done to unblock it, from the owner table; then every open pull request whose tests fail or that conflicts with its base.</p>
-    <section class="pg-sec"><h2>Every step of the plan</h2><div class="md prose st-table"><div class="tablewrap"><table><thead><tr>${steps.head.map((c) => `<th>${inline(c)}</th>`).join('')}</tr></thead><tbody>${steps.rows.map((row, i) => `<tr data-step="${i}">${row.map((c, j) => `<td data-h="${esc(steps.head[j] ?? '')}">${j === 1 ? `<span class="st-light ${stepLight(c)}"></span>${inline(c)}` : j ? inline(c) : `<a class="st-step" href="#/status/s${i}">${esc(words(c))}</a>`}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div></section>
+    <section class="pg-sec"><h2>Every step of the plan</h2><div class="md prose st-table"><div class="tablewrap"><table><thead><tr>${steps.head.map((c) => `<th>${inline(c)}</th>`).join('')}</tr></thead><tbody>${steps.rows.map((row, i) => `<tr data-step="${i}">${row.map((c, j) => `<td data-h="${esc(steps.head[j] ?? '')}">${j === 1 ? `<span class="st-light ${stepLight(c)}"></span>${inline(c)}` : j ? workerLinks(inline(c)) : `<a class="st-step" href="#/status/s${i}">${esc(words(c))}</a>`}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div></section>
     <section class="pg-sec"><h2>Failing tests and merge conflicts <span class="pg-n">${red.length}</span></h2>${red.length ? `<div class="pg-table st-prs">${tableHead('Change', 'Problem', 'Where it stands', 'For', 'What is being done')}${red.map(prRow).join('')}</div>` : '<p class="pg-none">No open pull request has failing tests or a merge conflict.</p>'}</section></div>`;
 }
 function sameWorker(a, b) {

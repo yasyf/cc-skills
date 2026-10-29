@@ -15,6 +15,7 @@ function minutesOf(t) {
   const [, h, mm, ap] = /(\d+):(\d+) ([AP]M)/.exec(t ?? '') ?? [0, 0, 0, 'AM'];
   return (Number(h) % 12 + (ap === 'PM' ? 12 : 0)) * 60 + Number(mm);
 }
+const QUIET_MS = 5 * 60000;
 function minutesAgo(t) {
   const [h, m] = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: 'numeric', hourCycle: 'h23' }).format(new Date()).split(':').map(Number);
   return (h * 60 + m - minutesOf(t) + 1440) % 1440;
@@ -219,10 +220,17 @@ function workList(b) {
 }
 function workRow(w) {
   return `<a class="wr ${slug(w.status)}" href="${storyHref(w.item)}"><span class="pulse"></span>
-    <span class="body"><b>${esc(w.title)}</b><span class="line"><span class="chip ${slug(w.status)}">${esc(w.status)}</span>${esc(w.latest)}</span></span>
+    <span class="body"><b>${esc(w.title)}</b><span class="line"><span class="chip ${slug(w.status)}">${esc(w.status)}</span>${esc(w.latest)}</span>${quietLine(w)}</span>
     <span class="side">${lasted(w.since) ? `<span>${lasted(w.since)}</span><span>since ${esc(w.since)}</span>` : ''}${workWord(w.item) ? `<span>${wordAt(workWord(w.item))}</span>` : ''}<span class="open">Live story ›</span></span></a>`;
 }
 
+function quietLine(w) {
+  const word = workWord(w.item);
+  if (word && Date.now() - new Date(word.at) < QUIET_MS) return '';
+  const n = (w.changes ?? []).find((c) => prState(c) !== 'landed');
+  const waits = n && prTruth(n).blocks;
+  return waits ? `<span class="quiet">${word ? `Quiet since ${clock(word.at)}` : 'Quiet'}; waits on ${esc(waits.replace(/^./, (c) => c.toLowerCase()).replace(/\.$/, ''))}.</span>` : '';
+}
 function follow(item) {
   if (story.item === item && story.es) return;
   story.es?.close();
