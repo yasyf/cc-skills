@@ -124,12 +124,17 @@ def carried_gos(gos: list[dict], grades: list[dict], repo: str, lands: Callable[
         if (source := next(filter(None, (reached(gone, pr, earlier) for earlier in found[1])), None)) and not reached(gone, pr, found[0]) and lands(pr, found[0])
     ]:
         for pr, head, source, graded_at in fresh:
-            bound = " ".join(f"#{mate}" for mate in sorted(go_batch(source) - {pr}, key=int))
-            exempt = f"{next(filter(None, said.groups())).lower()} " if (said := GO_EXEMPT.search(source["text"])) else ""
-            go = {"seq": source["seq"], "at": source["at"], "drive": source["drive"], "lane": source["lane"], "kind": "go", "text": f"go {exempt}#{pr} at {head}" + (f" with {bound}" if bound else ""), "refs": {"prs": [int(pr)]}, "voided": set(), "graded_at": graded_at}
+            go = carried_go(source, pr, head, graded_at)
             gone[(pr, head)] = go
             carried.append(go)
     return carried
+
+
+def carried_go(source: dict, pr: str, head: str, graded_at: str) -> dict:
+    """The go `source` makes for `pr` at `head` once a grade posted at `graded_at` carried it there, keeping its exempt word and the PRs it binds `pr` with."""
+    bound = " ".join(f"#{mate}" for mate in sorted(go_batch(source) - {pr}, key=int))
+    exempt = f"{next(filter(None, said.groups())).lower()} " if (said := GO_EXEMPT.search(source["text"])) else ""
+    return {"seq": source["seq"], "at": source["at"], "drive": source["drive"], "lane": source["lane"], "kind": "go", "text": f"go {exempt}#{pr} at {head}" + (f" with {bound}" if bound else ""), "refs": {"prs": [int(pr)]}, "voided": set(), "graded_at": graded_at}
 
 
 def fidelity_carries(grades: list[dict]) -> list[tuple[str, str]]:
