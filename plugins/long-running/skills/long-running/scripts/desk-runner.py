@@ -590,6 +590,8 @@ import prompt_screen
 import prompt_watch
 import stall_watch
 from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
+from grades import carry_of
+from grades import carries as carry_grade
 from grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
 from grades import WITHDRAWN as WITHDRAWN_OPENING
 from grades import owes
@@ -6060,21 +6062,26 @@ class Landing:
         return waits, unread, exempt
 
     def exempt_admitted(self, pr: str, sha: str) -> tuple[str, str]:
-        """The `EXEMPT-ADMITTED` note for `pr` at `sha` when it lands on a root go with no board tap, and the first changed file that breaks a test-only claim (06288326, owner Oct 28 8:45 PM): the head grades ok by `fidelity`'s rule and a desk's standing ok at the head, else the pipeline's, says one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first), and a root go names the head as `go port|test-only|ci-only #<n> at <sha>` or says pure port, test-only or CI-only. A grade phrase or a go that claims test-only or CI-only is checked against the PR's changed files: the note is empty and the file is returned when one is neither a test nor CI configuration."""
-        if not (go := next((go for go in self.head_gos(pr, sha) if EXEMPT_GO.search(go["text"])), None)):
+        """The `EXEMPT-ADMITTED` note for `pr` at `sha` when it lands on a go with no board tap, and the first changed file that breaks a test-only claim (06288326, owner Oct 28 8:45 PM): the head grades ok by `fidelity`'s rule, `exempt_class` finds one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first) in its grades, and any root or `landing.go_lanes` go names the head, whatever its words (root #181182). A test-only or CI-only class is checked against the PR's changed files: the note is empty and the file is returned when one is neither a test nor CI configuration."""
+        if not (go := next(iter(self.head_gos(pr, sha)), None)) or not self.fidelity(pr, sha).ok:
             return "", ""
-        if not self.fidelity(pr, sha).ok:
-            return "", ""
-        phrases = self.landing_config.get("exempt_grades", [self.landing_config.get("port_phrase", PORT_PHRASE), *TEST_ONLY_PHRASES])
-        oks = sorted((grade for grade in self.standing(self.grades(pr), sha) if grade["text"].startswith(FIDELITY_OK)), key=lambda record: (record["lane"] != fidelity.LANE, record["seq"]), reverse=True)
-        if not (found := next(((grade, phrase) for grade in oks for phrase in phrases if phrase.casefold() in grade["text"].casefold()), None)):
+        if not (found := self.exempt_class(pr, sha, ())):
             return "", ""
         grade, said = found
-        if TEST_ONLY_CLAIM.search(said) or TEST_ONLY_CLAIM.search(go["text"]):
+        if TEST_ONLY_CLAIM.search(said):
             files, _ = self.changed_files(pr, sha)
             if offender := next((name for name in files if not is_test_or_ci_file(name)), ""):
                 return "", offender
-        return f"EXEMPT-ADMITTED #{pr} at {sha[:10]}: fidelity grade cci #{grade['seq']} says \"{said}\" and root go #{go['seq']} names it, so it lands with no board tap (06288326)", ""
+        return f"EXEMPT-ADMITTED #{pr} at {sha[:10]}: fidelity grade cci #{grade['seq']} says \"{said}\" and go #{go['seq']} names it, so it lands with no board tap (06288326)", ""
+
+    def exempt_class(self, pr: str, sha: str, seen: tuple[str, ...]) -> tuple[dict, str] | None:
+        """The standing ok grade at `sha`, a desk's before the pipeline's, newest first, that says one of `landing.exempt_grades`, with that phrase; a patch-identical carry grade with none is read back along the heads it carries from."""
+        phrases = self.landing_config.get("exempt_grades", [self.landing_config.get("port_phrase", PORT_PHRASE), *TEST_ONLY_PHRASES])
+        oks = sorted((grade for grade in self.standing(self.grades(pr), sha) if grade["text"].startswith(FIDELITY_OK)), key=lambda record: (record["lane"] != fidelity.LANE, record["seq"]), reverse=True)
+        if found := next(((grade, phrase) for grade in oks for phrase in phrases if phrase.casefold() in grade["text"].casefold()), None):
+            return found
+        earlier = [old for grade in oks if carry_grade(grade["text"]) and (carry := carry_of(grade["text"])) for old in carry[1] if old not in seen]
+        return next((found for old in earlier if (found := self.exempt_class(pr, old, (*seen, sha)))), None)
 
     def record_waits(self, heads: dict[str, str], waiting: dict[str, list[str]]) -> None:
         """Keep, for `show`, what each graded head still waits on: its merge-ask key and the reserved rows only the owner's tap authorizes. A head that stopped waiting drops out, and the heads of other stacks keep theirs."""

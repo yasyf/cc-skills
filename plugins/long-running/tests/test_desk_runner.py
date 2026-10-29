@@ -3054,9 +3054,9 @@ def test_a_go_on_a_head_a_tap_rule_names_enqueues_only_on_the_owners_board_tap_a
         ("ok cccc333 pure port, no interaction: it only ports old-tree #43020.", "go port #29020 at cccc333", True),
         ("ok cccc333 pure port, no interaction: it only ports old-tree #43020.", "go #29020 at cccc333, a pure port", True),
         ("ok cccc333 port touches rebuild code: it edits the pod writer.", "go port #29020 at cccc333", False),
-        ("ok cccc333 pure port, no interaction: it only ports old-tree #43020.", "go #29020 at cccc333", False),
+        ("ok cccc333 pure port, no interaction: it only ports old-tree #43020.", "go #29020 at cccc333", True),
     ],
-    ids=["go-port", "go-saying-pure-port", "grade-touching-rebuild-code", "go-not-naming-the-port"],
+    ids=["go-port", "go-saying-pure-port", "grade-touching-rebuild-code", "plain-go-on-a-port-grade"],
 )
 def test_a_pure_port_lands_on_a_root_go_with_no_board_tap_only_when_grade_and_go_both_say_so(shell, config, graded, go, admitted):
     merge_mode(config, "every")
@@ -3076,7 +3076,7 @@ def test_a_pure_port_lands_on_a_root_go_with_no_board_tap_only_when_grade_and_go
         assert shell.enqueues() == [] and len(refusals) == 1 and admissions == []
         return
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and refusals == []
-    assert admissions == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "pure port, no interaction" and root go #{seq + 2} names it, so it lands with no board tap (06288326)']
+    assert admissions == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "pure port, no interaction" and go #{seq + 2} names it, so it lands with no board tap (06288326)']
 
 
 @pytest.mark.parametrize(("lane", "admitted"), [("go-sweep-5", True), ("go-sweep-6", True), ("p8a-step7", False)], ids=["configured-go-lane", "its-successor", "other-lane"])
@@ -3112,6 +3112,23 @@ def test_a_desk_pure_port_grade_admits_the_go_over_a_newer_pipeline_grade_withou
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
+@pytest.mark.parametrize(("carry", "admitted"), [("ok cccc333 carried from bbbb222, patch-identical.", True), ("ok cccc333 carried from bbbb222; it adds new behavior in the reader.", False)], ids=["patch-identical-carry", "carry-adding-behavior"])
+def test_a_port_grade_reaches_a_restacked_head_through_its_carry_chain(shell, config, carry, admitted):
+    merge_mode(config, "every")
+    raw = json.loads(config.read_text())
+    raw["landing"]["tap_rules"] = {"rule/82317b0": ["go/sand/next/*"]}
+    config.write_text(json.dumps(raw))
+    shell.register = {"rule/82317b0": {"kind": "order", "status": "in-force"}}
+    lone_green_pr(shell)
+    shell.files["29020"] = ["go/sand/next/vm/run.go"]
+    grade(shell, "29020", "ok bbbb222 pure port, no interaction: it only ports old-tree #43020.")
+    grade(shell, "29020", carry)
+    merge_go(shell, "29020", "go #29020 at cccc333")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == ([["29020", "--partial"]] if admitted else [])
+
+
 TEST_ONLY_GRADE = "ok cccc333 test-only or CI-only, no non-test code: it adds cases and a pipeline step."
 
 
@@ -3140,7 +3157,7 @@ def test_a_test_only_pr_lands_on_a_root_go_with_no_board_tap_and_one_exempt_admi
     refusals = [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
     admissions = [post_body(post) for post in notes(shell) if "EXEMPT-ADMITTED" in post_body(post)]
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and refusals == []
-    assert admissions == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "test-only or CI-only, no non-test code" and root go #{seq + 2} names it, so it lands with no board tap (06288326)']
+    assert admissions == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "test-only or CI-only, no non-test code" and go #{seq + 2} names it, so it lands with no board tap (06288326)']
 
 
 @pytest.mark.parametrize("said", ["test-only, no non-test code", "CI-only, no non-test code"])
@@ -3151,7 +3168,7 @@ def test_a_grade_saying_test_only_or_ci_only_alone_lands_on_a_root_go_with_no_bo
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and not [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
-    assert [post_body(post) for post in notes(shell) if "EXEMPT-ADMITTED" in post_body(post)] == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "{said}" and root go #{seq + 2} names it, so it lands with no board tap (06288326)']
+    assert [post_body(post) for post in notes(shell) if "EXEMPT-ADMITTED" in post_body(post)] == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "{said}" and go #{seq + 2} names it, so it lands with no board tap (06288326)']
 
 
 @pytest.mark.parametrize("go", ["go test-only #29020 at cccc333", "go port #29020 at cccc333"], ids=["go-test-only", "go-port"])
