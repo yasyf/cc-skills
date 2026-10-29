@@ -1631,6 +1631,15 @@ files, the register, or the board do not read, it never guesses a merge: the hea
 unqueued, and one `TAP-UNREAD` warning goes to the PR's lane, the root, and each
 `landing.desk_lane`.
 
+Every enqueue path reads the same tap: the runner's pass, `mq.py enqueue`, and a hand
+`stack-enqueue`, which the pack's `lane_landing` hook refuses with the runner's own
+`TAP-REQUIRED` line from `mq.py gate`. A root `go` that says the owner tapped or approved
+a PR must rest on a board verdict: with `landing.merge_ask_surface` set to `board`, a go
+naming an open PR at its head that claims his tap, with no port, test-only or CI-only
+exemption, while no approval on the root's board names that head or a head the go text
+names, draws one `GO-TAP-MISSING` blocker to the root per go and PR, saying what the board
+holds for the PR instead (root #172682).
+
 Under `every`, and under `high-risk` for a PR whose changed files match a glob in
 `landing.high_risk_paths`, a prefix that passes every other gate is not enqueued.
 The runner asks the merge card itself, once per waiting PR and head, and logs one

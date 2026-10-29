@@ -85,7 +85,7 @@ h2.sec a { margin-left: auto; font: 600 13px var(--sans); }
 .row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 16px; padding: 12px 16px 12px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; color: var(--ink); box-shadow: var(--shadow); }
 .row:hover { text-decoration: none; border-color: var(--ink-3); }
 .row::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 12px 0 0 12px; background: var(--tone, var(--line)); }
-.row.you { --tone: var(--bad); } .row.approved { --tone: var(--ok); } .row.held { --tone: var(--amber); }
+.row.you { --tone: var(--bad); } .row.approved, .row.go { --tone: var(--ok); } .row.held { --tone: var(--amber); }
 .row .title { font-weight: 650; font-size: 15px; }
 .row .now { color: var(--ink-2); grid-column: 1 / 2; }
 .row .chips { display: flex; gap: 6px; align-items: start; justify-content: end; flex-wrap: wrap; }

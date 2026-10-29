@@ -1,5 +1,5 @@
-const VERDICT_TONE = { you: 'bad', approved: 'ok', held: 'warn' };
-const VERDICT_WORD = { you: 'Waiting on you', approved: 'Approved', held: 'Held' };
+const VERDICT_TONE = { you: 'bad', approved: 'ok', go: 'ok', held: 'warn' };
+const VERDICT_WORD = { you: 'Waiting on you', approved: 'Approved', go: 'Cleared to land by the coordinator', held: 'Held' };
 const embed = { number: null, head: null, row: false };
 const pending = { number: null, holding: false, error: '', note: '' };
 
@@ -11,9 +11,9 @@ function reviewList(list = '') {
   const counts = { '': state.model.board.rows.filter((r) => verdictState(r) === 'you').length, flight: flight.length, landed: landed.length };
   const chips = `<div class="filters review-lists">${REVIEW_LISTS.map(([id, label]) => `<a href="#/review${id ? `/${id}` : ''}" class="${id === list ? 'on' : ''}">${label} <b>${counts[id]}</b></a>`).join('')}</div>`;
   if (list === 'landed') return `${chips}<div class="rows">${landed.map((pr) => {
-    const go = approvedAt(pr.n);
+    const go = clearedAt(pr.n);
     return `<a class="row approved" href="#/review/${pr.n}"><span class="title">${esc(plainTitle(pr.n))}</span>
-      <span class="chips"><span class="pill ok">Landed ${clock(pr.landed_at)}</span>${go ? `<span class="pill">Approved ${clock(go)}</span>` : ''}<span class="pill">#${pr.n}</span></span></a>`;
+      <span class="chips"><span class="pill ok">Landed ${clock(pr.landed_at)}</span>${go ? `<span class="pill">Cleared to land by the coordinator ${clock(go)}</span>` : ''}<span class="pill">#${pr.n}</span></span></a>`;
   }).join('') || '<p class="dim">Nothing from this drive has landed yet.</p>'}</div>`;
   if (list === 'flight') return `${chips}<div class="rows">${flight.map((pr) => {
     const s = prState(pr.n);
@@ -25,7 +25,7 @@ function reviewList(list = '') {
     if (!groups.has(row.group)) groups.set(row.group, []);
     groups.get(row.group).push(row);
   }
-  const order = { you: 0, held: 1, approved: 2 };
+  const order = { you: 0, held: 1, go: 2, approved: 2 };
   const html = [...groups.entries()].map(([group, rows]) => `<div class="group-h" data-assist-stack="${esc(group)}">${esc(group)}</div><div class="rows">${rows
     .sort((a, b) => order[verdictState(a)] - order[verdictState(b)])
     .map((r) => {
@@ -35,7 +35,7 @@ function reviewList(list = '') {
     }).join('')}</div>`).join('');
   return `${chips}${html || '<p class="dim">Nothing is waiting for you.</p>'}`;
 }
-function approvedAt(n) {
+function clearedAt(n) {
   return state.model.records.findLast((r) => r.kind === 'go' && r.refs?.prs?.includes(n))?.at;
 }
 function testPill(pr) {
@@ -52,10 +52,10 @@ function reviewPR(n, tab) {
     if (!state.model.prs[n]) return `<p>#${n} is not part of this drive. <a href="${gh}" target="_blank" rel="noopener">Open it on GitHub</a>.</p>`;
     const s = prState(n);
     const pr = state.model.prs[n];
-    const go = approvedAt(Number(n));
+    const go = clearedAt(Number(n));
     const when = s === 'landed' ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[s];
     return `<div class="pr-head"><div class="kick muted">${s === 'landed' ? 'Landed' : 'Nothing for you to tap'}</div><h1>${esc(plainTitle(n))}</h1>
-      <span class="pill ${STATE_TONE[s]}">${when}</span>${go ? `<span class="pill ok">You approved ${clock(go)}</span>` : ''}<a class="pill" href="${gh}" target="_blank" rel="noopener">#${n}</a>${s === 'landed' || s === 'failing' ? '' : testPill(pr)}</div>`;
+      <span class="pill ${STATE_TONE[s]}">${when}</span>${go ? `<span class="pill ok">Cleared to land by the coordinator ${clock(go)}</span>` : ''}<a class="pill" href="${gh}" target="_blank" rel="noopener">#${n}</a>${s === 'landed' || s === 'failing' ? '' : testPill(pr)}</div>`;
   }
   const v = verdictState(row);
   const rows = state.model.board.rows.filter((r) => r.group === row.group);
@@ -95,7 +95,8 @@ function decideBar(row, v) {
   if (v === 'approved' || v === 'held') {
     return `<span class="decided ${v}">${v === 'approved' ? '✓ You approved' : '‖ You held'} ${head}${row.verdict.at ? ` at ${clock(row.verdict.at)}` : ''}${row.verdict.note ? `: ${esc(row.verdict.note)}` : ''}</span><button class="btn" data-decide="cleared">Undo</button>${error}`;
   }
-  return `<button class="btn pri" data-decide="approved" title="A">✓ Approve ${head}</button><button class="btn hold" data-decide="hold" title="H">‖ Hold</button>${error}`;
+  const cleared = v === 'go' ? `<span class="pill ok">Cleared to land by the coordinator</span>` : '';
+  return `${cleared}<button class="btn pri" data-decide="approved" title="A">✓ Approve ${head}</button><button class="btn hold" data-decide="hold" title="H">‖ Hold</button>${error}`;
 }
 const DECIDE_WORD = { approved: 'Approving', rejected: 'Holding', cleared: 'Undoing' };
 async function decide(row, verdict, note, advance = true) {
@@ -148,8 +149,8 @@ document.addEventListener('keydown', (e) => {
   const rows = state.model.board.rows.filter((x) => x.group === row.group);
   const index = rows.indexOf(row);
   const go = (to) => to && (location.hash = `#/review/${to.number}`);
-  if (key === 'a' && verdictState(row) === 'you') decide(row, 'approved');
-  else if (key === 'h' && verdictState(row) === 'you') { Object.assign(pending, { number: row.number, holding: true, error: '' }); render(); }
+  if (key === 'a' && ['you', 'go'].includes(verdictState(row))) decide(row, 'approved');
+  else if (key === 'h' && ['you', 'go'].includes(verdictState(row))) { Object.assign(pending, { number: row.number, holding: true, error: '' }); render(); }
   else if (key === 'j') go(rows[index + 1]);
   else if (key === 'k') go(rows[index - 1]);
   else if (key === 'n') go(state.model.board.rows.find((x) => x.number !== row.number && verdictState(x) === 'you'));
