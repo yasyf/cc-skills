@@ -647,6 +647,7 @@ RETRYABLE = frozenset({"blocked", "superseded", "foreign", "dropped", "refused",
 BELIEVED_QUEUED = frozenset({"enqueued", "noop"})
 ADMITTED = BELIEVED_QUEUED | {"dropped", "ejected"}
 OUT_OF_QUEUE = frozenset({"not queued", "evicted"})
+LANDING_REFUSALS = frozenset({"FOREIGN", "TAP-REQUIRED", "CONTRACT-MISSING", "PARKED", "UNOWNED", "GATE-FAILED", "RULINGS-REFUSED", "ENQUEUE-STRANDED", "ENQUEUE-FAILED", "ENQUEUE-UNSETTLED"})
 OWNER_KINDS = ("head", "opened", "ready", "claim", "report")
 CHECK_PR_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS"})
 INCIDENT_CHECKS = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"})
@@ -6633,16 +6634,42 @@ class Landing:
             elif tried:
                 why = f"its newest enqueue since the go ended {tried[-1].response['outcome']}: {' '.join(tried[-1].response.get('out', '').split())[-300:]}"
             else:
-                why = "no enqueue was accepted for it since the go"
+                why = ""
             bottom = min(stack, key=lambda member: len(downstack(open_rows, member)))
             stuck.setdefault(bottom, []).append((len(stack), pr, head, gos, at, why))
         for bottom, group in stuck.items():
             _, pr, head, gos, at, why = min(group)
+            owner = self.owner(pr, open_rows[pr]) or ROOT
+            if not why:
+                members = {member for _, other, *_ in group for member in downstack(open_rows, other)}
+                refused = self.last_refusal(members, open_rows, at)
+                why, owner = refused or ("no enqueue was accepted for it since the go, and neither this runner nor the landing desk holds a refusal for any PR of its stack", owner)
             above = [f"#{other}" for _, other, *_ in sorted(group) if other != pr]
             waits = f"; {', '.join(above)} above it in the stack from #{bottom} wait on it too" if above else ""
             key, subject = f"go-unqueued:{pr}@{head}", f"go-unqueued:{pr}"
             to = self.landing_audience([pr], rows, "") if self.runner.raised_before(key, subject) else ""
-            self.runner.escalate(key, "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and root go #{gos[0]['seq']} at {pacific(actions.parse_stamp(gos[0]['at']))} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}{waits}", subject, to)
+            self.runner.escalate(key, "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and root go #{gos[0]['seq']} at {pacific(actions.parse_stamp(gos[0]['at']))} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}{waits}; owner lane {owner}", subject, to)
+
+    def last_refusal(self, members: set[str], open_rows: dict[str, dict], since: datetime) -> tuple[str, str] | None:
+        """The newest refusal any PR of `members` stands under, with the lane that owns that PR: a blocker this runner routed for its current head or base, a refusal it escalated since `since`, or a `blocker` record a `landing.desk_lane` lane posted naming it since then (root, Oct 29 2:37 AM)."""
+        found: list[tuple[datetime, str, str]] = []
+        routes = [action for action in self.book.actions(LANDING, kind="bus")] + [action for name in self.book.containers(LANE_PREFIX) for action in self.book.actions(name, kind="relay")]
+        for member in members:
+            row = open_rows[member]
+            current = (f"blocker:{member}:{row.get('head', '')[:10]}", f"bot-held:{member}:{row.get('head', '')[:10]}", f"conflict:{member}:{row.get('base', '')}")
+            found += [(actions.parse_stamp(action.accepted_at), member, f"the blocker routed at {pacific(actions.parse_stamp(action.accepted_at))}: {json.loads(action.target)['text']}") for action in routes if action.action_id in current]
+            found += [
+                (when, member, f"{action.target.split()[0]} at {pacific(when)}: {action.target}")
+                for action in self.book.actions(RUNNER, kind="escalation")
+                if action.target.split()[0] in LANDING_REFUSALS and re.search(rf"#{member}\b", action.target) and (when := actions.parse_stamp(action.accepted_at)) >= since
+            ]
+        if desks := self.runner.landing_lanes("desk_lane"):
+            for record in cci.records(self.runner.cci_tail, self.runner.config.drive, "--kind=blocker", *(arg for desk in desks for arg in ("--lane", desk)), since=actions.stamp(since)):
+                found += [(actions.parse_stamp(record["at"]), member, f"{record['lane']}'s blocker #{record['seq']} at {pacific(actions.parse_stamp(record['at']))}: {full_text(record)}") for member in members if re.search(rf"#{member}\b", full_text(record))]
+        if not found:
+            return None
+        _, member, said = max(found)
+        return f"its newest refusal is {' '.join(said.split())[:400]}", self.owner(member, open_rows[member]) or ROOT
 
     def announce(self, pr: str, row: dict, key: str, head: str, commit: str) -> None:
         """Post `landed` for a squash the runner made, under its key so a repost returns the stored record; a post that fails runs again on the next pass."""

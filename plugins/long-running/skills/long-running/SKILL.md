@@ -2588,14 +2588,20 @@ board, and the root's task list. For each stall it posts one `urgent` record fro
 posts again only after it clears and comes back, and never sooner than 30 minutes after
 its last post. A stall whose owners are all desks, lanes named `<x>-desk` or
 `<x>-desk-<n>`, goes to those desks and not to root. A stall the landing desk owns goes
-to `landing.desk_lane` when `runner.json` names one, else to root.
+to `landing.desk_lane` when `runner.json` names one, else to root. Finder and fidelity
+stalls never reach root. A `stale` or `board` stall spares root while a lane in
+`stall.quiet_lanes` posted about the PR in the last 10 minutes; that list defaults to
+`landing.go_lanes` and `landing.board_lane`, each matching its numbered successors. Board
+stalls in one stack post as one record, on the stack's lowest PR.
 
 | Kind | Fires when | Minutes | Owner |
 |---|---|---|---|
-| `go` | a root go names a PR's head, no `QUEUED` record does, and no hold covers a PR below it | 10 | the first PR in the stack, from the bottom, with no go (root), or with a red, conflicting, or unfinished build (its lane), else the landing desk; one record per blocking PR |
+| `go` | a root go names a PR's head, no `QUEUED` record does, no hold covers a PR below it, and no standing refusal names a PR of its stack | 10 | the first PR in the stack, from the bottom, with no go (root), or with a red, conflicting, or unfinished build (its lane), else the landing desk; one record per blocking PR |
+| `refusal` | the desk runner or a landing desk lane refused to queue a PR a go or tap names: a needed restack, a conflict, an untracked or closed parent, a lost Graphite parent, mergeability GitHub is still computing, or `FOREIGN`, `TAP-REQUIRED`, `CONTRACT-MISSING`, `PARKED`, `UNOWNED`, `NOT-QUEUEABLE`, `ENQUEUE-*`; no `head` or `--re` answer from the owning lane, no `QUEUED`, no closing record, and the PR still sits at the refused head | 10 | root and the lane the refusal names as `owner lane <lane>` or `<lane>: #<pr>`, else the PR's lane; root for `FOREIGN` and `TAP-REQUIRED`; the landing desk for mergeability. The record names the refusal's command |
+| `successor` | the same refusal still stands | 20 | root, asked to spawn the owning lane's successor to run that command |
 | `tap` | the owner approved a head on the board, and no go names it | 10 | root and `landing.go_lanes` |
-| `finder` | a `head` record names the head, and no finder review does | 30 | the PR's lane |
-| `fidelity` | a `head` record names the head, and no fidelity grade does | 30 | `landing.fidelity_lane` |
+| `finder` | a `head` record names the head, no finder review does, and the finder desk holds no queued pass on it nor one running past 25 minutes | 30 | the landing desk when the finder desk runs and queued nothing, or its pass ran past 25 minutes; else the PR's lane |
+| `fidelity` | a `head` record names the head, no fidelity grade does, and the fidelity desk holds no queued grade on it nor one running past 25 minutes | 30 | the landing desk for a grade past 25 minutes, else `landing.fidelity_lane` |
 | `board` | finder ok, fidelity ok, a green build, a wait on the owner's tap, and no board row or `merge:<pr>:<sha7>` card at the head, counted from the latest of the two grades and the ledger row's `green_at` | 15 | `stall.board_lane`, root by default |
 | `carry` | a tap or go names an earlier head, nothing carries it to this head, and the board shows no row at it | 15 | the fidelity lane when Sonnet reads a patch-identical restack, else root, to ask the owner again |
 | `lane` | a lane with an in-progress task on root's task list stays silent past the time its last record promised, or past 30 minutes | 30 | the lane, or root when the lane posted nothing in the window |
@@ -2612,8 +2618,9 @@ question takes its mechanical answer.
 records a pass reads, and `stall.model` names the judge. `stall_watch.py --config
 <runner.json> --dry-run` prints the stalls a pass finds, and posts and saves nothing.
 
-*Prevents approvals that never reached the owner's board and finder reviews nobody
-noticed were missing, each found only when the owner asked. The owner ruled on
+*Prevents approvals that never reached the owner's board, finder reviews nobody
+noticed were missing, and a go'd PR the landing desk refused at 2:14 AM on Oct 29 that sat
+20 minutes with no escalation, each found only when the owner asked. The owner ruled on
 2026-10-27: "in general you need to add a watchdog to long-running which runs sonnet and
 looks for stalls."*
 
