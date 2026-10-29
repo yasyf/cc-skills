@@ -296,6 +296,23 @@ def test_refresh_polls_the_rows_while_the_lane_stacks_list(lock, red_routes, tmp
     assert shell.fields("20961")["head"] == DIRTY_HEAD
 
 
+def test_refresh_resolves_all_registered_worktrees_in_one_process(lock, tmp_path):
+    registrations = []
+    for index in range(10):
+        worktree = tmp_path / str(index)
+        worktree.mkdir()
+        registrations.append({"key": f"lane/{index}", "fields": {"lane": str(index), "branch_prefix": f"lane-{index}/", "worktree": str(worktree)}})
+    shell = FakeShell(rows=registrations)
+    for registration in registrations:
+        path = registration["fields"]["worktree"]
+        shell.stacks[path] = {"root": path, "branches": [{"branch": f"stack-{registration['fields']['lane']}"}]}
+
+    refresh(shell, lock)
+
+    calls = [argv for argv in shell.calls if argv[1:3] == ["vcs", "stack"]]
+    assert calls == [["ccx", "vcs", "stack", "list-batch", *(registration["fields"]["worktree"] for registration in registrations)]]
+
+
 def test_grade_reads_a_ccx_record():
     record = {
         "number": 190,
