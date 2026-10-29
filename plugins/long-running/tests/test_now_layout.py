@@ -52,7 +52,7 @@ def page():
         browser = p.chromium.launch(channel="chrome")
         page = browser.new_page(viewport=LAPTOP)
         page.goto(f"http://127.0.0.1:{server.server_port}/#/")
-        page.wait_for_selector(".nw-cols")
+        page.wait_for_selector(".nw-spine")
         yield page
         browser.close()
     server.shutdown()
@@ -60,21 +60,62 @@ def page():
 
 def now(page):
     page.goto(page.url.split("#")[0] + "#/")
-    page.wait_for_selector(".nw-cols")
+    page.wait_for_selector(".nw-spine")
 
 
-def test_headline_progress_blockers_and_work_fit_a_laptop_screen(page):
+def test_the_finished_product_picture_sits_above_the_milestones(page):
     now(page)
-    for selector in (".nw-head", ".nw-journey", ".nw-sent", ".nw-chart", ".nw-work"):
-        box = page.locator(selector).bounding_box()
-        assert box["y"] + box["height"] <= LAPTOP["height"], selector
+    assert page.locator(".nw-diagram").bounding_box()["y"] < page.locator(".nw-spine").bounding_box()["y"]
 
 
-def test_every_open_blocker_and_work_row_says_how_long_it_has_waited(page):
+def test_every_open_blocker_and_the_focused_work_say_how_long_they_have_waited(page):
     now(page)
-    rows = page.locator(".nw-path .nd:not(.goal), .nw-work .wr").all_inner_texts()
+    rows = page.locator(".nw-slot .pan.focus :is(.chain .hc, .feed .lead)").all_inner_texts()
     assert rows
     assert [row for row in rows if not re.search(r"for \d+ (min|h)", row) or not re.search(r"since \d{1,2}:\d{2} [AP]M", row)] == []
+
+
+def test_a_milestone_holding_a_blocker_on_you_is_marked(page):
+    now(page)
+    brief = json.loads(MODEL.read_text())["brief"]
+    held = sorted({p["milestone"] for p in brief["paths"] if any(n["state"] == "you" for n in p["nodes"])})
+    assert held
+    marked = page.locator(".nw-spine .sp:has(.need)").evaluate_all("(cols) => cols.map((c) => Number(c.dataset.i))")
+    assert marked == held
+
+
+def rest_on(page, selector):
+    page.locator(selector).scroll_into_view_if_needed()
+    page.wait_for_timeout(300)
+    box = page.locator(selector).bounding_box()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, steps=4)
+    page.wait_for_timeout(450)
+
+
+def focused(page):
+    return int(page.locator(".nw-slot .pan.focus").get_attribute("data-i"))
+
+
+def test_resting_on_a_milestone_opens_it_without_moving_the_strip(page):
+    now(page)
+    cur = int(page.locator(".nw-slot").get_attribute("data-cur"))
+    other = 0 if cur else 1
+    before = page.locator(".nw-spine a.ms").evaluate_all("(links) => links.map((a) => a.getBoundingClientRect().left)")
+    rest_on(page, f'.nw-spine .sp[data-i="{other}"] .ms')
+    assert focused(page) == other
+    assert page.locator(".nw-spine a.ms").evaluate_all("(links) => links.map((a) => a.getBoundingClientRect().left)") == before
+    page.mouse.move(5, 5, steps=4)
+    page.wait_for_timeout(700)
+    assert focused(page) == cur
+
+
+def test_scrolling_under_a_resting_pointer_keeps_the_open_milestone(page):
+    now(page)
+    cur = int(page.locator(".nw-slot").get_attribute("data-cur"))
+    rest_on(page, f'.nw-spine .sp[data-i="{cur}"] .ms')
+    page.mouse.wheel(0, 120)
+    page.wait_for_timeout(600)
+    assert focused(page) == cur
 
 
 def test_the_needs_you_band_shows_every_word(page):
@@ -117,10 +158,10 @@ def test_a_storys_now_line_is_its_newest_update(page):
     assert "Three files still use the deleted store" in page.locator(".nw-storyhead .now").inner_text()
 
 
-def test_every_milestone_links_to_its_own_page(page):
+def test_every_milestone_opens_its_own_panel(page):
     now(page)
-    hrefs = page.locator(".nw-journey a.ms").evaluate_all("(links) => links.map((a) => a.getAttribute('href'))")
-    assert hrefs == [f"#/plan/m{i}" for i in range(len(json.loads(MODEL.read_text())["milestones"]))]
+    segs = page.locator(".nw-journey a.ms").evaluate_all("(links) => links.map((a) => a.dataset.seg)")
+    assert segs == [f"plan/m{i}" for i in range(len(json.loads(MODEL.read_text())["milestones"]))]
 
 
 def test_progress_says_how_many_milestones_are_live(page):

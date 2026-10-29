@@ -561,7 +561,7 @@ document.addEventListener('click', (e) => {
 window.addEventListener('hashchange', (e) => {
   const from = new URL(e.oldURL).hash;
   const before = baseOf(from === '#/jump' ? state.lastHash ?? '' : from);
-  if (!history.state) arrive(from);
+  if (!history.state || drawerSeg(location.hash)) arrive(from);
   const deeper = before === baseOf() && stackOf().length > stackOf(from === '#/jump' ? state.lastHash ?? '' : from).length;
   remember();
   render();
