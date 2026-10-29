@@ -8,6 +8,8 @@
   .review-embed { padding: 0 14px 40px; }
   .review-embed .code iframe { height: calc(100dvh - 120px); }
 }
+body:has(#embed:not([hidden])[data-tab="code"]) .wrap { max-width: 1680px; padding-bottom: 14px; }
+body:has(#embed:not([hidden])[data-tab="code"]) .foot { display: none; }
 .decide { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
 .decide .btn { min-height: 40px; font-size: 14.5px; }
 .decide .btn.hold { color: var(--warn); }
@@ -45,9 +47,9 @@
 .pr-wait { margin: 14px 0 0; }
 .pr-reviewed { margin: 0 0 8px; font-weight: 600; color: var(--ink); }
 
-:root { --drawer-w: min(960px, calc(100vw - 420px)); }
-.pr-scrim { position: fixed; inset: 54px 0 0 0; z-index: 50; background: rgba(5, 7, 10, .42); cursor: pointer; }
-.pr-drawer { --lit-tone: var(--ok); position: fixed; z-index: 51; top: 64px; right: 12px; bottom: 12px; width: var(--drawer-w); overflow-y: auto; overscroll-behavior: contain; padding: 18px 26px 40px; background: var(--panel-face); border: 1.5px solid var(--lit); border-radius: 16px; box-shadow: 0 30px 80px -10px rgba(0, 0, 0, .7), var(--lit-glow); }
+:root { --drawer-w: 560px; }
+.pr-scrim { position: fixed; inset: 54px 0 0 0; z-index: 50; background: rgba(5, 7, 10, .14); cursor: pointer; }
+.pr-drawer { --lit-tone: var(--ok); position: fixed; z-index: 51; top: 64px; right: 12px; bottom: 12px; width: var(--drawer-w); overflow-y: auto; overscroll-behavior: contain; padding: 16px 22px 32px; background: var(--panel-face); border: 1.5px solid var(--lit); border-radius: 16px; box-shadow: 0 30px 80px -10px rgba(0, 0, 0, .7), var(--lit-glow); }
 .pr-drawer.you { --lit-tone: var(--amber); }
 .pr-drawer.in { animation: drawer-in .2s ease-out; }
 @keyframes drawer-in { from { transform: translateX(36px); opacity: 0; } }
@@ -55,8 +57,10 @@
 .pr-x { box-shadow: 0 0 0 6px #0d1015; }
 body:has(.pr-drawer) { overflow: hidden; }
 #main.enter:has(.pr-drawer) > .pg, #main.enter:has(.pr-drawer) :is(.pg-row, .wk-row) { animation: none; }
-.pr-drawer .pr-head h1 { padding-right: 120px; }
-body:has(.pr-drawer) #embed:not([hidden])[data-tab="code"] { position: fixed; z-index: 52; right: 12px; top: var(--code-top, 260px); bottom: 12px; width: var(--drawer-w); max-width: none; margin: 0; padding: 0 26px 18px; display: flex; }
-body:has(.pr-drawer) #embed[data-tab="code"] .pane { flex: 1; display: flex; flex-direction: column; }
-body:has(.pr-drawer) #embed[data-tab="code"] .code iframe { flex: 1; height: auto; }
-@media (max-width: 1100px) { :root { --drawer-w: calc(100vw - 24px); } }
+.pr-drawer .pr-head h1 { padding-right: 110px; font-size: 19px; }
+.pr-drawer .mr-f { grid-template-columns: 82px minmax(0, 1fr); }
+.pr-full { display: flex; gap: 10px; align-items: center; margin: 16px 0 0; }
+@media (min-width: 1200px) { body:has(.pr-drawer) #main { max-width: none; margin: 0; padding-right: calc(var(--drawer-w) + 40px); } }
+@media (max-width: 760px) { :root { --drawer-w: calc(100vw - 24px); } }
+.pr-drawer .md table { display: block; overflow-x: auto; }
+.pr-drawer .md code { overflow-wrap: anywhere; }

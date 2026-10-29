@@ -19,7 +19,7 @@ function testPill(pr) {
   if (pr.test_state === 'pending') return '<span class="pill warn">Tests running</span>';
   return '';
 }
-function reviewPR(n, tab) {
+function reviewPR(n, tab, drawer = false) {
   const row = boardRow(n);
   const gh = `https://github.com/${state.model.repo}/pull/${n}`;
   const open = `<a class="pill" href="${gh}" target="_blank" rel="noopener" data-key="o">Open on GitHub ›<kbd>O</kbd></a><a class="pill" href="https://app.graphite.com/github/pr/${state.model.repo}/${n}" target="_blank" rel="noopener">Open in Graphite ›</a>`;
@@ -31,14 +31,14 @@ function reviewPR(n, tab) {
     const when = s === 'landed' ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[s];
     return `<div class="pr-head"><div class="kick muted">${s === 'landed' ? 'Landed' : 'Nothing for you to tap'}</div><h1>${esc(prTitle(n))}</h1>
       <span class="pill ${STATE_TONE[s]}">${when}</span>${go ? `<span class="pill ok">You approved ${clock(go)}</span>` : ''}${open}${s === 'landed' || s === 'failing' ? '' : testPill(pr)}</div>
-      ${s === 'landed' ? '' : changeBox(n, pr.head)}${reviewTabs(n, tab)}${tab === 'code' ? '' : `${prFacts(n)}${prText(n)}`}`;
+      ${s === 'landed' ? '' : changeBox(n, pr.head)}${drawer ? `${prFacts(n)}${prText(n, true)}${fullPage(n)}` : `${reviewTabs(n, tab)}${tab === 'code' ? '' : `${prFacts(n)}${prText(n)}`}`}`;
   }
   const v = verdictState(row);
   const rows = state.model.board.rows.filter((r) => r.group === row.group);
   const index = rows.indexOf(row);
   const next = state.model.board.rows.find((r) => r.number !== row.number && verdictState(r) === 'you');
   for (const r of [rows[index - 1], rows[index + 1], next]) if (r) describe(r.number);
-  const step = (r, label, key) => (r ? `<a class="btn" href="#/review/${r.number}" data-key="${key.toLowerCase()}">${label}<kbd>${key}</kbd></a>` : '');
+  const step = (r, label, key) => (r ? `<a class="btn" href="#/review/${r.number}${drawer ? '' : `/${tab ?? 'page'}`}" data-key="${key.toLowerCase()}">${label}<kbd>${key}</kbd></a>` : '');
   const group = state.model.needs.find((item) => item.kind === 'prs' && [...item.prs, ...item.others].some((r) => r.number === row.number));
   const w = rowWords(row);
   const carried = row.carried?.length ? '<p class="mr-waits">Your earlier approval carries to this version; the review line names the fix.</p>' : '';
@@ -46,10 +46,10 @@ function reviewPR(n, tab) {
     ${open}${testPill(state.model.prs[n] ?? {})}
     <span class="actions">${step(rows[index - 1], '‹', 'K')}${step(rows[index + 1], '›', 'J')}${next ? step(next, 'Next waiting on you ›', 'N') : ''}</span></div>
     <div class="decide">${decideBar(row, v)}</div><div class="bar-bottom decide">${decideBar(row, v)}</div>${changeBox(n, row.head)}
-    ${reviewTabs(n, tab)}${tab === 'code' ? '' : `<div class="pr-facts">${carried}${rowFacts(row)}<dl class="mr-f"><dt>Tests</dt><dd>${testLight(n)}</dd>${truthFacts(n, false)}</dl></div>${prText(n)}`}`;
+    ${drawer ? `<div class="pr-facts">${rowFacts(row)}</div>${prText(n, true)}${fullPage(n)}` : `${reviewTabs(n, tab)}${tab === 'code' ? '' : `<div class="pr-facts">${carried}${rowFacts(row)}<dl class="mr-f"><dt>Tests</dt><dd>${testLight(n)}</dd>${truthFacts(n, false)}</dl></div>${prText(n)}`}`}`;
 }
 function reviewTabs(n, tab) {
-  return `<nav class="subtabs review-tabs"><a href="#/review/${n}" class="${tab === 'code' ? '' : 'on'}">What it does</a><a href="#/review/${n}/code" class="${tab === 'code' ? 'on' : ''}">Code and review<kbd>C</kbd></a></nav>`;
+  return `<nav class="subtabs review-tabs"><a href="#/review/${n}/page" class="${tab === 'code' ? '' : 'on'}">What it does</a><a href="#/review/${n}/code" class="${tab === 'code' ? 'on' : ''}">Code and review<kbd>C</kbd></a></nav>`;
 }
 const described = {};
 function describedKey(n) {
@@ -69,17 +69,22 @@ function describe(n) {
 function prBody(pr) {
   return (pr.body ?? '').replace(/<!--[\s\S]*?-->/g, '').trim();
 }
-function prText(n) {
+function fullPage(n) {
+  return `<p class="pr-full"><a class="btn" href="#/review/${n}/page">Open full page ›</a><a class="btn ghost" href="#/review/${n}/code">Code and review<kbd>C</kbd></a></p>`;
+}
+function prBot(pr, full) {
+  const said = pr.eli5 ?? pr.summary;
+  const reviewed = pr.review && `<p class="pr-reviewed">${REVIEW_WORD[pr.review.state] ?? 'The reviewer bot reviewed it'} at ${clock(pr.review.at)}.</p>`;
+  const words = said ? `<div class="md">${markdown(said)}</div>` : full && pr.diagram ? '' : `<p class="dim">The reviewer bot wrote no plain-words explanation of this change, so its author's description ${full ? 'below' : 'on the full page'} says what it does.</p>`;
+  return `<section class="pr-read pr-eli5"><div class="kick muted">What it does, from the reviewer bot</div>${reviewed || ''}${words}${full && pr.diagram ? diagramFigure(pr.diagram) : ''}</section>`;
+}
+function prText(n, drawer = false) {
   const pr = describe(n);
   if (!pr) return '<p class="dim pr-wait">Reading the description and what the reviewer bot says it does…</p>';
   if (pr.error) return `<p class="pr-wait">The description is unavailable right now${/rate limit/i.test(pr.error) ? ': GitHub is limiting requests' : ''}. <a href="https://github.com/${esc(state.model.repo)}/pull/${n}" target="_blank" rel="noopener">Open it on GitHub ↗</a></p>`;
-  const reviewed = pr.review && `<p class="pr-reviewed">${REVIEW_WORD[pr.review.state] ?? 'The reviewer bot reviewed it'} at ${clock(pr.review.at)}.</p>`;
-  const said = pr.eli5 ?? pr.summary;
-  const bot = said || pr.diagram
-    ? `<section class="pr-read pr-eli5"><div class="kick muted">What it does, from the reviewer bot</div>${reviewed || ''}${said ? `<div class="md">${markdown(said)}</div>` : ''}${pr.diagram ? diagramFigure(pr.diagram) : ''}</section>`
-    : `<section class="pr-read pr-eli5"><div class="kick muted">What it does, from the reviewer bot</div>${reviewed || ''}<p class="dim">The reviewer bot wrote no plain-words explanation of this change, so its author's description below says what it does.</p></section>`;
+  if (drawer) return prBot(pr, false);
   const body = prBody(pr);
-  return `${bot}
+  return `${prBot(pr, true)}
     <section class="pr-read"><div class="kick muted">The pull request’s description</div><div class="md">${body ? markdown(body) : '<p class="dim">Its author wrote no description.</p>'}</div></section>`;
 }
 const diagrams = new Map();
@@ -136,8 +141,13 @@ async function decide(row, verdict, note, advance = true) {
   pending.number = null;
   const next = verdict === 'cleared' || !advance ? null : state.model.board.rows.find((r) => r.number !== row.number && verdictState(r) === 'you');
   const from = location.hash;
-  if (next) pending.advance = setTimeout(() => { if (location.hash === from) swapDrawer(`#/review/${next.number}`); }, 300);
+  if (next) pending.advance = setTimeout(() => { if (location.hash === from) goPR(next.number); }, 300);
   tapped({ seq: out.seq, block: row.block, number: row.number, head: row.head, verdict: verdict === 'cleared' ? null : { verdict, head: row.head, note, at: new Date().toISOString() }, state: verdict === 'cleared' ? 'you' : verdict === 'approved' ? 'approved' : 'held' });
+}
+function goPR(n) {
+  const r = route();
+  if (prOpen(r)) swapDrawer(`#/review/${n}`);
+  else location.hash = `#/review/${n}/${r.tab}`;
 }
 function onDecide(e) {
   const button = e.target.closest('[data-decide]');
@@ -182,14 +192,14 @@ document.addEventListener('keydown', (e) => {
   const key = e.key.toLowerCase();
   const rows = state.model.board.rows.filter((x) => x.group === row.group);
   const index = rows.indexOf(row);
-  const go = (to) => to && swapDrawer(`#/review/${to.number}`);
+  const go = (to) => to && goPR(to.number);
   if (key === 'a' && verdictState(row) === 'you') decide(row, 'approved');
   else if (key === 'h' && verdictState(row) === 'you') { Object.assign(pending, { number: row.number, holding: true, error: '' }); render(); }
   else if (key === 'j') go(rows[index + 1]);
   else if (key === 'k') go(rows[index - 1]);
   else if (key === 'n') go(state.model.board.rows.find((x) => x.number !== row.number && verdictState(x) === 'you'));
-  else if (key === 'c') swapDrawer(`#/review/${row.number}${r.tab === 'code' ? '' : '/code'}`);
-  else if (key === 'o') $('#main .pr-drawer [data-key="o"]').click();
+  else if (key === 'c') location.hash = `#/review/${row.number}/${r.tab === 'code' ? 'page' : 'code'}`;
+  else if (key === 'o') ($('#main .pr-drawer [data-key="o"]') ?? $('#main [data-key="o"]')).click();
   else return;
   e.preventDefault();
 });

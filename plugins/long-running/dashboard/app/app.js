@@ -258,7 +258,7 @@ function route(hash = location.hash) {
   return { screen: parts[0] ?? 'overview', id: parts[1], tab: parts[2] };
 }
 function prOpen(r = route()) {
-  return r.screen === 'review' && /^\d+$/.test(r.id ?? '');
+  return r.screen === 'review' && /^\d+$/.test(r.id ?? '') && !r.tab;
 }
 function pageRoute() {
   const r = route();
@@ -280,7 +280,7 @@ function render() {
   const spotRoot = [$('#main'), $('#tabs')].find((el) => el.contains(document.activeElement));
   const spot = !typing && state.shown === location.hash && spotRoot && focusSpot(spotRoot);
   $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${p.screen === id || (id === 'overview' && p.screen === 'story') ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="count">${count}</span>` : ''}</a>`).join('');
-  const screens = { overview: nowScreen, story: nowScreen, plan: () => planScreen(p.id), work: () => workScreen(p.id && decodeURIComponent(p.id)), review: () => reviewScreen(p.id ?? ''), history: () => historyScreen(p.id), ask: askScreen, status: statusScreen, jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>`, worker: () => workerScreen(decodeURIComponent(p.id ?? '')) };
+  const screens = { overview: nowScreen, story: nowScreen, plan: () => planScreen(p.id), work: () => workScreen(p.id && decodeURIComponent(p.id)), review: () => (/^\d+$/.test(p.id ?? '') ? reviewPR(p.id, p.tab) : reviewScreen(p.id ?? '')), history: () => historyScreen(p.id), ask: askScreen, status: statusScreen, jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>`, worker: () => workerScreen(decodeURIComponent(p.id ?? '')) };
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
   const hadDrawer = Boolean($('#main .pr-drawer'));
@@ -300,7 +300,6 @@ function render() {
   window.scrollTo(0, y);
   for (const [id, left, top] of kept) { const el = document.querySelector(`[data-keep-scroll="${id}"]`); if (el) [el.scrollLeft, el.scrollTop] = [left, top]; }
   syncReviewEmbed(r);
-  placeEmbed();
   syncCardEmbed(p);
   if (p.screen === 'review' && p.id === 'q' && state.focused !== location.hash) {
     state.focused = location.hash;
@@ -313,7 +312,13 @@ function render() {
 }
 function prDrawer(r) {
   const tone = verdictState(boardRow(r.id) ?? {}) === 'you' ? ' you' : '';
-  return `<div class="pr-scrim" data-drawer-close></div><aside class="pr-drawer${tone}" role="dialog" aria-label="${esc(prTitle(r.id))}" data-keep-scroll="pr-${esc(r.id)}-${esc(r.tab ?? '')}"><div class="pr-xbar"><button class="btn pr-x" data-drawer-close>Close <kbd>Esc</kbd></button></div>${reviewPR(r.id, r.tab)}</aside>`;
+  return `<div class="pr-scrim" data-drawer-close></div><aside class="pr-drawer${tone}" role="dialog" aria-label="${esc(prTitle(r.id))}" data-keep-scroll="pr-${esc(r.id)}"><div class="pr-xbar"><button class="btn pr-x" data-drawer-close>Close <kbd>Esc</kbd></button></div>${reviewPR(r.id, null, true)}</aside>`;
+}
+function leaveBox(input) {
+  if (input.closest('[data-hold]')) return input.closest('form').querySelector('[data-decide="cancel"]').click();
+  if (!input.value) return input.blur();
+  input.value = '';
+  input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 function swapDrawer(hash) {
   history.replaceState(history.state, '', hash);
@@ -324,12 +329,6 @@ function closeDrawer() {
   if (depth) history.go(-depth);
   else location.replace(history.state?.under ?? state.under ?? '#/review');
 }
-function placeEmbed() {
-  const tabs = $('#main .pr-drawer .review-tabs');
-  if (tabs) $('#embed').style.setProperty('--code-top', `${Math.max(64, tabs.getBoundingClientRect().bottom + 10)}px`);
-}
-document.addEventListener('scroll', (e) => { if (e.target.classList?.contains('pr-drawer')) placeEmbed(); }, true);
-window.addEventListener('resize', placeEmbed);
 document.addEventListener('click', (e) => {
   if (e.target.closest('[data-drawer-close]')) {
     e.preventDefault();
@@ -446,6 +445,7 @@ function leave(to) {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && state.overlay) closeSheet();
   else if (e.key === 'Escape' && ov.embedCard) { ov.embedCard = null; render(); }
+  else if (e.key === 'Escape' && prOpen() && e.target.closest?.('.pr-drawer form')) leaveBox(e.target);
   else if (e.key === 'Escape' && prOpen()) closeDrawer();
   else if (e.key === 'Escape' && route().screen === 'story') leave('#/');
   else if (e.key === 'Escape' && route().screen === 'work' && route().id) leave('#/work');
