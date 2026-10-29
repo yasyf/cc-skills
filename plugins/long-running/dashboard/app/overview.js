@@ -327,17 +327,17 @@ document.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
   if (route().screen !== 'overview' || e.target.closest('input, textarea') || e.metaKey || e.ctrlKey) return;
   const needs = state.model?.needs ?? [];
-  if (e.key === 'Escape' && ov.only && !state.overlay) { showOnly(null); return; }
+  if (e.key === 'Escape' && ov.only) { showOnly(null); return; }
   const paging = e.target.closest('.cta') && needs.length > 1;
   if (paging && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
     ov.page = (ov.page + (e.key === 'ArrowRight' ? 1 : needs.length - 1)) % needs.length;
     render();
     $('.cta')?.focus();
   }
-  else if (e.key === 'ArrowRight' && !state.overlay) setScrub(ov.scrub + 1);
-  else if (e.key === 'ArrowLeft' && !state.overlay) setScrub(ov.scrub - 1);
+  else if (e.key === 'ArrowRight') setScrub(ov.scrub + 1);
+  else if (e.key === 'ArrowLeft') setScrub(ov.scrub - 1);
   else if (e.key === 'n' && ov.scrub) setScrub(0);
-  else if (e.key === 'p' && !state.overlay) location.hash = '#/plan';
+  else if (e.key === 'p') location.hash = '#/plan';
   else if (e.key === 'Enter' && e.target.dataset?.track !== undefined) location.hash = `#/plan/${encodeURIComponent(e.target.dataset.track)}`;
 });
 window.addEventListener('resize', () => { if (pageRoute().screen === 'overview' && state.model) mountOverview(); });

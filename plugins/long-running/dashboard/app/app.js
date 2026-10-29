@@ -4,7 +4,7 @@ const clockFmt = new Intl.DateTimeFormat('en-US', { timeZone: PACIFIC, hour: 'nu
 const dayFmt = new Intl.DateTimeFormat('en-US', { timeZone: PACIFIC, weekday: 'short' });
 const KIND_WORD = { owner: 'You', go: 'Approved to land', landed: 'Landed', release: 'Release', incident: 'Incident', mechanism: 'Cause found', 'fix-live': 'Fix live', opened: 'Opened', report: 'Report', hold: 'Held', lift: 'Hold lifted', blocker: 'Blocked', defect: 'Tool problem', correction: 'Correction', decide: 'Decision', ask: 'Question', answer: 'Answer' };
 
-const state = { drive: new Map(), model: null, version: -1, open: new Set(), seen: new Set(), chat: [], asking: false, overlay: null, taps: [] };
+const state = { drive: new Map(), model: null, version: -1, open: new Set(), seen: new Set(), chat: [], asking: false, taps: [] };
 const SUGGESTED = ['What is blocking the next release?', 'What did I approve tonight that has not landed yet?', 'Which workers are stuck, and on what?'];
 const $ = (sel) => document.querySelector(sel);
 
@@ -253,76 +253,172 @@ async function ask(question) {
   }
 }
 
+const DRAWER = /^(?:review\/\d+(?:\/code)?|plan\/[^/~]+|status\/s\d+|(?:work|story|worker|blocker)\/[^/~]+)$/;
+const NATURAL = { review: '#/review', plan: '#/plan', status: '#/status', work: '#/work', worker: '#/work' };
+const BASE_WORD = { overview: 'Now', plan: 'Plan', status: 'Status', work: 'Work', review: 'Review', history: 'History', ask: 'Ask' };
+function drawerSeg(href) {
+  const path = String(href ?? '').replace(/^#\/?/, '');
+  return DRAWER.test(path) ? path.replace(/^story\//, 'work/') : null;
+}
+function baseOf(hash = location.hash) {
+  return hash.split('~')[0] || '#/';
+}
+function stackOf(hash = location.hash) {
+  return hash.split('~').slice(1);
+}
+function stackHash(base, stack) {
+  return [base, ...stack].join('~');
+}
 function route(hash = location.hash) {
-  const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  const parts = (stackOf(hash).at(-1) ?? baseOf(hash)).replace(/^#\/?/, '').split('/').filter(Boolean);
   return { screen: parts[0] ?? 'overview', id: parts[1], tab: parts[2] };
 }
 function prOpen(r = route()) {
-  return r.screen === 'review' && /^\d+$/.test(r.id ?? '');
+  return stackOf().length > 0 && r.screen === 'review' && /^\d+$/.test(r.id ?? '');
 }
 function pageRoute() {
-  const r = route();
-  return prOpen(r) ? route(history.state?.under ?? state.under ?? '#/review') : r;
+  return route(baseOf());
 }
 function render() {
   const m = state.model;
   if (!m || !m.prs) return;
-  const r = route();
-  if (!prOpen(r) && r.screen !== 'jump') state.under = location.hash || '#/';
   const p = pageRoute();
-  if (state.overlay && !history.state?.sheet) history.pushState({ ...history.state, sheet: true }, '');
+  const stack = stackOf();
   document.title = m.title;
   $('.brand').textContent = m.title;
   const tabs = [['overview', 'Now'], ['plan', 'Plan'], ['status', 'Status'], ['work', 'Work'], ['review', 'Review', needsTotal()], ['history', 'History']];
-  $('#kbtn').classList.toggle('on', r.screen === 'jump');
+  $('#kbtn').classList.toggle('on', p.screen === 'jump');
   const typing = document.activeElement?.matches('#main input, #main textarea') ? document.activeElement : null;
   const caret = typing && [typing.name, typing.dataset.draft ?? '', typing.selectionStart, typing.selectionEnd];
   const spotRoot = [$('#main'), $('#tabs')].find((el) => el.contains(document.activeElement));
   const spot = !typing && state.shown === location.hash && spotRoot && focusSpot(spotRoot);
-  $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${p.screen === id || (id === 'overview' && p.screen === 'story') ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="count">${count}</span>` : ''}</a>`).join('');
-  const screens = { overview: nowScreen, story: nowScreen, plan: () => planScreen(p.id), work: () => workScreen(p.id && decodeURIComponent(p.id)), review: () => reviewScreen(p.id ?? ''), history: () => historyScreen(p.id), ask: askScreen, status: statusScreen, jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>`, worker: () => workerScreen(decodeURIComponent(p.id ?? '')) };
+  $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${p.screen === id ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="count">${count}</span>` : ''}</a>`).join('');
+  const screens = { overview: nowScreen, plan: planScreen, work: workScreen, review: () => reviewScreen(p.id ?? ''), history: () => historyScreen(p.id), ask: askScreen, status: statusScreen, jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>` };
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
-  const hadDrawer = Boolean($('#main .pr-drawer'));
-  $('#main').innerHTML = (screens[p.screen] ?? nowScreen)() + (prOpen(r) ? prDrawer(r) : '') + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources failed: ${esc(Object.values(m.errors).join('; '))}. ` : ''}All times Pacific.</div>`;
-  if (!hadDrawer) $('#main .pr-drawer')?.classList.add('in');
-  decorate(r);
+  $('#main').innerHTML = (screens[p.screen] ?? nowScreen)() + drawers(stack) + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources failed: ${esc(Object.values(m.errors).join('; '))}. ` : ''}All times Pacific.</div>`;
+  if (stack.length > (state.depth ?? 0)) $('#main .pr-drawer.front')?.classList.add('in');
+  state.depth = stack.length;
+  decorate(p);
+  composeLinks(stack);
   holdPeek();
-  paintModal();
   if (state.shown !== location.hash) {
+    if (baseOf(state.shown ?? '') !== baseOf()) {
+      $('#main').classList.add('enter');
+      setTimeout(() => $('#main').classList.remove('enter'), 220);
+    }
     state.shown = location.hash;
-    $('#main').classList.add('enter');
-    setTimeout(() => $('#main').classList.remove('enter'), 220);
   }
   const again = caret && [...$('#main').querySelectorAll(`[name="${caret[0]}"]`)].find((el) => (el.dataset.draft ?? '') === caret[1]);
   if (again) { again.focus(); again.setSelectionRange(caret[2], caret[3]); }
   if (spot) refocus(spot, spotRoot);
   window.scrollTo(0, y);
   for (const [id, left, top] of kept) { const el = document.querySelector(`[data-keep-scroll="${id}"]`); if (el) [el.scrollLeft, el.scrollTop] = [left, top]; }
-  syncReviewEmbed(r);
+  syncReviewEmbed(route());
   placeEmbed();
   syncCardEmbed(p);
   if (p.screen === 'review' && p.id === 'q' && state.focused !== location.hash) {
     state.focused = location.hash;
-    (r.tab ? document.getElementById(`card-${decodeURIComponent(r.tab)}`) : document.getElementById('review-questions'))?.scrollIntoView({ block: r.tab ? 'center' : 'start' });
+    (p.tab ? document.getElementById(`card-${decodeURIComponent(p.tab)}`) : document.getElementById('review-questions'))?.scrollIntoView({ block: p.tab ? 'center' : 'start' });
   }
-  if ((screens[p.screen] ?? nowScreen) === nowScreen) mountNow();
-  else if (p.screen === 'work' && p.id) follow(decodeURIComponent(p.id));
+  if (p.screen === 'overview') mountNow();
+  const top = route();
+  if (stack.length && top.screen === 'work') follow(decodeURIComponent(top.id));
   else unfollow();
   tickFresh();
 }
-function prDrawer(r) {
-  const tone = verdictState(boardRow(r.id) ?? {}) === 'you' ? ' you' : '';
-  return `<div class="pr-scrim" data-drawer-close></div><aside class="pr-drawer${tone}" role="dialog" aria-label="${esc(prTitle(r.id))}" data-keep-scroll="pr-${esc(r.id)}-${esc(r.tab ?? '')}"><div class="pr-xbar"><button class="btn pr-x" data-drawer-close>Close <kbd>Esc</kbd></button></div>${reviewPR(r.id, r.tab)}</aside>`;
+function drawerOf(seg) {
+  const [kind, raw, tab] = seg.split('/');
+  const id = decodeURIComponent(raw);
+  const gone = (text) => () => `<p class="pg-none">${text}</p>`;
+  if (kind === 'review') return { kick: `Pull request #${id}`, title: prTitle(id), tone: verdictState(boardRow(id) ?? {}) === 'you' ? 'you' : '', body: () => reviewPR(id, tab) };
+  if (kind === 'work') return { kick: 'Work', title: workItem(id)?.title ?? id, body: () => workDrawer(id) };
+  if (kind === 'worker') return { kick: 'Worker', title: workerName(id), body: () => workerScreen(id) };
+  if (kind === 'blocker') return { kick: 'Blocker', title: blockerById(id)?.node.text ?? id, tone: blockerById(id)?.node.state ?? '', body: () => blockerPage(id) };
+  if (kind === 'status') {
+    const row = statusRows().rows[id.slice(1)];
+    return { kick: 'Plan step', title: row ? words(row[0]) : 'Plan step', body: row ? () => statusStep(row) : gone('This step is no longer in the plan.') };
+  }
+  const plan = curated('plan');
+  const ms = /^m(\d+)$/.exec(id);
+  if (ms) return { kick: 'Milestone', title: state.model.milestones[ms[1]] ?? 'Milestone', tone: 'ms', body: () => (plan ? milestonePage(plan, Number(ms[1])) : writing('Milestone')) };
+  const part = plan?.parts.find((x) => x.id === id);
+  return { kick: 'Part of the plan', title: part?.name ?? id, body: part ? () => partPage(part) : gone('This part is no longer in the plan.') };
 }
-function swapDrawer(hash) {
-  history.replaceState(history.state, '', hash);
+function drawers(stack) {
+  if (!stack.length) return '';
+  const base = baseOf();
+  const heads = stack.map(drawerOf);
+  const top = heads.at(-1);
+  const list = history.state?.list ?? [];
+  const at = list.indexOf(stack.at(-1).replace(/\/code$/, ''));
+  const tone = (d) => (d.tone ? ` t-${d.tone}` : '');
+  const crumbs = [`<a href="${base}" data-pop="0">${BASE_WORD[route(base).screen] ?? 'Now'}</a>`, ...heads.slice(0, -1).map((d, i) => `<a href="${stackHash(base, stack.slice(0, i + 1))}" data-pop="${i + 1}">${esc(d.title)}</a>`), `<b>${esc(top.title)}</b>`].join('<i>›</i>');
+  const step = (to, label, key) => (to ? `<a class="btn" href="#/${to}" data-key="${key}" title="${key === 'j' ? 'Next' : 'Previous'} in the list you opened this from">${label}<kbd>${key.toUpperCase()}</kbd></a>` : `<span class="btn off">${label}<kbd>${key.toUpperCase()}</kbd></span>`);
+  const stepper = at >= 0 && list.length > 1 ? `<span class="dr-step">${step(list[at - 1], '‹', 'k')}<span class="dr-at">${at + 1} of ${list.length}</span>${step(list[at + 1], '›', 'j')}</span>` : '';
+  const under = heads.slice(0, -1).map((d, i) => `<a class="pr-drawer under${tone(d)}" style="--back:${Math.min(3, stack.length - 1 - i)}" href="${stackHash(base, stack.slice(0, i + 1))}" data-pop="${i + 1}" title="Back to ${esc(d.title)}"><span class="dr-spine"><span>${esc(d.kick)}</span>${esc(d.title)}</span></a>`).join('');
+  return `<div class="pr-scrim" data-drawer-close></div>${under}<aside class="pr-drawer front${tone(top)}" role="dialog" aria-label="${esc(top.title)}" data-keep-scroll="drawer-${esc(stack.at(-1))}"><div class="dr-bar"><nav class="dr-crumbs" aria-label="Opened from">${crumbs}</nav>${stepper}<button class="btn pr-x" data-drawer-close>Close <kbd>Esc</kbd></button></div><div class="dr-body">${top.body()}</div></aside>`;
+}
+function composeLinks(stack) {
+  const base = baseOf();
+  const top = $('#main .pr-drawer.front');
+  const steps = top?.querySelector('.dr-step');
+  if (steps) for (const a of top.querySelectorAll('.dr-body [data-key="j"], .dr-body [data-key="k"]')) a.remove();
+  for (const a of $('#main').querySelectorAll('a[href^="#/"]')) {
+    const seg = drawerSeg(a.getAttribute('href'));
+    if (!seg) continue;
+    const inside = Boolean(top?.contains(a));
+    const swap = inside && a.matches('[data-key], .review-tabs a');
+    const open = inside && !swap ? stack.indexOf(seg) : -1;
+    if (open >= 0) {
+      a.dataset.pop = open + 1;
+      a.setAttribute('href', stackHash(base, stack.slice(0, open + 1)));
+      continue;
+    }
+    a.dataset.seg = seg;
+    if (swap) a.dataset.swap = '';
+    a.setAttribute('href', stackHash(base, [...(inside ? stack.slice(0, swap ? -1 : undefined) : []), seg]));
+  }
+}
+function siblingsOf(link) {
+  const plain = (s) => s.replace(/\/code$/, '');
+  const own = plain(link.dataset.seg);
+  const kind = own.split('/')[0];
+  const stop = link.closest('.pr-drawer') ?? $('#main');
+  for (let el = link.parentElement; el && stop.contains(el); el = el.parentElement) {
+    const segs = [...new Set([...el.querySelectorAll('a[data-seg]:not([data-swap])')].map((a) => plain(a.dataset.seg)).filter((s) => s.split('/')[0] === kind))];
+    if (segs.length > 1) return segs;
+  }
+  return [own];
+}
+function remember() {
+  if (pageRoute().screen !== 'jump') Object.assign(state, { lastHash: location.hash, lastUps: history.state?.ups ?? [] });
+}
+function arrive(from) {
+  const seg = drawerSeg(location.hash);
+  const prior = state.lastHash;
+  const known = (hash) => stackOf(hash).map((_, i) => state.lastUps?.[i] ?? 0);
+  if (seg) {
+    if (prior === undefined) return history.replaceState({ ups: [], list: [seg] }, '', stackHash(NATURAL[seg.split('/')[0]] ?? '#/', [seg]));
+    return history.replaceState({ ups: [...known(prior), from === '#/jump' ? 2 : 1], list: [seg] }, '', `${prior || '#/'}~${seg}`);
+  }
+  const was = stackOf(prior ?? '');
+  const now = stackOf();
+  const pushed = prior !== undefined && baseOf(prior) === baseOf() && now.length === was.length + 1 && was.every((s, i) => s === now[i]);
+  history.replaceState({ ups: pushed ? [...known(prior), 1] : [], ...(state.nextList?.hash === location.hash && { list: state.nextList.list }) }, '');
+}
+function swapDrawer(to) {
+  history.replaceState(history.state, '', stackHash(baseOf(), [...stackOf().slice(0, -1), drawerSeg(to)]));
+  remember();
   render();
+  if (document.activeElement === document.body) $('#main .pr-drawer.front .pr-x')?.focus({ preventScroll: true });
 }
-function closeDrawer() {
-  const depth = history.state?.drawer;
-  if (depth) history.go(-depth);
-  else location.replace(history.state?.under ?? state.under ?? '#/review');
+function popTo(len) {
+  const stack = stackOf();
+  const ups = (history.state?.ups ?? []).slice(len);
+  if (len >= stack.length) return;
+  if (ups.length === stack.length - len && ups.every(Boolean)) history.go(-ups.reduce((a, b) => a + b, 0));
+  else location.replace(stackHash(baseOf(), stack.slice(0, len)));
 }
 function placeEmbed() {
   const tabs = $('#main .pr-drawer .review-tabs');
@@ -331,14 +427,19 @@ function placeEmbed() {
 document.addEventListener('scroll', (e) => { if (e.target.classList?.contains('pr-drawer')) placeEmbed(); }, true);
 window.addEventListener('resize', placeEmbed);
 document.addEventListener('click', (e) => {
-  if (e.target.closest('[data-drawer-close]')) {
+  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const pop = e.target.closest('[data-pop], [data-drawer-close]');
+  if (pop) {
     e.preventDefault();
-    return closeDrawer();
+    return popTo(pop.dataset.pop === undefined ? stackOf().length - 1 : Number(pop.dataset.pop));
   }
-  const link = e.target.closest('.pr-drawer a[href^="#/review/"]');
-  if (!link || e.metaKey || e.ctrlKey || e.shiftKey || !prOpen(route(link.getAttribute('href')))) return;
-  e.preventDefault();
-  swapDrawer(link.getAttribute('href'));
+  const link = e.target.closest('#main a[data-seg]');
+  if (!link) return;
+  if (link.hasAttribute('data-swap')) {
+    e.preventDefault();
+    return swapDrawer(link.dataset.seg);
+  }
+  state.nextList = { hash: link.getAttribute('href'), list: siblingsOf(link) };
 });
 const FOCUSABLE = 'a[href], button, summary, input, select, textarea, [tabindex]';
 function signature(el) {
@@ -426,11 +527,6 @@ document.addEventListener('click', (e) => {
     state.open.has(id) ? state.open.delete(id) : state.open.add(id);
     render();
   }
-  const close = e.target.closest('[data-close]');
-  if (close && (e.target === close || close.matches('button'))) {
-    if (state.overlay) closeSheet();
-    return;
-  }
   const suggestion = e.target.closest('[data-ask]');
   if (suggestion) ask(suggestion.dataset.ask);
 });
@@ -439,90 +535,40 @@ document.addEventListener('submit', (e) => {
   e.preventDefault();
   ask(e.target.q.value);
 });
-function leave(to) {
-  if (history.state?.inApp) history.back();
-  else location.replace(to);
-}
+window.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !e.target.matches?.('#main input, #main textarea') || e.target.closest('#pal')) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  if (!e.target.value) return e.target.blur();
+  e.target.value = '';
+  e.target.dispatchEvent(new Event('input', { bubbles: true }));
+}, true);
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && state.overlay) closeSheet();
-  else if (e.key === 'Escape' && ov.embedCard) { ov.embedCard = null; render(); }
-  else if (e.key === 'Escape' && prOpen()) closeDrawer();
-  else if (e.key === 'Escape' && route().screen === 'story') leave('#/');
-  else if (e.key === 'Escape' && route().screen === 'work' && route().id) leave('#/work');
+  const depth = stackOf().length;
+  const key = e.key.toLowerCase();
+  if (e.key === 'Escape' && ov.embedCard) { ov.embedCard = null; render(); }
+  else if (e.key === 'Escape' && depth) popTo(depth - 1);
+  else if (depth && (key === 'j' || key === 'k') && !e.metaKey && !e.ctrlKey && !e.altKey && !e.target.closest('input, textarea')) {
+    e.preventDefault();
+    $(`#main .pr-drawer.front [data-key="${key}"]`)?.click();
+  }
   if (e.key === 'Enter' && !e.shiftKey && e.target.matches('#ask textarea')) { e.preventDefault(); ask(e.target.value); }
 });
-function paintModal() {
-  const root = document.getElementById('modal-root') ?? document.body.appendChild(Object.assign(document.createElement('div'), { id: 'modal-root' }));
-  const [, kind, at] = /^([ms])(\d+)$/.exec(state.overlay ?? '') ?? [];
-  const p = kind === 'm' && curated('plan');
-  const step = kind === 's' && statusRows().rows[at];
-  const spot = focusSpot(root);
-  const sheet = (label, body) => `<div class="overlay" data-close="1"><div class="sheet ms-sheet" role="dialog" aria-modal="true" aria-label="${esc(label)}"><button class="btn close" data-close="1">Close <kbd>Esc</kbd></button>${body}</div></div>`;
-  const html = p ? sheet(state.model.milestones[at] ?? 'Milestone', `${milestonePage(p, Number(at))}<p class="acts ms-out"><a class="btn" data-out href="#/plan/m${at}">Open as its own page ›</a></p>`)
-    : step ? sheet(step[0], statusStep(step)) : '';
-  if (state.modalHtml !== html) {
-    const opening = !state.modalHtml;
-    root.innerHTML = html;
-    state.modalHtml = html;
-    if (opening && html) root.firstElementChild.classList.add('enter');
-  }
-  document.body.classList.toggle('modal-open', Boolean(html));
-  if (spot) refocus(spot, root);
-}
 document.addEventListener('click', (e) => {
   const step = !e.target.closest('a') && e.target.closest('.st-table tr[data-step]');
   if (step) return step.querySelector('a.st-step').click();
 }, true);
-document.addEventListener('click', (e) => {
-  const link = e.target.closest('a[href^="#/plan/m"], a[href^="#/status/s"]');
-  if (!link || e.metaKey || e.ctrlKey || e.shiftKey) return;
-  if (link.hasAttribute('data-out')) { state.overlay = null; return; }
-  const ms = /^#\/(?:plan|status)\/([ms]\d+)$/.exec(link.getAttribute('href'));
-  if (!ms || (link.closest('.pg-page') && !link.closest('#modal-root'))) return;
-  e.preventDefault();
-  e.stopImmediatePropagation();
-  if (!state.overlay) state.opener = link;
-  state.overlay = ms[1];
-  render();
-  document.querySelector('#modal-root .close')?.focus();
-}, true);
-document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Tab' || !state.overlay) return;
-  const stops = [...document.querySelectorAll('#modal-root a[href], #modal-root button')];
-  const at = stops.indexOf(document.activeElement);
-  if (at === -1 || (e.shiftKey && at === 0) || (!e.shiftKey && at === stops.length - 1)) {
-    e.preventDefault();
-    stops.at(e.shiftKey ? -1 : 0)?.focus();
-  }
-});
-function closeSheet() {
-  if (history.state?.sheet) return history.back();
-  state.overlay = null;
-  render();
-}
-window.addEventListener('popstate', (e) => {
-  if (e.state?.sheet || !state.overlay) return;
-  state.overlay = null;
-  render();
-  focusOpener();
-});
-function focusOpener() {
-  const href = state.opener?.getAttribute('href');
-  (state.opener?.isConnected ? state.opener : href && document.querySelector(`#main a[href="${CSS.escape(href)}"]`))?.focus();
-}
 window.addEventListener('hashchange', (e) => {
   const from = new URL(e.oldURL).hash;
-  if (location.hash === '#/jump' && history.state && prOpen(route(from))) return history.back();
-  const returning = history.state?.y !== undefined;
-  const opening = !history.state && prOpen();
-  if (!history.state) history.replaceState({ inApp: true, ...(opening && { under: state.under, drawer: state.under ? (from === '#/jump' ? 2 : 1) : 0 }) }, '');
-  state.overlay = null;
+  const before = baseOf(from === '#/jump' ? state.lastHash ?? '' : from);
+  if (!history.state) arrive(from);
+  const deeper = before === baseOf() && stackOf().length > stackOf(from === '#/jump' ? state.lastHash ?? '' : from).length;
+  remember();
   render();
-  if (!/^#\/review\/q(\/|$)/.test(location.hash) && !prOpen()) window.scrollTo(0, history.state?.y ?? 0);
-  if (opening) $('#main .pr-drawer .pr-x')?.focus({ preventScroll: true });
-  else if (history.state?.spot) refocus(history.state.spot);
-  else if (history.state?.sheet && state.opener) focusOpener();
-  else if (returning) focusInView();
+  if (before !== baseOf() && !/^#\/review\/q(\/|$)/.test(location.hash)) window.scrollTo(0, history.state?.y ?? 0);
+  if (history.state?.spot && !deeper) refocus(history.state.spot);
+  else if (stackOf().length) $('#main .pr-drawer.front .pr-x')?.focus({ preventScroll: true });
+  else if (history.state?.y !== undefined) focusInView();
 });
 document.addEventListener('click', (e) => {
   const control = e.target.closest(FOCUSABLE);
@@ -537,6 +583,8 @@ function focusInView() {
   }
 }
 window.addEventListener('DOMContentLoaded', () => {
+  if (!history.state || drawerSeg(location.hash)) arrive('');
+  remember();
   setInterval(tickFresh, 1000);
   load();
   connect();

@@ -47,15 +47,36 @@
 
 :root { --drawer-w: min(960px, calc(100vw - 420px)); }
 .pr-scrim { position: fixed; inset: 54px 0 0 0; z-index: 50; background: rgba(5, 7, 10, .42); cursor: pointer; }
-.pr-drawer { --lit-tone: var(--ok); position: fixed; z-index: 51; top: 64px; right: 12px; bottom: 12px; width: var(--drawer-w); overflow-y: auto; overscroll-behavior: contain; padding: 18px 26px 40px; background: var(--panel-face); border: 1.5px solid var(--lit); border-radius: 16px; box-shadow: 0 30px 80px -10px rgba(0, 0, 0, .7), var(--lit-glow); }
-.pr-drawer.you { --lit-tone: var(--amber); }
+.pr-drawer { --lit-tone: var(--ok); position: fixed; z-index: 51; top: 64px; right: 12px; bottom: 12px; width: var(--drawer-w); overflow-y: auto; overscroll-behavior: contain; padding: 0; background: var(--panel-face); border: 1.5px solid var(--lit); border-radius: 16px; box-shadow: 0 30px 80px -10px rgba(0, 0, 0, .7), var(--lit-glow); }
+.pr-drawer.t-you { --lit-tone: var(--amber); }
+.pr-drawer:is(.t-ms, .t-fixing) { --lit-tone: var(--accent); }
+.pr-drawer.t-nobody { --lit-tone: var(--bad); }
+.pr-drawer.t-waiting { --lit-tone: var(--ink-3); }
 .pr-drawer.in { animation: drawer-in .2s ease-out; }
 @keyframes drawer-in { from { transform: translateX(36px); opacity: 0; } }
-.pr-xbar { position: sticky; top: 0; z-index: 3; height: 0; display: flex; justify-content: flex-end; }
-.pr-x { box-shadow: 0 0 0 6px #0d1015; }
+.pr-drawer.under { overflow: hidden; transform: translateX(calc(var(--back) * -46px)); filter: brightness(.6) saturate(.8); color: var(--ink); text-decoration: none; transition: transform .16s ease-out, filter .16s ease-out; }
+.pr-drawer.under:hover { transform: translateX(calc(var(--back) * -46px - 8px)); filter: brightness(.9); }
+.dr-spine { position: absolute; inset: 0 auto 0 0; width: 46px; box-sizing: border-box; padding: 18px 0; display: flex; align-items: center; gap: 10px; writing-mode: vertical-rl; transform: rotate(180deg); justify-content: flex-end; white-space: nowrap; overflow: hidden; font-size: 13px; font-weight: 600; }
+.dr-spine span { color: var(--ink-3); font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.dr-bar { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 14px; padding: 10px 14px 10px 26px; background: #0d1015; border-bottom: 1px solid var(--line); border-radius: 15px 15px 0 0; }
+.dr-crumbs { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; font-size: 13px; white-space: nowrap; overflow: hidden; }
+.dr-crumbs a { flex: none; max-width: 15em; color: var(--ink-2); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.dr-crumbs a:hover { color: var(--ink); }
+.dr-crumbs b { flex: 0 1 auto; min-width: 4em; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--ink); }
+.dr-crumbs i { flex: none; color: var(--ink-3); font-style: normal; }
+.dr-step { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.dr-step .btn { min-height: 30px; padding: 3px 10px; }
+.dr-step .btn.off { opacity: .4; cursor: default; }
+.dr-at { color: var(--ink-2); font-size: 12.5px; min-width: 4.5em; text-align: center; }
+.pr-x { flex: none; }
+.dr-body { padding: 18px 26px 40px; }
+.dr-body .pg-back { display: none; }
+.dr-body .pg-page { max-width: none; padding: 0; }
+.dr-body .ms-chain { margin: 22px 0 6px; display: grid; gap: 18px; }
+.dr-body .ms-chain .pg-changes { padding: 14px 18px; background: var(--panel-face); border: 1.5px solid var(--lit); border-radius: 12px; box-shadow: var(--depth), var(--lit-glow); }
+.dr-story { margin-bottom: 16px; }
 body:has(.pr-drawer) { overflow: hidden; }
 #main.enter:has(.pr-drawer) > .pg, #main.enter:has(.pr-drawer) :is(.pg-row, .wk-row) { animation: none; }
-.pr-drawer .pr-head h1 { padding-right: 120px; }
 body:has(.pr-drawer) #embed:not([hidden])[data-tab="code"] { position: fixed; z-index: 52; right: 12px; top: var(--code-top, 260px); bottom: 12px; width: var(--drawer-w); max-width: none; margin: 0; padding: 0 26px 18px; display: flex; }
 body:has(.pr-drawer) #embed[data-tab="code"] .pane { flex: 1; display: flex; flex-direction: column; }
 body:has(.pr-drawer) #embed[data-tab="code"] .code iframe { flex: 1; height: auto; }

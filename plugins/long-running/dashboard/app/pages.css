@@ -57,11 +57,7 @@ a.pg-row:hover .pg-cells > b { color: var(--accent); }
 .wk-line { display: block; margin-top: 2px; color: var(--ink-2); font-size: 13px; }
 .wk-line .pg-state { margin-right: 6px; }
 .wk-side { color: var(--ink-3); font-size: 12.5px; white-space: nowrap; }
-.wk-story { padding: 12px 16px 14px; border-bottom: 1px solid var(--line); background: var(--panel-face); box-shadow: inset 0 0 0 1.5px var(--lit), var(--lit-glow); }
-.wk-story:last-child { border-bottom: 0; border-radius: 0 0 12px 12px; }
-.wk-close { font-size: 12.5px; }
 
-.wk-story .linkish { color: var(--ink-2); font-weight: 500; }
 .pg-fold > summary { list-style: none; cursor: pointer; }
 .pg-fold > summary::-webkit-details-marker { display: none; }
 .pg-fold { margin-top: 12px; }
@@ -183,7 +179,6 @@ a.pg-row:hover .pg-cells > b { color: var(--accent); }
 .pg-ring b small { font-size: 10px; color: var(--ink-2); margin-left: 1px; }
 .pg-ringwrap { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; color: var(--ink-3); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; max-width: 130px; line-height: 1.4; }
 .pg-h > div { display: flex; flex-direction: column; gap: 4px; }
-#modal-root .sheet { border: 1.5px solid var(--lit); box-shadow: var(--shadow), var(--lit-glow); background: var(--panel-face); }
 
 :root { --lit-tone: var(--ok); --panel-face: radial-gradient(rgba(255, 255, 255, .03) 1px, transparent 1px) 0 0 / 14px 14px, radial-gradient(120% 90% at 50% 0%, #10161f 0%, rgba(8, 10, 13, 0) 70%), #0d1015; }
 * { --lit: color-mix(in srgb, var(--lit-tone) 50%, transparent); --lit-glow: 0 0 0 1px color-mix(in srgb, var(--lit-tone) 7%, transparent), 0 0 22px -8px color-mix(in srgb, var(--lit-tone) 55%, transparent); }

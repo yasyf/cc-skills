@@ -141,13 +141,9 @@ function answerLink(card) {
 function milestoneOf(p, i) {
   return p.milestones[i] ?? { state: 'not', label: 'Not known', ships: '', waits: '', since: '', card: '', note: '', unblock: '' };
 }
-function planScreen(focus) {
+function planScreen() {
   const p = curated('plan');
   if (!p) return writing('Plan');
-  const stop = /^m(\d+)$/.exec(focus ?? '');
-  if (stop && state.model.milestones[stop[1]]) return milestonePage(p, Number(stop[1]));
-  const focused = p.parts.find((part) => part.id === focus);
-  if (focused) return partPage(focused);
   const milestones = state.model.milestones.map((name, i) => {
     const s = milestoneOf(p, i);
     const waits = s.state === 'not' ? cellText('', 'After the milestone above') : cellText(s.waits, s.state === 'live' ? 'Live' : 'Nothing open', s.since);
@@ -170,13 +166,19 @@ function detailPage(back, kicker, title, stateLine, facts, extra = '') {
 function milestonePage(p, i) {
   const s = milestoneOf(p, i);
   const names = state.model.milestones;
-  const step = (j, label) => (names[j] ? `<a class="btn" href="#/plan/m${j}">${label}</a>` : '');
+  const step = (j, label, key) => (names[j] ? `<a class="btn" href="#/plan/m${j}" data-key="${key}">${label}<kbd>${key.toUpperCase()}</kbd></a>` : '');
+  const b = state.model.brief;
+  const { nodes, feeding } = b ? milestoneChain(b, i) : { nodes: [], feeding: [] };
+  const prs = [...new Set([...nodes.map((n) => n.change), ...feeding.flatMap((w) => w.changes ?? [])].filter(Boolean))];
+  const chain = `<div class="nw ms-chain">${nodes.length ? `<section><h2 class="nw-h">What stands in the way, in order</h2><div class="nw-chain">${nodes.map(chainCard).join('')}<div class="cn goal"><span class="w">Then</span>${esc(names[i])}</div></div></section>` : ''}
+    ${feeding.length ? `<section><h2 class="nw-h">Work feeding it</h2><div class="nw-feed">${feeding.map(feedCard).join('')}</div></section>` : ''}
+    ${prs.length ? `<section><h2 class="nw-h">Its pull requests <span class="pg-n">${prs.length}</span></h2><ul class="pg-changes ms-prs">${prs.map((n) => `<li class="${light(prState(n))}"><a href="#/review/${n}">${esc(prTitle(n))}</a><span>${esc(prTruth(n).blocks || STATE_WORD[prState(n)] || '')}</span></li>`).join('')}</ul></section>` : ''}</div>`;
   return detailPage(['#/plan', 'Plan'], `${esc(state.model.milestones_label)} · ${i + 1} of ${names.length}`, names[i], `<p class="pg-stateline">${dotted(s.label, STOP_TONE[s.state])}${answerLink(s.card)}</p>`, [
     ['What it waits on', s.waits ? `${esc(s.waits)}${forSince(s.since)}` : esc(s.state === 'not' ? 'The milestone above' : s.state === 'live' ? 'Nothing: it is live' : 'Nothing open')],
     ['What we are doing to unblock it', esc(s.unblock ?? '')],
     ['What it ships', esc(s.ships)],
     ['What went wrong so far', esc(s.note)],
-  ], `<p class="acts">${step(i - 1, '‹ Previous milestone')}${step(i + 1, 'Next milestone ›')}</p>`);
+  ], `${chain}<p class="acts">${step(i - 1, '‹ Previous milestone', 'k')}${step(i + 1, 'Next milestone ›', 'j')}</p>`);
 }
 function partPage(part) {
   const changes = part.changes.map((c) => `<li class="${light(prState(c.number))}"><a href="#/review/${c.number}">${esc(c.name)}</a><span>${esc(c.state)}</span></li>`).join('');
@@ -209,7 +211,7 @@ function statusRows() {
 function workerLinks(html) {
   return html.replace(/\[([^\]]+)\]\(worker:([\w-]+)\)/g, (_, said, lane) => {
     const item = [...(state.model.brief?.work ?? []), ...(state.model.pages?.work?.running ?? [])].find((w) => w.workers.some((x) => sameWorker(x, lane)))?.item;
-    return `<a class="st-worker" href="${item ? `#/story/${encodeURIComponent(item)}` : `#/worker/${encodeURIComponent(lane)}`}">${said}</a>`;
+    return `<a class="st-worker" href="${item ? `#/work/${encodeURIComponent(item)}` : `#/worker/${encodeURIComponent(lane)}`}">${said}</a>`;
   });
 }
 function stepLight(cell) {
@@ -256,13 +258,11 @@ function workerScreen(lane) {
     ['What it posted lately', !posted ? 'Reading its records…' : posted.length ? `<ul class="pg-changes">${posted.map((r) => `<li><a href="/record/${r.seq}" target="_blank" rel="noopener">${esc(SAID[r.kind] ?? KIND_WORD[r.kind] ?? r.kind)} ↗</a><span>${clock(r.at)}</span></li>`).join('')}</ul>` : 'Nothing in the last day'],
   ]);
 }
-function workScreen(item) {
+function workScreen() {
   const p = curated('work');
   if (!p) return writing('Work');
-  const row = (w, line, side) => w.item === item
-    ? `<div class="wk-story"><a class="wk-close" href="#/work">‹ All work</a><div id="nw-story">${storyBody(item)}</div></div>`
-    : `<a class="wk-row" href="#/work/${encodeURIComponent(w.item)}"><span class="wk-body"><b>${esc(w.title)}</b><span class="wk-line">${line}</span></span><span class="wk-side">${side}</span></a>`;
-  const running = [...p.running].sort((a, b) => (b.item === item) - (a.item === item)).map((w) => row(w, `${dotted(w.status, WORK_TONE[w.status] ?? 'acc')} ${esc(w.latest)}`, [sinceClock(w.blocked_since) ? `Waiting ${blockedFor(sinceClock(w.blocked_since))}` : sinceClock(w.started) ? `Started ${esc(w.started)}` : '', wordAt(workWord(w.item)).replace(/^l/, 'L')].filter(Boolean).join('<br>')));
+  const row = (w, line, side) => `<a class="wk-row" href="#/work/${encodeURIComponent(w.item)}"><span class="wk-body"><b>${esc(w.title)}</b><span class="wk-line">${line}</span></span><span class="wk-side">${side}</span></a>`;
+  const running = p.running.map((w) => row(w, `${dotted(w.status, WORK_TONE[w.status] ?? 'acc')} ${esc(w.latest)}`, [sinceClock(w.blocked_since) ? `Waiting ${blockedFor(sinceClock(w.blocked_since))}` : sinceClock(w.started) ? `Started ${esc(w.started)}` : '', wordAt(workWord(w.item)).replace(/^l/, 'L')].filter(Boolean).join('<br>')));
   const rest = running.slice(RUNNING_AT_REST);
   const finished = p.finished.map((w) => row(w, `${w.outcome === 'stopped' ? `${dotted('Stopped', 'warn')} ` : ''}${esc(w.result)}`, `${w.outcome === 'stopped' ? 'Stopped' : 'Done'} ${esc(w.at)}`));
   const m = state.model;
@@ -272,10 +272,10 @@ function workScreen(item) {
   const helpers = p.helpers.map((h) => `<li>${h.workers.length ? `<a href="#/worker/${encodeURIComponent(h.workers[0])}"><b>${esc(h.name)}</b></a>` : `<b>${esc(h.name)}</b>`}<span>${esc(h.latest)}</span></li>`).join('');
   return `<div class="pg">${pageHead('Work', p)}
     <section class="pg-sec"><h2>Active work <span class="pg-n">${p.running.length}</span></h2><div class="pg-list">${running.slice(0, RUNNING_AT_REST).join('') || '<p class="pg-none">No work is running right now.</p>'}</div>
-    ${rest.length ? fold('wk-more', `More active work <span class="pg-n">${rest.length}</span>`, `<div class="pg-list">${rest.join('')}</div>`, p.running.slice(RUNNING_AT_REST).some((w) => w.item === item)) : ''}</section>
+    ${rest.length ? fold('wk-more', `More active work <span class="pg-n">${rest.length}</span>`, `<div class="pg-list">${rest.join('')}</div>`) : ''}</section>
     <section class="pg-sec"><h2>Open pull requests <span class="pg-n">${open.length}</span></h2>${stuck.length ? `<p class="wk-caption">${dotted('Stuck', 'bad')} These have sat in one state for two hours or more.</p><div class="pg-list wk-stuck">${stuck.map(stackLine).join('')}</div>` : '<p class="pg-none">None has sat in one state for two hours.</p>'}
     ${moving.length ? fold('wk-prs', `Moving <span class="pg-n">${moving.length}</span>`, `<div class="pg-list">${moving.map(stackLine).join('')}</div>`) : ''}</section>
-    ${finished.length ? `<section class="pg-sec">${fold('wk-finished', `Finished today <span class="pg-n">${finished.length}</span>`, `<div class="pg-list">${finished.join('')}</div>`, p.finished.some((w) => w.item === item))}</section>` : ''}
+    ${finished.length ? `<section class="pg-sec">${fold('wk-finished', `Finished today <span class="pg-n">${finished.length}</span>`, `<div class="pg-list">${finished.join('')}</div>`)}</section>` : ''}
     ${helpers ? `<section class="pg-sec">${fold('wk-helpers', `Keeping the drive running <span class="pg-n">${p.helpers.length}</span>`, `<ul class="wk-helpers">${helpers}</ul>`)}</section>` : ''}</div>`;
 }
 
