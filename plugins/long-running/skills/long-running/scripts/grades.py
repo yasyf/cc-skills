@@ -25,7 +25,7 @@ FINDER_CLEAN = re.compile(r"\bno (?:majors?|findings)\b|\b0 majors?\b|\bok\b", r
 SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
 GROUND_KEY = re.compile(r"(?:plan(?::\d+(?:-\d+)?)?|F\d+|(?!design/)[a-z]+/[\w./-]+)")
 GO_PAIR = r"#\d+\s+at\s+[0-9a-f]{7,40}\b"
-GO_CLAUSE = re.compile(rf"(?:^\s*(?:\d{{1,2}}:\d{{2}}\s*[AP]M\s+)?|[.:;!?]\s+)(?:go|merge)\s+({GO_PAIR}(?:(?:\s*,\s*|\s*,?\s+and\s+){GO_PAIR})*)(?:\s+with\s+(#\d+(?:(?:\s*,\s*|\s*,?\s+and\s+|\s+)#\d+)*))?", re.IGNORECASE)
+GO_CLAUSE = re.compile(rf"(?:^\s*(?:\d{{1,2}}:\d{{2}}\s*[AP]M\s+)?|[.:;!?]\s+)(?:go(?:\s+port)?|merge)\s+({GO_PAIR}(?:(?:\s*,\s*|\s*,?\s+and\s+){GO_PAIR})*)(?:\s+with\s+(#\d+(?:(?:\s*,\s*|\s*,?\s+and\s+|\s+)#\d+)*))?", re.IGNORECASE)
 GO_HEAD = re.compile(r"#(\d+)\s+at\s+([0-9a-f]{7,40})\b", re.IGNORECASE)
 PRECONDITION = re.compile(r"\b(?:lands?|merges?) only after\b|\bbefore it (?:lands|merges)\b|\bdo not (?:land|merge) until\b|\bnot for landing\b", re.IGNORECASE)
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
@@ -95,7 +95,7 @@ def names_pr(record: dict, pr: str) -> bool:
 
 
 def go_heads(record: dict) -> dict[str, str]:
-    """The PRs a root `go` lets merge, each with the head it names: only the `#<n> at <sha>` pairs of its first `go` or `merge` clause that opens the text, after an optional Pacific clock time such as `1:19 AM`, or opens a sentence or follows a colon, the word then the pairs joined by commas or `and`, so a PR and sha the text mentions outside that clause, a quoted or negated go, and a record opening `withdrawn` are never a go."""
+    """The PRs a root `go` lets merge, each with the head it names: only the `#<n> at <sha>` pairs of its first `go`, `go port` or `merge` clause that opens the text, after an optional Pacific clock time such as `1:19 AM`, or opens a sentence or follows a colon, the word then the pairs joined by commas or `and`, so a PR and sha the text mentions outside that clause, a quoted or negated go, and a record opening `withdrawn` are never a go."""
     if WITHDRAWN.match(record["text"]):
         return {}
     clause = GO_CLAUSE.search(record["text"])

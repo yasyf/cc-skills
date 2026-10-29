@@ -2994,6 +2994,37 @@ def test_a_go_on_a_head_a_tap_rule_names_enqueues_only_on_the_owners_board_tap_a
     assert "root" in blocker["to"].split(",") and post_body(blocker).endswith("; TAP-REQUIRED rule/82317b0: it lands only on the owner's tap at this head, and a root go is no tap; no approval on the root's board names cccc333333")
 
 
+@pytest.mark.parametrize(
+    ("graded", "go", "admitted"),
+    [
+        ("ok cccc333 pure port, no interaction: it only ports old-tree #43020.", "go port #29020 at cccc333", True),
+        ("ok cccc333 pure port, no interaction: it only ports old-tree #43020.", "go #29020 at cccc333, a pure port", True),
+        ("ok cccc333 port touches rebuild code: it edits the pod writer.", "go port #29020 at cccc333", False),
+        ("ok cccc333 pure port, no interaction: it only ports old-tree #43020.", "go #29020 at cccc333", False),
+    ],
+    ids=["go-port", "go-saying-pure-port", "grade-touching-rebuild-code", "go-not-naming-the-port"],
+)
+def test_a_pure_port_lands_on_a_root_go_with_no_board_tap_only_when_grade_and_go_both_say_so(shell, config, graded, go, admitted):
+    merge_mode(config, "every")
+    raw = json.loads(config.read_text())
+    raw["landing"]["tap_rules"] = {"rule/82317b0": ["go/sand/next/*"]}
+    config.write_text(json.dumps(raw))
+    shell.register = {"rule/82317b0": {"kind": "order", "status": "in-force"}}
+    lone_green_pr(shell)
+    shell.files["29020"] = ["go/sand/next/vm/run.go"]
+    seq = grade(shell, "29020", graded)
+    merge_go(shell, "29020", go)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    refusals = [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    admissions = [post_body(post) for post in notes(shell) if "PORT-ADMITTED" in post_body(post)]
+    if not admitted:
+        assert shell.enqueues() == [] and len(refusals) == 1 and admissions == []
+        return
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and refusals == []
+    assert admissions == [f"PORT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} calls it a pure port and root go #{seq + 2} names it, so it lands with no board tap (06288326)"]
+
+
 @pytest.mark.parametrize("state", ["board unread", "row absent", "row superseded"])
 def test_a_tap_rule_never_guesses_a_merge_on_an_unread_board_and_gates_only_while_its_row_is_in_force(shell, config, state):
     merge_mode(config, "every")

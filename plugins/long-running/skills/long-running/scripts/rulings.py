@@ -21,7 +21,7 @@
     rulings.py pr-block     [--program SLUG | --drive ID] [--pr [OWNER/NAME#]N] --head SHA [--base REF] --lane NAME
     rulings.py table        [--program SLUG | --drive ID] [--since-last-update] [--full]
     rulings.py glossary     [--program SLUG | --drive ID]
-    rulings.py authorize    [--program SLUG | --drive ID] --row KEY (--action TS | --prompt DIGEST)
+    rulings.py authorize    [--program SLUG | --drive ID] --row KEY (--action TS | --block ID [--option ID] | --prompt DIGEST)
     rulings.py status       [--program SLUG | --drive ID] KEY STATE --evidence REF
     rulings.py anchor       [--program SLUG | --drive ID] KEY [--paths P]... [--symbols S]... [--ops O]...
     rulings.py names        [--program SLUG | --drive ID] KEY [--remove NAME]... [--drop-repeat KEY]... --why ANSWER
@@ -188,6 +188,8 @@ HUNK = re.compile(r"^@@ -(?P<old>\d+)(?:,\d+)? \+(?P<new>\d+)(?:,\d+)? @@")
 WORD = re.compile(r"[a-z][a-z'-]+")
 SLACK_ACTION = re.compile(r"(\{\"type\":\s*\"slack\.action\".*?\})\s*</channel>", re.DOTALL)
 CARD_FILE = re.compile(r"@(\S+\.json)")
+CARD_ANSWERS = "\nAnswers, newest first:\n"
+CARD_ANSWER = re.compile(r"^\s+\S.*?\s{2}(?P<block>\S+)\s{2}(?P<said>.+)$", re.MULTILINE)
 DIFF_MEDIA = "Accept: application/vnd.github.diff"
 FULL_SHA = re.compile(r"[0-9a-f]{40}")
 HIT_LINE = re.compile(r"^(?:open|deleted|authorized [0-9a-f]+) \S+ \S+:\d+ \S+")
@@ -1818,6 +1820,34 @@ def board_proof(args: argparse.Namespace, loaded: Register, shell: ledger.Shell,
     return None
 
 
+def card_proof(args: argparse.Namespace, loaded: Register, shell: ledger.Shell, key: str, fields: dict[str, str], owner: list[dict], session: str) -> list[dict] | None:
+    try:
+        shown = shell.run(["cc-present", "block", "show", args.block, "--session", session])
+    except subprocess.CalledProcessError:
+        shown = ""
+    card, _, answers = shown.partition(CARD_ANSWERS)
+    if not (newest := next((said["said"] for said in CARD_ANSWER.finditer(answers) if said["block"] == args.block), None)):
+        print(f"AUTHORIZE-NO-TAP {key}: board {session[:8]} holds no answer on block {args.block}; a root go is no authorization")
+        return None
+    if args.option:
+        picked = re.search(rf"^\s+- {re.escape(args.option)}: (.+)$", card, re.MULTILINE)
+        label = picked[1] if picked else ""
+        granted = newest == f"picked {args.option}" and bool(AFFIRMATIVE.match(label))
+    else:
+        label, granted = newest, newest == "approved"
+    if not granted:
+        print(f"AUTHORIZE-NOT-AFFIRMATIVE {key}: the newest answer on block {args.block} is {newest!r}, {label!r}, which grants nothing")
+        return None
+    if not ((sentence := first_sentence(fields.get("words") or "")) and sentence in " ".join(card.split())):
+        print(f"AUTHORIZE-CARD-NAMES-NO-ROW {key}: the card holding block {args.block} does not quote the words of {key}")
+        return None
+    proof = f"proof:card:{args.block}:{args.option or 'approved'}"
+    title = card.split("\n", 1)[0].partition(": ")[2]
+    body = f"Owner answered {label!r} on block {args.block} of board {session[:8]}; the card quotes the words of {key}, so the answer also authorizes {key}."
+    made = [answer for answer in owner if proof in (answer.get("tags") or [])]
+    return made or [ccn(shell, loaded.repo, "answer", "add", title, "--body", body, "--label", "from:owner", "--label", f"program:{loaded.program}", "--label", proof)]
+
+
 def cmd_authorize(args: argparse.Namespace, shell: ledger.Shell) -> int:
     loaded = Register.load(args, shell)
     key = args.row
@@ -1832,6 +1862,9 @@ def cmd_authorize(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if args.action:
         found = slack_proof(args, shell, key, fields, owner, tapped) if (tapped := tapped_card(entries, args.action)) else board_proof(args, loaded, shell, key, fields, owner, entry["sessions"][-1])
         if found is None:
+            return 1
+    elif args.block:
+        if (found := card_proof(args, loaded, shell, key, fields, owner, entry["sessions"][-1])) is None:
             return 1
     else:
         capture = captures(loaded.state).get(args.prompt) or {}
@@ -2487,11 +2520,13 @@ def build_parser() -> argparse.ArgumentParser:
     shown.add_argument("--since-last-update", action="store_true")
     shown.add_argument("--full", action="store_true")
     verb("glossary", cmd_glossary, "print the product nouns and the owner's own captured words")
-    authorize = verb("authorize", cmd_authorize, "label the owner's answer authorizes:<key> from a Slack tap, a board merge-row approval, a board approval or a reply quoting the row")
+    authorize = verb("authorize", cmd_authorize, "label the owner's answer authorizes:<key> from a Slack tap, a board merge-row approval, a board card pick or approval, or a reply quoting the row")
     authorize.add_argument("--row", required=True, metavar="KEY")
     tap = authorize.add_mutually_exclusive_group(required=True)
     tap.add_argument("--action", metavar="TS", help="a Slack action_ts, or the time (at) of an approved merge row on the root's board, carried or not")
+    tap.add_argument("--block", metavar="ID", help="a choice or approval block on the root's board whose card quotes the row's words")
     tap.add_argument("--prompt", metavar="DIGEST")
+    authorize.add_argument("--option", metavar="ID", help="the option of --block the owner picked; without it, the block's approval")
     status = verb("status", cmd_status, "set a row's status with the evidence behind it (graders only)")
     status.add_argument("key")
     status.add_argument("state", choices=STATES)

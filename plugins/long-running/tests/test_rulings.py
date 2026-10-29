@@ -357,8 +357,10 @@ class RegisterShell(ledger.Shell):
         records: list[dict] | None = None,
         board: dict | None = None,
         present: frozenset[str] = frozenset(),
+        blocks: dict[str, str] | None = None,
     ) -> None:
         self.board = board or {}
+        self.blocks = blocks or {}
         self.rows = {key: dict(fields) for key, fields in rows.items()}
         self.present = present
         self.answers = [dict(answer, tags=list(answer["tags"])) if "tags" in answer else dict(answer) for answer in answers or []]
@@ -401,6 +403,8 @@ class RegisterShell(ledger.Shell):
                 return json.dumps(made)
             case ["cc-present", "outcomes", "--session", "s-root"]:
                 return json.dumps(self.board)
+            case ["cc-present", "block", "show", block, "--session", "s-root"] if block in self.blocks:
+                return self.blocks[block]
             case ["gh", "api", "repos/acme/app/compare/main...cafef00d", "-H", rulings.DIFF_MEDIA, "--allow-escape-sequences"]:
                 return self.diff
             case ["git", "-C", "/repo", "ls-remote", "--exit-code", "origin", ref]:
@@ -1775,6 +1779,62 @@ def test_authorize_refuses_a_board_tap_that_is_missing_rejected_unquoting_or_unt
 
     assert (code, out.split(" ", 1)[0]) == (1, verdict)
     assert not shell.answers
+
+
+def card_shown(summary: str, answer: str) -> str:
+    return "\n".join(
+        [
+            "card-12-relay: Relay: move the relay code. Merge it?",
+            f"  {summary}",
+            "  No longer on the board; shown as it last was.",
+            "",
+            "relay-12-choice: choice, pick one",
+            "  Should the relay code move?",
+            "  - relay-12-approve: Yes, merge it: move the relay code (recommended)",
+            "    What it does: the relay code moves.",
+            "  - relay-12-hold: No, hold it",
+            "    What it does: nothing moves.",
+            "",
+            "relay-12-approval: approval",
+            "  Approve the move?",
+            "",
+            "Answers, newest first:",
+            *([f"  Oct 28 7:00 PM PDT  {answer}"] if answer else []),
+            "",
+        ]
+    )
+
+
+QUOTING_SUMMARY = "Your words, verbatim: Oct 18 “Relay code lives in relay-journal.” This moves it there."
+
+
+@pytest.mark.parametrize(
+    ("summary", "answer", "flags", "verdict"),
+    [
+        (QUOTING_SUMMARY, "relay-12-choice  picked relay-12-approve", ["--option", "relay-12-approve"], ""),
+        (QUOTING_SUMMARY, "relay-12-approval  approved", [], ""),
+        (QUOTING_SUMMARY, "relay-12-choice  picked relay-12-hold", ["--option", "relay-12-hold"], "AUTHORIZE-NOT-AFFIRMATIVE"),
+        (QUOTING_SUMMARY, "relay-12-choice  picked relay-12-hold", ["--option", "relay-12-approve"], "AUTHORIZE-NOT-AFFIRMATIVE"),
+        ("This moves the relay code.", "relay-12-choice  picked relay-12-approve", ["--option", "relay-12-approve"], "AUTHORIZE-CARD-NAMES-NO-ROW"),
+        (QUOTING_SUMMARY, "", ["--option", "relay-12-approve"], "AUTHORIZE-NO-TAP"),
+    ],
+    ids=["affirmative-pick", "approval", "hold-pick", "pick-changed-to-hold", "card-quoting-nothing", "no-answer"],
+)
+def test_authorize_takes_the_owners_affirmative_pick_on_a_card_quoting_the_rows_words(home: Path, package: Path, state: Path, registered: Path, capsys, summary: str, answer: str, flags: list[str], verdict: str) -> None:
+    transcript(home, {"type": "assistant", "message": {"content": [{"type": "text", "text": "Card posted."}]}})
+    block = "relay-12-choice" if flags else "relay-12-approval"
+    shell = RegisterShell(seeded(package), blocks={block: card_shown(summary, answer)})
+
+    code, out = ran(capsys, shell, "authorize", "--row", "rule/aaaaaaa", "--block", block, *flags)
+
+    if verdict:
+        assert (code, out.split(" ", 1)[0]) == (1, verdict)
+        assert not shell.answers
+        return
+    assert (code, out) == (0, "authorized rule/aaaaaaa by 4444444\n")
+    [made] = shell.answers
+    assert made["title"] == "Relay: move the relay code. Merge it?"
+    assert made["tags"] == ["from:owner", "program:brook", f"proof:card:{block}:{flags[1] if flags else 'approved'}", "authorizes:rule/aaaaaaa"]
 
 
 @pytest.mark.parametrize("label", ["Hold", "Right", "Some wrong"])
