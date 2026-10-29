@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "properties": {
+    "verdict": {"type": "string", "enum": ["ok", "missing", "reader"]},
+    "summary": {"type": "string"},
+    "swept": {"type": "string"},
+    "checked": {"type": "array", "items": {"type": "string"}},
+    "names": {"type": "array", "items": {"type": "string"}},
+    "missing": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {"type": "string"},
+          "line": {"type": "string"}
+        },
+        "required": ["key", "line"],
+        "additionalProperties": false
+      }
+    },
+    "touches": {"type": "array", "items": {"type": "string"}},
+    "exempt": {"type": "string", "enum": ["none", "port", "test-only"]},
+    "reader": {"type": "string"},
+    "old_app": {
+      "type": "object",
+      "properties": {
+        "grade": {"type": "string", "enum": ["unchanged", "bug fix", "changes"]},
+        "why": {"type": "string"}
+      },
+      "required": ["grade", "why"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["verdict", "summary", "swept", "checked", "names", "missing", "touches", "exempt", "reader", "old_app"],
+  "additionalProperties": false
+}

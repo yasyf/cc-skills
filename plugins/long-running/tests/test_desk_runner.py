@@ -161,6 +161,7 @@ class FakeShell(runner_module.Shell):
         self.successors: list[tuple[list[str], Path, bool]] = []
         self.finder_jobs: list[Path] = []
         self.exited: set[int] = set()
+        self.fidelity_jobs: list[Path] = []
         self.reexeced: list[list[str]] = []
         self.reviews: dict[str, dict] = {}
         self.checks: dict[str, list[dict]] = {}
@@ -245,6 +246,10 @@ class FakeShell(runner_module.Shell):
             process = Process()
             process.pid = 5000 + len(self.finder_jobs)
             return process
+        if argv[1:2] == [str(runner_module.SCRIPTS / "fidelity.py")]:
+            assert argv == [sys.executable, str(runner_module.SCRIPTS / "fidelity.py"), str(out.parent)] and not env
+            self.fidelity_jobs.append(out.parent)
+            return Process()
         if Path(argv[0]).name == "worker-launch.sh":
             out.write_text(self.sprite_line)
             attempt = Path(argv[4]).with_suffix(".worker")
@@ -10783,6 +10788,117 @@ def test_a_runner_with_no_finder_config_starts_no_finder(shell, config, tmp_path
     head_record(shell, "43439", FINDER_HEAD)
     orca_pass(shell, config)
     assert not shell.finder_jobs and not (tmp_path / "store" / "desk-finder.json").exists()
+
+
+BASELINE = "c57cad26 (release 10435, fleet sand 0.162.1876)"
+
+
+def fidelity_config(config: Path, **spec) -> None:
+    raw = json.loads(config.read_text())
+    raw["landing"]["fidelity_lane"] = ["fidelity-desk-4", "fidelity-pipeline"]
+    config.write_text(json.dumps(raw | {"fidelity": spec}))
+
+
+def fidelity_jobs(shell: FakeShell) -> list[dict]:
+    return [json.loads((directory / "job.json").read_text()) for directory in shell.fidelity_jobs]
+
+
+def fidelity_failures(shell: FakeShell) -> list[tuple[str, str]]:
+    return [(post["to"], Path(post["path"]).read_text().splitlines()[0] if "path" in post else post["text"]) for post in shell.posts if post.get("text", "").startswith("FIDELITY-FAILED")]
+
+
+def test_each_head_starts_one_fidelity_pass_carrying_the_prs_grades_old_app_lines_and_the_lanes_contract(shell, config):
+    fidelity_config(config, to=["board-refresher-2"], baseline=BASELINE)
+    orca_pass(shell, config)
+    graded = finder_review(shell, "43439", f"fidelity: ok {FINDER_OLD} pure port, no interaction: ports old-tree #41725", lane="fidelity-desk-4")
+    finder_review(shell, "43439", f"old-app: unchanged {FINDER_OLD[:7]} baseline {BASELINE}; go/sand/next only", lane="fidelity-desk-4")
+    finder_review(shell, "43439", f"fidelity: ok {FINDER_OLD} a grade from a lane that is no fidelity lane", lane="p8a-step9")
+    shell.records.append({"seq": 149900, "drive": "d1", "lane": "p8a-step9", "kind": "contract", "to": ["fidelity-desk-4"], "refs": {"prs": ["Forge-AI/monorepo#43439"]}, "text": "contract: builds the resubscribe; deletes nothing", "at": actions.stamp(shell.clock)})
+    head_record(shell, "43439", FINDER_HEAD)
+    second = head_record(shell, "43439", FINDER_HEAD, fields={}, text=f"#43439 HEAD {FINDER_HEAD} (was {FINDER_OLD}): restack, range-diff patch-identical")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert shell.fidelity_jobs == [config.resolve().parent / "fidelity-pipeline" / f"43439-{FINDER_HEAD[:12]}-{second}"]
+    [job] = fidelity_jobs(shell)
+    assert job == {
+        "drive": "d1",
+        "repo": "Forge-AI/monorepo",
+        "pr": "43439",
+        "head": FINDER_HEAD,
+        "lane": "p8a-step9",
+        "to": ["root", "desk-runner", "board-refresher-2"],
+        "readers": ["fidelity-desk-4"],
+        "lanes": ["fidelity-desk-4", "fidelity-pipeline"],
+        "grades": [{"seq": graded, "lane": "fidelity-desk-4", "text": f"fidelity: ok {FINDER_OLD} pure port, no interaction: ports old-tree #41725"}],
+        "old_apps": [{"seq": graded + 1, "lane": "fidelity-desk-4", "head": FINDER_OLD[:7], "line": f"old-app: unchanged {FINDER_OLD[:7]} baseline {BASELINE}; go/sand/next only"}],
+        "contract": "contract: builds the resubscribe; deletes nothing",
+        "exempt": {"port": runner_module.PORT_PHRASE, "test-only": runner_module.TEST_ONLY_PHRASE},
+        "baseline": BASELINE,
+        "checkout": str(config.parent / "checkout"),
+        "model": "sol",
+    }
+
+
+@pytest.mark.parametrize(
+    ("lane", "text"),
+    [
+        ("fidelity-desk-4", f"fidelity: ok {FINDER_HEAD[:7]} checked rule/949e6be names poll"),
+        ("fidelity-desk-4", f"fidelity: missing {FINDER_HEAD} rule/949e6be polls the signal"),
+        ("fidelity-pipeline", f"fidelity: reader {FINDER_HEAD} deletes a reserved path"),
+    ],
+    ids=["desk-ok", "desk-missing", "sent-to-a-reader"],
+)
+def test_a_head_a_fidelity_lane_already_graded_or_sent_to_a_reader_starts_no_pass(shell, config, lane, text):
+    fidelity_config(config)
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    finder_review(shell, "43439", text, lane=lane)
+    orca_pass(shell, config)
+    assert not shell.fidelity_jobs
+
+
+def test_fidelity_passes_past_six_wait_queued_and_show_lists_queued_and_running_ones(shell, config, capsys):
+    fidelity_config(config)
+    orca_pass(shell, config)
+    heads = {str(pr): hashlib.sha1(str(pr).encode()).hexdigest() for pr in range(43430, 43437)}
+    for pr, head in heads.items():
+        head_record(shell, pr, head)
+    orca_pass(shell, config)
+    assert [job["pr"] for job in fidelity_jobs(shell)] == list(heads)[:6]
+    cli(shell, config, "show")
+    shown = capsys.readouterr().out
+    assert f"fidelity #43436 {heads['43436'][:12]}: queued" in shown and f"fidelity #43430 {heads['43430'][:12]}: running since" in shown
+    (shell.fidelity_jobs[0] / "result.json").write_text(json.dumps({"verdict": "carried", "posted": ["#150001"]}))
+    orca_pass(shell, config)
+    assert [job["pr"] for job in fidelity_jobs(shell)] == list(heads)
+
+
+def test_a_failed_fidelity_pass_fails_at_once_to_the_human_desks_and_the_next_head_record_queues_it_again(shell, config):
+    fidelity_config(config, timeout_minutes=1)
+    orca_pass(shell, config)
+    first = head_record(shell, "43439", FINDER_HEAD)
+    silent = head_record(shell, "43299", FINDER_OLD)
+    orca_pass(shell, config)
+    failed, quiet = shell.fidelity_jobs
+    (failed / "result.json").write_text(json.dumps({"error": "codex-ask -m sol --schema fidelity.schema.json exited 1: quota exhausted"}))
+    orca_pass(shell, config)
+    shell.clock += timedelta(minutes=2)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert fidelity_failures(shell) == [
+        ("fidelity-desk-4", f"FIDELITY-FAILED fidelity:43439:{FINDER_HEAD}:{first} p8a-step9: #43439 {FINDER_HEAD[:12]}: the fidelity pass failed: codex-ask -m sol --schema fidelity.schema.json exited 1: quota exhausted; its log is {failed / 'job.log'}; a fidelity desk grades it by hand, and the next head record for #43439 queues the pass again"),
+        ("fidelity-desk-4", f"FIDELITY-FAILED fidelity:43299:{FINDER_OLD}:{silent} p8a-step9: #43299 {FINDER_OLD[:12]}: the fidelity pass failed: no result 2 min after it started; its log is {quiet / 'job.log'}; a fidelity desk grades it by hand, and the next head record for #43299 queues the pass again"),
+    ]
+    again = head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    assert shell.fidelity_jobs[-1] == config.resolve().parent / "fidelity-pipeline" / f"43439-{FINDER_HEAD[:12]}-{again}"
+
+
+def test_a_runner_with_no_fidelity_config_starts_no_fidelity_pass(shell, config, tmp_path):
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    assert not shell.fidelity_jobs and not (tmp_path / "store" / "desk-fidelity.json").exists()
 
 
 def build_failed_checked(config: Path) -> None:

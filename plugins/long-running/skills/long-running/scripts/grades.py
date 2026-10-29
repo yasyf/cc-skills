@@ -12,6 +12,7 @@ import cci
 FIDELITY_OK = "fidelity: ok"
 FIDELITY_MISSING = "fidelity: missing"
 FIDELITY_GRADES = (FIDELITY_OK, FIDELITY_MISSING)
+GRADER_LINES = ("fidelity:", "old-app:", "touches ")
 PORT_PHRASE = "pure port, no interaction"
 TEST_ONLY_PHRASE = "test-only or CI-only, no non-test code"
 FINDER_PASS = "ok"
@@ -252,7 +253,7 @@ def finder_reviews_in(found: list[dict], drive: str, repo: str, pr: str) -> list
     heads = [record for record in records if record["kind"] == "head"]
     reviews = []
     for record in records:
-        if record["kind"] != "review" or not FINDER_NAMED.search(record["text"]) or record["text"].startswith(FIDELITY_GRADES):
+        if record["kind"] != "review" or not FINDER_NAMED.search(record["text"]) or record["text"].startswith(GRADER_LINES):
             continue
         reviews.append(record | {"grade": finder_grade(record["text"]), "head": head_named(record, heads)})
     return reviews
