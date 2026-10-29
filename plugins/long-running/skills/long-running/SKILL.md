@@ -1408,7 +1408,9 @@ names its adapter as `landing.adapter`: `{"kind": "graphite-stack-enqueue", "scr
 refuses to start with `MQ-CONFIG-INVALID` on an adapter, a check, or a high-risk
 setting it cannot run. Each pass fast-forwards the checkout
 to the remote trunk, so `landing.checkout` names a worktree only the runner uses;
-one that cannot fast-forward logs `CHECKOUT-STALE` and gates nothing that pass.
+one its repository no longer lists, or one on a branch with no commit, is rebuilt
+at the trunk head in that pass and logs `MIRROR-REBUILT`; one that still cannot
+fast-forward logs `CHECKOUT-STALE` and gates nothing that pass.
 It then runs `ledger.py refresh` and `reconcile`, reads rows, groups every tracked open stack tip by the root of
 its stack, and gates each stack in parallel, naming every tip of a fork in one
 adapter check. The check selects the largest ready bottom prefix. Trees gate in

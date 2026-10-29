@@ -109,6 +109,8 @@ class FakeShell(runner_module.Shell):
         self.review_runs: dict[str, list[str]] = {}
         self.status_read_error = ""
         self.advance_error = ""
+        self.mirror: str | None = "1a2b3c4"
+        self.indexes = 0
         self.diffs: dict[str, str] = {}
         self.compare_errors: dict[str, str] = {}
         self.pr_commits: dict[str, int] = {}
@@ -335,7 +337,8 @@ class FakeShell(runner_module.Shell):
             found = self.worktrees[argv[2]].get(argv[3])
             return runner_module.Done(0, found, "") if found is not None else runner_module.Done(128, "", "fatal")
         if argv == ["git", "-C", str(self.root / "checkout"), "worktree", "list", "--porcelain"]:
-            return runner_module.Done(0, "\n".join(f"worktree {path}\nHEAD 1a2b3c4\n" + (f"branch refs/heads/{branch}" if branch else "detached") + "\n" for path, branch in self.listed), "")
+            mirror = [] if self.mirror is None else [f"worktree {self.root / 'checkout'}\nHEAD {self.mirror}\nbranch refs/heads/runner/drive\n"]
+            return runner_module.Done(0, "\n".join(mirror + [f"worktree {path}\nHEAD 1a2b3c4\n" + (f"branch refs/heads/{branch}" if branch else "detached") + "\n" for path, branch in self.listed]), "")
         if argv[:5] == ["ccx", "vcs", "worktree", "rm", "--path"]:
             self.removed.append(argv[5])
             if argv[5] in self.kept:
@@ -358,6 +361,12 @@ class FakeShell(runner_module.Shell):
             directory = pathspec.removeprefix(":(glob)").removesuffix("/*.go")
             imported = [argv[i + 1].strip('"') for i in range(6, len(argv) - 3, 2)]
             return runner_module.Done(0 if any((sha, directory, path) in self.go_imports for path in imported) else 1, "", "")
+        if argv[:3] == ["git", "-C", str(self.root / "checkout")] and argv[3:5] in (["rev-parse", "--verify"], ["symbolic-ref", "-q"], ["rev-parse", "--path-format=absolute"]):
+            self.indexes += 1
+            return runner_module.Done(0, {"--verify": "cccc333\n", "-q": "runner/drive\n"}.get(argv[4], f"{self.root}/admin-{self.indexes}/index\n"), "")
+        if argv[:3] == ["git", "-C", str(self.root / "checkout")] and argv[3] in ("worktree", "reset") or argv[0] == "cp":
+            self.mirror = "cccc333"
+            return runner_module.Done(0, "", "")
         if argv[:3] == ["git", "-C", str(self.root / "checkout")]:
             assert argv[3:] in (["fetch", "-q", "--no-tags", "--refmap=", "origin", "refs/heads/dev"], ["merge", "-q", "--ff-only", "FETCH_HEAD"])
             return runner_module.Done(128, "", self.advance_error) if self.advance_error and argv[3] == "merge" else runner_module.Done(0, "", "")
@@ -4359,7 +4368,27 @@ def test_a_checkout_that_cannot_fast_forward_gates_nothing_until_it_can(shell, c
     shell.calls.clear()
     landing_pass(shell, config)
     names = [call[3] if call[0] == "git" else Path(call[0]).name for call in shell.calls if call[0] == "git" or Path(call[0]).name == "stack-enqueue"]
-    assert names[:2] == ["fetch", "merge"] and "stack-enqueue" in names[2:]
+    assert names[:3] == ["fetch", "worktree", "merge"] and "stack-enqueue" in names[3:]
+
+
+@pytest.mark.parametrize(("mirror", "found"), [(None, "was not a registered worktree of its repository"), ("0" * 40, "was on a branch with no commit")])
+def test_a_checkout_git_lost_or_left_unborn_is_rebuilt_at_the_trunk_head_and_the_pass_goes_on(shell, config, mirror, found):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    shell.mirror = mirror
+    landing_pass(shell, config)
+    checkout = str(shell.root / "checkout")
+    rebuilt = [call[3:] if call[:3] == ["git", "-C", checkout] else call[:1] for call in shell.calls if call[:3] == ["git", "-C", checkout] or call[0] == "cp"]
+    repair = [["rev-parse", "--verify", "-q", "FETCH_HEAD^{commit}"]]
+    if mirror is None:
+        staged = rebuilt[5][-2]
+        assert Path(staged).name == "checkout" and Path(staged).parent.parent == shell.root
+        index = ["rev-parse", "--path-format=absolute", "--git-path", "index"]
+        repair += [["symbolic-ref", "-q", "--short", "HEAD"], index, ["worktree", "add", "-q", "--no-checkout", "-B", "runner/drive", staged, "cccc333"], ["cp"], ["worktree", "repair", checkout], index, ["cp"]]
+        assert [call for call in shell.calls if call[0] == "cp"][1] == ["cp", f"{shell.root}/admin-3/index", f"{shell.root}/admin-4/index"]
+    assert rebuilt[:len(repair) + 3] == [["fetch", "-q", "--no-tags", "--refmap=", "origin", "refs/heads/dev"], ["worktree", "list", "--porcelain"], *repair, ["reset", "-q", "--hard", "cccc333"]]
+    assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["MIRROR-REBUILT"] and found in escalations(shell)[0]
+    assert [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
     assert len(shell.enqueues()) == 1
 
 

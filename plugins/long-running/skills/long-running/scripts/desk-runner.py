@@ -264,7 +264,9 @@ Each prefix passes the check registry, `landing.checks` in order, every built-in
 wave per priority, lower first. A check that reads no verdict first settles its tips through `ledger.py landed`, which
 reads each tip's squash on the freshly fetched trunk, and drops every tip whose row then reads landed; only the tips left
 log `GATE-FAILED`. A check killed at its 60-second cap has no verdict yet, logs nothing, and runs again next pass. `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
-adapter call runs the trunk's script; a checkout that cannot fast-forward logs `CHECKOUT-STALE` to root and gates nothing that pass.
+adapter call runs the trunk's script; a checkout its repository no longer lists as a worktree, or one on a branch with no commit, is rebuilt at the fetched trunk head with a clean tree,
+re-registered through `git worktree add --no-checkout` and `git worktree repair` when git lost it, logs `MIRROR-REBUILT` to root, and the pass goes on;
+a checkout that still cannot fast-forward logs `CHECKOUT-STALE` to root and gates nothing that pass.
 Right after the ledger and holds read, the pass reads the queue, then gates every tree holding a PR whose ledger head a root `go`
 record names, eight checks at a time, so the only PRs that can land reach the queue before the ledger-wide head read and the gate
 over every other tree. Every gate checks only a tree holding a PR the queue read calls landable on PRs below it that are landable
@@ -7472,17 +7474,54 @@ class Landing:
         self.refresher.start()
 
     def advance(self) -> bool:
-        """Fast-forward the checkout to the remote trunk without writing a shared ref, so the pass gates with the trunk's adapter script; a checkout that cannot is escalated once per error."""
+        """Fast-forward the checkout to the remote trunk without writing a shared ref, so the pass gates with the trunk's adapter script; a checkout its repository no longer lists as a worktree, or one on a branch with no commit, is rebuilt at the fetched trunk head in the same pass, and one that still cannot advance is escalated once per error."""
         git = ["git", "-C", str(self.checkout)]
         done = self.shell.run([*git, "fetch", "-q", "--no-tags", "--refmap=", "origin", f"refs/heads/{TRUNK}"])
         if not done.code:
-            done = self.shell.run([*git, "merge", "-q", "--ff-only", "FETCH_HEAD"])
+            done = self.shell.run([*git, "worktree", "list", "--porcelain"])
+        if not done.code:
+            trees = [dict(line.partition(" ")[::2] for line in entry.splitlines()) for entry in done.out.strip().split("\n\n")]
+            mine = [tree for tree in trees if os.path.realpath(path := tree.get("worktree", "")) == os.path.realpath(self.checkout) or (os.path.exists(path) and self.checkout.exists() and os.path.samefile(path, self.checkout))]
+            tree = mine[0] if mine else None
+            if tree is None or not tree.get("HEAD", "").strip("0"):
+                done = self.rebuild(registered=tree is not None)
+            else:
+                done = self.shell.run([*git, "merge", "-q", "--ff-only", "FETCH_HEAD"])
         if done.code:
             self.runner.escalate(
                 f"checkout:{hashlib.sha1(done.err.encode()).hexdigest()[:8]}", "CHECKOUT-STALE", "landing",
                 f"{self.checkout} did not fast-forward to origin/{TRUNK}, so this pass gated and enqueued nothing: {done.err.strip()}",
             )
         return not done.code
+
+    def rebuild(self, registered: bool) -> Done:
+        """Reset the checkout to the fetched trunk head with a clean tree, first registering it afresh through `git worktree add --no-checkout` and `git worktree repair` when its repository lists it no more, carrying its old index over so the reset removes files the trunk no longer tracks, and log `MIRROR-REBUILT` to root naming what it found."""
+        git = ["git", "-C", str(self.checkout)]
+        if (head := self.shell.run([*git, "rev-parse", "--verify", "-q", "FETCH_HEAD^{commit}"])).code:
+            return head
+        sha = head.out.strip()
+        if not registered:
+            branch = self.shell.run([*git, "symbolic-ref", "-q", "--short", "HEAD"])
+            if (index := self.shell.run([*git, "rev-parse", "--path-format=absolute", "--git-path", "index"])).code:
+                return index
+            with tempfile.TemporaryDirectory(dir=self.checkout.parent) as scratch:
+                staged = Path(scratch) / self.checkout.name
+                for argv in (
+                    [*git, "worktree", "add", "-q", "--no-checkout", *(["--detach"] if branch.code else ["-B", branch.out.strip()]), str(staged), sha],
+                    ["cp", str(staged / ".git"), str(self.checkout / ".git")],
+                    [*git, "worktree", "repair", str(self.checkout)],
+                ):
+                    if (done := self.shell.run(argv)).code:
+                        return done
+            if (fresh := self.shell.run([*git, "rev-parse", "--path-format=absolute", "--git-path", "index"])).code:
+                return fresh
+            if (done := self.shell.run(["cp", index.out.strip(), fresh.out.strip()])).code:
+                return done
+        if (done := self.shell.run([*git, "reset", "-q", "--hard", sha])).code:
+            return done
+        found = "was on a branch with no commit" if registered else "was not a registered worktree of its repository"
+        self.runner.escalate(f"mirror:{sha[:12]}", "MIRROR-REBUILT", "landing", f"{self.checkout} {found}, so this pass rebuilt it at origin/{TRUNK} {sha[:12]} with a clean tree and gated as usual")
+        return done
 
     def run(self) -> None:
         self.ask_rulings()
