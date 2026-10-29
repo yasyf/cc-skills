@@ -149,6 +149,7 @@ class FakeShell(runner_module.Shell):
         self.generation = 3
         self.run_use_error: dict | None = None
         self.posts: list[dict] = []
+        self.states: list[dict] = []
         self.alive: list[str] = []
         self.records: list[dict] = []
         self.trunk: list[dict] = []
@@ -495,6 +496,9 @@ class FakeShell(runner_module.Shell):
                 return runner_module.Done(1, "", self.post_error)
             if (flags["--kind"], flags["--to"]) == ("state", f"{runner_module.WATCHDOG}@{flags['--drive']}"):
                 self.alive.append(flags["--text"])
+                return runner_module.Done(0, "#0\n", "")
+            if (flags["--kind"], flags["--topic"]) == ("state", "landing-state"):
+                self.states.append({key.lstrip("-"): value for key, value in flags.items()})
                 return runner_module.Done(0, "#0\n", "")
             if stored := self.post_ids.get(flags.get("--id", "")):
                 return runner_module.Done(0, f"#{stored} (duplicate)\n", "")
@@ -1841,6 +1845,33 @@ def test_a_blocker_whose_lane_has_no_session_and_no_record_in_an_hour_goes_to_ro
     [blocker] = blockers(shell)
     dead = post_body(blocker).startswith("owner lane dead: p8e-desktop-ship-3 has no live session and no record in 60 min, so this comes to root; #29020 cccc333333: ")
     assert (blocker["to"], dead) == (to, to == "root")
+
+
+def test_a_dead_owner_lanes_blocker_goes_to_the_restack_lane_the_drive_names_not_root(shell, config):
+    raw = json.loads(config.read_text())
+    raw["landing"]["restack_lane"] = "restack-worker"
+    config.write_text(json.dumps(raw))
+    shell.rows = [ONE_ROW | {"lane": "chat-move-r4"}]
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED")]
+    shell.records = [{"seq": 34766, "drive": "d1", "lane": "p8e-desktop-ship-3", "kind": "head", "to": ["root"], "refs": {"prs": [29020]}, "text": "#29020 head", "source": "post", "at": actions.stamp(shell.clock - timedelta(minutes=61))}]
+    shell.gone = {"p8e-desktop-ship-3"}
+    landing_pass(shell, config)
+    [blocker] = blockers(shell)
+    assert blocker["to"] == "restack-worker"
+    assert post_body(blocker).startswith("owner lane dead: p8e-desktop-ship-3 has no live session and no record in 60 min, so this comes to restack-worker; #29020 cccc333333: ")
+
+
+def test_a_dead_owner_lanes_blocker_goes_to_root_when_the_restack_lane_is_dead_too(shell, config):
+    raw = json.loads(config.read_text())
+    raw["landing"]["restack_lane"] = "restack-worker"
+    config.write_text(json.dumps(raw))
+    shell.rows = [ONE_ROW | {"lane": "chat-move-r4"}]
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED")]
+    shell.records = [{"seq": 34766, "drive": "d1", "lane": "p8e-desktop-ship-3", "kind": "head", "to": ["root"], "refs": {"prs": [29020]}, "text": "#29020 head", "source": "post", "at": actions.stamp(shell.clock - timedelta(minutes=61))}]
+    shell.gone = {"p8e-desktop-ship-3", "restack-worker"}
+    landing_pass(shell, config)
+    [blocker] = blockers(shell)
+    assert blocker["to"] == "root"
 
 
 CONFLICT = "GitHub reads CONFLICTING (DIRTY) against dev; run ccx vcs stack submit from the branch's worktree: cd /w && ccx vcs stack submit"
@@ -3588,6 +3619,8 @@ def test_a_board_tap_carries_itself_to_a_patch_identical_restack_once_a_record_s
     assert shell.board["merge-rows"]["29020"]["head"] == "cccc333333" and shell.board["merge-rows"]["29020"]["carriedFrom"] == "aaaa111111"
     [note] = tap_notes(shell)
     assert note["to"] == "root,board-refresher"
+    [go] = [post for post in shell.posts if post["kind"] == "go"]
+    assert go["text"].startswith("go #29020 at cccc333 TAP-CARRIED: the owner's tap at aaaa111111 carries to cccc333333, a patch-identical restack; the runner posts this go itself")
     assert note["text"] == f"TAP-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, a patch-identical restack, per {cited}, recorded with cc-present verdict carry; the row asks no new tap"
     assert [line for line in escalations(shell) if line.startswith("TAP-")] == []
 
@@ -3728,9 +3761,21 @@ def test_a_root_go_claiming_a_tap_the_board_does_not_hold_draws_one_go_tap_missi
     seq = shell.records[-1]["seq"]
     landing_pass(shell, config)
     landing_pass(shell, config)
-    missing = [line for line in escalations(shell) if line.startswith("GO-TAP-MISSING")]
+    missing = [post_body(post).splitlines()[0] for post in shell.posts if post_body(post).startswith("GO-TAP-MISSING")]
     expected = f"GO-TAP-MISSING go-tap-missing:{seq}:29020 #29020: root go cci #{seq} says the owner tapped #29020 at cccc333333, but no approval on the root's board names cccc333333 or a head the go names; the board holds {holds}. Withdraw the go, or post it again citing the board verdict at this head or the carry to it"
     assert missing == ([expected] if holds else [])
+
+
+def test_go_tap_missing_goes_to_the_go_lanes_the_desk_and_the_owning_lane_not_root(shell, config, tmp_path):
+    board_surface(config)
+    desk_lane(config)
+    raw = json.loads(config.read_text())
+    raw["landing"]["go_lanes"] = ["go-sweep"]
+    config.write_text(json.dumps(raw))
+    lone_green_pr(shell)
+    merge_go(shell, "29020", "go #29020 at cccc333333: his tap on the board.")
+    landing_pass(shell, config)
+    assert heard(shell, "GO-TAP-MISSING") == [f"go-sweep,{DESK},{LANE}"]
 
 
 @pytest.mark.parametrize("settled", ["go", "fidelity carry", "none"])
@@ -4571,7 +4616,9 @@ def test_a_reserved_touch_found_after_the_enqueue_was_accepted_enqueues_nothing(
     landing_of(shell, config, tmp_path).accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}}, [])
     shell.check_pr["29020"] = (1, RESERVED)
     config.with_name(f"{config.stem}.check-pr.json").unlink()
-    landing_of(shell, config, tmp_path).enqueue()
+    landing = landing_of(shell, config, tmp_path)
+    landing.enqueue()
+    landing.drain()
     assert shell.enqueues() == []
     [action] = enqueues_of(tmp_path).values()
     assert action.response["outcome"] == "blocked" and action.response["out"].startswith("the merge-mode check refuses #29020: merge mode auto waits for the owner's Merge answer")
@@ -4587,6 +4634,7 @@ def test_a_head_regraded_missing_after_its_enqueue_was_accepted_enqueues_nothing
     landing.accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}}, [])
     seq = grade(shell, "29020", "missing F307 at cccc333.")
     landing.enqueue()
+    landing.drain()
     assert shell.enqueues() == []
     [blocker] = blockers(shell)
     assert f"cci #{seq}: fidelity: missing F307" in blocker["text"]
@@ -5143,6 +5191,102 @@ def test_the_overflow_leaves_a_landable_stack_the_runner_refused_at_its_head(she
     landing_pass(shell, config)
     overflow.overflow()
     assert [post for post in blockers(shell) if "TEST-ONLY-MISMATCH" in post_body(post)] and shell.enqueues() == []
+
+
+def test_the_overflow_never_enqueues_a_head_whose_go_was_withdrawn(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.queue["33001"] = "not queued"
+    shell.gates["33001"] = [(runner_module.TIMED_OUT, "", "stack-enqueue --check timed out after 60s and was killed")]
+    go = shell.records[-1]["seq"]
+    shell.records.append({"seq": go + 1, "drive": "d1", "lane": "root", "kind": "withdraw", "re": go, "to": ["desk-runner"], "refs": {"prs": [33001]}, "text": f"withdrawn: go #{go} for #33001", "at": actions.stamp(shell.clock)})
+    overflow = landing_of(shell, config, tmp_path)
+    overflow.overflow()
+    shell.sleep(6 * 60)
+    overflow.overflow()
+    assert shell.enqueues() == []
+
+
+def test_the_overflow_never_enqueues_a_stack_holding_a_pr_below_with_no_go(shell, config, tmp_path):
+    merge_mode(config, "every")
+    two_pr_stack(shell)
+    shell.rows = [dict(row, test_state="success") for row in shell.rows]
+    shell.queue["29020"] = shell.queue["29031"] = "not queued"
+    shell.gates["29031"] = [(runner_module.TIMED_OUT, "", "stack-enqueue --check timed out after 60s and was killed")]
+    merge_go(shell, "29031", "merge #29031 at dddd444")
+    overflow = landing_of(shell, config, tmp_path)
+    overflow.overflow()
+    shell.sleep(6 * 60)
+    overflow.overflow()
+    assert shell.enqueues() == []
+
+
+def test_a_stack_worker_past_the_gate_budget_runs_on_after_the_pass_while_the_other_stack_lands(shell, config, tmp_path, monkeypatch):
+    monkeypatch.setattr(runner_module, "GATE_BUDGET", timedelta(seconds=1))
+    lone_green_pr(shell)
+    shell.rows.append({"pr": "29040", "lane": LANE, "branch": "b/1", "base": "dev", "head": "eeee555555", "state": "open", "reported_head": "eeee555555"})
+    shell.gates["29040"] = [gate("#29040 GREEN eeee555555 graphite READY", would="#29040")]
+    shell.enqueue_out["29040"] = (0, "enqueue #29040: {}\n")
+    for pr, sha in (("29020", "cccc333"), ("29040", "eeee555")):
+        grade(shell, pr, f"ok {sha}")
+    release = threading.Event()
+    stacks = runner_module.Landing.proven_stacks
+
+    def stuck(self, tips):
+        if tips == ["29020"]:
+            release.wait(10)
+        return stacks(self, tips)
+
+    monkeypatch.setattr(runner_module.Landing, "proven_stacks", stuck)
+    landing = landing_of(shell, config, tmp_path)
+    landing.run()
+    running = [future for _, future in landing.inflight.values() if not future.done()]
+    enqueued = [call[1] for call in shell.enqueues()]
+    steps = json.loads(config.with_name(f"{config.stem}.landing-stacks.json").read_text())["stacks"]
+    release.set()
+    landing.drain()
+    assert len(running) == 1 and enqueued == ["29040"]
+    assert [(entry["root"], entry["step"], entry["budget"]) for entry in steps.values()] == [("29020", "check", runner_module.STEP_BUDGETS["check"])]
+    assert [call[1] for call in shell.enqueues()] == ["29040", "29020"]
+
+
+def test_lanes_take_turns_so_one_lanes_many_stacks_never_go_ahead_of_every_other_lane():
+    open_rows = {pr: {"lane": lane, "branch": f"b/{pr}", "base": "dev"} for pr, lane in (("1", "a"), ("2", "a"), ("3", "a"), ("4", "b"))}
+    assert runner_module.lane_turns([["1"], ["2"], ["3"], ["4"]], open_rows) == [["1"], ["4"], ["2"], ["3"]]
+
+
+def test_every_landing_pass_posts_one_state_line_to_root(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    states = shell.states
+    assert len(states) == 2 and all(post["to"] == "root" for post in states)
+    assert re.fullmatch(r"LANDING queued \d+, waiting \d+, held 0, refused 0, in flight 0, overflowed 0 this hour; pass \d+s", states[-1]["text"])
+
+
+def test_an_overflow_thread_that_finished_no_run_in_five_minutes_logs_overflow_stalled(shell, config, tmp_path):
+    landing = landing_of(shell, config, tmp_path)
+    landing.overflower = runner_module.Landing(landing.runner, landing.runner.config.landing)
+    landing.overflower.overflowed_at -= 6 * 60
+    landing.post_state(1.0)
+    landing.runner.flush()
+    [line] = [line for line in escalations(shell) if line.startswith("OVERFLOW-STALLED")]
+    assert "the overflow thread has finished no run in 6 minutes and is dead" in line
+
+
+def test_a_read_that_fails_on_a_transient_network_error_runs_once_more_and_a_write_never_does(tmp_path, monkeypatch):
+    bin_dir, tries = tmp_path / "bin", tmp_path / "tries"
+    bin_dir.mkdir()
+    cci = bin_dir / "cci"
+    cci.write_text(f"#!/bin/sh\necho x >> {tries}\nif [ $(wc -l < {tries}) -lt 2 ]; then echo 'Connection reset by peer' >&2; exit 1; fi\necho ok\n")
+    cci.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    read = runner_module.Shell().run(["cci", "tail", "--drive", "d1"])
+    assert (read.code, read.out, tries.read_text().count("x")) == (0, "ok\n", 2)
+    tries.unlink()
+    write = runner_module.Shell().run(["cci", "post", "--drive", "d1", "--text", "hi"])
+    assert (write.code, tries.read_text().count("x")) == (1, 1)
 
 
 def test_heads_no_go_names_are_told_new_heads_first_within_the_pass_budget(shell, config, tmp_path, monkeypatch):
@@ -6220,13 +6364,18 @@ def gone_green(shell: FakeShell, gate_line: str) -> None:
     merge_go(shell, "33001", "merge #33001 at aaaa111")
 
 
+def gone_failing(shell: FakeShell) -> None:
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.enqueue_out["33001"] = (5, "graphite refused the enqueue: the API answered 422\n")
+
+
 def unqueued(shell: FakeShell) -> list[str]:
     return [line for line in said(shell) if line.startswith("GO-UNQUEUED")]
 
 
-def test_a_green_head_a_go_names_still_out_of_the_queue_five_minutes_on_escalates_once(shell, config, tmp_path):
+def test_a_green_head_a_go_names_whose_enqueue_failed_escalates_go_unqueued_once_five_minutes_on(shell, config, tmp_path):
     merge_mode(config, "every")
-    gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
+    gone_failing(shell)
     shell.queue["33001"] = "not queued"
     shell.sleep(4 * 60)
     landing_pass(shell, config)
@@ -6236,10 +6385,20 @@ def test_a_green_head_a_go_names_still_out_of_the_queue_five_minutes_on_escalate
     landing_pass(shell, config)
     [line] = unqueued(shell)
     assert line.startswith("GO-UNQUEUED go-unqueued:33001 #33001: #33001 is green at aaaa111111 and root go #")
-    assert "yet it is not in the queue after 6 minutes" in line
+    assert "yet it is not in the queue after 6 minutes; its newest enqueue since the go ended failed" in line
 
 
-def test_go_unqueued_names_the_landing_desks_newest_blocker_on_the_head_and_the_owner_lane_that_acts(shell, config, tmp_path):
+def test_a_green_head_a_go_names_that_the_runner_has_not_enqueued_yet_is_backlog_and_draws_no_go_unqueued(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
+    shell.queue["33001"] = "not queued"
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert unqueued(shell) == []
+
+
+def test_a_go_named_head_the_landing_desk_blocked_draws_no_go_unqueued(shell, config, tmp_path):
     merge_mode(config, "every")
     desk_lane(config)
     gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
@@ -6250,16 +6409,13 @@ def test_go_unqueued_names_the_landing_desks_newest_blocker_on_the_head_and_the_
     shell.sleep(5 * 60)
     landing_pass(shell, config)
     landing_pass(shell, config)
-    [line] = unqueued(shell)
-    assert f"its newest refusal is {DESK}'s blocker #34900 at " in line
-    assert "untracked branch; run ccx vcs stack submit from #33001's worktree" in line
-    assert line.endswith(f"; owner lane {LANE}")
+    assert unqueued(shell) == []
 
 
 HELD_TWO = "🛑 Held — 2 blocking open; security: high; confidentiality: high"
 
 
-def test_a_go_named_green_head_the_review_bot_holds_names_its_findings_in_go_unqueued_and_tells_its_lane_once(shell, config, tmp_path):
+def test_a_go_named_green_head_the_review_bot_holds_tells_its_lane_once_and_draws_no_go_unqueued(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
     shell.queue["33001"] = "not queued"
@@ -6267,14 +6423,16 @@ def test_a_go_named_green_head_the_review_bot_holds_names_its_findings_in_go_unq
     shell.sleep(6 * 60)
     landing_pass(shell, config)
     landing_pass(shell, config)
-    [line] = unqueued(shell)
-    assert f"minutes; the review bot holds it on 2 blocking findings; {LANE} fixes or accepts them; owner lane " in line
+    shell.gates["33001"] = [gate("#33001 GREEN aaaa111111 graphite READY", would="#33001")]
+    shell.enqueue_out["33001"] = (5, "graphite refused the enqueue: the API answered 422\n")
+    landing_pass(shell, config)
+    assert unqueued(shell) == []
     assert [post_body(post) for post in blockers(shell) if "review bot" in post_body(post)] == [f"#33001 aaaa111111: the review bot holds it on 2 blocking findings; {LANE} fixes or accepts them"]
 
 
 def test_a_go_named_green_head_the_review_bot_waits_to_see_restacked_says_so_in_go_unqueued_and_tells_no_lane(shell, config, tmp_path):
     merge_mode(config, "every")
-    gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
+    gone_failing(shell)
     shell.queue["33001"] = "not queued"
     shell.review_runs["aaaa111111"] = [HELD_TWO, "ℹ️ Waiting for restack — push or comment @forge-pr-reviewer review"]
     shell.sleep(6 * 60)
@@ -6285,7 +6443,7 @@ def test_a_go_named_green_head_the_review_bot_waits_to_see_restacked_says_so_in_
     assert [post for post in blockers(shell) if "review bot" in post_body(post)] == []
 
 
-def test_a_go_named_head_that_waits_on_a_reserved_row_tap_says_so_in_its_go_unqueued(shell, config, tmp_path):
+def test_a_go_named_head_that_waits_on_a_reserved_row_tap_draws_no_go_unqueued(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
     shell.check_pr["33001"] = (1, RESERVED)
@@ -6293,8 +6451,7 @@ def test_a_go_named_head_that_waits_on_a_reserved_row_tap_says_so_in_its_go_unqu
     shell.sleep(6 * 60)
     landing_pass(shell, config)
     landing_pass(shell, config)
-    [line] = unqueued(shell)
-    assert "it waits on his tap authorizing reserved/user-data on #33001, as MERGE-ASK says; a go never authorizes a reserved row (C224); owner lane " in line
+    assert unqueued(shell) == []
 
 
 def test_a_go_named_green_head_above_a_parent_no_go_names_draws_one_below_blocked_note_and_no_go_unqueued(shell, config, tmp_path):
@@ -6376,7 +6533,7 @@ def test_go_named_green_heads_out_of_the_queue_in_one_stack_draw_one_go_unqueued
     merge_mode(config, "every")
     two_pr_stack(shell)
     shell.rows = [dict(row, test_state="success") for row in shell.rows]
-    shell.gates["29031"] = [gate("#29020 BLOCKED cccc333333 merge conflict (graphite CONFLICT)", "#29031 GREEN dddd444444 graphite READY")]
+    shell.enqueue_out["29031"] = (5, "graphite refused the enqueue: the API answered 422\n")
     shell.queue["29020"] = shell.queue["29031"] = "not queued"
     merge_go(shell, "29020", "merge #29020 at cccc333")
     merge_go(shell, "29031", "merge #29031 at dddd444")
@@ -6391,7 +6548,8 @@ def test_go_named_green_heads_out_of_the_queue_in_one_stack_draw_one_go_unqueued
 def test_a_go_a_fidelity_carry_moved_to_a_new_head_counts_its_five_minutes_from_the_carry_grade(shell, config, tmp_path):
     merge_mode(config, "every")
     shell.rows = [{"pr": "33001", "lane": LANE, "branch": "g/1", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111", "test_state": "success"}]
-    shell.gates["33001"] = [gate("#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")]
+    shell.gates["33001"] = [gate("#33001 GREEN aaaa111111 graphite READY", would="#33001")]
+    shell.enqueue_out["33001"] = (5, "graphite refused the enqueue: the API answered 422\n")
     shell.queue["33001"] = "not queued"
     merge_go(shell, "33001", "merge #33001 at 9999999")
     shell.sleep(10 * 60)
@@ -6406,7 +6564,7 @@ def test_a_go_a_fidelity_carry_moved_to_a_new_head_counts_its_five_minutes_from_
     assert "yet it is not in the queue after 6 minutes" in line
 
 
-def test_go_unqueued_never_cites_an_enqueue_attempt_from_before_the_go(shell, config, tmp_path):
+def test_go_unqueued_never_counts_an_enqueue_attempt_from_before_the_go(shell, config, tmp_path):
     merge_mode(config, "every")
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     book, key = runner_module.Landing(runner, runner.config.landing).book, "enqueue:33001@aaaa111111#1"
@@ -6418,8 +6576,7 @@ def test_go_unqueued_never_cites_an_enqueue_attempt_from_before_the_go(shell, co
     shell.queue["33001"] = "not queued"
     shell.sleep(6 * 60)
     landing_pass(shell, config)
-    [line] = unqueued(shell)
-    assert "no enqueue was accepted for it since the go" in line
+    assert unqueued(shell) == []
 
 
 def test_a_go_named_head_the_queue_already_holds_from_a_hand_enqueue_escalates_nothing(shell, config, tmp_path):
@@ -7115,6 +7272,7 @@ def test_an_enqueue_whose_heads_moved_before_it_ran_enqueues_nothing(shell, conf
     landing.accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}}, {"28997": {"ours": True}}, [])
     shell.gates["28997"] = [gate("#28997 GREEN abab111111 graphite READY", would="#28997")]
     landing.enqueue()
+    landing.drain()
     assert shell.enqueues() == []
     [action] = [action for action in store.load("desk-landing").actions.values() if action.kind == "enqueue"]
     assert action.response["outcome"] == "superseded"
@@ -11899,13 +12057,14 @@ def test_with_a_desk_lane_a_carried_tap_tells_the_desk_the_board_and_the_owning_
 def test_with_a_desk_lane_every_go_unqueued_goes_to_the_desk_and_the_owning_lane_never_root(shell, config, tmp_path):
     merge_mode(config, "every")
     desk_lane(config)
-    gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
+    gone_failing(shell)
     shell.queue["33001"] = "not queued"
     shell.sleep(6 * 60)
     landing_pass(shell, config)
     landing_pass(shell, config)
     shell.rows[0] |= {"head": "bbbb222222", "reported_head": "bbbb222222"}
-    shell.gates["33001"] = [gate("#33001 BLOCKED bbbb222222 merge conflict (graphite CONFLICT)")]
+    shell.gates["33001"] = [gate("#33001 GREEN bbbb222222 graphite READY", would="#33001")]
+    grade(shell, "33001", "ok F307 at bbbb222.")
     merge_go(shell, "33001", "merge #33001 at bbbb222")
     shell.sleep(6 * 60)
     landing_pass(shell, config)

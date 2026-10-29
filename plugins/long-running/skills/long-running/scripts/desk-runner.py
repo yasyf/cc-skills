@@ -271,8 +271,14 @@ Right after the ledger and holds read, the pass reads the queue, then gates ever
 record names, sixteen trees at a time, so the only PRs that can land reach the queue before the ledger-wide head read and the gate
 over every other tree. Every gate checks only a tree holding a PR the queue read calls landable on PRs below it that are landable
 or queued, since a check of any other tree enqueues nothing and spends GitHub reads; each PR of the rest hears what its status
-entry asks of its lane. Each tree runs in a worker of its own from its check through its settling to the enqueue it accepts, so no
-stack waits on another stack's checks or enqueue. Beside the passes, an overflow thread reads afresh every minute and puts straight
+entry asks of its lane. Each tree runs in a stack worker of its own from its check through its settling to the enqueue it accepts, so no
+stack waits on another stack's checks or enqueue. The workers outlive the pass: the pass queues them with the lanes taking turns, waits for
+them at most 120 s, skips a tree whose worker still runs or waits, and its releases, announcements, worktree removal and restack checks run
+on a side worker, never ahead of the gate. Each worker writes its step and when it began to `<config>.landing-stacks.json`, which
+stall_watch reads to name a stack stuck past its step's budget. Every pass posts one `state` record to root on topic `landing-state`
+counting the queued, waiting, held and refused PRs, the workers running and the overflow's enqueues, with the pass's seconds.
+`GO-UNQUEUED` is raised only when the newest enqueue of a go'd head since its go ended blocked, failed, stranded or unsettled, never for
+backlog, and `OVERFLOW-STALLED` when the overflow thread finished no run in five minutes. Beside the passes, an overflow thread reads afresh every minute and puts straight
 into the queue, with none of the runner's checks, each stack that has stayed green, named at its heads by a root go, unheld, unqueued
 and unrefused for five minutes, posting a QUEUED report that names the overflow (owner 9524276). The queue read is one `ccx vcs pr status` call over every open row a pass,
 allowed 300 s, which the gate, the requeue and the landed check share. A PR body is read at most once per five minutes, a head's
@@ -287,8 +293,8 @@ failed only in a queue draft holding nothing but its stack, goes back in at the 
 policy, which the adapter comments on the PR, and routes no blocker meanwhile; a second at the same head logs `AWAITS-GO`, and the root's next `go`
 naming the PR puts it back the same way. A retry the adapter refuses logs `FLAKE-RETRY-FAILED`. The lane a PR's blocker or restack goes to is the poster of the newest cci `head`, `opened`, `ready`,
 or `claim` record naming the PR, else the lane that registered its ledger row; a blocker posted on cci also goes to the root
-when `cci who` lists no live session for that lane, and to the root alone, opening with `owner lane dead`, once that lane has no
-live dispatch or session and no cci record on the drive in the last 60 minutes. A conflict blocker for a lane with no dispatch Orca
+when `cci who` lists no live session for that lane, and to the live lanes `landing.restack_lane` names instead, else the root
+alone, opening with `owner lane dead`, once that lane has no live dispatch or session and no cci record on the drive in the last 60 minutes. A conflict blocker for a lane with no dispatch Orca
 shows active and no session `cci who` lists, but a record in that hour, routes nothing: the root gets one `PARKED` line per PR, and that head routes once the lane is back. A gate's `BLOCKED` verdict goes to the lane at most once per head, as the blocker its adapter names, and only for red CI,
 a merge conflict, a changes-requested review or fidelity grade, or a queue ejection, never for a pending or running check or a
 missing approval or an ejection blaming a PR outside its stack, and never for a PR that is held, carries GitHub's `hold` label, or is
@@ -517,7 +523,7 @@ logs `MERGE-CARD-FAILED` once per head and cause and tries again next pass. With
 carries the owner's board taps: an approval on a `pr-groups` row of the root's board at an older head of an open PR, with no verdict at
 its ledger head, moves to that head through `cc-present verdict carry` once `head` records reading `<new> (was <old>)` and fidelity carries
 call each move between the two patch-identical, with one `TAP-CARRIED` note naming both heads to root and each lane `landing.board_lane`
-names, one lane or a list. A new head a record names with no such chain, a fixed version, is never carried. A record saying it adds new
+names, one lane or a list, and, when no go names the new head, one `go` record of the runner's own for it, which `go_lane` counts. A new head a record names with no such chain, a fixed version, is never carried. A record saying it adds new
 behavior draws one `TAP-NOT-CARRIED` note to the same lanes saying the board needs a new row; a fidelity ok grade naming none draws one
 `TAP-KEPT` note saying his tap keeps over that review fix and root posts its go naming the fix (rule 399b5fa), and once that go
 names the head the runner carries the tap there itself, citing the grade and the go; a root `go` or a
@@ -571,7 +577,8 @@ import traceback
 from collections import Counter
 from contextlib import contextmanager
 from collections.abc import Callable, Iterable, Iterator
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import wait as finished_by
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from fnmatch import fnmatch
@@ -660,6 +667,7 @@ NOT_IDLE = "not idle: busy, prompt typed or asking, or output in the last 10 min
 MODELS = re.compile(r"opus|sonnet|fable|astra|codex|sol|incident|claude-[\w.-]+|gpt-[\w.-]+")
 INCIDENT_MODEL = "incident"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
+GO_UNQUEUED_OUTCOMES = frozenset({"blocked", "failed", "stranded", "unsettled"})
 RETRYABLE = frozenset({"blocked", "superseded", "foreign", "dropped", "refused", "dequeued"})
 BELIEVED_QUEUED = frozenset({"enqueued", "noop"})
 ADMITTED = BELIEVED_QUEUED | {"dropped", "ejected"}
@@ -676,6 +684,7 @@ OVERFLOW = "overflow"
 OVERFLOW_AFTER = timedelta(minutes=5)
 OVERFLOW_EVERY = timedelta(minutes=1)
 OVERFLOW_SEEN = "overflow-seen"
+OVERFLOW_STALLED = timedelta(minutes=5)
 OVERFLOW_RETRIES = frozenset({"superseded", "failed", "dropped"})
 UNGRADED_READ = "ungraded_read"
 DIFF_MEDIA = "Accept: application/vnd.github.diff"
@@ -763,6 +772,9 @@ CARD_STEPS = 1000
 CARD_NAME = 80
 CARD_LABEL = 75
 COMMAND_TIMEOUT_SECONDS = 1800
+ENQUEUE_SECONDS = 300
+LEDGER_SECONDS = 300
+FETCH_SECONDS = 120
 QUICK_SECONDS = 60
 CHECK_PR_SECONDS = 180
 GATE_CHECK_SECONDS = 60
@@ -776,6 +788,9 @@ STOP_CONFIRM = timedelta(seconds=30)
 STOP_POLL_SECONDS = 2
 SHOW_WORKERS = 8
 GATE_WORKERS = 16
+GATE_BUDGET = timedelta(seconds=120)
+STEP_BUDGETS = {"check": 180, "settle": 300, "enqueue": 300}
+STACKS_FILE = "landing-stacks.json"
 CHECK_PR_WORKERS = 8
 TELL_BUDGET = timedelta(seconds=60)
 REFRESH_EVERY = timedelta(minutes=2)
@@ -967,7 +982,18 @@ def time_bound(argv: list[str]) -> float:
         return GATE_CHECK_SECONDS
     if argv[:4] == ["ccx", "vcs", "pr", "status"]:
         return QUEUE_STATUS_SECONDS
+    if Path(argv[0]).name == "stack-enqueue":
+        return ENQUEUE_SECONDS
+    if len(argv) > 1 and Path(argv[1]).name == "ledger.py":
+        return LEDGER_SECONDS
+    if argv[0] == "git" and "fetch" in argv:
+        return FETCH_SECONDS
     return QUICK_SECONDS if quick(argv) else COMMAND_TIMEOUT_SECONDS
+
+
+def rereadable(argv: list[str]) -> bool:
+    """Whether `argv` only reads, so a run that timed out or failed on a transient network error may run once more."""
+    return argv[:2] in (["cci", "tail"], ["cci", "who"]) or argv[:3] == ghread.GATEWAY or argv[:4] == ["ccx", "vcs", "pr", "status"] or (Path(argv[0]).name == "stack-enqueue" and bool({"--check", "--status"} & set(argv)))
 
 
 def command_family(argv: list[str]) -> str:
@@ -1006,8 +1032,10 @@ class Shell:
     Input reaches a child from a file, never a pipe the runner writes while the child's output
     fills, and a child still running after COMMAND_TIMEOUT_SECONDS is killed and fails its pass.
     Output that is not UTF-8, such as a diff of a binary file, reads with each bad byte replaced.
-    A GitHub, cci or ccx read gets QUICK_SECONDS, a `--check` GATE_CHECK_SECONDS and `rulings.py check-pr` CHECK_PR_SECONDS; one that times out is logged and
-    reads as a failed command, never a fatal one. `in_progress` holds each thread's command in flight
+    A GitHub, cci or ccx read gets QUICK_SECONDS, a `--check` GATE_CHECK_SECONDS, `rulings.py check-pr` CHECK_PR_SECONDS, any other
+    `stack-enqueue` ENQUEUE_SECONDS, `ledger.py` LEDGER_SECONDS and `git fetch` FETCH_SECONDS; one that times out is logged and
+    reads as a failed command, never a fatal one. A read `rereadable` names runs once more when it timed out or failed on a transient
+    network error. `in_progress` holds each thread's command in flight
     and when it started, for the heartbeat.
     """
 
@@ -1017,6 +1045,12 @@ class Shell:
     spending = threading.Lock()
 
     def run(self, argv: list[str], stdin: str | None = None, env: dict[str, str] | None = None) -> Done:
+        done = self.run_once(argv, stdin, env)
+        if rereadable(argv) and done.code and (done.code == TIMED_OUT or merge_queue.TRANSIENT_FAILURE.search(done.err + done.out)):
+            done = self.run_once(argv, stdin, env)
+        return done
+
+    def run_once(self, argv: list[str], stdin: str | None, env: dict[str, str] | None) -> Done:
         timeout = time_bound(argv)
         started = time.monotonic()
         self.in_progress[threading.get_ident()] = (command_name(argv), started)
@@ -4618,6 +4652,18 @@ def stacked(open_rows: dict[str, dict]) -> set[str]:
     return {pr for pr, row in open_rows.items() if row.get("base") in branches}
 
 
+def stack_root(tree: list[str], open_rows: dict[str, dict]) -> str:
+    return min(downstack(open_rows, tree[0]), key=lambda pr: len(downstack(open_rows, pr)))
+
+
+def lane_turns(trees: list[list[str]], open_rows: dict[str, dict]) -> list[list[str]]:
+    """`trees` with the lanes taking turns, each lane's trees in their given order, so one lane's many stacks never go ahead of every other lane's."""
+    by_lane: dict[str, list[list[str]]] = {}
+    for tree in trees:
+        by_lane.setdefault(open_rows[stack_root(tree, open_rows)].get("lane", ""), []).append(tree)
+    return [tree for turn in itertools.zip_longest(*by_lane.values()) for tree in turn if tree]
+
+
 def under_hold(open_rows: dict[str, dict], held: list[str]) -> set[str]:
     by_branch = {row["branch"]: pr for pr, row in open_rows.items() if row.get("branch")}
     covered = set()
@@ -4865,6 +4911,17 @@ class Landing:
         self.told: dict[str, tuple[str, datetime]] = {}
         self.refresher: threading.Thread | None = None
         self.overflowing: threading.Thread | None = None
+        self.overflowed_at = time.monotonic()
+        self.overflower: Landing | None = None
+        self.held_now: list[str] = []
+        self.workers = ThreadPoolExecutor(GATE_WORKERS)
+        self.inflight: dict[str, tuple[set[str], Future]] = {}
+        self.dispatching = threading.Lock()
+        self.steps: dict[str, dict] = {}
+        self.stacks_file = runner.config.source.with_name(f"{runner.config.source.stem}.{STACKS_FILE}")
+        self.gate_deadline = time.monotonic()
+        self.side = ThreadPoolExecutor(1)
+        self.side_work: Future | None = None
         self.bodies: dict[str, tuple[datetime, str]] = {}
         self.trunk_read: tuple[str, datetime, bool, dict] | None = None
         self.unchecked: set[str] = set()
@@ -5190,25 +5247,83 @@ class Landing:
         return [kept for tree in trees if (kept := [tip for tip in tree if tip not in waiting])]
 
     def gate_trees(self, rows: dict[str, dict], held: list[str], trees: list[list[str]]) -> None:
-        """Run each tree of `trees` that `landable_trees` keeps through its own worker, `GATE_WORKERS` trees at a time, from its check through its settling to the enqueue of what it accepts, so no stack's checks or enqueue wait on another stack's of the same priority (landing-desk-3 #185922, owner 9524276); one wave per priority value, the lowest first, so a higher-priority stack reaches the queue first. Each enqueue still runs its stack's chains bottom-up."""
+        """Hand each tree of `trees` that `landable_trees` keeps to a stack worker that outlives the pass and runs its check, its settling and the enqueue of what it accepts, so no stack's checks or enqueue wait on another's (landing-desk-3 #185922, owner 9524276). A tree whose worker still runs or waits from an earlier pass is skipped, the drive runs `GATE_WORKERS` at once with the lanes taking turns in its queue, and the pass waits for its workers no longer than its `GATE_BUDGET`. One wave per priority value, the lowest first, so a higher-priority stack reaches the queue first. Each enqueue still runs its stack's chains bottom-up."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         waves: dict[int, list[list[str]]] = {}
         for tree in self.landable_trees(rows, trees):
             waves.setdefault(min(self.priority(open_rows, pr) for tip in tree for pr in downstack(open_rows, tip)), []).append(tree)
         for priority in sorted(waves):
-            with ThreadPoolExecutor(GATE_WORKERS) as pool:
-                list(pool.map(lambda tree: self.land_tree(rows, held, tree), waves[priority]))
+            self.await_workers([future for tree in lane_turns(waves[priority], open_rows) if (future := self.dispatch(",".join(tree), {pr for tip in tree for pr in downstack(open_rows, tip)}, lambda tree=tree: self.land_tree(rows, held, tree)))])
+
+    def dispatch(self, key: str, members: set[str], work: Callable[[], None]) -> Future | None:
+        """Queue `work` on a stack worker under `key`, unless a worker that still runs or waits holds any PR of `members`, so two workers never enqueue one PR."""
+        with self.dispatching:
+            if any(not future.done() and members & others for others, future in self.inflight.values()):
+                return None
+            future = self.workers.submit(work)
+            self.inflight[key] = (members, future)
+            return future
+
+    def await_workers(self, futures: list[Future]) -> None:
+        """Wait for `futures` until the pass's gate budget runs out, then raise what a finished one raised, dropping each finished one so no later pass raises it again; the rest run on into later passes."""
+        finished_by(futures, timeout=max(0.0, self.gate_deadline - time.monotonic()))
+        self.surface()
+
+    def close(self) -> None:
+        """Let every running stack worker and the side work finish and start nothing queued, so no worker of this runner acts after it hands off."""
+        self.workers.shutdown(cancel_futures=True)
+        self.side.shutdown(cancel_futures=True)
+
+    def surface(self) -> None:
+        """Raise the first error a stack worker or the side work raised after an earlier pass stopped waiting for it, dropping each finished one, so the pass counts it as its own."""
+        with self.dispatching:
+            finished = {key: future for key, (_, future) in self.inflight.items() if future.done()}
+            for key in finished:
+                del self.inflight[key]
+        side = self.side_work if self.side_work and self.side_work.done() else None
+        if side:
+            self.side_work = None
+        for future in [*finished.values(), *([side] if side else [])]:
+            if error := future.exception():
+                raise error
+
+    def drain(self) -> None:
+        """Wait for every stack worker and the side work, raising what any raised, for a `--once` pass whose process ends with it."""
+        for future in [future for _, future in list(self.inflight.values())] + ([self.side_work] if self.side_work else []):
+            future.result()
 
     def land_tree(self, rows: dict[str, dict], held: list[str], tree: list[str]) -> None:
-        self.runner.checkpoint()
-        self.settle_tree(rows, held, self.proven_stacks(tree))
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
-        members = {pr for tip in tree for pr in downstack(open_rows, tip)}
-        if accepted := [action for action in self.book.actions(LANDING, kind="enqueue", status="accepted") if set(action.target.split(",")) <= members]:
-            self.reread()
-            self.rescanned_reviews()
-            for action in accepted:
-                self.enqueue_one(action)
+        key = ",".join(tree)
+        try:
+            self.runner.checkpoint()
+            self.track(key, tree, open_rows, "check")
+            gated = self.proven_stacks(tree)
+            self.track(key, tree, open_rows, "settle")
+            self.settle_tree(rows, held, gated)
+            members = {pr for tip in tree for pr in downstack(open_rows, tip)}
+            if accepted := [action for action in self.book.actions(LANDING, kind="enqueue", status="accepted") if set(action.target.split(",")) <= members]:
+                self.reread()
+                self.rescanned_reviews()
+                for action in accepted:
+                    self.track(key, tree, open_rows, "enqueue")
+                    self.enqueue_one(action)
+        finally:
+            self.track(key, tree, open_rows, "")
+
+    def track(self, key: str, tree: list[str], open_rows: dict[str, dict], step: str) -> None:
+        """Record the step a stack worker is on, or that it ended, and rewrite `landing-stacks.json` beside the config, which stall_watch reads to name a stack stuck past its step's budget."""
+        root = stack_root(tree, open_rows)
+        with self.dispatching:
+            if step:
+                members = {pr: open_rows[pr].get("head", "") for tip in tree for pr in downstack(open_rows, tip)}
+                self.steps[key] = {"root": root, "lane": open_rows[root].get("lane", ""), "members": members, "step": step, "since": self.book.stamp(), "budget": STEP_BUDGETS[step], "thread": threading.get_ident()}
+            else:
+                self.steps.pop(key, None)
+            stacks = {key: {name: value for name, value in entry.items() if name != "thread"} | ({"command": command[0], "command_seconds": int(time.monotonic() - command[1])} if (command := Shell.in_progress.get(entry["thread"])) else {}) for key, entry in self.steps.items()}
+            staged = self.stacks_file.with_name(f".{self.stacks_file.name}.{threading.get_ident()}")
+            staged.write_text(json.dumps({"at": self.book.stamp(), "stacks": stacks}))
+            staged.replace(self.stacks_file)
 
     def landable_trees(self, rows: dict[str, dict], trees: list[list[str]]) -> list[list[str]]:
         """The trees of `trees` the pass is about to enqueue from, by its one status read: those holding a landable PR on PRs below it that are landable, queued, or landed. `stack-enqueue --check`, and the `rulings.py check-pr` an accepted prefix runs, run for no other tree (root #146561, #147019). A verdict counts as landable once a `queue-unknown` cause is set aside, since a label queue's state is not Graphite's to read, and once a lone `ci-unproven` cause is set aside for a head `unproven` finds proven, since only the runner reads the full builds that prove a redundant skip; `unproven` also starts the full build a head still needs. The PRs of each tree left out join `unchecked`, and `tell_unpassed` routes what each one's status entry asks of its lane. None are kept when the status read failed."""
@@ -5887,17 +6002,17 @@ class Landing:
     def scanned_reviews(self) -> list[dict]:
         """The drive's `review` and `head` records, scanned once a pass, so a review whose text names the PR but whose refs do not still counts."""
         with self.scanning:
-            if self.reviews is None:
-                self.reviews = cci.records(self.cci_tail, self.runner.config.drive, "--kind=review", "--kind=head")
-        return self.reviews
+            if (reviews := self.reviews) is None:
+                reviews = self.reviews = cci.records(self.cci_tail, self.runner.config.drive, "--kind=review", "--kind=head")
+        return reviews
 
     def rescanned_reviews(self) -> list[dict]:
         """The pass's scanned reviews plus every `review` and `head` record posted since that scan, so a grade that lands while a long pass runs is read before the pass warns that it is missing."""
         scanned = self.scanned_reviews()
         self.cci_tail.forget()
         with self.scanning:
-            self.reviews = [*scanned, *cci.records(self.cci_tail, self.runner.config.drive, "--kind=review", "--kind=head", since=max((record["seq"] for record in scanned), default=0))]
-        return self.reviews
+            reviews = self.reviews = [*scanned, *cci.records(self.cci_tail, self.runner.config.drive, "--kind=review", "--kind=head", since=max((record["seq"] for record in scanned), default=0))]
+        return reviews
 
     def finder_reviews(self, pr: str) -> list[dict]:
         """Every finder review about `pr`."""
@@ -6257,12 +6372,12 @@ class Landing:
         return True
 
     def go_lane(self, lane: str) -> bool:
-        return lane == ROOT or any(lane == delegate or succeeds(lane, delegate) for delegate in self.landing_config.get("go_lanes", []))
+        return lane in (ROOT, RUNNER) or any(lane == delegate or succeeds(lane, delegate) for delegate in self.landing_config.get("go_lanes", []))
 
     def go_records(self) -> list[dict]:
         """Every `go` record on this drive from the root or a `landing.go_lanes` lane or its numbered successor, read by lane when no lane is delegated."""
         drive = self.runner.config.drive
-        lanes = () if self.landing_config.get("go_lanes") else ("--lane", ROOT)
+        lanes = () if self.landing_config.get("go_lanes") else ("--lane", ROOT, "--lane", RUNNER)
         return [record for record in cci.records(self.cci_tail, drive, *lanes, "--kind=go") if (record["drive"], record["kind"]) == (drive, "go") and self.go_lane(record["lane"])]
 
     def root_gos(self) -> list[dict]:
@@ -6280,7 +6395,8 @@ class Landing:
                 unsaid = closed | {seq for record in graders for seq in closes(record)}
                 lands = self.old_app_lands()
                 gos = posted + carried_gos(posted, [record for record in graders if record["kind"] == "review" and record["seq"] not in unsaid], self.repo, lands)
-                self.gos = gos + self.patch_carried(gos, lands)
+                self.gos = gos = gos + self.patch_carried(gos, lands)
+                return gos
             return self.gos
 
     def patch_carried(self, gos: list[dict], lands: Callable[[str, str], bool]) -> list[dict]:
@@ -6360,6 +6476,10 @@ class Landing:
     def board_lanes(self) -> list[str]:
         return self.runner.landing_lanes("board_lane")
 
+    def go_audience(self, prs: list[str], rows: dict[str, dict]) -> str:
+        """Who hears that a go is stuck or unproven: each `landing.go_lanes` lane as its live successor, then the `routine_audience` (owner, Oct 29 2:06 PM)."""
+        return ",".join(dict.fromkeys([*map(self.successor, self.landing_config.get("go_lanes", [])), *self.routine_audience(prs, rows).split(",")]))
+
     def routine_audience(self, prs: list[str], rows: dict[str, dict]) -> str:
         """Who hears a routine landing record: each `landing.desk_lane` and each PR's owning lane as its live successor, and the root only for a PR whose owning lane is dead or unnamed (root, Oct 29 2:10 PM)."""
         owners = [rows.get(pr, {}).get("lane", "") for pr in prs]
@@ -6385,22 +6505,26 @@ class Landing:
             self.runner.escalate(f"tap-carry:unread:{hashlib.sha1(VOLATILE.sub('', str(failed)).encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", "landing", f"the root's board did not read ({failed}), so no tap carries to a restacked head this pass; the next pass reads it again")
             return
         heads = {pr: row["head"] for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}
-        self.question_tap_claims(heads, verdicts)
+        self.question_tap_claims(heads, verdicts, rows)
         entries = [(block, pr, entry) for block, by_row in verdicts.items() for pr, entry in by_row.items() if pr in heads and entry.get("head")]
         decided = {pr for _, pr, entry in entries if names_head(entry["head"], heads[pr])}
+        to = ",".join([ROOT, *self.board_lanes])
+        for _, pr, entry in entries:
+            if entry["verdict"] == "approved" and entry.get("carriedFrom") and names_head(entry["head"], heads[pr]):
+                self.go_carried_tap(pr, heads[pr], entry["carriedFrom"], rows, to)
         moved = [(block, pr, entry) for block, pr, entry in entries if entry["verdict"] == "approved" and pr not in decided]
         if not moved:
             return
         drive = self.runner.config.drive
         withdrawn = {seq for record in cci.records(self.cci_tail, drive, "--kind=withdraw") if record["kind"] == "withdraw" and record["drive"] == drive for seq in closes(record)}
         reviews = [record for record in self.scanned_reviews() if record["seq"] not in withdrawn]
-        to = ",".join([ROOT, *self.board_lanes])
         for block, pr, entry in moved:
             head, tapped = heads[pr], entry.get("carriedFrom") or entry["head"]
             graded = newest_naming(fidelity_grades_in(reviews, drive, self.fidelity_lanes, self.repo, pr), head)
             moves = head_moves(reviews, drive, self.fidelity_lanes, self.repo, pr)
             if chain := patch_chain(moves, head, entry["head"]):
-                self.carry_tap(session, block, pr, tapped, head, f"patch-identical restack, per {', '.join(f'cci #{seq}' for seq in chain)}", self.landing_audience([pr], rows, to))
+                if self.carry_tap(session, block, pr, tapped, head, f"patch-identical restack, per {', '.join(f'cci #{seq}' for seq in chain)}", self.landing_audience([pr], rows, to)):
+                    self.go_carried_tap(pr, head, tapped, rows, to)
                 continue
             said = [record for record in reviews if record["kind"] == "head" and about_pr(record, self.repo, pr) and names_head(graded_head(record["text"]), head)]
             adds = [record for record in [*said, *([graded] if graded else [])] if ADDS_BEHAVIOR.search(full_text(record))]
@@ -6415,7 +6539,7 @@ class Landing:
             elif kept and not self.book.known(LANDING, key := f"tap-kept:{block}:{pr}:{tapped}:{head}"):
                 self.post_record("note", key, to, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} on board block {block} keeps at {head[:10]}, a review fix with no new behavior per fidelity grade cci #{graded['seq']} (rule 399b5fa); root posts `go #{pr} at {head[:10]}` naming the fix, and the row lists the fix", pr)
 
-    def question_tap_claims(self, heads: dict[str, str], verdicts: dict[str, dict[str, dict]]) -> None:
+    def question_tap_claims(self, heads: dict[str, str], verdicts: dict[str, dict[str, dict]], rows: dict[str, dict]) -> None:
         """One `GO-TAP-MISSING` to root per root `go` and PR when the go says the owner tapped or approved an open PR at its ledger head, claims no port, test-only or CI-only exemption, and no approval on the root's board names that head or a head the go names, saying what the board holds for the PR instead: a go rests on a board verdict, never on a lane's line that says tapped (rule/82317b0, root #172682)."""
         for pr, head in heads.items():
             for go in self.head_gos(pr, head):
@@ -6427,18 +6551,27 @@ class Landing:
                 if any(entry["verdict"] == "approved" and any(names_head(sha, entry.get(at) or "") for sha in named for at in ("head", "carriedFrom")) for _, entry in held):
                     continue
                 board = "; ".join(f"{entry['verdict']} at {(entry.get('head') or '')[:10]} on block {block}" for block, entry in held) or f"no verdict for #{pr}"
-                self.runner.escalate(f"go-tap-missing:{go['seq']}:{pr}", "GO-TAP-MISSING", f"#{pr}", f"root go cci #{go['seq']} says the owner tapped #{pr} at {head[:10]}, but no approval on the root's board names {head[:10]} or a head the go names; the board holds {board}. Withdraw the go, or post it again citing the board verdict at this head or the carry to it")
+                self.runner.escalate(f"go-tap-missing:{go['seq']}:{pr}", "GO-TAP-MISSING", f"#{pr}", f"root go cci #{go['seq']} says the owner tapped #{pr} at {head[:10]}, but no approval on the root's board names {head[:10]} or a head the go names; the board holds {board}. Withdraw the go, or post it again citing the board verdict at this head or the carry to it", "", self.go_audience([pr], rows))
 
-    def carry_tap(self, session: str, block: str, pr: str, tapped: str, head: str, why: str, to: str) -> None:
+    def go_carried_tap(self, pr: str, head: str, tapped: str, rows: dict[str, dict], to: str) -> None:
+        """Post the runner's own `go` for `pr` at `head`, where the owner's tap carried from `tapped`, unless a go names that head or this go was posted, so no root hop stands between a patch-identical restack and the queue (owner, Oct 29 2:06 PM); a post that failed is posted again next pass."""
+        key = f"tap-go:{pr}:{head}"
+        if self.head_gos(pr, head) or ((posted := self.book.known(LANDING, key)) and posted.status == "completed"):
+            return
+        self.post_record("go", key, self.landing_audience([pr], rows, to), f"go #{pr} at {head[:7]} TAP-CARRIED: the owner's tap at {tapped[:10]} carries to {head[:10]}, a patch-identical restack; the runner posts this go itself, so no root hop (owner, Oct 29 2:06 PM)", pr)
+
+    def carry_tap(self, session: str, block: str, pr: str, tapped: str, head: str, why: str, to: str) -> bool:
+        """Carry the owner's tap on `pr` from `tapped` to `head` on the board and post `TAP-CARRIED` once; whether the board took it."""
         done = self.present(["cc-present", "verdict", "carry", "--session", session, "--block", block, "--row", pr, "--head", head, "--note", why])
         if done.code:
             why = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
             if UNKNOWN_BLOCK.search(why):
-                return
+                return False
             self.runner.escalate(f"tap-carry:{pr}:{head[:7]}:{hashlib.sha1(VOLATILE.sub('', why).encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", f"#{pr}", f"cc-present verdict carry refused the owner's tap on #{pr} from {tapped[:10]} to {head[:10]}: {why}; the next pass tries again")
-            return
+            return False
         if not self.book.known(LANDING, key := f"tap-carried:{block}:{pr}:{head}"):
             self.post_record("note", key, to, f"TAP-CARRIED #{pr}: the owner's tap at {tapped[:10]} on board block {block} now stands at {head[:10]}, a {why}, recorded with cc-present verdict carry; the row asks no new tap", pr)
+        return True
 
     def ask_owner(self, heads: dict[str, str], waiting: dict[str, list[str]], rows: dict[str, dict]) -> None:
         """Ask one merge card per waiting PR and head in the drive root's session, and log one `MERGE-ASK` naming it for the root, who answers the tap; nothing in the prefix is enqueued until a root `go` names each waiting head. A head touching a reserved row gets the row's key and first sentence in its card's question, whose tap is the authorization. A PR whose newest fidelity grade says `title: stale` still gets its card, and its `MERGE-ASK` and a blocker to its lane carry that line, since root posts no go until the lane's title fix (root #137006)."""
@@ -6523,7 +6656,7 @@ class Landing:
         return any(not any(actions.parse_stamp(record["at"]) > at and goes(record, pr) for record in gos) for pr, at in dropped.items())
 
     def enqueue(self) -> None:
-        """Run every accepted enqueue, the lowest priority value first: one parallel wave per priority, so a higher-priority prefix reaches the queue before a lower one."""
+        """Run every accepted enqueue no stack worker has started, on the stack workers, the lowest priority value first: one parallel wave per priority, so a higher-priority prefix reaches the queue before a lower one, each waited for no longer than the pass's gate budget."""
         accepted = self.book.actions(LANDING, kind="enqueue", status="accepted")
         if not accepted:
             return
@@ -6535,8 +6668,7 @@ class Landing:
             self.runner.checkpoint()
             self.reread()
             self.rescanned_reviews()
-            with ThreadPoolExecutor(len(waves[priority])) as pool:
-                list(pool.map(self.enqueue_one, waves[priority]))
+            self.await_workers([future for action in waves[priority] if (future := self.dispatch(action.action_id, set(action.target.split(",")), lambda action=action: self.enqueue_one(action)))])
 
     def enqueue_one(self, action: actions.Action) -> None:
         key = action.action_id
@@ -6602,7 +6734,6 @@ class Landing:
         outcome, outs, last = "noop", [], ""
         for top in tops:
             done, out, last = self.adapter.enqueue([top], whole, heads)
-            self.cci_tail.forget()
             outs.append(out)
             if done not in BELIEVED_QUEUED:
                 return done, "".join(outs)[-1500:], last
@@ -6632,7 +6763,7 @@ class Landing:
         drive = self.runner.config.drive
 
         def about_pr(kind: str) -> list[dict]:
-            found = cci.records(self.cci_tail, drive, f"--kind={kind}", "--pr", f"{self.repo}#{pr}")
+            found = cci.records(self.cci_tail.run, drive, f"--kind={kind}", "--pr", f"{self.repo}#{pr}")
             return [record for record in found if (record["kind"], record["drive"]) == (kind, drive) and pr in dict(repo_prs(record, self.repo))]
 
         if not (posted := [record for record in about_pr("hold") if pr in cci.held_by(record)]):
@@ -6662,7 +6793,6 @@ class Landing:
             if pr not in covered:
                 continue
             released, line = self.adapter.dequeue(pr)
-            self.cci_tail.forget()
             if not released:
                 failed.append(f"#{pr}: {line}")
                 continue
@@ -6761,12 +6891,13 @@ class Landing:
 
     def incident_cleared(self, pr: str) -> bool:
         """Whether a root go, hold, lift, decide or release naming `pr` says it is not an incident fix, takes it off the incident path, or owes no release, read once a pass; the runner then gates it as a normal row and logs `INCIDENT-TAG-CLEARED` once per record."""
-        if pr not in self.cleared:
+        cleared = self.cleared
+        if pr not in cleared:
             drive = self.runner.config.drive
-            self.cleared[pr] = next((record["seq"] for record in cci.records(self.cci_tail, drive, "--lane", ROOT, "--pr", f"{self.repo}#{pr}") if record["lane"] == ROOT and record["drive"] == drive and record["kind"] in INCIDENT_CLEARING_KINDS and INCIDENT_CLEARED.search(full_text(record))), 0)
-            if seq := self.cleared[pr]:
+            cleared[pr] = next((record["seq"] for record in cci.records(self.cci_tail, drive, "--lane", ROOT, "--pr", f"{self.repo}#{pr}") if record["lane"] == ROOT and record["drive"] == drive and record["kind"] in INCIDENT_CLEARING_KINDS and INCIDENT_CLEARED.search(full_text(record))), 0)
+            if seq := cleared[pr]:
                 self.runner.escalate(f"incident-tag-cleared:{pr}:{seq}", "INCIDENT-TAG-CLEARED", f"#{pr}", f"root record #{seq} took #{pr} off the incident path, so the runner never squashes it and gates it as a normal row, landing it only through the queue once its go and the owner's tap name its head")
-        return bool(self.cleared[pr])
+        return bool(cleared[pr])
 
     def incident_rows(self, open_rows: dict[str, dict]) -> list[str]:
         return [pr for pr, row in open_rows.items() if row.get("ours") and row.get("base") == TRUNK and self.is_incident(pr, row)]
@@ -6852,36 +6983,33 @@ class Landing:
                 continue
             if (queue := self.queue_states()) is None or queue.get(pr) not in OUT_OF_QUEUE or self.refused_at_head(stack, open_rows):
                 continue
-            tried = sorted((action for action in self.book.actions(LANDING, kind="enqueue") if action.response and head.startswith(enqueued_heads(action.action_id).get(pr) or "-") and actions.parse_stamp(action.accepted_at) >= at), key=lambda action: action.accepted_at)
-            if tried and any(match["pr"] == pr and match["verdict"] == QUEUED_VERDICT and head.startswith(match["sha"]) for match in merge_queue.VERDICT_LINE.finditer(tried[-1].response.get("out", ""))):
+            tried = sorted((action for action in self.book.actions(LANDING, kind="enqueue") if head.startswith(enqueued_heads(action.action_id).get(pr) or "-") and actions.parse_stamp(action.accepted_at) >= at), key=lambda action: action.accepted_at)
+            bot = self.review_bot(pr, head, row)
+            if not tried or (tried[-1].response or {}).get("outcome") not in GO_UNQUEUED_OUTCOMES:
+                continue
+            if any(match["pr"] == pr and match["verdict"] == QUEUED_VERDICT and head.startswith(match["sha"]) for match in merge_queue.VERDICT_LINE.finditer(tried[-1].response.get("out", ""))):
                 continue
             reserved = [f"{reserved_row(line)[0]} on #{below}" for below in sorted(downstack(open_rows, pr), key=int) if (kept := self.reported.get((below, open_rows[below].get("head", "")[:7], False))) for line in kept[1] if cause(line) == RESERVED_TOUCH]
-            if bot := self.review_bot(pr, head, row):
+            if bot:
                 why = bot
             elif reserved:
                 why = f"it waits on his tap authorizing {', '.join(reserved)}, as MERGE-ASK says; a go never authorizes a reserved row (C224)"
-            elif tried:
-                why = f"its newest enqueue since the go ended {tried[-1].response['outcome']}: {' '.join(tried[-1].response.get('out', '').split())[-300:]}"
             else:
-                why = ""
+                why = f"its newest enqueue since the go ended {tried[-1].response['outcome']}: {' '.join(tried[-1].response.get('out', '').split())[-300:]}"
             bottom = min(stack, key=lambda member: len(downstack(open_rows, member)))
             stuck.setdefault(bottom, []).append((len(stack), pr, head, gos, at, why))
         for bottom, group in stuck.items():
             _, pr, head, gos, at, why = min(group)
             owner = self.owner(pr, open_rows[pr]) or ROOT
-            if not why:
-                members = {member for _, other, *_ in group for member in downstack(open_rows, other)}
-                refused = self.last_refusal(members, open_rows, at)
-                why, owner = refused or ("no enqueue was accepted for it since the go, and neither this runner nor the landing desk holds a refusal for any PR of its stack", owner)
             above = [f"#{other}" for _, other, *_ in sorted(group) if other != pr]
             waits = f"; {', '.join(above)} above it in the stack from #{bottom} wait on it too" if above else ""
             key, subject = f"go-unqueued:{pr}@{head}", f"go-unqueued:{pr}"
-            to = self.routine_audience([pr], rows)
+            to = self.go_audience([pr], rows)
             self.runner.escalate(key, "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and root go #{gos[0]['seq']} at {pacific(actions.parse_stamp(gos[0]['at']))} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}{waits}; owner lane {owner}", subject, to)
 
     def keep_overflowing(self) -> None:
         """Run `overflow` every `OVERFLOW_EVERY` from a daemon thread, on a Landing of its own that reads cci afresh, so no pass, however slow, holds a landable stack out of the queue (owner 9524276). An overflow that raises prints its traceback and the next one runs."""
-        mine = Landing(self.runner, self.runner.config.landing, cci.Tail(self.runner.cci_read))
+        mine = self.overflower = Landing(self.runner, self.runner.config.landing, cci.Tail(self.runner.cci_read))
 
         def loop() -> None:
             while True:
@@ -6894,6 +7022,26 @@ class Landing:
 
         self.overflowing = threading.Thread(target=loop, name="landing-overflow", daemon=True)
         self.overflowing.start()
+
+    def post_state(self, took: float) -> None:
+        """Post the pass's one `state` record to root on topic `landing-state`, which cci delivers newest-only, so root never asks what the runner is doing (owner 9524276): the open rows the queue holds, the green ones a root go names at their heads that are out of it and neither held nor refused, with the oldest stack step in flight, the held, the refused at their heads, the stack workers running, the overflow's enqueues this hour, and the pass's seconds. It logs `OVERFLOW-STALLED` once an hour while the overflow thread has finished no run in `OVERFLOW_STALLED`."""
+        open_rows = {pr: row for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"}
+        statuses, gos, held = self.statuses or {}, self.gos or [], set(self.held_now)
+        refused = {pr for pr in open_rows if self.refused_at_head({pr}, open_rows)}
+        queued = {pr for pr in open_rows if statuses.get(pr, {}).get("queue") == QUEUED_STATE}
+        waiting = [pr for pr, row in open_rows.items() if pr not in queued | held | refused and row.get("test_state") == "success" and row.get("head") and gone_at(gos, pr, row["head"])]
+        now = self.runner.now()
+        with self.dispatching:
+            oldest = min(self.steps.values(), key=lambda entry: entry["since"], default=None)
+            running = sum(1 for _, future in self.inflight.values() if not future.done())
+        hour = now - timedelta(hours=1)
+        overflowed = sum(1 for action in self.book.actions(LANDING, kind="enqueue") if f"#{OVERFLOW}-" in action.action_id and actions.parse_stamp(action.accepted_at) >= hour)
+        step = f" (oldest #{oldest['root']} {oldest['step']} {whole_minutes(actions.parse_stamp(oldest['since']), now)}m)" if oldest else ""
+        text = f"LANDING queued {len(queued)}, waiting {len(waiting)}{step}, held {len(held)}, refused {len(refused)}, in flight {running}, overflowed {overflowed} this hour; pass {took:.0f}s"
+        self.runner.cci_post("state", text, ROOT, "landing-state", f"landing-state:{self.book.stamp()}")
+        if self.overflower and (quiet := time.monotonic() - self.overflower.overflowed_at) > OVERFLOW_STALLED.total_seconds():
+            alive = self.overflowing is not None and self.overflowing.is_alive()
+            self.runner.escalate(f"overflow-stalled:{now:%Y%m%d%H}", "OVERFLOW-STALLED", "landing", f"the overflow thread has finished no run in {int(quiet // 60)} minutes{'' if alive else ' and is dead'}, so a stack the passes leave out waits on them alone; `desk-runner.py handoff` restarts the runner")
 
     def overflow(self) -> None:
         """Enqueue straight into the merge queue, through the adapter and with none of the runner's own checks, each stack that has stayed landable for `OVERFLOW_AFTER` since an overflow first found it so: every unqueued PR of it green at its ledger head, named at that head by a root go, under no hold, pull, or incident fix, with no enqueue of it running and nothing the runner decided against it at that head, which is a refusal `last_refusal` finds since the go, an enqueue outcome outside `OVERFLOW_RETRIES`, a drop still waiting on a go, or a reserved row no answer authorizes (C224). Each goes in as its stack's top, recorded as an enqueue and posted as a QUEUED report that names the overflow."""
@@ -6921,6 +7069,7 @@ class Landing:
                 list(pool.map(lambda top: self.overflow_one(top, open_rows, queue, actions.parse_stamp(since[top][1])), tops))
         finally:
             self.cci_tail.stop()
+            self.overflowed_at = time.monotonic()
 
     def overflow_landable(self, open_rows: dict[str, dict], held: list[str], queue: dict[str, str]) -> set[str]:
         covered = under_hold(open_rows, [*held, *self.incident_rows(open_rows)])
@@ -7502,22 +7651,27 @@ class Landing:
     def claims(self) -> list[dict]:
         """The drive's `claim` records, from one scan a pass, so a claim that names its PRs only in its text still moves them."""
         with self.scanning:
-            if self.claims_read is None:
-                self.claims_read = cci.records(self.cci_tail, self.runner.config.drive, "--kind=claim")
-        return self.claims_read
+            if (claims := self.claims_read) is None:
+                claims = self.claims_read = cci.records(self.cci_tail, self.runner.config.drive, "--kind=claim")
+        return claims
 
     def reach(self, lane: str) -> list[str]:
-        """Who a blocker for `lane` goes to, read as its live `successor`: the lane while `cci who` lists a live session for it, the lane and the root while it is otherwise alive, and the root alone once `lane_dead` reads it dead, since nothing reads a dead lane's mail (root #131190)."""
+        """Who a blocker for `lane` goes to, read as its live `successor`: the lane while `cci who` lists a live session for it, the lane and the root while it is otherwise alive, and the `restack_lanes` once `lane_dead` reads it dead, since nothing reads a dead lane's mail (root #131190)."""
         lane = self.successor(lane)
         if self.session_live(lane):
             return [lane]
-        return [ROOT] if self.lane_dead(lane) else [lane, ROOT]
+        return self.restack_lanes() if self.lane_dead(lane) else [lane, ROOT]
+
+    def restack_lanes(self) -> list[str]:
+        """The live successors of the lanes `landing.restack_lane` names, which take a dead owner lane's PRs, or the root while none is named or every one named is dead, so a dead restack worker never swallows them."""
+        return [lane for lane in map(self.successor, self.runner.landing_lanes("restack_lane")) if not self.lane_dead(lane)] or [ROOT]
 
     def lane_dead(self, lane: str) -> bool:
         """Whether `lane` has no live dispatch or session and posted nothing on this drive under either of its `lane_aliases` in the last `DEAD_LANE`, read once per lane a pass."""
-        if lane not in self.dead:
-            self.dead[lane] = not self.lane_live(lane) and not self.posted_lately(lane)
-        return self.dead[lane]
+        dead = self.dead
+        if lane not in dead:
+            dead[lane] = not self.lane_live(lane) and not self.posted_lately(lane)
+        return dead[lane]
 
     def posted_lately(self, lane: str) -> bool:
         drive, names = self.runner.config.drive, lane_aliases(lane)
@@ -7526,28 +7680,29 @@ class Landing:
 
     def dead_note(self, lane: str) -> str:
         """The words that open a blocker `reach` sends to the root alone because its owner lane is dead."""
-        return f"owner lane dead: {lane} has no live session and no record in {DEAD_LANE.seconds // 60} min, so this comes to root; " if lane and self.lane_dead(lane) else ""
+        return f"owner lane dead: {lane} has no live session and no record in {DEAD_LANE.seconds // 60} min, so this comes to {', '.join(self.restack_lanes())}; " if lane and self.lane_dead(lane) else ""
 
     def session_live(self, lane: str) -> bool:
         """Whether `cci who` lists a live session for `lane`, read once per lane a pass; a read that times out reads as no session."""
-        if lane not in self.sessions:
+        sessions = self.sessions
+        if lane not in sessions:
             done = self.shell.run(["cci", "who", "--drive", self.runner.config.drive, "--lane", lane, "--json"])
             if done.code not in (0, TIMED_OUT):
                 raise CciTailFailed(f"cci who exited {done.code}: {(done.err or done.out).strip()[:300]}")
-            self.sessions[lane] = done.code == 0 and bool(done.out.strip())
-        return self.sessions[lane]
+            sessions[lane] = done.code == 0 and bool(done.out.strip())
+        return sessions[lane]
 
     def successor(self, lane: str) -> str:
         """`lane` while `cci who` lists a live session for it, else the newest live lane of its `successors`, so mail for a rotated lane reaches the one holding its work; `lane` when none is live."""
         if self.session_live(lane):
             return lane
-        if self.live is None:
+        if (live := self.live) is None:
             done = self.shell.run(["cci", "who", "--drive", self.runner.config.drive, "--json"])
             if done.code not in (0, TIMED_OUT):
                 raise CciTailFailed(f"cci who exited {done.code}: {(done.err or done.out).strip()[:300]}")
-            self.live = [entry for line in done.out.splitlines() if line.strip() and (entry := json.loads(line)).get("live")] if done.code == 0 else []
+            live = self.live = [entry for line in done.out.splitlines() if line.strip() and (entry := json.loads(line)).get("live")] if done.code == 0 else []
         family = successors(lane)
-        found = [entry for entry in self.live if family.fullmatch(entry.get("lane") or "")]
+        found = [entry for entry in live if family.fullmatch(entry.get("lane") or "")]
         return max(found, key=lambda entry: entry["announced_at"])["lane"] if found else lane
 
     def has_landed(self, pr: str) -> bool:
@@ -7565,9 +7720,9 @@ class Landing:
             with ThreadPoolExecutor(max(1, len(pages))) as pool:
                 reads = list(pool.map(lambda page: self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", "--max-age", f"{int(STATUS_MAX_AGE.total_seconds())}s", *page]), pages))
             done = next((read for read in reads if read.code != 0), Done(0, "", ""))
-            self.statuses = None if done.code else {str(entry["number"]): entry for read in reads for entry in json.loads(read.out)}
+            statuses = self.statuses = None if done.code else {str(entry["number"]): entry for read in reads for entry in json.loads(read.out)}
             self.queues_read = True
-            if self.statuses is None:
+            if statuses is None:
                 last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
                 self.runner.escalate(
                     f"pr-status:{self.runner.now():%Y%m%d%H}:{hashlib.sha1(last[0].encode()).hexdigest()[:8]}",
@@ -7575,6 +7730,7 @@ class Landing:
                     "landing",
                     f"`ccx vcs pr status` over {len(numbers)} open rows failed: {last[0]}; this pass requeues nothing, settles no landing from the queue, and routes no PR without a go, and the next pass reads again",
                 )
+            return statuses
         return self.statuses
 
     def queue_states(self) -> dict[str, str] | None:
@@ -7629,7 +7785,7 @@ class Landing:
         if not lane:
             self.runner.escalate(key, "UNOWNED", f"#{pr}", text)
         elif self.lane_dead(lane):
-            self.post_blocker(key, ROOT, self.dead_note(lane) + text, pr, cause)
+            self.post_blocker(key, ",".join(self.restack_lanes()), self.dead_note(lane) + text, pr, cause)
         elif self.runner.orca.receipt(lane):
             relay, _ = self.runner.accept_relay(key, lane, text, "", self.runner.config.start_minutes)
             if (dispatch := self.runner.orca.show(lane)) and dispatch.status not in INACTIVE:
@@ -7664,9 +7820,10 @@ class Landing:
 
     def refresh(self) -> None:
         self.ledger_py("refresh", "--repo", self.repo, "--ledger", self.ledger)
+        self.ledger_py("reconcile", "--repo", self.repo, "--ledger", self.ledger, "--checkout", str(self.checkout))
 
     def keep_fresh(self) -> None:
-        """Refresh the ledger every `REFRESH_EVERY` from a daemon thread, so a pass reads the rows the last refresh wrote instead of waiting on ccx's GitHub reads; a pass refreshes itself while no such thread runs."""
+        """Refresh and reconcile the ledger every `REFRESH_EVERY` from a daemon thread, so a pass reads the rows the last refresh wrote instead of waiting on ccx's GitHub reads; a pass refreshes itself while no such thread runs."""
 
         def loop() -> None:
             while True:
@@ -7760,6 +7917,8 @@ class Landing:
     def gate_pass(self) -> None:
         self.sessions, self.live, self.dead, self.designed_red, self.full_runs_read, self.said_preconditions = {}, None, {}, {}, {}, {}
         self.grading, self.grade_tried = True, set()
+        self.gate_deadline = time.monotonic() + GATE_BUDGET.total_seconds()
+        self.surface()
         self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why, self.cleared = None, False, None, None, None, set(), {}, {}
         if self.quota_low():
             return
@@ -7768,8 +7927,6 @@ class Landing:
             if not (self.refresher and self.refresher.is_alive()):
                 self.refresh()
             advanced = advancing.result()
-        self.runner.checkpoint()
-        self.ledger_py("reconcile", "--repo", self.repo, "--ledger", self.ledger, "--checkout", str(self.checkout))
         self.runner.checkpoint()
         rows = self.rows()
         read = self.watch_trunk(rows or {})
@@ -7783,22 +7940,15 @@ class Landing:
             return
         self.carry_taps(rows)
         held = self.held(rows) if advanced and read and not unread else None
+        self.held_now = held or []
         gating = held is not None and not self.checks_paused()
         self.no_go = self.unpassed(rows) if gating else set()
         self.refuse_ungone_parents(rows, held or [])
         barred = sorted({*(held or []), *self.no_go, *self.pull_ordered(rows)}, key=int)
         gone = self.land_gone(rows, barred) if gating else set()
-        self.runner.steps(
-            lambda: self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}),
-            self.reconcile,
-            lambda: self.verify(rows),
-            lambda: self.announce_landings(rows),
-            lambda: self.remove_landed_worktrees(rows),
-            lambda: self.releases(rows),
-            self.ungraded_after,
-            lambda: self.verify_restacks(rows),
-            lambda: self.requeue(rows),
-        )
+        self.runner.steps(lambda: self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}), self.reconcile, lambda: self.requeue(rows))
+        if not self.side_work:
+            self.side_work = self.side.submit(self.runner.steps, lambda: self.verify(rows), lambda: self.announce_landings(rows), lambda: self.remove_landed_worktrees(rows), lambda: self.releases(rows), self.ungraded_after, lambda: self.verify_restacks(rows))
         if held is not None:
             self.runner.steps(lambda: self.squash_incidents(rows, held))
             if gating:
@@ -7938,7 +8088,10 @@ def run_landing(runner: Runner, once: bool) -> int:
         started = runner.now()
         try:
             landing.run()
+            if once:
+                landing.drain()
         except StopRequested:
+            landing.close()
             runner.flush()
             runner.stop_marker().unlink()
             return 0
@@ -7950,15 +8103,19 @@ def run_landing(runner: Runner, once: bool) -> int:
             if runner.pass_raised("landing", error):
                 return 1
         behind = runner.stale()
+        took = (runner.now() - started).total_seconds()
+        landing.post_state(took)
         runner.flush()
-        print(f"PASS landing {runner.passes['landing'] + 1} on {RUNNING_VERSION} took {(runner.now() - started).total_seconds():.0f}s: {runner.shell.pass_cost()}", file=sys.stderr, flush=True)
+        print(f"PASS landing {runner.passes['landing'] + 1} on {RUNNING_VERSION} took {took:.0f}s: {runner.shell.pass_cost()}", file=sys.stderr, flush=True)
         runner.beat("landing")
         if once:
             return 0
         if runner.rest(max(0.0, interval - (runner.now() - started).total_seconds())):
+            landing.close()
             runner.stop_marker().unlink()
             return 0
         if behind:
+            landing.close()
             runner.reexec("landing")
 
 
