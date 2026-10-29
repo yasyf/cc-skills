@@ -12,6 +12,8 @@ import cci
 FIDELITY_OK = "fidelity: ok"
 FIDELITY_MISSING = "fidelity: missing"
 FIDELITY_GRADES = (FIDELITY_OK, FIDELITY_MISSING)
+PORT_PHRASE = "pure port, no interaction"
+TEST_ONLY_PHRASE = "test-only or CI-only, no non-test code"
 FINDER_PASS = "ok"
 FINDER_FAIL = "major"
 FINDER_NAMED = re.compile(r"\bfinder\b", re.IGNORECASE)

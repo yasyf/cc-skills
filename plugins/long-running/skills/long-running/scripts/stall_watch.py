@@ -27,6 +27,9 @@ its ledger row names, it finds:
               tap (merge mode every, or the landing desk records it waiting on `merge:<pr>:<sha7>`),
               the board holds no row or card for it at that head, no holds-file line leads with it, and no
               root decide pulled its row with no READY record about the PR since
+              (a fidelity grade that says one of `landing.exempt_grades`, default `pure port, no interaction`
+              and `test-only or CI-only, no non-test code`, or a root record about the PR that says
+              `no row`, ends the stall: such a head lands on a root go with no board row)
     carry     the owner's board tap or a root go names an earlier head, no go or carry names this
               one, and the board holds no row for it at this head; a head that adds no new behavior,
               such as a review, CI or conflict fix, keeps his tap (rule 399b5fa) and waits on root's
@@ -150,6 +153,7 @@ PR_REF = re.compile(r"#(\d+)")
 LEADING_PRS = re.compile(r"^(?:#\d+\s+)+")
 SETTLED = frozenset({"done", "ready"})
 READY = re.compile(r"\b(?:READY|DONE)\b")
+NO_ROW = re.compile(r"\bno row\b", re.IGNORECASE)
 PULLED = re.compile(r"\bpull(?:s|ed)?\b[^.]*\brows?\b", re.IGNORECASE)
 ASK_WORD = re.compile(r"\b(?:card|pick)\b", re.IGNORECASE)
 BLOCK_WORD = re.compile(r"[\w-]+")
@@ -555,6 +559,7 @@ class Pass:
         repo, drive_name = landing["repo"], self.watch.drive
         fidelity_lanes = lanes_of(landing.get("fidelity_lane", []))
         go_lanes = [ROOT, *landing.get("go_lanes", [])]
+        exempt = landing.get("exempt_grades", [landing.get("port_phrase", grades.PORT_PHRASE), grades.TEST_ONLY_PHRASE])
         closed = {seq for record in records if record["lane"] in ROOT_NAMES for seq in grades.closes(record)}
         gos = [record | {"voided": set()} for record in records if record["kind"] == "go" and record["lane"] in go_lanes and record["seq"] not in closed and grades.go_heads(record)]
         reviews = [record for record in records if record["kind"] in ("review", "head")]
@@ -634,6 +639,10 @@ class Pass:
                 continue
             finder_ok = [record for record in finders if record["grade"] == grades.FINDER_PASS]
             if not finder_ok or not standing or not all(grade["text"].startswith(grades.FIDELITY_OK) for grade in standing):
+                continue
+            if any(phrase.casefold() in grade["text"].casefold() for grade in standing for phrase in exempt):
+                continue
+            if any(record["lane"] in ROOT_NAMES and NO_ROW.search(grades.full_text(record)) and grades.about_pr(record, repo, pr) for record in records):
                 continue
             ready = max(actions.parse_stamp(row["green_at"]), *(at(record) for record in [*finder_ok, *standing]))
             if board.shows(pr, head) or pr in self.hold_gates or self.now - ready < self.watch.age("board"):
