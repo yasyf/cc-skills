@@ -5149,6 +5149,34 @@ def test_the_overflow_leaves_a_landable_stack_the_runner_refused_at_its_head(she
     assert [post for post in blockers(shell) if "TEST-ONLY-MISMATCH" in post_body(post)] and shell.enqueues() == []
 
 
+def test_the_overflow_never_enqueues_a_head_whose_go_was_withdrawn(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.queue["33001"] = "not queued"
+    shell.gates["33001"] = [(runner_module.TIMED_OUT, "", "stack-enqueue --check timed out after 60s and was killed")]
+    go = shell.records[-1]["seq"]
+    shell.records.append({"seq": go + 1, "drive": "d1", "lane": "root", "kind": "withdraw", "re": go, "to": ["desk-runner"], "refs": {"prs": [33001]}, "text": f"withdrawn: go #{go} for #33001", "at": actions.stamp(shell.clock)})
+    overflow = landing_of(shell, config, tmp_path)
+    overflow.overflow()
+    shell.sleep(6 * 60)
+    overflow.overflow()
+    assert shell.enqueues() == []
+
+
+def test_the_overflow_never_enqueues_a_stack_holding_a_pr_below_with_no_go(shell, config, tmp_path):
+    merge_mode(config, "every")
+    two_pr_stack(shell)
+    shell.rows = [dict(row, test_state="success") for row in shell.rows]
+    shell.queue["29020"] = shell.queue["29031"] = "not queued"
+    shell.gates["29031"] = [(runner_module.TIMED_OUT, "", "stack-enqueue --check timed out after 60s and was killed")]
+    merge_go(shell, "29031", "merge #29031 at dddd444")
+    overflow = landing_of(shell, config, tmp_path)
+    overflow.overflow()
+    shell.sleep(6 * 60)
+    overflow.overflow()
+    assert shell.enqueues() == []
+
+
 def test_a_stack_worker_past_the_gate_budget_runs_on_after_the_pass_while_the_other_stack_lands(shell, config, tmp_path, monkeypatch):
     monkeypatch.setattr(runner_module, "GATE_BUDGET", timedelta(seconds=1))
     lone_green_pr(shell)
