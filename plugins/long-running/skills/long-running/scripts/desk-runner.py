@@ -5190,9 +5190,14 @@ class Landing:
         return [kept for tree in trees if (kept := [tip for tip in tree if tip not in waiting])]
 
     def gate_trees(self, rows: dict[str, dict], held: list[str], trees: list[list[str]]) -> None:
-        """Run each tree of `trees` that `landable_trees` keeps through its own worker, `GATE_WORKERS` trees at a time, from its check through its settling to the enqueue of what it accepts, so no stack's checks or enqueue wait on another stack's (landing-desk-3 #185922, owner 9524276). Each enqueue still runs its stack's chains bottom-up."""
-        with ThreadPoolExecutor(GATE_WORKERS) as pool:
-            list(pool.map(lambda tree: self.land_tree(rows, held, tree), self.landable_trees(rows, trees)))
+        """Run each tree of `trees` that `landable_trees` keeps through its own worker, `GATE_WORKERS` trees at a time, from its check through its settling to the enqueue of what it accepts, so no stack's checks or enqueue wait on another stack's of the same priority (landing-desk-3 #185922, owner 9524276); one wave per priority value, the lowest first, so a higher-priority stack reaches the queue first. Each enqueue still runs its stack's chains bottom-up."""
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
+        waves: dict[int, list[list[str]]] = {}
+        for tree in self.landable_trees(rows, trees):
+            waves.setdefault(min(self.priority(open_rows, pr) for tip in tree for pr in downstack(open_rows, tip)), []).append(tree)
+        for priority in sorted(waves):
+            with ThreadPoolExecutor(GATE_WORKERS) as pool:
+                list(pool.map(lambda tree: self.land_tree(rows, held, tree), waves[priority]))
 
     def land_tree(self, rows: dict[str, dict], held: list[str], tree: list[str]) -> None:
         self.runner.checkpoint()
@@ -6890,7 +6895,7 @@ class Landing:
         self.cci_tail.remember()
         try:
             self.statuses, self.queues_read, self.gos, self.cleared = None, False, None, {}
-            if (rows := self.rows()) is None or (held := self.held(rows)) is None or self.checks_paused() or (queue := self.queue_states()) is None:
+            if self.quota_low() or (rows := self.rows()) is None or (held := self.held(rows)) is None or self.checks_paused() or (queue := self.queue_states()) is None:
                 return
             open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
             landable = self.overflow_landable(open_rows, held, queue)
@@ -6937,7 +6942,7 @@ class Landing:
                 return True
             if any(response.get("ejected", {}).get(pr) == sha for pr, sha in named.items()):
                 return True
-        if self.awaiting_go(enqueues, heads):
+        if self.awaiting_go(enqueues, heads) or self.refused_at_head(members, open_rows):
             return True
         since = min(max(actions.parse_stamp(go["at"]), actions.parse_stamp(go.get("graded_at") or go["at"])) for pr in members for go in gone_at(gos, pr, heads[pr]))
         return self.last_refusal(members, open_rows, since) is not None
@@ -7944,8 +7949,6 @@ def run_landing(runner: Runner, once: bool) -> int:
         print(f"PASS landing {runner.passes['landing'] + 1} on {RUNNING_VERSION} took {(runner.now() - started).total_seconds():.0f}s: {runner.shell.pass_cost()}", file=sys.stderr, flush=True)
         runner.beat("landing")
         if once:
-            Landing(runner, runner.config.landing, cci.Tail(runner.cci_read)).overflow()
-            runner.flush()
             return 0
         if runner.rest(max(0.0, interval - (runner.now() - started).total_seconds())):
             runner.stop_marker().unlink()

@@ -5112,11 +5112,15 @@ def test_a_landable_stack_the_gate_never_settles_goes_straight_to_the_queue_five
     gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
     shell.queue["33001"] = "not queued"
     shell.gates["33001"] = [(runner_module.TIMED_OUT, "", "stack-enqueue --check timed out after 60s and was killed")]
+    overflow = landing_of(shell, config, tmp_path)
     landing_pass(shell, config)
+    overflow.overflow()
     assert shell.enqueues() == []
     shell.sleep(6 * 60)
     landing_pass(shell, config)
+    overflow.overflow()
     landing_pass(shell, config)
+    overflow.overflow()
     assert [call[1:] for call in shell.enqueues()] == [["33001", "--partial"]]
     queued = [post["text"] for post in shell.posts if post["kind"] == "report" and post["text"].startswith("QUEUED #33001 at aaaa111111")]
     assert len(queued) == 1 and "overflow put it straight in the merge queue" in queued[0]
@@ -5128,9 +5132,12 @@ def test_the_overflow_leaves_a_landable_stack_the_runner_refused_at_its_head(she
     shell.queue["29020"] = "not queued"
     grade(shell, "29020", TEST_ONLY_GRADE)
     merge_go(shell, "29020", "go test-only #29020 at cccc333")
+    overflow = landing_of(shell, config, tmp_path)
     landing_pass(shell, config)
+    overflow.overflow()
     shell.sleep(6 * 60)
     landing_pass(shell, config)
+    overflow.overflow()
     assert [post for post in blockers(shell) if "TEST-ONLY-MISMATCH" in post_body(post)] and shell.enqueues() == []
 
 
