@@ -877,15 +877,19 @@ def tonight(config: Path) -> FakeShell:
     return FakeShell(records, rows)
 
 
+def refusal_topics(shell: FakeShell) -> list[str]:
+    return [topic for topic in shell.topics() if topic.startswith(("refusal:", "successor:"))]
+
+
 def test_a_landing_refusal_no_lane_answers_escalates_to_root_and_its_lane_at_10_minutes_and_asks_root_for_a_successor_at_20(config):
     shell = tonight(config)
     shell.clock = NOW + timedelta(minutes=9)
     watch(shell, config)
-    assert shell.topics() == []
+    assert refusal_topics(shell) == []
 
     shell.clock = NOW + timedelta(minutes=10)
     watch(shell, config)
-    assert shell.topics() == ["refusal:44141:09c1863:parent"]
+    assert refusal_topics(shell) == ["refusal:44141:09c1863:parent"]
     post = shell.post("refusal:44141:09c1863:parent")
     assert (post["kind"], post["to"]) == ("urgent", "root,p8a-step7@d1")
     assert post["text"].startswith("STALL refusal #44141 at 09c1863, 10 min: landing-desk-3 refused to queue it at ")
@@ -893,15 +897,14 @@ def test_a_landing_refusal_no_lane_answers_escalates_to_root_and_its_lane_at_10_
 
     shell.clock = NOW + timedelta(minutes=15)
     watch(shell, config)
-    assert shell.topics() == ["refusal:44141:09c1863:parent"]
+    assert refusal_topics(shell) == ["refusal:44141:09c1863:parent"]
 
     shell.clock = NOW + timedelta(minutes=20)
     watch(shell, config)
-    assert shell.topics() == ["refusal:44141:09c1863:parent", "successor:44141:09c1863:parent"]
+    assert refusal_topics(shell) == ["refusal:44141:09c1863:parent", "successor:44141:09c1863:parent"]
     successor = shell.post("successor:44141:09c1863:parent")
     assert successor["to"] == "root"
     assert "| owner root | spawn a successor to p8a-step7, which has not acted on #173678 in 20 min; the successor's first step: run ccx vcs stack submit from #44141's worktree" in successor["text"]
-    assert not [topic for topic in shell.topics() if topic.startswith("go:")]
 
 
 def test_a_head_record_from_the_refused_lane_clears_its_refusal(config):

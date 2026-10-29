@@ -5780,6 +5780,7 @@ def test_a_green_head_a_go_names_still_out_of_the_queue_five_minutes_on_escalate
     [line] = unqueued(shell)
     assert line.startswith("GO-UNQUEUED go-unqueued:33001 #33001: #33001 is green at aaaa111111 and root go #")
     assert "yet it is not in the queue after 6 minutes" in line
+    assert "its newest refusal is the blocker routed at " in line and "merge conflict" in line
 
 
 HELD_TWO = "🛑 Held — 2 blocking open; security: high; confidentiality: high"
@@ -5794,7 +5795,7 @@ def test_a_go_named_green_head_the_review_bot_holds_names_its_findings_in_go_unq
     landing_pass(shell, config)
     landing_pass(shell, config)
     [line] = unqueued(shell)
-    assert line.endswith(f"minutes; the review bot holds it on 2 blocking findings; {LANE} fixes or accepts them")
+    assert f"minutes; the review bot holds it on 2 blocking findings; {LANE} fixes or accepts them; owner lane " in line
     assert [post_body(post) for post in blockers(shell) if "review bot" in post_body(post)] == [f"#33001 aaaa111111: the review bot holds it on 2 blocking findings; {LANE} fixes or accepts them"]
 
 
@@ -5807,7 +5808,7 @@ def test_a_go_named_green_head_the_review_bot_waits_to_see_restacked_says_so_in_
     landing_pass(shell, config)
     landing_pass(shell, config)
     [line] = unqueued(shell)
-    assert line.endswith("minutes; the review bot waits for a restack push")
+    assert "minutes; the review bot waits for a restack push; owner lane " in line
     assert [post for post in blockers(shell) if "review bot" in post_body(post)] == []
 
 
@@ -5820,7 +5821,7 @@ def test_a_go_named_head_that_waits_on_a_reserved_row_tap_says_so_in_its_go_unqu
     landing_pass(shell, config)
     landing_pass(shell, config)
     [line] = unqueued(shell)
-    assert line.endswith("it waits on his tap authorizing reserved/user-data on #33001, as MERGE-ASK says; a go never authorizes a reserved row (C224)")
+    assert "it waits on his tap authorizing reserved/user-data on #33001, as MERGE-ASK says; a go never authorizes a reserved row (C224); owner lane " in line
 
 
 def test_a_go_named_green_head_above_a_parent_no_go_names_draws_one_below_blocked_note_and_no_go_unqueued(shell, config, tmp_path):
@@ -5886,7 +5887,7 @@ def test_go_named_green_heads_out_of_the_queue_in_one_stack_draw_one_go_unqueued
     landing_pass(shell, config)
     [line] = unqueued(shell)
     assert line.startswith("GO-UNQUEUED go-unqueued:29020 #29020: #29020 is green at cccc333333 and root go #")
-    assert line.endswith("; #29031 above it in the stack from #29020 wait on it too")
+    assert "; #29031 above it in the stack from #29020 wait on it too; owner lane " in line
 
 
 def test_a_go_a_fidelity_carry_moved_to_a_new_head_counts_its_five_minutes_from_the_carry_grade(shell, config, tmp_path):
@@ -5920,7 +5921,7 @@ def test_go_unqueued_never_cites_an_enqueue_attempt_from_before_the_go(shell, co
     shell.sleep(6 * 60)
     landing_pass(shell, config)
     [line] = unqueued(shell)
-    assert line.endswith("no enqueue was accepted for it since the go")
+    assert "no enqueue was accepted for it since the go" in line
 
 
 def test_a_go_named_head_the_queue_already_holds_from_a_hand_enqueue_escalates_nothing(shell, config, tmp_path):
