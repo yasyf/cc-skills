@@ -261,7 +261,7 @@ function render() {
   const m = state.model;
   if (!m || !m.prs) return;
   const r = route();
-  if (state.overlay && !history.state?.sheet) history.pushState({ sheet: true }, '');
+  if (state.overlay && !history.state?.sheet) history.pushState({ ...history.state, sheet: true }, '');
   document.title = m.title;
   $('.brand').textContent = m.title;
   const tabs = [['overview', 'Now'], ['plan', 'Plan'], ['status', 'Status'], ['work', 'Work'], ['review', 'Review', needsTotal()], ['history', 'History']];
@@ -458,9 +458,12 @@ window.addEventListener('popstate', (e) => {
   if (e.state?.sheet || !state.overlay) return;
   state.overlay = null;
   render();
+  focusOpener();
+});
+function focusOpener() {
   const href = state.opener?.getAttribute('href');
   (state.opener?.isConnected ? state.opener : href && document.querySelector(`#main a[href="${CSS.escape(href)}"]`))?.focus();
-});
+}
 window.addEventListener('hashchange', () => {
   const returning = history.state?.y !== undefined;
   if (!history.state) history.replaceState({ inApp: true }, '');
@@ -468,11 +471,12 @@ window.addEventListener('hashchange', () => {
   render();
   if (!/^#\/review\/q(\/|$)/.test(location.hash)) window.scrollTo(0, history.state?.y ?? 0);
   if (history.state?.spot) refocus(history.state.spot);
+  else if (history.state?.sheet && state.opener) focusOpener();
   else if (returning) focusInView();
 });
 document.addEventListener('click', (e) => {
   const control = e.target.closest(FOCUSABLE);
-  if (control && !e.defaultPrevented) history.replaceState({ ...history.state, y: window.scrollY, spot: focusSpot($('#main'), control) }, '');
+  if (control) history.replaceState({ ...history.state, y: window.scrollY, spot: focusSpot($('#main'), control) ?? history.state?.spot }, '');
 }, true);
 function focusInView() {
   for (const el of $('#main').querySelectorAll(FOCUSABLE)) {
