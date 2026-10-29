@@ -567,6 +567,8 @@ RULING_CARDS = "cards"
 MERGE_CARDS = "merge_asks"
 MERGE_WAITS = "merge_waits"
 MERGE_ASK_SURFACES = ("slack", "board")
+PORT_PHRASE = "pure port, no interaction"
+PORT_GO = re.compile(r"\bgo\s+port\s+#\d+|\bpure port\b", re.IGNORECASE)
 MERGE_CARD_FIELDS = "title,author,additions,deletions,reviewDecision"
 SLACK_MESSAGE = re.compile(r"^slack: \S*/p(\d{10})(\d{6})\b", re.MULTILINE)
 RULING_ROUNDS = "cards/rounds"
@@ -5519,18 +5521,21 @@ class Landing:
             self.record_waits(graded.heads, waiting)
         if graded.act and waiting:
             self.ask_owner(graded.heads, waiting, graded.rows)
-        untapped, unread = self.untapped({pr: sha for pr, sha in graded.heads.items() if pr not in waiting})
+        untapped, unread, ported = self.untapped({pr: sha for pr, sha in graded.heads.items() if pr not in waiting})
         if graded.act:
+            for pr, why in ported.items():
+                if not self.book.known(LANDING, key := f"port:{pr}:{graded.heads[pr]}"):
+                    self.post_record("note", key, ",".join([ROOT, *self.board_lanes]), why, pr)
             for pr, why in untapped.items():
                 self.refuse_head(f"tap-rule:{pr}:{graded.heads[pr]}", pr, graded, why, untapped, also=[ROOT, *self.board_lanes])
             for pr, why in unread.items():
                 self.warn_head(f"tap-unread:{pr}:{graded.heads[pr]}:{why}", pr, graded, why, also=[ROOT, *self.runner.landing_lanes("desk_lane")])
         return {pr: merge_queue.State(merge_queue.PENDING, f"merge mode {self.merge_mode} waits for the owner's Merge answer at {graded.heads[pr][:7]}") for pr in waiting} | {pr: merge_queue.State(merge_queue.PENDING, why) for pr, why in (untapped | unread).items()}
 
-    def untapped(self, heads: dict[str, str]) -> tuple[dict[str, str], dict[str, str]]:
-        """Each PR of `heads` whose changed files a glob of a `landing.tap_rules` row names, while that row is in the register in force, and no approval on the root's board names its head, with why it waits, since a root `go` never stands in for the owner's tap (rule/82317b0); and each PR whose changed files, register, or board did not read, with what did not, which the runner leaves unqueued for the landing desk rather than guess a merge (4236611)."""
+    def untapped(self, heads: dict[str, str]) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
+        """Each PR of `heads` whose changed files a glob of a `landing.tap_rules` row names, while that row is in the register in force, and no approval on the root's board names its head, with why it waits, since a root `go` never stands in for the owner's tap (rule/82317b0); each PR whose changed files, register, or board did not read, with what did not, which the runner leaves unqueued for the landing desk rather than guess a merge (4236611); and each such PR the owner's port ruling admits with no tap, with its `PORT-ADMITTED` note (06288326)."""
         if not (rules := self.landing_config.get("tap_rules")):
-            return {}, {}
+            return {}, {}, {}
         touching, unread = {}, {}
         for pr, sha in heads.items():
             files, _ = self.changed_files(pr, sha)
@@ -5538,8 +5543,10 @@ class Landing:
                 unread[pr] = f"TAP-UNREAD #{pr}: its changed files did not read, so the runner leaves it unqueued for the landing desk"
             elif found := [rule for rule, globs in rules.items() if any(fnmatch(name, glob) for name in files for glob in globs)]:
                 touching[pr] = found
+        ported = {pr: why for pr in touching if (why := self.port_admitted(pr, heads[pr]))}
+        touching = {pr: found for pr, found in touching.items() if pr not in ported}
         if not touching:
-            return {}, unread
+            return {}, unread, ported
         done = self.rulings_py("rows")
         register = json.loads(done.out)["rows"] if done.code == 0 else None
         session = self.root_session()
@@ -5557,7 +5564,16 @@ class Landing:
             if any(entry["verdict"] == "approved" and names_head(heads[pr], entry.get("head") or "") for by_row in verdicts.values() for row, entry in by_row.items() if board_rows.pr_of(row) == pr):
                 continue
             waits[pr] = f"TAP-REQUIRED {','.join(found)}: it lands only on the owner's tap at this head, and a root go is no tap; no approval on the root's board names {heads[pr][:10]}"
-        return waits, unread
+        return waits, unread, ported
+
+    def port_admitted(self, pr: str, sha: str) -> str:
+        """The `PORT-ADMITTED` note for `pr` at `sha` when it lands on a root go with no board tap (06288326): the newest fidelity grade naming the head says `landing.port_phrase`, so it only ports merged old-tree work or trues up to dev and touches nothing the rebuild owns, and a root go names the head as `go port #<n> at <sha>` or says pure port; empty otherwise."""
+        if not (go := next((go for go in self.head_gos(pr, sha) if PORT_GO.search(go["text"])), None)):
+            return ""
+        grade = max(self.standing(self.grades(pr), sha), key=lambda record: record["seq"], default=None)
+        if not grade or self.landing_config.get("port_phrase", PORT_PHRASE).casefold() not in grade["text"].casefold():
+            return ""
+        return f"PORT-ADMITTED #{pr} at {sha[:10]}: fidelity grade cci #{grade['seq']} calls it a pure port and root go #{go['seq']} names it, so it lands with no board tap (06288326)"
 
     def record_waits(self, heads: dict[str, str], waiting: dict[str, list[str]]) -> None:
         """Keep, for `show`, what each graded head still waits on: its merge-ask key and the reserved rows only the owner's tap authorizes. A head that stopped waiting drops out, and the heads of other stacks keep theirs."""

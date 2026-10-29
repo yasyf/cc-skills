@@ -1595,7 +1595,11 @@ change is one edit plus an `answer supersede`, with no restart.
 `{"rule/82317b0": ["go/sand/next/*", "infra/ci/src/pipelines/test/sand.ts"]}`. In every
 merge mode, a head whose changed files a row's globs name waits, while `rulings.py rows`
 lists that row in force, until an approval on the root's board names that head. A root
-`go` never stands in for that tap. The runner posts one `TAP-REQUIRED` blocker per head,
+`go` never stands in for that tap, except for a pure port (06288326): a head whose newest
+fidelity grade says `landing.port_phrase` (default `pure port, no interaction`) and whose
+root go reads `go port #<n> at <sha>` or says pure port lands on that go, with one
+`PORT-ADMITTED` note to the root and each `landing.board_lane` naming the grade and the
+go. A grade saying the port touches rebuild code keeps the tap. The runner posts one `TAP-REQUIRED` blocker per head,
 naming the row, to the PR's lane, the root, and each `landing.board_lane`. When the changed
 files, the register, or the board do not read, it never guesses a merge: the head stays
 unqueued, and one `TAP-UNREAD` warning goes to the PR's lane, the root, and each
@@ -1737,6 +1741,11 @@ owner's tap on it is the authorization. After a Merge tap the root runs
 The ts is a Slack card's `action_ts`, or the `at` of an approved merge row on the
 root's cc-present board, which a carried tap keeps; a board row must quote the key
 and its words like a card, and `authorize` records the owner's answer for a board tap.
+An owner's pick on a board card whose text quotes the row's words authorizes too:
+`rulings.py authorize --drive <drive> --row <key> --block <choice block> --option <picked option>`,
+or `--block <approval block>` alone for an approval, reads the card through
+`cc-present block show` and records the owner's answer when the newest answer on the
+block is that affirmative pick.
 A root `go` never covers a reserved row, whatever it names or whenever it was
 posted (C224).
 
