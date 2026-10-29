@@ -762,7 +762,7 @@ POSTED_SEQ = re.compile(r"#(\d+)")
 HEAD_FLOOR = timedelta(seconds=60)
 BODY_MAX_AGE = timedelta(minutes=5)
 CHECK_PR_REREAD = timedelta(minutes=5)
-RULINGS_SOURCES = ("rulings", "board_rows", "cci", "drive", "ghread", "grades", "testfiles", "ledger")
+RULINGS_SOURCES = ("rulings", "board_rows", "testfiles")
 TRUNK_REREAD = timedelta(minutes=5)
 QUEUED_STATE = "queued"
 STATUS_SETTLED = frozenset({QUEUED_STATE, "landed"})
@@ -966,7 +966,7 @@ def reserved_fingerprint(rows: dict[str, dict]) -> str:
 
 
 def rulings_digest() -> str:
-    """What `rulings.py check-pr` reads its causes with: its source and the sources of the modules it imports."""
+    """What `rulings.py check-pr` reads its causes with: its source and the sources of the modules that decide a cause, the board rows it parses and the test-file rule, and none of the plumbing it reads through."""
     return hashlib.sha256(b"".join((SCRIPTS / f"{name}.py").read_bytes() for name in RULINGS_SOURCES)).hexdigest()[:16]
 
 
