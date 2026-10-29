@@ -44,7 +44,7 @@ class Fake:
         self.calls.append(argv)
         if argv[:3] == ["gh", "pr", "view"]:
             head = self.heads.pop(0) if len(self.heads) > 1 else self.heads[0]
-            return json.dumps({"state": self.state, "baseRefName": "dev", "headRefOid": head, "body": "## Summary\nA cut signal resubscribes from the position it fetched."})
+            return json.dumps({"state": self.state, "baseRefName": "dev", "headRefOid": head, "body": "## Summary\nA cut signal resubscribes from the position it fetched.", "comments": [{"body": "### Rulings\n- ports old-tree 304c1e7ea5e (#41725)"}, {"body": "ci is green"}]})
         if argv[0] == "git":
             return self.git(argv[1:])
         if argv[:2] == ["sh", "-c"]:
@@ -170,6 +170,7 @@ def test_a_codex_ok_posts_the_grade_with_its_exempt_phrase_then_touches_and_old_
     question = (directory / "question-1.md").read_text()
     assert str(fidelity.RUBRIC) in question and str(directory / "rows.md") in question and f"`git diff {OWN}^ {HEAD}`" in question
     assert "contract: builds the resubscribe" in question and "- go/sand/next/replica/follow.go: 41-43" in question
+    assert "### Rulings\n- ports old-tree 304c1e7ea5e (#41725)" in question and "ci is green" not in question
     assert f"checked {','.join(KEYS)} names poll|resubscribe" in (directory / "record.md").read_text()
     assert result(directory) == {"verdict": "ok", "posted": ["#150002", "#150003", "#150004"]}
 

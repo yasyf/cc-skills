@@ -30,6 +30,12 @@ Read the code around every changed symbol at that sha, its callers and callees i
    `git fetch --no-write-fetch-head -q origin <that sha>`, then read its diff with git.
    A test with no counterpart there, or asserting more than its counterpart, is graded
    against the plan as above.
+   The same holds for a test the PR body or a comment under a `Rulings` heading ties to a
+   source other than the plan: the finder or review-bot finding it pins (a test that fails
+   before that fix and passes after is the regression rule 784f1ab requires), or the
+   old-world twin PR it mirrors under the owner's order to fix the same defect in the old
+   world too. Cite it as "tests: <test> <- <finding or twin>", check only that it asserts
+   what the named source fixed, and raise no "pins unplanned behavior" finding for it.
 
 Every blocker or major, row and test findings included, cites at least one `path:line`
 inside a hunk the PR's own commits add or change. These are those hunks, as new-file line
@@ -45,5 +51,8 @@ asked again.
 
 Plan: {plan}; its sub-plans sit beside it.
 
-PR body:
+PR body, never edited after the PR opens:
 {body}
+
+PR comments under a `Rulings` heading, which correct and extend the body:
+{rulings}

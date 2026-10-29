@@ -80,6 +80,7 @@ DIFF_FILE = re.compile(r"^diff --git a/\S+ b/(\S+)$")
 HUNK = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@")
 CITE = re.compile(r"([\w./@+-]+):(\d+)(?:-(\d+))?")
 CENSUS = "census:"
+RULINGS_HEADING = re.compile(r"^#{1,6}\s*Rulings\b", re.IGNORECASE | re.MULTILINE)
 ROW_KEY = re.compile(r"^### (\S+) \|", re.MULTILINE)
 REPLY_FILE = re.compile(r"^REPLY_FILE: (\S+)$", re.MULTILINE)
 MAJORS = frozenset({"blocker", "major"})
@@ -206,7 +207,13 @@ def prompt(job: dict, view: dict, base: str, own: list[str], last: str, pairs: s
         hunks=hunk_lines(touched),
         plan=plan or "none; the register names no plan",
         body=view["body"].strip() or "(empty)",
+        rulings=rulings_comments(view),
     )
+
+
+def rulings_comments(view: dict) -> str:
+    """The PR's comments that carry a `Rulings` heading, where a lane corrects a body it may not edit, oldest first."""
+    return "\n\n---\n\n".join(comment["body"].strip() for comment in view["comments"] if RULINGS_HEADING.search(comment["body"])) or "(none)"
 
 
 def record_text(job: dict, own: list[str], last: str, findings: list[dict]) -> str:
@@ -242,7 +249,7 @@ def shortfalls(keys: list[str], reply: str) -> list[str]:
 
 
 def view_pr(shell: Shell, job: dict) -> dict:
-    argv = ghread.read("pr", "view", job["pr"], "--repo", job["repo"], "--json", "state,baseRefName,headRefOid,body", max_age=ghread.FRESH)
+    argv = ghread.read("pr", "view", job["pr"], "--repo", job["repo"], "--json", "state,baseRefName,headRefOid,body,comments", max_age=ghread.FRESH)
     try:
         return json.loads(shell.run(argv))
     except subprocess.CalledProcessError:

@@ -35,6 +35,16 @@ Answer in the schema:
   PR body are never keys: a mechanism only they name is `plan:<the nearest plan line>` with
   the words "plan names no <thing>". Its `line` says what breaks in one sentence, quoting the
   owner's words it fails.
+- A mechanism or test is grounded, and never `missing` as "plan names no <thing>" or as a
+  test that pins unplanned behavior, when the PR body or a comment under a `Rulings` heading
+  names its source: (a) the old-tree commit it ports, under the owner's order to lose
+  nothing from dev or the old tree (answer 06288326); (b) the finder or review-bot finding it
+  fixes or pins; (c) the old-world twin PR it mirrors, under the owner's order to fix the
+  same defect in the old world too. Read the named source pinned by sha (an old-tree PR's
+  head from `git ls-remote origin refs/pull/<n>/head`, then `git fetch --no-write-fetch-head
+  -q origin <sha>`) and grade the head line for line against it: for a port the old-tree
+  commit is the spec, not the plan. Only what differs from its source, or goes past it, is
+  graded against the plan and rows.
 - `touches`: the key of every reserved row the head touches, whatever the verdict.
 - `exempt`: `port` only when the PR ports an old-tree PR its body names by number, line for
   line, and touches no code or behavior the plan's steps changed or own ("{port}");
@@ -54,5 +64,8 @@ The lane's contract, its read-back of what it builds, moves or deletes, is a cla
 never the standard:
 {contract}
 
-PR body:
+PR body, never edited after the PR opens:
 {body}
+
+PR comments under a `Rulings` heading, which correct and extend the body:
+{rulings}

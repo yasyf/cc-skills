@@ -54,6 +54,10 @@ The reply follows the `findings` schema, so the codex plugin needs nothing new:
   the contract (plan 0.4; rule 784f1ab: a port keeps its regression tests), cited in
   `swept` as `tests: <test> <- old-tree #<n>`, and raises no such finding. A test with no
   counterpart there, or asserting more than its counterpart, is graded against the plan.
+  The same holds for a test the PR body or a PR comment under a `Rulings` heading ties to
+  the finder or review-bot finding it pins, or to the old-world twin PR it mirrors: it is
+  cited as `tests: <test> <- <finding or twin>` and checked only against what that source
+  fixed.
 
 Every key the slice printed appears exactly once, as `met`, `n/a`, `pending`, or a
 `missing` finding. A reply that drops a key is no verdict: run the pass again.
@@ -136,7 +140,10 @@ Do three things and report all three in the findings schema.
    graded against the old-tree PR, the contract (plan 0.4; rule 784f1ab: a port keeps its
    regression tests): cite it as "tests: <test> <- old-tree #<n>" and raise no finding for
    it. A test with no counterpart there, or asserting more than its counterpart, is graded
-   against the plan as above.
+   against the plan as above. The same holds for a test the PR body or a PR comment under
+   a `Rulings` heading ties to the finder or review-bot finding it pins, or to the
+   old-world twin PR it mirrors: cite it as "tests: <test> <- <finding or twin>" and check
+   only that it asserts what that source fixed.
 
 Plan: <plan path>; sub-plans: <paths>
 
