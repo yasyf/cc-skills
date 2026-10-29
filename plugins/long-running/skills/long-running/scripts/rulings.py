@@ -138,6 +138,8 @@ LIVE_WINDOW = "2h"
 LIVE_BUDGET = 10_000_000
 NOT_LANES = frozenset({"root", "main", "desk-runner"})
 FINISHED = re.compile(r"\bFINAL\b|\bverdict: done\b")
+BRIEF_DEPTH = 3
+SOURCE_TREE = frozenset({".git", ".claude-plugin", "node_modules", "package.json", "go.mod", "pyproject.toml", "Cargo.toml"})
 PATH_TOKEN = re.compile(r"\S*/\S*")
 ASK_QUOTE = 120
 ROUND_PICKS = [{"id": "right", "label": "Right", "recommended": True}, {"id": "some-wrong", "label": "Some wrong", "hint": "add a note naming the lines"}]
@@ -721,9 +723,20 @@ def default_files(loaded: Register, plan: Path | None) -> list[Path]:
         files += sorted((package / "designs").glob("*/design.md"))
     if corpus := (loaded.rows.get(CORPUS_KEY) or {}).get("path"):
         files.append(Path(corpus))
-    if loaded.state.is_dir():
-        files += sorted(path for path in loaded.state.rglob("*.md") if any("brief" in part for part in path.relative_to(loaded.state).parts))
-    return list(dict.fromkeys(files))
+    return list(dict.fromkeys([*files, *briefs(loaded.state)]))
+
+
+def briefs(state: Path) -> list[Path]:
+    found = []
+    for here, dirs, names in os.walk(state):
+        if SOURCE_TREE & {*dirs, *names}:
+            dirs.clear()
+            continue
+        parts = Path(here).relative_to(state).parts
+        if len(parts) == BRIEF_DEPTH:
+            dirs.clear()
+        found += [Path(here, name) for name in names if name.endswith(".md") and any("brief" in part for part in (*parts, name))]
+    return sorted(found)
 
 
 def step_bounds(lines: list[str], step: str) -> tuple[int, int] | None:
@@ -1222,7 +1235,7 @@ def post_repeat(loaded: Register, cci: str, key: str, hits: list[str]) -> None:
     loaded.shell.run(argv)
 
 
-def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict], entry: dict) -> dict:
+def applied(loaded: Register, captured: dict[str, dict], entry: dict, files: Callable[[], list[Path]]) -> dict:
     item = entry["digest"]
     capture = captured[item]
     if "no" in entry:
@@ -1281,7 +1294,8 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
         loaded.write(key, **fields)
         if supersedes:
             superseded(loaded, supersedes, key)
-    hits = Sweeper(loaded, {key: loaded.rows[key]}).files(default_files(loaded, loaded.plan(args.plan)))
+    sweeper = Sweeper(loaded, {key: loaded.rows[key]})
+    hits = sweeper.files(files()) if sweeper.wanted else []
     cards = write_cards(loaded, key, entry.get("confirms") or [])
     row = loaded.rows[key]
     return {
@@ -1303,6 +1317,13 @@ def applied(loaded: Register, args: argparse.Namespace, captured: dict[str, dict
     }
 
 
+def classifiable(loaded: Register, args: argparse.Namespace) -> dict[str, dict]:
+    if not args.answer:
+        return captures(loaded.state)
+    sourced = answer_capture(loaded, args.answer)
+    return {sourced["digest"]: sourced}
+
+
 def answer_capture(loaded: Register, identity: str) -> dict:
     answer = ccn(loaded.shell, loaded.repo, "answer", "show", identity)
     if not OWNER_SOURCES & set(answer.get("tags") or []):
@@ -1311,19 +1332,20 @@ def answer_capture(loaded: Register, identity: str) -> dict:
 
 
 def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    loaded = Register.load(args, shell)
-    sourced = answer_capture(loaded, args.answer) if args.answer else None
-    captured = {sourced["digest"]: sourced} if sourced else captures(loaded.state)
     if not args.files:
+        loaded = Register.load(args, shell)
         done = set(loaded.classified())
-        for item, capture in captured.items():
+        for item, capture in classifiable(loaded, args).items():
             if item not in done:
                 print(json.dumps(capture, ensure_ascii=False))
         return 0
     entries = [entry for path in args.files for entry in classifications(Path(path))]
-    if sourced:
-        entries = [{"answer": [sourced["answer"]]} | entry | {"digest": sourced["digest"]} for entry in entries]
     with writing(args, shell) as loaded:
+        captured = classifiable(loaded, args)
+        if args.answer:
+            [sourced] = captured.values()
+            entries = [{"answer": [sourced["answer"]]} | entry | {"digest": sourced["digest"]} for entry in entries]
+        files = cache(lambda: default_files(loaded, loaded.plan(args.plan)))
         batch = Batch()
         if refused := [line for entry in entries for line in refusals(loaded, captured, entry, batch)]:
             print("\n".join(refused))
@@ -1331,7 +1353,7 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
         touched_rows: dict[str, str] = {}
         repeats: dict[str, list[str]] = {}
         for entry in entries:
-            result = applied(loaded, args, captured, entry)
+            result = applied(loaded, captured, entry, files)
             print(json.dumps(result, ensure_ascii=False))
             if "key" in result:
                 touched_rows.setdefault(result["key"], result["how"])
