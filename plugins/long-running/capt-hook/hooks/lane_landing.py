@@ -6,7 +6,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, on
+from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, TranscriptFixture, on
+from captain_hook.annotations import session_annotations
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, bus_name, drive_entry, script, script_module
@@ -40,6 +41,10 @@ DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6", "CLAUDE_CONFIG_DIR": str(F
 ACTIVE = [CompactionState(active=True)]
 LANE = "alane-a-0123456789abcdef"
 DESK = "alanding-desk-0123456789abcdef"
+NOT_AN_INCIDENT = "none"
+INCIDENT_BRIEF = TranscriptFixture([{"type": "user", "message": {"role": "user", "content": "ccx: incident=deadline-sweep\nFix the deadline sweep."}}])
+NON_INCIDENT_BRIEF = TranscriptFixture([{"type": "user", "message": {"role": "user", "content": "ccx: incident=none\nFix the ledger."}}])
+PINNED_MERGE = "gh pr merge 44717 --squash --match-head-commit 0123456789abcdef0123456789abcdef01234567"
 ENQUEUE = "~/monorepo/.agents/skills/submit-pr/scripts/stack-enqueue 36023 --hold 30082"
 REFUSAL = (
     "Lanes never enqueue: the landing desk is the only enqueuer, so lane `{lane}` may not run `{verb}`. "
@@ -132,6 +137,10 @@ def lane_name(evt: BaseHookEvent) -> str | None:
             return match["name"]
         return nearest_name(evt) or reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") or ""
     return reqenv.getenv("CLAUDE_LONG_RUNNING_LANE")
+
+
+def incident_lane(evt: BaseHookEvent, lane: str) -> bool:
+    return bool(INCIDENT_NAME.match(lane)) or bool(lane) and session_annotations(evt).get("incident") not in (None, NOT_AN_INCIDENT)
 
 
 def named_repo(call: Call) -> str | None:
@@ -272,6 +281,9 @@ def landing_verb(call: Call) -> str | None:
         Input(command="stack-enqueue 36050 --fast", agent_id="asand-5a-fix-0123456789abcdef", state=ACTIVE): Block(pattern=r"lane `sand-5a-fix` may not run `stack-enqueue`"),
         Input(command="gh pr edit 36050 --add-label merge-fast", agent_id="asand-5a-fix-0123456789abcdef", state=ACTIVE): Block(pattern=r"lane `sand-5a-fix` may not run `gh pr edit --add-label`"),
         Input(command="gh pr merge 36050 --squash", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Allow(),
+        Input(command=PINNED_MERGE, agent_id=LANE, state=ACTIVE, transcript=INCIDENT_BRIEF): Allow(),
+        Input(command=PINNED_MERGE, agent_id=LANE, state=ACTIVE, transcript=NON_INCIDENT_BRIEF): Block(pattern=r"lane `lane-a` may not run `gh pr merge`"),
+        Input(command="stack-enqueue 44717", agent_id=LANE, state=ACTIVE, transcript=INCIDENT_BRIEF): Block(pattern=r"^Incident fixes land by plain squash"),
         Input(command=ENQUEUE, state=ACTIVE): Allow(),
         Input(command=ENQUEUE, agent_id=LANE): Allow(),
         Input(command="stack-enqueue 36023 --check --hold 30082", agent_id=LANE, state=ACTIVE): Allow(),
@@ -294,8 +306,11 @@ def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
     if evt.agent_id and not reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") and not CompactionState.load(evt).active:
         return None
     entry = drive_entry(evt)
-    incident = bool(INCIDENT_NAME.match(lane))
-    verb = next((verb for call in evt.cmd.calls() if (verb := landing_verb(call)) and (verb in ENQUEUERS or not incident) and (verb == "mq.py enqueue" or not outside_drive_repo(evt, call, entry))), None)
+    verbs = [verb for call in evt.cmd.calls() if (verb := landing_verb(call)) and (verb == "mq.py enqueue" or not outside_drive_repo(evt, call, entry))]
+    if not verbs:
+        return None
+    incident = incident_lane(evt, lane)
+    verb = next((verb for verb in verbs if verb in ENQUEUERS or not incident), None)
     if verb and incident:
         return evt.block(INCIDENT_REFUSAL.format(lane=lane))
     return evt.block(REFUSAL.format(lane=lane or "unnamed", verb=verb)) if verb else None
@@ -395,13 +410,12 @@ def merge_causes(call: Call, entry: dict, cwd: str, incident: bool) -> tuple[str
 def rulings_at_merge(evt: BaseHookEvent) -> HookResult | None:
     if (entry := drive_entry(evt)) is None:
         return None
+    merges = [call for call in evt.cmd.calls() if landing_verb(call) == "gh pr merge" and not outside_drive_repo(evt, call, entry)]
+    if not merges:
+        return None
     lane = lane_name(evt) or ""
-    incident = bool(INCIDENT_NAME.match(lane))
-    found = [
-        checked
-        for call in evt.cmd.calls()
-        if landing_verb(call) == "gh pr merge" and not outside_drive_repo(evt, call, entry) and (checked := merge_causes(call, entry, str(call.cwd or evt.cwd), incident))
-    ]
+    incident = incident_lane(evt, lane)
+    found = [checked for call in merges if (checked := merge_causes(call, entry, str(call.cwd or evt.cwd), incident))]
     if incident and found:
         return evt.block("\n".join(INCIDENT_RULINGS_REFUSAL.format(pr=pr, head=head, lane=lane, causes=causes) for pr, head, causes in found))
     advice = [RULINGS_ADVICE.format(causes=causes, pr=pr, head=head) for pr, head, causes in found]

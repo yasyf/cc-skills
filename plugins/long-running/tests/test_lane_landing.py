@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from captain_hook.events import PreToolUseEvent
-from captain_hook.testing.helpers import build_context
+from captain_hook.testing.helpers import build_context, fixture_session
 from captain_hook.types import Action
 
 from fire import fire
@@ -30,7 +30,7 @@ def run(tmp_path: Path, agent_id: str, command: str = ENQUEUE, *, active: bool =
     lane = tmp_path / SESSION / "subagents" / f"agent-{agent_id}.jsonl"
     raw = {"session_id": SESSION, "transcript_path": str(transcript), "tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(tmp_path), "agent_id": agent_id}
     state = tmp_path / "state"
-    evt = PreToolUseEvent(_raw=raw, ctx=build_context(None, lane, tmp_path, state))
+    evt = PreToolUseEvent(_raw=raw, ctx=build_context(fixture_session([], path=lane), None, tmp_path, state))
     CompactionState(active=active).save(evt)
     return [result.message for result in fire(lane_landing, evt)]
 
@@ -133,7 +133,7 @@ def merge_results(tmp_path: Path, command: str, agent_id: str | None = None) -> 
     if agent_id:
         raw["agent_id"] = agent_id
         lane = tmp_path / SESSION / "subagents" / f"agent-{agent_id}.jsonl"
-    evt = PreToolUseEvent(_raw=raw, ctx=build_context(None, lane, tmp_path, tmp_path / "state"))
+    evt = PreToolUseEvent(_raw=raw, ctx=build_context(fixture_session([], path=lane), None, tmp_path, tmp_path / "state"))
     return [result for result in fire(lane_landing, evt) if result.message]
 
 
