@@ -253,14 +253,23 @@ async function ask(question) {
   }
 }
 
-function route() {
-  const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+function route(hash = location.hash) {
+  const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
   return { screen: parts[0] ?? 'overview', id: parts[1], tab: parts[2] };
+}
+function prOpen(r = route()) {
+  return r.screen === 'review' && /^\d+$/.test(r.id ?? '');
+}
+function pageRoute() {
+  const r = route();
+  return prOpen(r) ? route(history.state?.under ?? state.under ?? '#/review') : r;
 }
 function render() {
   const m = state.model;
   if (!m || !m.prs) return;
   const r = route();
+  if (!prOpen(r) && r.screen !== 'jump') state.under = location.hash || '#/';
+  const p = pageRoute();
   if (state.overlay && !history.state?.sheet) history.pushState({ ...history.state, sheet: true }, '');
   document.title = m.title;
   $('.brand').textContent = m.title;
@@ -270,11 +279,13 @@ function render() {
   const caret = typing && [typing.name, typing.dataset.draft ?? '', typing.selectionStart, typing.selectionEnd];
   const spotRoot = [$('#main'), $('#tabs')].find((el) => el.contains(document.activeElement));
   const spot = !typing && state.shown === location.hash && spotRoot && focusSpot(spotRoot);
-  $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${r.screen === id || (id === 'overview' && r.screen === 'story') ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="count">${count}</span>` : ''}</a>`).join('');
-  const screens = { overview: nowScreen, story: nowScreen, plan: () => planScreen(r.id), work: () => workScreen(r.id && decodeURIComponent(r.id)), review: () => (/^\d+$/.test(r.id ?? '') ? reviewPR(r.id, r.tab) : reviewScreen(r.id ?? '')), history: () => historyScreen(r.id), ask: askScreen, status: statusScreen, jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>`, worker: () => workerScreen(decodeURIComponent(r.id ?? '')) };
+  $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${p.screen === id || (id === 'overview' && p.screen === 'story') ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="count">${count}</span>` : ''}</a>`).join('');
+  const screens = { overview: nowScreen, story: nowScreen, plan: () => planScreen(p.id), work: () => workScreen(p.id && decodeURIComponent(p.id)), review: () => reviewScreen(p.id ?? ''), history: () => historyScreen(p.id), ask: askScreen, status: statusScreen, jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>`, worker: () => workerScreen(decodeURIComponent(p.id ?? '')) };
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
-  $('#main').innerHTML = (screens[r.screen] ?? nowScreen)() + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources failed: ${esc(Object.values(m.errors).join('; '))}. ` : ''}All times Pacific.</div>`;
+  const hadDrawer = Boolean($('#main .pr-drawer'));
+  $('#main').innerHTML = (screens[p.screen] ?? nowScreen)() + (prOpen(r) ? prDrawer(r) : '') + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources failed: ${esc(Object.values(m.errors).join('; '))}. ` : ''}All times Pacific.</div>`;
+  if (!hadDrawer) $('#main .pr-drawer')?.classList.add('in');
   decorate(r);
   holdPeek();
   paintModal();
@@ -289,16 +300,46 @@ function render() {
   window.scrollTo(0, y);
   for (const [id, left, top] of kept) { const el = document.querySelector(`[data-keep-scroll="${id}"]`); if (el) [el.scrollLeft, el.scrollTop] = [left, top]; }
   syncReviewEmbed(r);
-  syncCardEmbed(r);
-  if (r.screen === 'review' && r.id === 'q' && state.focused !== location.hash) {
+  placeEmbed();
+  syncCardEmbed(p);
+  if (p.screen === 'review' && p.id === 'q' && state.focused !== location.hash) {
     state.focused = location.hash;
     (r.tab ? document.getElementById(`card-${decodeURIComponent(r.tab)}`) : document.getElementById('review-questions'))?.scrollIntoView({ block: r.tab ? 'center' : 'start' });
   }
-  if ((screens[r.screen] ?? nowScreen) === nowScreen) mountNow();
-  else if (r.screen === 'work' && r.id) follow(decodeURIComponent(r.id));
+  if ((screens[p.screen] ?? nowScreen) === nowScreen) mountNow();
+  else if (p.screen === 'work' && p.id) follow(decodeURIComponent(p.id));
   else unfollow();
   tickFresh();
 }
+function prDrawer(r) {
+  const tone = verdictState(boardRow(r.id) ?? {}) === 'you' ? ' you' : '';
+  return `<div class="pr-scrim" data-drawer-close></div><aside class="pr-drawer${tone}" role="dialog" aria-label="${esc(prTitle(r.id))}" data-keep-scroll="pr-${esc(r.id)}-${esc(r.tab ?? '')}"><div class="pr-xbar"><button class="btn pr-x" data-drawer-close>Close <kbd>Esc</kbd></button></div>${reviewPR(r.id, r.tab)}</aside>`;
+}
+function swapDrawer(hash) {
+  history.replaceState(history.state, '', hash);
+  render();
+}
+function closeDrawer() {
+  const depth = history.state?.drawer;
+  if (depth) history.go(-depth);
+  else location.replace(history.state?.under ?? state.under ?? '#/review');
+}
+function placeEmbed() {
+  const tabs = $('#main .pr-drawer .review-tabs');
+  if (tabs) $('#embed').style.setProperty('--code-top', `${Math.max(64, tabs.getBoundingClientRect().bottom + 10)}px`);
+}
+document.addEventListener('scroll', (e) => { if (e.target.classList?.contains('pr-drawer')) placeEmbed(); }, true);
+window.addEventListener('resize', placeEmbed);
+document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-drawer-close]')) {
+    e.preventDefault();
+    return closeDrawer();
+  }
+  const link = e.target.closest('.pr-drawer a[href^="#/review/"]');
+  if (!link || e.metaKey || e.ctrlKey || e.shiftKey || !prOpen(route(link.getAttribute('href')))) return;
+  e.preventDefault();
+  swapDrawer(link.getAttribute('href'));
+});
 const FOCUSABLE = 'a[href], button, summary, input, select, textarea, [tabindex]';
 function signature(el) {
   return [...el.attributes].filter((a) => a.name !== 'class').map((a) => `${a.name}=${a.value}`).join(' ');
@@ -405,6 +446,7 @@ function leave(to) {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && state.overlay) closeSheet();
   else if (e.key === 'Escape' && ov.embedCard) { ov.embedCard = null; render(); }
+  else if (e.key === 'Escape' && prOpen()) closeDrawer();
   else if (e.key === 'Escape' && route().screen === 'story') leave('#/');
   else if (e.key === 'Escape' && route().screen === 'work' && route().id) leave('#/work');
   if (e.key === 'Enter' && !e.shiftKey && e.target.matches('#ask textarea')) { e.preventDefault(); ask(e.target.value); }
@@ -468,13 +510,17 @@ function focusOpener() {
   const href = state.opener?.getAttribute('href');
   (state.opener?.isConnected ? state.opener : href && document.querySelector(`#main a[href="${CSS.escape(href)}"]`))?.focus();
 }
-window.addEventListener('hashchange', () => {
+window.addEventListener('hashchange', (e) => {
+  const from = new URL(e.oldURL).hash;
+  if (location.hash === '#/jump' && history.state && prOpen(route(from))) return history.back();
   const returning = history.state?.y !== undefined;
-  if (!history.state) history.replaceState({ inApp: true }, '');
+  const opening = !history.state && prOpen();
+  if (!history.state) history.replaceState({ inApp: true, ...(opening && { under: state.under, drawer: state.under ? (from === '#/jump' ? 2 : 1) : 0 }) }, '');
   state.overlay = null;
   render();
-  if (!/^#\/review\/q(\/|$)/.test(location.hash)) window.scrollTo(0, history.state?.y ?? 0);
-  if (history.state?.spot) refocus(history.state.spot);
+  if (!/^#\/review\/q(\/|$)/.test(location.hash) && !prOpen()) window.scrollTo(0, history.state?.y ?? 0);
+  if (opening) $('#main .pr-drawer .pr-x')?.focus({ preventScroll: true });
+  else if (history.state?.spot) refocus(history.state.spot);
   else if (history.state?.sheet && state.opener) focusOpener();
   else if (returning) focusInView();
 });

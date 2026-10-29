@@ -340,7 +340,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'p' && !state.overlay) location.hash = '#/plan';
   else if (e.key === 'Enter' && e.target.dataset?.track !== undefined) location.hash = `#/plan/${encodeURIComponent(e.target.dataset.track)}`;
 });
-window.addEventListener('resize', () => { if (route().screen === 'overview' && state.model) mountOverview(); });
+window.addEventListener('resize', () => { if (pageRoute().screen === 'overview' && state.model) mountOverview(); });
 Object.assign(window, { showOnly, tally });
 document.addEventListener('pointerdown', (e) => {
   if (!e.target.closest('.ck .machine, .ck .gauge')) return;

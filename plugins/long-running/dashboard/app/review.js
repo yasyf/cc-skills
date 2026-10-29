@@ -131,7 +131,7 @@ async function decide(row, verdict, note, advance = true) {
   pending.number = null;
   const next = verdict === 'cleared' || !advance ? null : state.model.board.rows.find((r) => r.number !== row.number && verdictState(r) === 'you');
   const from = location.hash;
-  if (next) pending.advance = setTimeout(() => { if (location.hash === from) location.hash = `#/review/${next.number}`; }, 300);
+  if (next) pending.advance = setTimeout(() => { if (location.hash === from) swapDrawer(`#/review/${next.number}`); }, 300);
   tapped({ seq: out.seq, block: row.block, number: row.number, head: row.head, verdict: verdict === 'cleared' ? null : { verdict, head: row.head, note, at: new Date().toISOString() }, state: verdict === 'cleared' ? 'you' : verdict === 'approved' ? 'approved' : 'held' });
 }
 function onDecide(e) {
@@ -177,14 +177,14 @@ document.addEventListener('keydown', (e) => {
   const key = e.key.toLowerCase();
   const rows = state.model.board.rows.filter((x) => x.group === row.group);
   const index = rows.indexOf(row);
-  const go = (to) => to && (location.hash = `#/review/${to.number}`);
+  const go = (to) => to && swapDrawer(`#/review/${to.number}`);
   if (key === 'a' && verdictState(row) === 'you') decide(row, 'approved');
   else if (key === 'h' && verdictState(row) === 'you') { Object.assign(pending, { number: row.number, holding: true, error: '' }); render(); }
   else if (key === 'j') go(rows[index + 1]);
   else if (key === 'k') go(rows[index - 1]);
   else if (key === 'n') go(state.model.board.rows.find((x) => x.number !== row.number && verdictState(x) === 'you'));
-  else if (key === 'c') location.hash = `#/review/${row.number}${r.tab === 'code' ? '' : '/code'}`;
-  else if (key === 'o') $('#main [data-key="o"]').click();
+  else if (key === 'c') swapDrawer(`#/review/${row.number}${r.tab === 'code' ? '' : '/code'}`);
+  else if (key === 'o') $('#main .pr-drawer [data-key="o"]').click();
   else return;
   e.preventDefault();
 });
@@ -280,7 +280,7 @@ document.addEventListener('submit', async (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key.toLowerCase() !== 'f' || e.metaKey || e.ctrlKey || e.altKey || e.target.closest('input, textarea, select, [contenteditable]') || route().screen !== 'review' || state.overlay) return;
-  const input = $(`#main .mr[data-peek="${peek.n}"] [data-change] input`) ?? document.activeElement.closest?.('.mr')?.querySelector('[data-change] input') ?? $('#main [data-change] input');
+  const input = $('#main .pr-drawer [data-change] input') ?? $(`#main .mr[data-peek="${peek.n}"] [data-change] input`) ?? document.activeElement.closest?.('.mr')?.querySelector('[data-change] input') ?? $('#main [data-change] input');
   if (!input) return;
   e.preventDefault();
   input.focus();
