@@ -167,19 +167,8 @@ h2.sec a { margin-left: auto; font: 600 13px var(--sans); }
 #cardembed { bottom: auto; max-height: calc(100vh - 84px); }
 @media (max-width: 1420px) { .top { gap: 12px; } #kbtn { width: auto; min-width: 0; } #kbtn > span { display: none; } }
 body:has(#pal:not([hidden])) .foot { display: none; }
-#modal-root .ms-sheet { max-width: 760px; }
-#modal-root .ms-sheet .pg-back { display: none; }
-#modal-root .ms-sheet .pg-page { padding: 0; }
-#modal-root .ms-out { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
-#modal-root .overlay.enter { animation: modal-fade .14s ease-out; }
-#modal-root .overlay.enter .sheet { animation: modal-rise .18s ease-out; }
-body.modal-open { overflow: hidden; }
-@keyframes modal-fade { from { opacity: 0; } }
-@keyframes modal-rise { from { opacity: 0; transform: translateY(8px); } }
-@media (prefers-reduced-motion: reduce) { #modal-root .overlay, #modal-root .sheet { animation: none; } }
 
 :root { --lift: linear-gradient(180deg, rgba(255, 255, 255, .03), rgba(255, 255, 255, 0) 140px); --depth: inset 0 1px 0 rgba(255, 255, 255, .04), 0 14px 34px -20px rgba(0, 0, 0, .8); }
-:is(.pg-table, .pg-list, .pg-facts, .pr-facts, .nw-panel, .nw-chart, .nw-cards .blk, .nw-work, .nw-calm) { background-image: var(--lift); box-shadow: var(--depth); }
+:is(.pg-table, .pg-list, .pg-facts, .pr-facts, .nw-panel, .nw-work, .nw-calm) { background-image: var(--lift); box-shadow: var(--depth); }
 .tab { transition: color .15s, border-color .15s; }
 .tab.on { background: linear-gradient(180deg, transparent 55%, rgba(90, 169, 255, .09)); }
-#modal-root .overlay { backdrop-filter: blur(6px) saturate(120%); }
