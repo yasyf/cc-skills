@@ -545,6 +545,7 @@ import drive
 import finder
 import ghread
 import holds
+import incident
 import inboxes
 import lanes
 import merge_queue
@@ -778,6 +779,7 @@ INCIDENT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9_.-]*) (?P<link>\S+) repo
 INCIDENT_BAR = timedelta(minutes=20)
 ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
 UNFIXED_TEMPLATE = SCRIPTS.parent / "reference" / "unfixed-case-brief.md"
+BRIEF_FILES = (MANUAL_TEMPLATE, ALERT_TEMPLATE, UNFIXED_TEMPLATE, finder.TEMPLATE, finder.ROWS_STEP, incident.TEMPLATE)
 SLICE_LINE = "Register slice:"
 SLICE_HEADER = re.compile(rf"^{SLICE_LINE}", re.MULTILINE)
 INCIDENT_STEP = "incident"
@@ -1815,7 +1817,10 @@ class Runner:
             return holder
 
     def handoff(self, desk: str) -> int:
-        """Stop the runner holding `desk`'s lock at the end of its pass, wait until it has exited, then start its successor; refuse, naming its pid, when it still runs after HANDOFF_WAIT (#140225)."""
+        """Stop the runner holding `desk`'s lock at the end of its pass, wait until it has exited, then start its successor; refuse, naming its pid, when it still runs after HANDOFF_WAIT (#140225). Refuse before stopping anything when the install lacks a brief the runner, finder, or incident job reads."""
+        if missing := [path.name for path in BRIEF_FILES if not path.exists()]:
+            print(f"desk-runner handoff: this install lacks {', '.join(missing)}, so no runner was stopped; reinstall the plugin and hand off again", file=sys.stderr)
+            return 1
         pid = self.desk_holder(desk)
         if pid is not None:
             marker = self.stop_marker()
