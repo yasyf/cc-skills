@@ -5408,6 +5408,20 @@ def test_mq_enqueue_refuses_a_head_the_gate_does_not_pass_and_enqueues_nothing(s
     assert shell.enqueues() == []
 
 
+def test_mq_enqueue_refuses_a_pr_an_open_hold_record_names_as_held_though_landing_checks_omits_hold_until_the_root_resolves_it(shell, config, capsys):
+    raw = json.loads(config.read_text())
+    raw["landing"]["checks"] = [name for name in runner_module.merge_queue.CHECKS if name != "hold"]
+    config.write_text(json.dumps(raw))
+    two_pr_stack(shell)
+    hold_record(shell, 41, 29020, "open", "2026-09-01T17:59:00Z")
+    assert mq(shell, config, "enqueue", "29031") == 1
+    assert capsys.readouterr().out.splitlines() == ["#29020 cccc333333 hold fail open cci hold #41", "HELD: #29020 held as named above; the hand enqueue puts nothing in the queue until each hold clears, an open cci hold record by the root's `--resolves`"]
+    assert shell.enqueues() == []
+    next(record for record in shell.records if record["seq"] == 41)["status"] = "closed"
+    assert mq(shell, config, "enqueue", "29031") == 0
+    assert [call[1:] for call in shell.enqueues()] == [["29031", "--whole"]]
+
+
 def test_mq_enqueue_refuses_a_go_named_head_the_owner_never_tapped_with_the_runners_tap_reason(shell, config, capsys):
     merge_mode(config, "every")
     raw = json.loads(config.read_text())

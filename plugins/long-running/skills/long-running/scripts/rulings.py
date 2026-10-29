@@ -255,6 +255,9 @@ TEST_DEFINITION = re.compile(
 FINDER = re.compile(r"^finder: (?P<verdict>\S+) (?P<head>[0-9a-f]{7,40})\b")
 TOUCHES = re.compile(r"\btouches ((?:rule|prompt|design|exception|reserved)/\S+)")
 READBACK_GRADE = re.compile(r"^readback: (?P<verdict>ok|missing) (?:[0-9a-f]{7,40} )?(?P<lane>\S+)(?: (?P<rest>.*))?$", re.DOTALL)
+READBACK_SAID = re.compile(r"^read-back (?P<lane>\S+): (?P<verdict>ok|missing)\b[.:,;]?(?:\s+(?P<rest>.*))?$", re.DOTALL)
+READBACK_KINDS = ("review", "answer")
+READBACK_FLAGS = ("--kind", "review", "--kind", "answer")
 CHECK_PR_ORDER = ("RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS")
 OWNER_QUOTED = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”")
 PARENTHESIZED = re.compile(r"\([^()\n]*\)")
@@ -1606,7 +1609,7 @@ def unaccepted(loaded: Register, lane: str, reviews: list[dict]) -> str | None:
     graded = [
         (record, found)
         for record in reviews
-        if record.get("kind") == "review" and record.get("lane") in desks and (found := READBACK_GRADE.match(record.get("text") or "")) and found["lane"] == lane
+        if record.get("kind") in READBACK_KINDS and record.get("lane") in desks and (found := READBACK_GRADE.match(text := record.get("text") or "") or READBACK_SAID.match(text)) and found["lane"] == lane
     ]
     if not graded:
         return "no fidelity desk has graded a read-back"
@@ -1621,7 +1624,7 @@ def cmd_accepted(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if not (entry := entry_of(args)):
         raise SystemExit(f"no drive runs program {loaded.program}; accepted reads the lane's read-back from its cci drive")
     cci = drive.cci_drive(entry)
-    if why := unaccepted(loaded, args.lane, pr_records(shell, cci, "--kind", "review")):
+    if why := unaccepted(loaded, args.lane, pr_records(shell, cci, *READBACK_FLAGS)):
         print(f"CONTRACT-MISSING {args.lane}: {why}")
         return 1
     print(f"accepted {args.lane}")
@@ -2235,7 +2238,7 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
         return
     if not (lane := lane_of(records)):
         findings.blockers.append(f"BLOCKER no cci record names the lane of {head.repo}#{head.number}")
-    elif (reviews := findings.read("the read-back reviews", lambda: pr_records(loaded.shell, cci, "--kind", "review"))) is not None:
+    elif (reviews := findings.read("the read-back reviews", lambda: pr_records(loaded.shell, cci, *READBACK_FLAGS))) is not None:
         why = findings.read(f"the read-back of {lane}", lambda: unaccepted(loaded, lane, reviews))
         if why:
             findings.refusals.append(f"CONTRACT-MISSING {lane}: {why}")

@@ -171,7 +171,8 @@ match a chunk the desk already graded is not re-read before a push; its earlier 
   against the slice the lane's brief carries; with none there either, readback
   prints `READBACK-NO-SLICE` and the `--step` command the root runs, which writes
   the slice into the brief named for the lane. Accept with `readback: ok <lane> <slice-hash>`, or
-  return `readback: missing <lane> <key> <one line>`. The runner refuses the lane's
+  return `readback: missing <lane> <key> <one line>`, as a `review` or an `answer` record; a grade
+  that opens `read-back <lane>: ok` or `read-back <lane>: missing` counts the same. The runner refuses the lane's
   READY, its first PR, and its first new branch until one is accepted. A grade stands
   until a desk posts a newer one: rows added to the register never void it or
   hold a READY PR, and the lane reads them back in its next PR (4236611). The request

@@ -257,7 +257,7 @@ prefixes under the accepted landing policy, verifies landings by squash, and rou
 blockers and restacks. Every queue call goes through the repository adapter `landing.adapter` names, from `merge_queue.py`:
 `graphite-stack-enqueue` runs the script `landing.adapter.script` names under the landing checkout, and `label` runs
 `ledger.py label`; the landing desk refuses to start with `MQ-CONFIG-INVALID` on an adapter, a check, or a high-risk setting it cannot run.
-Each prefix passes the check registry, `landing.checks` in order, every built-in when it names none: `hold`, `precondition`,
+Each prefix passes the check registry, `landing.checks` in order, every built-in when it names none, and `hold` first whether it names it or not: `hold`, `precondition`,
 `rules-review`, `rulings`, `fidelity`, `finder`, and `merge-mode` are the desk's own, and `approvals` and `required-ci` are the adapter's verdict;
 `old-app` and `build-failed` run only when `landing.checks` names them. Trees gate in
 `(priority, root PR)` order, a tree's priority the lowest ledger `priority` among its PRs, and accepted enqueues run one parallel
@@ -5706,8 +5706,8 @@ class Landing:
 
     @property
     def checks(self) -> list[str]:
-        """The check registry in the order `landing.checks` names it, every built-in when it names none; re-read on every use."""
-        return list(self.landing_config.get("checks", merge_queue.CHECKS))
+        """The check registry in the order `landing.checks` names it, every built-in when it names none, with the `hold` check first whether it names it or not, so no enqueue path skips an open hold; re-read on every use."""
+        return [*HOLD_CHECKS, *(name for name in self.landing_config.get("checks", merge_queue.CHECKS) if name not in HOLD_CHECKS)]
 
     def failing(self, stage: tuple[str, ...], graded: Graded) -> tuple[str, dict[str, merge_queue.State]] | None:
         """The first configured check of `stage` that does not pass every head, with each head's state; a refusing check posts its own blocker or ask when `graded.act`. The merge-mode check runs first, so a head's merge card is asked before the slower checks run, and its verdict still counts in its configured place."""
@@ -6472,7 +6472,7 @@ class Landing:
         outcome, out, last = self.enqueue_chains(tops, enqueued_heads(key), self.whole())
         if outcome in BELIEVED_QUEUED:
             self.moved_in_queue(enqueued_heads(key))
-        if outcome in BELIEVED_QUEUED and "hold" in self.checks and (late := self.holding(prefix, rows, accepted_at)):
+        if outcome in BELIEVED_QUEUED and (late := self.holding(prefix, rows, accepted_at)):
             outcome, out = self.dequeue(key, prefix, rows, late)
         self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": out, "drive": self.runner.config.drive, "at": self.book.stamp()}))
         if outcome in BELIEVED_QUEUED:
@@ -7183,7 +7183,9 @@ class Landing:
 
     def hand_enqueue(self, prs: list[str], partial: bool) -> tuple[bool, list[str]]:
         """Enqueue `prs` by hand only when `hand_enqueue_gate` passes every head the queue would take, then name each head the queue took that moved since (root #144463, #145481). Returns whether the queue took them, and the lines to print."""
-        heads, refused = self.hand_enqueue_gate(prs, partial)
+        heads, refused, held = self.hand_enqueue_gate(prs, partial)
+        if held:
+            return False, [*refused, f"HELD: {numbered(held)} held as named above; the hand enqueue puts nothing in the queue until each hold clears, an open cci hold record by the root's `--resolves`"]
         if refused:
             return False, [*refused, "REFUSED: a check above does not pass a head this enqueue puts in the queue"]
         self.read_only = False
@@ -7192,8 +7194,8 @@ class Landing:
             return False, [f"ENQUEUE-{outcome.upper()}: {last}"]
         return True, [f"{outcome} {numbered(sorted(heads, key=int))} at " + " ".join(f"#{pr} {sha[:10]}" for pr, sha in heads.items()), *self.moved_in_queue(heads)]
 
-    def hand_enqueue_gate(self, prs: list[str], partial: bool) -> tuple[dict[str, str], list[str]]:
-        """The heads a hand `stack-enqueue` of `prs` puts in the queue, read at GitHub's current head, and one line per hold or enqueue check that does not pass one, graded as this desk grades its own enqueue, posting and escalating nothing: each named PR and the open rows below it, and without `partial` every open row stacked beside or above them."""
+    def hand_enqueue_gate(self, prs: list[str], partial: bool) -> tuple[dict[str, str], list[str], list[str]]:
+        """The heads a hand `stack-enqueue` of `prs` puts in the queue, read at GitHub's current head, one line per hold or enqueue check that does not pass one, graded as this desk grades its own enqueue, posting and escalating nothing, and the PRs the `hold` check holds: each named PR and the open rows below it, and without `partial` every open row stacked beside or above them."""
         self.read_only = True
         rows = self.rows() or {}
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
@@ -7201,13 +7203,8 @@ class Landing:
         taken = below if partial else {pr for pr in open_rows if downstack(open_rows, pr) & below}
         heads = {pr: self.current_head(pr) or open_rows[pr].get("head", "") for pr in sorted(taken, key=int)}
         graded = Graded(heads, rows, self.runner.now(), act=False)
-        return heads, [
-            f"#{pr} {heads[pr][:10]} {name} {state.state} {state.reason}".rstrip()
-            for name in self.checks
-            if name in HOLD_CHECKS + ENQUEUE_CHECKS
-            for pr, state in self.check(name, graded).items()
-            if state.state != merge_queue.PASS
-        ]
+        failed = [(name, pr, state) for name in self.checks if name in HOLD_CHECKS + ENQUEUE_CHECKS for pr, state in self.check(name, graded).items() if state.state != merge_queue.PASS]
+        return heads, [f"#{pr} {heads[pr][:10]} {name} {state.state} {state.reason}".rstrip() for name, pr, state in failed], [pr for name, pr, _ in failed if name in HOLD_CHECKS]
 
     def current_head(self, pr: str) -> str:
         done = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "headRefOid", "--jq", ".headRefOid"))
