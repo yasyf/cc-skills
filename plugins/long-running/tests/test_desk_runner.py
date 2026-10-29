@@ -5057,6 +5057,27 @@ def test_the_accept_checks_of_heads_no_go_names_run_in_parallel(shell, config, t
     assert not both.broken
 
 
+def test_independent_stacks_enqueue_concurrently_with_one_queued_report_each(shell, config, tmp_path, monkeypatch):
+    lone_green_pr(shell)
+    shell.rows.append({"pr": "29040", "lane": LANE, "branch": "b/1", "base": "dev", "head": "eeee555555", "state": "open", "reported_head": "eeee555555"})
+    shell.gates["29040"] = [gate("#29040 GREEN eeee555555 graphite READY", would="#29040")]
+    shell.enqueue_out["29040"] = (0, "enqueue #29040: {}\n")
+    for pr, sha in (("29020", "cccc333"), ("29040", "eeee555")):
+        grade(shell, pr, f"ok {sha}")
+    both = threading.Barrier(2, timeout=5)
+    chains = runner_module.Landing.enqueue_chains
+
+    def meets(self, tops, heads, whole):
+        both.wait()
+        return chains(self, tops, heads, whole)
+
+    monkeypatch.setattr(runner_module.Landing, "enqueue_chains", meets)
+    landing_pass(shell, config)
+    assert not both.broken
+    assert sorted(call[1:] for call in shell.enqueues()) == [["29020", "--partial"], ["29040", "--partial"]]
+    assert sorted(post["text"].split(" at ")[0] for post in shell.posts if post["kind"] == "report" and post["text"].startswith("QUEUED ")) == ["QUEUED #29020", "QUEUED #29040"]
+
+
 def test_heads_no_go_names_are_told_new_heads_first_within_the_pass_budget(shell, config, tmp_path, monkeypatch):
     monkeypatch.setattr(runner_module, "GATE_WORKERS", 1)
     two_pr_stack(shell)
@@ -6270,6 +6291,18 @@ def test_a_head_the_runner_refused_draws_no_go_unqueued(shell, config, tmp_path)
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert [post for post in blockers(shell) if "TEST-ONLY-MISMATCH" in post_body(post)] and unqueued(shell) == []
+
+
+def test_a_go_whose_newest_enqueue_shows_it_queued_draws_no_go_unqueued(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.queue["33001"] = "not queued"
+    shell.gates["33001"] = [gate("#33001 GREEN aaaa111111 graphite READY", would="#33001"), gate("#33001 QUEUED aaaa111111 graphite QUEUED_TO_MERGE nothing to enqueue: the queue already holds the whole stack", would="")]
+    landing_pass(shell, config)
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert unqueued(shell) == []
 
 
 def test_go_named_green_heads_out_of_the_queue_in_one_stack_draw_one_go_unqueued_naming_the_bottom(shell, config, tmp_path):
