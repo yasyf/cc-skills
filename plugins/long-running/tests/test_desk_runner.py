@@ -500,6 +500,8 @@ class FakeShell(runner_module.Shell):
             if (flags["--kind"], flags["--topic"]) == ("state", "landing-state"):
                 self.states.append({key.lstrip("-"): value for key, value in flags.items()})
                 return runner_module.Done(0, "#0\n", "")
+            if flags["--kind"] == "landed" and "--pr" not in flags:
+                return runner_module.Done(1, "", "cci: kind landed requires --pr")
             if stored := self.post_ids.get(flags.get("--id", "")):
                 return runner_module.Done(0, f"#{stored} (duplicate)\n", "")
             self.posts.append({key.lstrip("-"): value for key, value in flags.items()})
@@ -5176,6 +5178,8 @@ def test_a_landable_stack_the_gate_never_settles_goes_straight_to_the_queue_five
     assert [call[1:] for call in shell.enqueues()] == [["33001", "--partial"]]
     queued = [post["text"] for post in shell.posts if post["kind"] == "report" and post["text"].startswith("QUEUED #33001 at aaaa111111")]
     assert len(queued) == 1 and "overflow put it straight in the merge queue" in queued[0]
+    [action] = [action for action in enqueues_of(tmp_path).values() if f"#{runner_module.OVERFLOW}-" in action.action_id]
+    assert action.deadline
 
 
 def test_the_overflow_leaves_a_landable_stack_the_runner_refused_at_its_head(shell, config, tmp_path):
