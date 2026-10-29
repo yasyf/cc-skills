@@ -149,7 +149,7 @@ def test_a_diagram_only_companion_gives_its_titled_diagram():
     companion = "<!-- pr-reviewer bot companion -->\n\n### GitHub merge state gates untracked dev PRs\n\n```mermaid\nflowchart LR\n    CLI -->|\"enqueue\"| Queue\n```\n\n<sub>`7bed615`</sub>"
     summary = "<!-- pr-reviewer bot summary -->\n\n> [!TIP]\n> **No blocking findings**\n\n**Since [`7bed615`](x):** Adds a fallback.\n\nNo new findings at this head. The existing thread still applies.\n\n<details></details>"
     diagram = {"title": "GitHub merge state gates untracked dev PRs", "source": "flowchart LR\n    CLI -->|\"enqueue\"| Queue"}
-    assert bot_words([summary, companion]) == {"eli5": None, "diagram": diagram}
+    assert bot_words([summary, companion]) == {"eli5": None, "diagram": diagram, "summary": None}
 
 
 def test_an_eli5_companion_gives_its_prose_and_the_diagram_after_it():
@@ -161,3 +161,13 @@ def test_an_eli5_companion_gives_its_prose_and_the_diagram_after_it():
 def test_a_companion_section_that_is_not_a_diagram_gives_no_diagram():
     companion = "<!-- pr-reviewer bot companion -->\n<!-- ships-with -->\n### Ships with\n- `api`, `dashboard` ship in the same release\n<!-- /ships-with -->"
     assert bot_words([companion])["diagram"] is None
+
+
+def test_without_a_companion_the_summary_s_plain_lead_says_what_it_does():
+    summary = "<!-- pr-reviewer bot summary -->\n\n> [!TIP]\n> **No open findings**\n\nThe test fixtures now build their run ID the way production sends do.\n\n> [!WARNING]\n> callouts\n\n<details></details>"
+    assert bot_words([summary])["summary"] == "The test fixtures now build their run ID the way production sends do."
+
+
+def test_a_later_run_s_findings_lead_is_not_taken_for_what_it_does():
+    summary = "<!-- pr-reviewer bot summary -->\n\n> [!TIP]\n> **1 blocking**\n\n**Since [`606342b`](x):** Adds a check.\n\nThis head adds two problems. Share recipients are not held to the shared position.\n\n<details></details>"
+    assert bot_words([summary])["summary"] is None
