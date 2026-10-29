@@ -6246,6 +6246,19 @@ def test_a_go_named_green_head_above_a_held_parent_draws_one_below_held_note_and
     ]
 
 
+def test_a_head_the_runner_refused_draws_no_go_unqueued(shell, config, tmp_path):
+    tap_ruled_pr(shell, config, ["go/sand/next/vm/run_test.go", "go/sand/next/vm/run.go"])
+    shell.rows = [dict(row, test_state="success") for row in shell.rows]
+    shell.queue["29020"] = "not queued"
+    grade(shell, "29020", TEST_ONLY_GRADE)
+    merge_go(shell, "29020", "go test-only #29020 at cccc333")
+    landing_pass(shell, config)
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [post for post in blockers(shell) if "TEST-ONLY-MISMATCH" in post_body(post)] and unqueued(shell) == []
+
+
 def test_go_named_green_heads_out_of_the_queue_in_one_stack_draw_one_go_unqueued_naming_the_bottom(shell, config, tmp_path):
     merge_mode(config, "every")
     two_pr_stack(shell)
