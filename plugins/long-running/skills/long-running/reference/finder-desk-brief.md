@@ -21,6 +21,15 @@ Read the code around every changed symbol at that sha, its callers and callees i
    "tests: <test> <- <plan cite>; ...". A test that pins drive-era behavior the plan
    removes, or behavior nothing names, is one finding, severity major, defect starting
    "test <name> pins unplanned behavior:".
+   A port is a change whose PR body, or the fidelity grade it quotes, says it ports an
+   old-tree PR by number. For a port, a test that asserts what a test of that old-tree PR
+   asserts is graded against the old-tree PR, which is the contract (plan 0.4; rule 784f1ab:
+   a port keeps its regression tests), never against the plan: cite it as
+   "tests: <test> <- old-tree #<n>" and raise no "pins unplanned behavior" finding for it.
+   Read the old-tree PR's tests pinned by sha: `git ls-remote origin refs/pull/<n>/head`,
+   `git fetch --no-write-fetch-head -q origin <that sha>`, then read its diff with git.
+   A test with no counterpart there, or asserting more than its counterpart, is graded
+   against the plan as above.
 
 Every blocker or major, row and test findings included, cites at least one `path:line`
 inside a hunk the PR's own commits add or change. These are those hunks, as new-file line

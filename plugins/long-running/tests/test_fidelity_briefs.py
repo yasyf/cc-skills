@@ -76,6 +76,13 @@ def test_both_graders_hold_each_added_test_to_the_plan_line_it_rests_on():
         assert "behavior a plan line, sub-plan line, or owner ruling names" in brief, name
 
 
+def test_finders_grade_a_ports_tests_against_the_old_tree_pr_not_the_plan():
+    for name in ("finder-brief.md", "finder-desk-brief.md"):
+        brief = " ".join((SKILL / "reference" / name).read_text().split())
+        assert "ports an old-tree PR by number" in brief, name
+        assert "graded against the old-tree PR" in brief and "<test> <- old-tree #<n>" in brief, name
+
+
 @pytest.mark.parametrize(
     ("text", "grade"),
     [
