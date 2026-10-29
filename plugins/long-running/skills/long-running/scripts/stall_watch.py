@@ -49,8 +49,9 @@ its ledger row names, it finds:
               tap (merge mode every, or the landing desk records it waiting on `merge:<pr>:<sha7>`),
               the board holds no row or card for it at that head, no holds-file line leads with it, and no
               root decide pulled its row with no READY record about the PR since
-              (a fidelity grade that says one of `landing.exempt_grades`, default `pure port, no interaction`
-              and `test-only or CI-only, no non-test code`, or a root record about the PR that says
+              (a fidelity grade that says one of `landing.exempt_grades`, default `pure port, no interaction`,
+              `test-only or CI-only, no non-test code`, `test-only, no non-test code` and
+              `CI-only, no non-test code`, or a root record about the PR that says
               `no row`, ends the stall: such a head lands on a root go with no board row)
     carry     the owner's board tap or a root go names an earlier head, no go or carry names this
               one, and the board holds no row for it at this head; a head that adds no new behavior,
@@ -753,7 +754,7 @@ class Pass:
         repo, drive_name = landing["repo"], self.watch.drive
         fidelity_lanes = lanes_of(landing.get("fidelity_lane", []))
         go_lanes = [ROOT, *landing.get("go_lanes", [])]
-        exempt = landing.get("exempt_grades", [landing.get("port_phrase", grades.PORT_PHRASE), grades.TEST_ONLY_PHRASE])
+        exempt = landing.get("exempt_grades", [landing.get("port_phrase", grades.PORT_PHRASE), *grades.TEST_ONLY_PHRASES])
         closed = {seq for record in records if record["lane"] in ROOT_NAMES for seq in grades.closes(record)}
         gos = [record | {"voided": set()} for record in records if record["kind"] == "go" and record["lane"] in go_lanes and record["seq"] not in closed and grades.go_heads(record)]
         reviews = [record for record in records if record["kind"] in ("review", "head")]

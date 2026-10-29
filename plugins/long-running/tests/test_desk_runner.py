@@ -3077,6 +3077,17 @@ def test_a_test_only_pr_lands_on_a_root_go_with_no_board_tap_and_one_exempt_admi
     assert admissions == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "test-only or CI-only, no non-test code" and root go #{seq + 2} names it, so it lands with no board tap (06288326)']
 
 
+@pytest.mark.parametrize("said", ["test-only, no non-test code", "CI-only, no non-test code"])
+def test_a_grade_saying_test_only_or_ci_only_alone_lands_on_a_root_go_with_no_board_tap(shell, config, said):
+    tap_ruled_pr(shell, config, ["go/sand/next/vm/run_test.go", ".buildkite/pipeline.yml"])
+    seq = grade(shell, "29020", f"ok cccc333 {said}: it adds cases and a pipeline step.")
+    merge_go(shell, "29020", "go test-only #29020 at cccc333")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and not [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    assert [post_body(post) for post in notes(shell) if "EXEMPT-ADMITTED" in post_body(post)] == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "{said}" and root go #{seq + 2} names it, so it lands with no board tap (06288326)']
+
+
 @pytest.mark.parametrize("go", ["go test-only #29020 at cccc333", "go port #29020 at cccc333"], ids=["go-test-only", "go-port"])
 def test_a_test_only_claim_over_a_pr_that_changes_non_test_code_is_refused_naming_the_first_non_test_file(shell, config, go):
     tap_ruled_pr(shell, config, ["go/sand/next/vm/run_test.go", "go/sand/next/vm/run.go", "go/sand/next/vm/other.go"])

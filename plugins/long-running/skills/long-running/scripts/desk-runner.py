@@ -585,7 +585,7 @@ import prompt_screen
 import prompt_watch
 import stall_watch
 from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
-from grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE
+from grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASES
 from grades import WITHDRAWN as WITHDRAWN_OPENING
 from grades import owes
 from grades import REVIEW_BOT_CHECK, REVIEW_BOT_HELD, review_bot_wait, withdraws
@@ -6047,11 +6047,11 @@ class Landing:
         return waits, unread, exempt
 
     def exempt_admitted(self, pr: str, sha: str) -> tuple[str, str]:
-        """The `EXEMPT-ADMITTED` note for `pr` at `sha` when it lands on a root go with no board tap, and the first changed file that breaks a test-only claim (06288326, owner Oct 28 8:45 PM): the newest fidelity grade naming the head says one of `landing.exempt_grades` (default `pure port, no interaction` and `test-only or CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first), and a root go names the head as `go port|test-only|ci-only #<n> at <sha>` or says pure port, test-only or CI-only. A grade phrase or a go that claims test-only or CI-only is checked against the PR's changed files: the note is empty and the file is returned when one is neither a test nor CI configuration."""
+        """The `EXEMPT-ADMITTED` note for `pr` at `sha` when it lands on a root go with no board tap, and the first changed file that breaks a test-only claim (06288326, owner Oct 28 8:45 PM): the newest fidelity grade naming the head says one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first), and a root go names the head as `go port|test-only|ci-only #<n> at <sha>` or says pure port, test-only or CI-only. A grade phrase or a go that claims test-only or CI-only is checked against the PR's changed files: the note is empty and the file is returned when one is neither a test nor CI configuration."""
         if not (go := next((go for go in self.head_gos(pr, sha) if EXEMPT_GO.search(go["text"])), None)):
             return "", ""
         grade = max(self.standing(self.grades(pr), sha), key=lambda record: record["seq"], default=None)
-        phrases = self.landing_config.get("exempt_grades", [self.landing_config.get("port_phrase", PORT_PHRASE), TEST_ONLY_PHRASE])
+        phrases = self.landing_config.get("exempt_grades", [self.landing_config.get("port_phrase", PORT_PHRASE), *TEST_ONLY_PHRASES])
         if not grade or not (said := next((phrase for phrase in phrases if phrase.casefold() in grade["text"].casefold()), None)):
             return "", ""
         if TEST_ONLY_CLAIM.search(said) or TEST_ONLY_CLAIM.search(go["text"]):
