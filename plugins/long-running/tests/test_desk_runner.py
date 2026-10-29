@@ -10833,6 +10833,7 @@ def test_each_head_starts_one_fidelity_pass_carrying_the_prs_grades_old_app_line
         "old_apps": [{"seq": graded + 1, "lane": "fidelity-desk-4", "head": FINDER_OLD[:7], "line": f"old-app: unchanged {FINDER_OLD[:7]} baseline {BASELINE}; go/sand/next only"}],
         "contract": "contract: builds the resubscribe; deletes nothing",
         "exempt": {"port": runner_module.PORT_PHRASE, "test-only": runner_module.TEST_ONLY_PHRASE},
+        "exempt_grades": [runner_module.PORT_PHRASE, runner_module.TEST_ONLY_PHRASE],
         "baseline": BASELINE,
         "checkout": str(config.parent / "checkout"),
         "model": "sol",
@@ -10892,6 +10893,21 @@ def test_a_failed_fidelity_pass_fails_at_once_to_the_human_desks_and_the_next_he
     again = head_record(shell, "43439", FINDER_HEAD)
     orca_pass(shell, config)
     assert shell.fidelity_jobs[-1] == config.resolve().parent / "fidelity-pipeline" / f"43439-{FINDER_HEAD[:12]}-{again}"
+
+
+def test_a_failed_pass_whose_notice_does_not_post_stays_started_and_tells_the_desks_on_the_next_pass(shell, config):
+    fidelity_config(config)
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    [failed] = shell.fidelity_jobs
+    (failed / "result.json").write_text(json.dumps({"error": "codex-ask exited 1: quota exhausted"}))
+    shell.post_error = "cci: daemon restarting"
+    orca_pass(shell, config)
+    assert not fidelity_failures(shell) and [action.status for action in incident(config.parent, "desk-fidelity").actions.values()] == ["started"]
+    shell.post_error = ""
+    orca_pass(shell, config)
+    assert len(fidelity_failures(shell)) == 1 and [action.status for action in incident(config.parent, "desk-fidelity").actions.values()] == ["failed"]
 
 
 def test_a_runner_with_no_fidelity_config_starts_no_fidelity_pass(shell, config, tmp_path):

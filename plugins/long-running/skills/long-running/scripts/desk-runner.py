@@ -4226,6 +4226,7 @@ class Runner:
                     "old_apps": [{"seq": grade["seq"], "lane": grade["lane"], "head": grade["head"], "line": OLD_APP_LINE.search(full_text(grade))[0]} for grade in old_app_grades_in(records, drive, lanes, repo, job["pr"])],
                     "contract": full_text(contract) if contract else "",
                     "exempt": {"port": landing.get("port_phrase", PORT_PHRASE), "test-only": TEST_ONLY_PHRASE},
+                    "exempt_grades": landing.get("exempt_grades", [landing.get("port_phrase", PORT_PHRASE), TEST_ONLY_PHRASE]),
                     "baseline": spec.get("baseline", ""),
                     "checkout": spec.get("checkout") or landing["checkout"],
                     "model": spec.get("model", FINDER_MODEL),
@@ -4248,11 +4249,14 @@ class Runner:
         self.book.attempt(container, settled)
 
     def fidelity_failed(self, action: actions.Action, why: str) -> None:
+        """Tell the human fidelity desks, then fail the pass; a post that fails leaves the pass started, so the next orca pass tells them again."""
         job = json.loads(action.target)
-        if self.book.attempt(FIDELITY, lambda incident: incident.fail(action.action_id, why)):
-            readers = [lane for lane in self.landing_lanes("fidelity_lane") if lane != fidelity.LANE]
-            log = Path(action.dispatch_id) / fidelity.LOG
-            self.escalate(f"fidelity:{job['pr']}:{job['head']}:{job['seq']}", "FIDELITY-FAILED", job["lane"], f"#{job['pr']} {job['head'][:12]}: the fidelity pass failed: {why}; its log is {log}; a fidelity desk grades it by hand, and the next head record for #{job['pr']} queues the pass again", to=",".join(readers))
+        key = f"fidelity:{job['pr']}:{job['head']}:{job['seq']}"
+        readers = [lane for lane in self.landing_lanes("fidelity_lane") if lane != fidelity.LANE]
+        log = Path(action.dispatch_id) / fidelity.LOG
+        self.escalate(key, "FIDELITY-FAILED", job["lane"], f"#{job['pr']} {job['head'][:12]}: the fidelity pass failed: {why}; its log is {log}; a fidelity desk grades it by hand, and the next head record for #{job['pr']} queues the pass again", to=",".join(readers))
+        if self.book.known(RUNNER, f"escalation:{key}"):
+            self.book.attempt(FIDELITY, lambda incident: incident.fail(action.action_id, why))
 
     def render(self) -> str:
         lines = [f"# desk-runner {pacific(self.now())}", self.binding_line(self.book.load(RUNNER).facts.get(BINDING))]

@@ -29,6 +29,7 @@ SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
 GROUND_KEY = re.compile(r"(?:plan(?::\d+(?:-\d+)?)?|F\d+|(?!design/)[a-z]+/[\w./-]+)")
 GO_PAIR = r"#\d+\s+at\s+[0-9a-f]{7,40}\b"
 GO_CLAUSE = re.compile(rf"(?:^\s*(?:\d{{1,2}}:\d{{2}}\s*[AP]M\s+)?|[.:;!?]\s+)(?:go(?:\s+(?:port|test-only|ci-only))?|merge)\s+({GO_PAIR}(?:(?:\s*,\s*|\s*,?\s+and\s+){GO_PAIR})*)(?:\s+with\s+(#\d+(?:(?:\s*,\s*|\s*,?\s+and\s+|\s+)#\d+)*))?", re.IGNORECASE)
+GO_EXEMPT = re.compile(r"\bgo\s+(port|test-only|ci-only)\b|\bpure (port)\b|\b((?:test|ci)-only)\b", re.IGNORECASE)
 GO_HEAD = re.compile(r"#(\d+)\s+at\s+([0-9a-f]{7,40})\b", re.IGNORECASE)
 PRECONDITION = re.compile(r"\b(?:lands?|merges?) only after\b|\bbefore it (?:lands|merges)\b|\bdo not (?:land|merge) until\b|\bnot for landing\b", re.IGNORECASE)
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
@@ -112,7 +113,7 @@ def go_batch(record: dict) -> set[str]:
 
 
 def carried_gos(gos: list[dict], grades: list[dict], repo: str, lands: Callable[[str, str], bool]) -> list[dict]:
-    """The gos a fidelity desk carries: a root go naming a PR at head G and a fidelity grade of H on that PR that names G and `carries`, such as `fidelity: ok H carried: patch-identical to G` or `fidelity: ok H, tap carries (399b5fa): pure replay of G`, make a go at H when `lands(pr, H)`, and so on along each chain of carries, so a replayed head never waits for root to post its go again (root #136770, #143450). A carried go keeps its source go's seq, time and `with` batch, so it never reads as a newer root decision or frees a PR from its batch, and records its grade's time as `graded_at`, when the carried head became ready to queue."""
+    """The gos a fidelity desk carries: a root go naming a PR at head G and a fidelity grade of H on that PR that names G and `carries`, such as `fidelity: ok H carried: patch-identical to G` or `fidelity: ok H, tap carries (399b5fa): pure replay of G`, make a go at H when `lands(pr, H)`, and so on along each chain of carries, so a replayed head never waits for root to post its go again (root #136770, #143450). A carried go keeps its source go's seq, time, `with` batch and port, test-only or CI-only claim, so it never reads as a newer root decision or frees a PR from its batch, and records its grade's time as `graded_at`, when the carried head became ready to queue."""
     gone = {(pr, sha): go for go in gos for pr, sha in go_heads(go).items() if pr not in go.get("voided", ())}
     carried: list[dict] = []
     while fresh := [
@@ -124,7 +125,8 @@ def carried_gos(gos: list[dict], grades: list[dict], repo: str, lands: Callable[
     ]:
         for pr, head, source, graded_at in fresh:
             bound = " ".join(f"#{mate}" for mate in sorted(go_batch(source) - {pr}, key=int))
-            go = {"seq": source["seq"], "at": source["at"], "drive": source["drive"], "lane": source["lane"], "kind": "go", "text": f"go #{pr} at {head}" + (f" with {bound}" if bound else ""), "refs": {"prs": [int(pr)]}, "voided": set(), "graded_at": graded_at}
+            exempt = f"{next(filter(None, said.groups())).lower()} " if (said := GO_EXEMPT.search(source["text"])) else ""
+            go = {"seq": source["seq"], "at": source["at"], "drive": source["drive"], "lane": source["lane"], "kind": "go", "text": f"go {exempt}#{pr} at {head}" + (f" with {bound}" if bound else ""), "refs": {"prs": [int(pr)]}, "voided": set(), "graded_at": graded_at}
             gone[(pr, head)] = go
             carried.append(go)
     return carried

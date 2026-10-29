@@ -99,6 +99,7 @@ def job(tmp_path: Path, **changes) -> Path:
         "old_apps": [DESK_OLD_APP],
         "contract": "contract: builds the resubscribe from the fetched position; deletes nothing",
         "exempt": {"port": PORT_PHRASE, "test-only": TEST_ONLY_PHRASE},
+        "exempt_grades": [PORT_PHRASE, TEST_ONLY_PHRASE],
         "baseline": BASELINE,
         "checkout": str(tmp_path / "checkout"),
         "model": "sol",
@@ -162,30 +163,32 @@ def test_a_codex_ok_posts_the_grade_with_its_exempt_phrase_then_touches_and_old_
     shell = Fake(tmp_path, [reply(exempt="test-only", touches=("prompt/1026-105052",), old_app="changes")])
     fidelity.main([str(directory)], shell)
     assert shell.texts() == [
-        f"fidelity: ok {HEAD} {TEST_ONLY_PHRASE}: Resubscribes from the fetched position after a cut. checked {','.join(KEYS)} names poll|resubscribe",
+        f"fidelity: ok {HEAD} {TEST_ONLY_PHRASE}: Resubscribes from the fetched position after a cut.",
         "touches prompt/1026-105052",
         f"old-app: CHANGES {HEAD[:7]} baseline {BASELINE}; go/sand/next only",
     ]
     question = (directory / "question-1.md").read_text()
     assert str(fidelity.RUBRIC) in question and str(directory / "rows.md") in question and f"`git diff {OWN}^ {HEAD}`" in question
     assert "contract: builds the resubscribe" in question and "- go/sand/next/replica/follow.go: 41-43" in question
+    assert f"checked {','.join(KEYS)} names poll|resubscribe" in (directory / "record.md").read_text()
     assert result(directory) == {"verdict": "ok", "posted": ["#150002", "#150003", "#150004"]}
 
 
-def test_a_missing_verdict_posts_one_owner_grounded_line_per_broken_row(tmp_path):
-    broken = ({"key": "rule/949e6be", "line": "follow.go:41 polls the signal; 'not polled'"}, {"key": "plan:212", "line": "plan names no retry counter"})
+def test_a_missing_verdict_posts_one_owner_grounded_line_naming_every_broken_row_so_one_resolve_cannot_skip_a_row(tmp_path):
+    broken = ({"key": "rule/949e6be", "line": "follow.go:41 polls the signal, 'not polled'"}, {"key": "plan:212", "line": "plan names no retry counter"})
     directory = job(tmp_path, grades=[], baseline="")
     shell = Fake(tmp_path, [reply("missing", broken)])
     fidelity.main([str(directory)], shell)
-    assert shell.texts() == [f"fidelity: missing {HEAD} rule/949e6be follow.go:41 polls the signal; 'not polled'", f"fidelity: missing {HEAD} plan:212 plan names no retry counter"]
-    assert all(owner_grounded(text) for text in shell.texts())
+    missing, old_app = shell.texts()
+    assert missing == f"fidelity: missing {HEAD} rule/949e6be,plan:212 follow.go:41 polls the signal, 'not polled'; plan names no retry counter"
+    assert owner_grounded(missing) and old_app == f"old-app: unchanged {HEAD[:7]} baseline the old app as last released; go/sand/next only"
 
 
 def test_a_head_codex_cannot_settle_goes_to_the_human_fidelity_desks(tmp_path):
     directory = job(tmp_path, grades=[], baseline="")
     shell = Fake(tmp_path, [reply("reader", reader="deletes the eviction path, a reserved row no answer authorizes", touches=("rule/949e6be",))])
     fidelity.main([str(directory)], shell)
-    reader, touches = shell.posted
+    reader, touches, _ = shell.posted
     assert reader["--text"] == f"{fidelity.READER} {HEAD} deletes the eviction path, a reserved row no answer authorizes"
     assert reader["--to"] == "p8a-step9,root,desk-runner,board-refresher-2,fidelity-desk-4,fidelity-desk-5" and touches["--to"] == "p8a-step9,root,desk-runner,board-refresher-2"
 
@@ -195,11 +198,12 @@ def test_a_head_codex_cannot_settle_goes_to_the_human_fidelity_desks(tmp_path):
     [
         reply(checked=KEYS[:1]),
         reply("missing", ({"key": "cci#172451", "line": "root said so"},)),
+        reply("missing", ({"key": "rule/1234567", "line": "a row the rows file does not carry"},)),
         reply("missing"),
         reply("reader"),
         reply() | {"swept": "looks fine"},
     ],
-    ids=["unchecked-row", "root-record-key", "missing-without-entries", "reader-without-reason", "no-reasoning"],
+    ids=["unchecked-row", "root-record-key", "row-outside-the-slice", "missing-without-entries", "reader-without-reason", "no-reasoning"],
 )
 def test_a_reply_that_breaks_the_grade_contract_is_asked_once_more_and_a_second_fails_the_job(tmp_path, bad):
     directory = job(tmp_path, grades=[])

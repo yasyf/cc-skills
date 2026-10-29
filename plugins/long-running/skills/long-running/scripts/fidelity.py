@@ -34,7 +34,7 @@ from pathlib import Path
 
 import drive
 import finder
-from grades import FIDELITY_MISSING, FIDELITY_OK, GROUND_KEY, graded_head, names_head, newest_finder, standing
+from grades import FIDELITY_MISSING, FIDELITY_OK, graded_head, names_head, newest_finder, standing
 
 SCRIPTS = Path(__file__).resolve().parent
 TEMPLATE = SCRIPTS.parent / "reference" / "fidelity-job-brief.md"
@@ -47,6 +47,7 @@ LOG = "job.log"
 READER = "fidelity: reader"
 OLD_APP_LINE = re.compile(r"^old-app:\s*(unchanged|bug fix|changes)\b:?\s*(?:[0-9a-f]{7,40}\b)?\s*(.*)$", re.IGNORECASE)
 CODEX_SECONDS = 3600
+PLAN_LINE = re.compile(r"plan:\d+(?:-\d+)?")
 
 
 def patch_id(shell: finder.Shell, job: dict, start: str, end: str) -> str:
@@ -69,7 +70,7 @@ def carry(shell: finder.Shell, job: dict, own: list[str]) -> dict | None:
 
 
 def exempt_phrases(job: dict, text: str) -> list[str]:
-    return [phrase for phrase in job["exempt"].values() if phrase.casefold() in text.casefold()]
+    return [phrase for phrase in job["exempt_grades"] if phrase.casefold() in text.casefold()]
 
 
 def carried_lines(job: dict, found: dict) -> list[tuple[str, list[str]]]:
@@ -96,19 +97,28 @@ def prompt(job: dict, view: dict, base: str, own: list[str], rows: Path, plan: s
         rows=rows,
         port=job["exempt"]["port"],
         test_only=job["exempt"]["test-only"],
-        baseline=job["baseline"] or "the old app as last released",
+        baseline=baseline(job),
         plan=plan or "none; the register names no plan",
         contract=job["contract"].strip() or "(the lane posted none)",
         body=view["body"].strip() or "(empty)",
     )
 
 
+def baseline(job: dict) -> str:
+    return job["baseline"] or "the old app as last released"
+
+
+def grounded(keys: list[str], key: str) -> bool:
+    """Whether a `missing` key is a plan line or a non-`design/` row of the head's required slice."""
+    return bool(PLAN_LINE.fullmatch(key)) or (key in keys and not key.startswith("design/"))
+
+
 def shortfalls(keys: list[str], reply: dict) -> list[str]:
     short = []
     if unchecked := [key for key in keys if key not in reply["checked"]]:
         short.append(f"no grade for {', '.join(unchecked)}")
-    if ungrounded := [entry["key"] for entry in reply["missing"] if not GROUND_KEY.fullmatch(entry["key"])]:
-        short.append(f"`missing` keys that are neither a plan line `plan:<n>` nor an owner row: {', '.join(ungrounded)}")
+    if ungrounded := [entry["key"] for entry in reply["missing"] if not grounded(keys, entry["key"])]:
+        short.append(f"`missing` keys that are neither a plan line `plan:<n>` nor a non-design row of the rows file: {', '.join(ungrounded)}")
     if (reply["verdict"] == "missing") != bool(reply["missing"]):
         short.append(f"verdict {reply['verdict']} with {len(reply['missing'])} `missing` entries")
     if reply["verdict"] == "reader" and not reply["reader"].strip():
@@ -123,16 +133,15 @@ def graded_lines(job: dict, reply: dict) -> list[tuple[str, list[str]]]:
     lines: list[tuple[str, list[str]]]
     if reply["verdict"] == "ok":
         said = f"{job['exempt'][reply['exempt']]}: " if reply["exempt"] != "none" else ""
-        lines = [(f"{FIDELITY_OK} {head} {said}{' '.join(reply['summary'].split())} checked {','.join(reply['checked'])} names {'|'.join(reply['names'])}", [])]
+        lines = [(f"{FIDELITY_OK} {head} {said}{' '.join(reply['summary'].split())}", [])]
     elif reply["verdict"] == "missing":
-        lines = [(f"{FIDELITY_MISSING} {head} {entry['key']} {' '.join(entry['line'].split())}", []) for entry in reply["missing"]]
+        keys = ",".join(dict.fromkeys(entry["key"] for entry in reply["missing"]))
+        lines = [(f"{FIDELITY_MISSING} {head} {keys} {'; '.join(' '.join(entry['line'].split()) for entry in reply['missing'])}", [])]
     else:
         lines = [(f"{READER} {head} {' '.join(reply['reader'].split())}", job["readers"])]
     lines += [(f"touches {key}", []) for key in reply["touches"]]
-    if job["baseline"]:
-        grade = "CHANGES" if reply["old_app"]["grade"] == "changes" else reply["old_app"]["grade"]
-        lines.append((f"old-app: {grade} {head[:7]} baseline {job['baseline']}; {' '.join(reply['old_app']['why'].split())}", []))
-    return lines
+    grade = "CHANGES" if reply["old_app"]["grade"] == "changes" else reply["old_app"]["grade"]
+    return [*lines, (f"old-app: {grade} {head[:7]} baseline {baseline(job)}; {' '.join(reply['old_app']['why'].split())}", [])]
 
 
 def ask(shell: finder.Shell, job: dict, directory: Path, question: Path, attempt: int) -> dict:
@@ -187,7 +196,7 @@ def run(directory: Path, shell: finder.Shell) -> dict:
     if (now := finder.view_pr(shell, job)["headRefOid"]) != head:
         return {"skipped": f"{pr} moved to {now[:12]} while codex read {head[:12]}"}
     lines = graded_lines(job, reply)
-    body.write_text("\n".join(text for text, _ in lines) + f"\n\n{json.dumps(reply, indent=2)}\n")
+    body.write_text("\n".join(text for text, _ in lines) + f"\nchecked {','.join(reply['checked'])} names {'|'.join(reply['names'])}\n\n{json.dumps(reply, indent=2)}\n")
     return {"verdict": reply["verdict"], "posted": post(shell, job, lines, body)}
 
 
