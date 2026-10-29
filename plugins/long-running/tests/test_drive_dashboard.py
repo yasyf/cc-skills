@@ -119,6 +119,23 @@ def test_a_card_with_a_block_the_dashboard_does_not_draw_embeds_the_board_render
     assert urllib.parse.parse_qs(out["embed"].split("?", 1)[1]) == {"block": [block_id], "theme": ["dark"]}
 
 
+@pytest.mark.parametrize(
+    ("options", "approval", "decides"),
+    [
+        ([], False, False),
+        (["Got it"], False, False),
+        (["Got it", "Other"], False, False),
+        (["Keep", "Switch"], False, True),
+        ([], True, True),
+    ],
+)
+def test_only_an_open_approval_or_a_real_choice_asks_him_to_decide(options, approval, decides):
+    block = card("c", ("record", "why"), *([("choice", "pick")] if options else []), *([("approval", "ok")] if approval else []), status="open")
+    if options:
+        block["children"][1]["options"] = [{"id": label, "label": label} for label in options]
+    assert Drive({"board_url": "http://board/p/x"}, None).read_board(board(block))["cards"][0]["decides"] is decides
+
+
 def test_a_card_with_a_multiple_choice_pick_embeds_the_board_rendering():
     picks = card("picks", ("choice", "many"))
     picks["children"][0]["multi"] = True
@@ -580,7 +597,7 @@ def test_an_ask_carries_the_lane_and_record_that_raised_it_and_an_unsourced_ask_
     record = {"seq": 140321, "lane": "release-plan-2", "at": "2026-10-27T09:16:23Z", "text": "Where is that key kept?"}
     asks = [{"what": "Say where the key is kept", "why": "The flag read needs it.", "record": record}, {"what": "Rotate a key", "why": "It sat in chat."}, {"what": "Resume", "why": "W", "optional": True}]
 
-    out = needs([], [{"id": "card-a", "title": "Pick one", "summary": "Two ways.", "recommended": "A"}], asks, "http://board/p/x", set())
+    out = needs([], [{"id": "card-a", "title": "Pick one", "summary": "Two ways.", "recommended": "A", "decides": True}, {"id": "card-b", "title": "Nothing to decide: what blocks the new app", "summary": "", "recommended": None, "decides": False}], asks, "http://board/p/x", set())
 
     assert [item["kind"] for item in out] == ["card", "ask", "ask"]
     assert out[0]["source"] == {"label": "Board card: Pick one", "href": "http://board/p/x"}

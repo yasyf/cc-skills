@@ -136,7 +136,7 @@ function fold(id, label, body, open = false) {
 }
 
 function answerLink(card) {
-  return card && state.model.board.cards.some((c) => c.id === card) ? `<a class="pg-go" href="#/review/q/${encodeURIComponent(card)}">Answer it on Review ›</a>` : '';
+  return card && state.model.board.cards.some((c) => c.id === card && c.decides) ? `<a class="pg-go" href="#/review/q/${encodeURIComponent(card)}">Answer it on Review ›</a>` : '';
 }
 function milestoneOf(p, i) {
   return p.milestones[i] ?? { state: 'not', label: 'Not known', ships: '', waits: '', since: '', card: '', note: '', unblock: '' };
@@ -338,11 +338,16 @@ function reviewScreen(list) {
     return `<section class="pg-sec mr-group">${head}<div class="mr-list">${g.prs.map(mergeRow).join('')}</div></section>`;
   }).join('');
   const cards = m.needs.filter((item) => item.kind === 'card');
+  const notes = m.board.cards.filter((c) => !c.decides);
   return `<div class="pg">${pageHead('Review', curated('review'))}${chips}
     ${needsTotal() ? '' : '<p class="pg-lead">Nothing waits on you. When a change or a question needs you, it shows here and in the band on Now.</p>'}
     ${needsTotal() && !merges ? '<p class="pg-rel">No change waits on your approval right now.</p>' : ''}
     ${merges}
-    ${cards.length ? `<section class="pg-sec" id="review-questions"><h2>Questions</h2><div class="mr-list">${cards.map(boardCard).join('')}</div></section>` : ''}</div>`;
+    ${cards.length ? `<section class="pg-sec" id="review-questions"><h2>Questions</h2><div class="mr-list">${cards.map(boardCard).join('')}</div></section>` : ''}
+    ${notes.length ? `<section class="pg-sec" id="review-notes"><h2>For your information</h2><div class="mr-list">${notes.map(noteCard).join('')}</div></section>` : ''}</div>`;
+}
+function noteCard(c) {
+  return `<article class="mr bq note" id="card-${esc(c.id)}"><header><span class="mr-t">${esc(words(c.title))}</span><span class="mr-acts"><a class="btn ghost" href="${esc(state.model.board.url)}?block=${encodeURIComponent(c.id)}" target="_blank" rel="noopener">Open on your board</a></span></header>${c.summary ? `<p class="mr-why">${esc(words(c.summary))}</p>` : ''}</article>`;
 }
 
 function historyEntry(e) {

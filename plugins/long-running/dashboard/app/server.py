@@ -534,7 +534,7 @@ def unanswered(cards, words):
 
 
 def needs(rows, cards, asks, board_url, landed):
-    return [*merge_needs([row for row in rows if row["number"] not in landed], board_url), *(card_need(card, board_url) for card in cards), *(ask_need(ask) for ask in asks if not ask.get("optional") and ask.get("card") in {None, *(card["id"] for card in cards)})]
+    return [*merge_needs([row for row in rows if row["number"] not in landed], board_url), *(card_need(card, board_url) for card in cards if card["decides"]), *(ask_need(ask) for ask in asks if not ask.get("optional") and ask.get("card") in {None, *(card["id"] for card in cards)})]
 
 
 def parse_plan(body):
@@ -1034,12 +1034,13 @@ class Drive:
             if (asks and all(answers.values())) or (not asks and (noted or block.get("status") != "open")):
                 continue
             choice = next((child for child in asks if child["type"] == "choice" and not answers[child["id"]]), None)
+            decides = any(not answers[child["id"]] and (child["type"] != "choice" or sum(not OTHER.match(option["label"]) for option in child.get("options", [])) > 1) for child in asks)
             options = [{"id": option["id"], "label": option["label"], "recommended": bool(option.get("recommended"))} for option in (choice or {}).get("options", []) if not OTHER.match(option["label"])]
             recommended = next((option["label"] for option in options if option["recommended"]), None)
             embed = any(child["type"] not in NATIVE or child.get("multi") for child in children)
             cards.append({
                 "id": block["id"], "title": block.get("title", ""), "summary": block.get("summary", ""), "chips": block.get("chips") or [],
-                "recommended": recommended, "choice": choice and choice["id"], "options": options,
+                "recommended": recommended, "choice": choice and choice["id"], "options": options, "decides": decides,
                 "parts": [] if embed else [card_part(child, answers.get(child["id"])) for child in children],
                 "embed": f"{self.config['board_url']}?{urllib.parse.urlencode({'block': block['id'], 'theme': 'dark'})}" if embed else None,
             })
