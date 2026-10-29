@@ -4982,27 +4982,34 @@ class Landing:
         return True
 
     def compare_trunk_builds(self, history: list[dict], check: str, rows: dict[str, dict]) -> None:
-        """Compare the trunk's newest finished `check` build with the finished one before it, once per newest build, each read once through `landing.ci_build`: every job name that fails or soft-fails more often in the newer build posts one `POST-MERGE-RED` to root, each `landing.desk_lane`, and the lanes of the PRs whose squashes landed between the two, naming the newer build, those jobs, and those PRs. A build that passes because its failing jobs soft-fail is read here, since its status alone reads green."""
+        """Compare each finished `check` build on the trunk newer than the last one compared with the finished build before it, oldest first, each build read once through `landing.ci_build`: every job name that fails or soft-fails more often in the newer build posts one `POST-MERGE-RED` to root, each `landing.desk_lane`, and the lanes of the PRs whose squashes landed between the two, naming the newer build, those jobs, and those PRs. A build that passes because its failing jobs soft-fail is read here, since its status alone reads green. The walk stops at a build that does not read or whose record did not post, and starts there again the next pass."""
         if not self.landing_config.get("ci_build"):
             return
         finished = [(index, url) for index, commit in enumerate(history) for context in (commit["status"] or {"contexts": []})["contexts"] if context["context"] == check and context["state"] in FINISHED_STATES and "buildkite.com/" in (url := context["targetUrl"] or "") and BUILD_URL.search(url)]
-        if len(finished) < 2 or self.book.load(LANDING).facts.get(TRUNK_JOBS_FACT) == finished[0][1]:
-            return
-        (newer, newest), (older, previous) = finished[:2]
+        urls = [url for _, url in finished]
+        compared = self.book.load(LANDING).facts.get(TRUNK_JOBS_FACT)
+        for position in reversed(range(min(urls.index(compared) if compared in urls else 1, len(finished) - 1))):
+            if not self.compare_builds(history, finished[position], finished[position + 1], rows):
+                return
+            self.book.edit(LANDING, lambda incident, url=urls[position]: incident.facts.update({TRUNK_JOBS_FACT: url}))
+
+    def compare_builds(self, history: list[dict], newer: tuple[int, str], older: tuple[int, str], rows: dict[str, dict]) -> bool:
+        """Post one `POST-MERGE-RED` for the jobs that fail more often in the newer trunk build than in the older one; False while either build does not read finished or the record did not post."""
+        (since, newest), (until, previous) = newer, older
         for url in (newest, previous):
             self.build(url)
         if newest not in self.builds or previous not in self.builds:
-            return
-        key = f"trunk-jobs:{BUILD_URL.search(newest)['number']}"
-        if new := job_failures(self.builds[newest]) - job_failures(self.builds[previous]):
-            prs = [found[1] for commit in history[newer:older] if (found := SQUASHED_PR.search(commit["message"].splitlines()[0]))]
-            lanes = [self.successor(lane) for pr in prs if (lane := rows.get(pr, {}).get("lane"))]
-            jobs = ", ".join(f"{name} {'soft-failed' if soft else 'failed'}{f' in {count} jobs' if count > 1 else ''}" for (name, soft), count in sorted(new.items()))
-            landed = ", ".join(f"#{pr}" for pr in prs) or "no PR a squash subject names"
-            text = f"{TRUNK}'s build {newest} has jobs failing that {previous} did not: {jobs}. Landed between the two: {landed}. A soft-failed job leaves the build green, so nothing else reads it; a fix is owed"
-            self.runner.escalate(key, "POST-MERGE-RED", f"{TRUNK} build {BUILD_URL.search(newest)['number']}", text, to=",".join(dict.fromkeys([ROOT, *self.runner.landing_lanes("desk_lane"), *lanes])))
-        if not new or self.book.known(RUNNER, f"escalation:{key}"):
-            self.book.edit(LANDING, lambda incident: incident.facts.update({TRUNK_JOBS_FACT: newest}))
+            return False
+        if not (new := job_failures(self.builds[newest]) - job_failures(self.builds[previous])):
+            return True
+        number = BUILD_URL.search(newest)["number"]
+        prs = [found[1] for commit in history[since:until] if (found := SQUASHED_PR.search(commit["message"].splitlines()[0]))]
+        owners = [lane for pr in prs if (lane := rows.get(pr, {}).get("lane"))]
+        jobs = ", ".join(f"{name} {'soft-failed' if soft else 'failed'}{f' in {count} jobs' if count > 1 else ''}" for (name, soft), count in sorted(new.items()))
+        landed = ", ".join(f"#{pr}" for pr in prs) or "no PR a squash subject names"
+        text = f"{TRUNK}'s build {newest} has jobs failing that {previous} did not: {jobs}. Landed between the two: {landed}. A soft-failed job leaves the build green, so nothing else reads it; a fix is owed"
+        self.runner.escalate(f"trunk-jobs:{number}", "POST-MERGE-RED", f"{TRUNK} build {number}", text, to=",".join(dict.fromkeys([ROOT, *map(self.successor, [*self.runner.landing_lanes("desk_lane"), *owners])])))
+        return bool(self.book.known(RUNNER, f"escalation:trunk-jobs:{number}"))
 
     def trunk_target(self, check: str) -> tuple[dict | None, str]:
         """The trunk's last `TRUNK_DEPTH` commits with their statuses, read from GitHub only when `git ls-remote` shows the trunk moved since the last read, or when the head's `check` had not passed at that read and `TRUNK_REREAD` has passed, so a rerun that turns a red head green is read within that interval, so a settled trunk costs no API read a pass (root #146561); with the cause when it did not read."""
@@ -6128,16 +6135,21 @@ class Landing:
             self.restack(top, rows)
 
     def announce_landings(self, rows: dict[str, dict]) -> None:
-        """Post one `landed` record for each ledger row that reads landed with no landing record of the runner's own, a verified enqueue or a squash: a PR queued by hand, landed in a batch the runner did not enqueue, or merged outside the queue, so its lane and the desks hear it the pass the ledger settles it. A desk's first pass records every landed row as history, so a restart never announces an old landing; a post that fails runs again on the next pass."""
+        """Post one `landed` record for each ledger row that reads landed with no landing record of its own: none from the runner, a verified enqueue or a squash, and no `landed` record on the bus naming it, as a lane posts for a merge it made. That is a PR queued by hand, landed in a batch the runner did not enqueue, or merged outside the queue, so its lane and the desks hear it the pass the ledger settles it. A PR of an admitted enqueue the runner has not verified waits for `verify`. A desk's first pass records every landed row as history, so a restart never announces an old landing; a post that fails runs again on the next pass."""
         read = self.book.load(LANDING).facts.get(LANDED_READ)
         landed = {pr for pr, row in rows.items() if row.get("state") == "landed"}
         if read is None:
             self.book.edit(LANDING, lambda incident: incident.facts.update({LANDED_READ: sorted(landed, key=int)}))
             return
         announced = {pr for action in self.book.actions(LANDING, kind="enqueue", status="verified") for pr in action.target.split(",")}
+        pending = {pr for action in self.book.actions(LANDING, kind="enqueue", status="completed") if action.response["outcome"] in ADMITTED for pr in action.target.split(",")}
+        if not (unread := sorted(landed - set(read) - pending, key=int)):
+            return
+        stamps = [rows[pr]["landed_at"] for pr in unread if rows[pr].get("landed_at")]
+        posted = {cci.named_pr(record) for record in cci.records(self.runner.cci_tail, self.runner.config.drive, "--kind=landed", since=min(stamps) if len(stamps) == len(unread) else 0)}
         settled = []
-        for pr in sorted(landed - set(read), key=int):
-            if pr in announced or self.squashed(pr):
+        for pr in unread:
+            if pr in announced or pr in posted or self.squashed(pr):
                 settled.append(pr)
                 continue
             key = f"landed:{pr}"

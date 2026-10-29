@@ -5549,6 +5549,7 @@ def land_fast(shell: FakeShell, config: Path, body: str = FAST_BODY, labels: str
     landing_pass(shell, config)
     shell.sleep(180)
     shell.rows = [fast_row(shell, labels, lane)]
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": lane, "kind": "landed", "to": ["root"], "refs": {"prs": ["Forge-AI/monorepo#36642"]}, "text": "#36642 landed", "at": actions.stamp(shell.now())})
 
 
 def body_reads(shell: FakeShell) -> list[list[str]]:
