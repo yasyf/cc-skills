@@ -458,7 +458,10 @@ When every failed job is one no PR build runs, it is a `report` reading `POST-ME
 a fix is owed`. The runner holds no row for either: the queue's required checks hold what cannot land. Either posts
 the pass it is first read and again every 30 minutes while red; `DEV-GREEN` posts once when the check passes again. The
 fix is the PR the newest record on the topic by any other lane names, an incident excepted, since the last `DEV-GREEN`:
-`cci post --topic dev-red --pr <n>`. A trunk that does not read gates and enqueues nothing that pass and reads again
+`cci post --topic dev-red --pr <n>`. With `landing.ci_build` set too, each newer finished trunk build is read once and
+compared with the one before it: a job name that fails or soft-fails more often posts one `POST-MERGE-RED` to root, each
+`landing.desk_lane` and the lanes of the PRs that landed between the two, so a build green only by soft-fail reads red.
+A trunk that does not read gates and enqueues nothing that pass and reads again
 the next; `TRUNK-READ-FAILED` posts once per run of such passes, and `TRUNK-READ-RECOVERED` once a read succeeds.
 `landing.release_cli` is the repo's release command line, such as `tools/ci release`, its first word relative to the landing
 checkout, which `run --desk landing` requires: without it the desk refuses to start with `MQ-CONFIG-INVALID`, whose line names it
@@ -633,6 +636,7 @@ RED_CONTRACT = re.compile(r"red[- ]by[- ]design|\bfail(?:s|ed|ing)? (?:in )?(?:r
 MERGE_FAST = "merge-fast"
 RELEASE_WITH = re.compile(r"^Release-With:[ \t]*(\S.*)$", re.MULTILINE)
 RELEASE_READ = "release-read"
+LANDED_READ = "landed-read"
 DEQUEUE_READ = "dequeue-read"
 DEQUEUE_ORDERS = "dequeue-orders"
 PULLED_HEADS = "pulled-heads"
@@ -747,6 +751,7 @@ UNREACHABLE = frozenset({"runtime_unavailable", "remote_runtime_unavailable", "r
 ANSWER_CONFLICT = "answer_conflict"
 UNREACHABLE_FACT = "orca-unreachable"
 TRUNK_UNREAD_FACT = "trunk-unread"
+TRUNK_JOBS_FACT = "trunk-jobs"
 UNREACHABLE_WAIT = timedelta(minutes=2)
 DEAD_LANE = timedelta(minutes=60)
 UNKNOWN_BLOCK = re.compile(r'\bunknown block "')
@@ -4335,6 +4340,11 @@ def failed_steps(build: dict) -> list[str]:
     return sorted({job.get("step_key") or job["name"] for job in build.get("jobs", []) if job.get("type") == "script" and job.get("state") == "failed" and not job.get("soft_failed")})
 
 
+def job_failures(build: dict) -> Counter[tuple[str, bool]]:
+    """How many script jobs of each name failed in `build`, counted apart by whether they soft-failed."""
+    return Counter((job.get("name") or job.get("step_key") or "", bool(job.get("soft_failed"))) for job in build.get("jobs", []) if job.get("type") == "script" and job.get("state") == "failed")
+
+
 def same_head(one: str, other: str) -> bool:
     return one.startswith(other) or other.startswith(one)
 
@@ -4943,6 +4953,7 @@ class Landing:
         if TRUNK_UNREAD_FACT in self.book.load(LANDING).facts and (streak := self.book.edit(LANDING, lambda incident: incident.facts.pop(TRUNK_UNREAD_FACT, None))):
             since = actions.parse_stamp(streak["since"])
             self.runner.escalate(f"trunk-read-recovered:{streak['since']}", "TRUNK-READ-RECOVERED", "landing", f"{TRUNK}'s {check} statuses read again; from {pacific(since)} for {whole_minutes(since, self.runner.now())} min no pass gated ({streak['error']})")
+        self.compare_trunk_builds(target["history"]["nodes"], check, rows)
         posted = cci.trunk(cci.records(self.runner.cci_tail, self.runner.config.drive, f"--topic={cci.TRUNK_TOPIC}"))
         red = trunk_red(target["history"]["nodes"], check)
         if red is False:
@@ -4969,6 +4980,29 @@ class Landing:
         text = f"POST-MERGE-RED since {since}: {TRUNK}'s {check} {failing}, {origin}; no PR build runs these jobs. Landing continues; a fix is owed: {owed}."
         self.runner.cci_post("report", text, f"{ROOT},{self.runner.watchdog}", cci.TRUNK_TOPIC, f"post-merge-red:{red.since}:{bucket}", record_id=f"post-merge-red:{red.since}:{bucket}")
         return True
+
+    def compare_trunk_builds(self, history: list[dict], check: str, rows: dict[str, dict]) -> None:
+        """Compare the trunk's newest finished `check` build with the finished one before it, once per newest build, each read once through `landing.ci_build`: every job name that fails or soft-fails more often in the newer build posts one `POST-MERGE-RED` to root, each `landing.desk_lane`, and the lanes of the PRs whose squashes landed between the two, naming the newer build, those jobs, and those PRs. A build that passes because its failing jobs soft-fail is read here, since its status alone reads green."""
+        if not self.landing_config.get("ci_build"):
+            return
+        finished = [(index, url) for index, commit in enumerate(history) for context in (commit["status"] or {"contexts": []})["contexts"] if context["context"] == check and context["state"] in FINISHED_STATES and "buildkite.com/" in (url := context["targetUrl"] or "") and BUILD_URL.search(url)]
+        if len(finished) < 2 or self.book.load(LANDING).facts.get(TRUNK_JOBS_FACT) == finished[0][1]:
+            return
+        (newer, newest), (older, previous) = finished[:2]
+        for url in (newest, previous):
+            self.build(url)
+        if newest not in self.builds or previous not in self.builds:
+            return
+        key = f"trunk-jobs:{BUILD_URL.search(newest)['number']}"
+        if new := job_failures(self.builds[newest]) - job_failures(self.builds[previous]):
+            prs = [found[1] for commit in history[newer:older] if (found := SQUASHED_PR.search(commit["message"].splitlines()[0]))]
+            lanes = [self.successor(lane) for pr in prs if (lane := rows.get(pr, {}).get("lane"))]
+            jobs = ", ".join(f"{name} {'soft-failed' if soft else 'failed'}{f' in {count} jobs' if count > 1 else ''}" for (name, soft), count in sorted(new.items()))
+            landed = ", ".join(f"#{pr}" for pr in prs) or "no PR a squash subject names"
+            text = f"{TRUNK}'s build {newest} has jobs failing that {previous} did not: {jobs}. Landed between the two: {landed}. A soft-failed job leaves the build green, so nothing else reads it; a fix is owed"
+            self.runner.escalate(key, "POST-MERGE-RED", f"{TRUNK} build {BUILD_URL.search(newest)['number']}", text, to=",".join(dict.fromkeys([ROOT, *self.runner.landing_lanes("desk_lane"), *lanes])))
+        if not new or self.book.known(RUNNER, f"escalation:{key}"):
+            self.book.edit(LANDING, lambda incident: incident.facts.update({TRUNK_JOBS_FACT: newest}))
 
     def trunk_target(self, check: str) -> tuple[dict | None, str]:
         """The trunk's last `TRUNK_DEPTH` commits with their statuses, read from GitHub only when `git ls-remote` shows the trunk moved since the last read, or when the head's `check` had not passed at that read and `TRUNK_REREAD` has passed, so a rerun that turns a red head green is read within that interval, so a settled trunk costs no API read a pass (root #146561); with the cause when it did not read."""
@@ -6093,6 +6127,27 @@ class Landing:
             top = action.target.split(",")[-1]
             self.restack(top, rows)
 
+    def announce_landings(self, rows: dict[str, dict]) -> None:
+        """Post one `landed` record for each ledger row that reads landed with no landing record of the runner's own, a verified enqueue or a squash: a PR queued by hand, landed in a batch the runner did not enqueue, or merged outside the queue, so its lane and the desks hear it the pass the ledger settles it. A desk's first pass records every landed row as history, so a restart never announces an old landing; a post that fails runs again on the next pass."""
+        read = self.book.load(LANDING).facts.get(LANDED_READ)
+        landed = {pr for pr, row in rows.items() if row.get("state") == "landed"}
+        if read is None:
+            self.book.edit(LANDING, lambda incident: incident.facts.update({LANDED_READ: sorted(landed, key=int)}))
+            return
+        announced = {pr for action in self.book.actions(LANDING, kind="enqueue", status="verified") for pr in action.target.split(",")}
+        settled = []
+        for pr in sorted(landed - set(read), key=int):
+            if pr in announced or self.squashed(pr):
+                settled.append(pr)
+                continue
+            key = f"landed:{pr}"
+            text = f"LANDED #{pr} as {rows[pr].get('landed_sha', '')[:10] or 'an unread squash'}: merged into {TRUNK} with no enqueue of the landing runner's own, so queued by hand or landed in a batch it did not enqueue"
+            done = self.runner.cci_post("landed", text, self.landing_audience([pr], rows, self.queue_audience([pr], rows)), pr, key, pr=pr, record_id=key)
+            if done.code == 0:
+                settled.append(pr)
+        if settled:
+            self.book.edit(LANDING, lambda incident: incident.facts[LANDED_READ].extend(settled))
+
     def is_incident(self, pr: str, row: dict) -> bool:
         """Whether a ledger row is an incident fix's: its lane is an `incident-` or `outage-` lane or a fix lane the runner launched on the incident clock, or an open incident in the executor's store names the PR as its repair, and no root go, hold, lift, decide or release naming it took it off the incident path."""
         lane = row.get("lane", "")
@@ -6934,6 +6989,7 @@ class Landing:
         self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")})
         self.reconcile()
         self.verify(rows)
+        self.announce_landings(rows)
         self.releases(rows)
         self.ungraded_after()
         self.verify_restacks(rows)
