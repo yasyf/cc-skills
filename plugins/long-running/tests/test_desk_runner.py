@@ -4907,6 +4907,25 @@ def test_heads_no_go_names_are_told_new_heads_first_within_the_pass_budget(shell
     assert told == ["29020", "29031"]
 
 
+def test_a_pass_reads_the_ledger_the_background_refresh_keeps_and_waits_on_no_refresh(shell, config, tmp_path, monkeypatch):
+    monkeypatch.setattr(runner_module, "REFRESH_EVERY", timedelta(hours=1))
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    runner_module.seed_policy(runner)
+    landing = runner_module.Landing(runner, runner.config.landing)
+
+    def refreshes() -> int:
+        return len([call for call in list(shell.calls) if "refresh" in call])
+
+    landing.keep_fresh()
+    deadline = time.monotonic() + 5
+    while not refreshes() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    landing.run()
+    assert refreshes() == 1 and [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
 @pytest.mark.parametrize("page", [1, 25])
 def test_the_queue_status_read_covers_every_open_row_in_pages(shell, config, tmp_path, monkeypatch, page):
     monkeypatch.setattr(runner_module, "STATUS_PAGE", page)
