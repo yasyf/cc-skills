@@ -189,7 +189,15 @@
 .nw-col .hc b { display: block; font-size: 13.5px; font-weight: 600; line-height: 1.35; }
 .nw-col .hc .how { display: block; color: var(--ink2); font-size: 12.5px; line-height: 1.38; margin-top: 2px; }
 .nw-col .hc .when { display: block; color: var(--ink3); font-size: 11.5px; margin-top: 4px; }
-.nw :is(.hc, .wr) .said { display: block; color: var(--ink2); font-size: 12.5px; line-height: 1.38; margin-top: 2px; }
+.nw .ev { --tone: var(--doing); display: block; margin-top: 3px; border-radius: 4px; color: var(--ink); font-size: 12.5px; line-height: 1.38; }
+.nw .ev time, .nw .hist .evs time { margin-right: 7px; color: var(--ink3); font-variant-numeric: tabular-nums; }
+.nw .ev.fresh { animation: nw-in .5s ease-out, nw-flash 1.8s ease-out; }
+.nw .unb { display: block; margin-top: 3px; color: var(--ink); font-size: 12.5px; line-height: 1.38; }
+.nw .unb.none { color: var(--bad); }
+.nw-spine .unb { font-size: 11px; color: var(--ink2); }
+.nw.hist { margin: 0 0 14px; }
+.nw.hist .evs { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13.5px; }
+.nw.hist .evs li { display: grid; grid-template-columns: 64px minmax(0, 1fr); }
 .nw-live { margin: 0 0 22px; }
 .nw-live .nw-h .linkish { margin-left: 8px; text-transform: none; letter-spacing: 0; font-weight: 500; }
 .nw-work { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
@@ -249,7 +257,15 @@
 .nw-spine .need { display: inline-block; margin-top: 4px; padding: 1px 6px; border-radius: 5px; background: var(--you); color: #1d1400; font: 700 10px/1.5 var(--sans); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
 .nw-slot { min-height: var(--hold, 0px); margin: 0 -12px 12px; }
 .nw-slot > .pan { display: none; }
-.nw-slot > .pan.focus { display: block; animation: nw-grow .14s ease-out; }
+.nw-slot > .pan.focus { display: block; }
+.nw-slot > .pan.grow { animation: nw-grow .14s ease-out; }
+.nw-spine.fill .sp.l-on::before, .nw-spine.fill .sp.r-on::after, .nw-spine .sp.moved.l-on::before { transform-origin: left; animation: nw-fill .9s ease-out both; }
+.nw-spine .cur .dot { animation: nw-here 2.4s ease-in-out var(--phase) infinite; }
+.nw-spine .sp.moved .ms { animation: nw-flash 1.8s ease-out; }
+@keyframes nw-fill { from { transform: scaleX(0); } }
+@keyframes nw-here { 50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--tone) 12%, transparent); } }
+@keyframes nw-flash { from { background: color-mix(in srgb, var(--tone) 26%, transparent); } }
+@keyframes nw-in { from { opacity: 0; transform: translateY(4px); } }
 @keyframes nw-grow { from { opacity: 0; transform: translateY(-3px); } }
 .nw-col .feed .lane.rest:not(.you, .st-ready-for-you, .st-needs-you) { opacity: var(--lane-dim); }
 .nw-col .feed .lane.rest:is(:hover, :focus-visible) { opacity: 1; }
@@ -260,7 +276,7 @@
 .nw-tray .pg-fold { flex: 1; min-width: 0; }
 .nw-tray .pg-fold > summary { margin: 0; font-size: 11px; color: var(--ink3); }
 .nw-tray .tws { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: 8px; }
-@media (prefers-reduced-motion: reduce) { .nw-slot > .pan.focus { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .nw-spine .sp::before, .nw-spine .sp::after { animation: none; } }
 @media (pointer: coarse) and (min-width: 700px) {
   .nw { font-size: 16px; }
   .nw-col .two { grid-template-columns: 1fr; gap: 22px; }
@@ -269,7 +285,7 @@
   .nw-col .feed { gap: 14px; }
   .nw-col .hc .in { padding: 10px 14px 12px; }
   .nw-col .hc b, .nw-work .body b { font-size: 15.5px; }
-  .nw-col .hc :is(.how, .said, .when), .nw-work :is(.line, .said) { font-size: 14px; }
+  .nw-col .hc :is(.how, .unb, .ev, .when), .nw-work :is(.line, .unb, .ev) { font-size: 14px; }
   .nw-work .wr { min-height: 56px; padding: 12px 16px; gap: 14px; }
   .nw-spine a.ms { min-height: 44px; }
   .nw-band .nbtn { display: inline-flex; align-items: center; min-height: 44px; padding-inline: 16px; }
