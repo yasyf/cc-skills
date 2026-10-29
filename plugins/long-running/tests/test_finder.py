@@ -56,7 +56,7 @@ def pairs(*marks: str) -> str:
 
 
 class Fake:
-    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0, gone: tuple[str, ...] = (), ranges: dict | None = None, shows: dict | None = None, trunk: str = BASE, history: tuple[str, ...] = (), pulls: dict | None = None):
+    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0, gone: tuple[str, ...] = (), ranges: dict | None = None, shows: dict | None = None, trunk: str = BASE, history: tuple[str, ...] = (), pulls: dict | None = None, races: int = 0):
         self.tmp_path = tmp_path
         self.replies = list(replies)
         self.state = state
@@ -69,6 +69,7 @@ class Fake:
         self.trunk = trunk
         self.history = history
         self.pulls = pulls
+        self.races = races
         self.shows = LANDED | ({OLD_OWN[:11]: patch("-poll()", "+stream()"), OWN[:11]: patch("-poll()", "+stream()", "+resubscribe()")} if shows is None else shows)
         self.calls: list[tuple[list[str], Path | None]] = []
         self.posted: list[dict] = []
@@ -101,6 +102,9 @@ class Fake:
         if argv[0] == "ls-remote":
             return f"{self.trunk}\tHEAD\n" if argv[-1] == "HEAD" else f"{BASE}\trefs/heads/dev\n"
         if argv[0] == "fetch":
+            if self.races:
+                self.races -= 1
+                raise subprocess.CalledProcessError(128, argv, stderr="fatal: bad object 0000000000000000000000000000000000000000")
             if any(sha in self.gone for sha in argv):
                 raise subprocess.CalledProcessError(128, argv, stderr="fatal: remote error: upload-pack: not our ref")
             return ""
@@ -222,6 +226,10 @@ def test_a_requested_full_pass_at_a_head_a_delta_record_graded_reads_the_whole_c
         (["finder-desk"], "finder-desk: run #44114 at 7d13a98 again", ["44114"]),
         (["finder-desk"], "finder-desk: thanks for #44114", []),
         (["p8b-step10"], "whole-diff pass on #44114", []),
+        (["finder-desk"], "Audit #5: the finder outage gates PRs; a hold cannot be met at 60ab5df", []),
+        (["finder-desk"], "Audit #5: #44095's hold cannot be met at 60ab5df", ["44095"]),
+        (["finder-desk"], f"whole-diff pass on pr:{REPO}#77 after yasyf/cc-skills#9940", ["77"]),
+        (["finder-desk"], "whole-diff pass on yasyf/cc-skills#9940", []),
     ],
 )
 def test_a_decide_or_ask_to_the_finder_desk_requests_a_full_pass_when_it_names_a_head_or_asks_for_the_whole_diff(to, text, prs):
@@ -360,6 +368,21 @@ def test_a_failed_pr_read_is_retried_once_after_a_pause(tmp_path, monkeypatch):
     with pytest.raises(subprocess.CalledProcessError):
         finder.main([str(again)], Fake(tmp_path, [], failures=2))
     assert "TLS handshake timeout" in result(again)["error"]
+
+
+def test_a_fetch_git_killed_on_another_lanes_zero_worktree_ref_is_retried_once_after_a_pause(tmp_path, monkeypatch):
+    slept = []
+    monkeypatch.setattr(finder.time, "sleep", slept.append)
+    directory = job(tmp_path)
+    shell = Fake(tmp_path, [reply()], races=1)
+    finder.main([str(directory)], shell)
+    assert slept == [finder.RETRY_SECONDS] and len(shell.posted) == 1
+    assert [argv for argv, _ in shell.calls if argv[:2] == ["git", "fetch"]] == [["git", "fetch", "--no-write-fetch-head", "-q", "origin", HEAD, BASE, BASE]] * 2
+
+    again = job(tmp_path / "again")
+    with pytest.raises(subprocess.CalledProcessError):
+        finder.main([str(again)], Fake(tmp_path, [], races=2))
+    assert "bad object 0000000000000000000000000000000000000000" in result(again)["error"]
 
 
 @pytest.mark.parametrize("graded", ["finder: ok a269784 sol finder over dev...a269784: no majors", "finder: major a269784 1 open: walk.go:9 skips the volume link"])
