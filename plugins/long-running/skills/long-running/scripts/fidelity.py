@@ -101,6 +101,7 @@ def prompt(job: dict, view: dict, base: str, own: list[str], rows: Path, plan: s
         plan=plan or "none; the register names no plan",
         contract=job["contract"].strip() or "(the lane posted none)",
         body=view["body"].strip() or "(empty)",
+        rulings=finder.rulings_comments(view),
     )
 
 

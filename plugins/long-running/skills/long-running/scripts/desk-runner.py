@@ -4374,13 +4374,20 @@ class Runner:
                 self.settle(FIDELITY, action.action_id, outcome)
 
     def start_fidelities(self, spec: dict, repo: str) -> None:
-        """Start the newest queued head of each PR, oldest PR first, while fewer than `fidelity.concurrent` passes run; an older queued head of the same PR settles as superseded."""
+        """Start the newest queued head of each PR, oldest PR first, while fewer than `fidelity.concurrent` passes run; an older queued head of the same PR settles as superseded, and a queued head whose PR is closed, no longer at that head, or whose number names no PR, such as a cci seq a record bound as one, settles as skipped without a pass."""
         newest: dict[str, actions.Action] = {}
         for action in sorted(self.book.actions(FIDELITY, kind="fidelity", status="accepted"), key=lambda action: json.loads(action.target)["seq"]):
             if (older := newest.get(pr := json.loads(action.target)["pr"])) is not None:
                 self.settle(FIDELITY, older.action_id, {"superseded": json.loads(action.target)["head"]})
             newest[pr] = action
         running = len(self.book.actions(FIDELITY, kind="fidelity", status="started"))
+        if not newest or running >= spec.get("concurrent", FIDELITY_CONCURRENT):
+            return
+        live = self.live_heads(repo, list(newest))
+        for pr, action in list(newest.items()):
+            if (state := live.get(pr)) and (state["state"] in FINDER_SKIPS or state["headRefOid"] != json.loads(action.target)["head"]):
+                self.settle(FIDELITY, action.action_id, {"skipped": FINDER_SKIPS.get(state["state"], "#{pr} moved to {head}").format(pr=pr, repo=repo, head=state["headRefOid"][:12])})
+                del newest[pr]
         for action in newest.values():
             if running >= spec.get("concurrent", FIDELITY_CONCURRENT):
                 return

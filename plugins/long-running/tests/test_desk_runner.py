@@ -11454,6 +11454,22 @@ def test_a_failed_pass_whose_notice_does_not_post_stays_started_and_tells_the_de
     assert len(fidelity_failures(shell)) == 1 and [action.status for action in incident(config.parent, "desk-fidelity").actions.values()] == ["failed"]
 
 
+def test_a_fidelity_head_bound_to_a_cci_seq_or_a_closed_or_moved_pr_settles_skipped_and_fails_nothing(shell, config):
+    fidelity_config(config)
+    orca_pass(shell, config)
+    bound = head_record(shell, "177834", FINDER_HEAD, lane="newtree-deploy-targets-1", refs={"prs": [177834]}, fields={}, text=f"newtree-deploy-targets-1 {FINDER_HEAD}: gateway URL route (root #177834)")
+    live, closed, moved = (head_record(shell, pr, FINDER_OLD) for pr in ("43439", "43299", "42784"))
+    shell.missing_prs = {"177834"}
+    shell.pr_heads = {"43439": ("OPEN", FINDER_OLD), "43299": ("CLOSED", FINDER_OLD), "42784": ("OPEN", FINDER_HEAD)}
+    orca_pass(shell, config)
+    assert [job["pr"] for job in fidelity_jobs(shell)] == ["43439"]
+    passes = incident(config.parent, "desk-fidelity").actions
+    assert passes[f"fidelity:177834:{FINDER_HEAD}:{bound}"].response["skipped"] == "#177834 is no pull request in Forge-AI/monorepo"
+    assert passes[f"fidelity:43299:{FINDER_OLD}:{closed}"].response["skipped"] == "#43299 is closed"
+    assert passes[f"fidelity:42784:{FINDER_OLD}:{moved}"].response["skipped"] == f"#42784 moved to {FINDER_HEAD[:12]}"
+    assert f"fidelity:43439:{FINDER_OLD}:{live}" in passes and not fidelity_failures(shell)
+
+
 def test_a_runner_with_no_fidelity_config_starts_no_fidelity_pass(shell, config, tmp_path):
     orca_pass(shell, config)
     head_record(shell, "43439", FINDER_HEAD)

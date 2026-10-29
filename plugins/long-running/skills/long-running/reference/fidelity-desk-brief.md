@@ -82,6 +82,14 @@ whether the code, as it runs after the change, does what the words say.
   (e20e623). A test that pins drive-era behavior the plan removes, or behavior
   nothing names, reads `missing` against the row or plan line it contradicts,
   with the line `test <name> pins unplanned behavior`.
+- A mechanism or test the PR body or a PR comment under a `Rulings` heading ties
+  to its source is grounded by that source, never `missing` as "plan names no
+  <thing>" or as unplanned: the old-tree commit it ports (the owner's order to
+  lose nothing from dev, answer 06288326), the finder or review-bot finding it
+  fixes or pins, or the old-world twin PR it mirrors under the owner's order to
+  fix the same defect in the old world. Read the source pinned by sha and grade
+  the head line for line against it; only what differs or goes past it is graded
+  against the plan.
 - The `## Risk profile` states Load and Data in prose. It has no Census or
   Backout field, and no field's absence is a refusal by itself.
 - A grade that lists any problem is a refusal. There is no "ok with notes":
