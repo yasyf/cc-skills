@@ -179,16 +179,14 @@ def test_a_source_that_does_not_read_keeps_its_stall_open_so_nothing_posts_twice
     assert shell.topics() == ["finder:101:abc1234"]
 
 
-def test_a_root_go_no_queued_record_names_goes_to_whoever_holds_its_next_step(config):
+def test_a_root_go_no_queued_record_names_goes_to_whoever_holds_its_next_step_and_backlog_draws_none(config):
     records = [head(1, "101", HEAD, 30), finder(2, "101", HEAD, 25), fidelity(3, "101", HEAD, 25), record(4, "root", "go", f"go #101 at {HEAD[:7]}", 12)]
     records += [head(5, "102", OTHER, 30), finder(6, "102", OTHER, 25), fidelity(7, "102", OTHER, 25), record(8, "root", "go", f"go #102 at {OTHER[:7]}", 12)]
     shell = FakeShell(records, [row("101"), row("102", OTHER, test_state="failure")])
 
     watch(shell, config)
 
-    assert shell.topics() == ["go:101:abc1234", "go:102:fedcba9"]
-    assert shell.post("go:101:abc1234")["to"] == "root"
-    assert "owner desk-runner | the landing desk has not queued it" in shell.post("go:101:abc1234")["text"]
+    assert shell.topics() == ["go:102:fedcba9"]
     assert shell.post("go:102:fedcba9")["to"] == "api-lane@d1"
     assert "fix the red build of #102 at fedcba9" in shell.post("go:102:fedcba9")["text"]
 
@@ -224,21 +222,22 @@ def test_gos_stacked_on_one_parent_post_once_naming_the_parent_and_a_held_parent
     assert "root gos name #202, #203 in the stack from #201, and no QUEUED record does | owner root | #201 at abc1234 has no go, and a stack enqueues from the bottom" in shell.post("go:201:abc1234")["text"]
 
 
-def test_gos_above_a_green_unqueued_bottom_whose_own_builds_run_post_one_stall_naming_the_bottom(config):
+def test_gos_above_a_green_unqueued_bottom_post_one_stall_naming_the_first_pr_whose_build_still_runs(config):
     records = [record(1, "root", "go", f"go #401 at {HEAD[:7]}", 30), record(2, "root", "go", f"go #402 at {OTHER[:7]}", 30), record(3, "root", "go", f"go #403 at {OLD[:7]}", 30)]
     rows = [row("401"), row("402", OTHER, base="b401", test_state="pending"), row("403", OLD, base="b402", test_state="pending")]
     shell = FakeShell(records, rows)
 
     watch(shell, config)
 
-    assert shell.topics() == ["go:401:abc1234"]
-    assert "root gos name #401, #402, #403 in the stack from #401, and no QUEUED record does | owner desk-runner | the landing desk has not queued it" in shell.post("go:401:abc1234")["text"]
+    assert shell.topics() == ["go:402:fedcba9"]
+    assert "#402 at fedcba9 has no green build yet" in shell.post("go:402:fedcba9")["text"]
 
 
 @pytest.mark.parametrize(("graded", "stalls"), [(3, []), (15, ["go:101:abc1234"])])
 def test_a_go_a_fidelity_carry_moved_to_a_new_head_stalls_only_once_the_carry_grade_is_old(config, graded, stalls):
     carry = record(3, "fidelity-desk", "review", f"fidelity: ok {HEAD[:7]} carried from {OLD[:7]}, patch-identical replay onto dev.", graded, "101")
-    shell = FakeShell([record(1, "root", "go", f"go #101 at {OLD[:7]}", 60), head(2, "101", HEAD, 40), carry], [row("101")])
+    blocker = record(4, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; FINDER-PENDING #101: no `finder:` review record names this head", 1, "101", to=["api-lane", "finder-desk"], topic="101")
+    shell = FakeShell([record(1, "root", "go", f"go #101 at {OLD[:7]}", 60), head(2, "101", HEAD, 40), carry, blocker], [row("101")])
 
     watch(shell, config)
 
@@ -838,6 +837,8 @@ def test_a_stall_only_desks_own_goes_to_those_desks_and_not_to_root(config, desk
         desk_lane(config, desk)
     records = [head(1, "101", HEAD, 40), finder(2, "101", HEAD, 35)]
     records += [head(3, "201", HEAD, 30), finder(4, "201", HEAD, 25), fidelity(5, "201", HEAD, 25), record(6, "root", "go", f"go #201 at {HEAD[:7]}", 12)]
+    step = {"root": "201", "lane": "api-lane", "members": {"201": HEAD}, "step": "check", "since": stamp(8), "budget": 180}
+    config.with_name(f"{config.stem}.landing-stacks.json").write_text(json.dumps({"at": stamp(0), "stacks": {"201": step}}))
     shell = FakeShell(records, [row("101"), row("201")])
 
     watch(shell, config)
@@ -973,14 +974,14 @@ def test_a_head_in_the_fidelity_queue_draws_no_fidelity_stall_until_its_grade_ru
         assert "root" not in shell.post(topic)["to"].split(",")
 
 
-def test_a_board_line_spares_root_while_the_board_refresher_posted_about_the_pr_in_the_last_ten_minutes(config):
+def test_a_board_line_spares_root_and_goes_to_the_board_lane_while_the_board_refresher_posted_about_the_pr_in_the_last_ten_minutes(config):
     raw = json.loads(config.read_text())
     raw["landing"]["board_lane"] = "board-refresher"
     config.write_text(json.dumps(raw))
     records = [head(1, "101", HEAD, 40), finder(2, "101", HEAD, 20), fidelity(3, "101", HEAD, 20), record(4, "board-refresher-2", "note", "row up for #101", 5, "101")]
     shell = FakeShell(records, [row("101")])
     watch(shell, config)
-    assert not [topic for topic in shell.topics() if topic.startswith("board:")]
+    assert [shell.post(topic)["to"] for topic in shell.topics() if topic.startswith("board:")] == ["board-refresher@d1"]
 
 
 def test_a_runner_warning_that_holds_nothing_is_no_refusal(config):

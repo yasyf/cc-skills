@@ -4616,7 +4616,9 @@ def test_a_reserved_touch_found_after_the_enqueue_was_accepted_enqueues_nothing(
     landing_of(shell, config, tmp_path).accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}}, [])
     shell.check_pr["29020"] = (1, RESERVED)
     config.with_name(f"{config.stem}.check-pr.json").unlink()
-    landing_of(shell, config, tmp_path).enqueue()
+    landing = landing_of(shell, config, tmp_path)
+    landing.enqueue()
+    landing.drain()
     assert shell.enqueues() == []
     [action] = enqueues_of(tmp_path).values()
     assert action.response["outcome"] == "blocked" and action.response["out"].startswith("the merge-mode check refuses #29020: merge mode auto waits for the owner's Merge answer")
@@ -4632,6 +4634,7 @@ def test_a_head_regraded_missing_after_its_enqueue_was_accepted_enqueues_nothing
     landing.accept(["29020"], ["29020"], {"29020": {"sha": "cccc333333"}}, {"29020": {"ours": True, "lane": LANE}}, [])
     seq = grade(shell, "29020", "missing F307 at cccc333.")
     landing.enqueue()
+    landing.drain()
     assert shell.enqueues() == []
     [blocker] = blockers(shell)
     assert f"cci #{seq}: fidelity: missing F307" in blocker["text"]
@@ -6412,7 +6415,7 @@ def test_a_go_named_head_the_landing_desk_blocked_draws_no_go_unqueued(shell, co
 HELD_TWO = "🛑 Held — 2 blocking open; security: high; confidentiality: high"
 
 
-def test_a_go_named_green_head_the_review_bot_holds_tells_its_lane_once_and_names_the_findings_when_its_enqueue_fails(shell, config, tmp_path):
+def test_a_go_named_green_head_the_review_bot_holds_tells_its_lane_once_and_draws_no_go_unqueued(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
     shell.queue["33001"] = "not queued"
@@ -6420,12 +6423,10 @@ def test_a_go_named_green_head_the_review_bot_holds_tells_its_lane_once_and_name
     shell.sleep(6 * 60)
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert unqueued(shell) == []
     shell.gates["33001"] = [gate("#33001 GREEN aaaa111111 graphite READY", would="#33001")]
     shell.enqueue_out["33001"] = (5, "graphite refused the enqueue: the API answered 422\n")
     landing_pass(shell, config)
-    [line] = unqueued(shell)
-    assert f"minutes; the review bot holds it on 2 blocking findings; {LANE} fixes or accepts them; owner lane " in line
+    assert unqueued(shell) == []
     assert [post_body(post) for post in blockers(shell) if "review bot" in post_body(post)] == [f"#33001 aaaa111111: the review bot holds it on 2 blocking findings; {LANE} fixes or accepts them"]
 
 
@@ -7271,6 +7272,7 @@ def test_an_enqueue_whose_heads_moved_before_it_ran_enqueues_nothing(shell, conf
     landing.accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}}, {"28997": {"ours": True}}, [])
     shell.gates["28997"] = [gate("#28997 GREEN abab111111 graphite READY", would="#28997")]
     landing.enqueue()
+    landing.drain()
     assert shell.enqueues() == []
     [action] = [action for action in store.load("desk-landing").actions.values() if action.kind == "enqueue"]
     assert action.response["outcome"] == "superseded"
