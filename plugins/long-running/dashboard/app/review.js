@@ -72,7 +72,7 @@ function prText(n) {
   const said = pr.eli5 ?? pr.summary;
   const bot = said || pr.diagram
     ? `<section class="pr-read pr-eli5"><div class="kick muted">What it does, from the reviewer bot</div>${reviewed || ''}${said ? `<div class="md">${markdown(said)}</div>` : ''}${pr.diagram ? diagramFigure(pr.diagram) : ''}</section>`
-    : reviewed ? `<section class="pr-read">${reviewed}</section>` : '';
+    : `<section class="pr-read pr-eli5"><div class="kick muted">What it does, from the reviewer bot</div>${reviewed || ''}<p class="dim">The reviewer bot wrote no plain-words explanation of this change, so its author's description below says what it does.</p></section>`;
   const body = prBody(pr);
   return `${bot}
     <section class="pr-read"><div class="kick muted">The pull request’s description</div><div class="md">${body ? markdown(body) : '<p class="dim">Its author wrote no description.</p>'}</div></section>`;

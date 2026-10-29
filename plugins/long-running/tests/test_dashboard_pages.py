@@ -171,3 +171,13 @@ def test_without_a_companion_the_summary_s_plain_lead_says_what_it_does():
 def test_a_later_run_s_findings_lead_is_not_taken_for_what_it_does():
     summary = "<!-- pr-reviewer bot summary -->\n\n> [!TIP]\n> **1 blocking**\n\n**Since [`606342b`](x):** Adds a check.\n\nThis head adds two problems. Share recipients are not held to the shared position.\n\n<details></details>"
     assert bot_words([summary])["summary"] is None
+
+
+def test_a_later_run_s_plain_lead_still_says_what_the_change_does():
+    summary = "<!-- pr-reviewer bot summary -->\n\n> [!TIP]\n> **No open findings**\n\n**Since [`606342b`](x):** Adds a retry.\n\nA refused write now retries once with a fresh credential.\n\n<details></details>"
+    assert bot_words([summary])["summary"] == "A refused write now retries once with a fresh credential."
+
+
+def test_a_lead_that_counts_new_findings_is_not_taken_for_what_it_does():
+    summary = "<!-- pr-reviewer bot summary -->\n\n> [!WARNING]\n> **1 non-blocking**\n\nOne new nonblocking finding: the old release still reads the next tree's config.\n\n<details></details>"
+    assert bot_words([summary])["summary"] is None

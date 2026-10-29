@@ -1,6 +1,8 @@
+import datetime as dt
 import json
 import re
 import threading
+from zoneinfo import ZoneInfo
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -11,7 +13,8 @@ APP = Path(__file__).resolve().parents[1] / "dashboard" / "app"
 MODEL = Path(__file__).resolve().parent / "fixtures" / "now-model.json"
 ASSIST = APP.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
 LAPTOP = {"width": 1440, "height": 900}
-STORY = {"type": "saved", "status": None, "draft": None, "lines": [{"type": "line", "at": "7:20 PM", "mark": "progress", "line": "Three files still use the deleted store; the reader change removes them."}, {"type": "line", "at": "6:02 PM", "mark": "finding", "line": "The build fails in 41 packages."}]}
+PACIFIC_NOW = dt.datetime.now(ZoneInfo("America/Los_Angeles"))
+STORY = {"type": "saved", "status": None, "draft": None, "lines": [{"type": "line", "at": f"{(PACIFIC_NOW - dt.timedelta(minutes=5)):%-I:%M %p}", "mark": "progress", "line": "Three files still use the deleted store; the reader change removes them."}, {"type": "line", "at": f"{(PACIFIC_NOW - dt.timedelta(minutes=80)):%-I:%M %p}", "mark": "finding", "line": "The build fails in 41 packages."}]}
 
 
 class Handler(SimpleHTTPRequestHandler):
