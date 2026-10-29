@@ -1492,7 +1492,8 @@ or a desk's, since a fidelity desk claims the heads it grades without owning the
 the lane that registered its ledger row; a cci blocker also goes to the root
 when `cci who` lists no live session for that lane. A lane with no live session
 or dispatch and no cci record on the drive in the last 60 minutes is dead: its
-blocker goes to the root alone, opening with `owner lane dead`, and its conflict
+blocker goes to the lanes `landing.restack_lane` names, or to the root while none is
+named or every one is dead, opening with `owner lane dead`, and its conflict
 is never parked (root #131190). To hand a PR to a new lane, post a `claim`
 record naming it as that lane.
 
@@ -1709,8 +1710,8 @@ carries its grade, below) is that gate's record there, and nobody re-grades it.
 lane, each `landing.board_lane`, and the PR's owning lane, each read as its live
 successor, and not to root. A ledger row that settles landed with no enqueue or squash of the
 runner's own, queued by hand or landed in a batch it did not enqueue, gets its own `LANDED`
-record the pass the ledger reads its squash. A `GO-UNQUEUED` for a PR goes to root the first time and to
-those lanes after. A `LANE-GONE` for a lane goes to root every time, and to those lanes and
+record the pass the ledger reads its squash. A `GO-UNQUEUED` or `GO-TAP-MISSING` for a PR goes to each
+`landing.go_lanes` lane, the desk lanes and the owning lane, and to root only when the owning lane is dead. A `LANE-GONE` for a lane goes to root every time, and to those lanes and
 the gone lane too after the first, since only root relaunches a lane. Without
 `landing.desk_lane` they go to root.
 
@@ -1768,7 +1769,8 @@ such move. A fidelity grade of `<new>` that names `<old>` anywhere and says patc
 tap carries, no new behavior, test-only, or pure replay in its first sentence, with no added
 behavior, is another. One
 `TAP-CARRIED` note naming both heads goes to root and each lane `landing.board_lane`
-names, one lane or a list. A new head that a record names but no such chain reaches is a
+names, one lane or a list, and a patch-identical carry onto a head no go names also draws the
+runner's own `go` record for that head, so root posts none. A new head that a record names but no such chain reaches is a
 fixed version, and its tap stays at the old head. One `TAP-NOT-CARRIED` note to the same
 lanes says the board needs a new row at that head. For a review fix, the
 root posts `go #<n> at <new head>` naming the fix, and the runner then carries the tap to

@@ -3761,9 +3761,21 @@ def test_a_root_go_claiming_a_tap_the_board_does_not_hold_draws_one_go_tap_missi
     seq = shell.records[-1]["seq"]
     landing_pass(shell, config)
     landing_pass(shell, config)
-    missing = [line for line in escalations(shell) if line.startswith("GO-TAP-MISSING")]
+    missing = [post_body(post).splitlines()[0] for post in shell.posts if post_body(post).startswith("GO-TAP-MISSING")]
     expected = f"GO-TAP-MISSING go-tap-missing:{seq}:29020 #29020: root go cci #{seq} says the owner tapped #29020 at cccc333333, but no approval on the root's board names cccc333333 or a head the go names; the board holds {holds}. Withdraw the go, or post it again citing the board verdict at this head or the carry to it"
     assert missing == ([expected] if holds else [])
+
+
+def test_go_tap_missing_goes_to_the_go_lanes_the_desk_and_the_owning_lane_not_root(shell, config, tmp_path):
+    board_surface(config)
+    desk_lane(config)
+    raw = json.loads(config.read_text())
+    raw["landing"]["go_lanes"] = ["go-sweep"]
+    config.write_text(json.dumps(raw))
+    lone_green_pr(shell)
+    merge_go(shell, "29020", "go #29020 at cccc333333: his tap on the board.")
+    landing_pass(shell, config)
+    assert heard(shell, "GO-TAP-MISSING") == [f"go-sweep,{DESK},{LANE}"]
 
 
 @pytest.mark.parametrize("settled", ["go", "fidelity carry", "none"])

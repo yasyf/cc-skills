@@ -293,8 +293,8 @@ failed only in a queue draft holding nothing but its stack, goes back in at the 
 policy, which the adapter comments on the PR, and routes no blocker meanwhile; a second at the same head logs `AWAITS-GO`, and the root's next `go`
 naming the PR puts it back the same way. A retry the adapter refuses logs `FLAKE-RETRY-FAILED`. The lane a PR's blocker or restack goes to is the poster of the newest cci `head`, `opened`, `ready`,
 or `claim` record naming the PR, else the lane that registered its ledger row; a blocker posted on cci also goes to the root
-when `cci who` lists no live session for that lane, and to the root alone, opening with `owner lane dead`, once that lane has no
-live dispatch or session and no cci record on the drive in the last 60 minutes. A conflict blocker for a lane with no dispatch Orca
+when `cci who` lists no live session for that lane, and to the live lanes `landing.restack_lane` names instead, else the root
+alone, opening with `owner lane dead`, once that lane has no live dispatch or session and no cci record on the drive in the last 60 minutes. A conflict blocker for a lane with no dispatch Orca
 shows active and no session `cci who` lists, but a record in that hour, routes nothing: the root gets one `PARKED` line per PR, and that head routes once the lane is back. A gate's `BLOCKED` verdict goes to the lane at most once per head, as the blocker its adapter names, and only for red CI,
 a merge conflict, a changes-requested review or fidelity grade, or a queue ejection, never for a pending or running check or a
 missing approval or an ejection blaming a PR outside its stack, and never for a PR that is held, carries GitHub's `hold` label, or is
@@ -523,7 +523,7 @@ logs `MERGE-CARD-FAILED` once per head and cause and tries again next pass. With
 carries the owner's board taps: an approval on a `pr-groups` row of the root's board at an older head of an open PR, with no verdict at
 its ledger head, moves to that head through `cc-present verdict carry` once `head` records reading `<new> (was <old>)` and fidelity carries
 call each move between the two patch-identical, with one `TAP-CARRIED` note naming both heads to root and each lane `landing.board_lane`
-names, one lane or a list. A new head a record names with no such chain, a fixed version, is never carried. A record saying it adds new
+names, one lane or a list, and, when no go names the new head, one `go` record of the runner's own for it, which `go_lane` counts. A new head a record names with no such chain, a fixed version, is never carried. A record saying it adds new
 behavior draws one `TAP-NOT-CARRIED` note to the same lanes saying the board needs a new row; a fidelity ok grade naming none draws one
 `TAP-KEPT` note saying his tap keeps over that review fix and root posts its go naming the fix (rule 399b5fa), and once that go
 names the head the runner carries the tap there itself, citing the grade and the go; a root `go` or a
@@ -6472,6 +6472,10 @@ class Landing:
     def board_lanes(self) -> list[str]:
         return self.runner.landing_lanes("board_lane")
 
+    def go_audience(self, prs: list[str], rows: dict[str, dict]) -> str:
+        """Who hears that a go is stuck or unproven: each `landing.go_lanes` lane as its live successor, then the `routine_audience` (owner, Oct 29 2:06 PM)."""
+        return ",".join(dict.fromkeys([*map(self.successor, self.landing_config.get("go_lanes", [])), *self.routine_audience(prs, rows).split(",")]))
+
     def routine_audience(self, prs: list[str], rows: dict[str, dict]) -> str:
         """Who hears a routine landing record: each `landing.desk_lane` and each PR's owning lane as its live successor, and the root only for a PR whose owning lane is dead or unnamed (root, Oct 29 2:10 PM)."""
         owners = [rows.get(pr, {}).get("lane", "") for pr in prs]
@@ -6497,7 +6501,7 @@ class Landing:
             self.runner.escalate(f"tap-carry:unread:{hashlib.sha1(VOLATILE.sub('', str(failed)).encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", "landing", f"the root's board did not read ({failed}), so no tap carries to a restacked head this pass; the next pass reads it again")
             return
         heads = {pr: row["head"] for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}
-        self.question_tap_claims(heads, verdicts)
+        self.question_tap_claims(heads, verdicts, rows)
         entries = [(block, pr, entry) for block, by_row in verdicts.items() for pr, entry in by_row.items() if pr in heads and entry.get("head")]
         decided = {pr for _, pr, entry in entries if names_head(entry["head"], heads[pr])}
         moved = [(block, pr, entry) for block, pr, entry in entries if entry["verdict"] == "approved" and pr not in decided]
@@ -6529,7 +6533,7 @@ class Landing:
             elif kept and not self.book.known(LANDING, key := f"tap-kept:{block}:{pr}:{tapped}:{head}"):
                 self.post_record("note", key, to, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} on board block {block} keeps at {head[:10]}, a review fix with no new behavior per fidelity grade cci #{graded['seq']} (rule 399b5fa); root posts `go #{pr} at {head[:10]}` naming the fix, and the row lists the fix", pr)
 
-    def question_tap_claims(self, heads: dict[str, str], verdicts: dict[str, dict[str, dict]]) -> None:
+    def question_tap_claims(self, heads: dict[str, str], verdicts: dict[str, dict[str, dict]], rows: dict[str, dict]) -> None:
         """One `GO-TAP-MISSING` to root per root `go` and PR when the go says the owner tapped or approved an open PR at its ledger head, claims no port, test-only or CI-only exemption, and no approval on the root's board names that head or a head the go names, saying what the board holds for the PR instead: a go rests on a board verdict, never on a lane's line that says tapped (rule/82317b0, root #172682)."""
         for pr, head in heads.items():
             for go in self.head_gos(pr, head):
@@ -6541,7 +6545,7 @@ class Landing:
                 if any(entry["verdict"] == "approved" and any(names_head(sha, entry.get(at) or "") for sha in named for at in ("head", "carriedFrom")) for _, entry in held):
                     continue
                 board = "; ".join(f"{entry['verdict']} at {(entry.get('head') or '')[:10]} on block {block}" for block, entry in held) or f"no verdict for #{pr}"
-                self.runner.escalate(f"go-tap-missing:{go['seq']}:{pr}", "GO-TAP-MISSING", f"#{pr}", f"root go cci #{go['seq']} says the owner tapped #{pr} at {head[:10]}, but no approval on the root's board names {head[:10]} or a head the go names; the board holds {board}. Withdraw the go, or post it again citing the board verdict at this head or the carry to it")
+                self.runner.escalate(f"go-tap-missing:{go['seq']}:{pr}", "GO-TAP-MISSING", f"#{pr}", f"root go cci #{go['seq']} says the owner tapped #{pr} at {head[:10]}, but no approval on the root's board names {head[:10]} or a head the go names; the board holds {board}. Withdraw the go, or post it again citing the board verdict at this head or the carry to it", "", self.go_audience([pr], rows))
 
     def carry_tap(self, session: str, block: str, pr: str, tapped: str, head: str, why: str, to: str) -> bool:
         """Carry the owner's tap on `pr` from `tapped` to `head` on the board and post `TAP-CARRIED` once; whether the board took it."""
@@ -6986,7 +6990,7 @@ class Landing:
             above = [f"#{other}" for _, other, *_ in sorted(group) if other != pr]
             waits = f"; {', '.join(above)} above it in the stack from #{bottom} wait on it too" if above else ""
             key, subject = f"go-unqueued:{pr}@{head}", f"go-unqueued:{pr}"
-            to = self.routine_audience([pr], rows)
+            to = self.go_audience([pr], rows)
             self.runner.escalate(key, "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and root go #{gos[0]['seq']} at {pacific(actions.parse_stamp(gos[0]['at']))} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}{waits}; owner lane {owner}", subject, to)
 
     def keep_overflowing(self) -> None:
