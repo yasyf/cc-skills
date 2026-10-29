@@ -1043,6 +1043,44 @@ def test_a_worker_list_that_flaps_reports_once_and_reads_again_after_three_answe
     ]
 
 
+def orca_down(shell: FakeShell, listing: tuple[str, ...]) -> None:
+    shell.orca[show(ROOT)] = fixture("error.runtime-unavailable")
+    shell.orca[listing] = fixture("error.timeout")
+
+
+def test_an_orca_app_that_flaps_with_no_worker_in_progress_posts_nothing(home, shell):
+    register(home)
+    for _ in range(2):
+        orca_down(shell, ("orchestration", "worker-list", "--include-remote"))
+        rows = poll(shell, 4)
+        assert rows[ROOT]["state"] == "unknown" and rows["workers"]["state"] == "unknown" and "runtime" not in rows
+        unbound(shell)
+        coordinator(shell, "clear", "coordinator.answered")
+        rows = poll(shell, 4)
+        assert set(rows) == {ROOT} and rows[ROOT]["state"] == "clear"
+
+    assert shell.posts == []
+
+
+def test_an_orca_app_down_while_workers_are_in_progress_is_one_report_and_one_readable(home, shell):
+    workers(home, shell)
+    shell.orca[worker_show(GONE)] = fixture("worker-show.local.clear")
+    listing = ("orchestration", "worker-list", "--run", RUN, "--include-remote")
+    poll(shell)
+    orca_down(shell, listing)
+    poll(shell, 5)
+    shell.orca[listing] = fixture("worker-list")
+    coordinator(shell, "clear", "coordinator.answered")
+
+    rows = poll(shell, 3)
+
+    assert "runtime" not in rows and rows[f"dispatch:{LOCAL}"]["state"] == "clear"
+    assert [(post["--to"], post["--kind"], post["--topic"], whole(post)) for post in shell.posts] == [
+        ("desk-runner", "report", "prompt:orca", f"UNKNOWN orca (runtime) terminal=unresolved: Orca answers no watched terminal (runtime_unavailable, timeout); bake, {REMOTE}, {GONE} were in progress at the last worker-list and may wait on a prompt; unread for 3 polls, so whether it waits on a prompt is not known"),
+        ("desk-runner", "report", "prompt:orca", "READABLE orca (runtime) terminal=unresolved: read for 3 polls in a row since the watch reported it unknown"),
+    ]
+
+
 def test_a_record_cci_refuses_is_posted_on_the_next_poll(home, shell):
     supervised(home)
     unbound(shell)

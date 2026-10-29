@@ -49,6 +49,9 @@ A supervisor that holds a foreground wait is never idle, so it keeps
 as the root's Monitor does for `root`. A terminal unknown or unreachable for three polls in a row is one `report` to `desk-runner`,
 never to root, whose window each record lands in, and three polls in a row that read it again are one `READABLE` report to the same lane. A shorter read posts nothing, so a terminal
 or `worker-list` that flaps under load raises no second record for the same unread state.
+When every watched terminal reads `runtime_unavailable` or `timeout`, the Orca app itself is down: no terminal
+reports alone, and the `orca (runtime)` row reports once after three polls only when the last answered `worker-list`
+held a worker in progress, since only a worker can wait on a prompt nobody sees. With none, the outage posts nothing.
 When a prompt leaves the screen, or its terminal leaves the watch, an `unblock` record resolves
 each record it raised, and an `info` card in the same thread says the owner's prompt cleared.
 While `worker-list` fails, no worker is closed: each keeps its open prompt and reads unknown or
@@ -129,6 +132,8 @@ UNREACHABLE = "unreachable"
 CLEAR = "clear"
 PROMPTS = (prompt_screen.APPROVAL, prompt_screen.QUESTION)
 UNSEEN = (UNKNOWN, UNREACHABLE)
+RUNTIME = "runtime"
+RUNTIME_DOWN = frozenset({"runtime_unavailable", "timeout"})
 WAITS_ON = {prompt_screen.APPROVAL: "an approval dialog", prompt_screen.QUESTION: "a question dialog"}
 REACHED = {"turn_started": "its turn started", "input_accepted": "Orca accepted it and saw no turn start"}
 UNREACHABLE_CODES = frozenset({"remote_runtime_unavailable"})
@@ -194,7 +199,7 @@ class Subject:
     terminal: str = ""
     environment: str = ""
     dispatch: str = ""
-    failure: tuple[str, str] | None = None
+    failure: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -207,6 +212,7 @@ class Seen:
     screen: dict | None = None
     title: str = ""
     countdown: str = ""
+    code: str = ""
 
 
 def stamp(moment: datetime) -> str:
@@ -228,6 +234,10 @@ def read_command(subject: Subject) -> str:
 def unseen(error: dict) -> tuple[str, str]:
     state = UNREACHABLE if error["code"] in UNREACHABLE_CODES else UNKNOWN
     return state, f"{error['code']}: {' '.join(error.get('message', '').split())}"[:200]
+
+
+def unread(subject: Subject, error: dict, since: int | None = None) -> Seen:
+    return Seen(subject, *unseen(error), since, code=error["code"])
 
 
 def where(row: dict) -> str:
@@ -310,7 +320,7 @@ class Watch:
         while True:
             listed = self.orca("orchestration", "worker-list", *scope, "--include-remote", *cursor, env=env)
             if not listed.get("ok"):
-                return [Subject(WORKERS, WORKERS, "worker-list", failure=unseen(listed["error"]))]
+                return [Subject(WORKERS, WORKERS, "worker-list", failure=listed["error"])]
             result = listed["result"]
             if not run and result["scope"]["source"] != "bound":
                 return []
@@ -338,11 +348,11 @@ class Watch:
 
     def read(self, subject: Subject, always: bool = False) -> Seen:
         if subject.failure:
-            return Seen(subject, *subject.failure)
+            return unread(subject, subject.failure)
         if subject.dispatch:
             shown = self.orca("orchestration", "worker-show", "--dispatch", subject.dispatch)
             if not shown.get("ok"):
-                return Seen(subject, *unseen(shown["error"]))
+                return unread(subject, shown["error"])
             result = shown["result"]
             if not (terminal := (result.get("terminal") or {}).get("handle")):
                 return Seen(subject, UNKNOWN, "worker-show names no terminal")
@@ -351,14 +361,14 @@ class Watch:
         else:
             shown = self.orca("terminal", "show", "--terminal", subject.terminal, environment=subject.environment)
             if not shown.get("ok"):
-                return Seen(subject, *unseen(shown["error"]))
+                return unread(subject, shown["error"])
             wait = shown["result"]["terminal"].get("agentWait")
         since = (wait or {}).get("since")
         if subject.role == WORKER and not subject.environment and not wait and not always:
             return Seen(subject, CLEAR)
         read = self.orca("terminal", "read", "--terminal", subject.terminal, "--screen", environment=subject.environment)
         if not read.get("ok"):
-            return Seen(subject, *unseen(read["error"]), since)
+            return unread(subject, read["error"], since)
         screen = read["result"]["terminal"]
         if screen.get("source") != "screen":
             return Seen(subject, UNKNOWN, f"no rendered screen (source {screen.get('source', 'absent')})", since)
@@ -490,7 +500,7 @@ class Watch:
         if entry.get(SLACK_CARDS) and self.card(entry, "needs_you", f"The {subject.name} terminal waits on {WAITS_ON[seen.state]}", text):
             alerts[OWNER] = row["episode"]
 
-    def settle(self, entry: dict, row: dict, seen: Seen, supervisor: Seen | None) -> None:
+    def settle(self, entry: dict, row: dict, seen: Seen, supervisor: Seen | None, quiet: bool = False) -> None:
         subject, moment = seen.subject, stamp(self.shell.now())
         if row.get("state") != seen.state:
             row["state_at"] = moment
@@ -504,7 +514,7 @@ class Watch:
                 if row["unseen"] == 1:
                     row["unread_capture"] = self.capture(entry, f"unknown-{hashlib.sha1(subject.key.encode()).hexdigest()[:12]}", seen)
                 row["detail"] = f"{seen.detail}; screen saved at {row['unread_capture']}"
-            if row["unseen"] >= UNSEEN_POLLS and row.get("reported") != seen.state:
+            if row["unseen"] >= UNSEEN_POLLS and row.get("reported") != seen.state and not quiet:
                 text = f"{seen.state.upper()} {subject.name} ({subject.role}) {where(row)}: {row['detail']}; unread for {row['unseen']} polls, so whether it waits on a prompt is not known"
                 if self.post(entry, "report", RUNNER, subject.name, text):
                     row["reported"] = seen.state
@@ -544,15 +554,26 @@ class Watch:
             return False
         path = watch_dir(entry) / STATE_FILE
         rows = json.loads(path.read_text())["subjects"] if path.exists() else {}
+        listed = sorted(row["name"] for row in rows.values() if row["role"] == WORKER)
         subjects = self.subjects(entry)
         with ThreadPoolExecutor(SHOW_WORKERS) as pool:
             seen = list(pool.map(self.observe, subjects))
+        down = sorted({found.code for found in seen}) if seen and all(found.code in RUNTIME_DOWN for found in seen) else []
         supervisor = next((found for found in seen if found.subject.role == SUPERVISOR), None)
         unlisted = next((found for found in seen if found.subject.role == WORKERS), None)
         fresh = {}
         for found in seen:
             fresh[found.subject.key] = row = rows.pop(found.subject.key, {})
-            self.settle(entry, row, found, supervisor)
+            self.settle(entry, row, found, supervisor, quiet=bool(down))
+        runtime, orca = rows.pop(RUNTIME, {}), Subject(RUNTIME, RUNTIME, "orca")
+        if down and listed:
+            detail = f"Orca answers no watched terminal ({', '.join(down)}); {', '.join(listed)} were in progress at the last worker-list and may wait on a prompt"
+            self.settle(entry, runtime, Seen(orca, UNKNOWN, detail), supervisor)
+            fresh[RUNTIME] = runtime
+        elif "reported" in runtime:
+            self.settle(entry, runtime, Seen(orca, CLEAR), supervisor)
+            if "reported" in runtime:
+                fresh[RUNTIME] = runtime
         for key, row in rows.items():
             if unlisted and row["role"] == WORKER:
                 fresh[key] = self.unverified(row, unlisted)

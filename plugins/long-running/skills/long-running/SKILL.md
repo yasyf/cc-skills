@@ -3471,7 +3471,11 @@ After an `unknown` or `unreachable` report, the watch posts one `READABLE` repor
 `desk-runner` once three polls in a row read the terminal again. Neither reaches root,
 whose window every record addressed to it lands in. A shorter read posts nothing,
 so a terminal or `worker-list` that flaps under load raises no second record for the
-same unread state.
+same unread state. When every watched terminal reads `runtime_unavailable` or
+`timeout`, the Orca app itself is down and no terminal reports alone. The watch posts
+one `orca (runtime)` report after three polls only when the last answered
+`worker-list` held a worker in progress, and its `READABLE` only after that report. A
+drive with no worker in progress hears nothing about the outage.
 
 `unknown` and `unreachable` mean the prompt state is not known. Never read either as
 working, and never as stuck. A host running Orca's managed server installs no agent
