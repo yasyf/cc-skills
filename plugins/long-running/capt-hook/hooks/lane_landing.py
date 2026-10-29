@@ -7,11 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, TranscriptFixture, on
-from captain_hook.annotations import session_annotations
+from captain_hook.annotations import dispatch_prompt, header_lines, session_annotations
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, bus_name, drive_entry, script, script_module
-from .register_injection import INCIDENT_NAME
+from .register_injection import INCIDENT_NAME, INCIDENT_SLICE
 from .session_tree import nearest_name
 
 LANDERS = re.compile(r"^(?:desk-runner|merge-train)(?:-.+)?$|^(?:\w+-)*desk(?:-\d+)?$")
@@ -44,6 +44,8 @@ DESK = "alanding-desk-0123456789abcdef"
 NOT_AN_INCIDENT = "none"
 INCIDENT_BRIEF = TranscriptFixture([{"type": "user", "message": {"role": "user", "content": "ccx: incident=deadline-sweep\nFix the deadline sweep."}}])
 NON_INCIDENT_BRIEF = TranscriptFixture([{"type": "user", "message": {"role": "user", "content": "ccx: incident=none\nFix the ledger."}}])
+FIX_LANE = "ainc-fixruns-fix-0123456789abcdef"
+EVIDENCE_LANE = "ainc-fixruns-evidence-0123456789abcdef"
 PINNED_MERGE = "gh pr merge 44717 --squash --match-head-commit 0123456789abcdef0123456789abcdef01234567"
 ENQUEUE = "~/monorepo/.agents/skills/submit-pr/scripts/stack-enqueue 36023 --hold 30082"
 REFUSAL = (
@@ -71,10 +73,18 @@ HAND_ENQUEUE_WARNING = (
     "A hand `stack-enqueue` is held to the landing runner's checks, and these heads fail them: {lines}. "
     "Clear each one before you enqueue, with a grade naming the head, a fidelity ok, or the owner's go."
 )
+ADMIN_MERGE_REFUSAL = (
+    "Incident fixes merge by plain squash once approved and green, never past review, so lane `{lane}` may not run `gh pr merge --admin`. "
+    "Wait for the approval and the required checks, then run `gh pr merge <N> --squash`."
+)
 INCIDENT_REFUSAL = (
     "Incident fixes land by plain squash the pass they are approved and green, never through the queue (the owner ruled it on Oct 20), so lane `{lane}` may not run `stack-enqueue`. "
     "Post `ready`, and the landing runner merges it."
 )
+
+
+def sliced_brief(lane: str, step: str) -> TranscriptFixture:
+    return TranscriptFixture([{"type": "user", "message": {"role": "user", "content": f"Fix the failing runs.\nRegister slice: lane={lane} step={step}\nslice-hash: c97262b93f65"}}])
 
 
 @dataclass(frozen=True)
@@ -140,7 +150,11 @@ def lane_name(evt: BaseHookEvent) -> str | None:
 
 
 def incident_lane(evt: BaseHookEvent, lane: str) -> bool:
-    return bool(INCIDENT_NAME.match(lane)) or bool(lane) and session_annotations(evt).get("incident") not in (None, NOT_AN_INCIDENT)
+    return bool(INCIDENT_NAME.match(lane)) or bool(lane) and (session_annotations(evt).get("incident") not in (None, NOT_AN_INCIDENT) or incident_fix_slice(evt, lane))
+
+
+def incident_fix_slice(evt: BaseHookEvent, lane: str) -> bool:
+    return lane.endswith("-fix") and INCIDENT_SLICE.format(lane=lane) in header_lines(dispatch_prompt(evt))
 
 
 def named_repo(call: Call) -> str | None:
@@ -284,6 +298,13 @@ def landing_verb(call: Call) -> str | None:
         Input(command=PINNED_MERGE, agent_id=LANE, state=ACTIVE, transcript=INCIDENT_BRIEF): Allow(),
         Input(command=PINNED_MERGE, agent_id=LANE, state=ACTIVE, transcript=NON_INCIDENT_BRIEF): Block(pattern=r"lane `lane-a` may not run `gh pr merge`"),
         Input(command="stack-enqueue 44717", agent_id=LANE, state=ACTIVE, transcript=INCIDENT_BRIEF): Block(pattern=r"^Incident fixes land by plain squash"),
+        Input(command="gh pr merge 44811 --squash", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-fix", "incident")): Allow(),
+        Input(command="gh pr merge 44811 --squash --admin", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-fix", "incident")): Block(pattern=r"^Incident fixes merge by plain squash .* lane `inc-fixruns-fix` may not run `gh pr merge --admin`\."),
+        Input(command="gh pr merge 36050 --admin --squash", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Block(pattern=r"`gh pr merge --admin`"),
+        Input(command="stack-enqueue 44811", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-fix", "incident")): Block(pattern=r"^Incident fixes land by plain squash"),
+        Input(command="gh pr merge 44811 --squash", agent_id=EVIDENCE_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-evidence", "incident")): Block(pattern=r"lane `inc-fixruns-evidence` may not run `gh pr merge`"),
+        Input(command="gh pr merge 44811 --squash", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-fix", "1.9")): Block(pattern=r"lane `inc-fixruns-fix` may not run `gh pr merge`"),
+        Input(command="gh pr merge 44811 --squash", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("other-fix", "incident")): Block(pattern=r"lane `inc-fixruns-fix` may not run `gh pr merge`"),
         Input(command=ENQUEUE, state=ACTIVE): Allow(),
         Input(command=ENQUEUE, agent_id=LANE): Allow(),
         Input(command="stack-enqueue 36023 --check --hold 30082", agent_id=LANE, state=ACTIVE): Allow(),
@@ -306,10 +327,13 @@ def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
     if evt.agent_id and not reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") and not CompactionState.load(evt).active:
         return None
     entry = drive_entry(evt)
-    verbs = [verb for call in evt.cmd.calls() if (verb := landing_verb(call)) and (verb == "mq.py enqueue" or not outside_drive_repo(evt, call, entry))]
-    if not verbs:
+    landings = [(call, verb) for call in evt.cmd.calls() if (verb := landing_verb(call)) and (verb == "mq.py enqueue" or not outside_drive_repo(evt, call, entry))]
+    if not landings:
         return None
+    verbs = [verb for _, verb in landings]
     incident = incident_lane(evt, lane)
+    if incident and any(verb == "gh pr merge" and "--admin" in call.args for call, verb in landings):
+        return evt.block(ADMIN_MERGE_REFUSAL.format(lane=lane))
     verb = next((verb for verb in verbs if verb in ENQUEUERS or not incident), None)
     if verb and incident:
         return evt.block(INCIDENT_REFUSAL.format(lane=lane))
