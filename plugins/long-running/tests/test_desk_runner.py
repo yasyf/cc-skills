@@ -3095,6 +3095,23 @@ def test_a_pure_port_go_from_a_configured_go_lane_lands_like_a_root_go(shell, co
     assert [call[1:] for call in shell.enqueues()] == ([["29020", "--partial"]] if admitted else [])
 
 
+@pytest.mark.parametrize("pipeline", ["missing cccc333 plan:112 the plan names no gallery field", "ok cccc333 consistent with the plan"], ids=["pipeline-missing", "pipeline-plain-ok"])
+def test_a_desk_pure_port_grade_admits_the_go_over_a_newer_pipeline_grade_without_the_port_words(shell, config, pipeline):
+    merge_mode(config, "every")
+    raw = json.loads(config.read_text())
+    raw["landing"] |= {"tap_rules": {"rule/82317b0": ["go/sand/next/*"]}, "fidelity_lane": ["fidelity-desk", "fidelity-pipeline"]}
+    config.write_text(json.dumps(raw))
+    shell.register = {"rule/82317b0": {"kind": "order", "status": "in-force"}}
+    lone_green_pr(shell)
+    shell.files["29020"] = ["go/sand/next/vm/run.go"]
+    grade(shell, "29020", "ok cccc333 pure port, no interaction: it only ports old-tree #43020.")
+    grade(shell, "29020", pipeline, lane="fidelity-pipeline")
+    merge_go(shell, "29020", "go port #29020 at cccc333")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
 TEST_ONLY_GRADE = "ok cccc333 test-only or CI-only, no non-test code: it adds cases and a pipeline step."
 
 

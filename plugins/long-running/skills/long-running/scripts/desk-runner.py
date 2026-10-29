@@ -6060,13 +6060,16 @@ class Landing:
         return waits, unread, exempt
 
     def exempt_admitted(self, pr: str, sha: str) -> tuple[str, str]:
-        """The `EXEMPT-ADMITTED` note for `pr` at `sha` when it lands on a root go with no board tap, and the first changed file that breaks a test-only claim (06288326, owner Oct 28 8:45 PM): the newest fidelity grade naming the head says one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first), and a root go names the head as `go port|test-only|ci-only #<n> at <sha>` or says pure port, test-only or CI-only. A grade phrase or a go that claims test-only or CI-only is checked against the PR's changed files: the note is empty and the file is returned when one is neither a test nor CI configuration."""
+        """The `EXEMPT-ADMITTED` note for `pr` at `sha` when it lands on a root go with no board tap, and the first changed file that breaks a test-only claim (06288326, owner Oct 28 8:45 PM): the head grades ok by `fidelity`'s rule and a desk's standing ok at the head, else the pipeline's, says one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first), and a root go names the head as `go port|test-only|ci-only #<n> at <sha>` or says pure port, test-only or CI-only. A grade phrase or a go that claims test-only or CI-only is checked against the PR's changed files: the note is empty and the file is returned when one is neither a test nor CI configuration."""
         if not (go := next((go for go in self.head_gos(pr, sha) if EXEMPT_GO.search(go["text"])), None)):
             return "", ""
-        grade = max(self.standing(self.grades(pr), sha), key=lambda record: record["seq"], default=None)
-        phrases = self.landing_config.get("exempt_grades", [self.landing_config.get("port_phrase", PORT_PHRASE), *TEST_ONLY_PHRASES])
-        if not grade or not (said := next((phrase for phrase in phrases if phrase.casefold() in grade["text"].casefold()), None)):
+        if not self.fidelity(pr, sha).ok:
             return "", ""
+        phrases = self.landing_config.get("exempt_grades", [self.landing_config.get("port_phrase", PORT_PHRASE), *TEST_ONLY_PHRASES])
+        oks = sorted((grade for grade in self.standing(self.grades(pr), sha) if grade["text"].startswith(FIDELITY_OK)), key=lambda record: (record["lane"] != fidelity.LANE, record["seq"]), reverse=True)
+        if not (found := next(((grade, phrase) for grade in oks for phrase in phrases if phrase.casefold() in grade["text"].casefold()), None)):
+            return "", ""
+        grade, said = found
         if TEST_ONLY_CLAIM.search(said) or TEST_ONLY_CLAIM.search(go["text"]):
             files, _ = self.changed_files(pr, sha)
             if offender := next((name for name in files if not is_test_or_ci_file(name)), ""):
