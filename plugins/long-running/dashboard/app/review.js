@@ -8,6 +8,11 @@ function approvedAt(n) {
 }
 const REVIEW_WORD = { APPROVED: 'The reviewer bot approved it', CHANGES_REQUESTED: 'The reviewer bot asked for changes', DISMISSED: 'The reviewer bot’s review was dismissed' };
 const TEST_WORD = { success: 'Pass', failure: 'Failing', pending: 'Running' };
+const TEST_TONE = { success: 'ok', failure: 'bad', pending: 'acc' };
+function testLight(n) {
+  const t = state.model.prs[n]?.test_state;
+  return dotted(TEST_WORD[t] ?? 'Not known', TEST_TONE[t]);
+}
 function testPill(pr) {
   if (pr.test_state === 'success') return '<span class="pill ok">Tests pass</span>';
   if (pr.test_state === 'failure') return '<span class="pill bad">Tests failing</span>';
@@ -41,7 +46,7 @@ function reviewPR(n, tab) {
     ${open}${testPill(state.model.prs[n] ?? {})}
     <span class="actions">${step(rows[index - 1], '‹', 'K')}${step(rows[index + 1], '›', 'J')}${next ? step(next, 'Next waiting on you ›', 'N') : ''}</span></div>
     <div class="decide">${decideBar(row, v)}</div><div class="bar-bottom decide">${decideBar(row, v)}</div>${changeBox(n, row.head)}
-    ${reviewTabs(n, tab)}${tab === 'code' ? '' : `<div class="pr-facts">${carried}${rowFacts(row)}<dl class="mr-f"><dt>Tests</dt><dd>${TEST_WORD[state.model.prs[n]?.test_state] ?? 'Not known'}</dd>${truthFacts(n, false)}</dl></div>${prText(n)}`}`;
+    ${reviewTabs(n, tab)}${tab === 'code' ? '' : `<div class="pr-facts">${carried}${rowFacts(row)}<dl class="mr-f"><dt>Tests</dt><dd>${testLight(n)}</dd>${truthFacts(n, false)}</dl></div>${prText(n)}`}`;
 }
 function reviewTabs(n, tab) {
   return `<nav class="subtabs review-tabs"><a href="#/review/${n}" class="${tab === 'code' ? '' : 'on'}">What it does</a><a href="#/review/${n}/code" class="${tab === 'code' ? 'on' : ''}">Code and review<kbd>C</kbd></a></nav>`;
