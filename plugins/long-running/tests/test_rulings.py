@@ -1567,6 +1567,56 @@ def test_readback_accepts_a_line_per_slice_row_and_a_verdict_per_hit(home: Path,
     assert ran(capsys, read_back(*header, *rows, *marked, lane="lane-b"), "readback", "--lane", "lane-b", "--contract", "500")[1].startswith("READBACK-NOT-LANES #500: ")
 
 
+def test_a_read_back_with_no_slice_line_names_the_roots_command_then_takes_the_step_into_the_lanes_brief(
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
+) -> None:
+    _, sliced = ran(capsys, RegisterShell(seeded(package)), "slice", "--lane", "lane-a", "--step", "1.9")
+    current = rulings.SLICE_HASH.search(sliced)["hash"]
+    hits = [f"{line} - keep: the line states the ban" for line in sliced.splitlines() if line.startswith(("open ", "authorized "))]
+    body = tmp_path / "readback.md"
+    body.write_text("\n".join(["rule/aaaaaaa: builds nothing in relay-server", "rule/ccccccc: quotes the words", "rule/eeeeeee: leaves the outage gate alone", "exception/E1: leaves the pass alone", *hits]) + "\n")
+    records = [{"seq": 500, "kind": "contract", "lane": "lane-a", "text": "read-back", "refs": {"path": str(body)}, "at": AT}]
+    brief = state / "briefs" / "lane-a.md"
+    brief.parent.mkdir()
+    brief.write_text("# lane-a\n\nBuild the pass.\n")
+    request = f"readback request lane-a {current}: 4 rows, contract #500 at {body}; a fidelity desk grades it against each row's words and implications"
+
+    assert ran(capsys, RegisterShell(seeded(package), records=records), "readback", "--lane", "lane-a", "--contract", "500") == (
+        1,
+        f"READBACK-NO-SLICE #500: neither the read-back nor {brief} names a `Register slice: lane=lane-a step=<n>` line; "
+        "the root runs `rulings.py readback --program brook --lane lane-a --contract 500 --step <the lane's plan step>`\n",
+    )
+    code, out = ran(capsys, RegisterShell(seeded(package), records=records), "readback", "--lane", "lane-a", "--contract", "500", "--step", "1.9")
+    assert code == 0
+    assert out.splitlines() == [
+        f"WARNING READBACK-SLICE-FROM-BRIEF #500: added `Register slice: lane=lane-a step=1.9` to {brief}: refreshed {brief} slice-hash none -> {current}",
+        request,
+    ]
+    assert brief.read_text().startswith("# lane-a\n\nBuild the pass.\n\nRegister slice: lane=lane-a step=1.9\n")
+    assert rulings.SLICE_HASH.search(brief.read_text())["hash"] == current
+    code, out = ran(capsys, RegisterShell(seeded(package), records=records), "readback", "--lane", "lane-a", "--contract", "500")
+    assert code == 0
+    assert out.splitlines() == [
+        f"WARNING READBACK-SLICE-FROM-BRIEF #500: the read-back names no `Register slice:` line; graded against the slice in {brief}",
+        request,
+    ]
+
+
+def test_a_step_for_a_lane_with_no_brief_writes_one_the_next_readback_reads(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
+    _, sliced = ran(capsys, RegisterShell(seeded(package)), "slice", "--lane", "lane-a", "--step", "1.9")
+    body = tmp_path / "readback.md"
+    body.write_text("rule/aaaaaaa: builds nothing in relay-server\n")
+    records = [{"seq": 500, "kind": "contract", "lane": "lane-a", "text": "read-back", "refs": {"path": str(body)}, "at": AT}]
+    brief = state / "briefs" / "lane-a.md"
+
+    assert ran(capsys, RegisterShell(seeded(package), records=records), "readback", "--lane", "lane-a", "--contract", "500", "--step", "1.9")[0] == 0
+    assert brief.read_text().startswith("Register slice: lane=lane-a step=1.9\n")
+    assert rulings.SLICE_HASH.search(brief.read_text())["hash"] == rulings.SLICE_HASH.search(sliced)["hash"]
+    code, out = ran(capsys, RegisterShell(seeded(package), records=records), "readback", "--lane", "lane-a", "--contract", "500")
+    assert code == 0
+    assert out.splitlines()[0] == f"WARNING READBACK-SLICE-FROM-BRIEF #500: the read-back names no `Register slice:` line; graded against the slice in {brief}"
+
+
 def test_a_read_back_whose_slice_gained_a_row_still_goes_to_the_desk_with_the_row_as_a_warning(
     home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
 ) -> None:

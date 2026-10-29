@@ -16,7 +16,7 @@
     rulings.py slice        [--program SLUG | --drive ID] --required --pr [OWNER/NAME#]N --head SHA [--base REF]
     rulings.py plan         [--program SLUG | --drive ID]
     rulings.py sweep        [--program SLUG | --drive ID] [KEY] [--artifact PATH]... [--paths GLOB]... [--root DIR] [--diff FILE] [--plan PATH]
-    rulings.py readback     [--program SLUG | --drive ID] --lane NAME --contract SEQ [--root DIR]
+    rulings.py readback     [--program SLUG | --drive ID] --lane NAME --contract SEQ [--step N] [--root DIR]
     rulings.py accepted     [--program SLUG | --drive ID] --lane NAME
     rulings.py pr-block     [--program SLUG | --drive ID] [--pr [OWNER/NAME#]N] --head SHA [--base REF] --lane NAME
     rulings.py table        [--program SLUG | --drive ID] [--since-last-update] [--full]
@@ -1529,29 +1529,54 @@ class ReadBack:
     body: str
     want: Want
     attached: str | None
+    sliced_by: str = ""
 
 
-def read_back(shell: ledger.Shell, cci: str, seq: int, lane: str) -> ReadBack | str:
-    record = record_of(shell, cci, seq)
+def read_back(loaded: Register, cci: str, seq: int, lane: str, step: str | None, plan: Path | None, selector: str) -> ReadBack | str:
+    record = record_of(loaded.shell, cci, seq)
     if record.get("kind") != "contract" or record.get("lane") != lane:
         return f"READBACK-NOT-LANES #{seq}: the read-back is {lane}'s own contract record"
     attached = (record.get("refs") or {}).get("path")
     body = "\n".join([record.get("text", ""), Path(attached).read_text() if attached and Path(attached).is_file() else ""])
     if not (header := SLICE_HEADER.search(body)):
-        return f"READBACK-NO-SLICE #{seq}: the read-back names no `{SLICE_LINE}` line"
+        sliced = brief_slice(loaded, seq, lane, step, plan, selector)
+        return sliced if isinstance(sliced, str) else ReadBack(record, body, sliced[0], attached, sliced[1])
     if (want := Want.parse(header)).lane != lane:
         return f"READBACK-NOT-LANES #{seq}: the read-back covers lane {want.lane}'s slice, not {lane}'s"
     return ReadBack(record, body, want, attached)
+
+
+def brief_slice(loaded: Register, seq: int, lane: str, step: str | None, plan: Path | None, selector: str) -> tuple[Want, str] | str:
+    """The slice of a read-back that names no `Register slice:` line: the one a brief under the drive's state gives `lane`, else `--step`'s, which readback also writes into the brief named for the lane, `briefs/<lane>.md` when none is, the way `slice --refresh` writes a brief's slice."""
+    found = briefs(loaded.state)
+    for brief in sorted(found, key=lambda path: path.stat().st_mtime, reverse=True):
+        if header := next((header for header in SLICE_HEADER.finditer(brief.read_text()) if header["lane"] == lane), None):
+            return Want.parse(header), f"the read-back names no `{SLICE_LINE}` line; graded against the slice in {brief}"
+    named = next((brief for brief in found if brief.stem == lane), None)
+    if step is None:
+        return (
+            f"READBACK-NO-SLICE #{seq}: neither the read-back nor {named or f'a brief under {loaded.state}'} names a `{SLICE_LINE} lane={lane} step=<n>` line; "
+            f"the root runs `rulings.py readback {selector} --lane {lane} --contract {seq} --step <the lane's plan step>`"
+        )
+    want = Want(lane, step, [], False)
+    if named is None:
+        named = loaded.state / "briefs" / f"{lane}.md"
+        named.parent.mkdir(parents=True, exist_ok=True)
+        named.touch()
+    write_atomic(named, f"{named.read_text().rstrip()}\n\n{want.header()}\n".lstrip("\n"))
+    return want, f"added `{want.header()}` to {named}: {refresh(loaded, named, plan)}"
 
 
 def cmd_readback(args: argparse.Namespace, shell: ledger.Shell) -> int:
     loaded = Register.load(args, shell)
     if not (entry := entry_of(args)):
         raise SystemExit(f"no drive runs program {loaded.program}; readback reads the lane's contract from its cci drive")
-    read = read_back(shell, drive.cci_drive(entry), args.contract, args.lane)
+    read = read_back(loaded, drive.cci_drive(entry), args.contract, args.lane, args.step, plan_path(args, loaded), f"--drive {args.drive}" if args.drive else f"--program {loaded.program}")
     if isinstance(read, str):
         print(read)
         return 1
+    if read.sliced_by:
+        print(f"WARNING READBACK-SLICE-FROM-BRIEF #{args.contract}: {read.sliced_by}")
     fresh = lane_slice(loaded, read.want, plan_path(args, loaded))
     posted = datetime.fromisoformat(read.record["at"])
     later = {digest for digest, capture in captures(loaded.state).items() if captured_at(capture["at"]) > posted}
@@ -2529,6 +2554,7 @@ def build_parser() -> argparse.ArgumentParser:
     readback = verb("readback", cmd_readback, "print each slice row and sweep hit a lane's read-back leaves out as a warning, then the grade request; a row or capture the owner said after the read-back was posted is out of its scope")
     readback.add_argument("--lane", required=True)
     readback.add_argument("--contract", required=True, type=int, metavar="SEQ")
+    readback.add_argument("--step", metavar="N", help="the lane's plan step, for a read-back and brief with no `Register slice:` line; written into the brief named for the lane")
     readback.add_argument("--plan", metavar="PATH")
     readback.add_argument("--root", metavar="DIR")
     accepted = verb("accepted", cmd_accepted, "exit 0 when a fidelity desk's newest grade of the lane's read-back is ok")

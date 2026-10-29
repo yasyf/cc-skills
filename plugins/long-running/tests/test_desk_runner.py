@@ -172,6 +172,8 @@ class FakeShell(runner_module.Shell):
         self.ancestors: set[tuple[str, str]] = set()
         self.worktrees: dict[str, dict[str, str]] = {}
         self.listed: list[tuple[str, str]] = []
+        self.kept: dict[str, str] = {}
+        self.removed: list[str] = []
         self.pr_lists: dict[str, list[dict]] = {}
         self.drives: list[str] = ["d1"]
         self.flake_code = 0
@@ -206,6 +208,7 @@ class FakeShell(runner_module.Shell):
         self.register: dict[str, dict] = {}
         self.board_error = ""
         self.pr_heads: dict[str, tuple[str, str]] = {}
+        self.missing_prs: set[str] = set()
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -333,6 +336,12 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, found, "") if found is not None else runner_module.Done(128, "", "fatal")
         if argv == ["git", "-C", str(self.root / "checkout"), "worktree", "list", "--porcelain"]:
             return runner_module.Done(0, "\n".join(f"worktree {path}\nHEAD 1a2b3c4\n" + (f"branch refs/heads/{branch}" if branch else "detached") + "\n" for path, branch in self.listed), "")
+        if argv[:5] == ["ccx", "vcs", "worktree", "rm", "--path"]:
+            self.removed.append(argv[5])
+            if argv[5] in self.kept:
+                return runner_module.Done(1, "", self.kept[argv[5]])
+            self.listed = [(path, branch) for path, branch in self.listed if path != argv[5]]
+            return runner_module.Done(0, "", "")
         if argv[:3] == ["gh", "pr", "list"] and "--head" in argv:
             return runner_module.Done(0, json.dumps(self.pr_lists.get(argv[argv.index("--head") + 1], [])), "")
         if argv[:3] == ["git", "-C", str(self.root / "checkout")] and argv[3:] == ["ls-remote", "origin", "refs/heads/dev"]:
@@ -500,7 +509,10 @@ class FakeShell(runner_module.Shell):
         if self.status_read_error:
             return runner_module.Done(1, "", self.status_read_error)
         if pulls := re.findall(r"p(\d+): pullRequest\(number: \1\) \{ state headRefOid \}", query):
-            return runner_module.Done(0, json.dumps({"data": {"repository": {f"p{pr}": dict(zip(("state", "headRefOid"), self.pr_heads[pr])) if pr in self.pr_heads else None for pr in pulls}}}), "")
+            missing = [pr for pr in pulls if pr in self.missing_prs]
+            errors = [{"type": "NOT_FOUND", "path": ["repository", f"p{pr}"], "message": f"Could not resolve to a PullRequest with the number of {pr}."} for pr in missing]
+            data = {"data": {"repository": {f"p{pr}": dict(zip(("state", "headRefOid"), self.pr_heads[pr])) if pr in self.pr_heads else None for pr in pulls}}}
+            return runner_module.Done(int(bool(missing)), json.dumps(data | ({"errors": errors} if errors else {})), "".join(f"gh: {error['message']}\n" for error in errors))
         if self.trunk and f'object(expression: "{self.trunk[0]["oid"]}") {{ ... on Commit {{ history(' in query:
             return runner_module.Done(0, json.dumps({"data": {"repository": {"object": {"history": {"nodes": self.trunk}}}}}), "")
         heads = re.findall(r'(h\d+): object\(expression: "([0-9a-f]+)"\) \{ \.\.\. on Commit \{ status \{ contexts \{ context state description \} \} checkSuites\(last: 10, filterBy: \{checkName: "ai-review"\}\) \{ nodes \{ checkRuns\(last: 1, filterBy: \{checkName: "ai-review"\}\) \{ nodes \{ title startedAt \} \} \} \} \} \}', query)
@@ -6168,6 +6180,24 @@ def test_a_pr_landed_with_no_enqueue_of_the_runners_own_posts_landed_to_its_lane
     assert landed["text"].startswith("LANDED #29020 as dddd444444: merged into dev with no enqueue of the landing runner's own")
 
 
+def test_a_landing_removes_each_worktree_on_the_landed_branch_once_and_logs_one_it_refuses_once(shell, config, tmp_path):
+    shell.rows = single_row()
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite CONFLICTING")]
+    shell.pr_status["29020"] = {"queue": "not queued", "verdict": "blocked:ci-pending"}
+    clean, dirty = str(tmp_path / "worktrees" / "a-3"), str(tmp_path / "worktrees" / "a-3-copy")
+    shell.listed = [(str(tmp_path / "checkout"), "dev"), (clean, "a/3"), (dirty, "a/3"), (str(tmp_path / "worktrees" / "other"), "b/1"), (str(tmp_path / "worktrees" / "detached"), "")]
+    shell.kept = {dirty: f"ccx: worktree rm: {dirty}: uncommitted changes: notes.md"}
+    landing_pass(shell, config)
+    assert shell.removed == []
+    shell.rows[0] |= {"state": "landed", "landed_sha": "dddd444444"}
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.removed == [clean, dirty]
+    assert [line for line in escalations(shell) if line.startswith("WORKTREE-KEPT")] == [
+        f"WORKTREE-KEPT worktree-kept:{dirty} #29020: {dirty} stays on landed #29020's branch: ccx: worktree rm: {dirty}: uncommitted changes: notes.md"
+    ]
+
+
 def test_a_runner_enqueue_posts_queued_and_then_landed_naming_the_go(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
@@ -11056,6 +11086,22 @@ def test_a_queued_head_whose_pr_closed_or_moved_settles_skipped_and_starts_no_pa
     finder = incident(config.parent, "desk-finder").actions
     assert finder[f"finder:43439:{heads['43439']}"].response["skipped"] == "#43439 is closed"
     assert finder[f"finder:43299:{heads['43299']}"].response["skipped"] == f"#43299 moved to {FINDER_HEAD[:12]}"
+
+
+def test_a_head_bound_to_a_cci_seq_as_its_pr_settles_skipped_and_the_real_prs_live_read_still_holds(shell, config):
+    finder_config(config)
+    orca_pass(shell, config)
+    head_record(shell, "177834", FINDER_HEAD, lane="newtree-deploy-targets-1", refs={"prs": [177834]}, fields={}, text=f"newtree-deploy-targets-1 {FINDER_HEAD}: gateway URL route (root #177834)")
+    head_record(shell, "43439", FINDER_OLD)
+    head_record(shell, "43299", FINDER_OLD)
+    shell.missing_prs = {"177834"}
+    shell.pr_heads = {"43439": ("OPEN", FINDER_OLD), "43299": ("CLOSED", FINDER_OLD)}
+    orca_pass(shell, config)
+    assert [job["pr"] for job in finder_jobs(shell)] == ["43439"]
+    finder = incident(config.parent, "desk-finder").actions
+    assert finder[f"finder:177834:{FINDER_HEAD}"].response["skipped"] == "#177834 is no pull request in Forge-AI/monorepo"
+    assert finder[f"finder:43299:{FINDER_OLD}"].response["skipped"] == "#43299 is closed"
+    assert not finder_failures(shell)
 
 
 def test_the_finder_thread_refills_a_freed_slot_before_the_next_orca_pass(shell, config, tmp_path, monkeypatch):
