@@ -75,11 +75,12 @@ function prTruth(n) {
   if (prState(n) === 'landed') return { blocks: '', next: '', since: null };
   const board = boardRow(n);
   if (board && verdictState(board) === 'you') return { blocks: rowWords(board).blocker, next: '', since: waitingSince(Number(n)) ?? stackRow(n)?.since };
+  const approved = Math.max(new Date(approvedAt(Number(n)) ?? 0), new Date(board?.verdict?.at ?? 0));
   const evidence = state.model.evidence[n];
   const work = curated('work');
   const said = work?.pull_requests?.find((pr) => pr.number === Number(n));
-  if (evidence) return { blocks: evidence.state, next: evidence.next, since: evidence.since };
-  if (said) return { blocks: said.stage, next: said.next, since: sinceClock(said.since) };
+  if (evidence && new Date(evidence.at) > approved) return { blocks: evidence.state, next: evidence.next, since: evidence.since };
+  if (said && new Date(work.at) > approved) return { blocks: said.stage, next: said.next, since: sinceClock(said.since) };
   const node = blockerNode(n);
   if (node) return { blocks: node.text, next: node.how, since: sinceClock(node.since) };
   const row = stackRow(n);
