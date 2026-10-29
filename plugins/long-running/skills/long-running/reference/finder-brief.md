@@ -90,6 +90,13 @@ finder record at 30 minutes as `UNGRADED-30`.
 Fill the angle brackets, paste the slice rows whole, and pass the prompt to
 `codex-ask --schema findings` through `Skill(codex)`.
 
+With a finder desk, a lane never runs its own pass. It posts an `ask` to `finder-desk`
+naming the PR and head, and the desk starts that whole pass ahead of every other head.
+A pass a lane runs by hand often outlasts the Bash tool's 10-minute cap. Run
+`codex-ask` in the foreground with `timeout: 600000`, and when the call times out,
+rerun the `AWAIT:` line it printed first, `codex-ask --await <run-dir>`, until it
+exits. The run outlives the call that started it, so never ask the question again.
+
 ```text
 You are the finder for <owner/name>#<n> at head <full sha> on base <base>.
 Read the head pinned by sha, never the PR's moving tip: `git fetch origin <full sha> <base>`,
