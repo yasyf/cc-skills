@@ -277,30 +277,10 @@ function rowWords(row) {
   const rewrite = rewritten('rows', row.key);
   return { ...Object.fromEntries(ROW_FIELDS.map((k) => [k, (rewrite ? rewrite[k] : row[k]) ?? ''])), title: prTitle(row.number) };
 }
-function verdictPill(row) {
-  const when = row.verdict?.at ? ` at ${clock(row.verdict.at)}` : '';
-  if (verdictState(row) === 'held') return dotted(`You held it${when}`, 'warn');
-  return dotted(row.ci_fix_go || boardRow(row.number)?.ci_fix_go ? 'Landing under the CI-fix exemption' : `You approved${when}`, 'ok');
-}
 function rowFacts(row) {
   const w = rowWords(row);
   if (row.md && !row.change) return `<div class="md">${markdown(row.md)}</div>`;
   return `<dl class="mr-f"><dt>For users</dt><dd>${esc(w.change)}</dd><dt>Plan</dt><dd>${esc(w.plan)}</dd><dt>Risk</dt><dd>${esc(w.risk)}</dd><dt>Review</dt><dd>${esc(w.review)}</dd></dl>`;
-}
-function waitLine(row, w) {
-  const since = waitingSince(row.number);
-  if (!SETTLED.test(w.blocker.trim())) return `<p class="mr-waits">${dotted('Waits on', 'warn')} ${esc(w.blocker)}${since ? `<small class="pg-for">${blockedFor(since)}</small>` : ''}</p>`;
-  return verdictState(row) === 'you' && since ? `<p class="mr-waits">${dotted('Waiting on you', 'you')} ${blockedFor(since)}</p>` : '';
-}
-function mergeRow(row) {
-  const w = rowWords(row);
-  const busy = pending.number === row.number && !pending.error;
-  const waits = waitLine(row, w);
-  const carried = row.carried?.length ? '<p class="mr-waits">Your earlier approval carries to this version; the review line names the fix.</p>' : '';
-  const acts = verdictState(row) === 'you'
-    ? `<button class="btn pri" data-approve="${row.number}" data-head="${esc(row.head)}"${busy ? ' disabled' : ''}>${busy ? 'Sending' : 'Approve'}</button><button class="btn" data-hold-row="${row.number}"${busy ? ' disabled' : ''}>Hold</button>`
-    : verdictPill(row);
-  return `<article class="mr t-${verdictState(row)}" data-peek="${row.number}"><header><a class="mr-t" href="#/review/${row.number}">${esc(w.title)}</a><span class="mr-acts">${acts}<a class="btn ghost" href="#/review/${row.number}">Details</a></span></header>${waits}${carried}${rowFacts(row)}${pending.number === row.number && pending.error ? `<p class="mr-err">Not recorded: ${esc(pending.error)}</p>` : ''}${changeBox(row.number, row.head)}${prPeek(row.number)}</article>`;
 }
 const peek = { n: null, at: 0 };
 for (const kind of ['pointerover', 'focusin']) {
@@ -319,24 +299,64 @@ document.addEventListener('pointerout', (e) => {
 function holdPeek() {
   if (peek.n !== null && performance.now() - peek.at > 350) document.querySelector(`.mr[data-peek="${peek.n}"]`)?.classList.add('held');
 }
-function reviewScreen(list) {
+const REVIEW_RANK = ['failing', 'held', 'doing', 'queued', 'you', 'waiting', 'untracked'];
+function reviewEntries(list) {
   const m = state.model;
-  if (list === 'q') list = '';
-  const decided = m.board.rows.filter((r) => verdictState(r) !== 'you');
-  const chips = `<nav class="pg-filters"><a href="#/review" class="${list ? '' : 'on'}">Waiting on you <b>${needsTotal()}</b></a><a href="#/review/decided" class="${list === 'decided' ? 'on' : ''}">You approved or held <b>${decided.length}</b></a></nav>`;
-  if (list === 'decided') return `<div class="pg">${pageHead('Review', curated('review'))}${chips}<div class="mr-list">${decided.map(mergeRow).join('') || '<p class="pg-none">Nothing you approved is still waiting to land.</p>'}</div></div>`;
-  const merges = m.needs.filter((item) => item.kind === 'prs').map((g) => {
-    const words = rewritten('groups', g.key);
-    const relation = words ? words.relation : g.relation;
-    const head = g.prs.length > 1 ? `<h3>${esc(words?.title ?? g.group)}</h3>${relation ? `<p class="pg-rel">${esc(relation)}</p>` : ''}` : '';
-    return `<section class="pg-sec mr-group">${head}<div class="mr-list">${g.prs.map(mergeRow).join('')}</div></section>`;
-  }).join('');
+  if (list === 'decided') return [['You approved or held', m.board.rows.filter((r) => verdictState(r) !== 'you').map((r) => ({ n: r.number }))]];
+  const waiting = m.needs.filter((item) => item.kind === 'prs').flatMap((g) => g.prs.map((r) => ({ n: r.number, group: g })));
+  const questions = m.needs.filter((item) => item.kind === 'card').map((item) => ({ q: item.card.id, item }));
+  const listed = new Set(m.board.rows.map((r) => r.number));
+  const others = Object.entries(m.prs).filter(([n, pr]) => pr.state === 'open' && !listed.has(Number(n))).map(([n]) => ({ n: Number(n) }))
+    .sort((a, b) => REVIEW_RANK.indexOf(prState(a.n)) - REVIEW_RANK.indexOf(prState(b.n)) || b.n - a.n);
+  return [['Waiting on you', waiting], ['Questions', questions], ['Other open changes in the drive', others]];
+}
+function entryHref(e) {
+  return e.q ? `#/review/q/${encodeURIComponent(e.q)}` : `#/review/${e.n}`;
+}
+function reviewSelected() {
+  const r = route();
+  if (r.screen !== 'review') return null;
+  const numeric = /^\d+$/.test(r.id ?? '') ? Number(r.id) : null;
+  const row = numeric && boardRow(numeric);
+  const list = r.id === 'decided' || (row && verdictState(row) !== 'you') ? 'decided' : '';
+  const sections = reviewEntries(list);
+  const flat = sections.flatMap(([, items]) => items);
+  const q = r.id === 'q' ? (r.tab ? decodeURIComponent(r.tab) : '*') : null;
+  const picked = numeric ? { n: numeric } : q ? { q } : r.id === 'decided' || !flat.length ? {} : flat[0];
+  const index = flat.findIndex((e) => (picked.n ? e.n === picked.n : picked.q && e.q === picked.q));
+  return { ...picked, list, sections, flat, index };
+}
+function reviewItem(e, sel) {
+  const on = e === sel.flat[sel.index] ? ' on' : '';
+  if (e.q) {
+    const c = e.item.card;
+    const said = rewritten('cards', c.key);
+    const rec = c.options.find((o) => o.recommended);
+    return `<div class="rv-item q${on}"><i class="lt you"></i><a class="mr-t" href="${entryHref(e)}">${esc(said?.question ?? words(c.title))}</a><span class="rv-sub">${rec ? `Recommended: ${esc(said?.answers?.[c.options.indexOf(rec)] || rec.label.replace(/\s*\(Recommended\)\s*$/i, ''))}` : c.embed ? 'A card to read on your board' : 'Choose an answer'}</span></div>`;
+  }
+  const row = boardRow(e.n);
+  const s = row ? (verdictState(row) === 'you' ? 'you' : verdictState(row) === 'held' ? 'held' : 'queued') : prState(e.n);
+  const since = row && verdictState(row) === 'you' ? waitingSince(e.n) : null;
+  const blocker = row ? rowWords(row).blocker.trim() : '';
+  const sub = row && verdictState(row) !== 'you' ? `${verdictState(row) === 'held' ? 'You held it' : 'You approved'}${row.verdict?.at ? ` at ${clock(row.verdict.at)}` : ''}`
+    : row ? `${blocker && !SETTLED.test(blocker) ? `Waits on ${esc(blocker)}` : 'Waiting on you'}${since ? ` · ${blockedFor(since)}` : ''}`
+    : `${STATE_WORD[s] ?? ''}${(() => { const t = prTruth(e.n); return t.since ? ` · ${blockedFor(t.since)}` : ''; })()}`;
+  return `<div class="rv-item mr t-${s}${on}" data-peek="${e.n}"><i class="lt ${s}"></i><a class="mr-t" href="${entryHref(e)}">${esc(prTitle(e.n))}</a><span class="rv-n">#${e.n}</span><span class="rv-sub">${sub}</span>${prPeek(e.n)}</div>`;
+}
+function reviewSplit() {
+  const m = state.model;
+  const r = route();
+  const sel = reviewSelected();
+  const decided = m.board.rows.filter((x) => verdictState(x) !== 'you');
+  const chips = `<nav class="pg-filters rv-filters"><a href="#/review" class="${sel.list ? '' : 'on'}">Waiting on you <b>${needsTotal()}</b></a><a href="#/review/decided" class="${sel.list ? 'on' : ''}">You approved or held <b>${decided.length}</b></a></nav>`;
+  const sections = sel.sections.filter(([, items]) => items.length).map(([label, items]) => `<section class="rv-sec"><h3>${label}<span>${items.length}</span></h3>${items.map((e) => reviewItem(e, sel)).join('')}</section>`).join('');
   const cards = m.needs.filter((item) => item.kind === 'card');
-  return `<div class="pg">${pageHead('Review', curated('review'))}${chips}
-    ${needsTotal() ? '' : '<p class="pg-lead">Nothing waits on you. When a change or a question needs you, it shows here and in the band on Now.</p>'}
-    ${needsTotal() && !merges ? '<p class="pg-rel">No change waits on your approval right now.</p>' : ''}
-    ${merges}
-    ${cards.length ? `<section class="pg-sec" id="review-questions"><h2>Questions</h2><div class="mr-list">${cards.map(boardCard).join('')}</div></section>` : ''}</div>`;
+  const detail = sel.n ? reviewPR(String(sel.n), r.id === String(sel.n) ? r.tab : undefined)
+    : sel.q === '*' ? `<div class="pg" id="review-questions">${pageHead('Questions')}<div class="mr-list">${cards.map(boardCard).join('') || '<p class="pg-none">No question waits on you.</p>'}</div></div>`
+    : sel.q ? (() => { const item = cards.find((x) => x.card.id === sel.q); return item ? `<div class="pg">${pageHead('Question')}${item.card.summary ? `<p class="pg-lead">${esc(item.card.summary)}</p>` : ''}${boardCard(item)}</div>` : '<p class="pg-none">This question was answered or is no longer on your board.</p>'; })()
+    : `<div class="pg">${pageHead('Review', curated('review'))}<p class="pg-lead">${sel.list ? 'Nothing you approved or held is still waiting to land.' : 'Nothing waits on you. When a change or a question needs you, it shows here and in the column on the right.'}</p></div>`;
+  return `<div class="rv-split"><nav class="rv-list" data-keep-scroll="rv-list" aria-label="Changes and questions"><header class="rv-lh"><h1>Review</h1>${curated('review') ? `<span class="pg-at">Written ${clock(curated('review').at)}</span>` : ''}</header>${chips}${sections || '<p class="pg-none">Nothing to list.</p>'}<p class="rv-keys"><kbd>J</kbd><kbd>K</kbd> move · <kbd>N</kbd> next waiting · <kbd>A</kbd> approve · <kbd>H</kbd> hold</p></nav>
+    <section class="rv-detail${r.tab === 'code' && sel.n ? ' code' : ''}">${detail}</section></div>`;
 }
 
 function historyEntry(e) {

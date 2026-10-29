@@ -1,5 +1,5 @@
 <style>
-<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:6a7e0d3cb5df — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/drive-assist.html + 3 partials sha256:4384eef7cccd — do not edit; edit the source and rerun -->
 .ai { color: var(--owner); }
 html:not(.ai-on) .ai-only { display: none !important; }
 #pal { margin-top: 18px; }
@@ -596,7 +596,7 @@ function results(raw){
  if(q.length&&AI.key){const askRow={group:"Assistant",icon:"✦",label:`Ask: ${raw.trim()}`,sub:"answers from the drive's records, the plan and your words",go:()=>askInPal(raw.trim()),ask:true};QUESTION.test(raw.trim())?items.unshift(askRow):items.push(askRow)}
  return {items,q};
 }
-function openPal(){keepScroll();location.hash="#/jump"}
+function openPal(){history.replaceState({...history.state,y:scrollY},"");location.hash="#/jump"}
 function showPal(){
  PAL.hidden=false;
  const input=document.getElementById("pal-q");

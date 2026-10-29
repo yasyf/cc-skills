@@ -38,89 +38,106 @@ function nowScreen() {
   const m = state.model;
   const b = m.brief;
   const r = route();
-  if (!b) return `<div class="nw"><p class="nw-wait">Writing the first summary of the drive. It appears here in about a minute.</p>${diagramSlot()}</div>`;
-  const page = r.screen === 'story' && view('story') === 'page';
-  return `<div class="nw">
+  if (!b) return `<div class="nw cx-now"><p class="nw-wait">Writing the first summary of the drive. It appears here in about a minute.</p><div class="cx-low">${diagramSlot()}</div></div>`;
+  if (r.screen === 'story' && view('story') === 'page') return `<div class="nw">${band(b)}${storyPage(r.id)}<div class="cx-low">${diagramSlot()}</div></div>`;
+  const open = b.paths.map(unfinished).reduce((n, p) => n + p.nodes.length, 0);
+  const list = stops(b);
+  return `<div class="nw cx-now">
     ${band(b)}
-    ${page ? storyPage(r.id) : `
-    <h1 class="nw-head">${esc(b.headline)}</h1>
-    <p class="nw-sub">Written from the drive's records at ${clock(b.at)}. <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>
-    ${state.open.has('nw-why') ? `<ul class="nw-why">${b.because.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
-    <section><h2 class="nw-h">Overall progress</h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
-    <div class="nw-cols">
-      <section><h2 class="nw-h">Biggest blockers, and how each is being unblocked</h2>${blockers(b)}</section>
-      <section><h2 class="nw-h">${r.screen === 'story' ? 'Live story' : 'Being worked on now'}</h2>${r.screen === 'story' ? storyColumn(r.id) : workList(b)}</section>
-    </div>`}
-    ${diagramSlot()}
+    <header class="cx-head"><h1 class="nw-head">${esc(b.headline)}</h1><p class="nw-sub">Written from the drive's records at ${clock(b.at)} · <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>
+    ${state.open.has('nw-why') ? `<ul class="nw-why">${b.because.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</header>
+    ${kpis(b, list, open)}
+    <section class="cx-panel cx-ms"><header class="cx-ph"><h2 class="nw-h">${esc(m.milestones_label)}</h2><span class="cx-meta" title="${esc(b.progress.sentence ?? '')}">${esc(b.progress.sentence ?? '')}</span></header>${view('progress') === 'compact' ? compact(b) : track(list)}</section>
+    <div class="cx-mid">
+      <section class="cx-panel"><header class="cx-ph"><h2 class="nw-h">Biggest blockers, and how each is being unblocked</h2><span class="cx-meta">${open} open</span></header><div class="cx-pb" data-keep-scroll="nw-blockers">${blockers(b)}</div></section>
+      <section class="cx-panel"><header class="cx-ph"><h2 class="nw-h">${r.screen === 'story' ? 'Live story' : 'Being worked on now'}</h2><a class="cx-meta" href="#/work">All work ›</a></header><div class="cx-pb" data-keep-scroll="nw-work">${r.screen === 'story' ? storyColumn(r.id) : workList(b)}</div></section>
+    </div>
+    <div class="cx-low">${diagramSlot()}${view('diagram') === 'parts' ? '' : partsPanel()}</div>
   </div>`;
+}
+function kpis(b, list, open) {
+  const m = state.model;
+  const live = list.filter((s) => s.state === 'live').length;
+  const next = list.find((s) => s.state === 'next');
+  const t = tally(m.drive.prs);
+  const oldest = b.paths.map(unfinished).flatMap((p) => p.nodes).filter((n) => /^\d{1,2}:\d{2} [AP]M$/.test(n.since ?? '')).sort((x, y) => minutesAgo(y.since) - minutesAgo(x.since))[0];
+  const red = Object.values(m.prs).filter((pr) => pr.state === 'open' && (pr.test_state === 'failure' || pr.mergeable_state === 'dirty')).length;
+  const needs = needsTotal();
+  const asks = m.needs.filter((item) => item.kind === 'card').length;
+  const cell = (label, value, sub, tone, href) => `<a class="cx-kpi ${tone}" href="${href}"><span class="k">${label}</span><b>${value}</b><span class="s">${sub}</span></a>`;
+  return `<div class="cx-kpis">
+    ${cell('Milestones live', `${live}<small>/${list.length}</small>`, next ? `Next: ${esc(next.name)}` : 'No milestone next', '', '#/plan')}
+    ${cell('Code merged', `${pct(t)}<small>%</small>`, `${t.landed} of ${t.total} changes<i class="cx-bar"><i style="width:${pct(t)}%"></i></i>`, '', '#/work')}
+    ${cell('Blockers open', open, oldest ? `oldest ${lasted(oldest.since)}` : 'nothing stuck', open ? 'warn' : 'ok', '#/plan')}
+    ${cell('Being worked on', b.work.length, `${curated('work')?.finished.length ?? 0} finished today`, '', '#/work')}
+    ${cell('Needs you', needs, needs ? [needs - asks ? plural(needs - asks, 'change') : '', asks ? plural(asks, 'question') : ''].filter(Boolean).join(' · ') : 'nothing waits', needs ? 'you' : '', '#/review')}
+    ${cell('Failing changes', red, red ? 'tests fail or conflict' : 'every open change passes', red ? 'bad' : '', '#/status')}
+  </div>`;
+}
+function track(list) {
+  const cur = list.findIndex((s) => s.state === 'next');
+  return `<ol class="cx-track" style="--n:${list.length}">${list.map((s, i) => `<li class="ms-${s.state}${i === cur ? ' cur' : ''}"><a href="#/plan/m${i}" title="${esc(s.why || s.label)}"><span class="ix">${String(i + 1).padStart(2, '0')}</span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span></a></li>`).join('')}</ol>`;
+}
+function partsPanel() {
+  return `<section class="cx-panel cx-parts"><header class="cx-ph"><h2 class="nw-h">Landed by part</h2></header><div class="cx-pb">${state.model.parts.map((p) => {
+    const t = tally(state.model.drive.prs.filter((e) => e.part === p.key));
+    return `<div class="cx-pt" title="${esc(p.becomes)}"><span class="nm">${esc(p.name)}</span><span class="bar"><i style="width:${pct(t)}%"></i></span><span class="n">${t.landed}<small>/${t.total}</small></span></div>`;
+  }).join('')}</div></section>`;
 }
 
 function band(b) {
+  return b.band.kind === 'incident' ? `<div class="nw-band incident"><span class="tag">Incident</span><span class="what">${esc(b.band.text)}</span></div>` : '';
+}
+function needsColumn() {
   const m = state.model;
-  if (b.band.kind === 'incident') return `<div class="nw-band incident"><span class="tag">Incident</span><span class="what">${esc(b.band.text)}</span></div>`;
-  if (!m.needs.length) return '';
-  const prs = m.needs.filter((item) => item.kind === 'prs').flatMap((item) => item.prs.map((pr) => ({ pr, item })));
-  const approvals = prs.length === 1 ? needLine({ ...prs[0].item, prs: [prs[0].pr] }) : prs.length ? approvalLine(prs) : '';
-  const asks = m.needs.filter((item) => item.kind !== 'prs');
-  const questions = asks.length > 1 ? `<div class="nl"><span class="what">${asks.length} questions wait on your answer</span><span class="acts"><a class="nbtn pri" href="#/review/q">Answer them</a></span></div>` : asks.map(needLine).join('');
-  const rows = approvals + questions;
-  return `<div class="nw-band needs nw-needs"><div class="head"><span class="tag">Needs you</span></div><div class="rows">${rows}</div></div>`;
+  const b = m.brief;
+  const r = route();
+  const sel = reviewSelected();
+  const at = sel ? String(sel.n ?? sel.q) : null;
+  const total = needsTotal();
+  const groups = m.needs.filter((item) => item.kind === 'prs');
+  const cards = m.needs.filter((item) => item.kind === 'card');
+  const asks = m.needs.filter((item) => item.kind !== 'prs' && item.kind !== 'card');
+  const changes = groups.reduce((n, g) => n + g.prs.length, 0);
+  const incident = b?.band.kind === 'incident' ? `<div class="nd-incident"><span class="tag">Incident</span>${esc(b.band.text)}</div>` : '';
+  const group = (g) => `<div class="nd-group">${g.prs.length > 1 ? `<div class="nd-gl" title="${esc(rewritten('groups', g.key)?.relation ?? g.relation ?? '')}">${esc(rewritten('groups', g.key)?.title ?? g.group)}</div>` : ''}${g.prs.map((row) => needsChange(row, at)).join('')}</div>`;
+  return `<header class="nd-h"><h2>Needs you</h2><b class="nd-n${total ? ' on' : ''}">${total}</b></header>${incident}
+    ${changes ? `<section class="nd-sec"><h3>Changes to approve <span>${changes}</span></h3>${groups.map(group).join('')}</section>` : ''}
+    ${cards.length ? `<section class="nd-sec"><h3>Questions <span>${cards.length}</span></h3>${cards.map((item) => needsQuestion(item.card, at)).join('')}</section>` : ''}
+    ${asks.length ? `<section class="nd-sec"><h3>Also asked of you</h3>${asks.map((item) => `<div class="nd-item"><span class="nd-t">${esc(item.ask.what)}</span><div class="nd-acts">${item.ask.link ? `<a class="btn" href="${esc(item.ask.link)}" target="_blank" rel="noopener">${esc(item.ask.link_text ?? 'Open')}</a>` : ''}</div></div>`).join('')}</section>` : ''}
+    ${total || asks.length || incident ? '' : '<p class="nd-calm">Nothing waits on you. A change or a question that needs you shows here, on every page.</p>'}
+    <a class="nd-all" href="#/review">Open Review ›</a>`;
 }
-const FEATURE = { 'New tree': 'New app', 'Old tree': "Today's app", Shared: 'Shared code and CI' };
-function approvalLine(prs) {
-  const features = new Map();
-  for (const { pr, item } of prs) {
-    const feature = FEATURE[state.drive.get(pr.number)?.tree] ?? (/new (tree|app)/i.test(item.group) ? FEATURE['New tree'] : /today's app|old (tree|world)/i.test(item.group) ? FEATURE['Old tree'] : item.group);
-    features.set(feature, (features.get(feature) ?? 0) + 1);
-  }
-  const split = [...features].map(([feature, count]) => `${feature} ${count}`).join(' · ');
-  return `<div class="nl"><span class="what">${prs.length} changes wait on your approval<span class="sub">${esc(split)}</span></span><span class="acts"><a class="nbtn pri" href="#/review">Review them</a></span></div>`;
+function needsChange(row, at) {
+  const busy = pending.number === row.number && !pending.error;
+  const since = waitingSince(row.number);
+  const tests = state.model.prs[row.number]?.test_state;
+  const live = boardRow(row.number);
+  return `<div class="nd-item${String(row.number) === at ? ' on' : ''}"><a class="nd-t" href="#/review/${row.number}">${esc(prTitle(row.number))}</a>
+    <div class="nd-meta"><span class="nd-num">#${row.number}</span>${tests ? `<span class="nd-test ${tests}">${TEST_WORD[tests]}</span>` : ''}${since ? `<span>${blockedFor(since)}</span>` : ''}</div>
+    <div class="nd-acts"><button class="btn pri" data-approve="${row.number}" data-head="${esc(row.head)}"${busy || !live ? ' disabled' : ''}>${busy ? 'Sending' : '✓ Approve'}</button><button class="btn hold" data-hold-row="${row.number}"${busy || !live ? ' disabled' : ''}>‖ Hold</button></div>
+    ${pending.number === row.number && pending.error ? `<p class="nd-err">Not recorded: ${esc(pending.error)}</p>` : ''}</div>`;
 }
-function needLine(item) {
-  const line = (what, why, acts, sub) => `<div class="nl"><span class="what"${why ? ` title="${esc(why)}"` : ''}>${esc(what)}${sub ? `<span class="sub">${esc(sub)}</span>` : ''}</span><span class="acts">${acts}</span></div>`;
-  if (item.kind === 'prs' && item.prs.length === 1) {
-    const r = item.prs[0];
-    const busy = pending.number === r.number && !pending.error;
-    return line(prTitle(r.number), item.why, `<button class="nbtn pri" data-approve="${r.number}" data-head="${esc(r.head)}"${busy || !boardRow(r.number) ? ' disabled' : ''}>${busy ? 'Sending' : 'Approve'}</button><a class="nbtn" href="#/review/${r.number}">Details</a>`, item.why);
-  }
-  if (item.kind === 'card') {
-    const c = item.card;
-    const rec = c.options.find((o) => o.recommended);
-    const busy = sending(c.choice ?? c.id) ? ' disabled' : '';
-    const said = rewritten('cards', c.key);
-    const question = said?.question ?? c.title;
-    if (!rec) return line(question, item.why, '<a class="nbtn" href="#/review">Choose an answer</a>');
-    return line(question, item.why, `<button class="nbtn pri" data-choose="${esc(rec.id)}" data-card="${esc(c.id)}" data-choice="${esc(c.choice)}"${busy}>Pick it</button><a class="nbtn" href="#/review">Other answers</a>`, `Recommended: ${said?.answers?.[c.options.indexOf(rec)] || rec.label.replace(/\s*\(Recommended\)\s*$/i, '')}`);
-  }
-  return line(item.ask.what, item.why, item.ask.link ? `<a class="nbtn" href="${esc(item.ask.link)}" target="_blank" rel="noopener">${esc(item.ask.link_text ?? 'Open')}</a>` : '<a class="nbtn" href="#/review">Details</a>');
+function needsQuestion(c, at) {
+  const said = rewritten('cards', c.key);
+  const rec = c.options.find((o) => o.recommended);
+  const busy = sending(c.choice ?? c.id) ? ' disabled' : '';
+  const recLabel = rec && (said?.answers?.[c.options.indexOf(rec)] || rec.label.replace(/\s*\(Recommended\)\s*$/i, ''));
+  const href = `#/review/q/${encodeURIComponent(c.id)}`;
+  return `<div class="nd-item q${c.id === at ? ' on' : ''}"><a class="nd-t" href="${href}">${esc(said?.question ?? words(c.title))}</a>
+    ${rec ? `<div class="nd-meta">Recommended: <b>${esc(recLabel)}</b></div>` : ''}
+    <div class="nd-acts">${rec ? `<button class="btn pri" data-choose="${esc(rec.id)}" data-card="${esc(c.id)}" data-choice="${esc(c.choice)}"${busy}>Pick it</button><a class="btn" href="${href}">Other answers</a>` : `<a class="btn" href="${href}">${c.embed ? 'Open the card' : 'Choose an answer'}</a>`}</div>
+    ${c.choice ? sentNote(c.choice) : ''}</div>`;
 }
-
 function stops(b) {
   return state.model.milestones.map((name, i) => ({ name, ...(b.progress.stops[i] ?? { state: 'not', label: 'Not known', why: '' }) }));
-}
-function journey(b) {
-  const list = stops(b);
-  const lastLive = list.map((s) => s.state).lastIndexOf('live');
-  const cur = list.findIndex((s) => s.state === 'next');
-  const fill = lastLive > 0 ? (lastLive / list.length) * 100 : 0;
-  return `<div class="nw-panel">${progressLabel()}
-    <div class="nw-journey" style="--n:${list.length}"><i class="fill" style="width:${fill}%"></i>${list.map((s, i) => `<a class="ms ms-${s.state}${i === cur ? ' cur' : ''}" href="#/plan/m${i}"><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.why ? `<span class="why">${esc(s.why)}</span>` : ''}</a>`).join('')}</div>
-    <p class="nw-sent">${list.filter((s) => s.state === 'live').length} of ${list.length} milestones are live. ${esc(b.progress.sentence ?? '')}</p><p class="nw-code">${codeLine()}</p>
-    </div>`;
-}
-function progressLabel() {
-  return `<p class="nw-lab">${esc(state.model.milestones_label)}</p>`;
-}
-function codeLine() {
-  const t = tally(state.model.drive.prs);
-  return `Code: ${t.landed} of ${t.total} changes merged.`;
 }
 function compact(b) {
   const list = stops(b);
   const live = list.filter((s) => s.state === 'live');
   const next = list.find((s) => s.state === 'next');
   const odd = list.filter((s) => ['paused', 'broken'].includes(s.state));
-  return `<div class="nw-panel">${progressLabel()}<div class="nw-seg">${list.map((s, i) => `<a class="ms-${s.state}" href="#/plan/m${i}" title="${esc(`${s.name}: ${s.label}`)}"></a>`).join('')}</div>
+  return `<div class="nw-panel"><div class="nw-seg">${list.map((s, i) => `<a class="ms-${s.state}" href="#/plan/m${i}" title="${esc(`${s.name}: ${s.label}`)}"></a>`).join('')}</div>
     <p class="nw-sent"><b>${live.length} of ${list.length} milestones live</b>${live.length ? `: ${esc(live.map((s) => s.name).join(', '))}` : ''}.</p>
     ${next ? `<p class="nw-line">Next: <b>${esc(next.name)}</b>${next.why ? `, ${esc(next.why)}` : ''}.</p>` : ''}
     ${odd.map((s) => `<p class="nw-line ms-${s.state}">${esc(s.name)}: ${esc(s.label)}${s.why ? `, ${esc(s.why)}` : ''}.</p>`).join('')}
@@ -273,16 +290,23 @@ function storyBody(item) {
 }
 
 const DIAGRAMS = {
-  'end-state': () => `<h2 class="nw-h">How much of the end state has landed</h2><p class="nw-cap">Each light is one change the drive tracks, placed where it runs: on your Mac, in the cloud, or in the tools that ship it. ${(() => { const t = tally(state.model.drive.prs); return `${t.landed} of ${t.total} have merged, so ${pct(t)}% of the end state is in.`; })()}</p><div class="ck ov">${destination()}<div id="tip" class="tip" hidden></div></div>`,
-  parts: () => `<h2 class="nw-h">How much of each part has landed</h2><div class="nw-panel nw-parts">${state.model.parts.map((p) => {
+  'end-state': () => { const t = tally(state.model.drive.prs); return `<header class="cx-ph"><h2 class="nw-h" title="Each light is one change the drive tracks, placed where it runs: on your Mac, in the cloud, or in the tools that ship it.">How much of the end state has landed</h2><span class="cx-meta">${t.landed} of ${t.total} merged · ${pct(t)}% of the end state is in</span></header><div class="cx-pb cx-fit"><div class="ck ov"><div class="cx-zoom">${destination()}</div><div id="tip" class="tip" hidden></div></div></div>`; },
+  parts: () => `<header class="cx-ph"><h2 class="nw-h">How much of each part has landed</h2></header><div class="cx-pb nw-parts">${state.model.parts.map((p) => {
     const t = tally(state.model.drive.prs.filter((e) => e.part === p.key));
-    return `<div class="pt"><b>${esc(p.name)}</b><span class="bar"><i style="width:${pct(t)}%"></i></span><span class="pc">${t.landed} of ${t.total}</span><span class="sub">${esc(p.becomes)}</span></div>`;
+    return `<div class="cx-pt" title="${esc(p.becomes)}"><span class="nm">${esc(p.name)}</span><span class="bar"><i style="width:${pct(t)}%"></i></span><span class="n">${t.landed}<small>/${t.total}</small></span></div>`;
   }).join('')}</div>`,
   none: () => '',
 };
 function diagramSlot() {
   const body = DIAGRAMS[view('diagram')]();
-  return body ? `<section class="nw-diagram">${body}</section>` : '';
+  return body ? `<section class="cx-panel nw-diagram">${body}</section>` : '';
+}
+function fitDiagram() {
+  for (const z of document.querySelectorAll('.cx-zoom')) {
+    const box = z.closest('.cx-pb');
+    z.style.zoom = 1;
+    z.style.zoom = Math.min(1, box.clientWidth / z.offsetWidth, box.clientHeight / z.offsetHeight).toFixed(3);
+  }
 }
 
 function mountNow() {
@@ -290,9 +314,10 @@ function mountNow() {
   if (r.screen === 'story' && r.id) follow(decodeURIComponent(r.id));
   else unfollow();
   drawArrows();
+  fitDiagram();
   mountOverview();
 }
 document.addEventListener('click', (e) => {
   if (e.target.closest('[data-story-more]')) { story.open = true; paintStory(); }
 });
-window.addEventListener('resize', () => drawArrows());
+window.addEventListener('resize', () => { drawArrows(); if (route().screen === 'overview' || route().screen === 'story') { fitDiagram(); mountOverview(); } });

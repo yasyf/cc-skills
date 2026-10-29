@@ -12,14 +12,16 @@
 <link rel="stylesheet" href="/cockpit.css">
 <link rel="stylesheet" href="/now.css">
 <link rel="stylesheet" href="/pages.css">
+<link rel="stylesheet" href="/console.css">
 </head>
 <body>
-<header class="top">
+<header class="top rail">
   <a class="brand" href="#/"></a>
-  <nav class="tabs" id="tabs"></nav>
   <a class="kbtn" id="kbtn" href="#/jump">⌕ <span>Jump to anything</span><kbd>⌘K</kbd></a>
-  <span class="fresh" id="fresh"></span>
+  <nav class="tabs" id="tabs"></nav>
+  <div class="rail-foot"><span class="fresh" id="fresh"></span><span id="railfoot"></span></div>
 </header>
+<aside id="needs" class="needs-col"></aside>
 <main id="main" class="wrap"><div class="sk"></div><div class="sk"></div><div class="sk"></div></main>
 <section id="embed" class="review-embed" hidden></section>
 <section id="cardembed" hidden></section>

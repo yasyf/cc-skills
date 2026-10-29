@@ -268,7 +268,7 @@ document.addEventListener('mouseover', (e) => {
     tip.hidden = false;
     const box = el.getBoundingClientRect();
     tip.style.left = `${Math.min(window.innerWidth - 300, Math.max(8, box.left + box.width / 2 - 140))}px`;
-    tip.style.top = `${box.bottom + 8 + window.scrollY}px`;
+    tip.style.top = `${(box.bottom + 8 + tip.offsetHeight > window.innerHeight ? box.top - 8 - tip.offsetHeight : box.bottom + 8) + window.scrollY}px`;
   } else {
     tip.hidden = true;
   }
@@ -276,7 +276,7 @@ document.addEventListener('mouseover', (e) => {
   highlight(area ? numbersFor(area) : null);
 });
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.ck, .overlay, .pr-facts, #cardembed, .nw-needs, .pg')) return;
+  if (!e.target.closest('.ck, .overlay, .pr-facts, #cardembed, .nw-needs, .pg, #needs')) return;
   if (e.metaKey || e.ctrlKey) return;
   const light = e.target.closest('.ck .dot[data-n]');
   if (light) { e.preventDefault(); return (location.hash = `#/review/${light.dataset.n}`); }

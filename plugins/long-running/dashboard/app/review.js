@@ -24,24 +24,27 @@ function reviewPR(n, tab) {
     const pr = state.model.prs[n];
     const go = approvedAt(Number(n));
     const when = s === 'landed' ? `Landed ${clock(pr.landed_at)}` : STATE_WORD[s];
-    return `<div class="pr-head"><div class="kick muted">${s === 'landed' ? 'Landed' : 'Nothing for you to tap'}</div><h1>${esc(prTitle(n))}</h1>
+    return `<div class="pr-head"><div class="kick muted">${s === 'landed' ? 'Landed' : 'Nothing for you to tap'} · <span class="mono">#${n}</span></div>${reviewSteps(Number(n))}<h1>${esc(prTitle(n))}</h1>
       <span class="pill ${STATE_TONE[s]}">${when}</span>${go ? `<span class="pill ok">You approved ${clock(go)}</span>` : ''}${open}${s === 'landed' || s === 'failing' ? '' : testPill(pr)}</div>
-      ${s === 'landed' ? '' : changeBox(n, pr.head)}${reviewTabs(n, tab)}${tab === 'code' ? '' : `${prFacts(n)}${prText(n)}`}`;
+      ${s === 'landed' ? '' : changeBox(n, pr.head)}${reviewTabs(n, tab)}${tab === 'code' ? '<div class="rv-embed-slot"></div>' : `${prFacts(n)}${prText(n)}`}`;
   }
   const v = verdictState(row);
-  const rows = state.model.board.rows.filter((r) => r.group === row.group);
-  const index = rows.indexOf(row);
-  const next = state.model.board.rows.find((r) => r.number !== row.number && verdictState(r) === 'you');
-  for (const r of [rows[index - 1], rows[index + 1], next]) if (r) describe(r.number);
-  const step = (r, label, key) => (r ? `<a class="btn" href="#/review/${r.number}" data-key="${key.toLowerCase()}">${label}<kbd>${key}</kbd></a>` : '');
   const group = state.model.needs.find((item) => item.kind === 'prs' && [...item.prs, ...item.others].some((r) => r.number === row.number));
   const w = rowWords(row);
   const carried = row.carried?.length ? '<p class="mr-waits">Your earlier approval carries to this version; the review line names the fix.</p>' : '';
-  return `<div class="pr-head"><div class="kick">${esc(rewritten('groups', group?.key)?.title ?? row.group)} · ${index + 1} of ${rows.length}</div><h1>${esc(w.title)}</h1>
-    ${open}${testPill(state.model.prs[n] ?? {})}
-    <span class="actions">${step(rows[index - 1], '‹', 'K')}${step(rows[index + 1], '›', 'J')}${next ? step(next, 'Next waiting on you ›', 'N') : ''}</span></div>
+  return `<div class="pr-head"><div class="kick">${esc(rewritten('groups', group?.key)?.title ?? row.group)} · <span class="mono">#${n}</span></div>${reviewSteps(Number(n))}<h1>${esc(w.title)}</h1>
+    ${open}${testPill(state.model.prs[n] ?? {})}</div>
     <div class="decide">${decideBar(row, v)}</div><div class="bar-bottom decide">${decideBar(row, v)}</div>${changeBox(n, row.head)}
-    ${reviewTabs(n, tab)}${tab === 'code' ? '' : `<div class="pr-facts">${carried}${rowFacts(row)}<dl class="mr-f"><dt>Tests</dt><dd>${TEST_WORD[state.model.prs[n]?.test_state] ?? 'Not known'}</dd>${truthFacts(n, false)}</dl></div>${prText(n)}`}`;
+    ${reviewTabs(n, tab)}${tab === 'code' ? '<div class="rv-embed-slot"></div>' : `<div class="pr-facts">${carried}${rowFacts(row)}<dl class="mr-f"><dt>Tests</dt><dd>${TEST_WORD[state.model.prs[n]?.test_state] ?? 'Not known'}</dd>${truthFacts(n, false)}</dl></div>${prText(n)}`}`;
+}
+function reviewSteps(n) {
+  const sel = reviewSelected();
+  const prev = sel.flat[sel.index - 1];
+  const next = sel.flat[sel.index + 1];
+  const waiting = state.model.board.rows.find((r) => r.number !== n && verdictState(r) === 'you');
+  for (const e of [prev, next]) if (e?.n) describe(e.n);
+  const step = (e, label, key) => (e ? `<a class="btn" href="${entryHref(e)}" data-key="${key.toLowerCase()}">${label}<kbd>${key}</kbd></a>` : `<span class="btn off">${label}<kbd>${key}</kbd></span>`);
+  return `<span class="actions">${step(prev, '‹', 'K')}<span class="rv-pos">${sel.index < 0 ? '–' : sel.index + 1} of ${sel.flat.length}</span>${step(next, '›', 'J')}${waiting ? step({ n: waiting.number }, 'Next waiting on you ›', 'N') : ''}</span>`;
 }
 function reviewTabs(n, tab) {
   return `<nav class="subtabs review-tabs"><a href="#/review/${n}" class="${tab === 'code' ? '' : 'on'}">What it does</a><a href="#/review/${n}/code" class="${tab === 'code' ? 'on' : ''}">Code and review<kbd>C</kbd></a></nav>`;
@@ -136,8 +139,8 @@ async function decide(row, verdict, note, advance = true) {
 }
 function onDecide(e) {
   const button = e.target.closest('[data-decide]');
-  const r = route();
-  const row = r.screen === 'review' && r.id ? boardRow(r.id) : null;
+  const sel = reviewSelected();
+  const row = sel?.n ? boardRow(sel.n) : null;
   if (!button || !row) return;
   if (button.dataset.head && button.dataset.head !== row.head) return render();
   const verdict = button.dataset.decide;
@@ -171,26 +174,34 @@ document.addEventListener('input', (e) => {
   if (e.target.closest('[data-hold]')) pending.note = e.target.value;
 });
 document.addEventListener('keydown', (e) => {
-  const r = route();
-  const row = r.screen === 'review' && r.id ? boardRow(r.id) : null;
-  if (!row || e.metaKey || e.ctrlKey || e.altKey || e.target.closest('input, textarea')) return;
+  const sel = state.model && reviewSelected();
+  if (!sel || state.overlay || e.metaKey || e.ctrlKey || e.altKey || e.target.closest('input, textarea, select, [contenteditable]')) return;
   const key = e.key.toLowerCase();
-  const rows = state.model.board.rows.filter((x) => x.group === row.group);
-  const index = rows.indexOf(row);
-  const go = (to) => to && (location.hash = `#/review/${to.number}`);
-  if (key === 'a' && verdictState(row) === 'you') decide(row, 'approved');
-  else if (key === 'h' && verdictState(row) === 'you') { Object.assign(pending, { number: row.number, holding: true, error: '' }); render(); }
-  else if (key === 'j') go(rows[index + 1]);
-  else if (key === 'k') go(rows[index - 1]);
-  else if (key === 'n') go(state.model.board.rows.find((x) => x.number !== row.number && verdictState(x) === 'you'));
-  else if (key === 'c') location.hash = `#/review/${row.number}${r.tab === 'code' ? '' : '/code'}`;
-  else if (key === 'o') $('#main [data-key="o"]').click();
+  const row = sel.n ? boardRow(sel.n) : null;
+  const go = (to) => to && (location.hash = entryHref(to));
+  if (key === 'a' && row && verdictState(row) === 'you') decide(row, 'approved');
+  else if (key === 'h' && row && verdictState(row) === 'you') { Object.assign(pending, { number: row.number, holding: true, error: '' }); render(); }
+  else if (key === 'j') go(sel.flat[sel.index + 1]);
+  else if (key === 'k') go(sel.flat[sel.index - 1]);
+  else if (key === 'n') go(state.model.board.rows.filter((x) => x.number !== sel.n && verdictState(x) === 'you').map((x) => ({ n: x.number }))[0]);
+  else if (key === 'c' && sel.n) location.hash = `#/review/${sel.n}${route().tab === 'code' ? '' : '/code'}`;
+  else if (key === 'o' && sel.n) $('#main [data-key="o"]')?.click();
   else return;
   e.preventDefault();
 });
 const STALE_LINE = '<p class="assist-line stale">Showing the last copy of this review: GitHub is refusing requests for now, so new pushes and comments show up once it answers again.</p>';
 const ASSISTANT_LINE = `<p class="assist-line"><i class="on"></i><b>Assistant connected.</b> Ask in the bar under the code; it answers from<span class="pill" title="The files and lines this pull request changes">the diff</span><span class="pill" title="This pull request's row on the merge board: change, plan, risk, review, blocker">its board row</span><span class="pill" title="Your recorded rulings that match the question">your rulings</span><span class="pill" title="The drive's records that name this pull request">the drive's records</span></p>`;
+function placeEmbed() {
+  const el = $('#embed');
+  const slot = $('#main .rv-embed-slot');
+  if (el.hidden || !slot) return el.removeAttribute('style');
+  const box = slot.getBoundingClientRect();
+  Object.assign(el.style, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` });
+}
+window.addEventListener('resize', placeEmbed);
+document.addEventListener('scroll', placeEmbed, true);
 function syncReviewEmbed(r) {
+  if (state.listed !== location.hash) { state.listed = location.hash; $('#main .rv-item.on')?.scrollIntoView({ block: 'nearest' }); }
   const note = [...document.querySelectorAll('.hold-form input')].find((input) => input.offsetParent);
   if (note) {
     note.focus();
@@ -201,12 +212,14 @@ function syncReviewEmbed(r) {
   const row = number && boardRow(number);
   const head = row ? row.head : state.model.prs[number]?.head ?? '';
   el.hidden = !row && !state.model.prs[number];
+  placeEmbed();
   if (el.hidden) {
     embed.number = null;
     el.replaceChildren();
     return;
   }
   el.dataset.tab = r.tab === 'code' ? 'code' : 'text';
+  placeEmbed();
   if (embed.number !== number || embed.row !== Boolean(row)) {
     Object.assign(embed, { number, head: null, row: Boolean(row) });
     el.innerHTML = '<div class="pane code"></div>';
