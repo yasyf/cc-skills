@@ -31,6 +31,7 @@ LINE = re.compile(r"^\s*(\d{1,2}:\d{2} [AP]M)\s*\|\s*(\w+)\s*\|\s*(.+?)\s*$")
 WRITER = """You turn an AI coding worker's transcript into a short live story for a busy engineering lead who never reads transcripts.
 
 The work: {title}. What it is for: {goal}
+Its pull requests: {changes}. The worker may run other work too: write lines only about this work and its pull requests, and treat beats about anything else as nothing worth a line.
 
 Each message you get is a slice of the worker's transcript. Answer with zero or more story lines, one per line, exactly in the form
 TIME | MARK | LINE
@@ -83,7 +84,7 @@ def is_beat(event):
 
 
 class Sidecar:
-    def __init__(self, item, title, goal, saved_path, publish, lanes, model, raw_log):
+    def __init__(self, item, title, goal, changes, saved_path, publish, lanes, model, raw_log):
         self.item = item
         self.raw_log = raw_log
         self.saved_path = saved_path
@@ -91,7 +92,7 @@ class Sidecar:
         self.lanes = lanes
         self.chars = 0
         self.proc = subprocess.Popen(
-            ["claude", "-p", *QUIET, "--model", model, "--effort", "low", "--input-format", "stream-json", "--output-format", "stream-json", "--include-partial-messages", "--verbose", "--system-prompt", WRITER.format(title=title, goal=goal)],
+            ["claude", "-p", *QUIET, "--model", model, "--effort", "low", "--input-format", "stream-json", "--output-format", "stream-json", "--include-partial-messages", "--verbose", "--system-prompt", WRITER.format(title=title, goal=goal, changes=", ".join(f"#{n}" for n in changes) or "none yet")],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -198,7 +199,7 @@ class Story:
         meta = json.loads(self.meta_path.read_text()) if self.meta_path.exists() else {}
         resume = fresh and meta.get("file") == str(transcript) and self.saved.exists()
         offset = meta["offset"] if resume else 0
-        self.sidecar = Sidecar(self.item, self.work["title"], self.work.get("goal", self.work["latest"]), self.saved, self.publish, self.stories.lanes(), self.stories.model, self.stories.dir / f"{self.item}.raw.log")
+        self.sidecar = Sidecar(self.item, self.work["title"], self.work.get("goal", self.work["latest"]), self.work.get("changes", []), self.saved, self.publish, self.stories.lanes(), self.stories.model, self.stories.dir / f"{self.item}.raw.log")
         self.stories.started(self)
         self.status = "Catching up on the last 30 minutes"
         self.publish({"type": "status", "text": self.status})
@@ -263,7 +264,7 @@ class Story:
                     self.meta_path.write_text(json.dumps({"file": str(transcript), "offset": offset}))
                 if self.sidecar.chars > MAX_CONTEXT_CHARS:
                     self.sidecar.stop()
-                    self.sidecar = Sidecar(self.item, self.work["title"], self.work.get("goal", self.work["latest"]), self.saved, self.publish, self.stories.lanes(), self.stories.model, self.stories.dir / f"{self.item}.raw.log")
+                    self.sidecar = Sidecar(self.item, self.work["title"], self.work.get("goal", self.work["latest"]), self.work.get("changes", []), self.saved, self.publish, self.stories.lanes(), self.stories.model, self.stories.dir / f"{self.item}.raw.log")
                     self.sidecar.send("The story so far:\n" + "\n".join(f"{e['at']} | {e['mark']} | {e['line']}" for e in self.lines()[-20:]) + "\n\nAnswer SKIP to this message.")
         finally:
             os.close(fd)
