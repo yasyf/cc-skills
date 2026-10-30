@@ -573,7 +573,10 @@ def test_shared_denied_frontier_validates_each_path_and_child_once(tmp_path, mon
 def test_cold_config_acl_restoration_recovers_without_mode_or_inode_change(tmp_path):
     config = write(tmp_path, "acl", ("desk", 1))
     before = config.stat()
-    subprocess.run(["chmod", "+a", f"user:{os.getuid()} deny read", str(config)], check=True)
+    import pwd
+
+    principal = pwd.getpwuid(os.getuid()).pw_name
+    subprocess.run(["chmod", "+a", f"user:{principal} deny read", str(config)], check=True)
     try:
         assert config.stat().st_mode == before.st_mode
         with rosters.RosterIndex(tmp_path) as index:
