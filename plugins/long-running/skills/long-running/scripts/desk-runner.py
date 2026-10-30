@@ -6967,10 +6967,15 @@ class Landing:
         outcome, outs, last = "noop", [], ""
         for top in tops:
             chain = sorted((pr for pr in downstack(open_rows, top) if pr in heads), key=lambda pr: len(downstack(open_rows, pr)))
+            if (base := open_rows[chain[0]].get("base")) != TRUNK:
+                return (MERGED if outcome == MERGED else "blocked"), "".join(outs)[-1500:], f"#{chain[0]} sits on {base}, not {TRUNK}, so {numbered(chain)} waits for the PR below it to land"
             with DIRECT_MERGING:
                 landing, refused = self.rebased(chain, heads, open_rows)
+                refused = refused or (self.moved_heads(chain, landing) if len(chain) > 1 else None)
                 done = None if refused else self.merge_chain(chain, landing)
-                squashes = self.squashes(chain) if done and not done.code else {}
+                squashes = self.squashes(chain) if done and done.code in (0, TIMED_OUT) else {}
+                if done and done.code == TIMED_OUT and squashes and all(squashes.values()):
+                    done = Done(0, done.out, done.err)
             if refused:
                 pr, why = refused
                 last = f"{numbered(chain)} did not rebase onto the latest {TRUNK}: {why}"
@@ -6990,6 +6995,14 @@ class Landing:
                 moved = "" if landing[pr].startswith(heads[pr]) else f", rebased to {landing[pr][:10]},"
                 self.post_record("state", f"merged-direct:{pr}@{heads[pr]}", self.landing_audience([pr], rows, self.queue_audience([pr], rows)), f"MERGED #{pr} at {heads[pr][:10]}{moved} direct {landed}, Graphite down, {DIRECT_RULING}: {how}", pr)
         return outcome, "".join(outs)[-1500:], last
+
+    def moved_heads(self, chain: list[str], landing: dict[str, str]) -> tuple[str, str] | None:
+        """The first PR of a chain whose head GitHub reads somewhere other than the head the runner checked, with why, read just before a `gh stack merge`, which pins no head."""
+        for pr in chain:
+            read = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "headRefOid", "--jq", ".headRefOid", max_age=ghread.FRESH))
+            if read.out.strip() != landing[pr]:
+                return pr, f"#{pr}'s head reads {read.out.strip()[:10] or 'unread'} on GitHub, not the checked {landing[pr][:10]}"
+        return None
 
     def squashes(self, chain: list[str]) -> dict[str, str]:
         """Each PR of a chain just merged, to the squash commit GitHub reads for it, polling every `SQUASH_POLL_SECONDS` up to `SQUASH_POLLS` times until every squash reads, so the next merge reads the trunk with them on it; a squash still unread then maps to empty."""
@@ -7014,20 +7027,20 @@ class Landing:
         if listed.code or not listed.out.strip():
             return heads, (chain[0], f"the trunk tip did not read: {(listed.err or listed.out).strip()[:200] or 'empty'}")
         tip = listed.out.split()[0]
-        fetched = self.shell.run([*git, "fetch", "-q", "--no-tags", "origin", tip, *heads.values()])
+        fetched = self.shell.run([*git, "fetch", "-q", "--no-tags", "origin", tip, *heads.values(), "--no-write-fetch-head"])
         if fetched.code:
             return heads, (chain[0], f"the trunk tip or the heads did not fetch: {(fetched.err or fetched.out).strip()[:200]}")
-        base = self.shell.run([*git, "merge-base", tip, heads[chain[0]]]).out.strip()
         landing: dict[str, str] = {}
-        onto = tip
+        onto, below = tip, tip
         for pr in chain:
+            base = self.shell.run([*git, "merge-base", below, heads[pr]]).out.strip()
             replayed = self.shell.run([*git, "replay", "--onto", onto, "--ref", f"refs/heads/{open_rows[pr]['branch']}", "--ref-action=print", f"{base}..{heads[pr]}"])
             update = replayed.out.split()
             if replayed.code or len(update) != 4:
                 return heads, (pr, f"#{pr} does not replay cleanly onto {onto[:10]}: {(replayed.err or replayed.out).strip()[:200]}")
             if self.own_patch(base, heads[pr]) != self.own_patch(onto, update[2]):
                 return heads, (pr, f"#{pr}'s own patch changes when replayed onto {onto[:10]}")
-            landing[pr], onto, base = update[2], update[2], heads[pr]
+            landing[pr], onto, below = update[2], update[2], heads[pr]
         pushed = self.shell.run([*git, "push", "--atomic", "--no-verify", *(f"--force-with-lease=refs/heads/{open_rows[pr]['branch']}:{heads[pr]}" for pr in chain), "origin", *(f"{landing[pr]}:refs/heads/{open_rows[pr]['branch']}" for pr in chain)])
         if pushed.code:
             return heads, (chain[0], f"the rebased heads did not push: {(pushed.err or pushed.out).strip()[:200]}")
@@ -7041,17 +7054,18 @@ class Landing:
         for pr in chain:
             self.post_record("head", f"rebased-direct:{pr}@{landing[pr]}", ",".join(dict.fromkeys([ROOT, *map(self.successor, self.fidelity_lanes)])), f"HEAD #{pr} {landing[pr]} (was {heads[pr]}): the landing runner rebased it onto {TRUNK} {tip[:10]} for its direct merge, patch-identical to {heads[pr][:10]} by patch-id, so its go and grades carry (root #197571)", pr)
         for pr in chain:
-            if not self.approved_again(pr):
+            if not self.approved_again(pr, landing[pr]):
                 return landing, (pr, f"{REVIEW_BOT} has not approved #{pr} again at {landing[pr][:10]} in {APPROVAL_POLLS} minutes since the rebase push")
         return landing, None
 
-    def approved_again(self, pr: str) -> bool:
-        """Whether GitHub reads `pr` approved within `APPROVAL_POLLS` reads `APPROVAL_POLL_SECONDS` apart: the rebase push dismisses the approval, and the review bot approves a patch-identical head again within minutes; the runner waits for nothing else, no go and no second CI run, since it checked the patch itself (root #197434, #197878)."""
+    def approved_again(self, pr: str, head: str) -> bool:
+        """Whether GitHub reads `pr` approved, by an approving review on `head` itself, within `APPROVAL_POLLS` reads `APPROVAL_POLL_SECONDS` apart: the rebase push dismisses the approval only after GitHub processes it, so an approval read before then names the old head; the review bot approves a patch-identical head again within minutes, and the runner waits for nothing else, no go and no second CI run, since it checked the patch itself (root #197434, #197878, #198367)."""
         for poll in range(APPROVAL_POLLS):
             if poll:
                 self.shell.sleep(APPROVAL_POLL_SECONDS)
-            read = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "reviewDecision", "--jq", ".reviewDecision", max_age=ghread.FRESH))
-            if read.out.strip() == "APPROVED":
+            read = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "reviewDecision,reviews", max_age=ghread.FRESH))
+            view = json.loads(read.out) if read.code == 0 else {}
+            if view.get("reviewDecision") == "APPROVED" and any(review["state"] == "APPROVED" and (review.get("commit") or {}).get("oid") == head for review in view.get("reviews", [])):
                 return True
         return False
 

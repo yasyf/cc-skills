@@ -180,6 +180,7 @@ class FakeShell(runner_module.Shell):
         self.patches: dict[str, str] = {}
         self.pushes: list[list[str]] = []
         self.approval_after_push = "APPROVED"
+        self.review_commit = ""
         self.behind: dict[str, int] = {}
         self.stack_code = 0
         self.checks: dict[str, list[dict]] = {}
@@ -471,8 +472,9 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "reviewDecision,headRefOid,state":
             assert argv[4:6] == ["--repo", "Forge-AI/monorepo"]
             return runner_module.Done(0, json.dumps(self.reviews[argv[3]]), "")
-        if argv[:3] == ["gh", "pr", "view"] and argv[-1] == ".reviewDecision":
-            return runner_module.Done(0, f"{self.approval_after_push}\n", "")
+        if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "reviewDecision,reviews":
+            reviewed = self.review_commit or self.current_heads.get(argv[3], "")
+            return runner_module.Done(0, json.dumps({"reviewDecision": self.approval_after_push, "reviews": [{"state": "APPROVED", "commit": {"oid": reviewed}}]}), "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == ".headRefOid":
             return runner_module.Done(0, f"{self.current_heads[argv[3]]}\n", "") if argv[3] in self.current_heads else runner_module.Done(1, "", "no pull requests found")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "mergeCommit":
@@ -13059,6 +13061,7 @@ def test_while_graphite_is_down_a_stack_rebased_on_dev_merges_as_one_gh_stack_bo
     """Owner 8:15 PM Oct 29 (e7170fa): for direct merges always use stacks and always rebase first."""
     two_pr_stack(shell)
     queue_drafts(shell, (40, True), (50, True))
+    shell.current_heads |= {"29020": "cccc333333", "29031": "dddd444444"}
     shell.merge_commits |= {"29020": "1111aaaa0000", "29031": "2222bbbb0000"}
     landing_pass(shell, config)
     assert direct_merges(shell) == [["gh", "stack", "link", "29020", "29031"], ["gh", "stack", "merge", "29031", "--yes", "--squash"]]
@@ -13099,6 +13102,7 @@ def test_while_graphite_is_down_a_stack_whose_rebase_conflicts_or_changes_its_pa
 def test_while_graphite_is_down_a_stack_merge_github_refuses_escalates_and_posts_no_merged_record(shell, config, tmp_path):
     two_pr_stack(shell)
     queue_drafts(shell, (40, True), (50, True))
+    shell.current_heads |= {"29020": "cccc333333", "29031": "dddd444444"}
     shell.stack_code = 4
     landing_pass(shell, config)
     assert merged_records(shell) == []
@@ -13155,16 +13159,40 @@ def test_an_approved_green_incident_fix_behind_dev_merges_rebased_onto_the_tip_o
         assert merges(shell) == [["gh", "pr", "merge", "36650", "--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit", shell.replayed[0][2]]] and asked == []
 
 
-def test_while_graphite_is_down_a_rebased_pr_whose_approval_does_not_come_back_in_ten_minutes_never_merges_and_names_the_bot(shell, config, tmp_path):
-    """Root #197434: a rebase push dismisses the approving review, so the runner waits for the review bot's approval again, never --admin or --auto."""
+@pytest.mark.parametrize("approval", ["dismissed", "old-head"])
+def test_while_graphite_is_down_a_rebased_pr_whose_approval_does_not_come_back_in_ten_minutes_never_merges_and_names_the_bot(shell, config, tmp_path, approval):
+    """Root #197434 and #198367: a rebase push dismisses the approving review, and #45365 merged-failed at 10:19 PM Oct 29 on an approval GitHub still read from the old head, so the runner waits for an approval on the new head itself, never --admin or --auto."""
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
     queue_drafts(shell, (40, True), (50, True))
     shell.trunk = [{"oid": "9999dddd00"}]
     shell.behind["cccc333333"] = 1
-    shell.approval_after_push = "REVIEW_REQUIRED"
+    if approval == "dismissed":
+        shell.approval_after_push = "REVIEW_REQUIRED"
+    else:
+        shell.review_commit = "cccc333333"
     started = shell.clock
     landing_pass(shell, config)
     assert len(shell.pushes) == 1 and direct_merges(shell) == [] and shell.clock - started >= timedelta(minutes=9)
     [asked] = [post_body(post) for post in blockers(shell) if "rebases each admitted stack" in post_body(post)]
     assert "forge-pr-reviewer[bot] has not approved #29020 again" in asked
+
+
+def test_while_graphite_is_down_a_child_whose_parent_has_not_landed_never_merges_into_the_parent_branch(shell, config, tmp_path):
+    """Finder on cc-skills#1110: the gate can admit a child alone while its parent sits in Graphite's queue, and gh pr merge would squash it into the parent's branch."""
+    two_pr_stack(shell)
+    shell.gates["29031"] = [gate("#29020 QUEUED cccc333333 graphite WAITING_TO_MERGE", "#29031 GREEN dddd444444 graphite READY", would="#29031")]
+    queue_drafts(shell, (40, True), (50, True))
+    landing_pass(shell, config)
+    assert direct_merges(shell) == [] and merged_records(shell) == []
+
+
+def test_while_graphite_is_down_a_stack_whose_head_moved_during_the_wait_never_merges(shell, config, tmp_path):
+    """Finder on cc-skills#1110: gh stack merge pins no head, so the runner reads each head again just before it."""
+    two_pr_stack(shell)
+    queue_drafts(shell, (40, True), (50, True))
+    shell.current_heads |= {"29020": "cccc333333", "29031": "ffff777777"}
+    landing_pass(shell, config)
+    assert direct_merges(shell) == [] and merged_records(shell) == []
+    [asked] = [post_body(post) for post in blockers(shell) if "rebases each admitted stack" in post_body(post)]
+    assert "#29031's head reads ffff777777 on GitHub, not the checked dddd444444" in asked
