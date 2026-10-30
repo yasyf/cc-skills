@@ -158,6 +158,17 @@ def test_a_rulings_line_in_a_pr_comment_cites_the_row(package: Path, state: Path
     assert check(capsys, CheckShell(pinned(package), body=uncited, comments=("Second-model review: ok.", "## Rulings\n\n- bbbbbbb: Drain the pool when a run closes."))) == (0, [])
 
 
+def test_a_cited_row_that_names_what_it_protects_needs_the_line_to_say_how_the_change_serves_it(package: Path, state: Path, registered: Path, capsys) -> None:
+    """Root #204765: a Rulings line that cites a rule by id alone let a lane follow the words against the harm the rule prevents."""
+    rows = pinned(package)
+    rows["rule/bbbbbbb"]["protects"] = "a closed run from holding pool connections"
+    refused = (1, ["RULINGS-PLAIN rule/bbbbbbb cited by id alone\tsay on the line citing each one what it protects and how this change serves that: '<rule> protects <harm>; this change serves it by <how>' (root #204765)"])
+    explained = CLEAN.replace("- bbbbbbb: Drain the pool when a run closes.", "- bbbbbbb: Drain the pool when a run closes. It protects a closed run from holding pool connections; this change serves it by draining in close.")
+
+    assert check(capsys, CheckShell(rows)) == refused
+    assert check(capsys, CheckShell(rows, body=explained)) == (0, [])
+
+
 class CachedViewShell(CheckShell):
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
         if gateway(argv)[1:3] == ["pr", "view"] and argv[argv.index("--max-age") + 1] != ghread.FRESH:

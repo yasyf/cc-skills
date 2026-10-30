@@ -239,6 +239,7 @@ LOCAL_TOOL = re.compile(r"(?:^|/)(?:scripts|tools|bin|hooks|\.claude|\.agents)/|
 CI_CONFIG = re.compile(r"(?:^|/)(?:\.buildkite|\.github|\.circleci|ci)/|(?:^|/)(?:Dockerfile[^/]*|package\.json|Cargo\.toml|Makefile|[Jj]ustfile|BUCK|pyproject\.toml|mise\.toml)$")
 OWNER_LINE = re.compile(r"#\s*owner:\s*(?P<answer>[0-9a-f]{7,40})\b")
 RULINGS_SECTION = re.compile(r"^## Rulings\b.*?(?=^## |\Z)", re.MULTILINE | re.DOTALL)
+EXPLAINS = re.compile(r"\bprotects\b.+\bserves?\b", re.IGNORECASE)
 RULINGS_LINES = re.compile(r"^## Rulings\b.*?(?=^##+ |\Z)", re.MULTILINE | re.DOTALL)
 IN_YOUR_WORDS = re.compile(r"^### In your words\b.*?(?=^##+ |\Z)", re.MULTILINE | re.DOTALL)
 APPENDIX = re.compile(r"^## Appendix\b", re.MULTILINE)
@@ -541,6 +542,7 @@ def rendered_row(key: str, fields: dict[str, str]) -> list[str]:
     lines = [f"### {key} | {fields.get('kind', '')} | {fields.get('status', '')} | said {fields.get('said') or 1} | {fields.get('at', '')}"]
     lines += [f"> {line}" for line in (fields.get("words") or "").splitlines()]
     lines += [f"> also, {repeat.get('at', '')}: {repeat.get('words', '')}" for repeat in listed(fields.get("repeats"))]
+    lines += [f"{label}: {fields[name]}" for label, name in (("Protects", "protects"), ("Does not apply when", "not_when")) if fields.get(name)]
     if implications := listed(fields.get("implications")):
         lines.append("This also means:")
         lines += [f"{item['n']}. {item['text']} ({item['direction']}, {item['state']}, {binding(item)})" for item in implications]
@@ -2084,6 +2086,11 @@ def acknowledges(line: str, key: str, fields: dict[str, str]) -> bool:
     return bool(spans) and len(WORD.findall(line[spans[-1].end() :].lower())) >= PLAIN_WORDS
 
 
+def explains(head: Head, key: str, fields: dict[str, str]) -> bool:
+    answers = {str(answer)[:SHORT] for answer in listed(fields.get("answer"))}
+    return any(EXPLAINS.search(line) for line in head.rulings.splitlines() if key in line or answers & {token[:SHORT] for token in CITED.findall(line)})
+
+
 def acknowledged(head: Head, key: str, fields: dict[str, str]) -> bool:
     return any(acknowledges(line, key, fields) for line in head.rulings.splitlines())
 
@@ -2245,6 +2252,8 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
     uncited = [key for key in facts["touched"] if not cites(head, key, rulings[key])]
     if uncited:
         findings.refusals.append(f"RULINGS-UNCITED {','.join(uncited)}\tcite them under a ## Rulings heading in one PR comment, never by editing the body (427c9c93)")
+    if unexplained := [key for key in facts["touched"] if key not in uncited and rulings[key].get("protects") and not explains(head, key, rulings[key])]:
+        findings.refusals.append(f"RULINGS-PLAIN {','.join(unexplained)} cited by id alone\tsay on the line citing each one what it protects and how this change serves that: '<rule> protects <harm>; this change serves it by <how>' (root #204765)")
     for key, fields in rulings.items():
         if fields.get("kind") == "reserved" and key in facts["reserved"]:
             if findings.read(f"the authorizes:{key} answers", lambda key=key: authorized(loaded, head, key)) is False:
