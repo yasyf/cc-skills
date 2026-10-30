@@ -3133,8 +3133,12 @@ asking what it owns gets `ledger.py show --red`, never the raw table.
 
 ### Drive dashboard
 
-From the drive's first plan, the root runs the app in `dashboard/app/`:
-`python3 dashboard/app/server.py --config <state dir>/dashboard.json`, where the config
+From the drive's first plan, the root runs the app in `dashboard/app/` under launchd:
+`python3 dashboard/supervise.py --config <state dir>/dashboard.json` installs a
+LaunchAgent that starts `dashboard/app/server.py` from the same tree and restarts it
+whenever it exits, carrying the installing shell's `PATH`, `HOME`, `LANG` and
+`CEREBRAS_API_KEY`; rerunning it replaces the job, and a deploy checks out the new
+code and runs `launchctl kickstart -k` on the label it prints. The config
 names the drive, ledger, board session and URL, repo, progress-doc label, release doc,
 story file, keeper lane, host, and port, plus the Now page's milestones, views, brief and
 story directories, and transcript directory; `/live-dashboard`'s
