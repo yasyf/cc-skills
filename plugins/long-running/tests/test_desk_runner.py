@@ -7232,6 +7232,22 @@ def test_go_unqueued_never_counts_an_enqueue_attempt_from_before_the_go(shell, c
     assert unqueued(shell) == []
 
 
+@pytest.mark.parametrize(("version", "minutes", "retried"), [(None, 0, True), (runner_module.RUNNING_VERSION, 0, False), (runner_module.RUNNING_VERSION, 10, True)], ids=["older-runner", "same-runner-fresh", "same-runner-10-min"])
+def test_a_failed_enqueue_at_unchanged_heads_retries_under_a_new_runner_or_ten_minutes_on(shell, config, tmp_path, version, minutes, retried):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.queue["33001"] = "not queued"
+    shell.sleep(6 * 60)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    book, key = runner_module.Landing(runner, runner.config.landing).book, "enqueue:33001@aaaa111111#1"
+    book.accept(runner_module.LANDING, key, "enqueue", "33001", "", shell.now() + timedelta(minutes=15))
+    book.attempt(runner_module.LANDING, lambda incident: incident.start(key, shell.now()))
+    book.attempt(runner_module.LANDING, lambda incident: incident.complete(key, {"outcome": "failed", "out": "GraphQL: This pull request is part of a stack", "at": book.stamp()} | ({"version": version} if version else {})))
+    shell.sleep(minutes * 60)
+    landing_pass(shell, config)
+    assert any(action.action_id == "enqueue:33001@aaaa111111#2" for action in book.actions(runner_module.LANDING, kind="enqueue")) == retried
+
+
 def test_a_go_named_head_the_queue_already_holds_from_a_hand_enqueue_escalates_nothing(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, "#33001 BLOCKED aaaa111111 graphite QUEUED_TO_MERGE")

@@ -693,6 +693,7 @@ INCIDENT_MODEL = "incident"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 GO_UNQUEUED_OUTCOMES = frozenset({"blocked", "failed", "stranded", "unsettled"})
 RETRYABLE = frozenset({"blocked", "superseded", "foreign", "dropped", "refused", "dequeued"})
+FAILED_RETRY = timedelta(minutes=10)
 BELIEVED_QUEUED = frozenset({"enqueued", "noop"})
 MERGED = "merged"
 ADMITTED = BELIEVED_QUEUED | {"dropped", "ejected", MERGED}
@@ -6073,12 +6074,19 @@ class Landing:
         if self.awaiting_go(enqueues, enqueued_heads(base)):
             return set()
         attempts = [action for action in enqueues if action.action_id.split("#")[0] == base]
-        if any(action.status != "completed" or action.response["outcome"] not in RETRYABLE for action in attempts):
+        if any(action.status != "completed" or not self.retries(action) for action in attempts):
             return set()
         if failed := self.failing(ACCEPT_CHECKS, Graded(enqueued_heads(base), rows, self.runner.now(), act=True)):
             return set(failed[1])
         self.book.accept(LANDING, f"{base}#{len(attempts) + 1}", "enqueue", ",".join(prefix), self.authority(), self.runner.now() + timedelta(minutes=self.runner.config.enqueue_minutes))
         return set()
+
+    def retries(self, attempt: actions.Action) -> bool:
+        """Whether a finished enqueue attempt lets a fresh one start at the same heads: a retryable outcome, or a failed one recorded under another runner version, since an install is what heals it, or `FAILED_RETRY` ago (root #200556)."""
+        response = attempt.response
+        if response["outcome"] in RETRYABLE:
+            return True
+        return response["outcome"] == "failed" and (response.get("version") != RUNNING_VERSION or self.runner.now() - actions.parse_stamp(response["at"]) >= FAILED_RETRY)
 
     def authority(self) -> str:
         policy = self.runner.landing_policy()
@@ -6995,7 +7003,7 @@ class Landing:
             self.moved_in_queue(enqueued_heads(key))
         if outcome in BELIEVED_QUEUED and (late := self.holding(prefix, rows, accepted_at)):
             outcome, out = self.dequeue(key, prefix, rows, late)
-        self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": out, "drive": self.runner.config.drive, "at": self.book.stamp()}))
+        self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": out, "drive": self.runner.config.drive, "version": RUNNING_VERSION, "at": self.book.stamp()}))
         if outcome in BELIEVED_QUEUED:
             self.post_record("report", f"queued:{key}", self.landing_audience(prefix, rows, self.queue_audience(prefix, rows)), f"QUEUED {self.queue_line(enqueued_heads(key))}: the landing runner put it in the merge queue at {pacific(self.runner.now())}", prefix[-1])
         if outcome in ("stranded", "failed", "unsettled"):
