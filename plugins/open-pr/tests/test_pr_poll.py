@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import fcntl
 import json
+import subprocess
 
 import pytest
 from conftest import (
@@ -709,13 +710,23 @@ def test_trunk_api_outage_does_not_hide_proven_github_merge_or_reviews(poll):
     assert run.done == "DONE merged"
 
 
-def test_foreign_checkout_queue_config_does_not_select_trunk_for_another_repo(poll):
-    run = poll(surface(pull()), env={"GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "ccx.queue", "GIT_CONFIG_VALUE_0": "trunk", "GIT_CONFIG_KEY_1": "remote.origin.url", "GIT_CONFIG_VALUE_1": "https://github.com/other/project.git"})
+def queue_checkout(tmp_path, monkeypatch, origin):
+    checkout = tmp_path / "checkout"
+    subprocess.run(["git", "init", "--quiet", str(checkout)], check=True)
+    subprocess.run(["git", "-C", str(checkout), "remote", "add", "origin", origin], check=True)
+    subprocess.run(["git", "-C", str(checkout), "config", "ccx.queue", "trunk"], check=True)
+    monkeypatch.chdir(checkout)
+
+
+def test_foreign_checkout_queue_config_does_not_select_trunk_for_another_repo(poll, tmp_path, monkeypatch):
+    queue_checkout(tmp_path, monkeypatch, "https://github.com/other/project.git")
+    run = poll(surface(pull()))
     assert run.done == "DONE ready-to-merge"
     assert "QUEUE unknown" not in run.lines
 
 
-def test_matching_checkout_inherits_its_explicit_trunk_queue_selection(poll):
-    run = poll(native_surface("queued", verdict="queued"), env={"GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "ccx.queue", "GIT_CONFIG_VALUE_0": "trunk", "GIT_CONFIG_KEY_1": "remote.origin.url", "GIT_CONFIG_VALUE_1": "https://github.com/acme/widgets.git"})
+def test_matching_checkout_inherits_its_explicit_trunk_queue_selection(poll, tmp_path, monkeypatch):
+    queue_checkout(tmp_path, monkeypatch, "https://github.com/acme/widgets.git")
+    run = poll(native_surface("queued", verdict="queued"))
     assert "QUEUED trunk api" in run.lines
     assert run.done is None
