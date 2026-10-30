@@ -31,8 +31,8 @@ for each PR, and posts a note for one that moved while the call ran; it is the h
 ledger `priority` the desk orders trees and enqueue waves by, lower first. `dequeue` refuses a PR this
 drive's queue does not answer for, naming the drives whose records name it; otherwise it takes the PR
 out through the adapter and posts a cci `stopped` record to every drive that names it, and the desk
-leaves that head out until `requeue`. `requeue` puts a flaky head back in at once and makes a pulled,
-ejected, or go-awaiting head retryable. `recover` runs the adapter's recover over the PRs.
+leaves that head out until `requeue`. `requeue` makes a pulled, ejected, or go-awaiting head
+retryable. `recover` runs the adapter's recover over the PRs.
 """
 
 from __future__ import annotations

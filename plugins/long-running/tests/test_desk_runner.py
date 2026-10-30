@@ -180,7 +180,6 @@ class FakeShell(runner_module.Shell):
         self.removed: list[str] = []
         self.pr_lists: dict[str, list[dict]] = {}
         self.drives: list[str] = ["d1"]
-        self.flake_code = 0
         self.claims: list[list[str]] = []
         self.claim_error = ""
         self.registered: list[list[str]] = []
@@ -746,14 +745,6 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, self.statuses, "")
         if "--dequeue" in argv:
             return runner_module.Done(self.dequeue_code, "", "queue still holds the PR" if self.dequeue_code else "")
-        if "--flake" in argv:
-            pr = argv[0]
-            flaked = {
-                0: (f"enqueue #{pr}: {{}}; #{pr} at the same head as a flake retry\n#{pr} commented the flake retry\n", ""),
-                1: (f"#{pr} BLOCKED cccc333333 the queue refused the same-head retry because it had merge conflicts\n", ""),
-                3: ("", f"#{pr} STRANDED the queue draft never settled\n"),
-            }
-            return runner_module.Done(self.flake_code, *flaked[self.flake_code])
         tip = " ".join(itertools.takewhile(str.isdigit, argv))
         if "--check" in argv:
             outs = self.gates[tip]
@@ -765,7 +756,7 @@ class FakeShell(runner_module.Shell):
         return [call for call in self.calls if call[:3] == ["orca", "orchestration", "send"]]
 
     def enqueues(self) -> list[list[str]]:
-        return [call for call in self.calls if Path(call[0]).name == "stack-enqueue" and not {"--check", "--status", "--dequeue", "--flake"} & set(call)]
+        return [call for call in self.calls if Path(call[0]).name == "stack-enqueue" and not {"--check", "--status", "--dequeue"} & set(call)]
 
     def launch(self, lane: str, dispatch: str, status: str = "dispatched") -> None:
         self.receipts.mkdir(parents=True, exist_ok=True)
@@ -2711,7 +2702,7 @@ def is_check(argv: list[str]) -> bool:
 
 
 def is_enqueue(argv: list[str]) -> bool:
-    return not {"--check", "--status", "--dequeue", "--flake"} & set(argv)
+    return not {"--check", "--status", "--dequeue"} & set(argv)
 
 
 @pytest.mark.parametrize(
@@ -5978,66 +5969,22 @@ FLAKY = (
 )
 
 
-def flakes(shell: FakeShell) -> list[list[str]]:
-    return [call[1:] for call in stack_enqueue_calls(shell) if "--flake" in call]
-
-
-def test_a_flaky_check_ejection_goes_back_in_once_at_the_same_head_then_waits_for_a_root_go(shell, config, tmp_path):
+def test_a_flaky_check_ejection_goes_to_the_restack_lane_once_naming_the_job_and_its_head_stays_out(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    raw["landing"]["restack_lane"] = "restack-worker"
+    config.write_text(json.dumps(raw))
     lone_green_pr(shell)
     grade_gated_heads_ok(shell)
     landing_pass(shell, config)
     out_of_queue(shell, "29020")
     shell.gates["29020"] = [gate(FLAKY)]
     landing_pass(shell, config)
-    assert flakes(shell) == [["29020", "--flake"]] and len(shell.enqueues()) == 1
-    assert blockers(shell) == [] and escalations(shell) == []
-    shell.queue["29020"] = "queued"
     landing_pass(shell, config)
-    assert len(flakes(shell)) == 1 and blockers(shell) == []
-    out_of_queue(shell, "29020")
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert len(flakes(shell)) == 1
-    [line] = escalations(shell)
-    assert line.startswith("AWAITS-GO awaits-go:29020:cccc333333 #29020: cccc333333: a flaky check ejected it again at the same head after the desk's one automatic retry")
     [blocker] = blockers(shell)
-    assert "held only this stack" in blocker["text"]
-    shell.sleep(60)
-    root_go(shell, "GO #29020 at cccc3333: a known flake", shell.now())
-    landing_pass(shell, config)
-    assert len(flakes(shell)) == 2 and len(shell.enqueues()) == 1
-    retries = [action.response[runner_module.FLAKE_RETRY] for action in enqueues_of(tmp_path).values() if runner_module.FLAKE_RETRY in action.response]
-    assert [retry["head"] for retry in retries] == ["cccc333333", "cccc333333"]
-    assert "one automatic same-head retry" in retries[0]["why"] and "the root's go #" in retries[1]["why"]
-
-
-def test_a_flaky_retry_the_queue_refuses_is_a_defect(shell, config, tmp_path):
-    lone_green_pr(shell)
-    grade_gated_heads_ok(shell)
-    landing_pass(shell, config)
-    out_of_queue(shell, "29020")
-    shell.gates["29020"] = [gate(FLAKY)]
-    shell.flake_code = 1
-    landing_pass(shell, config)
-    [line] = escalations(shell)
-    assert line.startswith("FLAKE-RETRY-FAILED flake:29020:cccc333333 #29020: cccc333333: the graphite-stack-enqueue queue refused the same-head retry")
-    assert "because it had merge conflicts" in line
-
-
-def test_a_flaky_retry_the_queue_strands_escalates_like_any_enqueue_and_asks_the_lane_nothing(shell, config, tmp_path):
-    lone_green_pr(shell)
-    grade_gated_heads_ok(shell)
-    landing_pass(shell, config)
-    out_of_queue(shell, "29020")
-    shell.gates["29020"] = [gate(FLAKY)]
-    shell.flake_code = 3
-    landing_pass(shell, config)
-    [line] = escalations(shell)
-    assert line.startswith("ENQUEUE-STRANDED ") and "#29020 STRANDED the queue draft never settled" in line
-    [retry] = [action for action in enqueues_of(tmp_path).values() if runner_module.FLAKE_RETRY in action.response]
-    assert retry.response["outcome"] == "stranded"
-    landing_pass(shell, config)
-    assert len(flakes(shell)) == 1 and blockers(shell) == []
+    assert blocker["to"] == "restack-worker" and blocker["topic"] == "29020"
+    assert "cccc333333" in post_body(blocker) and "Failed CI (buildkite/test)" in post_body(blocker)
+    assert len(shell.enqueues()) == 1 and escalations(shell) == []
+    assert [action.response["outcome"] for action in enqueues_of(tmp_path).values()] == ["ejected"]
 
 
 def test_a_lower_priority_value_gates_and_enqueues_first(shell, config, tmp_path, capsys):

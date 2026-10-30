@@ -1422,7 +1422,7 @@ priority, lowest first.
 Every prefix passes the check registry before it enqueues. `landing.checks` lists the
 checks in order, and every built-in runs when it lists none:
 
-- `hold`: the holds file, the `hold` label, and the PR's cci `hold` and `ready` records, read fresh just before the enqueue call. It runs first on every enqueue path, the runner's, a flake retry, and `mq.py gate` and `enqueue`, whether `landing.checks` lists it or not; `mq.py enqueue` refuses a held PR with a `HELD` line after the hold's own line, and an open `hold` record of any age holds until the root's `--resolves` closes it.
+- `hold`: the holds file, the `hold` label, and the PR's cci `hold` and `ready` records, read fresh just before the enqueue call. It runs first on every enqueue path, the runner's and `mq.py gate` and `enqueue`, whether `landing.checks` lists it or not; `mq.py enqueue` refuses a held PR with a `HELD` line after the hold's own line, and an open `hold` record of any age holds until the root's `--resolves` closes it.
 - `precondition`: a sentence in the PR body or the PR's cci records that holds its landing on something outside the PR in so many words (`lands only after`, `merge only after`, `before it lands`, `do not land until`, `not for landing`), outside quotes, code and block quotes, so a body that cites the phrases holds nothing. It never refuses a head: the root gets one `note` warning per head quoting the sentence, on the incident squash too, and posts a `hold` record when the sentence is a real dependency.
 - `rules-review`: the ledger's `review/<pr>@<head>` row, which `ledger.py list` reports as `rules_blocked`.
 - `rulings`: `rulings.py check-pr` at the head, below.
@@ -1446,10 +1446,10 @@ ejection, never the PR's comment text:
 - `batch-mate-red` is gated again and goes back at the same head. One blaming a PR
   outside the PR's own stack logs `AWAITS-GO` and waits for a root `go` naming the PR.
 - `flaky-check` is a red check that read green on the PR's own head and failed only
-  in a queue draft holding nothing but its stack. It goes back in at the same head
-  through the adapter's `flake` once on the queue's own policy, which comments on the
-  PR, and no blocker goes to the lane. A second at that head logs `AWAITS-GO`, and
-  the root's next `go` naming the PR puts it back the same way.
+  in a queue draft holding nothing but its stack. It stays out at that head after its
+  first ejection, and one blocker naming the failing job goes to the restack lanes
+  `landing.restack_lane` names, else the root. The PR enters the queue again only at
+  a new head.
 
 Two lines to root name what a batch leaves out, per root #131054 and the root's
 Oct 26 runner brief:
@@ -2029,8 +2029,8 @@ hold lifts. A PR based on another open PR's branch gets no failing-required
 route unless a status other than a gate's, such as `buildkite/test`, is red on
 its own head. A queue drop
 that blames a PR outside the stack re-enqueues the same head after the root's
-next `go` record naming the PR, and a `flaky-check` drop the queue is still
-retrying is not routed.
+next `go` record naming the PR, and a `flaky-check` drop goes to the restack lanes,
+never to the PR's own lane.
 It re-runs the gate immediately before creating the route and suppresses a
 blocker that already cleared. A merge conflict whose lane has no dispatch Orca
 shows active and no session `cci who` lists, but a cci record in the last 60

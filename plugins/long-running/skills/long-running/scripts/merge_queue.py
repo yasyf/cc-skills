@@ -3,8 +3,7 @@
 STDLIB ONLY. `runner.json` names one adapter under `landing.adapter.kind`, and every queue operation
 desk-runner.py's landing desk and mq.py make goes through it: `check` grades the tips read-only and names
 each PR's verdict and the prefix that would enqueue, `enqueue` admits that prefix, `queued` reads which PRs
-the queue holds, `dequeue` takes one back out, `recover` frees what an earlier enqueue stranded, and `flake`
-puts a PR the queue ejected back in at the same head. `graphite-stack-enqueue` drives the repository's own
+the queue holds, `dequeue` takes one back out, and `recover` frees what an earlier enqueue stranded. `graphite-stack-enqueue` drives the repository's own
 stack-enqueue script, named relative to the landing checkout by `landing.adapter.script`; `label` drives
 `ledger.py label`, for a repository whose queue takes a merge label. An adapter also reads its own verdict
 text: `classify` grades the `approvals` and `required-ci` checks from a PR's verdict, and `ejection` names
@@ -127,7 +126,7 @@ def outside_failure(segment: str, stack: set[str]) -> bool:
 
 
 class GraphiteStackEnqueue:
-    """The repository's own stack-enqueue script: one Graphite API call per prefix, every gate in its `--check`, and `--dequeue`, `--recover`, `--status`, and `--flake` for the rest."""
+    """The repository's own stack-enqueue script: one Graphite API call per prefix, every gate in its `--check`, and `--dequeue`, `--recover`, and `--status` for the rest."""
 
     kind = "graphite-stack-enqueue"
 
@@ -173,14 +172,6 @@ class GraphiteStackEnqueue:
     def recover(self, prs: list[str]) -> tuple[int, str]:
         done = self.shell.run([self.script, *prs, "--recover"])
         return done.code, (done.out + done.err).strip()
-
-    def flake(self, pr: str) -> tuple[str, str, str]:
-        done = self.run([self.script, pr, "--flake"])
-        outcome = ENQUEUE_OUTCOMES.get(done.code, "failed")
-        if outcome == "enqueued" and "enqueue #" not in done.out:
-            outcome = "noop"
-        last = (done.err or done.out).strip().splitlines()
-        return outcome, done.out[-1500:], last[-1] if last else f"exit {done.code}"
 
     def release(self, pr: str, head: str) -> tuple[bool, str]:
         return True, ""
@@ -285,10 +276,6 @@ class LabelEnqueue:
 
     def recover(self, prs: list[str]) -> tuple[int, str]:
         return 1, "a label queue strands nothing to recover; pull a queued label with mq dequeue"
-
-    def flake(self, pr: str) -> tuple[str, str, str]:
-        reason = "ledger.py label never labels a head twice; a flaky check re-enqueues once the lane pushes a new head"
-        return "blocked", reason, reason
 
     def release(self, pr: str, head: str) -> tuple[bool, str]:
         done = self.ledger_py("requeue", "--ledger", self.ledger, "--repo", self.repo, "--pr", pr, "--expect-head", head)
