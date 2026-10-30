@@ -508,6 +508,7 @@ def test_the_lane_of_the_head_needs_a_desks_newest_grade_ok_for_its_current_slic
     assert check(capsys, CheckShell(rows, reviews=[])) == (1, ["CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back"])
     assert check(capsys, CheckShell(rows, reviews=[graded(stamp, lane="lane-b")])) == (1, ["CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back"])
     assert check(capsys, CheckShell(rows, reviews=[dict(graded(stamp), text=f"readback: ok lane-b {stamp}")])) == (1, ["CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back"])
+    assert check(capsys, CheckShell(rows, reviews=[dict(graded(stamp), text=f"contract read-back #{CONTRACT_SEQ} (lane-a, the drain path): ok against owner answer bbbbbbb. {stamp}")])) == (0, [])
     assert check(capsys, CheckShell(rows, reviews=missing_after)) == (
         1,
         ["CONTRACT-MISSING lane-a: the newest grade, #10, is missing: rule/bbbbbbb the drain line is not read back"],
