@@ -139,15 +139,19 @@ and the curator write its fields at twelve words or fewer each, as fragments:
 cci post --kind blocker --text 'First production release needs your pick' \
   --attr milestone=R4 --attr topic=release --attr owner=release-5 --attr since=2026-10-30T04:04:00Z \
   --attr 'next=You: pick on the board' --attr 'changed=card posted' \
-  --attr 'why=The Mac app waits on this release'
+  --attr 'why=The Mac app waits on this release' --attr card=card-release-now
 ```
 
 The text is the thing itself, never a sentence about it. `next` leads with who acts:
 you, a worker named by its job, or the release. `by` adds a promised time to it.
 `changed` is what changed last; reposting the blocker on its topic with a new
-`changed` updates it, and `since` keeps the time the problem started. Once the owner has picked, the
-blocker is cleared or reposted with what happens to his pick; it never says he
-answers the card.
+`changed` updates it, and `since` keeps the time the problem started. A blocker that
+waits on his answer to a board card names the card's block id in `card`. The moment he
+answers that card, the board store shows it, and the stop stops reading Blocked: it
+takes its next state from its releases and changes, with "you picked" and his answer as
+its last change. A minute after his answer, a blocker still naming the card gets one
+`defect` to its writer and to `defects_to`, until the writer clears it or reposts it with
+what happens to his pick.
 
 A story's facts show only the fields it has: an event with no holder or next step
 leaves those rows out. Every `release` record joins its worker's story within a
