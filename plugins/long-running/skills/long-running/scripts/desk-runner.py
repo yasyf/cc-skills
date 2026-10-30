@@ -720,6 +720,9 @@ CHECK_POLLS = 40
 CHECK_POLL_SECONDS = 30
 CHECK_PASSED = {"pass", "skipping"}
 CHECK_FAILED = {"fail", "cancel"}
+ASYNC_POLLS = 60
+STACK_PARTIAL = "Include all existing PRs"
+STACK_MEMBER = "part of a stack"
 SQUASH_POLLS = 12
 APPROVAL_POLL_SECONDS = 60
 APPROVAL_POLLS = 10
@@ -7052,7 +7055,7 @@ class Landing:
         return outcome, "".join(outs)[-1500:], last
 
     def merge_chains(self, tops: list[str], heads: dict[str, str], rows: dict[str, dict]) -> tuple[str, str, str]:
-        """While Graphite is down, merge each chain of an admitted prefix straight into the trunk, bottom chain first (owner b530f5d), one merge in flight in the runner at a time (owner 9:00 PM Oct 29): a chain behind the latest trunk, read fresh once the merge before it has squashed, or a PR behind the PR below it, gets one blocker per head asking for a rebase and ends the run (owner e7170fa); a lone PR merges by squash pinned to its head, a longer chain by one all-or-nothing `gh stack merge` of its top, the run waits for each squash on the trunk, and each merged PR posts its `MERGED` record. The first chain that does not merge ends the run and names its outcome. A prefix shorter than its GitHub stack, which `gh stack link` refuses, merges one PR at a time instead, each once GitHub reads it retargeted onto the trunk and its checks passed (root #199186)."""
+        """While Graphite is down, merge each chain of an admitted prefix straight into the trunk, bottom chain first (owner b530f5d), one merge in flight in the runner at a time (owner 9:00 PM Oct 29): a chain behind the latest trunk, read fresh once the merge before it has squashed, or a PR behind the PR below it, gets one blocker per head asking for a rebase and ends the run (owner e7170fa); a lone PR merges by squash pinned to its head, a longer chain by one all-or-nothing `gh stack merge` of its top, the run waits for each squash on the trunk, and each merged PR posts its `MERGED` record. The first chain that does not merge ends the run and names its outcome."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         outcome, outs, last = "noop", [], ""
         for top in tops:
@@ -7061,21 +7064,12 @@ class Landing:
                 return (MERGED if outcome == MERGED else "blocked"), "".join(outs)[-1500:], f"#{chain[0]} sits on {base}, not {TRUNK}, so {numbered(chain)} waits for the PR below it to land"
             with DIRECT_MERGING:
                 landing, refused = self.rebased(chain, heads, open_rows)
-                branches = {open_rows[pr].get("branch") for pr in chain}
-                whole = not any(row.get("base") in branches and other not in chain for other, row in open_rows.items())
                 refused = refused or (self.moved_heads(chain, landing) if len(chain) > 1 else None)
-                merged, waiting, done = [], "", None
-                for group in ([] if refused else [chain] if whole else [[pr] for pr in chain]):
-                    waiting = (self.retargeted(group[0]) if merged else "") or self.checks_settled(group, landing) or self.go_lost(group, rows)
-                    if waiting:
-                        break
-                    done = self.merge_chain(group, landing)
-                    squashes = self.squashes(group) if done.code in (0, TIMED_OUT) else {}
-                    if done.code == TIMED_OUT and squashes and all(squashes.values()):
-                        done = Done(0, done.out, done.err)
-                    if done.code:
-                        break
-                    merged.append((group, squashes))
+                waiting = "" if refused else self.checks_settled(chain, landing) or self.go_lost(chain, rows)
+                done, how = (None, "") if refused or waiting else self.merge_chain(chain, landing)
+                squashes = self.squashes(chain) if done and done.code in (0, TIMED_OUT) else {}
+                if done and done.code == TIMED_OUT and squashes and all(squashes.values()):
+                    done = Done(0, done.out, done.err)
             if refused:
                 pr, why = refused
                 last = f"{numbered(chain)} did not rebase onto the latest {TRUNK}: {why}"
@@ -7084,30 +7078,18 @@ class Landing:
                     to = ",".join(dict.fromkeys([*(self.reach(owner) if owner else []), *self.restack_lanes()]))
                     self.post_blocker(ask, to, f"#{pr} {heads[pr][:10]}: Graphite is down, so the landing runner rebases each admitted stack onto the latest {TRUNK} and merges it directly (owner {REBASE_RULING}), and {why}. Clear that for {numbered(chain)}, a conflict or a changed patch by your own rebase onto {TRUNK}; it merges once admitted at its heads.", pr)
                 return (MERGED if outcome == MERGED else "blocked"), "".join(outs)[-1500:], last
-            for group, squashes in merged:
-                outcome = MERGED
-                how = f"gh stack merge of {numbered(group)}" if len(group) > 1 else "gh pr merge --squash"
-                for pr in group:
-                    landed = f"as {squashes[pr][:10]}" if squashes.get(pr) else "with its squash unread"
-                    moved = "" if landing[pr].startswith(heads[pr]) else f", rebased to {landing[pr][:10]},"
-                    self.post_record("state", f"merged-direct:{pr}@{heads[pr]}", self.landing_audience([pr], rows, self.queue_audience([pr], rows)), f"MERGED #{pr} at {heads[pr][:10]}{moved} direct {landed}, Graphite down, {DIRECT_RULING}: {how}", pr)
             if waiting:
                 return (MERGED if outcome == MERGED else "blocked"), "".join(outs)[-1500:], f"{numbered(chain)} waits to merge: {waiting}"
             outs.append(done.out + done.err)
             last = " / ".join(line.strip() for line in (done.out + done.err).splitlines() if line.strip())[-600:] or f"exit {done.code}"
             if done.code:
                 return (MERGED if outcome == MERGED else "failed"), "".join(outs)[-1500:], last
+            outcome = MERGED
+            for pr in chain:
+                landed = f"as {squashes[pr][:10]}" if squashes.get(pr) else "with its squash unread"
+                moved = "" if landing[pr].startswith(heads[pr]) else f", rebased to {landing[pr][:10]},"
+                self.post_record("state", f"merged-direct:{pr}@{heads[pr]}", self.landing_audience([pr], rows, self.queue_audience([pr], rows)), f"MERGED #{pr} at {heads[pr][:10]}{moved} direct {landed}, Graphite down, {DIRECT_RULING}: {how}", pr)
         return outcome, "".join(outs)[-1500:], last
-
-    def retargeted(self, pr: str) -> str:
-        """Why `pr` may not merge after the PR below it squashed, or empty once GitHub reads it based on the trunk, read every `SQUASH_POLL_SECONDS` up to `SQUASH_POLLS` times: GitHub retargets it when the merged branch goes, and a merge before that would squash it into its old base (root #199186)."""
-        for poll in range(SQUASH_POLLS):
-            if poll:
-                self.shell.sleep(SQUASH_POLL_SECONDS)
-            base = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "baseRefName", "--jq", ".baseRefName", max_age=ghread.FRESH)).out.strip()
-            if base == TRUNK:
-                return ""
-        return f"#{pr} still sits on {base or 'an unread base'}, not {TRUNK}, after the PR below it merged"
 
     def go_lost(self, chain: list[str], rows: dict[str, dict]) -> str:
         """Which PRs of `chain` a root record withdrew or resolved the go of since the pass read the gos, read fresh just before the merge, since the checks wait can run for minutes; a later root `go` grants it again (root #199069)."""
@@ -7164,7 +7146,7 @@ class Landing:
     def rebased(self, chain: list[str], heads: dict[str, str], open_rows: dict[str, dict]) -> tuple[dict[str, str], tuple[str, str] | None]:
         """The heads `chain` merges at, rebased onto the trunk's tip first when it is behind (root #197237): each PR replayed in the landing checkout onto the new head below it, the bottom onto the tip, kept only when its own patch is identical to the admitted head's, then every branch pushed in one atomic push leased on its admitted head, and the run waits for GitHub to read each new head and for each PR's approval again. A chain on the tip merges at its admitted heads. Otherwise the first PR that does not replay cleanly, whose patch changes, or whose approval does not come back, with why; nothing is pushed for the first two."""
         heads = {pr: open_rows[pr]["head"] if open_rows[pr].get("head", "").startswith(sha) else sha for pr, sha in heads.items()}
-        if not self.unrebased(chain, heads):
+        if not (behind := self.unrebased(chain, heads)):
             return heads, None
         git = ["git", "-C", str(self.checkout)]
         listed = self.shell.run([*git, "ls-remote", "origin", f"refs/heads/{TRUNK}"])
@@ -7175,6 +7157,8 @@ class Landing:
         fetched = self.shell.run([*git, "fetch", "-q", "--no-tags", "origin", tip, *heads.values(), *(open_rows[pr]["head"] for pr in riders), "--no-write-fetch-head"])
         if fetched.code:
             return heads, (chain[0], f"the trunk tip or the heads did not fetch: {(fetched.err or fetched.out).strip()[:200]}")
+        if behind[0] == chain[0] and self.book.known(LANDING, f"rebased-direct:{chain[0]}@{heads[chain[0]]}") and not self.trunk_touches(tip, heads[chain[0]], heads[chain[-1]]):
+            return heads, None
         landing: dict[str, str] = {}
         onto, below = tip, tip
         for pr in chain:
@@ -7203,6 +7187,13 @@ class Landing:
             if not self.approved_again(pr, landing[pr]):
                 return landing, (pr, f"{REVIEW_BOT} has not approved #{pr} again at {landing[pr][:10]} in {APPROVAL_POLLS} minutes since the rebase push")
         return landing, None
+
+    def trunk_touches(self, tip: str, bottom: str, top: str) -> bool:
+        """Whether a commit that landed on the trunk after the base `bottom` sits on touches a file the chain from `bottom` to `top` changes: only then does a chain the runner already rebased go onto the trunk again, since the trunk's required checks are not strict and a rebase on every trunk move restarts CI forever (root #199733)."""
+        git = ["git", "-C", str(self.checkout)]
+        base = self.shell.run([*git, "merge-base", tip, bottom]).out.strip()
+        landed = set(self.shell.run([*git, "diff", "--name-only", base, tip]).out.split())
+        return bool(landed & set(self.shell.run([*git, "diff", "--name-only", base, top]).out.split()))
 
     def replay_riders(self, riders: list[str], moved: dict[str, tuple[str, str]], open_rows: dict[str, dict], tip: str) -> None:
         """Replay each PR of `riders`, stacked on a branch the direct-merge rebase moved but not merged with it, onto its parent's new head and push it, so no PR is left on a parent's old head, where GitHub's diff carries the parent's code (#199394): one at a time, parents first, each kept only when its own patch is unchanged and pushed leased on its head; one that does not replay, changes its patch or does not push stays put, and its lane hears it once."""
@@ -7256,15 +7247,34 @@ class Landing:
                 return pr, f"#{below} at {base[:10]}" if below else f"the latest {TRUNK}"
         return None
 
-    def merge_chain(self, chain: list[str], heads: dict[str, str]) -> Done:
-        """Squash `chain` into the trunk: a lone PR pinned to its head, a longer chain linked as one GitHub stack, bottom first, and merged up to its top in one call."""
+    def merge_chain(self, chain: list[str], heads: dict[str, str]) -> tuple[Done, str]:
+        """Squash `chain` into the trunk, with how: a lone PR pinned to its head, a longer chain linked as one GitHub stack, bottom first, and merged up to its top in one call. A chain GitHub already tracks inside a longer stack, which refuses the link, and a lone PR GitHub calls a stack member go through GitHub's asynchronous merge of the chain's top, which merges its open downstack with it (root #199186, #199779)."""
         if len(chain) == 1:
-            return self.shell.run(["gh", "pr", "merge", chain[0], "--repo", self.repo, "--squash", "--match-head-commit", heads[chain[0]]])
+            merged = self.shell.run(["gh", "pr", "merge", chain[0], "--repo", self.repo, "--squash", "--match-head-commit", heads[chain[0]]])
+            if not merged.code or STACK_MEMBER not in merged.out + merged.err:
+                return merged, "gh pr merge --squash"
+            return self.merge_async(chain[0], heads[chain[0]]), "the asynchronous merge API"
         env = {"GH_REPO": self.repo}
         linked = self.shell.run(["gh", "stack", "link", *chain], env=env, cwd=str(self.checkout))
-        if linked.code:
-            return linked
-        return self.shell.run(["gh", "stack", "merge", chain[-1], "--yes", "--squash"], env=env, cwd=str(self.checkout))
+        if not linked.code:
+            return self.shell.run(["gh", "stack", "merge", chain[-1], "--yes", "--squash"], env=env, cwd=str(self.checkout)), f"gh stack merge of {numbered(chain)}"
+        if STACK_PARTIAL not in linked.out + linked.err:
+            return linked, f"gh stack link of {numbered(chain)}"
+        return self.merge_async(chain[-1], heads[chain[-1]]), f"the asynchronous merge API on #{chain[-1]}"
+
+    def merge_async(self, pr: str, head: str) -> Done:
+        """Squash-merge `pr` at `head` with GitHub's asynchronous merge API, then read its state every `SQUASH_POLL_SECONDS` up to `ASYNC_POLLS` times until GitHub reads it merged, since the API only accepts the merge and runs it in the background."""
+        asked = self.shell.run(["gh", "api", "-X", "PUT", f"repos/{self.repo}/pulls/{pr}/merge-async", "-f", "merge_method=squash", "-f", "merge_action=direct_merge", "-f", f"sha={head}"])
+        if asked.code:
+            return asked
+        state = ""
+        for poll in range(ASYNC_POLLS):
+            if poll:
+                self.shell.sleep(SQUASH_POLL_SECONDS)
+            state = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "state", "--jq", ".state", max_age=ghread.FRESH)).out.strip()
+            if state == "MERGED":
+                return Done(0, asked.out, asked.err)
+        return Done(1, asked.out, f"GitHub accepted the asynchronous merge of #{pr} at {head[:10]}, but it reads {state or 'unread'} after {ASYNC_POLLS * SQUASH_POLL_SECONDS // 60} minutes")
 
     def down_since(self) -> datetime | None:
         """When Graphite went down, as the newest queue draft before it, while the landing desk reads it down."""
