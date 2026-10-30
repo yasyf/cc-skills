@@ -90,7 +90,7 @@ def test_a_detached_worktree_named_for_the_lane_reports_its_dirty_files_and_that
     code, out = lane_status(LaneShell(), LANE, capsys)
 
     assert code == 0
-    assert out.startswith(f"- {path} (git worktree list): HEAD (no branch), 1 dirty file: chain.rs, 0 ahead of trunk, last commit 0 min ago ")
+    assert out.startswith(f"- monorepo: {path} (git worktree list): HEAD (no branch), 1 dirty file: chain.rs, 0 ahead of trunk, last commit 0 min ago ")
     assert out.rstrip().endswith("dev: start, not pushed, no PR")
 
 
@@ -109,7 +109,7 @@ def test_a_worktree_named_for_its_branch_is_found_from_the_lanes_worktree_record
     code, out = lane_status(shell, LANE, capsys)
 
     assert code == 0
-    assert out.startswith(f"- {path} (cci record, PR #41461 head): inc-liam-fork-parent-grant...origin/inc-liam-fork-parent-grant, 0 dirty files, 1 ahead of trunk, ")
+    assert out.startswith(f"- monorepo: {path} (cci record, PR #41461 head): inc-liam-fork-parent-grant...origin/inc-liam-fork-parent-grant, 0 dirty files, 1 ahead of trunk, ")
     assert out.rstrip().endswith("sandsql-server: 🐛 copy through the parent grant, pushed, PR #41461 open CI red")
 
 
@@ -121,6 +121,30 @@ def test_a_commit_past_the_pushed_head_reads_as_not_pushed(home, capsys):
     _, out = lane_status(LaneShell(), LANE, capsys)
 
     assert f", HEAD not pushed, origin at {git(path, 'rev-parse', 'origin/dev')[:10]}, no PR" in out
+
+
+def test_a_lane_worktree_in_another_pool_repo_is_found_and_the_runner_checkout_never_is(home, tmp_path, capsys):
+    other = tmp_path / "cc-skills"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(other)], check=True)
+    git(other, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "main: start")
+    tooling = home / ".claude" / "worktrees" / "cc-skills" / "stop-hook-warn"
+    git(other, "worktree", "add", "-q", "-b", "long-running/stop-hook-warn", str(tooling), "main")
+    runner = worktree(home, "durable-agents-rebuild-runner", "--detach")
+    shell = LaneShell()
+    shell.records = [
+        {"seq": 1, "drive": "d1", "lane": LANE, "kind": "state", "text": f"checked the queue from {runner}"},
+        {"seq": 2, "drive": "d1", "lane": LANE, "kind": "opened", "text": "opened #1071", "refs": {"prs": ["yasyf/cc-skills#1071"]}},
+    ]
+    shell.heads["1071"] = "long-running/stop-hook-warn"
+    drive_state = Path(drive.find(None, ROOT_SESSION)["state_dir"])
+    drive_state.mkdir(parents=True, exist_ok=True)
+    (drive_state / "runner.json").write_text(json.dumps({"landing": {"checkout": str(runner)}}))
+
+    code, out = lane_status(shell, LANE, capsys)
+
+    assert code == 0
+    assert out.startswith(f"- cc-skills: {tooling} (PR #1071 head): long-running/stop-hook-warn")
+    assert str(runner) not in out
 
 
 def test_a_lane_with_no_worktree_says_so_and_exits_nonzero(home, capsys):

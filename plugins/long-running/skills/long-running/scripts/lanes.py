@@ -55,6 +55,7 @@ TURN_ENTRIES = frozenset({"assistant", "user"})
 @dataclass
 class Worktree:
     path: Path
+    repo: str = ""
     sources: list[str] = field(default_factory=list)
     branch: str = ""
     dirty: list[str] = field(default_factory=list)
@@ -67,12 +68,12 @@ class Worktree:
 
     def line(self) -> str:
         if self.error:
-            return f"- {self.path} ({', '.join(self.sources)}): {self.error}"
+            return f"- {self.repo}: {self.path} ({', '.join(self.sources)}): {self.error}"
         more = f" and {len(self.dirty) - DIRTY_NAMED} more" if len(self.dirty) > DIRTY_NAMED else ""
         dirty = f"{len(self.dirty)} dirty file{'' if len(self.dirty) == 1 else 's'}" + (f": {', '.join(self.dirty[:DIRTY_NAMED])}{more}" if self.dirty else "")
         ahead = "ahead unknown" if self.ahead is None else f"{self.ahead} ahead of trunk"
         commit = f"last commit {self.commit_minutes} min ago {self.commit}" if self.commit_minutes is not None else "no commit"
-        return f"- {self.path} ({', '.join(self.sources)}): {self.branch}, {dirty}, {ahead}, {commit}, {self.pushed}, {self.pr or 'no PR'}"
+        return f"- {self.repo}: {self.path} ({', '.join(self.sources)}): {self.branch}, {dirty}, {ahead}, {commit}, {self.pushed}, {self.pr or 'no PR'}"
 
 
 @dataclass
@@ -117,8 +118,9 @@ def record_paths(records: Iterable[dict]) -> list[str]:
     return paths
 
 
-def record_prs(records: Iterable[dict]) -> list[str]:
-    return list(dict.fromkeys(match[1] for record in records for pr in (record.get("refs") or {}).get("prs") or [] if (match := PR_REF.search(str(pr)))))
+def record_prs(records: Iterable[dict], repo: str) -> list[tuple[str, str]]:
+    """Each PR the records name, as its repository and number; a bare `#<n>` is `repo`'s."""
+    return list(dict.fromkeys((str(pr).rpartition("#")[0] or repo, match[1]) for record in records for pr in (record.get("refs") or {}).get("prs") or [] if (match := PR_REF.search(str(pr)))))
 
 
 def listed_worktrees(run: Run, checkout: Path) -> dict[str, str]:
@@ -132,27 +134,44 @@ def listed_worktrees(run: Run, checkout: Path) -> dict[str, str]:
     return found
 
 
-def lane_worktrees(lane: str, records: list[dict], receipts: Iterable[Path], checkout: Path, repo: str, run: Run) -> list[Worktree]:
-    """Every existing worktree the lane owns, each naming the sources that found it."""
+def pool_worktrees(run: Run, checkout: Path) -> dict[str, tuple[str, str]]:
+    """Each worktree of the drive's checkout and of every repository with a working copy under `~/.claude/worktrees`, mapped to its branch and its repository's name."""
+    pool = Path.home() / ".claude" / "worktrees"
+    anchors = [checkout, *(next((child for child in repo.iterdir() if (child / ".git").exists()), None) for repo in sorted(pool.iterdir()) if repo.is_dir())] if pool.is_dir() else [checkout]
+    found: dict[str, tuple[str, str]] = {}
+    seen: set[str] = set()
+    for anchor in filter(None, anchors):
+        common = (output(run, ["git", "-C", str(anchor), "rev-parse", "--path-format=absolute", "--git-common-dir"]) or "").strip()
+        if not common or common in seen:
+            continue
+        seen.add(common)
+        for path, branch in listed_worktrees(run, anchor).items():
+            found.setdefault(path, (branch, Path(common).parent.name))
+    return found
+
+
+def lane_worktrees(lane: str, records: list[dict], receipts: Iterable[Path], checkout: Path, repo: str, run: Run, excluded: frozenset[str] = frozenset()) -> list[Worktree]:
+    """Every existing worktree the lane owns in any repository, each naming the sources that found it; `excluded` paths, such as the landing runner's own checkout, are never a lane's."""
     found: dict[str, Worktree] = {}
+    listed = pool_worktrees(run, checkout)
+    skip = {str(Path(path).expanduser().resolve()) for path in excluded}
 
     def add(path: str, source: str) -> None:
         resolved = str(Path(path).expanduser())
-        if Path(resolved).is_dir():
-            found.setdefault(resolved, Worktree(Path(resolved))).sources.append(source)
+        if Path(resolved).is_dir() and str(Path(resolved).resolve()) not in skip:
+            found.setdefault(resolved, Worktree(Path(resolved), listed.get(resolved, ("", Path(resolved).parent.name))[1])).sources.append(source)
 
     for receipt in receipts:
         if (file := receipt / f"{lane}.worktree").is_file():
             add(file.read_text().strip(), "launch receipt")
     for path in record_paths(records):
         add(path, "cci record")
-    listed = listed_worktrees(run, checkout)
-    for path, branch in listed.items():
+    for path, (branch, _) in listed.items():
         if Path(path).name == lane or branch == lane or branch.endswith(f"/{lane}"):
             add(path, "git worktree list")
-    for pr in record_prs(records) if repo else []:
-        head = json.loads(output(run, ghread.read("pr", "view", pr, "--repo", repo, "--json", "headRefName")) or "{}").get("headRefName")
-        for path, branch in listed.items():
+    for pr_repo, pr in record_prs(records, repo) if repo else []:
+        head = json.loads(output(run, ghread.read("pr", "view", pr, "--repo", pr_repo, "--json", "headRefName")) or "{}").get("headRefName")
+        for path, (branch, _) in listed.items():
             if head and branch == head:
                 add(path, f"PR #{pr} head")
     for worktree in found.values():
@@ -196,8 +215,8 @@ def inspect(worktree: Worktree, trunk: str, repo: str, now: datetime, run: Run) 
     return worktree
 
 
-def lane_status(lane: str, records: list[dict], receipts: Iterable[Path], checkout: Path, repo: str, trunk: str, now: datetime, run: Run) -> list[Worktree]:
-    return [inspect(worktree, trunk, repo, now, run) for worktree in lane_worktrees(lane, records, receipts, checkout, repo, run)]
+def lane_status(lane: str, records: list[dict], receipts: Iterable[Path], checkout: Path, repo: str, trunk: str, now: datetime, run: Run, excluded: frozenset[str] = frozenset()) -> list[Worktree]:
+    return [inspect(worktree, trunk, repo, now, run) for worktree in lane_worktrees(lane, records, receipts, checkout, repo, run, excluded)]
 
 
 def task_lanes(task: dict) -> set[str]:

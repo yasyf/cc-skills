@@ -3825,10 +3825,11 @@ class Runner:
         return {int(found[1]) for action in self.book.actions(RUNNER, kind="escalation") if action.action_id.startswith(prefix) and (found := POSTED.search((action.response or {}).get("posted", "")))}
 
     def lane_worktrees(self, lane: str) -> list[lanes.Worktree]:
-        """What code the lane holds, by `lanes.lane_status` over the runner's launch receipts, the lane's cci records of the last day, and the briefs checkout's worktrees."""
+        """What code the lane holds, by `lanes.lane_status` over the runner's launch receipts, the lane's cci records of the last day, and the worktrees of every repository in the pool, never the landing checkout itself."""
         records = [record for record in cci.records(self.cci_tail, self.config.drive, "--lane", lane, since=actions.stamp(self.now() - LANE_RECORDS)) if record["drive"] == self.config.drive and record["lane"] == lane]
-        repo = (self.config.landing or {}).get("repo", "")
-        return lanes.lane_status(lane, records, [self.config.receipts], Path(self.config.briefs_repo), repo, TRUNK, self.now(), self.checked)
+        landing = self.config.landing or {}
+        excluded = frozenset({landing["checkout"]} if landing.get("checkout") else ())
+        return lanes.lane_status(lane, records, [self.config.receipts], Path(self.config.briefs_repo), landing.get("repo", ""), TRUNK, self.now(), self.checked, excluded)
 
     def owns_fix(self, lane: str) -> bool:
         """Whether the lane owes a PR without having made a worktree yet: a fix lane the runner launched, or one named as a fix, fallback, or case lane."""
