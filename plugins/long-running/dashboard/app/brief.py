@@ -407,7 +407,6 @@ class Curator:
         self.dirty = threading.Event()
         self.error = None
         self.running = False
-        self.draining = False
 
     def poke(self, kind=None):
         if kind is None or kind in self.page.kinds:
@@ -421,8 +420,6 @@ class Curator:
         self.dirty.set()
         while True:
             self.dirty.wait()
-            if self.draining:
-                return
             self.dirty.clear()
             started = time.monotonic()
             self.running = True

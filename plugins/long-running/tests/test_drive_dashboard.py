@@ -3,6 +3,8 @@ import datetime as dt
 import itertools
 import gzip
 import json
+import os
+import subprocess
 import threading
 import urllib.request
 from http.server import ThreadingHTTPServer
@@ -749,6 +751,38 @@ def test_a_board_event_rebuilds_the_model_without_rereading_the_slow_sources(mon
         drive.follow_board()
     assert drive.slow_at == 123.0
     assert drive.dirty_at
+
+def test_a_code_change_restarts_the_server_while_its_curators_are_mid_run(tmp_path, monkeypatch):
+    source = tmp_path / "server.py"
+    source.write_text("")
+    monkeypatch.setattr(server, "HERE", tmp_path)
+    drive = Drive({"board_url": "http://board/p/x"}, None)
+    for curator in drive.curators:
+        curator.running = True
+    naps = []
+
+    class Restarted(Exception):
+        pass
+
+    class Starved(Exception):
+        pass
+
+    def nap(seconds):
+        naps.append(seconds)
+        if len(naps) == 1:
+            os.utime(source, ns=(1, 1))
+        if len(naps) > 3:
+            raise Starved
+
+    def execv(*args):
+        raise Restarted
+
+    monkeypatch.setattr(server.time, "sleep", nap)
+    monkeypatch.setattr(server.subprocess, "run", lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, ""))
+    monkeypatch.setattr(server.os, "execv", execv)
+    with pytest.raises(Restarted):
+        drive.follow_code()
+
 
 def test_review_assistant_queues_each_request_attempt_once_and_only_his_comments(tmp_path):
     assistant = ReviewAssistant({"repo": "a/b", "drive": "d"}, tmp_path, "http://model")

@@ -1,6 +1,5 @@
 import datetime as dt
 import json
-import threading
 
 import brief
 from brief import Curator, digest
@@ -170,17 +169,3 @@ def test_a_headline_without_how_long_the_blocker_has_waited_is_sent_back(tmp_pat
     curator.dir, curator.path = tmp_path, tmp_path / "brief.json"
     curator.curate()
     assert "headline: say the one thing in the way and how long it has waited" in prompts[1]
-
-
-def test_a_draining_curator_starts_no_new_run_so_a_code_restart_is_not_starved(tmp_path, monkeypatch):
-    runs = []
-    monkeypatch.setattr(brief, "run_model", lambda *args: runs.append(args))
-    curator = Curator({"brief_dir": str(tmp_path), "milestones": []}, model, lambda: None)
-    curator.draining = True
-
-    loop = threading.Thread(target=curator.loop, daemon=True)
-    loop.start()
-    loop.join(timeout=2)
-
-    assert not loop.is_alive()
-    assert (runs, curator.running) == ([], False)
