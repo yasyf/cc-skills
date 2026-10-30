@@ -9445,7 +9445,7 @@ def test_a_root_reply_to_a_decide_whose_question_an_inbox_relay_answered_is_a_pl
     decide = cci_record(shell, lane="desk-runner", kind="decide", to=["root"], topic="msg_q9", text=f"DECIDE msg_q9 {LANE}: Question: 300s or 30s? | options")
     desk_orders(shell, f"R390 orca-desk: relay to {LANE}: 30s NLB delay")
     orca_pass(shell, config)
-    cci_record(shell, kind="answer", to=[LANE], re=decide, text="30s NLB delay, 35s preStop.")
+    answer = cci_record(shell, kind="answer", to=[LANE], re=decide, text="30s NLB delay, 35s preStop.")
     orca_pass(shell, config)
     orca_pass(shell, config)
     [reply] = replies(shell)
@@ -9453,7 +9453,7 @@ def test_a_root_reply_to_a_decide_whose_question_an_inbox_relay_answered_is_a_pl
     assert reply[reply.index("--body") + 1].startswith("30s NLB delay\n")
     [send] = shell.sends()
     assert send[send.index("--body") + 1].startswith("30s NLB delay, 35s preStop.\n")
-    assert escalations(shell) == [f"RELAYED R390 {LANE}: reply to question msg_q9 of dispatch ctx_a", f"RELAYED cci#34767 {LANE}: relay to dispatch ctx_a"]
+    assert escalations(shell) == [f"RELAYED R390 {LANE}: reply to question msg_q9 of dispatch ctx_a", f"RELAYED cci#{answer} {LANE}: relay to dispatch ctx_a"]
 
 
 def test_a_root_reply_to_a_lanes_cci_ask_closes_its_open_orca_question(shell, config, tmp_path):
