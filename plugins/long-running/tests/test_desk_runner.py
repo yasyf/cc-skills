@@ -7278,8 +7278,8 @@ def test_while_graphite_is_down_an_admitted_chain_waiting_in_the_serial_merge_qu
     shell.checks |= {pr: [{"name": "buildkite/test", "bucket": "pending"}] for pr in ("29020", "29031")}
     shell.queue |= {"29020": "not queued", "29031": "not queued"}
     landing_pass(shell, config)
-    shell.sleep(11 * 60)
     landing_pass(shell, config)
+    shell.sleep(11 * 60)
     landing_pass(shell, config)
     assert direct_merges(shell) == []
     assert [post for post in shell.posts if post["kind"] == "state" and post["text"].startswith("QUEUE ")]
