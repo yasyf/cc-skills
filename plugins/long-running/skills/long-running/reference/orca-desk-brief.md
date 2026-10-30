@@ -16,11 +16,10 @@ Issue commands with the drive's R/L numbering. Submit a key once per action;
 submitting it again in the same lane returns the existing action. Never `SendMessage`
 a desk.
 
-The root never types an `R<n>` or a clock. It cannot read the desk inbox, so a key it
-picks can collide with one a line there already holds. `desk-launch.py` mints every
-keyed line the root sends. It takes one past the highest `R<n>` on a cci record
-addressed to `orca-desk` and in `inbox/orca-desk.md`, its archive included, stamps the
-Pacific clock, posts the line to `orca-desk` on cci, and prints the key and the line.
+The root never types an `R<n>` or a clock, since a key it picks can collide with one
+already held. `desk-launch.py` mints every keyed line the root sends. It takes one past
+the highest `R<n>` on a cci record addressed to `orca-desk`, stamps the Pacific clock,
+posts the line to `orca-desk` on cci, and prints the key and the line.
 
 ```text
 desk-launch.py incident <name> <fix-brief> [<evidence-brief>]
@@ -44,13 +43,11 @@ desk-runner.py rebind --config C
 desk-runner.py show --config C
 ```
 
-A relay can also be one line appended to the desk inbox, which the runner still reads
-while the root moves to cci records. Set the required
-`orca.desk_inbox` config field to the drive's `inbox/orca-desk.md`. The orca runner
-reads each complete line appended since its saved byte offset; its first read starts
-at the file's end, so history never replays. It reads each cci record addressed to
-`orca-desk` the same way, from a saved sequence that starts at the drive's newest
-record, skipping records `cci import` took from the desk inbox; a record that is no
+The runner reads orders only from cci records; set the required `orca.desk_inbox`
+config field to the drive's `inbox/orca-desk.md`, which anchors its logs and state and
+which it never reads. The orca runner reads each cci record addressed to `orca-desk`
+from a saved sequence that starts at the drive's newest record, so history never
+replays; a record that is no
 directive logs `DIRECTIVE-FAILED`. A line is a relay only in this form, one
 relay per line, its text running to the end of the line:
 
@@ -110,7 +107,7 @@ A line that says `orca-desk: launch` outside the form logs
 `desk-launch.py incident <name> <fix-brief> [<evidence-brief>]` and
 `desk-launch.py lane <lane> <model> <effort> <brief> [--now]` post these lines for the
 root; `incident` posts `role=fix` and `role=evidence` on its two lines. Each takes the next `R<n>`
-past every key on an `orca-desk` cci record and in the desk inbox, posts
+past every key on an `orca-desk` cci record, posts
 with `--to orca-desk`, waits for `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-HELD`, or
 `UNVERIFIABLE`, and prints the runner's line with the dispatch and terminal.
 
@@ -153,7 +150,7 @@ orca-desk: incident <slug> <link> reported=<HH:MM> :: <what fired>
 ```
 
 `reported=` takes the first report's Pacific time as `18:41` or `6:41 PM`, and a slug may
-carry a Slack channel name's underscores. `monitor-watch.py --alert-inbox` writes `alert` lines. The runner records the
+carry a Slack channel name's underscores. `monitor-watch.py --alert-drive` posts `alert` records. The runner records the
 transition as `ALERT` and launches nothing; a repeat relays to a live fix lane.
 The alerts desk writes an `incident` line only when it judges a lane necessary.
 For an `incident` line the runner fills `reference/alert-fix-brief.md` with `alert.facts`, attaches
@@ -366,7 +363,7 @@ routes sent through cci use `--kind blocker --to <lane> --topic <pr>` with the s
 text limit and attachment rule. A landing's release record and its blockers use
 `--kind release` and `--kind blocker` with `--to <landing.release_owner>,root --topic <pr> --pr <pr>`.
 
-`monitor-watch.py --alert-inbox` keeps writing alert lines to `orca-desk.md`.
+`monitor-watch.py --alert-drive` posts alert records to `orca-desk` on cci.
 The runner posts each Datadog alert's `INCIDENT` to root through cci with topic
 `dd-<id>`; a `fix-live` record with `--topic dd-<id>` closes it.
 

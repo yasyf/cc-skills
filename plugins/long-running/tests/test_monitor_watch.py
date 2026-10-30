@@ -13,6 +13,10 @@ PUP = """#!/bin/sh
 cat "$FAKE_STATE/monitors.json"
 """
 
+CCI = """#!/bin/sh
+printf '%s\\n' "$*" >> "$FAKE_STATE/cci.log"
+"""
+
 
 def monitor(id: int, state: str, tags: list[str] | None = None) -> dict:
     return {
@@ -31,6 +35,8 @@ class Watch:
         bin_dir.mkdir()
         (bin_dir / "pup").write_text(PUP)
         (bin_dir / "pup").chmod(0o755)
+        (bin_dir / "cci").write_text(CCI)
+        (bin_dir / "cci").chmod(0o755)
         self.state = root / "state.json"
         self.env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_STATE": str(root)}
 
@@ -91,13 +97,13 @@ def test_a_failed_read_reports_and_keeps_the_state(watch):
     assert json.loads(watch.state.read_text()) == {"1": "Alert"}
 
 
-def test_a_move_into_alert_or_warn_appends_one_alert_line_for_the_desk(watch):
-    inbox = watch.root / "orca-desk.md"
-    args = ("--tag", "release-target:*", "--alert-inbox", str(inbox))
+def test_a_move_into_alert_or_warn_posts_one_alert_record_to_the_desk_on_cci(watch):
+    posts = watch.root / "cci.log"
+    args = ("--tag", "release-target:*", "--alert-drive", "d1")
     watch.once(monitor(1, "OK"), monitor(2, "OK"), monitor(3, "OK"), monitor(4, "Alert"), args=args)
-    assert not inbox.exists()
+    assert not posts.exists()
     watch.once(monitor(1, "Alert"), monitor(2, "Warn"), monitor(3, "No Data"), monitor(4, "OK"), args=args)
-    assert inbox.read_text().splitlines() == [
-        "orca-desk: alert dd-1 https://app.datadoghq.com/monitors/1 :: Datadog OK -> Alert at 2026-09-30T19:00:00+00:00: monitor 1",
-        "orca-desk: alert dd-2 https://app.datadoghq.com/monitors/2 :: Datadog OK -> Warn at 2026-09-30T19:00:00+00:00: monitor 2",
+    assert posts.read_text().splitlines() == [
+        "post --drive d1 --lane monitor-watch --kind note --to orca-desk --text orca-desk: alert dd-1 https://app.datadoghq.com/monitors/1 :: Datadog OK -> Alert at 2026-09-30T19:00:00+00:00: monitor 1",
+        "post --drive d1 --lane monitor-watch --kind note --to orca-desk --text orca-desk: alert dd-2 https://app.datadoghq.com/monitors/2 :: Datadog OK -> Warn at 2026-09-30T19:00:00+00:00: monitor 2",
     ]

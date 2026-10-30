@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 
-USAGE = """usage: monitor-watch.py once|watch --state <file> [--tag <glob>]... [--id <id>]... [--alert-inbox <file>]
+USAGE = """usage: monitor-watch.py once|watch --state <file> [--tag <glob>]... [--id <id>]... [--alert-drive <drive>]
 
 Reads every Datadog monitor through `pup monitors list` and keeps those carrying a
 tag that matches a --tag glob, such as release-target:*, or named by --id. It
@@ -24,8 +24,9 @@ them. A monitor the state file has not seen yet prints with <from> start when it
 is not OK, so the first read reports everything already alerting. A failed read
 prints API-FAIL once per streak.
 
-With --alert-inbox, each move from a known state into Alert or Warn also appends one
-`orca-desk: alert dd-<id> <link> :: <what>` line to that file. The orca desk runner
+With --alert-drive, each move from a known state into Alert or Warn also posts one
+`orca-desk: alert dd-<id> <link> :: <what>` record to `orca-desk` on that cci drive, or prints
+ALERT-POST-FAIL with the line when cci refuses it. The orca desk runner
 records the transition and launches nothing; the alerts desk launches an incident
 lane only when it judges one necessary. A monitor seen for the first time never
 appends one.
@@ -81,11 +82,11 @@ def poll(args: argparse.Namespace, failing: bool) -> bool:
                 f"{utc()} {key} {before or 'start'} -> {after} at {monitor.get('overall_state_modified')} | {monitor['name']}",
                 flush=True,
             )
-            if args.alert_inbox and before is not None and after in PAGING:
-                with open(args.alert_inbox, "a") as inbox:
-                    inbox.write(
-                        f"orca-desk: alert dd-{key} https://app.datadoghq.com/monitors/{key} :: Datadog {before} -> {after} at {monitor.get('overall_state_modified')}: {monitor['name']}\n"
-                    )
+            if args.alert_drive and before is not None and after in PAGING:
+                line = f"orca-desk: alert dd-{key} https://app.datadoghq.com/monitors/{key} :: Datadog {before} -> {after} at {monitor.get('overall_state_modified')}: {monitor['name']}"
+                posted = subprocess.run(["cci", "post", "--drive", args.alert_drive, "--lane", "monitor-watch", "--kind", "note", "--to", "orca-desk", "--text", line], capture_output=True, text=True)
+                if posted.returncode:
+                    print(f"{utc()} ALERT-POST-FAIL {(posted.stderr or posted.stdout).strip()[:200]} | {line}", flush=True)
     with open(args.state + ".new", "w") as out:
         json.dump(states, out)
     os.replace(args.state + ".new", args.state)
@@ -100,7 +101,7 @@ def main() -> None:
     parser.add_argument("--id", action="append", default=[])
     parser.add_argument("--interval", type=float, default=60)
     parser.add_argument("--timeout", type=float, default=1740)
-    parser.add_argument("--alert-inbox")
+    parser.add_argument("--alert-drive")
     args = parser.parse_args()
     if not args.tag and not args.id:
         parser.error("name at least one --tag or --id")

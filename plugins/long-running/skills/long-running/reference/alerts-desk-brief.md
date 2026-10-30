@@ -47,8 +47,8 @@ On release-v3, 2026-09-30, the watch's first read over `release-target:*` printe
 The desk's report carries that line's id, name, states, and `at` time, its first
 read of the monitor's query, and its launch decision. When it launched
 `dd-324525079-fix`, the root's answer that turn is an evidence-lane launch and a
-fence for 324525079, each on its own inbox line. The runner takes one launch per
-line and logs `LAUNCH-FAILED` for a line that chains launches or a fence.
+fence for 324525079, each its own cci record to `orca-desk`. The runner takes one launch per
+record and logs `LAUNCH-FAILED` for a line that chains launches or a fence.
 
 ## Spawn brief
 
@@ -73,17 +73,17 @@ At spawn, run once and report every line it prints as one message:
 Then run the watch in the foreground, one Bash call with `timeout: 570000`:
   desk-wait.sh 540 cci:<drive>:alerts-desk mailbox:alerts-desk=<mailbox cursor file> -- \
     python3 <scripts>/monitor-watch.py watch --state <state file> \
-    --alert-inbox <drive>/inbox/orca-desk.md $(cat <monitors file>)
+    --alert-drive <drive> $(cat <monitors file>)
   and rerun it on every return. Re-read the monitors file at every rerun. The watch
   reads every 60 seconds and prints only transitions: into Alert, Warn, or No Data,
   and back to OK. A `MAILBOX` line or a record addressed to you ends the call; act
   on the text it printed first. Run it as the Bash call itself and never filter or
   discard its output: the `MAILBOX` text is your only copy of that mail.
 
-Each known monitor's move into Alert or Warn also appends
-  `orca-desk: alert dd-<id> <link> :: <what fired>` to the orca desk inbox.
-  The runner records that line and launches nothing. A first read, No Data, and
-  recovery never append an alert directive. You still report each transition.
+Each known monitor's move into Alert or Warn also posts
+  `orca-desk: alert dd-<id> <link> :: <what fired>` to `orca-desk` on cci.
+  The runner records that record and launches nothing. A first read, No Data, and
+  recovery never post an alert directive. You still report each transition.
 
 On each printed line, in the same turn:
   1. Read the monitor once: `pup --no-agent --read-only monitors get <id>`.
@@ -95,8 +95,8 @@ On each printed line, in the same turn:
      can cause or fix: a customer-facing error rate, failing runs, a stalled
      pipeline. Skip a flap that recovered before your read, a monitor whose
      `dd-<id>-fix` lane is already live, No Data alone, and recovery. To launch,
-     append one line to the orca desk inbox:
-     `orca-desk: incident dd-<id> <link> reported=<HH:MM> :: <what fired>`,
+     post one record to the orca desk:
+     `cci post --drive <drive> --lane alerts-desk --kind go --to orca-desk --text 'orca-desk: incident dd-<id> <link> reported=<HH:MM> :: <what fired>'`,
      where `reported` is the transition's Pacific time from `at`.
      When a log entry on the monitor's target explains the transition, launch
      nothing and quote the entry in the report. When unsure, launch nothing and

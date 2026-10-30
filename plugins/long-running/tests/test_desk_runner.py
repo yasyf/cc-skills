@@ -8153,23 +8153,6 @@ def test_the_orca_loop_backs_off_while_orca_gives_no_answer_and_resets_when_it_a
     assert [(later - earlier).total_seconds() for earlier, later in itertools.pairwise(passes)] == [20, 40, 80, 120, 120, 10, 10]
 
 
-def test_a_desk_inbox_append_ends_the_wait_at_once(shell, config, tmp_path, monkeypatch):
-    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
-    inbox = runner.config.desk_inbox
-    inbox.parent.mkdir(parents=True, exist_ok=True)
-    inbox.write_text("")
-    sleeps = []
-
-    def sleep(seconds):
-        sleeps.append(seconds)
-        if len(sleeps) == 2:
-            inbox.write_text("R1 (7:13 AM) orca-desk: launch lane-a NOW incident xhigh brief=/tmp/brief.md\n")
-
-    monkeypatch.setattr(shell, "sleep", sleep)
-    runner.idle(runner_module.PASS_SECONDS)
-    assert sleeps == [runner_module.WAKE_SECONDS] * 2
-
-
 def test_a_finished_launch_ends_the_wait_at_once(shell, config, tmp_path, monkeypatch):
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
 
@@ -8406,11 +8389,10 @@ def test_launch_failed_carries_the_launchs_own_failure_line(shell, config, tmp_p
     assert line == f"LAUNCH-FAILED desk-lane-{LANE}/R638 {LANE}: {reason}"
 
 
-def desk_inbox(tmp_path: Path, *lines: str) -> None:
-    path = tmp_path / "inbox/orca-desk.md"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as inbox:
-        inbox.write("".join(f"{line}\n" for line in lines))
+def desk_orders(shell: FakeShell, *lines: str) -> int:
+    for line in lines:
+        cci_go(shell, line)
+    return shell.records[-1]["seq"]
 
 
 def replies(shell: FakeShell) -> list[list[str]]:
@@ -8437,9 +8419,9 @@ def test_the_relay_grammar_names_the_key_lanes_and_text(line, key, lanes, text):
 def test_an_inbox_relay_line_reaches_every_named_lane_once(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     shell.launch("walker", "ctx_w")
-    desk_inbox(tmp_path, f"R1 (9:0x AM PT) orca-desk: relay to {LANE}: history is never replayed")
+    desk_orders(shell, f"R1 (9:0x AM PT) orca-desk: relay to {LANE}: history is never replayed")
     orca_pass(shell, config)
-    desk_inbox(tmp_path, f"R2 (3:0x PM PT) orca-desk: relay to {LANE} and walker: G331 resumes the chain", "- walker (3:1x PM PT) ASK root: say 'orca-desk: relay to walker: go'")
+    desk_orders(shell, f"R2 (3:0x PM PT) orca-desk: relay to {LANE} and walker: G331 resumes the chain")
     orca_pass(shell, config)
     orca_pass(shell, config)
     sends = shell.sends()
@@ -8453,10 +8435,10 @@ def test_an_inbox_relay_line_reaches_every_named_lane_once(shell, config, tmp_pa
 
 def test_a_refused_cci_post_keeps_the_desk_relaying_and_posts_on_a_later_pass(shell, config, tmp_path, capsys):
     shell.launch(LANE, "ctx_a")
-    desk_inbox(tmp_path, "R1 orca-desk: relay to nobody: history")
+    desk_orders(shell, "R1 orca-desk: relay to nobody: history")
     orca_pass(shell, config)
     shell.post_error = "cci: store schema 9 is newer than this cci 0.9.3 (schema 6)"
-    desk_inbox(tmp_path, f"R2 orca-desk: relay to {LANE}: rebase onto dev")
+    desk_orders(shell, f"R2 orca-desk: relay to {LANE}: rebase onto dev")
     orca_pass(shell, config)
     assert len(shell.sends()) == 1 and escalations(shell) == []
     assert "1 escalation(s) left for the next pass; cci post exited 1: cci: store schema 9" in capsys.readouterr().err
@@ -8819,20 +8801,20 @@ def test_an_inbox_relay_replies_to_the_lanes_latest_open_question(shell, config,
     ]
     shell.inboxes["term_ctx_a"] = [{"id": "msg_r8", "thread_id": "msg_q8"}]
     orca_pass(shell, config)
-    desk_inbox(tmp_path, f"- orca-desk: relay to {LANE}: walker: router GO")
+    seq = desk_orders(shell, f"- orca-desk: relay to {LANE}: walker: router GO")
     orca_pass(shell, config)
     [reply] = replies(shell)
     assert reply[reply.index("--id") + 1] == "msg_q9"
     assert reply[reply.index("--body") + 1].startswith("walker: router GO\n")
     assert shell.sends() == []
     [line] = escalations(shell)
-    assert line == f"RELAYED inbox@0 {LANE}: reply to question msg_q9 of dispatch ctx_a"
+    assert line == f"RELAYED inbox@cci#{seq} {LANE}: reply to question msg_q9 of dispatch ctx_a"
 
 
 def test_an_inbox_relay_to_a_lane_without_a_live_dispatch_fails_visibly(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a", status="completed")
     orca_pass(shell, config)
-    desk_inbox(tmp_path, f"R3 orca-desk: relay to {LANE} and ghost: G332")
+    desk_orders(shell, f"R3 orca-desk: relay to {LANE} and ghost: G332")
     orca_pass(shell, config)
     orca_pass(shell, config)
     assert shell.sends() == [] and replies(shell) == []
@@ -8845,8 +8827,8 @@ def test_an_inbox_relay_to_a_lane_without_a_live_dispatch_fails_visibly(shell, c
 def test_a_relay_line_outside_the_grammar_fails_visibly_and_relays_nothing(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     orca_pass(shell, config)
-    desk_inbox(
-        tmp_path,
+    desk_orders(
+        shell,
         f"R1050 (12:0x AM PT) orca-desk: relay G328 (AIG applies held again) to {LANE}.",
         f"R1048 (10:5x PM PT) orca-desk: relay to {LANE}: `walker: router GO`; relay to walker: `d-land: sandsql GO`",
     )
@@ -8857,44 +8839,22 @@ def test_a_relay_line_outside_the_grammar_fails_visibly_and_relays_nothing(shell
     assert all(runner_module.RELAY_GRAMMAR in line for line in lines)
 
 
-def test_an_inbox_relay_waits_for_its_newline_and_a_reread_relays_nothing_twice(shell, config, tmp_path):
+def test_a_line_appended_to_the_desk_inbox_file_relays_and_launches_nothing(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     orca_pass(shell, config)
     path = tmp_path / "inbox/orca-desk.md"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"R4 orca-desk: relay to {LANE}: rebase onto dev")
+    path.write_text(f"R4 orca-desk: relay to {LANE}: rebase onto dev\nR5 orca-desk: launch {LANE}-2 sol xhigh brief={launch_brief(tmp_path)}\n")
     orca_pass(shell, config)
-    assert shell.sends() == []
-    path.write_text(path.read_text() + "\n")
     orca_pass(shell, config)
-    store = actions.Store(tmp_path / "store")
-    with store.owned("desk-runner", store.load("desk-runner").owner_generation) as runner:
-        runner.facts[f"desk-inbox:{path}"] = 0
-    orca_pass(shell, config)
-    assert len(shell.sends()) == 1
-    assert len(escalations(shell)) == 1
-
-
-def test_an_hourly_rotation_archives_read_lines_and_the_cursor_still_names_the_next_line(shell, config, tmp_path):
-    shell.launch(LANE, "ctx_a")
-    orca_pass(shell, config)
-    desk_inbox(tmp_path, f"R1 orca-desk: relay to {LANE}: first")
-    orca_pass(shell, config)
-    shell.clock += timedelta(hours=7)
-    desk_inbox(tmp_path, f"R2 orca-desk: relay to {LANE}: second")
-    orca_pass(shell, config)
-    path = tmp_path / "inbox/orca-desk.md"
-    assert path.read_text() == f"R2 orca-desk: relay to {LANE}: second\n"
-    assert (tmp_path / "inbox/orca-desk.md.archive").is_dir()
-    orca_pass(shell, config)
-    assert [call[call.index("--subject") + 1] for call in shell.sends()] == ["R1: act R1", "R2: act R2"]
+    assert shell.sends() == [] and launches(shell) == [] and escalations(shell) == []
 
 
 def test_an_inbox_relay_under_a_key_holding_another_relay_fails_visibly(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     orca_pass(shell, config)
     cli(shell, config, "relay", "--key", "R5", "--lane", LANE, "--text", "rebase onto dev")
-    desk_inbox(tmp_path, f"R5 orca-desk: relay to {LANE}: deploy now")
+    desk_orders(shell, f"R5 orca-desk: relay to {LANE}: deploy now")
     orca_pass(shell, config)
     assert [call[call.index("--body") + 1].split("\n", 1)[0] for call in shell.sends()] == ["rebase onto dev"]
     [line] = escalations(shell)
@@ -8915,7 +8875,7 @@ def test_a_launch_line_whose_brief_has_no_slice_line_is_refused_unless_it_is_an_
     brief = tmp_path / "fix-brief.md"
     brief.write_text("brief")
     orca_pass(shell, config)
-    desk_inbox(tmp_path, f"R40 orca-desk: launch {LANE} sol xhigh brief={brief}")
+    desk_orders(shell, f"R40 orca-desk: launch {LANE} sol xhigh brief={brief}")
     orca_pass(shell, config)
 
     assert launches(shell) == [] and shell.refreshes == []
@@ -8924,7 +8884,7 @@ def test_a_launch_line_whose_brief_has_no_slice_line_is_refused_unless_it_is_an_
     ]
 
     shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
-    desk_inbox(tmp_path, f"R41 orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
+    desk_orders(shell, f"R41 orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
     orca_pass(shell, config)
     orca_pass(shell, config)
 
@@ -8939,7 +8899,7 @@ def test_a_launch_refreshes_its_slice_first_and_a_slice_that_does_not_read_block
     shell.refresh_error = "no register for d1"
     shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     orca_pass(shell, config)
-    desk_inbox(tmp_path, f"R42 orca-desk: launch {LANE} sol xhigh brief={brief}")
+    desk_orders(shell, f"R42 orca-desk: launch {LANE} sol xhigh brief={brief}")
     orca_pass(shell, config)
     orca_pass(shell, config)
 
@@ -9007,7 +8967,7 @@ def test_an_inbox_launch_line_launches_once_and_now_marks_it_urgent(shell, confi
     brief = launch_brief(tmp_path)
     shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     orca_pass(shell, config)
-    desk_inbox(tmp_path, f"R1907 (7:0x PM PT) orca-desk: launch {LANE} NOW opus xhigh brief={brief}")
+    desk_orders(shell, f"R1907 (7:0x PM PT) orca-desk: launch {LANE} NOW opus xhigh brief={brief}")
     orca_pass(shell, config)
     shell.launch(LANE, "ctx_n")
     orca_pass(shell, config)
@@ -9025,12 +8985,12 @@ def test_a_verified_launch_records_the_lanes_dispatch_and_terminal_and_relays_re
     shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     orca_pass(shell, config)
     if via == "inbox":
-        desk_inbox(tmp_path, f"R9001 orca-desk: launch {LANE} opus high brief={brief}")
+        desk_orders(shell, f"R9001 orca-desk: launch {LANE} opus high brief={brief}")
     else:
         cli(shell, config, "launch", "--key", "R9001", "--lane", LANE, "--model", "opus", "--effort", "high", "--brief", str(brief))
     orca_pass(shell, config)
     orca_pass(shell, config)
-    desk_inbox(tmp_path, f"R9004 orca-desk: relay to {LANE}: rebase onto dev")
+    desk_orders(shell, f"R9004 orca-desk: relay to {LANE}: rebase onto dev")
     orca_pass(shell, config)
     assert (shell.receipts / f"{LANE}.terminal").read_text() == "term_ctx_n\n"
     assert [call[call.index("--to") + 1] for call in shell.sends()] == ["dispatch:ctx_n"]
@@ -9050,7 +9010,7 @@ def test_a_lane_launched_by_hand_with_orca_launch_defaults_receives_relays(shell
     (state / f"{LANE}.terminal").write_text("term_h\n")
     shell.dispatches["ctx_h"] = {"status": "dispatched", "terminal": "term_h"}
     orca_pass(shell, config)
-    desk_inbox(tmp_path, f"R9010 orca-desk: relay to {LANE}: rebase onto dev")
+    desk_orders(shell, f"R9010 orca-desk: relay to {LANE}: rebase onto dev")
     cli(shell, config, "relay", "--key", "R9011", "--lane", LANE, "--text", "then rerun CI")
     orca_pass(shell, config)
     assert [call[call.index("--to") + 1] for call in shell.sends()] == ["dispatch:ctx_h", "dispatch:ctx_h"]
@@ -9060,7 +9020,7 @@ def test_a_lane_launched_by_hand_with_orca_launch_defaults_receives_relays(shell
 def test_an_inbox_launch_under_a_key_already_held_launches_nothing_twice(shell, config, tmp_path):
     brief = launch_brief(tmp_path)
     orca_pass(shell, config)
-    desk_inbox(tmp_path, f"R9 orca-desk: launch {LANE} sol xhigh brief={brief}", f"R9 orca-desk: launch {LANE} sol xhigh brief={brief}")
+    desk_orders(shell, f"R9 orca-desk: launch {LANE} sol xhigh brief={brief}", f"R9 orca-desk: launch {LANE} sol xhigh brief={brief}")
     orca_pass(shell, config)
     orca_pass(shell, config)
     assert len(launches(shell)) == 1
@@ -9072,8 +9032,8 @@ def test_an_inbox_launch_under_a_key_already_held_launches_nothing_twice(shell, 
 def test_an_inbox_launch_outside_the_grammar_or_route_fails_visibly_and_launches_nothing(shell, config, tmp_path):
     brief = launch_brief(tmp_path)
     orca_pass(shell, config)
-    desk_inbox(
-        tmp_path,
+    desk_orders(
+        shell,
         f"R1908 (7:1x PM PT) orca-desk: launch {LANE} NOW — sol xhigh fast (incident route), brief {brief}; relay to walker: go",
         f"R1909 orca-desk: launch {LANE} NOW",
         f"R1910 orca-desk: launch {LANE} gemini xhigh brief={brief}",
@@ -9093,7 +9053,7 @@ def test_an_inbox_launch_for_a_lane_with_a_live_dispatch_fails_visibly(shell, co
     brief = launch_brief(tmp_path)
     shell.launch(LANE, "ctx_a")
     orca_pass(shell, config)
-    desk_inbox(tmp_path, f"R10 orca-desk: launch {LANE} NOW sol xhigh brief={brief}")
+    desk_orders(shell, f"R10 orca-desk: launch {LANE} NOW sol xhigh brief={brief}")
     orca_pass(shell, config)
     assert launches(shell) == []
     [line] = escalations(shell)
@@ -9114,7 +9074,7 @@ def test_an_inbox_launch_naming_a_pr_a_live_lane_holds_is_refused_as_a_duplicate
     holding(monkeypatch, tmp_path, ahead=ahead, pushed=pushed)
     brief = tmp_path / "cache.md"
     brief.write_text("ccx: place=local\nFinish the cache half of #1201.\n\nRegister slice: lane=api-cache step=1.9\n")
-    desk_inbox(tmp_path, f"R11 orca-desk: launch api-cache {now}sol xhigh brief={brief}")
+    desk_orders(shell, f"R11 orca-desk: launch api-cache {now}sol xhigh brief={brief}")
     orca_pass(shell, config)
     orca_pass(shell, config)
     refused = [line for line in escalations(shell) if line.startswith("LAUNCH-DUPLICATE")]
@@ -9183,16 +9143,14 @@ def test_a_launch_posted_to_the_orca_desk_on_cci_launches_once_and_history_never
     assert escalations(shell) == [f"LAUNCHED R1346 {LANE}: dispatch ctx_n terminal term_ctx_n"]
 
 
-def test_a_desk_inbox_line_cci_imported_acts_once_from_the_file(shell, config, tmp_path):
+def test_a_record_cci_imported_from_the_old_desk_inbox_file_relays_once(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     orca_pass(shell, config)
-    line = f"- orca-desk: relay to {LANE}: rebase onto dev"
-    desk_inbox(tmp_path, line)
-    cci_go(shell, line, source=f"import:{(tmp_path / 'inbox/orca-desk.md').resolve()}")
+    cci_go(shell, f"- orca-desk: relay to {LANE}: rebase onto dev", source=f"import:{(tmp_path / 'inbox/orca-desk.md').resolve()}")
     orca_pass(shell, config)
     orca_pass(shell, config)
     assert len(shell.sends()) == 1
-    assert escalations(shell) == [f"RELAYED inbox@0 {LANE}: relay to dispatch ctx_a"]
+    assert escalations(shell) == [f"RELAYED inbox@cci#{shell.records[-1]['seq']} {LANE}: relay to dispatch ctx_a"]
 
 
 def cci_record(shell: FakeShell, **fields) -> int:
@@ -9361,9 +9319,9 @@ def test_a_withdraw_line_stops_a_held_launch_before_it_starts(shell, config, tmp
     brief = launch_brief(tmp_path)
     shell.cpu_load = 140
     orca_pass(shell, config)
-    desk_inbox(tmp_path, f"R20 orca-desk: launch {LANE} sol xhigh brief={brief}")
+    desk_orders(shell, f"R20 orca-desk: launch {LANE} sol xhigh brief={brief}")
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "R21 (11:52 PM) orca-desk: withdraw R20")
+    desk_orders(shell, "R21 (11:52 PM) orca-desk: withdraw R20")
     orca_pass(shell, config)
     shell.cpu_load = 1.0
     orca_pass(shell, config)
@@ -9384,9 +9342,9 @@ def test_a_withdraw_of_a_launched_key_stops_its_dispatch_and_an_unknown_target_f
     brief = launch_brief(tmp_path)
     shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     orca_pass(shell, config)
-    desk_inbox(tmp_path, f"R20 orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
+    desk_orders(shell, f"R20 orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "R21 orca-desk: withdraw R20", "R22 orca-desk: withdraw R19", "R23 orca-desk: withdraw the duplicates", "R24 orca-desk: withdraw nobody-fix")
+    desk_orders(shell, "R21 orca-desk: withdraw R20", "R22 orca-desk: withdraw R19", "R23 orca-desk: withdraw the duplicates", "R24 orca-desk: withdraw nobody-fix")
     orca_pass(shell, config)
     assert len(launches(shell)) == 1 and stops(shell) == [["worker-stop", "--dispatch", "ctx_n"]]
     assert withdrawals(shell) == [
@@ -9411,13 +9369,13 @@ def test_a_withdraw_orca_cannot_confirm_stopped_is_unconfirmed_not_withdrawn(she
     brief = launch_brief(tmp_path)
     shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     orca_pass(shell, config)
-    desk_inbox(tmp_path, f"R20 orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
+    desk_orders(shell, f"R20 orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
     orca_pass(shell, config)
     if answer == "stop_unknown":
         shell.stop_answers["ctx_n"] = (answer, None)
     shell.screens["term_ctx_n"] = WORKING
     started = shell.clock
-    desk_inbox(tmp_path, "R21 orca-desk: withdraw R20")
+    desk_orders(shell, "R21 orca-desk: withdraw R20")
     orca_pass(shell, config)
     assert stops(shell) == [["worker-stop", "--dispatch", "ctx_n"]]
     assert withdrawals(shell) == [
@@ -9432,10 +9390,10 @@ def test_a_withdraw_whose_stop_orca_settles_within_the_wait_is_withdrawn(shell, 
     brief = launch_brief(tmp_path)
     shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     orca_pass(shell, config)
-    desk_inbox(tmp_path, f"R20 orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
+    desk_orders(shell, f"R20 orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
     orca_pass(shell, config)
     shell.stop_answers["ctx_n"] = ("stop_unknown", 4)
-    desk_inbox(tmp_path, "R21 orca-desk: withdraw R20")
+    desk_orders(shell, "R21 orca-desk: withdraw R20")
     orca_pass(shell, config)
     assert withdrawals(shell) == [f"WITHDRAWN R20 {LANE}: by R21; dispatch ctx_n stopped (stop_unknown), and no report of it launches a case lane"]
 
@@ -9485,7 +9443,7 @@ def test_a_root_reply_to_a_decide_whose_question_an_inbox_relay_answered_is_a_pl
     shell.questions = [{"id": "msg_q9", "from_handle": "dispatch:ctx_a", "created_at": "2026-10-01T17:50:00Z"}]
     orca_pass(shell, config)
     decide = cci_record(shell, lane="desk-runner", kind="decide", to=["root"], topic="msg_q9", text=f"DECIDE msg_q9 {LANE}: Question: 300s or 30s? | options")
-    desk_inbox(tmp_path, f"R390 orca-desk: relay to {LANE}: 30s NLB delay")
+    desk_orders(shell, f"R390 orca-desk: relay to {LANE}: 30s NLB delay")
     orca_pass(shell, config)
     cci_record(shell, kind="answer", to=[LANE], re=decide, text="30s NLB delay, 35s preStop.")
     orca_pass(shell, config)
@@ -9705,7 +9663,7 @@ def test_the_alert_grammar_names_the_slug_link_and_what_fired():
 
 def test_a_monitor_alert_line_launches_nothing_and_records_the_transition(shell, config, tmp_path):
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "- orca-desk: alert dd-312516332 https://app.datadoghq.com/monitors/312516332 :: Datadog OK -> Alert Run assignment starved")
+    desk_orders(shell, "- orca-desk: alert dd-312516332 https://app.datadoghq.com/monitors/312516332 :: Datadog OK -> Alert Run assignment starved")
     orca_pass(shell, config)
     assert launches(shell) == []
     assert shell.entries == []
@@ -9718,7 +9676,7 @@ def test_a_briefs_log_that_stops_resolving_mid_drive_repoints_to_the_drives_brie
     del shell.logs["briefs1"]
     shell.logs["b2"] = "briefs: d1"
     shell.launch_line = "dd-7-fix ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
-    desk_inbox(tmp_path, "- orca-desk: incident dd-7 https://app.datadoghq.com/monitors/7 reported=11:10 :: Datadog OK -> Alert api 5xx")
+    desk_orders(shell, "- orca-desk: incident dd-7 https://app.datadoghq.com/monitors/7 reported=11:10 :: Datadog OK -> Alert api 5xx")
     orca_pass(shell, config)
     shell.launch("dd-7-fix", "ctx_n")
     orca_pass(shell, config)
@@ -9747,7 +9705,7 @@ def test_an_incident_line_attaches_the_brief_to_the_briefs_log_and_launches_the_
     config.write_text(json.dumps({**raw, "alert": {"facts": str(facts)}}))
     shell.launch_line = "dd-312516332-fix ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "- orca-desk: incident dd-312516332 https://app.datadoghq.com/monitors/312516332 reported=23:48 :: Datadog OK -> Alert Run assignment starved")
+    seq = desk_orders(shell, "- orca-desk: incident dd-312516332 https://app.datadoghq.com/monitors/312516332 reported=23:48 :: Datadog OK -> Alert Run assignment starved")
     orca_pass(shell, config)
     shell.launch("dd-312516332-fix", "ctx_n")
     orca_pass(shell, config)
@@ -9763,7 +9721,7 @@ def test_an_incident_line_attaches_the_brief_to_the_briefs_log_and_launches_the_
     assert not (tmp_path / "incidents").exists()
     lines = [line for line in escalations(shell)]
     assert lines[0].startswith("INCIDENT dd-312516332 ") and "fix lane dd-312516332-fix launching on incident xhigh" in lines[0]
-    assert lines[1] == "LAUNCHED inbox@0 dd-312516332-fix: dispatch ctx_n terminal term_ctx_n"
+    assert lines[1] == f"LAUNCHED inbox@cci#{seq} dd-312516332-fix: dispatch ctx_n terminal term_ctx_n"
 
 
 ROOT_ALERT = "orca-desk: incident alerts-api-0305 https://in-the-forge.slack.com/archives/C0822AHFY3G/p1791108227539019 reported=03:03 :: SandDB admission turning bulk queries away on 0ddq7rb (monitor 327967001, Warn 3:03 AM PT)"
@@ -9780,22 +9738,23 @@ def root_brief(tmp_path: Path, monitor: str) -> Path:
 def test_an_alert_defers_to_a_root_launch_line_for_the_same_monitor(shell, config, tmp_path, monitor, skipped):
     brief = root_brief(tmp_path, monitor)
     orca_pass(shell, config)
-    desk_inbox(tmp_path, ROOT_ALERT, f"R1068 (3:05 AM PT) orca-desk: launch alerts-api-0303-fix NOW incident xhigh brief={brief}")
+    desk_orders(shell, ROOT_ALERT, f"R1068 (3:05 AM PT) orca-desk: launch alerts-api-0303-fix NOW incident xhigh brief={brief}")
+    alert = shell.records[-2]["seq"]
     orca_pass(shell, config)
     launched = [call[1] for call in launches(shell)]
     assert ("alerts-api-0305-fix" not in launched) is skipped and "alerts-api-0303-fix" in launched
-    assert any("LAUNCH-SKIPPED inbox@0 alerts-api-0305-fix: duplicate of alerts-api-0303-fix" in line for line in escalations(shell)) is skipped
+    assert any(f"LAUNCH-SKIPPED inbox@cci#{alert} alerts-api-0305-fix: duplicate of alerts-api-0303-fix" in line for line in escalations(shell)) is skipped
 
 
 def test_an_alert_defers_to_a_live_lane_on_the_same_monitor(shell, config, tmp_path):
     brief = root_brief(tmp_path, "327967001")
     orca_pass(shell, config)
-    desk_inbox(tmp_path, f"R1068 orca-desk: launch alerts-api-0303-fix NOW incident xhigh brief={brief}")
+    desk_orders(shell, f"R1068 orca-desk: launch alerts-api-0303-fix NOW incident xhigh brief={brief}")
     orca_pass(shell, config)
     shell.launch("alerts-api-0303-fix", "ctx_root")
     orca_pass(shell, config)
     shell.sleep(3600)
-    desk_inbox(tmp_path, ROOT_ALERT)
+    desk_orders(shell, ROOT_ALERT)
     orca_pass(shell, config)
     assert [call[1] for call in launches(shell)] == ["alerts-api-0303-fix"]
     assert any("LAUNCH-SKIPPED" in line and "duplicate of alerts-api-0303-fix" in line for line in escalations(shell))
@@ -9805,7 +9764,7 @@ def test_an_alert_defers_to_a_live_lane_on_the_same_monitor(shell, config, tmp_p
 def test_an_alert_launches_when_the_lane_on_its_monitor_is_no_longer_on_it(shell, config, tmp_path, reused):
     brief = root_brief(tmp_path, "327967001")
     orca_pass(shell, config)
-    desk_inbox(tmp_path, f"R1068 orca-desk: launch alerts-api-0303-fix NOW incident xhigh brief={brief}")
+    desk_orders(shell, f"R1068 orca-desk: launch alerts-api-0303-fix NOW incident xhigh brief={brief}")
     orca_pass(shell, config)
     shell.launch("alerts-api-0303-fix", "ctx_root")
     orca_pass(shell, config)
@@ -9814,11 +9773,11 @@ def test_an_alert_launches_when_the_lane_on_its_monitor_is_no_longer_on_it(shell
         other = tmp_path / "incidents/alerts-api-0400/fix-brief.md"
         other.parent.mkdir(parents=True, exist_ok=True)
         other.write_text("# alerts-api-0400-fix\n\nccx: incident=328006761 role=fix\n")
-        desk_inbox(tmp_path, f"R1070 orca-desk: launch alerts-api-0303-fix NOW incident xhigh brief={other}")
+        desk_orders(shell, f"R1070 orca-desk: launch alerts-api-0303-fix NOW incident xhigh brief={other}")
         orca_pass(shell, config)
         shell.launch("alerts-api-0303-fix", "ctx_reused")
         orca_pass(shell, config)
-    desk_inbox(tmp_path, ROOT_ALERT)
+    desk_orders(shell, ROOT_ALERT)
     orca_pass(shell, config)
     assert "alerts-api-0305-fix" in [call[1] for call in launches(shell)]
     assert not any("LAUNCH-SKIPPED" in line for line in escalations(shell))
@@ -9826,7 +9785,7 @@ def test_an_alert_launches_when_the_lane_on_its_monitor_is_no_longer_on_it(shell
 
 def test_an_alert_brief_names_its_monitor_for_later_dedupe(shell, config, tmp_path):
     orca_pass(shell, config)
-    desk_inbox(tmp_path, ROOT_ALERT)
+    desk_orders(shell, ROOT_ALERT)
     orca_pass(shell, config)
     assert "ccx: lane=alerts-api-0305-fix role=incident effort=xhigh incident=327967001\n" in written(tmp_path, "alerts-api-0305-fix").read_text()
 
@@ -9838,19 +9797,19 @@ def test_a_repeat_alert_relays_to_the_live_fix_lane_and_keeps_its_brief(shell, c
     shell.attachments["alerts-runs-1704-fix.full.md"] = brief
     shell.launch("alerts-runs-1704-fix", "ctx_a")
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "orca-desk: alert alerts-runs-1704 https://in-the-forge.slack.com/archives/C098XDNJJR3/p1791072242613549 :: Page #11507 SoFi Disputes stuck-case monitor stopped reporting")
+    seq = desk_orders(shell, "orca-desk: alert alerts-runs-1704 https://in-the-forge.slack.com/archives/C098XDNJJR3/p1791072242613549 :: Page #11507 SoFi Disputes stuck-case monitor stopped reporting")
     orca_pass(shell, config)
     assert launches(shell) == []
     [send] = shell.sends()
     assert "The alert fired again at" in send[send.index("--body") + 1]
     assert brief.read_text() == "root-edited brief" and shell.attachments["alerts-runs-1704-fix.full.md"] == brief and shell.entries == []
     [line] = escalations(shell)
-    assert line == "RELAYED inbox@0:again alerts-runs-1704-fix: relay to dispatch ctx_a"
+    assert line == f"RELAYED inbox@cci#{seq}:again alerts-runs-1704-fix: relay to dispatch ctx_a"
 
 
 def test_an_alert_outside_the_grammar_fails_visibly_and_launches_nothing(shell, config, tmp_path):
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "R12 orca-desk: alert Run assignment starved, please look")
+    desk_orders(shell, "R12 orca-desk: alert Run assignment starved, please look")
     orca_pass(shell, config)
     assert launches(shell) == []
     [line] = escalations(shell)
@@ -9864,7 +9823,7 @@ def test_an_incident_after_the_last_fix_lane_finished_launches_on_a_fresh_brief(
     shell.attachments["dd-7-fix.full.md"] = last
     shell.launch("dd-7-fix", "ctx_old", status="completed")
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "R40 orca-desk: incident dd-7 https://app.datadoghq.com/monitors/7 reported=11:02 :: Datadog OK -> Alert again")
+    desk_orders(shell, "R40 orca-desk: incident dd-7 https://app.datadoghq.com/monitors/7 reported=11:02 :: Datadog OK -> Alert again")
     orca_pass(shell, config)
     brief = written(tmp_path, "dd-7-fix")
     assert [call[1:] for call in launches(shell)] == [["dd-7-fix", "incident", "xhigh", str(brief)]]
@@ -9874,7 +9833,7 @@ def test_an_incident_after_the_last_fix_lane_finished_launches_on_a_fresh_brief(
 def test_an_incident_whose_brief_fails_to_attach_launches_nothing(shell, config, tmp_path):
     shell.attach_error = "error: cc-notes: ref lock held"
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "R41 orca-desk: incident dd-8 https://app.datadoghq.com/monitors/8 reported=11:02 :: Datadog OK -> Alert")
+    desk_orders(shell, "R41 orca-desk: incident dd-8 https://app.datadoghq.com/monitors/8 reported=11:02 :: Datadog OK -> Alert")
     orca_pass(shell, config)
     assert launches(shell) == [] and "dd-8-fix.full.md" not in shell.attachments
     [line] = escalations(shell)
@@ -9884,7 +9843,7 @@ def test_an_incident_whose_brief_fails_to_attach_launches_nothing(shell, config,
 def test_an_incident_whose_attach_dies_silently_launches_nothing(shell, config, tmp_path):
     shell.attach_code = -9
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "R42 orca-desk: incident dd-9 https://app.datadoghq.com/monitors/9 reported=11:02 :: Datadog OK -> Alert")
+    desk_orders(shell, "R42 orca-desk: incident dd-9 https://app.datadoghq.com/monitors/9 reported=11:02 :: Datadog OK -> Alert")
     orca_pass(shell, config)
     assert launches(shell) == []
     [line] = escalations(shell)
@@ -10068,7 +10027,7 @@ def test_a_lane_named_for_evidence_on_the_incident_alias_is_never_clocked(shell,
 
 def test_a_withdrawn_lane_clock_ends_as_withdrawn_and_posts_nothing(shell, config, tmp_path, capsys):
     clocked_lane(shell, config, tmp_path)
-    desk_inbox(tmp_path, f"R30 orca-desk: withdraw {LANE}")
+    desk_orders(shell, f"R30 orca-desk: withdraw {LANE}")
     orca_pass(shell, config)
     shell.sleep(21 * 60)
     orca_pass(shell, config)
@@ -10692,7 +10651,7 @@ def test_a_case_lanes_new_case_reaches_the_root_with_its_launch_line_and_its_own
         f"DECIDE unfixed:{message['id']} {case}: a case lane reports new cases, past the one-generation cap: {CASES[1]} | to launch its lane, post `{line}`"
     ]
     assert f"`{case}` works from the brief at {written(tmp_path, f'{case}')}." in brief.read_text()
-    desk_inbox(tmp_path, f"R40 {line}")
+    desk_orders(shell, f"R40 {line}")
     orca_pass(shell, config)
     assert [call[1] for call in launches(shell)] == [LANE, case, f"{LANE}-case2"]
     assert incident(tmp_path, f"desk-lane-{LANE}").facts["unfixed-cases"] == [CASES[0]]
@@ -10710,7 +10669,7 @@ def two_case_lanes(shell: FakeShell, config: Path, tmp_path: Path) -> dict:
 
 def test_a_withdraw_names_a_case_lane_or_its_launch_id_and_stops_its_dispatch(shell, config, tmp_path):
     message = two_case_lanes(shell, config, tmp_path)
-    desk_inbox(tmp_path, f"R21 orca-desk: withdraw {LANE}-case1", f"R22 orca-desk: withdraw unfixed:{message['id']}:2")
+    desk_orders(shell, f"R21 orca-desk: withdraw {LANE}-case1", f"R22 orca-desk: withdraw unfixed:{message['id']}:2")
     orca_pass(shell, config)
     assert stops(shell) == [["worker-stop", "--dispatch", "ctx_case1"], ["worker-stop", "--dispatch", "ctx_case2"]]
     assert withdrawals(shell) == [
@@ -10721,7 +10680,7 @@ def test_a_withdraw_names_a_case_lane_or_its_launch_id_and_stops_its_dispatch(sh
 
 def test_a_withdrawn_lanes_stop_report_launches_no_case_lane_and_its_redispatch_offer_asks_no_one(shell, config, tmp_path):
     two_case_lanes(shell, config, tmp_path)
-    desk_inbox(tmp_path, f"R21 orca-desk: withdraw {LANE}")
+    desk_orders(shell, f"R21 orca-desk: withdraw {LANE}")
     orca_pass(shell, config)
     unfixed_report(shell, LANE, "ready", "SoFi mount timeouts x16, alerts desk owns; root withdrew this fix lane")
     offer = shell.receive({"type": "escalation", "subject": "Agent exited unexpectedly (Agent process stop was requested but never confirmed)", "body": "The task is ready to be dispatched again.", "from_handle": f"term_ctx_{LANE}"})
@@ -10911,7 +10870,7 @@ def test_the_unfixed_case_brief_renders_with_every_field_filled():
 def test_an_incident_line_with_a_twelve_hour_report_time_sets_the_bar_from_it(shell, config, tmp_path):
     orca_pass(shell, config)
     shell.launch_line = "runner-refusing-1841-fix ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
-    desk_inbox(tmp_path, "orca-desk: incident runner-refusing-1841 https://app.datadoghq.com/monitors/333042395 reported=6:41 PM :: Datadog OK -> Alert Runner refusing runs")
+    desk_orders(shell, "orca-desk: incident runner-refusing-1841 https://app.datadoghq.com/monitors/333042395 reported=6:41 PM :: Datadog OK -> Alert Runner refusing runs")
     orca_pass(shell, config)
     shell.launch("runner-refusing-1841-fix", "ctx_n")
     orca_pass(shell, config)
@@ -10922,7 +10881,7 @@ def test_an_incident_line_with_a_twelve_hour_report_time_sets_the_bar_from_it(sh
 
 def test_an_incident_line_without_the_report_time_launches_nothing(shell, config, tmp_path):
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "R44 orca-desk: incident dd-11 https://app.datadoghq.com/monitors/11 :: Datadog OK -> Alert")
+    desk_orders(shell, "R44 orca-desk: incident dd-11 https://app.datadoghq.com/monitors/11 :: Datadog OK -> Alert")
     orca_pass(shell, config)
     assert launches(shell) == []
     [line] = escalations(shell)
@@ -10945,11 +10904,11 @@ def owner_claim(shell: FakeShell, claim: str) -> str:
 def test_an_incident_another_owner_holds_launches_no_lane_and_posts_one_state_line(shell, config, tmp_path, claim):
     orca_pass(shell, config)
     owner = owner_claim(shell, claim)
-    desk_inbox(tmp_path, OWNED_LINE)
+    seq = desk_orders(shell, OWNED_LINE)
     orca_pass(shell, config)
     assert launches(shell) == [] and shell.entries == [] and "dd-7-fix.full.md" not in shell.attachments
-    assert escalations(shell) == [f"INCIDENT-OWNED inbox@0 dd-7-fix: incident dd-7 owned by {owner}; no launch"]
-    assert [(post["kind"], post["topic"]) for post in shell.posts] == [("state", "inbox@0")]
+    assert escalations(shell) == [f"INCIDENT-OWNED inbox@cci#{seq} dd-7-fix: incident dd-7 owned by {owner}; no launch"]
+    assert [(post["kind"], post["topic"]) for post in shell.posts] == [("state", f"inbox@cci#{seq}")]
 
 
 @pytest.mark.parametrize(
@@ -10968,7 +10927,7 @@ def test_a_record_that_does_not_give_the_incident_away_leaves_its_launch_alone(s
     orca_pass(shell, config)
     cci_record(shell, lane="alerts-desk", kind="incident", text="[dd-7] api 5xx since 11:02", to=["root"])
     cci_record(shell, **record)
-    desk_inbox(tmp_path, OWNED_LINE)
+    desk_orders(shell, OWNED_LINE)
     orca_pass(shell, config)
     shell.launch("dd-7-fix", "ctx_n")
     orca_pass(shell, config)
@@ -10980,25 +10939,25 @@ def test_a_record_that_does_not_give_the_incident_away_leaves_its_launch_alone(s
 def test_a_launch_pending_when_another_owner_takes_the_incident_fails_and_never_starts(shell, config, tmp_path):
     orca_pass(shell, config)
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
-    desk_inbox(tmp_path, OWNED_LINE)
-    runner.read_inbox()
-    assert incident(tmp_path, "desk-lane-dd-7-fix").actions["inbox@0"].status == "accepted"
+    key = f"inbox@cci#{desk_orders(shell, OWNED_LINE)}"
+    runner.read_cci()
+    assert incident(tmp_path, "desk-lane-dd-7-fix").actions[key].status == "accepted"
     owner = owner_claim(shell, "done")
     runner.deliver()
     runner.flush()
     assert launches(shell) == []
-    assert incident(tmp_path, "desk-lane-dd-7-fix").actions["inbox@0"].status == "failed"
-    assert escalations(shell)[-1] == f"INCIDENT-OWNED inbox@0 dd-7-fix: incident dd-7 owned by {owner}; no launch"
+    assert incident(tmp_path, "desk-lane-dd-7-fix").actions[key].status == "failed"
+    assert escalations(shell)[-1] == f"INCIDENT-OWNED {key} dd-7-fix: incident dd-7 owned by {owner}; no launch"
 
 
 def test_a_cci_read_that_fails_holds_a_pending_incident_launch_until_it_can_be_read(shell, config, tmp_path):
     orca_pass(shell, config)
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
-    desk_inbox(tmp_path, OWNED_LINE)
-    runner.read_inbox()
+    key = f"inbox@cci#{desk_orders(shell, OWNED_LINE)}"
+    runner.read_cci()
     shell.tail_error = "cci: daemon unavailable"
     runner.deliver()
-    assert launches(shell) == [] and incident(tmp_path, "desk-lane-dd-7-fix").actions["inbox@0"].status == "accepted"
+    assert launches(shell) == [] and incident(tmp_path, "desk-lane-dd-7-fix").actions[key].status == "accepted"
     shell.tail_error = ""
     orca_pass(shell, config)
     assert len(launches(shell)) == 1
@@ -11042,7 +11001,7 @@ def test_every_desk_incident_brief_template_leaves_enqueue_to_the_landing_desk(t
 
 def test_an_alert_fix_brief_is_sliced_for_the_incident_before_it_attaches(shell, config, tmp_path):
     orca_pass(shell, config)
-    desk_inbox(tmp_path, ROOT_ALERT)
+    desk_orders(shell, ROOT_ALERT)
     orca_pass(shell, config)
     text = written(tmp_path, "alerts-api-0305-fix").read_text()
     assert text.endswith("\nRegister slice: lane=alerts-api-0305-fix step=incident\n")
@@ -11051,7 +11010,7 @@ def test_an_alert_fix_brief_is_sliced_for_the_incident_before_it_attaches(shell,
 
 def test_the_alert_fix_brief_demands_the_reporters_own_case_and_the_unfixed_field(shell, config, tmp_path):
     orca_pass(shell, config)
-    desk_inbox(tmp_path, ROOT_ALERT)
+    desk_orders(shell, ROOT_ALERT)
     orca_pass(shell, config)
     text = written(tmp_path, "alerts-api-0305-fix").read_text()
     assert "Before READY, reproduce the reporter's own case" in text
@@ -11066,7 +11025,7 @@ def test_the_unfixed_grammar_reads_bullets_and_code_ticks_and_names_each_of_the_
 
 def test_an_urgent_hold_older_than_fifteen_minutes_escalates_one_decide_line(shell, config, tmp_path):
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "R50 (3:50 PM PT) orca-desk: hold api-catchup owner=merge-walker-r2 :: api, runtime-v2 and restate-worker wait on the G327 move; executor already shipped ahead of them")
+    desk_orders(shell, "R50 (3:50 PM PT) orca-desk: hold api-catchup owner=merge-walker-r2 :: api, runtime-v2 and restate-worker wait on the G327 move; executor already shipped ahead of them")
     orca_pass(shell, config)
     shell.sleep(14 * 60)
     orca_pass(shell, config)
@@ -11083,13 +11042,13 @@ def test_an_urgent_hold_older_than_fifteen_minutes_escalates_one_decide_line(she
 
 def test_a_lifted_hold_never_escalates_and_a_new_hold_restarts_the_clock(shell, config, tmp_path):
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "orca-desk: hold api-catchup owner=walker :: api waits on the move", "orca-desk: hold api-catchup owner=walker :: a repeat keeps the first clock")
+    desk_orders(shell, "orca-desk: hold api-catchup owner=walker :: api waits on the move", "orca-desk: hold api-catchup owner=walker :: a repeat keeps the first clock")
     orca_pass(shell, config)
     shell.sleep(10 * 60)
-    desk_inbox(tmp_path, "orca-desk: unhold api-catchup")
+    desk_orders(shell, "orca-desk: unhold api-catchup")
     orca_pass(shell, config)
     shell.sleep(10 * 60)
-    desk_inbox(tmp_path, "orca-desk: hold api-catchup owner=walker :: held again")
+    desk_orders(shell, "orca-desk: hold api-catchup owner=walker :: held again")
     orca_pass(shell, config)
     shell.sleep(10 * 60)
     orca_pass(shell, config)
@@ -11102,7 +11061,7 @@ def test_a_lifted_hold_never_escalates_and_a_new_hold_restarts_the_clock(shell, 
 
 def test_a_hold_outside_the_grammar_fails_visibly(shell, config, tmp_path):
     orca_pass(shell, config)
-    desk_inbox(tmp_path, "R51 orca-desk: hold the api chain until the move lands", "R52 orca-desk: unhold the api chain")
+    desk_orders(shell, "R51 orca-desk: hold the api chain until the move lands", "R52 orca-desk: unhold the api chain")
     orca_pass(shell, config)
     lines = [line for line in escalations(shell)]
     assert [line.split(":", 1)[0] for line in lines] == ["HOLD-FAILED R51 inbox", "HOLD-FAILED R52 inbox"]

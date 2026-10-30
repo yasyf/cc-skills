@@ -179,14 +179,14 @@ def test_a_session_reads_its_drive_from_the_registry(drive, monkeypatch):
         desk_launch.main(["refused", "inc-x", "--session", "s2"])
 
 
-def test_the_next_key_passes_every_key_the_desk_inbox_and_its_archive_hold(drive, state, tmp_path):
+def test_the_next_key_reads_only_cci_and_never_the_desk_inbox_file(drive, state, tmp_path):
     inbox = state / "inbox" / "orca-desk.md"
     (archive := inbox.with_name("orca-desk.md.archive")).mkdir()
     (archive / "2026-10-16.md").write_text("- R3001 (9:00 PM) orca-desk: relay to a: go\n")
     inbox.write_text("R2999 (12:38 AM) orca-desk: launch by-hand NOW opus xhigh brief=/b.md\norca-desk: alert m1 https://x :: fired\n")
     _, evidence = briefs(tmp_path)
     desk_launch.main(["lane", "next-lane", "opus", "xhigh", str(evidence), "--timeout-seconds", "0"])
-    assert posted(drive)[0].startswith("R3002 (")
+    assert posted(drive)[0].startswith("R2026 (")
 
 
 @pytest.mark.parametrize(
