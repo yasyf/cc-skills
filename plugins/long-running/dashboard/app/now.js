@@ -150,7 +150,7 @@ function journey(b) {
   const html = `<div class="nw-panel">${progressLabel()}
     <div class="nw-journey nw-spine${lastPaint.stops === null ? ' fill' : ''}" style="--phase:-${Date.now() % 2400}ms;--n:${list.length};grid-template-columns:${columns(list, focus)}">${list.map((s, i) => {
       const cls = ['sp', `ms-${s.state}`, i === cur && 'cur', i === focus && 'focus', i > 0 && i <= lastLive && 'l-on', i < lastLive && 'r-on', moved(s, i) && 'moved'].filter(Boolean).join(' ');
-      return `<div class="${cls}" data-i="${i}"><a class="ms ms-${s.state}${i === cur ? ' cur' : ''}" href="#/plan/m${i}"><span class="here">${i === cur ? 'Drive is here' : ''}</span><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${held(s)}${waitsOnOwner(s) ? '<span class="need">Needs you</span>' : ''}</a>
+      return `<div class="${cls}" data-i="${i}"><a class="ms ms-${s.state}${i === cur ? ' cur' : ''}" href="#/plan/m${i}"><span class="here">${i === cur ? 'Drive is here' : ''}</span><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}${s.since && s.state !== 'live' ? `<span class="when"> ${spanFor(s.since)}</span>` : ''}</span>${held(s)}${waitsOnOwner(s) ? '<span class="need">Needs you</span>' : ''}</a>
         <div class="bd"><i class="stem"></i></div></div>`;
     }).join('')}</div>
     <div class="nw-slot" data-cur="${cur}" style="--hold:${hover.hold}px">${list.map((s, i) => `<div class="pan${i === focus ? ' focus' : ''}" data-i="${i}">${openStop(s, b, i === cur)}</div>`).join('')}</div>
@@ -201,7 +201,15 @@ function focusLane() {
   return s ? leadOf(s)?.item : null;
 }
 function held(s) {
-  return s.blockers.length ? `<span class="when">${blockedFor(s.since)}</span><span class="why">${esc(s.waits)}</span>${unblockLine(s.unblocking)}` : '';
+  if (s.state === 'live') return '';
+  const changed = s.changed && (s.changed.at === s.since ? `, ${s.changed.text}` : `; last change ${clock(s.changed.at)}: ${s.changed.text}`);
+  const fields = [
+    [s.state === 'broken' ? 'Blocked by' : 'Waits on', s.waits],
+    ['Next', s.next],
+    ['Since', s.since && `${clock(s.since)}${changed || ''}`],
+    ['Why it matters', s.state === 'broken' && minutesSince(s.since) > 60 && s.why],
+  ].filter(([, value]) => value);
+  return fields.length ? `<dl class="sf">${fields.map(([label, value]) => `<dt>${label}</dt><dd>${esc(value)}</dd>`).join('')}</dl>` : '';
 }
 function columns(list, focus) {
   return list.map((s, i) => `minmax(0, ${i === focus ? 3.2 : s.state === 'live' ? 0.7 : 1}fr)`).join(' ');
@@ -312,7 +320,7 @@ function historyBlock(h) {
   if (!h) return '';
   const [e] = h.events;
   const quiet = Date.now() - new Date(e.ts) > 3600e3;
-  return `<section class="nw hist"><dl class="pg-facts"><dt>Who holds it now</dt><dd>${esc(e.holder)}</dd><dt>What is next</dt><dd>${esc(e.next)}</dd>${quiet ? `<dt>Why it has been quiet</dt><dd>${esc(h.quiet ?? 'Nobody has said.')}</dd>` : ''}</dl>
+  return `<section class="nw hist"><dl class="pg-facts">${e.holder ? `<dt>Who holds it now</dt><dd>${esc(e.holder)}</dd>` : ''}${e.next ? `<dt>What is next</dt><dd>${esc(e.next)}</dd>` : ''}${quiet ? `<dt>Why it has been quiet</dt><dd>${esc(h.quiet ?? 'Nobody has said.')}</dd>` : ''}</dl>
     <h2 class="nw-h">What happened, newest first</h2><ol class="evs">${h.events.map((x) => `<li><time>${clock(x.ts)}</time>${esc(x.text)}</li>`).join('')}</ol></section>`;
 }
 function hangNode(n) {

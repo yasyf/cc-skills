@@ -18,9 +18,9 @@ def prs(**states):
 
 def test_an_open_blocker_record_makes_a_milestone_blocked_and_says_what_unblocks_it():
     rows = compute([FIRST], [], [blocker(5, "R1", "fixer", "The fixer ships the patch by 7 PM", "Runs fail on start")], [release(1, "10970 passed: api live")])
-    assert rows[0]["state"] == "broken"
+    assert (rows[0]["state"], rows[0]["label"]) == ("broken", "Blocked")
     assert rows[0]["waits"] == "Runs fail on start"
-    assert rows[0]["unblocking"] == "The fixer ships the patch by 7 PM"
+    assert rows[0]["next"] == "The fixer ships the patch by 7 PM"
     assert rows[0]["owners"] == ["fixer"]
 
 
@@ -49,12 +49,15 @@ def test_a_milestone_stays_live_while_a_newer_release_runs():
 def test_a_release_that_started_and_never_finished_reads_releasing():
     rows = compute([FIRST], [], [], [release(2, "RELEASE 10980 started: api", at="2026-10-29T22:00:00Z")])
     assert (rows[0]["state"], rows[0]["label"]) == ("progress", "Releasing")
+    assert rows[0]["next"] == "Release worker: follows it to live"
+    assert rows[0]["changed"] == {"at": "2026-10-29T22:00:00Z", "text": "release started"}
 
 
 def test_open_changes_are_counted_by_their_merge_state():
     rows = compute([FIRST, SECOND], prs(n7="landed", n8="queued", n9="failing"), [], [release(1, "api passed")])
-    assert rows[1]["label"] == "Being built"
-    assert rows[1]["waits"] == "2 of 3 changes still open: 1 in the merge queue, 1 with a failing build"
+    assert rows[1]["label"] == "Building"
+    assert rows[1]["waits"] == "2 of 3 changes open: 1 queued, 1 failing build"
+    assert rows[1]["next"] == "Their workers: fix the failing builds"
 
 
 def test_a_published_test_build_reads_testing_until_the_switch_turns_on():
@@ -67,14 +70,14 @@ def test_a_published_test_build_reads_testing_until_the_switch_turns_on():
 
 def test_a_milestone_waits_on_the_one_before_it():
     rows = compute([FIRST, {"name": "Later", "release": "R3"}], [], [], [])
-    assert rows[1]["state"] == "not"
+    assert (rows[1]["state"], rows[1]["label"]) == ("not", "Later")
     assert rows[1]["waits"] == "Cloud keeps working first"
 
 
 def test_a_change_waiting_on_a_tap_reads_in_plain_words():
     rows = compute([FIRST, SECOND], prs(n7="landed", n8="you", n9="landed"), [], [release(1, "api passed")])
-    assert rows[1]["waits"] == "1 of 3 changes still open: 1 waiting on your tap"
-    assert rows[1]["unblocking"] == "You tap the ones on your board"
+    assert rows[1]["waits"] == "1 of 3 changes open: 1 on your board"
+    assert rows[1]["next"] == "You: tap the ones on your board"
 
 
 def test_a_reposted_blocker_keeps_the_time_the_problem_started():
@@ -89,20 +92,39 @@ def test_a_live_milestone_is_live_since_its_first_release():
     assert rows[0]["since"] == "2026-10-28T12:00:00Z"
 
 
-def test_a_blocker_without_a_promised_time_says_so_and_since_when():
+def test_a_blocker_without_a_promised_time_shows_only_its_next_step():
     rows = compute([FIRST], [], [blocker(5, "R1", "fixer", "The fixer finds the cause", "Runs fail on start")], [release(1, "10970 passed: api live")])
-    assert rows[0]["unblocking"] == "The fixer finds the cause, no time given since 2:00 PM Oct 29"
+    assert rows[0]["next"] == "The fixer finds the cause"
 
 
 def test_a_blocker_with_a_promised_time_shows_it():
     record = blocker(5, "R1", "fixer", "The fixer ships the patch", "Runs fail on start")
     record["fields"]["attrs"]["by"] = "2026-10-30T04:30:00Z"
     rows = compute([FIRST], [], [record], [release(1, "10970 passed: api live")])
-    assert rows[0]["unblocking"] == "The fixer ships the patch, by 9:30 PM Oct 29"
+    assert rows[0]["next"] == "The fixer ships the patch, by 9:30 PM Oct 29"
 
 
 def test_a_promised_time_written_in_words_is_shown_as_written():
     record = blocker(5, "R1", "fixer", "The fixer ships the patch", "Runs fail on start")
     record["fields"]["attrs"]["by"] = "within 15 minutes of your word"
     rows = compute([FIRST], [], [record], [release(1, "10970 passed: api live")])
-    assert rows[0]["unblocking"] == "The fixer ships the patch, within 15 minutes of your word"
+    assert rows[0]["next"] == "The fixer ships the patch, within 15 minutes of your word"
+
+
+def test_several_blockers_give_one_next_step_and_count_the_rest():
+    early = blocker(5, "R1", "release-5", "You: pick on the board", "First production release needs your pick", at="2026-10-30T04:04:00Z")
+    late = blocker(6, "R1", "fixer", "Fixer: reruns the gate", "Gate fails at startup", at="2026-10-30T05:00:00Z")
+    early["fields"]["attrs"]["topic"], late["fields"]["attrs"]["topic"] = "release", "gate"
+    rows = compute([FIRST], [], [late, early], [release(1, "10970 passed: api live")])
+    assert rows[0]["waits"] == "First production release needs your pick (+1 more)"
+    assert rows[0]["next"] == "You: pick on the board"
+    assert rows[0]["owners"] == ["fixer", "release-5"]
+
+
+def test_a_blocker_carries_what_changed_last_and_why_it_matters():
+    record = blocker(5, "R1", "release-5", "Release worker: starts it", "First production release needs your pick", at="2026-10-30T06:07:00Z")
+    record["fields"]["attrs"].update(since="2026-10-30T04:04:00Z", changed="dev went green", why="The Mac app waits on this release")
+    rows = compute([FIRST], [], [record], [release(1, "10970 passed: api live")])
+    assert rows[0]["since"] == "2026-10-30T04:04:00Z"
+    assert rows[0]["changed"] == {"at": "2026-10-30T06:07:00Z", "text": "dev went green"}
+    assert rows[0]["why"] == "The Mac app waits on this release"

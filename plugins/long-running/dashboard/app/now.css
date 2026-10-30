@@ -50,7 +50,9 @@
 .nw-journey .cur .nm { font-weight: 700; }
 .nw-journey .st { font-size: 11.5px; color: var(--ink2); margin-top: 2px; }
 .nw-journey .when { font-size: 11px; color: var(--ink3); }
-.nw-journey .why { font-size: 11.5px; line-height: 1.25; margin-top: 2px; }
+.nw-journey .sf { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 8px; margin: 6px auto 0; max-width: 46ch; text-align: left; font-size: 11.5px; line-height: 1.3; }
+.nw-journey .sf dt { color: var(--ink3); white-space: nowrap; }
+.nw-journey .sf dd { margin: 0; color: var(--ink); }
 .nw-journey .ms-live .st { color: var(--done); }
 .nw-journey .ms-progress .st, .nw-journey .ms-next .st { color: var(--doing); }
 .nw-journey .ms-paused .st { color: var(--you); }
@@ -268,8 +270,7 @@
 
 .nw-spine { margin-bottom: 0; }
 .nw-spine .sp:not(.focus) :is(.dot, .nm, .bd) { opacity: var(--dim); transition: opacity .12s ease-out; }
-.nw-spine .sp:not(.focus) :is(.when, .why, .unb) { display: none; }
-.nw-spine .sp.focus :is(.why, .unb) { text-align: left; max-width: 46ch; }
+.nw-spine .sp:not(.focus) :is(.when, .sf) { display: none; }
 .nw-spine { transition: grid-template-columns .18s ease-out; }
 .nw-spine .sp:not(.focus):is(:hover, :focus-within) :is(.dot, .nm, .bd) { opacity: 1; }
 .nw-spine .bd { min-height: 14px; }
