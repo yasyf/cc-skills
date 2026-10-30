@@ -85,6 +85,7 @@ HUNK = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@")
 CITE = re.compile(r"([\w./@+-]+):(\d+)(?:-(\d+))?")
 CENSUS = "census:"
 RULINGS_HEADING = re.compile(r"^#{1,6}\s*Rulings\b", re.IGNORECASE | re.MULTILINE)
+BODY_COMMENT = re.compile(r"^(?:#{1,6}\s*|\*\*)?(?:Rulings|Body addendum)\b", re.IGNORECASE | re.MULTILINE)
 ROW_KEY = re.compile(r"^### (\S+) \|", re.MULTILINE)
 REPLY_FILE = re.compile(r"^REPLY_FILE: (\S+)$", re.MULTILINE)
 MAJORS = frozenset({"blocker", "major"})
@@ -216,8 +217,8 @@ def prompt(job: dict, view: dict, base: str, own: list[str], last: str, pairs: s
 
 
 def rulings_comments(view: dict) -> str:
-    """The PR's comments that carry a `Rulings` heading, where a lane corrects a body it may not edit, oldest first."""
-    return "\n\n---\n\n".join(comment["body"].strip() for comment in view["comments"] if RULINGS_HEADING.search(comment["body"])) or "(none)"
+    """The PR's comments that open a `Rulings` or `Body addendum` section, where a lane corrects or extends a body it may not edit, oldest first."""
+    return "\n\n---\n\n".join(comment["body"].strip() for comment in view["comments"] if BODY_COMMENT.search(comment["body"])) or "(none)"
 
 
 def record_text(job: dict, own: list[str], last: str, findings: list[dict]) -> str:
