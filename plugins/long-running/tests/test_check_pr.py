@@ -507,12 +507,13 @@ def test_a_desks_grade_names_the_lane_after_an_optional_head_and_before_an_optio
     [
         ("answer", "read-back lane-a: ok. It matches the record.", (0, [])),
         ("answer", "readback: ok lane-a", (0, [])),
+        ("answer", "readback: ok 1f15356497f7 lane-a. Contract #179317 graded ok at #179327", (0, [])),
         ("review", "read-back lane-a: ok", (0, [])),
         ("answer", "read-back lane-a: missing\nrule/bbbbbbb the drain line", (1, ["CONTRACT-MISSING lane-a: the newest grade, #9, is missing: rule/bbbbbbb the drain line"])),
         ("answer", "read-back lane-b: ok. It matches the record.", (1, ["CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back"])),
         ("note", "readback: ok lane-a", (1, ["CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back"])),
     ],
-    ids=["answer-said-ok", "answer-canonical-ok", "review-said-ok", "answer-said-missing", "answer-another-lane", "note-is-no-grade"],
+    ids=["answer-said-ok", "answer-canonical-ok", "answer-canonical-ok-lane-ends-a-sentence", "review-said-ok", "answer-said-missing", "answer-another-lane", "note-is-no-grade"],
 )
 def test_a_desks_read_back_grade_counts_as_an_answer_or_a_review_in_either_phrasing(package: Path, state: Path, registered: Path, capsys, kind: str, text: str, expected: tuple[int, list[str]]) -> None:
     rows = pinned(package)
