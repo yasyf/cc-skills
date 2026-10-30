@@ -57,7 +57,7 @@ def pairs(*marks: str) -> str:
 
 
 class Fake:
-    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0, gone: tuple[str, ...] = (), ranges: dict | None = None, shows: dict | None = None, trunk: str = BASE, history: tuple[str, ...] = (), pulls: dict | None = None, races: int = 0, unregistered: tuple[str, ...] = ()):
+    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0, gone: tuple[str, ...] = (), ranges: dict | None = None, shows: dict | None = None, trunk: str = BASE, history: tuple[str, ...] = (), pulls: dict | None = None, races: int = 0, unregistered: tuple[str, ...] = (), subjects: tuple[str, ...] = ()):
         self.tmp_path = tmp_path
         self.replies = list(replies)
         self.state = state
@@ -72,6 +72,7 @@ class Fake:
         self.pulls = pulls
         self.races = races
         self.unregistered = unregistered
+        self.subjects = subjects
         self.shows = LANDED | ({OLD_OWN[:11]: patch("-poll()", "+stream()"), OWN[:11]: patch("-poll()", "+stream()", "+resubscribe()")} if shows is None else shows)
         self.calls: list[tuple[list[str], Path | None]] = []
         self.comments = [{"body": "## Rulings\n- the resubscribe test pins finder #150321's fix"}, {"body": "LGTM from the review bot"}]
@@ -116,6 +117,9 @@ class Fake:
             if any(sha in self.gone for sha in argv):
                 raise subprocess.CalledProcessError(128, argv, stderr="fatal: remote error: upload-pack: not our ref")
             return ""
+        if argv[0] == "log":
+            assert argv[1:4] == ["--format=%s", "-n", str(finder.BASE_SUBJECTS)]
+            return "".join(f"{subject}\n" for subject in self.subjects)
         if argv[0] == "range-diff":
             assert argv[1:3] == ["--no-patch", "--no-color"]
             return self.ranges[tuple(argv[3:])]
@@ -597,3 +601,12 @@ def test_a_replay_that_drops_an_earlier_commit_the_base_lacks_reads_its_removal_
     finder.main([str(directory)], shell)
     assert f"the removal of each dropped commit the base lacks, read with `git show <sha>` ({PARENT[:11]})" in (directory / "question-1.md").read_text()
     assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over delta {OLD[:7]}..{HEAD[:7]}: no majors"
+
+
+def test_a_replay_whose_dropped_commit_moved_into_the_base_amended_carries_the_graded_verdict(tmp_path):
+    """drive-watchdog-2 #212163: #45396 at c74435c (14 equal and 2 context-only pairs) and #45533 at 427be00 waited hours for a full pass, because the commits each dropped had moved into the parent PR and been amended there, so the base no longer carried their lines word for word."""
+    prior = {"seq": 149302, "lane": "p8a-step9", "head": "a269784", "text": "finder: ok a269784"}
+    directory = job(tmp_path, since=OLD, prior=prior)
+    shell = Fake(tmp_path, [], own={(BASE, HEAD): [OWN], (BASE, OLD): [OLD_OWN]}, resolve={OLD: OLD}, ranges={EARLIER: pairs("=", "=")}, shows={f"{BASE}:api/parent.go": "pending()\n"}, subjects=("api: the parent's commit before its restack",))
+    finder.main([str(directory)], shell)
+    assert not shell.asks() and [post["--text"] for post in shell.posted] == [f"finder: ok {HEAD[:7]} carried from #149302"]
