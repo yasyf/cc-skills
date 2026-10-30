@@ -457,5 +457,56 @@ def test_tag_bumps_pushes_only_missing_remote_tags_and_reuses_matching_local_tag
     assert autobump.tag_bumps(repo, bumps)
     expected = ("refs/tags/b--v0.1.1",) if published else ("refs/tags/a--v0.1.1", "refs/tags/b--v0.1.1")
     assert [args for args in calls if args[0] == "push"] == [("push", "origin", *expected)]
-    assert [args for args in calls if args[0] == "tag"] == [("tag", "b--v0.1.1")]
+    assert [args for args in calls if args[0] == "tag"] == [("tag", "b--v0.1.1", canonical)]
     assert all(_out(remote, "rev-parse", f"refs/tags/{name}--v0.1.1") == canonical for name in ("a", "b"))
+
+
+def test_a_partially_overtaken_batch_tags_each_canonical_version_owner(repo, tmp_path, monkeypatch):
+    for name in ("a", "b"):
+        _write(repo, _manifest_path(f"plugins/{name}"), _manifest_text(name, "0.1.0"))
+    _commit(repo, "create plugins")
+    _write(repo, "plugins/a/src.py", "print('a')\n")
+    _commit(repo, "add a content")
+    remote, stale = tmp_path / "remote.git", tmp_path / "stale"
+    _run(tmp_path, "init", "--bare", str(remote))
+    _run(repo, "remote", "add", "origin", str(remote))
+    _run(repo, "push", "-u", "origin", "main")
+    _run(tmp_path, "clone", "--branch", "main", str(remote), str(stale))
+    _run(stale, "config", "user.name", "Test")
+    _run(stale, "config", "user.email", "test@example.com")
+    _run(stale, "config", "commit.gpgsign", "false")
+    _write(stale, "plugins/b/src.py", "print('b')\n")
+    _commit(stale, "add b content")
+    _run(stale, "push", "origin", "main")
+    assert [result.name for result in autobump.analyze(repo, set(), []) if result.verdict == "bump"] == ["a"]
+    _set_env(monkeypatch, repo, dry_run="false", force="1")
+    assert autobump.main() == 0
+    first = _out(remote, "rev-parse", "refs/tags/a--v0.1.1")
+    assert [result.name for result in autobump.analyze(stale, set(), []) if result.verdict == "bump"] == ["a", "b"]
+    _set_env(monkeypatch, stale, dry_run="false", force="1")
+    assert autobump.main() == 0
+    second = _out(remote, "rev-parse", "main")
+    assert first != second
+    assert _out(remote, "rev-parse", "refs/tags/a--v0.1.1") == first
+    assert _out(remote, "rev-parse", "refs/tags/b--v0.1.1") == second
+    assert _out(stale, "diff", "--name-only", first, second) == _manifest_path("plugins/b")
+    assert autobump.find_baseline(stale, _manifest_path("plugins/a")) == first
+    assert autobump.find_baseline(stale, _manifest_path("plugins/b")) == second
+
+
+def test_a_batch_overtaken_by_another_version_refuses_obsolete_tag_publication(repo, tmp_path):
+    manifest = _manifest_path("plugins/a")
+    _write(repo, manifest, _manifest_text("a", "0.1.0"))
+    _commit(repo, "create a")
+    _write(repo, "plugins/a/src.py", "print('a')\n")
+    _commit(repo, "add a content")
+    bumps = [result for result in autobump.analyze(repo, set(), []) if result.verdict == "bump"]
+    _write(repo, manifest, _manifest_text("a", "0.1.2"))
+    _commit(repo, "newer canonical version")
+    remote = tmp_path / "remote.git"
+    _run(tmp_path, "init", "--bare", str(remote))
+    _run(repo, "remote", "add", "origin", str(remote))
+    _run(repo, "push", "-u", "origin", "main")
+    assert not autobump.tag_bumps(repo, bumps)
+    assert _out(repo, "tag", "--list") == ""
+    assert _out(remote, "tag", "--list") == ""

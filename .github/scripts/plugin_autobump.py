@@ -245,16 +245,20 @@ def commit_and_push(repo: Path, bumps: list[Result], branch: str) -> bool:
 
 
 def tag_bumps(repo: Path, bumps: list[Result]) -> bool:
-    refs = [f"refs/tags/{r.name}--v{r.new_version}" for r in bumps]
-    head = _git_out(repo, "rev-parse", "HEAD").strip()
+    targets = {}
+    for result in bumps:
+        if version_at(repo, "HEAD", result.manifest) != result.new_version:
+            return False
+        targets[f"refs/tags/{result.name}--v{result.new_version}"] = find_baseline(repo, result.manifest)
+    refs = list(targets)
     local = {ref: target for target, ref in (line.split() for line in _git_out(repo, "for-each-ref", "--format=%(objectname) %(refname)", *refs).splitlines())}
     remote = {ref: target for target, ref in (line.split() for line in _git_out(repo, "ls-remote", "--refs", "origin", *refs).splitlines())}
-    if any(known[ref] != head for known in (local, remote) for ref in refs if ref in known):
+    if any(known[ref] != targets[ref] for known in (local, remote) for ref in refs if ref in known):
         return False
     missing = [ref for ref in refs if ref not in remote]
     for ref in missing:
         if ref not in local:
-            _git_out(repo, "tag", ref.removeprefix("refs/tags/"))
+            _git_out(repo, "tag", ref.removeprefix("refs/tags/"), targets[ref])
     return not missing or _git(repo, "push", "origin", *missing).returncode == 0
 
 
