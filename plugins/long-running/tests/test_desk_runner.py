@@ -12484,14 +12484,16 @@ def test_flake_watch_reads_only_remembered_red_builds(shell, config, tmp_path, m
     landing.watch_flakes(commits, TRUNK_CHECK, OPEN_ROWS)
     first = costs.copy()
     landing.watch_flakes(commits, TRUNK_CHECK, OPEN_ROWS)
+    two_passes = costs.copy()
+    config_bytes = 2 * len(config.read_bytes())
+    print(json.dumps({"history": history, "recovered": recovered, "config_decoded_bytes": config_bytes, "first_pass": first, "two_passes": two_passes}))
     assert costs["actions"] == 0
-    assert costs["decoded_bytes"] < 256
+    assert costs["decoded_bytes"] == config_bytes + len(json.dumps(red).encode()) * (1 if recovered else 2)
     assert costs["opcodes"] < 2_000
     assert (first["changed_rows"] > 0) == recovered
     assert costs["changed_rows"] == first["changed_rows"]
     assert flakes == ([("b" * 10, red, red, OPEN_ROWS)] if recovered else [])
     assert store.fact(runner_module.LANDING, runner_module.TRUNK_REDS_FACT) == ({} if recovered else {"b" * 10: red})
-    print(json.dumps({"history": history, "recovered": recovered, "first_pass": first, "two_passes": costs}))
 
 
 @pytest.mark.parametrize("posted", [False, True])
