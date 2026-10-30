@@ -13143,6 +13143,29 @@ def test_while_graphite_is_down_the_runner_posts_the_queue_of_admitted_chains_on
     assert len(queues()) == 2 and "CI red" in queues()[-1]
 
 
+def test_a_handoff_ends_a_direct_merge_wait_on_checks_so_the_runner_exits_at_once(shell, config, tmp_path):
+    """Oct 30 1:02 AM: a 0.7.624 landing runner held its handoff past ten minutes while three chains waited their turn on CI, and its attempts read DEADLINE at 15 minutes."""
+    two_pr_stack(shell)
+    queue_drafts(shell, (40, True), (50, True))
+    shell.current_heads |= {"29020": "cccc333333", "29031": "dddd444444"}
+    shell.checks |= {pr: [{"name": "buildkite/test", "bucket": "pending"}] for pr in ("29020", "29031")}
+    landing = landing_of(shell, config, tmp_path)
+    run = shell.run
+
+    def handed_off(argv, *args, **kwargs):
+        done = run(argv, *args, **kwargs)
+        if "checks" in argv and "--required" not in argv:
+            landing.runner.stop_marker().write_text(str(os.getpid()))
+        return done
+
+    shell.run = handed_off
+    with contextlib.suppress(runner_module.StopRequested):
+        landing.run()
+    [action] = enqueues_of(tmp_path).values()
+    assert direct_merges(shell) == [] and action.response["outcome"] == "blocked" and runner_module.HANDING_OFF in action.response["why"]
+    assert actions.parse_stamp(action.deadline) - actions.parse_stamp(action.accepted_at) == runner_module.DIRECT_DEADLINE
+
+
 def test_a_go_withdrawn_while_a_stack_waits_for_its_checks_keeps_the_stack_unmerged(shell, config, tmp_path):
     """Root #199069: the direct merge waits for checks for minutes, so a go a root record withdraws meanwhile must still stop the merge."""
     board_surface(config)
