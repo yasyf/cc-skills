@@ -253,7 +253,7 @@ TEST_DEFINITION = re.compile(
     r"|(?:pub\s+)?(?:async\s+)?fn\s+(?P<rs>\w+)\s*\(|(?:it|test)\s*\(\s*(?P<quote>[\"'`])(?P<ts>.+?)(?P=quote))"
 )
 FINDER = re.compile(r"^finder: (?P<verdict>\S+) (?P<head>[0-9a-f]{7,40})\b")
-READBACK_GRADE = re.compile(r"^readback: (?P<verdict>ok|missing) (?:[0-9a-f]{7,40} )?(?P<lane>\S+)(?: (?P<rest>.*))?$", re.DOTALL)
+READBACK_GRADE = re.compile(r"^readback: (?P<verdict>ok|missing) (?:[0-9a-f]{7,40} )?(?P<lane>[^\s.,;:]+)[.,;:]?(?: (?P<rest>.*))?$", re.DOTALL)
 READBACK_SAID = re.compile(r"^read-back (?P<lane>\S+): (?P<verdict>ok|missing)\b[.:,;]?(?:\s+(?P<rest>.*))?$", re.DOTALL)
 READBACK_KINDS = ("review", "answer")
 READBACK_FLAGS = ("--kind", "review", "--kind", "answer")
