@@ -207,11 +207,11 @@ def drifted(evt: BaseHookEvent, tasks: Tasks, now: float) -> dict[str, str]:
     }
 
 
-def untracked(evt: BaseHookEvent, tasks: Tasks, now: float) -> list[str]:
+def untracked(evt: BaseHookEvent, now: float) -> list[str]:
     return [
         lane.name
         for lane in live_lanes(evt)
-        if now - lane.turn.at.timestamp() <= IDLE_SECONDS and not covered(tasks, lane.name)
+        if now - lane.turn.at.timestamp() <= IDLE_SECONDS and not covered(evt.tasks, lane.name)
     ]
 
 
@@ -278,13 +278,11 @@ def require_task_for_owner_ask(evt: BaseHookEvent) -> HookResult | None:
 def require_task_for_dispatched_lane(evt: BaseHookEvent) -> HookResult | None:
     with UnownedState.mutate(evt) as state:
         if evt.event == Event.Stop:
-            tasks = evt.tasks
-            missing = nag_due(evt, [name for name in state.lanes if not covered(tasks, name)], time.time())
+            missing = nag_due(evt, [name for name in state.lanes if not covered(evt.tasks, name)], time.time())
             state.lanes = []
             return deliver(evt, [f"Lane `{name}` has no task. Run `TaskCreate` with `owner={name}`." for name in missing])
         if evt.tool_name in TASK_TOOLS:
-            tasks = evt.tasks
-            state.lanes = [name for name in state.lanes if not covered(tasks, name)]
+            state.lanes = [name for name in state.lanes if not covered(evt.tasks, name)]
         elif (name := spawned_lane(evt)) and evt.annotations.get("role") not in HELPER_ROLES:
             state.lanes.append(name)
     return None
@@ -343,7 +341,7 @@ def flag_untracked_lanes(evt: BaseHookEvent) -> HookResult | None:
             return None
         state.turns = 0
     now = time.time()
-    names = untracked(evt, evt.tasks, now)
+    names = untracked(evt, now)
     with UntrackedState.mutate(evt) as state:
         if names and sorted(names) != state.flagged and (due := nag_due(evt, names, now)):
             queue_nudge(evt, untracked_line(due))

@@ -200,8 +200,7 @@ def live_lanes(evt: BaseHookEvent) -> list[Lane]:
 
 
 def finished(evt: BaseHookEvent, lanes: list[Lane]) -> set[str]:
-    tasks = evt.tasks
-    return {lane.agent_id for lane in lanes if not covered(tasks, lane.name)}
+    return {lane.agent_id for lane in lanes if not covered(evt.tasks, lane.name)}
 
 
 def over_line(lane: Lane, state: RotationState, root: Turn) -> bool:
