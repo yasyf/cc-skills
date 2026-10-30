@@ -78,6 +78,7 @@ class Fake:
         self.calls: list[tuple[list[str], Path | None]] = []
         self.comments = [{"body": "## Rulings\n- the resubscribe test pins finder #150321's fix"}, {"body": "LGTM from the review bot"}]
         self.posted: list[dict] = []
+        self.timeouts: dict[str, int] = {}
 
     def run(self, argv: list[str], cwd: Path | None = None, timeout: int = finder.READ_SECONDS) -> str:
         argv = gateway(argv)
@@ -91,6 +92,7 @@ class Fake:
         if argv[0] == "git":
             return self.git(argv[1:])
         if argv[:2] == [sys.executable, str(finder.SCRIPTS / "rulings.py")]:
+            self.timeouts[argv[2]] = timeout
             return ROWS if argv[2] == "slice" else "/plans/durable/plan/plan.md\n"
         if argv[0] == "codex-ask":
             reply = self.tmp_path / f"reply-{len(self.calls)}.json"
@@ -183,6 +185,13 @@ def test_a_head_with_only_minors_posts_finder_ok_over_its_whole_change_to_the_he
     assert str(directory / "rows.md") in question and "Open `swept` with your reasoning" in question
     assert "## Rulings\n- the resubscribe test pins finder #150321's fix" in question and "LGTM from the review bot" not in question
     assert result(directory) == {"verdict": "ok", "record": post["--text"], "posted": "#150001"}
+
+
+def test_the_plan_read_gets_five_minutes_so_a_cold_sprite_disk_does_not_fail_the_pass(tmp_path):
+    """Root #220405: on a Sprite just restarted, `ccn ledger show` took 95 s and six passes failed reading the plan at the 120 s limit."""
+    shell = Fake(tmp_path, [reply()])
+    assert finder.main([str(job(tmp_path))], shell) == 0
+    assert shell.timeouts["plan"] == 300
 
 
 def test_a_review_addressed_to_a_worker_no_lane_registered_still_posts_and_the_pass_succeeds(tmp_path):

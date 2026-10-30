@@ -238,7 +238,7 @@ def run(directory: Path, shell: finder.Shell) -> dict:
     job = json.loads((directory / JOB).read_text())
     pr, head = f"{job['repo']}#{job['pr']}", job["head"]
     pool = ThreadPoolExecutor()
-    plan = pool.submit(shell.run, finder.rulings(job, "plan"))
+    plan = pool.submit(shell.run, finder.rulings(job, "plan"), timeout=finder.PLAN_SECONDS)
     view = finder.view_pr(shell, job)
     if view["state"] == "CLOSED":
         return {"skipped": f"{pr} is closed"}

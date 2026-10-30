@@ -99,6 +99,7 @@ REASON_WORDS = 12
 REASONLESS = "no reasoning in `swept`, which gives one sentence per group of related hunks saying what it changes and why it holds or fails"
 CCI_TEXT = 400
 READ_SECONDS = 120
+PLAN_SECONDS = 300
 RETRY_BACKOFF = (2, 5, 10)
 SLICE_SECONDS = 900
 FINDER_SECONDS = 5400
@@ -416,7 +417,7 @@ def run(directory: Path, shell: Shell) -> dict:
     job = json.loads((directory / JOB).read_text())
     pr, head = f"{job['repo']}#{job['pr']}", job["head"]
     pool = ThreadPoolExecutor()
-    plan = pool.submit(shell.run, rulings(job, "plan"))
+    plan = pool.submit(shell.run, rulings(job, "plan"), timeout=PLAN_SECONDS)
     view = view_pr(shell, job)
     if view["state"] == "CLOSED":
         return {"skipped": f"{pr} is closed"}
