@@ -7267,6 +7267,21 @@ def test_mq_refuses_a_state_file_beside_runner_json_naming_the_block_it_lacks(sh
     assert capsys.readouterr().err == f"mq.py: {builds} is no desk-runner config, since it has no drive or orca or landing block; pass the drive's runner.json\n"
 
 
+def test_while_graphite_is_down_an_admitted_head_whose_merge_keeps_waiting_draws_admitted_skipped_naming_the_wait(shell, config, tmp_path):
+    """Root #210100: four of the first six ADMITTED-SKIPPED heads said no branch recorded why, since a direct merge that ends blocked was written only to the runner's own book."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    queue_drafts(shell, (40, True), (50, True))
+    shell.current_heads["33001"] = "aaaa111111"
+    shell.checks["33001"] = [{"name": "buildkite/test", "bucket": "pending"}]
+    shell.sleep(11 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert direct_merges(shell) == []
+    [line] = skipped(shell)
+    assert "yet no record says it is queued, merging or refused: its newest direct merge ended blocked: #33001 waits to merge: " in line
+
+
 def test_an_admitted_head_its_lane_was_told_about_draws_no_admitted_skipped(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, EVICTED_GATE)

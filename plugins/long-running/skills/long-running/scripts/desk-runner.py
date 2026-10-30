@@ -7040,6 +7040,7 @@ class Landing:
             name, states = failed
             text = f"the {name} check refuses " + "; ".join(f"#{pr}: {state.reason}" for pr, state in states.items())
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": text, "at": self.book.stamp()}))
+            self.skips |= dict.fromkeys(prefix, f"its accepted enqueue ended blocked: {text}")
             return
         down = self.down_since()
         outcome, out, last = self.merge_chains(tops, enqueued_heads(key), rows) if down else self.enqueue_chains(tops, enqueued_heads(key), self.whole())
@@ -7052,6 +7053,8 @@ class Landing:
             self.post_record("report", f"queued:{key}", self.landing_audience(prefix, rows, self.queue_audience(prefix, rows)), f"QUEUED {self.queue_line(enqueued_heads(key))}: the landing runner put it in the merge queue at {pacific(self.runner.now())}", prefix[-1])
         if outcome in ("stranded", "failed", "unsettled"):
             self.runner.escalate(key, f"{'DIRECT-MERGE' if down else 'ENQUEUE'}-{outcome.upper()}", numbered(tops), last)
+        if outcome not in BELIEVED_QUEUED and outcome != MERGED:
+            self.skips |= dict.fromkeys(prefix, f"its newest {'direct merge' if down else 'enqueue'} ended {outcome}: {last}")
 
     def queue_line(self, heads: dict[str, str]) -> str:
         """Each PR the runner enqueued, at the head it enqueued, with the root `go` that names that head or `no go at this head`."""
