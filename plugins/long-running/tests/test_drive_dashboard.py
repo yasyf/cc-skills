@@ -825,3 +825,19 @@ def test_the_model_request_serves_the_prebuilt_view_and_never_builds_it(tmp_path
         assert urllib.request.urlopen(f"http://127.0.0.1:{httpd.server_port}/api/model", timeout=5).read() == body
     finally:
         httpd.shutdown()
+
+
+def test_a_record_that_answers_the_owners_question_reads_as_his_question_then_prose(tmp_path):
+    """Root #203757: the answer to the owner's question opened as the raw cci record, header, routing, pr: tag and /tmp path included."""
+    body = tmp_path / "answer.txt"
+    body.write_text("Who paused the queue\n\nThe host-pressure run paused it at 7:02 PM.\n\n- 1615 pending\n- 122 paused\n")
+    asked = {"seq": 10, "lane": "dashboard", "kind": "owner", "at": "2026-10-30T08:00:00Z", "text": "Asked on the dashboard: who paused the cleanup queue?", "refs": {}}
+    record = {"seq": 11, "lane": "tooling-misc-2", "kind": "answer", "at": "2026-10-30T08:08:48Z", "re": 10, "text": "1:08 AM Paused by the host-pressure run pr:Forge-AI/monorepo#45381 /tmp/p8a7-a200848.txt", "refs": {"path": str(body)}}
+
+    page = server.record_page(record, asked, None)
+
+    assert "<h1>who paused the cleanup queue?</h1>" in page
+    assert "tooling-misc-2 answered at 1:08 AM" in page
+    assert "<p>Paused by the host-pressure run</p><p>Who paused the queue</p><p>The host-pressure run paused it at 7:02 PM.</p><ul><li>1615 pending</li><li>122 paused</li></ul>" in page
+    assert "pr:" not in page and "/tmp/" not in page
+    assert 'href="/record/11?raw=1"' in page

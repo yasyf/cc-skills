@@ -61,10 +61,16 @@ BUILD = hashlib.sha1(b"".join(path.read_bytes() for path in sorted([*HERE.iterdi
 CLIENT_RECORD = ("seq", "lane", "kind", "at", "text", "refs", "re")
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
 RECORD_ROUTE = re.compile(r"/record/(\d+)")
+CLOCK_OPENING = re.compile(r"^\s*\d{1,2}:\d{2}\s*[AP]M\b[,:]?\s*")
+PR_TAG = re.compile(r"\s*\bpr:\S+")
+FILE_PATH = re.compile(r"\s*(?<![\w.])~?/(?:[\w.@-]+/)+[\w.@-]+")
+ASKED_PREFIX = "Asked on the dashboard: "
+OWNER_LANES = frozenset({"dashboard", "owner-board", "owner"})
 LANE_ROUTE = re.compile(r"/api/lane/([\w.-]+)")
 REGISTER_DAY = dt.timedelta(days=1)
 REGISTER_SHOWN = 25
 MILESTONE_TTL = 60
+RECORD_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>{title}</title><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"></head><body><main class="wrap pg"><a class="pg-back" href="/">‹ The drive dashboard</a><header class="pg-h"><div><h1>{title}</h1></div><span class="pg-at">{byline}</span></header>{lead}<section class="pg-lead">{body}</section><p class="pg-at"><a href="/record/{seq}?raw=1">The raw record</a></p></main></body></html>'
 SOURCE_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>{title}</title><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"></head><body><main class="wrap pg"><a class="pg-back" href="/">‹ The drive dashboard</a><header class="pg-h"><div><h1>{title}</h1></div></header><pre class="src-text">{text}</pre></main></body></html>'
 STORY_ROUTE = re.compile(r"/api/story/([a-z0-9-]+)")
 TRANSCRIPT_ROUTE = re.compile(r"/api/transcript/([a-z0-9-]+)")
@@ -297,6 +303,42 @@ def without_finished_prs(pages, prs, runner):
     if not work:
         return pages
     return {**pages, "work": {**work, "pull_requests": [row for row in work["pull_requests"] if still_open(row["number"], prs, runner)]}}
+
+
+def prose(text):
+    """`text` as the paragraphs a reader follows: each opening clock label, `pr:` tag and file path dropped, and a paragraph of `- ` lines kept as a list."""
+    blocks = []
+    for part in re.split(r"\n\s*\n", FILE_PATH.sub("", PR_TAG.sub("", text))):
+        lines = [CLOCK_OPENING.sub("", line).strip() for line in part.strip().splitlines()]
+        if not any(lines):
+            continue
+        if all(line.startswith(("- ", "* ")) for line in lines if line):
+            blocks.append("<ul>" + "".join(f"<li>{html.escape(line[2:])}</li>" for line in lines if line) + "</ul>")
+        else:
+            blocks.append(f"<p>{html.escape(' '.join(line for line in lines if line))}</p>")
+    return blocks
+
+
+def record_body(record):
+    """The whole body `record` carries: its text, then the file it names, or the file alone when the text is that file's opening cut short."""
+    text, path = record["text"], Path(record.get("refs", {}).get("path") or "/nonexistent")
+    if not path.is_file():
+        return text
+    file = path.read_text()
+    return file if file.startswith(text.rstrip("…").rstrip()) or file.splitlines()[:1] == [text] else f"{text}\n\n{file}"
+
+
+def record_page(record, asked, said):
+    """The record a dashboard link opens, as prose: the owner's question in his words when `record` answers one, the body as paragraphs, who said it and when on one small line, and the raw record behind a link (root #203757)."""
+    who = "You" if record["kind"] == "owner" or record["lane"] in OWNER_LANES else record["lane"]
+    when = at(record["at"]).astimezone(PACIFIC).strftime("%-I:%M %p")
+    question = asked and " ".join(FILE_PATH.sub("", PR_TAG.sub("", CLOCK_OPENING.sub("", record_body(asked)))).removeprefix(ASKED_PREFIX).split())
+    title = question or f"What {who} said"
+    text = record_body(record)
+    body = prose(text)
+    lead = f'<p class="pg-rel">{html.escape(said)}</p>' if said and (len(body) > 3 or len(text) > 600) else ""
+    byline = f"{who} {'answered' if asked else 'wrote this'} at {when}"
+    return RECORD_PAGE.format(title=html.escape(title), byline=html.escape(byline), lead=lead, body="".join(body), seq=record["seq"])
 
 
 def answer_line(text, who=None, since=None, next=None, href=None, label=None):
@@ -1160,7 +1202,12 @@ def handler(drive):
                 return self.send(200, "application/json", json.dumps(drive.posted(found[1])).encode())
             if found := RECORD_ROUTE.fullmatch(path):
                 try:
-                    return self.source("The record this links to", run(["cci", "show", found[1]]))
+                    if "raw=1" in self.path.partition("?")[2].split("&"):
+                        return self.source("The record this links to", run(["cci", "show", found[1]]))
+                    record = json.loads(run(["cci", "show", found[1], "--json"]))
+                    asked = json.loads(run(["cci", "show", str(record["re"]), "--json"])) if record.get("re") else None
+                    said = json.loads(Path(drive.config["steps"]).read_text()).get("said", {}).get(found[1])
+                    return self.send(200, "text/html; charset=utf-8", record_page(record, asked, said).encode())
                 except subprocess.CalledProcessError as error:
                     return self.send(502, "text/plain; charset=utf-8", error.stderr.encode())
             if found := PR_ROUTE.fullmatch(path):
