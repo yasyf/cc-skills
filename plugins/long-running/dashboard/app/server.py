@@ -535,6 +535,39 @@ def with_conflicts(rows, prs):
     return [{**row, "blocker": blocker(row)} for row in rows]
 
 
+def pushed_at(records, number, head):
+    """When the newest `head` or `opened` record naming `#number` at `head` was posted, or None."""
+    return max((record["at"] for record in records if record["kind"] in ("head", "opened") and f"#{number}" in record["text"] and head[:7] in record["text"]), default=None)
+
+
+def live_evidence(evidence, prs, runner, records):
+    """The progress desk's evidence for each open PR, unless the PR's live head was pushed after it was written, so no line read at an older version reaches the owner (root #203813)."""
+    return {number: entry for number, entry in evidence.items() if still_open(number, prs, runner) and entry["at"] >= (pushed_at(records, number, prs[number].get("head") or "") or "")}
+
+
+def at_live_head(rows, prs, records):
+    """Each board row waiting on the owner's tap, re-read at its PR's live head: one whose tests fail or have not passed there, or whose parent's tests fail, leaves the tap deck as `failing` and says why until that head is green (root #203813)."""
+    by_branch = {pr["branch"]: number for number, pr in prs.items() if pr.get("state") == "open" and pr.get("branch")}
+
+    def pushed(number, head):
+        found = pushed_at(records, number, head)
+        return f" pushed at {at(found).astimezone(PACIFIC).strftime('%-I:%M %p')}" if found else ""
+
+    def held_back(row):
+        if not (pr := prs.get(str(row["number"]))):
+            return None
+        head = pr.get("head") or row["head"]
+        if pr.get("test_state") == "failure":
+            return f"Tests failing on the version{pushed(row['number'], head)}; back when green."
+        if pr.get("test_state") != "success":
+            return f"Tests still running on the version{pushed(row['number'], head)}; back when green."
+        if (parent := by_branch.get(pr.get("base"))) and prs[parent].get("test_state") == "failure":
+            return f"#{parent} below it fails its tests; back when green."
+        return None
+
+    return [{**row, "state": "failing", "blocker": why} if row["state"] == "you" and (why := held_back(row)) else row for row in rows]
+
+
 def merge_needs(rows, board_url):
     groups = {}
     for row in rows:
@@ -1007,7 +1040,7 @@ class Drive:
     def live(self, model):
         board = self.board()
         self.check_gos(board["rows"])
-        board["rows"] = with_conflicts(board["rows"], model["prs"])
+        board["rows"] = at_live_head(with_conflicts(board["rows"], model["prs"]), model["prs"], model["records"])
         board["cards"] = unanswered(board["cards"], model["words"])
         stamp(board)
         now = dt.datetime.now(dt.timezone.utc)
@@ -1041,7 +1074,7 @@ class Drive:
             "status_table": Path(self.config["status_table"]).read_text(),
             "register_log": "register" in self.config,
             "latest_words": self.words(),
-            "evidence": {number: entry for number, entry in self.evidences().items() if still_open(number, model["prs"], progress.get("pr_state", {}))},
+            "evidence": live_evidence(self.evidences(), model["prs"], progress.get("pr_state", {}), model["records"]),
             "pages": without_finished_prs({name: curator.brief for name, curator in self.pages.items()}, model["prs"], progress.get("pr_state", {})),
             "milestone_state": self.milestone_state(drive["prs"], now),
             "milestones": [m["name"] for m in self.config["milestones"]],

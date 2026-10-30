@@ -75,6 +75,7 @@ function prTruth(n) {
   if (prState(n) === 'landed') return { blocks: '', next: '', since: null };
   const board = boardRow(n);
   if (board && verdictState(board) === 'you') return { blocks: rowWords(board).blocker, next: '', since: waitingSince(Number(n)) ?? stackRow(n)?.since };
+  if (board && verdictState(board) === 'failing') return { blocks: board.blocker, next: '', since: null };
   const approved = Math.max(new Date(approvedAt(Number(n)) ?? 0), new Date(board?.verdict?.at ?? 0));
   const evidence = state.model.evidence[n];
   const work = curated('work');
@@ -336,7 +337,7 @@ function holdPeek() {
 function reviewScreen(list) {
   const m = state.model;
   if (list === 'q') list = '';
-  const decided = m.board.rows.filter((r) => verdictState(r) !== 'you');
+  const decided = m.board.rows.filter((r) => ['approved', 'held'].includes(verdictState(r)));
   const chips = `<nav class="pg-filters"><a href="#/review" class="${list ? '' : 'on'}">Waiting on you <b>${needsTotal()}</b></a><a href="#/review/decided" class="${list === 'decided' ? 'on' : ''}">You approved or held <b>${decided.length}</b></a></nav>`;
   if (list === 'decided') return `<div class="pg">${pageHead('Review', curated('review'))}${chips}<div class="mr-list">${decided.map(mergeRow).join('') || '<p class="pg-none">Nothing you approved is still waiting to land.</p>'}</div></div>`;
   const merges = m.needs.filter((item) => item.kind === 'prs').map((g) => {
