@@ -83,7 +83,7 @@ SOURCE = "board"
 CAPTURES = "owner-prompts.jsonl"
 CREDENTIAL = re.compile(
     r"\b(?:sk|pk|rk)-[\w-]{16,}"
-    r"|\b(?:gh[pousr]|github_pat)_\w{20,}"
+    r"|\b(?:gh[pousr]|github_pat)_[\w.-]{20,}"
     r"|\bxox[abprs]-[\w-]{10,}"
     r"|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"
     r"|\b(?:api|sdk|mob)-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b"
