@@ -218,7 +218,7 @@ def test_every_blocked_milestone_and_blocker_says_what_unblocks_it(page):
     now(page)
     blocked = page.locator(".nw-spine .sp:is(.ms-paused, .ms-broken)")
     assert blocked.count() >= 1
-    assert [t[:12] for t in blocked.locator(".unb").all_inner_texts()] == ["Unblocking: "] * blocked.count()
+    assert [t[:12] for t in blocked.locator(".unb").all_text_contents()] == ["Unblocking: "] * blocked.count()
     rows = page.locator(".nw-slot .pan.focus .chain .hc:not(.you)")
     assert [t[:12] for t in rows.locator(".unb").all_inner_texts()] == ["Unblocking: "] * rows.count()
 
@@ -229,14 +229,14 @@ def test_the_milestones_show_the_state_computed_from_records_not_a_stale_summary
     spine = page.locator(".nw-spine .sp")
     assert [re.search(r"\bms-(\w+)", c)[1] for c in spine.evaluate_all("(els) => els.map((e) => e.className)")] == [m["state"] for m in computed]
     assert page.locator(".nw-spine .sp .st").all_inner_texts() == [m["label"] for m in computed]
-    assert page.locator(".nw-spine .sp .unb").all_inner_texts() == [f"Unblocking: {m['unblocking']}" for m in computed if m["blockers"]]
+    assert page.locator(".nw-spine .sp .unb").all_text_contents() == [f"Unblocking: {m['unblocking']}" for m in computed if m["blockers"]]
 
 
 def test_a_blocked_milestone_says_its_state_its_blocker_and_its_unblocking_once_each(page):
     now(page)
     model = json.loads(MODEL.read_text())
     i, held = next((i, m) for i, m in enumerate(model["milestone_state"]) if m["blockers"])
-    block = page.locator(f'.nw-spine .sp[data-i="{i}"]').inner_text()
+    block = page.locator(f'.nw-spine .sp[data-i="{i}"]').text_content()
     assert block.count(held["label"]) == 1
     assert block.count(held["waits"]) == 1
     assert block.count("Unblocking:") == 1 and held["unblocking"] in block
@@ -340,9 +340,34 @@ def test_the_feed_shows_the_focused_work_first_and_other_works_latest_line_only_
     assert rest.locator(".ev").is_visible()
 
 
-def test_a_failure_without_a_prevention_shows_in_red_and_prevented_ones_fold_away(page):
+def test_the_prevention_table_lists_open_ones_first_red_only_without_a_prevention_and_folds_live_ones(page):
     now(page)
     model = json.loads(MODEL.read_text())
-    open_ = [p["failure"] for p in model["preventions"] if not p["prevented_by"]]
-    assert [t.split("\n")[0] for t in page.locator(".nw-prevent .pv.open").all_inner_texts()] == open_
-    assert not page.locator(".nw-prevent details .pv").first.is_visible()
+    rows = page.locator(".nw-prevent > .pt .pt-row")
+    order = ["none", "building", "open", "merged", "live"]
+    in_flight = sorted((p for p in model["preventions"] if p["state"] != "live"), key=lambda p: order.index(p["state"]))
+    assert [t.split("\n")[0] for t in rows.all_inner_texts()] == [p["failure"] for p in in_flight]
+    assert [r.get_attribute("class").split() for r in rows.all()] == [["pt-row", p["state"]] for p in in_flight]
+    assert page.locator(".nw-prevent .pt-row.none .chip").all_inner_texts() == ["No prevention yet"] * sum(p["state"] == "none" for p in model["preventions"])
+    assert not page.locator(".nw-prevent details .pt-row").first.is_visible()
+
+
+def spine_widths(page):
+    return page.locator(".nw-spine .sp").evaluate_all("(els) => els.map((e) => e.getBoundingClientRect().width)")
+
+
+def test_the_focused_milestone_is_widest_and_alone_shows_its_blocker_and_next_step(page):
+    now(page)
+    widths = spine_widths(page)
+    cur = int(page.locator(".nw-spine .sp.focus").get_attribute("data-i"))
+    assert widths[cur] > 2 * max(w for i, w in enumerate(widths) if i != cur)
+    i = next(i for i, m in enumerate(json.loads(MODEL.read_text())["milestone_state"]) if m["blockers"])
+    blocked = page.locator(f'.nw-spine .sp[data-i="{i}"]')
+    assert not blocked.locator(".why").is_visible()
+    blocked.hover()
+    page.wait_for_timeout(700)
+    assert blocked.locator(".why").is_visible() and blocked.locator(".unb").is_visible()
+    widths = spine_widths(page)
+    assert widths[i] > 2 * max(w for j, w in enumerate(widths) if j != i)
+    page.mouse.move(0, 0)
+    page.wait_for_timeout(900)

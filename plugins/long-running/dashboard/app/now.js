@@ -104,15 +104,17 @@ function liveFeed(b) {
   const rows = [...b.work].sort((x, y) => (y.item === lead) - (x.item === lead)).map((w) => workRow(w, w.item === lead));
   return `<section class="nw-live"><h2 class="nw-h">Being worked on now</h2>${rows.length ? `<div class="nw-work">${rows.join('')}</div>` : '<div class="nw-calm">No work is running right now.</div>'}</section>`;
 }
+const PREVENT_WORD = { none: 'No prevention yet', building: 'Being built', open: 'Fix open', merged: 'Merged', live: 'Live' };
 function preventions() {
   const list = state.model.preventions;
   if (!list.length) return '';
-  const open = list.filter((p) => !p.prevented_by);
-  const done = list.filter((p) => p.prevented_by);
-  const due = (p) => [p.owner && `${workerName(p.owner)} owns it`, p.due && `due ${clock(p.due)}`].filter(Boolean).join(', ');
+  const order = Object.keys(PREVENT_WORD);
+  const table = (rows) => `<div class="pt"><div class="pt-head"><span>What failed</span><span>What stops it happening again</span><span>State</span><span>Owner</span><span>Due</span></div>${rows.map((p) => `<div class="pt-row ${p.state}"><b>${esc(p.failure)}</b><span>${esc(p.prevention ?? '')}${p.pr ? ` <span class="pr">${esc(p.pr)}</span>` : ''}</span><span><span class="chip pv-${p.state}">${PREVENT_WORD[p.state]}</span></span><span>${p.owner ? esc(workerName(p.owner)) : ''}</span><span>${p.due ? esc(clock(p.due)) : ''}</span></div>`).join('')}</div>`;
+  const open = list.filter((p) => p.state !== 'live').sort((a, b) => order.indexOf(a.state) - order.indexOf(b.state));
+  const live = list.filter((p) => p.state === 'live');
   return `<section class="nw-prevent"><h2 class="nw-h">What failed, and what stops it happening again</h2>
-    ${open.map((p) => `<div class="pv open"><b>${esc(p.failure)}</b><span>No prevention yet${due(p) ? `. ${esc(due(p))}` : ''}.</span></div>`).join('')}
-    ${done.length ? fold('pv-done', `Prevented <span class="pg-n">${done.length}</span>`, done.map((p) => `<div class="pv"><b>${esc(p.failure)}</b><span>Prevented by ${esc(p.prevented_by)}</span></div>`).join('')) : ''}</section>`;
+    ${open.length ? table(open) : ''}
+    ${live.length ? fold('pv-live', `Prevention live <span class="pg-n">${live.length}</span>`, table(live)) : ''}</section>`;
 }
 function workOpen() {
   return stackOf().length > 0 && route().screen === 'work';
@@ -137,9 +139,8 @@ function journey(b) {
   const focus = hover.at ?? cur;
   const lastLive = list.map((s) => s.state).lastIndexOf('live');
   const moved = (s, i) => lastPaint.stops !== null && lastPaint.stops[i] !== s.state;
-  const weight = list.map((s, i) => (i === cur ? 1.6 : s.state === 'live' ? 0.8 : 1));
   const html = `<div class="nw-panel">${progressLabel()}
-    <div class="nw-journey nw-spine${lastPaint.stops === null ? ' fill' : ''}" style="--phase:-${Date.now() % 2400}ms;--n:${list.length};grid-template-columns:${weight.map((w) => `minmax(0, ${w}fr)`).join(' ')}">${list.map((s, i) => {
+    <div class="nw-journey nw-spine${lastPaint.stops === null ? ' fill' : ''}" style="--phase:-${Date.now() % 2400}ms;--n:${list.length};grid-template-columns:${columns(list, focus)}">${list.map((s, i) => {
       const cls = ['sp', `ms-${s.state}`, i === cur && 'cur', i === focus && 'focus', i > 0 && i <= lastLive && 'l-on', i < lastLive && 'r-on', moved(s, i) && 'moved'].filter(Boolean).join(' ');
       return `<div class="${cls}" data-i="${i}"><a class="ms ms-${s.state}${i === cur ? ' cur' : ''}" href="#/plan/m${i}"><span class="here">${i === cur ? 'Drive is here' : ''}</span><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.blockers.length ? `<span class="when">${blockedFor(s.since)}</span><span class="why">${esc(s.waits)}</span>${unblockLine(s.unblocking)}` : ''}${waitsOnOwner(s) ? '<span class="need">Needs you</span>' : ''}</a>
         <div class="bd"><i class="stem"></i></div></div>`;
@@ -154,6 +155,9 @@ function journey(b) {
 function waitsOnOwner(s) {
   return s.left.some((n) => n.state === 'you') || s.work.some((w) => /^(ready for you|needs you)$/i.test(w.status));
 }
+function columns(list, focus) {
+  return list.map((s, i) => `minmax(0, ${i === focus ? 3.2 : s.state === 'live' ? 0.7 : 1}fr)`).join(' ');
+}
 function spineFocus(i) {
   const slot = $('.nw-slot');
   if (!slot) return;
@@ -163,6 +167,7 @@ function spineFocus(i) {
   if (hover.at === null) hover.hold = slot.querySelector('.pan.focus')?.offsetHeight ?? 0;
   hover.at = at;
   slot.style.setProperty('--hold', `${hover.hold}px`);
+  $('.nw-spine').style.gridTemplateColumns = columns(stops(), at ?? cur);
   for (const el of document.querySelectorAll('.nw-spine > .sp, .nw-slot > .pan')) el.classList.toggle('focus', Number(el.dataset.i) === (at ?? cur));
   for (const el of document.querySelectorAll('.nw-slot > .pan')) el.classList.toggle('grow', Number(el.dataset.i) === (at ?? cur));
 }
