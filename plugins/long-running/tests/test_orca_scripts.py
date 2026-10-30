@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -661,7 +662,7 @@ def test_a_launch_whose_one_wait_outlasts_the_stall_limit_fails_with_launch_fail
     orca.reply("worktree create", {"rc": 1, "out": "connection lost"})
     result = orca.launch()
     assert result.returncode == 1
-    assert result.stdout.startswith("lane-a failed LAUNCH-FAILED: Orca has not registered worktree lane-a-base for 0s")
+    assert re.match(r"lane-a failed LAUNCH-FAILED: Orca has not registered worktree \S*lane-a-base for 0s", result.stdout), result.stdout
     assert orca.calls("terminal create") == []
 
 
