@@ -3702,7 +3702,7 @@ def tap(shell: FakeShell, pr: str, head: str) -> None:
     shell.board.setdefault("merge-rows", {})[pr] = {"verdict": "approved", "head": head, "at": "2026-10-01T17:40:00Z"}
 
 
-def head_record(shell: FakeShell, pr: str, text: str) -> int:
+def lane_head_record(shell: FakeShell, pr: str, text: str) -> int:
     seq = 34766 + len(shell.records)
     shell.records.append({"seq": seq, "drive": "d1", "lane": LANE, "kind": "head", "to": ["root"], "refs": {"prs": [f"Forge-AI/monorepo#{pr}"]}, "text": text, "at": actions.stamp(shell.clock)})
     return seq
@@ -3721,7 +3721,7 @@ def test_a_board_tap_carries_itself_to_a_patch_identical_restack_once_a_record_s
     landing_pass(shell, config)
     assert shell.carries == [] and tap_notes(shell) == []
     if restack == "head":
-        seqs = [head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): restack onto dev, range-diff patch-identical (3 commits)")]
+        seqs = [lane_head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): restack onto dev, range-diff patch-identical (3 commits)")]
     elif restack == "fidelity":
         seqs = [grade(shell, "29020", "ok cccc333333 patch-identical to, with no root go at, aaaa111111 (#34700), patch-identical (patch-id 5ebf1cae3e6e).", lane="fidelity-desk")]
     elif restack == "no new behavior":
@@ -3731,7 +3731,7 @@ def test_a_board_tap_carries_itself_to_a_patch_identical_restack_once_a_record_s
     elif restack == "tap carries":
         seqs = [grade(shell, "29020", "ok cccc333, tap carries (399b5fa): patch-identical replay of aaaa111 onto the restacked #42810. old-app: unchanged vs c57cad26 (release 10435).")]
     else:
-        older = head_record(shell, "29020", "HEAD #29020 bbbb222222 (was aaaa111111): restack, range-diff patch-identical")
+        older = lane_head_record(shell, "29020", "HEAD #29020 bbbb222222 (was aaaa111111): restack, range-diff patch-identical")
         seqs = [grade(shell, "29020", "ok cccc333333 carried from bbbb222222, patch-identical replay onto dev."), older]
     landing_pass(shell, config)
     landing_pass(shell, config)
@@ -3750,7 +3750,7 @@ def said_on(shell: FakeShell, said: list[tuple[str, str]]) -> int:
     seq = 0
     for kind, text in said:
         if kind == "head":
-            seq = head_record(shell, "29020", text)
+            seq = lane_head_record(shell, "29020", text)
         elif kind == "withdraw":
             seq = 34766 + len(shell.records)
             shell.records.append({"seq": seq, "drive": "d1", "lane": LANE, "kind": "withdraw", "to": [], "re": shell.records[-1]["seq"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": text, "at": actions.stamp(shell.clock)})
@@ -3929,7 +3929,7 @@ def test_a_fixed_head_a_root_go_names_asks_the_board_for_no_new_row(shell, confi
     board_lane(config)
     lone_green_pr(shell)
     tap(shell, "29020", "aaaa111111")
-    head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): answers the finder's major with a nil check")
+    lane_head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): answers the finder's major with a nil check")
     root_go(shell, "go #29020 at cccc333 (fixed version of aaaa111, his tap)", shell.now())
     landing_pass(shell, config)
     landing_pass(shell, config)
@@ -3983,7 +3983,7 @@ def test_a_carry_onto_a_merge_block_the_board_dropped_is_nothing_to_carry_settle
     lone_green_pr(shell)
     tap(shell, "29020", "aaaa111111")
     shell.unknown_blocks = {"merge-rows"}
-    head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): restack onto dev, range-diff patch-identical (3 commits)")
+    lane_head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): restack onto dev, range-diff patch-identical (3 commits)")
     if settled == "go":
         root_go(shell, "go #29020 at cccc333 (patch-identical restack of his tap)", shell.now())
     elif settled == "fidelity carry":
