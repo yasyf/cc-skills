@@ -154,6 +154,7 @@ class FakeShell(runner_module.Shell):
         self.posts: list[dict] = []
         self.states: list[dict] = []
         self.alive: list[str] = []
+        self.beats: list[dict] = []
         self.records: list[dict] = []
         self.trunk: list[dict] = []
         self.trunk_error = ""
@@ -575,6 +576,8 @@ class FakeShell(runner_module.Shell):
                 return runner_module.Done(1, "", self.post_error)
             if (flags["--kind"], flags["--to"]) == ("state", f"{runner_module.WATCHDOG}@{flags['--drive']}"):
                 self.alive.append(flags["--text"])
+                attrs = dict(value.split("=", 1) for flag, value in zip(argv[2::2], argv[3::2], strict=True) if flag == "--attr")
+                self.beats.append({"seq": len(self.beats) + 1, "drive": flags["--drive"], "lane": "desk-runner", "kind": "state", "topic": flags["--topic"], "to": [flags["--to"]], "at": actions.stamp(self.clock), "text": flags["--text"], "source": "post", "fields": {"attrs": attrs}})
                 return runner_module.Done(0, "#0\n", "")
             if (flags["--kind"], flags["--topic"]) == ("state", "landing-state"):
                 self.states.append({key.lstrip("-"): value for key, value in flags.items()})
@@ -643,6 +646,9 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(1, "", self.tail_error)
         drive = argv[argv.index("--drive") + 1]
         assert drive in self.drives and "--json" in argv and "--cursor" not in argv
+        if "--to" in argv and argv[argv.index("--to") + 1] == f"{runner_module.WATCHDOG}@{drive}":
+            topic = next(arg.partition("=")[2] for arg in argv if arg.startswith("--topic="))
+            return runner_module.Done(0, "".join(f"{json.dumps(beat)}\n" for beat in [beat for beat in self.beats if beat["drive"] == drive and beat["topic"] == topic][-1:]), "")
         since = argv[argv.index("--since") + 1]
         kinds = [arg.partition("=")[2] for arg in argv if arg.startswith("--kind=")]
         topics = [arg.partition("=")[2] for arg in argv if arg.startswith("--topic=")]
@@ -7844,11 +7850,13 @@ def test_a_landing_config_that_names_no_release_owner_does_not_start(shell, conf
         cli(shell, config, "run", "--desk", "landing", "--once")
 
 
-def test_the_view_renders_pacific_times_from_receipts(shell, config, tmp_path):
+def test_the_view_renders_pacific_times_from_receipts(shell, config, tmp_path, capsys):
     shell.launch(LANE, "ctx_a")
     cli(shell, config, "relay", "--key", "R625", "--lane", LANE, "--text", "rebase onto dev")
     orca_pass(shell, config)
-    view = (tmp_path / "desk-runner.md").read_text()
+    capsys.readouterr()
+    assert cli(shell, config, "show") == 0
+    view = capsys.readouterr().out
     assert "R625 relay [accepted] accepted 11:00" in view
     assert "Z" not in view.split("\n", 1)[1].replace("desk-lane", "")
 
@@ -8205,7 +8213,7 @@ def test_the_orca_loop_waits_ten_seconds_between_quiet_passes(shell, config, tmp
     sleeps = []
     passes = []
 
-    def write_view():
+    def beat(desk):
         passes.append(shell.now())
         if len(passes) == 3:
             raise RuntimeError("end loop")
@@ -8214,7 +8222,7 @@ def test_the_orca_loop_waits_ten_seconds_between_quiet_passes(shell, config, tmp
         sleeps.append(seconds)
         shell.clock += timedelta(seconds=seconds)
 
-    monkeypatch.setattr(runner, "write_view", write_view)
+    monkeypatch.setattr(runner, "beat", beat)
     monkeypatch.setattr(shell, "sleep", sleep)
     with pytest.raises(RuntimeError, match="end loop"):
         runner_module.run_orca(runner, False)
@@ -8226,7 +8234,7 @@ def test_the_orca_loop_backs_off_while_orca_gives_no_answer_and_resets_when_it_a
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     passes = []
 
-    def write_view():
+    def beat(desk):
         passes.append(shell.now())
         if len(passes) == 5:
             shell.orca_down = None
@@ -8237,7 +8245,7 @@ def test_the_orca_loop_backs_off_while_orca_gives_no_answer_and_resets_when_it_a
         shell.clock += timedelta(seconds=seconds)
 
     shell.orca_down = UNREACHABLE_FAILURES[0]
-    monkeypatch.setattr(runner, "write_view", write_view)
+    monkeypatch.setattr(runner, "beat", beat)
     monkeypatch.setattr(shell, "sleep", sleep)
     with pytest.raises(RuntimeError, match="end loop"):
         runner_module.run_orca(runner, False)
@@ -8557,17 +8565,22 @@ def test_a_refused_cci_post_keeps_the_desk_relaying_and_posts_on_a_later_pass(sh
     assert escalations(shell) == [f"RELAYED R2 {LANE}: relay to dispatch ctx_a"]
 
 
-def test_each_orca_pass_writes_a_heartbeat_beside_the_desk_inbox(shell, config, tmp_path):
+def heartbeat(shell: FakeShell, desk: str) -> dict | None:
+    return runner_module.drive.heartbeat(lambda argv: shell.run(argv).out, "d1", desk)
+
+
+def test_the_orca_heartbeat_is_a_cci_alive_record_naming_the_runner_and_writes_no_file(shell, config, tmp_path):
     orca_pass(shell, config)
-    beat = json.loads((tmp_path / "inbox" / runner_module.HEARTBEATS["orca"]).read_text())
-    assert beat == {
-        "pid": os.getpid(),
-        "at": shell.clock.isoformat(),
+    assert heartbeat(shell, "orca") == {
+        "pid": str(os.getpid()),
+        "at": actions.stamp(shell.clock),
         "config": str(config.resolve()),
         "terminal": "term_root",
         "restart": f"nohup desk-runner.py run --config {config.resolve()} --desk orca >> {tmp_path / 'orca-runner.log'} 2>&1 < /dev/null &",
         "version": runner_module.RUNNING_VERSION,
     }
+    assert heartbeat(shell, "landing") is None
+    assert list(tmp_path.glob("inbox/*.heartbeat.json")) == [] and not (tmp_path / "desk-runner.md").exists()
 
 
 def installed(tmp_path: Path, *versions: str) -> None:
@@ -8607,14 +8620,14 @@ def test_a_runner_behind_the_installed_plugin_re_executes_into_it_at_the_end_of_
     with pytest.raises(Reexeced):
         (runner_module.run_orca if desk == "orca" else runner_module.run_landing)(runner, False)
     assert shell.reexeced == [[str(runner_module.RUNNER_BIN), "run", "--config", str(config.resolve()), "--desk", desk]]
-    assert (tmp_path / "inbox" / runner_module.HEARTBEATS[desk]).is_file()
+    assert heartbeat(shell, desk)["pid"] == str(os.getpid())
 
 
 def test_the_orca_loop_exits_on_its_stop_marker_at_the_first_step(shell, config, tmp_path):
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     runner.stop_marker().write_text(f"{os.getpid()}\n")
     assert runner_module.run_orca(runner, False) == 0
-    assert (tmp_path / "inbox" / runner_module.HEARTBEATS["orca"]).is_file()
+    assert heartbeat(shell, "orca") is not None
     assert not runner.stop_marker().exists()
 
 
@@ -8707,7 +8720,7 @@ def test_a_desk_env_in_runner_json_reaches_the_runner_its_restart_line_and_its_h
     landing_pass(shell, config)
     restart = f"nohup env AWS_PROFILE=release-operator desk-runner.py run --config {config.resolve()} --desk landing >> {tmp_path / 'landing-runner.log'} 2>&1 < /dev/null &"
     assert shell.environ["AWS_PROFILE"] == "release-operator"
-    assert json.loads((tmp_path / "inbox" / runner_module.HEARTBEATS["landing"]).read_text())["restart"] == restart
+    assert heartbeat(shell, "landing")["restart"] == restart
     _, held = live_runner(shell, config, tmp_path, "landing")
     monkeypatch.setattr(shell, "sleep", lambda seconds: held.close())
     assert cli(shell, config, "handoff", "--desk", "landing") == 0
@@ -8737,7 +8750,8 @@ def test_a_handoff_whose_runner_re_executes_into_this_version_under_its_pid_is_d
         sleep(seconds)
         with monkeypatch.context() as patched:
             patched.setattr(runner_module, "RUNNING_VERSION", version)
-            runner.write_heartbeat("orca")
+            runner.alive_posted.clear()
+            runner.post_alive("orca")
 
     monkeypatch.setattr(shell, "sleep", beats)
     with held:
@@ -8752,7 +8766,7 @@ def test_a_second_runner_on_the_same_config_and_desk_refuses_to_start_and_names_
     with held:
         assert cli(shell, config, "run", "--desk", desk, "--once") == 3
     assert f"runner {os.getpid()} already runs the {desk} desk" in capsys.readouterr().err
-    assert not (tmp_path / "inbox" / runner_module.HEARTBEATS[desk]).exists()
+    assert heartbeat(shell, desk) is None
 
 
 @pytest.mark.parametrize("desk", ["orca", "landing"])
@@ -8771,7 +8785,7 @@ def test_a_runner_started_while_its_handed_off_predecessor_still_holds_the_lock_
 
     monkeypatch.setattr(shell, "sleep", exits)
     assert cli(shell, config, "run", "--desk", desk, "--once") != 3
-    assert (tmp_path / "inbox" / runner_module.HEARTBEATS[desk]).exists()
+    assert heartbeat(shell, desk) is not None
 
 
 def test_the_landing_loop_exits_on_its_stop_marker_within_one_interval_and_its_successor_resumes_from_the_same_book(shell, config, tmp_path):
@@ -8824,21 +8838,21 @@ def test_handoff_with_no_heartbeat_has_no_runner_to_stop_and_starts_one(shell, c
     assert shell.successors == [successor(config, tmp_path, desk)]
 
 
-def test_a_desk_writes_its_heartbeat_when_it_starts_before_its_first_pass_ends(shell, config, tmp_path):
-    path = tmp_path / "inbox" / runner_module.HEARTBEATS["landing"]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"pid": 1, "at": "2026-10-27T21:58:00+00:00"}) + "\n")
+def test_a_desk_posts_its_alive_record_when_it_starts_before_its_first_pass_ends(shell, config, tmp_path):
+    shell.beats.append({"seq": 0, "drive": "d1", "lane": "desk-runner", "kind": "state", "topic": "landing", "at": "2026-10-27T21:58:00Z", "text": "landing alive 2:58 PM pass 9", "fields": {"attrs": {"pid": "1"}}})
     runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store")).keep_alive("landing").set()
-    assert json.loads(path.read_text())["pid"] == os.getpid()
+    assert heartbeat(shell, "landing")["pid"] == str(os.getpid())
+    assert shell.alive == [f"landing alive {shell.clock.astimezone(runner_module.PACIFIC):%-I:%M %p} pass 0"]
 
 
-def test_each_landing_pass_writes_its_own_heartbeat_beside_the_desk_inbox(shell, config, tmp_path):
+def test_each_landing_pass_posts_its_own_alive_record(shell, config, tmp_path):
+    started = shell.clock
     landing_pass(shell, config)
-    assert shell.alive == [f"landing alive {shell.clock.astimezone(runner_module.PACIFIC):%-I:%M %p} pass 1"]
-    beat = json.loads((tmp_path / "inbox" / runner_module.HEARTBEATS["landing"]).read_text())
-    assert beat["pid"] == os.getpid()
+    assert shell.alive[0] == f"landing alive {started.astimezone(runner_module.PACIFIC):%-I:%M %p} pass 0"
+    beat = heartbeat(shell, "landing")
+    assert beat["pid"] == str(os.getpid())
     assert beat["restart"] == f"nohup desk-runner.py run --config {config.resolve()} --desk landing >> {tmp_path / 'landing-runner.log'} 2>&1 < /dev/null &"
-    assert not (tmp_path / "inbox" / runner_module.HEARTBEATS["orca"]).exists()
+    assert heartbeat(shell, "orca") is None
 
 
 def test_the_alive_record_names_the_command_in_flight_and_how_long_it_has_run(shell, config, tmp_path, monkeypatch):
@@ -8865,7 +8879,7 @@ def test_a_pass_that_raises_posts_a_blocker_and_the_runner_goes_on_until_the_sam
     assert [(post["to"], post["text"]) for post in blockers(shell)] == [
         ("root", "landing runner pass raised UnicodeDecodeError: 'utf-8' codec can't decode byte 0xb5 in position 0: invalid start byte; the runner goes on with its next pass"),
         ("root", "landing runner pass raised KeyError: 'base'; the runner goes on with its next pass"),
-        ("root", "landing runner pass raised KeyError: 'base'; it raised the same on the pass before, so the runner exited; restart it with its heartbeat's restart line"),
+        ("root", "landing runner pass raised KeyError: 'base'; it raised the same on the pass before, so the runner exited; restart it with the restart attr of its newest alive record"),
     ]
 
 
@@ -8873,7 +8887,7 @@ def test_the_landing_loop_exits_on_its_stop_marker_at_the_first_step(shell, conf
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     runner.stop_marker().write_text(f"{os.getpid()}\n")
     assert runner_module.run_landing(runner, False) == 0
-    assert (tmp_path / "inbox" / runner_module.HEARTBEATS["landing"]).is_file()
+    assert heartbeat(shell, "landing") is not None
     assert not runner.stop_marker().exists()
 
 

@@ -20,8 +20,9 @@ model `orca-launch.sh` starts; `--now` skips the runner's load hold. `relay`, `h
 since the runner's verdict reaches the root on cci. The next key is one past the highest
 `R<n>` the runner can hold: one opening an `orca-desk:` record addressed to `orca-desk` on
 the drive, or a line of the drive's `inbox/orca-desk.md`, its archive included, so a line
-appended by hand is never keyed twice. A drive with no orca runner heartbeat beside that inbox
-posts nothing: the command refuses in one line, naming the Agent to spawn for a launch. Each line is one
+appended by hand is never keyed twice. A drive whose orca runner posted no `orca alive` record
+in the last five minutes posts nothing: the command refuses in one line, naming the Agent to spawn
+for a launch. Each line is one
 `cci post --kind go --to orca-desk` record in the runner's grammar, so nothing is posted
 unaddressed or in another form. A launch then reads the runner's records on the drive
 until each key settles as `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-HELD`, `UNVERIFIABLE`, or
@@ -44,7 +45,7 @@ import re
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -81,10 +82,11 @@ def desk_inbox(drive: str, fallback: str) -> Path:
     entry = next((entry for entry in registry.drives() if registry.cci_drive(entry) == drive or (not drive and session in entry["sessions"])), None)
     if not entry:
         sys.exit(f"no drive in the registry is {f'cci drive {drive}' if drive else f'bound to session {session}'}, so the keys in its {INBOX} are unread and no R<n> is safe to take")
-    inbox = Path(entry["state_dir"]) / INBOX
-    if not (inbox.parent / registry.HEARTBEATS["orca"]).is_file():
-        sys.exit(f"refused: no orca desk runner has finished a pass on this drive (no {registry.HEARTBEATS['orca']} in {inbox.parent}), so nothing reads {DESK} lines; {fallback}")
-    return inbox
+    beat = registry.heartbeat(lambda argv: cci("", *argv[1:]), registry.cci_drive(entry), "orca")
+    if not registry.beating(beat, datetime.now(timezone.utc)):
+        last = f"last at {datetime.fromisoformat(beat['at']).astimezone(PACIFIC).strftime('%-I:%M %p')}" if beat else "never"
+        sys.exit(f"refused: no orca desk runner has posted an orca alive record on cci drive {registry.cci_drive(entry)} in the last five minutes ({last}), so nothing reads {DESK} lines; {fallback}")
+    return Path(entry["state_dir"]) / INBOX
 
 
 def agent_fallback(args: argparse.Namespace) -> str:
@@ -219,7 +221,7 @@ def main(argv: list[str] | None = None) -> int:
     settled = wait(args.drive, since, keys, args.timeout_seconds)
     for key, lane in keys.items():
         if key not in settled:
-            print(f"{lane} {key} unsettled after {args.timeout_seconds:.0f}s: no runner verdict; check the orca runner's heartbeat beside the desk inbox", flush=True)
+            print(f"{lane} {key} unsettled after {args.timeout_seconds:.0f}s: no runner verdict; check the orca runner's newest alive record with `cci tail --drive {args.drive or '<drive>'} --lane {RUNNER} --kind state --topic orca -n 1`", flush=True)
     if len(settled) < len(keys):
         return 2
     return 0 if all(label == "LAUNCHED" for label, _ in settled.values()) else 1

@@ -561,14 +561,16 @@ The orca runner rotates every *.md inbox beside `orca.desk_inbox` once an hour,
 using the default six-hour window. While `runner.json` holds a `stall` object, read every pass so an edit needs no
 restart, the orca runner starts `stall_watch.py --config <config>` detached every `stall.every_minutes` (default 5)
 once its last pass has exited, logging to `stall-watch.log` beside `orca.desk_inbox`.
-Each pass of either desk writes its heartbeat beside `orca.desk_inbox`, naming its pid, config, restart command, and the
-plugin version the runner runs. A runner behind the version `installed_plugins.json` lists posts nothing and re-executes into the installed version after
+Each desk's heartbeat is its `<desk> alive <time> pass <n>` cci `state` record to the drive watchdog, posted when `run`
+starts and then once a minute from a thread whatever the pass is doing, whose attrs name its pid, config, terminal, restart
+command, and the plugin version the runner runs; every reader reads the newest such record, so the runner may run on any
+machine, and `desk-runner.py show` renders its state from the store. A runner behind the version `installed_plugins.json` lists posts nothing and re-executes into the installed version after
 that pass's wait, keeping its pid, config, and desk; `--once` never re-executes. An `env` object under a desk's config
 object, such as `"landing": {"env": {"AWS_PROFILE": "release-operator"}}`, is merged into that desk's process environment
 each time `run` starts, a re-execution included, and is carried by its restart command and its `handoff` successor. `handoff` stops the live runner at the next
 boundary between the steps of its pass, or between the PRs and stacks a landing step works through, and starts the next one with the same config and desk, appending to `<desk>-runner.log`. Each `run` holds
 `<config>.<desk>.lock` for its life and refuses to start, naming the holder's pid, while another runner holds it; `handoff` stops
-that holder and waits up to 20 minutes, as long as a slow pass takes, for it to exit, or for its heartbeat to show it
+that holder and waits up to 20 minutes, as long as a slow pass takes, for it to exit, or for its newest alive record to show it
 re-executed into the handoff's own version under the same pid, which withdraws the stop and starts nothing; past that it
 starts nothing and logs `HANDOFF-STALLED` to root with the pid. `handoff` stops nothing while the install lacks a runtime brief or any file of
 `reference/` or `scripts/` that the marketplace copy it was installed from holds. `drive.py digest`
@@ -860,10 +862,9 @@ TOP_CALLERS = 5
 ROTATE_EVERY = timedelta(hours=1)
 STALL_WATCH = SCRIPTS / "stall_watch.py"
 STALL_EVERY_MINUTES = 5
-HEARTBEATS = drive.HEARTBEATS
-WATCHDOG = "drive-watchdog"
+WATCHDOG = drive.WATCHDOG
 ALIVE_EVERY = timedelta(minutes=1)
-DESKS = tuple(HEARTBEATS)
+DESKS = drive.DESKS
 RUNNING_VERSION = drive.plugin_manifest()["version"]
 LAUNCH_STALL = timedelta(seconds=60)
 ORPHANED_SEND = timedelta(minutes=2)
@@ -1446,7 +1447,6 @@ class Config:
     source: Path
     store: Path | None
     drive: str
-    view: Path
     desk_inbox: Path
     run: str
     receipts: Path
@@ -1483,7 +1483,6 @@ class Config:
             source=path.expanduser().resolve(),
             store=Path(raw["store"]).expanduser() if raw.get("store") else None,
             drive=raw["drive"],
-            view=Path(raw["view"]).expanduser(),
             desk_inbox=Path(orca["desk_inbox"]).expanduser(),
             run=orca["run"],
             receipts=Path.home() / LAUNCH_STATE / orca["run"],
@@ -1966,7 +1965,7 @@ class Runner:
         raised = f"{type(error).__name__}: {error}"
         again = self.raised.get(desk) == (raised, self.passes[desk] - 1)
         self.raised[desk] = (raised, self.passes[desk])
-        then = "it raised the same on the pass before, so the runner exited; restart it with its heartbeat's restart line" if again else "the runner goes on with its next pass"
+        then = "it raised the same on the pass before, so the runner exited; restart it with the restart attr of its newest alive record" if again else "the runner goes on with its next pass"
         self.cci_post("blocker", f"{desk} runner pass raised {raised[:240]}; {then}", ROOT, desk, f"pass-raised:{desk}")
         return again
 
@@ -1976,13 +1975,15 @@ class Runner:
         return f"{WATCHDOG}@{self.config.drive}"
 
     def post_alive(self, desk: str) -> None:
-        """Post the desk's `<desk> alive <time> pass <n>` record to the drive watchdog at most once a minute, naming the command in flight and how long it has run when one is."""
+        """Post the desk's `<desk> alive <time> pass <n>` record to the drive watchdog at most once a minute, naming the command in flight and how long it has run when one is; its attrs carry the runner's pid, version, config, terminal and restart command, the heartbeat every reader reads from cci on whatever machine it runs."""
         if self.now() - self.alive_posted.get(desk, datetime.min.replace(tzinfo=timezone.utc)) < ALIVE_EVERY:
             return
         self.alive_posted[desk] = self.now()
         flight = self.shell.in_flight()
         doing = f"{self.passes[desk] + 1} running `{flight[0]}` for {int(flight[1]) // 60}m{int(flight[1]) % 60:02d}s" if flight else str(self.passes[desk])
-        self.cci_post("state", f"{desk} alive {self.now().astimezone(PACIFIC).strftime('%-I:%M %p')} pass {doing}", self.watchdog, desk, f"alive:{desk}")
+        beat = {"pid": os.getpid(), "version": RUNNING_VERSION, "config": str(self.config.source), "terminal": self.shell.env("ORCA_TERMINAL_HANDLE"), "restart": self.restart_command(desk)}
+        attrs = [arg for name, value in beat.items() for arg in ("--attr", f"{name}={value}")]
+        self.cci_post("state", f"{desk} alive {self.now().astimezone(PACIFIC).strftime('%-I:%M %p')} pass {doing}", self.watchdog, desk, f"alive:{desk}", flags=attrs)
 
     def stall_watch(self) -> None:
         stall = json.loads(self.config.source.read_text()).get("stall")
@@ -1992,31 +1993,20 @@ class Runner:
         self.stall_pass = self.shell.spawn([sys.executable, str(STALL_WATCH), "--config", str(self.config.source)], self.config.desk_inbox.with_name("stall-watch.log"), {})
 
     def keep_alive(self, desk: str) -> threading.Event:
-        """Write the heartbeat file now, then post the alive record and rewrite the file every minute from a daemon thread, whatever the pass is doing, until the returned event is set, so a long first pass never leaves a predecessor's pid in the file."""
+        """Post the alive record now, then every minute from a daemon thread, whatever the pass is doing, until the returned event is set, so a long first pass never leaves a predecessor's pid as the desk's newest record."""
         stop = threading.Event()
-        self.write_heartbeat(desk)
+        self.post_alive(desk)
 
         def tick() -> None:
             while not stop.wait(ALIVE_EVERY.total_seconds()):
                 self.post_alive(desk)
-                self.write_heartbeat(desk)
 
         threading.Thread(target=tick, name=f"{desk}-alive", daemon=True).start()
         return stop
 
     def beat(self, desk: str) -> None:
-        """Write the desk's heartbeat file every pass, and post its alive record."""
         self.passes[desk] += 1
         self.post_alive(desk)
-        self.write_heartbeat(desk)
-
-    def write_heartbeat(self, desk: str) -> None:
-        inbox = self.config.desk_inbox.parent
-        beat = {"pid": os.getpid(), "at": self.now().isoformat(), "config": str(self.config.source), "terminal": self.shell.env("ORCA_TERMINAL_HANDLE"), "restart": self.restart_command(desk), "version": RUNNING_VERSION}
-        inbox.mkdir(parents=True, exist_ok=True)
-        staged = inbox / f".{HEARTBEATS[desk]}.{threading.get_ident()}"
-        staged.write_text(json.dumps(beat) + "\n")
-        staged.replace(inbox / HEARTBEATS[desk])
 
     def stale(self) -> bool:
         """Whether a newer plugin version is installed than this runner runs; the loop re-executes into it at the end of the pass."""
@@ -2070,7 +2060,7 @@ class Runner:
             return holder
 
     def handoff(self, desk: str) -> int:
-        """Stop the runner holding `desk`'s lock at its next step boundary, wait until it has exited, then start its successor; a runner whose heartbeat, written after the stop was asked, shows it re-executed into this version under the same pid has handed over in place, so its stop is withdrawn and no successor starts (root, Oct 29 11:46 AM); refuse, naming its pid, when neither happens within HANDOFF_WAIT (#140225). Refuse before stopping anything when the install lacks a brief the runner, finder, or incident job reads, or any reference or script file the marketplace copy it was installed from holds."""
+        """Stop the runner holding `desk`'s lock at its next step boundary, wait until it has exited, then start its successor; a runner whose newest alive record, posted after the stop was asked, shows it re-executed into this version under the same pid has handed over in place, so its stop is withdrawn and no successor starts (root, Oct 29 11:46 AM); refuse, naming its pid, when neither happens within HANDOFF_WAIT (#140225). Refuse before stopping anything when the install lacks a brief the runner, finder, or incident job reads, or any reference or script file the marketplace copy it was installed from holds."""
         if missing := list(dict.fromkeys([*(f"{path.parent.name}/{path.name}" for path in BRIEF_FILES if not path.exists()), *install_gaps()])):
             print(f"desk-runner handoff: this install lacks {', '.join(missing)}, so no runner was stopped; reinstall the plugin and hand off again", file=sys.stderr)
             return 1
@@ -2100,11 +2090,8 @@ class Runner:
         return 0
 
     def reexecuted(self, desk: str, pid: int, since: datetime) -> bool:
-        heartbeat = self.config.desk_inbox.parent / HEARTBEATS[desk]
-        if not heartbeat.is_file():
-            return False
-        beat = json.loads(heartbeat.read_text())
-        return beat["pid"] == pid and beat.get("version") == RUNNING_VERSION and datetime.fromisoformat(beat["at"]) >= since
+        beat = drive.heartbeat(self.cci_tail, self.config.drive, desk)
+        return beat is not None and beat.get("pid") == str(pid) and beat.get("version") == RUNNING_VERSION and actions.parse_stamp(beat["at"]) >= since
 
     def binding(self, via: str = "") -> dict:
         """Ask Orca whether the Run's coordinator is a live terminal that coordinates it, and record the answer, with how it was obtained, in the runner's state."""
@@ -4683,13 +4670,6 @@ class Runner:
                     status = f"HELD {held} for {int((self.now() - actions.parse_stamp(action.accepted_at)).total_seconds() // 60)}m"
                 lines.append(f"- {action.action_id} {action.kind} [{status}] {' '.join(at)}")
         return "\n".join(lines) + "\n"
-
-    def write_view(self) -> None:
-        text = self.render()
-        current = self.config.view.read_text() if self.config.view.is_file() else ""
-        if current.split("\n", 1)[1:] != text.split("\n", 1)[1:]:
-            self.config.view.parent.mkdir(parents=True, exist_ok=True)
-            self.config.view.write_text(text)
 
 
 def lost(incident: actions.Incident, key: str, response: dict) -> None:
@@ -8552,7 +8532,6 @@ def run_orca(runner: Runner, once: bool) -> int:
         runner.stall_watch()
         behind = runner.stale()
         runner.flush()
-        runner.write_view()
         runner.beat("orca")
         if once:
             return 0

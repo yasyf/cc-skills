@@ -332,7 +332,8 @@ No model desk sits between the root and Orca.
 
 Start the orca runner before the first worker; set `drive` in its config for cci
 escalations to root and `orca.desk_inbox` to the drive's `inbox/orca-desk.md`.
-The runner keeps reading that Markdown command inbox. Use `policy` for a landing
+The runner still reads that Markdown command inbox, but the root posts every line as a
+cci record addressed to `orca-desk` with `desk-launch.py` and appends nothing to it. Use `policy` for a landing
 rule and `show` for action state. Upgrade a live runner with `handoff`: it waits for
 the old runner to finish its pass and exit, then starts the new one itself.
 [The runner brief](reference/orca-desk-brief.md) gives the config and cutover.
@@ -517,7 +518,7 @@ It takes the next `R<n>`, one past every key on cci and in the desk inbox, posts
 on cci as `NOW incident xhigh` launch lines with `role=fix` and `role=evidence`, so
 the runner's incident clock holds only the fix lane, waits for the runner's `LAUNCHED` or
 `LAUNCH-FAILED`, and prints each lane's dispatch and terminal. It exits 0 only when
-both launched. On a drive whose orca runner has no heartbeat it posts nothing and refuses
+both launched. On a drive whose orca runner posted no `orca alive` record in the last five minutes it posts nothing and refuses
 in one line naming the Agent to spawn instead, `<name>-fix`. `incident.py open ... --adopt fix=<name>-fix --adopt
 evidence=<name>-evidence` hands both lanes to the executor. A codex lane writes its
 PR title, body, and commit message with `pr-prose.py`, a headless Opus 5.5 writer
@@ -531,11 +532,11 @@ a launch or a lane with `desk-launch.py withdraw <R<n> | unfixed:<msg>:<n> | lan
 withdrawal the runner rejected, a codex lane that asked the root for PR prose, and
 a stale Orca question answered by hand.*
 
-Before that launch, the root reads `orca-runner.heartbeat.json` beside
-`orca.desk_inbox`. A live pid whose last pass is under 32 minutes old means the
-runner takes the line, however long its current pass runs. A missing heartbeat, a dead
-pid, or a pass older than that, which the `desk_liveness` hook reports as
-`LAUNCH-FAILED`, means the root launches the fix lane inline in the same
+Before that launch, the root reads the orca runner's newest alive record,
+`cci tail --drive <drive> --lane desk-runner --kind state --topic orca -n 1`. One under
+five minutes old means the runner takes the line, however long its current pass runs,
+since a timer thread posts it every minute. None that recent, which `desk-launch.py` and the
+`desk_liveness` hook report as `LAUNCH-FAILED`, means the root launches the fix lane inline in the same
 turn instead of waiting for the runner: a background `codex:codex-wrapper` running
 `codex-ask --incident` on the fix brief. Every incident fix brief says build, ship
 via submit-pr, and post `ready`. Incident fixes land by plain squash the pass they
@@ -2291,20 +2292,20 @@ Restarting either is idempotent. The orca process alone consumes the Run mailbox
 let an existing desk finish its pass and end its loop before starting it. Keep
 the old session open. The landing process is the drive's merge queue and runs D3, D14, D16, and D20.
 
-Each orca pass writes `orca-runner.heartbeat.json` beside `orca.desk_inbox` with its
-pid, pass time, and restart command. A `cci post` that fails stays queued for the next
-pass instead of stopping the runner. When a Bash append to `orca-desk.md` finds that
-heartbeat missing or its process gone, the `desk_liveness` hook answers
-`LAUNCH-FAILED` with the restart command, and the restarted runner reads the appended
-line from its saved cursor. The heartbeat is written only when a pass ends, so a live
-pid whose last pass is under 32 minutes old, the runner's 30-minute command timeout
-plus its 2-minute longest idle, is running; past that the hook reports the live runner
-as finishing no pass. The hook reads the heartbeat in the
-`inbox/` directory under the `state_dir` that the drive registry records for the
-session, so the check holds however the command spells the inbox path, such as
-`$STATE/inbox/orca-desk.md` with `STATE` set earlier on the same line.
-Each landing pass writes `landing-runner.heartbeat.json` in the same directory, which
-`handoff --desk landing` reads; no hook watches it.
+Each runner's heartbeat is its alive record, below: its attrs carry the runner's pid,
+plugin version, config, terminal, and restart command, and every reader reads the newest
+one from cci, so a runner may run on any machine and no reader checks a pid. A `cci post`
+that fails stays queued for the next pass instead of stopping the runner. When a Bash
+append to `orca-desk.md` or a `cci post --to orca-desk` finds no orca alive record from
+the last five minutes, the `desk_liveness` hook answers `LAUNCH-FAILED` with the restart
+command that record carries, and the restarted runner reads the line from its saved
+cursor; a cci that does not answer leaves the hook silent. The hook finds the drive in
+the registry entry for the session, so the check holds however the command spells the
+inbox path, such as `$STATE/inbox/orca-desk.md` with `STATE` set earlier on the same line.
+`handoff` reads the newest record to see a runner re-execute in place, `drive.py digest`
+reads it for each desk's version and liveness, and the stall watch posts a `desk` stall
+to root when a runner that posted one in its window falls silent for 10 minutes. No
+runner writes a heartbeat or view file; `desk-runner.py show` renders the view on demand.
 Each runner also posts a cci `state` record to `drive-watchdog` once a minute from a timer
 thread, whatever its pass is doing. It reads `<desk> alive <time> pass <n>`, plus
 ``running `<command>` for <m>m<s>s`` while a command is in flight, so the watchdog alarms
