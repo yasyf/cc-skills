@@ -719,6 +719,8 @@ CHECK_POLL_SECONDS = 30
 CHECK_PASSED = {"pass", "skipping"}
 CHECK_FAILED = {"fail", "cancel"}
 ASYNC_POLLS = 60
+ASYNC_RESULT_POLLS = 180
+ASYNC_STATE = '.state + " " + .headRefOid'
 STACK_PARTIAL = "Include all existing PRs"
 STACK_MEMBER = "part of a stack"
 SQUASH_POLLS = 12
@@ -7064,6 +7066,8 @@ class Landing:
                 moved = "" if landing[pr].startswith(heads[pr]) else f", rebased to {landing[pr][:10]},"
                 self.post_record("state", f"merged-direct:{pr}@{heads[pr]}", self.landing_audience([pr], rows, self.queue_audience([pr], rows)), f"MERGED #{pr} at {heads[pr][:10]}{moved} direct {landed}, Graphite down, {DIRECT_RULING}: {how}", pr)
             self.restack_children(landed_prs, landing, squashes, open_rows)
+            if done.code == TIMED_OUT:
+                return (MERGED if outcome == MERGED else "blocked"), "".join(outs)[-1500:], f"{numbered(chain)} waits to merge: {last}"
             if done.code:
                 return (MERGED if outcome == MERGED else "failed"), "".join(outs)[-1500:], last
             outcome = MERGED
@@ -7267,6 +7271,8 @@ class Landing:
             base = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "baseRefName", "--jq", ".baseRefName", max_age=ghread.FRESH)).out.strip()
             if base == TRUNK:
                 break
+        if (now := self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "headRefOid", "--jq", ".headRefOid", max_age=ghread.FRESH)).out.strip()) and now[:10] != head[:10]:
+            return Done(1, "", f"refused: #{pr}'s head moved to {now[:10]} from the admitted {head[:10]}, so it merges once admitted at its new head"), "no merge"
         if base != TRUNK:
             return Done(1, "", f"refused: #{pr} still reads base {base or 'unread'}, not {TRUNK}, after {ASYNC_POLLS * SQUASH_POLL_SECONDS // 60} minutes, and a direct merge lands only on {TRUNK}"), "no merge"
         merged = self.shell.run(["gh", "pr", "merge", pr, "--repo", self.repo, "--squash", "--match-head-commit", head])
@@ -7275,18 +7281,19 @@ class Landing:
         return self.merge_async(pr, head), "the asynchronous merge API"
 
     def merge_async(self, pr: str, head: str) -> Done:
-        """Squash-merge `pr` at `head` with GitHub's asynchronous merge API, then read its state every `SQUASH_POLL_SECONDS` up to `ASYNC_POLLS` times until GitHub reads it merged, since the API only accepts the merge and runs it in the background."""
+        """Squash-merge `pr` at `head` with GitHub's asynchronous merge API, then read the PR every `SQUASH_POLL_SECONDS` up to `ASYNC_RESULT_POLLS` times: merged is done, a head that moves off `head` fails the request, which GitHub then drops, and a request still pending reads `TIMED_OUT`, a wait the next pass takes up, where asking again answers 409 with the pending request (root #202936). The request's own result endpoint refuses the gh OAuth token, which is neither a fine-grained nor an App token, so the PR is read instead."""
         asked = self.shell.run(["gh", "api", "-X", "PUT", f"repos/{self.repo}/pulls/{pr}/merge-async", "-f", "merge_method=squash", "-f", "merge_action=direct_merge", "-f", f"sha={head}"])
-        if asked.code:
+        if asked.code and "HTTP 409" not in asked.out + asked.err:
             return asked
-        state = ""
-        for poll in range(ASYNC_POLLS):
+        for poll in range(ASYNC_RESULT_POLLS):
             if poll:
                 self.shell.sleep(SQUASH_POLL_SECONDS)
-            state = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "state", "--jq", ".state", max_age=ghread.FRESH)).out.strip()
-            if state == "MERGED":
+            read = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "state,headRefOid", "--jq", ASYNC_STATE, max_age=ghread.FRESH)).out.split()
+            if read[:1] == ["MERGED"]:
                 return Done(0, asked.out, asked.err)
-        return Done(1, asked.out, f"GitHub accepted the asynchronous merge of #{pr} at {head[:10]}, but it reads {state or 'unread'} after {ASYNC_POLLS * SQUASH_POLL_SECONDS // 60} minutes")
+            if len(read) == 2 and read[1][:10] != head[:10]:
+                return Done(1, asked.out, f"#{pr}'s head moved to {read[1][:10]} after the asynchronous merge was asked at {head[:10]}, so GitHub drops the request")
+        return Done(TIMED_OUT, asked.out, f"GitHub still holds the asynchronous merge of #{pr} at {head[:10]} pending after {ASYNC_RESULT_POLLS * SQUASH_POLL_SECONDS // 60} minutes; the next pass asks again and finds it pending")
 
     def down_since(self) -> datetime | None:
         """When Graphite went down, as the newest queue draft before it, while the landing desk reads it down."""
