@@ -57,7 +57,7 @@ def pairs(*marks: str) -> str:
 
 
 class Fake:
-    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0, gone: tuple[str, ...] = (), ranges: dict | None = None, shows: dict | None = None, trunk: str = BASE, history: tuple[str, ...] = (), pulls: dict | None = None, races: int = 0, unregistered: tuple[str, ...] = (), subjects: tuple[str, ...] = ()):
+    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0, gone: tuple[str, ...] = (), ranges: dict | None = None, shows: dict | None = None, trunk: str = BASE, history: tuple[str, ...] = (), pulls: dict | None = None, races: int = 0, unregistered: tuple[str, ...] = (), subjects: tuple[str, ...] = (), base_gone: bool = False):
         self.tmp_path = tmp_path
         self.replies = list(replies)
         self.state = state
@@ -73,6 +73,7 @@ class Fake:
         self.races = races
         self.unregistered = unregistered
         self.subjects = subjects
+        self.base_gone = base_gone
         self.shows = LANDED | ({OLD_OWN[:11]: patch("-poll()", "+stream()"), OWN[:11]: patch("-poll()", "+stream()", "+resubscribe()")} if shows is None else shows)
         self.calls: list[tuple[list[str], Path | None]] = []
         self.comments = [{"body": "## Rulings\n- the resubscribe test pins finder #150321's fix"}, {"body": "LGTM from the review bot"}]
@@ -108,8 +109,8 @@ class Fake:
         if argv[0] == "ls-remote" and argv[-1] == "refs/pull/*/head":
             return "".join(f"{sha}\trefs/pull/{number}/head\n" for sha, number in self.pulls.items())
         if argv[0] == "ls-remote":
-            tips = {"HEAD": self.trunk, "refs/heads/dev": BASE}
-            return "".join(f"{tips[ref]}\t{ref}\n" for ref in argv[2:])
+            tips = {"HEAD": self.trunk, **({} if self.base_gone else {"refs/heads/dev": BASE})}
+            return "".join(f"{tips[ref]}\t{ref}\n" for ref in argv[2:] if ref in tips)
         if argv[0] == "fetch":
             if self.races:
                 self.races -= 1
@@ -512,6 +513,15 @@ def test_a_fixed_head_named_short_by_the_last_finder_record_reads_only_its_new_c
     question = (directory / "question-1.md").read_text()
     assert f"for its pair (none); each new commit whole with `git show <sha>` ({OWN[:11]})" in question and finder.SCOPED_STEP in question and not (directory / "rows.md").exists()
     assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over delta {OLD[:7]}..{HEAD[:7]}: no majors"
+
+
+def test_a_merged_pr_whose_base_branch_the_remote_deleted_still_gets_its_pass_over_the_trunk(tmp_path):
+    """#219204: a fidelity pass on #45398, merged into its stack base and that base since deleted, died on KeyError: 'refs/heads/<base>'."""
+    directory = job(tmp_path)
+    shell = Fake(tmp_path, [reply(finding("minor"))], "MERGED", base_gone=True)
+    assert finder.main([str(directory)], shell) == 0
+    [post] = shell.posted
+    assert finder_grade(post["--text"]) == FINDER_PASS
 
 
 def test_a_closed_pr_runs_no_finder_and_posts_nothing(tmp_path):
