@@ -7253,6 +7253,18 @@ def test_an_admitted_head_no_record_accounts_for_draws_one_admitted_skipped_nami
     assert "root" in heard(shell, "ADMITTED-SKIPPED")[0].split(",")
 
 
+def test_an_admitted_head_whose_check_keeps_timing_out_draws_admitted_skipped_naming_the_timeout(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.gates["33001"] = [(runner_module.TIMED_OUT, "", "stack-enqueue 33001 --check timed out after 60s and was killed")]
+    shell.queue["33001"] = "not queued"
+    shell.sleep(11 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [line] = skipped(shell)
+    assert f"yet no record says it is queued, merging or refused: GATE-TIMEOUT its graphite-stack-enqueue check ran past {runner_module.GATE_CHECK_SECONDS}s on both tries and was killed, so the next pass checks it again; owner lane api-fix" in line
+
+
 def test_a_pr_the_runner_merged_directly_draws_no_admitted_skipped_while_its_ledger_row_stays_open(shell, config, tmp_path):
     """Root #211747: the runner merged #45389 and #45523 directly at 6:44 AM Oct 30 and posted MERGED for each, then raised ADMITTED-SKIPPED on both at 6:50, since their ledger rows stayed open until the next refresh."""
     lone_green_pr(shell)
