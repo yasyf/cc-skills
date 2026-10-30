@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import actions
+import board_rows
 import pytest
 import stall_watch
 
@@ -68,16 +69,14 @@ class FakeShell(stall_watch.Shell):
         if argv[:2] == ["cci", "tail"]:
             since = argv[argv.index("--since") + 1]
             kinds = {arg.split("=", 1)[1] for arg in argv if arg.startswith("--kind=")}
-            page = [found for found in self.records if (not since.isdigit() or found["seq"] > int(since)) and (not kinds or found["kind"] in kinds)]
+            topics = {arg.split("=", 1)[1] for arg in argv if arg.startswith("--topic=")}
+            lane = argv[argv.index("--lane") + 1] if "--lane" in argv else None
+            pool = [*self.records, *self.board_records()] if lane else self.records
+            page = [found for found in pool if (not since.isdigit() or found["seq"] > int(since)) and (not kinds or found["kind"] in kinds) and (not topics or found.get("topic") in topics) and (lane is None or found["lane"] == lane)]
             return stall_watch.Done(0, "".join(json.dumps(found) + "\n" for found in page), "")
         if argv[:2] == ["cci", "post"]:
             self.posts.append(argv)
             return stall_watch.Done(0, f"posted #{9000 + len(self.posts)}", "")
-        if argv[:2] == ["cc-present", "outcomes"] and "--all" not in argv:
-            return stall_watch.Done(0, json.dumps({"since": "last-submit", "interactions": [{"seq": 1, "type": "triage.decided", "payload": {}}]}), "")
-        if argv[:2] == ["cc-present", "outcomes"]:
-            assert argv[argv.index("--session") + 1] == SESSION
-            return stall_watch.Done(0, json.dumps({"doc": self.doc, "interactions": {"triage": self.triage, "choices": self.choices}}), "")
         if argv[0] == "claude":
             assert argv[argv.index("--model") + 1] == stall_watch.MODEL and argv[argv.index("--effort") + 1] == "low"
             self.prompts.append(stdin)
@@ -91,6 +90,17 @@ class FakeShell(stall_watch.Shell):
         if Path(argv[1]).name == "ledger.py":
             return stall_watch.Done(self.ledger_code, json.dumps(self.rows) if self.ledger_code == 0 else "", "ccn down" if self.ledger_code else "")
         raise AssertionError(f"unexpected command {argv}")
+
+    def board_records(self) -> list[dict]:
+        found = [record(800000, "board-watch", "note", "board", 1, topic="board-rows", fields={"attrs": {"session": SESSION, "board": json.dumps(board_rows.snapshot(self.doc))}})]
+        for block, rows in self.triage.items():
+            for row_id, entry in rows.items():
+                attrs = {"session": SESSION, "block": block, "row": row_id, "verdict": entry["verdict"], "head": entry.get("head") or "", "at": entry.get("at") or ""}
+                found.append(record(800000 + len(found), "board-watch", "owner", f"{row_id} {entry['verdict']}", 1, fields={"attrs": {name: value for name, value in attrs.items() if value}}))
+        for block, choice in self.choices.items():
+            if choice:
+                found.append(record(800000 + len(found), "board-watch", "owner", "picked", 1, fields={"attrs": {"session": SESSION, "event": "choice.selected", "block": block, "picked": ",".join(choice.get("optionIds") or [])}}))
+        return found
 
     def now(self):
         return self.clock

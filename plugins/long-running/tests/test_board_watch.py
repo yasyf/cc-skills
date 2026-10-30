@@ -326,8 +326,8 @@ def test_the_root_boards_watch_posts_what_the_board_shows_once_until_it_changes(
 
     [post] = shell.posts
     assert (post[post.index("--kind") + 1], post[post.index("--topic") + 1], attrs(post)["session"]) == ("note", "board-rows", SESSION)
-    assert json.loads(attrs(post)["board"]) == {"rows": [["202", "413b38e", "2026-10-30T06:00:00Z"]], "merges": [["303", "abcdef1"]], "cards": [["merge:303:abcdef1", [], []], ["card-eviction", ["eviction-route-choice"], ["401"]]]}
-    assert board_watch.board_rows.snapshot_of_records(shell.records) == json.loads(attrs(post)["board"])
+    assert json.loads(attrs(post)["board"]) == {"blocks": ["merge-prs"], "rows": [["202", "413b38e", "2026-10-30T06:00:00Z"]], "merges": [["303", "abcdef1"]], "cards": [["merge:303:abcdef1", [], []], ["card-eviction", ["eviction-route-choice"], ["401"]]]}
+    assert board_watch.board_rows.snapshot_of_records(shell.records) == json.loads(attrs(post)["board"]) | {"session": SESSION}
 
 
 def test_a_board_that_is_not_the_roots_newest_posts_no_snapshot(tmp_path: Path) -> None:

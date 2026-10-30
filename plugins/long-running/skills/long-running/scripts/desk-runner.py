@@ -528,21 +528,21 @@ under `every`, under `high-risk` for a PR whose changed files a `landing.high_ri
 every mode for a head `check-pr` reads as touching a reserved row no answer authorizes, a prefix
 that would enqueue posts one PR card per waiting PR and head instead, logs one `MERGE-ASK` naming it, which with a blocker to the PR's lane quotes a `title: stale` line from the PR's newest fidelity grade, and enqueues once a root `go` record names each
 waiting PR and its head by a short sha in a `go` or `merge` clause, `go #<n> at <sha>`, wherever in the text that clause
-starts, or carries one: a fidelity desk's `fidelity: ok <head>` grade naming the earlier head whose first sentence says patch-identical, tap carries, no new behavior, test-only, or pure replay, on a PR whose go names the earlier head, is a go at the new head, and a carried grade for added behavior carries nothing; a clause ending `with #<a> #<b>` binds its PRs and those into one batch that enqueues whole or not at all, one `BATCH-WAITS` line to root naming the PRs a partial batch keeps out; `show` names the `merge:<pr>:<short sha>` key each ready head still waits on. The card goes through `cc-present ask` with `--session` set to the drive root's newest session in the drive registry,
+starts, or carries one: a fidelity desk's `fidelity: ok <head>` grade naming the earlier head whose first sentence says patch-identical, tap carries, no new behavior, test-only, or pure replay, on a PR whose go names the earlier head, is a go at the new head, and a carried grade for added behavior carries nothing; a clause ending `with #<a> #<b>` binds its PRs and those into one batch that enqueues whole or not at all, one `BATCH-WAITS` line to root naming the PRs a partial batch keeps out; `show` names the `merge:<pr>:<short sha>` key each ready head still waits on. The card is a `board-write` record, `op=ask`, naming the session of board-watch's newest `board-rows` snapshot, which that board's watch applies with `cc-present ask`,
 so it lands on the root's board and in the root's Slack status thread like every other card: the question, the PR's title, author, size, and review state, the
 PR linked with its live checks, waiting on `merge:<pr>:<short sha>` with `Merge (Recommended)`, `Hold`, `Other`, and `Explain more` (93037c3); a card already
 open for the head is edited in place, never re-posted, and a post that fails
 logs `MERGE-CARD-FAILED` once per head and cause and tries again next pass. With `landing.merge_ask_surface` set to `board`
 (default `slack`), the runner posts and edits no card, and the root asks every merge question on its own board. On that surface each pass
 carries the owner's board taps: an approval on a `pr-groups` row of the root's board at an older head of an open PR, with no verdict at
-its ledger head, moves to that head through `cc-present verdict carry` once `head` records reading `<new> (was <old>)` and fidelity carries
+its ledger head, moves to that head through a `board-write` record, `op=carry`, once `head` records reading `<new> (was <old>)` and fidelity carries
 call each move between the two patch-identical, with one `TAP-CARRIED` note naming both heads to root and each lane `landing.board_lane`
 names, one lane or a list, and, when no go names the new head, one `go` record of the runner's own for it, which `go_lane` counts. A new head a record names with no such chain, a fixed version, is never carried. A record saying it adds new
 behavior draws one `TAP-NOT-CARRIED` note to the same lanes saying the board needs a new row; a fidelity ok grade naming none draws one
 `TAP-KEPT` note saying his tap keeps over that review fix, which still waits for root's go naming the fix (rule 399b5fa, root #195224), and once a go
 names the head the runner carries the tap there itself, citing the grade and the go; a root `go` or a
-patch-identical fidelity carry grade naming that head otherwise draws neither, except that a go'd head whose tap does not keep draws one `TAP-CARRY-FAILED` naming why (#193444). A board that does not read, or a carry cc-present refuses for any cause but an absent merge block, which leaves nothing to carry, logs `TAP-CARRY-FAILED` once per
-cause and tries again next pass. An exempt change, one whose fidelity grade and whole diff
+patch-identical fidelity carry grade naming that head otherwise draws neither, except that a go'd head whose tap does not keep draws one `TAP-CARRY-FAILED` naming why (#193444). The runner reads the board only from records: board-watch's `owner` records carrying a row and verdict, its newest `board-rows` snapshot of what the board shows, and the runner's own carries, each of which stands as the owner's tap at its new head the moment it posts. A carry onto a block the newest snapshot no longer holds has nothing to carry; records that do not read, or a carry that does not post, log `TAP-CARRY-FAILED` once per
+cause and try again next pass, and the board's watch answers a carry cc-present refuses with a `defect` record. An exempt change, one whose fidelity grade and whole diff
 make it a pure port, test-only or CI-only (`EXEMPT-ADMITTED`), needs no go and no tap in any mode: its tree gates with the go'd ones, it asks no
 merge question, and it goes straight to Graphite's queue once the hold, fidelity, finder, build and CI checks pass (root #194387). Under `every` the runner
 then bars each other open PR no root `go` names at its head like a held one: no check or enqueue call names it or sweeps it in, and a PR
@@ -647,7 +647,7 @@ TOOLING_GLOBS = (".agents/skills/*/scripts/*", ".agents/skills/*/tests/*")
 PORT_PREFIXES = ("go/sand/next/",)
 OWNER_CITE = re.compile(r"#\s*owner:\s*[0-9a-f]{7,40}\b")
 MERGE_CARD_FIELDS = "title,author,additions,deletions,reviewDecision"
-SLACK_MESSAGE = re.compile(r"^slack: \S*/p(\d{10})(\d{6})\b", re.MULTILINE)
+CCI_SEQ = re.compile(r"^#(\d+)\b", re.MULTILINE)
 RULING_ROUNDS = "cards/rounds"
 RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
@@ -879,7 +879,6 @@ TRUNK_UNREAD_FACT = "trunk-unread"
 TRUNK_JOBS_FACT = "trunk-jobs"
 UNREACHABLE_WAIT = timedelta(minutes=2)
 DEAD_LANE = timedelta(minutes=60)
-UNKNOWN_BLOCK = re.compile(r'\bunknown block "')
 SUCCESSOR_NUMBER = re.compile(r"(?:-\d{1,2})+$")
 LANE_ORDER_WINDOW = timedelta(hours=2)
 LANE_SILENT = timedelta(minutes=15)
@@ -4364,22 +4363,23 @@ class Runner:
         return {row["pr"]: row for row in json.loads(done.out) if row.get("state", "open") == "open"}
 
     def tapped(self) -> set[str]:
-        """The PRs an owner's approval on the root's board names, read at most every `FINDER_TAPS_EVERY`; a board that does not read names none."""
+        """The PRs an owner's standing approval on the board names, read at most every `FINDER_TAPS_EVERY`; records that do not read name none."""
         read, taps = self.taps
         if self.now() - read < FINDER_TAPS_EVERY:
             return taps
         try:
-            verdicts = board_rows.verdicts_of(self.shell.run(["cc-present", "outcomes", "--all", "--no-doc", "--session", session])) if (session := self.root_session()) else {}
-        except board_rows.ReadFailed:
+            verdicts = board_rows.verdicts_of_records(self.board_records())
+        except CciTailFailed:
             verdicts = {}
         taps = {pr for rows in verdicts.values() for row, entry in rows.items() if entry["verdict"] == "approved" and (pr := board_rows.pr_of(row))}
         self.taps = (self.now(), taps)
         return taps
 
-    def root_session(self) -> str | None:
-        """The drive root's newest session in the drive registry, whose board holds the merge cards and rows the owner taps."""
-        entry = next((entry for entry in drive.drives() if drive.cci_drive(entry) == self.config.drive and entry["sessions"]), None)
-        return entry["sessions"][-1] if entry else None
+    def board_records(self) -> list[dict]:
+        """What the board says, as records any machine reads: board-watch's `owner` taps, `board-rows` snapshots and write answers, and the runner's own `board-write` records."""
+        drive = self.config.drive
+        found = [*cci.records(self.cci_tail, drive, "--lane", board_rows.OWNER_LANE), *cci.records(self.cci_tail, drive, "--lane", RUNNER, f"--topic={board_rows.WRITE_TOPIC}")]
+        return sorted((record for record in found if record["drive"] == drive), key=lambda record: record["seq"])
 
     def start_finder(self, spec: dict, repo: str, action: actions.Action, rows: dict[str, dict]) -> bool:
         """Settle a head some lane's finder record already names, or a full pass a whole-range finder record posted after the PR's newest `head` record answered, or after the request when no `head` record names the PR, or write the pass's job and start finder.py on it detached, reading since the head the PR's newest finder record at another head read, or the whole change for a full pass."""
@@ -4710,9 +4710,8 @@ def merge_card_block(repo: str, pr: str, waits: str, detail: str, view: dict) ->
     }
 
 
-def slack_ts(out: str) -> str | None:
-    found = SLACK_MESSAGE.search(out)
-    return f"{found[1]}.{found[2]}" if found else None
+def board_attrs(fields: dict[str, str]) -> list[str]:
+    return [arg for name, value in fields.items() if value for arg in ("--attr", f"{name}={value}")]
 
 
 def queue_state(action: actions.Action) -> str:
@@ -5066,8 +5065,6 @@ class Landing:
         self.builds: dict[str, dict] = self.kept_builds()
         self.builds_kept = set(self.builds)
         self.contained: dict[tuple[str, str], bool] = {}
-        self.board: Done | None = None
-        self.boarding = threading.Lock()
         self.tidying = ThreadPoolExecutor(1)
         self.tidy_work: Future | None = None
         self.full_runs_read: dict[str, list[dict]] = {}
@@ -6436,10 +6433,9 @@ class Landing:
             return {}, unread, exempt
         done = self.rulings_py("rows")
         register = json.loads(done.out)["rows"] if done.code == 0 else None
-        session = self.runner.root_session()
         try:
-            verdicts = board_rows.verdicts_of(self.board_read(session)) if session else None
-        except board_rows.ReadFailed:
+            verdicts = board_rows.verdicts_of_records(self.runner.board_records())
+        except CciTailFailed:
             verdicts = None
         waits = {}
         for pr, found in touching.items():
@@ -6673,44 +6669,26 @@ class Landing:
         return {pr: asks[pr] for pr in self.waiting_on_owner(heads, list(asks))}
 
     def merge_card(self, pr: str, head: str, detail: str) -> str | None:
-        """Ask the merge question for `pr` at `head` through `cc-present ask` in the drive root's session, so it lands on the root's board and in the root's Slack status thread like every other card, waiting on `merge:<pr>:<short sha>` with Merge recommended and Hold; asking again under the same id edits the card in place. The card's Slack ts, or None when it did not post, which logs one `MERGE-CARD-FAILED` per error and tries again next pass."""
+        """Ask the merge question for `pr` at `head` as a `board-write` record whose `op=ask` the root board's watch puts on the board and in the root's Slack status thread like every other card, waiting on `merge:<pr>:<short sha>` with Merge recommended and Hold; asking again under the same id edits the card in place. Where the ask stands, `cci #<seq>`, or None when it did not post, which logs one `MERGE-CARD-FAILED` per error and tries again next pass."""
         waits = f"merge:{pr}:{head[:7]}"
         posted = self.book.load(LANDING).facts.get(MERGE_CARDS, {}).get(waits)
         if posted and posted["question"] == detail:
             return posted["ts"]
-        if not (session := self.runner.root_session()):
-            self.runner.escalate("merge-card:unset", "MERGE-CARD-FAILED", "landing", f"no drive registry entry for {self.runner.config.drive} names a root session, so no merge card posts | run `drive.py start --drive <drive> --ledger <ledger>` from the root session; the next pass posts the cards")
+        snapshot = board_rows.snapshot_of_records(self.runner.board_records())
+        if not (session := (snapshot or {}).get("session")):
+            self.runner.escalate("merge-card:unset", "MERGE-CARD-FAILED", "landing", "board-watch has posted no `board-rows` snapshot naming the root's board, so no merge card posts | open the root board, whose watch posts it within a minute; the next pass posts the cards")
             return None
         view = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", MERGE_CARD_FIELDS))
-        done = view if view.code else self.board_write(["cc-present", "ask", "-", "--session", session], stdin=json.dumps(merge_card_block(self.repo, pr, waits, detail, json.loads(view.out))))
-        if done.code or not (ts := slack_ts(done.out)):
+        card = "" if view.code else json.dumps(merge_card_block(self.repo, pr, waits, detail, json.loads(view.out)))
+        done = view if view.code else self.runner.cci_post("note", f"board write: ask the merge card {waits}", ",".join(self.board_lanes) or ROOT, board_rows.WRITE_TOPIC, f"board-ask:{waits}:{hashlib.sha1(detail.encode()).hexdigest()[:8]}", pr=pr, flags=board_attrs({"op": "ask", "session": session, "waits": waits, "card": card}))
+        if done.code or not (seq := CCI_SEQ.search(done.out)):
             why = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
             cause = VOLATILE.sub("", why)
             self.runner.escalate(f"merge-card:{pr}:{head[:7]}:{hashlib.sha1(cause.encode()).hexdigest()[:8]}", "MERGE-CARD-FAILED", f"#{pr}", f"the merge card for #{pr} at {head[:7]} did not post: {why}; the next pass tries again")
             return None
+        ts = f"cci #{seq[1]}"
         self.book.edit(LANDING, lambda incident: incident.facts.setdefault(MERGE_CARDS, {}).update({waits: {"ts": ts, "question": detail}}))
         return ts
-
-    def present(self, argv: list[str], stdin: str | None = None) -> Done:
-        try:
-            return self.shell.run(argv, stdin=stdin)
-        except OSError as error:
-            return Done(127, "", f"cc-present did not start: {error}")
-
-    def board_read(self, session: str) -> Done:
-        """The root board's rows and verdicts from one `cc-present outcomes --all`, read once a pass and again after the runner writes to the board; a read that fails is read again by its next caller."""
-        with self.boarding:
-            if self.board is not None:
-                return self.board
-            done = self.present(["cc-present", "outcomes", "--all", "--session", session])
-            self.board = None if done.code else done
-            return done
-
-    def board_write(self, argv: list[str], stdin: str | None = None) -> Done:
-        done = self.present(argv, stdin)
-        with self.boarding:
-            self.board = None
-        return done
 
     @property
     def board_lanes(self) -> list[str]:
@@ -6736,13 +6714,10 @@ class Landing:
         """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head when its own commits have the tapped head's `git patch-id`, citing any chain of `head` records and fidelity carries that call each move patch-identical, whose words alone never carry a tap (p8a-step7 #199440): `cc-present verdict carry` records it, so the row shows his tap and asks nothing, and one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads. A tap whose new head a record names with no such chain, a fixed version, is never carried: a record saying the head adds new behavior draws one `TAP-NOT-CARRIED` note to the same lanes saying the board needs a new row, with the three facts its row opens with: his tap's Pacific time, the heads since it, and that record's sentence naming the new behavior (root #194315), and a fidelity ok grade of the head that names none draws one `TAP-KEPT` note saying his tap keeps over that review fix, so root posts the go naming the fix and the row lists it (rule 399b5fa, root #151306). Once root posts that go, the runner carries the tap to the fix itself the same way, citing the grade and the go. A head a root `go` names whose tap does not keep draws one `TAP-CARRY-FAILED` naming why, the new behavior, the grade or the finder, never a silent wait on a tap the go assumed (#193444); a head a patch-identical fidelity carry grade already names is otherwise settled and gets no such note, and a carry onto a merge block the board no longer holds has nothing to carry, so it logs no `TAP-CARRY-FAILED` (root #151003, #151839)."""
         if self.landing_config.get("merge_ask_surface", "slack") != "board":
             return
-        if not (session := self.runner.root_session()):
-            self.runner.escalate("tap-carry:unset", "TAP-CARRY-FAILED", "landing", f"no drive registry entry for {self.runner.config.drive} names a root session, so no board tap carries to a restacked head | run `drive.py start --drive <drive> --ledger <ledger>` from the root session; the next pass carries them")
-            return
         try:
-            verdicts = board_rows.verdicts_of(self.board_read(session))
-        except board_rows.ReadFailed as failed:
-            self.runner.escalate(f"tap-carry:unread:{hashlib.sha1(VOLATILE.sub('', str(failed)).encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", "landing", f"the root's board did not read ({failed}), so no tap carries to a restacked head this pass; the next pass reads it again")
+            verdicts = board_rows.verdicts_of_records(self.runner.board_records())
+        except CciTailFailed as failed:
+            self.runner.escalate(f"tap-carry:unread:{hashlib.sha1(VOLATILE.sub('', str(failed)).encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", "landing", f"the board's records did not read ({failed}), so no tap carries to a restacked head this pass; the next pass reads them again")
             return
         heads = {pr: row["head"] for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}
         self.question_tap_claims(heads, verdicts, rows)
@@ -6759,7 +6734,7 @@ class Landing:
         withdrawn = {seq for record in cci.records(self.cci_tail, drive, "--kind=withdraw") if record["kind"] == "withdraw" and record["drive"] == drive for seq in closes(record)}
         reviews = [record for record in self.scanned_reviews() if record["seq"] not in withdrawn]
         for block, pr, entry in moved:
-            head, tapped = heads[pr], entry.get("carriedFrom") or entry["head"]
+            head, tapped, session = heads[pr], entry.get("carriedFrom") or entry["head"], entry.get("session", "")
             graded = newest_naming(fidelity_grades_in(reviews, drive, self.fidelity_lanes, self.repo, pr), head)
             moves = head_moves(reviews, drive, self.fidelity_lanes, self.repo, pr)
             if (commits := self.own_commits(pr, head)) and (ours := self.patch_id(pr, head, commits, escalate=True)) and self.patch_id(pr, entry["head"], commits, escalate=False) == ours:
@@ -6822,16 +6797,21 @@ class Landing:
         self.post_record("go", key, self.landing_audience([pr], rows, to), f"go #{pr} at {head[:7]} TAP-CARRIED: the owner's tap at {tapped[:10]} carries to {head[:10]}, a patch-identical restack; the runner posts this go itself, so no root hop (owner, Oct 29 2:06 PM)", pr)
 
     def carry_tap(self, session: str, block: str, pr: str, tapped: str, head: str, why: str, to: str, label: str = "TAP-CARRIED") -> bool:
-        """Carry the owner's tap on `pr` from `tapped` to `head` on the board and post `label`, `TAP-CARRIED` by default, once; whether the board took it."""
-        done = self.board_write(["cc-present", "verdict", "carry", "--session", session, "--block", block, "--row", pr, "--head", head, "--note", why])
+        """Carry the owner's tap on `pr` from `tapped` to `head` with one `board-write` record, which stands as his tap at `head` the moment it posts and which the watch of the board that holds the tap applies with `cc-present verdict carry`, then post `label`, `TAP-CARRIED` by default, once; whether the record posted. A block the board's newest snapshot no longer holds has nothing to carry (root #151003)."""
+        snapshot = board_rows.snapshot_of_records(self.runner.board_records())
+        if snapshot is None:
+            self.runner.escalate("tap-carry:no-snapshot", "TAP-CARRY-FAILED", "landing", "board-watch has posted no `board-rows` snapshot, so no tap carries to a restacked head | open the root board, whose watch posts it within a minute; the next pass carries them")
+            return False
+        if block not in snapshot["blocks"]:
+            return False
+        key = f"tap-carry-write:{block}:{pr}:{head}"
+        done = self.runner.cci_post("note", f"board write: carry the owner's tap on #{pr} from {tapped[:10]} to {head[:10]} on block {block}", ",".join(self.board_lanes) or ROOT, board_rows.WRITE_TOPIC, key, pr=pr, record_id=key, flags=board_attrs({"op": "carry", "session": session, "block": block, "row": pr, "head": head, "from": tapped, "note": why}))
         if done.code:
             why = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
-            if UNKNOWN_BLOCK.search(why):
-                return False
-            self.runner.escalate(f"tap-carry:{pr}:{head[:7]}:{hashlib.sha1(VOLATILE.sub('', why).encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", f"#{pr}", f"cc-present verdict carry refused the owner's tap on #{pr} from {tapped[:10]} to {head[:10]}: {why}; the next pass tries again")
+            self.runner.escalate(f"tap-carry:{pr}:{head[:7]}:{hashlib.sha1(VOLATILE.sub('', why).encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", f"#{pr}", f"the carry of the owner's tap on #{pr} from {tapped[:10]} to {head[:10]} did not post: {why}; the next pass tries again")
             return False
         if not self.book.known(LANDING, key := f"tap-carried:{block}:{pr}:{head}"):
-            self.post_record("note", key, to, f"{label} #{pr}: the owner's tap at {tapped[:10]} on board block {block} now stands at {head[:10]}, a {why}, recorded with cc-present verdict carry; the row asks no new tap", pr)
+            self.post_record("note", key, to, f"{label} #{pr}: the owner's tap at {tapped[:10]} on board block {block} now stands at {head[:10]}, a {why}, recorded as a board-write record the board's watch applies; the row asks no new tap", pr)
         return True
 
     def ask_owner(self, heads: dict[str, str], waiting: dict[str, list[str]], rows: dict[str, dict]) -> None:
@@ -6851,8 +6831,8 @@ class Landing:
             touched = "".join(f" It touches your rule \"{sentence}\" Merging also allows it." for _, sentence in reserved)
             if self.landing_config.get("merge_ask_surface", "slack") == "board":
                 where = "on the root's board"
-            elif ts := self.merge_card(pr, heads[pr], f"{why}{touched}"):
-                where = f"on merge card ts {ts}"
+            elif card := self.merge_card(pr, heads[pr], f"{why}{touched}"):
+                where = f"on merge card {card}"
             else:
                 continue
             stale = self.stale_title(pr)
@@ -6882,13 +6862,12 @@ class Landing:
         return askable
 
     def board_heads(self) -> set[tuple[str, str]] | None:
-        """Each PR and seven-character head the root board's rows name, or None when the board did not read."""
-        if not (session := self.runner.root_session()):
+        """Each PR and seven-character head the board's rows name, from board-watch's newest `board-rows` snapshot, or None when none reads."""
+        try:
+            snapshot = board_rows.snapshot_of_records(self.runner.board_records())
+        except CciTailFailed:
             return None
-        done = self.board_read(session)
-        if done.code or (start := done.out.find("{")) < 0:
-            return None
-        return {(row.pr, row.head[:7]) for row in board_rows.rows_of(json.loads(done.out[start:]).get("doc") or {}) if row.head}
+        return None if snapshot is None else {(pr, head[:7]) for pr, head, _ in snapshot["rows"]}
 
     def stale_title(self, pr: str) -> tuple[dict, str] | None:
         """The newest fidelity grade on `pr` with its `title: stale, <why>` line, when that grade judges the title against the head's commits and finds it stale."""
@@ -7654,7 +7633,7 @@ class Landing:
         """Enqueue straight into the merge queue, through the adapter and with none of the runner's own checks, each stack that has stayed landable for `OVERFLOW_AFTER` since an overflow first found it so: every unqueued PR of it green at its ledger head, named at that head by a root go, under no hold, pull, or incident fix, with no enqueue of it running and nothing the runner decided against it at that head, which is a refusal `last_refusal` finds since the go, an enqueue outcome outside `OVERFLOW_RETRIES` other than a `blocked` one five minutes old, a drop still waiting on a go, or a reserved row no answer authorizes (C224). A stack is due once any PR of it is, so a restack that restarted an upper PR's clock never sends the bottom in alone for Graphite to hold the rest on. Each goes in as its stack's top, recorded as an enqueue and posted as a QUEUED report that names the overflow."""
         self.cci_tail.remember()
         try:
-            self.statuses, self.queues_read, self.gos, self.cleared, self.board = None, False, None, {}, None
+            self.statuses, self.queues_read, self.gos, self.cleared = None, False, None, {}
             if self.quota_low() or (rows := self.rows()) is None or self.checks_paused() or (queue := self.queue_states()) is None:
                 return
             held = self.held(rows)
@@ -8473,7 +8452,7 @@ class Landing:
         self.gate_deadline = time.monotonic() + GATE_BUDGET.total_seconds()
         self.trusted_from, self.pass_began = self.pass_began, time.monotonic()
         self.surface()
-        self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why, self.cleared, self.exempts, self.board = None, False, None, None, None, set(), {}, {}, {}, None
+        self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why, self.cleared, self.exempts = None, False, None, None, None, set(), {}, {}, {}
         if self.quota_low():
             return
         with ThreadPoolExecutor(1) as pool:
