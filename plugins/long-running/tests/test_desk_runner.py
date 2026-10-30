@@ -223,6 +223,7 @@ class FakeShell(runner_module.Shell):
         self.pr_card_error = ""
         self.board_seq = 900000
         self.no_snapshot = False
+        self.snapshot_drops: set[str] = set()
         self.stall_pass = Running()
         self.board: dict[str, dict[str, dict]] = {}
         self.board_rows: list[tuple[str, str]] = []
@@ -626,7 +627,7 @@ class FakeShell(runner_module.Shell):
 
     def board_records(self) -> list[dict]:
         blocks = sorted({*(block for block in self.board if block not in self.unknown_blocks), *(["merge-prs"] if self.board_rows else [])})
-        snapshot = {"blocks": blocks, "rows": [[pr, head, ""] for pr, head in self.board_rows], "merges": [], "cards": []}
+        snapshot = {key: value for key, value in {"blocks": blocks, "rows": [[pr, head, ""] for pr, head in self.board_rows], "merges": [], "cards": []}.items() if key not in self.snapshot_drops}
         records = [] if self.no_snapshot else [{"seq": self.board_seq, "drive": "d1", "lane": "board-watch", "kind": "note", "topic": "board-rows", "to": ["desk-runner"], "refs": {}, "at": "2026-10-01T17:00:00Z", "text": "board", "fields": {"attrs": {"session": "s-root", "board": json.dumps(snapshot)}}}]
         for block, rows in self.board.items():
             for row, entry in rows.items():
@@ -3717,6 +3718,19 @@ KEPT_GRADE = "ok cccc333333 a review fix: no new behavior since the tap at aaaa1
 
 def tap_notes(shell: FakeShell) -> list[dict]:
     return [post for post in notes(shell) if post["text"].startswith("TAP-")]
+
+
+def test_a_snapshot_from_an_older_board_watch_with_no_blocks_carries_no_tap_and_the_pass_goes_on(shell, config, tmp_path):
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    tap(shell, "29020", "aaaa111111")
+    shell.snapshot_drops = {"blocks"}
+    landing_pass(shell, config)
+    shell.diffs["aaaa111111"] = shell.diffs["cccc333333"] = "diff --git a/x.go b/x.go\n+same\n"
+    lane_head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): restack onto dev, range-diff patch-identical (3 commits)")
+    landing_pass(shell, config)
+    assert shell.carries == [] and tap_notes(shell) == []
 
 
 @pytest.mark.parametrize("restack", ["head", "fidelity", "no new behavior", "chain", "carried: patch-identical to", "tap carries"])

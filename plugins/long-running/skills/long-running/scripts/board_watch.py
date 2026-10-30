@@ -43,7 +43,9 @@ registry, posts the board's document as one `note` record from `board-watch` on 
 `board-rows`, attribute `board`: each PR row's PR, head and write time, each merge card's PR and
 head, and each card's choice blocks and PRs. It reads the document every minute and posts when it
 changed or six hours after its last post, so a reader on another machine knows what the board
-shows. It also applies the landing runner's board writes, the `desk-runner` records on topic
+shows. Before each read it re-executes into a newer installed plugin version, as the desk runners
+do, so it never posts a snapshot older than the runner that reads it; `cc-present watch` resumes
+from its persisted cursor, so no event is lost or recorded twice. It also applies the landing runner's board writes, the `desk-runner` records on topic
 `board-write` whose `session` attribute names this board, read in order from a cci cursor:
 `op=carry` runs `cc-present verdict carry` for its block, row, head and note, re-upserting a block
 that belongs to a closed round into the current round and carrying again; `op=ask` puts the card
@@ -60,6 +62,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import os
 import hashlib
 import json
 import re
@@ -109,6 +112,13 @@ class Bus:
 
 class Shell:
     """The single side-effect boundary: the board's event stream, its document and outcomes, cc-present writes, cci, the drive registry, threads, and the clock."""
+
+    def stale(self) -> bool:
+        return drive.behind(drive.plugin_manifest()["version"], drive.installed_version())
+
+    def reexec(self) -> None:
+        os.environ.pop(drive.CALLER_VERSION_ENV, None)
+        drive.run_installed(__file__)
 
     def watch(self, session: str) -> Iterator[str]:
         with subprocess.Popen(["cc-present", "watch", "--session", session], stdout=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True) as child:
@@ -350,6 +360,8 @@ def post_snapshot(shell: Shell, bus: Bus, session: str, posted: dict) -> None:
 def keep_snapshot(shell: Shell, bus: Bus, session: str, stop: threading.Event) -> None:
     posted: dict = {}
     while True:
+        if shell.stale():
+            shell.reexec()
         post_snapshot(shell, bus, session, posted)
         if stop.wait(SNAPSHOT_SECONDS):
             return

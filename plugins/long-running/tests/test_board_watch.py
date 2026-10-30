@@ -6,6 +6,7 @@ import fcntl
 import hashlib
 import json
 import subprocess
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -328,6 +329,28 @@ def test_the_root_boards_watch_posts_what_the_board_shows_once_until_it_changes(
     assert (post[post.index("--kind") + 1], post[post.index("--topic") + 1], attrs(post)["session"]) == ("note", "board-rows", SESSION)
     assert json.loads(attrs(post)["board"]) == {"blocks": ["merge-prs"], "rows": [["202", "413b38e", "2026-10-30T06:00:00Z"]], "merges": [["303", "abcdef1"]], "cards": [["merge:303:abcdef1", [], []], ["card-eviction", ["eviction-route-choice"], ["401"]]]}
     assert board_watch.board_rows.snapshot_of_records(shell.records) == json.loads(attrs(post)["board"]) | {"session": SESSION}
+
+
+class Reexecuted(Exception):
+    pass
+
+
+class StaleShell(BoardShell):
+    def stale(self) -> bool:
+        return True
+
+    def reexec(self) -> None:
+        raise Reexecuted
+
+
+def test_a_watch_older_than_the_installed_plugin_reexecutes_before_it_posts_a_snapshot() -> None:
+    shell, stop = StaleShell(SNAPSHOT_DOC), threading.Event()
+    stop.set()
+
+    with pytest.raises(Reexecuted):
+        board_watch.keep_snapshot(shell, board_watch.Bus("brook", 0), SESSION, stop)
+
+    assert shell.posts == []
 
 
 def test_a_board_that_is_not_the_roots_newest_posts_no_snapshot(tmp_path: Path) -> None:
