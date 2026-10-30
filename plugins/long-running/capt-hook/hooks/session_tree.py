@@ -79,6 +79,8 @@ def drive_lane(evt: BaseHookEvent, skip: Callable[[str | None], bool] = lambda _
     """The drive lane `evt` runs in: an Orca lane session's own lane, which owns every worker it spawns, else the outermost named agent above it, so a lane's named worker acts as its lane."""
     if lane := reqenv.getenv("CLAUDE_LONG_RUNNING_LANE"):
         return lane
+    if not evt.agent_id:
+        return None
     lanes = Path(evt._raw["transcript_path"]).with_suffix("") / "subagents"
     agent_id, outermost = evt.agent_id, None
     while agent_id and (meta := lanes / f"agent-{agent_id}.meta.json").is_file():

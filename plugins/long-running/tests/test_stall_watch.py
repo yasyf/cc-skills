@@ -951,6 +951,7 @@ def test_a_stale_stack_posts_once_from_its_lowest_stale_pr_a_held_pr_counts_and_
         "state": "waits on #201 below it",
         "next": "land #201 first",
         "owner": "api-lane",
+        "actor": "api-lane",
         "since": "",
         "live": True,
         "stale": True,
