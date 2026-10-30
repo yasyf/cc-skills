@@ -515,6 +515,9 @@ fix is the PR the newest record on the topic by any other lane names, an inciden
 `cci post --topic dev-red --pr <n>`. With `landing.ci_build` set too, each newer finished trunk build is read once and
 compared with the one before it: a job name that fails or soft-fails more often posts one `POST-MERGE-RED` to root, each
 `landing.desk_lane` and the lanes of the PRs that landed between the two, so a build green only by soft-fail reads red.
+A trunk commit whose check failed and later passes on a retry of a job or of the build posts one `FLAKE`, a
+`[finding:desk-runner]` defect naming the first failing test in the failed job's log, the lane whose PR last changed
+that test's file as its owner, and a fix due 24 hours out; it blocks nothing and stays open until a HEAD names it.
 A trunk that does not read gates and enqueues nothing that pass and reads again
 the next; `TRUNK-READ-FAILED` posts once per run of such passes, and `TRUNK-READ-RECOVERED` once a read succeeds.
 `landing.release_cli` is the repo's release command line, such as `tools/ci release`, its first word relative to the landing
@@ -883,6 +886,10 @@ UNREACHABLE_FACT = "orca-unreachable"
 ORCA_LIVE = "orca-live"
 TRUNK_UNREAD_FACT = "trunk-unread"
 TRUNK_JOBS_FACT = "trunk-jobs"
+TRUNK_REDS_FACT = "trunk-reds"
+FLAKE_DUE = timedelta(hours=24)
+FAILED_TEST = re.compile(r"--- FAIL: (?P<go>[\w.-]+)|^test (?P<cargo>\S+) \.\.\. FAILED|^\s*FAIL \[\s*[\d.]+s\] \S+ (?P<nextest>\S+)", re.MULTILINE)
+LOG_CONTROL = re.compile(r"\x1b(?:_[^\x07]*\x07|\[[0-9;]*[A-Za-z])|\r")
 UNREACHABLE_WAIT = timedelta(minutes=2)
 DEAD_LANE = timedelta(minutes=60)
 SUCCESSOR_NUMBER = re.compile(r"(?:-\d{1,2})+$")
@@ -5629,6 +5636,7 @@ class Landing:
             since = actions.parse_stamp(streak["since"])
             self.runner.escalate(f"trunk-read-recovered:{streak['since']}", "TRUNK-READ-RECOVERED", "landing", f"{TRUNK}'s {check} statuses read again; from {pacific(since)} for {whole_minutes(since, self.runner.now())} min no pass gated ({streak['error']})")
         self.compare_trunk_builds(target["history"]["nodes"], check, rows)
+        self.watch_flakes(target["history"]["nodes"], check, rows)
         posted = cci.trunk(cci.records(self.cci_tail, self.runner.config.drive, f"--topic={cci.TRUNK_TOPIC}"))
         red = trunk_red(target["history"]["nodes"], check)
         if red is False:
@@ -5655,6 +5663,55 @@ class Landing:
         text = f"POST-MERGE-RED since {since}: {TRUNK}'s {check} {failing}, {origin}; no PR build runs these jobs. Landing continues; a fix is owed: {owed}."
         self.runner.cci_post("report", text, f"{ROOT},{self.runner.watchdog}", cci.TRUNK_TOPIC, f"post-merge-red:{red.since}:{bucket}", record_id=f"post-merge-red:{red.since}:{bucket}")
         return True
+
+    def watch_flakes(self, history: list[dict], check: str, rows: dict[str, dict]) -> None:
+        """Remember each trunk commit whose `check` reads failed, and post one `FLAKE` when a remembered commit's `check` passes on a retry of a job or of the whole build: a `[finding:desk-runner]` defect to its owner, root and the watchdog that names the first failing test line of the failed job's log, the lane whose PR last changed that test's file, and a fix due 24 hours out. It blocks nothing, and the finding stays open until a HEAD names it. A commit that leaves the trunk's last `TRUNK_DEPTH` is forgotten, and a flake whose builds do not read or whose record did not post is tried again the next pass."""
+        if not self.landing_config.get("ci_build"):
+            return
+        statuses = {commit["oid"]: context for commit in history for context in (commit["status"] or {"contexts": []})["contexts"] if context["context"] == check and context["state"] in FINISHED_STATES}
+        known = self.book.load(LANDING).facts.get(TRUNK_REDS_FACT, {})
+        reds = {oid: url for oid, url in known.items() if any(commit["oid"] == oid for commit in history)}
+        for oid, context in statuses.items():
+            if context["state"] != "SUCCESS":
+                reds.setdefault(oid, context["targetUrl"])
+            elif oid in reds and self.flake(oid, reds[oid], context["targetUrl"], rows):
+                del reds[oid]
+        if reds != known:
+            self.book.edit(LANDING, lambda incident: incident.facts.update({TRUNK_REDS_FACT: reds}))
+
+    def flake(self, oid: str, red: str, green: str, rows: dict[str, dict]) -> bool:
+        """Post the `FLAKE` for trunk commit `oid`, whose `check` failed on build `red` and passed on build `green`; False while a build does not read or the record did not post."""
+        if red == green:
+            self.builds.pop(green, None)
+            if not (build := self.build(green)):
+                return False
+            jobs = [job["retry_source"]["job_id"] for job in build.get("jobs", []) if job.get("type") == "script" and job.get("state") == "passed" and job.get("retry_source")]
+        else:
+            if not (build := self.build(red)):
+                return False
+            jobs = [job["id"] for job in build.get("jobs", []) if job.get("type") == "script" and job.get("state") == "failed" and not job.get("soft_failed")]
+        if not jobs:
+            return True
+        test = next(filter(None, (self.failed_test(red, job) for job in jobs)), "")
+        path = self.test_file(test) if test else ""
+        subject = self.shell.run(["git", "-C", str(self.checkout), "log", "-1", "--format=%s", "--", path]).out.strip() if path else ""
+        pr = found[1] if (found := SQUASHED_PR.search(subject)) else ""
+        owner = self.successor(lane) if (lane := rows.get(pr, {}).get("lane")) else ROOT
+        due = (self.runner.now() + FLAKE_DUE).astimezone(PACIFIC).strftime("%b %-d %-I:%M %p")
+        changed = f"; #{pr} last changed it" if pr else ""
+        text = f"[finding:{RUNNER}] - {path or '-'} flake owner {owner}: FLAKE {test or 'a test'} failed on {red} at {oid[:10]} and passed on retry{changed}. Fix due {due}; name this record in the fix's HEAD. It blocks nothing."
+        return self.runner.cci_post("defect", text, ",".join(dict.fromkeys([owner, ROOT, self.runner.watchdog])), cci.TRUNK_TOPIC, f"flake:{oid}", record_id=f"flake:{oid}").code == 0
+
+    def failed_test(self, build: str, job: str) -> str:
+        """The first failing test the log of `job` in `build` names, Go or Rust; empty when the log does not read or names none."""
+        done = self.shell.run(release_build_argv(self.checkout, f"{self.landing_config['ci_build']}/jobs/{job}/log", build))
+        if done.code != 0 or not (found := FAILED_TEST.search(LOG_CONTROL.sub("", json.loads(done.out)["content"]))):
+            return ""
+        return next(filter(None, found.groups()))
+
+    def test_file(self, test: str) -> str:
+        """The first trunk file naming `test` as a word, a Rust test by its last path segment."""
+        return next(iter(self.shell.run(["git", "-C", str(self.checkout), "grep", "-l", "-w", "-F", "-e", test.rsplit("::", 1)[-1]]).out.split()), "")
 
     def compare_trunk_builds(self, history: list[dict], check: str, rows: dict[str, dict]) -> None:
         """Compare each finished `check` build on the trunk newer than the last one compared with the finished build before it, oldest first, each build read once through `landing.ci_build`: every job name that fails or soft-fails more often in the newer build posts one `POST-MERGE-RED` to root, each `landing.desk_lane`, and the lanes of the PRs whose squashes landed between the two, naming the newer build, those jobs, and those PRs. A build that passes because its failing jobs soft-fail is read here, since its status alone reads green. The walk stops at a build that does not read or whose record did not post, and starts there again the next pass."""

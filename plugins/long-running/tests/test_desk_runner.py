@@ -18,6 +18,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from long_running import actions
+import findings as findings_module
 import mq as mq_module
 import pytest
 from conftest import gateway
@@ -207,6 +208,9 @@ class FakeShell(runner_module.Shell):
         self.root_drives: list[str] = ["d1"]
         self.builds: dict[str, dict] = {}
         self.annotations: dict[str, list[dict]] = {}
+        self.job_logs: dict[str, str] = {}
+        self.test_files: dict[str, str] = {}
+        self.subjects: dict[str, str] = {}
         self.go_imports: set[tuple[str, str, str]] = set()
         self.merge_bases: dict[str, str] = {}
         self.local_heads: set[str] = set()
@@ -401,6 +405,10 @@ class FakeShell(runner_module.Shell):
             directory = pathspec.removeprefix(":(glob)").removesuffix("/*.go")
             imported = [argv[i + 1].strip('"') for i in range(6, len(argv) - 3, 2)]
             return runner_module.Done(0 if any((sha, directory, path) in self.go_imports for path in imported) else 1, "", "")
+        if argv[:5] == ["git", "-C", str(self.root / "checkout"), "grep", "-l"]:
+            return runner_module.Done(0 if argv[-1] in self.test_files else 1, self.test_files.get(argv[-1], ""), "")
+        if argv[:6] == ["git", "-C", str(self.root / "checkout"), "log", "-1", "--format=%s"]:
+            return runner_module.Done(0, self.subjects.get(argv[-1], "") + "\n", "")
         if argv[:3] == ["git", "-C", str(self.root / "checkout")] and argv[3:5] in (["rev-parse", "--verify"], ["symbolic-ref", "-q"], ["rev-parse", "--path-format=absolute"]):
             self.indexes += 1
             return runner_module.Done(0, {"--verify": "cccc333\n", "-q": "runner/drive\n"}.get(argv[4], f"{self.root}/admin-{self.indexes}/index\n"), "")
@@ -537,6 +545,8 @@ class FakeShell(runner_module.Shell):
                 return runner_module.Done(1, "", self.grade_error)
             self.builds[number] = {"state": "running", "commit": body["commit"], "jobs": []}
             return runner_module.Done(0, json.dumps({"web_url": f"https://buildkite.com/forge/{argv[7].split('/')[2]}/builds/{number}"}), "")
+        if argv[:3] == [str(self.root / "checkout/tools/ci"), "bk", "api"] and argv[3].endswith("/log"):
+            return runner_module.Done(0, json.dumps({"content": self.job_logs[argv[3].split("/")[-2]]}), "")
         if argv[:3] == [str(self.root / "checkout/tools/ci"), "bk", "api"] and argv[3].endswith("/annotations"):
             return runner_module.Done(0, json.dumps(self.annotations.get(argv[3].split("/")[4], [])), "")
         if argv[:3] == [str(self.root / "checkout/tools/ci"), "bk", "api"]:
@@ -12184,6 +12194,55 @@ def test_a_trunk_build_green_only_because_a_job_soft_fails_posts_post_merge_red_
     assert "dev's build https://buildkite.com/forge/test/builds/29020 has jobs failing that https://buildkite.com/forge/test/builds/29018 did not: new-tree soft-failed. Landed between the two: #29020, #29019." in red["text"]
     assert trunk_posts(shell) == []
     assert len([call for call in shell.calls if call[1:3] == ["bk", "api"]]) == 2
+
+
+FLAKY_LOG = "\x1b_bk;t=1793340053769\x07~~~ Running sand tests\r\n=== RUN   TestADrainedSidecarEndsItsLagSeriesAtZero\r\n    lag_test.go:88: lag 3, want 0\r\n\x1b[31m--- FAIL: TestADrainedSidecarEndsItsLagSeriesAtZero (0.41s)\x1b[0m\r\nFAIL\r\n"
+
+
+@pytest.mark.parametrize("rebuilt", [False, True])
+def test_a_trunk_commit_red_then_green_on_a_retry_posts_one_flake_finding_naming_the_test_its_owner_and_a_due_time(shell, config, tmp_path, rebuilt):
+    with_ci_build(config)
+    landing = trunk_watch(shell, config, tmp_path)
+    built(shell, "aaaa", "29018", script_build("sand-tests"))
+    red = {"state": "failed", "commit": "b" * 10, "finished_at": "2026-10-01T17:58:00Z", "jobs": [{"id": "job-1", "type": "script", "name": "sand-tests", "state": "failed"}]}
+    shell.builds["29019"] = red
+    shell.job_logs["job-1"] = FLAKY_LOG
+    shell.test_files["TestADrainedSidecarEndsItsLagSeriesAtZero"] = "go/sand/internal/vm/lag_test.go\n"
+    shell.subjects["go/sand/internal/vm/lag_test.go"] = "vm: 🐛 drain the sidecar's lag series (#29011)"
+    rows = OPEN_ROWS | {"29011": {"state": "landed", "lane": "lag-lane"}}
+    shell.trunk = [trunk_commit("b", "FAILURE", "29019", "2026-10-01T17:50:00Z"), trunk_commit("a", "SUCCESS", "29018", "2026-10-01T17:40:00Z")]
+    landing.watch_trunk(rows)
+    assert [kind for kind, _, _ in trunk_posts(shell)] == ["incident"]
+
+    retry = "29030" if rebuilt else "29019"
+    shell.builds[retry] = {"state": "passed", "commit": "b" * 10, "finished_at": "2026-10-01T18:20:00Z", "jobs": [{"id": "job-2", "type": "script", "name": "sand-tests", "state": "passed"} | ({} if rebuilt else {"retry_source": {"job_id": "job-1", "retry_type": "manual"}})]}
+    shell.trunk = [trunk_commit("b", "SUCCESS", retry, "2026-10-01T17:50:00Z"), trunk_commit("a", "SUCCESS", "29018", "2026-10-01T17:40:00Z")]
+    shell.clock += timedelta(minutes=30)
+    landing.watch_trunk(rows)
+    shell.clock += timedelta(minutes=30)
+    landing.watch_trunk(rows)
+
+    [flake] = [post for post in shell.posts if "FLAKE" in post["text"]]
+    assert flake["kind"] == "defect" and flake["to"] == "lag-lane,root,drive-watchdog@d1" and flake["id"] == f"flake:{'b' * 10}"
+    assert flake["text"] == "[finding:desk-runner] - go/sand/internal/vm/lag_test.go flake owner lag-lane: FLAKE TestADrainedSidecarEndsItsLagSeriesAtZero failed on https://buildkite.com/forge/test/builds/29019 at bbbbbbbbbb and passed on retry; #29011 last changed it. Fix due Oct 2 11:30 AM; name this record in the fix's HEAD. It blocks nothing."
+    row = findings_module.row_of({"seq": 7, "at": "t", "kind": "defect", "text": flake["text"]})[1]
+    assert (row["owner"], row["line"], row["verdict"], row["state"]) == ("lag-lane", "go/sand/internal/vm/lag_test.go", "flake", "open")
+    assert [kind for kind, _, _ in trunk_posts(shell)] == ["incident", "defect"]
+
+
+def test_a_trunk_commit_that_stays_red_posts_dev_red_and_no_flake(shell, config, tmp_path):
+    with_ci_build(config)
+    landing = trunk_watch(shell, config, tmp_path)
+    built(shell, "aaaa", "29018", script_build("sand-tests"))
+    shell.builds["29019"] = {"state": "failed", "commit": "b" * 10, "finished_at": "2026-10-01T17:58:00Z", "jobs": [{"id": "job-1", "type": "script", "name": "sand-tests", "state": "failed"}]}
+    shell.trunk = [trunk_commit("b", "FAILURE", "29019", "2026-10-01T17:50:00Z"), trunk_commit("a", "SUCCESS", "29018", "2026-10-01T17:40:00Z")]
+
+    landing.watch_trunk(OPEN_ROWS)
+    shell.clock += timedelta(minutes=30)
+    landing.watch_trunk(OPEN_ROWS)
+
+    assert [text.split()[0] for _, _, text in trunk_posts(shell)] == ["DEV-RED", "DEV-RED"]
+    assert not [post for post in shell.posts if "FLAKE" in post["text"]]
 
 
 FINDER_HEAD = "7414944e30bfec89dee45328414dbc1016e35afa"
