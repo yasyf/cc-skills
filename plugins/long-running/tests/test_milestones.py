@@ -75,3 +75,15 @@ def test_a_reposted_blocker_keeps_the_time_the_problem_started():
 def test_a_live_milestone_is_live_since_its_first_release():
     rows = compute([FIRST], [], [], [release(1, "10970 passed: api live", at="2026-10-28T12:00:00Z"), release(2, "10980 passed: api live", at="2026-10-29T22:00:00Z")])
     assert rows[0]["since"] == "2026-10-28T12:00:00Z"
+
+
+def test_a_blocker_without_a_promised_time_says_so_and_since_when():
+    rows = compute([FIRST], [], [blocker(5, "R1", "fixer", "The fixer finds the cause", "Runs fail on start")], [release(1, "10970 passed: api live")])
+    assert rows[0]["unblocking"] == "The fixer finds the cause, no time given since 2:00 PM"
+
+
+def test_a_blocker_with_a_promised_time_shows_it():
+    record = blocker(5, "R1", "fixer", "The fixer ships the patch", "Runs fail on start")
+    record["fields"]["attrs"]["by"] = "2026-10-30T04:30:00Z"
+    rows = compute([FIRST], [], [record], [release(1, "10970 passed: api live")])
+    assert rows[0]["unblocking"] == "The fixer ships the patch, by 9:30 PM"
