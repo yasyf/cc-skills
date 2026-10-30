@@ -8,7 +8,9 @@ import subprocess
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from captain_hook import (
     Allow,
@@ -76,6 +78,12 @@ REGISTER = json.dumps({"rows": {
     "corpus/b-tests": {"kind": "corpus", "words": ""},
 }})
 RULED_CARD = {"card": {"title": "Should every chat run its own local replica, or is everything a client of one local replica?", "options": ["One per chat", "One shared"]}}
+OWNER_TAGS = frozenset({"from:owner", "scope:durable", "owner-ruling"})
+PICK = re.compile(r"^Pick:\s*(?:option \w+, )?(.+?)\.?$", re.MULTILINE)
+QUOTED = re.compile(r'"([^"]+)"')
+BOARD_QUESTION = re.compile(r"^Board question:\s*(?:\d+\.\s*)?(.+)$", re.MULTILINE)
+PICKED = "you picked"
+PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
 @workflow_state("long_running_settled_questions")
@@ -86,6 +94,21 @@ class SettledState(WorkflowState):
 @dataclass(frozen=True)
 class Settled:
     text: str
+
+
+@dataclass(frozen=True)
+class Pick:
+    question: str
+    chosen: str
+    on: str
+
+    @property
+    def line(self) -> str:
+        return f'You picked "{self.chosen}" on {self.on}, asked "{" ".join(self.question.split())[:QUOTE]}"'
+
+    def shown_in(self, text: str) -> bool:
+        flat = " ".join(text.lower().split())
+        return PICKED in flat and " ".join(self.chosen.lower().split()) in flat
 
 
 def strings(value: object) -> Iterator[str]:
@@ -100,12 +123,13 @@ def strings(value: object) -> Iterator[str]:
                 yield from strings(item)
 
 
-def board_questions(args: list[str], cwd: str) -> list[str]:
+def board_questions(args: list[str], cwd: str) -> list[tuple[str, str]]:
     found = []
     for arg in args:
         path = Path(cwd, Path(arg.split("=")[-1]).expanduser())
         if path.suffix == ".json" and path.is_file():
-            found += [text for text in strings(json.loads(path.read_text())) if text.rstrip().endswith("?")]
+            texts = list(strings(json.loads(path.read_text())))
+            found += [(text, "\n".join(texts)) for text in texts if text.rstrip().endswith("?")]
     return found
 
 
@@ -118,17 +142,19 @@ def slack_write_approval(question: dict[str, str]) -> bool:
     )
 
 
-def asked(evt: BaseHookEvent) -> list[str]:
+def asked(evt: BaseHookEvent) -> list[tuple[str, str]]:
     if evt.tool_name == "AskUserQuestion":
-        return [] if evt.agent_id else [question["question"] for question in evt._tool_input["questions"] if not slack_write_approval(question)]
+        return [] if evt.agent_id else [(question["question"], "\n".join(strings(question))) for question in evt._tool_input["questions"] if not slack_write_approval(question)]
     if evt.tool_name == SLACK_CARD:
         card = evt._tool_input.get("card") or {}
-        return [card["title"]] if card.get("title") and (card.get("options") or card.get("waits") or card.get("asks")) else []
+        shown = "\n".join(strings(evt._tool_input))
+        return [(card["title"], shown)] if card.get("title") and (card.get("options") or card.get("waits") or card.get("asks")) else []
     found = []
     for call in evt.command.calls("cci"):
         values = CCI_POST.bind(call).values
         if values.get("words", ())[:1] == ("post",) and "root" in values.get("lane", ()) and {"decide", "decision"} & set(values.get("kind", ())):
-            found += [sentence for sentence in SENTENCE.split(posted_text(values)) if ORDERS_CARD.search(sentence)]
+            text = posted_text(values)
+            found += [(sentence, text) for sentence in SENTENCE.split(text) if ORDERS_CARD.search(sentence)]
     for call in evt.command.calls():
         if Path(call.name).name != "cc-present" or not call.args or "--dry-run" in call.args:
             continue
@@ -154,13 +180,27 @@ def plan_decisions(plan_path: str | None) -> list[Settled]:
     return settled
 
 
-def durable_answers(cwd: str) -> list[Settled]:
-    if shutil.which("ccn") is None:
-        return []
-    listed = ccn(cwd, "answer", "list", "--label", "scope:durable", "--limit", "0", "--json")
-    if listed.returncode:
-        return []
-    return [Settled(f"answer {answer['id'][:7]}: {answer['title']}") for answer in json.loads(listed.stdout or "[]")]
+def owner_answers(cwd: str) -> list[dict]:
+    listed = ccn(cwd, "answer", "list", "--include-superseded", "--full", "--limit", "0", "--json")
+    return [answer for answer in json.loads(listed.stdout or "[]") if OWNER_TAGS & set(answer["tags"])] if listed.returncode == 0 else []
+
+
+def durable_answers(answers: list[dict]) -> list[Settled]:
+    return [Settled(f"answer {answer['id'][:7]}: {answer['title']}") for answer in answers if "scope:durable" in answer["tags"] and not answer.get("superseded_by")]
+
+
+def owner_picks(answers: list[dict]) -> list[Pick]:
+    picks = []
+    for answer in answers:
+        body = answer.get("body") or ""
+        if found := PICK.search(body):
+            chosen = (quoted := QUOTED.search(found[1])) and quoted[1] or found[1]
+        else:
+            chosen = next((line.strip() for line in body.splitlines() if line.strip()), "")
+        asked_then = (question := BOARD_QUESTION.search(body)) and question[1] or answer["title"]
+        on = datetime.fromisoformat(answer["created_at"].replace("Z", "+00:00")).astimezone(PACIFIC).strftime("%b %-d")
+        picks.append(Pick(asked_then.strip(), chosen.strip()[:QUOTE], on))
+    return picks
 
 
 def memory_dirs(evt: BaseHookEvent) -> set[Path]:
@@ -205,18 +245,29 @@ def words(text: str) -> set[str]:
     return {stem(word) for word in WORD.findall(text.lower()) if len(word) > 3 and word not in STOPWORDS}
 
 
+def overlaps(asking: set[str], known: set[str]) -> int:
+    shared = len(asking & known)
+    return shared if shared >= SHARED_WORDS and shared >= OVERLAP * min(len(asking), len(known)) else 0
+
+
 def matches(questions: list[str], settled: list[Settled]) -> list[tuple[str, Settled]]:
     indexed = [(item, words(item.text)) for item in settled]
     found = []
     for question in questions:
         asking = words(question)
-        hits = [
-            (shared, item)
-            for item, known in indexed
-            if (shared := len(asking & known)) >= SHARED_WORDS and shared >= OVERLAP * min(len(asking), len(known))
-        ]
-        if hits:
+        if hits := [(shared, item) for item, known in indexed if (shared := overlaps(asking, known))]:
             found.append((question, max(hits, key=lambda hit: hit[0])[1]))
+    return found
+
+
+def unshown_picks(asking: list[tuple[str, str]], picks: list[Pick]) -> list[tuple[str, list[Pick]]]:
+    indexed = [(pick, words(pick.question)) for pick in picks]
+    found = []
+    for question, shown in asking:
+        said = words(question)
+        missing = list(dict.fromkeys(pick for pick, known in indexed if overlaps(said, known) and not pick.shown_in(shown)))
+        if missing:
+            found.append((question, missing))
     return found
 
 
@@ -227,6 +278,10 @@ def digest(question: str) -> str:
 GATE_MESSAGE = (
     "Warning, nothing was blocked: This asks the owner what a plan decision, register row, owner answer, or feedback memory already settles."
     " Apply the answer below and drop the question; the same question re-issued passes."
+)
+PICKS_MESSAGE = (
+    "Warning, nothing was blocked: This card touches something the owner picked before and does not show him those picks."
+    " Put each line below on the card, picks that point the other way included; the same question re-issued passes."
 )
 
 
@@ -311,14 +366,21 @@ GATE_MESSAGE = (
     },
 )
 def check_settled_before_asking(evt: BaseHookEvent) -> HookResult | None:
-    if not (questions := asked(evt)):
+    """Warn an asking call whose question a ruling already settles, or whose card leaves out the owner's earlier picks on the same thing (root #211144)."""
+    if not (asking := asked(evt)):
         return None
     drive = CompactionState.load(evt)
     settled = register_rulings(evt)
+    answers = owner_answers(str(evt.cwd)) if drive.active and shutil.which("ccn") else []
     if drive.active:
-        settled += plan_decisions(drive.plan_path) + durable_answers(str(evt.cwd)) + feedback_memories(evt)
+        settled += plan_decisions(drive.plan_path) + durable_answers(answers) + feedback_memories(evt)
     with SettledState.mutate(evt) as state:
-        if not (found := [(question, item) for question, item in matches(questions, settled) if digest(question) not in state.warned]):
+        fresh = [(question, shown) for question, shown in asking if digest(question) not in state.warned]
+        found = matches([question for question, _ in fresh], settled)
+        unshown = unshown_picks(fresh, owner_picks(answers))
+        if not found and not unshown:
             return None
-        state.warned = [*state.warned, *(digest(question) for question, _ in found)]
-    return evt.context("\n".join([GATE_MESSAGE, fenced("\n".join(f"{question}\n  {item.text}" for question, item in found))]))
+        state.warned = [*state.warned, *(digest(question) for question, _ in [*found, *unshown])]
+    if found:
+        return evt.context("\n".join([GATE_MESSAGE, fenced("\n".join(f"{question}\n  {item.text}" for question, item in found))]))
+    return evt.context("\n".join([PICKS_MESSAGE, fenced("\n".join(f"{question}\n" + "\n".join(f"  {pick.line}" for pick in picks) for question, picks in unshown))]))
