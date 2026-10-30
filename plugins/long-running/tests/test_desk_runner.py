@@ -3929,6 +3929,21 @@ def test_a_tap_keeps_over_a_pipeline_missing_a_desk_ok_overrides_at_the_same_hea
     assert [note["text"].split(":")[0] for note in tap_notes(shell)] == ["TAP-KEPT #29020"]
 
 
+def test_a_root_go_on_a_head_whose_tap_does_not_keep_draws_one_tap_carry_failed_naming_why(shell, config, tmp_path):
+    """p8a-step7 #193454: root's TAP-KEPT go named #45286 c8a6014, the runner did not carry the tap there, said nothing, and refused the head TAP-REQUIRED."""
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    tap(shell, "29020", "aaaa111111")
+    seq = grade(shell, "29020", "ok cccc333333 new-tree fix, stays a tap row, carried from aaaa111.")
+    merge_go(shell, "29020", "go #29020 at cccc333333 TAP-KEPT: owner tap at aaaa111 keeps")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.carries == []
+    [line] = [line for line in said(shell) if line.startswith("TAP-CARRY-FAILED")]
+    assert line.endswith(f"#29020: the owner's tap on #29020 at aaaa111111 on board block merge-rows does not carry to cccc333333, which a root go names: fidelity grade cci #{seq} does not say cccc333333 adds no new behavior since the tap at aaaa111111; until it carries, #29020 waits on the tap at this head")
+
+
 def test_a_kept_tap_under_a_root_go_lands_the_tap_rule_head_when_the_board_refuses_the_carry(shell, config, tmp_path):
     """Root #192094: the runner noted TAP-KEPT for #44704, root posted the go, and the runner still refused it TAP-REQUIRED because the board named only the old head."""
     board_surface(config)
