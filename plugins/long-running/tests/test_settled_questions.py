@@ -35,6 +35,12 @@ PER_CHAT_PICK = UPLOAD_PICK | {
     "body": "Board question: Does SandSQL run one litestream process per chat being written on a Mac, or one per Mac?\nPick: one per chat.\n",
     "created_at": "2026-10-23T02:05:00Z",
 }
+LIGHTER_JOURNAL = UPLOAD_PICK | {
+    "id": "0f31b56" + "1" * 33,
+    "title": "In general: how much lighter should a chat's journal on a Mac get?",
+    "body": "Owner picked:\nOption b: Lighter writer, one litestream upload process per chat being written\nPro: Each chat's upload fails on its own\n",
+    "created_at": "2026-10-22T22:40:00Z",
+}
 SOMEONE_ELSES = UPLOAD_PICK | {"id": "1234567" + "0" * 33, "body": UPLOAD_PICK["body"].replace("Keep it as SandSQL's own", "One per Mac"), "tags": ["scope:ephemeral"]}
 UPLOAD_CARD = {"title": "Does SandSQL run one litestream process per Mac, or one per chat being written?", "options": ["One per Mac", "One per chat"]}
 PLAN = "# brook\n\n## Decisions (owner, binding)\n" + "".join(
@@ -117,7 +123,8 @@ def card(home: Path, body: str = "") -> PreToolUseEvent:
 
 def test_a_card_on_something_the_owner_picked_before_warns_with_every_pick_he_made_on_it(home: Path) -> None:
     """Root #211144: the Oct 29 card on one upload process per Mac or per chat never showed his Oct 22 picks, one of which pointed the other way."""
-    (home / "answers.json").write_text(json.dumps([UPLOAD_PICK, PER_CHAT_PICK, SOMEONE_ELSES]))
+    untagged = {key: value for key, value in SOMEONE_ELSES.items() if key != "tags"}
+    (home / "answers.json").write_text(json.dumps([UPLOAD_PICK, PER_CHAT_PICK, SOMEONE_ELSES, untagged]))
 
     warned = settled.check_settled_before_asking(card(home))
 
@@ -125,6 +132,14 @@ def test_a_card_on_something_the_owner_picked_before_warns_with_every_pick_he_ma
     assert "You picked \"Keep it as SandSQL's own\" on Oct 22, asked \"SandSQL starts one litestream process per chat being written" in warned.message
     assert 'You picked "one per chat" on Oct 22, asked "Does SandSQL run one litestream process per chat' in warned.message
     assert '"One per Mac" on' not in warned.message
+
+
+def test_a_pick_whose_question_was_general_matches_on_what_he_picked(home: Path) -> None:
+    (home / "answers.json").write_text(json.dumps([LIGHTER_JOURNAL]))
+
+    warned = settled.check_settled_before_asking(card(home))
+
+    assert 'You picked "Lighter writer, one litestream upload process per chat being written" on Oct 22' in warned.message
 
 
 def test_a_card_that_shows_each_earlier_pick_passes(home: Path) -> None:

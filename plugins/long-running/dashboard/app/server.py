@@ -40,6 +40,7 @@ ACTIVE = dt.timedelta(minutes=30)
 WORKING = dt.timedelta(minutes=20)
 COORDINATORS = re.compile(r"^(root|main)$|desk|refresher|watchdog|register|landing|board|prompt|fidelity|progress|comms|tooling|finder|sweep|batch-post")
 PR_MENTION = re.compile(r"#(4\d{4})\b")
+BUS_ALARM = "bus-down.json"
 STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/app.css": ("app.css", "text/css"), "/review.js": ("review.js", "text/javascript"), "/review.css": ("review.css", "text/css")}
 
 
@@ -240,11 +241,15 @@ class Drive:
             watch.wait()
             time.sleep(5)
 
+    def bus_alarm(self):
+        return Path(self.config["steps"]).parents[1] / BUS_ALARM
+
     def follow_steps(self):
         steps = Path(self.config["steps"])
+        alarm = self.bus_alarm()
         seen = None
         while True:
-            stamp = steps.stat().st_mtime_ns
+            stamp = (steps.stat().st_mtime_ns, alarm.stat().st_mtime_ns if alarm.is_file() else None)
             if stamp != seen:
                 seen = stamp
                 self.touch()
@@ -337,7 +342,9 @@ class Drive:
         waiting = sum(1 for entry in drive["prs"] if entry["state"] == "you")
         progress = json.loads(Path(self.config["steps"]).read_text())
         steps = step_rows(progress["steps"], drive, model.get("lanes", []), now)
-        return {**model, "board": board, "drive": drive, "steps": steps, "now": progress.get("now", {}), "steps_at": progress["updated"], "live": LIVE_SOURCES, "needs": {"taps": waiting, "questions": len(board["cards"])}}
+        alarm = self.bus_alarm()
+        headline = progress.get("now", {}) | ({"blocker": json.loads(alarm.read_text())} if alarm.is_file() else {})
+        return {**model, "board": board, "drive": drive, "steps": steps, "now": headline, "steps_at": progress["updated"], "live": LIVE_SOURCES, "needs": {"taps": waiting, "questions": len(board["cards"])}}
 
     def report_defect(self, text):
         subprocess.run(["cci", "post", "--drive", self.config["drive"], "--lane", self.config["keeper_lane"], "--to", f"{self.config['keeper_lane']},root", "--kind", "defect", "--text", f"drive dashboard build failed: {text}"[:390]], capture_output=True)
