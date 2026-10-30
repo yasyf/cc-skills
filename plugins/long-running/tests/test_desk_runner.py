@@ -5768,6 +5768,19 @@ def test_a_rulings_warning_posts_again_at_its_head_only_for_a_new_cause_before_t
     assert len([post for post in shell.posts if post["kind"] == "note" and "warns at cccc333333" in post["text"]]) == warnings
 
 
+def test_a_rulings_warning_for_a_new_cause_at_an_unchanged_head_names_that_cause_alone(shell, config, tmp_path):
+    lone_green_pr(shell)
+    for out in ("NAME-HIT rule/8aeaaff go/x.go:5 writer\n", "NAME-HIT rule/8aeaaff go/x.go:5 writer\nCONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n"):
+        shell.check_pr["29020"] = (1, out)
+        runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+        landing = runner_module.Landing(runner, runner.config.landing)
+        landing.reports_file.unlink(missing_ok=True)
+        landing.check_rulings(runner_module.Graded({"29020": "cccc333333"}, landing.rows(), shell.now(), act=True))
+    first, second = [post["text"] for post in shell.posts if post["kind"] == "note" and "warns at cccc333333" in post["text"]]
+    assert first.endswith("the head is not held for it: NAME-HIT rule/8aeaaff go/x.go:5 writer")
+    assert second.endswith("the head is not held for it: CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back")
+
+
 def test_mq_why_names_the_adapters_approval_and_ci_verdicts(shell, config, tmp_path, capsys):
     lone_green_pr(shell)
     grade_gated_heads_ok(shell)
