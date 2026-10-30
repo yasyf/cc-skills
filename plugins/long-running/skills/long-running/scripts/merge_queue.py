@@ -111,6 +111,11 @@ class Gate:
         lines = (self.err or self.out).strip().splitlines()
         return lines[-1] if lines else f"exit {self.code}"
 
+    @property
+    def unparsed(self) -> bool:
+        bottom = next(iter(self.verdicts.values()), None)
+        return self.code == 0 and self.would is None and bottom is not None and bottom["verdict"] == "GREEN"
+
 
 @dataclass(frozen=True)
 class Ejection:
