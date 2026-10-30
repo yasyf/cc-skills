@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 from collections.abc import Callable
+from functools import cache
 from itertools import pairwise
 from pathlib import Path
 
@@ -134,18 +136,27 @@ def go_batch(record: dict) -> set[str]:
 
 def carried_gos(gos: list[dict], grades: list[dict], repo: str, lands: Callable[[str, str], bool]) -> list[dict]:
     """The gos a fidelity desk carries: a root go naming a PR at head G and a fidelity grade of H on that PR that names G and `carries`, such as `fidelity: ok H carried: patch-identical to G` or `fidelity: ok H, tap carries (399b5fa): pure replay of G`, make a go at H when `lands(pr, H)`, and so on along each chain of carries, so a replayed head never waits for root to post its go again (root #136770, #143450). A carried go keeps its source go's seq, time, `with` batch and port, test-only or CI-only claim, so it never reads as a newer root decision or frees a PR from its batch, and records its grade's time as `graded_at`, when the carried head became ready to queue."""
-    gone = {(pr, sha): go for go in gos for pr, sha in go_heads(go).items() if pr not in go.get("voided", ())}
+    gone = defaultdict(dict)
+    for go in gos:
+        for pr, sha in go_heads(go).items():
+            if pr not in go.get("voided", ()):
+                gone[pr][(pr, sha)] = go
+
+    @cache
+    def parsed(text: str) -> tuple[str, list[str]] | None:
+        return carry_of(text) if carries(text) else None
+
     carried: list[dict] = []
     while fresh := [
         (pr, found[0], source, grade["at"])
         for grade in grades
-        if carries(grade["text"]) and (found := carry_of(grade["text"]))
+        if (found := parsed(grade["text"]))
         for pr, _ in repo_prs(grade, repo)
-        if (source := next(filter(None, (reached(gone, pr, earlier) for earlier in found[1])), None)) and not reached(gone, pr, found[0]) and lands(pr, found[0])
+        if (source := next(filter(None, (reached(gone[pr], pr, earlier) for earlier in found[1])), None)) and not reached(gone[pr], pr, found[0]) and lands(pr, found[0])
     ]:
         for pr, head, source, graded_at in fresh:
             go = carried_go(source, pr, head, graded_at)
-            gone[(pr, head)] = go
+            gone[pr][(pr, head)] = go
             carried.append(go)
     return carried
 
