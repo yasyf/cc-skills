@@ -32,6 +32,9 @@ class RecordedShell(board_watch.Shell):
     def document(self, session: str, block: str) -> dict | None:
         return self.doc
 
+    def spawn(self, target, *args) -> None:
+        self.spawned = [*getattr(self, "spawned", []), target.__name__]
+
     def cci(self, argv: list[str]) -> subprocess.CompletedProcess:
         if argv[0] == "grep":
             return subprocess.CompletedProcess(argv, 0, "".join(json.dumps(record) + "\n" for record in self.bus), "")
@@ -240,3 +243,154 @@ def test_a_refused_post_is_reported_and_the_watch_keeps_recording(tmp_path: Path
 
     assert len(captured) == 8
     assert capsys.readouterr().out.count("failed: refused") == 7
+
+
+def test_a_triage_tap_posts_one_record_per_row_with_its_block_row_verdict_and_head(tmp_path: Path) -> None:
+    shell = MergeShell([], MERGE_DOC)
+    shell.watch = lambda session: iter(['{"blockId":"merge-prs","schemaVersion":1,"type":"triage.decided","verdicts":{"202":{"verdict":"approved","head":"413b38e"},"merge-row-101":{"verdict":"rejected"}}}\n'])
+    run(tmp_path, shell)
+
+    assert [attrs(post) for post in shell.posts] == [
+        {"event": "triage.decided", "session": SESSION, "block": "merge-prs", "row": "202", "verdict": "approved", "head": "413b38e"},
+        {"event": "triage.decided", "session": SESSION, "block": "merge-prs", "row": "merge-row-101", "verdict": "rejected", "head": "abc1234"},
+    ]
+    assert [[arg for arg in post if arg.startswith("--pr=")] for post in shell.posts] == [["--pr=202"], ["--pr=101"]]
+    assert sorted(shell.spawned) == ["apply_writes", "keep_snapshot"]
+
+
+def flags_of(argv: list[str]) -> dict[str, str]:
+    found, tokens = {}, iter(argv[1:])
+    for token in tokens:
+        if "=" not in token:
+            found[token] = next(tokens)
+    return found
+
+
+def attrs(argv: list[str]) -> dict[str, str]:
+    return dict(value.split("=", 1) for flag, value in zip(argv, argv[1:]) if flag == "--attr")
+
+
+class BoardShell(RecordedShell):
+    def __init__(self, doc: dict | None = None, interactions: dict | None = None, root: str | None = SESSION, writes: list[dict] | None = None, refusals: list[str] | None = None, stored: bool = True) -> None:
+        super().__init__([], doc or MERGE_DOC)
+        self.interactions = interactions or {}
+        self.root = root
+        self.pending = writes or []
+        self.refusals = refusals or []
+        self.stored = stored
+        self.records: list[dict] = []
+        self.presented: list[tuple[list[str], str | None]] = []
+
+    def outcomes(self, session: str) -> dict | None:
+        return {"doc": self.doc, "interactions": self.interactions}
+
+    def root_session(self, drive_name: str) -> str | None:
+        return self.root
+
+    def writes(self, drive_name: str, cursor: str):
+        assert cursor == f"board-applier-{SESSION}"
+        yield from (json.dumps(record) + "\n" for record in self.pending)
+
+    def present(self, argv: list[str], stdin: str | None = None) -> subprocess.CompletedProcess:
+        self.presented.append((argv, stdin))
+        if argv[1] != "update-block" and self.refusals:
+            return subprocess.CompletedProcess(argv, 1, "", self.refusals.pop(0))
+        return subprocess.CompletedProcess(argv, 0, "posted 1793.5\n" if argv[1] == "ask" else "carried\n", "")
+
+    def cci(self, argv: list[str]) -> subprocess.CompletedProcess:
+        if argv[0] == "tail":
+            lane = argv[argv.index("--lane") + 1]
+            found = [record for record in self.records if record["lane"] == lane and all(record.get(name) == value for arg in argv if arg.startswith("--") and "=" in arg for name, value in [arg[2:].split("=", 1)])]
+            return subprocess.CompletedProcess(argv, 0, "".join(json.dumps(record) + "\n" for record in found if record["seq"] > int(argv[argv.index("--since") + 1])), "")
+        self.posts.append(argv)
+        if self.stored and argv[0] == "post":
+            flags = flags_of(argv)
+            self.records.append({"seq": len(self.records) + 1, "drive": flags["--drive"], "lane": flags["--lane"], "kind": flags["--kind"], "topic": flags.get("--topic"), "at": "2026-10-30T07:00:00Z", "text": flags["--text"], "refs": {}, "fields": {"attrs": attrs(argv)}})
+        return subprocess.CompletedProcess(argv, 0, "#1\n", "")
+
+
+SNAPSHOT_DOC = {
+    "blocks": [
+        {"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": 202, "head": "413b38e", "textAt": "2026-10-30T06:00:00Z"}]}]},
+        {"id": "merge:303:abcdef1", "type": "card", "children": []},
+        {"id": "card-eviction", "type": "card", "children": [{"id": "eviction-route-choice", "type": "choice"}, {"id": "eviction-pr", "type": "pr", "number": 401}]},
+    ]
+}
+
+
+def test_the_root_boards_watch_posts_what_the_board_shows_once_until_it_changes(tmp_path: Path) -> None:
+    shell = BoardShell(SNAPSHOT_DOC)
+    bus, posted = board_watch.Bus("brook", 0), {}
+    board_watch.post_snapshot(shell, bus, SESSION, posted)
+    board_watch.post_snapshot(shell, bus, SESSION, posted)
+
+    [post] = shell.posts
+    assert (post[post.index("--kind") + 1], post[post.index("--topic") + 1], attrs(post)["session"]) == ("note", "board-rows", SESSION)
+    assert json.loads(attrs(post)["board"]) == {"rows": [["202", "413b38e", "2026-10-30T06:00:00Z"]], "merges": [["303", "abcdef1"]], "cards": [["merge:303:abcdef1", [], []], ["card-eviction", ["eviction-route-choice"], ["401"]]]}
+    assert board_watch.board_rows.snapshot_of_records(shell.records) == json.loads(attrs(post)["board"])
+
+
+def test_a_board_that_is_not_the_roots_newest_posts_no_snapshot(tmp_path: Path) -> None:
+    shell = BoardShell(SNAPSHOT_DOC, root="newer-board")
+    board_watch.post_snapshot(shell, board_watch.Bus("brook", 0), SESSION, {})
+
+    assert shell.posts == []
+
+
+def write(seq: int, **fields: str) -> dict:
+    return {"seq": seq, "drive": "brook", "lane": "desk-runner", "kind": "note", "topic": "board-write", "text": "carry", "fields": {"attrs": {"session": SESSION, **fields}}}
+
+
+def test_the_applier_carries_a_tap_reopening_a_closed_round_and_answers_each_write_once(tmp_path: Path) -> None:
+    carry = {"op": "carry", "block": "merge-prs", "row": "202", "head": "5555555aaa", "note": "patch-identical restack"}
+    shell = BoardShell(SNAPSHOT_DOC, writes=[write(7, **carry), write(8, **carry, session="other-board"), write(9, op="ask", card='{"id": "merge:303:abcdef1"}')], refusals=['cc-present: block "merge-prs" belongs to closed round 31'])
+    board_watch.apply_writes(shell, board_watch.Bus("brook", 0), SESSION)
+
+    carry_argv = ["cc-present", "verdict", "carry", "--session", SESSION, "--block", "merge-prs", "--row", "202", "--head", "5555555aaa", "--note", "patch-identical restack"]
+    assert [argv for argv, _ in shell.presented] == [carry_argv, ["cc-present", "update-block", "-", "--round", "current", "--session", SESSION], carry_argv, ["cc-present", "ask", "-", "--session", SESSION]]
+    assert json.loads(shell.presented[1][1])["id"] == "merge-prs" and shell.presented[3][1] == '{"id": "merge:303:abcdef1"}'
+    assert [(post[post.index("--kind") + 1], post[post.index("--re") + 1], post[post.index("--id") + 1]) for post in shell.posts] == [("applied", "7", "applied:7"), ("applied", "9", "applied:9")]
+
+
+def test_a_carry_cc_present_refuses_is_answered_as_a_defect_to_the_runner_and_root(tmp_path: Path) -> None:
+    shell = BoardShell(SNAPSHOT_DOC, writes=[write(7, op="carry", block="merge-prs", row="202", head="5555555aaa")], refusals=["cc-present: no verdict on row 202"])
+    board_watch.apply_writes(shell, board_watch.Bus("brook", 0), SESSION)
+
+    [post] = shell.posts
+    assert (post[post.index("--kind") + 1], post[post.index("--to") + 1]) == ("defect", "desk-runner,root")
+    assert post[post.index("--text") + 1].endswith("failed: cc-present: no verdict on row 202")
+
+
+TAPS = {
+    "triage": {
+        "merge-prs": {
+            "202": {"verdict": "approved", "head": "413b38e", "at": "2026-10-26T19:02:36Z"},
+            "303": {"verdict": "approved", "head": "9999999", "at": "2026-10-27T02:00:00Z", "carriedFrom": "8888888"},
+            "404": {"verdict": "rejected", "head": "7777777", "at": "2026-10-27T03:00:00Z"},
+        }
+    },
+    "choices": {"eviction-route-choice": {"optionIds": ["eviction-route-app"]}, "unanswered-choice": {}},
+}
+
+
+def test_backfill_records_every_verdict_and_pick_the_board_holds_then_verifies_them(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = BoardShell(SNAPSHOT_DOC, interactions=TAPS)
+    shell.records.append({"seq": 1, "drive": "brook", "lane": "board-watch", "kind": "owner", "topic": "merge-prs", "at": "2026-10-27T03:00:00Z", "text": "404 rejected", "refs": {}, "fields": {"attrs": {"block": "merge-prs", "row": "404", "verdict": "rejected", "head": "7777777"}}})
+
+    assert board_watch.main(["backfill", "--session", SESSION, "--program", "brook"], shell) == 0
+
+    assert sorted((found["row"], found["verdict"], found["head"], found["at"], found.get("carried_from", "")) for post in shell.posts if (found := attrs(post)).get("row")) == [
+        ("202", "approved", "413b38e", "2026-10-26T19:02:36Z", ""),
+        ("303", "approved", "9999999", "2026-10-27T02:00:00Z", "8888888"),
+    ]
+    assert [attrs(post)["picked"] for post in shell.posts if attrs(post).get("event") == "choice.selected"] == ["eviction-route-app"]
+    assert {post[post.index("--to") + 1] for post in shell.posts} == {"desk-runner"}
+    assert board_watch.board_rows.verdicts_of_records(shell.records)["merge-prs"]["303"]["carriedFrom"] == "8888888"
+    assert capsys.readouterr().out.startswith("verified: every one of 3 verdicts")
+
+
+def test_backfill_exits_1_naming_each_verdict_the_records_still_lack(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = BoardShell(SNAPSHOT_DOC, interactions=TAPS, stored=False)
+
+    assert board_watch.main(["backfill", "--session", SESSION, "--program", "brook"], shell) == 1
+    assert capsys.readouterr().out.splitlines() == ["UNRECORDED merge-prs 202 approved at 413b38e", "UNRECORDED merge-prs 303 approved at 9999999", "UNRECORDED merge-prs 404 rejected at 7777777", "UNRECORDED eviction-route-choice pick"]
