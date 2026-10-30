@@ -78,6 +78,7 @@ class RosterIndex:
         self.watches = {}
         self.inodes = {}
         self.dependencies = {}
+        self.unwatched = {}
         self.projections = {}
         self.errors = {}
         self.lane_errors = {}
@@ -113,7 +114,25 @@ class RosterIndex:
         dependencies.setdefault(node.token, []).append(edge)
         return node.token
 
-    def open(self, path: Path, owner: str, dependencies: dict) -> int:
+    def observe(self, path: Path, owner: str, dependencies: dict, unwatched: dict, directory=False):
+        flags = os.O_EVTONLY if sys.platform == "darwin" else os.O_RDONLY
+        try:
+            fd = os.open(path, flags | os.O_CLOEXEC | (os.O_DIRECTORY if directory else 0))
+        except PermissionError:
+            value = path.stat()
+            node = self.inodes.get((value.st_dev, value.st_ino))
+            if node is not None and node.active:
+                dependencies.setdefault(node.token, []).append(None)
+                if sys.platform != "darwin":
+                    raise
+                return node.token
+            if sys.platform != "darwin":
+                raise
+            unwatched.setdefault(path, {})
+            return None
+        return self.watch(fd, path, owner, None, dependencies)
+
+    def open(self, path: Path, owner: str, dependencies: dict, unwatched: dict) -> int:
         parts = list(path.absolute().parts[1:])
         current = Path("/")
         links = 0
@@ -125,10 +144,12 @@ class RosterIndex:
                 current = current.parent
                 continue
             child = current / name
-            flags = os.O_EVTONLY if sys.platform == "darwin" else os.O_RDONLY
-            fd = os.open(current, flags | os.O_DIRECTORY | os.O_CLOEXEC)
-            token = self.watch(fd, current, owner, None, dependencies)
-            dependencies[token][-1] = (child, binding(child))
+            token = self.observe(current, owner, dependencies, unwatched, directory=True)
+            edge = (child, binding(child))
+            if token is None:
+                unwatched[current][child] = edge[1]
+            else:
+                dependencies[token][-1] = edge
             value = child.lstat()
             if stat.S_ISLNK(value.st_mode):
                 links += 1
@@ -142,19 +163,14 @@ class RosterIndex:
                     parts = list(target.parts) + parts
             else:
                 current = child
-        flags = os.O_EVTONLY if sys.platform == "darwin" else os.O_RDONLY
-        try:
-            fd = os.open(current, flags | os.O_CLOEXEC)
-        except PermissionError:
-            value = current.stat()
-            node = self.inodes.get((value.st_dev, value.st_ino))
-            if node is not None and node.active:
-                dependencies.setdefault(node.token, []).append(None)
-            raise
-        self.watch(fd, current, owner, None, dependencies)
+        self.observe(current, owner, dependencies, unwatched)
         return os.open(current, os.O_RDONLY | os.O_CLOEXEC)
 
-    def commit_dependencies(self, owner: str, dependencies: dict) -> None:
+    def commit_dependencies(self, owner: str, dependencies: dict, unwatched=None) -> None:
+        if unwatched:
+            self.unwatched[owner] = unwatched
+        else:
+            self.unwatched.pop(owner, None)
         previous = self.dependencies.get(owner, {})
         self.dependencies[owner] = dependencies
         for token, edges in previous.items():
@@ -207,12 +223,13 @@ class RosterIndex:
 
     def refresh_team(self, name: str) -> None:
         dependencies = {}
+        unwatched = {}
         projection = defaultdict(list)
         lane_errors = {}
         self.errors.pop(name, None)
         path = self.root / name / "config.json"
         try:
-            fd = self.open(path, name, dependencies)
+            fd = self.open(path, name, dependencies, unwatched)
             with os.fdopen(fd) as handle:
                 self.work["config_reads"] += 1
                 text = handle.read()
@@ -240,16 +257,17 @@ class RosterIndex:
         except WatchLost:
             raise
         finally:
-            self.commit_dependencies(name, dependencies)
+            self.commit_dependencies(name, dependencies, unwatched)
         if name in self.errors:
             projection.clear()
         self.replace(name, dict(projection), lane_errors)
 
     def refresh_root(self) -> None:
         dependencies = {}
+        unwatched = {}
         names = set()
         try:
-            fd = self.open(self.root, ROOT, dependencies)
+            fd = self.open(self.root, ROOT, dependencies, unwatched)
             try:
                 self.work["root_enumerations"] += 1
                 with os.scandir(fd) as entries:
@@ -265,7 +283,7 @@ class RosterIndex:
             if error.errno not in (errno.ENOENT, errno.ENOTDIR, errno.EACCES, errno.EPERM, errno.ELOOP):
                 raise
         finally:
-            self.commit_dependencies(ROOT, dependencies)
+            self.commit_dependencies(ROOT, dependencies, unwatched)
         self.root_identity = identity(self.root)
         existing = set(self.dependencies) - {ROOT}
         for name in existing - names:
@@ -278,6 +296,33 @@ class RosterIndex:
 
     def reconcile(self, events: list[Event]) -> None:
         dirty = set()
+        # Only denied Darwin watch frontiers need query-time validation. Ordinary
+        # healthy queries never inspect roster paths or retry watch opens.
+        frontiers = defaultdict(dict)
+        for owner, paths in self.unwatched.items():
+            for path, edges in paths.items():
+                frontiers[path][owner] = edges
+        for path, owners in frontiers.items():
+            try:
+                fd = os.open(path, os.O_EVTONLY | os.O_CLOEXEC)
+            except PermissionError:
+                for owner, edges in owners.items():
+                    if any(binding(child) != previous for child, previous in edges.items()):
+                        dirty.add(owner)
+            except OSError as error:
+                if error.errno not in (errno.ENOENT, errno.ENOTDIR, errno.ELOOP):
+                    raise
+                dirty.update(owners)
+            else:
+                dependencies = {}
+                token = self.watch(fd, path, ROOT, None, dependencies)
+                for owner in owners:
+                    updated = {key: list(edges) for key, edges in self.dependencies[owner].items()}
+                    updated.setdefault(token, []).append(None)
+                    remaining = dict(self.unwatched[owner])
+                    del remaining[path]
+                    self.commit_dependencies(owner, updated, remaining)
+                dirty.update(owners)
         for event in events:
             node = self.watches.get(event.token)
             if node is None:
