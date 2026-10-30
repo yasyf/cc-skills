@@ -214,3 +214,16 @@ def test_an_unnamed_successor_spawned_on_its_predecessors_brief_owes_no_scale_li
     prompt = f"Replaces: lane-a\nYou are lane-a-2 and take over lane-a's work. Your brief is {brief}."
 
     assert injection.slice_on_spawn(spawned(activated(tools / "session"), "Agent", {"prompt": prompt})) is None
+
+
+def test_a_drive_lane_spawn_posts_one_spawned_record_naming_the_lane_its_slice_names_and_its_brief(tools: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    session = activated(tools / "session")
+    brief = tools / "lane-a.md"
+    brief.write_text("Lane lane-a.\nScale: no N\nRegister slice: lane=lane-a step=1.9\nslice-hash: 0123456789ab\n")
+    calls: list[list[str]] = []
+    monkeypatch.setattr(injection.subprocess, "run", lambda argv, **_: calls.append(argv))
+
+    injection.record_spawn(spawned(session, "Agent", {"prompt": f"Your brief is {brief}; read it.", "subagent_type": "general-purpose"}))
+    injection.record_spawn(spawned(session, "Agent", {"prompt": "Lane lane-b: build the relay.", "subagent_type": "general-purpose"}))
+
+    assert [argv[2:] for argv in calls] == [["spawned", "--lane", "lane-a", "--brief", str(brief), "--by", "root", "--session", SESSION]]

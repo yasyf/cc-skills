@@ -147,9 +147,13 @@ and, across the drive:
     desk      a desk runner that posted a `<desk> alive` record in the window posted none for
               `stall.minutes.desk`; the record is its heartbeat wherever it runs, and the stall goes
               to root with the restart command the runner's newest record carries
+    unregistered a lane a `SPAWNED <lane> <brief>` state record names, which `drive.py spawned` posts at
+              each drive-lane Agent spawn and Orca launch, has for `stall.minutes.unregistered` neither
+              posted a record nor been bound as that lane in `cci who --drive <drive> --all` since; one
+              stall to root names the lane and its brief
 
 Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, successor 20, red 2, unclassed 20, unfixed 60, sweep 20, order 3, tap 10, ungraded 10, finder 30,
-fidelity 30, running 25, board 15, carry 20 (one fidelity pass), lane 30, ask 15, gate 30, stale 120, desk 10, shape 30. A PR's head is as old as the first record about the
+fidelity 30, running 25, board 15, carry 20 (one fidelity pass), lane 30, ask 15, gate 30, stale 120, desk 10, shape 30, unregistered 3. A PR's head is as old as the first record about the
 PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record. A board
 stall counts from the latest of its finder ok, its fidelity ok, and its ledger row's `green_at`, the refresh that
 first read the head's build green, since the board refresher puts a row up only once the build is green.
@@ -210,7 +214,7 @@ NOT_LANES = frozenset({*ROOT_NAMES, "team-lead", LANE, RUNNER})
 PACIFIC = ZoneInfo("America/Los_Angeles")
 MODEL = "claude-sonnet-5-5"
 WINDOW_HOURS = 24
-MINUTES = {"go": 10, "silent": 15, "refusal": 10, "successor": 20, "red": 2, "unclassed": 20, "unfixed": 60, "sweep": 20, "order": 3, "tap": 10, "ungraded": 10, "finder": 10, "fidelity": 10, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "lane": 10, "ask": 15, "gate": 10, "stale": 120, "desk": 10, "shape": 10}
+MINUTES = {"go": 10, "silent": 15, "refusal": 10, "successor": 20, "red": 2, "unclassed": 20, "unfixed": 60, "sweep": 20, "order": 3, "tap": 10, "ungraded": 10, "finder": 10, "fidelity": 10, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "lane": 10, "ask": 15, "gate": 10, "stale": 120, "desk": 10, "shape": 10, "unregistered": 3}
 DESK_KINDS = frozenset({"finder", "fidelity"})
 ROOT_KINDS = frozenset({"missing", "unclassed", "unfixed"})
 REPOSTED = frozenset({"red"})
@@ -292,6 +296,7 @@ PULLED = re.compile(r"\bpull(?:s|ed)?\b[^.]*\brows?\b", re.IGNORECASE)
 ASK_WORD = re.compile(r"\b(?:card|pick)\b", re.IGNORECASE)
 BLOCK_WORD = re.compile(r"[\w-]+")
 ENDED = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
+SPAWNED = re.compile(r"^SPAWNED (?P<lane>[\w.-]+) (?P<brief>\S+)")
 DESK = re.compile(r"(?:.+-)?desk(?:-\d{1,2})?")
 REPEAT = timedelta(minutes=30)
 STACKS_FILE = "landing-stacks.json"
@@ -648,7 +653,7 @@ class Pass:
             self.warn({"lane"}, f"no drive registry entry for {self.watch.drive} names a root session, so the task list does not read")
         stalls, questions, entries = self.prs(records)
         lane_stalls, lane_questions = self.lanes(records, session, entries)
-        stalls += lane_stalls + self.asks(records) + self.gates(records) + self.desks(records) + self.shapes()
+        stalls += lane_stalls + self.asks(records) + self.gates(records) + self.desks(records) + self.unregistered(records) + self.shapes()
         questions += lane_questions + self.orders(records)
         cached = saved.get("verdicts", {})
         fresh = self.judge([question.ask | {"id": question.key} for question in questions if question.key not in cached])
@@ -1350,6 +1355,39 @@ class Pass:
             restart = beats[-1]["fields"].get("attrs", {}).get("restart") or f"desk-runner.py run --config <runner.json> --desk {desk}"
             stalls.append(Stall(f"desk:{desk}", "desk", at(beats[-1]), f"{desk} desk runner", f"the {desk} desk runner has posted no `{desk} alive` record since {pacific(at(beats[-1]))}", (ROOT,), f"restart it from the Run's bound terminal: `{restart}`"))
         return stalls
+
+    def unregistered(self, records: list[dict]) -> list[Stall]:
+        spawns = {spawn["lane"]: (record, spawn["brief"]) for record in records if record["kind"] == "state" and (spawn := SPAWNED.match(record["text"]))}
+        due = {
+            lane: (record, brief)
+            for lane, (record, brief) in spawns.items()
+            if self.now - at(record) >= self.watch.age("unregistered") and not any(other["lane"] == lane and other["seq"] > record["seq"] for other in records)
+        }
+        if not due:
+            return []
+        try:
+            peers = [json.loads(line) for line in self.tail(["cci", "who", "--drive", self.watch.drive, "--all", "--json"]).splitlines() if line.strip()]
+        except ReadFailed as failed:
+            self.warn({"unregistered"}, f"cci who did not read: {failed}")
+            return []
+        seen: dict[str, datetime] = {}
+        for peer in peers:
+            if lane := peer.get("lane"):
+                when = actions.parse_stamp(peer["seen_at"])
+                seen[lane] = max(when, seen.get(lane, when))
+        return [
+            Stall(
+                f"unregistered:{lane}",
+                "unregistered",
+                at(record),
+                lane,
+                f"spawned {pacific(at(record))} from {brief}, and has neither posted a cci record nor been bound as {lane} since",
+                (ROOT,),
+                f"read {lane}'s transcript or terminal; relaunch it from {brief} if it never started",
+            )
+            for lane, (record, brief) in sorted(due.items())
+            if seen.get(lane, at(record)) <= at(record)
+        ]
 
     def gates(self, records: list[dict]) -> list[Stall]:
         landed: dict[str, dict] = {}

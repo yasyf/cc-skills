@@ -14,11 +14,16 @@ from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState, drive_entry, failure_of, post_blocker, register_context, register_of, rulings, script, script_module
 from .nudges import once_per_hour
+from .session_tree import drive_lane
 from .tests.register_fixtures import DRIVE_CONFIG
 
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 HELPER_AGENTS = frozenset({"Explore", "Plan", "claude-code-guide", "statusline-setup", "output-style-setup", "ship-pr"})
 HELPER_PLUGINS = ("cc-context:", "cc-review:", "cc-slack:", "cc-present:", "codex:", "open-pr:")
+LANE_AGENTS = frozenset({"long-running:lane", "long-running:lane-ship"})
+SPAWNED = f"{sys.executable} {script('drive.py')} spawned"
+SPAWNED_TIMEOUT_SECONDS = 20
+INLINE_BRIEF = "inline-prompt"
 INCIDENT_NAME = re.compile(r"^(?:incident|outage)-")
 INCIDENT_BRIEF = re.compile(r"\b(?:incident|outage)\b", re.IGNORECASE)
 SLICE_HEADER = re.compile(r"^Register slice: lane=(\S+) step=\S+", re.MULTILINE)
@@ -183,6 +188,36 @@ def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
     if not found.incident:
         return None if said.startswith(FRESH) or not once_per_hour(evt, [STALE_SLICE]) else evt.context(STALE_SLICE.format(brief=found.shown))
     return evt.rewrite(evt._tool_input | {"prompt": fresh}, note=INCIDENT_NOTE) if found.inline else None
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Agent")],
+    skip_if=[Annotated("raw")],
+    tests={
+        spawn("lane-a", SLICED, commands={SPAWNED: ""}): Allow(),
+        spawn("lane-a", "Lane lane-a: build the relay.", agent_type="general-purpose"): Allow(),
+        spawn("lane-a", SLICED.replace("Scale: chats on one Mac, up to 1,000.\n", "")): Allow(),
+        spawn("lane-a", "Find every caller of drain.", agent_type="Explore"): Allow(),
+        Input(tool="Agent", tool_input={"name": "lane-a", "prompt": SLICED}): Allow(),
+    },
+)
+def record_spawn(evt: BaseHookEvent) -> HookResult | None:
+    if not drive_args(evt):
+        return None
+    call = evt.as_input(TaskCall)
+    try:
+        found = agent_spawn(call)
+    except UNREAD:
+        return None
+    if not found or not (found.incident or SLICE_HEADER.search(found.text) or call.agent_type in LANE_AGENTS):
+        return None
+    if not found.incident and found.owes_scale():
+        return None
+    argv = [sys.executable, str(script("drive.py")), "spawned", "--lane", found.lane, "--brief", str(found.brief or INLINE_BRIEF), "--by", drive_lane(evt) or "root", "--session", evt.session_id]
+    argv += ["--drive", drive] if (drive := reqenv.getenv(DRIVE_ENV)) else []
+    subprocess.run(argv, capture_output=True, text=True, timeout=SPAWNED_TIMEOUT_SECONDS)
+    return None
 
 
 @on(
