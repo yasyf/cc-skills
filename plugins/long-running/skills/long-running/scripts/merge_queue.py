@@ -392,6 +392,9 @@ class LabelEnqueue:
     def failing_required(self, verdict: dict) -> bool:
         return bool(LABEL_CI_FAILED.search(verdict["detail"]))
 
+    def evicted_only(self, verdict: dict) -> bool:
+        return False
+
     def blocker(self, verdict: dict, stack: set[str], gated_red: bool) -> Blocker | None:
         """`ledger.py label` names one refusal per PR, and only a red check, a conflict, an ai-review finding, or a stack shape the lane must fix routes to it; a red check is left out when `gated_red` says only gates and the base are red."""
         reason = verdict["detail"]
