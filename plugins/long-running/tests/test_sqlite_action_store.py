@@ -165,6 +165,24 @@ def test_generation_input_revision_and_rollback(tmp_path):
     assert store.find_action("runner", "7").status == "started"
 
 
+def test_explicit_snapshot_detaches_nested_values_without_json_type_coercion(tmp_path):
+    store = history(tmp_path)
+    with store.transaction("runner") as transaction:
+        transaction.facts["pair"] = (1, 2)
+        transaction.action("7").response["pair"] = (3, 4)
+        snapshot = transaction.snapshot()
+        transaction.facts["nested"]["items"].append(2)
+        transaction.action("7").response["items"].append(8)
+    assert isinstance(snapshot, actions.Incident)
+    assert isinstance(snapshot.actions, dict)
+    assert snapshot.facts["pair"] == (1, 2)
+    assert snapshot.actions["7"].response["pair"] == (3, 4)
+    assert snapshot.facts["nested"]["items"] == [1]
+    assert snapshot.actions["7"].response["items"] == [7]
+    assert store.load("runner").facts["pair"] == [1, 2]
+    assert store.find_action("runner", "7").response["items"] == [7, 8]
+
+
 def _contend(root, ready, start):
     store = sqlite_store.Store(root)
     ready.put(True)

@@ -7,6 +7,7 @@ import sqlite3
 import tempfile
 from collections.abc import Iterator, MutableMapping
 from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import asdict, fields
 from pathlib import Path
 
@@ -220,8 +221,8 @@ class Transaction(ActionState):
         return self._actions.select(kind) if self.actions is self._actions else super().of_kind(kind)
 
     def snapshot(self) -> Incident:
-        record = {entry.name: {key: asdict(value) for key, value in self.actions.items()} if entry.name == "actions" else getattr(self, entry.name) for entry in fields(Incident)}
-        return Incident.load(json.loads(_encode(record)))
+        record = {entry.name: {key: asdict(value) for key, value in self.actions.items()} if entry.name == "actions" else deepcopy(getattr(self, entry.name)) for entry in fields(Incident)}
+        return Incident.load(record)
 
     def flush(self) -> None:
         current = tuple(getattr(self, name) for name in _HEADER)
