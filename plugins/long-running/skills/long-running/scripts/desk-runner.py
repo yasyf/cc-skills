@@ -700,6 +700,7 @@ DIRECT_DEADLINE = timedelta(minutes=60)
 HANDING_OFF = "the runner is handing off, so its successor takes this chain up on its first pass"
 BELIEVED_QUEUED = frozenset({"enqueued", "noop"})
 MERGED = "merged"
+MERGED_DIRECT = "merged-direct:"
 ADMITTED = BELIEVED_QUEUED | {"dropped", "ejected", MERGED}
 OUT_OF_QUEUE = frozenset({"not queued", "evicted"})
 LANDING_REFUSALS = frozenset({"FOREIGN", "TAP-REQUIRED", "CONTRACT-MISSING", "PARKED", "UNOWNED", "GATE-FAILED", "RULINGS-REFUSED", "ENQUEUE-STRANDED", "ENQUEUE-FAILED", "ENQUEUE-UNSETTLED"})
@@ -7144,7 +7145,7 @@ class Landing:
             for pr in landed_prs:
                 landed = f"as {squashes[pr][:10]}" if squashes.get(pr) else "with its squash unread"
                 moved = "" if landing[pr].startswith(heads[pr]) else f", rebased to {landing[pr][:10]},"
-                self.post_record("state", f"merged-direct:{pr}@{heads[pr]}", self.landing_audience([pr], rows, self.queue_audience([pr], rows)), f"MERGED #{pr} at {heads[pr][:10]}{moved} direct {landed}, Graphite down, {DIRECT_RULING}: {how}", pr)
+                self.post_record("state", f"{MERGED_DIRECT}{pr}@{heads[pr]}", self.landing_audience([pr], rows, self.queue_audience([pr], rows)), f"MERGED #{pr} at {heads[pr][:10]}{moved} direct {landed}, Graphite down, {DIRECT_RULING}: {how}", pr)
             self.restack_children(landed_prs, landing, squashes, open_rows)
             if done.code:
                 return (MERGED if outcome == MERGED else "failed"), "".join(outs)[-1500:], last
@@ -7696,7 +7697,7 @@ class Landing:
             self.runner.escalate(key, "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and root go #{gos[0]['seq']} at {pacific(actions.parse_stamp(gos[0]['at']))} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}{waits}; owner lane {owner}", subject, to)
 
     def audit_admitted(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Escalate `ADMITTED-SKIPPED` to the root and the owning lane, once per head, for each open drive PR green at its ledger head that a root `go` or an exemption admits there, `ADMISSION_AUDIT` after it was admitted, that the pass's queue read finds neither queued nor landed (only landed counts while Graphite is down), that no stack worker holds, that sits on no parent `refuse_ungone_parents` names, and that no refusal of this runner or the desk lane, `GO-UNQUEUED` or failed direct merge names: the escalation says which branch of the pass last left it out, or that none recorded one (owner, 5:16 AM Oct 30; root #208560)."""
+        """Escalate `ADMITTED-SKIPPED` to the root and the owning lane, once per head, for each open drive PR green at its ledger head that a root `go` or an exemption admits there, `ADMISSION_AUDIT` after it was admitted, that the pass's queue read finds neither queued nor landed (only landed counts while Graphite is down), that no stack worker holds, that sits on no parent `refuse_ungone_parents` names, that this runner's own `MERGED` record does not name as merged directly, which its ledger row lags until the next refresh settles it (root #211747), and that no refusal of this runner or the desk lane, `GO-UNQUEUED` or failed direct merge names: the escalation says which branch of the pass last left it out, or that none recorded one (owner, 5:16 AM Oct 30; root #208560)."""
         if (statuses := self.pr_statuses()) is None:
             return
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
@@ -7705,9 +7706,10 @@ class Landing:
         with self.dispatching:
             busy = {pr for members, future in self.inflight.values() if not future.done() for pr in members}
         now, gos = self.runner.now(), self.root_gos()
+        merged = {action.action_id.removeprefix(MERGED_DIRECT).split("@")[0] for action in self.book.actions(LANDING, kind="bus") if action.action_id.startswith(MERGED_DIRECT)}
         for pr, row in sorted(open_rows.items(), key=lambda item: int(item[0])):
             head = row.get("head", "")
-            if not row.get("ours") or row.get("test_state") != "success" or not head or pr in covered or pr in busy or statuses.get(pr, {}).get("queue") in settled:
+            if not row.get("ours") or row.get("test_state") != "success" or not head or pr in covered or pr in busy or pr in merged or statuses.get(pr, {}).get("queue") in settled:
                 continue
             if not (gos_at := gone_at(gos, pr, head)) and not self.exempt_admitted(pr, head)[0]:
                 continue

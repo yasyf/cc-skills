@@ -7203,6 +7203,29 @@ def test_an_admitted_head_no_record_accounts_for_draws_one_admitted_skipped_nami
     assert "root" in heard(shell, "ADMITTED-SKIPPED")[0].split(",")
 
 
+def test_a_pr_the_runner_merged_directly_draws_no_admitted_skipped_while_its_ledger_row_stays_open(shell, config, tmp_path):
+    """Root #211747: the runner merged #45389 and #45523 directly at 6:44 AM Oct 30 and posted MERGED for each, then raised ADMITTED-SKIPPED on both at 6:50, since their ledger rows stayed open until the next refresh."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.queue["33001"] = "not queued"
+    queue_drafts(shell, (40, True), (50, True))
+    shell.merge_commits["33001"] = "9999aaaa0000"
+    landing_pass(shell, config)
+    assert [record.split(" as ")[0] for record in merged_records(shell)] == ["MERGED #33001 at aaaa111111 direct"]
+    shell.sleep(11 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert skipped(shell) == []
+
+
+def test_mq_refuses_a_state_file_beside_runner_json_naming_the_block_it_lacks(shell, tmp_path, capsys):
+    """Root #211747: `mq.py --config runner.landing-builds.json why <pr>` died on a KeyError for `orca`; that file is the runner's build cache, not its config."""
+    builds = tmp_path / "runner.landing-builds.json"
+    builds.write_text(json.dumps({"https://buildkite.com/forge/release-pr-check/builds/39800": {}}))
+    assert mq_module.main(["--config", str(builds), "why", "29020"], shell) == 3
+    assert capsys.readouterr().err == f"mq.py: {builds} is no desk-runner config, since it has no drive or orca or landing block; pass the drive's runner.json\n"
+
+
 def test_an_admitted_head_its_lane_was_told_about_draws_no_admitted_skipped(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, EVICTED_GATE)
