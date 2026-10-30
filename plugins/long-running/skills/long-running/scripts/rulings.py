@@ -1208,12 +1208,26 @@ def live_lanes(loaded: Register, cci: str) -> list[str]:
     return sorted(lane for lane, record in newest.items() if lane not in NOT_LANES and record["kind"] != "landed" and not FINISHED.search(record["text"]))
 
 
-def announce(loaded: Register, cci: str, live: list[str], touched: dict[str, str]) -> None:
-    lanes: set[str] = set()
+def slice_wants(loaded: Register) -> dict[str, Want]:
+    """Each lane's slice, read from the newest brief under the drive's state whose `Register slice:` line names it."""
+    wants: dict[str, Want] = {}
+    for brief in sorted(briefs(loaded.state), key=lambda path: path.stat().st_mtime):
+        for header in SLICE_HEADER.finditer(brief.read_text()):
+            wants[header["lane"]] = Want.parse(header)
+    return wants
+
+
+def in_slice(want: Want, fields: dict[str, str]) -> bool:
+    return is_global(fields) or (want.step != INCIDENT_STEP and want.matches(fields))
+
+
+def announce(loaded: Register, cci: str, live: list[str], touched: dict[str, str], before: dict[str, dict[str, str]]) -> None:
+    """Post the touched rows to each live lane whose slice they change: a row its slice carries before or after the classify, so a lane with no slice line, or whose step, lanes and paths the rows miss, hears nothing."""
+    wants = slice_wants(loaded)
+    lanes = {lane for lane in live if (want := wants.get(lane)) and any(in_slice(want, fields) for key in touched for fields in (before.get(key), loaded.rows[key]) if fields)}
     rows: list[str] = []
     for key, how in touched.items():
         fields = loaded.rows[key]
-        lanes |= set(live if is_global(fields) or "all" in listed(fields.get("lanes")) else [lane for lane in live if lane in listed(fields.get("lanes"))])
         rows += ["", f"Register {how} {key} ({fields.get('kind')}): the owner's words and what they mean, verbatim.", *rendered_row(key, fields)]
     if not lanes:
         return
@@ -1354,6 +1368,7 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
             return 1
         touched_rows: dict[str, str] = {}
         repeats: dict[str, list[str]] = {}
+        before = {key: dict(fields) for key, fields in loaded.rows.items()}
         for entry in entries:
             result = applied(loaded, captured, entry, files)
             print(json.dumps(result, ensure_ascii=False))
@@ -1363,7 +1378,7 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
                 repeats[result["key"]] = result["hits"]
         if touched_rows and (drive_entry := entry_of(args)):
             cci = drive.cci_drive(drive_entry)
-            announce(loaded, cci, live_lanes(loaded, cci), touched_rows)
+            announce(loaded, cci, live_lanes(loaded, cci), touched_rows, before)
             for key, hits in repeats.items():
                 post_repeat(loaded, cci, key, hits)
     return 0
