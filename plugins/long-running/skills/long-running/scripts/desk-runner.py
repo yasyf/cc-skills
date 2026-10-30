@@ -588,7 +588,7 @@ starts nothing and logs `HANDOFF-STALLED` to root with the pid. `handoff` stops 
 `reference/` or `scripts/` that the marketplace copy it was installed from holds. `drive.py digest`
 prints each desk's running and installed versions. Before the landing desk takes its lock it refuses to start, exiting 3 with one
 `PREFLIGHT-FAILED` to root, when an environment variable its adapter needs is unset (`TRUNK_MERGE_API_KEY` for
-`trunk-stack-enqueue`), a lane `fidelity_lane`, `go_lanes`, `desk_lane`, `board_lane`, `restack_lane` or `comms_lane` names never
+`trunk-stack-enqueue`), a lane `fidelity_lane`, `go_lanes`, `desk_lane`, `board_lane` or `restack_lane` names never
 registered on the drive, or the landing checkout has local edits; `preflight` runs the same checks, posts nothing, and exits 0 or 3,
 with `--json` for one object of `ok`, `label` and `why`.
 While ruling cards `rulings.py classify` wrote queue under the drive's `cards/`, the landing runner logs one `RULING-ASK`
@@ -676,7 +676,7 @@ RULING_ROUNDS = "cards/rounds"
 RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 RUNNER_LANES = frozenset({RUNNER, ORCA_DESK, finder.LANE, fidelity.LANE, stall_watch.LANE, prompt_watch.LANE})
-LANE_KEYS = ("fidelity_lane", "go_lanes", "desk_lane", "board_lane", "restack_lane", "comms_lane")
+LANE_KEYS = ("fidelity_lane", "go_lanes", "desk_lane", "board_lane", "restack_lane")
 FINDER = "desk-finder"
 FINDER_CURSOR = "cursor"
 FINDER_CONCURRENT = 8
