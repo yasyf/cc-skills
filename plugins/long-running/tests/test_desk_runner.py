@@ -12950,6 +12950,17 @@ def test_a_ledger_head_trailing_a_queued_head_record_never_supersedes_it(shell, 
     assert [(job["pr"], job["head"]) for job in finder_jobs(shell)][1:] == [("44614", FINDER_HEAD)]
 
 
+def test_a_head_record_spelling_a_short_sha_queues_the_full_head_its_pr_is_at(shell, config):
+    """gate-fault-5 #220098: a HEAD record naming c051a2816b2 queued no pass, so its PR waited 40 min ungraded."""
+    finder_config(config)
+    orca_pass(shell, config)
+    shell.pr_heads |= {"43439": ("OPEN", FINDER_HEAD), "43299": ("OPEN", FINDER_HEAD)}
+    head_record(shell, "43439", FINDER_HEAD[:11], fields={})
+    head_record(shell, "43299", FINDER_OLD[:11], fields={})
+    orca_pass(shell, config)
+    assert [(job["pr"], job["head"]) for job in finder_jobs(shell)] == [("43439", FINDER_HEAD)]
+
+
 def test_a_finder_job_asks_at_the_fast_tier_unless_runner_json_turns_it_off(shell, config):
     finder_config(config, fast=False)
     orca_pass(shell, config)

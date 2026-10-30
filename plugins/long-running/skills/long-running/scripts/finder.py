@@ -78,6 +78,7 @@ WHOLE_ASKED = "finder: whole"
 CARRIED_FROM = re.compile(r"\bcarried from #(\d+)")
 WHOLE_READ = "over whole "
 HEAD_SHA = re.compile(r"(?<!was )\b[0-9a-f]{40}\b")
+SHORT_SHA = re.compile(r"(?<!was )\b(?=[0-9]*[a-f])[0-9a-f]{7,39}\b")
 FULL_SHA = re.compile(r"\b[0-9a-f]{40}\b")
 TEXT_PR = re.compile(r"\b([\w.-]+/[\w.-]+)#(\d+)\b|(?<![\w/])#(\d{4,})\b")
 ZERO_REF = re.compile(r"bad object (?:0{40}|worktrees/\S+/HEAD)")
@@ -113,10 +114,10 @@ class Shell:
 
 
 def heads(record: dict, repo: str) -> list[tuple[str, str]]:
-    """Each `(pr, head)` a `head` record names: its `commit` field, else the first full sha of its text that no `was` precedes, for each PR its refs name in `repo`, or with no PR refs the PR its text names, as a lane that posts a head without `--pr` still gets its finder pass (root #158365)."""
-    head = (record.get("fields") or {}).get("commit") or next(iter(HEAD_SHA.findall(record["text"])), "")
+    """Each `(pr, head)` a `head` record names: its `commit` field, else the first full sha of its text that no `was` precedes, else the first abbreviated one, which the caller spells whole from the PR's live head (#220098), for each PR its refs name in `repo`, or with no PR refs the PR its text names, as a lane that posts a head without `--pr` still gets its finder pass (root #158365)."""
+    head = (record.get("fields") or {}).get("commit") or next(iter(HEAD_SHA.findall(record["text"])), "") or next(iter(SHORT_SHA.findall(record["text"])), "")
     prs = [pr for pr, _ in repo_prs(record, repo)] if (record.get("refs") or {}).get("prs") else text_pr(record["text"], repo)
-    return [(pr, head) for pr in prs] if FULL_SHA.fullmatch(head) else []
+    return [(pr, head) for pr in prs] if head else []
 
 
 def text_pr(text: str, repo: str) -> list[str]:

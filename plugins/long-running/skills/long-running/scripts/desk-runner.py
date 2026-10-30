@@ -4273,14 +4273,11 @@ class Runner:
             return
         read = cci.records(self.cci_tail, self.config.drive, "--kind=head", "--kind=opened", "--kind=ask", since=cursor)
         for record in read:
-            if record["drive"] != self.config.drive:
-                continue
-            if record["kind"] == "ask":
-                for pr in finder.requested(record, repo) if record["lane"] == ROOT else ():
+            if (record["drive"], record["kind"], record["lane"]) == (self.config.drive, "ask", ROOT):
+                for pr in finder.requested(record, repo):
                     self.book.accept(FINDER, f"finder:{pr}:whole:{record['seq']}", "finder", json.dumps({"pr": pr, "head": "", "lane": record["lane"], "seq": record["seq"], "full": True}), f"cci#{record['seq']}", None)
-                continue
-            for pr, head in finder.heads(record, repo):
-                self.book.accept(FINDER, f"finder:{pr}:{head}", "finder", json.dumps({"pr": pr, "head": head, "lane": record["lane"], "seq": record["seq"], "full": False}), f"cci#{record['seq']}", None)
+        for record, pr, head in self.named_heads(repo, read):
+            self.book.accept(FINDER, f"finder:{pr}:{head}", "finder", json.dumps({"pr": pr, "head": head, "lane": record["lane"], "seq": record["seq"], "full": False}), f"cci#{record['seq']}", None)
         if read:
             cursor = read[-1]["seq"]
             self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_CURSOR: cursor}))
@@ -4357,6 +4354,13 @@ class Runner:
             self.shell.run(["codex-ask", "--cancel", str(run)])
         self.finder_settled(action.action_id, {"superseded": head})
         return True
+
+    def named_heads(self, repo: str, read: list[dict]) -> list[tuple[dict, str, str]]:
+        """Each `(record, pr, head)` a `head` or `opened` record of this drive names, an abbreviated head spelled whole from the live head of its PR it begins, and left out once that PR has moved past it (#220098)."""
+        named = [(record, pr, head) for record in read if record["drive"] == self.config.drive and record["kind"] != "ask" for pr, head in finder.heads(record, repo)]
+        short = sorted({pr for _, pr, head in named if not finder.FULL_SHA.fullmatch(head)})
+        live = self.live_heads(repo, short) if short else {}
+        return [(record, pr, full) for record, pr, head in named if (full := head if finder.FULL_SHA.fullmatch(head) else (live.get(pr) or {}).get("headRefOid", "")).startswith(head)]
 
     def live_heads(self, repo: str, prs: list[str]) -> dict[str, dict]:
         """Each of `prs` GitHub answered for, to its `state` and `headRefOid`, read fresh in one GraphQL query, with state `NOT_FOUND` for a number that names no pull request in `repo`, such as a cci seq a record bound as one (#177997), which GitHub answers beside the rest; a read that answers for none answers none, and each pass then reads its PR itself."""
@@ -4539,10 +4543,8 @@ class Runner:
             self.book.edit(FIDELITY, lambda incident: incident.facts.update({FINDER_CURSOR: max((record["seq"] for record in newest), default=0)}))
             return
         read = cci.records(self.cci_tail, self.config.drive, "--kind=head", "--kind=opened", since=cursor)
-        for record in read:
-            if record["drive"] == self.config.drive:
-                for pr, head in finder.heads(record, repo):
-                    self.book.accept(FIDELITY, f"fidelity:{pr}:{head}:{record['seq']}", "fidelity", json.dumps({"pr": pr, "head": head, "lane": record["lane"], "seq": record["seq"]}), f"cci#{record['seq']}", None)
+        for record, pr, head in self.named_heads(repo, read):
+            self.book.accept(FIDELITY, f"fidelity:{pr}:{head}:{record['seq']}", "fidelity", json.dumps({"pr": pr, "head": head, "lane": record["lane"], "seq": record["seq"]}), f"cci#{record['seq']}", None)
         if read:
             cursor = read[-1]["seq"]
             self.book.edit(FIDELITY, lambda incident: incident.facts.update({FINDER_CURSOR: cursor}))
