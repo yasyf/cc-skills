@@ -13135,6 +13135,25 @@ def test_while_graphite_is_down_a_stack_waits_for_its_required_checks_before_the
     assert direct_merges(shell) == [["gh", "stack", "link", "29020", "29031"], ["gh", "stack", "merge", "29031", "--yes", "--squash"]]
 
 
+def test_while_graphite_is_down_the_runner_posts_the_queue_of_admitted_chains_once_per_change(shell, config, tmp_path):
+    """Root #200367: lanes asked root where their stack stood in the one serial queue."""
+    two_pr_stack(shell)
+    queue_drafts(shell, (40, True), (50, True))
+    shell.current_heads |= {"29020": "cccc333333", "29031": "dddd444444"}
+    shell.checks |= {pr: [{"name": "buildkite/test", "bucket": "pending"}] for pr in ("29020", "29031")}
+
+    def queues():
+        return [post["text"].split(":", 1)[1] for post in shell.posts if post["kind"] == "state" and post["text"].startswith("QUEUE ")]
+
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [queue] = queues()
+    assert queue.startswith(" Graphite is down, so the landing runner merges one chain at a time, in this order:\n1. #29020 #29031 at cccc333 dddd444: CI pending: ")
+    shell.checks |= {pr: [{"name": "buildkite/test", "bucket": "fail"}] for pr in ("29020", "29031")}
+    landing_pass(shell, config)
+    assert len(queues()) == 2 and "CI red" in queues()[-1]
+
+
 def test_a_go_withdrawn_while_a_stack_waits_for_its_checks_keeps_the_stack_unmerged(shell, config, tmp_path):
     """Root #199069: the direct merge waits for checks for minutes, so a go a root record withdraws meanwhile must still stop the merge."""
     board_surface(config)
