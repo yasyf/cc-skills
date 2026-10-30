@@ -6373,7 +6373,12 @@ class Landing:
         if not tapped:
             return False
         standing = self.fidelity(pr, head)
-        return bool(standing.ok and standing.record) and any(keeps_tap(full_text(standing.record), sha) for sha in tapped)
+        return bool(standing.ok and standing.record) and any(self.keeper(self.scanned_reviews(), pr, head, sha) for sha in tapped)
+
+    def keeper(self, reviews: list[dict], pr: str, head: str, tapped: str) -> dict | None:
+        """The newest fidelity ok grade at `head`, or root go naming it, that says no new behavior since the owner's tap at `tapped`; once one says so, a later grade at the same head without the phrase does not undo it (root #205037, #205918)."""
+        oks = [grade for grade in fidelity_grades_in(reviews, self.runner.config.drive, self.fidelity_lanes, self.repo, pr) if grade["text"].startswith(FIDELITY_OK) and names_head(graded_head(grade["text"]), head)]
+        return max((record for record in [*oks, *self.head_gos(pr, head)] if keeps_tap(full_text(record), tapped)), key=lambda record: record["seq"], default=None)
 
     def exempt_admitted(self, pr: str, sha: str) -> tuple[str, str]:
         """The `EXEMPT-ADMITTED` note for `pr` at `sha` when its change is exempt and goes straight to Graphite's queue with no go and no board tap, and why its whole diff breaks the class its grade claims, read once per pass (root #194387, 06288326, owner Oct 28 8:45 PM). The head grades ok by `fidelity`'s rule and `exempt_class` finds one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first) in its grades. Both classes are checked against every file the PR changes against its base, never the grade's words alone (root #182391): a test-only or CI-only class fails on a file outside the test, CI, skill-script and docs set, and a port class on a file outside `PORT_PREFIXES` unless a `Rulings` comment clears its interaction; changed files that do not read admit nothing that pass."""
@@ -6382,7 +6387,7 @@ class Landing:
         return self.exempts[(pr, sha)]
 
     def exemption(self, pr: str, sha: str) -> tuple[str, str]:
-        if not (found := self.exempt_class(pr, sha, ())) or not self.fidelity(pr, sha).ok:
+        if not (found := self.exempt_class(pr, sha, ())) or (standing := self.fidelity(pr, sha)).record and not standing.ok:
             return "", ""
         grade, said = found
         files, _ = self.changed_files(pr, sha)
@@ -6401,12 +6406,13 @@ class Landing:
         return done.code == 0 and any("interaction" in line.casefold() and OWNER_CITE.search(line) for comment in json.loads(done.out)["comments"] if finder.RULINGS_HEADING.search(comment["body"]) for line in comment["body"].splitlines())
 
     def exempt_class(self, pr: str, sha: str, seen: tuple[str, ...]) -> tuple[dict, str] | None:
-        """The standing ok grade at `sha`, a desk's before the pipeline's, newest first, that says one of `landing.exempt_grades`, with that phrase; a patch-identical carry grade with none is read back along the heads it carries from."""
+        """The standing ok grade at `sha`, a desk's before the pipeline's, newest first, that says one of `landing.exempt_grades`, with that phrase; a patch-identical carry grade with none, or a head a `head` record calls patch-identical to an older one, is read back along the heads it carries from, the way a tap carries (root #205918)."""
         phrases = self.landing_config.get("exempt_grades", [self.landing_config.get("port_phrase", PORT_PHRASE), *TEST_ONLY_PHRASES])
         oks = sorted((grade for grade in self.standing(self.grades(pr), sha) if grade["text"].startswith(FIDELITY_OK)), key=lambda record: (record["lane"] != fidelity.LANE, record["seq"]), reverse=True)
         if found := next(((grade, phrase) for grade in oks for phrase in phrases if phrase.casefold() in grade["text"].casefold()), None):
             return found
         earlier = [old for grade in oks if carry_grade(grade["text"]) and (carry := carry_of(grade["text"])) for old in carry[1] if old not in seen]
+        earlier += [old for new, old, identical, _ in head_moves(self.scanned_reviews(), self.runner.config.drive, self.fidelity_lanes, self.repo, pr) if identical and names_head(new, sha) and old not in seen]
         return next((found for old in earlier if (found := self.exempt_class(pr, old, (*seen, sha)))), None)
 
     def record_waits(self, heads: dict[str, str], waiting: dict[str, list[str]]) -> None:
@@ -6665,12 +6671,13 @@ class Landing:
             adds = [record for record in [*said, *([graded] if graded else [])] if ADDS_BEHAVIOR.search(full_text(record))]
             standing = self.fidelity(pr, head)
             graded_ok = bool(standing.ok and standing.record)
-            says_kept = graded_ok and keeps_tap(full_text(standing.record), tapped)
+            keeper = self.keeper(reviews, pr, head, tapped)
+            says_kept = graded_ok and keeper is not None
             kept = not adds and says_kept and self.finder_clear(pr, head)
             if kept and not self.book.known(LANDING, key := f"tap-kept:{block}:{pr}:{tapped}:{head}"):
-                self.post_record("note", key, to, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} on board block {block} keeps at {head[:10]}, a review fix with no new behavior per fidelity grade cci #{standing.record['seq']} (rule 399b5fa), so it goes straight to the merge queue with no go (root #194387), and the row lists the fix", pr)
+                self.post_record("note", key, to, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} on board block {block} keeps at {head[:10]}, a review fix with no new behavior per {'root go' if keeper['kind'] == 'go' else 'fidelity grade'} cci #{keeper['seq']} (rule 399b5fa), so it goes straight to the merge queue with no go (root #194387), and the row lists the fix", pr)
             if kept and (gos := self.head_gos(pr, head)):
-                self.carry_tap(session, block, pr, tapped, head, f"review fix with no new behavior, per fidelity grade cci #{standing.record['seq']} and root go cci #{gos[-1]['seq']} (rule 399b5fa)", self.landing_audience([pr], rows, to))
+                self.carry_tap(session, block, pr, tapped, head, f"review fix with no new behavior, per {'root go' if keeper['kind'] == 'go' else 'fidelity grade'} cci #{keeper['seq']} and root go cci #{gos[-1]['seq']} (rule 399b5fa)", self.landing_audience([pr], rows, to))
                 continue
             if self.head_gos(pr, head):
                 if adds:

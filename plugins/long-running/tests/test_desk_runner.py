@@ -3419,6 +3419,38 @@ def test_a_kept_tap_waits_for_the_root_go_before_the_queue(shell, config, tmp_pa
     assert not [post for post in shell.posts if "EXEMPT-ADMITTED" in post_body(post)]
 
 
+def test_a_kept_tap_holds_when_a_later_grade_at_the_same_head_omits_the_phrase(shell, config, tmp_path):
+    """Root #205918: #45393 at 389e77a drew TAP-KEPT, then TAP-NOT-CARRIED nine minutes later because a newer grade at the same head lacked the phrase."""
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    tap(shell, "29020", "aaaa111111")
+    grade(shell, "29020", KEPT_GRADE)
+    landing_pass(shell, config)
+    grade(shell, "29020", "ok cccc333333 a review fix: the poll gains a nil check.")
+    landing_pass(shell, config)
+    assert [note["text"].split(":")[0] for note in tap_notes(shell)] == ["TAP-KEPT #29020"]
+
+
+def test_a_port_exemption_carries_to_a_head_a_head_record_calls_patch_identical(shell, config):
+    """Root #205918: #45529's runner rebase to 17ac4c6 was patch-identical by patch-id, and the head still drew TAP-REQUIRED (#205554)."""
+    merge_mode(config, "every")
+    raw = json.loads(config.read_text())
+    raw["landing"]["tap_rules"] = {"rule/82317b0": ["go/sand/next/*"]}
+    config.write_text(json.dumps(raw))
+    shell.register = {"rule/82317b0": {"kind": "order", "status": "in-force"}}
+    lone_green_pr(shell)
+    shell.files["29020"] = ["go/sand/next/vm/run.go"]
+    seq = grade(shell, "29020", "ok aaaa111111 pure port, no interaction: it only ports old-tree #43020.")
+    lane_head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): the landing runner rebased it onto dev for its direct merge, patch-identical to aaaa111111 by patch-id")
+    grade(shell, "29020", "ok cccc333333 F307 at cccc333.")
+    merge_go(shell, "29020", "go port #29020 at cccc333")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert not [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    assert [post_body(post) for post in notes(shell) if "EXEMPT-ADMITTED" in post_body(post)] == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "pure port, no interaction", so it goes straight to the merge queue with no go or board tap (root #194387)']
+
+
 @pytest.mark.parametrize("state", ["board unread", "row absent", "row superseded"])
 def test_a_tap_rule_never_guesses_a_merge_on_an_unread_board_and_gates_only_while_its_row_is_in_force(shell, config, state):
     merge_mode(config, "every")
