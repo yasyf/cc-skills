@@ -6387,7 +6387,7 @@ class Landing:
         return self.exempts[(pr, sha)]
 
     def exemption(self, pr: str, sha: str) -> tuple[str, str]:
-        if not (found := self.exempt_class(pr, sha, ())) or (standing := self.fidelity(pr, sha)).record and not standing.ok:
+        if not (found := self.exempt_class(pr, sha)) or (standing := self.fidelity(pr, sha)).record and not standing.ok:
             return "", ""
         grade, said = found
         files, _ = self.changed_files(pr, sha)
@@ -6405,15 +6405,22 @@ class Landing:
         done = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "comments"))
         return done.code == 0 and any("interaction" in line.casefold() and OWNER_CITE.search(line) for comment in json.loads(done.out)["comments"] if finder.RULINGS_HEADING.search(comment["body"]) for line in comment["body"].splitlines())
 
-    def exempt_class(self, pr: str, sha: str, seen: tuple[str, ...]) -> tuple[dict, str] | None:
+    def exempt_class(self, pr: str, sha: str) -> tuple[dict, str] | None:
         """The standing ok grade at `sha`, a desk's before the pipeline's, newest first, that says one of `landing.exempt_grades`, with that phrase; a patch-identical carry grade with none, or a head a `head` record calls patch-identical to an older one, is read back along the heads it carries from, the way a tap carries (root #205918)."""
         phrases = self.landing_config.get("exempt_grades", [self.landing_config.get("port_phrase", PORT_PHRASE), *TEST_ONLY_PHRASES])
-        oks = sorted((grade for grade in self.standing(self.grades(pr), sha) if grade["text"].startswith(FIDELITY_OK)), key=lambda record: (record["lane"] != fidelity.LANE, record["seq"]), reverse=True)
-        if found := next(((grade, phrase) for grade in oks for phrase in phrases if phrase.casefold() in grade["text"].casefold()), None):
-            return found
-        earlier = [old for grade in oks if carry_grade(grade["text"]) and (carry := carry_of(grade["text"])) for old in carry[1] if old not in seen]
-        earlier += [old for new, old, identical, _ in head_moves(self.scanned_reviews(), self.runner.config.drive, self.fidelity_lanes, self.repo, pr) if identical and names_head(new, sha) and old not in seen]
-        return next((found for old in earlier if (found := self.exempt_class(pr, old, (*seen, sha)))), None)
+        grades = self.grades(pr)
+        moves = [(new, old) for new, old, identical, _ in head_moves(self.scanned_reviews(), self.runner.config.drive, self.fidelity_lanes, self.repo, pr) if identical]
+        heads, seen = [sha], set()
+        while heads:
+            if (head := heads.pop(0)) in seen:
+                continue
+            seen.add(head)
+            oks = sorted((grade for grade in self.standing(grades, head) if grade["text"].startswith(FIDELITY_OK)), key=lambda record: (record["lane"] != fidelity.LANE, record["seq"]), reverse=True)
+            if found := next(((grade, phrase) for grade in oks for phrase in phrases if phrase.casefold() in grade["text"].casefold()), None):
+                return found
+            heads += [old for grade in oks if carry_grade(grade["text"]) and (carry := carry_of(grade["text"])) for old in carry[1]]
+            heads += [old for new, old in moves if names_head(new, head)]
+        return None
 
     def record_waits(self, heads: dict[str, str], waiting: dict[str, list[str]]) -> None:
         """Keep, for `show`, what each graded head still waits on: its merge-ask key and the reserved rows only the owner's tap authorizes. A head that stopped waiting drops out, and the heads of other stacks keep theirs."""
