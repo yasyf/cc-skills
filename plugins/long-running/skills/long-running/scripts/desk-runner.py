@@ -7838,7 +7838,7 @@ class Landing:
             self.book.attempt(LANDING, lambda incident: incident.verify(key, {"cci": self.cleared[landed["pr"]], "cleared": True, "at": self.book.stamp()}))
             return
         closing = set(posted.values()) | self.held_lines(landed["pr"])
-        if settled := self.release_started(landed) or (closing and self.acknowledged(closing, replies=not incident)):
+        if settled := self.release_started(landed) or (closing and self.acknowledged(closing, answers=not incident)):
             refs = settled.get("refs") or {}
             receipt = {"cci": settled["seq"], "builds": refs.get("builds", []), "targets": refs.get("targets", []), "release": next(iter(RELEASE_ID.findall(settled["text"])), ""), "at": self.book.stamp()}
             if settled["kind"] == "fix-live":
@@ -7936,11 +7936,11 @@ class Landing:
             None,
         )
 
-    def acknowledged(self, seqs: set[int], replies: bool) -> dict | None:
-        """The drive root's first cci record that resolves, or with `replies` answers by `--re`, one of the records the runner posted about a landing's release."""
+    def acknowledged(self, seqs: set[int], answers: bool) -> dict | None:
+        """The drive root's first cci record that resolves, or with `answers` answers by `--re`, one of the records the runner posted about a landing's release."""
         drive = self.runner.config.drive
         replies = cci.records(self.cci_tail, drive, "--lane", ROOT, since=min(seqs))
-        return next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, drive) and seqs & (cci.resolved(record) | ({record.get("re")} if replies else set()))), None)
+        return next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, drive) and seqs & (cci.resolved(record) | ({record.get("re")} if answers else set()))), None)
 
     def held_lines(self, pr: str) -> set[int]:
         """The sequences of the RELEASE-HELD-AFTER-LANDING lines the runner posted for `pr`."""
