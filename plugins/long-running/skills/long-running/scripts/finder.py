@@ -473,7 +473,7 @@ def settled_by(job: dict, record: dict | None) -> int | None:
 
 def failure(error: Exception) -> str:
     if isinstance(error, subprocess.CalledProcessError):
-        return f"{shlex.join(error.cmd[:4])} exited {error.returncode}: {' '.join((error.stderr or error.stdout or '').split())[:300]}"
+        return f"{shlex.join(error.cmd[:4])} exited {error.returncode}: {' '.join((error.stderr or error.stdout or '').split())[-300:]}"
     return f"{type(error).__name__}: {error}"
 
 
