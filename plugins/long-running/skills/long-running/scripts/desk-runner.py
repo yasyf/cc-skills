@@ -258,6 +258,9 @@ however many times the PR entered the queue, and routes
 blockers and restacks. Every queue call goes through the repository adapter `landing.adapter` names, from `merge_queue.py`:
 `trunk-stack-enqueue` and `graphite-stack-enqueue` run the script `landing.adapter.script` names under the landing checkout, and `label` runs
 `ledger.py label`; the landing desk refuses to start with `MQ-CONFIG-INVALID` on an adapter, a check, or a high-risk setting it cannot run.
+A check the script refuses because a stack is no native GitHub stack runs `gh stack link` over each tip's chain, bottom first, posts
+one `STACK-LINK` note to the lanes, and checks again in the same pass; a check that prints a `would enqueue` line the adapter cannot
+read escalates `GATE-FAILED` with that line.
 Each prefix passes the check registry, `landing.checks` in order, every built-in when it names none, and `hold` first whether it names it or not: `hold`, `precondition`,
 `rules-review`, `rulings`, `fidelity`, `finder`, and `merge-mode` are the desk's own, and `approvals` and `required-ci` are the adapter's verdict;
 `old-app` and `build-failed` run only when `landing.checks` names them. Trees gate in
@@ -583,7 +586,11 @@ that holder and waits up to 20 minutes, as long as a slow pass takes, for it to 
 re-executed into the handoff's own version under the same pid, which withdraws the stop and starts nothing; past that it
 starts nothing and logs `HANDOFF-STALLED` to root with the pid. `handoff` stops nothing while the install lacks a runtime brief or any file of
 `reference/` or `scripts/` that the marketplace copy it was installed from holds. `drive.py digest`
-prints each desk's running and installed versions.
+prints each desk's running and installed versions. Before the landing desk takes its lock it refuses to start, exiting 3 with one
+`PREFLIGHT-FAILED` to root, when an environment variable its adapter needs is unset (`TRUNK_MERGE_API_KEY` for
+`trunk-stack-enqueue`), a lane `fidelity_lane`, `go_lanes`, `desk_lane`, `board_lane` or `restack_lane` names never
+registered on the drive, or the landing checkout has local edits; `preflight` runs the same checks, posts nothing, and exits 0 or 3,
+with `--json` for one object of `ok`, `label` and `why`.
 While ruling cards `rulings.py classify` wrote queue under the drive's `cards/`, the landing runner logs one `RULING-ASK`
 per board round, however many cards join it; the root runs `rulings.py round`, which puts at most ten of them on the live cc-present board as one
 round, foundational rows first.
@@ -669,6 +676,7 @@ RULING_ROUNDS = "cards/rounds"
 RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 RUNNER_LANES = frozenset({RUNNER, ORCA_DESK, finder.LANE, fidelity.LANE, stall_watch.LANE, prompt_watch.LANE})
+LANE_KEYS = ("fidelity_lane", "go_lanes", "desk_lane", "board_lane", "restack_lane")
 FINDER = "desk-finder"
 FINDER_CURSOR = "cursor"
 FINDER_CONCURRENT = 8
@@ -748,6 +756,7 @@ ASYNC_POLLS = 60
 ASYNC_RESULT_POLLS = 120
 ASYNC_STATE = '.state + " " + .headRefOid'
 STACK_PARTIAL = "Include all existing PRs"
+UNLINKED_STACK = "without a native GitHub stack"
 STACK_MEMBER = "part of a stack"
 SQUASH_POLLS = 12
 APPROVAL_POLL_SECONDS = 60
@@ -5699,7 +5708,21 @@ class Landing:
         return gated
 
     def checked(self, tips: list[str]) -> merge_queue.Gate:
-        return self.proven(self.adapter.check(tips, self.whole(), self.row_heads, False))
+        gate = self.adapter.check(tips, self.whole(), self.row_heads, False)
+        if verdictless(gate) and UNLINKED_STACK in gate.err + gate.out and not self.read_only and self.link_chains(tips):
+            gate = self.adapter.check(tips, self.whole(), self.row_heads, False)
+        return self.proven(gate)
+
+    def link_chains(self, tips: list[str]) -> bool:
+        open_rows = {pr: row for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"}
+        linked = True
+        for tip in tips:
+            chain = sorted(downstack(open_rows, tip), key=lambda pr: len(downstack(open_rows, pr)))
+            done = self.shell.run(["gh", "stack", "link", *chain], env={"GH_REPO": self.repo}, cwd=str(self.checkout))
+            said = "linked them as one native GitHub stack and checks again" if done.code == 0 else f"gh stack link exited {done.code}: {((done.err or done.out).strip().splitlines() or ['no output'])[-1][:300]}"
+            self.post_record("note", f"stack-link:{','.join(chain)}@{open_rows[tip].get('head', '')}", self.routine_audience(chain, self.ledger_rows), f"STACK-LINK {numbered(chain)}: the {self.adapter.kind} check refused them as no native GitHub stack; the landing runner {said}", tip)
+            linked = linked and done.code == 0
+        return linked
 
     def left(self, prefix: list[str], refused: Iterable[str], rows: dict[str, dict]) -> str:
         return cut_at(prefix, refused, self.whole(), {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"})
@@ -8887,22 +8910,40 @@ def mq_config_fault(landing: dict) -> str:
     return f"{'; '.join(faults)}; add to the \"landing\" object of runner.json, replacing any member of the same name: {', '.join(members)}"
 
 
+def startup_fault(runner: Runner) -> tuple[str, str, str] | None:
+    source, landing = runner.config.source, runner.config.landing
+    if "fidelity_lane" not in landing:
+        return "FIDELITY-LANE-UNSET", f"fidelity-lane-unset:{source}", f"{source} names no landing.fidelity_lane, so no fidelity grade would count; the runner refused to start"
+    if landing.get("merge_mode") not in MERGE_MODES:
+        return "MERGE-MODE-UNSET", f"merge-mode-unset:{source}", f"{source} names no landing.merge_mode of {', '.join(MERGE_MODES)}, so the owner's merge mode is unknown; the runner refused to start"
+    if fault := mq_config_fault(landing):
+        why = f"the runner refused to start: {source} {fault}"
+        return "MQ-CONFIG-INVALID", f"mq-config:{source}:{hashlib.sha1(why.encode()).hexdigest()[:8]}", why
+    if faults := preflight_faults(runner):
+        why = f"the runner refused to start: {'; '.join(faults)}"
+        return "PREFLIGHT-FAILED", f"preflight:{source}:{hashlib.sha1(why.encode()).hexdigest()[:8]}", why
+    return None
+
+
+def preflight_faults(runner: Runner) -> list[str]:
+    landing, drive = runner.config.landing, runner.config.drive
+    kind = landing["adapter"]["kind"]
+    env = os.environ | runner.config.desk_env["landing"]
+    faults = [f"{name} is unset, and the {kind} adapter cannot reach its queue without it" for name in merge_queue.ADAPTERS[kind].required_env if not env.get(name)]
+    named = dict.fromkeys(lane for key in LANE_KEYS for lane in ([landing[key]] if isinstance(landing.get(key), str) else landing.get(key, [])) if lane not in RUNNER_LANES)
+    if unregistered := [lane for lane in named if not runner.shell.run(["cci", "who", "--drive", drive, "--lane", lane, "--all", "--json"]).out.strip()]:
+        faults.append(f"{runner.config.source} names {', '.join(unregistered)}, which never registered on drive {drive}; start each lane or remove it from runner.json")
+    checkout = Path(landing["checkout"]).expanduser()
+    status = runner.shell.run(["git", "-C", str(checkout), "status", "--porcelain", "--untracked-files=no"])
+    if status.code == 0 and (edited := [line[3:] for line in status.out.splitlines() if line.strip()]):
+        faults.append(f"{checkout} has local edits to {', '.join(edited)}, so no pass can fast-forward it to origin/{TRUNK}")
+    return faults
+
+
 def run_landing(runner: Runner, once: bool) -> int:
-    if "fidelity_lane" not in runner.config.landing:
-        why = f"{runner.config.source} names no landing.fidelity_lane, so no fidelity grade would count; the runner refused to start"
-        runner.escalate(f"fidelity-lane-unset:{runner.config.source}", "FIDELITY-LANE-UNSET", "runner", why)
-        runner.flush()
-        print(why, file=sys.stderr)
-        return 3
-    if runner.config.landing.get("merge_mode") not in MERGE_MODES:
-        why = f"{runner.config.source} names no landing.merge_mode of {', '.join(MERGE_MODES)}, so the owner's merge mode is unknown; the runner refused to start"
-        runner.escalate(f"merge-mode-unset:{runner.config.source}", "MERGE-MODE-UNSET", "runner", why)
-        runner.flush()
-        print(why, file=sys.stderr)
-        return 3
-    if why := mq_config_fault(runner.config.landing):
-        why = f"the runner refused to start: {runner.config.source} {why}"
-        runner.escalate(f"mq-config:{runner.config.source}:{hashlib.sha1(why.encode()).hexdigest()[:8]}", "MQ-CONFIG-INVALID", "runner", why)
+    if fault := startup_fault(runner):
+        label, key, why = fault
+        runner.escalate(key, label, "runner", why)
         runner.flush()
         print(why, file=sys.stderr)
         return 3
@@ -8986,6 +9027,8 @@ def build_parser() -> argparse.ArgumentParser:
     rebind = verbs.add_parser("rebind")
     handoff = verbs.add_parser("handoff")
     handoff.add_argument("--desk", choices=DESKS, required=True)
+    preflight = verbs.add_parser("preflight", help="check the landing desk's config and machine without starting it; exit 0 when it would start, 3 when it would refuse")
+    preflight.add_argument("--json", action="store_true")
     quiesce = verbs.add_parser("quiesce")
     quiesce.add_argument("--desk", choices=DESKS, required=True)
     show = verbs.add_parser("show")
@@ -8993,7 +9036,7 @@ def build_parser() -> argparse.ArgumentParser:
     gc.add_argument("--dry-run", action="store_true")
     go = verbs.add_parser("go", help="each PR's ledger head and the newest go naming it, else the newest go at an older head, read as the landing runner reads them")
     go.add_argument("prs", nargs="+")
-    for sub in (relay, launch, policy, loop, rebind, handoff, quiesce, show, gc, go):
+    for sub in (relay, launch, policy, loop, rebind, handoff, preflight, quiesce, show, gc, go):
         sub.add_argument("--config", type=Path, required=True)
     return parser
 
@@ -9040,6 +9083,10 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
         return runner.rebind()
     if args.verb == "handoff":
         return runner.handoff(args.desk)
+    if args.verb == "preflight":
+        fault = startup_fault(runner)
+        print(json.dumps({"ok": fault is None, "label": fault and fault[0], "why": fault and fault[2]}) if args.json else fault[2] if fault else f"desk-runner preflight: the landing desk on {config.source} would start")
+        return 3 if fault else 0
     if args.verb == "gc":
         try:
             return runner.gc(args.dry_run)
