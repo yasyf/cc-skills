@@ -284,12 +284,15 @@ def drive_prs(prs, rows, gos, records, trees, tree_names, steps, parts, holds, n
     return {"source": "every pull request in the drive's ledger that is open or landed, since the drive began on Oct 22", "prs": listed, "tracked": sorted(int(number) for number in prs)}
 
 
+def still_open(number, prs, runner):
+    return prs.get(str(number), {}).get("state") == "open" and runner.get(str(number), {}).get("state") != "Landed"
+
+
 def without_finished_prs(pages, prs, runner):
     work = pages.get("work")
     if not work:
         return pages
-    still_open = [row for row in work["pull_requests"] if prs.get(str(row["number"]), {}).get("state") == "open" and runner.get(str(row["number"]), {}).get("state") != "Landed"]
-    return {**pages, "work": {**work, "pull_requests": still_open}}
+    return {**pages, "work": {**work, "pull_requests": [row for row in work["pull_requests"] if still_open(row["number"], prs, runner)]}}
 
 
 def answer_line(text, who=None, since=None, next=None, href=None, label=None):
@@ -948,7 +951,7 @@ class Drive:
             "status_table": Path(self.config["status_table"]).read_text(),
             "register_log": "register" in self.config,
             "latest_words": self.words(),
-            "evidence": self.evidences(),
+            "evidence": {number: entry for number, entry in self.evidences().items() if still_open(number, model["prs"], progress.get("pr_state", {}))},
             "pages": without_finished_prs({name: curator.brief for name, curator in self.pages.items()}, model["prs"], progress.get("pr_state", {})),
             "milestones": [m["name"] for m in self.config["milestones"]],
             "milestones_label": self.config["milestones_label"],

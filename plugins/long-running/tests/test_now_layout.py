@@ -296,7 +296,7 @@ def test_a_work_row_reads_its_pull_requests_runner_state_over_the_summary(page):
         render();
     }""", item)
     row = page.locator(f'.nw-live .wr[data-feed="{item}"]')
-    assert row.locator(".chip").inner_text() == "Landed"
+    assert row.locator(".chip").text_content() == "Landed"
     assert "Landed at 6:09 PM" in row.inner_text()
 
 

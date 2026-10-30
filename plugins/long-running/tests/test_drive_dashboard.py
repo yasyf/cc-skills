@@ -800,3 +800,9 @@ def test_a_landed_or_closed_pull_request_drops_out_of_the_work_pages_waiting_row
     prs = {"1": {"state": "landed"}, "2": {"state": "open"}, "3": {"state": "closed"}, "4": {"state": "open"}}
     out = server.without_finished_prs(pages, prs, {"2": {"state": "Landed"}})
     assert [row["number"] for row in out["work"]["pull_requests"]] == [4]
+
+
+def test_only_a_pull_request_still_open_on_the_ledger_and_the_runner_keeps_its_waiting_evidence():
+    prs = {"1": {"state": "open"}, "2": {"state": "open"}, "3": {"state": "closed"}}
+    runner = {"2": {"state": "Landed"}}
+    assert [n for n in ("1", "2", "3") if server.still_open(n, prs, runner)] == ["1"]
