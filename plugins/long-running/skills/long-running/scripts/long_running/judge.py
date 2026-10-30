@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -29,6 +30,8 @@ JEV_SECONDS = 20
 JEV_YES = 0.5
 ARTIFACT_CHARS = 12000
 CALLS = Path("judge") / "calls.jsonl"
+CARD_SECONDS = 10
+BOARD_PROOF = re.compile(r"proof:board:([0-9a-f]{16})\b")
 
 SYSTEM = (
     "You review one artifact a coding agent wrote, for an owner who is a terse engineer and types fast."
@@ -119,13 +122,50 @@ class Call:
         }
 
 
-def owner_words(key: str, said: list[tuple[str, str]], answered: str | None = None) -> str:
-    """The evidence for a question about the owner's words: his words on one ruling verbatim, oldest first, and what they answered."""
-    lines = "\n".join(f'- {at}: "{words}"' for at, words in said if words)
-    evidence = f"His words on ruling {key}, verbatim, oldest first:\n{lines}"
-    if answered:
-        evidence += f"\n\nWhat his words answered, agent-written apart from his own words:\n{answered}"
-    return evidence
+def captures(state: Path) -> dict[str, dict]:
+    """The owner's captured prompts and board taps in the drive's state folder, by digest, without the ones a later capture supersedes."""
+    path = state / "owner-prompts.jsonl"
+    if not path.exists():
+        return {}
+    entries = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    gone = {digest for entry in entries for digest in entry.get("supersedes", [])}
+    return {entry["digest"]: entry for entry in entries if entry["digest"] not in gone}
+
+
+def said(row: dict, state: Path, env: Mapping[str, str] | None = None) -> list[dict]:
+    """Every time the owner said a register row, oldest first, as `{at, words, answered}`: `answered` is the board card a tap answered, as the board shows it, else None."""
+    owner = captures(state)
+    items = [{"at": row.get("at", ""), "words": row["words"], "proof": row.get("proof", "")}, *json.loads(row.get("repeats") or "[]")]
+    return [{"at": item.get("at", ""), "words": item["words"], "answered": answered_card(owner, item.get("proof", ""), env)} for item in items if item["words"]]
+
+
+def answered_card(owner: dict[str, dict], proof: str, env: Mapping[str, str] | None) -> str | None:
+    capture = next((owner[digest] for digest in BOARD_PROOF.findall(proof) if digest in owner), None)
+    if capture is None or capture.get("source") != "board" or not capture.get("block"):
+        return None
+    try:
+        shown = subprocess.run(
+            ["cc-present", "block", "show", capture["block"], "--session", capture["session"]],
+            capture_output=True,
+            text=True,
+            timeout=CARD_SECONDS,
+            check=True,
+            env=dict(env) if env is not None else None,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    return shown.stdout.strip()
+
+
+def owner_words(key: str, said: list[dict]) -> str:
+    """The evidence for a question about the owner's words: his words on one ruling verbatim, oldest first, each tap with the card it answered, from `said`."""
+    lines = []
+    for item in said:
+        lines.append(f'- {item["at"]}: "{item["words"]}"')
+        if item.get("answered"):
+            card = "\n".join(f"    {line}" for line in item["answered"].splitlines())
+            lines.append(f"  That was a tap on this card, agent-written apart from what he picked or typed:\n{card}")
+    return f"His words on ruling {key}, verbatim, oldest first:\n" + "\n".join(lines)
 
 
 def backend_from(env: Mapping[str, str]) -> Backend:

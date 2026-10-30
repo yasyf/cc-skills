@@ -106,6 +106,7 @@ from pathlib import Path
 
 from zoneinfo import ZoneInfo
 
+from long_running.judge import captures
 from long_running.ruling_documents import DocumentIndex
 
 import board_rows
@@ -469,15 +470,6 @@ def repeat_digests(fields: dict[str, str]) -> set[str]:
 
 def proof_digests(fields: dict[str, str]) -> set[str]:
     return set(DIGEST_PROOF.findall(fields.get("proof") or "")) | repeat_digests(fields)
-
-
-def captures(state: Path) -> dict[str, dict]:
-    path = state / "owner-prompts.jsonl"
-    if not path.exists():
-        return {}
-    entries = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-    gone = {digest for entry in entries for digest in entry.get("supersedes", [])}
-    return {entry["digest"]: entry for entry in entries if entry["digest"] not in gone}
 
 
 def ledger_of(shell: ledger.Shell, repo: str, program: str) -> str:

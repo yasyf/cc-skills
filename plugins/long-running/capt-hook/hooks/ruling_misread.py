@@ -72,15 +72,9 @@ def posted(command: str, verdict: dict = FLAGGED, commands: dict[str, str] | Non
     )
 
 
-def owner_said(row: dict) -> list[tuple[str, str]]:
-    return [
-        (row.get("at", ""), row["words"]),
-        *((repeat.get("at", ""), repeat["words"]) for repeat in json.loads(row.get("repeats") or "[]")),
-    ]
-
-
-def candidate_rows(evt: BaseHookEvent, drive: list[str], text: str, semantic: bool) -> dict[str, dict]:
-    rows = json.loads(rulings(str(evt.cwd), "rows", *drive))["rows"]
+def candidate_rows(evt: BaseHookEvent, drive: list[str], text: str, semantic: bool) -> tuple[Path, dict[str, dict]]:
+    registered = json.loads(rulings(str(evt.cwd), "rows", *drive))
+    state, rows = Path(registered["state_dir"]), registered["rows"]
     keys = [key for key in dict.fromkeys(ROW_KEY.findall(text)) if key in rows]
     if not keys and semantic:
         try:
@@ -96,14 +90,14 @@ def candidate_rows(evt: BaseHookEvent, drive: list[str], text: str, semantic: bo
                 timeout=reqenv.clamp_timeout(MATCH_TIMEOUT_SECONDS),
             )
         except subprocess.TimeoutExpired:
-            return {}
+            return state, {}
         answers = ANSWER_ID.findall(matched)
         keys = (
             [key for key, row in rows.items() if any(str(answer).startswith(tuple(answers)) for answer in json.loads(row.get("answer") or "[]"))]
             if answers
             else []
         )
-    return {key: rows[key] for key in keys[:ROWS_PER_ARTIFACT] if rows[key].get("words")}
+    return state, {key: rows[key] for key in keys[:ROWS_PER_ARTIFACT] if rows[key].get("words")}
 
 
 def posted_artifacts(evt: BaseHookEvent) -> list[tuple[str, str]]:
@@ -206,10 +200,11 @@ def misread_rulings(evt: BaseHookEvent) -> HookResult | None:
     judge, env = script_module("long_running/judge"), reqenv.env_map()
     findings = []
     for kind, text in artifacts:
-        for key, row in candidate_rows(evt, drive, text, semantic=kind != "relay").items():
+        state, rows = candidate_rows(evt, drive, text, semantic=kind != "relay")
+        for key, row in rows.items():
             verdict = judge.judge(
                 kind,
-                judge.owner_words(key, owner_said(row)),
+                judge.owner_words(key, judge.said(row, state, env)),
                 text,
                 backend=judge.backend_from(env),
                 drive=drive[1],
