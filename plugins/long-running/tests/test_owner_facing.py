@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import uuid
 from pathlib import Path
 
@@ -364,3 +365,9 @@ def test_the_closeout_grep_passes_its_dash_led_pattern_after_a_double_dash():
     argv = owner_facing.INCIDENT_CLOSEOUT
     pattern = next(arg for arg in argv if "FIX-LIVE" in arg)
     assert pattern.startswith("-") and argv[argv.index(pattern) - 1] == "--"
+
+
+def test_a_failed_read_names_the_exception_a_traceback_ends_on() -> None:
+    stderr = 'Traceback (most recent call last):\n  File "rulings.py", line 2648, in <module>\n    raise SystemExit(main())\nsubprocess.CalledProcessError: Command \'ccn ledger list\' returned non-zero exit status 128.\n'
+    failure = subprocess.CalledProcessError(1, ["rulings.py", "glossary"], stderr=stderr)
+    assert owner_facing.reason(failure) == "exit 1: subprocess.CalledProcessError: Command 'ccn ledger list' returned non-zero exit status 128."

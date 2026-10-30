@@ -603,7 +603,8 @@ def plan_words(evt: BaseHookEvent, text: str, reads: Reads) -> list[str]:
 
 def reason(failure: BaseException) -> str:
     if isinstance(failure, subprocess.CalledProcessError):
-        return f"exit {failure.returncode}: {str(failure.stderr or '').strip()}"
+        last = str(failure.stderr or "").strip().splitlines()[-1:]
+        return f"exit {failure.returncode}" + "".join(f": {line}" for line in last)
     return str(failure) or type(failure).__name__
 
 
