@@ -16,11 +16,10 @@ Issue commands with the drive's R/L numbering. Submit a key once per action;
 submitting it again in the same lane returns the existing action. Never `SendMessage`
 a desk.
 
-The root never types an `R<n>` or a clock. It cannot read the desk inbox, so a key it
-picks can collide with one a line there already holds. `desk-launch.py` mints every
-keyed line the root sends. It takes one past the highest `R<n>` on a cci record
-addressed to `orca-desk` and in `inbox/orca-desk.md`, its archive included, stamps the
-Pacific clock, posts the line to `orca-desk` on cci, and prints the key and the line.
+The root never types an `R<n>` or a clock, since a key it picks can collide with one
+already held. `desk-launch.py` mints every keyed line the root sends. It takes one past
+the highest `R<n>` on a cci record addressed to `orca-desk`, stamps the Pacific clock,
+posts the line to `orca-desk` on cci, and prints the key and the line.
 
 ```text
 desk-launch.py incident <name> <fix-brief> [<evidence-brief>]
@@ -44,13 +43,11 @@ desk-runner.py rebind --config C
 desk-runner.py show --config C
 ```
 
-A relay can also be one line appended to the desk inbox, which the runner still reads
-while the root moves to cci records. Set the required
-`orca.desk_inbox` config field to the drive's `inbox/orca-desk.md`. The orca runner
-reads each complete line appended since its saved byte offset; its first read starts
-at the file's end, so history never replays. It reads each cci record addressed to
-`orca-desk` the same way, from a saved sequence that starts at the drive's newest
-record, skipping records `cci import` took from the desk inbox; a record that is no
+The runner reads orders only from cci records; set the required `orca.desk_inbox`
+config field to the drive's `inbox/orca-desk.md`, which anchors its logs and state and
+which it never reads. The orca runner reads each cci record addressed to `orca-desk`
+from a saved sequence that starts at the drive's newest record, so history never
+replays; a record that is no
 directive logs `DIRECTIVE-FAILED`. A line is a relay only in this form, one
 relay per line, its text running to the end of the line:
 
@@ -67,7 +64,7 @@ For each named lane with a live dispatch, the runner does what `relay --key R<n>
 does. When the dispatch's newest question to the Run has no answer on its terminal,
 the relay is a reply to that question, which releases a worker blocked in
 `orca orchestration ask`; otherwise, it is a plain relay that wakes the terminal.
-A line without `R<n>` takes the key `inbox@<byte offset>`. Each lane logs once to the
+A record without `R<n>` takes the key `inbox@cci#<seq>`. Each lane logs once to the
 cci drive as `RELAYED <key> <lane>` or `RELAY-FAILED <key> <lane>: <reason>`,
 addressed to root.
 A dead or missing dispatch, a key that already holds different text, and a line that
@@ -81,20 +78,20 @@ without reading any dispatch as gone or failing any relay, logs `ORCA-UNREACHABL
 for the streak, backs off up to two minutes between passes, and logs `ORCA-BACK` on the
 first pass Orca answers.
 
-A launch can also be one line in the same inbox, in this form only, one launch per
-line, with nothing after the brief path:
+A launch is one cci record addressed to `orca-desk`, in this form only, one launch per
+record, with nothing after the brief path. `desk-launch.py` posts it; by hand it is:
 
-```text
-R<n> (<time>) orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>
+```sh
+cci post --drive <drive> --lane root --kind go --to orca-desk --text 'R<n> (<h:mm AM|PM>) orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>'
 ```
 
 The runner does what `launch --key R<n>` does with the same model, effort, and
 brief; `NOW` is `--owner-directed`, so under load the launch fails at once instead of
 waiting out the hold, and `role=<role>` is `--role`, the launch's role for the incident
 clock. An incident
-fix lane is `R<n> (<time>) orca-desk: launch <lane> NOW incident xhigh brief=<path>`;
-only `incident` runs on the fast tier, and plain `sol` is the standard tier. A line without `R<n>` takes the key
-`inbox@<byte offset>`. A verified launch logs `LAUNCHED <key> <lane>: dispatch
+fix lane is `R<n> (<time>) orca-desk: launch <name>-fix NOW incident xhigh role=fix brief=<path>`;
+only `incident` runs on the fast tier, and plain `sol` is the standard tier. A record without `R<n>` takes the key
+`inbox@cci#<seq>`. A verified launch logs `LAUNCHED <key> <lane>: dispatch
 <ctx> terminal <handle>`. The runner logs `LAUNCH-FAILED <key> <lane>: <reason>`
 and launches nothing for a lane with a live dispatch or a launch still in flight,
 a key that already holds an action, a model or effort `launch` refuses, a brief
@@ -110,7 +107,7 @@ A line that says `orca-desk: launch` outside the form logs
 `desk-launch.py incident <name> <fix-brief> [<evidence-brief>]` and
 `desk-launch.py lane <lane> <model> <effort> <brief> [--now]` post these lines for the
 root; `incident` posts `role=fix` and `role=evidence` on its two lines. Each takes the next `R<n>`
-past every key on an `orca-desk` cci record and in the desk inbox, posts
+past every key on an `orca-desk` cci record, posts
 with `--to orca-desk`, waits for `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-HELD`, or
 `UNVERIFIABLE`, and prints the runner's line with the dispatch and terminal.
 
@@ -153,7 +150,7 @@ orca-desk: incident <slug> <link> reported=<HH:MM> :: <what fired>
 ```
 
 `reported=` takes the first report's Pacific time as `18:41` or `6:41 PM`, and a slug may
-carry a Slack channel name's underscores. `monitor-watch.py --alert-inbox` writes `alert` lines. The runner records the
+carry a Slack channel name's underscores. `monitor-watch.py --alert-drive` posts `alert` records. The runner records the
 transition as `ALERT` and launches nothing; a repeat relays to a live fix lane.
 The alerts desk writes an `incident` line only when it judges a lane necessary.
 For an `incident` line the runner fills `reference/alert-fix-brief.md` with `alert.facts`, attaches
@@ -366,7 +363,7 @@ routes sent through cci use `--kind blocker --to <lane> --topic <pr>` with the s
 text limit and attachment rule. A landing's release record and its blockers use
 `--kind release` and `--kind blocker` with `--to <landing.release_owner>,root --topic <pr> --pr <pr>`.
 
-`monitor-watch.py --alert-inbox` keeps writing alert lines to `orca-desk.md`.
+`monitor-watch.py --alert-drive` posts alert records to `orca-desk` on cci.
 The runner posts each Datadog alert's `INCIDENT` to root through cci with topic
 `dd-<id>`; a `fix-live` record with `--topic dd-<id>` closes it.
 

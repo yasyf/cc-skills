@@ -67,8 +67,8 @@ def pacific(at: str) -> str:
     Event.PostToolUse,
     only_if=[Tool("Bash")],
     tests={
-        Input(command=APPEND, env=SILENT_CCI): Warn(pattern=r"^LAUNCH-FAILED: no orca alive record from the orca desk runner in the last five minutes \(last never\)[\s\S]*--config <drive>/runner\.json"),
-        Input(command=POST, env=SILENT_CCI): Warn(pattern=r"^LAUNCH-FAILED: no orca alive record from the orca desk runner in the last five minutes \(last never\)"),
+        Input(command=APPEND, env=SILENT_CCI): Warn(pattern=r"^UNREAD: the orca desk runner reads only cci records addressed to `orca-desk`[\s\S]*cci post --lane <your lane> --kind go --to orca-desk --text"),
+        Input(command=POST, env=SILENT_CCI): Warn(pattern=r"^LAUNCH-FAILED: no orca alive record from the orca desk runner in the last five minutes \(last never\)[\s\S]*--config <drive>/runner\.json"),
         Input(command=APPEND, env=UNBOUND_ENV): Allow(),
         Input(command="cci post --lane root --kind go --to landing-desk --text 'go #1'", env=SILENT_CCI): Allow(),
         Input(command="echo '- G12 (root) GO walker' >> /state/release-v3/inbox/deploy-go.md", env=SILENT_CCI): Allow(),
@@ -77,6 +77,11 @@ def pacific(at: str) -> str:
 def desk_runner_down(evt: BaseHookEvent) -> HookResult | None:
     if not (appends_to_desk(evt) or posts_to_desk(evt)) or (entry := entry_of(evt)) is None:
         return None
+    if appends_to_desk(evt):
+        return evt.context(
+            f"UNREAD: the orca desk runner reads only cci records addressed to `{DESK}`, never `{DESK_INBOX}`, so this line launches, relays and alerts nothing. Post it instead:",
+            f"{FENCE}\ncci post --lane <your lane> --kind go --to {DESK} --text '<the {DESK}: line>'\n{FENCE}",
+        )
     if (found := alive_records(entry)) is None:
         return None
     record = found[-1] if found else None

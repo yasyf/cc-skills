@@ -70,8 +70,8 @@ message with no saved id is relayed before the acknowledgement whatever its sequ
 logged `UNRELAYED` when it sits behind the cursor and its type has no relay. Prompts
 belong to `prompt_watch.py`, the one reader
 of Orca's agentWait; the sweep reads its last poll and escalates `PROMPT-WATCH-DOWN` once an hour
-while that poll is over two minutes old. It also reads the drive's desk inbox stream and turns
-each new `orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>` line into one relay
+while that poll is over two minutes old. It also reads the drive's cci records addressed to `orca-desk`,
+its only source of orders, and turns each new `orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>` line into one relay
 per lane, a reply to the lane's latest open question no other reply claims, logged once as
 `RELAYED` or `RELAY-FAILED`. Each new `orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>`
 line is the `launch` command under its key, `NOW` meaning `--owner-directed` and `role=` meaning `--role`, refused as
@@ -199,8 +199,7 @@ case launch still pending at the end fails and logs `WITHDRAWN`. A case already 
 such as a case lane's own, launches nothing. A case
 lane is an incident fix lane, so the clock covers it.
 Each cci record addressed to `orca-desk` past the runner's saved sequence is read as one
-desk inbox line, starting at the drive's newest record, except a record `cci import` took
-from the desk inbox itself or one that carries `--re`; a record that is no directive logs
+`orca-desk:` line, starting at the drive's newest record, except one that carries `--re`; a record that is no directive logs
 `DIRECTIVE-FAILED`, and a failed `cci tail` logs `CCI-TAIL-FAILED` and rereads from the same
 sequence. An `orca-desk: withdraw <target>` line names a launch key, `R<n>` or a case
 launch's `unfixed:<msg>:<n>`, or a lane. It fails each launch under the key, or each of the
@@ -2176,23 +2175,8 @@ class Runner:
         target = json.dumps({"text": text, "reply_to": reply_to})
         return self.book.accept(self.lane(lane), key, "reply" if reply_to else "relay", target, key, self.now() + timedelta(minutes=minutes))
 
-    def read_inbox(self) -> None:
-        """Act on each complete line appended to the desk inbox since the saved byte offset; a first read starts at the end, so history never replays."""
-        path = self.config.desk_inbox
-        fact = f"desk-inbox:{path}"
-        cursor = self.book.load(RUNNER).facts.get(fact)
-        if cursor is None:
-            start = inboxes.Inbox(path).end() if path.is_file() else 0
-            self.book.edit(RUNNER, lambda incident: incident.facts.update({fact: start}))
-            return
-        if not path.is_file():
-            return
-        for line in inboxes.Inbox(path).lines(cursor):
-            self.inbox_line(str(line.start), line.text.strip())
-            self.book.edit(RUNNER, lambda incident, at=line.end: incident.facts.update({fact: at}))
-
     def read_cci(self) -> None:
-        """Act in sequence order on each cci record past the saved sequence that is addressed to the orca desk, as one desk inbox line, or that this drive's root posted with `--re`, as a reply; a peer drive's root reply relays nothing. A reply to the runner's `DECIDE` on a worker question answers that question, a reply to a lane's own record answers that lane's open question, which the cci reply superseded, and a `withdraw` of a launch record withdraws that launch. A first read starts at the newest record, and records imported from the desk inbox were already read there."""
+        """Act in sequence order on each cci record past the saved sequence that is addressed to the orca desk, as one `orca-desk:` line, or that this drive's root posted with `--re`, as a reply; a peer drive's root reply relays nothing. A reply to the runner's `DECIDE` on a worker question answers that question, a reply to a lane's own record answers that lane's open question, which the cci reply superseded, and a `withdraw` of a launch record withdraws that launch. A first read starts at the newest record."""
         fact = f"cci:{self.config.drive}:{ORCA_DESK}"
         cursor = self.book.load(RUNNER).facts.get(fact)
         try:
@@ -2202,12 +2186,11 @@ class Runner:
                 return
             addressed = cci.records(self.cci_tail, self.config.drive, "--to", ORCA_DESK, since=cursor)
             replies = [record for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, since=cursor) if record.get("re")]
-            already_read = f"import:{self.config.desk_inbox.resolve()}"
             for record in sorted({record["seq"]: record for record in [*addressed, *replies]}.values(), key=lambda record: record["seq"]):
                 if record.get("re"):
                     if record["lane"] == ROOT and record["drive"] == self.config.drive:
                         self.root_reply(record, self.cci_record(record["re"]))
-                elif record["source"] != already_read:
+                else:
                     self.cci_line(record)
                 self.book.edit(RUNNER, lambda incident, at=record["seq"]: incident.facts.update({fact: at}))
         except CciTailFailed as failure:
@@ -2641,7 +2624,7 @@ class Runner:
             )
 
     def incident_lane(self, monitors: set[str], lane: str) -> str | None:
-        """The lane already on one of these monitors: a launch in flight or the live dispatch of a launch whose brief's `ccx: incident=` names one, or a launch line later in the desk inbox naming one that this pass has yet to read."""
+        """The lane already on one of these monitors: a launch in flight or the live dispatch of a launch whose brief's `ccx: incident=` names one, or a launch record to the orca desk naming one that this pass has yet to read."""
         for container in self.book.containers(LANE_PREFIX):
             other = container.removeprefix(LANE_PREFIX)
             launches = [action for action in self.book.actions(container, kind="launch") if brief_incidents(Path(json.loads(action.target)["brief"])) & monitors]
@@ -2651,11 +2634,10 @@ class Runner:
             live = dispatch.id if dispatch and dispatch.status not in INACTIVE else None
             if any(action.status in ("accepted", "started") or (live and action.dispatch_id == live) for action in launches):
                 return other
-        inbox = self.config.desk_inbox
-        offset = self.book.load(RUNNER).facts[f"desk-inbox:{inbox}"]
-        for line in inboxes.Inbox(inbox).lines(offset) if inbox.is_file() else []:
-            directive = INBOX_DIRECTIVE.match(line.text.strip())
-            if line.start <= offset or not directive or directive["verb"] != "launch" or not (spec := LAUNCH_SPEC.match(directive["rest"])) or spec["lane"] == lane:
+        cursor = self.book.load(RUNNER).facts[f"cci:{self.config.drive}:{ORCA_DESK}"]
+        for record in cci.records(self.cci_tail, self.config.drive, "--to", ORCA_DESK, since=cursor):
+            directive = INBOX_DIRECTIVE.match(record["text"].strip())
+            if not directive or directive["verb"] != "launch" or not (spec := LAUNCH_SPEC.match(directive["rest"])) or spec["lane"] == lane:
                 continue
             if brief_incidents(Path(spec["brief"])) & monitors:
                 return spec["lane"]
@@ -3360,10 +3342,10 @@ class Runner:
         return "" if done.code == 0 else ccn_failure(done)
 
     def idle(self, seconds: float) -> None:
-        """Wait out the gap between passes, cut short by a desk inbox append or a launch process exiting."""
-        inbox, running = self.shell.stat(self.config.desk_inbox), self.running()
+        """Wait out the gap between passes, cut short by a launch process exiting."""
+        running = self.running()
         for _ in range(int(seconds / WAKE_SECONDS)):
-            if self.shell.stat(self.config.desk_inbox) != inbox or self.running() < running or self.stop_requested():
+            if self.running() < running or self.stop_requested():
                 return
             self.shell.sleep(WAKE_SECONDS)
 
@@ -8549,7 +8531,7 @@ def run_orca(runner: Runner, once: bool) -> int:
         runner.follow_coordinator()
         try:
             if runner.check():
-                runner.steps(runner.reap, runner.read_inbox, runner.read_cci, runner.deliver)
+                runner.steps(runner.reap, runner.read_cci, runner.deliver)
                 if runner.now() - swept >= SWEEP_EVERY:
                     runner.steps(runner.sweep)
                     swept = runner.now()

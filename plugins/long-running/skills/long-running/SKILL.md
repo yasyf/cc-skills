@@ -331,9 +331,9 @@ The root never runs the check/ack loop, relaunch sweeps, or helper scripts inlin
 No model desk sits between the root and Orca.
 
 Start the orca runner before the first worker; set `drive` in its config for cci
-escalations to root and `orca.desk_inbox` to the drive's `inbox/orca-desk.md`.
-The runner still reads that Markdown command inbox, but the root posts every line as a
-cci record addressed to `orca-desk` with `desk-launch.py` and appends nothing to it. Use `policy` for a landing
+escalations to root and `orca.desk_inbox` to the drive's `inbox/orca-desk.md`, which
+anchors the runner's logs and state. The runner reads its orders only from cci records
+addressed to `orca-desk`, which the root posts with `desk-launch.py`; it never reads that file. Use `policy` for a landing
 rule and `show` for action state. Upgrade a live runner with `handoff`: it waits for
 the old runner to finish its pass and exit, then starts the new one itself.
 [The runner brief](reference/orca-desk-brief.md) gives the config and cutover.
@@ -353,8 +353,8 @@ the root to find it at 4:10 PM, 57 minutes late. Open `AskUserQuestion` calls at
 
 **R9a. An urgent hold gets a decision owner and a clock.** A lane holding a release
 the plan marks urgent, or a blocked catch-up of a coupled control-plane set,
-appends `orca-desk: hold <slug> owner=<lane> :: <what is held, and on what>` to
-the orca desk inbox. It names itself or a dedicated decision-owner lane as owner.
+posts `orca-desk: hold <slug> owner=<lane> :: <what is held, and on what>` with
+`desk-launch.py hold`. It names itself or a dedicated decision-owner lane as owner.
 A held or blocked coupled release gets its own decision-owner lane. When the
 release moves, the holding lane appends `orca-desk: unhold <slug>`.
 
@@ -513,7 +513,7 @@ When the root launches an incident pair itself, the launch is one command:
 desk-launch.py incident <name> <fix-brief> [<evidence-brief>]
 ```
 
-It takes the next `R<n>`, one past every key on cci and in the desk inbox, posts
+It takes the next `R<n>`, one past every key on cci, posts
 `<name>-fix` and `<name>-evidence` to `orca-desk`
 on cci as `NOW incident xhigh` launch lines with `role=fix` and `role=evidence`, so
 the runner's incident clock holds only the fix lane, waits for the runner's `LAUNCHED` or
@@ -566,10 +566,10 @@ refused on load above 32 cores, `open` had rendered no brief, and both briefs we
 written by hand without the fixed lines.*
 
 Alert intake runs before the root wakes. A monitor transition never launches a
-lane by itself: `monitor-watch.py --alert-inbox` appends `orca-desk: alert <slug>
-<link> :: <what fired>`, which the runner records and launches nothing on. The
-alerts desk appends `orca-desk: incident <slug> <link> reported=<HH:MM> :: <what
-fired>` only when it judges a lane necessary. `reported` is the first report's
+lane by itself: `monitor-watch.py --alert-drive` posts `orca-desk: alert <slug>
+<link> :: <what fired>` to `orca-desk` on cci, which the runner records and launches nothing on. The
+alerts desk posts `orca-desk: incident <slug> <link> reported=<HH:MM> :: <what
+fired>` the same way only when it judges a lane necessary. `reported` is the first report's
 Pacific time; the brief names it and the 20-minute bar runs from it. For an `incident` line the runner
 fills `reference/alert-fix-brief.md` with drive facts from `alert.facts`,
 attaches it to the briefs log as
@@ -2300,13 +2300,12 @@ the old session open. The landing process is the drive's merge queue and runs D3
 Each runner's heartbeat is its alive record, below: its attrs carry the runner's pid,
 plugin version, config, terminal, and restart command, and every reader reads the newest
 one from cci, so a runner may run on any machine and no reader checks a pid. A `cci post`
-that fails stays queued for the next pass instead of stopping the runner. When a Bash
-append to `orca-desk.md` or a `cci post --to orca-desk` finds no orca alive record from
+that fails stays queued for the next pass instead of stopping the runner. When a
+`cci post --to orca-desk` finds no orca alive record from
 the last five minutes, the `desk_liveness` hook answers `LAUNCH-FAILED` with the restart
-command that record carries, and the restarted runner reads the line from its saved
-cursor; a cci that does not answer leaves the hook silent. The hook finds the drive in
-the registry entry for the session, so the check holds however the command spells the
-inbox path, such as `$STATE/inbox/orca-desk.md` with `STATE` set earlier on the same line.
+command that record carries, and the restarted runner reads the record from its saved
+cursor; a cci that does not answer leaves the hook silent. A Bash append to
+`orca-desk.md` in a drive session draws `UNREAD` and the `cci post` form, since nothing reads the file.
 `handoff` reads the newest record to see a runner re-execute in place, `drive.py digest`
 reads it for each desk's version and liveness, and the stall watch posts a `desk` stall
 to root when a runner that posted one in its window falls silent for 10 minutes. No
@@ -2337,12 +2336,11 @@ The orca runner rotates every `*.md` file beside `orca.desk_inbox` once an hour.
 mark at least six hours old into `<file>.archive/YYYY-MM-DD.md`, so the first
 archival happens about six hours after the first mark.
 
-The root never types an `R<n>` or a clock. It cannot read the desk inbox, so a key
-it picks by hand can collide with one already held, and a key held twice logs
-`LAUNCH-FAILED`. `desk-launch.py` mints every keyed line. It takes one past the
-highest `R<n>` on a cci record addressed to `orca-desk` and in `inbox/orca-desk.md`,
-its archive included, stamps the Pacific clock, and posts the line to `orca-desk` on
-cci.
+The root never types an `R<n>` or a clock. A key it picks by hand can collide with one
+already held, and a key held twice logs `LAUNCH-FAILED`. `desk-launch.py` mints every
+keyed line. It takes one past the highest `R<n>` on a cci record addressed to
+`orca-desk`, stamps the Pacific clock, and posts the line to `orca-desk` on cci as
+`cci post --lane <lane> --kind go --to orca-desk --text '<line>'`.
 
 ```sh
 desk-launch.py lane <lane> <model> <effort> <brief> [--now]
@@ -2356,13 +2354,13 @@ Each verb prints the key and the line it posted. `lane` then waits for the runne
 `LAUNCHED` or `LAUNCH-FAILED`; the others return at once, and the runner's verdict
 reaches the root on cci.
 
-The runner reads the same lines from cci records addressed
-to `orca-desk` and from lines appended to `inbox/orca-desk.md`. A relay line is
+The runner reads these lines only from cci records addressed
+to `orca-desk`. A relay line is
 `R<n> orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>`; the runner
 delivers it once per lane and logs `RELAYED` or `RELAY-FAILED`. A launch line is
 `R<n> orca-desk: launch <lane> [NOW] <model> <effort> brief=<absolute path>`; the
 runner runs `launch` for it once, `NOW` meaning `--owner-directed`, and logs
-`LAUNCHED` or `LAUNCH-FAILED`. The root appends no keyed line to the file. A repeated key in
+`LAUNCHED` or `LAUNCH-FAILED`. A repeated key in
 the same lane is one action, and `policy` takes the drive's L keys. An
 `orca-desk: withdraw <target>` line,
 naming `R<n>`, a case launch's `unfixed:<msg>:<n>`, or a lane, fails a launch the
@@ -2578,7 +2576,7 @@ dedup; `reference/alerts-desk-brief.md` is the desk's brief, ready to paste.
 `reference/active-alert-brief.md` holds the executor's runbook and its lane briefs.
 
 **A1. Report monitor transitions, and nothing else.** The desk runs
-`monitor-watch.py watch --alert-inbox <drive>/inbox/orca-desk.md` in the foreground under
+`monitor-watch.py watch --alert-drive <drive>` in the foreground under
 `desk-wait.sh`, so its mailbox ends the watch, over the drive's
 monitors, by tag glob such as `release-target:*` and by named id. It messages the root only on a move into Alert,
 Warn, or No Data, or a recovery to OK: monitor id, name, transition time, and a
@@ -2722,10 +2720,11 @@ These I-rules apply to the landing desk, priority desks, and shards. The owner r
 > take all ephemeral stuff out of manual files and ccn, and move it into cci (cc-inbox)
 
 Durable owner rulings, decisions, runbooks, and design docs stay in cc-notes.
-The orca desk reads its launch, relay, and hold lines from `inbox/orca-desk.md` and
-from cci records addressed to `orca-desk`, in the `R<n>` form the owner's CLAUDE.md
+The orca desk reads its launch, relay, and hold lines only from cci records addressed
+to `orca-desk`, in the `R<n>` form the owner's CLAUDE.md
 Incident Turn names. The root posts each one with `desk-launch.py`, which mints the
-`R<n>` and the clock.
+`R<n>` and the clock; by hand, an incident fix lane is
+`cci post --drive <drive> --lane root --kind go --to orca-desk --text 'R<n> (<h:mm AM|PM>) orca-desk: launch <name>-fix NOW incident xhigh role=fix brief=<absolute path>'`.
 The root never `SendMessage`s a desk.
 
 **I1. A desk's inbox is the set of cci records addressed to it.** The root posts each ruling
