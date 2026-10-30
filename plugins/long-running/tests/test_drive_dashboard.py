@@ -841,3 +841,35 @@ def test_a_record_that_answers_the_owners_question_reads_as_his_question_then_pr
     assert "<p>Paused by the host-pressure run</p><p>Who paused the queue</p><p>The host-pressure run paused it at 7:02 PM.</p><ul><li>1615 pending</li><li>122 paused</li></ul>" in page
     assert "pr:" not in page and "/tmp/" not in page
     assert 'href="/record/11?raw=1"' in page
+
+
+def test_a_tap_row_whose_live_head_or_parent_is_not_green_leaves_the_deck_and_says_why():
+    """Owner 2:11 AM on #45412 (root #203813): 'why am I being asked to review this if tests are failing?'"""
+    rows = [{"number": n, "head": "aaaa111", "state": "you", "blocker": "Green, reviewed and checked against the plan; it waits on your tap"} for n in (45411, 45412, 45413, 45414)]
+    prs = {
+        "45411": {"state": "open", "branch": "b11", "base": "dev", "head": "aaaa111", "test_state": "failure"},
+        "45412": {"state": "open", "branch": "b12", "base": "b11", "head": "bbbb222", "test_state": "pending"},
+        "45413": {"state": "open", "branch": "b13", "base": "b11", "head": "aaaa111", "test_state": "success"},
+        "45414": {"state": "open", "branch": "b14", "base": "dev", "head": "aaaa111", "test_state": "success"},
+    }
+    records = [{"kind": "head", "at": "2026-10-30T09:06:00Z", "text": "HEAD #45412 bbbb2222 (was aaaa111)"}]
+
+    out = {row["number"]: row for row in server.at_live_head(rows, prs, records)}
+
+    assert (out[45411]["state"], out[45411]["blocker"]) == ("failing", "Tests failing on the version; back when green.")
+    assert (out[45412]["state"], out[45412]["blocker"]) == ("failing", "Tests still running on the version pushed at 2:06 AM; back when green.")
+    assert (out[45413]["state"], out[45413]["blocker"]) == ("failing", "#45411 below it fails its tests; back when green.")
+    assert out[45414]["state"] == "you"
+    assert [need["prs"][0]["number"] for need in server.merge_needs([{**row, "block": "b", "group_id": "g", "group": "G", "group_summary": "", "key": str(row["number"])} for row in out.values()], "u")] == [45414]
+
+
+def test_evidence_written_before_the_live_head_was_pushed_never_reaches_the_owner():
+    """#45412 at 2:11 AM showed 'Green, reviewed and checked against the plan; it waits on your tap' from before its 2:06 AM push, whose tests failed."""
+    evidence = {
+        "45412": {"state": "Green, reviewed and checked against the plan; it waits on your tap.", "at": "2026-10-30T08:50:00Z"},
+        "45414": {"state": "Its build is red; its worker is fixing the failing build.", "at": "2026-10-30T09:10:00Z"},
+    }
+    prs = {"45412": {"state": "open", "head": "bbbb2222"}, "45414": {"state": "open", "head": "cccc3333"}}
+    records = [{"kind": "head", "at": "2026-10-30T09:06:00Z", "text": "HEAD #45412 bbbb2222 (was aaaa111)"}, {"kind": "head", "at": "2026-10-30T09:00:00Z", "text": "HEAD #45414 cccc3333"}]
+
+    assert list(server.live_evidence(evidence, prs, {}, records)) == ["45414"]
