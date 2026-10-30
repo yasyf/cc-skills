@@ -19,6 +19,10 @@ deliverable, your authority, your worktree, and who hears your report. Stay insi
   `MAILBOX` line ends the call. Run it as the Bash call itself and never filter or
   discard its output. Claude Code delivers teammate mail only after your turn ends,
   so act on the sender, time, and full text desk-wait prints after `MAILBOX`.
+  desk-wait marks what it prints as read, so the harness never hands it to you again:
+  a teammate message that starts a turn is new. Compare its full text with what you
+  already acted on, word for word, never by topic or sender; a different body is a
+  new order, so do it before you report.
 - Write findings to cc-notes with the `ccn` CLI or to the ledger, never into a message.
 - Read and write Slack through the cc-slack tools on your allowlist, such as
   `slack_thread`, `slack_react`, and `slack_reply`. Run the `cc-slack` CLI by path only when

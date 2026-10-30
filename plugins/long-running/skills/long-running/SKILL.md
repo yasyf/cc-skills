@@ -144,8 +144,11 @@ completion went to the root session and the lane never woke.*
 **R4. Never re-brief a lane, never answer a duplicate.** `SendMessage` to a finished
 agent resumes it carrying its whole original brief and it re-runs that brief.
 `SendMessage` to a running agent spawns a second copy that restarts the lane while the
-original never sees the message. Reply to nothing you have already acted on, and expect
-2-3 duplicate idle-notifications per real report. Rotation flushes the lane in place;
+original never sees the message. Reply to nothing you have already acted on. An idle
+notification answers only the messages the lane had when that turn began, so one
+that lands seconds after a new order says nothing about it; wait for the lane's
+report on that order. desk-wait marks the mail it prints as read, so the harness
+never hands it to the lane a second time. Rotation flushes the lane in place;
 it keeps working and resumes from its ledger and cursor after its own compaction
 (see Lane rotation). *Prevents lane collisions in a shared worktree
 and the reply tax on notifications that carry no news.*
