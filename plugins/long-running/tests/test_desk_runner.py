@@ -13230,6 +13230,20 @@ def test_while_graphite_is_down_a_prefix_shorter_than_its_stack_merges_one_pr_at
     assert [record.split(" direct")[0] for record in merged_records(shell)] == ["MERGED #29020 at cccc333333", "MERGED #29031 at dddd444444"]
 
 
+def test_a_direct_merge_rebase_moves_a_pr_stacked_above_the_admitted_prefix_with_it(shell, config, tmp_path):
+    """stack-prep-3 #199394, root #199395: the rebase moved #44922 and left #45010 on its old head, so GitHub's diff of #45010 carried #44922's code and a test-only PR read TEST-ONLY-MISMATCH."""
+    two_pr_stack(shell)
+    shell.rows.append({"pr": "29042", "lane": LANE, "branch": "a/3", "base": "a/2", "head": "eeee555555", "state": "open", "reported_head": "eeee555555"})
+    shell.gates["29042"] = [gate("#29020 GREEN cccc333333 graphite READY", "#29031 GREEN dddd444444 graphite READY", "#29042 BLOCKED eeee555555 graphite RUNNING", would="#29020 #29031")]
+    queue_drafts(shell, (40, True), (50, True))
+    shell.trunk = [{"oid": "9999dddd00"}]
+    shell.behind["cccc333333"] = 2
+    landing_pass(shell, config)
+    assert [(onto, head) for onto, head, _ in shell.replayed] == [("9999dddd00", "cccc333333"), (shell.replayed[0][2], "dddd444444"), (shell.replayed[1][2], "eeee555555")]
+    assert shell.pushes[1] == ["--no-verify", "--force-with-lease=refs/heads/a/3:eeee555555", "origin", f"{shell.replayed[2][2]}:refs/heads/a/3"]
+    assert [post["text"].split(" (was")[0] for post in shell.posts if post["kind"] == "head" and "29042" in post["text"]] == [f"HEAD #29042 {shell.replayed[2][2]}"]
+
+
 def test_a_failed_direct_merge_names_githubs_whole_refusal_not_its_last_line(shell, config, tmp_path):
     two_pr_stack(shell)
     queue_drafts(shell, (40, True), (50, True))

@@ -4831,6 +4831,16 @@ def holds_any(open_rows: dict[str, dict], tree: list[str], prs: set[str]) -> boo
     return any(downstack(open_rows, tip) & prs for tip in tree)
 
 
+def stacked_on(chain: list[str], open_rows: dict[str, dict]) -> list[str]:
+    """Each open PR outside `chain` stacked, directly or through others, on a branch of `chain`, parents before children."""
+    branches = {open_rows[pr].get("branch") for pr in chain}
+    riders: list[str] = []
+    while added := sorted((pr for pr, row in open_rows.items() if pr not in chain and pr not in riders and row.get("base") in branches), key=int):
+        riders += added
+        branches |= {open_rows[pr].get("branch") for pr in added}
+    return riders
+
+
 def blocker_key(pr: str, head: str) -> str:
     """One blocker per PR and head, whether the gate's 10-character sha or the ledger's full one names it, so a red build and the Graphite `FAILING_REQUIRED` it causes route once (root #142221)."""
     return f"blocker:{pr}:{head[:10]}"
@@ -7163,7 +7173,8 @@ class Landing:
         if listed.code or not listed.out.strip():
             return heads, (chain[0], f"the trunk tip did not read: {(listed.err or listed.out).strip()[:200] or 'empty'}")
         tip = listed.out.split()[0]
-        fetched = self.shell.run([*git, "fetch", "-q", "--no-tags", "origin", tip, *heads.values(), "--no-write-fetch-head"])
+        riders = stacked_on(chain, open_rows)
+        fetched = self.shell.run([*git, "fetch", "-q", "--no-tags", "origin", tip, *heads.values(), *(open_rows[pr]["head"] for pr in riders), "--no-write-fetch-head"])
         if fetched.code:
             return heads, (chain[0], f"the trunk tip or the heads did not fetch: {(fetched.err or fetched.out).strip()[:200]}")
         landing: dict[str, str] = {}
@@ -7187,12 +7198,40 @@ class Landing:
                 read = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "headRefOid", "--jq", ".headRefOid", max_age=ghread.FRESH))
                 if read.out.strip() == landing[pr]:
                     break
+        self.replay_riders(riders, {open_rows[pr]["branch"]: (heads[pr], landing[pr]) for pr in chain}, open_rows, tip)
         for pr in chain:
             self.post_record("head", f"rebased-direct:{pr}@{landing[pr]}", ",".join(dict.fromkeys([ROOT, *map(self.successor, self.fidelity_lanes)])), f"HEAD #{pr} {landing[pr]} (was {heads[pr]}): the landing runner rebased it onto {TRUNK} {tip[:10]} for its direct merge, patch-identical to {heads[pr][:10]} by patch-id, so its go and grades carry (root #197571)", pr)
         for pr in chain:
             if not self.approved_again(pr, landing[pr]):
                 return landing, (pr, f"{REVIEW_BOT} has not approved #{pr} again at {landing[pr][:10]} in {APPROVAL_POLLS} minutes since the rebase push")
         return landing, None
+
+    def replay_riders(self, riders: list[str], moved: dict[str, tuple[str, str]], open_rows: dict[str, dict], tip: str) -> None:
+        """Replay each PR of `riders`, stacked on a branch the direct-merge rebase moved but not merged with it, onto its parent's new head and push it, so no PR is left on a parent's old head, where GitHub's diff carries the parent's code (#199394): one at a time, parents first, each kept only when its own patch is unchanged and pushed leased on its head; one that does not replay, changes its patch or does not push stays put, and its lane hears it once."""
+        git = ["git", "-C", str(self.checkout)]
+        for pr in riders:
+            row = open_rows[pr]
+            if row.get("base") not in moved:
+                continue
+            old, new = moved[row["base"]]
+            base = self.shell.run([*git, "merge-base", old, row["head"]]).out.strip()
+            replayed = self.shell.run([*git, "replay", "--onto", new, "--ref", f"refs/heads/{row['branch']}", "--ref-action=print", f"{base}..{row['head']}"])
+            update = replayed.out.split()
+            why = (
+                f"it does not replay cleanly onto {new[:10]}" if replayed.code or len(update) != 4
+                else f"its own patch changes when replayed onto {new[:10]}" if self.own_patch(base, row["head"]) != self.own_patch(new, update[2])
+                else ""
+            )
+            pushed = None if why else self.shell.run([*git, "push", "--no-verify", f"--force-with-lease=refs/heads/{row['branch']}:{row['head']}", "origin", f"{update[2]}:refs/heads/{row['branch']}"])
+            if pushed and pushed.code:
+                why = f"its rebased head did not push: {(pushed.err or pushed.out).strip()[:200]}"
+            if why:
+                if not self.book.known(LANDING, ask := f"rider-direct:{pr}@{row['head']}"):
+                    owner = self.owner(pr, row)
+                    self.post_blocker(ask, ",".join(dict.fromkeys([*(self.reach(owner) if owner else []), *self.restack_lanes()])), f"#{pr} {row['head'][:10]}: the landing runner moved {row['base']} to {new[:10]} for a direct merge and could not move #{pr} with it: {why}. Restack it onto {row['base']} with ccx vcs stack submit from its worktree", pr)
+                continue
+            moved[row["branch"]] = (row["head"], update[2])
+            self.post_record("head", f"rebased-rider:{pr}@{update[2]}", ",".join(dict.fromkeys([ROOT, *map(self.successor, self.fidelity_lanes)])), f"HEAD #{pr} {update[2]} (was {row['head']}): the landing runner replayed it onto {row['base']} {new[:10]}, rebased onto {TRUNK} {tip[:10]} for a direct merge below it, patch-identical to {row['head'][:10]} by patch-id", pr)
 
     def approved_again(self, pr: str, head: str) -> bool:
         """Whether GitHub reads `pr` approved, by an approving review on `head` itself, within `APPROVAL_POLLS` reads `APPROVAL_POLL_SECONDS` apart: the rebase push dismisses the approval only after GitHub processes it, so an approval read before then names the old head; the review bot approves a patch-identical head again within minutes, and the runner waits for nothing else, no go and no second CI run, since it checked the patch itself (root #197434, #197878, #198367)."""
