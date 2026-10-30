@@ -27,14 +27,13 @@ from .compaction_handoff import CompactionState, rulings, script, script_module
 from .owner_facing import CCI_POST, posted_text
 from .pr_ledger import OPENERS
 from .register_injection import drive_args
+from .ruling_judge import MATCH_TIMEOUT_SECONDS
 from .tests.register_fixtures import CWD, DRIVE_CONFIG, ROWS, register
 
 ROWS_PER_ARTIFACT = 2
 ARTIFACT_CHARS = 12000
 MATCH_CHARS = 2000
 MATCH_BYTES = 6000
-MATCH_TIMEOUT_SECONDS = 8
-DIFF_TIMEOUT_SECONDS = 10
 ROW_KEY = re.compile(r"\b(?:rule|prompt|exception|design|reserved)/[\w-]+")
 ANSWER_ID = re.compile(r"^- ([0-9a-f]{7}) ", re.MULTILINE)
 CARD = re.compile(r"\bcards?\b|\bthe owner's board\b|\bon (?:the|his) board\b", re.IGNORECASE)
@@ -173,7 +172,6 @@ def shipped_tests(evt: BaseHookEvent) -> list[tuple[str, str]]:
             ["git", "merge-base", "HEAD", "origin/HEAD"],
             capture_output=True,
             text=True,
-            timeout=DIFF_TIMEOUT_SECONDS,
             check=True,
             cwd=evt.cwd,
         ).stdout.strip()
@@ -181,7 +179,6 @@ def shipped_tests(evt: BaseHookEvent) -> list[tuple[str, str]]:
             ["git", "diff", "--name-only", base],
             capture_output=True,
             text=True,
-            timeout=DIFF_TIMEOUT_SECONDS,
             check=True,
             cwd=evt.cwd,
         ).stdout.split()
@@ -191,14 +188,13 @@ def shipped_tests(evt: BaseHookEvent) -> list[tuple[str, str]]:
                 [*DIFF.split(), base, "--", *changed],
                 capture_output=True,
                 text=True,
-                timeout=DIFF_TIMEOUT_SECONDS,
                 check=True,
                 cwd=evt.cwd,
             ).stdout
             if changed
             else ""
         )
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+    except subprocess.CalledProcessError:
         return []
     return [("test", diff)] if diff.strip() else []
 
