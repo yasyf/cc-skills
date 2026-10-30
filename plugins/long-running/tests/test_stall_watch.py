@@ -63,6 +63,7 @@ class FakeShell(stall_watch.Shell):
         self.posts: list[list[str]] = []
         self.prompts: list[str] = []
         self.review_titles: dict[str, str] = {}
+        self.comments: dict[str, list[dict]] = {}
         self.clock = NOW
 
     def run(self, argv, stdin=None, env=None, timeout=stall_watch.COMMAND_SECONDS):
@@ -83,6 +84,8 @@ class FakeShell(stall_watch.Shell):
             questions = json.loads(stdin.split("Questions:\n", 1)[1])
             verdicts = [{"id": question["id"], "why": "the record says so"} | self.answer(question) for question in questions]
             return stall_watch.Done(self.judge_code, json.dumps({"structured_output": {"verdicts": verdicts}}) if self.judge_code == 0 else "", "boom" if self.judge_code else "")
+        if argv[:3] == ["ccx", "vcs", "gh"] and argv[argv.index("--") + 1 : argv.index("--") + 3] == ["pr", "view"]:
+            return stall_watch.Done(0, json.dumps({"comments": self.comments.get(argv[argv.index("--") + 3], [])}), "")
         if argv[:3] == ["ccx", "vcs", "gh"]:
             endpoint = argv[argv.index("--") + 2]
             assert endpoint.endswith("/check-runs?check_name=ai-review")
@@ -1212,3 +1215,50 @@ def test_a_go_named_stack_whose_runner_worker_sits_on_one_step_past_its_budget_s
     assert bool(go_stalls) is stalls
     if stalls:
         assert "the landing runner's worker for the stack from #200 has been on its enqueue step for 8 min, past its 5 min budget, running `stack-enqueue 200 --partial` for 480 s" in shell.post(go_stalls[0])["text"]
+
+
+def missing(seq: int, pr: str, sha: str, minutes_ago: float) -> dict:
+    return record(seq, "fidelity-desk", "review", f"fidelity: missing {sha[:7]} exception/E12 restores content without the 180 MiB cap", minutes_ago, pr)
+
+
+@pytest.mark.parametrize(("graded", "stalls"), [(10, []), (25, ["missing:101:3"])])
+def test_a_missing_grade_nobody_answers_for_twenty_minutes_alarms_root_and_the_prs_lane_like_a_red_build(config, graded, stalls):
+    shell = FakeShell([head(1, "101", HEAD, 40), finder(2, "101", HEAD, 39), missing(3, "101", HEAD, graded)], [row("101", test_state="pending")])
+
+    watch(shell, config)
+
+    assert shell.topics() == stalls
+    for topic in stalls:
+        assert shell.post(topic)["to"] == "root,api-lane@d1"
+        assert shell.post(topic)["text"].startswith(f"STALL missing #101 at abc1234, {graded} min: fidelity grade cci #3 by fidelity-desk reads missing since 12:35 PM: fidelity: missing abc1234 exception/E12")
+        assert "nobody has answered it" in shell.post(topic)["text"]
+
+
+@pytest.mark.parametrize(("answered", "stalls"), [(5, []), (20, ["regrade:101:3"])])
+def test_a_missing_grade_a_lane_answered_with_no_regrade_for_fifteen_minutes_goes_to_the_grader_not_root(config, answered, stalls):
+    reply = record(4, "api-lane", "report", "the cap lives in the relay; see followed.go", answered, "101", re=3)
+    shell = FakeShell([head(1, "101", HEAD, 60), finder(2, "101", HEAD, 59), missing(3, "101", HEAD, 50), reply], [row("101", test_state="pending")])
+
+    watch(shell, config)
+
+    assert shell.topics() == stalls
+    for topic in stalls:
+        assert shell.post(topic)["to"] == "fidelity-desk@d1"
+        assert "api-lane in cci #4 answered it at" in shell.post(topic)["text"]
+
+
+def test_a_pr_comment_answers_a_missing_grade_and_a_bot_comment_does_not(config):
+    shell = FakeShell([head(1, "101", HEAD, 60), finder(2, "101", HEAD, 59), missing(3, "101", HEAD, 50)], [row("101", test_state="pending")])
+    shell.comments["101"] = [{"author": {"login": "forge-pr-reviewer[bot]"}, "createdAt": stamp(45), "body": "Held"}]
+
+    watch(shell, config)
+    assert shell.topics() == ["missing:101:3"]
+
+    shell.comments["101"].append({"author": {"login": "yasyf"}, "createdAt": stamp(30), "body": "The plan holds: the cap lives in the relay."})
+    watch(shell, config)
+    assert shell.topics() == ["missing:101:3", "regrade:101:3"]
+    assert "a PR comment by yasyf answered it at 12:30 PM, and no grade has followed" in shell.post("regrade:101:3")["text"]
+
+    shell.records.append(fidelity(5, "101", HEAD, 1))
+    watch(shell, config)
+    assert "regrade:101:3" not in opened(config) and "missing:101:3" not in opened(config)
