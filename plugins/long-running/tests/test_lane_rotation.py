@@ -587,6 +587,44 @@ def test_teammates_are_never_parsed_while_no_teammate_task_runs(tree: Tree, pars
     assert ([lane.name for lane in lanes], parsed) == (["reviewer"], ["reviewer"])
 
 
+@pytest.mark.parametrize(
+    "background",
+    [[], [{"id": "build", "type": "local_bash", "status": "running", "description": "build"}]],
+    ids=["empty", "non-lane-task"],
+)
+def test_no_live_lanes_skip_all_historical_metadata(
+    tree: Tree, parsed: list[str], monkeypatch: pytest.MonkeyPatch, background: list[dict]
+) -> None:
+    for index in range(32):
+        tree.lane(f"retired-team-{index}", 450_000, status=None)
+        tree.lane(f"retired-subagent-{index}", 450_000, team=None, status=None)
+    event = stop(tree, background).evt()
+    counts = {"enumerations": 0, "metadata_stats": 0, "metadata_reads": 0}
+    subagents = session_tree.subagents
+    stat = Path.stat
+    read_text = Path.read_text
+
+    def enumerated(evt: StopEvent) -> list[session_tree.Subagent]:
+        counts["enumerations"] += 1
+        return subagents(evt)
+
+    def stated(path: Path, *, follow_symlinks: bool = True) -> os.stat_result:
+        counts["metadata_stats"] += path.name.endswith(".meta.json")
+        return stat(path, follow_symlinks=follow_symlinks)
+
+    def read(path: Path, *args, **kwargs) -> str:
+        counts["metadata_reads"] += path.name.endswith(".meta.json")
+        return read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(session_tree, "subagents", enumerated)
+    monkeypatch.setattr(Path, "stat", stated)
+    monkeypatch.setattr(Path, "read_text", read)
+
+    assert lane_rotation.scan_lanes(event) == ()
+    assert parsed == []
+    assert counts == {"enumerations": 0, "metadata_stats": 0, "metadata_reads": 0}
+
+
 def test_newer_lane_off_its_roster_still_hides_an_older_namesake_on_another_roster(tree: Tree, parsed: list[str]) -> None:
     task = tree.lane("desk", 450_000, spawned=ROOT_AT - timedelta(hours=5))
     tree.lane("desk", 450_000, team="next-team", spawned=ROOT_AT - timedelta(hours=1))
