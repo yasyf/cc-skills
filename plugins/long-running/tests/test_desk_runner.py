@@ -574,7 +574,7 @@ class FakeShell(runner_module.Shell):
                 attrs = dict(value.split("=", 1) for flag, value in zip(argv[2::2], argv[3::2], strict=True) if flag == "--attr")
                 self.beats.append({"seq": len(self.beats) + 1, "drive": flags["--drive"], "lane": "desk-runner", "kind": "state", "topic": flags["--topic"], "to": [flags["--to"]], "at": actions.stamp(self.clock), "text": flags["--text"], "source": "post", "fields": {"attrs": attrs}})
                 return runner_module.Done(0, "#0\n", "")
-            if (flags["--kind"], flags["--topic"]) == ("state", "landing-state"):
+            if (flags["--kind"], flags.get("--topic")) == ("state", "landing-state"):
                 self.states.append({key.lstrip("-"): value for key, value in flags.items()})
                 return runner_module.Done(0, "#0\n", "")
             if flags["--kind"] == "landed" and "--pr" not in flags:

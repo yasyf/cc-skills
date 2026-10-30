@@ -97,7 +97,7 @@ def open_holds(run: Callable[[list[str]], str], drive: str) -> list[dict]:
     """Every open `hold` record on `drive`, the only place a hold lives; a record that resolves one closes it.
 
     `cci tail --kind=hold` also returns the caller's peer mail of any kind and drive, which carries no status, so only the drive's hold records count."""
-    return [record for record in records(run, drive, "--kind=hold") if (record["kind"], record["drive"], record["status"]) == ("hold", drive, "open")]
+    return [record for record in records(run, drive, "--kind=hold") if (record["kind"], record["drive"], record.get("status")) == ("hold", drive, "open")]
 
 
 def held_prs(run: Callable[[list[str]], str], drive: str) -> dict[str, int]:
