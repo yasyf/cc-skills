@@ -999,7 +999,7 @@ def test_a_pr_that_moved_less_than_two_hours_ago_is_not_stale_and_a_new_state_on
 
 
 def test_a_stale_stack_posts_once_from_its_lowest_stale_pr_a_held_pr_counts_and_a_lane_with_no_live_record_goes_to_root(config, tmp_path):
-    records = [record(1, "gone-lane", "head", f"HEAD #201 {HEAD}", 200, "201"), *graded(1, "201", HEAD, 200)[1:], *graded(4, "202", OTHER, 200), *graded(7, "203", OLD, 200), head(10, "301", HEAD, 200), hold(900, "hold #301 waits on the schema release", "301")]
+    records = [record(1, "gone-lane", "head", f"HEAD #201 {HEAD}", 200, "201"), *graded(1, "201", HEAD, 200)[1:], *graded(4, "202", OTHER, 200), *graded(7, "203", OLD, 200), head(10, "301", HEAD, 200), record(11, "gone-lane", "stand-down", "standing down", 150), hold(900, "hold #301 waits on the schema release", "301")]
     rows = [row("201", mergeable_state="dirty", lane="gone-lane"), row("202", OTHER, base="b201", test_state="pending"), row("203", OLD, base="b202", test_state="pending"), row("301")]
     shell = FakeShell(records, rows)
     shell.doc = {"blocks": [{"id": f"merge:201:{HEAD[:7]}", "type": "card", "children": []}]}
