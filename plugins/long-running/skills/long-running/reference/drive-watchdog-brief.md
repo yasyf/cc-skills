@@ -62,6 +62,9 @@ For every record, judge seven things:
       fix PR within 15 minutes, or any record calls a red trunk or a failing job
       "known", "red by design", or "green except" it: that red blocks landing and
       is an incident until its fix lands, never a label.
+  (h) RED PRS: `drive.py reds --drive <drive>` lists an open PR whose build reads red,
+      and `cci who` shows no live `red-sweep` or `red-sweep-<n>` lane: root spawns one
+      from reference/red-sweep-brief.md. The stall watch's `sweep` blocker says the same.
 
 For each finding act at once:
   cci post --drive <drive> --lane drive-watchdog --kind decide --to <lane>,root \

@@ -23,7 +23,8 @@ A single-lane investigation is not this. One question goes to one subagent in di
 
 The standing subagents are `landing-desk`; `alerts-desk` when the drive touches
 production; `drive-watchdog`, briefed from `reference/drive-watchdog-brief.md`,
-once the drive has a plan; and one priority desk per owner-named #1-priority outcome
+once the drive has a plan; `red-sweep`, briefed from `reference/red-sweep-brief.md`,
+once the drive has open PRs; and one priority desk per owner-named #1-priority outcome
 while that outcome is open. The drive dashboard app runs from the drive's first plan,
 kept by `dashboard-keeper`, and a `user-test` lane plays the owner against every
 revision of a surface he will use (see Drive dashboard). No lane or root watches Slack
@@ -2766,6 +2767,9 @@ stalls in one stack post as one record, on the stack's lowest PR.
 | `refusal` | the desk runner or a landing desk lane refused to queue a PR a go or tap names: a needed restack, a conflict, an untracked or closed parent, a lost Graphite parent, mergeability GitHub is still computing, or `FOREIGN`, `TAP-REQUIRED`, `CONTRACT-MISSING`, `PARKED`, `UNOWNED`, `NOT-QUEUEABLE`, `ENQUEUE-*`; no `head` or `--re` answer from the owning lane, no `QUEUED`, no closing record, and the PR still sits at the refused head | 10 | root and the lane the refusal names as `owner lane <lane>` or `<lane>: #<pr>`, else the PR's lane; root for `FOREIGN` and `TAP-REQUIRED`; the landing desk for mergeability. The record names the refusal's command |
 | `successor` | the same refusal still stands | 20 | root, asked to spawn the owning lane's successor to run that command |
 | `red` | the head's `landing.trunk_check` check has read failed since the ledger row's `red_at`, held or not; the record names the failed Buildkite job, its first error line, and the build | 2 | the PR's live lane, from the newest root reassignment or the ledger row; root once per head when no live lane owns it |
+| `unclassed` | the head's build has read red since the ledger row's `red_at`, and no `red` record whose `head=` names the head classes it | 20 | root and the PR's lane, once per PR and head; the record quotes the `cci post --kind red` command |
+| `unfixed` | the newest `red` record at the head classes it `real`, and the PR has kept that head since | 60 | root and the class's owner, once per PR and head |
+| `sweep` | a red head has stood 20 minutes, and no `red-sweep` or `red-sweep-<n>` lane is live | 20 | root, naming every red PR and its class |
 | `tap` | the owner approved a head on the board, and no go names it | 10 | root and `landing.go_lanes` |
 | `finder` | a `head` record names the head, no finder review does, and the finder desk holds no queued pass on it nor one running past 25 minutes | 30 | the landing desk when the finder desk runs and queued nothing, or its pass ran past 25 minutes; else the PR's lane |
 | `fidelity` | a `head` record names the head, no fidelity grade does, and the fidelity desk holds no queued grade on it nor one running past 25 minutes | 30 | the landing desk for a grade past 25 minutes, else `landing.fidelity_lane` |
@@ -3991,6 +3995,20 @@ lane at once, or goes to the train or red desk under D8.
 *Prevents a PR read `CONFLICT` sitting unmentioned again for hours until an owner
 asked whether anything else was stuck the same way. Also prevents seven reds sitting
 30 to 100 minutes with idle owners.*
+
+### Red register
+
+`drive.py reds --drive <drive>` lists every open drive PR whose build reads red: its
+head, failing checks, class, owner, since when, and last action, from the `red` objects
+the stall watch writes into `stack.json` each pass. A lane classes a red head with
+`cci post --kind red --pr <n> --text "class=<inherited|flake|real|stale> head=<sha> owner=<lane> <what was done>"`;
+a head with no such record reads `unclassed`, and a new head starts unclassed. The
+dashboard's failing-tests count names the lane holding each red. The standing
+`red-sweep` lane works the register; the stall watch's `unclassed`, `unfixed`, and
+`sweep` stalls reach root when it falls behind or is missing.
+
+*Prevents sixteen red PRs on the owner's dashboard at 6:06 AM Oct 30 with nobody owning
+the set: "also someone is workong on unredding all these red PRs right?"*
 
 ### Compaction handoff
 

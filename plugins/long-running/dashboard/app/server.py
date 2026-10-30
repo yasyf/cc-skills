@@ -10,7 +10,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from collections import deque
+from collections import Counter, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -107,8 +107,9 @@ def pr_state(pr, row, active, now):
     return "doing" if active or pr.get("test_state") == "pending" else "work"
 
 
-def drive_prs(prs, rows, records, trees, tree_names, now):
+def drive_prs(prs, rows, records, trees, tree_names, stack, now):
     by_number = {str(row["number"]): row for row in rows}
+    reds = {row["pr"]: row["red"] for row in (stack or {}).get("prs", []) if "red" in row}
     active = activity(records, now)
     listed = []
     for number, pr in sorted(prs.items()):
@@ -116,9 +117,12 @@ def drive_prs(prs, rows, records, trees, tree_names, now):
             continue
         found = trees.get(number, [])
         tree = next((name for name in tree_names if name in found), tree_names[-1])
-        listed.append({"number": int(number), "state": pr_state(pr, by_number.get(number), active.get(number), now), "tree": tree, "worker": active.get(number)})
+        state = pr_state(pr, by_number.get(number), active.get(number), now)
+        listed.append({"number": int(number), "state": state, "tree": tree, "worker": active.get(number), **({"red": reds[number]} if state == "failing" and number in reds else {})})
     landed = sum(1 for entry in listed if entry["state"] == "landed")
-    return {"source": "every pull request in the drive's ledger that is open or landed, since the drive began on Oct 22", "prs": listed, "landed": landed, "total": len(listed), "moving": sum(1 for entry in listed if entry["state"] == "doing")}
+    failing = [entry for entry in listed if entry["state"] == "failing"]
+    holders = Counter(entry["red"]["owner"] if "red" in entry else "nobody" for entry in failing)
+    return {"reds": {"count": len(failing), "unclassed": sum(1 for entry in failing if entry.get("red", {}).get("class", "unclassed") == "unclassed"), "holders": holders}, "source": "every pull request in the drive's ledger that is open or landed, since the drive began on Oct 22", "prs": listed, "landed": landed, "total": len(listed), "moving": sum(1 for entry in listed if entry["state"] == "doing")}
 
 
 def step_tone(step, prs, workers):
@@ -338,7 +342,7 @@ class Drive:
         records = model.get("records", [])
         self.check_gos(board["rows"], records)
         now = dt.datetime.now(dt.timezone.utc)
-        drive = drive_prs(model.get("prs", {}), board["rows"], [*records, *model.get("lanes", [])], model.get("trees", {}), model.get("tree_names", []), now)
+        drive = drive_prs(model.get("prs", {}), board["rows"], [*records, *model.get("lanes", [])], model.get("trees", {}), model.get("tree_names", []), model.get("stack"), now)
         waiting = sum(1 for entry in drive["prs"] if entry["state"] == "you")
         progress = json.loads(Path(self.config["steps"]).read_text())
         steps = step_rows(progress["steps"], drive, model.get("lanes", []), now)

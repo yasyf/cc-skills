@@ -9,6 +9,7 @@ from pathlib import Path
 
 from long_running import actions
 import board_rows
+import drive
 import pytest
 import stall_watch
 
@@ -569,6 +570,8 @@ def test_a_red_head_goes_to_its_live_lane_every_half_hour_to_root_once_when_no_l
     probe = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/8", "job": "Run api tests", "error": "buildkite-agent: fatal: failed to get step: 404 Not Found", "probe": True}
     bot = {"name": "ai-review", "url": "https://github.com/Forge-AI/monorepo/runs/7"}
     records = [record(1, "api-lane", "state", "working on #101", 5), record(2, "root", "answer", "root reassigns #105 (gone-lane) to api-lane; #106 to other-lane", 4), record(3, "old-lane-2", "state", "took over #107", 3), hold(900, "hold #103 waits on the schema release", "103")]
+    raw = json.loads(config.read_text())
+    config.write_text(json.dumps(raw | {"stall": {"minutes": {"unclassed": 600, "sweep": 600}}}))
     shell = FakeShell(
         records,
         [
@@ -1288,3 +1291,58 @@ def test_a_pr_comment_answers_a_missing_grade_and_a_bot_comment_does_not(config)
     shell.records.append(fidelity(5, "101", HEAD, 1))
     watch(shell, config)
     assert "regrade:101:3" not in opened(config) and "missing:101:3" not in opened(config)
+
+
+def test_a_red_no_record_classes_alarms_root_once_at_twenty_minutes_a_real_class_with_no_new_head_once_at_sixty_and_drive_reds_prints_the_register(config, tmp_path, capsys):
+    lint = {"name": "buildkite/lint", "url": "https://buildkite.com/forge/lint/builds/4"}
+    classed = record(1, "red-sweep", "red", "12:50 PM class=real head=fedcba9 owner=web-lane needs a schema fix; blocker sent", 10, "202")
+    shell = FakeShell([classed], [row("201", test_state="failure", red_at=stamp(25), failing_checks=json.dumps([lint])), row("202", OTHER, lane="web-lane", test_state="failure", red_at=stamp(25), failing_checks=json.dumps([lint]))])
+
+    watch(shell, config)
+    assert shell.topics() == ["unclassed:201:abc1234"]
+    assert shell.post("unclassed:201:abc1234") == {
+        "to": "root,api-lane@d1",
+        "kind": "blocker",
+        "text": 'STALL unclassed #201 at abc1234, 25 min: buildkite/lint red since 12:35 PM, and no `red` record classifies it | owner api-lane | classify it: `cci post --kind red --pr 201 --text "class=<inherited|flake|real|stale> head=abc1234 owner=<lane> <what was done>"`',
+    }
+
+    shell.clock = NOW + timedelta(minutes=5)
+    watch(shell, config)
+    assert len(shell.posts) == 1
+
+    shell.clock = NOW + timedelta(minutes=51)
+    watch(shell, config)
+    assert shell.topics() == ["unclassed:201:abc1234", "unfixed:202:fedcba9"]
+    assert shell.post("unfixed:202:fedcba9") == {
+        "to": "root,web-lane@d1",
+        "kind": "blocker",
+        "text": "STALL unfixed #202 at fedcba9, 61 min: web-lane classed buildkite/lint a real failure at 12:50 PM and has pushed no new head: 12:50 PM needs a schema fix; blocker sent | owner web-lane | root gives the fix of #202 at fedcba9 to a live lane unless web-lane pushes it now",
+    }
+
+    shell.clock = NOW + timedelta(minutes=56)
+    watch(shell, config)
+    assert len(shell.posts) == 2
+
+    registry = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "long-running/drives/durable.json"
+    registry.write_text(json.dumps(json.loads(registry.read_text()) | {"state_dir": str(tmp_path)}))
+    assert drive.main(["reds", "--drive", "durable"]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "reds at 1:56 PM Oct 27: 2 open PRs read red, 1 unclassed",
+        "#201 abc1234 | buildkite/lint | unclassed | owner api-lane | red since 12:35 PM Oct 27 | no action recorded",
+        "#202 fedcba9 | buildkite/lint | real | owner web-lane | red since 12:35 PM Oct 27 | 12:50 PM needs a schema fix; blocker sent",
+    ]
+
+
+def test_reds_with_no_live_red_sweep_lane_post_one_blocker_to_root_until_a_red_sweep_lane_posts(config):
+    shell = FakeShell([], [row("201", test_state="failure", red_at=stamp(25), failing_checks=json.dumps([{"name": "buildkite/lint", "url": "u"}]))])
+
+    watch(shell, config)
+    assert shell.post("sweep:red-sweep") == {
+        "to": "root",
+        "kind": "blocker",
+        "text": "STALL sweep 1 red PR, 25 min: no live red-sweep lane holds them: #201 (unclassed) | owner root | root spawns red-sweep from the long-running skill's reference/red-sweep-brief.md",
+    }
+
+    shell.records.append(record(1, "red-sweep-2", "state", "red-sweep-2 started", 0))
+    watch(shell, config)
+    assert "sweep:red-sweep" not in opened(config) and len(shell.posts) == 2

@@ -108,7 +108,7 @@ def test_a_board_row_waits_on_him_only_at_the_pr_current_head():
     prs = {"42001": {"state": "open", "head": "bbbbbbb1", "test_state": "success"}, "42002": {"state": "open", "head": "ccccccc1", "test_state": "success"}}
     rows = [{"number": 42001, "head": "aaaaaaa1", "state": "you"}, {"number": 42002, "head": "ccccccc1", "state": "you"}]
 
-    drive = drive_prs(prs, rows, [], {}, TREES, NOW)
+    drive = drive_prs(prs, rows, [], {}, TREES, None, NOW)
 
     assert {square["number"]: square["state"] for square in drive["prs"]} == {42001: "work", 42002: "you"}
 
@@ -126,7 +126,7 @@ def test_the_ring_counts_exactly_the_green_squares():
     trees = {"42001": ["Old tree", "New tree"], "42002": ["Shared"], "42004": ["Old tree"]}
     records = [{"lane": "p8a-step7", "at": "2026-10-27T07:50:00Z", "text": "pushed #42005", "topic": ""}]
 
-    drive = drive_prs(prs, [], records, trees, TREES, NOW)
+    drive = drive_prs(prs, [], records, trees, TREES, None, NOW)
 
     squares = drive["prs"]
     assert drive["landed"] == sum(1 for square in squares if square["state"] == "landed") == 3
@@ -134,6 +134,17 @@ def test_the_ring_counts_exactly_the_green_squares():
     assert [square["tree"] for square in squares] == ["New tree", "Shared", "Shared", "Old tree", "Shared"]
     assert {square["number"]: square["state"] for square in squares}[42005] == "doing"
     assert drive["moving"] == 1
+
+
+def test_each_failing_square_names_its_red_class_and_holder_and_the_drive_counts_reds_by_holder():
+    prs = {"42001": {"state": "open", "test_state": "failure"}, "42002": {"state": "open", "test_state": "failure"}, "42003": {"state": "open", "test_state": "failure"}, "42004": {"state": "open", "test_state": "success"}}
+    red = {"checks": "buildkite/test", "since": "2026-10-27T07:00:00Z", "classed_at": "", "action": ""}
+    stack = {"at": "2026-10-27T08:00:00Z", "prs": [{"pr": "42001", "red": red | {"class": "flake", "owner": "red-sweep"}}, {"pr": "42002", "red": red | {"class": "unclassed", "owner": "api-lane"}}, {"pr": "42004"}]}
+
+    drive = drive_prs(prs, [], [], {}, TREES, stack, NOW)
+
+    assert {square["number"]: square.get("red", {}).get("owner") for square in drive["prs"]} == {42001: "red-sweep", 42002: "api-lane", 42003: None, 42004: None}
+    assert drive["reds"] == {"count": 3, "unclassed": 2, "holders": {"red-sweep": 1, "api-lane": 1, "nobody": 1}}
 
 
 def step(prs, lanes=(), tone="later"):
