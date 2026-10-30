@@ -258,6 +258,30 @@ def test_quiet_cci_source_waits_for_the_deadline(tmp_path):
     assert result.stdout.startswith("QUIET ")
 
 
+def test_cci_reinstalled_mid_wait_reads_as_no_records_until_it_returns(tmp_path):
+    fake = tmp_path / "bin" / "cci"
+    fake.parent.mkdir()
+    staged = tmp_path / "cci.new"
+    staged.write_text('#!/bin/sh\necho "#12 9:01 PM GO root -> landing-desk land #30001"\n')
+    staged.chmod(0o755)
+
+    with subprocess.Popen([str(SCRIPT), "8", "cci:release-v3:landing-desk"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env={"PATH": f"{fake.parent}:/usr/bin:/bin"}) as proc:
+        time.sleep(1)
+        staged.rename(fake)
+        stdout, stderr = proc.communicate(timeout=8)
+
+    assert proc.returncode == 0, stderr
+    assert stdout == "#12 9:01 PM GO root -> landing-desk land #30001\n"
+
+
+def test_cci_missing_through_the_deadline_exits_127(tmp_path):
+    result = subprocess.run([str(SCRIPT), "1", "cci:release-v3:landing-desk"], capture_output=True, text=True, timeout=5, env={"PATH": "/usr/bin:/bin"})
+
+    assert result.returncode == 127
+    assert result.stdout == ""
+    assert result.stderr.startswith("desk-wait.sh: cci not found on PATH for ")
+
+
 def guarded(tmp_path: Path, mailbox: Path, script: str, write=None, seconds: str = "10") -> tuple[subprocess.CompletedProcess, float]:
     started = time.monotonic()
     with subprocess.Popen(
