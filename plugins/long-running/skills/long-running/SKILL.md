@@ -4521,13 +4521,17 @@ Each firing replaces that lane's previous queued `ROOT-ACTION` line instead of
 adding another. The root acts on it in the turn it arrives. A reply starting
 `flushed` cancels the rotation.
 
-A `SendMessage` to a rotated lane resumes it on its stale brief. The pack blocks the
-first one to each rotated name, from any sender and a stand-down included, and names
-`TaskStop` and the successor; each later one passes with a warning. Spawning
-`<lane>-N+1` beside `<lane>-handoff`, or any successor whose brief carries
-`Replaces: <lane>`, rotates the old name. A `TaskStop`, by name, `<name>@<team>`, or
-agent id, or a root `STAND-DOWN` retires a lane with no successor, and a lane writing
-to it is sent to `main`. Respawning under the name clears both.
+A `SendMessage` to a rotated or stood-down lane resumes it on its stale brief. The pack
+rewrites every such message, from any sender, to the end of the lane's successor chain,
+which it reads from this session's rotations and from cci's stand-down records
+(`cci post --lane root --kind stand-down --to <old> --successor <new>`, read back with
+`cci who --successor-of <lane>`), and reminds the root to `TaskStop` the old lane; a
+message that mentions a stand-down is never forwarded, only warned. Spawning `<lane>-N+1`
+beside `<lane>-handoff`, or any successor whose brief carries `Replaces: <lane>`, rotates
+the old name. A `TaskStop`, by name, `<name>@<team>`, or agent id, or a root `STAND-DOWN`
+retires a lane with no successor: a lane's or worker's message to it goes to `main`
+instead, and the root's is warned once cci records the stand-down. No case blocks.
+Respawning under the name clears both.
 
 The same swap applies to a lane that died or outgrew its line before any ask. The
 root never reconstructs a handoff inline. It never opens a lane's transcript, its
