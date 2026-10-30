@@ -4278,7 +4278,7 @@ class Runner:
         for action in sorted(newest.values(), key=lambda action: (ranks.get(pr := json.loads(action.target)["pr"], DEFAULT_PRIORITY), not full_pass(action), pr not in going, pr not in graded, queued_since(history[pr], action))):
             if running >= spec.get("concurrent", FINDER_CONCURRENT):
                 return
-            running += self.start_finder(spec, repo, action)
+            running += self.start_finder(spec, repo, action, rows)
 
     def cancel_finder(self, action: actions.Action, queued: actions.Action | None) -> bool:
         """Settle a running pass as superseded when a newer head of its PR is queued, write its job's `cancelled` mark so it asks codex nothing, and cancel each codex run it started, since a head that moves while codex reads it posts nothing."""
@@ -4338,7 +4338,7 @@ class Runner:
         entry = next((entry for entry in drive.drives() if drive.cci_drive(entry) == self.config.drive and entry["sessions"]), None)
         return entry["sessions"][-1] if entry else None
 
-    def start_finder(self, spec: dict, repo: str, action: actions.Action) -> bool:
+    def start_finder(self, spec: dict, repo: str, action: actions.Action, rows: dict[str, dict]) -> bool:
         """Settle a head some lane's finder record already names, or a full pass a whole-range finder record posted after the PR's newest `head` record answered, or after the request when no `head` record names the PR, or write the pass's job and start finder.py on it detached, reading since the head the PR's newest finder record at another head read, or the whole change for a full pass."""
         job = json.loads(action.target)
         full = full_pass(action)
@@ -4368,7 +4368,7 @@ class Runner:
                     "history": [{"seq": record["seq"], "lane": record["lane"], "text": record["text"], "path": (record.get("refs") or {}).get("path", "")} for record in named],
                     "settled": self.root_settled(repo, job["pr"], named),
                     "lane": job["lane"],
-                    "to": [RUNNER, *spec.get("to", [])],
+                    "to": [RUNNER, *filter(None, [rows.get(job["pr"], {}).get("lane")]), *spec.get("to", [])],
                     "checkout": spec.get("checkout") or landing["checkout"],
                     "model": spec.get("model", FINDER_MODEL),
                     "fast": spec.get("fast", FINDER_FAST),
@@ -4511,9 +4511,9 @@ class Runner:
         for action in sorted(newest.values(), key=lambda action: ranks.get(json.loads(action.target)["pr"], DEFAULT_PRIORITY)):
             if running >= spec.get("concurrent", FIDELITY_CONCURRENT):
                 return
-            running += self.start_fidelity(spec, repo, action)
+            running += self.start_fidelity(spec, repo, action, rows)
 
-    def start_fidelity(self, spec: dict, repo: str, action: actions.Action) -> bool:
+    def start_fidelity(self, spec: dict, repo: str, action: actions.Action, rows: dict[str, dict]) -> bool:
         """Settle a head a fidelity lane already graded or sent to a reader, or write the pass's job, with every fidelity grade and `old-app:` line on the PR, the grades a root `class wrong` decision answers, and the lane's newest contract, and start fidelity.py on it detached."""
         job = json.loads(action.target)
         drive, landing = self.config.drive, self.config.landing or {}
@@ -4536,7 +4536,7 @@ class Runner:
                     "pr": job["pr"],
                     "head": job["head"],
                     "lane": job["lane"],
-                    "to": [RUNNER, *spec.get("to", [])],
+                    "to": [RUNNER, *filter(None, [rows.get(job["pr"], {}).get("lane")]), *spec.get("to", [])],
                     "readers": [lane for lane in lanes if lane != fidelity.LANE],
                     "lanes": lanes,
                     "grades": [{key: grade[key] for key in ("seq", "lane", "text")} for grade in grades],

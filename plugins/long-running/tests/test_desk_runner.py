@@ -11799,6 +11799,14 @@ def test_each_head_starts_one_finder_at_once_however_many_records_name_it(shell,
     ]
 
 
+def test_a_finder_job_also_addresses_its_prs_ledger_lane_when_a_worker_named_the_head(shell, config):
+    finder_config(config)
+    orca_pass(shell, config)
+    head_record(shell, "45309", FINDER_HEAD, lane="p8a7-send-latency")
+    shell.rows = [{"pr": "45309", "lane": "p8a-step7"}]
+    orca_pass(shell, config)
+    assert [(job["lane"], job["to"]) for job in finder_jobs(shell)] == [("p8a7-send-latency", ["desk-runner", "p8a-step7"])]
+
 def test_an_opened_record_naming_a_full_head_starts_its_finder(shell, config):
     finder_config(config)
     orca_pass(shell, config)

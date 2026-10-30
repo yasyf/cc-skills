@@ -56,7 +56,8 @@ class Fake:
             reply.write_text(json.dumps(self.replies.pop(0)))
             return f"REPLY_FILE: {reply}\n"
         if argv[:2] == ["cci", "post"]:
-            self.posted.append(dict(zip(argv[2::2], argv[3::2], strict=True)))
+            flags = [arg for arg in argv[2:] if arg != "--force"]
+            self.posted.append(dict(zip(flags[::2], flags[1::2], strict=True)))
             return f"#{150001 + len(self.posted)}\n"
         raise AssertionError(f"unexpected call {argv}")
 
