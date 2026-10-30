@@ -1071,7 +1071,12 @@ the card title, block id, his words verbatim, and a tapped merge row's head. It 
 every open ask, blocker, or hold whose text names the block, its card, or the merge row
 (`merge-row-<pr>`, `merge:<pr>`). A lane parked on a card names the card's block or card
 id in its ask, then unparks on the `owner` record or its own closed ask, never on a root
-relay. A recorder keeps running the version it started with, so after a release that
+relay. Each record carries its block, row, verdict and head as attributes, one record per
+merge row. The root board's recorder also posts what the board shows as a `board-rows`
+record and applies the landing runner's `board-write` records with cc-present, so the
+landing runner and the stall watch read the board only from cci and run on any machine;
+`board_watch.py backfill --session <id>` records every verdict the board already held and
+prints `verified` once each stands in records. A recorder keeps running the version it started with, so after a release that
 changes `board_watch.py` the root ends the old recorder's `cc-present watch` child and
 relaunches it from the installed version.
 

@@ -803,11 +803,11 @@ waiting PR's prefix enqueues nothing, and the runner asks one merge card per PR 
 on the root's board and in the root's Slack status thread and logs one `MERGE-ASK` naming the card and the record that answers it.
 With `landing.merge_ask_surface` set to `board` (default `slack`), the runner posts and edits no card, and the root asks every merge
 question on its own board. On that surface the runner carries the owner's board taps itself. An approval on a `pr-groups` row
-at an older head of an open PR moves to the PR's head through `cc-present verdict carry` once records call each move between the two
+at an older head of an open PR moves to the PR's head through a `board-write` carry record, which the board's recorder applies, once records call each move between the two
 heads patch-identical, `head` records reading `<new> (was <old>)` and fidelity carries alike. One `TAP-CARRIED` note naming both heads
 goes to root and each lane `landing.board_lane` names. A new head that a record names but no such chain reaches keeps the tap at the old
-head, and one `TAP-NOT-CARRIED` note to the same lanes says the board needs a new row. A board that does not read, or a carry
-cc-present refuses, logs `TAP-CARRY-FAILED`.
+head, and one `TAP-NOT-CARRIED` note to the same lanes says the board needs a new row. Board records that do not read, or a carry
+that does not post, log `TAP-CARRY-FAILED`; a carry cc-present refuses comes back as the recorder's `defect` record.
 Under `every` the runner then checks only heads a root `go` names: no check or enqueue call names any
 other PR or sweeps it in, and a PR stacked on it waits. Its blockers and `MERGE-ASK` come from the pass's `ccx vcs pr status` read instead. `landing.checks_wait_for_go`, a cci sequence number,
 pauses the whole gate until a root `go` record comes after it: no `stack-enqueue --check`, `MERGE-ASK`, or

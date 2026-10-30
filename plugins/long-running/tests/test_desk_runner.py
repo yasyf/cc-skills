@@ -221,8 +221,8 @@ class FakeShell(runner_module.Shell):
         self.refresh_error = ""
         self.pr_cards: list[dict] = []
         self.pr_card_error = ""
-        self.pr_card_missing = False
-        self.slack_ts: dict[str, str] = {}
+        self.board_seq = 900000
+        self.no_snapshot = False
         self.stall_pass = Running()
         self.board: dict[str, dict[str, dict]] = {}
         self.board_rows: list[tuple[str, str]] = []
@@ -307,38 +307,8 @@ class FakeShell(runner_module.Shell):
         argv = gateway(argv)
         self.calls.append(argv)
         name = Path(argv[0]).name
-        if argv[:2] == ["cc-present", "ask"]:
-            if self.pr_card_missing:
-                raise FileNotFoundError(2, "No such file or directory", argv[0])
-            card = json.loads(stdin)
-            self.pr_cards.append({"card": card, "argv": argv[2:]})
-            if self.pr_card_error:
-                return runner_module.Done(1, "", self.pr_card_error)
-            ts = self.slack_ts.setdefault(card["id"], f"17000000{len(self.slack_ts) + 1:02d}.000100")
-            return runner_module.Done(0, f"url: http://127.0.0.1:4100/a/board\nslack: https://example.slack.com/archives/D0OWNER/p{ts.replace('.', '')}?thread_ts=1700000000.000100\n", "")
         if argv[:2] == ["codex-ask", "--cancel"]:
             return runner_module.Done(0, "", "")
-        if argv[:2] == ["cc-present", "outcomes"] and "--all" not in argv:
-            return runner_module.Done(0, json.dumps({"since": "last-submit", "interactions": [{"seq": 1, "type": "triage.decided", "payload": {}}]}), "")
-        if argv[:4] == ["cc-present", "outcomes", "--all", "--no-doc"]:
-            assert argv[4:] == ["--session", "s-root"]
-            if self.board_error:
-                return runner_module.Done(1, "", self.board_error)
-            return runner_module.Done(0, json.dumps({"interactions": {"triage": self.board}, "rounds": []}, indent=2), "")
-        if argv[:3] == ["cc-present", "outcomes", "--all"]:
-            assert argv[3:] == ["--session", "s-root"]
-            if self.board_error:
-                return runner_module.Done(1, "", self.board_error)
-            prs = [{"number": int(pr), "head": head} for pr, head in self.board_rows]
-            return runner_module.Done(0, json.dumps({"doc": {"blocks": [{"type": "pr-groups", "id": "merge-prs", "groups": [{"id": "ready", "prs": prs}]}]}, "interactions": {"triage": self.board}}), "")
-        if argv[:3] == ["cc-present", "verdict", "carry"]:
-            carry = dict(zip(argv[3::2], argv[4::2], strict=True))
-            if carry["--block"] in self.unknown_blocks:
-                return runner_module.Done(1, "", f'cc-present: unknown block "{carry["--block"]}"')
-            self.carries.append(carry)
-            entry = self.board[carry["--block"]][carry["--row"]]
-            self.board[carry["--block"]][carry["--row"]] = entry | {"head": carry["--head"], "carriedFrom": entry.get("carriedFrom") or entry["head"], "carryNote": carry["--note"]}
-            return runner_module.Done(0, f"{carry['--block']}/{carry['--row']}: approved at {entry['head']} carries to {carry['--head']}\n", "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == runner_module.MERGE_CARD_FIELDS:
             return runner_module.Done(0, json.dumps({"title": "Record each run's owner", "author": {"login": "dana"}, "additions": 12, "deletions": 3, "reviewDecision": "APPROVED"}), "")
         if argv[:3] == ["cc-slack", "dm-status", "--root-only"]:
@@ -585,6 +555,8 @@ class FakeShell(runner_module.Shell):
                 return runner_module.Done(0, "#0\n", "")
             if flags["--kind"] == "landed" and "--pr" not in flags:
                 return runner_module.Done(1, "", "cci: kind landed requires --pr")
+            if flags.get("--topic") == runner_module.board_rows.WRITE_TOPIC:
+                return self.board_write(dict(value.split("=", 1) for flag, value in zip(argv[2::2], argv[3::2], strict=True) if flag == "--attr"))
             if stored := self.post_ids.get(flags.get("--id", "")):
                 return runner_module.Done(0, f"#{stored} (duplicate)\n", "")
             self.posts.append({key.lstrip("-"): value for key, value in flags.items()})
@@ -639,7 +611,36 @@ class FakeShell(runner_module.Shell):
         }
         return runner_module.Done(0, json.dumps({"data": {"repository": commits}}), "")
 
+    def board_write(self, write: dict[str, str]) -> runner_module.Done:
+        if write["op"] == "ask":
+            self.pr_cards.append({"card": json.loads(write["card"]), "session": write["session"]})
+            if self.pr_card_error:
+                return runner_module.Done(1, "", self.pr_card_error)
+            return runner_module.Done(0, f"#{self.board_seq + len(self.pr_cards)}\n", "")
+        carry = {"--session": write["session"], "--block": write["block"], "--row": write["row"], "--head": write["head"], "--note": write["note"]}
+        if carry not in self.carries:
+            self.carries.append(carry)
+            entry = self.board[write["block"]][write["row"]]
+            self.board[write["block"]][write["row"]] = entry | {"head": write["head"], "carriedFrom": write["from"]}
+        return runner_module.Done(0, "#1\n", "")
+
+    def board_records(self) -> list[dict]:
+        blocks = sorted({*(block for block in self.board if block not in self.unknown_blocks), *(["merge-prs"] if self.board_rows else [])})
+        snapshot = {"blocks": blocks, "rows": [[pr, head, ""] for pr, head in self.board_rows], "merges": [], "cards": []}
+        records = [] if self.no_snapshot else [{"seq": self.board_seq, "drive": "d1", "lane": "board-watch", "kind": "note", "topic": "board-rows", "to": ["desk-runner"], "refs": {}, "at": "2026-10-01T17:00:00Z", "text": "board", "fields": {"attrs": {"session": "s-root", "board": json.dumps(snapshot)}}}]
+        for block, rows in self.board.items():
+            for row, entry in rows.items():
+                if entry.get("verdict"):
+                    fields = {"session": "s-root", "block": block, "row": row, "verdict": entry["verdict"], "head": entry.get("head") or "", "at": entry.get("at") or "", "carried_from": entry.get("carriedFrom") or ""}
+                    records.append({"seq": self.board_seq + len(records), "drive": "d1", "lane": "board-watch", "kind": "owner", "topic": block, "to": ["all"], "refs": {}, "at": "2026-10-01T17:00:00Z", "text": f"{row} {entry['verdict']}", "fields": {"attrs": {name: value for name, value in fields.items() if value}}})
+        return records
+
     def cci_tail(self, argv: list[str]) -> runner_module.Done:
+        if "--lane" in argv and argv[argv.index("--lane") + 1] == "board-watch":
+            if self.board_error:
+                return runner_module.Done(1, "", self.board_error)
+            since = argv[argv.index("--since") + 1]
+            return runner_module.Done(0, "".join(f"{json.dumps(record)}\n" for record in self.board_records() if not since.isdigit() or record["seq"] > int(since)), "")
         if self.tail_failures:
             self.tail_failures -= 1
             return runner_module.Done(1, "", "cci: daemon restarting")
@@ -3122,7 +3123,7 @@ def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge
     landing_pass(shell, config)
     assert shell.enqueues() == [] and enqueues_of(tmp_path) == {}
     [line] = escalations(shell)
-    assert line == "MERGE-ASK merge-ask:29020 #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on merge card ts 1700000001.000100 (merge mode every)"
+    assert line == "MERGE-ASK merge-ask:29020 #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on merge card cci #900001 (merge mode every)"
     [card] = shell.pr_cards
     assert card == {
         "card": {
@@ -3135,7 +3136,7 @@ def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge
                 {"id": "merge:29020:cccc333-answer", "type": "choice", "options": [{"id": "merge", "label": "Merge", "recommended": True}, {"id": "hold", "label": "Hold"}]},
             ],
         },
-        "argv": ["-", "--session", "s-root"],
+        "session": "s-root",
     }
     assert not [call for call in shell.calls if call[:2] == ["cc-slack", "dm-status"] and "--root-only" not in call]
     merge_go(shell, "29020", "merge #29020 at bbbb222")
@@ -3749,7 +3750,7 @@ def test_a_board_tap_carries_itself_to_a_patch_identical_restack_once_a_record_s
     assert note["to"] == "root,board-refresher"
     [go] = [post for post in shell.posts if post["kind"] == "go"]
     assert go["text"].startswith("go #29020 at cccc333 TAP-CARRIED: the owner's tap at aaaa111111 carries to cccc333333, a patch-identical restack; the runner posts this go itself")
-    assert note["text"] == f"TAP-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, a patch-identical restack, per {cited}, recorded with cc-present verdict carry; the row asks no new tap"
+    assert note["text"] == f"TAP-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, a patch-identical restack, per {cited}, recorded as a board-write record the board's watch applies; the row asks no new tap"
     assert [line for line in escalations(shell) if line.startswith("TAP-")] == []
 
 
@@ -3816,7 +3817,7 @@ def test_a_tap_carries_itself_to_a_head_whose_own_commits_have_the_tapped_heads_
     shell.diffs["cccc333333"] = shell.diffs["aaaa111111"] if identical else "diff --git a/x.go b/x.go\n+changed\n"
     landing_pass(shell, config)
     carried = [note["text"] for note in tap_notes(shell) if note["text"].startswith("TAP-CARRIED-BY-PATCH")]
-    assert carried == ([f"TAP-CARRIED-BY-PATCH #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, a patch-identical restack by git patch-id over its 1 own commits, recorded with cc-present verdict carry; the row asks no new tap"] if identical else [])
+    assert carried == (["TAP-CARRIED-BY-PATCH #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, a patch-identical restack by git patch-id over its 1 own commits, recorded as a board-write record the board's watch applies; the row asks no new tap"] if identical else [])
     assert [carry["--head"] for carry in shell.carries] == (["cccc333333"] if identical else [])
 
 
@@ -3899,8 +3900,7 @@ def test_a_merge_ask_names_only_a_graded_head_with_a_board_row(shell, config, tm
         assert missing == []
 
 
-def test_a_pass_reads_the_root_board_once_for_its_tap_carries_and_its_rows(shell, config, tmp_path):
-    """Oct 29: a landing pass spent 32 s on 14 `cc-present outcomes --all` reads of one board."""
+def test_a_pass_reads_the_board_from_records_alone_for_its_tap_carries_and_its_rows(shell, config, tmp_path):
     board_surface(config)
     board_lane(config)
     lone_green_pr(shell)
@@ -3910,7 +3910,7 @@ def test_a_pass_reads_the_root_board_once_for_its_tap_carries_and_its_rows(shell
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert [post_body(note).split(":")[0] for note in notes(shell) if post_body(note).startswith("BOARD-ROW-MISSING")] == ["BOARD-ROW-MISSING #29020 at cccc333333"]
-    assert len([call for call in shell.calls if call[:3] == ["cc-present", "outcomes", "--all"]]) == 2
+    assert [call for call in shell.calls if call[0] == "cc-present"] == []
 
 
 def test_a_tap_keeps_only_once_the_finder_is_clear_at_the_fixed_head(shell, config, tmp_path):
@@ -4019,7 +4019,7 @@ def test_a_kept_tap_carries_to_the_review_fix_once_root_posts_its_go_and_the_tap
     landing_pass(shell, config)
     why = f"review fix with no new behavior, per fidelity grade cci #{graded} and root go cci #{go} (rule 399b5fa)"
     assert shell.carries == [{"--session": "s-root", "--block": "merge-rows", "--row": "29020", "--head": "cccc333333", "--note": why}]
-    assert [note["text"] for note in tap_notes(shell)][1:] == [f"TAP-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, a {why}, recorded with cc-present verdict carry; the row asks no new tap"]
+    assert [note["text"] for note in tap_notes(shell)][1:] == [f"TAP-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, a {why}, recorded as a board-write record the board's watch applies; the row asks no new tap"]
     assert not [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
@@ -4436,7 +4436,7 @@ def test_a_merge_card_is_edited_in_place_when_its_question_changes_and_never_pos
     landing_pass(shell, config)
     first, second = shell.pr_cards
     assert second["card"]["id"] == first["card"]["id"] == "merge:29020:cccc333" and "User data stays where it is." in second["card"]["children"][0]["md"]
-    assert [line for line in escalations(shell) if line.startswith("MERGE-ASK")][-1].count("card ts 1700000001.000100") == 1
+    assert [line for line in escalations(shell) if line.startswith("MERGE-ASK")][-1].count("on merge card cci #900002") == 1
 
 
 def test_a_merge_card_that_does_not_post_warns_and_posts_on_the_next_pass(shell, config, tmp_path):
@@ -4455,28 +4455,29 @@ def test_a_merge_card_that_does_not_post_warns_and_posts_on_the_next_pass(shell,
     assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["MERGE-CARD-FAILED", "MERGE-ASK"]
 
 
-def test_a_card_command_that_does_not_start_warns_and_the_desk_keeps_running(shell, config, tmp_path):
+def test_a_board_with_no_snapshot_record_posts_no_merge_card_and_says_what_to_open(shell, config, tmp_path):
     merge_mode(config, "every")
-    lone_green_pr(shell)
-    grade(shell, "29020", "ok cccc333")
-    shell.pr_card_missing = True
-    landing_pass(shell, config)
-    [line] = escalations(shell)
-    assert line.startswith("MERGE-CARD-FAILED merge-card:29020:") and "cc-present did not start" in line
-    shell.pr_card_missing = False
-    landing_pass(shell, config)
-    assert len(shell.pr_cards) == 1 and [line.split(" ", 1)[0] for line in escalations(shell)] == ["MERGE-CARD-FAILED", "MERGE-ASK"]
-
-
-def test_a_drive_with_no_registered_root_session_posts_no_merge_card_and_says_what_to_run(shell, config, tmp_path):
-    merge_mode(config, "every")
-    (tmp_path / ".claude/long-running/drives/d1.json").unlink()
+    shell.no_snapshot = True
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333")
     landing_pass(shell, config)
     assert shell.enqueues() == [] and shell.pr_cards == []
     [line] = escalations(shell)
-    assert line.startswith("MERGE-CARD-FAILED merge-card:unset landing:") and "drive.py start --drive <drive>" in line
+    assert line.startswith("MERGE-CARD-FAILED merge-card:unset landing:") and "open the root board" in line
+
+
+def test_the_runner_carries_a_tap_and_asks_a_card_with_board_write_records_and_runs_no_cc_present(shell, config, tmp_path):
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    tap(shell, "29020", "aaaa111111")
+    shell.diffs["aaaa111111"] = shell.diffs["cccc333333"] = "diff --git a/x.go b/x.go\n+same\n"
+    lane_head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): restack onto dev, range-diff patch-identical (3 commits)")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [(carry["--session"], carry["--block"], carry["--row"], carry["--head"]) for carry in shell.carries] == [("s-root", "merge-rows", "29020", "cccc333333")]
+    assert shell.board["merge-rows"]["29020"]["carriedFrom"] == "aaaa111111"
+    assert [call for call in shell.calls if call[0] == "cc-present"] == []
 
 
 SKIP_BUILD = {"jobs": [{"name": ":pipeline: Render and upload the pipeline"}, {"name": ":graphite: Redundant within its stack"}]}

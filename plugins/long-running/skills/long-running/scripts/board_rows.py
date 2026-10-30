@@ -521,7 +521,7 @@ def attrs(record: dict) -> dict[str, str]:
 
 
 def verdicts_of_records(records: list[dict]) -> dict[str, dict[str, dict]]:
-    """Each block's standing verdict per row, an entry of verdict, head, time and the head a carry came from, from the board-watch `owner` records that carry the row and verdict and the runner's own `board-write` carries, the newest tap time winning and a later record breaking a tie."""
+    """Each block's standing verdict per row, an entry of verdict, head, time, the board session it stands on, and the head a carry came from, from the board-watch `owner` records that carry the row and verdict and the runner's own `board-write` carries, the newest tap time winning and a later record breaking a tie."""
     entries = []
     for record in records:
         found = attrs(record)
@@ -529,7 +529,7 @@ def verdicts_of_records(records: list[dict]) -> dict[str, dict[str, dict]]:
         carry = record["lane"] == RUNNER_LANE and record.get("topic") == WRITE_TOPIC and found.get("op") == "carry"
         if not (owner or carry):
             continue
-        entry = {"verdict": found["verdict"] if owner else "approved", "head": found.get("head", ""), "at": found.get("at") or record["at"]}
+        entry = {"verdict": found["verdict"] if owner else "approved", "head": found.get("head", ""), "at": found.get("at") or record["at"], "session": found.get("session", "")}
         if carried := found.get("carried_from" if owner else "from"):
             entry["carriedFrom"] = carried
         entries.append((found["block"], found["row"], entry, record["seq"]))
@@ -545,9 +545,11 @@ def answered_of_records(records: list[dict]) -> set[str]:
 
 
 def snapshot(doc: dict) -> dict:
-    """What the runner and the stall watch read of the board's document: each PR row's PR, head and write time, each merge card's PR and head, and each card's choice blocks and PRs."""
+    """What the runner and the stall watch read of the board's document: each block holding PR rows, each PR row's PR, head and write time, each merge card's PR and head, and each card's choice blocks and PRs."""
+    rows = rows_of(doc)
     return {
-        "rows": [[row.pr, row.head, row.text_at] for row in rows_of(doc) if row.head],
+        "blocks": sorted({row.block for row in rows}),
+        "rows": [[row.pr, row.head, row.text_at] for row in rows if row.head],
         "merges": [[found[1], found[2]] for key in block_ids(doc) if (found := MERGE_CARD.match(key))],
         "cards": [[card["id"], sorted(choice["id"] for choice in typed(card, "choice")), sorted(str(found["number"]) for found in typed(card, "pr"))] for card in typed(doc, "card")],
     }

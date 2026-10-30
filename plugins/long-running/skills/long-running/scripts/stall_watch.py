@@ -10,8 +10,8 @@ STDLIB ONLY. `--config` is the desk runner's config, and its `stall` object turn
 desk runner reads that object every pass and starts one detached pass every `stall.every_minutes`
 (default 5) once the last has exited, logging to `stall-watch.log` beside `orca.desk_inbox`. A pass reads
 the drive's cci records over the last `stall.window_hours` (default 24), the landing ledger's open rows,
-the open `hold` records, the landing desk's store, the root's board through
-`cc-present outcomes`, and the root session's task list. For every open PR no hold covers, at the head
+the open `hold` records, the landing desk's store, the board through
+board-watch's records, and the root session's task list. For every open PR no hold covers, at the head
 its ledger row names, it finds:
 
     go        a root go names the head, no `QUEUED` record names the PR at it, no hold covers a PR
@@ -150,7 +150,7 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -248,7 +248,6 @@ NO_ROW = re.compile(r"\bno row\b", re.IGNORECASE)
 PULLED = re.compile(r"\bpull(?:s|ed)?\b[^.]*\brows?\b", re.IGNORECASE)
 ASK_WORD = re.compile(r"\b(?:card|pick)\b", re.IGNORECASE)
 BLOCK_WORD = re.compile(r"[\w-]+")
-MERGE_CARD = re.compile(r"^merge:(\d+):([0-9a-f]{7,40})$")
 ENDED = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
 DESK = re.compile(r"(?:.+-)?desk(?:-\d{1,2})?")
 REPEAT = timedelta(minutes=30)
@@ -425,28 +424,6 @@ def clip(text: str, limit: int = QUOTE) -> str:
 
 def short(sha: str) -> str:
     return sha[:7]
-
-
-def block_ids(node: object) -> Iterator[str]:
-    if isinstance(node, dict):
-        if isinstance(node.get("id"), str):
-            yield node["id"]
-        for value in node.values():
-            yield from block_ids(value)
-    elif isinstance(node, list):
-        for value in node:
-            yield from block_ids(value)
-
-
-def typed(node: object, kind: str) -> Iterator[dict]:
-    if isinstance(node, dict):
-        if node.get("type") == kind:
-            yield node
-        for value in node.values():
-            yield from typed(value, kind)
-    elif isinstance(node, list):
-        for value in node:
-            yield from typed(value, kind)
 
 
 def lanes_of(value: str | list[str]) -> list[str]:
@@ -626,8 +603,8 @@ class Pass:
         records = [record for record in cci.records(self.tail, self.watch.drive, since=actions.stamp(self.now - self.watch.window)) if record["drive"] == self.watch.drive]
         self.lane_newest = {record["lane"]: record for record in records}
         if (session := root_session(self.watch.drive)) is None:
-            self.warn(BOARD_KINDS | {"lane"}, f"no drive registry entry for {self.watch.drive} names a root session, so neither the board nor the task list read")
-        stalls, questions, entries = self.prs(records, session)
+            self.warn({"lane"}, f"no drive registry entry for {self.watch.drive} names a root session, so the task list does not read")
+        stalls, questions, entries = self.prs(records)
         lane_stalls, lane_questions = self.lanes(records, session, entries)
         stalls += lane_stalls + self.asks(records) + self.gates(records) + self.desks(records)
         questions += lane_questions + self.orders(records)
@@ -708,24 +685,22 @@ class Pass:
         result = (payload[-1] if isinstance(payload, list) else payload).get("structured_output") or {}
         return {verdict["id"]: verdict for verdict in result.get("verdicts", [])}
 
-    def board(self, session: str | None) -> Board | None:
-        if session is None:
+    def board(self) -> Board | None:
+        """What the board shows and what the owner decided on it, from board-watch's records and the runner's board writes, so the watch reads it on any machine."""
+        drive_name = self.watch.drive
+        try:
+            records = [record for record in [*cci.records(self.tail, drive_name, "--lane", board_rows.OWNER_LANE), *cci.records(self.tail, drive_name, "--lane", RUNNER, f"--topic={board_rows.WRITE_TOPIC}")] if record["drive"] == drive_name]
+        except ReadFailed as failed:
+            self.warn(BOARD_KINDS, f"the board's records did not read: {failed}")
             return None
-        done = self.shell.run(["cc-present", "outcomes", "--all", "--session", session])
-        start = done.out.find("{")
-        if done.code or start < 0:
-            self.warn(BOARD_KINDS, f"cc-present outcomes exited {done.code}: {(done.err or done.out).strip()[:200]}")
+        records.sort(key=lambda record: record["seq"])
+        if (snapshot := board_rows.snapshot_of_records(records)) is None:
+            self.warn(BOARD_KINDS, "board-watch has posted no board-rows snapshot")
             return None
-        outcomes = json.loads(done.out[start:])
-        doc = outcomes.get("doc") or {}
-        heads = {(row.pr, row.head) for row in board_rows.rows_of(doc) if row.head}
-        heads |= {(found[1], found[2]) for key in block_ids(doc) if (found := MERGE_CARD.match(key))}
-        interactions = outcomes.get("interactions", {})
-        verdicts = {block: {row: entry for row, entry in rows.items() if entry.get("verdict")} for block, rows in (interactions.get("triage") or {}).items()}
-        cards = [(card["id"], {choice["id"] for choice in typed(card, "choice")}, {str(found["number"]) for found in typed(card, "pr")}) for card in typed(doc, "card")]
-        answered = {block for block, choice in (interactions.get("choices") or {}).items() if choice and (choice.get("optionIds") or choice.get("other"))}
-        written = [(row.pr, row.head, when) for row in board_rows.rows_of(doc) if row.head and (when := board_rows.parsed(row.text_at))]
-        return Board(heads, board_rows.newest_by_pr(verdicts), cards, answered, written)
+        heads = {(pr, head) for pr, head, _ in snapshot["rows"]} | {(pr, sha) for pr, sha in snapshot["merges"]}
+        cards = [(card, set(choices), set(prs)) for card, choices, prs in snapshot["cards"]]
+        written = [(pr, head, when) for pr, head, at in snapshot["rows"] if (when := board_rows.parsed(at))]
+        return Board(heads, board_rows.newest_by_pr(board_rows.verdicts_of_records(records)), cards, board_rows.answered_of_records(records), written)
 
     def rows(self) -> dict[str, dict] | None:
         landing = self.watch.landing
@@ -817,11 +792,11 @@ class Pass:
                 return True
         return False
 
-    def prs(self, records: list[dict], session: str | None) -> tuple[list[Stall], list[Question], list[dict]]:
+    def prs(self, records: list[dict]) -> tuple[list[Stall], list[Question], list[dict]]:
         landing = self.watch.landing
         if not landing or (rows := self.rows()) is None:
             return [], [], []
-        board = self.board(session)
+        board = self.board()
         repo, drive_name = landing["repo"], self.watch.drive
         fidelity_lanes = lanes_of(landing.get("fidelity_lane", []))
         go_lanes = [ROOT, *landing.get("go_lanes", [])]
