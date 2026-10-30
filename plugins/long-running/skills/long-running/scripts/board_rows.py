@@ -31,7 +31,7 @@ fails, with one line `<row-id> <pr> <head> <reasons>`, when:
               records no approval for the row at that head, so the row asks a tap he already gave;
               listing his approved head in the row's `carried` list (root #139021), `cc-present verdict
               import` at the head, or dropping the row clears it
-    re-ask    the board records his approval at another head, and no root go, decide or decision record
+    re-ask    the board records his approval at another head, and no root go, decide, decision or answer record
               names the PR at this head saying it re-asks or is new content (root #138721): until root
               rules replay or new content the row sits in Being fixed or checked
     since     the board records his approval at another head that its `carried` list does not name,
@@ -119,6 +119,7 @@ SAVED_FINDER = re.compile(r"^(?P<pr>\d+)-(?P<sha>[0-9a-f]{7,40})\.md$")
 FINDERS = "finders"
 CARRY = re.compile(r"\bcarr(?:y|ies|ied|ying)\b|\bpatch-identical\b", re.IGNORECASE)
 PR_SHA = re.compile(r"#(?P<pr>\d+)\s+(?:[\w-]+\s+)?(?P<sha>[0-9a-f]{7,40})\b(?:\s*(?:->|→)\s*(?P<to>[0-9a-f]{7,40})\b)?")
+RULING_KINDS = cci.ROOT_ANSWER_KINDS | {"answer"}
 REASK = re.compile(r"\bre-?asks?\b|\bnew (?:behavior|behaviour|content)\b|\basks? (?:his|a fresh) tap\b", re.IGNORECASE)
 REKEY = re.compile(r"\bre-?keys?\b|\bre-?keyed\b", re.IGNORECASE)
 ONE_TAP = re.compile(r"\bone tap\b[^.]*?\bapprov(?:es|e)\b|\bapprov(?:es|e) (?:all|both|every)\b(?: (?:\d+|two|three|four|five|six|seven|eight|nine|ten))?", re.IGNORECASE)
@@ -345,9 +346,9 @@ def ruling_text(shell: Shell, record: dict) -> str:
 
 
 def root_rulings(shell: Shell, drive: str, lanes: list[str]) -> list[dict]:
-    """The go, decide and decision records of root and of each lane `landing.go_lanes` lets rule for it, or its numbered successor."""
-    kinds = [f"--kind={kind}" for kind in sorted(cci.ROOT_ANSWER_KINDS)]
-    records = [record for record in cci.records(tail(shell), drive, *kinds) if grades.delegated(record["lane"], lanes) and record["drive"] == drive and record["kind"] in cci.ROOT_ANSWER_KINDS]
+    """The go, decide, decision and answer records of root and of each lane `landing.go_lanes` lets rule for it, or its numbered successor; root rules a re-ask in an answer as often as in a decide (board-refresher-2, root #213285 and #213347)."""
+    kinds = [f"--kind={kind}" for kind in sorted(RULING_KINDS)]
+    records = [record for record in cci.records(tail(shell), drive, *kinds) if grades.delegated(record["lane"], lanes) and record["drive"] == drive and record["kind"] in RULING_KINDS]
     return [record | {"full": ruling_text(shell, record)} for record in records]
 
 
