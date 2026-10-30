@@ -7,8 +7,10 @@ from pathlib import Path
 
 import pytest
 from cc_transcript.query import Session
+from captain_hook import T
 from captain_hook.events import PostToolUseEvent, PreToolUseEvent, StopEvent
-from captain_hook.testing.helpers import StubbedContext, build_context, stubbed_commands
+from captain_hook.snapshots.client import RemoteSession, RemoteToolCalls
+from captain_hook.testing.helpers import StubbedContext, build_context, disk_fixture_session, input_to_event, stubbed_commands
 
 from fire import fire
 from hooks import nudges, owner_facing
@@ -371,3 +373,69 @@ def test_a_failed_read_names_the_exception_a_traceback_ends_on() -> None:
     stderr = 'Traceback (most recent call last):\n  File "rulings.py", line 2648, in <module>\n    raise SystemExit(main())\nsubprocess.CalledProcessError: Command \'ccn ledger list\' returned non-zero exit status 128.\n'
     failure = subprocess.CalledProcessError(1, ["rulings.py", "glossary"], stderr=stderr)
     assert owner_facing.reason(failure) == "exit 1: subprocess.CalledProcessError: Command 'ccn ledger list' returned non-zero exit status 128."
+
+
+@pytest.mark.parametrize(
+    ("fixture", "warned"),
+    [
+        (owner_facing.authorize(owner_facing.ROUTING_QUESTION, command=owner_facing.ROUTING_GO), True),
+        (
+            owner_facing.authorize(
+                T.tool_turn("AskUserQuestion", result="Switch", questions=[{"question": "Switch acme routing to cluster-b now?"}]),
+                command=owner_facing.ROUTING_GO,
+            ),
+            False,
+        ),
+        (
+            owner_facing.authorize(owner_facing.ROUTING_QUESTION, T.user("Inspect the state meanwhile."), command=owner_facing.ROUTING_GO),
+            True,
+        ),
+        (
+            owner_facing.authorize(
+                T.assistant(T.tool("Bash", command='cc-present push - <<\'EOF\'\n{"title": "Switch acme routing?"}\nEOF')),
+                command=owner_facing.ROUTING_GO,
+            ),
+            True,
+        ),
+        (
+            owner_facing.authorize(
+                T.assistant(T.tool("Write", file_path="/tmp/board.json", content='{"title": "Switch acme routing?"}')),
+                T.assistant(T.tool("Bash", command="cc-present push /tmp/board.json")),
+                command=owner_facing.ROUTING_GO,
+            ),
+            True,
+        ),
+        (
+            owner_facing.authorize(
+                T.assistant(T.tool("Bash", command="cc-present push /tmp/board.json")),
+                T.user("The owner answered: switch."),
+                command=owner_facing.ROUTING_GO,
+            ),
+            False,
+        ),
+    ],
+    ids=["pending", "answered", "pending-prior-turn", "inline-board", "file-board", "board-prior-turn"],
+)
+def test_owner_question_guard_uses_named_remote_tool_call_projections(fixture, warned, monkeypatch):
+    local = input_to_event("PreToolUse", fixture)
+    remote = PreToolUseEvent(_raw=local._raw, ctx=local.ctx.fork(disk_fixture_session(fixture.transcript.messages)))
+    assert isinstance(remote.ctx.t, RemoteSession)
+    assert isinstance(remote.ctx.t.tool_calls, RemoteToolCalls)
+    assert isinstance(remote.ctx.turn.tool_calls, RemoteToolCalls)
+    queries = []
+    query = RemoteSession.query
+
+    def selected(session, request):
+        queries.append((session.selectors, request))
+        assert request["kind"] not in {"events", "turns"}
+        return query(session, request)
+
+    monkeypatch.setattr(RemoteSession, "query", selected)
+    actual = owner_facing.authorizing_lines_wait_for_the_owner_question(remote)
+    expected = owner_facing.authorizing_lines_wait_for_the_owner_question(local)
+    assert (actual is not None) == warned
+    assert (actual.message if actual else None) == (expected.message if expected else None)
+    projections = [(selectors, request) for selectors, request in queries if request["kind"] == "tool_calls"]
+    assert any(not selectors and request["name"] == "AskUserQuestion" for selectors, request in projections)
+    assert any(selectors == ({"kind": "current_turn"},) and request["name"] == "Bash" for selectors, request in projections)
+    assert all(request["name"] in {"AskUserQuestion", "Bash", "Write"} and request["order"] == "forward" for _, request in projections)
