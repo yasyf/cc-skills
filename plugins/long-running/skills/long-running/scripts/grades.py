@@ -38,10 +38,11 @@ SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
 QUOTED_BLOCK = re.compile(r"```.*?(?:```|\Z)|^[ \t]*>[^\n]*", re.DOTALL | re.MULTILINE)
 QUOTED_SPAN = re.compile(r"(`+)[^\n]*?\1|\"[^\"\n]*\"|“[^”]*”")
 WITHDRAWN = re.compile(r"^\s*withdrawn\b", re.IGNORECASE)
-CARRY_SAYS = re.compile(r"(?<!\bnot )\bpatch-identical\b|\btap carries\b|\bno new behaviou?r\b|\btest-only\b|\bpure replay\b", re.IGNORECASE)
+CARRY_SAYS = re.compile(r"(?<!\bnot )\bpatch-identical\b|\btap carries\b|\bno new behaviou?r\b(?! since the tap at)|\btest-only\b|\bpure replay\b", re.IGNORECASE)
 CARRY_FORM = re.compile(rf"\bcarried\b|{CARRY_SAYS.pattern}", re.IGNORECASE)
 HEAD_MOVE = re.compile(r"\b([0-9a-f]{7,40})\s*\(was ([0-9a-f]{7,40})\)", re.IGNORECASE)
 PATCH_IDENTICAL = re.compile(r"(?<!\bnot )\bpatch-identical\b", re.IGNORECASE)
+TAP_KEPT = re.compile(r"\bno new behaviou?r since the tap at ([0-9a-f]{7,40})\b", re.IGNORECASE)
 ADDS_BEHAVIOR = re.compile(r"(?<!\bno )(?<!\bwithout )\bnew behaviou?r\b", re.IGNORECASE)
 REVIEW_BOT_CHECK = "ai-review"
 REVIEW_BOT_HELD = re.compile(r"\bHeld — (?:(\d+) blocking open\b)?")
@@ -62,6 +63,11 @@ def delegated(lane: str, delegates: list[str]) -> bool:
 
 def names_head(named: str, sha: str) -> bool:
     return bool(sha) and (sha.startswith(named) or named.startswith(sha))
+
+
+def keeps_tap(text: str, tapped: str) -> bool:
+    """Whether a fidelity grade says its head adds no new behavior since the owner's tap at `tapped`, naming that head; "carries", "carried from" or "stays a tap row" keep no tap (root #195066)."""
+    return any(names_head(sha, tapped) for sha in TAP_KEPT.findall(text))
 
 
 def missing_grounds(text: str) -> str:

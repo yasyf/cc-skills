@@ -3445,7 +3445,7 @@ def test_a_kept_tap_waits_for_the_root_go_before_the_queue(shell, config, tmp_pa
     board_lane(config)
     lone_green_pr(shell)
     tap(shell, "29020", "aaaa111111")
-    grade(shell, "29020", "ok cccc333333 a fixed version of aaaa111111: a review fix without new behavior.")
+    grade(shell, "29020", KEPT_GRADE)
     landing_pass(shell, config)
     assert [note["text"].split(":")[0] for note in tap_notes(shell)] == ["TAP-KEPT #29020"]
     assert shell.enqueues() == []
@@ -3751,6 +3751,9 @@ def lane_head_record(shell: FakeShell, pr: str, text: str) -> int:
     return seq
 
 
+KEPT_GRADE = "ok cccc333333 a review fix: no new behavior since the tap at aaaa111111."
+
+
 def tap_notes(shell: FakeShell) -> list[dict]:
     return [post for post in notes(shell) if post["text"].startswith("TAP-")]
 
@@ -3827,11 +3830,32 @@ def test_a_board_tap_never_carries_to_a_head_that_adds_new_behavior_and_root_and
 
 
 @pytest.mark.parametrize(
+    "graded",
+    [
+        "ok cccc333333 new-tree fix, stays a tap row: carries bbbb222.",
+        "ok cccc333333 carried from my ok at bbbb222222, a review fix.",
+        "ok cccc333333 a fixed version of aaaa111111: a review fix without new behavior.",
+        "ok cccc333333 no new behavior since the tap at bbbb222222.",
+    ],
+)
+def test_a_tap_keeps_only_on_a_grade_saying_no_new_behavior_since_that_tapped_head(shell, config, tmp_path, graded):
+    """Root #195066: the runner read 'carried from my ok' and 'stays a tap row' as a review fix four times on Oct 29 and admitted new behavior with no tap."""
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    tap(shell, "29020", "aaaa111111")
+    grade(shell, "29020", graded)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and shell.carries == []
+    assert not [note for note in tap_notes(shell) if note["text"].startswith("TAP-KEPT")]
+
+
+@pytest.mark.parametrize(
     "said",
     [
-        [("head", "HEAD #29020 cccc333333 (was aaaa111111): answers the finder's major with a nil check"), ("fidelity", "ok cccc333333 a fixed version of aaaa111111: a nil check answers the finder's major.")],
-        [("fidelity", "ok F307 at cccc333.")],
-        [("fidelity", "ok cccc333333 a fixed version of aaaa111111: a review fix without new behavior.")],
+        [("head", "HEAD #29020 cccc333333 (was aaaa111111): answers the finder's major with a nil check"), ("fidelity", "ok cccc333333 a nil check answers the finder's major; no new behavior since the tap at aaaa111.")],
+        [("fidelity", KEPT_GRADE)],
     ],
 )
 def test_a_board_tap_keeps_over_a_graded_review_fix_and_root_hears_once_to_post_its_go(shell, config, tmp_path, said):
@@ -3878,7 +3902,7 @@ def test_a_tap_keeps_only_once_the_finder_is_clear_at_the_fixed_head(shell, conf
     lone_green_pr(shell)
     tap(shell, "29020", "aaaa111111")
     finder_verdict(shell, "29020", "major aaaa111 1 open: go/a.go:12 the retry drops the sealed read")
-    grade(shell, "29020", "ok cccc333333 a fixed version of aaaa111111: a review fix without new behavior.", finder=False)
+    grade(shell, "29020", KEPT_GRADE, finder=False)
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert tap_notes(shell) == []
@@ -3896,7 +3920,7 @@ def test_a_tap_keeps_over_a_pipeline_missing_a_desk_ok_overrides_at_the_same_hea
     config.write_text(json.dumps(raw))
     lone_green_pr(shell)
     tap(shell, "29020", "aaaa111111")
-    grade(shell, "29020", "ok cccc333333 a fixed version of aaaa111111: a review fix without new behavior.")
+    grade(shell, "29020", KEPT_GRADE)
     grade(shell, "29020", "missing cccc333333 plan:266 lists every local chat before grouping teams.", lane="fidelity-pipeline")
     landing_pass(shell, config)
     landing_pass(shell, config)
@@ -3915,7 +3939,7 @@ def test_a_kept_tap_under_a_root_go_lands_the_tap_rule_head_when_the_board_refus
     shell.files["29020"] = ["go/sand/next/vm/run.go"]
     tap(shell, "29020", "aaaa111111")
     shell.unknown_blocks = {"merge-rows"}
-    grade(shell, "29020", "ok cccc333333 a fixed version of aaaa111111: a review fix without new behavior.")
+    grade(shell, "29020", KEPT_GRADE)
     landing_pass(shell, config)
     merge_go(shell, "29020", "go #29020 at cccc333333: carried from his tap on aaaa111 (go at that head), no new behavior (rule 399b5fa).")
     landing_pass(shell, config)
@@ -3953,7 +3977,7 @@ def test_a_kept_tap_carries_to_the_review_fix_once_root_posts_its_go_and_the_tap
     lone_green_pr(shell)
     shell.files["29020"] = ["go/sand/next/vm/run.go"]
     tap(shell, "29020", "aaaa111111")
-    graded = grade(shell, "29020", "ok cccc333333 restacked from aaaa111 (ok #166024) onto #44069 21c80e5. Its one commit changes only context lines. The added and removed lines are the same as at aaaa111.")
+    graded = grade(shell, "29020", "ok cccc333333 restacked from aaaa111 (ok #166024) onto #44069 21c80e5. Its one commit changes only context lines. The added and removed lines are the same as at aaaa111. No new behavior since the tap at aaaa111.")
     landing_pass(shell, config)
     assert shell.carries == [] and [note["text"].split(":")[0] for note in tap_notes(shell)] == ["TAP-KEPT #29020"]
     merge_go(shell, "29020", "go #29020 at cccc333333: carried from his tap on aaaa111 (go at that head), no new behavior (rule 399b5fa).")
@@ -5122,6 +5146,18 @@ def test_a_head_with_no_landing_precondition_enqueues_with_no_warning(shell, con
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and blockers(shell) == [] and precondition_notes(shell) == []
 
 
+def test_a_precondition_a_root_record_resolves_no_longer_warns(shell, config, tmp_path):
+    """Root #194669: #42785 kept warning on #147074, #152592 and a sentence naming hold #134863 after root #193831 resolved all three."""
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333")
+    stated = said_on_the_bus(shell)
+    seq = 34766 + len(shell.records)
+    shell.records.append({"seq": seq, "drive": "d1", "lane": LANE, "kind": "report", "to": ["root"], "refs": {"prs": [29020]}, "text": "Hold #134863 stands: the conversion lands only after the reader release is live."})
+    shell.records.append({"seq": seq + 1, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {"prs": [29020]}, "resolves": [int(stated.removeprefix("cci #")), 134863], "text": "Stale preconditions on #29020 cleared."})
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and precondition_notes(shell) == []
+
+
 def test_a_restack_with_the_finder_ok_heads_patch_carries_the_finder_ok(shell, config, tmp_path):
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333", finder=False)
@@ -5173,7 +5209,7 @@ def test_an_open_finder_major_holds_the_head_until_a_finder_pass_answers_it(shel
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and len(blockers(shell)) == 1
 
 
-@pytest.mark.parametrize("settled", ["decision", "go"])
+@pytest.mark.parametrize("settled", ["decision", "go", "resolves"])
 def test_a_root_decision_answering_a_finder_major_or_a_later_root_go_lets_the_head_enqueue(shell, config, tmp_path, settled):
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333", finder=False)
@@ -5183,6 +5219,8 @@ def test_a_root_decision_answering_a_finder_major_or_a_later_root_go_lets_the_he
     if settled == "decision":
         shell.records.append({"seq": seq + 1, "drive": "d1", "lane": LANE, "kind": "ask", "to": ["root"], "re": seq, "refs": {"prs": [29020]}, "text": "a test gap, not a defect"})
         shell.records.append({"seq": seq + 2, "drive": "d1", "lane": "root", "kind": "decision", "to": [LANE], "re": seq + 1, "refs": {}, "text": "land it; the test gap is a follow-up PR"})
+    elif settled == "resolves":
+        shell.records.append({"seq": seq + 1, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {}, "resolves": [seq], "text": "the migration seed is a test gap; land it"})
     else:
         merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
