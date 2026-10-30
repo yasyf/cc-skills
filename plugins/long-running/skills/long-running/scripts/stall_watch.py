@@ -407,9 +407,9 @@ class Stall:
         word = "STALE" if self.kind == "stale" else f"STALL {self.kind}"
         return f"{word} {self.subject}, {int((now - self.since).total_seconds() // 60)} min: {self.what} | owner {', '.join(self.owner)} | {self.step}"
 
-    def to(self, drive_name: str, desk_lanes: list[str], live: Callable[[str], bool]) -> str:
-        """The lanes the stall names, with the root too unless desks own it or every lane it names is live and its step is not the root's, so root hears only what it must do or no live lane will act on (root, Oct 29 2:10 PM)."""
-        lanes = [named for lane in self.owner for named in (desk_lanes if lane == RUNNER else [lane]) if named not in ROOT_NAMES]
+    def to(self, drive_name: str, desk_lanes: list[str], live: Callable[[str], str | None]) -> str:
+        """The lanes the stall names, each as its live successor when a rotation replaced it (root #215820), with the root too unless desks own it or every lane it names is live and its step is not the root's, so root hears only what it must do or no live lane will act on (root, Oct 29 2:10 PM)."""
+        lanes = [live(named) or named for lane in self.owner for named in (desk_lanes if lane == RUNNER else [lane]) if named not in ROOT_NAMES]
         desks = lanes and self.kind not in ROOT_KINDS and (self.quiet or self.kind in DESK_KINDS or all(lane == RUNNER or DESK.fullmatch(lane) for lane in self.owner) or (all(map(live, lanes)) and not self.step.startswith(f"{ROOT} ")))
         return ",".join(dict.fromkeys([*([] if desks else [ROOT]), *(f"{lane}@{drive_name}" for lane in lanes)]))
 
@@ -594,7 +594,7 @@ def cites_pr(record: dict) -> bool:
 
 
 def successor_of(lane: str) -> re.Pattern[str]:
-    return re.compile(rf"{re.escape(lane)}(?:-\d+)?")
+    return re.compile(rf"{re.escape(grades.SUCCESSOR_NUMBER.sub('', lane))}(?:-\d{{1,2}})*")
 
 
 class Pass:
@@ -619,9 +619,6 @@ class Pass:
         if done.code:
             raise ReadFailed(f"{' '.join(argv[:2])} exited {done.code}: {(done.err or done.out).strip()[:300]}")
         return done.out
-
-    def lane_live(self, lane: str) -> bool:
-        return self.live_lane(lane) is not None
 
     def live_lane(self, lane: str) -> str | None:
         """`lane` or its numbered successor, whichever posted the newest record in the window, when that record is no end of the lane."""
@@ -700,7 +697,7 @@ class Pass:
         return 1 if failed else 0
 
     def post(self, stall: Stall) -> Done:
-        argv = ["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", POST_KINDS.get(stall.kind, "urgent"), "--to", stall.to(self.watch.drive, self.watch.desk_lanes, self.lane_live), "--topic", stall.id]
+        argv = ["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", POST_KINDS.get(stall.kind, "urgent"), "--to", stall.to(self.watch.drive, self.watch.desk_lanes, self.live_lane), "--topic", stall.id]
         if stall.pr:
             argv += ["--pr", f"{self.watch.landing['repo']}#{stall.pr}"]
         return self.shell.run([*argv, "--text", stall.line(self.now)])
@@ -877,7 +874,7 @@ class Pass:
             head_at = at(announced[0]) if announced else None
             going = grades.gone_at(gos, pr, head)
             in_queue = any(named == pr and grades.names_head(sha, head) for named, sha in queued)
-            lane = lanes[pr] = reassigned.get(pr) or row.get("lane") or next((record["lane"] for record in reversed(announced) if record["kind"] == "head"), ROOT)
+            lane = lanes[pr] = reassigned.get(pr) or next((record["lane"] for record in reversed(records) if record["kind"] == "head" and record["lane"] not in NOT_LANES and grades.about_pr(record, repo, pr)), None) or row.get("lane") or ROOT
             tapping = board is not None and board.shows(pr, head) and not board_rows.at_head(board.taps.get(pr), "rejected", head)
             readied = [at(record) for record in announced if record["kind"] == "ready" or READY.search(record["text"])]
             tap_at = min([*readied, *([live] if (live := board.live_at(pr, head)) else [])], default=None) if tapping else None

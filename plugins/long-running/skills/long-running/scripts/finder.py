@@ -20,8 +20,8 @@ graded, or after the head its `head` record replaced when the PR has any finder 
 head: `git range-diff` pairs its own commits with that head's, and it reads only the hunks of each
 changed pair, each new commit, and each dropped commit the base lacks, and runs no row pass. A changed pair that adds no line, whitespace aside, and drops only
 hunks the base now carries is a carry, and a head whose every pair is equal or a carry posts the
-graded head's verdict as `finder: ok|major <head7> carried from #<seq>`, or nothing when no finder
-record graded that head. A major that root settled, or one carried from a record root settled, carries as
+graded head's verdict as `finder: ok|major <head7> carried from #<seq>`, or, when no finder
+record graded that head, nothing, with `ungraded` in its result so the runner queues a whole pass. A major that root settled, or one carried from a record root settled, carries as
 `finder: ok <head7> carried from #<seq>, settled by root #<decide>`: the job's `settled` maps each finder
 record a root `decide` names by `--re` or `--resolves`, or that a root `decide` about the PR saying
 settled came after, to that decide.
@@ -426,7 +426,7 @@ def run(directory: Path, shell: Shell) -> dict:
     if last and not changed:
         replayed = f"{pr} at {head[:12]} replays every own commit of {last[:12]}, patch for patch or dropping only hunks {view['baseRefName']} carries"
         if not ((earlier := job["prior"]) and names_head(earlier["head"], last)):
-            return {"skipped": replayed}
+            return {"skipped": replayed, "ungraded": True}
         text = f"finder: {finder_grade(earlier['text'])} {head[:7]} carried from #{earlier['seq']}"
         if finder_grade(earlier["text"]) != FINDER_PASS and (root := settled_by(job, earlier)):
             text = f"finder: {FINDER_PASS} {head[:7]} carried from #{earlier['seq']}, settled by root #{root}"

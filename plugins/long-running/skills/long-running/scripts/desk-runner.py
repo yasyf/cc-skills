@@ -4257,7 +4257,7 @@ class Runner:
             self.book.accept(FINDER, f"finder:{pr}:{row['head']}", "finder", json.dumps({"pr": pr, "head": row["head"], "lane": row.get("lane") or ROOT, "seq": cursor, "full": False}), "ledger", None)
 
     def settle_finders(self) -> None:
-        """Settle each started pass from the result its job wrote; one that wrote an error, whose process exited with no result, or that wrote none by its deadline fails, so its slot frees this pass."""
+        """Settle each started pass from the result its job wrote; one that wrote an error, whose process exited with no result, or that wrote none by its deadline fails, so its slot frees this pass. A pass that posted nothing because its head replays a head no finder record graded queues one `full` pass of its PR, so a green head is graded without a root `finder: whole` ask (root #215820)."""
         settled = False
         for action in self.book.actions(FINDER, kind="finder", status="started"):
             directory = Path(action.dispatch_id)
@@ -4271,6 +4271,9 @@ class Runner:
                     self.finder_failed(action, outcome["error"])
                 else:
                     self.finder_settled(action.action_id, outcome)
+                if outcome.get("ungraded"):
+                    job = json.loads(action.target)
+                    self.book.accept(FINDER, f"finder:{job['pr']}:whole:{job['head']}", "finder", json.dumps({"pr": job["pr"], "head": "", "lane": job["lane"], "seq": job["seq"], "full": True}), "ungraded", None)
             elif exited:
                 self.finder_failed(action, f"finder.py exited {ran} min after it started and wrote no result")
             elif self.now() >= actions.parse_stamp(action.deadline):
