@@ -15,7 +15,9 @@ board-watch's records, and the root session's task list. For every open PR no ho
 its ledger row names, it finds:
 
     go        a root go names the head, no `QUEUED` record names the PR at it, no hold covers a PR
-              below it, and the go is older than `stall.minutes.go`; the stall belongs to the first PR of its stack, from the bottom, with no go
+              below it, and the go is older than `stall.minutes.go`; a root `decide` or `decision` whose
+              text opens with a go clause is a go, such as `go #44922 at 519ea97 TAP-KEPT` (root
+              #202036), and so it also settles the carry stall at that head; the stall belongs to the first PR of its stack, from the bottom, with no go
               or with a red, conflicting or unfinished build, or whose newest ai-review run the review
               bot titles Held or Waiting for restack, else to the lanes the desk runner's newest open
               blocker line for that PR and head newer than the go goes to, naming its reason, such as FINDER-PENDING,
@@ -24,6 +26,8 @@ its ledger row names, it finds:
               budget, naming the step and the command in flight; a stack no worker holds is backlog the
               runner's overflow enqueues, never a stall,
               and every go in one stack shares one stall naming the stack's bottom and that blocker;
+              a PR below a go whose merge row waits only on the owner's tap, and a head whose newest
+              blocker is the runner's MERGE-ASK, draw none, since the row's own tap wait reports it;
               a head whose blocker is FINDER-PENDING while the finder desk holds a pass on it queued
               or running draws none, since the desk's own FINDER-DESK-STALLED covers a stalled
               queue; a go a fidelity carry moved to a new head counts from the carry grade, not the go
@@ -226,7 +230,9 @@ CAUSE_COMMANDS = {
     "CONTRACT-MISSING": "post the contract record #{pr} at {sha} lacks",
     "FOREIGN": "admit or hold the PR the batch for #{pr} would carry",
 }
-HEAD_BLOCKERS = ("GO-UNQUEUED", "BELOW-BLOCKED", "BELOW-HELD", "MERGE-ASK", "AWAITS-GO")
+MERGE_ASK = "MERGE-ASK"
+HEAD_BLOCKERS = ("GO-UNQUEUED", "BELOW-BLOCKED", "BELOW-HELD", MERGE_ASK, "AWAITS-GO")
+GO_KINDS = frozenset({"go", "decide", "decision"})
 BLOCKER_LABEL = re.compile(r"\b[A-Z]+(?:-[A-Z]+)+\b")
 MERGE_WAITS = "merge_waits"
 MERGE_CARDS = "merge_asks"
@@ -803,7 +809,7 @@ class Pass:
         go_lanes = [ROOT, *landing.get("go_lanes", [])]
         exempt = landing.get("exempt_grades", [landing.get("port_phrase", grades.PORT_PHRASE), *grades.TEST_ONLY_PHRASES])
         closed = {seq for record in records if record["lane"] in ROOT_NAMES for seq in grades.closes(record)}
-        gos = [record | {"voided": set()} for record in records if record["kind"] == "go" and (record["lane"] == RUNNER or grades.delegated(record["lane"], go_lanes)) and record["seq"] not in closed and grades.go_heads(record)]
+        gos = [record | {"voided": set()} for record in records if record["kind"] in GO_KINDS and (record["lane"] == RUNNER or grades.delegated(record["lane"], go_lanes)) and record["seq"] not in closed and grades.go_heads(record)]
         reviews = [record for record in records if record["kind"] in ("review", "head")]
         fidelity = [record for record in reviews if record["kind"] == "review" and record["lane"] in fidelity_lanes and record["text"].startswith(grades.FIDELITY_GRADES)]
         gos += grades.carried_gos(gos, fidelity, repo, lambda pr, head: True)
@@ -831,6 +837,9 @@ class Pass:
         def holding(pr: str) -> bool:
             return pr in held or bool(rows[pr].get("hold_until")) and actions.parse_stamp(rows[pr]["hold_until"]) > self.now
 
+        def awaits_tap(pr: str, head: str) -> bool:
+            return waits.get(pr) == f"merge:{pr}:{short(head)}" or board is not None and board.shows(pr, head) and not board_rows.at_head(board.taps.get(pr), "rejected", head)
+
         for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
             head = row.get("head", "")
             if not head:
@@ -854,7 +863,7 @@ class Pass:
                 below = downstack(rows, row)
                 ready = min(max(at(go), actions.parse_stamp(go.get("graded_at") or go["at"])) for go in going)
                 since = max(ready, head_at) if head_at else ready
-                if not any(holding(parent) for parent in below) and (waits_on := self.unqueued(pr, row, rows, below, gos, since, queued, lane, records)):
+                if not any(holding(parent) for parent in below) and (waits_on := self.unqueued(pr, row, rows, below, gos, since, queued, lane, records, awaits_tap)):
                     waiting.setdefault(below[-1] if below else pr, []).append((pr, since, len(below), waits_on))
                 continue
             tap = (board.taps.get(pr) if board else None) or {}
@@ -1051,7 +1060,8 @@ class Pass:
             return set() if below in seen else self.waits_on_owner(below, found_by_pr, seen | {below})
         return None
 
-    def unqueued(self, pr: str, row: dict, rows: dict[str, dict], below: list[str], gos: list[dict], since: datetime, queued: set[tuple[str, str]], lane: str, records: list[dict]) -> tuple[str, tuple[str, ...], str] | None:
+    def unqueued(self, pr: str, row: dict, rows: dict[str, dict], below: list[str], gos: list[dict], since: datetime, queued: set[tuple[str, str]], lane: str, records: list[dict], awaits_tap: Callable[[str, str], bool]) -> tuple[str, tuple[str, ...], str] | None:
+        """What holds a go'd `pr` out of the queue, with the lanes that own the step, or None when nothing is stuck: a PR below with no go that waits only on the owner's tap, or a runner MERGE-ASK, is a tap wait its own row reports, never a stall."""
         if any(named == pr and grades.names_head(sha, row["head"]) for named, sha in queued) or self.now - since < self.watch.age("go"):
             return None
         for member in [*reversed(below), pr]:
@@ -1059,7 +1069,7 @@ class Pass:
             named = f"#{member} at {short(other['head'])}"
             owns = lane if member == pr else other.get("lane") or ROOT
             if member != pr and not grades.gone_at(gos, member, other["head"]):
-                return member, (ROOT,), f"{named} has no go, and a stack enqueues from the bottom"
+                return None if awaits_tap(member, other["head"]) else (member, (ROOT,), f"{named} has no go, and a stack enqueues from the bottom")
             if other.get("test_state") == "failure":
                 return member, (owns,), f"fix the red build of {named}; the go waits on it"
             if other.get("mergeable_state") == "dirty":
@@ -1073,7 +1083,7 @@ class Pass:
             return self.stuck_step(pr, row["head"])
         said = grades.full_text(blocker)
         reason = found[0] if (found := BLOCKER_LABEL.search(said)) else "blocked"
-        if reason == FINDER_PENDING and self.finder_holds(pr, row["head"]):
+        if reason == MERGE_ASK or reason == FINDER_PENDING and self.finder_holds(pr, row["head"]):
             return None
         owners = tuple(dict.fromkeys(ROOT if to in ROOT_NAMES else to for to in (address.split("@", 1)[0] for address in blocker.get("to") or [ROOT])))
         return pr, owners, f"{reason}: the runner's newest blocker for #{pr} at {short(row['head'])}, cci #{blocker['seq']}: {clip(said)}"
