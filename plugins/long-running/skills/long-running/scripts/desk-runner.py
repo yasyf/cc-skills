@@ -716,6 +716,10 @@ BATCH_TIMEOUT = timedelta(minutes=30)
 DIRECT_RULING = "b530f5d"
 REBASE_RULING = "e7170fa"
 SQUASH_POLL_SECONDS = 5
+CHECK_POLLS = 40
+CHECK_POLL_SECONDS = 30
+CHECK_PASSED = {"pass", "skipping"}
+CHECK_FAILED = {"fail", "cancel"}
 SQUASH_POLLS = 12
 APPROVAL_POLL_SECONDS = 60
 APPROVAL_POLLS = 10
@@ -7050,7 +7054,8 @@ class Landing:
             with DIRECT_MERGING:
                 landing, refused = self.rebased(chain, heads, open_rows)
                 refused = refused or (self.moved_heads(chain, landing) if len(chain) > 1 else None)
-                done = None if refused else self.merge_chain(chain, landing)
+                waiting = "" if refused else self.checks_settled(chain, landing)
+                done = None if refused or waiting else self.merge_chain(chain, landing)
                 squashes = self.squashes(chain) if done and done.code in (0, TIMED_OUT) else {}
                 if done and done.code == TIMED_OUT and squashes and all(squashes.values()):
                     done = Done(0, done.out, done.err)
@@ -7062,8 +7067,10 @@ class Landing:
                     to = ",".join(dict.fromkeys([*(self.reach(owner) if owner else []), *self.restack_lanes()]))
                     self.post_blocker(ask, to, f"#{pr} {heads[pr][:10]}: Graphite is down, so the landing runner rebases each admitted stack onto the latest {TRUNK} and merges it directly (owner {REBASE_RULING}), and {why}. Clear that for {numbered(chain)}, a conflict or a changed patch by your own rebase onto {TRUNK}; it merges once admitted at its heads.", pr)
                 return (MERGED if outcome == MERGED else "blocked"), "".join(outs)[-1500:], last
+            if waiting:
+                return (MERGED if outcome == MERGED else "blocked"), "".join(outs)[-1500:], f"{numbered(chain)} waits to merge: {waiting}"
             outs.append(done.out + done.err)
-            last = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
+            last = " / ".join(line.strip() for line in (done.out + done.err).splitlines() if line.strip())[-600:] or f"exit {done.code}"
             if done.code:
                 return (MERGED if outcome == MERGED else "failed"), "".join(outs)[-1500:], last
             outcome = MERGED
@@ -7073,6 +7080,30 @@ class Landing:
                 moved = "" if landing[pr].startswith(heads[pr]) else f", rebased to {landing[pr][:10]},"
                 self.post_record("state", f"merged-direct:{pr}@{heads[pr]}", self.landing_audience([pr], rows, self.queue_audience([pr], rows)), f"MERGED #{pr} at {heads[pr][:10]}{moved} direct {landed}, Graphite down, {DIRECT_RULING}: {how}", pr)
         return outcome, "".join(outs)[-1500:], last
+
+    def checks_settled(self, chain: list[str], heads: dict[str, str]) -> str:
+        """Why `chain` may not merge yet, or empty: the checks the trunk requires, named by the bottom PR's required checks, must pass on every head first, read every `CHECK_POLL_SECONDS` up to `CHECK_POLLS` times, since GitHub refuses a merge while one is pending and the runner's own rebase push restarts them (#198874)."""
+        listed = self.shell.run(ghread.read("pr", "checks", chain[0], "--repo", self.repo, "--required", "--json", "name,bucket", max_age=ghread.FRESH))
+        try:
+            required = {check["name"] for check in json.loads(listed.out)}
+        except json.JSONDecodeError:
+            return ""
+        for pr in chain:
+            for poll in range(CHECK_POLLS):
+                if poll:
+                    self.shell.sleep(CHECK_POLL_SECONDS)
+                read = self.shell.run(ghread.read("pr", "checks", pr, "--repo", self.repo, "--json", "name,bucket", max_age=ghread.FRESH))
+                try:
+                    found = {check["name"]: check["bucket"] for check in json.loads(read.out)}
+                except json.JSONDecodeError:
+                    found = {}
+                if red := sorted(name for name in required if found.get(name) in CHECK_FAILED):
+                    return f"#{pr}'s required {', '.join(red)} failed at {heads[pr][:10]}"
+                if all(found.get(name) in CHECK_PASSED for name in required):
+                    break
+            else:
+                return f"#{pr}'s required checks still run at {heads[pr][:10]} after {CHECK_POLLS * CHECK_POLL_SECONDS // 60} minutes; the next pass reads them again"
+        return ""
 
     def moved_heads(self, chain: list[str], landing: dict[str, str]) -> tuple[str, str] | None:
         """The first PR of a chain whose head GitHub reads somewhere other than the head the runner checked, with why, read just before a `gh stack merge`, which pins no head."""
