@@ -128,10 +128,11 @@ def test_carry_rechecks_rejected_lands_on_the_next_wave_and_stops_at_cycles():
         ("ok cccc333333 a review fix: no new behavior since the tap at aaaa111111.", True),
         ("ok cccc333333 No new behavior since the owner's tap at aaaa111.", True),
         ("ok cccc333333 a nil check; no new behaviour since his tap at aaaa111111.", True),
+        ("ok cccc333333 No new behavior since the owner’s tap at aaaa111.", True),
         ("ok cccc333333 no new behavior since the owner's tap at bbbb222.", False),
         ("ok cccc333333 carried from the owner's tap at aaaa111; stays a tap row.", False),
     ],
-    ids=["the-tap", "the-owners-tap-204887", "his-tap", "another-tap", "carried-keeps-none"],
+    ids=["the-tap", "the-owners-tap-204887", "his-tap", "curly-apostrophe", "another-tap", "carried-keeps-none"],
 )
 def test_a_grade_keeps_the_tap_however_it_names_whose_tap_it_was(grade, kept):
     """Root #204975: grade #204887 'No new behavior since the owner's tap at 1f93c6d.' was read as no carry because it said the owner's tap."""
