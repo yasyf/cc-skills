@@ -80,7 +80,7 @@ never a PR URL. Every such draft passes
   The executor asks the root once, and `incident.py grant` lets the next pass
   proceed.
 - The executor launches the fix and evidence lanes with
-  `orca-launch.sh <lane> incident xhigh <brief>`. Both run on
+  `desk-launch.py incident <name> <fix-brief> <evidence-brief>`. Both run on
   `gpt-6.1-sol` with the fast tier at `xhigh`; only the `incident` alias runs
   fast, and plain `sol` is the standard tier. If 15 minutes pass without a
   mechanism or a PR, it launches an Opus 5.5 backup in Claude fast mode on the
