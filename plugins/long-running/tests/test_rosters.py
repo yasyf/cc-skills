@@ -415,11 +415,11 @@ def test_private_runtime_rejects_symlinks_and_public_permissions(tmp_path):
 @pytest.mark.skipif(sys.platform != "darwin", reason="Darwin SDK ABI")
 def test_kevent_layout_matches_installed_darwin_sdk(tmp_path):
     source = tmp_path / "layout.c"
-    source.write_text('#include <sys/event.h>\n#include <stddef.h>\n#include <stdio.h>\nint main(void) { printf("%zu %zu %zu %zu %zu %zu %zu\\n", sizeof(struct kevent), offsetof(struct kevent, ident), offsetof(struct kevent, filter), offsetof(struct kevent, flags), offsetof(struct kevent, fflags), offsetof(struct kevent, data), offsetof(struct kevent, udata)); }\n')
+    source.write_text('#include <sys/event.h>\n#include <stddef.h>\n#include <stdio.h>\nint main(void) { printf("%zu %zu %zu %zu %zu %zu %zu %u\\n", sizeof(struct kevent), offsetof(struct kevent, ident), offsetof(struct kevent, filter), offsetof(struct kevent, flags), offsetof(struct kevent, fflags), offsetof(struct kevent, data), offsetof(struct kevent, udata), EV_RECEIPT); }\n')
     executable = tmp_path / "layout"
     subprocess.run(["cc", str(source), "-o", str(executable)], check=True)
     output = subprocess.check_output([str(executable)], text=True)
-    layout = [ctypes.sizeof(roster_events.Kevent), *(getattr(roster_events.Kevent, name).offset for name, _ in roster_events.Kevent._fields_)]
+    layout = [ctypes.sizeof(roster_events.Kevent), *(getattr(roster_events.Kevent, name).offset for name, _ in roster_events.Kevent._fields_), roster_events.Kqueue.RECEIPT]
     assert list(map(int, output.split())) == layout
 
 

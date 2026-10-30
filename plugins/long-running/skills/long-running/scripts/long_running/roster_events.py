@@ -43,6 +43,8 @@ class Timespec(ctypes.Structure):
 
 
 class Kqueue:
+    RECEIPT = 0x0040
+
     def __init__(self):
         self.libc = ctypes.CDLL(None, use_errno=True)
         maximum = ctypes.c_int()
@@ -68,7 +70,7 @@ class Kqueue:
         self.next_token += 1
         token = self.next_token
         mask = select.KQ_NOTE_WRITE | select.KQ_NOTE_DELETE | select.KQ_NOTE_EXTEND | select.KQ_NOTE_ATTRIB | select.KQ_NOTE_LINK | select.KQ_NOTE_RENAME | select.KQ_NOTE_REVOKE
-        change = Kevent(fd, select.KQ_FILTER_VNODE, select.KQ_EV_ADD | select.KQ_EV_CLEAR | select.KQ_EV_RECEIPT, mask, 0, token)
+        change = Kevent(fd, select.KQ_FILTER_VNODE, select.KQ_EV_ADD | select.KQ_EV_CLEAR | self.RECEIPT, mask, 0, token)
         receipt = Kevent()
         result = self.libc.kevent(self.queue.fileno(), ctypes.byref(change), 1, ctypes.byref(receipt), 1, ctypes.byref(self.zero))
         if result < 0:
