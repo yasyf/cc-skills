@@ -705,6 +705,7 @@ class Drive:
         self.paths = {}
         self.board_seq = None
         self.reported_build = None
+        self.reported_live = None
         self.flagged = set()
         self.board_times = {}
         self.gos = {}
@@ -766,6 +767,15 @@ class Drive:
         return self.assistant.review_url(number, pr.get("head") or row.get("head"), pr.get("state") == "landed")
 
     def decide(self, block, number, verdict, head, note):
+        state = json.loads(run(["cc-present", "outcomes", "--block", block, "--session", self.config["board_session"]]))
+        shown = next((row["head"] for card in state["doc"]["blocks"] for child in card.get("children", []) if child["id"] == block for group in child["groups"] for row in group["prs"] if row["number"] == number), None)
+        given = state["interactions"]["triage"].get(block, {}).get(str(number))
+        if shown is None and given and given["verdict"] == verdict != "cleared" and given["head"][:7] == head[:7]:
+            return 200, {"seq": self.store_seq(), "recorded": given["at"]}
+        if shown is None:
+            return 409, {"error": f"#{number} left your board after this page last updated, so this tap changed nothing; reload the page to see where it went"}
+        if verdict != "cleared" and shown[:7] != head[:7]:
+            return 409, {"error": f"#{number} is now at {shown[:7]}, not the {head[:7]} this page shows, so this tap changed nothing; reload the page to see what changed"}
         entry = {"verdict": verdict} if verdict == "cleared" else {"verdict": verdict, "head": head, **({"note": note} if note else {})}
         return self.interact({"type": "triage.decided", "blockId": block, "verdicts": {str(number): entry}})
 
@@ -972,12 +982,7 @@ class Drive:
                 self.changed.wait_for(lambda: self.version != seen, timeout=LIVE_REFRESH)
                 seen = self.version
                 model = dict(self.model)
-            if "prs" not in model:
-                continue
-            try:
-                live = self.live(model)
-            except Exception:
-                traceback.print_exc()
+            if "prs" not in model or (live := self.live_or_report(model)) is None:
                 continue
             sig = hashlib.sha256(json.dumps({**browser_view(live), "version": None}).encode()).hexdigest()
             if self.served and self.served.get("sig") == sig:
@@ -992,6 +997,20 @@ class Drive:
                 self.serving.notify_all()
             snapshot.with_suffix(".tmp").write_bytes(zipped)
             snapshot.with_suffix(".tmp").replace(snapshot)
+
+    def live_or_report(self, model):
+        try:
+            live = self.live(model)
+        except Exception as error:
+            failure = f"{type(error).__name__}: {error}"
+            if self.reported_live != failure:
+                self.reported_live = failure
+                traceback.print_exc()
+                served = (self.live_model or {}).get("built_at")
+                self.report_defect(f"the page stopped updating{f' at {served}' if served else ''}, every refresh fails with {failure}")
+            return None
+        self.reported_live = None
+        return live
 
     def rebuild_loop(self):
         while True:
@@ -1062,7 +1081,7 @@ class Drive:
     def answer_times(self):
         subject = self.config["board_url"].rsplit("/p/", 1)[1]
         with sqlite3.connect(f"file:{STORE}?mode=ro", uri=True) as store:
-            found = store.execute(f"SELECT json_extract(payload, '$.blockId'), max(created_at) FROM events JOIN subjects ON subjects.id = events.subject_id WHERE subjects.slug = ? AND events.type IN ({', '.join('?' * len(ANSWER_EVENTS))}) GROUP BY 1", (subject, *ANSWER_EVENTS)).fetchall()
+            found = store.execute(f"SELECT json_extract(payload, '$.blockId'), max(events.created_at) FROM events JOIN subjects ON subjects.id = events.subject_id WHERE subjects.slug = ? AND events.type IN ({', '.join('?' * len(ANSWER_EVENTS))}) GROUP BY 1", (subject, *ANSWER_EVENTS)).fetchall()
         return {block: dt.datetime.fromtimestamp(stamp, dt.timezone.utc).isoformat() for block, stamp in found}
 
     def board(self):

@@ -4,6 +4,7 @@ import itertools
 import gzip
 import json
 import os
+import sqlite3
 import subprocess
 import threading
 import urllib.request
@@ -684,9 +685,10 @@ def test_an_answer_on_the_dashboard_is_the_same_board_interaction(body, interact
 
 
 def test_a_tap_answers_with_the_board_position_and_leaves_the_slow_sources_alone(monkeypatch):
-    drive = Drive({"board_url": "http://board/p/x"}, None)
+    drive = Drive({"board_url": "http://board/p/x", "board_session": "s"}, None)
     drive.store_seq = lambda: 41
     drive.slow_at = 123.0
+    monkeypatch.setattr(server, "run", lambda argv: json.dumps(board_with([{"number": 43211, "head": "8242887"}])))
     monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: contextlib.nullcontext())
 
     assert drive.decide("merge-prs", 43211, "approved", "8242887", None) == (200, {"seq": 41})
@@ -984,3 +986,58 @@ def test_a_release_record_becomes_the_newest_story_line_of_its_worker_once():
     events = server.with_releases(history, releases)["lane:release"]["events"]
     assert [event["text"] for event in events] == ["Release started", "Release failed at its first step"]
     assert len(history["lane:release"]["events"]) == 1
+
+
+def test_answer_times_reads_the_board_store_whose_events_and_subjects_both_carry_created_at(tmp_path, monkeypatch):
+    store = tmp_path / "state.db"
+    with contextlib.closing(sqlite3.connect(store)) as db, db:
+        db.execute("CREATE TABLE subjects (id TEXT PRIMARY KEY, slug TEXT NOT NULL, created_at INTEGER NOT NULL)")
+        db.execute("CREATE TABLE events (subject_id TEXT NOT NULL, seq INTEGER NOT NULL, type TEXT NOT NULL, payload TEXT NOT NULL, created_at INTEGER NOT NULL)")
+        db.execute("INSERT INTO subjects VALUES ('s1', 'board', 1)")
+        db.executemany("INSERT INTO events VALUES ('s1', ?, ?, ?, ?)", [(1, "choice.selected", json.dumps({"blockId": "pick"}), 1793390000), (2, "choice.selected", json.dumps({"blockId": "pick"}), 1793390060), (3, "triage.decided", json.dumps({"blockId": "merge-prs"}), 1793390120)])
+    monkeypatch.setattr(server, "STORE", store)
+
+    assert Drive({"board_url": "http://board/p/board"}, None).answer_times() == {"pick": "2026-10-30T19:54:20+00:00"}
+
+
+def test_a_page_that_stops_updating_reports_each_new_failure_to_root_once(monkeypatch):
+    drive = Drive({"board_url": "http://board/p/x"}, None)
+    drive.live_model = {"built_at": "2026-10-30T19:42:28+00:00"}
+    reported = []
+    drive.report_defect = reported.append
+    failures = iter([sqlite3.OperationalError("ambiguous column name: created_at")] * 2 + [KeyError("rows")])
+
+    def live(model):
+        raise next(failures)
+
+    drive.live = live
+    assert [drive.live_or_report({}) for _ in range(3)] == [None, None, None]
+    assert reported == ["the page stopped updating at 2026-10-30T19:42:28+00:00, every refresh fails with OperationalError: ambiguous column name: created_at", "the page stopped updating at 2026-10-30T19:42:28+00:00, every refresh fails with KeyError: 'rows'"]
+
+    drive.live = lambda model: {"built_at": "2026-10-30T21:00:00+00:00"}
+    assert drive.live_or_report({}) == {"built_at": "2026-10-30T21:00:00+00:00"}
+    assert drive.reported_live is None
+
+
+def board_with(prs, **triage):
+    return {"doc": {"blocks": [{"id": "card-merge", "type": "card", "children": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "title": "G", "prs": prs}]}]}]}, "interactions": {"triage": {"merge-prs": triage}}}
+
+
+@pytest.mark.parametrize(
+    ("store", "number", "verdict", "head", "status", "out", "posted"),
+    [
+        (board_with([{"number": 45579, "head": "598d220"}]), 45579, "approved", "598d220", 200, {"seq": 9}, True),
+        (board_with([], **{"45533": {"verdict": "approved", "head": "705ab74bdf157bd115542a4b02e2c20c8022f6ce", "at": "2026-10-30T20:05:04Z"}}), 45533, "approved", "705ab74", 200, {"seq": 9, "recorded": "2026-10-30T20:05:04Z"}, False),
+        (board_with([]), 45533, "approved", "705ab74", 409, {"error": "#45533 left your board after this page last updated, so this tap changed nothing; reload the page to see where it went"}, False),
+        (board_with([], **{"45533": {"verdict": "approved", "head": "705ab74", "at": "2026-10-30T20:05:04Z"}}), 45533, "cleared", "705ab74", 409, {"error": "#45533 left your board after this page last updated, so this tap changed nothing; reload the page to see where it went"}, False),
+        (board_with([{"number": 45533, "head": "9e0a1b2"}]), 45533, "approved", "705ab74", 409, {"error": "#45533 is now at 9e0a1b2, not the 705ab74 this page shows, so this tap changed nothing; reload the page to see what changed"}, False),
+    ],
+)
+def test_a_tap_records_only_on_a_row_the_board_still_holds_at_the_head_the_page_shows(monkeypatch, store, number, verdict, head, status, out, posted):
+    monkeypatch.setattr(server, "run", lambda argv: json.dumps(store) if argv[:3] == ["cc-present", "outcomes", "--block"] else pytest.fail(argv))
+    monkeypatch.setattr(Drive, "store_seq", lambda self: 9)
+    sent = []
+    monkeypatch.setattr(Drive, "interact", lambda self, interaction: sent.append(interaction) or (200, {"seq": 9}))
+
+    assert Drive({"board_url": "http://board/p/x", "board_session": "s"}, None).decide("merge-prs", number, verdict, head, None) == (status, out)
+    assert bool(sent) is posted
