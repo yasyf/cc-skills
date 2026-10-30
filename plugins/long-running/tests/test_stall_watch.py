@@ -1208,6 +1208,15 @@ def test_no_successor_is_asked_for_while_the_lanes_handoff_already_posts(config)
     assert refusal_topics(shell) == ["refusal:44141:09c1863:parent"]
 
 
+def test_a_grader_desks_waiting_line_opens_no_gate(config):
+    """Root #218445: gate:fidelity-desk-11:45103 re-fired hourly, though a grader opens no work when a PR lands."""
+    said = record(1, "fidelity-desk-11", "state", "fidelity-desk-11: the grade waits on #43736", 120)
+    landed = record(2, "desk-runner", "landed", "LANDED #43736 as 70ad7da45d: merged into dev", 31, "43736")
+    shell = FakeShell([said, landed], [])
+    watch(shell, config)
+    assert [topic for topic in shell.topics() if topic.startswith("gate:")] == []
+
+
 @pytest.mark.parametrize(
     ("landed_ago", "after", "topics"),
     [
@@ -1216,10 +1225,13 @@ def test_no_successor_is_asked_for_while_the_lanes_handoff_already_posts(config)
         (91, [], ["gate:p8a-step7-2:43736:1"]),
         (31, [record(4, "p8a-step7-3", "opened", "OPENED #45100 head 1234abc: parts 2 and 3", 5, "45100")], []),
         (31, [record(4, "p8a-step7-2", "head", "HEAD #44000 1234abc", 40, "44000")], ["gate:p8a-step7-2:43736:0"]),
+        (31, [record(4, "root", "decide", "parts 2 and 3 are dropped", 5, resolves=1)], []),
+        (31, [record(4, "p8a-step7-2", "state", "parts 2 and 3 are dropped; on #45200 now", 5)], []),
     ],
-    ids=["landed-31-min-ago", "inside-10-min", "an-hour-later", "successor-opened", "head-before-the-landing"],
+    ids=["landed-31-min-ago", "inside-10-min", "an-hour-later", "successor-opened", "head-before-the-landing", "resolved", "a-later-state-without-the-pr"],
 )
 def test_unopened_work_that_waits_on_a_landed_pr_stalls_to_its_live_lane_hourly(config, landed_ago, after, topics):
+    """Root #218445: a gate cleared only on an OPENED or HEAD, so a resolved or superseded line re-fired hourly."""
     said = record(1, "p8a-step7-2", "state", "p8a-step7-2: parts 2 and 3 wait only on #43736; I open both when #43736 lands", 120)
     landed = record(2, "desk-runner", "landed", "LANDED #43736 as 70ad7da45d: merged into dev", landed_ago, "43736")
     shell = FakeShell([said, landed, *after], [])
