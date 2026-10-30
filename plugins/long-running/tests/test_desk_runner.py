@@ -3451,6 +3451,26 @@ def test_a_port_exemption_carries_to_a_head_a_head_record_calls_patch_identical(
     assert [post_body(post) for post in notes(shell) if "EXEMPT-ADMITTED" in post_body(post)] == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "pure port, no interaction", so it goes straight to the merge queue with no go or board tap (root #194387)']
 
 
+def test_a_long_branching_chain_of_patch_identical_heads_is_walked_once_per_head(shell, config):
+    """Root #207477: 0.7.639 read the exemption back along every path of a PR's patch-identical head moves, recomputing them at each step, and the landing runner's first pass never finished."""
+    merge_mode(config, "every")
+    raw = json.loads(config.read_text())
+    raw["landing"]["tap_rules"] = {"rule/82317b0": ["go/sand/next/*"]}
+    config.write_text(json.dumps(raw))
+    shell.register = {"rule/82317b0": {"kind": "order", "status": "in-force"}}
+    lone_green_pr(shell)
+    shell.files["29020"] = ["go/sand/next/vm/run.go"]
+    heads = [hashlib.sha1(str(n).encode()).hexdigest()[:10] for n in range(40)] + ["cccc333333"]
+    for n in range(1, len(heads)):
+        for back in (1, 2):
+            if n >= back:
+                lane_head_record(shell, "29020", f"HEAD #29020 {heads[n]} (was {heads[n - back]}): the landing runner rebased it, patch-identical by patch-id")
+    grade(shell, "29020", "ok cccc333333 F307 at cccc333.")
+    merge_go(shell, "29020", "go #29020 at cccc333")
+    landing_pass(shell, config)
+    assert [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+
+
 @pytest.mark.parametrize("state", ["board unread", "row absent", "row superseded"])
 def test_a_tap_rule_never_guesses_a_merge_on_an_unread_board_and_gates_only_while_its_row_is_in_force(shell, config, state):
     merge_mode(config, "every")
