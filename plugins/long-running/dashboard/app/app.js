@@ -61,12 +61,16 @@ function prState(n) {
 }
 const STATE_WORD = { landed: 'Landed', closed: 'Closed', you: 'Waiting on you', failing: 'Tests failing', held: 'Held', doing: 'Being worked on', work: 'Queued' };
 const STATE_TONE = { landed: 'ok', closed: '', you: 'bad', failing: 'bad', held: 'warn', doing: 'acc', work: '' };
+function stateWord(n) {
+  const red = driveEntry(n)?.red;
+  return STATE_WORD[prState(n)] + (red ? ` · ${red.class}, held by ${red.owner}` : '');
+}
 function prHref(n) {
   return boardRow(n) ? `#/review/${n}` : `https://github.com/${state.model.repo}/pull/${n}`;
 }
 function prLink(n) {
   const external = !boardRow(n);
-  return `<a href="${prHref(n)}"${external ? ' target="_blank" rel="noopener"' : ''} title="${esc(plainTitle(n))} · ${STATE_WORD[prState(n)]}">#${n}</a>`;
+  return `<a href="${prHref(n)}"${external ? ' target="_blank" rel="noopener"' : ''} title="${esc(plainTitle(n))} · ${esc(stateWord(n))}">#${n}</a>`;
 }
 function inline(md) {
   return esc(md)
@@ -141,7 +145,7 @@ function timelineRows(events, gaps) {
 }
 
 function dots(numbers) {
-  return `<span class="dots">${numbers.map((n) => `<a class="d ${prState(n)}" href="${prHref(n)}" title="#${n} ${esc(plainTitle(n))} · ${STATE_WORD[prState(n)]}"></a>`).join('')}</span>`;
+  return `<span class="dots">${numbers.map((n) => `<a class="d ${prState(n)}" href="${prHref(n)}" title="#${n} ${esc(plainTitle(n))} · ${esc(stateWord(n))}"></a>`).join('')}</span>`;
 }
 function partOf(n) {
   const scope = (state.model.prs[n]?.title ?? '').split(':')[0];
@@ -157,7 +161,7 @@ function prRank(n) {
 }
 function square(n) {
   const s = prState(n);
-  return `<a class="sq ${s}" href="${prHref(n)}" title="#${n} ${esc(plainTitle(n))} · ${STATE_WORD[s]}"></a>`;
+  return `<a class="sq ${s}" href="${prHref(n)}" title="#${n} ${esc(plainTitle(n))} · ${esc(stateWord(n))}"></a>`;
 }
 function workersOn(numbers) {
   const since = Date.now() - 20 * 60 * 1000;
@@ -242,18 +246,18 @@ function stepSheet(s) {
   return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button>
     <div class="kick">${TONE_WORD[s.tone] ?? esc(s.tone)}${s.prs.length ? ` · ${s.landed} of ${s.prs.length} landed` : ''}</div><h2>${esc(s.title)}</h2>
     <dl class="facts"><dt>Where it is</dt><dd>${inline(s.state)}</dd><dt>What blocks it</dt><dd>${s.blocker ? inline(s.blocker) : 'Nothing'}</dd><dt>Next</dt><dd>${inline(s.next)}</dd></dl>
-    ${prs.length ? `<ul class="prlist">${prs.map((p) => `<li><a href="${prHref(p.number)}">${square(p.number)}<b>#${p.number}</b><span>${esc(plainTitle(p.number))}</span><em>${STATE_WORD[p.state]}${driveEntry(p.number)?.worker ? ` · ${esc(driveEntry(p.number).worker.lane)}` : ''}</em></a></li>`).join('')}</ul>` : ''}
+    ${prs.length ? `<ul class="prlist">${prs.map((p) => `<li><a href="${prHref(p.number)}">${square(p.number)}<b>#${p.number}</b><span>${esc(plainTitle(p.number))}</span><em>${esc(stateWord(p.number))}${driveEntry(p.number)?.worker ? ` · ${esc(driveEntry(p.number).worker.lane)}` : ''}</em></a></li>`).join('')}</ul>` : ''}
     ${s.workers.length ? `<div class="lives">${s.workers.map((w) => `<div class="live"><div class="live-h"><i class="pulse"></i><b>${esc(w.lane)}</b><span class="dim">${agoWords(w.at)}</span></div>${w.pr ? `<div class="live-t">${prLink(w.pr)} ${esc(plainTitle(w.pr))}</div>` : ''}</div>`).join('')}</div>` : ''}
   </div></div>`;
 }
 function tileSheet() {
   const { name, nums } = state.tileOpen;
   return `<div class="overlay" data-close="1"><div class="sheet"><button class="btn close" data-close="1">Close</button><h2>${esc(name)}</h2>
-    <ul class="prlist">${nums.map((n) => `<li><a href="${prHref(n)}">${square(n)}<b>#${n}</b><span>${esc(plainTitle(n))}</span><em>${STATE_WORD[prState(n)]}${driveEntry(n)?.worker ? ` · ${esc(driveEntry(n).worker.lane)}` : ''}</em></a></li>`).join('')}</ul></div></div>`;
+    <ul class="prlist">${nums.map((n) => `<li><a href="${prHref(n)}">${square(n)}<b>#${n}</b><span>${esc(plainTitle(n))}</span><em>${esc(stateWord(n))}${driveEntry(n)?.worker ? ` · ${esc(driveEntry(n).worker.lane)}` : ''}</em></a></li>`).join('')}</ul></div></div>`;
 }
 function overview() {
   const m = state.model;
-  const { landed, total, moving } = m.drive;
+  const { landed, total, moving, reds } = m.drive;
   const pct = total ? Math.round((100 * landed) / total) : 0;
   const openStep = m.steps.find((s) => s.id === state.stepOpen);
   return `<div class="ov3">
@@ -262,7 +266,7 @@ function overview() {
     <section class="steps-card"><header><span>The plan, step by step</span><button class="linkish" data-overlay="plan">Full plan ›</button></header><ol class="steps">${m.steps.map(stepRow).join('')}</ol>
       <div class="key"><span><i class="sq landed"></i>landed</span><span><i class="sq doing"></i>being worked on</span><span><i class="sq work"></i>queued</span><span><i class="sq you"></i>needs you</span><span><i class="sq failing"></i>tests failing</span></div></section>
     <aside class="side">
-      <div class="big" title="${esc(m.drive.source)}"><span class="bigpct" style="--p:${pct}%"><span>${pct}<small>%</small></span></span><span class="biglab"><b>${landed}</b> of ${total} pull requests landed<br>since the drive began<br><b>${moving}</b> moving now</span></div>
+      <div class="big" title="${esc(m.drive.source)}"><span class="bigpct" style="--p:${pct}%"><span>${pct}<small>%</small></span></span><span class="biglab"><b>${landed}</b> of ${total} pull requests landed<br>since the drive began<br><b>${moving}</b> moving now${reds.count ? `<br><b>${reds.count}</b> failing tests, held by ${esc(Object.entries(reds.holders).map(([lane, n]) => `${lane} (${n})`).join(', '))}` : ''}</span></div>
       ${endState()}
     </aside>
   </div></div>

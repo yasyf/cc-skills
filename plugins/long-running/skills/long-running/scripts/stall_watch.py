@@ -57,6 +57,14 @@ its ledger row names, it finds:
               job logged only Buildkite's benign step-export or meta-data 404 probe posts nothing
               itself, and one `report` line a Pacific day names every such head to root; a red trunk
               is the desk runner's DEV-RED, never a stall
+    unclassed the head's build has read red for `stall.minutes.unclassed`, counted from `red_at`, and no
+              `red` record classifies it: `cci post --kind red --pr N --text "class=<class> head=<sha>
+              owner=<lane> <what was done>"`, where class is inherited, flake, real or stale and `head=`
+              names the red head; a blocker to root and the PR's owner, once per PR and head
+    unfixed   the newest `red` record at the head classes it real, and the PR has kept that head for
+              `stall.minutes.unfixed` since; a blocker to root and the class's owner, once per PR and head
+    sweep     a red head has stood `stall.minutes.sweep` and no lane named `red-sweep` or `red-sweep-<n>`
+              is live; one blocker to root naming every red PR, until a red-sweep lane posts
     tap       the owner's board tap approves the head, and no go names it
     ungraded  a `head` record names the head, its build has read green for `stall.minutes.ungraded`, counted
               from its ledger row's `green_at`, and no finder review or no fidelity grade names it, whatever
@@ -131,7 +139,7 @@ and, across the drive:
               `stall.minutes.desk`; the record is its heartbeat wherever it runs, and the stall goes
               to root with the restart command the runner's newest record carries
 
-Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, successor 20, red 2, order 3, tap 10, ungraded 10, finder 30,
+Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, successor 20, red 2, unclassed 20, unfixed 60, sweep 20, order 3, tap 10, ungraded 10, finder 30,
 fidelity 30, running 25, board 15, carry 20 (one fidelity pass), lane 30, ask 15, gate 30, stale 120, desk 10, shape 30. A PR's head is as old as the first record about the
 PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record. A board
 stall counts from the latest of its finder ok, its fidelity ok, and its ledger row's `green_at`, the refresh that
@@ -153,8 +161,10 @@ A `red` stall a live lane owns posts again every `REPEAT` while it stands. An id
 its last post; a source that does not read keeps the stalls it would have cleared. `stall.board_lane`, else the first `landing.board_lane`, else root, owns missing board rows. State lives in
 `stall-watch.json` beside `orca.desk_inbox`, under a lock a second pass meets by exiting. Each pass also
 writes `stack.json` there: one row per open PR with its head, base, the PR below it, its state and next
-step in words, its owning lane and whether that lane is live, and since when the state stood; the
-dashboard's model carries it as `stack` from its config's `stack` path, and `drive.py digest` prints it.
+step in words, its owning lane and whether that lane is live, and since when the state stood, and for a
+red head a `red` object: its failing checks, `red_at`, and the newest `red` record's class, owner and
+action, else class `unclassed` and the PR's lane; the dashboard's model carries it as `stack` from its
+config's `stack` path, `drive.py digest` prints it, and `drive.py reds` prints its red rows.
 `--dry-run` prints the stalls and posts and saves nothing.
 """
 
@@ -191,18 +201,21 @@ NOT_LANES = frozenset({*ROOT_NAMES, "team-lead", LANE, RUNNER})
 PACIFIC = ZoneInfo("America/Los_Angeles")
 MODEL = "claude-sonnet-5-5"
 WINDOW_HOURS = 24
-MINUTES = {"go": 10, "silent": 15, "refusal": 10, "successor": 20, "red": 2, "order": 3, "tap": 10, "ungraded": 10, "finder": 30, "fidelity": 30, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "lane": 30, "ask": 15, "gate": 30, "stale": 120, "desk": 10, "shape": 30}
+MINUTES = {"go": 10, "silent": 15, "refusal": 10, "successor": 20, "red": 2, "unclassed": 20, "unfixed": 60, "sweep": 20, "order": 3, "tap": 10, "ungraded": 10, "finder": 30, "fidelity": 30, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "lane": 30, "ask": 15, "gate": 30, "stale": 120, "desk": 10, "shape": 30}
 DESK_KINDS = frozenset({"finder", "fidelity"})
-ROOT_KINDS = frozenset({"ungraded", "missing"})
+ROOT_KINDS = frozenset({"ungraded", "missing", "unclassed", "unfixed"})
 REPOSTED = frozenset({"red"})
-POST_KINDS = {"red": "blocker", "probe": "report"}
+POST_KINDS = {"red": "blocker", "unclassed": "blocker", "unfixed": "blocker", "sweep": "blocker", "probe": "report"}
+RED_CLASSES = ("inherited", "flake", "real", "stale")
+RED_FIELD = re.compile(r"\b(class|head|owner)=(\S+)")
+RED_SWEEP = "red-sweep"
 OWNER_ORDER = re.compile(r"\bowner\b.{0,80}\bverbatim\b", re.IGNORECASE | re.DOTALL)
 ORDER_WINDOW = timedelta(hours=2)
 REASSIGNS = re.compile(r"\breassign", re.IGNORECASE)
 CLAUSE = re.compile(r"[;\n]|\.\s")
 REASSIGNED_TO = re.compile(r"\bto\s+([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b")
 QUIET = timedelta(minutes=10)
-PR_KINDS = frozenset({"go", "refusal", "successor", "red", "tap", "ungraded", "finder", "fidelity", "missing", "regrade", "board", "carry", "stale"})
+PR_KINDS = frozenset({"go", "refusal", "successor", "red", "unclassed", "unfixed", "tap", "ungraded", "finder", "fidelity", "missing", "regrade", "board", "carry", "stale"})
 BOARD_KINDS = frozenset({"tap", "board", "carry"})
 REVIEW_HELD = frozenset({"neutral", "failure"})
 PROMISE_FLOOR = timedelta(minutes=10)
@@ -502,6 +515,16 @@ def stack_row(pr: str, row: dict, rows: dict[str, dict], owner: str, held: bool,
     else:
         state, step = "green, and no go names this head", f"root posts `go #{pr} at {short(row['head'])}` or puts its merge row on the owner's board"
     return {"pr": pr, "title": row.get("title", ""), "head": row["head"], "base": row.get("base", ""), "below": below, "waits": waits, "state": state, "next": step, "owner": owner, "actor": actor}
+
+
+def red_entry(row: dict, lane: str, classes: list[dict]) -> dict:
+    """The red register row of a head: its failing checks and `red_at`, with the class, owner and action of the newest of `classes` whose `head=` names the head, else class `unclassed` owned by `lane`."""
+    found = {"checks": ", ".join(check["name"] for check in json.loads(row.get("failing_checks") or "[]")) or "a required check", "since": row["red_at"]}
+    for record in reversed(classes):
+        fields = dict(RED_FIELD.findall(record["text"]))
+        if fields.get("class") in RED_CLASSES and fields.get("head") and grades.names_head(fields["head"], row["head"]):
+            return found | {"class": fields["class"], "owner": fields.get("owner", lane), "classed_at": actions.stamp(at(record)), "action": " ".join(RED_FIELD.sub("", record["text"]).split())}
+    return found | {"class": "unclassed", "owner": lane, "classed_at": "", "action": ""}
 
 
 def blocks_head(record: dict, pr: str, head: str) -> bool:
@@ -838,6 +861,7 @@ class Pass:
         boards: dict[str, list[Stall]] = {}
         probes: list[Stall] = []
         reassigned = self.reassignments(records)
+        classes = [record for record in records if record["kind"] == "red"]
 
         def holding(pr: str) -> bool:
             return pr in held or bool(rows[pr].get("hold_until")) and actions.parse_stamp(rows[pr]["hold_until"]) > self.now
@@ -860,6 +884,10 @@ class Pass:
             entries.append(stack_row(pr, row, rows, lane, holding(pr) or pr in self.hold_gates, bool(going), in_queue, tapping) | {"head_at": head_at, "tap_at": tap_at})
             if red := self.red(pr, row, lane):
                 (probes if red.kind == "probe" else stalls).append(red)
+            if row.get("test_state") == "failure" and row.get("red_at"):
+                entries[-1]["red"] = red_entry(row, lane, [record for record in classes if grades.about_pr(record, repo, pr)])
+                if alarm := self.red_alarm(pr, row, entries[-1]["red"]):
+                    stalls.append(alarm)
             if holding(pr):
                 continue
             subject = f"#{pr} at {short(head)}"
@@ -956,7 +984,25 @@ class Pass:
             stack = f" in the stack from #{bottom}" if bottom != blocker or len(named) > 1 else ""
             sha = short(rows[blocker]["head"])
             stalls.append(Stall(f"go:{blocker}:{sha}", "go", min(since for _, since, *_ in group), f"#{blocker} at {sha}", f"root go{'s name' if len(named) > 1 else ' names'} {listed}{stack}, and no QUEUED record does", owner, step, blocker))
+        reds = [found for found in entries if "red" in found]
+        if reds and self.live_lane(RED_SWEEP) is None and self.now - (oldest := min(actions.parse_stamp(found["red"]["since"]) for found in reds)) >= self.watch.age("sweep"):
+            named = [f"#{found['pr']} ({found['red']['class']})" for found in reds]
+            listed = ", ".join(named[:LISTED]) + (f" and {len(named) - LISTED} more" if len(named) > LISTED else "")
+            stalls.append(Stall(f"sweep:{RED_SWEEP}", "sweep", oldest, f"{len(reds)} red PR{'' if len(reds) == 1 else 's'}", f"no live {RED_SWEEP} lane holds them: {listed}", (ROOT,), f"root spawns {RED_SWEEP} from the long-running skill's reference/red-sweep-brief.md"))
         return stalls, questions, entries
+
+    def red_alarm(self, pr: str, row: dict, red: dict) -> Stall | None:
+        """The `unclassed` stall of a red head no `red` record classifies after `stall.minutes.unclassed`, or the `unfixed` stall of one classed real whose PR has kept that head for `stall.minutes.unfixed` since."""
+        sha = short(row["head"])
+        subject = f"#{pr} at {sha}"
+        since = actions.parse_stamp(red["since"])
+        if red["class"] == "unclassed":
+            if self.now - since < self.watch.age("unclassed"):
+                return None
+            return Stall(f"unclassed:{pr}:{sha}", "unclassed", since, subject, f"{red['checks']} red since {pacific(since)}, and no `red` record classifies it", (red["owner"],), f'classify it: `cci post --kind red --pr {pr} --text "class=<inherited|flake|real|stale> head={sha} owner=<lane> <what was done>"`', pr)
+        if red["class"] != "real" or self.now - (classed := actions.parse_stamp(red["classed_at"])) < self.watch.age("unfixed"):
+            return None
+        return Stall(f"unfixed:{pr}:{sha}", "unfixed", classed, subject, f"{red['owner']} classed {red['checks']} a real failure at {pacific(classed)} and has pushed no new head: {clip(red['action'])}", (red["owner"],), f"root gives the fix of {subject} to a live lane unless {red['owner']} pushes it now", pr)
 
     def comments(self, pr: str) -> list[dict]:
         done = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.watch.landing["repo"], "--json", "comments"))
