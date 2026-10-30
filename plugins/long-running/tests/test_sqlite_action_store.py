@@ -5,6 +5,7 @@ import multiprocessing
 import os
 import sqlite3
 from dataclasses import asdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import pytest
@@ -512,3 +513,153 @@ def test_fact_entry_projection_reads_only_matching_children(tmp_path, monkeypatc
     assert costs["opcodes"] < 1_000
     assert store.fact_entries("runner", "missing", "done", [False]) == {}
     assert store.fact_entries("runner", "a/~", "done", []) == {}
+
+
+def test_scoped_readers_see_external_wal_commits_and_allow_checkpoints(tmp_path, monkeypatch):
+    store = history(tmp_path)
+    writer = actions.Store(store.root)
+    readers = []
+    connect = store._connect
+
+    def opened(path, writable=False):
+        connection = connect(path, writable)
+        if not writable:
+            readers.append(connection)
+        return connection
+
+    monkeypatch.setattr(store, "_connect", opened)
+    with store.reading():
+        assert store.fact("runner", "nested") == {"items": [1]}
+        assert not readers[0].in_transaction
+        with writer.transaction("runner") as current:
+            current.facts["nested"] = {"items": [2]}
+        assert store.fact("runner", "nested") == {"items": [2]}
+        assert not readers[0].in_transaction
+        checkpoint = writer._connect(writer.path("runner"), writable=True)
+        try:
+            assert checkpoint.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0] == 0
+            assert (store.root / "runner.sqlite3-wal").stat().st_size == 0
+        finally:
+            checkpoint.close()
+        with writer.transaction("runner") as current:
+            current.facts["nested"] = {"items": [3]}
+        assert store.fact("runner", "nested") == {"items": [3]}
+        assert len(readers) == 1
+    with pytest.raises(sqlite3.ProgrammingError):
+        readers[0].execute("SELECT 1")
+
+
+def test_read_scope_retires_failed_reads_and_changed_schema_handles(tmp_path, monkeypatch):
+    store = history(tmp_path)
+    readers = []
+    connect = store._connect
+
+    def opened(path, writable=False):
+        connection = connect(path, writable)
+        readers.append(connection)
+        return connection
+
+    monkeypatch.setattr(store, "_connect", opened)
+    with store.reading():
+        with pytest.raises(KeyError):
+            store.fact("runner", "missing")
+        assert not store._readers.connections
+        with pytest.raises(sqlite3.ProgrammingError):
+            readers[0].execute("SELECT 1")
+        store.fact("runner", "nested")
+        writer = sqlite3.connect(store.path("runner"), isolation_level=None)
+        try:
+            writer.execute("PRAGMA user_version = 3")
+        finally:
+            writer.close()
+        with pytest.raises(ValueError, match="unsupported action store version"):
+            store.fact("runner", "nested")
+        assert not store._readers.connections
+        with pytest.raises(sqlite3.ProgrammingError):
+            readers[1].execute("SELECT 1")
+
+
+def test_read_scope_bounds_lru_and_retires_removed_and_replaced_files(tmp_path, monkeypatch):
+    store = actions.Store(tmp_path / "store")
+    for index in range(65):
+        store.create(actions.Incident(f"lane-{index}", "owner", 0, actions.stamp(NOW), {"value": index}))
+    replacement = actions.Store(tmp_path / "replacement")
+    replacement.create(actions.Incident("lane-0", "owner", 0, actions.stamp(NOW), {"value": "replacement"}))
+    readers = {}
+    connect = store._connect
+
+    def opened(path, writable=False):
+        connection = connect(path, writable)
+        readers[path] = connection
+        return connection
+
+    monkeypatch.setattr(store, "_connect", opened)
+    with store.reading():
+        for index in range(64):
+            assert store.fact(f"lane-{index}", "value") == index
+        first = readers[store.path("lane-0")]
+        evicted = readers[store.path("lane-1")]
+        assert store.fact("lane-0", "value") == 0
+        assert store.fact("lane-64", "value") == 64
+        assert len(store._readers.connections) == 64
+        with pytest.raises(sqlite3.ProgrammingError):
+            evicted.execute("SELECT 1")
+        assert not first.in_transaction
+        removed = readers[store.path("lane-64")]
+        store.path("lane-64").unlink()
+        with pytest.raises(SystemExit, match="no incident lane-64"):
+            store.fact("lane-64", "value")
+        with pytest.raises(sqlite3.ProgrammingError):
+            removed.execute("SELECT 1")
+        writer = connect(store.path("lane-0"), writable=True)
+        try:
+            assert writer.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0] == 0
+        finally:
+            writer.close()
+        replacement.path("lane-0").replace(store.path("lane-0"))
+        assert store.fact("lane-0", "value") == "replacement"
+        with pytest.raises(sqlite3.ProgrammingError):
+            first.execute("SELECT 1")
+    assert store._readers.connections is None
+    for connection in readers.values():
+        with pytest.raises(sqlite3.ProgrammingError):
+            connection.execute("SELECT 1")
+
+
+def test_read_scopes_keep_connections_on_their_own_threads(tmp_path, monkeypatch):
+    store = history(tmp_path)
+    connect = store._connect
+    readers = []
+
+    def opened(path, writable=False):
+        connection = connect(path, writable)
+        readers.append(connection)
+        return connection
+
+    def worker():
+        assert store._readers.connections is None
+        store.fact("runner", "nested")
+        first = readers[-1]
+        with pytest.raises(sqlite3.ProgrammingError):
+            first.execute("SELECT 1")
+        store.fact("runner", "nested")
+        assert readers[-1] is not first
+        with store.reading():
+            store.fact("runner", "nested")
+            owned = readers[-1]
+            store.fact("runner", "nested")
+            assert readers[-1] is owned
+        with pytest.raises(sqlite3.ProgrammingError):
+            owned.execute("SELECT 1")
+
+    monkeypatch.setattr(store, "_connect", opened)
+    with store.reading():
+        store.fact("runner", "nested")
+        main = readers[-1]
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(worker).result(timeout=10)
+        store.fact("runner", "nested")
+        assert not main.in_transaction
+        assert len(readers) == 4
+    with pytest.raises(sqlite3.ProgrammingError):
+        main.execute("SELECT 1")

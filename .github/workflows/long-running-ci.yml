@@ -29,6 +29,8 @@ jobs:
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q
       - name: flake watch operation counts
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py -q -s -k test_flake_watch_reads_only_remembered_red_builds
+      - name: historical lane read costs
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py -q -s -k test_orca_historical_lane_read_connection_cost
       - name: capt-hook pack test
         run: uvx --isolated 'capt-hook>=12.107.13' pack test plugins/long-running
       - name: installed state package

@@ -5,6 +5,8 @@ import json
 import os
 import sqlite3
 import tempfile
+import threading
+from collections import OrderedDict
 from collections.abc import Iterator, Mapping, MutableMapping
 from contextlib import contextmanager
 from copy import deepcopy
@@ -494,11 +496,17 @@ def _create_database(root: Path, incident: Incident) -> Incident:
     return incident
 
 
+class _ReadConnections(threading.local):
+    def __init__(self):
+        self.connections: OrderedDict[Path, tuple[tuple[int, int], sqlite3.Connection]] | None = None
+
+
 class Store:
     """Per-incident SQLite state with indexed detached reads and context-scoped edits."""
 
     def __init__(self, root: Path | None = None):
         self.root = root if root is not None else Path.home() / ".claude" / "long-running" / "incidents"
+        self._readers = _ReadConnections()
 
     def path(self, incident_id: str) -> Path:
         return _incident_path(self.root, incident_id)
@@ -525,16 +533,67 @@ class Store:
         return connection
 
     @contextmanager
+    def reading(self) -> Iterator[None]:
+        """Reuse at most 64 read-only connections on this thread, with a fresh transaction for every read."""
+        assert self._readers.connections is None
+        connections = OrderedDict()
+        self._readers.connections = connections
+        try:
+            yield
+        finally:
+            self._readers.connections = None
+            for _, connection in connections.values():
+                connection.close()
+
+    def _reader(self, path: Path) -> sqlite3.Connection:
+        connections = self._readers.connections
+        if connections is None:
+            return self._connect(path)
+        state = path.stat()
+        identity = state.st_dev, state.st_ino
+        existing = connections.pop(path, None)
+        if existing is not None:
+            bound, connection = existing
+            if bound == identity:
+                try:
+                    if connection.execute("PRAGMA user_version").fetchone()[0] != 2:
+                        raise ValueError(f"unsupported action store version: {path}")
+                except BaseException:
+                    connection.close()
+                    raise
+                connections[path] = existing
+                return connection
+            connection.close()
+        if len(connections) == 64:
+            _, (_, retired) = connections.popitem(last=False)
+            retired.close()
+        connection = self._connect(path)
+        connections[path] = identity, connection
+        return connection
+
+    @contextmanager
     def _read(self, incident_id: str) -> Iterator[sqlite3.Connection]:
         path = self.path(incident_id)
+        connections = self._readers.connections
         if not path.is_file():
+            if connections is not None and (existing := connections.pop(path, None)) is not None:
+                existing[1].close()
             raise SystemExit(f"no incident {incident_id} in {self.root}")
-        connection = self._connect(path)
+        connection = self._reader(path)
         try:
             connection.execute("BEGIN")
-            yield connection
-        finally:
+            try:
+                yield connection
+            finally:
+                connection.execute("ROLLBACK")
+        except BaseException:
+            if connections is not None:
+                connections.pop(path)
             connection.close()
+            raise
+        else:
+            if connections is None:
+                connection.close()
 
     def _create(self, incident: Incident, existing_snapshot: bool) -> Incident | None:
         with self._locked(incident.incident_id) as path:
