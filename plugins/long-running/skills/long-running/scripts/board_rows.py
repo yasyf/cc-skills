@@ -7,8 +7,8 @@
     board_rows.py --config RUNNER_JSON --check [--json] [--session ID] [--finders DIR] BLOCK_JSON
     board_rows.py --config RUNNER_JSON [--json] [--session ID] [--finders DIR] BLOCK_JSON -- cc-present update-block|push [ARGS...]
 
-STDLIB ONLY. `--config` is the landing runner's config, which names the drive, `landing.repo`, and
-`landing.fidelity_lane`. A row is a triage item whose id is `merge-row-<pr>[-<sha7>]`, anywhere in
+STDLIB ONLY. `--config` is the landing runner's config, which names the drive, `landing.repo`,
+`landing.fidelity_lane`, and the drive's PR ledger, `landing.ledger` in `landing.checkout`. A row is a triage item whose id is `merge-row-<pr>[-<sha7>]`, anywhere in
 the block, its head the `commit <sha>` its hint names; or a `pr-groups` row, its id its PR number
 and its head its `head`. Its `textAt` is the RFC 3339 time the writer last wrote its words. Each row
 fails, with one line `<row-id> <pr> <head> <reasons>`, when:
@@ -42,6 +42,8 @@ fails, with one line `<row-id> <pr> <head> <reasons>`, when:
     landed    its blocker, the `blocker` field or the `Gate` fact, names a PR GitHub shows merged
     one tap   a row's or its group's words say one tap approves several PRs, and one they name or
               group with it is rejected on the board or no longer open on GitHub
+    unledgered  the drive's PR ledger has not admitted the PR, so no tap on it can ever land; the
+              lane that shipped it runs `ledger.py register --pr <pr>` and the row returns
 
 Two `pr-groups` rows in different groups whose titles share more than half the words of the shorter
 title, counting words of four letters or more, both fail with `alike`: he reads them as duplicates
@@ -71,7 +73,7 @@ counts as both at its head: a `review`, `head` or root record that says carried 
 in the sentence or the stretch of text where `#<pr> <head>` or `#<pr> <old>-><head>` appears, or a
 record whose one PR ref is the PR, naming the head and saying carried or patch-identical. Two rows whose first sentences of five words or more, the label when there is none, share
 a token Jaccard above 0.8 or their first 60 characters are flagged together as `FLAG` lines for the
-root; a flag fails nothing. A GitHub, cci, or cc-present read that fails prints a `WARN` line and
+root; a flag fails nothing. A GitHub, cci, ledger, or cc-present read that fails prints a `WARN` line and
 fails no row on the checks it would have read. The verdicts are read with `cc-present outcomes`
 for `--session`, else the push command's `--session`, else cc-present's default session. A last
 line counts rows, failing rows, ungraded rows, and flags. Any failing row exits 1, and `--check` exits 0
@@ -328,6 +330,14 @@ def read_pulls(shell: Shell, repo: str, prs: list[str], warnings: list[str]) -> 
             node = found.get(f"p{pr}")
             pulls[pr] = Pull(node["state"], node["headRefOid"], node["commits"]["nodes"][0]["commit"]["committedDate"], node["baseRefName"], node["headRefName"]) if node else None
     return pulls
+
+
+def admitted(shell: Shell, drive: str, landing: dict) -> set[str]:
+    """The PRs of `landing.repo` the drive's ledger admitted, the only ones the landing desk lands."""
+    done = shell.run([sys.executable, str(Path(__file__).resolve().parent / "ledger.py"), "-C", str(Path(landing["checkout"]).expanduser()), "list", "--ledger", landing["ledger"], "--json"], env={"CLAUDE_LONG_RUNNING_DRIVE": drive})
+    if done.code != 0:
+        raise ReadFailed(f"ledger.py list exited {done.code}: {(done.err or done.out).strip()[:200]}")
+    return {row["pr"] for row in json.loads(done.out) if row["ours"] and row["repo"] == landing["repo"]}
 
 
 def tail(shell: Shell) -> Callable[[list[str]], str]:
@@ -707,10 +717,17 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
     except ReadFailed as failed:
         reviews = None
         warnings.append(f"WARN the grades did not read ({failed}); no row is checked for a grade or finder at its head")
+    try:
+        ours = admitted(shell, drive, landing)
+    except ReadFailed as failed:
+        ours = None
+        warnings.append(f"WARN the drive's ledger did not read ({failed}); no row is checked for a PR the ledger never admitted")
     saved = shell.files(finders)
     for row in rows:
         row.reasons += moved.get(row.id, [])
     for row in named:
+        if ours is not None and row.pr not in ours:
+            row.reasons.append(f"unledgered: the drive's ledger never admitted #{row.pr}, so no tap on it can land; its lane runs `ledger.py register --pr {row.pr}`")
         if row.pr in pulls:
             row.pull = pulls[row.pr]
             row.reasons += github_reasons(row, pulls[row.pr])
