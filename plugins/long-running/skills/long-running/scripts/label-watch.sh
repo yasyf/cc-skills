@@ -52,6 +52,8 @@ through the gate. A PR whose squash is on the trunk costs no read at all.
   LABEL_WATCH_INTERVAL   seconds between watch sweeps, default 300
   LABEL_WATCH_DRY_RUN    set to print ENQUEUED without enqueueing
   LABEL_WATCH_HOLD       file of PR numbers, one per line, never enqueued, re-read each sweep
+  LABEL_WATCH_QUEUE      trunk or graphite, default the repository's ccx queue: git config
+                         ccx.queue, else [vcs] queue in .claude/ccx.toml, else graphite
 EOF
   exit 2
 }
@@ -72,7 +74,9 @@ GRAPHITE_API=${LABEL_WATCH_GRAPHITE_API:-https://api.graphite.com/v1}
 GRAPHITE_AUTH=${LABEL_WATCH_GRAPHITE_AUTH:-$HOME/.config/graphite/auth}
 HOLD=${LABEL_WATCH_HOLD:-}
 HELD=
-QUEUE_PROVIDER=${LABEL_WATCH_QUEUE:-graphite}
+case "$0" in */*) SCRIPTS=${0%/*} ;; *) SCRIPTS=. ;; esac
+QUEUE_PROVIDER=${LABEL_WATCH_QUEUE:-$(python3 -c 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); import merge_queue; print(merge_queue.repo_queue(Path(sys.argv[2])))' "$SCRIPTS" "$CHECKOUT")}
+QUEUE_PROVIDER=${QUEUE_PROVIDER:-graphite}
 case $QUEUE_PROVIDER in
   trunk)
     case $MODE in

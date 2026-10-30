@@ -18,6 +18,7 @@ import json
 import re
 import subprocess
 import threading
+import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
@@ -83,6 +84,8 @@ ROUTED_BLOCKER = re.compile(
 BLOCKER_HINT = re.compile(r"^(?:run ccx vcs stack submit from|read the failure |.+, so the red check is its own$)")
 EVICTED_SEGMENT = "graphite EVICTED"
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
+CCX_CONFIG = ".claude/ccx.toml"
+TRUNK_QUEUE = "trunk"
 LABEL_STATE = ("ccx", "vcs", "pr", "status")
 LABEL_IN_QUEUE = frozenset({"queued", "landed"})
 
@@ -124,13 +127,21 @@ class Blocker:
     conflict: bool
 
 
+def repo_queue(checkout: Path) -> str:
+    """The merge queue ccx selects for `checkout`, from the sources ccx reads in its order: git config `ccx.queue`, else `[vcs] queue` in the checkout's `.claude/ccx.toml`, else empty."""
+    selected = subprocess.run(["git", "-C", str(checkout), "config", "--get", "ccx.queue"], capture_output=True, text=True)
+    if selected.returncode == 0:
+        return selected.stdout.strip()
+    if selected.returncode != 1:
+        raise RuntimeError(selected.stderr.strip())
+    config = checkout / CCX_CONFIG
+    return tomllib.loads(config.read_text()).get("vcs", {}).get("queue", "") if config.is_file() else ""
+
+
 def suggested_adapter(checkout: Path) -> dict:
-    """The adapter a drive on `checkout` names: the repository's own stack-enqueue script when it carries one, else the merge label."""
+    """The adapter a drive on `checkout` names: the repository's own stack-enqueue script when it carries one, for the queue ccx selects, else the merge label."""
     if (checkout / STACK_ENQUEUE).is_file():
-        selected = subprocess.run(["git", "-C", str(checkout), "config", "--get", "ccx.queue"], capture_output=True, text=True)
-        if selected.returncode not in (0, 1):
-            raise RuntimeError(selected.stderr.strip())
-        kind = TrunkStackEnqueue.kind if selected.stdout.strip() == "trunk" else GraphiteStackEnqueue.kind
+        kind = TrunkStackEnqueue.kind if repo_queue(checkout) == TRUNK_QUEUE else GraphiteStackEnqueue.kind
         return {"kind": kind, "script": STACK_ENQUEUE}
     return {"kind": LabelEnqueue.kind}
 

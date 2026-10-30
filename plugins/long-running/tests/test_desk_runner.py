@@ -6776,10 +6776,18 @@ def test_a_label_refusal_its_lane_must_fix_routes_as_the_adapters_blocker_and_a_
     assert ledger_calls(shell, "label") == [] and ledger_calls(shell, "route") == []
 
 
+def trunk_queue(landing: dict) -> None:
+    checkout = Path(landing["checkout"])
+    for name, text in ((".agents/skills/submit-pr/scripts/stack-enqueue", ""), (".claude/ccx.toml", '[vcs]\nqueue = "trunk"\n')):
+        (checkout / name).parent.mkdir(parents=True, exist_ok=True)
+        (checkout / name).write_text(text)
+
+
 @pytest.mark.parametrize(
     ("change", "named", "member"),
     [
         (lambda landing: landing.pop("adapter"), "names no landing.adapter.kind", '"adapter": {"kind": "label"}'),
+        (trunk_queue, "names landing.adapter.kind graphite-stack-enqueue on a repository whose ccx queue is trunk", '"adapter": {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}'),
         (lambda landing: landing.update(adapter={"kind": "graphite-stack-enqueue"}), "names no landing.adapter.script", '"adapter": {"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}'),
         (lambda landing: landing.update(checks=["hold", "lint"]), "lists lint under landing.checks", '"checks": ["hold"]'),
         (lambda landing: landing.update(merge_mode="high-risk"), "runs merge mode high-risk with no landing.high_risk_paths globs", '"high_risk_paths": ["*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "*creds*"]'),

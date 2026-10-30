@@ -480,18 +480,19 @@ still absent from the trunk.
 
 **Enqueue the largest green, approved, unheld bottom prefix as one batch.** A repository
 that carries `.agents/skills/submit-pr/scripts/stack-enqueue` uses `stack-enqueue <prefix top>`
-(`trunk-stack-enqueue` when `ccx.queue` is `trunk`, or `graphite-stack-enqueue` on a legacy
-Graphite queue). It takes no hold flag and reads no holds, so the caller checks them first,
+(`trunk-stack-enqueue` when the repository's ccx queue is `trunk`, or `graphite-stack-enqueue`
+on a legacy Graphite queue only). It takes no hold flag and reads no holds, so the caller checks them first,
 and its gate can refuse the prefix too. On a legacy label-driven Graphite queue, Graphite
 [propagates the top PR's label downstack](https://graphite.dev/docs/get-started-merge-queue) and takes
 the prefix as one entry with one `merge` label on its top; the desk re-reads every PR
 in the prefix and runs every guard before adding the label.
 
 An open child above it does not block the label when a lane tracks its ledger row
-and its head carries `Graphite / mergeability_check`. Graphite's stack record
-retargets that child when the parent lands. The tool still refuses an untracked
-child or one missing that check. Restack it through Graphite or retarget it to the
-trunk BEFORE adding the label, or branch deletion closes it.
+and its stack records it: GitHub lists it in a native stack, the pull request's `stack`
+field, or on a legacy Graphite stack its head carries `Graphite / mergeability_check`.
+That record retargets the child when the parent lands. The tool still refuses an
+untracked child or one outside both records. Link it with `ccx vcs stack submit` or
+retarget it to the trunk BEFORE adding the label, or branch deletion closes it.
 
 Never wait for the top to go green. After the prefix lands, route a restack of the
 first PR above it to its owning lane; Orca routes use
@@ -1263,7 +1264,9 @@ verdicts.**
 
 `graphite-app[bot]` removes that label from every pull request 15 to 208 seconds after
 it is applied, on the ones that land as well as the ones that do not: the removal is
-the queue consuming the request at pickup. Two samples of a meaningless field agree
+the queue consuming the request at pickup. Trunk differs: `trunk-io[bot]` keeps `merge`
+on a PR it lands and removes it only when the PR fails, labelling it `trunk-failed`, so
+on a Trunk queue the removal is the ejection. Two samples of a meaningless field agree
 with each other, which is why the "confirmation" felt like corroboration.
 
 **The sound check is the queue's draft twin.** Find the
@@ -1467,9 +1470,9 @@ enqueueing the parent on its own.
 
 Grade from the bottom and label the largest green, approved, unheld prefix's top
 once. Every PR in that prefix must pass every guard. An open child above it is
-allowed when a lane tracks its ledger row and its head carries
-`Graphite / mergeability_check`. Restack any other child through Graphite or retarget
-it to the trunk BEFORE adding the label. Never wait for the top of the stack.
+allowed when a lane tracks its ledger row and GitHub lists it in a native stack, or on
+a legacy Graphite stack its head carries `Graphite / mergeability_check`. Link any other
+child with `ccx vcs stack submit` or retarget it to the trunk BEFORE adding the label. Never wait for the top of the stack.
 
 After the prefix lands, route the first PR above it to its owning lane to restack the rest
 with `ccx vcs stack submit`; Orca routes use

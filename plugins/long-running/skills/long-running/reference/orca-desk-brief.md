@@ -427,9 +427,11 @@ describes. Start the landing desk from the root's shell after its first status c
 `landing.adapter` names the merge queue's repository adapter, and the root writes it at
 drive start along with `landing.high_risk_paths`. Use
 `{"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}`
-when the checkout carries that script and the repository sets `ccx.queue` to `trunk`,
+when the checkout carries that script and the repository's ccx queue, git config `ccx.queue`
+or `[vcs] queue` in `.claude/ccx.toml`, is `trunk`,
 `{"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}`
-when the checkout carries that script on a legacy Graphite queue, and `{"kind": "label"}` otherwise,
+when the checkout carries that script on a legacy Graphite queue only (the runner refuses it on a
+Trunk repository), and `{"kind": "label"}` otherwise,
 for a queue that takes the `merge` label through `ledger.py label`. The runner never picks one itself. `landing.checks`, optional, lists the
 check registry in order, from `hold`, `precondition`, `rules-review`, `rulings`, `fidelity`, `finder`,
 `merge-mode`, `approvals`, and `required-ci`; without it every check runs. On an adapter, a check,

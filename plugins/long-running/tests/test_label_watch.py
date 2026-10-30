@@ -695,3 +695,14 @@ def test_watch_reads_a_pr_listed_twice_once(forge):
 
     assert lines == [f"1 CONFLICT {forge.conflict[:10]} a.txt"]
     assert (forge.state / "ccx-calls").read_text().splitlines() == ["1", "1"]
+
+
+def test_once_on_a_repository_whose_ccx_queue_is_trunk_runs_the_native_stack_enqueue_helper(forge):
+    (forge.checkout / ".claude").mkdir()
+    (forge.checkout / ".claude/ccx.toml").write_text('[vcs]\nqueue = "trunk"\n')
+    helper = forge.checkout / ".agents/skills/submit-pr/scripts/stack-enqueue"
+    helper.parent.mkdir(parents=True)
+    helper.write_text('#!/bin/sh\necho "stack-enqueue $*"\n')
+    helper.chmod(0o755)
+
+    assert forge.run("once", "1") == ["stack-enqueue 1"]
