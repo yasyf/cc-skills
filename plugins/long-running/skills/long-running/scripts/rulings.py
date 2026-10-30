@@ -741,7 +741,7 @@ def briefs(state: Path) -> list[Path]:
         parts = Path(here).relative_to(state).parts
         if len(parts) == BRIEF_DEPTH:
             dirs.clear()
-        found += [Path(here, name) for name in names if name.endswith(".md") and any("brief" in part for part in (*parts, name))]
+        found += [Path(here, name) for name in names if name.endswith(".md") and (name.startswith("successor-") or any("brief" in part for part in (*parts, name)))]
     return sorted(found)
 
 

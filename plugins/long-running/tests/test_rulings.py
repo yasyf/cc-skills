@@ -1624,6 +1624,19 @@ def test_a_read_back_with_no_slice_line_names_the_roots_command_then_takes_the_s
     ]
 
 
+def test_a_read_back_takes_its_slice_from_the_successor_brief_root_wrote_for_the_lane(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
+    """stack-prep-3 #199148: its slice line sat in root/successor-stack-prep-3.md, a name readback never scanned, so contract #199126 read as READBACK-NO-SLICE."""
+    body = tmp_path / "readback.md"
+    body.write_text("rule/aaaaaaa: builds nothing in relay-server\n")
+    records = [{"seq": 500, "kind": "contract", "lane": "lane-a-3", "text": "read-back", "refs": {"path": str(body)}, "at": AT}]
+    brief = state / "root" / "successor-lane-a-3.md"
+    brief.parent.mkdir()
+    brief.write_text("# lane-a-3\n\nRegister slice: lane=lane-a-3 step=landing\n")
+    code, out = ran(capsys, RegisterShell(seeded(package), records=records), "readback", "--lane", "lane-a-3", "--contract", "500")
+    assert code == 0
+    assert out.splitlines()[0] == f"WARNING READBACK-SLICE-FROM-BRIEF #500: the read-back names no `Register slice:` line; graded against the slice in {brief}"
+
+
 def test_a_step_for_a_lane_with_no_brief_writes_one_the_next_readback_reads(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
     _, sliced = ran(capsys, RegisterShell(seeded(package)), "slice", "--lane", "lane-a", "--step", "1.9")
     body = tmp_path / "readback.md"
