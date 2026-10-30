@@ -596,6 +596,24 @@ def test_accepted_refuses_an_ok_that_leaves_a_contract_narrower_than_the_owners_
     assert accepted(f"readback: ok lane-a {stamp}; rule/bbbbbbb drains each pool, as his words say") == (0, "accepted lane-a\n")
 
 
+def test_a_pr_citing_a_shape_ruling_adds_a_test_naming_it_or_the_row_records_one(package: Path, state: Path, registered: Path, capsys) -> None:
+    rows = pinned(package)
+    rows["rule/bbbbbbb"]["words"] = "One pool process drains every run when it closes."
+    named = DIFF + """diff --git a/tests/test_pool_count.py b/tests/test_pool_count.py
+--- /dev/null
++++ b/tests/test_pool_count.py
+@@ -0,0 +1,2 @@
++def test_one_pool_process_for_every_run():
++    \"\"\"rule/bbbbbbb: one pool process drains every run.\"\"\"
+"""
+
+    code, lines = check(capsys, CheckShell(rows))
+    assert code == 1 and [line.split("\t")[0] for line in lines] == ["SHAPE-UNTESTED rule/bbbbbbb"]
+    assert check(capsys, CheckShell(rows, diff=named)) == (0, [])
+    rows["rule/bbbbbbb"]["shape_tests"] = '["acme/app#11 tests/test_pool_count.py::test_one_pool_process_for_every_run"]'
+    assert check(capsys, CheckShell(rows)) == (0, [])
+
+
 def test_a_pr_in_another_checkout_is_graded_against_the_drive_register(package: Path, state: Path, registered: Path, capsys) -> None:
     uncited = CLEAN.replace("- bbbbbbb: Drain the pool when a run closes.", "- ccccccc: Cards quote the words they ask about.")
 

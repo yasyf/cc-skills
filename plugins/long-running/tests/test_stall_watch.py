@@ -64,6 +64,7 @@ class FakeShell(stall_watch.Shell):
         self.prompts: list[str] = []
         self.review_titles: dict[str, str] = {}
         self.comments: dict[str, list[dict]] = {}
+        self.shapes: list[dict] = []
         self.clock = NOW
 
     def run(self, argv, stdin=None, env=None, timeout=stall_watch.COMMAND_SECONDS):
@@ -90,6 +91,9 @@ class FakeShell(stall_watch.Shell):
             endpoint = argv[argv.index("--") + 2]
             assert endpoint.endswith("/check-runs?check_name=ai-review")
             return stall_watch.Done(0, self.review_titles[endpoint.split("/")[4]] + "\n", "")
+        if Path(argv[1]).name == "rulings.py":
+            assert argv[2:] == ["shapes", "--untested", "--json", "--drive", "durable"]
+            return stall_watch.Done(0, json.dumps(self.shapes), "")
         if Path(argv[1]).name == "ledger.py":
             return stall_watch.Done(self.ledger_code, json.dumps(self.rows) if self.ledger_code == 0 else "", "ccn down" if self.ledger_code else "")
         raise AssertionError(f"unexpected command {argv}")
@@ -532,6 +536,21 @@ def test_a_desk_runner_whose_alive_record_went_silent_stalls_to_root_with_its_re
     shell.records.append(alive(4, "landing", 0))
     watch(shell, config)
     assert "desk:landing" not in opened(config)
+
+
+def test_untested_shape_rulings_stall_to_root_once_they_are_half_an_hour_old(config):
+    """Owner, Oct 30 5:21 AM: one local replica alongside one local primary, everything a client of it; 144 chats had started 146 replication processes, and no test held the count."""
+    shell = FakeShell([], [])
+    shell.shapes = [{"key": "rule/0f31b56", "updated_at": stamp(45)}, {"key": "prompt/1026-184423", "updated_at": stamp(31)}, {"key": "rule/fresh00", "updated_at": stamp(5)}]
+
+    watch(shell, config)
+
+    assert shell.topics() == ["shape:prompt/1026-184423,rule/0f31b56"]
+    assert shell.post("shape:prompt/1026-184423,rule/0f31b56")["to"] == "root"
+    assert shell.post("shape:prompt/1026-184423,rule/0f31b56")["text"].startswith("STALL shape 2 shape rulings, 45 min: no CI test is recorded for prompt/1026-184423, rule/0f31b56, ")
+    shell.shapes = []
+    watch(shell, config)
+    assert not [key for key in opened(config) if key.startswith("shape:")]
 
 
 def test_a_held_pr_draws_no_stall(config, tmp_path):

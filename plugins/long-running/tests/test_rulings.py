@@ -1740,6 +1740,21 @@ def test_narrowed_reads_rows_cited_by_key_answer_or_quote_and_exits_one_on_a_nar
     assert narrowed("Pools drain per run, except the shared one.") == (0, "")
 
 
+def test_shapes_lists_rows_naming_a_count_or_topology_until_shape_records_a_test_or_no_shape(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
+    rows = seeded(package) | {
+        "rule/1111111": {"kind": "order", "status": "in-force", "words": "there is only one local replca along side one local primary and eveyhtni is a client of it", "answer": '["1111111"]'},
+        "rule/2222222": {"kind": "order", "status": "in-force", "words": "in the app just run one process wtf.", "answer": '["2222222"]'},
+        "rule/3333333": {"kind": "order", "status": "superseded", "words": "one upload process per chat", "answer": '["3333333"]'},
+    }
+    shell = RegisterShell(rows)
+
+    assert ran(capsys, shell, "shapes", "--untested") == (0, "rule/1111111 untested | there is only one local replca along side one local primary and eveyhtni is a client of it\nrule/2222222 untested | in the app just run one process wtf.\n")
+    assert ran(capsys, shell, "shape", "rule/1111111", "--test", "acme/app#9 tests/serve.rs::one_replica_for_every_chat") == (0, "rule/1111111 shape tested by acme/app#9 tests/serve.rs::one_replica_for_every_chat\n")
+    assert ran(capsys, shell, "shape", "rule/2222222", "--not-shape", "it answers where one process runs, the browser or the app") == (0, "rule/2222222 is no shape ruling: it answers where one process runs, the browser or the app\n")
+    assert ran(capsys, shell, "shapes", "--untested") == (0, "")
+    assert ran(capsys, shell, "shapes") == (0, "rule/1111111 acme/app#9 tests/serve.rs::one_replica_for_every_chat | there is only one local replca along side one local primary and eveyhtni is a client of it\n")
+
+
 def test_a_read_back_with_no_slice_line_names_the_roots_command_then_takes_the_step_into_the_lanes_brief(
     home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
 ) -> None:

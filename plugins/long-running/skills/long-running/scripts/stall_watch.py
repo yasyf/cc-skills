@@ -122,12 +122,16 @@ and, across the drive:
               the same head counts from the pass that saw it change; a held PR whose open `hold` record
               names an open PR the owner has not tapped at its head is never stale, until that PR lands,
               is tapped, or the hold lifts
+    shape     an in-force register row about system shape, one process, one primary and one replica,
+              everything a client, N things sharing one X, has no CI test recorded through
+              `rulings.py shape <key> --test`, `stall.minutes.shape` after the row was last written; one
+              stall to root names every such row and stands until each has a test or is marked no shape
     desk      a desk runner that posted a `<desk> alive` record in the window posted none for
               `stall.minutes.desk`; the record is its heartbeat wherever it runs, and the stall goes
               to root with the restart command the runner's newest record carries
 
 Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, successor 20, red 2, order 3, tap 10, ungraded 10, finder 30,
-fidelity 30, running 25, board 15, carry 20 (one fidelity pass), lane 30, ask 15, gate 30, stale 120, desk 10. A PR's head is as old as the first record about the
+fidelity 30, running 25, board 15, carry 20 (one fidelity pass), lane 30, ask 15, gate 30, stale 120, desk 10, shape 30. A PR's head is as old as the first record about the
 PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record. A board
 stall counts from the latest of its finder ok, its fidelity ok, and its ledger row's `green_at`, the refresh that
 first read the head's build green, since the board refresher puts a row up only once the build is green.
@@ -186,7 +190,7 @@ NOT_LANES = frozenset({*ROOT_NAMES, "team-lead", LANE, RUNNER})
 PACIFIC = ZoneInfo("America/Los_Angeles")
 MODEL = "claude-sonnet-5-5"
 WINDOW_HOURS = 24
-MINUTES = {"go": 10, "refusal": 10, "successor": 20, "red": 2, "order": 3, "tap": 10, "ungraded": 10, "finder": 30, "fidelity": 30, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "lane": 30, "ask": 15, "gate": 30, "stale": 120, "desk": 10}
+MINUTES = {"go": 10, "refusal": 10, "successor": 20, "red": 2, "order": 3, "tap": 10, "ungraded": 10, "finder": 30, "fidelity": 30, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "lane": 30, "ask": 15, "gate": 30, "stale": 120, "desk": 10, "shape": 30}
 DESK_KINDS = frozenset({"finder", "fidelity"})
 ROOT_KINDS = frozenset({"ungraded", "missing"})
 REPOSTED = frozenset({"red"})
@@ -612,7 +616,7 @@ class Pass:
             self.warn({"lane"}, f"no drive registry entry for {self.watch.drive} names a root session, so the task list does not read")
         stalls, questions, entries = self.prs(records)
         lane_stalls, lane_questions = self.lanes(records, session, entries)
-        stalls += lane_stalls + self.asks(records) + self.gates(records) + self.desks(records)
+        stalls += lane_stalls + self.asks(records) + self.gates(records) + self.desks(records) + self.shapes()
         questions += lane_questions + self.orders(records)
         cached = saved.get("verdicts", {})
         fresh = self.judge([question.ask | {"id": question.key} for question in questions if question.key not in cached])
@@ -1290,6 +1294,23 @@ class Pass:
                 (lane,), f"open the work that waited on #{pr} and post OPENED or HEAD, or post why it still waits",
             ))
         return stalls
+
+    def shapes(self) -> list[Stall]:
+        if not (entry := next((entry for entry in drive.drives() if drive.cci_drive(entry) == self.watch.drive), None)):
+            return []
+        done = self.shell.run([sys.executable, str(SCRIPTS / "rulings.py"), "shapes", "--untested", "--json", "--drive", entry["drive"]])
+        if done.code:
+            self.warn({"shape"}, f"rulings.py shapes exited {done.code}: {(done.err or done.out).strip()[:300]}")
+            return []
+        rows = [row for row in json.loads(done.out) if self.now - actions.parse_stamp(row["updated_at"]) >= self.watch.age("shape")]
+        if not rows:
+            return []
+        keys = sorted(row["key"] for row in rows)
+        return [Stall(
+            f"shape:{','.join(keys)}", "shape", min(actions.parse_stamp(row["updated_at"]) for row in rows), f"{len(keys)} shape rulings",
+            f"no CI test is recorded for {', '.join(keys)}, each a ruling about how many processes, primaries or replicas run or what shares one",
+            (ROOT,), f"{ROOT} orders a test that fails on today's code for each from the lane that builds it, recorded with `rulings.py shape <key> --test <repo>#<pr> <path>::<test>`, or `--not-shape <why>` for a row that names no shape",
+        )]
 
 
 def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:

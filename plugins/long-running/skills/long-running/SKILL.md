@@ -967,6 +967,12 @@ partition (`per key`, `per destination`, `per chat`) or an exception (`only`,
 `rulings.py readback` prints it as `READBACK-NARROWED`, `rulings.py accepted` refuses
 an ok grade that leaves a narrowed key unnamed, and the `narrowed_contracts` hook warns
 the grade or root post that accepts such a contract.
+A ruling about system shape (one process, one primary and one replica, everything a
+client, N things sharing one X) gets a CI test that fails on today's code in the same
+turn as the build. `rulings.py shapes` lists the in-force shape rows; `check-pr` refuses
+a PR citing one as `SHAPE-UNTESTED` until the PR adds a test naming the row or
+`rulings.py shape <key> --test <repo>#<pr> <path>::<test>` records one; the stall watch
+posts every shape row still untested 30 minutes after it was written to root.
 
 *Prevents the release-v3 repeats of 2026-10-22. The owner said for the fifth time that
 starting a session in the cloud and then writing on the Mac is out of scope, and again

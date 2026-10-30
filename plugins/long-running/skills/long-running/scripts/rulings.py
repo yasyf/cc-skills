@@ -20,6 +20,8 @@
     rulings.py accepted     [--program SLUG | --drive ID] --lane NAME
     rulings.py narrowed     [--program SLUG | --drive ID] < TEXT
     rulings.py narrowed     [--program SLUG | --drive ID] --contract SEQ < GRADE
+    rulings.py shapes       [--program SLUG | --drive ID] [--untested] [--json]
+    rulings.py shape        [--program SLUG | --drive ID] KEY (--test REF | --not-shape WHY)
     rulings.py pr-block     [--program SLUG | --drive ID] [--pr [OWNER/NAME#]N] --head SHA [--base REF] --lane NAME
     rulings.py table        [--program SLUG | --drive ID] [--since-last-update] [--full]
     rulings.py glossary     [--program SLUG | --drive ID]
@@ -267,7 +269,12 @@ READBACK_FLAGS = ("--kind", "review", "--kind", "answer")
 NARROWING = re.compile(r"\b(?:per|for (?:each|every))[- ](?P<noun>[a-z][a-z-]*)(?:\s+(?:and|or)\s+(?:per\s+)?(?P<more>[a-z][a-z-]*))?|\b(?P<word>only|except|unless|excluding)\b", re.IGNORECASE)
 NOT_PARTITIONS = frozenset({"the", "a", "an", "his", "her", "its", "their", "our", "my", "your", "this", "that", "these", "those", "root", "owner", "plan", "rule", "design", "spec", "se", "cent"})
 ROW_LINE = ("### ", ">")
-CHECK_PR_ORDER = ("RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS")
+SHAPE = re.compile(
+    r"\b(?:one|single|exactly one|only one|two|three)\s+(?:[\w-]+\s+){0,3}?(?:process|instance|replica|replca|primar|secondar|follower|writer|reader|server|uploader|replicator|daemon|pair|connection|socket|worker|pod|sidecar|binar|database)\w*"
+    r"|\bclients? of\b|\bshares? one\b|\beve\w*\s+(?:is\s+)?a client\b",
+    re.IGNORECASE,
+)
+CHECK_PR_ORDER = ("RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "SHAPE-UNTESTED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS")
 OWNER_QUOTED = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”")
 PARENTHESIZED = re.compile(r"\([^()\n]*\)")
 FENCED = re.compile(r"```.*?```", re.DOTALL)
@@ -1743,6 +1750,43 @@ def cmd_accepted(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
+def shaped(fields: dict[str, str]) -> bool:
+    if (said := fields.get("shape")) in ("yes", "no"):
+        return said == "yes"
+    return any(SHAPE.search(words) for words in said_words(fields))
+
+
+def shape_rows(loaded: Register) -> dict[str, dict[str, str]]:
+    return {key: fields for key, fields in loaded.rulings().items() if fields.get("status") == "in-force" and shaped(fields)}
+
+
+def tests_naming(diff: Diff, key: str, fields: dict[str, str]) -> bool:
+    names = {key, *(str(answer)[:SHORT] for answer in listed(fields.get("answer")))}
+    return any(testfiles.test_file(file) and any(name in text for name in names) for file, _, text in diff.added)
+
+
+def cmd_shapes(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    rows = {key: fields for key, fields in shape_rows(Register.load(args, shell)).items() if not (args.untested and listed(fields.get("shape_tests")))}
+    if args.json:
+        print(json.dumps([{"key": key, "at": fields.get("at", ""), "updated_at": fields.get("updated_at", ""), "words": fields.get("words", ""), "shape_tests": listed(fields.get("shape_tests"))} for key, fields in rows.items()], ensure_ascii=False))
+        return 0
+    for key, fields in rows.items():
+        print(f"{key} {', '.join(map(str, listed(fields.get('shape_tests')))) or 'untested'} | {first_sentence(fields.get('words') or '')[:ASK_QUOTE]}")
+    return 0
+
+
+def cmd_shape(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    with writing(args, shell) as loaded:
+        fields = loaded.row(args.key)
+        if args.not_shape:
+            loaded.write(args.key, shape="no", shape_why=args.not_shape)
+            print(f"{args.key} is no shape ruling: {args.not_shape}")
+            return 0
+        loaded.write(args.key, shape="yes", shape_tests=list(dict.fromkeys([*listed(fields.get("shape_tests")), args.test])))
+        print(f"{args.key} shape tested by {', '.join(listed(loaded.rows[args.key]['shape_tests']))}")
+    return 0
+
+
 def cmd_narrowed(args: argparse.Namespace, shell: ledger.Shell) -> int:
     loaded = Register.load(args, shell)
     if args.contract is None:
@@ -2357,6 +2401,11 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
     findings.refusals += findings.read("the removed tests", lambda: removed_tests(loaded, head, findings, args.incident, loaded.plan(args.plan))) or []
     if args.incident:
         return
+    findings.refusals += [
+        f"SHAPE-UNTESTED {key}\tadd a test that fails on today's code and names {key}, or record the one that does with `rulings.py shape {key} --test <repo>#<pr> <path>::<test>`"
+        for key, fields in shape_rows(loaded).items()
+        if cites(head, key, fields) and not listed(fields.get("shape_tests")) and not tests_naming(head.diff, key, fields)
+    ]
     if records is not None and (major := finder_major(records, head.sha)):
         findings.refusals.append(f"FINDER-MAJOR {major[:SHORT]}")
     authorizers, scope = loaded.answer_words(), loaded.scope()
@@ -2697,6 +2746,14 @@ def build_parser() -> argparse.ArgumentParser:
     accepted.add_argument("--lane", required=True)
     narrowing = verb("narrowed", cmd_narrowed, "print each owner row the text on stdin cites with the partitions and exceptions it adds to the owner's words, or with --contract each row the contract narrows that the grade on stdin leaves unnamed; exit 1 when any")
     narrowing.add_argument("--contract", type=int, metavar="SEQ")
+    shapes = verb("shapes", cmd_shapes, "print each in-force row naming a count or topology (one process, one primary, everything a client) with the tests recorded for it")
+    shapes.add_argument("--untested", action="store_true")
+    shapes.add_argument("--json", action="store_true")
+    shape = verb("shape", cmd_shape, "record the CI test that holds a shape row, or that the row names no shape")
+    shape.add_argument("key")
+    marked = shape.add_mutually_exclusive_group(required=True)
+    marked.add_argument("--test", metavar="REF", help="<repo>#<pr> <path>::<test>")
+    marked.add_argument("--not-shape", metavar="WHY")
     block = verb("pr-block", cmd_pr_block, "print a PR body's ## Rulings and ### In your words sections")
     block.add_argument("--pr", metavar="[OWNER/NAME#]N")
     block.add_argument("--head", required=True, metavar="SHA")
