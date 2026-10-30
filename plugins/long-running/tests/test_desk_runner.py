@@ -8371,8 +8371,17 @@ def test_a_stop_marker_written_during_a_stack_check_ends_the_landing_pass_before
 
 def test_a_stop_marker_naming_another_process_stops_nothing(shell, config, tmp_path):
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
-    runner.stop_marker().write_text(f"{os.getpid() + 1}\n")
+    runner.stop_marker(os.getpid() + 1).write_text(f"{os.getpid() + 1}\n")
     assert not runner.stop_requested()
+
+
+def test_one_runner_leaving_on_its_stop_keeps_the_other_runners_stop(shell, config, tmp_path):
+    """Oct 29 8:24 PM: the orca runner, stopped by a handoff, removed the one shared marker, so the landing runner stopped by an earlier handoff crashed removing it."""
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    runner.stop_marker().write_text(f"{os.getpid()}\n")
+    runner.stop_marker(os.getpid() + 1).write_text(f"{os.getpid() + 1}\n")
+    runner.stop_marker(os.getpid() + 1).unlink()
+    assert runner.stop_requested()
 
 
 def successor(config: Path, tmp_path: Path, desk: str) -> tuple[list[str], Path, bool]:
