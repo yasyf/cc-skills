@@ -562,7 +562,7 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, "" if argv[5] in self.gone else json.dumps({"lane": argv[5], "live": True} | ({"seen_at": self.seen[argv[5]]} if argv[5] in self.seen else {})) + "\n", "")
         if argv[:2] == ["cci", "post"]:
             flags = dict(zip(argv[2::2], argv[3::2], strict=True))
-            assert flags["--drive"] in self.drives and flags["--lane"] in ("desk-runner", "root") and len(flags["--text"]) <= 400
+            assert flags["--drive"] in self.drives and flags["--lane"] in ("desk-runner", "root", "finder-desk", "fidelity-desk") and len(flags["--text"]) <= 400
             if self.post_error:
                 return runner_module.Done(1, "", self.post_error)
             if (flags["--kind"], flags["--to"]) == ("state", f"{runner_module.WATCHDOG}@{flags['--drive']}"):
@@ -12999,6 +12999,19 @@ def test_a_pass_that_posts_nothing_on_a_replay_of_an_ungraded_head_queues_a_whol
     (shell.finder_jobs[0] / "result.json").write_text(json.dumps({"skipped": "replay", "ungraded": True}))
     orca_pass(shell, config)
     assert [(job["pr"], job["full"]) for job in finder_jobs(shell)] == [("43299", False), ("43299", True)]
+
+
+def test_a_settled_finder_pass_posts_its_logged_records_again_on_this_machines_bus(shell, config):
+    """Root #217856: a pass on the Sprite posted its carried ok to the Sprite's cci, the relay dropped it, and the head sat FINDER-PENDING."""
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    head_record(shell, "43299", FINDER_HEAD)
+    orca_pass(shell, config)
+    argv = ["cci", "post", "--drive", "d1", "--lane", "finder-desk", "--kind", "review", "--pr", "Forge-AI/monorepo#43299", "--id", f"finder:Forge-AI/monorepo#43299:{FINDER_HEAD}", "--to", "api-lane", "--text", f"finder: ok {FINDER_HEAD[:7]} carried from #1"]
+    (shell.finder_jobs[0] / "posts.jsonl").write_text(json.dumps(argv) + "\n")
+    (shell.finder_jobs[0] / "result.json").write_text(json.dumps({"verdict": "ok", "record": argv[-1], "posted": "#46658"}))
+    orca_pass(shell, config)
+    assert argv in shell.calls
 
 
 def test_a_finder_that_fails_or_writes_nothing_by_its_deadline_runs_again_and_escalates_once_on_its_third_failure(shell, config):

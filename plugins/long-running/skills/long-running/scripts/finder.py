@@ -72,6 +72,7 @@ JOB = "job.json"
 RESULT = "result.json"
 LOG = "job.log"
 PID = "pid"
+POSTS = "posts.jsonl"
 CANCELLED = "cancelled"
 WHOLE_ASKED = "finder: whole"
 CARRIED_FROM = re.compile(r"\bcarried from #(\d+)")
@@ -400,7 +401,14 @@ def post(shell: Shell, job: dict, text: str, body: Path) -> str:
     to = ",".join(dict.fromkeys(filter(None, [job["lane"], *job["to"]])))
     argv = ["cci", "post", "--drive", job["drive"], "--lane", LANE, "--kind", "review", "--pr", f"{job['repo']}#{job['pr']}", "--id", f"finder:{job['repo']}#{job['pr']}:{job['head']}{':whole' if job['full'] else ''}", "--path", str(body)]
     clipped = text if len(text) <= CCI_TEXT else text[: CCI_TEXT - 1] + "…"
-    return shell.run([*argv, *(["--to", to, "--force"] if to else []), "--text", clipped]).strip()
+    return shell.run(logged(body.parent, [*argv, *(["--to", to, "--force"] if to else []), "--text", clipped])).strip()
+
+
+def logged(directory: Path, argv: list[str]) -> list[str]:
+    """`argv`, once it is appended to the job's `POSTS`, which the runner replays on its own bus: a job on a Sprite posts to the Sprite's cci, whose relay can drop the record while the post still prints a seq (root #217856)."""
+    with (directory / POSTS).open("a") as posts:
+        posts.write(json.dumps(argv) + "\n")
+    return argv
 
 
 def run(directory: Path, shell: Shell) -> dict:
