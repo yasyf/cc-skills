@@ -5022,6 +5022,7 @@ class Landing:
         self.body_preconditions: dict[tuple[str, str], list[str]] = {}
         self.said_preconditions: dict[str, list[tuple[str, str]]] = {}
         self.resolved_preconditions: dict[str, set[int]] = {}
+        self.successor_lanes: tuple[int, list[str]] = (-1, [])
         self.gos: list[dict] | None = None
         self.cleared: dict[str, int] = {}
         self.going = threading.Lock()
@@ -5790,8 +5791,14 @@ class Landing:
 
     @property
     def fidelity_lanes(self) -> list[str]:
+        """The configured fidelity lanes plus every successor of one, such as `fidelity-desk-13` for `fidelity-desk-12`, that has posted a review, so a desk's successor counts with no config edit (root #197631)."""
         configured = json.loads(self.runner.config.source.read_text())["landing"]["fidelity_lane"]
-        return [configured] if isinstance(configured, str) else list(configured)
+        lanes = [configured] if isinstance(configured, str) else list(configured)
+        reviews = self.scanned_reviews()
+        if self.successor_lanes[0] != len(reviews):
+            family = re.compile("|".join(successors(lane).pattern for lane in lanes))
+            self.successor_lanes = (len(reviews), sorted({record["lane"] for record in reviews if family.fullmatch(record["lane"])}))
+        return list(dict.fromkeys([*lanes, *self.successor_lanes[1]]))
 
     @property
     def fidelity_to(self) -> list[str]:
@@ -6686,6 +6693,10 @@ class Landing:
                 if self.carry_tap(session, block, pr, tapped, head, f"patch-identical restack, per {', '.join(f'cci #{seq}' for seq in chain)}", self.landing_audience([pr], rows, to)):
                     self.go_carried_tap(pr, head, tapped, rows, to)
                 continue
+            if (commits := self.own_commits(pr, head)) and (ours := self.patch_id(pr, head, commits, escalate=True)) and self.patch_id(pr, entry["head"], commits, escalate=False) == ours:
+                if self.carry_tap(session, block, pr, tapped, head, f"patch-identical restack by git patch-id over its {commits} own commits", self.landing_audience([pr], rows, to), "TAP-CARRIED-BY-PATCH"):
+                    self.go_carried_tap(pr, head, tapped, rows, to)
+                continue
             said = [record for record in reviews if record["kind"] == "head" and about_pr(record, self.repo, pr) and names_head(graded_head(record["text"]), head)]
             adds = [record for record in [*said, *([graded] if graded else [])] if ADDS_BEHAVIOR.search(full_text(record))]
             standing = self.fidelity(pr, head)
@@ -6739,8 +6750,8 @@ class Landing:
             return
         self.post_record("go", key, self.landing_audience([pr], rows, to), f"go #{pr} at {head[:7]} TAP-CARRIED: the owner's tap at {tapped[:10]} carries to {head[:10]}, a patch-identical restack; the runner posts this go itself, so no root hop (owner, Oct 29 2:06 PM)", pr)
 
-    def carry_tap(self, session: str, block: str, pr: str, tapped: str, head: str, why: str, to: str) -> bool:
-        """Carry the owner's tap on `pr` from `tapped` to `head` on the board and post `TAP-CARRIED` once; whether the board took it."""
+    def carry_tap(self, session: str, block: str, pr: str, tapped: str, head: str, why: str, to: str, label: str = "TAP-CARRIED") -> bool:
+        """Carry the owner's tap on `pr` from `tapped` to `head` on the board and post `label`, `TAP-CARRIED` by default, once; whether the board took it."""
         done = self.present(["cc-present", "verdict", "carry", "--session", session, "--block", block, "--row", pr, "--head", head, "--note", why])
         if done.code:
             why = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
@@ -6749,7 +6760,7 @@ class Landing:
             self.runner.escalate(f"tap-carry:{pr}:{head[:7]}:{hashlib.sha1(VOLATILE.sub('', why).encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", f"#{pr}", f"cc-present verdict carry refused the owner's tap on #{pr} from {tapped[:10]} to {head[:10]}: {why}; the next pass tries again")
             return False
         if not self.book.known(LANDING, key := f"tap-carried:{block}:{pr}:{head}"):
-            self.post_record("note", key, to, f"TAP-CARRIED #{pr}: the owner's tap at {tapped[:10]} on board block {block} now stands at {head[:10]}, a {why}, recorded with cc-present verdict carry; the row asks no new tap", pr)
+            self.post_record("note", key, to, f"{label} #{pr}: the owner's tap at {tapped[:10]} on board block {block} now stands at {head[:10]}, a {why}, recorded with cc-present verdict carry; the row asks no new tap", pr)
         return True
 
     def ask_owner(self, heads: dict[str, str], waiting: dict[str, list[str]], rows: dict[str, dict]) -> None:

@@ -3879,6 +3879,34 @@ def test_a_board_tap_never_carries_to_a_head_that_adds_new_behavior_and_root_and
     assert post_body(note).strip() == f"TAP-NOT-CARRIED #29020: the owner's tap at aaaa111111 (10:40 AM Oct 1 Pacific) on board block merge-rows does not carry to cccc333333, since cci #{seq} says that head adds new behavior: \"{quote}\". Heads since his tap: {heads}. The board needs a new row for #29020 at cccc333333 opening 'You approved this at 10:40 AM Oct 1. Since then: <what changed>. Shown again because: <the new behavior>.'"
 
 
+@pytest.mark.parametrize("identical", [True, False], ids=["patch-identical", "changed"])
+def test_a_tap_carries_itself_to_a_head_whose_own_commits_have_the_tapped_heads_patch(shell, config, tmp_path, identical):
+    """Root #197523, p8a-step7 #197578: the merger's rebases of #45367 were patch-identical to his tap at 61cd21b, yet the runner asked for a new row because no grade used the keep phrase."""
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    tap(shell, "29020", "aaaa111111")
+    shell.diffs["aaaa111111"] = "diff --git a/x.go b/x.go\n+tapped\n"
+    shell.diffs["cccc333333"] = shell.diffs["aaaa111111"] if identical else "diff --git a/x.go b/x.go\n+changed\n"
+    landing_pass(shell, config)
+    carried = [note["text"] for note in tap_notes(shell) if note["text"].startswith("TAP-CARRIED-BY-PATCH")]
+    assert carried == ([f"TAP-CARRIED-BY-PATCH #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, a patch-identical restack by git patch-id over its 1 own commits, recorded with cc-present verdict carry; the row asks no new tap"] if identical else [])
+    assert [carry["--head"] for carry in shell.carries] == (["cccc333333"] if identical else [])
+
+
+def test_a_successor_fidelity_desk_grade_counts_with_no_config_edit(shell, config, tmp_path):
+    """Root #197631: fidelity-desk-13 succeeded fidelity-desk-12, and its ok on #45427 read as ungraded because the configured list stopped at -12."""
+    merge_mode(config, "every")
+    raw = json.loads(config.read_text())
+    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-desk-12"]
+    config.write_text(json.dumps(raw))
+    lone_green_pr(shell)
+    merge_go(shell, "29020", "go #29020 at cccc333")
+    grade(shell, "29020", "ok cccc333 resubscribes from the fetched position.", lane="fidelity-desk-13")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
 @pytest.mark.parametrize(
     "graded",
     [
@@ -4728,12 +4756,12 @@ def test_the_release_cli_resolves_its_first_word_under_the_landing_checkout(tmp_
 
 def test_a_fidelity_lane_added_to_runner_json_counts_without_a_restart(shell, config, tmp_path):
     lone_green_pr(shell)
-    grade(shell, "29020", "ok F307 at cccc333.", lane="fidelity-desk-10")
+    grade(shell, "29020", "ok F307 at cccc333.", lane="parity-desk")
     landing = landing_of(shell, config, tmp_path)
     landing.run()
     assert shell.enqueues() == []
     raw = json.loads(config.read_text())
-    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-desk-10"]
+    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "parity-desk"]
     config.write_text(json.dumps(raw))
     landing.run()
     assert len(shell.enqueues()) == 1
