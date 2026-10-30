@@ -6833,14 +6833,18 @@ class Landing:
         return outcome, "".join(outs)[-1500:], last
 
     def holding(self, prefix: list[str], rows: dict[str, dict], accepted_at: datetime) -> dict[str, str]:
-        """Why each PR of `prefix` may not be in the queue right now, read fresh: a holds-file line, the `hold` label on GitHub, an open cci `hold` record, a `hold` record posted after this enqueue was accepted, or a `hold` record newer than the PR's newest `ready` record. A label read GitHub refuses holds the PR too."""
+        """Why each PR of `prefix` may not be in the queue right now, read fresh: a holds-file line, an open cci `incident` record that names it, whose lane squash-merges the fix directly (ef905a6), the `hold` label on GitHub, an open cci `hold` record, a `hold` record posted after this enqueue was accepted, or a `hold` record newer than the PR's newest `ready` record. A label read GitHub refuses holds the PR too."""
         entries = holds.read(self.holds)
         held = holds.held(entries, rows)
+        drive = self.runner.config.drive
+        incidents = [record for record in cci.records(self.cci_tail.run, drive, "--kind=incident") if (record["kind"], record["drive"], record["status"]) == ("incident", drive, "open")]
         why = {}
         for pr in prefix:
             if pr in held:
                 line = next(entry.line for entry in entries if pr in holds.held([entry], rows))
                 why[pr] = f"the holds-file line `{line}`"
+            elif named := [record for record in incidents if names_pr({**record, "text": full_text(record)}, pr)]:
+                why[pr] = f"open INCIDENT #{named[-1]['seq']}, whose lane squash-merges it directly, never through the queue"
             elif reason := self.label_hold(pr) or self.record_hold(pr, accepted_at):
                 why[pr] = reason
         return why
