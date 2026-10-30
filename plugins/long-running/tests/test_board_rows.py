@@ -13,6 +13,7 @@ DRIVE = "d1"
 REPO = "Forge-AI/monorepo"
 HEAD = "35aa930c1d2e3f405162738495a6b7c8d9e0f1a2"
 NEW_HEAD = "7b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c"
+LEDGER = "1a2b3c4d"
 COMMITTED = "2026-10-26T19:00:00Z"
 WRITTEN = "2026-10-26T20:00:00Z"
 BEFORE = "2026-10-26T18:00:00Z"
@@ -28,6 +29,8 @@ class FakeShell(board_rows.Shell):
         self.outcomes_fail = False
         self.saved: list[str] = []
         self.pushed: list[tuple[list[str], dict]] = []
+        self.ledger: set[str] | None = None
+        self.ledger_fails = False
 
     def run(self, argv: list[str], env: dict[str, str] | None = None) -> board_rows.Done:
         argv = gateway(argv)
@@ -44,6 +47,11 @@ class FakeShell(board_rows.Shell):
             if self.outcomes_fail:
                 return board_rows.Done(1, "", "no board for this session")
             return board_rows.Done(0, "cc-present: dropped pack x\n" + json.dumps({"interactions": {"triage": self.verdicts}}), "")
+        if argv[1].endswith("/ledger.py"):
+            assert argv[2:] == ["-C", "/checkout", "list", "--ledger", LEDGER, "--json"] and env == {"CLAUDE_LONG_RUNNING_DRIVE": DRIVE}, argv
+            if self.ledger_fails:
+                return board_rows.Done(1, "", "ccn: no ledger 1a2b")
+            return board_rows.Done(0, json.dumps([{"pr": pr, "repo": REPO, "ours": True} for pr in sorted(self.ledger)] + [{"pr": "1", "repo": "other/repo", "ours": True}, {"pr": "2", "repo": REPO, "ours": False}]), "")
         assert argv[:2] == ["cci", "tail"], argv
         return board_rows.Done(0, "".join(json.dumps(record) + "\n" for record in self.tailed(argv)), "")
 
@@ -115,7 +123,9 @@ def groups(*rows: dict, block: str = "merge-prs") -> dict:
 
 def gate(tmp_path: Path, shell: FakeShell, block: dict, *argv: str) -> int:
     config = tmp_path / "runner.json"
-    config.write_text(json.dumps({"drive": DRIVE, "landing": {"repo": REPO, "fidelity_lane": ["fidelity-desk", "fidelity-desk-2"]}}))
+    config.write_text(json.dumps({"drive": DRIVE, "landing": {"repo": REPO, "fidelity_lane": ["fidelity-desk", "fidelity-desk-2"], "ledger": LEDGER, "checkout": "/checkout"}}))
+    if shell.ledger is None:
+        shell.ledger = {row.pr for row in board_rows.rows_of(block)}
     path = tmp_path / "card-merge-triage.json"
     path.write_text(json.dumps(block))
     return board_rows.main(["--config", str(config), str(path), *argv], shell)
@@ -742,3 +752,23 @@ def test_a_stack_with_new_behavior_an_ungraded_fix_or_no_chain_keeps_a_row_per_p
 
     pushed = [row for _, pushed in shell.pushed for *_, row in board_rows.pr_group_rows(pushed)]
     assert all("stack" not in row for row in pushed)
+
+
+def test_a_row_whose_pr_the_drives_ledger_never_admitted_is_left_off_the_board(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
+    shell.pull("45401")
+    shell.graded("45401")
+    shell.ledger = {"42590"}
+
+    assert gate(tmp_path, shell, groups(pr_row("42590"), pr_row("45401")), "--", "cc-present", "update-block") == 1
+
+    assert lines(capsys)[0] == f"45401 45401 {HEAD[:7]} unledgered: the drive's ledger never admitted #45401, so no tap on it can land; its lane runs `ledger.py register --pr 45401`"
+    assert pushed_rows(shell) == ["42590"]
+
+
+def test_a_ledger_that_does_not_read_warns_and_fails_no_row(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
+    shell.ledger_fails = True
+
+    assert gate(tmp_path, shell, groups(pr_row("42590")), "--", "cc-present", "update-block") == 0
+
+    assert "WARN the drive's ledger did not read (ledger.py list exited 1: ccn: no ledger 1a2b); no row is checked for a PR the ledger never admitted" in lines(capsys)
+    assert pushed_rows(shell) == ["42590"]
