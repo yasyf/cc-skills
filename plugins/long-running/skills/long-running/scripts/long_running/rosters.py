@@ -200,6 +200,7 @@ class RosterIndex:
         lane_errors = {}
         self.errors.pop(name, None)
         path = self.root / name / "config.json"
+        selected = os.path.lexists(path)
         try:
             fd = self.open(path, name, dependencies)
             with os.fdopen(fd) as handle:
@@ -215,11 +216,14 @@ class RosterIndex:
                     except KeyError as error:
                         lane_errors[lane] = error.with_traceback(None)
         except (FileNotFoundError, NotADirectoryError) as error:
-            if path.is_symlink():
+            if selected and path.is_symlink():
                 self.errors[name] = error.with_traceback(None)
         except json.JSONDecodeError as error:
             self.errors[name] = json.JSONDecodeError(error.msg, "", 0)
-        except (OSError, ValueError, KeyError, TypeError) as error:
+        except OSError as error:
+            if selected:
+                self.errors[name] = error.with_traceback(None)
+        except (ValueError, KeyError, TypeError) as error:
             self.errors[name] = error.with_traceback(None)
         except WatchLost:
             raise
@@ -237,7 +241,12 @@ class RosterIndex:
             try:
                 self.work["root_enumerations"] += 1
                 with os.scandir(fd) as entries:
-                    names = {entry.name for entry in entries if entry.is_dir() or entry.is_symlink()}
+                    for entry in entries:
+                        try:
+                            if entry.is_symlink() or entry.is_dir():
+                                names.add(entry.name)
+                        except OSError:
+                            continue
             finally:
                 os.close(fd)
         except (FileNotFoundError, NotADirectoryError, PermissionError):
@@ -266,7 +275,10 @@ class RosterIndex:
                 dirty.update(node.owners)
             else:
                 for edge, owners in node.edges.items():
-                    if edge is None or binding(edge[0]) != edge[1]:
+                    if edge is None:
+                        if event.name is None or event.structural:
+                            dirty.update(owners)
+                    elif (event.name is None or edge[0].name == event.name) and binding(edge[0]) != edge[1]:
                         dirty.update(owners)
         if identity(self.root) != self.root_identity:
             dirty.add(ROOT)

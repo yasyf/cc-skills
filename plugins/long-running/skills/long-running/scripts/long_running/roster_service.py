@@ -9,6 +9,7 @@ import socket
 import stat
 import subprocess
 import sys
+import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -16,16 +17,23 @@ from .roster_events import WatchLost
 from .rosters import RosterIndex
 
 SOURCE = Path(__file__).resolve()
-MODULES = ("roster_service.py", "rosters.py", "roster_events.py")
+MODULES = ("roster_events.py", "rosters.py", "roster_service.py")
+LOADED_IDENTITY = None
+
+
+def source_snapshot() -> dict:
+    sources = {name: (SOURCE.parent / name).read_bytes() for name in MODULES}
+    digest = hashlib.sha256()
+    for source in sources.values():
+        digest.update(source)
+    manifest = SOURCE.parents[4] / ".claude-plugin" / "plugin.json"
+    version = json.loads(manifest.read_text())["version"] if manifest.is_file() else "0.1.0"
+    identity = {"source": str(SOURCE), "fingerprint": digest.hexdigest(), "version": version}
+    return {"identity": identity, "sources": {name: source.hex() for name, source in sources.items()}}
 
 
 def source_identity() -> dict:
-    digest = hashlib.sha256()
-    for name in MODULES:
-        digest.update((SOURCE.parent / name).read_bytes())
-    manifest = SOURCE.parents[4] / ".claude-plugin" / "plugin.json"
-    version = json.loads(manifest.read_text())["version"] if manifest.is_file() else "0.1.0"
-    return {"source": str(SOURCE), "fingerprint": digest.hexdigest(), "version": version}
+    return source_snapshot()["identity"]
 
 
 def private_directory(path: Path) -> None:
@@ -119,15 +127,37 @@ def current(incumbent: dict, desired: dict) -> bool:
 def start(directory: Path, root: Path, owner: int) -> None:
     reader, writer = os.pipe()
     try:
-        bootstrap = "import sys; sys.path.insert(0, sys.argv.pop(1)); from long_running.roster_service import main; main()"
-        subprocess.Popen(
-            [sys.executable, "-c", bootstrap, str(SOURCE.parent.parent), str(root), str(owner), str(writer)],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            pass_fds=(owner, writer),
-            start_new_session=True,
-        )
+        bootstrap = """import json, os, sys, types
+from pathlib import Path
+snapshot_fd = int(sys.argv.pop(1))
+with os.fdopen(snapshot_fd) as handle:
+    snapshot = json.load(handle)
+package = types.ModuleType("long_running")
+package.__path__ = [str(Path(snapshot["identity"]["source"]).parent)]
+sys.modules[package.__name__] = package
+for filename, source in snapshot["sources"].items():
+    name = "long_running." + filename.removesuffix(".py")
+    module = types.ModuleType(name)
+    module.__file__ = str(Path(package.__path__[0]) / filename)
+    module.__package__ = package.__name__
+    sys.modules[name] = module
+    setattr(package, name.rsplit(".", 1)[1], module)
+    exec(compile(bytes.fromhex(source), module.__file__, "exec"), module.__dict__)
+service = sys.modules["long_running.roster_service"]
+service.LOADED_IDENTITY = snapshot["identity"]
+service.main()
+"""
+        with tempfile.TemporaryFile() as snapshot:
+            snapshot.write(json.dumps(source_snapshot()).encode())
+            snapshot.seek(0)
+            subprocess.Popen(
+                [sys.executable, "-c", bootstrap, str(snapshot.fileno()), str(root), str(owner), str(writer)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                pass_fds=(snapshot.fileno(), owner, writer),
+                start_new_session=True,
+            )
         os.close(writer)
         writer = -1
         handle = os.fdopen(reader, "rb")
@@ -183,7 +213,7 @@ def raise_remote(value: dict) -> None:
 
 
 def mailbox_of(lane: str) -> Path | None:
-    root = Path(os.path.abspath(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude"))
+    root = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude").absolute()
     directory = runtime(root)
     desired = source_identity()
     with lifecycle(directory, False):
@@ -237,8 +267,10 @@ def serve(root: Path, owner: int, ready: int) -> None:
     index = None
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
+        if LOADED_IDENTITY is None:
+            raise RuntimeError("roster helper requires a compiled source snapshot")
         index = RosterIndex(root)
-        info = {**source_identity(), "root": str(root), "pid": os.getpid()}
+        info = {**LOADED_IDENTITY, "root": str(root), "pid": os.getpid()}
         listener.bind(str(socket_path))
         os.chmod(socket_path, 0o600)
         listener.listen()
@@ -248,30 +280,31 @@ def serve(root: Path, owner: int, ready: int) -> None:
         while True:
             connection, _ = listener.accept()
             with connection:
-                request = receive(connection)
-                if request != {"verb": "identity", "root": str(root)}:
-                    raise ValueError("invalid roster handshake")
-                send(connection, info)
                 try:
                     request = receive(connection)
-                except ConnectionError:
+                    if request != {"verb": "identity", "root": str(root)}:
+                        raise ValueError("invalid roster handshake")
+                    send(connection, info)
+                    request = receive(connection)
+                    if request == {"verb": "retire"}:
+                        send(connection, {"retired": True})
+                        return
+                    if request.get("verb") != "lookup" or not isinstance(request.get("lane"), str):
+                        raise ValueError("invalid roster request")
+                    try:
+                        if index is None:
+                            index = RosterIndex(root)
+                        path = index.lookup(request["lane"])
+                        result = {"path": str(path) if path else None}
+                    except (OSError, ValueError, KeyError, TypeError, WatchLost) as error:
+                        args = list(error.args) if not isinstance(error, UnicodeDecodeError) else []
+                        result = {"error": {"type": type(error).__name__, "message": str(error), "args": args}}
+                        if isinstance(error, WatchLost) and index is not None:
+                            index.close()
+                            index = None
+                    send(connection, result)
+                except (ConnectionError, OSError, ValueError):
                     continue
-                if request == {"verb": "retire"}:
-                    send(connection, {"retired": True})
-                    return
-                if request.get("verb") != "lookup" or not isinstance(request.get("lane"), str):
-                    raise ValueError("invalid roster request")
-                try:
-                    if index is None:
-                        index = RosterIndex(root)
-                    path = index.lookup(request["lane"])
-                    send(connection, {"path": str(path) if path else None})
-                except (OSError, ValueError, KeyError, TypeError, WatchLost) as error:
-                    args = list(error.args) if not isinstance(error, UnicodeDecodeError) else []
-                    send(connection, {"error": {"type": type(error).__name__, "message": str(error), "args": args}})
-                    if isinstance(error, WatchLost):
-                        index.close()
-                        index = None
     except BaseException as error:
         if ready != -1:
             os.write(ready, json.dumps({"error": str(error)}).encode() + b"\n")

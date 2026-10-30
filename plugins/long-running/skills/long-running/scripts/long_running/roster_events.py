@@ -22,6 +22,8 @@ class Event:
     token: int
     authority: bool = False
     retired: bool = False
+    name: str | None = None
+    structural: bool = True
 
 
 class Kevent(ctypes.Structure):
@@ -135,12 +137,15 @@ class Inotify:
             offset = 0
             while offset < len(data):
                 wd, mask, _, length = struct.unpack_from("iIII", data, offset)
+                name = os.fsdecode(data[offset + 16:offset + 16 + length].split(b"\0", 1)[0]) if length else None
                 offset += 16 + length
                 if mask & self.OVERFLOW:
                     self.lost = True
                 elif wd in self.tokens:
                     token = self.tokens[wd]
-                    self.pending.append(Event(token, bool(mask & (0x00000004 | 0x00000400 | 0x00000800 | self.IGNORED)), bool(mask & self.IGNORED)))
+                    authority = name is None and bool(mask & (0x00000004 | 0x00000400 | 0x00000800 | self.IGNORED))
+                    structural = bool(mask & (0x00000040 | 0x00000080 | 0x00000100 | 0x00000200))
+                    self.pending.append(Event(token, authority, bool(mask & self.IGNORED), name, structural))
                     if mask & self.IGNORED:
                         del self.tokens[wd]
         if self.lost:
@@ -151,6 +156,9 @@ class Inotify:
         wd = self.libc.inotify_add_watch(self.fd, os.fsencode(f"/proc/self/fd/{fd}"), self.MASK)
         if wd < 0:
             raise OSError(ctypes.get_errno(), os.strerror(ctypes.get_errno()), path)
+        self.capture()
+        if wd in self.tokens:
+            raise WatchLost("inotify reused a live watch descriptor")
         self.next_token += 1
         token = self.next_token
         self.tokens[wd] = token
