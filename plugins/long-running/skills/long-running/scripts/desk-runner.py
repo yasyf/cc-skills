@@ -459,9 +459,12 @@ contract and the PR body, and posts the fidelity line and the `old-app:` line ag
 the other `landing.fidelity_lane` lanes as `fidelity: reader`. A pass whose job wrote an error, or no result within
 `fidelity.timeout_minutes` (default 60), fails at once and logs `FIDELITY-FAILED` to those lanes; the next `head`
 record for the PR queues it again. `show` lists each queued and running pass.
-With `finder.sprite` or `fidelity.sprite` naming a Sprite, each pass runs there through `sprite-job.sh` at the same
-paths and posts its records over the drive's cci relay; the runner still writes the job, tracks the local process, and
-settles the pass from the result copied back. `finder.sprite_keys` or `fidelity.sprite_keys` maps each environment name the pass
+With `finder.sprite` or `fidelity.sprite` naming a Sprite or a list of them, each pass runs through `sprite-job.sh` on
+the listed Sprite running the fewest of that desk's passes, the first listed on a tie, at the same paths, and posts its
+records over the drive's cci relay; the runner still writes the job, naming the Sprite, tracks the local process, and
+settles the pass from the result copied back. Every ten minutes the runner posts one `state` record per listed Sprite
+to root and the drive watchdog naming the finder and fidelity passes it runs and the age of its oldest; a Sprite whose
+passes run while none it ran settled in thirty minutes posts a `SPRITE-STALLED` defect to root instead. `finder.sprite_keys` or `fidelity.sprite_keys` maps each environment name the pass
 needs there, such as `OPENAI_API_KEY` or `GH_TOKEN`, to the command that prints its value here; sprite-job.sh runs
 each at start and hands the values to the pass's process through its standard input, never a file or an argument.
 Between orca passes the runner waits ten seconds, cut short within a quarter second by a desk
@@ -682,6 +685,10 @@ REFUSALS_PER_MINUTE = 10
 FIDELITY_CONCURRENT = 8
 FIDELITY_MINUTES = 60
 FINDER_EVERY = timedelta(seconds=15)
+SPRITES = "desk-sprites"
+SPRITE_BEATS = "sprite_beats"
+SPRITE_BEAT_EVERY = timedelta(minutes=10)
+SPRITE_STALLED_AFTER = timedelta(minutes=30)
 FINDER_TAPS_EVERY = timedelta(minutes=5)
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
@@ -1341,9 +1348,15 @@ def full_pass(action: actions.Action) -> bool:
     return json.loads(action.target).get("full", False)
 
 
-def job_command(spec: dict, script: str, directory: Path) -> tuple[list[str], dict[str, str]]:
-    """The command and environment that run the desk job `directory` through `script`: here, or through sprite-job.sh on the Sprite the desk's `sprite` names, with the desk's `sprite_keys`, each an environment name to the command that prints its value, for sprite-job.sh to run at start."""
-    if sprite := spec.get("sprite"):
+def desk_sprites(spec: dict) -> list[str]:
+    """The Sprites a desk's `sprite` names, one or a list."""
+    sprite = spec.get("sprite", [])
+    return [sprite] if isinstance(sprite, str) else list(sprite)
+
+
+def job_command(spec: dict, sprite: str, script: str, directory: Path) -> tuple[list[str], dict[str, str]]:
+    """The command and environment that run the desk job `directory` through `script`: here, or through sprite-job.sh on `sprite`, with the desk's `sprite_keys`, each an environment name to the command that prints its value, for sprite-job.sh to run at start."""
+    if sprite:
         return [str(SCRIPTS / "sprite-job.sh"), sprite, str(SCRIPTS / script), str(directory)], {"SPRITE_JOB_KEYS": json.dumps(spec.get("sprite_keys", {}))}
     return [sys.executable, str(SCRIPTS / script), str(directory)], {}
 
@@ -4235,7 +4248,7 @@ class Runner:
     def keep_finding(self) -> threading.Event:
         """Run the finder and fidelity desks every `FINDER_EVERY` from a daemon thread until the returned event is set, so a new head starts its passes, and a slot a finished pass frees refills, in seconds rather than on the next orca pass, which runs for minutes. A desk whose loop raises the same twice running drops out of the thread, and the orca pass still runs it."""
         stop = threading.Event()
-        desks = {FINDER: self.finders, FIDELITY: self.fidelities}
+        desks = {FINDER: self.finders, FIDELITY: self.fidelities, SPRITES: self.sprite_beats}
 
         def loop() -> None:
             while desks and not stop.wait(FINDER_EVERY.total_seconds()):
@@ -4407,6 +4420,7 @@ class Runner:
         directory = self.config.source.parent / finder.LANE / ((f"{job['pr']}-whole-{job['seq']}" if full else f"{job['pr']}-{job['head'][:12]}") + (f"-{attempt}" if attempt else ""))
         directory.mkdir(parents=True, exist_ok=True)
         landing = self.config.landing or {}
+        sprite = self.least_busy_sprite(FINDER, spec)
         (directory / finder.JOB).write_text(
             json.dumps(
                 {
@@ -4425,13 +4439,14 @@ class Runner:
                     "model": spec.get("model", FINDER_MODEL),
                     "fast": spec.get("fast", FINDER_FAST),
                     "full": full,
+                    "sprite": sprite,
                 }
             )
         )
         deadline = self.now() + timedelta(minutes=spec.get("timeout_minutes", FINDER_MINUTES))
         if not self.book.attempt(FINDER, lambda incident: incident.start(action.action_id, self.now(), deadline=deadline, dispatch_id=str(directory))):
             return False
-        argv, env = job_command(spec, "finder.py", directory)
+        argv, env = job_command(spec, sprite, "finder.py", directory)
         process = self.shell.spawn(argv, directory / finder.LOG, env)
         (directory / finder.PID).write_text(f"{process.pid}\n")
         return True
@@ -4592,6 +4607,7 @@ class Runner:
         contract = max((record for record in contracts if about_pr(record, repo, job["pr"])), key=lambda record: record["seq"], default=None) or max(contracts, key=lambda record: record["seq"], default=None)
         directory = self.config.source.parent / fidelity.LANE / f"{job['pr']}-{job['head'][:12]}-{job['seq']}"
         directory.mkdir(parents=True, exist_ok=True)
+        sprite = self.least_busy_sprite(FIDELITY, spec)
         (directory / fidelity.JOB).write_text(
             json.dumps(
                 {
@@ -4614,15 +4630,55 @@ class Runner:
                     "checkout": spec.get("checkout") or landing["checkout"],
                     "model": spec.get("model", FINDER_MODEL),
                     "fast": spec.get("fast", FINDER_FAST),
+                    "sprite": sprite,
                 }
             )
         )
         deadline = self.now() + timedelta(minutes=spec.get("timeout_minutes", FIDELITY_MINUTES))
         if not self.book.attempt(FIDELITY, lambda incident: incident.start(action.action_id, self.now(), deadline=deadline, dispatch_id=str(directory))):
             return False
-        argv, env = job_command(spec, "fidelity.py", directory)
+        argv, env = job_command(spec, sprite, "fidelity.py", directory)
         self.shell.spawn(argv, directory / fidelity.LOG, env)
         return True
+
+    def least_busy_sprite(self, container: str, spec: dict) -> str:
+        """The Sprite the desk's `sprite` lists that runs the fewest of the desk's passes now, the first listed on a tie, or none when it lists none."""
+        running = Counter(self.pass_sprite(action) for action in self.book.actions(container, status="started"))
+        return min(desk_sprites(spec), key=lambda sprite: running[sprite], default="")
+
+    def pass_sprite(self, action: actions.Action) -> str:
+        """The Sprite a desk pass ran on, from its job, or none for a pass that ran here."""
+        return json.loads((Path(action.dispatch_id) / finder.JOB).read_text()).get("sprite", "")
+
+    def sprite_beats(self) -> None:
+        """Post, every `SPRITE_BEAT_EVERY` for each Sprite `finder.sprite` or `fidelity.sprite` lists, one state record to root and the drive watchdog naming the finder and fidelity passes it runs and the age of its oldest, or, while it runs passes and none it ran settled in the last `SPRITE_STALLED_AFTER`, a `SPRITE-STALLED` defect to root instead."""
+        raw = json.loads(self.config.source.read_text())
+        specs = {container: spec for container, desk in ((FINDER, "finder"), (FIDELITY, "fidelity")) if (spec := raw.get(desk)) is not None}
+        beats = self.book.fact(RUNNER, SPRITE_BEATS, {})
+        due = [sprite for sprite in dict.fromkeys(sprite for spec in specs.values() for sprite in desk_sprites(spec)) if sprite not in beats or self.now() - actions.parse_stamp(beats[sprite]) >= SPRITE_BEAT_EVERY]
+        if not due:
+            return
+        with self.finding:
+            for container in specs:
+                self.book.ensure(container, container)
+            now, window = self.now(), self.now() - SPRITE_STALLED_AFTER
+            running = [(container, action) for container in specs for action in self.book.actions(container, status="started")]
+            settled = [action for container in specs for action in self.book.actions(container, statuses=("completed", "verified")) if action.dispatch_id and actions.parse_stamp(action.response["at"]) > window]
+            posted = {}
+            for sprite in due:
+                passes = [(container, actions.parse_stamp(action.started_at)) for container, action in running if self.pass_sprite(action) == sprite]
+                counts = Counter(container for container, _ in passes)
+                oldest = min((started for _, started in passes), default=None)
+                age = f"oldest {whole_minutes(oldest, now)} min" if oldest else "none running"
+                if oldest and oldest <= window and not any(self.pass_sprite(action) == sprite for action in settled):
+                    done = self.cci_post("defect", f"SPRITE-STALLED {sprite}: {len(passes)} passes running, {age}, and none it ran settled in the last {int(SPRITE_STALLED_AFTER.total_seconds()) // 60} min; check the Sprite and each pass's job.log", ROOT, f"sprite:{sprite}", f"sprite-stalled:{sprite}", flags=["--force"])
+                else:
+                    done = self.cci_post("state", f"sprite {sprite}: {counts[FINDER]} finder and {counts[FIDELITY]} fidelity passes, {age}", f"{ROOT},{self.watchdog}", f"sprite:{sprite}", f"sprite-beat:{sprite}", flags=["--force"])
+                if done.code:
+                    print(f"sprite {sprite} heartbeat left for the next pass; cci post exited {done.code}: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
+                    continue
+                posted[sprite] = actions.stamp(now)
+            self.book.edit(RUNNER, lambda incident: incident.facts.setdefault(SPRITE_BEATS, {}).update(posted))
 
     def settle(self, container: str, key: str, response: dict) -> None:
         def settled(incident: actions.Incident) -> None:
@@ -8737,7 +8793,7 @@ def run_orca(runner: Runner, once: bool) -> int:
                 if runner.now() - swept >= SWEEP_EVERY:
                     runner.steps(runner.sweep)
                     swept = runner.now()
-            runner.steps(runner.deadlines_orca, runner.incident_clock, runner.pr_silent, runner.lanes_gone, runner.dispatches_gone, runner.class_unowned, runner.in_process, runner.cut_clock, runner.release_coupling, runner.finders, runner.fidelities)
+            runner.steps(runner.deadlines_orca, runner.incident_clock, runner.pr_silent, runner.lanes_gone, runner.dispatches_gone, runner.class_unowned, runner.in_process, runner.cut_clock, runner.release_coupling, runner.finders, runner.fidelities, runner.sprite_beats)
         except StopRequested:
             runner.flush()
             runner.stop_marker().unlink()
