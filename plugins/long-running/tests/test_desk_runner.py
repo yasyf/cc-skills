@@ -14595,7 +14595,8 @@ def test_empty_rulings_report_does_not_decode_bus_history(shell, config, tmp_pat
     assert not shell.calls
 
 
-def test_an_explicit_since_tail_reads_natively_without_a_process_or_temporary_feed(monkeypatch):
+@pytest.mark.parametrize("tail_args", [["--drive", "d1", "--since", "0"], ["--drive=d1", "--since=0"]])
+def test_an_explicit_since_tail_reads_natively_without_a_process_or_temporary_feed(monkeypatch, tail_args):
     calls = []
 
     def native(args, timeout, env, cwd):
@@ -14608,12 +14609,13 @@ def test_an_explicit_since_tail_reads_natively_without_a_process_or_temporary_fe
     monkeypatch.setattr(runner_module.cci, "native_tail", native)
     monkeypatch.setattr(runner_module.subprocess, "run", forbidden)
     monkeypatch.setattr(runner_module.tempfile, "TemporaryFile", forbidden)
-    argv = ["cci", "tail", "--drive", "d1", "--since", "0", "--json", "--budget", "4000000"]
+    argv = ["cci", "tail", *tail_args, "--json", "--budget", "4000000"]
     env = {"CCI_AGENT_ID": "lane-child"}
     assert runner_module.Shell().run(argv, env=env) == runner_module.Done(0, '{"seq":7}\n', "")
     assert calls == [(argv, runner_module.QUICK_SECONDS, env, None)]
 
-def test_a_cursor_owning_bus_probe_keeps_its_cli_operation(monkeypatch):
+@pytest.mark.parametrize("argv", [runner_module.BUS_PROBE, ["cci", "tail", "--since", "0"]])
+def test_a_tail_outside_the_explicit_drive_and_since_native_mode_keeps_its_cli_operation(monkeypatch, argv):
     calls = []
 
     def process(argv, **kwargs):
@@ -14625,5 +14627,5 @@ def test_a_cursor_owning_bus_probe_keeps_its_cli_operation(monkeypatch):
 
     monkeypatch.setattr(runner_module.cci, "native_tail", forbidden)
     monkeypatch.setattr(runner_module.subprocess, "run", process)
-    assert runner_module.Shell().run(runner_module.BUS_PROBE) == runner_module.Done(0, "probe\n", "")
-    assert calls == [runner_module.BUS_PROBE]
+    assert runner_module.Shell().run(argv) == runner_module.Done(0, "probe\n", "")
+    assert calls == [argv]

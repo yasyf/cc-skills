@@ -1147,7 +1147,7 @@ class Shell:
         started = time.monotonic()
         self.in_progress[threading.get_ident()] = (command_name(argv), started)
         try:
-            if argv[:2] == ["cci", "tail"] and "--since" in argv:
+            if argv[:2] == ["cci", "tail"] and {"--drive", "--since"} <= {arg.partition("=")[0] for arg in argv[2:]}:
                 return Done(*cci.native_tail(argv, timeout, env, cwd))
             with tempfile.TemporaryFile("w+") as feed:
                 feed.write(stdin or "")
