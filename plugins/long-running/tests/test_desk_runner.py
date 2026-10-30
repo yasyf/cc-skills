@@ -6389,6 +6389,15 @@ def test_mq_why_names_the_adapters_approval_and_ci_verdicts(shell, config, tmp_p
     assert "approvals pending not approved by forge-pr-reviewer[bot]" in lines and "required-ci fail graphite FAILING_REQUIRED" in lines
 
 
+def test_mq_why_names_the_refusal_of_a_check_that_read_no_verdict(shell, config, capsys):
+    """landing-desk-3 #219648 read a bare `no verdict` as the runner skipping #45814, when its own shell's check had refused for want of a key."""
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    shell.gates["29020"] = [(5, "", "stack-enqueue failed: ci trunk: runs with no TRUNK_MERGE_API_KEY\n")]
+    assert mq(shell, config, "why", "29020") == 0
+    assert capsys.readouterr().out.splitlines()[0] == "#29020 cccc333333 graphite-stack-enqueue: no verdict, the check exited 5: stack-enqueue failed: ci trunk: runs with no TRUNK_MERGE_API_KEY"
+
+
 def test_mq_why_reads_past_peer_mail_that_cci_returns_with_no_status(shell, config, capsys):
     lone_green_pr(shell)
     grade_gated_heads_ok(shell)
