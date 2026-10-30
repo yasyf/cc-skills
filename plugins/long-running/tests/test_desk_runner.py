@@ -13542,3 +13542,78 @@ def test_native_adapter_does_not_repair_graphite_caps():
     landing = object.__new__(runner_module.Landing)
     landing.adapter = SimpleNamespace(kind="trunk-stack-enqueue")
     landing.resubmit_graphite_base({"20": {"state": "open", "ours": True, "base": "graphite-base/10", "head": "abcd"}})
+
+
+@pytest.mark.parametrize("history", [32, 10_000])
+@pytest.mark.parametrize("heartbeats", [32, 100])
+def test_heartbeat_page_writes_the_full_runner_history_only_once(shell, config, tmp_path, monkeypatch, history, heartbeats):
+    store = actions.Store(tmp_path / "store")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
+    assert runner.check()
+    with store.owned(runner_module.RUNNER, 0) as current:
+        for index in range(history):
+            key = f"history:{index}"
+            current.accept(key, "history", "old", None, shell.now())
+            current.verify(key, {"done": True})
+    for _ in range(heartbeats):
+        shell.receive({"type": "heartbeat"})
+    written, write = [], Path.write_text
+
+    def counted(path, text, *args, **kwargs):
+        result = write(path, text, *args, **kwargs)
+        if path.parent == store.root and path.name.startswith(f".{runner_module.RUNNER}.json."):
+            written.append(len(text.encode()))
+        return result
+
+    monkeypatch.setattr(Path, "write_text", counted)
+    assert runner.check()
+    assert store.load(runner_module.RUNNER).facts["inbox:run_1"] == heartbeats
+    print(json.dumps({"history": history, "heartbeats": heartbeats, "runner_writes": len(written), "runner_payload_bytes_written": sum(written)}))
+    assert len(written) == 1
+    assert sum(written) == store.path(runner_module.RUNNER).stat().st_size
+
+
+def test_pending_heartbeat_cursor_is_durable_before_a_nonheartbeat_effect(shell, config, tmp_path, monkeypatch):
+    store = actions.Store(tmp_path / "store")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
+    assert runner.check()
+    beat = shell.receive({"type": "heartbeat"})
+    shell.receive({"type": "status"})
+
+    def interrupted(message):
+        assert store.load(runner_module.RUNNER).facts["inbox:run_1"] == beat["sequence"]
+        raise RuntimeError("interrupted effect")
+
+    monkeypatch.setattr(runner, "message", interrupted)
+    with pytest.raises(RuntimeError, match="interrupted effect"):
+        runner.check()
+    assert store.load(runner_module.RUNNER).facts["inbox:run_1"] == beat["sequence"]
+
+
+def test_interrupted_heartbeat_replay_keeps_the_original_lease_timestamp(shell, config, tmp_path, monkeypatch):
+    shell.launch(LANE, "ctx_a")
+    store = actions.Store(tmp_path / "store")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
+    container = runner_module.lane_container(LANE)
+    runner.book.ensure(container, runner_module.ORCA_DESK)
+    assert runner.check()
+    beat = shell.receive({"type": "heartbeat"})
+    shell.receive({"type": "heartbeat"})
+    received = []
+    beat_lane = runner.beat_lane
+
+    def interrupted(message):
+        beat_lane(message)
+        received.append(message["id"])
+        if len(received) == 2:
+            raise RuntimeError("interrupted heartbeat page")
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(runner, "beat_lane", interrupted)
+        with pytest.raises(RuntimeError, match="interrupted heartbeat page"):
+            runner.check()
+    assert store.load(container).facts[runner_module.LANE_HEARTBEAT] == beat["created_at"]
+    shell.sleep(600)
+    assert runner.check()
+    assert store.load(container).facts[runner_module.LANE_HEARTBEAT] == beat["created_at"]
+    assert store.load(runner_module.RUNNER).facts["inbox:run_1"] == 2
