@@ -26,6 +26,7 @@ from pydantic import BaseModel
 from .compaction_handoff import CompactionState, rulings, script, script_module
 from .owner_facing import CCI_POST, posted_text
 from .pr_ledger import OPENERS
+from .register_gates import fenced
 from .register_injection import drive_args
 from .ruling_judge import MATCH_TIMEOUT_SECONDS
 from .tests.register_fixtures import CWD, DRIVE_CONFIG, ROWS, register
@@ -64,12 +65,10 @@ Ask what someone building only from the artifact would build, and whether he wou
 
 Answer "yes" when the artifact misreads him, "no" when it carries what he meant, "unsure" when you cannot tell, and name the direction. Quote the artifact phrase that misreads and the phrase of his it misreads, verbatim, or empty strings for "no". Then one plain sentence for the owner, no ids, no jargon."""
 WARNING = (
-    "Warning, nothing was blocked: a judge reads this {kind} as misreading the owner's words on `{key}` ({direction}).\n"
-    "{sentence}\n"
-    'Artifact: "{artifact_phrase}"\n'
-    'His words: "{owner_phrase}"\n'
-    "Fix the artifact, or answer on its record with the ruling or owner words that carry it."
+    "Warning, nothing was blocked: A judge reads what this call posted as misreading the owner's words on {keys}."
+    " Fix it, or answer on its record with the owner words that carry it."
 )
+FINDING = '{kind}, {key}, {direction}: {sentence}\nArtifact: "{artifact_phrase}"\nHis words: "{owner_phrase}"'
 FLAGGED = {
     "misread": "yes",
     "direction": "narrower",
@@ -205,17 +204,17 @@ def shipped_tests(evt: BaseHookEvent) -> list[tuple[str, str]]:
     skip_if=[Annotated("raw")],
     tests={
         posted("cci post --lane lane-a --kind contract --text 'One refusal command per destination and key. rule/8b1048a'"): Warn(
-            pattern=r"^Warning, nothing was blocked: a judge reads this contract as misreading the owner's words on `rule/8b1048a` \(narrower\)\.\nYou said"
+            pattern=r"^Warning, nothing was blocked: A judge reads what this call posted as misreading the owner's words on `rule/8b1048a`\.[\s\S]*contract, rule/8b1048a, narrower: You said"
         ),
         posted(
             "cci post --lane lane-a --kind contract --text 'One refusal command per destination and key. rule/8b1048a'",
             CARRIED,
         ): Allow(),
-        posted("cci post --lane root --kind decide --text 'Owner picked one command per key. rule/8b1048a'"): Warn(pattern=r"reads this relay as misreading"),
+        posted("cci post --lane root --kind decide --text 'Owner picked one command per key. rule/8b1048a'"): Warn(pattern=r"relay, rule/8b1048a, narrower"),
         posted("cci post --lane lane-a --kind decide --text 'One command per key. rule/8b1048a'"): Allow(),
         posted("cci post --lane root --kind decide --text 'Owner picked one command per key.'", commands={MATCH: MATCHED}): Allow(),
         posted("cci post --lane lane-a --kind ask --text 'board-refresher: post card per-key-commands. rule/8b1048a'"): Warn(
-            pattern=r"reads this card as misreading"
+            pattern=r"card, rule/8b1048a, narrower"
         ),
         posted("cci post --lane lane-a --kind state --text 'building per key. rule/8b1048a'"): Allow(),
         posted("cci post --lane lane-a --kind contract --text 'per key. rule/8b1048a'  # ccx:raw"): Allow(),
@@ -231,7 +230,7 @@ def shipped_tests(evt: BaseHookEvent) -> list[tuple[str, str]]:
                 "git diff --name-only abc123": "src/refusal_test.go\n",
                 f"{DIFF} abc123": TESTS_DIFF,
             },
-        ): Warn(pattern=r"reads this test as misreading"),
+        ): Warn(pattern=r"test, rule/8b1048a, narrower"),
         posted(
             "ccx vcs ship -m 'ci: ✨ x'",
             commands={
@@ -244,7 +243,7 @@ def shipped_tests(evt: BaseHookEvent) -> list[tuple[str, str]]:
 def misread_rulings(evt: BaseHookEvent) -> HookResult | None:
     if not (drive := drive_args(evt)) or not (artifacts := [*posted_artifacts(evt), *shipped_tests(evt)]):
         return None
-    warnings = []
+    findings = []
     for kind, text in artifacts:
         for key, row in candidate_rows(evt, drive, text, semantic=kind != "relay").items():
             prompt = PROMPT.format(
@@ -254,5 +253,8 @@ def misread_rulings(evt: BaseHookEvent) -> HookResult | None:
                 artifact=text[:ARTIFACT_CHARS],
             )
             if (verdict := evt.llm(prompt, Verdict, size="medium", backend="llm")) is not None and verdict.misread == "yes":
-                warnings.append(WARNING.format(kind=kind, key=key, **verdict.model_dump()))
-    return evt.context("\n\n".join(warnings)) if warnings else None
+                findings.append((key, FINDING.format(kind=kind, key=key, **verdict.model_dump())))
+    if not findings:
+        return None
+    keys = ", ".join(f"`{key}`" for key in dict.fromkeys(key for key, _ in findings))
+    return evt.context("\n".join([WARNING.format(keys=keys), fenced("\n\n".join(text for _, text in findings))]))
