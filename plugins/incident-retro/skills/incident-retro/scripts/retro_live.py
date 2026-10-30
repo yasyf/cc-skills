@@ -358,19 +358,20 @@ def shell(state: dict, R: dict, retro, now: datetime.datetime, source) -> dict:
     timestamps["detected"] = state.get("detected_at")
     R["live"] = live_block(state, retro, now, source)
     timestamps.update(implied_timestamps(state, retro, R["live"]["phase"], previous, now))
-    R["summary"] = live_summary(state, R["live"]["phase"])
+    R["summary"] = live_summary(state, R["live"]["phase"], retro)
     return R
 
 
-def live_summary(state: dict, phase: str) -> dict:
+def live_summary(state: dict, phase: str, retro) -> dict:
     title = (state.get("title") or "").rstrip(".")
+    quoted = retro.ID_TOKEN.sub(lambda m: f"`{m.group(0)}`", title)
     monitors = [m for m in state.get("monitors") or [] if m.get("id")]
     facts = [f"Severity: {state['severity']}." if state.get("severity") else "",
              f"L1: {state['commander']}." if state.get("commander") else "",
              f"Status: {state.get('status') or phase}."]
     linked = [f"The [paging monitor]({m['url']}) fired." for m in monitors]
     plain = ["The paging monitor fired." for _ in monitors]
-    return {"text": " ".join(part for part in [f"{title}." if title else "", *linked, *facts] if part),
+    return {"text": " ".join(part for part in [f"{quoted}." if title else "", *linked, *facts] if part),
             "p": " ".join(part for part in [f"{title}." if title else "", *plain, *facts] if part)}
 
 
