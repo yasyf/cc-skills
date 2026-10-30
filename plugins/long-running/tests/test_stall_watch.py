@@ -7,7 +7,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from long_running import actions
+from long_running import actions, migration
 import board_rows
 import pytest
 import stall_watch
@@ -115,6 +115,7 @@ class FakeShell(stall_watch.Shell):
 
 @pytest.fixture
 def config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    migration.initialize(tmp_path / "store")
     home = tmp_path / "claude"
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
     registry = home / "long-running/drives/durable.json"
@@ -342,7 +343,7 @@ def test_a_go_the_runner_refused_names_its_newest_open_blocker_for_that_head_and
 def finder_pass(tmp_path: Path, pr: str, sha: str, status: str) -> None:
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident("desk-finder", "desk-finder", 0, stamp(30), {}))
-    with store.owned("desk-finder", 0) as incident:
+    with store.transaction("desk-finder", generation=0) as incident:
         incident.accept(f"finder:{pr}:{sha}", "finder", json.dumps({"pr": pr, "head": sha, "lane": "api-lane", "seq": 1, "full": False}), "cci#1", NOW)
         if status == "started":
             incident.start(f"finder:{pr}:{sha}", NOW)
@@ -1112,7 +1113,7 @@ def test_a_refusal_for_a_pr_no_go_or_tap_names_is_not_tracked(config):
 def desk_job(tmp_path: Path, desk: str, kind: str, pr: str, sha: str, started_minutes_ago: float | None) -> None:
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident(desk, desk, 0, stamp(60), {}))
-    with store.owned(desk, 0) as incident:
+    with store.transaction(desk, generation=0) as incident:
         incident.accept(f"{kind}:{pr}:{sha}", kind, json.dumps({"pr": pr, "head": sha, "lane": "api-lane", "seq": 1, "full": False}), "cci#1", NOW - timedelta(minutes=60))
         if started_minutes_ago is not None:
             incident.start(f"{kind}:{pr}:{sha}", NOW - timedelta(minutes=started_minutes_ago))

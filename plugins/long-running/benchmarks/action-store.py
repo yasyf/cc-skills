@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from long_running import actions
+from long_running import actions, sqlite_store
+from long_running.migration import initialize
 from long_running.book import Book
 
 
@@ -18,8 +19,9 @@ class Clock:
 
 @contextmanager
 def counted():
-    costs = {"json_decodes": 0, "decoded_bytes": 0, "action_builds": 0, "writes": 0, "written_bytes": 0}
-    decode, construct, write = json.loads, actions.Action.load.__func__, Path.write_text
+    costs = {"json_decodes": 0, "decoded_bytes": 0, "action_builds": 0, "encoded_json_bytes": 0, "changed_rows": 0}
+    decode, construct = json.loads, actions.Action.load.__func__
+    encode, flush = sqlite_store._encode, sqlite_store.Transaction.flush
 
     def loads(value, *args, **kwargs):
         costs["json_decodes"] += 1
@@ -30,18 +32,24 @@ def counted():
         costs["action_builds"] += 1
         return construct(cls, record)
 
-    def write_text(path, value, *args, **kwargs):
-        costs["writes"] += 1
-        costs["written_bytes"] += len(value.encode())
-        return write(path, value, *args, **kwargs)
+    def encoded(value):
+        result = encode(value)
+        costs["encoded_json_bytes"] += len(result.encode())
+        return result
 
-    with patch.object(json, "loads", loads), patch.object(actions.Action, "load", classmethod(build)), patch.object(Path, "write_text", write_text):
+    def written(transaction):
+        flush(transaction)
+        costs["changed_rows"] += transaction._connection.total_changes
+
+    with patch.object(json, "loads", loads), patch.object(actions.Action, "load", classmethod(build)), patch.object(sqlite_store, "_encode", encoded), patch.object(sqlite_store.Transaction, "flush", written):
         yield costs
 
 
 def measure(count: int) -> dict:
     with tempfile.TemporaryDirectory() as directory:
-        store = actions.Store(Path(directory))
+        root = Path(directory) / "store"
+        initialize(root)
+        store = actions.Store(root)
         state = actions.Incident("runner", "root", 0, "2026-10-30T00:00:00Z", {})
         for index in range(count):
             action = state.accept(str(index), "send", "target", "owner", Clock().now())
@@ -56,8 +64,8 @@ def measure(count: int) -> dict:
                 book.actions("runner", kind="send", status="accepted")
         with counted() as transition:
             book.edit("runner", lambda incident: incident.start(str(count - 1), Clock().now()))
-        return {"history": count, "cold_selected": cold, "warm_selected_200_queries": warm, "one_transition": transition}
+        return {"history": count, "cold_selected": cold, "repeated_selected_200_queries": warm, "one_transition": transition}
 
 
 if __name__ == "__main__":
-    print(json.dumps({"metrics": "Decoded JSON bytes and written JSON bytes, not physical disk I/O", "measurements": [measure(count) for count in (32, 10_000)]}, indent=2))
+    print(json.dumps({"metrics": "Logical JSON bytes and changed SQL rows, not physical disk I/O", "measurements": [measure(count) for count in (32, 10_000)]}, indent=2))

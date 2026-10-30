@@ -6,6 +6,7 @@ import contextlib
 import hashlib
 import html
 import importlib.util
+import fcntl
 import itertools
 import json
 import os
@@ -17,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-from long_running import actions
+from long_running import actions, migration, sqlite_store
 import mq as mq_module
 import pytest
 from conftest import gateway
@@ -890,11 +891,13 @@ class FakeShell(runner_module.Shell):
 def shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeShell:
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    migration.initialize(actions.incidents_dir())
     return FakeShell(tmp_path)
 
 
 @pytest.fixture
 def config(tmp_path: Path, shell: FakeShell) -> Path:
+    migration.initialize(tmp_path / "store")
     briefs = tmp_path / "lfs"
     briefs.mkdir()
     (briefs / "f85c00ba").write_text("Lane brief: rebase onto dev when asked; never touch production.\n")
@@ -955,7 +958,7 @@ def incident(tmp_path: Path, name: str) -> actions.Incident:
 def test_render_decodes_each_incident_once(shell, config, tmp_path, monkeypatch, existing_landing):
     store = actions.Store(tmp_path / "store")
     runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
-    with store.owned(runner_module.RUNNER, 0) as current:
+    with store.transaction(runner_module.RUNNER, generation=0) as current:
         current.facts[runner_module.BINDING] = {"bound": True, "at": actions.stamp(shell.now()), "terminal": "term_root", "run": "run_1", "generation": 3, "via": "config"}
         current.facts[runner_module.DEFERRED] = {"incident": "api-fix", "ids": ["first", "second"]}
         for key in ("first", "second"):
@@ -983,7 +986,7 @@ def test_render_decodes_each_incident_once(shell, config, tmp_path, monkeypatch,
         expected.append("landing policy: whole at new-head (owner ruling)")
     expected += ["finder #42 abcdef123456: queued", "fidelity #42 abcdef123456: queued", f"## {lane} owner {lane} generation 0", f"- job relay [accepted] accepted {at}", "## desk-landing owner desk-landing generation 0"]
     assert view == "\n".join(expected) + "\n"
-    assert sorted(decoded) == sorted([runner_module.RUNNER, lane, runner_module.FINDER, runner_module.FIDELITY, *([runner_module.LANDING] if existing_landing else [])])
+    assert decoded == []
     assert store.path(runner_module.LANDING).is_file()
 
 
@@ -2840,7 +2843,7 @@ def test_a_stopped_pass_still_settles_a_lost_enqueue_from_graphite_status_and_ma
     landing = runner_module.Landing(runner, runner.config.landing)
     landing.accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}}, {"28997": {"ours": True}}, [])
     key = next(iter(store.load("desk-landing").actions.keys() - {"policy:a1b2c3d4e5"}))
-    with store.owned("desk-landing", 0) as live:
+    with store.transaction("desk-landing", generation=0) as live:
         live.start(key, shell.now())
     shell.sleep(16 * 60)
     shell.statuses = "#28997 QUEUED_TO_MERGE aaaa111111 open review APPROVED on dev\n"
@@ -5757,7 +5760,7 @@ def test_landing_state_reads_one_incident_snapshot(shell, config, tmp_path, monk
     landing.ledger_rows = {str(index): {"state": "open", "head": f"{index:040x}", "test_state": "failure"} for index in range(1, count + 1)}
     landing.statuses = {"3": {"queue": runner_module.QUEUED_STATE}} if count >= 3 else {}
     landing.held_now = ["4"] if count >= 4 else []
-    with landing.book.store.owned(runner_module.LANDING, 0) as current:
+    with landing.book.store.transaction(runner_module.LANDING, generation=0) as current:
         for index in range(1, min(count, 2) + 1):
             current.accept(f"blocker:{index}:{index:040x}", "bus", json.dumps({"kind": "blocker", "pr": str(index)}), "owner", shell.now())
         current.accept("sample#overflow-1", "enqueue", "1", "owner", shell.now())
@@ -5777,15 +5780,15 @@ def test_landing_state_reads_one_incident_snapshot(shell, config, tmp_path, monk
     monkeypatch.setattr(Path, "read_text", watched)
     landing.post_state(1.0)
     assert shell.states[-1]["text"] == f"LANDING queued {int(count >= 3)}, waiting 0, held {int(count >= 4)}, refused {min(count, 2)}, in flight 0, overflowed 1 this hour; pass 1s"
-    assert decoded == [runner_module.LANDING]
-    assert len(opened) == 1
+    assert decoded == []
+    assert opened == []
 
 
 @pytest.mark.parametrize("count", [0, 1, 2])
 def test_landing_state_preserves_refusal_target_errors_and_short_circuit(shell, config, tmp_path, count):
     landing = landing_of(shell, config, tmp_path)
     landing.ledger_rows = {str(index): {"state": "open", "head": f"{index:040x}"} for index in range(1, count + 1)}
-    with landing.book.store.owned(runner_module.LANDING, 0) as current:
+    with landing.book.store.transaction(runner_module.LANDING, generation=0) as current:
         current.accept(f"blocker:1:{1:040x}", "bus", json.dumps({"kind": "blocker", "pr": "1"}), "owner", shell.now())
         current.accept("invalid-target", "bus", "{", "owner", shell.now())
     if count == 2:
@@ -5800,7 +5803,7 @@ def test_landing_refusal_gate_keeps_fresh_reads_and_empty_member_errors(shell, c
     landing = landing_of(shell, config, tmp_path)
     rows = {"1": {"head": f"{1:040x}"}}
     assert not landing.refused_at_head({"1"}, rows)
-    with landing.book.store.owned(runner_module.LANDING, 0) as current:
+    with landing.book.store.transaction(runner_module.LANDING, generation=0) as current:
         current.accept(f"blocker:1:{1:040x}", "bus", json.dumps({"kind": "blocker", "pr": "1"}), "owner", shell.now())
         current.accept("invalid-target", "bus", "{", "owner", shell.now())
     assert landing.refused_at_head({"1"}, rows)
@@ -5811,11 +5814,11 @@ def test_landing_refusal_gate_keeps_fresh_reads_and_empty_member_errors(shell, c
 def test_landing_state_reloads_actions_and_clock_on_each_report(shell, config, tmp_path):
     landing = landing_of(shell, config, tmp_path)
     landing.ledger_rows = {"1": {"state": "open", "head": f"{1:040x}"}}
-    with landing.book.store.owned(runner_module.LANDING, 0) as current:
+    with landing.book.store.transaction(runner_module.LANDING, generation=0) as current:
         current.accept("sample#overflow-1", "enqueue", "1", "owner", shell.now())
     landing.post_state(1.0)
     assert "refused 0, in flight 0, overflowed 1 this hour" in shell.states[-1]["text"]
-    with landing.book.store.owned(runner_module.LANDING, 0) as current:
+    with landing.book.store.transaction(runner_module.LANDING, generation=0) as current:
         current.accept(f"blocker:1:{1:040x}", "bus", json.dumps({"kind": "blocker", "pr": "1"}), "owner", shell.now())
     shell.sleep(3601)
     landing.post_state(2.0)
@@ -5968,7 +5971,7 @@ def test_an_enqueue_whose_response_was_lost_settles_from_graphite_status(shell, 
     landing = runner_module.Landing(runner, runner.config.landing)
     landing.accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}}, {"28997": {"ours": True}}, [])
     key = next(iter(store.load("desk-landing").actions.keys() - {"policy:a1b2c3d4e5"}))
-    with store.owned("desk-landing", 0) as live:
+    with store.transaction("desk-landing", generation=0) as live:
         live.start(key, shell.now())
     shell.sleep(16 * 60)
     shell.statuses = "#28997 QUEUED_TO_MERGE aaaa111111 open review APPROVED on dev\n"
@@ -6846,8 +6849,8 @@ def test_a_fix_the_runner_squashed_owes_its_release_after_the_executor_incident_
     store.create(actions.Incident("api-1001", "executor", 1, actions.stamp(shell.clock), {"adopted": {"fix": LANE}, "repair_pr": 36650}))
     landing_pass(shell, config)
     assert len(merges(shell)) == 1
-    path = store.path("api-1001")
-    path.write_text(json.dumps(json.loads(path.read_text()) | {"status": "recovered"}))
+    with store.transaction("api-1001", generation=1) as current:
+        current.status = "recovered"
     shell.sleep(60)
     shell.rows = [shell.rows[0] | {"state": "landed", "landed_sha": INCIDENT_SQUASH, "landed_at": actions.stamp(shell.now())}]
     landing_pass(shell, config)
@@ -7981,7 +7984,7 @@ def test_a_lost_enqueue_graphite_does_not_hold_stays_unverifiable(shell, config,
     runner_module.seed_policy(runner)
     runner_module.Landing(runner, runner.config.landing).accept("29020", ["28997"], {"28997": {"sha": "aaaa111111"}}, {"28997": {"ours": True}}, [])
     key = next(key for key in store.load("desk-landing").actions if key.startswith("enqueue:"))
-    with store.owned("desk-landing", 0) as live:
+    with store.transaction("desk-landing", generation=0) as live:
         live.start(key, shell.now())
     shell.sleep(16 * 60)
     shell.statuses = "#28997 READY_TO_MERGE aaaa111111 open review APPROVED on dev\n"
@@ -8818,6 +8821,43 @@ def test_handoff_with_no_heartbeat_has_no_runner_to_stop_and_starts_one(shell, c
     assert cli(shell, config, "handoff", "--desk", desk) == 0
     assert not runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store")).stop_marker().exists()
     assert shell.successors == [successor(config, tmp_path, desk)]
+
+
+@pytest.mark.parametrize("desk", ["orca", "landing"])
+def test_quiesce_waits_for_the_lifetime_lock_without_starting_a_successor(shell, config, tmp_path, monkeypatch, desk):
+    runner, held = live_runner(shell, config, tmp_path, desk)
+    seen = []
+
+    def exits(seconds):
+        seen.append(runner.stop_marker().read_text().strip())
+        held.close()
+
+    monkeypatch.setattr(shell, "sleep", exits)
+    assert cli(shell, config, "quiesce", "--desk", desk) == 0
+    assert seen == [str(os.getpid())]
+    assert shell.successors == []
+    assert not runner.stop_marker().exists()
+
+
+def test_quiesce_does_not_withdraw_a_stop_for_an_in_place_reexec(shell, config, tmp_path, monkeypatch):
+    runner, held = live_runner(shell, config, tmp_path, "orca")
+    sleep = shell.sleep
+
+    def reexecutes(seconds):
+        sleep(seconds)
+        runner.alive_posted.clear()
+        runner.post_alive("orca")
+
+    monkeypatch.setattr(shell, "sleep", reexecutes)
+    with held:
+        assert cli(shell, config, "quiesce", "--desk", "orca") == 1
+    assert runner.stop_marker().exists()
+    assert shell.successors == []
+
+
+def test_quiesce_with_no_runner_does_not_start_a_successor(shell, config):
+    assert cli(shell, config, "quiesce", "--desk", "orca") == 0
+    assert shell.successors == []
 
 
 def test_a_desk_posts_its_alive_record_when_it_starts_before_its_first_pass_ends(shell, config, tmp_path):
@@ -12937,6 +12977,7 @@ def test_with_a_desk_lane_a_fork_deferred_batch_skips_root(shell, config, tmp_pa
 
 
 def test_book_edit_decodes_current_incident_once(shell, tmp_path, monkeypatch):
+    migration.initialize(tmp_path / "store")
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident("book", "owner", 3, actions.stamp(shell.now()), {"cursor": 7}))
     book = runner_module.Book(store, shell)
@@ -12949,12 +12990,13 @@ def test_book_edit_decodes_current_incident_once(shell, tmp_path, monkeypatch):
 
     monkeypatch.setattr(actions.Incident, "load", staticmethod(counted))
     assert book.edit("book", lambda incident: incident.facts.pop("cursor")) == 7
-    assert decoded == ["book"]
+    assert decoded == []
     assert store.load("book").facts == {}
 
 
 @pytest.mark.parametrize("edit", ["pop", "setdefault", "update", "nested"])
 def test_book_noop_preserves_incident_file(shell, tmp_path, monkeypatch, edit):
+    migration.initialize(tmp_path / "store")
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident("book", "owner", 3, actions.stamp(shell.now()), {"cursor": 7, "nested": {"x": [1]}}))
     path = store.path("book")
@@ -12982,6 +13024,7 @@ def test_book_noop_preserves_incident_file(shell, tmp_path, monkeypatch, edit):
 
 
 def test_book_edit_retries_callback_stale_generation_without_persisting_partial_change(shell, tmp_path):
+    migration.initialize(tmp_path / "store")
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident("book", "owner", 3, actions.stamp(shell.now()), {"cursor": 7}))
     attempts = []
@@ -12999,6 +13042,7 @@ def test_book_edit_retries_callback_stale_generation_without_persisting_partial_
 
 
 def test_book_edit_failure_preserves_bytes_and_missing_diagnostic(shell, tmp_path):
+    migration.initialize(tmp_path / "store")
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident("book", "owner", 3, actions.stamp(shell.now()), {"cursor": 7}))
     path = store.path("book")
@@ -13018,6 +13062,7 @@ def test_book_edit_failure_preserves_bytes_and_missing_diagnostic(shell, tmp_pat
 
 
 def test_book_edit_uses_current_owner_while_explicit_generation_still_refuses(shell, tmp_path):
+    migration.initialize(tmp_path / "store")
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident("book", "old", 3, actions.stamp(shell.now()), {}))
     store.transfer("book", 3, "new")
@@ -13025,20 +13070,21 @@ def test_book_edit_uses_current_owner_while_explicit_generation_still_refuses(sh
     book = runner_module.Book(store, shell)
     assert book.edit("book", lambda incident: (incident.owner, incident.owner_generation)) == ("new", 4)
     with pytest.raises(actions.StaleGeneration):
-        with store.owned("book", 3):
+        with store.transaction("book", generation=3):
             pytest.fail("stale owner entered")
     assert not book.as_owner("book", "old", lambda incident: incident.facts.update({"old": True}))
     assert store.load("book").facts == {}
 
 
 def test_book_edit_holds_the_incident_lock_through_the_callback(shell, tmp_path):
+    migration.initialize(tmp_path / "store")
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident("book", "owner", 3, actions.stamp(shell.now()), {}))
 
     def change(incident):
-        with open(store.root / ".book.lock", "w") as lock:
+        with open(store.data_root / ".book.lock", "w") as lock:
             with pytest.raises(BlockingIOError):
-                actions.fcntl.flock(lock, actions.fcntl.LOCK_EX | actions.fcntl.LOCK_NB)
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         incident.facts["locked"] = True
 
     runner_module.Book(store, shell).edit("book", change)
@@ -13046,40 +13092,26 @@ def test_book_edit_holds_the_incident_lock_through_the_callback(shell, tmp_path)
 
 
 def test_owned_noop_preserves_bytes_and_nested_mutation_is_persisted(shell, tmp_path):
+    migration.initialize(tmp_path / "store")
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident("book", "owner", 3, actions.stamp(shell.now()), {"nested": {"x": [1]}}))
     path = store.path("book")
     before, info = path.read_bytes(), path.stat()
-    with store.owned("book", 3) as incident:
+    with store.transaction("book", generation=3) as incident:
         incident.facts["nested"]["x"] = [1]
     assert path.read_bytes() == before
     assert (path.stat().st_ino, path.stat().st_mtime_ns) == (info.st_ino, info.st_mtime_ns)
-    with store.owned("book", 3) as incident:
+    with store.transaction("book", generation=3) as incident:
         incident.facts["nested"]["x"].append(2)
     assert store.load("book").facts == {"nested": {"x": [1, 2]}}
-    assert path.stat().st_ino != info.st_ino
-
-
-def test_book_noop_canonicalizes_legacy_format_once(shell, tmp_path):
-    store = actions.Store(tmp_path / "store")
-    store.create(actions.Incident("book", "owner", 3, actions.stamp(shell.now()), {}))
-    path = store.path("book")
-    record = json.loads(path.read_text())
-    path.write_text(json.dumps(record))
-    book = runner_module.Book(store, shell)
-    book.edit("book", lambda incident: None)
-    expected = json.dumps(record, indent=2) + "\n"
-    assert path.read_text() == expected
-    info = path.stat()
-    book.edit("book", lambda incident: None)
-    assert path.read_text() == expected
-    assert (path.stat().st_ino, path.stat().st_mtime_ns) == (info.st_ino, info.st_mtime_ns)
+    assert path.stat().st_ino == info.st_ino
 
 
 def test_inputs_noop_still_advances_input_revision(shell, tmp_path):
+    migration.initialize(tmp_path / "store")
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident("book", "owner", 3, actions.stamp(shell.now()), {}))
-    with store.inputs("book"):
+    with store.transaction("book", inputs=True):
         pass
     assert store.load("book").input_revision == 2
 
@@ -13546,31 +13578,30 @@ def test_native_adapter_does_not_repair_graphite_caps():
 
 @pytest.mark.parametrize("history", [32, 10_000])
 @pytest.mark.parametrize("heartbeats", [32, 100])
-def test_heartbeat_page_writes_the_full_runner_history_only_once(shell, config, tmp_path, monkeypatch, history, heartbeats):
+def test_heartbeat_page_updates_only_the_runner_cursor_once(shell, config, tmp_path, monkeypatch, history, heartbeats):
     store = actions.Store(tmp_path / "store")
     runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
     assert runner.check()
-    with store.owned(runner_module.RUNNER, 0) as current:
+    with store.transaction(runner_module.RUNNER, generation=0) as current:
         for index in range(history):
             key = f"history:{index}"
             current.accept(key, "history", "old", None, shell.now())
             current.verify(key, {"done": True})
     for _ in range(heartbeats):
         shell.receive({"type": "heartbeat"})
-    written, write = [], Path.write_text
+    written = []
+    flush = sqlite_store.Transaction.flush
 
-    def counted(path, text, *args, **kwargs):
-        result = write(path, text, *args, **kwargs)
-        if path.parent == store.root and path.name.startswith(f".{runner_module.RUNNER}.json."):
-            written.append(len(text.encode()))
-        return result
+    def counted(transaction):
+        flush(transaction)
+        if transaction.incident_id == runner_module.RUNNER and transaction._connection.total_changes:
+            written.append(transaction._connection.total_changes)
 
-    monkeypatch.setattr(Path, "write_text", counted)
+    monkeypatch.setattr(sqlite_store.Transaction, "flush", counted)
     assert runner.check()
-    assert store.load(runner_module.RUNNER).facts["inbox:run_1"] == heartbeats
-    print(json.dumps({"history": history, "heartbeats": heartbeats, "runner_writes": len(written), "runner_payload_bytes_written": sum(written)}))
-    assert len(written) == 1
-    assert sum(written) == store.path(runner_module.RUNNER).stat().st_size
+    assert store.fact(runner_module.RUNNER, "inbox:run_1") == heartbeats
+    print(json.dumps({"history": history, "heartbeats": heartbeats, "runner_changed_rows": written}))
+    assert written == [1]
 
 
 def test_pending_heartbeat_cursor_is_durable_before_a_nonheartbeat_effect(shell, config, tmp_path, monkeypatch):
@@ -13617,3 +13648,82 @@ def test_interrupted_heartbeat_replay_keeps_the_original_lease_timestamp(shell, 
     assert runner.check()
     assert store.load(container).facts[runner_module.LANE_HEARTBEAT] == beat["created_at"]
     assert store.load(runner_module.RUNNER).facts["inbox:run_1"] == 2
+
+
+def test_quiesce_is_available_before_store_initialization(shell, config, monkeypatch):
+    def reject_store(*args):
+        pytest.fail("quiesce opened an action store before the legacy writer stopped")
+
+    monkeypatch.setattr(runner_module.actions, "Store", reject_store)
+    assert cli(shell, config, "quiesce", "--desk", "orca") == 0
+    assert shell.successors == []
+
+
+def test_cutover_quiescence_holds_the_desk_lifetime_lock_until_activation_finishes(shell, config):
+    control = runner_module.DeskControl(config.resolve(), shell)
+    with control.quiesced("orca", runner_module.HANDOFF_WAIT, runner_module.WAKE_SECONDS):
+        assert control.holder("orca") == os.getpid()
+        with control.lock("orca") as holder:
+            assert holder == os.getpid()
+    assert control.holder("orca") is None
+    assert shell.successors == []
+
+
+@pytest.mark.parametrize("history", [32, 10_000])
+def test_release_and_cut_polls_decode_only_active_fact_entries(shell, config, tmp_path, monkeypatch, history):
+    store = actions.Store(tmp_path / "store")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
+    with store.transaction(runner_module.RUNNER) as current:
+        current.facts[runner_module.RELEASE_BUILDS] = {str(index): {"done": True} for index in range(history)}
+        current.facts[runner_module.RELEASE_BUILDS]["active"] = {"done": False, "lane": "release", "release": ""}
+        current.facts[runner_module.CUT_CLOCKS] = {str(index): {"ended": "closed"} for index in range(history)}
+        current.facts[runner_module.CUT_CLOCKS]["active"] = {"ended": ""}
+        current.facts[runner_module.CUT_CLOCKS]["silent"] = {"ended": "silent"}
+    runner.config.landing["applying"] = {"build": "build", "step": "step", "components": []}
+    decoded, pressed, escalated = [], [], []
+    loads = json.loads
+
+    def counted(value, *args, **kwargs):
+        decoded.append(len(value.encode()))
+        return loads(value, *args, **kwargs)
+
+    monkeypatch.setattr(json, "loads", counted)
+    monkeypatch.setattr(store, "load", lambda *_: pytest.fail("poll loaded a full incident"))
+    monkeypatch.setattr(runner_module, "release_build_argv", lambda *_: None)
+    monkeypatch.setattr(runner, "escalate", lambda *args: escalated.append(args))
+    monkeypatch.setattr(runner, "open_cut_clocks", lambda: None)
+    monkeypatch.setattr(runner, "press_cut", lambda key, clock: pressed.append((key, clock)))
+    runner.watch_applies()
+    runner.cut_clock()
+    assert len(escalated) == 1 and escalated[0][2] == "release"
+    assert pressed == [("active", {"ended": ""}), ("silent", {"ended": "silent"})]
+    assert sum(decoded) < 128
+    assert store.fact_path(runner_module.RUNNER, [runner_module.RELEASE_BUILDS, "active", "done"]) is True
+    print(json.dumps({"history": history, "poll_decoded_bytes": sum(decoded)}))
+
+
+@pytest.mark.parametrize("history", [32, 10_000])
+def test_unchanged_actual_overflow_pass_changes_no_sql_rows(shell, config, tmp_path, monkeypatch, history):
+    overflow = landing_of(shell, config, tmp_path)
+    with overflow.book.store.transaction(runner_module.LANDING) as current:
+        for index in range(history):
+            key = f"history:{index}"
+            current.accept(key, "history", "old", None, shell.now())
+            current.verify(key, {"done": True})
+        current.facts[runner_module.OVERFLOW_SEEN] = {"selected": ["head", actions.stamp(shell.now())]}
+    monkeypatch.setattr(overflow, "quota_low", lambda: False)
+    monkeypatch.setattr(overflow, "rows", lambda: {"selected": {"head": "head"}})
+    monkeypatch.setattr(overflow, "checks_paused", lambda: False)
+    monkeypatch.setattr(overflow, "queue_states", lambda: {})
+    monkeypatch.setattr(overflow, "held", lambda _: [])
+    monkeypatch.setattr(overflow, "overflow_landable", lambda *_: {"selected"})
+    changed = []
+    flush = sqlite_store.Transaction.flush
+
+    def written(transaction):
+        flush(transaction)
+        changed.append(transaction._connection.total_changes)
+
+    monkeypatch.setattr(sqlite_store.Transaction, "flush", written)
+    overflow.overflow()
+    assert changed == [0]
