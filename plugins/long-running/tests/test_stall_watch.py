@@ -161,7 +161,7 @@ def watch(shell: FakeShell, config: Path) -> None:
 
 
 def test_a_head_no_finder_names_posts_one_urgent_record_to_root_and_its_lane_until_a_review_clears_it(config):
-    shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35), head(3, "102", OTHER, 20), fidelity(4, "102", OTHER, 15)], [row("101", test_state="pending"), row("102", OTHER, test_state="pending")])
+    shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35), head(3, "102", OTHER, 9), fidelity(4, "102", OTHER, 8)], [row("101", test_state="pending"), row("102", OTHER, test_state="pending")])
 
     watch(shell, config)
     watch(shell, config)
@@ -426,7 +426,7 @@ def test_a_tap_at_an_earlier_head_asks_sonnet_once_whether_the_new_head_replays_
 
     assert len(shell.prompts) == 1
     assert restack in shell.prompts[0]
-    assert shell.topics() == ["carry:101:abc1234"]
+    assert [topic for topic in shell.topics() if topic.startswith("carry:")] == ["carry:101:abc1234"]
     assert shell.post("carry:101:abc1234")["to"] == "fidelity-desk@d1"
     assert "post `fidelity: ok abc1234 carried from 0123456`" in shell.post("carry:101:abc1234")["text"]
 
@@ -482,7 +482,7 @@ def test_one_sonnet_call_judges_every_quiet_lane_and_only_a_kept_promise_or_a_na
     task(tmp_path, 7, "lane-g", minutes_ago=5)
     records = [
         record(1, "lane-a", "state", "pushed the fix", 40),
-        record(2, "lane-b", "state", "waiting on CI build 123, about an hour", 40),
+        record(2, "lane-b", "state", "waiting on CI build 123, about an hour", 35),
         record(3, "lane-c", "state", "next state by 12:50 PM", 20),
         record(4, "lane-e-2", "state", "rebasing now", 2),
         record(5, "lane-f", "state", "done earlier", 300),
@@ -496,7 +496,7 @@ def test_one_sonnet_call_judges_every_quiet_lane_and_only_a_kept_promise_or_a_na
     assert len(shell.prompts) == 1
     assert sorted(json.loads(shell.prompts[0].split("Questions:\n", 1)[1]), key=lambda question: question["lane"]) == [
         {"kind": "silence", "lane": "lane-a", "last_at": stamp(40), "minutes_silent": 40, "last_record": "pushed the fix", "id": "lane:lane-a:1"},
-        {"kind": "silence", "lane": "lane-b", "last_at": stamp(40), "minutes_silent": 40, "last_record": "waiting on CI build 123, about an hour", "id": "lane:lane-b:2"},
+        {"kind": "silence", "lane": "lane-b", "last_at": stamp(35), "minutes_silent": 35, "last_record": "waiting on CI build 123, about an hour", "id": "lane:lane-b:2"},
         {"kind": "silence", "lane": "lane-c", "last_at": stamp(20), "minutes_silent": 20, "last_record": "next state by 12:50 PM", "id": "lane:lane-c:3"},
     ]
     assert sorted(shell.topics()) == ["lane:lane-a", "lane:lane-c", "lane:lane-d"]
@@ -1202,12 +1202,12 @@ def test_no_successor_is_asked_for_while_the_lanes_handoff_already_posts(config)
     ("landed_ago", "after", "topics"),
     [
         (31, [], ["gate:p8a-step7-2:43736:0"]),
-        (29, [], []),
+        (9, [], []),
         (91, [], ["gate:p8a-step7-2:43736:1"]),
         (31, [record(4, "p8a-step7-3", "opened", "OPENED #45100 head 1234abc: parts 2 and 3", 5, "45100")], []),
         (31, [record(4, "p8a-step7-2", "head", "HEAD #44000 1234abc", 40, "44000")], ["gate:p8a-step7-2:43736:0"]),
     ],
-    ids=["landed-31-min-ago", "inside-30-min", "an-hour-later", "successor-opened", "head-before-the-landing"],
+    ids=["landed-31-min-ago", "inside-10-min", "an-hour-later", "successor-opened", "head-before-the-landing"],
 )
 def test_unopened_work_that_waits_on_a_landed_pr_stalls_to_its_live_lane_hourly(config, landed_ago, after, topics):
     said = record(1, "p8a-step7-2", "state", "p8a-step7-2: parts 2 and 3 wait only on #43736; I open both when #43736 lands", 120)
@@ -1351,3 +1351,22 @@ def test_reds_with_no_live_red_sweep_lane_post_one_blocker_to_root_until_a_red_s
     shell.records.append(record(1, "red-sweep-2", "state", "red-sweep-2 started", 0))
     watch(shell, config)
     assert "sweep:red-sweep" not in opened(config) and len(shell.posts) == 2
+
+
+@pytest.mark.parametrize(("minutes", "stalls"), [(9, False), (11, True)], ids=["inside-10-min", "past-10-min"])
+def test_a_finder_fidelity_lane_or_gate_stall_posts_ten_minutes_on(config, tmp_path, minutes, stalls):
+    """Owner, prompt/1026-190849: "if we've truly been stuck for 10 mins then go debug why" (narrow-reading-sweep-1 #211573); finder, fidelity, lane and gate stalls waited 30."""
+    watch(finderless := FakeShell([head(1, "101", HEAD, minutes), fidelity(2, "101", HEAD, minutes - 1)], [row("101", test_state="pending")]), config)
+    watch(ungraded := FakeShell([head(1, "102", OTHER, minutes), finder(2, "102", OTHER, minutes - 1)], [row("102", OTHER, test_state="pending")]), config)
+    landed = FakeShell([record(1, "p8a-step7-2", "state", "p8a-step7-2: parts 2 and 3 wait only on #43736; I open both when #43736 lands", 120), record(2, "desk-runner", "landed", "LANDED #43736 as 70ad7da45d: merged into dev", minutes, "43736")], [])
+    watch(landed, config)
+    merge_mode(config, "ask")
+    task(tmp_path, 1, "api-lane", minutes_ago=200)
+    quiet = FakeShell([*graded(1, "103", HEAD, 150), record(4, "root", "decide", "api-lane: rebase #103 on dev", minutes, to=["api-lane@d1"])], [row("103")])
+    quiet.doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": 103, "head": HEAD[:7]}]}]}]}
+    quiet.answer = lambda question: {"explained": False}
+    watch(quiet, config)
+    assert ("finder:101:abc1234" in finderless.topics()) is stalls
+    assert ("fidelity:102:fedcba9" in ungraded.topics()) is stalls
+    assert ("gate:p8a-step7-2:43736:0" in landed.topics()) is stalls
+    assert ("lane:api-lane" in quiet.topics()) is stalls
