@@ -265,7 +265,7 @@ TEST_DEFINITION = re.compile(
 )
 FINDER = re.compile(r"^finder: (?P<verdict>\S+) (?P<head>[0-9a-f]{7,40})\b")
 READBACK_GRADE = re.compile(r"^readback: (?P<verdict>ok|missing) (?:[0-9a-f]{7,40} )?(?P<lane>[^\s.,;:]+)[.,;:]?(?: (?P<rest>.*))?$", re.DOTALL)
-READBACK_SAID = re.compile(r"^read-back (?P<lane>\S+): (?P<verdict>ok|missing)\b[.:,;]?(?:\s+(?P<rest>.*))?$", re.DOTALL)
+READBACK_SAID = re.compile(r"^(?:contract )?read-back (?:#\d+ \()?(?P<lane>[^\s:,()]+)[^:\n]*: (?P<verdict>ok|missing)\b[.:,;]?(?:\s+(?P<rest>.*))?$", re.DOTALL)
 READBACK_KINDS = ("review", "answer")
 READBACK_FLAGS = ("--kind", "review", "--kind", "answer")
 NARROWING = re.compile(r"\b(?:per|for (?:each|every))[- ](?P<noun>[a-z][a-z-]*)|\b(?P<word>only|except|unless|excluding)\b", re.IGNORECASE)
