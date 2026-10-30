@@ -1890,9 +1890,9 @@ class Runner:
     def pass_wait(self) -> float:
         return min(PASS_SECONDS * 2**self.unreachable_passes, UNREACHABLE_WAIT.total_seconds())
 
-    def cci_post(self, kind: str, text: str, to: str, topic: str, key: str, message: str = "", pr: str = "", record_id: str = "", flags: list[str] | None = None, drive: str = "") -> Done:
+    def cci_post(self, kind: str, text: str, to: str, topic: str, key: str, message: str = "", pr: str = "", record_id: str = "", flags: list[str] | None = None, drive: str = "", lane: str = RUNNER) -> Done:
         """Post one cci record, on this drive unless `drive` names another; a body over cci's text limit, or the whole Orca message it relays, goes to a receipts file named by `key` and rides as its path. With `record_id`, cci stores the record once and a repost returns the stored one."""
-        argv = ["cci", "post", "--drive", drive or self.config.drive, "--lane", RUNNER, "--kind", kind, "--to", to, "--topic", topic, *(flags or [])]
+        argv = ["cci", "post", "--drive", drive or self.config.drive, "--lane", lane, "--kind", kind, "--to", to, "--topic", topic, *(flags or [])]
         if pr:
             argv += ["--pr", pr]
         if record_id:
@@ -1987,6 +1987,10 @@ class Runner:
         beat = {"pid": os.getpid(), "version": RUNNING_VERSION, "config": str(self.config.source), "terminal": self.shell.env("ORCA_TERMINAL_HANDLE"), "restart": self.restart_command(desk), "flight": flight[0] if flight else f"{desk} pass" if desk in self.passing else ""}
         attrs = [arg for name, value in beat.items() for arg in ("--attr", f"{name}={value}")]
         self.cci_post("state", f"{desk} alive {self.now().astimezone(PACIFIC).strftime('%-I:%M %p')} pass {doing}", self.watchdog, desk, f"alive:{desk}", flags=attrs)
+
+    def register_lane(self, lane: str) -> None:
+        """Post one record as `lane` at start, so cci addresses a record `--to <lane>` on this drive although no session reads that lane (root #226844)."""
+        self.cci_post("note", f"{lane} reads its orders through desk-runner pid {os.getpid()} on {RUNNING_VERSION}", self.watchdog, f"alive:{lane}", f"register:{lane}", lane=lane)
 
     def stall_watch(self) -> None:
         stall = json.loads(self.config.source.read_text()).get("stall")
@@ -8829,6 +8833,7 @@ def run_orca(runner: Runner, once: bool) -> int:
         runner.escalate(f"briefs-log:{runner.config.briefs_log or 'unset'}", "BRIEFS-LOG-FAILED", "runner", f"the briefs log did not resolve at start: {failure}; each brief attach retries it")
     swept = rotated = datetime.min.replace(tzinfo=timezone.utc)
     runner.keep_alive("orca")
+    runner.register_lane(ORCA_DESK)
     if not once:
         runner.keep_finding()
         runner.keep_probing()
