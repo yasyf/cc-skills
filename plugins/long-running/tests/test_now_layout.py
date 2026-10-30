@@ -221,7 +221,7 @@ def test_every_blocked_milestone_and_blocker_says_what_unblocks_it(page):
     now(page)
     blocked = page.locator(".nw-spine .sp:is(.ms-paused, .ms-broken)")
     assert blocked.count() >= 1
-    assert [t[:12] for t in blocked.locator(".unb").all_text_contents()] == ["Unblocking: "] * blocked.count()
+    assert [sp.locator(".sf dt").all_text_contents().count("Next") for sp in blocked.all()] == [1] * blocked.count()
     rows = page.locator(".nw-slot .pan.focus .chain .hc:not(.you)")
     assert [t[:12] for t in rows.locator(".unb").all_inner_texts()] == ["Unblocking: "] * rows.count()
 
@@ -231,19 +231,22 @@ def test_the_milestones_show_the_state_computed_from_records_not_a_stale_summary
     computed = json.loads(MODEL.read_text())["milestone_state"]
     spine = page.locator(".nw-spine .sp")
     assert [re.search(r"\bms-(\w+)", c)[1] for c in spine.evaluate_all("(els) => els.map((e) => e.className)")] == [m["state"] for m in computed]
-    assert page.locator(".nw-spine .sp .st").all_inner_texts() == [m["label"] for m in computed]
-    assert page.locator(".nw-spine .sp .unb").all_text_contents() == [f"Unblocking: {m['unblocking']}" for m in computed if m["blockers"]]
+    assert page.locator(".nw-spine .sp .st").evaluate_all("(els) => els.map((e) => e.firstChild.textContent)") == [m["label"] for m in computed]
+    fields = page.locator(".nw-spine .sp").evaluate_all("(els) => els.map((e) => Object.fromEntries([...e.querySelectorAll('.sf dt')].map((dt) => [dt.textContent, dt.nextElementSibling.textContent])))")
+    assert [f.get("Next", "") for f in fields] == [m["next"] if m["state"] != "live" else "" for m in computed]
 
 
-def test_a_blocked_milestone_says_its_state_its_blocker_and_its_unblocking_once_each(page):
+def test_a_blocked_milestone_is_a_list_of_short_fields_not_a_paragraph(page):
     now(page)
     model = json.loads(MODEL.read_text())
     i, held = next((i, m) for i, m in enumerate(model["milestone_state"]) if m["blockers"])
-    block = page.locator(f'.nw-spine .sp[data-i="{i}"]').text_content()
-    assert block.count(held["label"]) == 1
-    assert block.count(held["waits"]) == 1
-    assert block.count("Unblocking:") == 1 and held["unblocking"] in block
-    assert re.search(r"for \d+ (min|h|hours), since", block)
+    sp = page.locator(f'.nw-spine .sp[data-i="{i}"]')
+    assert re.fullmatch(rf"{held['label']} for \d+ (min|h|hours).*", sp.locator(".st").text_content())
+    fields = dict(zip(sp.locator(".sf dt").all_text_contents(), sp.locator(".sf dd").all_text_contents()))
+    assert list(fields) == ["Blocked by", "Next", "Since", "Why it matters"]
+    assert (fields["Blocked by"], fields["Next"], fields["Why it matters"]) == (held["waits"], held["next"], held["why"])
+    assert all(len(value.split()) <= 12 for value in fields.values())
+    assert sp.locator(".unb, .why").count() == 0
     nodes = next(p for p in model["brief"]["paths"] if p["milestone"] == i)["nodes"]
     shown = page.locator(f'.nw-slot .pan[data-i="{i}"] .chain .unb').all_text_contents()
     assert shown == [f"Unblocking: {n['how']}" for n in nodes if n["state"] != "you"]
@@ -366,10 +369,10 @@ def test_the_hovered_milestone_or_else_the_current_one_is_wide_with_its_details_
     assert widths[cur] > 2 * max(w for i, w in enumerate(widths) if i != cur)
     i = next(i for i, m in enumerate(json.loads(MODEL.read_text())["milestone_state"]) if m["blockers"])
     blocked = page.locator(f'.nw-spine .sp[data-i="{i}"]')
-    assert not blocked.locator(".why").is_visible()
+    assert not blocked.locator(".sf").is_visible()
     rest_on(page, f'.nw-spine .sp[data-i="{i}"] .ms')
     page.wait_for_timeout(300)
-    assert blocked.locator(".when").is_visible() and blocked.locator(".why").is_visible() and blocked.locator(".unb").is_visible()
+    assert blocked.locator(".when").is_visible() and blocked.locator(".sf").is_visible()
     widths = spine_widths(page)
     assert widths[i] > 2 * max(w for j, w in enumerate(widths) if j != i)
     page.mouse.move(5, 5, steps=4)

@@ -27,10 +27,12 @@ function sinceClock(label) {
   if (at > Date.now()) at.setDate(at.getDate() - 1);
   return at.toISOString();
 }
-function blockedFor(iso) {
+function spanFor(iso) {
   const m = minutesSince(iso);
-  const span = m < 60 ? `${m} min` : m < 600 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}` : `${Math.round(m / 60)} hours`;
-  return `for ${span}, since ${clock(iso)}`;
+  return `for ${m < 60 ? `${m} min` : m < 600 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}` : `${Math.round(m / 60)} hours`}`;
+}
+function blockedFor(iso) {
+  return `${spanFor(iso)}, since ${clock(iso)}`;
 }
 function agoWords(iso) {
   const m = minutesSince(iso);

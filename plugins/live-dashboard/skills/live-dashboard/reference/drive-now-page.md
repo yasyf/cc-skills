@@ -37,7 +37,7 @@ From top to bottom:
 
 | Key | What it changes |
 |---|---|
-| `milestones` | The named stops in the progress view, in order. Name each by product and outcome, never by a release code. `release` ties a stop to an entry of `now.releases` in the progress desk's `steps.json`, so the model reads that release's state and blocker. |
+| `milestones` | The named stops in the progress view, in order. Name each by product and outcome, never by a release code. `release` is the code its blocker records name, `changes` or `changes_file` lists its pull requests, and `live_match` and `testing_match` find its release records; [Milestone steps](#milestone-steps) says how the stop's state is computed. |
 | `milestones_label` | The line above the stops, such as Milestones to everyone on Iris. |
 | `views` | Which version of each piece shows by default. Any of them can be flipped for one visit with a URL parameter, such as `?blockers=cards`. |
 | `status_now` | A JSON file `{at, paragraphs: [{label, text}]}` the progress desk rewrites, such as one paragraph for the main work and one for a side project. When it exists, its paragraphs replace the curator's headline, so the owner's standing status question is answered where he looks. |
@@ -117,6 +117,36 @@ The digest holds:
 
 To give the blocker chart another source, add it to `digest()` with a key that says what
 it is. The brief names what blocks which milestone, and the page draws it.
+
+## Milestone steps
+
+`dashboard/app/milestones.py` computes each stop's state from records, and the stop shows
+it as fields, never prose:
+
+| Field | What it holds |
+|---|---|
+| State | One word, Blocked, Building, Publishing, Testing, Releasing, Ready, Later or Live, with how long it has held, such as "for 2 h 5 min" |
+| Blocked by | The thing in the way, such as "First production release needs your pick" |
+| Next | Who acts and the action, such as "Release worker: starts it within 15 min" |
+| Since | The time the state began, with the last change and its time |
+| Why it matters | What waits behind it, shown only on a stop blocked over an hour |
+
+An open `blocker` record with a `milestone` attribute blocks that stop. The progress desk
+and the curator write its fields at twelve words or fewer each, as fragments:
+
+```sh
+cci post --kind blocker --text 'First production release needs your pick' \
+  --attr milestone=R4 --attr owner=release-5 --attr since=2026-10-30T04:04:00Z \
+  --attr 'next=You: pick on the board' --attr 'changed=card posted' \
+  --attr 'why=The Mac app waits on this release'
+```
+
+The text is the thing itself, never a sentence about it. `next` leads with who acts:
+you, a worker named by its job, or the release. `by` adds a promised time to it.
+`changed` is what changed last; reposting the blocker with a new `changed` updates
+it, and `since` keeps the time the problem started. Once the owner has picked, the
+blocker is resolved or reposted with what happens to his pick; it never says he
+answers the card.
 
 The curator runs when a record that can change an answer arrives, when `steps.json`
 changes, or when the board changes. One run is in flight at a time, at most one starts
