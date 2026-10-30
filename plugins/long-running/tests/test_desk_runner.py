@@ -9418,7 +9418,7 @@ def test_a_launch_line_whose_brief_has_no_scale_line_is_refused_unless_it_is_an_
 
 def test_a_successor_launched_on_its_predecessors_brief_owes_no_scale_line(shell, config, tmp_path):
     brief = tmp_path / "fix-brief.md"
-    brief.write_text(f"brief\n\nRegister slice: lane={LANE} step=1.9\n")
+    brief.write_text(f"ccx: place=local\nbrief\n\nRegister slice: lane={LANE} step=1.9\n")
     shell.launch_line = f"{LANE}-2 ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     orca_pass(shell, config)
     desk_orders(shell, f"R43 orca-desk: launch {LANE}-2 sol xhigh brief={brief}")
