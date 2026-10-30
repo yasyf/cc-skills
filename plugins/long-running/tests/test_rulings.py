@@ -986,7 +986,7 @@ class RefusingPostShell(RegisterShell):
 
 
 def test_a_repeat_whose_sweep_post_cci_refuses_warns_and_finishes_the_classify(
-    home: Path, package: Path, state: Path, tmp_path: Path, capsys
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
 ) -> None:
     """register-seed-6 #203695: cci refused the sweep post to fidelity desks that had not started, and the CalledProcessError aborted classify mid-batch."""
     fidelity_desks(state)
