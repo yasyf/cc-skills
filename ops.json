@@ -1,1 +1,1 @@
-{"v":1,"lamport":6,"ops":[{"kind":"add_comment","body":"Feature owner confirmed PR561 merged at b594bc4391c9aaa411cf6df9e65dce24cd084874 and actual feature tag v0.87.40. Official release artifacts/workflow still in progress; not yet installed. Prepared live native probe remains gated on owner-confirmed official installation of that exact feature version."}]}
+{"v":1,"lamport":7,"ops":[{"kind":"renew"}]}
