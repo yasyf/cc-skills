@@ -16,6 +16,7 @@ from cc_transcript.models import TranscriptEvent
 
 from captain_hook import BaseHookEvent
 from captain_hook.tasks import Task, Tasks
+from captain_hook.util import reqenv
 
 __capt_hook_skip__ = True
 
@@ -74,15 +75,18 @@ def subagents(evt: BaseHookEvent) -> list[Subagent]:
     ]
 
 
-def nearest_name(evt: BaseHookEvent, skip: Callable[[str | None], bool] = lambda _: False) -> str | None:
+def drive_lane(evt: BaseHookEvent, skip: Callable[[str | None], bool] = lambda _: False) -> str | None:
+    """The drive lane `evt` runs in: an Orca lane session's own lane, which owns every worker it spawns, else the outermost named agent above it, so a lane's named worker acts as its lane."""
+    if lane := reqenv.getenv("CLAUDE_LONG_RUNNING_LANE"):
+        return lane
     lanes = Path(evt._raw["transcript_path"]).with_suffix("") / "subagents"
-    agent_id = evt.agent_id
+    agent_id, outermost = evt.agent_id, None
     while agent_id and (meta := lanes / f"agent-{agent_id}.meta.json").is_file():
         fields = json.loads(meta.read_text())
         if (name := fields.get("name")) and not skip(fields.get("agentType")):
-            return name
+            outermost = name
         agent_id = fields.get("parentAgentId")
-    return None
+    return outermost
 
 
 def team_dir(evt: BaseHookEvent, team: str) -> Path:

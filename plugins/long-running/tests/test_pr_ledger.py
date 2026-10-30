@@ -53,7 +53,8 @@ def event(tmp_path: Path, agent_id: str | None = None, command: str = "ccx vcs s
     return PostToolUseEvent(_raw=raw | ({"agent_id": agent_id} if agent_id else {}), ctx=build_context(None, lane, tmp_path, tmp_path))
 
 
-def test_a_named_subagent_records_under_its_own_name(tmp_path):
+def test_a_named_subagent_records_under_its_own_name(tmp_path, monkeypatch):
+    monkeypatch.delenv("CLAUDE_LONG_RUNNING_LANE", raising=False)
     meta = tmp_path / SESSION / "subagents" / "agent-adeploy-1a2b.meta.json"
     meta.parent.mkdir(parents=True)
     meta.write_text(json.dumps({"name": "deploy-experience", "agentType": "deploy-experience"}))
@@ -62,7 +63,8 @@ def test_a_named_subagent_records_under_its_own_name(tmp_path):
     assert lane_name(event(tmp_path, "adeploy-1a2b")) == "deploy-experience"
 
 
-def test_an_unnamed_subagent_records_under_its_nearest_named_parent(tmp_path):
+def test_an_unnamed_subagent_records_under_its_named_parent(tmp_path, monkeypatch):
+    monkeypatch.delenv("CLAUDE_LONG_RUNNING_LANE", raising=False)
     subagents = tmp_path / SESSION / "subagents"
     subagents.mkdir(parents=True)
     (subagents / "agent-arelease-fix-1a2b.meta.json").write_text(json.dumps({"name": "release-fix", "agentType": "long-running:lane-ship"}))
@@ -70,6 +72,28 @@ def test_an_unnamed_subagent_records_under_its_nearest_named_parent(tmp_path):
     (subagents / "agent-a3d0ef77.jsonl").write_text("")
 
     assert lane_name(event(tmp_path, "a3d0ef77")) == "release-fix"
+
+
+def test_a_named_worker_records_under_the_lane_that_spawned_it(tmp_path, monkeypatch):
+    """p8a-step7 #201056: a worker's own name claimed #45465 before its lane registered it, and route and stall records for the row went nowhere."""
+    monkeypatch.delenv("CLAUDE_LONG_RUNNING_LANE", raising=False)
+    subagents = tmp_path / SESSION / "subagents"
+    subagents.mkdir(parents=True)
+    (subagents / "agent-ap8a-step7-1a2b3c4d5e6f7a8b.meta.json").write_text(json.dumps({"name": "p8a-step7", "agentType": "long-running:lane-ship"}))
+    (subagents / "agent-ap8a7-summary-rows-9f8e7d6c5b4a3f2e.meta.json").write_text(
+        json.dumps({"name": "p8a7-summary-rows", "agentType": "general-purpose", "parentAgentId": "ap8a-step7-1a2b3c4d5e6f7a8b"})
+    )
+
+    assert lane_name(event(tmp_path, "ap8a7-summary-rows-9f8e7d6c5b4a3f2e")) == "p8a-step7"
+
+
+def test_a_named_worker_in_an_orca_lane_session_records_under_the_session_lane(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_LONG_RUNNING_LANE", "p8a-step7")
+    meta = tmp_path / SESSION / "subagents" / "agent-ap8a7-c40-9f8e7d6c5b4a3f2e.meta.json"
+    meta.parent.mkdir(parents=True)
+    meta.write_text(json.dumps({"name": "p8a7-c40", "agentType": "general-purpose"}))
+
+    assert lane_name(event(tmp_path, "ap8a7-c40-9f8e7d6c5b4a3f2e")) == "p8a-step7"
 
 
 IN_PROCESS_LANE = "ap8a-step5-5-e7b153ce1ea9184c"
