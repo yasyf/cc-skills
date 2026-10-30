@@ -718,6 +718,7 @@ CHECK_PR_BLOCKER = "BLOCKER"
 UNGRADED_AFTER = timedelta(minutes=30)
 GO_TO_QUEUE = timedelta(minutes=5)
 ADMISSION_AUDIT = timedelta(minutes=10)
+ADAPTER_CHECKS = ("approvals", "required-ci")
 OVERFLOW = "overflow"
 OVERFLOW_AFTER = timedelta(minutes=5)
 OVERFLOW_EVERY = timedelta(minutes=1)
@@ -7774,12 +7775,20 @@ class Landing:
             published[pr] = {"head": head, "since": actions.stamp(admitted), "state": "merging"}
             if pr in busy or statuses.get(pr, {}).get("queue") in settled or now - admitted < ADMISSION_AUDIT or self.recorded(stack, open_rows, admitted):
                 continue
+            if self.unpassed_check(pr, head, rows):
+                del published[pr]
+                continue
             owner = self.owner(pr, row)
             by = f"root go #{gos_at[0]['seq']}" if gos_at else "its exemption"
             why = self.skips.get(pr) or "no branch of the landing pass recorded why it left it out"
             published[pr] |= {"state": "defect", "why": why}
             self.runner.escalate(f"admitted-skipped:{pr}@{head}", "ADMITTED-SKIPPED", f"#{pr}", f"#{pr} is green at {head[:10]} and {by} admitted it {whole_minutes(admitted, now)} minutes ago, yet no record says it is queued, merging or refused: {why}; owner lane {owner or ROOT}", f"admitted-skipped:{pr}", ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])))
         drive.write_atomic(self.runner.config.desk_inbox.parent / drive.ADMITTED, {"at": actions.stamp(now), "heads": published})
+
+    def unpassed_check(self, pr: str, head: str, rows: dict[str, dict]) -> str:
+        """The first configured check `mq.py why` reads as failing or pending on `pr` at `head`, adapter checks aside, which a pass that left the head out waits on, or empty (root #218731)."""
+        graded = Graded({pr: head}, rows, self.runner.now(), act=False)
+        return next((f"{name} {state.state} {state.reason}".rstrip() for name in self.checks if name not in ADAPTER_CHECKS and (state := self.check(name, graded).get(pr)) and state.state != merge_queue.PASS), "")
 
     def recorded(self, members: set[str], open_rows: dict[str, dict], since: datetime) -> bool:
         """Whether a record already accounts for a PR of `members` left out of the queue: an enqueue of it at its head still running, or, while Graphite is down, one waiting in the `QUEUE` record's serial line, a refusal `last_refusal` finds, or a `GO-UNQUEUED` or failed direct merge escalated since `since`."""
@@ -8253,7 +8262,7 @@ class Landing:
         adapter_states = self.adapter.classify(verdict) if verdict else {}
         graded = Graded({pr: head}, rows, self.runner.now(), act=False)
         for name in self.checks:
-            state = adapter_states.get(name, merge_queue.State(merge_queue.PENDING, "no verdict")) if name in ("approvals", "required-ci") else self.check(name, graded).get(pr, merge_queue.State(merge_queue.PASS))
+            state = adapter_states.get(name, merge_queue.State(merge_queue.PENDING, "no verdict")) if name in ADAPTER_CHECKS else self.check(name, graded).get(pr, merge_queue.State(merge_queue.PASS))
             lines.append(f"{name} {state.state} {state.reason}".rstrip())
         return lines
 
