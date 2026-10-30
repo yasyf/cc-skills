@@ -438,6 +438,13 @@ def test_in_your_words_must_be_there_and_read_plainly(package: Path, state: Path
     )
 
 
+def test_in_your_words_in_a_later_comment_replaces_the_bodys(package: Path, state: Path, registered: Path, capsys) -> None:
+    jargon = CLEAN.replace("The pool empties itself when a run ends.", "The lane moves `Pool.drain` into src/relay/pool.rs.")
+    plain = "## Rulings\n\n### In your words\n\nThe pool empties itself when a run ends."
+
+    assert check(capsys, CheckShell(pinned(package), body=jargon, comments=("Second-model review: ok.", plain))) == (0, [])
+
+
 def test_a_decision_in_the_body_must_cite_an_answer(package: Path, state: Path, registered: Path, capsys) -> None:
     body = CLEAN.replace(
         "The pool drains when a run closes.",

@@ -2044,7 +2044,7 @@ class Head:
 
     @cached_property
     def in_your_words(self) -> str | None:
-        return next((found[0] for text in (self.body, *self.comments) if (found := IN_YOUR_WORDS.search(text))), None)
+        return next((found[0] for text in reversed((self.body, *self.comments)) if (found := IN_YOUR_WORDS.search(text))), None)
 
     @cached_property
     def cited(self) -> set[str]:
