@@ -880,6 +880,59 @@ def test_a_start_tie_keeps_the_namesake_listed_first(tree: Tree) -> None:
     assert lane.turn.tokens == 450_000
 
 
+@pytest.mark.parametrize("case", ["finished-empty", "untracked-empty", "untracked-stale"])
+def test_unselected_lanes_do_not_resolve_the_task_list(
+    tree: Tree, clock: list[float], monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    payload = [tree.lane("stale", 450_000, behind=timedelta(seconds=task_list.IDLE_SECONDS + 1))] if case == "untracked-stale" else []
+    evt = stop(tree, payload).evt()
+    task_list.UntrackedState(turns=task_list.RECONCILE_TURNS - 1).save(evt)
+    calls = {"identity": 0, "store": 0}
+    list_id = task_list.Tasks.list_id
+    for_session = task_list.Tasks.for_session
+
+    def identity(cls, session_id, transcript_path):
+        calls["identity"] += 1
+        return list_id(session_id, transcript_path)
+
+    def store(cls, session_id, **kwargs):
+        calls["store"] += 1
+        return for_session(session_id, **kwargs)
+
+    monkeypatch.setattr(task_list.Tasks, "list_id", classmethod(identity))
+    monkeypatch.setattr(task_list.Tasks, "for_session", classmethod(store))
+
+    if case == "finished-empty":
+        assert lane_rotation.finished(evt, []) == set()
+    else:
+        assert task_list.flag_untracked_lanes(evt) is None
+        assert pending(stop(tree, payload)) == []
+
+    assert calls == {"identity": 0, "store": 0}
+
+
+def test_selected_lanes_read_task_changes_on_each_new_event(tree: Tree, clock: list[float]) -> None:
+    payload = [tree.lane("desk", 450_000)]
+    handle = stop(tree, payload)
+    evt = handle.evt()
+    lanes = lane_rotation.live_lanes(evt)
+    assert lane_rotation.finished(evt, lanes) == set()
+
+    tree.delete_task("desk")
+    evt = handle.evt()
+    assert lane_rotation.finished(evt, lanes) == {lanes[0].agent_id}
+    task_list.UntrackedState(turns=task_list.RECONCILE_TURNS - 1).save(evt)
+    assert task_list.flag_untracked_lanes(evt) is None
+    assert pending(handle) == [task_list.untracked_line(["desk"])]
+
+    tree.task("desk", "in_progress")
+    evt = handle.evt()
+    assert lane_rotation.finished(evt, lanes) == set()
+    task_list.UntrackedState(turns=task_list.RECONCILE_TURNS - 1).save(evt)
+    assert task_list.flag_untracked_lanes(evt) is None
+    assert pending(handle) == [task_list.untracked_line(["desk"])]
+
+
 def test_the_four_stop_callers_of_one_request_share_one_scan(tree: Tree, clock: list[float], parsed: list[str]) -> None:
     handle = stop(tree, [tree.lane("desk", 450_000)])
 
