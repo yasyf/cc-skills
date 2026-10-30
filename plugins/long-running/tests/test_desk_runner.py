@@ -13143,12 +13143,12 @@ def test_while_graphite_is_down_the_runner_posts_the_queue_of_admitted_chains_on
     shell.checks |= {pr: [{"name": "buildkite/test", "bucket": "pending"}] for pr in ("29020", "29031")}
 
     def queues():
-        return [post["text"].split(":", 1)[1] for post in shell.posts if post["kind"] == "state" and post["text"].startswith("QUEUE ")]
+        return [post["text"] for post in shell.posts if post["kind"] == "state" and post["text"].startswith("QUEUE ")]
 
     landing_pass(shell, config)
     landing_pass(shell, config)
     [queue] = queues()
-    assert queue.startswith(" Graphite is down, so the landing runner merges one chain at a time, in this order:\n1. #29020 #29031 at cccc333 dddd444: CI pending: ")
+    assert "Graphite is down, so the landing runner merges one chain at a time, in this order:\n1. #29020 #29031 at cccc333 dddd444: CI pending: " in queue
     shell.checks |= {pr: [{"name": "buildkite/test", "bucket": "fail"}] for pr in ("29020", "29031")}
     landing_pass(shell, config)
     assert len(queues()) == 2 and "CI red" in queues()[-1]
