@@ -81,7 +81,8 @@ FULL_SHA = re.compile(r"\b[0-9a-f]{40}\b")
 TEXT_PR = re.compile(r"\b([\w.-]+/[\w.-]+)#(\d+)\b|(?<![\w/])#(\d{4,})\b")
 ZERO_REF = re.compile(r"bad object (?:0{40}|worktrees/\S+/HEAD)")
 WAS = re.compile(r"\(was ([0-9a-f]{7,40})\b")
-RANGE_PAIR = re.compile(r"^\s*(?:\d+|-+):\s+([0-9a-f]+|-+)\s+([=!<>])\s+(?:\d+|-+):\s+([0-9a-f]+|-+)", re.MULTILINE)
+RANGE_PAIR = re.compile(r"^\s*(?:\d+|-+):\s+([0-9a-f]+|-+)\s+([=!<>])\s+(?:\d+|-+):\s+([0-9a-f]+|-+)[ \t]*(.*)$", re.MULTILINE)
+BASE_SUBJECTS = 500
 DIFF_FILE = re.compile(r"^diff --git a/\S+ b/(\S+)$")
 HUNK = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@")
 CITE = re.compile(r"([\w./@+-]+):(\d+)(?:-(\d+))?")
@@ -350,10 +351,11 @@ def previous(record: dict | None) -> str:
 
 
 def range_pairs(shell: Shell, job: dict, base: str, last: str, earlier: list[str], own: list[str]) -> tuple[str, list[tuple[str, str]]]:
-    """The `git range-diff` ranges pairing `last`'s own commits, `earlier`, with the head's, each head commit it marks amended (`!`) or new (`>`), leaving out an amended commit that only drops hunks `base` carries, and each earlier commit it marks dropped (`<`) that `base` does not carry."""
+    """The `git range-diff` ranges pairing `last`'s own commits, `earlier`, with the head's, each head commit it marks amended (`!`) or new (`>`), leaving out an amended commit that only drops hunks `base` carries, and each earlier commit it marks dropped (`<`) that `base` does not carry: one whose subject a commit of `base` has, since it moved down the stack and its own PR's review covers it, or whose removed hunks `base` has line for line."""
     pairs = f"{earlier[0]}^..{last} {own[0]}^..{job['head']}"
     marks = RANGE_PAIR.findall(git(shell, job, "range-diff", "--no-patch", "--no-color", *pairs.split()))
-    return pairs, [(mark, left if mark == "<" else sha) for left, mark, sha in marks if mark == ">" or (mark in "!<" and not drops_carried(shell, job, base, left, sha))]
+    moved = set(git(shell, job, "log", "--format=%s", "-n", str(BASE_SUBJECTS), base).splitlines()) if any(mark == "<" for _, mark, _, _ in marks) else set()
+    return pairs, [(mark, left if mark == "<" else sha) for left, mark, sha, subject in marks if mark == ">" or (mark in "!<" and not (mark == "<" and subject.strip() in moved) and not drops_carried(shell, job, base, left, sha))]
 
 
 def patch_lines(shell: Shell, job: dict, sha: str) -> set[tuple[str, str, str]]:
