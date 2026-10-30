@@ -57,3 +57,9 @@ def test_a_milestone_waits_on_the_one_before_it():
     rows = compute([FIRST, {"name": "Later", "release": "R3"}], [], [], [])
     assert rows[1]["state"] == "not"
     assert rows[1]["waits"] == "Cloud keeps working first"
+
+
+def test_a_change_waiting_on_a_tap_reads_in_plain_words():
+    rows = compute([FIRST, SECOND], prs(n7="landed", n8="you", n9="landed"), [], [release(1, "api passed")])
+    assert rows[1]["waits"] == "1 of 3 changes still open: 1 waiting on your tap"
+    assert rows[1]["unblocking"] == "You tap the ones on your board"
