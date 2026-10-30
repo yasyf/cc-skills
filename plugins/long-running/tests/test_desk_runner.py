@@ -3780,7 +3780,7 @@ def test_a_board_tap_never_carries_to_a_head_that_adds_new_behavior_and_root_and
     assert shell.carries == [] and shell.board["merge-rows"]["29020"]["head"] == "aaaa111111"
     [note] = tap_notes(shell)
     assert note["to"] == "root,board-refresher"
-    assert note["text"] == f"TAP-NOT-CARRIED #29020: the owner's tap at aaaa111111 (10:40 AM Oct 1 Pacific) on board block merge-rows does not carry to cccc333333, since cci #{seq} says that head adds new behavior: \"{quote}\". Heads since his tap: {heads}. The board needs a new row for #29020 at cccc333333 opening 'You approved this at 10:40 AM Oct 1. Since then: <what changed>. Shown again because: <the new behavior>.'"
+    assert post_body(note) == f"TAP-NOT-CARRIED #29020: the owner's tap at aaaa111111 (10:40 AM Oct 1 Pacific) on board block merge-rows does not carry to cccc333333, since cci #{seq} says that head adds new behavior: \"{quote}\". Heads since his tap: {heads}. The board needs a new row for #29020 at cccc333333 opening 'You approved this at 10:40 AM Oct 1. Since then: <what changed>. Shown again because: <the new behavior>.'"
 
 
 @pytest.mark.parametrize(
