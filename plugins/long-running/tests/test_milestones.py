@@ -63,3 +63,10 @@ def test_a_change_waiting_on_a_tap_reads_in_plain_words():
     rows = compute([FIRST, SECOND], prs(n7="landed", n8="you", n9="landed"), [], [release(1, "api passed")])
     assert rows[1]["waits"] == "1 of 3 changes still open: 1 waiting on your tap"
     assert rows[1]["unblocking"] == "You tap the ones on your board"
+
+
+def test_a_reposted_blocker_keeps_the_time_the_problem_started():
+    record = blocker(5, "R1", "fixer", "x", "Runs fail on start", at="2026-10-30T03:00:00Z")
+    record["fields"]["attrs"]["since"] = "2026-10-30T01:58:00Z"
+    rows = compute([FIRST], [], [record], [release(1, "10970 passed: api live")])
+    assert rows[0]["since"] == "2026-10-30T01:58:00Z"
