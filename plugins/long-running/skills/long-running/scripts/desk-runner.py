@@ -7042,6 +7042,7 @@ class Landing:
             name, states = failed
             text = f"the {name} check refuses " + "; ".join(f"#{pr}: {state.reason}" for pr, state in states.items())
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": text, "at": self.book.stamp()}))
+            self.skips |= dict.fromkeys(prefix, f"its accepted enqueue ended blocked: {text}")
             return
         down = self.down_since()
         outcome, out, last = self.merge_chains(tops, enqueued_heads(key), rows) if down else self.enqueue_chains(tops, enqueued_heads(key), self.whole())
@@ -7054,6 +7055,8 @@ class Landing:
             self.post_record("report", f"queued:{key}", self.landing_audience(prefix, rows, self.queue_audience(prefix, rows)), f"QUEUED {self.queue_line(enqueued_heads(key))}: the landing runner put it in the merge queue at {pacific(self.runner.now())}", prefix[-1])
         if outcome in ("stranded", "failed", "unsettled"):
             self.runner.escalate(key, f"{'DIRECT-MERGE' if down else 'ENQUEUE'}-{outcome.upper()}", numbered(tops), last)
+        if outcome not in BELIEVED_QUEUED and outcome != MERGED:
+            self.skips |= dict.fromkeys(prefix, f"its newest {'direct merge' if down else 'enqueue'} ended {outcome}: {last}")
 
     def queue_line(self, heads: dict[str, str]) -> str:
         """Each PR the runner enqueued, at the head it enqueued, with the root `go` that names that head or `no go at this head`."""
@@ -7738,7 +7741,12 @@ class Landing:
             self.runner.escalate(f"admitted-skipped:{pr}@{head}", "ADMITTED-SKIPPED", f"#{pr}", f"#{pr} is green at {head[:10]} and {by} admitted it {whole_minutes(admitted, now)} minutes ago, yet no record says it is queued, merging or refused: {why}; owner lane {owner or ROOT}", f"admitted-skipped:{pr}", ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])))
 
     def recorded(self, members: set[str], open_rows: dict[str, dict], since: datetime) -> bool:
-        """Whether a record already accounts for a PR of `members` left out of the queue: a refusal `last_refusal` finds, or a `GO-UNQUEUED` or failed direct merge escalated since `since`."""
+        """Whether a record already accounts for a PR of `members` left out of the queue: an enqueue of it at its head still running, or, while Graphite is down, one waiting in the `QUEUE` record's serial line, a refusal `last_refusal` finds, or a `GO-UNQUEUED` or failed direct merge escalated since `since`."""
+        down = self.down_since() is not None
+        for action in self.book.actions(LANDING, kind="enqueue"):
+            named = [pr for pr, sha in enqueued_heads(action.action_id).items() if pr in members and sha and open_rows[pr].get("head", "").startswith(sha)]
+            if named and (action.status != "completed" or down and action.response.get("outcome") in ("blocked", "failed") and action.response.get("why")):
+                return True
         if self.last_refusal(members, open_rows, since):
             return True
         return any(
