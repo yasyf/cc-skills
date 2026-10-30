@@ -40,8 +40,8 @@ class Fake:
         self.state = state
         self.heads = list(heads)
         self.calls: list[list[str]] = []
-        self.range_diff = f"1:  {OLD_OWN[:7]} = 1:  {OWN[:7]} resubscribe\n"
-        self.shows: dict[str, str] = {}
+        self.range_diff = f"1:  {OLD_OWN[:7]} ! 1:  {OWN[:7]} resubscribe\n"
+        self.shows = {OLD_OWN[:7]: "diff --git a/f.go b/f.go\n+old\n", OWN[:7]: "diff --git a/f.go b/f.go\n+new\n"}
         self.posted: list[dict] = []
 
     def run(self, argv: list[str], cwd: Path | None = None, timeout: int = finder.READ_SECONDS) -> str:
@@ -201,16 +201,62 @@ OPEN_POINT = "replica.go:452 rejects a stopped share below its stop"
 PIPELINE_MISSING = {"seq": 170006, "lane": fidelity.LANE, "text": f"fidelity: missing {OLD} plan:811,rule/8330d10 {SETTLED_POINT}; {OPEN_POINT}"}
 
 
-@pytest.mark.parametrize("settled", [{"170006": 170007}, {}], ids=["root-settled", "unsettled"])
-def test_a_patch_identical_head_carries_a_missing_root_settled_as_ok_citing_the_decide(tmp_path, settled):
-    directory = job(tmp_path, grades=[PIPELINE_MISSING], settled=settled)
+PIPELINE_CARRIED = {"seq": 170008, "lane": fidelity.LANE, "text": f"fidelity: ok {OLD} carried from {MOVED[:7]} (cci #170006), patch-identical by git patch-id over its own commits, settled by root #170007."}
+
+
+@pytest.mark.parametrize(
+    ("grades", "settled", "carried"),
+    [
+        ([PIPELINE_MISSING], {"170006": 170007}, 170006),
+        ([PIPELINE_MISSING | {"text": PIPELINE_MISSING["text"].replace(OLD, MOVED)}, PIPELINE_CARRIED], {"170006": 170007}, 170008),
+        ([PIPELINE_MISSING], {}, 0),
+    ],
+    ids=["root-settled", "settled-up-the-chain", "unsettled"],
+)
+def test_a_patch_identical_head_carries_a_missing_root_settled_as_ok_naming_the_decide(tmp_path, grades, settled, carried):
+    """#45403: df84649 carried 9464404's grade, whose missing root #200618 settled; the carry names the decide even when the grade it carries is itself a carry."""
+    directory = job(tmp_path, grades=grades, settled=settled)
     shell = Fake(tmp_path, [reply()], SAME)
     fidelity.main([str(directory)], shell)
     if not settled:
         assert len(shell.asks()) == 1
         return
     assert not shell.asks()
-    assert shell.texts()[0] == f"fidelity: ok {HEAD} carried from {OLD[:7]} (cci #170006), patch-identical by git patch-id over its own commits. Root settled its missing points at #170007."
+    assert shell.texts()[0] == f"fidelity: ok {HEAD} carried from {OLD[:7]} (cci #{carried}), patch-identical by git patch-id over its own commits, settled by root #170007."
+
+
+ANOTHER_PATCH = {(f"{OWN}^", HEAD): "5f1e", (f"{OLD}~1", OLD): "77aa"}
+REALIGNED = {OLD_OWN[:7]: "diff --git a/types.go b/types.go\n+\tapiBase     *url.URL\n", OWN[:7]: "diff --git a/types.go b/types.go\n+\tapiBase       *url.URL\n"}
+WAITS = {OLD_OWN[:7]: "diff --git a/copyup.rs b/copyup.rs\n+free(pass);\n", OWN[:7]: "diff --git a/copyup.rs b/copyup.rs\n+activity.idle().await;\n+free(pass);\n"}
+
+
+@pytest.mark.parametrize("shows", [REALIGNED, WAITS], ids=["conflict-realigns-a-field", "own-commit-adds-a-wait"])
+def test_a_settled_missing_carries_only_while_range_diff_finds_no_own_commit_changed(tmp_path, shows):
+    """#45403: root #198135 settled the Route::post budget at da869d8, and 9464404's dev conflict only re-aligned a types.go field, yet its whole patch-id differed and the pipeline raised the budget again (#200402). #45468: c791478 added a wait to copyup.rs after root #200210 settled #200009, so that head is read again."""
+    directory = job(tmp_path, grades=[PIPELINE_MISSING], settled={"170006": 170007})
+    shell = Fake(tmp_path, [reply()], ANOTHER_PATCH)
+    shell.shows = shows
+    fidelity.main([str(directory)], shell)
+    if shows is WAITS:
+        assert len(shell.asks()) == 1
+        question = (directory / "question-1.md").read_text()
+        assert f"An earlier head, {OLD}, was reviewed." in question and f"only the hunks the range-diff shows for its pair ({OWN[:7]})" in question
+        assert f"- {SETTLED_POINT} (root #170007)" in question
+        return
+    assert not shell.asks()
+    assert shell.texts()[0] == f"fidelity: ok {HEAD} carried from {OLD[:7]} (cci #170006), patch-identical by git range-diff over its own commits, settled by root #170007."
+    assert result(directory) == {"verdict": "carried", "from": OLD, "posted": ["#150002", "#150003"]}
+
+
+def test_a_restack_whose_commits_range_diff_equal_carries_a_settled_missing_beside_a_desk_ok(tmp_path):
+    """n-enumeration #45411: root #202312 settled #202152's TeamHost cache, production-env memo and landed index rows at a8a4812, which fidelity-desk-11 graded ok; the restack da4c8f1 pairs every commit equal by range-diff while dev moved their context, so its whole patch-id differs."""
+    desk = {"seq": 170005, "lane": "fidelity-desk-4", "text": f"fidelity: ok {OLD} new-tree fix, stays a tap row."}
+    directory = job(tmp_path, grades=[desk, PIPELINE_MISSING], settled={"170006": 170007})
+    shell = Fake(tmp_path, patches=ANOTHER_PATCH)
+    shell.range_diff = f"1:  {OLD_OWN[:7]} = 1:  {OWN[:7]} resubscribe\n"
+    fidelity.main([str(directory)], shell)
+    assert not shell.asks()
+    assert shell.texts()[0] == f"fidelity: ok {HEAD} carried from {OLD[:7]} (cci #170006), patch-identical by git range-diff over its own commits, settled by root #170007."
 
 
 @pytest.mark.parametrize(
