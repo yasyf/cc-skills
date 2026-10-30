@@ -16,7 +16,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import actions
+from long_running import actions
 import mq as mq_module
 import pytest
 from conftest import gateway

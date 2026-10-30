@@ -44,7 +44,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
-import actions
+from long_running import actions
 import cci
 
 SCRIPTS = Path(__file__).resolve().parent
