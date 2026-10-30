@@ -167,7 +167,7 @@ def test_every_milestone_opens_its_own_panel(page):
 def test_progress_says_how_many_milestones_are_live(page):
     now(page)
     model = json.loads(MODEL.read_text())
-    live = sum(stop["state"] == "live" for stop in model["brief"]["progress"]["stops"])
+    live = sum(stop["state"] == "live" for stop in model["milestone_state"])
     assert page.locator(".nw-sent").inner_text().startswith(f"{live} of {len(model['milestones'])} milestones are live.")
 
 
@@ -221,6 +221,26 @@ def test_every_blocked_milestone_and_blocker_says_what_unblocks_it(page):
     assert [t[:12] for t in blocked.locator(".unb").all_inner_texts()] == ["Unblocking: "] * blocked.count()
     rows = page.locator(".nw-slot .pan.focus .chain .hc:not(.you)")
     assert [t[:12] for t in rows.locator(".unb").all_inner_texts()] == ["Unblocking: "] * rows.count()
+
+
+def test_the_milestones_show_the_state_computed_from_records_not_a_stale_summary(page):
+    now(page)
+    computed = json.loads(MODEL.read_text())["milestone_state"]
+    spine = page.locator(".nw-spine .sp")
+    assert [re.search(r"\bms-(\w+)", c)[1] for c in spine.evaluate_all("(els) => els.map((e) => e.className)")] == [m["state"] for m in computed]
+    assert page.locator(".nw-spine .sp .st").all_inner_texts() == [m["label"] for m in computed]
+    assert page.locator(".nw-spine .sp .unb").all_inner_texts() == [f"Unblocking: {m['unblocking']}" for m in computed if m["blockers"]]
+
+
+def test_a_blocked_milestone_s_panel_names_its_blocker_and_how_long_it_has_held(page):
+    now(page)
+    i, held = next((i, m) for i, m in enumerate(json.loads(MODEL.read_text())["milestone_state"]) if m["blockers"])
+    cards = page.locator(f'.nw-slot .pan[data-i="{i}"] .held .hc')
+    assert cards.count() == len(held["blockers"])
+    text = cards.first.text_content()
+    assert held["blockers"][0]["text"] in text
+    assert f"Unblocking: {held['blockers'][0]['next']}" in text
+    assert re.search(r"for \d+ (min|h|hours)", text)
 
 
 def test_blockers_and_work_share_the_full_width_under_the_milestones(page):

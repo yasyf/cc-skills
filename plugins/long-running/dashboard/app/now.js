@@ -124,8 +124,8 @@ function workRow(w, lead) {
     <span class="body"><b>${esc(w.title)}</b><span class="line"><span class="chip ${st.tone}">${esc(st.word)}</span>${esc(st.when ?? w.latest)}</span>${stuck(w) ? unblockLine(h?.unblocking) : ''}${latestLine(h)}</span>
     <span class="side">${lasted(w.since) ? `<span>${lasted(w.since)}</span>` : ''}<span class="open">Live story ›</span></span></button>`;
 }
-function stops(b) {
-  return state.model.milestones.map((name, i) => ({ name, ...(b.progress.stops[i] ?? { state: 'not', label: 'Not known', why: '' }) }));
+function stops() {
+  return state.model.milestone_state;
 }
 function current(b, list) {
   const next = list.findIndex((s) => s.state === 'next');
@@ -141,7 +141,7 @@ function journey(b) {
   const html = `<div class="nw-panel">${progressLabel()}
     <div class="nw-journey nw-spine${lastPaint.stops === null ? ' fill' : ''}" style="--phase:-${Date.now() % 2400}ms;--n:${list.length};grid-template-columns:${weight.map((w) => `minmax(0, ${w}fr)`).join(' ')}">${list.map((s, i) => {
       const cls = ['sp', `ms-${s.state}`, i === cur && 'cur', i === focus && 'focus', i > 0 && i <= lastLive && 'l-on', i < lastLive && 'r-on', moved(s, i) && 'moved'].filter(Boolean).join(' ');
-      return `<div class="${cls}" data-i="${i}"><a class="ms ms-${s.state}${i === cur ? ' cur' : ''}" href="#/plan/m${i}"><span class="here">${i === cur ? 'Drive is here' : ''}</span><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.why ? `<span class="why">${esc(s.why)}</span>` : ''}${['paused', 'broken'].includes(s.state) ? unblockLine(unblocking(s)) : ''}${waitsOnOwner(s) ? '<span class="need">Needs you</span>' : ''}</a>
+      return `<div class="${cls}" data-i="${i}"><a class="ms ms-${s.state}${i === cur ? ' cur' : ''}" href="#/plan/m${i}"><span class="here">${i === cur ? 'Drive is here' : ''}</span><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.blockers.length ? unblockLine(s.unblocking) : ''}${waitsOnOwner(s) ? '<span class="need">Needs you</span>' : ''}</a>
         <div class="bd"><i class="stem"></i></div></div>`;
     }).join('')}</div>
     <div class="nw-slot" data-cur="${cur}" style="--hold:${hover.hold}px">${list.map((s, i) => `<div class="pan${i === focus ? ' focus' : ''}" data-i="${i}">${openStop(s, b, i === cur)}</div>`).join('')}</div>
@@ -150,11 +150,6 @@ function journey(b) {
     </div>`;
   lastPaint.stops = list.map((s) => s.state);
   return html;
-}
-function unblocking(s) {
-  const n = s.left.find((x) => x.state !== 'you');
-  const w = leadOf(s);
-  return (n && (historyOf(rowKeys(n.item, n.change))?.unblocking ?? n.how)) || (w && historyOf(rowKeys(w.item))?.unblocking) || curated('plan')?.milestones[s.i]?.unblock || '';
 }
 function waitsOnOwner(s) {
   return s.left.some((n) => n.state === 'you') || s.work.some((w) => /^(ready for you|needs you)$/i.test(w.status));
@@ -176,7 +171,7 @@ function placed(b) {
 }
 function spine(b) {
   const work = placed(b);
-  return stops(b).map((s, i) => {
+  return stops().map((s, i) => {
     const paths = b.paths.filter((p) => p.milestone === i);
     const left = paths.map(unfinished).flatMap((p) => {
       const [depth] = depthOf(p);
@@ -196,12 +191,13 @@ function focusLane() {
   return s ? leadOf(s)?.item : null;
 }
 function openStop(s, b, cur) {
+  const held = s.blockers.length ? `<div class="held"><p class="hl">Blocked by</p>${s.blockers.map((x) => `<div class="hc ${s.state}"><span class="bar">${esc(s.label)}</span><span class="in"><b>${esc(x.text)}</b>${unblockLine(x.next)}<span class="when">${blockedFor(x.since)}</span></span></div>`).join('')}</div>` : '';
   const left = s.left.length ? `<div><p class="hl">What blocks it, nearest first</p><div class="chain">${s.left.map(hangNode).join('')}</div></div>` : '';
   const lead = leadOf(s);
   const work = s.work.length ? `<div><p class="hl">Work on it</p><div class="feed">${[lead, ...s.work.filter((w) => w !== lead)].map((w) => hangWork(w, w === lead)).join('')}</div></div>` : '';
   const done = s.done.length ? fold(`done${s.i}`, `Done so far <span class="pg-n">${s.done.length}</span>`, `<ul class="did">${s.done.map((n) => `<li>${esc(n.text)}</li>`).join('')}</ul>`) : '';
   const calm = s.state === 'live' ? 'Live. Nothing is left to do here.' : cur ? b.calm || 'Nothing is stuck.' : s.state === 'not' ? 'Not started yet.' : 'Nothing is in the way.';
-  return `<div class="nw-col ms-${s.state}">${left || work ? `<div class="two">${left}${work}</div>` : `<div class="nw-calm"><span class="ok">✓</span>${esc(calm)}</div>`}${done}</div>`;
+  return `<div class="nw-col ms-${s.state}">${held}${left || work ? `<div class="two">${left}${work}</div>` : `<div class="nw-calm"><span class="ok">✓</span>${esc(calm)}</div>`}${done}</div>`;
 }
 function tray(b) {
   const loose = placed(b).filter((w) => w.at < 0);
@@ -220,7 +216,7 @@ function codeLine() {
   return `Code: ${t.landed} of ${t.total} changes merged.`;
 }
 function compact(b) {
-  const list = stops(b);
+  const list = stops();
   const live = list.filter((s) => s.state === 'live');
   const next = list.find((s) => s.state === 'next');
   const odd = list.filter((s) => ['paused', 'broken'].includes(s.state));
@@ -228,8 +224,8 @@ function compact(b) {
     ${(() => { const at = current(b, list); return at < 0 ? '' : `<div class="nw-compact-col">${openStop(spine(b)[at], b, true)}</div>`; })()}
     ${tray(b)}
     <p class="nw-sent"><b>${live.length} of ${list.length} milestones live</b>${live.length ? `: ${esc(live.map((s) => s.name).join(', '))}` : ''}.</p>
-    ${next ? `<p class="nw-line">Next: <b>${esc(next.name)}</b>${next.why ? `, ${esc(next.why)}` : ''}.</p>` : ''}
-    ${odd.map((s) => `<p class="nw-line ms-${s.state}">${esc(s.name)}: ${esc(s.label)}${s.why ? `, ${esc(s.why)}` : ''}.</p>`).join('')}
+    ${next ? `<p class="nw-line">Next: <b>${esc(next.name)}</b>${next.waits ? `, ${esc(next.waits)}` : ''}.</p>` : ''}
+    ${odd.map((s) => `<p class="nw-line ms-${s.state}">${esc(s.name)}: ${esc(s.label)}, ${esc(s.waits)}.</p>`).join('')}
     <p class="nw-code"><a href="?progress=journey${location.hash}">All ${list.length} milestones ›</a></p></div>`;
 }
 
