@@ -82,7 +82,10 @@ def receive(connection) -> dict:
         pieces.extend(chunk)
         if len(pieces) > 1048576:
             raise ValueError("roster protocol frame exceeds 1 MiB")
-    return json.loads(pieces)
+    value = json.loads(pieces)
+    if not isinstance(value, dict):
+        raise ValueError("roster protocol frame must be an object")
+    return value
 
 
 def send(connection, value: dict) -> None:
@@ -213,7 +216,8 @@ def raise_remote(value: dict) -> None:
 
 
 def mailbox_of(lane: str) -> Path | None:
-    root = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude").absolute()
+    config = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    root = config.absolute()
     directory = runtime(root)
     desired = source_identity()
     with lifecycle(directory, False):
@@ -225,7 +229,7 @@ def mailbox_of(lane: str) -> Path | None:
                     result = receive(connection)
                     if "error" in result:
                         raise_remote(result["error"])
-                    return Path(result["path"]) if result["path"] is not None else None
+                    return config / Path(result["path"]).relative_to(root) if result["path"] is not None else None
     ensure(directory, root, desired)
     with lifecycle(directory, False):
         connection = connect(directory)
@@ -237,7 +241,7 @@ def mailbox_of(lane: str) -> Path | None:
             result = receive(connection)
     if "error" in result:
         raise_remote(result["error"])
-    return Path(result["path"]) if result["path"] is not None else None
+    return config / Path(result["path"]).relative_to(root) if result["path"] is not None else None
 
 
 def retire(root: Path) -> None:

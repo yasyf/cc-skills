@@ -40,6 +40,7 @@ class Watch:
     inode: tuple[int, int]
     owners: dict[str, list] = field(default_factory=dict)
     edges: dict = field(default_factory=dict)
+    children: dict = field(default_factory=dict)
     active: bool = True
 
 
@@ -100,6 +101,9 @@ class RosterIndex:
         else:
             try:
                 token = self.events.add(fd, str(path))
+            except OSError as error:
+                os.close(fd)
+                raise WatchLost(f"native roster watch registration failed: {error}") from error
             except BaseException:
                 os.close(fd)
                 raise
@@ -159,11 +163,18 @@ class RosterIndex:
                 node.edges[edge].remove(owner)
                 if not node.edges[edge]:
                     del node.edges[edge]
+                    if edge is not None:
+                        children = node.children[edge[0].name]
+                        del children[edge]
+                        if not children:
+                            del node.children[edge[0].name]
         for token, edges in dependencies.items():
             node = self.watches[token]
             node.owners[owner] = edges
             for edge in set(edges):
                 node.edges.setdefault(edge, set()).add(owner)
+                if edge is not None:
+                    node.children.setdefault(edge[0].name, {})[edge] = node.edges[edge]
         for token in previous.keys() - dependencies.keys():
             node = self.watches[token]
             del node.owners[owner]
@@ -200,7 +211,6 @@ class RosterIndex:
         lane_errors = {}
         self.errors.pop(name, None)
         path = self.root / name / "config.json"
-        selected = os.path.lexists(path)
         try:
             fd = self.open(path, name, dependencies)
             with os.fdopen(fd) as handle:
@@ -216,12 +226,14 @@ class RosterIndex:
                     except KeyError as error:
                         lane_errors[lane] = error.with_traceback(None)
         except (FileNotFoundError, NotADirectoryError) as error:
-            if selected and path.is_symlink():
+            if path.is_symlink():
                 self.errors[name] = error.with_traceback(None)
         except json.JSONDecodeError as error:
             self.errors[name] = json.JSONDecodeError(error.msg, "", 0)
         except OSError as error:
-            if selected:
+            if error.errno not in (errno.ENOENT, errno.ENOTDIR, errno.EACCES, errno.EPERM, errno.ELOOP):
+                raise
+            if os.path.lexists(path):
                 self.errors[name] = error.with_traceback(None)
         except (ValueError, KeyError, TypeError) as error:
             self.errors[name] = error.with_traceback(None)
@@ -274,11 +286,14 @@ class RosterIndex:
             if event.authority:
                 dirty.update(node.owners)
             else:
-                for edge, owners in node.edges.items():
-                    if edge is None:
-                        if event.name is None or event.structural:
-                            dirty.update(owners)
-                    elif (event.name is None or edge[0].name == event.name) and binding(edge[0]) != edge[1]:
+                if event.name is None:
+                    edges = node.edges.items()
+                else:
+                    edges = node.children.get(event.name, {}).items()
+                    if event.structural:
+                        dirty.update(node.edges.get(None, set()))
+                for edge, owners in edges:
+                    if edge is None or binding(edge[0]) != edge[1]:
                         dirty.update(owners)
         if identity(self.root) != self.root_identity:
             dirty.add(ROOT)

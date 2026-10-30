@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import errno
 import threading
 import json
 import os
@@ -646,3 +647,100 @@ def test_inotify_add_drains_retired_generation_before_reusing_watch_descriptor(t
     finally:
         os.close(fd)
         events.close()
+
+
+def test_terminal_discovery_created_before_watch_installation_is_not_suppressed(tmp_path, monkeypatch):
+    team = tmp_path / "teams" / "a"
+    team.mkdir(parents=True)
+    config = team / "config.json"
+    original = rosters.RosterIndex.open
+    fired = False
+
+    def open(self, path, owner, dependencies):
+        nonlocal fired
+        if owner == "a" and not fired:
+            fired = True
+            config.symlink_to("config.json")
+        return original(self, path, owner, dependencies)
+
+    monkeypatch.setattr(rosters.RosterIndex, "open", open)
+    with rosters.RosterIndex(tmp_path) as index:
+        for _ in range(2):
+            with pytest.raises(OSError) as expected:
+                reference(tmp_path, "desk")
+            with pytest.raises(OSError) as actual:
+                index.lookup("desk")
+            assert actual.value.errno == expected.value.errno == errno.ELOOP
+
+
+@pytest.mark.parametrize("failure", [errno.ENOSPC, errno.EMFILE, errno.EACCES])
+def test_missing_config_watch_registration_failure_invalidates_generation(tmp_path, monkeypatch, failure):
+    with rosters.RosterIndex(tmp_path) as index:
+        team = tmp_path / "teams" / "a"
+        team.mkdir(parents=True)
+        original = index.events.add
+
+        def add(fd, path):
+            if Path(path) == team:
+                raise OSError(failure, os.strerror(failure), path)
+            return original(fd, path)
+
+        monkeypatch.setattr(index.events, "add", add)
+        with pytest.raises(roster_events.WatchLost, match="registration failed"):
+            index.lookup("desk")
+        write(tmp_path, "a", ("desk", 1))
+        with pytest.raises(roster_events.WatchLost):
+            index.lookup("desk")
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux named child dispatch")
+def test_unrelated_team_child_attribute_never_iterates_team_edges(tmp_path):
+    for number in range(64):
+        write(tmp_path, str(number), ("desk", number))
+    sibling = tmp_path / "teams" / "unrelated-file"
+    sibling.write_text("unrelated")
+    with rosters.RosterIndex(tmp_path) as index:
+        index.lookup("desk")
+        before = dict(index.work)
+        value = (tmp_path / "teams").stat()
+        node = index.inodes[value.st_dev, value.st_ino]
+
+        class NamedEdgesOnly(dict):
+            def items(self):
+                raise AssertionError("named event iterated the whole roster edge set")
+
+        node.edges = NamedEdgesOnly(node.edges)
+        sibling.chmod(0o600)
+        assert index.lookup("desk") == reference(tmp_path, "desk")
+        assert dict(index.work) == before
+
+
+@pytest.mark.parametrize("symlink_parent", [False, True])
+def test_relative_config_root_preserves_returned_path_representation(helper, monkeypatch, symlink_parent):
+    monkeypatch.chdir(helper.parent)
+    config = Path(helper.name)
+    if symlink_parent:
+        actual = helper / "actual"
+        (actual / "child").mkdir(parents=True)
+        (helper / "alias").symlink_to(actual / "child", target_is_directory=True)
+        config = config / "alias" / ".." / "config"
+    write(config, "a", ("desk", 1))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    try:
+        assert roster_service.mailbox_of("desk") == reference(config, "desk")
+    finally:
+        roster_service.retire(config.absolute())
+
+
+@pytest.mark.parametrize("frame", [None, [], "lookup", 1])
+def test_non_object_request_does_not_terminate_owner(helper, frame):
+    write(helper, "a", ("desk", 1))
+    assert roster_service.mailbox_of("desk")
+    directory = roster_service.runtime(helper)
+    with roster_service.connect(directory) as connection:
+        old = roster_service.handshake(connection, helper)
+        connection.sendall(json.dumps(frame).encode() + b"\n")
+    with roster_service.connect(directory) as connection:
+        new = roster_service.handshake(connection, helper)
+    assert new["pid"] == old["pid"]
+    assert roster_service.mailbox_of("desk") == reference(helper, "desk")
