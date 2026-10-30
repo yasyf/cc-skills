@@ -60,7 +60,7 @@ def blockers_of(blockers, release):
             "text": record["text"],
             "owner": attrs.get("owner") or (record.get("to") or [record["lane"]])[0],
             "next": attrs.get("next") or "",
-            "since": record["at"],
+            "since": attrs.get("since") or record["at"],
             "seq": record["seq"],
         })
     return found
