@@ -41,6 +41,9 @@ TRANSIENT_FAILURE = re.compile(
 )
 TRANSIENT_ATTEMPTS = 3
 TRANSIENT_PAUSE_SECONDS = 20
+COMPUTING = re.compile(r"^#(\d+) BLOCKED \S+ GitHub still computing mergeability", re.MULTILINE)
+COMPUTE_POLL_SECONDS = 10
+COMPUTE_ROUNDS = 12
 CLEAR = frozenset({"GREEN", "QUEUED"})
 APPROVAL_BLOCKER = re.compile(r"^(?:ai-review |changes requested by |awaiting approval on head|not approved by )")
 REVIEW_REFUSED = re.compile(r"^changes requested by |Held —")
@@ -133,8 +136,23 @@ class GraphiteStackEnqueue:
     def __init__(self, shell, checkout: Path, config: dict, ledger_py: Callable, repo: str):
         self.shell = shell
         self.script = str(checkout / config["script"])
+        self.repo = repo
 
     def run(self, argv: list[str]):
+        """Run the script, and while it reports GitHub still computing a PR's mergeability, read that PR once over REST, which starts GitHub's lazy computation that a GraphQL read alone never does, then run it again every `COMPUTE_POLL_SECONDS` for `COMPUTE_ROUNDS` rounds, so no refusal rests on a mergeability GitHub had not been asked to compute (root #192866, #45291)."""
+        done = self.run_settled(argv)
+        if not (computing := COMPUTING.findall(done.out)):
+            return done
+        for pr in dict.fromkeys(computing):
+            self.shell.run(["gh", "api", f"repos/{self.repo}/pulls/{pr}", "--jq", ".mergeable"])
+        for _ in range(COMPUTE_ROUNDS):
+            self.shell.sleep(COMPUTE_POLL_SECONDS)
+            done = self.run_settled(argv)
+            if not COMPUTING.search(done.out):
+                break
+        return done
+
+    def run_settled(self, argv: list[str]):
         """Run the script, repeating it after a pause while it exits with a transient network failure and no verdict; a verdict or any other failure returns at once."""
         for attempt in range(TRANSIENT_ATTEMPTS):
             if attempt:

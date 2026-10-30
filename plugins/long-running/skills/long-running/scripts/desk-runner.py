@@ -984,7 +984,7 @@ def time_bound(argv: list[str]) -> float:
         return GATE_CHECK_SECONDS
     if argv[:4] == ["ccx", "vcs", "pr", "status"]:
         return QUEUE_STATUS_SECONDS
-    if Path(argv[0]).name == "stack-enqueue":
+    if Path(argv[0]).name == "stack-enqueue" or argv[:3] == ["ccx", "vcs", "ship"]:
         return ENQUEUE_SECONDS
     if len(argv) > 1 and Path(argv[1]).name == "ledger.py":
         return LEDGER_SECONDS
@@ -5300,9 +5300,11 @@ class Landing:
             self.dispatch(f"{GRAPHITE_BASE}{pr}@{rows[pr]['head']}", {pr}, lambda: self.resubmit(pr, rows[pr]))
 
     def resubmit(self, pr: str, row: dict) -> None:
-        """Ship `pr`'s branch as it stands from the landing checkout with `ccx vcs ship --branch <branch> --tip-only --no-commit`, which moves it off its `graphite-base/` base, and post the outcome to the desk lane as a cci note."""
+        """Ship `pr`'s branch as it stands from the landing checkout with `ccx vcs ship --branch <branch> --tip-only --no-commit`, which moves it off its `graphite-base/` base, and post the outcome to the desk lane as a cci note. A ship killed at its bound runs `ccx vcs stack abort`, so no stopped rebase blocks the next stack write (#192681)."""
         argv = ["ccx", "vcs", "ship", "--branch", row["branch"], "--tip-only", "--no-commit", "--no-watch"]
         done = self.shell.run(argv, cwd=str(self.checkout))
+        if done.code == TIMED_OUT:
+            self.shell.run(["ccx", "vcs", "stack", "abort"], cwd=str(self.checkout))
         last = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1][:300]
         outcome = "resubmitted" if done.code == 0 else f"resubmit failed with exit {done.code}"
         text = f"#{pr} {row['head'][:10]} sat on {row['base']} after its parent landed; {outcome} with {shlex.join(argv)}: {last}"
@@ -6972,6 +6974,7 @@ class Landing:
             tree = dict(line.partition(" ")[::2] for line in entry.splitlines())
             if (pr := branches.get(tree.get("branch", ""))) is None:
                 continue
+            self.runner.checkpoint()
             done = self.shell.run(["ccx", "vcs", "worktree", "rm", "--path", tree["worktree"]])
             if done.code:
                 self.runner.escalate(f"worktree-kept:{tree['worktree']}", "WORKTREE-KEPT", f"#{pr}", f"{tree['worktree']} stays on landed #{pr}'s branch: {(done.err or done.out).strip()[:300]}")
