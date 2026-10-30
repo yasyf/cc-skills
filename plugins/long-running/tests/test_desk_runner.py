@@ -105,8 +105,8 @@ class FakeShell(runner_module.Shell):
         self.gates: dict[str, list[str]] = {}
         self.enqueue_out: dict[str, tuple[int, str]] = {}
         self.mergeable_reads: list[str] = []
-        self.aborts: list[str | None] = []
-        self.ship_timeout = False
+        self.aborts: list[tuple[list[str], str | None]] = []
+        self.ship_failure: runner_module.Done | None = None
         self.statuses = ""
         self.combined_statuses: dict[str, list[dict]] = {}
         self.review_runs: dict[str, list[str]] = {}
@@ -522,12 +522,12 @@ class FakeShell(runner_module.Shell):
             self.mergeable_reads.append(argv[2].rsplit("/", 1)[1])
             return runner_module.Done(0, "MERGEABLE\n", "")
         if argv[:4] == ["ccx", "vcs", "stack", "abort"]:
-            self.aborts.append(cwd)
+            self.aborts.append((argv[4:], cwd))
             return runner_module.Done(0, "dropped the stopped stack rebase\n", "")
         if argv[:3] == ["ccx", "vcs", "ship"]:
             self.ships.append((argv[3:], cwd))
-            if self.ship_timeout:
-                return runner_module.Done(runner_module.TIMED_OUT, "", f"{' '.join(argv)} timed out after 300s and was killed")
+            if self.ship_failure:
+                return self.ship_failure
             return runner_module.Done(0, f"submitted {argv[4]} → PR #1 https://example.com/1\n", "")
         raise AssertionError(f"unexpected call {argv}")
 
@@ -6248,14 +6248,27 @@ def test_a_pr_left_on_a_graphite_base_is_resubmitted_once_per_head_one_a_pass_wi
     assert notes[0]["text"].startswith("#29020 cccc333333 sat on graphite-base/29020 after its parent landed; resubmitted with ccx vcs ship --branch a/3 --tip-only --no-commit --no-watch")
 
 
-def test_a_resubmit_killed_at_its_bound_drops_the_stopped_stack_rebase(shell, config, tmp_path):
-    """p8a-step7 #192681: the 60 s kill of a graphite-base resubmit left a stopped stack rebase that blocked the owner's next `ccx vcs stack submit`."""
+@pytest.mark.parametrize(
+    ("failure", "aborted"),
+    [
+        (runner_module.Done(runner_module.TIMED_OUT, "", "ccx vcs ship --branch a/3 --tip-only --no-commit --no-watch timed out after 300s and was killed"), True),
+        (runner_module.Done(1, "", "stack rebase: a/3 stopped on a conflict in ~/.claude/worktrees/monorepo/conflict-a-3"), True),
+        (runner_module.Done(1, "", "stack rebase: a stack rebase of a/3 is already in progress (stopped on a/3 in ~/.claude/worktrees/monorepo/conflict-a-3, pid 85358) — ccx vcs stack continue, or ccx vcs stack abort, from one of its branches"), False),
+    ],
+)
+def test_a_failed_resubmit_drops_its_stopped_stack_rebase_and_names_the_abort_in_its_note(shell, config, tmp_path, failure, aborted):
+    """p8a-step7 #192681, #193574, #193729: a graphite-base resubmit killed at its bound left a stopped stack rebase that blocked the lane's next `ccx vcs stack submit`, and the bare abort that followed named no run, so it dropped nothing or another lane's."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["desk_lane"] = "landing-desk-3"
+    config.write_text(json.dumps(raw))
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "graphite-base/29020", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
     shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 GitHub reads CONFLICTING")]
-    shell.ship_timeout = True
+    shell.ship_failure = failure
     landing_pass(shell, config)
     checkout = str(Path(json.loads(config.read_text())["landing"]["checkout"]).expanduser())
-    assert shell.aborts == [checkout]
+    assert shell.aborts == ([(["--stack", "a/3"], checkout)] if aborted else [])
+    [note] = [post for post in shell.posts if post["kind"] == "note" and post["to"] == "landing-desk-3"]
+    assert note["text"].endswith("; ccx vcs stack abort --stack a/3 exited 0: dropped the stopped stack rebase") == aborted
     assert runner_module.time_bound(["ccx", "vcs", "ship", "--branch", "a/3", "--tip-only"]) == runner_module.ENQUEUE_SECONDS
 
 
