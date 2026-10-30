@@ -138,6 +138,16 @@ class _FactTree:
         self.active().execute("WITH RECURSIVE subtree(path) AS (" + query + " UNION ALL SELECT fact.path FROM fact JOIN subtree ON fact.parent = subtree.path) DELETE FROM fact WHERE path IN (SELECT path FROM subtree)", (path,))
         self.invalidate(path)
 
+    def replace(self, parent: str, value: Mapping) -> None:
+        for key in tuple(_Facts(self, parent)):
+            if key not in value:
+                self.remove(_fact_path(parent, key))
+        for key, item in value.items():
+            self.set(parent, key, item)
+        if tuple(_Facts(self, parent)) != tuple(value):
+            ordinal = self.active().execute("SELECT MAX(ordinal) FROM fact").fetchone()[0]
+            self.connection.executemany("UPDATE fact SET ordinal = ? WHERE path = ?", ((ordinal + index, _fact_path(parent, key)) for index, key in enumerate(value, 1)))
+
     def set(self, parent: str, key: str, value) -> None:
         path = _fact_path(parent, key)
         value = detached(value) if isinstance(value, _Facts) else value
@@ -152,11 +162,7 @@ class _FactTree:
                 self.remove(path, descendants_only=True)
             self.connection.execute("UPDATE fact SET kind = ?, record = ? WHERE path = ?", (kind, record, path))
         if kind == "dict":
-            for child in tuple(_Facts(self, path)):
-                if child not in value:
-                    self.remove(_fact_path(path, child))
-            for child, item in value.items():
-                self.set(path, child, item)
+            self.replace(path, value)
         else:
             self.remember(path, value, record)
 
@@ -392,11 +398,7 @@ class Transaction(ActionState):
     def facts(self, value: Mapping) -> None:
         if value is self._facts:
             return
-        value = detached(value)
-        for key in tuple(self._facts):
-            if key not in value:
-                del self._facts[key]
-        self._facts.update(value)
+        self._fact_tree.replace("", detached(value))
 
     @property
     def decisions(self) -> list[dict]:
