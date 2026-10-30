@@ -212,6 +212,11 @@
 .nw-prevent .chip.pv-none { color: var(--bad); border-color: var(--bad); }
 .nw-prevent .chip:is(.pv-building, .pv-open, .pv-merged) { color: var(--doing); border-color: var(--doing); }
 .nw-prevent .chip.pv-live { color: var(--done); border-color: var(--done); }
+.nw-prevent .nw-fh { font-size: 13px; font-weight: 600; color: var(--ink2); margin: 14px 0 6px; }
+.nw-prevent .pt.fd :is(.pt-head, .pt-row) { grid-template-columns: minmax(0, 2.4fr) 92px 92px minmax(0, .7fr) minmax(0, 1fr); }
+.nw-prevent .pt-row.fd-open { box-shadow: inset 3px 0 0 var(--bad); }
+.nw-prevent .chip.fd-open { color: var(--bad); border-color: var(--bad); }
+.nw-prevent .chip.fd-routed { color: var(--doing); border-color: var(--doing); }
 .nw-live .nw-h .linkish { margin-left: 8px; text-transform: none; letter-spacing: 0; font-weight: 500; }
 .nw-work { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .nw-work .wr { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 10px; align-items: start; width: 100%; padding: 7px 12px; border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }

@@ -40,7 +40,7 @@ CCI = "http://127.0.0.1:7377/v1"
 TIMELINE_KINDS = ["state", "head", "review", "owner", "go", "landed", "release", "incident", "mechanism", "fix-live", "opened", "report", "hold", "lift", "blocker", "defect", "correction", "decide", "decision", "ask", "answer", "done", "stopped", "stand-down", "handoff", "evidence"]
 TIMELINE_WINDOW = dt.timedelta(hours=24)
 LEDGER_KINDS = {"landed", "go", "opened", "head", "hold", "lift"}
-LIVE_SOURCES = ["cc-present store: taps and questions", "cci bus: records and workers", "drive ledger in cc-notes: pull request states, re-read on every landing, go, head, opened, hold or lift record", "progress-desk steps.json: the step rows"]
+LIVE_SOURCES = ["cc-present store: taps and questions", "cci bus: records and workers", "drive ledger in cc-notes: pull request states, re-read on every landing, go, head, opened, hold or lift record", "progress-desk steps.json: the step rows", "findings ledger in cc-notes: open sweep findings and owner picks, re-read every 5 minutes"]
 REBUILD_AFTER = 2.0
 LIVE_REFRESH = 5.0
 WORD_BYSTANDERS = ("dashboard", "register", "cc-present", "desk-runner")
@@ -71,6 +71,7 @@ LANE_ROUTE = re.compile(r"/api/lane/([\w.-]+)")
 REGISTER_DAY = dt.timedelta(days=1)
 REGISTER_SHOWN = 25
 MILESTONE_TTL = 60
+UNSETTLED = ("open", "routed")
 RECORD_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>{title}</title><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"></head><body><main class="wrap pg"><a class="pg-back" href="/">‹ The drive dashboard</a><header class="pg-h"><div><h1>{title}</h1></div><span class="pg-at">{byline}</span></header>{lead}<section class="pg-lead">{body}</section><p class="pg-at"><a href="/record/{seq}?raw=1">The raw record</a></p></main></body></html>'
 SOURCE_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>{title}</title><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"></head><body><main class="wrap pg"><a class="pg-back" href="/">‹ The drive dashboard</a><header class="pg-h"><div><h1>{title}</h1></div></header><pre class="src-text">{text}</pre></main></body></html>'
 STORY_ROUTE = re.compile(r"/api/story/([a-z0-9-]+)")
@@ -628,6 +629,13 @@ def needs(rows, cards, asks, board_url, landed):
     return [*merge_needs([row for row in rows if row["number"] not in landed], board_url), *(card_need(card, board_url) for card in cards if card["decides"]), *(ask_need(ask) for ask in asks if not ask.get("optional") and ask.get("card") in {None, *(card["id"] for card in cards)})]
 
 
+def open_findings(rows):
+    groups = {}
+    for fields in sorted((row["fields"] for row in rows if row["fields"]["state"] in UNSETTLED), key=lambda fields: fields["at"]):
+        groups.setdefault(fields["sweep"], []).append(fields)
+    return [{"sweep": sweep, "rows": found} for sweep, found in groups.items()]
+
+
 def parse_plan(body):
     if PLAN_HEADING not in body:
         return None
@@ -1115,8 +1123,19 @@ class Drive:
             "plan": plan,
             "plan_at": plan_at,
             "story": story,
+            "findings": self.read_findings(),
             "words": list({a["id"]: {"id": a["id"][:7], "at": a["updated_at"], "title": a["title"], "text": a["body"]} for label in ("program", "drive") for a in json.loads(self.ccn("answer", "list", "--label", f"{label}:{self.config['drive']}", "--json"))}.values()),
         }
+
+    def read_findings(self):
+        try:
+            ledger = json.loads(Path(self.config["findings"]).read_text())["ledger"]
+            rows = json.loads(self.ccn("ledger", "show", ledger, "--json"))["rows"]
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            self.errors["findings"] = f"the findings ledger did not read ({type(error).__name__}: {error})"[:300]
+            return []
+        self.errors.pop("findings", None)
+        return open_findings(rows)
 
     def record(self, seq):
         found = json.loads(run(["cci", "show", str(seq), "--json"]))

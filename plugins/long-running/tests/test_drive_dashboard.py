@@ -15,7 +15,7 @@ from holds import Entry
 from pages import stamp
 from review_assistant import ReviewAssistant
 import server
-from server import QUEUED_NEXT, Drive, drive_prs, drive_workers, journeys, needs, parse_plan, plan_prs, step_rows, release_path, paths_current, hold_reasons, verdict_state, with_conflicts
+from server import QUEUED_NEXT, Drive, drive_prs, drive_workers, journeys, needs, open_findings, parse_plan, plan_prs, step_rows, release_path, paths_current, hold_reasons, verdict_state, with_conflicts
 
 NOW = dt.datetime(2026, 10, 27, 8, 0, tzinfo=dt.timezone.utc)
 TREES = ["New tree", "Old tree", "Shared"]
@@ -869,3 +869,39 @@ def test_evidence_written_before_the_live_head_was_pushed_never_reaches_the_owne
     records = [{"kind": "head", "at": "2026-10-30T09:06:00Z", "text": "HEAD #45412 bbbb2222 (was aaaa111)"}, {"kind": "head", "at": "2026-10-30T09:00:00Z", "text": "HEAD #45414 cccc3333"}]
 
     assert list(server.live_evidence(evidence, prs, {}, records)) == ["45414"]
+
+
+def finding_row(seq, sweep, state, at, kind="finding"):
+    fields = {"kind": kind, "sweep": sweep, "seq": str(seq), "at": at, "pr": "45001", "line": "go/sand/a.go:12", "verdict": "fix", "owner": "port-misc-3", "text": f"finding {seq}", "state": state, "by": ""}
+    return {"key": f"{kind}/{seq}", "fields": fields}
+
+
+FINDING_ROWS = [
+    finding_row(4, "go-sweep-6", "open", "2026-10-30T10:05:00Z"),
+    finding_row(1, "go-sweep-6", "routed", "2026-10-30T09:00:00Z"),
+    finding_row(2, "go-sweep-6", "fixed", "2026-10-30T09:10:00Z"),
+    finding_row(3, "owner", "open", "2026-10-30T09:30:00Z", kind="pick"),
+    finding_row(5, "old-world-audit-go", "closed", "2026-10-30T08:00:00Z"),
+]
+
+
+def test_open_findings_group_by_sweep_oldest_first_and_drop_fixed_and_closed_rows():
+    groups = open_findings(FINDING_ROWS)
+
+    assert [(group["sweep"], [row["seq"] for row in group["rows"]]) for group in groups] == [("go-sweep-6", ["1", "4"]), ("owner", ["3"])]
+    assert groups[1]["rows"][0]["kind"] == "pick"
+
+
+def test_findings_read_from_the_ledger_named_in_findings_json_and_a_missing_file_shows_nothing(tmp_path):
+    drive = Drive({"findings": str(tmp_path / "findings.json")}, None)
+
+    assert drive.read_findings() == []
+    assert "findings" in drive.errors
+
+    (tmp_path / "findings.json").write_text(json.dumps({"ledger": "abc123", "cursor": 7}))
+    asked = []
+    drive.ccn = lambda *args: asked.append(args) or json.dumps({"rows": FINDING_ROWS})
+
+    assert [group["sweep"] for group in drive.read_findings()] == ["go-sweep-6", "owner"]
+    assert asked == [("ledger", "show", "abc123", "--json")]
+    assert "findings" not in drive.errors
