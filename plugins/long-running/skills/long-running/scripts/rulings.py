@@ -98,7 +98,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import cache, cached_property
 from pathlib import Path
+
 from zoneinfo import ZoneInfo
+
+from long_running.ruling_documents import DocumentIndex
 
 import board_rows
 import cci
@@ -658,10 +661,11 @@ def alternation(wanted: list[tuple[str, str]]) -> re.Pattern[str] | None:
 
 
 class Sweeper:
-    def __init__(self, loaded: Register, rows: dict[str, dict[str, str]]) -> None:
+    def __init__(self, loaded: Register, rows: dict[str, dict[str, str]], documents: DocumentIndex | None = None) -> None:
         self.wanted = [(key, name) for key, fields in rows.items() for name in names_of(fields)]
         self.anything = alternation(self.wanted)
         self.authorizers = loaded.answer_words()
+        self.documents = documents
 
     def lines(self, source: str, numbered: Iterable[tuple[int, str]], removed: bool = False) -> list[Hit]:
         if not self.anything:
@@ -675,6 +679,8 @@ class Sweeper:
         ]
 
     def file(self, path: Path, shown: str) -> list[Hit]:
+        if self.documents is not None:
+            return self.lines(shown, self.documents.lines(path, sweep_starts(name for _, name in self.wanted)))
         if not path.is_file() or (text := readable(path)) is None:
             return []
         return self.lines(shown, enumerate(text.splitlines(), start=1))
@@ -720,6 +726,19 @@ def name_starts(name: str) -> list[str]:
     if WORD_RUN.fullmatch(word):
         return [word, f"{word}s", f"{word}es"]
     return WORD_RUN.findall(word)[:1]
+
+
+def sweep_words(text: str) -> list[str]:
+    return WORD_RUN.findall(PATH_TOKEN.sub(" ", text).replace("İ", "i").replace("ı", "i").casefold())
+
+
+def sweep_starts(names: Iterable[str]) -> set[str] | None:
+    starts = set()
+    for name in names:
+        if not (words := sweep_words(name)):
+            return None
+        starts.update((words[0], f"{words[0]}s", f"{words[0]}es") if WORD_RUN.fullmatch(name) else words[:1])
+    return starts
 
 
 def globbed(root: str, globs: list[str]) -> list[Path]:
@@ -1268,7 +1287,7 @@ def post_repeat(loaded: Register, cci: str, key: str, hits: list[str]) -> None:
         print(f"WARN the sweep hits of {key} did not post to the fidelity desks ({(failed.stderr or '').strip() or failed}); they stay at {path}", file=sys.stderr)
 
 
-def applied(loaded: Register, captured: dict[str, dict], entry: dict, files: Callable[[], list[Path]]) -> dict:
+def applied(loaded: Register, captured: dict[str, dict], entry: dict, files: Callable[[], list[Path]], documents: DocumentIndex | None = None) -> dict:
     item = entry["digest"]
     capture = captured[item]
     if "no" in entry:
@@ -1327,7 +1346,7 @@ def applied(loaded: Register, captured: dict[str, dict], entry: dict, files: Cal
         loaded.write(key, **fields)
         if supersedes:
             superseded(loaded, supersedes, key)
-    sweeper = Sweeper(loaded, {key: loaded.rows[key]})
+    sweeper = Sweeper(loaded, {key: loaded.rows[key]}, documents)
     hits = sweeper.files(files()) if sweeper.wanted else []
     cards = write_cards(loaded, key, entry.get("confirms") or [])
     row = loaded.rows[key]
@@ -1383,11 +1402,13 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
         if refused := [line for entry in entries for line in refusals(loaded, captured, entry, batch)]:
             print("\n".join(refused))
             return 1
+        names = [name for entry in entries for name in [*names_of(loaded.rows.get(entry.get("extends"), {})), *map(str, entry.get("names") or [])]]
+        documents = DocumentIndex(sweep_words, sweep_starts(names))
         touched_rows: dict[str, str] = {}
         repeats: dict[str, list[str]] = {}
         before = {key: dict(fields) for key, fields in loaded.rows.items()}
         for entry in entries:
-            result = applied(loaded, captured, entry, files)
+            result = applied(loaded, captured, entry, files, documents)
             print(json.dumps(result, ensure_ascii=False))
             if "key" in result:
                 touched_rows.setdefault(result["key"], result["how"])

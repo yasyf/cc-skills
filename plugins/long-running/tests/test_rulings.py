@@ -898,6 +898,70 @@ def test_classify_walks_the_briefs_once_for_its_announce_and_sweeps_nothing_for_
     assert walks == [state]
 
 
+@pytest.mark.parametrize("count", [2, 32])
+def test_classify_reads_each_unchanged_document_once_for_all_rows(home: Path, package: Path, state: Path, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch, count: int) -> None:
+    prompts = [capture(f"{number:x}", f"no parked worker here {number}") for number in range(1, count + 1)]
+    for number, prompt in enumerate(prompts):
+        prompt["digest"] = f"{number:016x}"
+    captured(state, *prompts)
+    shell = RegisterShell(seeded(package))
+    files = rulings.default_files(rulings.Register(shell, REPO, "brook", state, REGISTER_LEDGER, seeded(package)), package / "plan" / "plan.md")
+    read = Path.read_bytes
+    reads: list[Path] = []
+
+    def counted(path: Path) -> bytes:
+        if path in files:
+            reads.append(path)
+        return read(path)
+
+    monkeypatch.setattr(Path, "read_bytes", counted)
+    code, out = classify(tmp_path, capsys, shell, *({"digest": prompt["digest"], "extends": "rule/aaaaaaa", "words": prompt["text"]} for prompt in prompts))
+
+    print(json.dumps({"rows": count, "corpus_bytes": sum(path.stat().st_size for path in files), "logical_read_bytes": sum(path.stat().st_size for path in reads), "document_reads": len(reads), "legacy_document_reads": count * len(files)}))
+    assert code == 0
+    assert len(out.splitlines()) == count
+    assert reads == files
+
+
+@pytest.mark.parametrize("name,text", [("parked worker", "A parked worker waits."), ("worker", "Workers wait; workeres wait."), ("skip", "skİp"), ("skip", "skıp"), ("skıp", "skip"), ("s", "ſ"), ("ſ", "s"), ("k", "K"), ("K", "k"), ("σ", "ς"), ("ς", "σ"), ("+", "Use + here."), ("relay-server", "Keep relay-server small."), ("a.b", "Keep a.b here.")])
+def test_indexed_document_hits_equal_plain_sweeper_for_every_name_form(tmp_path: Path, name: str, text: str) -> None:
+    path = tmp_path / "brief.md"
+    path.write_text(f"Unrelated words.\n{text}\n/path/{name}\n~~{name}~~\n")
+    loaded = rulings.Register(RegisterShell({}), REPO, "brook", tmp_path, REGISTER_LEDGER, {})
+    rows = {"rule/one": {"names": json.dumps([name])}}
+    documents = rulings.DocumentIndex(rulings.sweep_words, rulings.sweep_starts([name]))
+
+    assert rulings.Sweeper(loaded, rows, documents).files([path]) == rulings.Sweeper(loaded, rows).files([path])
+
+
+def test_indexed_documents_refresh_replaced_inplace_deleted_and_binary_content(tmp_path: Path) -> None:
+    path = tmp_path / "brief.md"
+    path.write_text("worker first\n")
+    index = rulings.DocumentIndex(rulings.sweep_words, {"worker"})
+    assert index.lines(path, {"worker"}) == [(1, "worker first")]
+    path.write_text("worker newer\n")
+    assert index.lines(path, {"worker"}) == [(1, "worker newer")]
+    staged = tmp_path / "replacement"
+    staged.write_text("worker final\n")
+    staged.replace(path)
+    assert index.lines(path, {"worker"}) == [(1, "worker final")]
+    path.write_bytes(b"worker\0binary")
+    assert index.lines(path, {"worker"}) == []
+    path.unlink()
+    assert index.lines(path, {"worker"}) == []
+
+
+def test_document_reuse_keeps_each_rows_current_authorizers(tmp_path: Path) -> None:
+    path = tmp_path / "brief.md"
+    path.write_text("Keep worker here (1234567).\n")
+    loaded = rulings.Register(RegisterShell({}), REPO, "brook", tmp_path, REGISTER_LEDGER, {})
+    rows = {"rule/one": {"names": '["worker"]'}}
+    documents = rulings.DocumentIndex(rulings.sweep_words, {"worker", "workers", "workeres"})
+    assert rulings.Sweeper(loaded, rows, documents).files([path])[0].status == "open"
+    loaded.rows["rule/two"] = {"kind": "order", "answer": '["1234567"]', "words": "Keep worker here"}
+    assert rulings.Sweeper(loaded, rows, documents).files([path])[0].status == "authorized 1234567"
+
+
 def test_briefs_skip_a_copied_source_tree_and_anything_below_three_levels(state: Path) -> None:
     (state / "briefs").mkdir()
     (state / "briefs" / "lane-a.md").write_text("Brief.\n")
