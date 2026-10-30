@@ -1700,6 +1700,17 @@ An answer covers only the head it names, so a new head asks again. A changed-fil
 read GitHub refuses logs `FILES-READ-FAILED`, and nothing in that prefix enqueues
 until it reads.
 
+**Graphite down, merge directly.** Graphite reads down when no batch has started in 15
+minutes while PRs are queued, or its two newest batches both timed out. The runner then
+posts `GRAPHITE-DOWN since <time>` to root and the landing desks. It squash-merges each
+stack it would have enqueued, once it is green, approved, and unheld (owner b530f5d). A stack merges only rebased
+onto the latest `dev`, its bottom behind none of `dev` and each PR behind none of the one
+below; one behind gets one blocker per head asking the restack lanes for the rebase (owner
+e7170fa). A lone PR merges by `gh pr merge --squash --match-head-commit`, a longer chain by
+`gh stack link` and one all-or-nothing `gh stack merge --squash`, and each PR posts `MERGED
+#N at <head> direct, Graphite down, b530f5d`. The overflow stops meanwhile, and
+`GRAPHITE-UP` follows the first batch Graphite starts after that time.
+
 **Five minutes from go to queue.** A green PR a root `go` names at its head is in the
 merge queue within five minutes of that go. A stack the passes leave out that long, unheld and
 unrefused, goes straight into the queue through the runner's overflow, which posts a QUEUED

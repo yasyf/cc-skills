@@ -280,7 +280,16 @@ counting the queued, waiting, held and refused PRs, the workers running and the 
 `GO-UNQUEUED` is raised only when the newest enqueue of a go'd head since its go ended blocked, failed, stranded or unsettled, never for
 backlog, and `OVERFLOW-STALLED` when the overflow thread finished no run in five minutes. Beside the passes, an overflow thread reads afresh every minute and puts straight
 into the queue, with none of the runner's checks, each stack that has stayed green, named at its heads by a root go, unheld, unqueued
-and unrefused for five minutes, posting a QUEUED report that names the overflow (owner 9524276). The queue read is one `ccx vcs pr status` call over every open row a pass,
+and unrefused for five minutes, posting a QUEUED report that names the overflow (owner 9524276). Graphite reads down when no queue
+draft from its app has opened in 15 minutes while the queue read holds a PR, or its two newest drafts are both still open 30 minutes after
+opening, which is how its batches time out; a draft read that fails changes nothing. The pass that sees it posts one `GRAPHITE-DOWN since
+<time>` state record to root and each `landing.desk_lane`, and one `GRAPHITE-UP` once a draft opens after that time. While down, the
+overflow stops and each accepted enqueue merges its prefix straight into the trunk instead (owner b530f5d): chain by chain, bottom first,
+only once each chain sits on the latest trunk, its bottom behind none of it and each PR behind none of the PR below (owner e7170fa), a
+lone PR by `gh pr merge --squash --match-head-commit` and a longer chain by `gh stack link` and one all-or-nothing `gh stack merge --squash`
+of its top, posting one `MERGED #N at <head> direct, Graphite down, b530f5d` state record per PR. A chain behind its base gets one
+blocker per head asking the restack lanes and its lane to rebase it, and the chains above it wait. Every enqueue first settles its PRs
+through `ledger.py landed`, so a PR another lane merged directly is never enqueued. The queue read is one `ccx vcs pr status` call over every open row a pass,
 allowed 300 s, which the gate, the requeue and the landed check share. A PR body is read at most once per five minutes, a head's
 `check-pr` that waits on an owner answer runs again at most once per five minutes, and the trunk's statuses are read only when
 `git ls-remote` shows the trunk moved or its newest check was unfinished five minutes ago (root #146561).
@@ -675,7 +684,8 @@ EFFORTS = ("low", "medium", "high", "xhigh", "max")
 GO_UNQUEUED_OUTCOMES = frozenset({"blocked", "failed", "stranded", "unsettled"})
 RETRYABLE = frozenset({"blocked", "superseded", "foreign", "dropped", "refused", "dequeued"})
 BELIEVED_QUEUED = frozenset({"enqueued", "noop"})
-ADMITTED = BELIEVED_QUEUED | {"dropped", "ejected"}
+MERGED = "merged"
+ADMITTED = BELIEVED_QUEUED | {"dropped", "ejected", MERGED}
 OUT_OF_QUEUE = frozenset({"not queued", "evicted"})
 LANDING_REFUSALS = frozenset({"FOREIGN", "TAP-REQUIRED", "CONTRACT-MISSING", "PARKED", "UNOWNED", "GATE-FAILED", "RULINGS-REFUSED", "ENQUEUE-STRANDED", "ENQUEUE-FAILED", "ENQUEUE-UNSETTLED"})
 OWNER_KINDS = ("head", "opened", "ready", "claim", "report")
@@ -691,6 +701,12 @@ OVERFLOW_EVERY = timedelta(minutes=1)
 OVERFLOW_SEEN = "overflow-seen"
 OVERFLOW_STALLED = timedelta(minutes=5)
 OVERFLOW_RETRIES = frozenset({"superseded", "failed", "dropped"})
+GRAPHITE_DOWN = "graphite-down"
+GRAPHITE_APP = "app/graphite-app"
+GRAPHITE_QUIET = timedelta(minutes=15)
+BATCH_TIMEOUT = timedelta(minutes=30)
+DIRECT_RULING = "b530f5d"
+REBASE_RULING = "e7170fa"
 UNGRADED_READ = "ungraded_read"
 DIFF_MEDIA = "Accept: application/vnd.github.diff"
 ALLOW_ESCAPES = "--allow-escape-sequences"
@@ -6803,6 +6819,9 @@ class Landing:
         if any(not rows.get(pr, {}).get("ours") for pr in prefix):
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "foreign", "out": "", "at": self.book.stamp()}))
             return
+        if landed := self.landed_now(prefix):
+            self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "landed", "out": f"{numbered(sorted(landed, key=int))} already landed on {TRUNK}", "at": self.book.stamp()}))
+            return
         if self.held(rows) is None:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": f"{self.holds} carries a line the desk cannot hold by", "at": self.book.stamp()}))
             return
@@ -6822,7 +6841,8 @@ class Landing:
             text = f"the {name} check refuses " + "; ".join(f"#{pr}: {state.reason}" for pr, state in states.items())
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": text, "at": self.book.stamp()}))
             return
-        outcome, out, last = self.enqueue_chains(tops, enqueued_heads(key), self.whole())
+        down = self.down_since()
+        outcome, out, last = self.merge_chains(tops, enqueued_heads(key), rows) if down else self.enqueue_chains(tops, enqueued_heads(key), self.whole())
         if outcome in BELIEVED_QUEUED:
             self.moved_in_queue(enqueued_heads(key))
         if outcome in BELIEVED_QUEUED and (late := self.holding(prefix, rows, accepted_at)):
@@ -6831,7 +6851,7 @@ class Landing:
         if outcome in BELIEVED_QUEUED:
             self.post_record("report", f"queued:{key}", self.landing_audience(prefix, rows, self.queue_audience(prefix, rows)), f"QUEUED {self.queue_line(enqueued_heads(key))}: the landing runner put it in the merge queue at {pacific(self.runner.now())}", prefix[-1])
         if outcome in ("stranded", "failed", "unsettled"):
-            self.runner.escalate(key, f"ENQUEUE-{outcome.upper()}", numbered(tops), last)
+            self.runner.escalate(key, f"{'DIRECT-MERGE' if down else 'ENQUEUE'}-{outcome.upper()}", numbered(tops), last)
 
     def queue_line(self, heads: dict[str, str]) -> str:
         """Each PR the runner enqueued, at the head it enqueued, with the root `go` that names that head or `no go at this head`."""
@@ -6865,6 +6885,80 @@ class Landing:
                 return done, "".join(outs)[-1500:], last
             outcome = "enqueued" if "enqueued" in (outcome, done) else done
         return outcome, "".join(outs)[-1500:], last
+
+    def merge_chains(self, tops: list[str], heads: dict[str, str], rows: dict[str, dict]) -> tuple[str, str, str]:
+        """While Graphite is down, merge each chain of an admitted prefix straight into the trunk, bottom chain first (owner b530f5d): a chain behind the latest trunk, or a PR behind the PR below it, gets one blocker per head asking for a rebase and ends the run (owner e7170fa); a lone PR merges by squash pinned to its head, a longer chain by one all-or-nothing `gh stack merge` of its top, and each merged PR posts its `MERGED` record. The first chain that does not merge ends the run and names its outcome."""
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
+        outcome, outs, last = "noop", [], ""
+        for top in tops:
+            chain = sorted((pr for pr in downstack(open_rows, top) if pr in heads), key=lambda pr: len(downstack(open_rows, pr)))
+            if behind := self.unrebased(chain, heads):
+                pr, base = behind
+                last = f"#{pr} at {heads[pr][:10]} is behind {base}, so {numbered(chain)} waits for a rebase onto the latest {TRUNK}"
+                if not self.book.known(LANDING, ask := f"rebase-direct:{pr}@{heads[pr]}"):
+                    owner = self.owner(pr, open_rows[pr])
+                    to = ",".join(dict.fromkeys([*self.restack_lanes(), *(self.reach(owner) if owner else [])]))
+                    self.post_blocker(ask, to, f"#{pr} {heads[pr][:10]}: Graphite is down, so the landing runner merges directly, and a direct merge needs its stack rebased onto the latest {TRUNK} first (owner {REBASE_RULING}); it is behind {base}. Rebase {numbered(chain)} onto {TRUNK} and push; it merges once green at the new heads.", pr)
+                return (MERGED if outcome == MERGED else "blocked"), "".join(outs)[-1500:], last
+            done = self.merge_chain(chain, heads)
+            outs.append(done.out + done.err)
+            last = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
+            if done.code:
+                return (MERGED if outcome == MERGED else "failed"), "".join(outs)[-1500:], last
+            outcome = MERGED
+            how = f"gh stack merge of {numbered(chain)}" if len(chain) > 1 else "gh pr merge --squash"
+            for pr in chain:
+                self.post_record("state", f"merged-direct:{pr}@{heads[pr]}", self.landing_audience([pr], rows, self.queue_audience([pr], rows)), f"MERGED #{pr} at {heads[pr][:10]} direct, Graphite down, {DIRECT_RULING}: {how}", pr)
+        return outcome, "".join(outs)[-1500:], last
+
+    def unrebased(self, chain: list[str], heads: dict[str, str]) -> tuple[str, str] | None:
+        """The first PR of `chain`, bottom first, whose head is behind its base, the latest trunk for the bottom and the head of the PR below for the rest, with that base; a compare GitHub refuses reads as behind."""
+        for below, pr in zip([None, *chain], chain):
+            base = heads[below] if below else TRUNK
+            done = self.shell.run(ghread.read("api", f"repos/{self.repo}/compare/{base}...{heads[pr]}", "--jq", ".behind_by", max_age="0s"))
+            if done.code or done.out.strip() != "0":
+                return pr, f"#{below} at {base[:10]}" if below else f"the latest {TRUNK}"
+        return None
+
+    def merge_chain(self, chain: list[str], heads: dict[str, str]) -> Done:
+        """Squash `chain` into the trunk: a lone PR pinned to its head, a longer chain linked as one GitHub stack, bottom first, and merged up to its top in one call."""
+        if len(chain) == 1:
+            return self.shell.run(["gh", "pr", "merge", chain[0], "--repo", self.repo, "--squash", "--match-head-commit", heads[chain[0]]])
+        env = {"GH_REPO": self.repo}
+        linked = self.shell.run(["gh", "stack", "link", *chain], env=env, cwd=str(self.checkout))
+        if linked.code:
+            return linked
+        return self.shell.run(["gh", "stack", "merge", chain[-1], "--yes", "--squash"], env=env, cwd=str(self.checkout))
+
+    def down_since(self) -> datetime | None:
+        """When Graphite went down, as the newest queue draft before it, while the landing desk reads it down."""
+        since = self.book.load(LANDING).facts.get(GRAPHITE_DOWN)
+        return actions.parse_stamp(since) if since else None
+
+    def watch_graphite(self) -> None:
+        """Read Graphite's two newest queue drafts once a pass and switch the direct-merge mode: down when no draft opened in `GRAPHITE_QUIET` while the queue read holds a PR, or both drafts are still open `BATCH_TIMEOUT` after opening, and up once a draft opens after the time it went down. A draft or queue read that fails switches nothing."""
+        if self.adapter.kind != merge_queue.GraphiteStackEnqueue.kind:
+            return
+        done = self.shell.run(ghread.read("pr", "list", "--repo", self.repo, "--author", GRAPHITE_APP, "--state", "all", "--limit", "2", "--json", "createdAt,closedAt", max_age="0s"))
+        if done.code:
+            return
+        drafts = sorted(json.loads(done.out), key=lambda draft: draft["createdAt"], reverse=True)
+        opened = [actions.parse_stamp(draft["createdAt"]) for draft in drafts]
+        now, since = self.runner.now(), self.down_since()
+        to = ",".join(dict.fromkeys([ROOT, *map(self.successor, self.runner.landing_lanes("desk_lane"))]))
+        if since:
+            if opened and opened[0] > since:
+                self.book.edit(LANDING, lambda incident: incident.facts.pop(GRAPHITE_DOWN))
+                self.runner.cci_post("state", f"GRAPHITE-UP: Graphite opened a queue draft at {pacific(opened[0])}, its first batch since {pacific(since)}, so the landing runner enqueues into its queue again", to, GRAPHITE_DOWN, f"graphite-up:{actions.stamp(since)}", record_id=f"graphite-up:{actions.stamp(since)}")
+            return
+        timed_out = len(drafts) == 2 and all(draft["closedAt"] is None and now - at >= BATCH_TIMEOUT for draft, at in zip(drafts, opened))
+        quiet = (not opened or now - opened[0] >= GRAPHITE_QUIET) and QUEUED_STATE in (self.queue_states() or {}).values()
+        if not (timed_out or quiet):
+            return
+        since = opened[0] if opened else now
+        why = "its two newest batches both timed out" if timed_out else f"no batch has started in {int(GRAPHITE_QUIET.total_seconds() // 60)} minutes while PRs are queued"
+        self.book.edit(LANDING, lambda incident: incident.facts.update({GRAPHITE_DOWN: actions.stamp(since)}))
+        self.runner.cci_post("state", f"GRAPHITE-DOWN since {pacific(since)}: {why}, so the landing runner squash-merges each admitted stack directly, rebased onto {TRUNK} first, until a batch starts again (owner {DIRECT_RULING})", to, GRAPHITE_DOWN, f"graphite-down:{actions.stamp(since)}", record_id=f"graphite-down:{actions.stamp(since)}")
 
     def holding(self, prefix: list[str], rows: dict[str, dict], accepted_at: datetime) -> dict[str, str]:
         """Why each PR of `prefix` may not be in the queue right now, read fresh: a holds-file line, an open cci `incident` record that names it, whose lane squash-merges the fix directly (ef905a6), the `hold` label on GitHub, an open cci `hold` record, a `hold` record posted after this enqueue was accepted, or a `hold` record newer than the PR's newest `ready` record. A label read GitHub refuses holds the PR too."""
@@ -7149,7 +7243,8 @@ class Landing:
             while True:
                 started = time.monotonic()
                 try:
-                    mine.overflow()
+                    if not self.down_since():
+                        mine.overflow()
                 except Exception:
                     traceback.print_exc()
                 time.sleep(max(0.0, OVERFLOW_EVERY.total_seconds() - (time.monotonic() - started)))
@@ -7244,6 +7339,9 @@ class Landing:
         deadline = self.runner.now() + timedelta(minutes=self.runner.config.enqueue_minutes)
         self.book.accept(LANDING, key, "enqueue", ",".join(prefix), OVERFLOW, deadline)
         if not self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now(), deadline=deadline)):
+            return
+        if landed := self.landed_now(prefix):
+            self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "landed", "out": f"{numbered(sorted(landed, key=int))} already landed on {TRUNK}", "at": self.book.stamp(), OVERFLOW: True}))
             return
         outcome, out, last = self.adapter.enqueue([top], self.whole(), heads)
         self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": out, "drive": self.runner.config.drive, "at": self.book.stamp(), OVERFLOW: True}))
@@ -8025,6 +8123,7 @@ class Landing:
         if not self.side_work:
             self.side_work = self.side.submit(self.runner.steps, lambda: self.verify(rows), lambda: self.announce_landings(rows), lambda: self.remove_landed_worktrees(rows), lambda: self.releases(rows), self.ungraded_after, lambda: self.verify_restacks(rows))
         self.runner.steps(lambda: self.resubmit_graphite_base(rows))
+        self.runner.steps(self.watch_graphite)
         if held is not None:
             self.runner.steps(lambda: self.squash_incidents(rows, held))
             if gating:

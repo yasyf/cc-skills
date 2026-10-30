@@ -171,6 +171,10 @@ class FakeShell(runner_module.Shell):
         self.fidelity_jobs: list[Path] = []
         self.reexeced: list[list[str]] = []
         self.reviews: dict[str, dict] = {}
+        self.queue_drafts: list[dict] | None = None
+        self.squashed: set[str] = set()
+        self.behind: dict[str, int] = {}
+        self.stack_code = 0
         self.checks: dict[str, list[dict]] = {}
         self.merge_commits: dict[str, str] = {}
         self.current_heads: dict[str, str] = {}
@@ -357,6 +361,13 @@ class FakeShell(runner_module.Shell):
                 return runner_module.Done(1, "", self.kept[argv[5]])
             self.listed = [(path, branch) for path, branch in self.listed if path != argv[5]]
             return runner_module.Done(0, "", "")
+        if argv[:3] == ["gh", "pr", "list"] and "--author" in argv:
+            assert argv[3:] == ["--repo", "Forge-AI/monorepo", "--author", "app/graphite-app", "--state", "all", "--limit", "2", "--json", "createdAt,closedAt"]
+            return runner_module.Done(1, "", "HTTP 502") if self.queue_drafts is None else runner_module.Done(0, json.dumps(self.queue_drafts), "")
+        if argv[:2] == ["gh", "stack"]:
+            assert env == {"GH_REPO": "Forge-AI/monorepo"} and cwd == str(self.root / "checkout")
+            code = self.stack_code if argv[2] == "merge" else 0
+            return runner_module.Done(code, "", "a pull request in the stack is not mergeable" if code else "")
         if argv[:3] == ["gh", "pr", "list"] and "--head" in argv:
             return runner_module.Done(0, json.dumps(self.pr_lists.get(argv[argv.index("--head") + 1], [])), "")
         if argv[:3] == ["git", "-C", str(self.root / "checkout")] and argv[3:] == ["ls-remote", "origin", "refs/heads/dev"]:
@@ -404,6 +415,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, "{}", "")
         if argv[:2] == ["gh", "api"] and argv[2].startswith("repos/Forge-AI/monorepo/commits/") and argv[2].endswith("/status"):
             return runner_module.Done(0, json.dumps({"statuses": self.commit_statuses.get(argv[2].split("/")[4], [])}), "")
+        if argv[:2] == ["gh", "api"] and "/compare/" in argv[2] and argv[3:] == ["--jq", ".behind_by"]:
+            return runner_module.Done(0, f"{self.behind.get(argv[2].rsplit('...', 1)[1], 0)}\n", "")
         if argv[:2] == ["gh", "api"] and "/compare/" in argv[2] and argv[3:] == ["--jq", ".status"]:
             return runner_module.Done(0, "ahead\n", "")
         if argv[:2] == ["gh", "api"] and "/compare/" in argv[2]:
@@ -439,7 +452,7 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(8 if any(check["bucket"] == "pending" for check in checks) else 0, json.dumps(checks), "")
         if argv[:3] == ["gh", "pr", "merge"]:
             assert argv[4:8] == ["--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit"]
-            self.reviews[argv[3]]["state"] = "MERGED"
+            self.reviews.setdefault(argv[3], {})["state"] = "MERGED"
             return runner_module.Done(0, "", "")
         if argv == [str(self.root / "checkout/tools/ci"), "release", "live", "--json"]:
             return runner_module.Done(0, json.dumps(self.running), "")
@@ -467,6 +480,10 @@ class FakeShell(runner_module.Shell):
             assert env == {"CLAUDE_LONG_RUNNING_DRIVE": "d1"}
             if (out := self.ledger_outs.get(verb + (" --dry-run" if "--dry-run" in argv else ""))) is not None:
                 return runner_module.Done(*out, "")
+            if verb == "landed":
+                for row in self.rows:
+                    if row["pr"] in self.squashed and f"--pr={row['pr']}" in argv:
+                        row["state"] = "landed"
             if verb != "list":
                 return runner_module.Done(0, f"{verb} ok\n", "")
             return runner_module.Done(self.ledger_code, json.dumps([{"ours": row.get("state", "open") == "open", **row} for row in self.rows]), "")
@@ -12743,3 +12760,132 @@ def test_inputs_noop_still_advances_input_revision(shell, tmp_path):
     with store.inputs("book"):
         pass
     assert store.load("book").input_revision == 2
+
+
+def queue_drafts(shell: FakeShell, *drafts: tuple[int, bool]) -> None:
+    """Graphite's queue drafts, newest first, each as how many minutes ago it opened and whether it is still open."""
+    shell.queue_drafts = [{"createdAt": actions.stamp(shell.clock - timedelta(minutes=age)), "closedAt": None if still_open else actions.stamp(shell.clock)} for age, still_open in drafts]
+
+
+def graphite_posts(shell: FakeShell) -> list[str]:
+    return [post["text"].split(":")[0].split(" since")[0] for post in shell.posts if post["kind"] == "state" and post["text"].startswith("GRAPHITE-")]
+
+
+def direct_merges(shell: FakeShell) -> list[list[str]]:
+    return [call for call in shell.calls if call[:3] == ["gh", "pr", "merge"] or call[:2] == ["gh", "stack"]]
+
+
+def merged_records(shell: FakeShell) -> list[str]:
+    return [post["text"] for post in shell.posts if post["kind"] == "state" and post["text"].startswith("MERGED ")]
+
+
+@pytest.mark.parametrize(
+    ("drafts", "queued", "down"),
+    [
+        ([(40, True), (50, True)], "not queued", True),
+        ([(20, False), (60, False)], "queued", True),
+        ([(20, False), (60, False)], "not queued", False),
+        ([(5, True), (50, True)], "queued", False),
+        ([(40, True), (50, False)], "not queued", False),
+        (None, "queued", False),
+    ],
+    ids=["two-batches-timed-out", "no-batch-while-queued", "no-batch-nothing-queued", "fresh-batch", "one-timeout", "drafts-unread"],
+)
+def test_graphite_reads_down_when_its_two_newest_batches_time_out_or_none_starts_while_prs_wait(shell, config, tmp_path, drafts, queued, down):
+    """Owner 7:50 PM Oct 29 (b530f5d): Graphite timed out every batch after 6:50 PM, so the runner merges directly while it is down."""
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    shell.queue["29020"] = queued
+    if drafts is not None:
+        queue_drafts(shell, *drafts)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert graphite_posts(shell) == (["GRAPHITE-DOWN"] if down else [])
+    assert bool(direct_merges(shell)) == down and bool(shell.enqueues()) != down
+
+
+def test_graphite_reads_up_once_a_batch_starts_after_it_went_down_and_the_runner_enqueues_again(shell, config, tmp_path):
+    lone_green_pr(shell)
+    queue_drafts(shell, (40, True), (50, True))
+    landing_pass(shell, config)
+    assert graphite_posts(shell) == ["GRAPHITE-DOWN"]
+    queue_drafts(shell, (1, True), (40, True))
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    assert graphite_posts(shell) == ["GRAPHITE-DOWN", "GRAPHITE-UP"]
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and direct_merges(shell) == []
+
+
+def test_while_graphite_is_down_an_admitted_pr_squash_merges_at_its_head_instead_of_enqueueing(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    queue_drafts(shell, (40, True), (50, True))
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    assert direct_merges(shell) == [["gh", "pr", "merge", "29020", "--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit", "cccc333333"]]
+    assert merged_records(shell) == ["MERGED #29020 at cccc333333 direct, Graphite down, b530f5d: gh pr merge --squash"]
+    assert [post["pr"] for post in shell.posts if post["text"].startswith("MERGED ")] == ["29020"]
+    assert [action.response["outcome"] for action in enqueues_of(tmp_path).values()] == ["merged"]
+
+
+@pytest.mark.parametrize("excluded", ["hold", "no-go", "red", "draft"])
+def test_while_graphite_is_down_a_held_ungone_red_or_draft_pr_never_merges(shell, config, tmp_path, excluded):
+    lone_green_pr(shell)
+    queue_drafts(shell, (40, True), (50, True))
+    if excluded == "no-go":
+        merge_mode(config, "every")
+    if excluded == "hold":
+        (tmp_path / "holds.md").write_text("#29020 HOLD (reader release): no enqueue until it is live\n")
+    verdict = {"red": "BLOCKED cccc333333 graphite FAILING", "draft": "BLOCKED cccc333333 draft"}.get(excluded)
+    if verdict:
+        shell.gates["29020"] = [gate(f"#29020 {verdict}")]
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert direct_merges(shell) == [] and shell.enqueues() == [] and merged_records(shell) == []
+
+
+def test_while_graphite_is_down_a_stack_rebased_on_dev_merges_as_one_gh_stack_bottom_first(shell, config, tmp_path):
+    """Owner 8:15 PM Oct 29 (e7170fa): for direct merges always use stacks and always rebase first."""
+    two_pr_stack(shell)
+    queue_drafts(shell, (40, True), (50, True))
+    landing_pass(shell, config)
+    assert direct_merges(shell) == [["gh", "stack", "link", "29020", "29031"], ["gh", "stack", "merge", "29031", "--yes", "--squash"]]
+    assert merged_records(shell) == [f"MERGED #{pr} at {head} direct, Graphite down, b530f5d: gh stack merge of #29020 #29031" for pr, head in (("29020", "cccc333333"), ("29031", "dddd444444"))]
+    compared = [call[2].rsplit("/", 1)[1] for call in shell.calls if call[:2] == ["gh", "api"] and call[3:] == ["--jq", ".behind_by"]]
+    assert compared == ["dev...cccc333333", "cccc333333...dddd444444"]
+
+
+@pytest.mark.parametrize("behind", ["cccc333333", "dddd444444"], ids=["bottom-behind-dev", "child-behind-parent"])
+def test_while_graphite_is_down_a_stack_behind_its_base_waits_for_a_rebase_and_asks_for_it_once_per_head(shell, config, tmp_path, behind):
+    """#44900's squash re-applied #44704's method at 8:09 PM Oct 29 because the child merged without a rebase onto the squashed dev."""
+    two_pr_stack(shell)
+    queue_drafts(shell, (40, True), (50, True))
+    shell.behind[behind] = 2
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert direct_merges(shell) == [] and merged_records(shell) == [] and shell.enqueues() == []
+    asked = [post_body(post) for post in blockers(shell) if "rebased onto the latest dev" in post_body(post)]
+    pr = "29020" if behind == "cccc333333" else "29031"
+    base = "the latest dev" if pr == "29020" else "#29020 at cccc333333"
+    assert asked == [f"#{pr} {behind}: Graphite is down, so the landing runner merges directly, and a direct merge needs its stack rebased onto the latest dev first (owner e7170fa); it is behind {base}. Rebase #29020 #29031 onto dev and push; it merges once green at the new heads."]
+
+
+def test_while_graphite_is_down_a_stack_merge_github_refuses_escalates_and_posts_no_merged_record(shell, config, tmp_path):
+    two_pr_stack(shell)
+    queue_drafts(shell, (40, True), (50, True))
+    shell.stack_code = 4
+    landing_pass(shell, config)
+    assert merged_records(shell) == []
+    failed = [line for line in escalations(shell) if line.startswith("DIRECT-MERGE-FAILED")]
+    assert len(failed) == 1 and failed[0].endswith("#29031: a pull request in the stack is not mergeable")
+
+
+def test_an_enqueue_of_a_pr_another_lane_already_merged_settles_it_landed_and_enqueues_nothing(shell, config, tmp_path):
+    """Root #196021: the runner tried to enqueue #45374 after landing-desk-3 merged it directly, and stack-enqueue failed on its deleted branch."""
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    shell.squashed = {"29020"}
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and direct_merges(shell) == []
+    assert [action.response["outcome"] for action in enqueues_of(tmp_path).values()] == ["landed"]
