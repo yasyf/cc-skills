@@ -77,11 +77,14 @@ whether the code, as it runs after the change, does what the words say.
   test against standing rule 34 (784f1ab): every change needs a regression test
   that would actually have failed, never a trivial one. A test the old
   tree also passes, or one that asserts nothing the failure broke, reads `missing`.
-- Every test the head adds or changes asserts only behavior a plan line, sub-plan
-  line, or owner ruling names, and the grade file cites that line for each test
-  (e20e623). A test that pins drive-era behavior the plan removes, or behavior
-  nothing names, reads `missing` against the row or plan line it contradicts,
-  with the line `test <name> pins unplanned behavior`.
+- Every assertion the diff adds or changes in a test asserts only behavior a plan
+  line, sub-plan line, or owner ruling names, and the grade file cites that line
+  for each such test (e20e623). An assertion that pins drive-era behavior the plan
+  removes, or behavior nothing names, reads `missing` against the row or plan line
+  it contradicts, with the line `test <name> pins unplanned behavior`. A test whose
+  only change is a renamed fixture, constructor, argument or import is graded on
+  those lines alone; its untouched assertions are dev's and never read `missing`
+  on the PR (root #208116).
 - A mechanism or test the PR body or a PR comment under a `Rulings` heading ties
   to its source is grounded by that source, never `missing` as "plan names no
   <thing>" or as unplanned: the old-tree commit it ports (the owner's order to

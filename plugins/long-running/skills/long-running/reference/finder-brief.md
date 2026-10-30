@@ -44,11 +44,14 @@ The reply follows the `findings` schema, so the codex plugin needs nothing new:
   the diff leaves as they were is a census finding, its defect starting `census:`: the
   lane appends it to `<drive scratch>/finder-desk/census-<YYYY-MM-DD>.md` with the PR,
   head, cite, and claim, and posts one `finder census:` note to root, never a major.
-- Every test the head adds or changes asserts only behavior a plan line, sub-plan
-  line, or owner ruling names (e20e623). `swept` cites that line for each test as
-  `tests: <test> <- <plan cite>; ...`. A test that pins drive-era behavior the plan
-  removes, or behavior nothing names, is one finding of severity `major`, its
-  `defect` starting `test <name> pins unplanned behavior:`. A port is a head whose PR
+- Every assertion the diff adds or changes in a test asserts only behavior a plan
+  line, sub-plan line, or owner ruling names (e20e623). `swept` cites that line for
+  each such test as `tests: <test> <- <plan cite>; ...`. An assertion that pins
+  drive-era behavior the plan removes, or behavior nothing names, is one finding of
+  severity `major`, its `defect` starting `test <name> pins unplanned behavior:`. A
+  test whose only change is a renamed fixture, constructor, argument or import is
+  graded on those lines alone: its untouched assertions are dev's, so a finding on
+  them is a census finding, never a major on the PR (root #208116). A port is a head whose PR
   body, or fidelity grade, says it ports an old-tree PR by number. On a port, a test
   that asserts what a test of that old-tree PR asserts is graded against the old-tree PR,
   the contract (plan 0.4; rule 784f1ab: a port keeps its regression tests), cited in
