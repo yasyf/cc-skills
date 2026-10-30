@@ -2681,6 +2681,52 @@ def test_a_gate_pass_never_runs_more_checks_at_once_than_gate_workers(shell, con
     assert peak[0] <= runner_module.GATE_WORKERS
 
 
+def test_a_gate_pass_runs_no_more_trunk_bound_calls_at_once_than_trunk_calls(shell, config, tmp_path):
+    """9:34 AM Oct 30: the pass fired every check at once and Trunk answered HTTP 429 to all of them (cci #215946 to #215954)."""
+    prs = [str(29100 + n) for n in range(runner_module.GATE_WORKERS)]
+    shell.rows = [{"pr": pr, "lane": LANE, "branch": f"g/{pr}", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"} for pr in prs]
+    shell.gates = {pr: [gate(f"#{pr} GREEN cccc333333 graphite READY")] for pr in prs}
+    check, lock, running, peak = shell.stack_enqueue, threading.Lock(), [0], [0]
+
+    def overlapping(argv):
+        with lock:
+            running[0] += 1
+            peak[0] = max(peak[0], running[0])
+        time.sleep(0.02)
+        with lock:
+            running[0] -= 1
+        return check(argv)
+
+    shell.stack_enqueue = overlapping
+    landing_pass(shell, config)
+    assert {call[1] for call in shell.calls if Path(call[0]).name == "stack-enqueue" and "--check" in call} == set(prs)
+    assert peak[0] <= runner_module.merge_queue.TRUNK_CALLS
+
+
+TRUNK_429 = "stack-enqueue failed: ci trunk: Trunk GET /v2/pull-requests?limit=100&number=29020&repositoryId=f4d394ae answered HTTP 429 (): ; request\n"
+
+
+def test_a_check_trunk_answers_429_waits_out_the_backoff_and_runs_again_with_no_gate_failed(shell, config, tmp_path):
+    shell.rows = single_row()
+    shell.gates["29020"] = [(5, TRUNK_429, ""), gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    grade_gated_heads_ok(shell)
+    shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
+    started = shell.clock
+    landing_pass(shell, config)
+    assert escalations(shell) == []
+    assert len(shell.enqueues()) == 1
+    assert shell.clock - started >= timedelta(seconds=runner_module.merge_queue.TRUNK_BACKOFF_SECONDS[0])
+
+
+def test_a_check_trunk_keeps_refusing_with_429_escalates_once_after_the_last_backoff(shell, config, tmp_path):
+    shell.rows = single_row()
+    shell.gates["29020"] = [(5, TRUNK_429, "")]
+    landing_pass(shell, config)
+    assert len(checks(shell)) == len(runner_module.merge_queue.TRUNK_BACKOFF_SECONDS) + 1
+    [line] = escalations(shell)
+    assert "GATE-FAILED" in line and "HTTP 429" in line
+
+
 def test_an_accepted_tree_enqueues_while_a_later_tree_is_still_being_checked(shell, config, tmp_path):
     shell.rows = [
         {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
