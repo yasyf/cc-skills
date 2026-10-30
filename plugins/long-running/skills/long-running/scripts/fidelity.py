@@ -53,7 +53,7 @@ LOG = "job.log"
 READER = "fidelity: reader"
 OLD_APP_LINE = re.compile(r"^old-app:\s*(unchanged|bug fix|changes)\b:?\s*(?:[0-9a-f]{7,40}\b)?\s*(.*)$", re.IGNORECASE)
 CODEX_SECONDS = 3600
-PLAN_LINE = re.compile(r"plan:\d+(?:-\d+)?")
+PLAN_LINE = re.compile(r"plan:(?:[\w./-]+\.md:)?\d+(?:-\d+)?")
 
 
 def patch_id(shell: finder.Shell, job: dict, start: str, end: str) -> str:
@@ -122,6 +122,7 @@ def prompt(job: dict, view: dict, base: str, own: list[str], rows: Path, plan: s
         test_only=job["exempt"]["test-only"],
         baseline=baseline(job),
         plan=plan or "none; the register names no plan",
+        package=Path(plan).parents[1] if plan else "none; the register names no plan",
         contract=job["contract"].strip() or "(the lane posted none)",
         body=view["body"].strip() or "(empty)",
         rulings=finder.rulings_comments(view),
@@ -150,7 +151,7 @@ def baseline(job: dict) -> str:
 
 
 def grounded(keys: list[str], key: str) -> bool:
-    """Whether a `missing` key is a plan line or a non-`design/` row of the head's required slice."""
+    """Whether a `missing` key is a plan line, a line of a doc in the plan's package, or a non-`design/` row of the head's required slice."""
     return bool(PLAN_LINE.fullmatch(key)) or (key in keys and not key.startswith("design/"))
 
 
@@ -159,7 +160,7 @@ def shortfalls(keys: list[str], reply: dict) -> list[str]:
     if unchecked := [key for key in keys if key not in reply["checked"]]:
         short.append(f"no grade for {', '.join(unchecked)}")
     if ungrounded := [entry["key"] for entry in reply["missing"] if not grounded(keys, entry["key"])]:
-        short.append(f"`missing` keys that are neither a plan line `plan:<n>` nor a non-design row of the rows file: {', '.join(ungrounded)}")
+        short.append(f"`missing` keys that are neither a plan line `plan:<n>`, a package doc line `plan:<path>:<n>`, nor a non-design row of the rows file: {', '.join(ungrounded)}")
     if (reply["verdict"] == "missing") != bool(reply["missing"]):
         short.append(f"verdict {reply['verdict']} with {len(reply['missing'])} `missing` entries")
     if reply["verdict"] == "reader" and not reply["reader"].strip():

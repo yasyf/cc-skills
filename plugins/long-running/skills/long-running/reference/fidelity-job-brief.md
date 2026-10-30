@@ -30,8 +30,9 @@ Answer in the schema:
   two readings the plan leaves open, a reserved row the head touches with no owner answer in
   the rows that authorizes it, or a change too large to read whole in one pass; say which in
   `reader`, and leave `reader` empty for any other verdict.
-- `missing`: each entry's `key` is a plan line `plan:<n>` or a row key from the rows file
-  other than a `design/` row. A root record, a cci seq, a brief, a lane's read-back and the
+- `missing`: each entry's `key` is a plan line `plan:<n>`, a line of a sub-plan or design doc
+  as `plan:<path under the package>:<n>`, or a row key from the rows file other than a
+  `design/` row. A root record, a cci seq, a brief, a lane's read-back and the
   PR body are never keys: a mechanism only they name is `plan:<the nearest plan line>` with
   the words "plan names no <thing>". Its `line` says what breaks in one sentence, quoting the
   owner's words it fails.
@@ -58,7 +59,13 @@ Answer in the schema:
 - `swept`: your reasoning, one sentence per group of related hunks: what the group changes,
   which rows it bears on, and why it holds or breaks.
 
-Plan: {plan}; its sub-plans sit beside it.
+Plan: {plan}. The design it carries out lives in its package, {package}. Before you grade,
+read `PLAN-MAP.md` there, find each step the hunks implement, and read the sub-plan under
+`subplans/` and the design docs under `designs/` the map names for that step. A head that
+builds a mechanism somewhere those docs do not put it (another process, server, crate,
+table or store), or contradicts what they say, is `missing` keyed
+`plan:<path under the package>:<line>`, such as `plan:subplans/signal-service.md:45`. An
+owner row in the rows file that postdates a doc and says otherwise rules over the doc.
 
 The lane's contract, its read-back of what it builds, moves or deletes, is a claim to check,
 never the standard:
@@ -67,7 +74,8 @@ never the standard:
 PR body, never edited after the PR opens:
 {body}
 
-PR comments under a `Rulings` heading, which correct and extend the body:
+PR comments opening a `Rulings` or `Body addendum` section, which correct and extend the body
+as part of it:
 {rulings}
 
 Missing points root settled on this PR. Do not raise one again, in these words or others, unless
