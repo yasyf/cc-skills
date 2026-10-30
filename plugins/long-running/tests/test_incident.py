@@ -248,7 +248,7 @@ def open_incident(store: Store, clock: Clock, grants: dict | None = None, kind: 
         argv += ["--grant", f"{name}={ref}"]
     assert incident.main(argv, store, clock) == 0
     if facts:
-        with store.inputs("pr-review-1001") as record:
+        with store.transaction("pr-review-1001", inputs=True) as record:
             record.facts |= facts
     return "pr-review-1001"
 
@@ -401,7 +401,7 @@ def test_a_lost_comms_post_is_found_on_the_bus_not_reposted(store, clock, fake):
 
 def test_claude_is_refused_as_the_incident_fix_route(store, clock, fake):
     incident_id = open_incident(store, clock)
-    with store.inputs(incident_id) as record:
+    with store.transaction(incident_id, inputs=True) as record:
         record.facts["routes"]["fix"] = ["opus", "xhigh"]
     with pytest.raises(RouteRefused):
         Runner(store, incident_id, world_of(fake), clock).tick()
@@ -425,7 +425,7 @@ def test_backup_launches_on_opus_after_fifteen_quiet_minutes(store, clock, fake)
 
 def test_no_backup_launches_while_the_desk_clocks_opus_fallback_is_launching_or_live(store, clock, fake):
     incident_id = open_incident(store, clock)
-    with store.inputs(incident_id) as record:
+    with store.transaction(incident_id, inputs=True) as record:
         record.facts["adopted"] = {"fix": "api-1n85-fix"}
     fake.engaged_lanes.add("api-1n85-fix-opus")
     runner = Runner(store, incident_id, world_of(fake), clock)
@@ -692,7 +692,7 @@ def test_a_crash_after_verifying_the_sync_resumes_without_a_second_apply(store, 
     incident_id = open_incident(store, clock)
     runner = Runner(store, incident_id, world_of(fake), clock)
     drive(runner, store, clock, parse_stamp(REPAIR["landed_at"]) + timedelta(seconds=40))
-    with store.owned(incident_id, 1) as record:
+    with store.transaction(incident_id, generation=1) as record:
         record.milestones = [entry for entry in record.milestones if entry["name"] != "activated"]
         record.status = "activation_pending"
     record = drive(runner, store, clock, clock.at + timedelta(hours=1))
@@ -739,7 +739,7 @@ def test_a_runner_for_a_former_owner_refuses_to_start(store, clock):
 
 def test_an_adopted_lane_is_recorded_not_launched(store, clock, fake):
     incident_id = open_incident(store, clock, kind="alert")
-    with store.inputs(incident_id) as record:
+    with store.transaction(incident_id, inputs=True) as record:
         record.facts["adopted"] = {"fix": "api-1n85-fix"}
     runner = Runner(store, incident_id, world_of(fake), clock)
     drive(runner, store, clock, INTAKE + timedelta(minutes=1), worker=lambda *_: None)
@@ -883,3 +883,43 @@ def test_a_pr_on_a_ruled_subsystem_with_no_design_check_asks_the_root_to_hold_it
     drive(runner, store, clock, INTAKE + timedelta(minutes=1), worker=lambda *_: None)
 
     assert [ask for ask in fake.asks if "design" in ask] == [f"{incident_id}: #{REPAIR['pr']} opened with no design check; hold it, then confirm it calls {ENTRY_POINT} and meets {RULING} with `incident.py note --incident {incident_id} --design-ok`, or redirect the fix lane"]
+
+
+@pytest.mark.parametrize("count", [32, 10_000])
+def test_active_recovery_consumers_do_not_load_historical_actions_or_unrelated_facts(store, clock, fake, monkeypatch, count):
+    incident_id = open_incident(store, clock)
+    with store.transaction(incident_id, generation=1) as live:
+        live.facts["unrelated"] = {str(index): "large historical value" for index in range(count)}
+        for index in range(count):
+            key = f"history:{index}"
+            live.accept(key, "history", "old", None, clock.now())
+            live.verify(key, {"done": True})
+        live.accept("active", "send", "new", None, clock.now())
+        live.start("active", clock.now())
+    runner = Runner(Store(store.root), incident_id, world_of(fake), clock)
+    costs = {"actions": 0, "decoded_bytes": 0}
+    decode, construct = json.loads, actions.Action.load.__func__
+
+    def loads(value, *args, **kwargs):
+        costs["decoded_bytes"] += len(value.encode() if isinstance(value, str) else value)
+        return decode(value, *args, **kwargs)
+
+    def action(cls, record):
+        costs["actions"] += 1
+        return construct(cls, record)
+
+    def full_load(*args):
+        pytest.fail("targeted recovery materialized a full incident")
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(json, "loads", loads)
+        scoped.setattr(actions.Action, "load", classmethod(action))
+        scoped.setattr(runner.store, "load", full_load)
+        runner.exhausted()
+        runner.mark_lost()
+        runner.deadlines()
+        assert runner.next_id("dispatch:fix") == "dispatch:fix"
+        assert runner.reached("missing") is None
+    assert costs["actions"] == 2
+    assert costs["decoded_bytes"] < 4_000
+    assert store.action(incident_id, "active").status == "unverifiable"

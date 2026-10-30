@@ -16,6 +16,7 @@
     drive.py lane-status LANE|DISPATCH [--drive ID] [--run ID]
     drive.py pr-owed LANE [--drive ID]
     drive.py digest  [--drive ID] [--quiet-point]
+    drive.py reds    [--drive ID]
     drive.py worktree --lane NAME --path DIR [--session ID] [--drive ID]
     drive.py release --cci-drive NAME --owner LANE@DRIVE --build BUILD [--release ID]
     drive.py overview [--drive ID] [--steps PATH] [--json] [--step ID] [--since TIME]    (alias plan-status)
@@ -81,6 +82,11 @@ its state, its owning lane, since when, and its next step, marked ``STALE`` once
 Its last line says whether the drive sits at a quiet point: every desk's newest alive record is under two minutes old and
 names no command or landing pass in flight. A tooling lane installs a cci or long-running release only there, so no
 pass or merge runs through the swap; ``--quiet-point`` exits 0 at a quiet point and 1 otherwise.
+
+``reds`` is the red register: from the same ``stack.json``, one line per open PR whose build reads red, with its
+head, its failing checks, its class, its owner, since when it has read red, and the last action its newest
+``red`` record names. A lane classes a red head with ``cci post --kind red --pr N --text "class=<inherited|flake|real|stale>
+head=<sha> owner=<lane> <what was done>"``; a red head with no such record reads ``unclassed``.
 
 ``worktree`` is the pack's entry point the first time a lane runs a command in a worktree: it posts one
 ``state`` record ``WORKTREE <lane> <path> <branch>`` with a ``worktree`` attr, keyed
@@ -223,8 +229,16 @@ def drives() -> list[dict]:
 
 
 def find(drive: str | None, session: str | None) -> dict | None:
+    if drive:
+        if "/" in drive or "\x00" in drive:
+            return None
+        path = drives_dir() / f"{drive}.json"
+        if not path.is_file():
+            return None
+        entry = load(path)
+        return entry if entry["drive"] == drive else None
     for entry in drives():
-        if entry["drive"] == drive or (not drive and session in entry["sessions"]):
+        if session in entry["sessions"]:
             return entry
     return None
 
@@ -574,6 +588,21 @@ def cmd_digest(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0 if current else 1
 
 
+def cmd_reds(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    if (entry := resolve(args)) is None:
+        return 1
+    if not (stack := Path(entry["state_dir"]) / "inbox" / STACK).is_file():
+        print(f"no {stack}: the stall watch has not run a pass for this drive")
+        return 1
+    written = load(stack)
+    reds = [row for row in written["prs"] if "red" in row]
+    print(f"reds at {overview.clock(datetime.fromisoformat(written['at']))}: {len(reds)} open PRs read red, {sum(row['red']['class'] == 'unclassed' for row in reds)} unclassed")
+    for row in reds:
+        red = row["red"]
+        print(f"#{row['pr']} {row['head'][:7]} | {red['checks']} | {red['class']} | owner {red['owner']} | red since {overview.clock(datetime.fromisoformat(red['since']))} | {red['action'] or 'no action recorded'}")
+    return 0
+
+
 def cmd_worktree(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if (entry := resolve(args)) is None:
         return 1
@@ -711,6 +740,10 @@ def build_parser() -> argparse.ArgumentParser:
     digest.add_argument("--drive")
     digest.add_argument("--quiet-point", action="store_true", help="exit 0 only at a quiet point, where no desk runs a pass or a merge, the one time a tooling lane installs a cci or long-running release")
     digest.set_defaults(handler=cmd_digest)
+
+    reds = subparsers.add_parser("reds", help="every open PR whose build reads red, with its class, owner, since when, and last action")
+    reds.add_argument("--drive")
+    reds.set_defaults(handler=cmd_reds)
 
     worktree = subparsers.add_parser("worktree", help="post the WORKTREE record that maps a lane to a worktree it works in")
     worktree.add_argument("--lane", required=True)

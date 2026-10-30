@@ -30,7 +30,7 @@ def test_desk_briefs_wait_in_process_and_monitor_top_level_sessions(path):
     assert "tail -n 0 -F" not in text
 
 
-DESK_BRIEFS = ["landing-desk", "priority-desk", "drive-watchdog", "alerts-desk"]
+DESK_BRIEFS = ["landing-desk", "priority-desk", "drive-watchdog", "alerts-desk", "red-sweep"]
 
 
 @pytest.mark.parametrize("path", ["SKILL.md", "../../agents/lane.md", "../../agents/lane-ship.md", *(f"reference/{desk}-brief.md" for desk in DESK_BRIEFS)])
