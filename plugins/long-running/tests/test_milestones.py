@@ -24,9 +24,21 @@ def test_an_open_blocker_record_makes_a_milestone_blocked_and_says_what_unblocks
     assert rows[0]["owners"] == ["fixer"]
 
 
-def test_a_resolved_blocker_no_longer_blocks():
-    rows = compute([FIRST], [], [blocker(5, "R1", "fixer", "x", "y", status="resolved")], [release(1, "10970 passed: api live")])
+def test_a_cleared_blocker_no_longer_blocks():
+    cleared = blocker(6, "R1", "fixer", "", "Runs work again")
+    cleared["fields"]["attrs"]["cleared"] = "yes"
+    rows = compute([FIRST], [], [blocker(5, "R1", "fixer", "x", "y"), cleared], [release(1, "10970 passed: api live")])
     assert rows[0]["state"] == "live"
+
+
+def test_a_blocker_answered_by_a_worker_still_blocks():
+    rows = compute([FIRST], [], [blocker(5, "R1", "fixer", "x", "Runs fail on start", status="closed")], [release(1, "10970 passed: api live")])
+    assert rows[0]["state"] == "broken"
+
+
+def test_the_newest_blocker_on_a_topic_replaces_the_older_one():
+    rows = compute([FIRST], [], [blocker(5, "R1", "fixer", "x", "Old wording"), blocker(6, "R1", "fixer", "x", "New wording")], [release(1, "10970 passed: api live")])
+    assert rows[0]["waits"] == "New wording"
 
 
 def test_a_milestone_stays_live_while_a_newer_release_runs():
