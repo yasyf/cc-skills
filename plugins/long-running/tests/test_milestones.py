@@ -87,3 +87,10 @@ def test_a_blocker_with_a_promised_time_shows_it():
     record["fields"]["attrs"]["by"] = "2026-10-30T04:30:00Z"
     rows = compute([FIRST], [], [record], [release(1, "10970 passed: api live")])
     assert rows[0]["unblocking"] == "The fixer ships the patch, by 9:30 PM"
+
+
+def test_a_promised_time_written_in_words_is_shown_as_written():
+    record = blocker(5, "R1", "fixer", "The fixer ships the patch", "Runs fail on start")
+    record["fields"]["attrs"]["by"] = "within 15 minutes of your word"
+    rows = compute([FIRST], [], [record], [release(1, "10970 passed: api live")])
+    assert rows[0]["unblocking"] == "The fixer ships the patch, within 15 minutes of your word"

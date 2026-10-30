@@ -33,9 +33,16 @@ def clock(iso):
     return when(iso).astimezone(PACIFIC).strftime("%-I:%M %p")
 
 
+def promised(by):
+    try:
+        return f"by {clock(by)}"
+    except ValueError:
+        return by
+
+
 def timed(step, by, since):
     if by:
-        return f"{step}, by {clock(by)}"
+        return f"{step}, {promised(by)}"
     if PROMISED.search(step):
         return step
     return f"{step}, no time given" + (f" since {clock(since)}" if since else "")
