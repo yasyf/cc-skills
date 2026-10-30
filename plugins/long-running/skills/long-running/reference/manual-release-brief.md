@@ -31,4 +31,6 @@ Do, in order:
 Never ask the owner anything; a refusal you cannot get past goes to root as a
 `blocker` with the command and its output.
 
+Scale: no N; this lane cuts a release and writes no code.
+
 Register slice: lane={lane} step=release

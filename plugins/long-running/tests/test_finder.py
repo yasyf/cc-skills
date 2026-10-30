@@ -282,6 +282,20 @@ def test_blockers_and_majors_post_finder_major_one_clause_each_and_minors_stay_o
     assert "a name reads oddly" not in text and "a name reads oddly" in (directory / "record.md").read_text()
 
 
+def test_the_finder_asks_what_runs_per_item_at_a_thousand_and_a_per_chat_read_posts_as_a_major(tmp_path):
+    directory = job(tmp_path)
+    slow = finding("major", "go/sand/internal/replica/follow.go:42", "slow at N: the chat list reads each chat's settings one at a time, 1,000 reads at 1,000 chats")
+    shell = Fake(tmp_path, [reply(slow)])
+    finder.main([str(directory)], shell)
+    question = " ".join((directory / "question-1.md").read_text().split())
+    assert "Ask what the change runs per chat, team, session, or run when there are 1,000 of them." in question
+    assert "a loop over chats, teams, sessions, runs, files, or rows that awaits I/O per item" in question
+    assert "a cache, cap, timer, retry, or idle wait whose PR body names no fundamental fix it stands in for" in question
+    text = shell.posted[0]["--text"]
+    assert text == f"finder: major {HEAD} 1 open over whole {OWN[:7]}^..{HEAD[:7]}: go/sand/internal/replica/follow.go:42 slow at N: the chat list reads each chat's settings one at a time, 1,000 reads at 1,000 chats"
+    assert finder_grade(text) == FINDER_FAIL
+
+
 def test_a_major_whose_cites_name_no_changed_line_and_a_census_finding_go_to_the_census_file_with_one_note_to_the_lane_never_root(tmp_path):
     directory = job(tmp_path)
     stands = finding("blocker", "go/x.go:3, go/sand/internal/replica/follow.go:41-44", "the marker is dropped")

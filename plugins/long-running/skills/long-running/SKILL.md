@@ -3003,6 +3003,15 @@ Mechanisms the plan bans: <every implementation brief pastes the drive's list, e
   your own diff, and fix each `MECHANISM-BANNED` line it prints or cite the owner's
   answer naming that shape. A root answer that names a mechanism names its banned
   shapes too, so "re-request before expiry" never reads as a timer.
+Scale: <the N each path this lane changes runs at: chats, teams, sessions, or runs on
+  one Mac or one pod, such as "1,000 chats on one Mac"; or "no N">. The bar: an
+  interactive step answers within half a second at that N, and processes, timers, and
+  connections per host stay flat as N grows, proved by a test at N = 1 and N = 1,000.
+  A loop that awaits I/O per item, or a cap, timer, cache, retry, or idle wait standing
+  in for a fundamental fix, is a defect the finder grades major; a diff that adds one
+  names in the PR body the fix it stands in for and the owner pick that deferred it, or
+  builds the fix. The spawn hook and the orca desk runner refuse a non-incident brief
+  with no `Scale:` line.
 Standing rules served: <`#<seq>` ids with their answer ids, each with the owner's
   words and confirmed implications (R19b), or "none">. Your task cites
   them; finishing it never retires them, and no report calls them done.

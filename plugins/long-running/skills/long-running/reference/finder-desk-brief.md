@@ -13,6 +13,14 @@ Read the code around every changed symbol at that sha, its callers and callees i
 
 1. Find defects in the change: wrong results, broken callers, lost data, races, tests
    that assert less than they claim. Rate each blocker, major, minor, or nit.
+   Slow code is a defect too. Ask what the change runs per chat, team, session, or run
+   when there are 1,000 of them. Each of these is a major: a loop over chats, teams,
+   sessions, runs, files, or rows that awaits I/O per item; a concurrency cap standing in
+   for a batch; a process, timer, or poll per item; a lock or wait wider than the one
+   resource it protects; a poll where a stream or signal exists; a cache, cap, timer,
+   retry, or idle wait whose PR body names no fundamental fix it stands in for; local
+   state in a JSON file; a branch on whether required configuration is set. Start each
+   such defect "slow at N:".
 
 {rows_step}
 
