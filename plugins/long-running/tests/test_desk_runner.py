@@ -13217,9 +13217,9 @@ def test_while_graphite_is_down_a_prefix_inside_a_longer_stack_merges_bottom_up_
     assert [record.split(" direct")[0] for record in merged_records(shell)] == ["MERGED #29020 at cccc333333", "MERGED #29031 at dddd444444"]
 
 
-@pytest.mark.parametrize("moved", [False, True], ids=["still-pending", "head-moved"])
-def test_an_asynchronous_merge_still_pending_waits_and_one_whose_head_moved_fails(shell, config, tmp_path, moved):
-    """Root #202936: GitHub accepted #45010's asynchronous merge at 541fbe47, its head had moved to 7e5a512, and the runner called a dead request a failure only by the PR still reading open."""
+@pytest.mark.parametrize("moved", [False, True], ids=["still-open", "head-moved"])
+def test_an_asynchronous_merge_that_does_not_land_fails_its_attempt_naming_why(shell, config, tmp_path, moved):
+    """Root #202936, #203042: GitHub accepted #45010's asynchronous merge at 541fbe47 after its head had moved to 7e5a512, and only the PR still reading open told the runner."""
     partial_prefix(shell)
     shell.bases.pop("29031")
     shell.stack_members = {"29031"}
@@ -13232,7 +13232,7 @@ def test_an_asynchronous_merge_still_pending_waits_and_one_whose_head_moved_fail
     if moved:
         assert action.response["outcome"] == "failed" and "#29031's head moved to ffff888888 after the asynchronous merge was asked at dddd444444" in action.response["why"]
     else:
-        assert action.response["outcome"] == "blocked" and "GitHub still holds the asynchronous merge of #29031 at dddd444444 pending after 15 minutes" in action.response["why"]
+        assert action.response["outcome"] == "failed" and "GitHub accepted the asynchronous merge of #29031 at dddd444444, but it has not merged after 10 minutes" in action.response["why"]
 
 
 def test_a_pr_whose_head_moved_before_its_direct_merge_is_refused_unmerged(shell, config, tmp_path):
