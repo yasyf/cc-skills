@@ -231,3 +231,41 @@ def test_a_refused_signal_to_a_live_child_raises(monkeypatch):
     finally:
         child.kill()
         child.wait()
+
+
+def relinking_cci(monkeypatch, missing: int) -> list[list[str]]:
+    calls: list[list[str]] = []
+
+    def run(args, **kwargs):
+        calls.append(args)
+        if len(calls) <= missing:
+            raise FileNotFoundError(errno.ENOENT, "No such file or directory", "cci")
+        return subprocess.CompletedProcess(args, 0, "#12 GO root -> desk land\n", "")
+
+    monkeypatch.setattr(inboxes.subprocess, "run", run)
+    monkeypatch.setattr(inboxes.time, "sleep", lambda seconds: None)
+    return calls
+
+
+def test_cci_tail_retries_while_the_binary_is_relinked(monkeypatch):
+    calls = relinking_cci(monkeypatch, missing=3)
+
+    assert inboxes.cci_tail("drive", "desk") == "#12 GO root -> desk land\n"
+    assert len(calls) == 4
+
+
+def test_cci_tail_gives_up_once_the_binary_stays_missing_past_the_grace(monkeypatch):
+    relinking_cci(monkeypatch, missing=1_000_000)
+    monkeypatch.setattr(inboxes, "CCI_RELINK_GRACE", 0.0)
+
+    assert inboxes.cci_tail("drive", "desk") is None
+
+
+def test_cci_tail_raises_a_failing_cci_at_once(monkeypatch):
+    def run(args, **kwargs):
+        raise subprocess.CalledProcessError(1, args)
+
+    monkeypatch.setattr(inboxes.subprocess, "run", run)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        inboxes.cci_tail("drive", "desk")

@@ -43,7 +43,8 @@ for <lane>, and the call exits 1 when no roster lists it. A <file> source must b
 absolute path; a relative one exits 2. A cci:<drive>:<lane> source prints the cci
 records addressed to <lane> past the cursor named <lane>-wake, through `cci tail`, which
 advances it. It never moves the cursor named <lane>, so the lane's own read still
-finds the broadcasts the wake skipped.
+finds the broadcasts the wake skipped. A cci binary missing from PATH, as during a brew
+upgrade's relink, is retried with backoff for 60 s before the call exits 1.
 
 wait ... -- <command> runs the command in its own process group, with its output
 passing through, and returns with its exit status when it exits first. When a source
@@ -88,6 +89,8 @@ WAIT_SOURCE = re.compile(r"cci:(?P<drive>[^:=]+):(?P<lane>[^:=]+)|(?P<file>[^=]+
 WAIT_SLICE = 2.0
 MAILBOX_POLL = 0.2
 CHILD_GRACE = 5.0
+CCI_RELINK_GRACE = 60.0
+CCI_RETRY_CAP = 5.0
 
 
 def clip(text: str, cap: int = DISPLAY_CHARS) -> str:
@@ -287,6 +290,19 @@ def seen_count(cursor: Path) -> int:
     return int(text) if text else 0
 
 
+def cci_tail(drive: str, lane: str) -> str | None:
+    deadline = time.monotonic() + CCI_RELINK_GRACE
+    delay = 0.5
+    while True:
+        try:
+            return subprocess.run(["cci", "tail", "--drive", drive, "--cursor", f"{lane}-wake", "--to", lane], capture_output=True, text=True, check=True).stdout
+        except FileNotFoundError:
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(delay)
+            delay = min(delay * 2, CCI_RETRY_CAP)
+
+
 def wait(argv: list[str]) -> int:
     guarded = "--" in argv
     split = argv.index("--") if guarded else len(argv)
@@ -311,7 +327,12 @@ def wait(argv: list[str]) -> int:
     while True:
         changed = False
         for drive, lane in feeds:
-            unread = subprocess.run(["cci", "tail", "--drive", drive, "--cursor", f"{lane}-wake", "--to", lane], capture_output=True, text=True, check=True).stdout
+            unread = cci_tail(drive, lane)
+            if unread is None:
+                print(f"desk-wait.sh: cci has been missing from PATH for {CCI_RELINK_GRACE:.0f} s; reinstall it", file=sys.stderr)
+                if child:
+                    end(child)
+                return 1
             for line in unread.splitlines():
                 print(clip(line), flush=True)
                 changed = True
