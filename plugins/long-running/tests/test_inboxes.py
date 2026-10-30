@@ -9,6 +9,7 @@ from pathlib import Path
 
 import inboxes
 import pytest
+from long_running.roster_service import retire
 
 PLUGIN = Path(__file__).resolve().parents[1]
 HOUR = 3600.0
@@ -200,8 +201,11 @@ def test_mailbox_names_the_newest_roster_entry_for_the_lane(tmp_path, monkeypatc
     roster(teams, "session-d8680ece", ("team-lead", 3), ("desk.v2", 4))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
 
-    assert inboxes.mailbox_of("desk.v2") == teams / "session-d8680ece" / "inboxes" / "desk-v2.json"
-    assert inboxes.mailbox_of("desk-3") is None
+    try:
+        assert inboxes.mailbox_of("desk.v2") == teams / "session-d8680ece" / "inboxes" / "desk-v2.json"
+        assert inboxes.mailbox_of("desk-3") is None
+    finally:
+        retire(tmp_path)
 
 
 def refused(*_: int) -> None:

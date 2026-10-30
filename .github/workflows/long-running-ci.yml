@@ -35,6 +35,7 @@ jobs:
           uv venv "$RUNNER_TEMP/long-running-venv"
           uv pip install --python "$RUNNER_TEMP/long-running-venv/bin/python" "$RUNNER_TEMP"/long-running-wheel/*.whl
           "$RUNNER_TEMP/long-running-venv/bin/python" -I -m long_running.actions --help
+          "$RUNNER_TEMP/long-running-venv/bin/python" -I -c 'from long_running.roster_service import mailbox_of; from long_running.rosters import RosterIndex'
       - name: action-store scaling costs
         if: ${{ always() }}
         run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/action-store.py
@@ -73,3 +74,24 @@ jobs:
         run: |
           cat "$RUNNER_TEMP/long-running-json-consumers.json"
           cat "$RUNNER_TEMP/long-running-sqlite-consumers.json"
+      - name: mailbox index scaling costs
+        run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/mailbox-index.py > mailbox-index-linux.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mailbox-index-linux
+          path: mailbox-index-linux.json
+  mailbox-macos:
+    runs-on: macos-latest
+    env:
+      UV_PYTHON: "3.14"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: native mailbox freshness and lifecycle
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_rosters.py plugins/long-running/tests/test_inboxes.py -q
+      - name: mailbox index scaling costs
+        run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/mailbox-index.py > mailbox-index-macos.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mailbox-index-macos
+          path: mailbox-index-macos.json
