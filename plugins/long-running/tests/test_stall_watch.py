@@ -1326,6 +1326,7 @@ def test_a_red_no_record_classes_alarms_root_once_at_twenty_minutes_a_real_class
 
     registry = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "long-running/drives/durable.json"
     registry.write_text(json.dumps(json.loads(registry.read_text()) | {"state_dir": str(tmp_path)}))
+    capsys.readouterr()
     assert drive.main(["reds", "--drive", "durable"]) == 0
     assert capsys.readouterr().out.splitlines() == [
         "reds at 1:56 PM Oct 27: 2 open PRs read red, 1 unclassed",
