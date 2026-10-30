@@ -432,6 +432,24 @@ def test_reordered_fact_replacement_invalidates_prior_mapping_proxies(tmp_path, 
     assert current["b"] == {"value": 3, "current": True}
 
 
+@pytest.mark.parametrize("nested", [False, True])
+def test_fact_replacement_detaches_live_children_before_removing_their_paths(tmp_path, nested):
+    store = history(tmp_path, 0)
+    original = {"a": {"value": 1}, "b": {"value": 2}}
+    with store.transaction("runner") as transaction:
+        transaction.facts = {"m": original} if nested else original
+    with store.transaction("runner") as transaction:
+        prior = transaction.facts["m"] if nested else transaction.facts
+        replacement = {"b": prior["a"], "c": {"kept": prior["b"]}}
+        expected = sqlite_store.detached(replacement)
+        if nested:
+            transaction.facts["m"] = replacement
+        else:
+            transaction.facts = replacement
+    facts = store.load("runner").facts
+    assert (facts["m"] if nested else facts) == expected == {"b": {"value": 1}, "c": {"kept": {"value": 2}}}
+
+
 def test_fact_paths_order_replacement_and_detached_values(tmp_path):
     store = history(tmp_path, 0)
     with store.transaction("runner") as transaction:

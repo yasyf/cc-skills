@@ -264,7 +264,7 @@ Each prefix passes the check registry, `landing.checks` in order, every built-in
 `(priority, root PR)` order, a tree's priority the lowest ledger `priority` among its PRs, and accepted enqueues run one parallel
 wave per priority, lower first. A check that reads no verdict first settles its tips through `ledger.py landed`, which
 reads each tip's squash on the freshly fetched trunk, and drops every tip whose row then reads landed; only the tips left
-log `GATE-FAILED`. A check killed at its 60-second cap has no verdict yet, logs nothing, and runs again next pass. `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
+log `GATE-FAILED`. A check killed at its 60-second cap on both tries has no verdict yet, posts nothing, runs again next pass, and gives `ADMITTED-SKIPPED` its `GATE-TIMEOUT` reason. `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
 adapter call runs the trunk's script; a checkout its repository no longer lists as a worktree, or one on a branch with no commit, is rebuilt at the fetched trunk head with a clean tree,
 re-registered through `git worktree add --no-checkout` and `git worktree repair` when git lost it, logs `MIRROR-REBUILT` to root, and the pass goes on;
 a checkout that still cannot fast-forward logs `CHECKOUT-STALE` to root and gates nothing that pass.
@@ -5489,7 +5489,9 @@ class Landing:
         for tips, done in gated:
             verdicts = done.verdicts
             if verdictless(done):
-                if done.code != TIMED_OUT:
+                if done.code == TIMED_OUT:
+                    self.skips |= {pr: f"GATE-TIMEOUT its {self.adapter.kind} check ran past {GATE_CHECK_SECONDS}s on both tries and was killed, so the next pass checks it again" for tip in tips for pr in downstack(open_rows, tip)}
+                else:
                     self.gate_failed(tips, done)
                 continue
             if (would := self.direct_would(done)) is not None:
@@ -7413,7 +7415,7 @@ class Landing:
     def holding(self, prefix: list[str], rows: dict[str, dict], accepted_at: datetime) -> dict[str, str]:
         """Why each PR of `prefix` may not be in the queue right now, read fresh: an open cci `incident` record that names it, whose lane squash-merges the fix directly (ef905a6), the `hold` label on GitHub, an open cci `hold` record, a `hold` record posted after this enqueue was accepted, or a `hold` record newer than the PR's newest `ready` record. A label read GitHub refuses holds the PR too."""
         drive = self.runner.config.drive
-        incidents = [record for record in cci.records(self.cci_tail.run, drive, "--kind=incident") if (record["kind"], record["drive"], record["status"]) == ("incident", drive, "open")]
+        incidents = [record for record in cci.records(self.cci_tail.run, drive, "--kind=incident") if (record["kind"], record["drive"], record.get("status")) == ("incident", drive, "open")]
         why = {}
         for pr in prefix:
             if named := [record for record in incidents if names_pr({**record, "text": full_text(record)}, pr)]:

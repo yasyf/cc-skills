@@ -155,6 +155,7 @@ class FakeShell(runner_module.Shell):
         self.alive: list[str] = []
         self.beats: list[dict] = []
         self.records: list[dict] = []
+        self.peer_mail: list[dict] = []
         self.trunk: list[dict] = []
         self.trunk_error = ""
         self.tail_error = ""
@@ -685,6 +686,7 @@ class FakeShell(runner_module.Shell):
             and (not topics or record.get("topic") in topics)
             and (drive == "d1" or record.get("drive") == drive)
         ]
+        found += self.peer_mail if kinds else []
         if "--limit" in argv:
             found = found[-int(argv[argv.index("--limit") + 1]) :]
         return runner_module.Done(0, "".join(f"{json.dumps(record)}\n" for record in found), "")
@@ -6328,6 +6330,14 @@ def test_mq_why_names_the_adapters_approval_and_ci_verdicts(shell, config, tmp_p
     assert "approvals pending not approved by forge-pr-reviewer[bot]" in lines and "required-ci fail graphite FAILING_REQUIRED" in lines
 
 
+def test_mq_why_reads_past_peer_mail_that_cci_returns_with_no_status(shell, config, capsys):
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    shell.peer_mail.append({"seq": 212655, "drive": "pasted-content", "lane": "other-session", "kind": "note", "to": ["peer:sole-51"], "text": "peer mail"})
+    assert mq(shell, config, "why", "29020") == 0
+    assert capsys.readouterr().out.splitlines() == ["#29020 cccc333333 graphite-stack-enqueue: GREEN graphite READY", *QUIET_WHY]
+
+
 def test_mq_gos_lists_each_standing_go_the_queue_does_not_hold_from_one_status_read(shell, config, capsys):
     two_pr_stack(shell)
     shell.rows.append({"pr": "29042", "lane": LANE, "branch": "b/1", "base": "dev", "head": "eeee555555", "state": "open", "labels": "hold"})
@@ -7241,6 +7251,18 @@ def test_an_admitted_head_no_record_accounts_for_draws_one_admitted_skipped_nami
     assert line.startswith("ADMITTED-SKIPPED admitted-skipped:33001 #33001: #33001 is green at aaaa111111 and root go #")
     assert "yet no record says it is queued, merging or refused: the gate read aaaa111111 BLOCKED: merge conflict (graphite CONFLICT); owner lane api-fix" in line
     assert "root" in heard(shell, "ADMITTED-SKIPPED")[0].split(",")
+
+
+def test_an_admitted_head_whose_check_keeps_timing_out_draws_admitted_skipped_naming_the_timeout(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.gates["33001"] = [(runner_module.TIMED_OUT, "", "stack-enqueue 33001 --check timed out after 60s and was killed")]
+    shell.queue["33001"] = "not queued"
+    shell.sleep(11 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [line] = skipped(shell)
+    assert f"yet no record says it is queued, merging or refused: GATE-TIMEOUT its graphite-stack-enqueue check ran past {runner_module.GATE_CHECK_SECONDS}s on both tries and was killed, so the next pass checks it again; owner lane api-fix" in line
 
 
 def test_a_pr_the_runner_merged_directly_draws_no_admitted_skipped_while_its_ledger_row_stays_open(shell, config, tmp_path):

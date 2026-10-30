@@ -139,6 +139,7 @@ class _FactTree:
         self.invalidate(path)
 
     def replace(self, parent: str, value: Mapping) -> None:
+        value = detached(value)
         for key in tuple(_Facts(self, parent)):
             if key not in value:
                 self.remove(_fact_path(parent, key))
@@ -150,7 +151,7 @@ class _FactTree:
 
     def set(self, parent: str, key: str, value) -> None:
         path = _fact_path(parent, key)
-        value = detached(value) if isinstance(value, _Facts) else value
+        value = detached(value) if isinstance(value, Mapping) else value
         self.invalidate(path)
         row = self.active().execute("SELECT kind, record FROM fact WHERE path = ?", (path,)).fetchone()
         kind = "dict" if isinstance(value, dict) else "value"
