@@ -645,6 +645,18 @@ def locked(path: Path):
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
+def held(path: Path) -> bool:
+    if not path.exists():
+        return False
+    with path.open("a+") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        return False
+
+
 def default_lock(ledger: str) -> Path:
     return Path.home() / ".cache" / "ccn-ledger" / f"{ledger}.lock"
 

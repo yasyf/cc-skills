@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import io
 import json
@@ -559,6 +560,24 @@ def test_concurrent_readers_of_a_stale_register_copy_scan_the_ledger_once(home: 
         reader.join(10)
 
     assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"]] == [["ledger", "list"], ["ledger", "show"]]
+
+
+@pytest.mark.parametrize("verb", [["slice", "--lane", "lane-a", "--step", "1.9"], ["plan"]], ids=["slice", "plan"])
+def test_a_read_takes_the_last_register_copy_while_another_process_rebuilds_it(home: Path, package: Path, state: Path, capsys, monkeypatch: pytest.MonkeyPatch, verb: list[str]) -> None:
+    """p8a-step7 #220209: fidelity passes failed after 120 s waiting on the register rebuild a classify held; a slice reads the last copy instead (root #220219)."""
+    monkeypatch.setattr(ledger, "LOCK_WAIT_SECONDS", 2)
+    shell = RegisterShell(seeded(package))
+    assert ran(capsys, shell, "rows", "--json")[0] == 0
+    shell.rows["rule/aaaaaaa"]["words"] = "Relay code lives in relay-journal."
+    with (state / "register-brook.lock").open("a+") as rebuilding:
+        fcntl.flock(rebuilding, fcntl.LOCK_EX)
+        started = time.monotonic()
+        code, out = ran(capsys, shell, *verb)
+
+    assert code == 0 and time.monotonic() - started < 1
+    assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"]] == [["ledger", "list"], ["ledger", "show"]]
+    if verb[0] == "slice":
+        assert "> Relay code lives in relay-journal. Never in relay-server." in out.splitlines()
 
 
 def test_classify_refuses_a_scope_row_without_three_implications_or_any_names(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
