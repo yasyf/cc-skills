@@ -264,7 +264,9 @@ def test_a_root_decide_that_opens_with_a_go_at_the_head_counts_as_its_go(config)
 
     watch(shell, config)
 
-    assert shell.topics() == []
+    assert shell.topics() == ["go:201:abc1234"]
+    assert "#201 at abc1234 has no go" not in shell.post("go:201:abc1234")["text"]
+    assert "the landing runner wrote no QUEUED, MERGED or blocker record for #201 at abc1234" in shell.post("go:201:abc1234")["text"]
 
 
 def test_a_pr_below_a_go_that_waits_only_on_the_owners_tap_is_no_go_stall(config):
@@ -664,14 +666,17 @@ def test_a_pr_in_one_state_for_two_hours_posts_one_stale_record_naming_its_owner
     assert opened(config) == {}
 
 
-def test_a_green_head_with_a_go_left_unqueued_stales_to_the_landing_desk_not_its_lane(config):
-    """p8a-step7 #200851: #45381 sat green with its go for two hours, and the stale record went to p8a-step7, whose step it was not."""
+def test_a_green_head_with_a_go_left_unqueued_stalls_to_root_and_the_landing_desk_as_the_runners_defect_not_its_lane(config):
+    """p8a-step7 #200851: #45381 sat green with its go for two hours, and the stale record went to p8a-step7, whose step it was not. Owner, 5:16 AM Oct 30 (root #208560): such a head is the runner's defect, raised fifteen minutes after its go."""
     desk_lane(config, "landing-desk-3")
     shell = FakeShell([*graded(1, "101", HEAD, 150), record(4, "root", "go", f"go #101 at {HEAD[:7]}", 150)], [row("101")])
 
     watch(shell, config)
 
-    assert shell.post("stale:101:abc1234") == {"to": "landing-desk-3@d1", "kind": "urgent", "text": "STALE #101 at abc1234, 150 min: green with a go, not queued | owner desk-runner | the landing desk enqueues #101 at abc1234"}
+    assert shell.topics() == ["go:101:abc1234"]
+    post = shell.post("go:101:abc1234")
+    assert post["to"] == "root,landing-desk-3@d1"
+    assert post["text"].startswith("STALL go #101 at abc1234, 150 min: root go names #101, and no QUEUED record does | owner root, desk-runner | root routes the tooling lane: the landing runner wrote no QUEUED, MERGED or blocker record for #101 at abc1234")
 
 
 def test_a_graphite_base_under_an_open_parent_reads_as_a_drifted_base_never_a_landed_parent(config):
@@ -1209,17 +1214,19 @@ def test_unopened_work_that_waits_on_a_landed_pr_stalls_to_its_live_lane_hourly(
         assert post["to"] == "p8a-step7-2@d1" and post["text"].startswith(f"STALL gate p8a-step7-2 on #43736, {landed_ago} min: p8a-step7-2 said at cci #1 that work waits on #43736, and desk-runner posted it landed at cci #2")
 
 
-@pytest.mark.parametrize("go_ago", [17, 31], ids=["a-recent-go", "an-old-go"])
-def test_go_named_stacks_no_runner_worker_holds_are_backlog_and_never_stall(config, go_ago):
-    records, rows = [], []
-    for index in range(30):
-        pr, sha = str(200 + index), f"{index:02x}" + HEAD[2:]
-        records += [head(10 * index + 1, pr, sha, 60), finder(10 * index + 2, pr, sha, 50), fidelity(10 * index + 3, pr, sha, 50), record(10 * index + 4, "root", "go", f"go #{pr} at {sha[:7]}", go_ago)]
-        rows.append(row(pr, sha, branch=f"s{index}"))
-    records.append(record(999, "desk-runner", "blocker", f"#200 {("00" + HEAD[2:])[:10]}: GO-UNQUEUED nothing in #200 was enqueued", 40, "200"))
-    shell = FakeShell(records, rows)
+@pytest.mark.parametrize(("go_ago", "stalls"), [(12, False), (17, True)], ids=["inside-fifteen-minutes", "past-fifteen-minutes"])
+def test_a_go_named_head_no_runner_record_or_worker_names_stalls_to_root_as_a_runner_defect_fifteen_minutes_on(config, go_ago, stalls):
+    """Owner 5:16 AM Oct 30 on #45286, admitted and unqueued for two hours with no record: "make a durable fix for this not jsut a done-off". A stack no worker held was backlog that never stalled, so the watch stayed as silent as the runner (root #208560)."""
+    pr = "200"
+    records = [head(1, pr, HEAD, 60), finder(2, pr, HEAD, 50), fidelity(3, pr, HEAD, 50), record(4, "root", "go", f"go #{pr} at {HEAD[:7]}", go_ago)]
+    shell = FakeShell(records, [row(pr)])
     watch(shell, config)
-    assert [topic for topic in shell.topics() if topic.startswith("go:")] == []
+    go_stalls = [topic for topic in shell.topics() if topic.startswith("go:")]
+    assert go_stalls == ([f"go:{pr}:{HEAD[:7]}"] if stalls else [])
+    if stalls:
+        post = shell.post(go_stalls[0])
+        assert post["to"].split(",")[0] == "root"
+        assert f"the landing runner wrote no QUEUED, MERGED or blocker record for #200 at {HEAD[:7]} since the go at" in post["text"]
 
 
 @pytest.mark.parametrize(("on_step", "stalls"), [(4, False), (8, True)], ids=["inside-its-budget", "past-its-budget"])

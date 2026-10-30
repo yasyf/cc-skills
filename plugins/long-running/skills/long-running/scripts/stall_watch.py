@@ -23,8 +23,9 @@ its ledger row names, it finds:
               blocker line for that PR and head newer than the go goes to, naming its reason, such as FINDER-PENDING,
               TAP-REQUIRED, BELOW-BLOCKED or GO-UNQUEUED, else to the runner when the
               `landing-stacks.json` beside the config shows the stack's worker on one step past that step's
-              budget, naming the step and the command in flight; a stack no worker holds is backlog the
-              runner's overflow enqueues, never a stall,
+              budget, naming the step and the command in flight, else, once the go is older than
+              `stall.minutes.silent` (default 15), to the root and the landing desk as the runner's own
+              defect, since an admitted head no record names was skipped silently (root #208560),
               and every go in one stack shares one stall naming the stack's bottom and that blocker;
               a PR below a go whose merge row waits only on the owner's tap, and a head whose newest
               blocker is the runner's MERGE-ASK, draw none, since the row's own tap wait reports it;
@@ -190,7 +191,7 @@ NOT_LANES = frozenset({*ROOT_NAMES, "team-lead", LANE, RUNNER})
 PACIFIC = ZoneInfo("America/Los_Angeles")
 MODEL = "claude-sonnet-5-5"
 WINDOW_HOURS = 24
-MINUTES = {"go": 10, "refusal": 10, "successor": 20, "red": 2, "order": 3, "tap": 10, "ungraded": 10, "finder": 30, "fidelity": 30, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "lane": 30, "ask": 15, "gate": 30, "stale": 120, "desk": 10, "shape": 30}
+MINUTES = {"go": 10, "silent": 15, "refusal": 10, "successor": 20, "red": 2, "order": 3, "tap": 10, "ungraded": 10, "finder": 30, "fidelity": 30, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "lane": 30, "ask": 15, "gate": 30, "stale": 120, "desk": 10, "shape": 30}
 DESK_KINDS = frozenset({"finder", "fidelity"})
 ROOT_KINDS = frozenset({"ungraded", "missing"})
 REPOSTED = frozenset({"red"})
@@ -243,7 +244,8 @@ CAUSE_COMMANDS = {
     "FOREIGN": "admit or hold the PR the batch for #{pr} would carry",
 }
 MERGE_ASK = "MERGE-ASK"
-HEAD_BLOCKERS = ("GO-UNQUEUED", "BELOW-BLOCKED", "BELOW-HELD", MERGE_ASK, "AWAITS-GO")
+SILENT_STEP = "root routes the tooling lane: "
+HEAD_BLOCKERS = ("GO-UNQUEUED", "ADMITTED-SKIPPED", "BELOW-BLOCKED", "BELOW-HELD", MERGE_ASK, "AWAITS-GO")
 GO_KINDS = frozenset({"go", "decide", "decision"})
 BLOCKER_LABEL = re.compile(r"\b[A-Z]+(?:-[A-Z]+)+\b")
 MERGE_WAITS = "merge_waits"
@@ -947,7 +949,7 @@ class Pass:
         for bottom, group in waiting.items():
             if any(member in self.refused for pr, *_ in group for member in [pr, *downstack(rows, rows[pr])]):
                 continue
-            group.sort(key=lambda entry: entry[2])
+            group.sort(key=lambda entry: (entry[3][2].startswith(SILENT_STEP), entry[2]))
             blocker, owner, step = group[0][3]
             named = [f"#{pr}" for pr, *_ in group]
             listed = ", ".join(named[:LISTED]) + (f" and {len(named) - LISTED} more" if len(named) > LISTED else "")
@@ -1110,7 +1112,7 @@ class Pass:
                 return member, (owns,), f"{named}: {waits}"
         blocker = max((record for record in records if blocks_head(record, pr, row["head"]) and at(record) >= since), key=lambda record: record["seq"], default=None)
         if blocker is None:
-            return self.stuck_step(pr, row["head"])
+            return self.stuck_step(entry, pr) if (entry := self.worker(pr, row["head"])) else self.silent(pr, row["head"], since)
         said = grades.full_text(blocker)
         reason = found[0] if (found := BLOCKER_LABEL.search(said)) else "blocked"
         if reason == MERGE_ASK or reason == FINDER_PENDING and self.finder_holds(pr, row["head"]):
@@ -1118,21 +1120,27 @@ class Pass:
         owners = tuple(dict.fromkeys(ROOT if to in ROOT_NAMES else to for to in (address.split("@", 1)[0] for address in blocker.get("to") or [ROOT])))
         return pr, owners, f"{reason}: the runner's newest blocker for #{pr} at {short(row['head'])}, cci #{blocker['seq']}: {clip(said)}"
 
-    def stuck_step(self, pr: str, head: str) -> tuple[str, tuple[str, ...], str] | None:
-        """The landing runner's stack worker step that holds `pr` at `head` past its budget, from the `landing-stacks.json` the runner rewrites at every step; a stack no worker holds, or one inside its step's budget, waits on the runner's backlog or the overflow, which is no stall."""
+    def worker(self, pr: str, head: str) -> dict | None:
+        """The landing runner's stack worker entry that holds `pr` at `head`, from the `landing-stacks.json` the runner rewrites at every step."""
         try:
             stacks = json.loads(self.watch.stacks.read_text())["stacks"].values()
         except FileNotFoundError:
             return None
-        for entry in stacks:
-            if not grades.names_head(entry["members"].get(pr, "-"), head):
-                continue
-            ran = self.now - actions.parse_stamp(entry["since"])
-            if ran.total_seconds() <= entry["budget"]:
-                return None
-            command = f", running `{entry['command']}` for {entry['command_seconds']} s" if entry.get("command") else ""
-            return pr, (RUNNER,), f"the landing runner's worker for the stack from #{entry['root']} has been on its {entry['step']} step for {int(ran.total_seconds() // 60)} min, past its {entry['budget'] // 60} min budget{command}"
-        return None
+        return next((entry for entry in stacks if grades.names_head(entry["members"].get(pr, "-"), head)), None)
+
+    def stuck_step(self, entry: dict, pr: str) -> tuple[str, tuple[str, ...], str] | None:
+        """The worker step `entry` holds `pr` on past its budget; one inside its step's budget is no stall."""
+        ran = self.now - actions.parse_stamp(entry["since"])
+        if ran.total_seconds() <= entry["budget"]:
+            return None
+        command = f", running `{entry['command']}` for {entry['command_seconds']} s" if entry.get("command") else ""
+        return pr, (RUNNER,), f"the landing runner's worker for the stack from #{entry['root']} has been on its {entry['step']} step for {int(ran.total_seconds() // 60)} min, past its {entry['budget'] // 60} min budget{command}"
+
+    def silent(self, pr: str, head: str, since: datetime) -> tuple[str, tuple[str, ...], str] | None:
+        """A go'd head that no runner record names and no stack worker holds `stall.minutes.silent` after its go is the runner's own defect, raised to the root and the landing desk beside the runner's `ADMITTED-SKIPPED`, so one defect cannot hide itself (owner, 5:16 AM Oct 30; root #208560)."""
+        if self.now - since < self.watch.age("silent"):
+            return None
+        return pr, (ROOT, RUNNER), f"{SILENT_STEP}the landing runner wrote no QUEUED, MERGED or blocker record for #{pr} at {short(head)} since the go at {pacific(since)}, and no worker holds its stack, so its loop skipped an admitted head silently"
 
     def review_title(self, head: str) -> str:
         done = self.shell.run(ghread.read("api", f"repos/{self.watch.landing['repo']}/commits/{head}/check-runs?check_name={grades.REVIEW_BOT_CHECK}", "--jq", ".check_runs | max_by(.started_at) | .output.title // \"\""))
