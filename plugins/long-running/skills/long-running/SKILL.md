@@ -1594,6 +1594,11 @@ A `NAME-HIT` clears once a line of the body's `## Rulings` cites the hit's row b
 answer id, quotes at least four of the owner's words from it verbatim, and follows the quote
 with a plain sentence of at least three words on how the PR keeps the ruling. The citation
 is the acknowledgment, even for the row's own names (926a89d).
+A row whose `protects` field names the harm it prevents, with `not_when` naming where it
+does not apply, prints both under its words in every slice. A cited row that has one needs
+a `## Rulings` line naming it that says what it protects and how the change serves that,
+`<rule> protects <harm>; this change serves it by <how>`; otherwise check-pr prints
+`RULINGS-PLAIN <rule> cited by id alone` (root #204765).
 A `MECHANISM-BANNED` line names an added line, in code or a test, that starts a timer
 (rule/949e6be), waits inside a loop (rule/f60345a), writes a credential, token, grant or
 pass to a file (prompt/1026-105052), or runs a build or test on this machine

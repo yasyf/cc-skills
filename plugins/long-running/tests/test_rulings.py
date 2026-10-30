@@ -1340,6 +1340,18 @@ def test_a_lane_slice_carries_every_global_row_and_every_matched_row_verbatim(ho
     assert "rule/ddddddd" not in out
 
 
+def test_a_slice_row_says_what_it_protects_and_when_it_does_not_apply(home: Path, package: Path, state: Path, capsys) -> None:
+    """Root #204765: the 5:41 PM idle rule was applied to work that shares nothing with a request, because the row carried his words alone."""
+    rows = seeded(package)
+    rows["rule/aaaaaaa"] |= {"protects": "the relay hot path from code it does not need", "not_when": "a test fixture names relay-server"}
+
+    _, out = ran(capsys, RegisterShell(rows), "slice", "--lane", "lane-a", "--step", "1.9")
+
+    lines = out.splitlines()
+    words = lines.index("> Relay code lives in relay-journal. Never in relay-server.")
+    assert lines[words + 1 : words + 3] == ["Protects: the relay hot path from code it does not need", "Does not apply when: a test fixture names relay-server"]
+
+
 def test_a_lane_slice_matches_anchored_rows_by_the_lanes_paths(home: Path, package: Path, state: Path, capsys) -> None:
     _, out = ran(capsys, RegisterShell(seeded(package)), "slice", "--lane", "lane-b", "--step", "2", "--paths", "src/relay/*")
 
