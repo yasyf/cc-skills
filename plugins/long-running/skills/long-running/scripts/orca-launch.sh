@@ -156,6 +156,7 @@ launch stays. Every failure line is one line, and an Orca error in it reads
 "<code>: <message>".
 
   ORCA_LAUNCH_RUN            orchestration Run id, default the Orca run of the drive this session belongs to, from drive.py orca-run
+  ORCA_LAUNCH_STALL_SECONDS  give up with LAUNCH-FAILED once one wait lasts this long, default 180; each wait prints its reason to stderr every 30 s
   ORCA_LAUNCH_REPO           Orca repo id, default the repo orca repo list names at the parent's main checkout, the directory holding its git common dir
   ORCA_LAUNCH_PARENT         coordinator worktree path, default $PWD
   ORCA_LAUNCH_NO_PARENT      1 creates a top-level worktree, as incident always does, default unset
@@ -185,6 +186,7 @@ WORKTREE_WAIT=${ORCA_LAUNCH_WORKTREE_SECONDS:-180}
 PREPARE=${ORCA_LAUNCH_PREPARE:-}
 PREPARE_WAIT=${ORCA_LAUNCH_PREPARE_SECONDS:-120}
 POLL=4
+STALL=${ORCA_LAUNCH_STALL_SECONDS:-180}
 
 ROLLBACK='' CREATED='' MADE='' LOST='' OWNED='' TERMINAL='' UNDONE='' KEPT=''
 rollback() {
@@ -213,6 +215,20 @@ fail() {
   rollback
   printf '%s\n' "$LANE failed $(printf '%s' "$*" | tr -s '[:space:]' ' ')${UNDONE:+; rolled back$UNDONE}${KEPT:+; rollback left$KEPT}"
   exit 1
+}
+
+WAIT_FOR='' WAIT_START=0 SAID=0
+pause() {
+  now=$(date +%s)
+  if [ "$1" != "$WAIT_FOR" ]; then
+    WAIT_FOR=$1 WAIT_START=$now SAID=$now
+  fi
+  [ $((now - WAIT_START)) -lt "$STALL" ] || fail "LAUNCH-FAILED: $1 for $((now - WAIT_START))s"
+  if [ $((now - SAID)) -ge 30 ]; then
+    printf '%s waiting %ss: %s\n' "$LANE" $((now - WAIT_START)) "$1" >&2
+    SAID=$now
+  fi
+  sleep "$POLL"
 }
 
 orca_error() {
@@ -328,7 +344,7 @@ while ! registered; do
   jq -e '.error.code == "worktree_exists"' "$STATE/$LANE.worktree.json" >/dev/null 2>&1 || LOST=1
   waited=0
   until registered || [ "$waited" -ge "$WORKTREE_WAIT" ]; do
-    sleep "$POLL"
+    pause "Orca has not registered worktree $WORKTREE_NAME"
     waited=$((waited + POLL))
   done
 done
@@ -339,7 +355,7 @@ waited=0
 until [ -z "$CREATED" ] || [ -n "$MADE" ] || checked_out; do
   [ "$waited" -lt "$WORKTREE_WAIT" ] ||
     fail "worktree checkout: $WT registered, but its index still differs from HEAD after ${WORKTREE_WAIT}s"
-  sleep "$POLL"
+  pause "worktree $WT is registered, and its index still differs from HEAD"
   waited=$((waited + POLL))
 done
 printf '%s\n' "$WT" >"$STATE/$LANE.worktree"
@@ -359,14 +375,14 @@ listed() {
     LISTED=$(jq -ce '[.result.terminals[].handle]' "$STATE/$LANE.terminals.json"); do
     listing=$((listing + 1))
     [ "$listing" -lt 3 ] || fail "terminal list: $(orca_error "$STATE/$LANE.terminals.json")"
-    sleep "$POLL"
+    pause "orca terminal list fails for $WT"
   done
 }
 
 adopt() {
   waited=0
   while [ "$waited" -lt "$BOOT" ]; do
-    sleep "$POLL"
+    pause "no terminal has appeared in $WT after orca terminal create"
     waited=$((waited + POLL))
     listed
     TERMINAL=$(jq -nr --argjson before "$BEFORE" --argjson after "$LISTED" 'first($after[] | select(IN($before[]) | not)) // empty')
@@ -447,7 +463,7 @@ while :; do
   orca orchestration worker-start --run "$RUN" "$@" --worktree "path:$WT" \
     --timeout-ms "$TIMEOUT" --json >"$RECEIPT.new" 2>"$STATE/$LANE.worker.err" || STARTED=$?
   [ "$STARTED" != 0 ] && [ "$(refusal)" = agent_unconfigured ] && [ "$waited" -lt "$BOOT" ] || break
-  sleep "$POLL"
+  pause "worker-start refuses terminal $TERMINAL as agent_unconfigured"
   waited=$((waited + POLL))
 done
 ROLLBACK=''
@@ -487,7 +503,7 @@ turn_started() {
   until orca orchestration worker-show --dispatch "$1" --json |
     jq -e '.result | .projection.stage.activity == "working" or (.worker.state | IN("ready", "succeeded"))' >/dev/null 2>&1; do
     [ "$waited" -lt "$BOOT" ] || return 1
-    sleep "$POLL"
+    pause "dispatch $1 shows no turn started"
     waited=$((waited + POLL))
   done
 }
@@ -510,7 +526,7 @@ until [ "$AGENT" != claude ] || orca terminal read --terminal "$TERMINAL" --scre
   jq -e '.result.terminal.tail | tostring | contains("bypass permissions on")' >/dev/null; do
   attempt=$((attempt + 1))
   [ "$attempt" -lt 10 ] || fail "terminal=$TERMINAL does not show bypass permissions on; shift-tab it before the worker opens a plan"
-  sleep "$POLL"
+  pause "terminal $TERMINAL does not show bypass permissions on yet"
 done
 
 echo "$LANE ready task=$(jq -r '.result.taskId' "$RECEIPT") dispatch=$(jq -r '.result.dispatchId' "$RECEIPT") terminal=$TERMINAL worktree=$WT"

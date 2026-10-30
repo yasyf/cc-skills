@@ -492,7 +492,7 @@ as a background command (`reference/active-alert-brief.md`). From then on the
 executor owns the incident, through the final reply:
 
 - It posts the fence and launches the fix and evidence lanes through
-  `orca-launch.sh <lane> incident xhigh` as Orca codex workers on
+  `desk-launch.py incident <name> <fix-brief> <evidence-brief>` as Orca codex workers on
   `gpt-6.1-sol`, fast tier, `xhigh`; plain `sol` is the standard tier and never
   an incident route. With no mechanism after 15 minutes, it adds an Opus 5.5
   backup lane (`claude-opus-5-5`) in Claude fast mode and keeps the first running.

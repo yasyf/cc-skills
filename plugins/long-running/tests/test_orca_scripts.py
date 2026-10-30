@@ -654,6 +654,17 @@ def test_relaunch_after_the_recorded_task_completed_starts_a_fresh_task(orca):
     assert json.loads((orca.receipts / "lane-a.json").read_text())["result"]["taskId"] == "task_a"
 
 
+def test_a_launch_whose_one_wait_outlasts_the_stall_limit_fails_with_launch_failed_naming_the_wait(orca):
+    """Root #212009: orca-launch.sh sat 10 min in its worktree wait for rtapi-errors-fix with no terminal, no receipt and no stderr."""
+    orca.healthy()
+    orca.env["ORCA_LAUNCH_STALL_SECONDS"] = "0"
+    orca.reply("worktree create", {"rc": 1, "out": "connection lost"})
+    result = orca.launch()
+    assert result.returncode == 1
+    assert result.stdout.startswith("lane-a failed LAUNCH-FAILED: Orca has not registered worktree lane-a-base for 0s")
+    assert orca.calls("terminal create") == []
+
+
 def test_a_dropped_worktree_create_that_never_registers_is_created_again_after_the_wait(orca):
     orca.healthy()
     orca.env["ORCA_LAUNCH_WORKTREE_SECONDS"] = "8"
