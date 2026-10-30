@@ -61,8 +61,11 @@ def test_an_unsettled_question_passes_silently(home: Path) -> None:
 def test_a_re_asked_durable_answer_warns_with_its_id_and_no_plan_dump(home: Path) -> None:
     warned = settled.check_settled_before_asking(ask(home, UNSETTLED, RELEASE))
 
-    assert warned.message == settled.GATE_MESSAGE
+    assert warned.message.startswith(settled.GATE_MESSAGE)
+    assert f"{RELEASE}\n  answer 4ffc9a5: {RELEASE}" in warned.message
+    assert UNSETTLED not in warned.message and "Decision 1:" not in warned.message
     assert settled.check_settled_before_asking(ask(home, RELEASE)) is None
+    assert settled.check_settled_before_asking(ask(home, UNSETTLED)) is None
 
 
 def test_a_board_question_settled_by_a_feedback_memory_warns(home: Path) -> None:
@@ -77,7 +80,8 @@ def test_a_board_question_settled_by_a_feedback_memory_warns(home: Path) -> None
 
     warned = settled.check_settled_before_asking(event(home, "Bash", {"command": f"cc-present start --session s --doc {board}"}))
 
-    assert warned.message == settled.GATE_MESSAGE
+    assert warned.message.startswith(settled.GATE_MESSAGE)
+    assert "the owner never owes a review or approval click on a program PR" in warned.message
 
 
 def test_a_confirm_block_restating_a_settled_answer_is_not_a_re_ask(home: Path) -> None:
@@ -87,4 +91,4 @@ def test_a_confirm_block_restating_a_settled_answer_is_not_a_re_ask(home: Path) 
 
     assert settled.check_settled_before_asking(event(home, "Bash", {"command": f"cc-present push {board}"})) is None
     board.write_text(json.dumps({"blocks": [confirm | {"id": "release"}]}))
-    assert settled.check_settled_before_asking(event(home, "Bash", {"command": f"cc-present push {board}"})).message == settled.GATE_MESSAGE
+    assert settled.check_settled_before_asking(event(home, "Bash", {"command": f"cc-present push {board}"})).message.startswith(settled.GATE_MESSAGE)
