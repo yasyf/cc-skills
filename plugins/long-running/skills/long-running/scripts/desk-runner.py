@@ -2532,7 +2532,7 @@ class Runner:
         posted = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, "--kind=done", "--kind=stopped", since=min(named, default=0))
         answered = cci.records(self.cci_tail, self.config.drive, "--reader", ROOT, "--kind=answer")
         claims = [
-            *(record for record in posted if record["drive"] == self.config.drive and ((record["kind"] == "done" and record.get("resolves") in named) or (record["kind"] == STOPPED and names & set(record.get("to") or [])))),
+            *(record for record in posted if record["drive"] == self.config.drive and ((record["kind"] == "done" and cci.resolved(record) & named) or (record["kind"] == STOPPED and names & set(record.get("to") or [])))),
             *(record for record in answered if record["drive"] != self.config.drive and record["lane"] == ROOT and record["kind"] == "answer" and f"{ROOT}@{self.config.drive}" in (record.get("to") or []) and slug in record["text"]),
         ]
         return next((f"{record['lane']}@{record['drive']} {record['kind']} #{record['seq']}" for record in claims), "")
@@ -2846,7 +2846,7 @@ class Runner:
         if posted := POSTED.search(silent.response.get("posted", "")):
             seq = int(posted[1])
             replies = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, since=seq)
-            if resolved := next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, self.config.drive) and record.get("resolves") == seq), None):
+            if resolved := next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, self.config.drive) and seq in cci.resolved(record)), None):
                 return f"#{resolved['seq']} resolves CUT-SILENT #{seq}"
         return self.cut_closed(key, clock) or self.cut_answer(clock)
 
@@ -3850,7 +3850,7 @@ class Runner:
                 if answers & set(mechanism.get("keys") or [f"seq:{mechanism['seq']}"]):
                     pending.pop(silent)
         if lane == ROOT:
-            names, answered = set(record.get("to") or []), {record.get("resolves"), record.get("re")} - {None}
+            names, answered = set(record.get("to") or []), (cci.resolved(record) | {record.get("re")}) - {None}
             for silent, mechanism in list(pending.items()):
                 if (record["kind"] in (STAND_DOWN, STOPPED) and names & set(lane_aliases(silent))) or answered & self.pr_silent_posts(silent, mechanism["seq"]):
                     pending.pop(silent)
@@ -4149,7 +4149,7 @@ class Runner:
         if key.startswith("go:"):
             seq = int(key.removeprefix("go:"))
             replies = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, since=seq)
-            if resolved := next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, self.config.drive) and record.get("resolves") == seq), None):
+            if resolved := next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, self.config.drive) and seq in cci.resolved(record)), None):
                 return f"#{resolved['seq']} resolves"
         if not prs:
             return ""
@@ -4435,7 +4435,7 @@ class Runner:
         for decide in cci.records(self.cci_tail, self.config.drive, "--kind=decide", "--lane", ROOT, since=min(seqs)):
             if (decide["kind"], decide["lane"], decide["drive"]) != ("decide", ROOT, self.config.drive):
                 continue
-            named_by = {decide.get("re"), decide.get("resolves")} & seqs
+            named_by = ({decide.get("re")} | cci.resolved(decide)) & seqs
             said = {seq for seq in seqs if seq < decide["seq"]} if "settled" in decide["text"].casefold() and about_pr(decide, repo, pr) else set()
             settled |= {str(seq): decide["seq"] for seq in named_by | said if str(seq) not in settled}
         return settled
@@ -6201,7 +6201,7 @@ class Landing:
         named = {line for action in posted for line in json.loads(action.target)["text"].partition("the head is not held for it: ")[2].split("; ")}
         fresh = [line for line in "; ".join(warnings).split("; ") if line and line not in named]
         seqs = {int(seq[1]) for action in posted if (seq := POSTED.search((action.response or {}).get("posted", "")))}
-        if not fresh or seqs and any(seqs & {record.get("re"), record.get("resolves")} for record in cci.records(self.cci_tail, self.runner.config.drive, "--kind=answer", since=min(seqs))):
+        if not fresh or seqs and any(seqs & ({record.get("re")} | cci.resolved(record)) for record in cci.records(self.cci_tail, self.runner.config.drive, "--kind=answer", since=min(seqs))):
             return []
         return fresh
 
@@ -7838,7 +7838,7 @@ class Landing:
             self.book.attempt(LANDING, lambda incident: incident.verify(key, {"cci": self.cleared[landed["pr"]], "cleared": True, "at": self.book.stamp()}))
             return
         closing = set(posted.values()) | self.held_lines(landed["pr"])
-        if settled := self.release_started(landed) or (closing and self.acknowledged(closing, ("resolves",) if incident else ("re", "resolves"))):
+        if settled := self.release_started(landed) or (closing and self.acknowledged(closing, replies=not incident)):
             refs = settled.get("refs") or {}
             receipt = {"cci": settled["seq"], "builds": refs.get("builds", []), "targets": refs.get("targets", []), "release": next(iter(RELEASE_ID.findall(settled["text"])), ""), "at": self.book.stamp()}
             if settled["kind"] == "fix-live":
@@ -7936,11 +7936,11 @@ class Landing:
             None,
         )
 
-    def acknowledged(self, seqs: set[int], links: tuple[str, ...]) -> dict | None:
-        """The drive root's first cci record that carries one of `links`, `--re` or `--resolves`, for one of the records the runner posted about a landing's release."""
+    def acknowledged(self, seqs: set[int], replies: bool) -> dict | None:
+        """The drive root's first cci record that resolves, or with `replies` answers by `--re`, one of the records the runner posted about a landing's release."""
         drive = self.runner.config.drive
         replies = cci.records(self.cci_tail, drive, "--lane", ROOT, since=min(seqs))
-        return next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, drive) and seqs & {record.get(link) for link in links}), None)
+        return next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, drive) and seqs & (cci.resolved(record) | ({record.get("re")} if replies else set()))), None)
 
     def held_lines(self, pr: str) -> set[int]:
         """The sequences of the RELEASE-HELD-AFTER-LANDING lines the runner posted for `pr`."""

@@ -9,6 +9,8 @@ from functools import cache
 from itertools import pairwise
 from pathlib import Path
 
+import cci
+
 
 LANE_NUMBER = re.compile(r"(.+?)(?:-(\d+))?")
 SUCCESSOR_NUMBER = re.compile(r"(?:-\d{1,2})+$")
@@ -282,8 +284,7 @@ def with_successors(lanes: list[str], records: list[dict]) -> list[str]:
 
 def closes(record: dict) -> set[int]:
     """The seqs `record` closes: each it resolves, and for a `withdraw`, the one it answers by `--re` and each it names after "withdraw", such as `root withdraws go #198635`."""
-    resolves = record.get("resolves") or []
-    closed = set(resolves) if isinstance(resolves, list) else {resolves}
+    closed = cci.resolved(record)
     if record["kind"] != "withdraw":
         return closed
     return closed | ({record["re"]} if record.get("re") else set()) | {int(seq) for seq in WITHDRAWS.findall(record["text"])}

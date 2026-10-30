@@ -5291,7 +5291,7 @@ def test_an_open_finder_major_holds_the_head_until_a_finder_pass_answers_it(shel
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and len(blockers(shell)) == 1
 
 
-@pytest.mark.parametrize("settled", ["decision", "go", "resolves"])
+@pytest.mark.parametrize("settled", ["decision", "go", "resolves", "also-resolves"])
 def test_a_root_decision_answering_a_finder_major_or_a_later_root_go_lets_the_head_enqueue(shell, config, tmp_path, settled):
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333", finder=False)
@@ -5303,6 +5303,8 @@ def test_a_root_decision_answering_a_finder_major_or_a_later_root_go_lets_the_he
         shell.records.append({"seq": seq + 2, "drive": "d1", "lane": "root", "kind": "decision", "to": [LANE], "re": seq + 1, "refs": {}, "text": "land it; the test gap is a follow-up PR"})
     elif settled == "resolves":
         shell.records.append({"seq": seq + 1, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {}, "resolves": [seq], "text": "the migration seed is a test gap; land it"})
+    elif settled == "also-resolves":
+        shell.records.append({"seq": seq + 1, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {}, "resolves": seq - 1, "also_resolves": [seq], "text": "Settled, root #201709: the migration seed is a test gap; land it"})
     else:
         merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
