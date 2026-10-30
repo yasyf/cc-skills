@@ -186,6 +186,7 @@ class FakeShell(runner_module.Shell):
         self.checks: dict[str, list[dict]] = {}
         self.stack_merge_out = ""
         self.on_sleep: list = []
+        self.bases: dict[str, str] = {}
         self.merge_commits: dict[str, str] = {}
         self.current_heads: dict[str, str] = {}
         self.live: dict[str, dict] = {}
@@ -481,6 +482,8 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "reviewDecision,reviews":
             reviewed = self.review_commit or self.current_heads.get(argv[3], "")
             return runner_module.Done(0, json.dumps({"reviewDecision": self.approval_after_push, "reviews": [{"state": "APPROVED", "commit": {"oid": reviewed}}]}), "")
+        if argv[:3] == ["gh", "pr", "view"] and argv[-1] == ".baseRefName":
+            return runner_module.Done(0, f"{self.bases.get(argv[3], 'dev')}\n", "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == ".headRefOid":
             return runner_module.Done(0, f"{self.current_heads[argv[3]]}\n", "") if argv[3] in self.current_heads else runner_module.Done(1, "", "no pull requests found")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "mergeCommit":
@@ -13210,6 +13213,21 @@ def test_a_go_withdrawn_while_a_stack_waits_for_its_checks_keeps_the_stack_unmer
     shell.on_sleep.append(withdraw)
     landing_pass(shell, config)
     assert [call for call in direct_merges(shell) if call[:3] == ["gh", "stack", "merge"]] == []
+
+
+def test_while_graphite_is_down_a_prefix_shorter_than_its_stack_merges_one_pr_at_a_time_once_each_is_retargeted(shell, config, tmp_path):
+    """Root #199186: gh stack link refused 'Include all existing PRs in the command to update the stack' when the runner admitted 4 of the 7 PRs on #44828's stack."""
+    two_pr_stack(shell)
+    shell.rows.append({"pr": "29042", "lane": LANE, "branch": "a/3", "base": "a/2", "head": "eeee555555", "state": "open", "reported_head": "eeee555555"})
+    shell.gates["29042"] = [gate("#29020 GREEN cccc333333 graphite READY", "#29031 GREEN dddd444444 graphite READY", "#29042 BLOCKED eeee555555 graphite RUNNING", would="#29020 #29031")]
+    queue_drafts(shell, (40, True), (50, True))
+    shell.current_heads |= {"29020": "cccc333333", "29031": "dddd444444", "29042": "eeee555555"}
+    shell.merge_commits |= {"29020": "1111aaaa0000", "29031": "2222bbbb0000"}
+    shell.bases["29031"] = "a/1"
+    shell.on_sleep.append(lambda: shell.bases.update({"29031": "dev"}))
+    landing_pass(shell, config)
+    assert direct_merges(shell) == [["gh", "pr", "merge", pr, "--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit", head] for pr, head in (("29020", "cccc333333"), ("29031", "dddd444444"))]
+    assert [record.split(" direct")[0] for record in merged_records(shell)] == ["MERGED #29020 at cccc333333", "MERGED #29031 at dddd444444"]
 
 
 def test_a_failed_direct_merge_names_githubs_whole_refusal_not_its_last_line(shell, config, tmp_path):
