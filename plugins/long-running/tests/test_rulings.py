@@ -873,7 +873,7 @@ def test_classify_loads_the_register_once_and_walks_the_briefs_once_per_batch(
     assert walks == [state]
 
 
-def test_classify_walks_no_briefs_for_a_row_with_no_names(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_classify_walks_the_briefs_once_for_its_announce_and_sweeps_nothing_for_a_row_with_no_names(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch) -> None:
     walks: list[Path] = []
     monkeypatch.setattr(rulings, "briefs", lambda root: walks.append(root) or [])
     captured(state, capture("1", "drain the pool when a run closes, every time"))
@@ -882,7 +882,7 @@ def test_classify_walks_no_briefs_for_a_row_with_no_names(home: Path, package: P
 
     assert code == 0
     assert json.loads(out)["hits"] == []
-    assert walks == []
+    assert walks == [state]
 
 
 def test_briefs_skip_a_copied_source_tree_and_anything_below_three_levels(state: Path) -> None:

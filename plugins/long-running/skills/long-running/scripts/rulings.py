@@ -470,6 +470,10 @@ class Register:
     ledger: str
     rows: dict[str, dict[str, str]]
 
+    @cached_property
+    def brief_paths(self) -> list[Path]:
+        return briefs(self.state)
+
     @classmethod
     def load(cls, args: argparse.Namespace, shell: ledger.Shell, repo: str | None = None) -> Register:
         program = program_of(args)
@@ -725,7 +729,7 @@ def default_files(loaded: Register, plan: Path | None) -> list[Path]:
         files += sorted((package / "designs").glob("*/design.md"))
     if corpus := (loaded.rows.get(CORPUS_KEY) or {}).get("path"):
         files.append(Path(corpus))
-    return list(dict.fromkeys([*files, *briefs(loaded.state)]))
+    return list(dict.fromkeys([*files, *loaded.brief_paths]))
 
 
 def briefs(state: Path) -> list[Path]:
@@ -1211,7 +1215,7 @@ def live_lanes(loaded: Register, cci: str) -> list[str]:
 def slice_wants(loaded: Register) -> dict[str, Want]:
     """Each lane's slice, read from the newest brief under the drive's state whose `Register slice:` line names it."""
     wants: dict[str, Want] = {}
-    for brief in sorted(briefs(loaded.state), key=lambda path: path.stat().st_mtime):
+    for brief in sorted(loaded.brief_paths, key=lambda path: path.stat().st_mtime):
         for header in SLICE_HEADER.finditer(brief.read_text()):
             wants[header["lane"]] = Want.parse(header)
     return wants
