@@ -123,6 +123,7 @@
 .cursor { display: inline-block; width: 6px; height: 14px; background: var(--accent); margin-left: 3px; vertical-align: -2px; animation: nw-pulse .9s steps(2) infinite; }
 
 .nw-diagram { margin: 6px 0 22px; }
+.nw-diagram .ck.ov { zoom: .62; }
 .nw-cap { color: var(--ink2); font-size: 13px; margin: -3px 0 10px; }
 .nw-parts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px 22px; }
 .nw-parts .pt { display: grid; grid-template-columns: 90px 1fr 64px; gap: 8px; align-items: center; font-size: 13px; }
@@ -267,6 +268,9 @@
 @keyframes nw-in { from { opacity: 0; transform: translateY(4px); } }
 @keyframes nw-grow { from { opacity: 0; transform: translateY(-3px); } }
 .nw-col .feed .lane.rest:not(.you, .st-ready-for-you, .st-needs-you) { opacity: var(--lane-dim); }
+.nw :is(.nw-col .feed .lane, .nw-work .wr).rest:not(.st-ready-for-you, .st-needs-you, :hover, :focus-visible) :is(.how, .ev, .when, .open) { display: none; }
+.nw-work .wr.rest:not(.st-ready-for-you, .st-needs-you) { opacity: var(--lane-dim); }
+.nw-work .wr.rest:is(:hover, :focus-visible) { opacity: 1; }
 .nw-col .feed .lane.rest:is(:hover, :focus-visible) { opacity: 1; }
 .nw-col .pg-fold { margin-top: 14px; }
 .nw-col .pg-fold > summary { margin: 0; font-size: 11px; color: var(--ink3); }

@@ -59,14 +59,14 @@ function nowScreen() {
 
 function band(b) {
   const m = state.model;
-  if (b.band.kind === 'incident') return `<div class="nw-band incident"><span class="tag">Incident</span><span class="what">${esc(b.band.text)}</span></div>`;
-  if (!m.needs.length) return '';
+  const incident = b.band.kind === 'incident' ? `<div class="nw-band incident"><span class="tag">Incident</span><span class="what">${esc(b.band.text)}</span></div>` : '';
+  if (!m.needs.length) return incident;
   const prs = m.needs.filter((item) => item.kind === 'prs').flatMap((item) => item.prs.map((pr) => ({ pr, item })));
   const approvals = prs.length === 1 ? needLine({ ...prs[0].item, prs: [prs[0].pr] }) : prs.length ? approvalLine(prs) : '';
   const asks = m.needs.filter((item) => item.kind !== 'prs');
   const questions = asks.length > 1 ? `<div class="nl"><span class="what">${asks.length} questions wait on your answer</span><span class="acts"><a class="nbtn pri" href="#/review/q">Answer them</a></span></div>` : asks.map(needLine).join('');
   const rows = approvals + questions;
-  return `<div class="nw-band needs nw-needs"><div class="head"><span class="tag">Needs you</span></div><div class="rows">${rows}</div></div>`;
+  return `${incident}<div class="nw-band needs nw-needs"><div class="head"><span class="tag">Needs you</span></div><div class="rows">${rows}</div></div>`;
 }
 function approvalLine(prs) {
   const features = new Map();
@@ -99,15 +99,17 @@ function needLine(item) {
 
 function liveFeed(b) {
   if (feed.item && workItem(feed.item) && !workOpen()) return `<section class="nw-live"><h2 class="nw-h">Live story <button class="linkish" data-feed-all>‹ All work</button></h2><div class="nw-story-col"><div class="nw-story-host">${storyBody(feed.item)}</div></div></section>`;
-  return `<section class="nw-live"><h2 class="nw-h">Being worked on now</h2>${b.work.length ? `<div class="nw-work">${b.work.map(workRow).join('')}</div>` : '<div class="nw-calm">No work is running right now.</div>'}</section>`;
+  const lead = focusLane();
+  const rows = [...b.work].sort((x, y) => (y.item === lead) - (x.item === lead)).map((w) => workRow(w, w.item === lead));
+  return `<section class="nw-live"><h2 class="nw-h">Being worked on now</h2>${rows.length ? `<div class="nw-work">${rows.join('')}</div>` : '<div class="nw-calm">No work is running right now.</div>'}</section>`;
 }
 function workOpen() {
   return stackOf().length > 0 && route().screen === 'work';
 }
-function workRow(w) {
+function workRow(w, lead) {
   const h = historyOf(rowKeys(w.item));
   const st = statusOf(w);
-  return `<button class="wr ${st.tone}" data-feed="${esc(w.item)}"><span class="pulse"></span>
+  return `<button class="wr ${lead ? 'lead' : 'rest'} ${st.tone}" data-feed="${esc(w.item)}"><span class="pulse"></span>
     <span class="body"><b>${esc(w.title)}</b><span class="line"><span class="chip ${st.tone}">${esc(st.word)}</span>${esc(st.when ?? w.latest)}</span>${stuck(w) ? unblockLine(h?.unblocking) : ''}${latestLine(h)}</span>
     <span class="side">${lasted(w.since) ? `<span>${lasted(w.since)}</span>` : ''}<span class="open">Live story ›</span></span></button>`;
 }
