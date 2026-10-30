@@ -376,3 +376,16 @@ def test_a_closed_pr_or_a_head_that_moved_posts_nothing(tmp_path, state, heads):
     shell = Fake(tmp_path, [reply()], state=state, heads=heads)
     fidelity.main([str(directory)], shell)
     assert not shell.posted and "skipped" in result(directory)
+
+
+def test_a_head_whose_pr_has_an_open_sweep_finding_grades_missing_naming_it_with_no_model_call(tmp_path, monkeypatch):
+    """Owner 3:06 AM Oct 30 and root #205185: a sweep's finding on a PR was lost while the PR graded ok and landed."""
+    row = {"seq": "205428", "sweep": "local-state-sweep-1", "owner": "naming-diet-2", "text": "dev host /_ssql route\nlives in a JSON file under ~/.iris", "pr": "43299", "state": "open"}
+    monkeypatch.setattr(fidelity, "open_findings", lambda job: [row] if job["pr"] == "43299" else [])
+    directory = job(tmp_path, grades=[])
+    shell = Fake(tmp_path, [reply()])
+
+    fidelity.main([str(directory)], shell)
+
+    assert shell.texts() == [f"fidelity: missing {HEAD} finding/205428 open finding 205428 from local-state-sweep-1, owner naming-diet-2: dev host /_ssql route lives in a JSON file under ~/.iris"]
+    assert not shell.asks() and result(directory)["verdict"] == "missing"
