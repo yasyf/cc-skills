@@ -43,6 +43,10 @@ its ledger row names, it finds:
               `stall.minutes.successor` it posts again, to root alone, as `successor`, asking root to
               spawn the lane's successor to run it
     tap       the owner's board tap approves the head, and no go names it
+    ungraded  a `head` record names the head, its build has read green for `stall.minutes.ungraded`, counted
+              from its ledger row's `green_at`, and no finder review or no fidelity grade names it, whatever
+              the desks hold queued; it is the finder or fidelity stall of a green head, posted to the
+              graders and always to root, as an unassigned failure is
     finder    a `head` record names the head, and no finder review does, and the finder desk holds
               no queued pass on the head, nor a running one younger than `stall.minutes.running`;
               a pass past that is the desk runner's to stop and requeue
@@ -93,7 +97,7 @@ and, across the drive:
               is tapped, or the hold lifts; each PR in the run of PR numbers a holds-file
               line leads with counts as held here
 
-Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, successor 20, tap 10, finder 30,
+Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, successor 20, tap 10, ungraded 10, finder 30,
 fidelity 30, running 25, board 15, carry 20 (one fidelity pass), lane 30, ask 15, gate 30, stale 120. A PR's head is as old as the first record about the
 PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record. A board
 stall counts from the latest of its finder ok, its fidelity ok, and its ledger row's `green_at`, the refresh that
@@ -109,7 +113,8 @@ A stall's id names its kind and subject, such as `finder:43439:abc1234` or `lane
 posts once while it stands: `cci post --lane stall-watch --kind urgent --to root,<owner>@<drive>` reading
 `STALL <kind> <subject>, <age> min: <what stopped> | owner <lane> | <next step>`, or `STALE <subject>, ...`
 for a stale PR. A stall every owner of which is a desk, a lane named `<x>-desk` or `<x>-desk-<n>`, goes to
-its owners and not to root; one the desk runner owns goes to `landing.desk_lane` when the config names one.
+its owners and not to root, except an `ungraded` one, which root always hears; one the desk runner owns goes
+to `landing.desk_lane` when the config names one.
 An id that no longer stands clears, and posts again if it stalls again, but never sooner than `REPEAT` after
 its last post; a source that does not read keeps the stalls it would have cleared. `stall.board_lane`, else the first `landing.board_lane`, else root, owns missing board rows. State lives in
 `stall-watch.json` beside `orca.desk_inbox`, under a lock a second pass meets by exiting. Each pass also
@@ -152,10 +157,11 @@ NOT_LANES = frozenset({*ROOT_NAMES, "team-lead", LANE, RUNNER})
 PACIFIC = ZoneInfo("America/Los_Angeles")
 MODEL = "claude-sonnet-5-5"
 WINDOW_HOURS = 24
-MINUTES = {"go": 10, "refusal": 10, "successor": 20, "tap": 10, "finder": 30, "fidelity": 30, "running": 25, "board": 15, "carry": 20, "lane": 30, "ask": 15, "gate": 30, "stale": 120}
+MINUTES = {"go": 10, "refusal": 10, "successor": 20, "tap": 10, "ungraded": 10, "finder": 30, "fidelity": 30, "running": 25, "board": 15, "carry": 20, "lane": 30, "ask": 15, "gate": 30, "stale": 120}
 DESK_KINDS = frozenset({"finder", "fidelity"})
+ROOT_KINDS = frozenset({"ungraded"})
 QUIET = timedelta(minutes=10)
-PR_KINDS = frozenset({"go", "refusal", "successor", "tap", "finder", "fidelity", "board", "carry", "stale"})
+PR_KINDS = frozenset({"go", "refusal", "successor", "tap", "ungraded", "finder", "fidelity", "board", "carry", "stale"})
 BOARD_KINDS = frozenset({"tap", "board", "carry"})
 REVIEW_HELD = frozenset({"neutral", "failure"})
 PROMISE_FLOOR = timedelta(minutes=10)
@@ -346,7 +352,7 @@ class Stall:
     def to(self, drive_name: str, desk_lanes: list[str], live: Callable[[str], bool]) -> str:
         """The lanes the stall names, with the root too unless desks own it or every lane it names is live and its step is not the root's, so root hears only what it must do or no live lane will act on (root, Oct 29 2:10 PM)."""
         lanes = [named for lane in self.owner for named in (desk_lanes if lane == RUNNER else [lane]) if named not in ROOT_NAMES]
-        desks = lanes and (self.quiet or self.kind in DESK_KINDS or all(lane == RUNNER or DESK.fullmatch(lane) for lane in self.owner) or (all(map(live, lanes)) and not self.step.startswith(f"{ROOT} ")))
+        desks = lanes and self.kind not in ROOT_KINDS and (self.quiet or self.kind in DESK_KINDS or all(lane == RUNNER or DESK.fullmatch(lane) for lane in self.owner) or (all(map(live, lanes)) and not self.step.startswith(f"{ROOT} ")))
         return ",".join(dict.fromkeys([*([] if desks else [ROOT]), *(f"{lane}@{drive_name}" for lane in lanes)]))
 
 
@@ -848,14 +854,20 @@ class Pass:
             standing = grades.standing(graded, fidelity_lanes, head)
             reached = carried_heads(head, grades.fidelity_carries(graded))
             finders = [record for record in grades.finder_records(grades.finder_reviews_in(about, drive_name, repo, pr)) if any(grades.names_head(record["head"], sha) for sha in reached)]
-            if not finders and self.now - head_at >= self.watch.age("finder"):
+            green = actions.parse_stamp(row["green_at"]) if row.get("green_at") else None
+            ungraded = green is not None and self.now - green >= self.watch.age("ungraded")
+            if not finders and ungraded:
+                stalls.append(Stall(f"finder:{pr}:{short(head)}", "ungraded", green, subject, f"its build has read green since {pacific(green)}, and no finder review names this head", (RUNNER if self.desk_runs(FINDER_DESK) else lane,), f"run the finder on {subject} and post its review", pr))
+            elif not finders and self.now - head_at >= self.watch.age("finder"):
                 if started := self.overran(FINDER_DESK, pr, head):
                     stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", started, subject, f"the finder desk's pass on this head has run since {pacific(started)}", (RUNNER,), f"read `desk-runner.py show`, then stop and requeue the finder pass on {subject}", pr))
                 elif not self.finder_holds(pr, head) and self.desk_runs(FINDER_DESK):
                     stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", head_at, subject, f"no finder review names this head, and the finder desk holds no pass on it, first named {pacific(head_at)} in #{announced[0]['seq']}", (RUNNER,), f"read `desk-runner.py show` for why the finder desk queued no pass on {subject} from its head record", pr))
                 elif not self.finder_holds(pr, head):
                     stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", head_at, subject, f"no finder review names this head, first named {pacific(head_at)} in #{announced[0]['seq']}", (lane,), f"run the finder (reference/finder-brief.md) on {subject} and post its review", pr))
-            if not standing and fidelity_lanes and self.now - head_at >= self.watch.age("fidelity"):
+            if not standing and fidelity_lanes and ungraded:
+                stalls.append(Stall(f"fidelity:{pr}:{short(head)}", "ungraded", green, subject, f"its build has read green since {pacific(green)}, and no fidelity grade names this head", tuple(fidelity_lanes), f"grade {subject} and post its `fidelity: ok` or `fidelity: missing` line", pr))
+            elif not standing and fidelity_lanes and self.now - head_at >= self.watch.age("fidelity"):
                 if started := self.overran(FIDELITY_DESK, pr, head):
                     stalls.append(Stall(f"fidelity:{pr}:{short(head)}", "fidelity", started, subject, f"the fidelity desk's grade of this head has run since {pacific(started)}", (RUNNER,), f"read `desk-runner.py show`, then stop and requeue the fidelity grade of {subject}", pr))
                 elif self.queued(FIDELITY_DESK, pr, head) is None:

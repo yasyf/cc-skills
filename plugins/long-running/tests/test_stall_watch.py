@@ -138,7 +138,7 @@ def watch(shell: FakeShell, config: Path) -> None:
 
 
 def test_a_head_no_finder_names_posts_one_urgent_record_to_root_and_its_lane_until_a_review_clears_it(config):
-    shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35), head(3, "102", OTHER, 20), fidelity(4, "102", OTHER, 15)], [row("101"), row("102", OTHER)])
+    shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35), head(3, "102", OTHER, 20), fidelity(4, "102", OTHER, 15)], [row("101", test_state="pending"), row("102", OTHER, test_state="pending")])
 
     watch(shell, config)
     watch(shell, config)
@@ -150,17 +150,30 @@ def test_a_head_no_finder_names_posts_one_urgent_record_to_root_and_its_lane_unt
     shell.records.append(finder(5, "101", HEAD, 1))
     watch(shell, config)
     assert "finder:101:abc1234" not in opened(config)
-    shell.rows[0] = row("101", OTHER)
+    shell.rows[0] = row("101", OTHER, test_state="pending")
     shell.records += [head(6, "101", OTHER, 31), fidelity(7, "101", OTHER, 25)]
     watch(shell, config)
     assert shell.topics() == ["finder:101:abc1234", "finder:101:fedcba9"]
+
+
+@pytest.mark.parametrize(("green", "stalls"), [(5, []), (11, ["fidelity:101:abc1234"])])
+def test_a_green_head_with_no_fidelity_grade_for_ten_minutes_alarms_the_graders_and_root_whatever_the_desk_holds_queued(config, tmp_path, green, stalls):
+    desk_job(tmp_path, "desk-fidelity", "fidelity", "101", HEAD, None)
+    shell = FakeShell([head(1, "101", HEAD, 20), finder(2, "101", HEAD, 15)], [row("101", green_at=stamp(green))])
+
+    watch(shell, config)
+
+    assert shell.topics() == stalls
+    for topic in stalls:
+        assert shell.post(topic)["to"].split(",")[0] == "root" and "fidelity-desk@d1" in shell.post(topic)["to"]
+        assert shell.post(topic)["text"].startswith(f"STALL ungraded #101 at abc1234, {green} min: its build has read green since")
 
 
 @pytest.mark.parametrize(("named", "stalls"), [(5, []), (40, ["finder:101:abc1234"])])
 def test_a_new_head_counts_from_the_first_record_naming_it_never_from_an_older_record_with_no_sha(config, named, stalls):
     bulk = record(1, "api-lane", "head", "HEAD api-lane: #101 conflict fix, then the stack above restacked onto it. Published 9:00 AM.", 600, "101")
     ready = record(2, "api-lane", "report", f"[101] clean READY #101 at {HEAD[:10]}", named, "101")
-    shell = FakeShell([bulk, ready, fidelity(3, "101", HEAD, 1)], [row("101")])
+    shell = FakeShell([bulk, ready, fidelity(3, "101", HEAD, 1)], [row("101", test_state="pending")])
 
     watch(shell, config)
 
@@ -350,7 +363,7 @@ def test_a_go_from_a_numbered_successor_of_a_go_lane_settles_the_tap(config):
 
 def test_a_tap_at_an_earlier_head_asks_sonnet_once_whether_the_new_head_replays_it(config):
     restack = f"HEAD #101 {HEAD} (was {OLD}): restack, range-diff patch-identical (3 commits)"
-    shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 20, restack)], [row("101")])
+    shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 20, restack)], [row("101", test_state="pending")])
     shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": OLD[:7], "at": stamp(60)}}}
     shell.answer = lambda question: {"restack": True}
 
@@ -855,7 +868,7 @@ def test_a_stall_only_desks_own_goes_to_those_desks_and_not_to_root(config, desk
     records += [head(3, "201", HEAD, 30), finder(4, "201", HEAD, 25), fidelity(5, "201", HEAD, 25), record(6, "root", "go", f"go #201 at {HEAD[:7]}", 12)]
     step = {"root": "201", "lane": "api-lane", "members": {"201": HEAD}, "step": "check", "since": stamp(8), "budget": 180}
     config.with_name(f"{config.stem}.landing-stacks.json").write_text(json.dumps({"at": stamp(0), "stacks": {"201": step}}))
-    shell = FakeShell(records, [row("101"), row("201")])
+    shell = FakeShell(records, [row("101", test_state="pending"), row("201")])
 
     watch(shell, config)
 
@@ -972,7 +985,7 @@ def desk_job(tmp_path: Path, desk: str, kind: str, pr: str, sha: str, started_mi
 def test_a_head_in_the_finder_queue_draws_no_finder_stall_until_its_pass_runs_past_25_minutes_and_then_only_the_desk_hears(config, tmp_path, started, stalls):
     desk_lane(config, "landing-desk-3")
     desk_job(tmp_path, "desk-finder", "finder", "101", HEAD, started)
-    shell = FakeShell([head(1, "101", HEAD, 50), fidelity(2, "101", HEAD, 45)], [row("101")])
+    shell = FakeShell([head(1, "101", HEAD, 50), fidelity(2, "101", HEAD, 45)], [row("101", test_state="pending")])
     watch(shell, config)
     assert [topic for topic in shell.topics() if topic.startswith("finder:")] == stalls
     for topic in stalls:
@@ -983,7 +996,7 @@ def test_a_head_in_the_finder_queue_draws_no_finder_stall_until_its_pass_runs_pa
 def test_a_head_in_the_fidelity_queue_draws_no_fidelity_stall_until_its_grade_runs_past_25_minutes(config, tmp_path, started, stalls):
     desk_lane(config, "landing-desk-3")
     desk_job(tmp_path, "desk-fidelity", "fidelity", "101", HEAD, started)
-    shell = FakeShell([head(1, "101", HEAD, 50), finder(2, "101", HEAD, 45)], [row("101")])
+    shell = FakeShell([head(1, "101", HEAD, 50), finder(2, "101", HEAD, 45)], [row("101", test_state="pending")])
     watch(shell, config)
     assert [topic for topic in shell.topics() if topic.startswith("fidelity:")] == stalls
     for topic in stalls:
