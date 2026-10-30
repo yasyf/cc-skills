@@ -7269,15 +7269,13 @@ def test_mq_refuses_a_state_file_beside_runner_json_naming_the_block_it_lacks(sh
 
 def test_while_graphite_is_down_an_admitted_chain_waiting_in_the_serial_merge_queue_draws_no_admitted_skipped(shell, config, tmp_path):
     """Root #210100: a chain the runner lists in its `QUEUE` record, waiting on its checks to merge directly, is merging with a record, never a silent skip."""
-    two_pr_stack(shell)
-    shell.rows = [row | {"test_state": "success"} for row in shell.rows]
+    lone_green_pr(shell)
+    shell.rows[0] |= {"test_state": "success", "green_at": actions.stamp(shell.clock)}
+    shell.queue["29020"] = "not queued"
+    grade(shell, "29020", "ok F307 at cccc333.")
     merge_go(shell, "29020", "merge #29020 at cccc333")
-    merge_go(shell, "29031", "merge #29031 at dddd444")
     queue_drafts(shell, (40, True), (50, True))
-    shell.current_heads |= {"29020": "cccc333333", "29031": "dddd444444"}
-    shell.checks |= {pr: [{"name": "buildkite/test", "bucket": "pending"}] for pr in ("29020", "29031")}
-    shell.queue |= {"29020": "not queued", "29031": "not queued"}
-    landing_pass(shell, config)
+    shell.checks["29020"] = [{"name": "buildkite/test", "bucket": "pending"}]
     landing_pass(shell, config)
     shell.sleep(11 * 60)
     landing_pass(shell, config)
