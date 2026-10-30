@@ -5458,13 +5458,16 @@ class Landing:
             staged.replace(self.stacks_file)
 
     def landable_trees(self, rows: dict[str, dict], trees: list[list[str]]) -> list[list[str]]:
-        """The trees of `trees` the pass is about to enqueue from, by its one status read: those holding a landable PR on PRs below it that are landable, queued, or landed. `stack-enqueue --check`, and the `rulings.py check-pr` an accepted prefix runs, run for no other tree (root #146561, #147019). A verdict counts as landable once a `queue-unknown` cause is set aside, since a label queue's state is not Graphite's to read, and once a lone `ci-unproven` cause is set aside for a head `unproven` finds proven, since only the runner reads the full builds that prove a redundant skip; `unproven` also starts the full build a head still needs. The PRs of each tree left out join `unchecked`, and `tell_unpassed` routes what each one's status entry asks of its lane. None are kept when the status read failed."""
+        """The trees of `trees` the pass is about to enqueue from, by its one status read: those holding a landable PR on PRs below it that are landable, queued, or landed. `stack-enqueue --check`, and the `rulings.py check-pr` an accepted prefix runs, run for no other tree (root #146561, #147019). A verdict counts as landable once a `queue-unknown` cause is set aside, since a label queue's state is not Graphite's to read, and once a lone `ci-unproven` cause is set aside for a head `unproven` finds proven, since only the runner reads the full builds that prove a redundant skip; `unproven` also starts the full build a head still needs. While Graphite is down, a PR its dead queue still holds counts as landable, since only the direct merger can land it (root #202044). The PRs of each tree left out join `unchecked`, and `tell_unpassed` routes what each one's status entry asks of its lane. None are kept when the status read failed."""
         if (statuses := self.pr_statuses()) is None:
             return []
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
+        down = self.down_since() is not None
 
         def landable(pr: str) -> bool:
             verdict = statuses.get(pr, {}).get("verdict", "")
+            if down and verdict == QUEUED_STATE:
+                return True
             causes = set(verdict.removeprefix("blocked:").split(",")) - {"queue-unknown"} if verdict.startswith("blocked:") else set() if verdict == LANDABLE else {verdict}
             if causes == {"ci-unproven"} and not (why := self.unproven(pr, open_rows.get(pr, {}).get("head", ""))):
                 causes.discard("ci-unproven")
@@ -5488,15 +5491,15 @@ class Landing:
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         covered = under_hold(open_rows, held)
         children = stacked(open_rows)
-        self.read_reports({pr: sha for _, done in gated if done.would is not None for pr, sha in enqueued_heads(enqueue_key(done.would, done.verdicts)).items()})
+        self.read_reports({pr: sha for _, done in gated if (would := self.direct_would(done)) is not None for pr, sha in enqueued_heads(enqueue_key(would, done.verdicts)).items()})
         for tips, done in gated:
             verdicts = done.verdicts
             if verdictless(done):
                 if done.code != TIMED_OUT:
                     self.gate_failed(tips, done)
                 continue
-            if done.would is not None:
-                self.accept(tips, done.would, verdicts, rows, held)
+            if (would := self.direct_would(done)) is not None:
+                self.accept(tips, would, verdicts, rows, held)
             for pr, match in verdicts.items():
                 if match["verdict"] == "BLOCKED" and pr not in rows and self.adapter.rider(match):
                     if pr not in self.admit({pr: match["sha"]}):
@@ -5513,6 +5516,13 @@ class Landing:
                         continue
                     if blocker := self.adapter.blocker(match, stack, gated_red):
                         self.route_blocker(pr, match["sha"], blocker, rows[pr], tips, stack, gated_red, self.adapter.failing_required(match))
+
+    def direct_would(self, done: merge_queue.Gate) -> list[str] | None:
+        """The PRs a gate's prefix offers for landing: what the check would enqueue, and, while Graphite is down, every PR it reads queued in Graphite's dead queue too, bottom first, since nothing else merges them (root #202044)."""
+        if not self.down_since() or not (queued := {pr for pr, match in done.verdicts.items() if match["verdict"] == QUEUED_VERDICT}):
+            return done.would
+        offered = queued | set(done.would or [])
+        return list(itertools.takewhile(lambda pr: pr in offered, done.verdicts)) or None
 
     def release_orphan(self, pr: str, row: dict, detail: str) -> None:
         """Take a go'd PR whose queue draft closed unmerged out of the queue once per head, through the adapter's dequeue, so the next pass enqueues its approved head afresh. `--recover` is never run: it can release the closed draft, whose content may lack the approved head's commits (root #195775)."""
@@ -6972,7 +6982,7 @@ class Landing:
             return
         tops = prefix_tops(prefix, rows)
         fresh = self.exact(tops)
-        current = enqueue_key(fresh.would, fresh.verdicts) if fresh.would is not None else ""
+        current = enqueue_key(would, fresh.verdicts) if (would := self.direct_would(fresh)) is not None else ""
         if current != key.split("#")[0]:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "superseded", "out": fresh.out[-800:], "at": self.book.stamp()}))
             return
@@ -7013,7 +7023,7 @@ class Landing:
             heads = enqueued_heads(base)
             if any(rows.get(pr, {}).get("state", "open") != "open" or not rows.get(pr, {}).get("head", "").startswith(sha) for pr, sha in heads.items()):
                 continue
-            if action.status == "completed" and action.response["outcome"] not in ("blocked", "failed"):
+            if action.status == "completed" and (action.response["outcome"] not in ("blocked", "failed") or not action.response.get("why")):
                 continue
             waiting.append((min(self.priority(rows, pr) for pr in heads), first[base], heads, queue_state(action)))
         if not waiting:

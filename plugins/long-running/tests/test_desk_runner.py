@@ -13091,6 +13091,19 @@ def test_while_graphite_is_down_an_admitted_pr_squash_merges_at_its_head_instead
     assert [action.response["outcome"] for action in enqueues_of(tmp_path).values()] == ["merged"]
 
 
+def test_while_graphite_is_down_a_pr_its_dead_queue_still_holds_merges_directly(shell, config, tmp_path):
+    """Root #202044: #45016, #45367 and #45377 passed every check but read QUEUED in Graphite's dead queue, so the direct merger never took them."""
+    lone_green_pr(shell)
+    shell.gates["29020"] = [gate("#29020 QUEUED cccc333333 graphite WAITING_TO_MERGE")]
+    shell.pr_status["29020"] = {"verdict": "queued"}
+    grade(shell, "29020", "ok F307 at cccc333.")
+    queue_drafts(shell, (40, True), (50, True))
+    shell.merge_commits["29020"] = "9999aaaa0000"
+    landing_pass(shell, config)
+    assert direct_merges(shell) == [["gh", "pr", "merge", "29020", "--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit", "cccc333333"]]
+    assert merged_records(shell) == ["MERGED #29020 at cccc333333 direct as 9999aaaa00, Graphite down, b530f5d: gh pr merge --squash"]
+
+
 @pytest.mark.parametrize("excluded", ["hold", "no-go", "red", "draft"])
 def test_while_graphite_is_down_a_held_ungone_red_or_draft_pr_never_merges(shell, config, tmp_path, excluded):
     lone_green_pr(shell)
