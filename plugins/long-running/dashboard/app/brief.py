@@ -156,7 +156,7 @@ Fields:
 - headline: one sentence, at most 25 words, written from the Main work entry of status_paragraphs, that a person could read aloud at standup: where we are, what is next, and the one thing in the way with how long it has waited, such as "for 51 minutes, since 6:58 PM". Never a count of approvals, taps or questions waiting on Yasyf: the needs band beside it gives the live total, and a second number reads as a contradiction.
 - because: up to three short sentences naming the facts the headline rests on.
 - band: kind "incident" only for a customer-facing incident from the last three hours that has no fix live yet, with one sentence of what is broken and the fix; else kind "none" and empty text.
-- progress.stops: exactly one entry per milestone, in order. state is live, progress (being built or tested now), next (the next one to ship), paused, broken (a problem is stopping it), or not (not started). label is two to four words such as "Live", "Next", "Being tested", "Stuck in testing", "Not started". why is at most three words for paused or broken, else empty.
+- progress.stops: exactly one entry per milestone, in order. milestone_state is computed from the records and wins: copy each stop's state and label from it, and give every broken milestone a path built from its blockers, their owners and next steps. state is live, progress (being built or tested now), next (the next one to ship), paused, broken (a problem is stopping it), or not (not started). label is two to four words such as "Live", "Next", "Being tested", "Stuck in testing", "Not started". why is at most three words for paused or broken, else empty.
 - progress.sentence: at most 25 words: what ships before the next milestone. Never repeat the headline.
 - paths: the dependency chart of blockers. One path for every milestone whose state is paused or broken, and one for the next milestone when something blocks it, the next milestone first. A milestone reads paused or broken only when its path holds at least one open blocker. nodes are the things that must happen before that milestone, each one stuck, being fixed, waiting on the owner, or done; edges go from a node to the node that waits on it ("from" must finish before "to"). A node with no outgoing edge leads straight to the milestone. Use at most three nodes per path: the biggest things in the way, merged where they share a fix. state: fixing (a worker reported on it in the last 20 minutes), you (the owner's tap or answer), nobody (no worker owns it, or its worker has been silent an hour; a blocker whose reporting worker states the fix it is making is that worker's, fixing), waiting (tests, the merge process, a reviewer), done. how always names who acts next and the specific fix they make, never a goal like "make it compile" (write "the cloud runs worker moves the 22 files still using the deleted session store"): a worker named by its work ("the cloud runs worker"), you, the coordinator, the merge process, or the automated review. Never write "not known" in how; when the next step is undecided, say who decides it. When a review finding or a failing test holds a change, how says what the finding or failure is and the change that answers it, such as "the agent machines worker makes a failed restore retry", never "answers the review" or "fixes its failing tests". For nobody, say "The coordinator assigns a worker" plus when it was raised. A decision the owner already made is done: drop it, and never ask him again for something he approved. item names the work item fixing it. While band is an incident, the first path is the incident's: what is broken for users, each fix and who is on it; release paths follow it.
 - calm: when nothing blocks the next milestone, one sentence saying so and what ships next; else empty.
@@ -312,6 +312,7 @@ def digest(model, config, previous, now):
     return {
         "now": clock(now),
         "milestones": [{"name": m["name"], **next((r for r in model["now"].get("releases", []) if r.get("id") == m.get("release")), {})} for m in config["milestones"]],
+        "milestone_state": model["milestone_state"],
         "plan_steps": [{k: s.get(k) for k in ("label", "title", "state", "tone", "blocker", "next", "delivers")} | {"pull_requests": [p["number"] if isinstance(p, dict) else p for p in s.get("prs", [])][:8]} for s in model["steps"]],
         "code": {"tracked_changes": len(model["drive"]["prs"]), "by_state": states},
         "changes_named_by_milestones": named_changes(model),
@@ -353,6 +354,8 @@ def now_settle(brief, facts):
         brief["progress"]["stops"][i].update(state="progress", label="Being worked on", why="")
     for _, _, node, _ in unassigned(brief, facts["open_changes"]):
         node["state"] = "fixing"
+    for stop, computed in zip(brief["progress"]["stops"], facts["milestone_state"]):
+        stop.update(state=computed["state"], label=computed["label"], why="Blocked" if computed["state"] == "broken" else "")
 
 
 def unchecked(brief, facts):

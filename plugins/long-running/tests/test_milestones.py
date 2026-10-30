@@ -1,0 +1,59 @@
+from milestones import compute
+
+FIRST = {"name": "Cloud keeps working", "release": "R1", "live_match": r"\bapi\b"}
+SECOND = {"name": "New Mac app", "release": "R2", "changes": [7, 8, 9], "testing_match": r"sand/next", "live_match": r"switched on"}
+
+
+def release(seq, text, at="2026-10-29T20:00:00Z", lane="release-worker"):
+    return {"seq": seq, "kind": "release", "lane": lane, "at": at, "text": text}
+
+
+def blocker(seq, milestone, owner, next_step, text, status="open", at="2026-10-29T21:00:00Z"):
+    return {"seq": seq, "kind": "blocker", "lane": "root", "at": at, "text": text, "to": [owner], "status": status, "fields": {"attrs": {"milestone": milestone, "owner": owner, "next": next_step}}}
+
+
+def prs(**states):
+    return [{"number": int(n[1:]), "state": s} for n, s in states.items()]
+
+
+def test_an_open_blocker_record_makes_a_milestone_blocked_and_says_what_unblocks_it():
+    rows = compute([FIRST], [], [blocker(5, "R1", "fixer", "The fixer ships the patch by 7 PM", "Runs fail on start")], [release(1, "10970 passed: api live")])
+    assert rows[0]["state"] == "broken"
+    assert rows[0]["waits"] == "Runs fail on start"
+    assert rows[0]["unblocking"] == "The fixer ships the patch by 7 PM"
+    assert rows[0]["owners"] == ["fixer"]
+
+
+def test_a_resolved_blocker_no_longer_blocks():
+    rows = compute([FIRST], [], [blocker(5, "R1", "fixer", "x", "y", status="resolved")], [release(1, "10970 passed: api live")])
+    assert rows[0]["state"] == "live"
+
+
+def test_a_milestone_stays_live_while_a_newer_release_runs():
+    rows = compute([FIRST], [], [], [release(1, "10970 passed: api live"), release(2, "RELEASE 10980 started: api", at="2026-10-29T22:00:00Z")])
+    assert rows[0]["state"] == "live"
+
+
+def test_a_release_that_started_and_never_finished_reads_releasing():
+    rows = compute([FIRST], [], [], [release(2, "RELEASE 10980 started: api", at="2026-10-29T22:00:00Z")])
+    assert (rows[0]["state"], rows[0]["label"]) == ("progress", "Releasing")
+
+
+def test_open_changes_are_counted_by_their_merge_state():
+    rows = compute([FIRST, SECOND], prs(n7="landed", n8="queued", n9="failing"), [], [release(1, "api passed")])
+    assert rows[1]["label"] == "Being built"
+    assert rows[1]["waits"] == "2 of 3 changes still open: 1 in the merge queue, 1 with a failing build"
+
+
+def test_a_published_test_build_reads_testing_until_the_switch_turns_on():
+    landed = prs(n7="landed", n8="landed", n9="landed")
+    rows = compute([FIRST, SECOND], landed, [], [release(1, "api passed"), release(3, "LIVE: new build on sand/next.json")])
+    assert rows[1]["label"] == "Testing"
+    rows = compute([FIRST, SECOND], landed, [], [release(1, "api passed"), release(3, "LIVE: new build on sand/next.json"), release(4, "LIVE: release-channel switched on for Platform")])
+    assert rows[1]["state"] == "live"
+
+
+def test_a_milestone_waits_on_the_one_before_it():
+    rows = compute([FIRST, {"name": "Later", "release": "R3"}], [], [], [])
+    assert rows[1]["state"] == "not"
+    assert rows[1]["waits"] == "Cloud keeps working first"
