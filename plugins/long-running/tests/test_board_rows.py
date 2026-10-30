@@ -89,7 +89,7 @@ class FakeShell(board_rows.Shell):
 
     def graded(self, pr: str, head: str = HEAD) -> None:
         self.post("review", "fidelity-desk", f"fidelity: ok {head[:7]} checked rule/1", pr)
-        self.post("review", "p7", f"finder: ok {head[:7]} no majors", pr)
+        self.post("review", "finder-desk", f"finder: ok {head[:7]} no majors", pr)
 
 
 FACTS = [{"label": name, "value": f"{name.lower()} in plain words"} for name in board_rows.FIELDS]
@@ -321,7 +321,7 @@ def test_a_grade_from_a_successor_fidelity_desk_counts_with_no_config_edit(tmp_p
     """Root #200233: fidelity-desk-13 succeeded a listed desk, and the gate read its grades as missing until root edited runner.json."""
     shell.pull("42590")
     shell.post("review", "fidelity-desk-13", f"fidelity: ok {HEAD[:7]} checked rule/1", "42590")
-    shell.post("review", "p7", f"finder: ok {HEAD[:7]} no majors", "42590")
+    shell.post("review", "finder-desk", f"finder: ok {HEAD[:7]} no majors", "42590")
 
     assert gate(tmp_path, shell, card(row("42590")), "--", "cc-present", "update-block") == 0
     assert not [line for line in lines(capsys) if "ungraded" in line and "fidelity grade" in line]
@@ -337,29 +337,30 @@ def warned(capsys: pytest.CaptureFixture[str]) -> int:
 
 
 @pytest.mark.parametrize(
-    ("text", "pr_ref"),
+    ("lane", "text", "ungraded"),
     [
-        (f"finder: ok {HEAD[:7]} no majors", True),
-        (f"finder: major {HEAD[:7]} 2 open: vet.sh:40 row missing", True),
-        (f"finder: issues {HEAD[:12]} #42591: nine majors in two groups", True),
-        (f"finder [42591] issues {HEAD[:7]}: gpt-6.1-sol, 2 majors (finder/s8.1.txt)", False),
-        (f"p8a-step6 finder verdict, #42591 at {HEAD[:7]} (journal ladder): 1 major, fixed", False),
+        ("finder-desk", f"finder: ok {HEAD[:7]} no majors", 0),
+        ("finder-desk", f"finder: major {HEAD[:7]} 2 open: vet.sh:40 row missing", 0),
+        ("finder-desk-2", f"finder: ok {HEAD[:7]} no majors", 0),
+        ("p8b-step8", f"finder: ok {HEAD[:7]} no majors", 1),
+        ("p8b-step8", f"p8b-step8 REVIEW reply to finder 202370 on #42591 {HEAD[:7]}; new HEAD {NEW_HEAD[:7]}.", 1),
     ],
+    ids=["desk-ok", "desk-major", "desk-successor", "lane-finder-line", "lane-reply-naming-the-finder"],
 )
-def test_a_finder_review_posted_in_any_form_lanes_use_counts_at_its_head(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], text: str, pr_ref: bool) -> None:
+def test_only_a_finder_desk_finder_line_counts_at_its_head(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], lane: str, text: str, ungraded: int) -> None:
     fidelity_only(shell, "42591")
-    shell.post("review", "p8b-step8", text, "42591" if pr_ref else None)
+    shell.post("review", lane, text, "42591")
 
     assert gate(tmp_path, shell, card(row("42591")), "--check", "--json") == 0
 
-    assert warned(capsys) == 0
+    assert warned(capsys) == ungraded
 
 
 def test_a_ref_less_finder_review_about_another_pr_does_not_count(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
     fidelity_only(shell, "42591")
-    shell.post("review", "p8b-step8", f"finder [42751] issues {HEAD[:7]}: 2 majors")
-    shell.post("review", "p8b-step8", f"finder: ok {HEAD[:7]} on #42591", "42751")
-    shell.post("review", "p8b-step8", f"finder: ok {HEAD[:7]} #42591", drive="other")
+    shell.post("review", "finder-desk", f"finder: major {HEAD[:7]} 2 open on [42751]")
+    shell.post("review", "finder-desk", f"finder: ok {HEAD[:7]} on #42591", "42751")
+    shell.post("review", "finder-desk", f"finder: ok {HEAD[:7]} #42591", drive="other")
 
     assert gate(tmp_path, shell, card(row("42591")), "--check", "--json") == 0
 
@@ -695,7 +696,7 @@ def stacked(shell: FakeShell, grade: str = "fidelity: ok {head} a review fix, no
     shell.pull("42591", base=base)
     for pr in ("42590", "42591"):
         shell.post("review", "fidelity-desk", grade.format(head=HEAD[:7]), pr)
-        shell.post("review", "p7", f"finder: ok {HEAD[:7]} no majors", pr)
+        shell.post("review", "finder-desk", f"finder: ok {HEAD[:7]} no majors", pr)
         shell.post("decide", "root", f"#{pr} {HEAD[:7]} answers the finder: {REASK}", pr)
     shell.verdicts = {"merge-prs": {"42590": approved("42590", NEW_HEAD), "42591": approved("42591", NEW_HEAD, at="2026-10-30T01:59:00Z")}}
 

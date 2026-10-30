@@ -632,7 +632,7 @@ def graded_warnings(reviews: list[dict], carried: list[dict], saved: list[str], 
     warnings = []
     if not grades.standing(grades.fidelity_grades_in(reviews, drive, lanes, repo, row.pr), lanes, row.head):
         warnings.append(f"ungraded: no fidelity grade from {' or '.join(lanes)} names {row.head}")
-    found = [record for record in grades.finder_reviews_in(reviews, drive, repo, row.pr) if record["head"]]
+    found = grades.finder_records(grades.finder_reviews_in(reviews, drive, repo, row.pr))
     replies = [name for name in saved if (named := SAVED_FINDER.match(name)) and named["pr"] == row.pr and grades.names_head(named["sha"], row.head)]
     if not (grades.newest_finder(found, row.head) or replies):
         warnings.append(f"ungraded: no finder review names {row.head}")

@@ -2181,7 +2181,7 @@ def pr_records(shell: ledger.Shell, bus: str, *flags: str) -> list[dict]:
 
 
 def finder_major(records: list[dict], sha: str) -> str | None:
-    verdicts = [(record["seq"], found) for record in records if (found := FINDER.match(record.get("text") or "")) and sha.startswith(found["head"])]
+    verdicts = [(record["seq"], found) for record in records if grades.finder_desk_line(record) and (found := FINDER.match(record["text"])) and sha.startswith(found["head"])]
     newest = max(verdicts, key=lambda item: item[0])[1] if verdicts else None
     return newest["head"] if newest and newest["verdict"] == "major" else None
 

@@ -7,9 +7,9 @@ any finder does, and it also reads the head against the same rows the
 [fidelity desks](fidelity-desk-brief.md) read, returning one verdict per row. A
 row it finds `missing` is a major. With a `finder` object in `runner.json`, the orca
 desk runner runs the pass on every `head` record and posts its record under lane
-`finder-desk`, from [finder-desk-brief.md](finder-desk-brief.md); without one, the lane
-that owns the head runs it by hand. The lane fixes or rebuts each major in the PR; the
-landing desk reads the record.
+`finder-desk`, from [finder-desk-brief.md](finder-desk-brief.md). The lane fixes or rebuts
+each major in the PR; the landing desk reads only `finder-desk`'s own `finder:` records,
+never a lane's.
 
 ## What the finder receives
 
@@ -64,12 +64,12 @@ Every key the slice printed appears exactly once, as `met`, `n/a`, `pending`, or
 
 ## The record
 
-The lane posts the verdict as the pass returned it, exactly as cci #110240 item 3
-fixed it:
+The finder desk posts the verdict as the pass returned it, exactly as cci #110240 item 3
+fixed it; only these records grade a head (root #202594):
 
 ```bash
-cci post --drive <drive> --lane <lane> --kind review --pr <owner/repo>#<n> --text "finder: ok <head7> <one line>"
-cci post --drive <drive> --lane <lane> --kind review --pr <owner/repo>#<n> --text "finder: major <head7> <count> open: <one line per major>"
+cci post --drive <drive> --lane finder-desk --kind review --pr <owner/repo>#<n> --text "finder: ok <head7> <one line>"
+cci post --drive <drive> --lane finder-desk --kind review --pr <owner/repo>#<n> --text "finder: major <head7> <count> open: <one line per major>"
 ```
 
 `<count>` is the number of open majors, row `missing` findings included. The one
@@ -94,12 +94,8 @@ finder record at 30 minutes as `UNGRADED-30`.
 Fill the angle brackets, paste the slice rows whole, and pass the prompt to
 `codex-ask --schema findings` through `Skill(codex)`.
 
-With a finder desk, a lane never runs its own pass. It posts an `ask` to `finder-desk`
-naming the PR and head, and the desk starts that whole pass ahead of every other head.
-A pass a lane runs by hand often outlasts the Bash tool's 10-minute cap. Run
-`codex-ask` in the foreground with `timeout: 600000`, and when the call times out,
-rerun the `AWAIT:` line it printed first, `codex-ask --await <run-dir>`, until it
-exits. The run outlives the call that started it, so never ask the question again.
+A lane never runs its own pass. It posts an `ask` to `finder-desk` naming the PR and
+head, and the desk starts that whole pass ahead of every other head.
 
 ```text
 You are the finder for <owner/name>#<n> at head <full sha> on base <base>.

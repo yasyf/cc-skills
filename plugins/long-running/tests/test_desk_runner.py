@@ -1674,7 +1674,7 @@ def grade(shell: FakeShell, pr: str, text: str, lane: str = "fidelity-desk", fin
     return seq
 
 
-def finder_verdict(shell: FakeShell, pr: str, text: str, lane: str = LANE) -> int:
+def finder_verdict(shell: FakeShell, pr: str, text: str, lane: str = "finder-desk") -> int:
     seq = 34766 + len(shell.records)
     shell.records.append({"seq": seq, "drive": "d1", "lane": lane, "kind": "review", "to": ["root"], "refs": {"prs": [f"Forge-AI/monorepo#{pr}"]}, "text": f"finder: {text}"})
     return seq
@@ -1683,7 +1683,7 @@ def finder_verdict(shell: FakeShell, pr: str, text: str, lane: str = LANE) -> in
 def test_a_finder_review_that_names_the_pr_only_in_its_text_lets_the_head_enqueue(shell, config, tmp_path):
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.", finder=False)
-    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": LANE, "kind": "review", "to": ["root"], "refs": {}, "text": "finder [29020] ok cccc333 no findings"})
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "finder-desk", "kind": "review", "to": ["root"], "refs": {}, "text": "finder: ok cccc333 on [29020], no findings"})
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
     assert not [call for call in shell.calls if call[:2] == ["cci", "tail"] and "--kind=head" in call and "--pr" in call]
@@ -5131,7 +5131,7 @@ def test_a_head_with_no_finder_record_is_refused_finder_pending_once(shell, conf
     assert shell.enqueues() == []
     [blocker] = blockers(shell)
     assert blocker["to"] == f"{LANE},finder-desk" and blocker["topic"] == "29020"
-    assert blocker["text"] == f"#29020 cccc333333: nothing in #29020 was enqueued; FINDER-PENDING #29020: no `finder:` review record names this head; run the sol finder {runner_module.finder.BRIEF} names and post its record"
+    assert blocker["text"] == f"#29020 cccc333333: nothing in #29020 was enqueued; FINDER-PENDING #29020: no `finder:` record from finder-desk names this head, and a lane's own finder record never grades it"
 
 
 def test_a_finder_pending_head_with_no_pass_waiting_queues_one_and_again_once_a_pass_skipped_it_while_closed(shell, config, tmp_path):
@@ -5300,7 +5300,7 @@ def test_an_open_finder_major_holds_the_head_until_a_finder_pass_answers_it(shel
     landing_pass(shell, config)
     assert shell.enqueues() == []
     [blocker] = blockers(shell)
-    assert f"FINDER-PENDING #29020: {LANE} posted on cci #{seq}: finder: major cccc333 1 open: go/a.go:12" in blocker["text"]
+    assert f"FINDER-PENDING #29020: finder-desk posted on cci #{seq}: finder: major cccc333 1 open: go/a.go:12" in blocker["text"]
     finder_verdict(shell, "29020", "ok cccc333 answered: the PR rebuts it with the sealed-read test")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and len(blockers(shell)) == 1
@@ -5333,30 +5333,31 @@ def test_a_finder_major_after_a_missing_finder_record_posts_its_own_blocker(shel
     seq = finder_verdict(shell, "29020", "major cccc333 1 open: go/a.go:12 the retry drops the sealed read")
     landing_pass(shell, config)
     first, second = blockers(shell)
-    assert "no `finder:` review record names this head" in first["text"] and f"posted on cci #{seq}: finder: major cccc333" in second["text"]
+    assert "no `finder:` record from finder-desk names this head" in first["text"] and f"posted on cci #{seq}: finder: major cccc333" in second["text"]
 
 
 @pytest.mark.parametrize(
-    ("text", "enqueued", "noted"),
+    ("lane", "text", "enqueued"),
     [
-        ("sol finder on #29020: no majors; 1 minor (3 rustfmt layouts) fixed in cccc333", True, False),
-        ("finder (gpt-6.1-sol ...): no findings", True, False),
-        ("finder: gpt-6.1-sol xhigh on cccc333: 2 majors fixed at dddd444 (C37 now deletes a stopped lane's chain; C133 grades level-0 only)", False, False),
-        ("sol finder ran; the report sits beside the branch", False, True),
-        ("sol finder: major cccc333 1 open: go/a.go:12 the retry drops the sealed read", False, False),
+        (LANE, "api-fix REVIEW reply to finder 202370 and fidelity 202341 on #29020 bbbb222; new HEAD cccc333.", False),
+        (LANE, "sol finder on #29020: no majors; 1 minor (3 rustfmt layouts) fixed in cccc333", False),
+        (LANE, "finder: ok cccc333 no majors", False),
+        ("finder-desk", "sol finder over whole cccc333: no majors", False),
+        ("finder-desk", "finder: ok cccc333 sol finder over whole: no majors", True),
+        ("finder-desk-2", "finder: ok cccc333 sol finder over whole: no majors", True),
     ],
+    ids=["lane-reply-naming-the-finder", "lane-plain-words", "lane-finder-line", "desk-plain-words", "desk-finder-line", "desk-successor"],
 )
-def test_a_finder_record_in_plain_words_is_read_for_its_verdict_and_head(shell, config, tmp_path, text, enqueued, noted):
+def test_only_a_finder_desk_finder_line_grades_a_head_and_a_lane_reply_naming_the_finder_draws_no_note(shell, config, tmp_path, lane, text, enqueued):
+    """Oct 30 1:03 AM, root #202594: the runner read port-memory-3's REVIEW reply #202493, which names finder record 202370, as a finder record and asked the lane for a verdict (#202508)."""
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333", finder=False)
     shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": LANE, "kind": "head", "to": [], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": "a/3 cccc333333"})
-    seq = 34766 + len(shell.records)
-    shell.records.append({"seq": seq, "drive": "d1", "lane": LANE, "kind": "review", "to": ["fidelity-desk"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": text})
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": lane, "kind": "review", "to": ["finder-desk", "desk-runner"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": text})
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert bool(shell.enqueues()) is enqueued
-    notes = [post["text"] for post in shell.posts if post["kind"] == "note" and f"cci #{seq}" in post["text"]]
-    assert notes == ([f"#29020: cci #{seq} names the finder, but the runner reads no verdict in it. Post `finder: ok <head>` or `finder: major <head> <what is open>`, naming the head the finder read."] if noted else [])
+    assert not [post for post in shell.posts if post["kind"] == "note" and "names the finder" in post["text"]]
 
 
 def test_a_check_pr_killed_at_its_bound_warns_once_that_the_rulings_are_unproven_and_holds_nothing(shell, config, tmp_path):
@@ -6114,7 +6115,7 @@ QUIET_WHY = ["hold pass", "precondition pass", "rules-review pass", "rulings pas
     [
         ("hold", "hold fail open cci hold #{seq}"),
         ("fidelity", "fidelity fail no review from fidelity-desk starting `fidelity: ok` names this head"),
-        ("finder", f"finder fail FINDER-PENDING #29020: no `finder:` review record names this head; run the sol finder {runner_module.finder.BRIEF} names and post its record"),
+        ("finder", f"finder fail FINDER-PENDING #29020: no `finder:` record from finder-desk names this head, and a lane's own finder record never grades it"),
         ("rules-review", "rules-review fail rules-review holds cccc333333: its review is pending or carries a finding no `rules-override` waived"),
     ],
 )
@@ -6300,7 +6301,7 @@ def test_mq_gate_holds_a_hand_enqueue_to_the_runners_checks_at_githubs_head_of_e
     posts = len(shell.posts)
     assert mq(shell, config, "gate", "29020", *partial) == 1
     assert capsys.readouterr().out.splitlines() == [
-        f"#29020 eeee555555 finder fail FINDER-PENDING #29020: no `finder:` review record names this head; run the sol finder {runner_module.finder.BRIEF} names and post its record"
+        f"#29020 eeee555555 finder fail FINDER-PENDING #29020: no `finder:` record from finder-desk names this head, and a lane's own finder record never grades it"
     ]
     assert viewed_heads(shell)[-len(graded):] == graded and len(shell.posts) == posts
 
@@ -7272,6 +7273,27 @@ def test_a_runner_enqueue_posts_queued_and_then_landed_naming_the_go(shell, conf
     landing_pass(shell, config)
     [landed] = [post for post in shell.posts if post["text"].startswith("LANDED")]
     assert landed["kind"] == "landed" and landed["text"].startswith("LANDED #33001 as dddd444444: through the merge queue, which the landing runner entered at ")
+
+
+def test_a_pr_the_runner_enqueued_three_times_posts_landed_once_for_its_one_squash_naming_the_newest_entry(shell, config, tmp_path):
+    """Oct 30 12:56 AM, p8a-step7 #202436: #45368 landed once as d75a03ed and the runner posted LANDED three times (#202421, #202424, #202435), one per queue entry it had recorded at 20:17, 21:07 and 00:46."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    go = shell.records[-1]["seq"]
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    book = runner_module.Landing(runner, runner.config.landing).book
+    for attempt, head in enumerate(["ffff000000", "aaaa111111", "aaaa111111"], 1):
+        key = f"enqueue:33001@{head}#{attempt}"
+        book.accept(runner_module.LANDING, key, "enqueue", "33001", "", shell.now() + timedelta(minutes=15))
+        book.attempt(runner_module.LANDING, lambda incident, key=key: incident.start(key, shell.now()))
+        book.attempt(runner_module.LANDING, lambda incident, key=key: incident.complete(key, {"outcome": "enqueued", "out": "enqueue #33001: {}", "at": book.stamp()}))
+        shell.sleep(60)
+    shell.rows[0] |= {"state": "landed", "landed_sha": "dddd444444"}
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [landed] = [post for post in shell.posts if post["text"].startswith("LANDED")]
+    assert landed["text"].startswith("LANDED #33001 as dddd444444: through the merge queue") and landed["text"].endswith(f"with #33001 at aaaa111111 (go #{go})")
+    assert {action.status for action in book.actions(runner_module.LANDING, kind="enqueue")} == {"verified"}
 
 
 def test_an_incident_fix_graded_by_both_within_thirty_minutes_escalates_nothing(shell, config, tmp_path):
@@ -12114,13 +12136,14 @@ def test_an_opened_record_naming_a_full_head_starts_its_finder(shell, config):
     assert [(job["pr"], job["head"]) for job in finder_jobs(shell)] == [("44099", FINDER_HEAD)]
 
 
-def test_a_head_a_lane_already_ran_the_finder_on_starts_no_second_pass(shell, config):
+@pytest.mark.parametrize(("lane", "passes"), [("finder-desk", 0), ("p8a-step6b-creds-6", 1)], ids=["desk-graded", "lane-graded"])
+def test_only_a_head_the_finder_desk_already_graded_starts_no_second_pass(shell, config, lane, passes):
     finder_config(config)
     orca_pass(shell, config)
     head_record(shell, "43439", FINDER_HEAD)
-    finder_review(shell, "43439", f"finder: ok {FINDER_HEAD[:7]} lgtm, no findings")
+    finder_review(shell, "43439", f"finder: ok {FINDER_HEAD[:7]} lgtm, no findings", lane=lane)
     orca_pass(shell, config)
-    assert not shell.finder_jobs
+    assert len(shell.finder_jobs) == passes
 
 
 def test_a_full_pass_request_at_a_head_a_delta_record_graded_starts_a_whole_pass_ahead_of_queued_heads(shell, config):
@@ -12363,7 +12386,7 @@ def test_a_newer_head_supersedes_the_queued_one_and_reads_since_the_head_the_las
     orca_pass(shell, config)
     head_record(shell, "43299", FINDER_OLD)
     orca_pass(shell, config)
-    review = finder_review(shell, "43299", f"finder: major {FINDER_OLD[:7]} 1 open: walk.go:9 skips the volume link", lane="p8a-step9")
+    review = finder_review(shell, "43299", f"finder: major {FINDER_OLD[:7]} 1 open: walk.go:9 skips the volume link", lane="finder-desk")
     head_record(shell, "43299", hashlib.sha1(b"between").hexdigest())
     head_record(shell, "43299", FINDER_HEAD)
     (shell.finder_jobs[0] / "result.json").write_text(json.dumps({"verdict": "major", "record": "finder: major", "posted": "#150002"}))
@@ -12371,7 +12394,7 @@ def test_a_newer_head_supersedes_the_queued_one_and_reads_since_the_head_the_las
     first, second = finder_jobs(shell)
     assert (first["head"], first["since"]) == (FINDER_OLD, "")
     assert (second["head"], second["since"]) == (FINDER_HEAD, FINDER_OLD)
-    assert second["prior"] == {"seq": review, "lane": "p8a-step9", "head": FINDER_OLD[:7], "text": f"finder: major {FINDER_OLD[:7]} 1 open: walk.go:9 skips the volume link"}
+    assert second["prior"] == {"seq": review, "lane": "finder-desk", "head": FINDER_OLD[:7], "text": f"finder: major {FINDER_OLD[:7]} 1 open: walk.go:9 skips the volume link"}
 
 
 def test_a_head_after_a_finder_review_carries_the_head_its_head_record_replaced(shell, config):
@@ -12404,8 +12427,8 @@ def test_a_finder_that_fails_or_writes_nothing_by_its_deadline_runs_again_and_es
     first, second = shell.finder_jobs[:2]
     assert shell.finder_jobs == [first, second, first.with_name(f"{first.name}-2"), second.with_name(f"{second.name}-2"), first.with_name(f"{first.name}-3"), second.with_name(f"{second.name}-3")]
     assert finder_failures(shell) == [
-        f"FINDER-FAILED finder:43439:{FINDER_HEAD} p8a-step9: #43439 {FINDER_HEAD[:12]}: the finder desk's pass failed on the last of its 3 attempts: codex-ask -m sol --schema findings exited 1: quota exhausted; its log is {failed / 'job.log'}; the lane runs the pass by hand from {runner_module.finder.BRIEF}",
-        f"FINDER-FAILED finder:43299:{FINDER_OLD} p8a-step9: #43299 {FINDER_OLD[:12]}: the finder desk's pass failed on the last of its 3 attempts: no result 2 min after it started; its log is {silent / 'job.log'}; the lane runs the pass by hand from {runner_module.finder.BRIEF}",
+        f"FINDER-FAILED finder:43439:{FINDER_HEAD} p8a-step9: #43439 {FINDER_HEAD[:12]}: the finder desk's pass failed on the last of its 3 attempts: codex-ask -m sol --schema findings exited 1: quota exhausted; its log is {failed / 'job.log'}; root asks finder-desk `finder: whole` on #43439 to run it again, since only its records grade a head",
+        f"FINDER-FAILED finder:43299:{FINDER_OLD} p8a-step9: #43299 {FINDER_OLD[:12]}: the finder desk's pass failed on the last of its 3 attempts: no result 2 min after it started; its log is {silent / 'job.log'}; root asks finder-desk `finder: whole` on #43299 to run it again, since only its records grade a head",
     ]
 
 

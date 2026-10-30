@@ -29,7 +29,7 @@ The pool drains when a run closes.
 The pool empties itself when a run ends.
 """
 LANE_HEAD = {"seq": 10, "kind": "head", "lane": "lane-a", "text": f"lane-a {HEAD}"}
-FINDER_OK = {"seq": 11, "kind": "review", "lane": "finder-a", "text": f"finder: ok {HEAD[:7]}"}
+FINDER_OK = {"seq": 11, "kind": "review", "lane": "finder-desk", "text": f"finder: ok {HEAD[:7]}"}
 CONTRACT_SEQ = 8
 STEP = "1.9"
 RESERVED = {
@@ -365,12 +365,13 @@ def test_an_incident_fix_reads_only_the_appendix_for_removed_tests(package: Path
 
 
 def test_the_newest_finder_verdict_on_the_head_decides(package: Path, state: Path, registered: Path, capsys) -> None:
-    major = {"seq": 12, "kind": "review", "lane": "finder-a", "text": f"finder: major {HEAD[:7]} 2 open"}
-    fixed = {"seq": 13, "kind": "review", "lane": "finder-a", "text": f"finder: ok {HEAD[:7]}"}
-    elsewhere = {"seq": 14, "kind": "review", "lane": "finder-a", "text": "finder: major 1234567 1 open"}
+    major = {"seq": 12, "kind": "review", "lane": "finder-desk", "text": f"finder: major {HEAD[:7]} 2 open"}
+    fixed = {"seq": 13, "kind": "review", "lane": "finder-desk", "text": f"finder: ok {HEAD[:7]}"}
+    elsewhere = {"seq": 14, "kind": "review", "lane": "finder-desk", "text": "finder: major 1234567 1 open"}
 
     assert check(capsys, CheckShell(pinned(package), records=[LANE_HEAD, FINDER_OK, major])) == (1, [f"FINDER-MAJOR {HEAD[:7]}"])
     assert check(capsys, CheckShell(pinned(package), records=[LANE_HEAD, major, fixed, elsewhere])) == (0, [])
+    assert check(capsys, CheckShell(pinned(package), records=[LANE_HEAD, FINDER_OK, major | {"seq": 15, "lane": LANE_HEAD["lane"]}])) == (0, [])
 
 
 def test_an_added_scope_name_needs_a_cited_answer_whose_words_name_it(package: Path, state: Path, registered: Path, capsys) -> None:
@@ -581,7 +582,7 @@ def test_no_drive_running_the_program_passes_with_one_blocker(package: Path, sta
 def test_refusals_print_in_the_contracts_order_and_an_incident_fix_meets_only_the_first_three(package: Path, state: Path, registered: Path, capsys) -> None:
     body = "## Summary\n\nWe decided to park the worker.\n"
     diff = BUCKET_DIFF.replace("+    self.drain();", '+    park("parked worker");')
-    major = {"seq": 12, "kind": "review", "lane": "finder-a", "text": f"finder: major {HEAD[:7]} 1 open"}
+    major = {"seq": 12, "kind": "review", "lane": "finder-desk", "text": f"finder: major {HEAD[:7]} 1 open"}
     shell = CheckShell(pinned(package), body=body, diff=diff, records=[LANE_HEAD, major], reviews=[])
 
     assert check(capsys, shell) == (
