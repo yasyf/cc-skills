@@ -1,7 +1,11 @@
 import contextlib
 import datetime as dt
 import itertools
+import gzip
 import json
+import threading
+import urllib.request
+from http.server import ThreadingHTTPServer
 import queue
 import urllib.error
 import urllib.parse
@@ -806,3 +810,18 @@ def test_only_a_pull_request_still_open_on_the_ledger_and_the_runner_keeps_its_w
     prs = {"1": {"state": "open"}, "2": {"state": "open"}, "3": {"state": "closed"}}
     runner = {"2": {"state": "Landed"}}
     assert [n for n in ("1", "2", "3") if server.still_open(n, prs, runner)] == ["1"]
+
+
+def test_the_model_request_serves_the_prebuilt_view_and_never_builds_it(tmp_path):
+    drive = Drive({"board_url": "http://board/p/x"}, None)
+    drive.live = lambda model: (_ for _ in ()).throw(AssertionError("built inside a request"))
+    body = json.dumps({"version": 3, "prs": {}}).encode()
+    snapshot = tmp_path / "served.json.gz"
+    snapshot.write_bytes(gzip.compress(body))
+    drive.restore(snapshot)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(drive))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        assert urllib.request.urlopen(f"http://127.0.0.1:{httpd.server_port}/api/model", timeout=5).read() == body
+    finally:
+        httpd.shutdown()
