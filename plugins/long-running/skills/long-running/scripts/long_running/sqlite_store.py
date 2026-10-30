@@ -447,10 +447,10 @@ class Transaction(ActionState):
         self._closed = self._actions.closed = self._fact_tree.closed = True
 
 
-def _incident_path(data_root: Path, incident_id: str) -> Path:
+def _incident_path(root: Path, incident_id: str) -> Path:
     if not incident_id or "/" in incident_id or "\x00" in incident_id:
         raise ValueError("incident ID must be a nonempty filename component")
-    return data_root / f"{incident_id}.sqlite3"
+    return root / f"{incident_id}.sqlite3"
 
 
 def _load(connection: sqlite3.Connection) -> Incident:
@@ -461,18 +461,9 @@ def _load(connection: sqlite3.Connection) -> Incident:
     return Incident.load(record)
 
 
-def import_database(data_root: Path, incident: Incident) -> Incident:
-    path = _incident_path(data_root, incident.incident_id)
-    if path.exists():
-        previous = sqlite3.connect(path.absolute().as_uri() + "?mode=ro", uri=True)
-        try:
-            previous.row_factory = sqlite3.Row
-            if previous.execute("PRAGMA user_version").fetchone()[0] != 2 or _load(previous).dump() != incident.dump():
-                raise ValueError(f"existing imported state differs: {incident.incident_id}")
-        finally:
-            previous.close()
-        return incident
-    descriptor, staged_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=data_root)
+def _create_database(root: Path, incident: Incident) -> Incident:
+    path = _incident_path(root, incident.incident_id)
+    descriptor, staged_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=root)
     os.close(descriptor)
     staged = Path(staged_name)
     connection = sqlite3.connect(staged, isolation_level=None)
@@ -491,7 +482,7 @@ def import_database(data_root: Path, incident: Incident) -> Incident:
         with staged.open("rb") as stream:
             os.fsync(stream.fileno())
         staged.replace(path)
-        directory = os.open(data_root, os.O_RDONLY)
+        directory = os.open(root, os.O_RDONLY)
         try:
             os.fsync(directory)
         finally:
@@ -507,17 +498,15 @@ class Store:
 
     def __init__(self, root: Path | None = None):
         self.root = root if root is not None else Path.home() / ".claude" / "long-running" / "incidents"
-        from .migration import data_root
-
-        self.data_root = data_root(self.root)
 
     def path(self, incident_id: str) -> Path:
-        return _incident_path(self.data_root, incident_id)
+        return _incident_path(self.root, incident_id)
 
     @contextmanager
     def _locked(self, incident_id: str) -> Iterator[Path]:
         path = self.path(incident_id)
-        with (self.data_root / f".{incident_id}.lock").open("a") as lock:
+        self.root.mkdir(parents=True, exist_ok=True)
+        with (self.root / f".{incident_id}.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             yield path
 
@@ -550,7 +539,7 @@ class Store:
         with self._locked(incident.incident_id) as path:
             if path.exists():
                 return self.load(incident.incident_id) if existing_snapshot else None
-            return import_database(self.data_root, incident)
+            return _create_database(self.root, incident)
 
     def create(self, incident: Incident) -> Incident:
         return self._create(incident, existing_snapshot=True)
@@ -606,7 +595,7 @@ class Store:
             return _load(connection)
 
     def ids(self) -> list[str]:
-        return sorted(path.stem for path in self.data_root.glob("*.sqlite3"))
+        return sorted(path.stem for path in self.root.glob("*.sqlite3"))
 
     def find_action(self, incident_id: str, action_id: str) -> Action | None:
         with self._read(incident_id) as connection:

@@ -15,6 +15,7 @@ from hooks import nudges, owner_facing
 from hooks.compaction_handoff import CompactionState
 from hooks.tests.board_fixtures import ANSWERS, GLOSSARY, ROWS
 from hooks.tests.incident_fixtures import OUTAGE_TWO, opened
+from long_running import actions
 
 MISFIRES = {
     "artifact-retry-repush": (
@@ -123,7 +124,6 @@ def incidents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def incident(incidents: Path, name: str, status: str, *, hours_ago: float = 1, **facts: str) -> None:
-    incidents.mkdir(parents=True, exist_ok=True)
     record = {
         "incident_id": name,
         "owner": f"incident-{name}",
@@ -133,7 +133,7 @@ def incident(incidents: Path, name: str, status: str, *, hours_ago: float = 1, *
         "status": status,
         "actions": {},
     }
-    (incidents / f"{name}.json").write_text(json.dumps(record))
+    actions.Store(incidents).create(actions.Incident.load(record))
 
 
 def question(text: str) -> dict:

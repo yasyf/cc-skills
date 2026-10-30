@@ -7,7 +7,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from long_running import actions, migration
+from long_running import actions
 import board_rows
 import pytest
 import stall_watch
@@ -115,7 +115,6 @@ class FakeShell(stall_watch.Shell):
 
 @pytest.fixture
 def config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    migration.initialize(tmp_path / "store")
     home = tmp_path / "claude"
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
     registry = home / "long-running/drives/durable.json"

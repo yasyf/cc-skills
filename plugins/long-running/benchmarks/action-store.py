@@ -8,7 +8,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from long_running import actions, sqlite_store
-from long_running.migration import initialize
 from long_running.book import Book
 
 
@@ -48,7 +47,6 @@ def counted():
 def measure(count: int) -> dict:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory) / "store"
-        initialize(root)
         store = actions.Store(root)
         state = actions.Incident("runner", "root", 0, "2026-10-30T00:00:00Z", {})
         for index in range(count):

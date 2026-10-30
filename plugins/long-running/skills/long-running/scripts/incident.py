@@ -453,7 +453,7 @@ class Runner:
     def __init__(self, store: Store, incident_id: str, world: World, shell: Shell, briefs: Path | None = None):
         self.store, self.incident_id, self.world, self.shell = store, incident_id, world, shell
         self.generation = store.ownership(incident_id)[1]
-        self.briefs = briefs or store.data_root / incident_id
+        self.briefs = briefs or store.root / incident_id
 
     def owned(self):
         return self.store.transaction(self.incident_id, generation=self.generation)
@@ -1047,8 +1047,8 @@ def cmd_grant(args: argparse.Namespace, store: Store, shell: Shell) -> int:
 
 
 def cmd_run(args: argparse.Namespace, store: Store, shell: Shell) -> int:
-    store.data_root.mkdir(parents=True, exist_ok=True)
-    with open(store.data_root / f".{args.incident}.runner", "w") as lock:
+    store.root.mkdir(parents=True, exist_ok=True)
+    with open(store.root / f".{args.incident}.runner", "w") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
@@ -1085,7 +1085,7 @@ def cmd_status(args: argparse.Namespace, store: Store, shell: Shell) -> int:
 def cmd_brief(args: argparse.Namespace, store: Store, shell: Shell) -> int:
     incident = brief_record(store, args.incident)
     for role in args.role or INCIDENT_ROLES:
-        print(write_brief(incident, role, store.data_root / args.incident))
+        print(write_brief(incident, role, store.root / args.incident))
     return 0
 
 
