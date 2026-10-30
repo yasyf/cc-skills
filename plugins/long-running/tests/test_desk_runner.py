@@ -150,6 +150,7 @@ class FakeShell(runner_module.Shell):
         self.sender = ""
         self.generation = 3
         self.run_use_error: dict | None = None
+        self.unstarted: set[str] = set()
         self.posts: list[dict] = []
         self.states: list[dict] = []
         self.alive: list[str] = []
@@ -561,7 +562,11 @@ class FakeShell(runner_module.Shell):
             assert argv[2:4] == ["--drive", "d1"] and argv[4] == "--lane" and argv[6:] == ["--json"]
             return runner_module.Done(0, "" if argv[5] in self.gone else json.dumps({"lane": argv[5], "live": True} | ({"seen_at": self.seen[argv[5]]} if argv[5] in self.seen else {})) + "\n", "")
         if argv[:2] == ["cci", "post"]:
+            forced = "--force" in argv
+            argv = [arg for arg in argv if arg != "--force"]
             flags = dict(zip(argv[2::2], argv[3::2], strict=True))
+            if not forced and (unstarted := [lane for lane in flags.get("--to", "").split(",") if lane in self.unstarted]):
+                return runner_module.Done(1, "", f"cci: --to {unstarted[0]}: no live session or registered lane on drive {flags['--drive']} is named {unstarted[0]}")
             assert flags["--drive"] in self.drives and flags["--lane"] in ("desk-runner", "root", "finder-desk", "fidelity-desk") and len(flags["--text"]) <= 400
             if self.post_error:
                 return runner_module.Done(1, "", self.post_error)
@@ -13237,6 +13242,25 @@ def test_a_failed_fidelity_pass_fails_at_once_to_the_human_desks_and_the_next_he
     again = head_record(shell, "43439", FINDER_HEAD)
     orca_pass(shell, config)
     assert shell.fidelity_jobs[-1] == config.resolve().parent / "fidelity-pipeline" / f"43439-{FINDER_HEAD[:12]}-{again}"
+
+
+def test_a_failed_fidelity_pass_settles_when_a_reader_lane_in_runner_json_has_not_started(shell, config):
+    """cci #219230: runner.json named fidelity-desk-14 and -15, which never started, so cci refused every FIDELITY-FAILED post and eight failed passes held every fidelity slot for twelve hours while 168 heads queued."""
+    fidelity_config(config, concurrent=1)
+    raw = json.loads(config.read_text())
+    raw["landing"]["fidelity_lane"] = ["fidelity-desk-4", "fidelity-desk-14", "fidelity-pipeline"]
+    config.write_text(json.dumps(raw))
+    shell.unstarted = {"fidelity-desk-14"}
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    [failed] = shell.fidelity_jobs
+    (failed / "result.json").write_text(json.dumps({"error": "codex-ask -m sol --schema fidelity.schema.json exited 1: quota exhausted"}))
+    orca_pass(shell, config)
+    assert [to for to, _ in fidelity_failures(shell)] == ["fidelity-desk-4,fidelity-desk-14"]
+    head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    assert len(shell.fidelity_jobs) == 2
 
 
 def test_a_failed_pass_whose_notice_does_not_post_stays_started_and_tells_the_desks_on_the_next_pass(shell, config):

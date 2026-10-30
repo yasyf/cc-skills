@@ -1837,7 +1837,7 @@ class Runner:
     def post_escalation(self, line: str, to: str, action_id: str) -> Done:
         label, topic = line.split()[:2]
         message = self.message_file(topic)
-        return self.cci_post(ESCALATION_KINDS.get(label, "defect" if label.endswith("-FAILED") else "report"), line, to, topic, action_id, message.read_text() if message.is_file() else "")
+        return self.cci_post(ESCALATION_KINDS.get(label, "defect" if label.endswith("-FAILED") else "report"), line, to, topic, action_id, message.read_text() if message.is_file() else "", flags=["--force"])
 
     def record(self, action_id: str, line: str) -> None:
         self.book.accept(RUNNER, action_id, "escalation", line, "runner", None)
