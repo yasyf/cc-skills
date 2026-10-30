@@ -4271,6 +4271,7 @@ class Runner:
                 if "error" in outcome:
                     self.finder_failed(action, outcome["error"])
                 else:
+                    self.repost(directory)
                     self.finder_settled(action.action_id, outcome)
                 if outcome.get("ungraded"):
                     job = json.loads(action.target)
@@ -4527,7 +4528,17 @@ class Runner:
             if "error" in outcome:
                 self.fidelity_failed(action, outcome["error"])
             else:
+                self.repost(result.parent)
                 self.settle(FIDELITY, action.action_id, outcome)
+
+    def repost(self, directory: Path) -> None:
+        """Post again, on this machine's bus, every record a settled desk job logged to `finder.POSTS`: each carries its `--id`, so a record the Sprite's relay delivered comes back as the stored duplicate and one it dropped lands now (root #217856)."""
+        posts = directory / finder.POSTS
+        if not posts.is_file():
+            return
+        for line in posts.read_text().splitlines():
+            if (done := self.shell.run(json.loads(line))).code:
+                print(f"{directory.name}: reposting a desk record failed: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
 
     def start_fidelities(self, spec: dict, repo: str, rows: dict[str, dict]) -> None:
         """Start the newest queued head of each PR, a lower ledger `priority` first, then oldest PR first, while fewer than `fidelity.concurrent` passes run; an older queued head of the same PR settles as superseded, and a queued head whose PR is closed, no longer at that head, or whose number names no PR, such as a cci seq a record bound as one, settles as skipped without a pass."""
