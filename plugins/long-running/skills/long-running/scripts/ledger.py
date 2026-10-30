@@ -1637,10 +1637,10 @@ def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: d
         was = every.get(key, {})
         fields = grade(state["prs"][key], scope.repo)
         fields["failing_checks"] = with_errors(shell, fields["failing_checks"], was.get("failing_checks"))
-        for since, state in (("green_at", "success"), ("red_at", "failure")):
-            if fields["test_state"] != state:
+        for since, build in (("green_at", "success"), ("red_at", "failure")):
+            if fields["test_state"] != build:
                 fields[since] = ""
-            elif (was.get("head"), was.get("test_state")) == (fields["head"], state):
+            elif (was.get("head"), was.get("test_state")) == (fields["head"], build):
                 fields[since] = was.get(since, moment)
             else:
                 fields[since] = moment
