@@ -72,6 +72,29 @@ GRAPHITE_API=${LABEL_WATCH_GRAPHITE_API:-https://api.graphite.com/v1}
 GRAPHITE_AUTH=${LABEL_WATCH_GRAPHITE_AUTH:-$HOME/.config/graphite/auth}
 HOLD=${LABEL_WATCH_HOLD:-}
 HELD=
+QUEUE_PROVIDER=${LABEL_WATCH_QUEUE:-graphite}
+case $QUEUE_PROVIDER in
+  trunk)
+    case $MODE in
+      once)
+        if [ -n "$HOLD" ] && [ -s "$HOLD" ]; then
+          echo "Use mq.py with trunk-stack-enqueue to retain drive holds; label-watch cannot translate a hold file into native stack permission" >&2
+          exit 2
+        fi
+        if [ -n "$DRY_RUN" ]; then
+          exec "$CHECKOUT/.agents/skills/submit-pr/scripts/stack-enqueue" "$@" --check
+        fi
+        exec "$CHECKOUT/.agents/skills/submit-pr/scripts/stack-enqueue" "$@"
+        ;;
+      watch)
+        echo "Use mq.py with landing.adapter.kind=trunk-stack-enqueue to watch a Trunk queue; label-watch's mutable-list watcher is Graphite-only" >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  graphite) ;;
+  *) echo "LABEL_WATCH_QUEUE must be trunk or graphite" >&2; exit 2 ;;
+esac
 OWNER=${REPO%%/*}
 TRUNK_REF=refs/label-watch/$TRUNK
 PULL='"\(.head.sha) \(.base.ref) \(.mergeable) \(.mergeable_state) \(.head.ref) \([.labels[].name] | join(","))"'

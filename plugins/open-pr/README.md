@@ -25,7 +25,7 @@ Open a PR for this branch
 
 `open-pr` reads the repo's contribution guidelines and PR template through `ccx vcs guidelines` and scouts a cached style card from recent human-authored merged PRs. It calibrates register against your local `wlm` voice profile, while the repo's style wins on conflicts. It writes the title, body, and commit messages to match house conventions, including commit trailer history, and omits `Co-Authored-By: Claude` when the repo has none. On repos you do not own, it checks the diff against contribution standards. It handles issue-first requirements by searching for or drafting an issue and asking for confirmation before publishing under your name.
 
-It ships through `ccx vcs ship` across `jj`, `git`, or Graphite `gt`, filling bodies on any bodyless downstack PRs, and spawns a background watcher. Once the watcher reports the PR ready to merge, a line in your `CLAUDE.md` decides the next question. `open-pr.on-ready: offer-open`, the default, asks whether to open the PR page. `open-pr.on-ready: offer-merge` asks "merge #N now?" and adds the repo's queue label only on a yes.
+It ships through `ccx vcs ship` across native GitHub stacks (`gh-stack`), `jj`, `git`, or legacy Graphite `gt`, filling bodies on any bodyless downstack PRs, and spawns a background watcher. Once the watcher reports the PR ready to merge, a line in your `CLAUDE.md` decides the next question. `open-pr.on-ready: offer-open`, the default, asks whether to open the PR page. `open-pr.on-ready: offer-merge` asks "merge #N now?" and enqueues or adds the repo's queue label only on a yes.
 
 When you want to skip style scouting on a routine change and still ship a complete PR description, ask:
 

@@ -184,7 +184,7 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   `gh pr merge`, and `ledger.py label` from a lane. Report READY the moment a PR is green;
   the landing runner enqueues the largest green, approved, unheld bottom prefix against the
   open cci `hold` records. On a held PR, report `held` on your tip with the held
-  PR named and leave release to the root. After the prefix lands, restack the rest with
+  PR named and leave release to the root. After the prefix lands, inspect whether GitHub already rebased the remaining stack onto the base branch before restacking with
   `ccx vcs stack submit`.
 - After opening a PR, run
   `ccx vcs pr watch --lane-prefix <branch-prefix> --until landed` under Monitor

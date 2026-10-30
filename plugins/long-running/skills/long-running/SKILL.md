@@ -1359,11 +1359,12 @@ one long-lived lane, `landing-desk`, that takes those reports and reconciles lan
 Lanes never enqueue under D1. `desk-runner.py run --desk landing` is the drive's
 merge queue and owns D3, D14, D16, and D20, including for shards. It reaches the
 repository's queue through the adapter `landing.adapter` names in `runner.json`:
-`graphite-stack-enqueue` runs the repository's own stack-enqueue script, and `label`
-runs `ledger.py label` for a queue that takes the `merge` label. The landing desk
-never enqueues beside it. The root owns holds and priority PRs under D3,
-and steers the queue with `mq.py`. It receives P0 lines immediately and a summary
-every 30 minutes.
+`trunk-stack-enqueue` runs the repository's stack-enqueue helper for a repository with
+`ccx.queue` set to `trunk`, `graphite-stack-enqueue` runs the repository's own
+stack-enqueue script on a legacy Graphite queue, and `label` runs `ledger.py label`
+for a queue that takes the `merge` label. The landing desk never enqueues beside it.
+The root owns holds and priority PRs under D3, and steers the queue with `mq.py`.
+It receives P0 lines immediately and a summary every 30 minutes.
 
 `scripts/ledger.py` is its one tool. It uses `ccx vcs pr state` for refreshes and
 `ccx vcs pr watch` for transitions. Both read ccx's machine-wide pull request cache,
@@ -1414,14 +1415,18 @@ Lanes record each report themselves with `ledger.py report --drive <drive>`: PR,
 
 **D3. Enqueue every ready bottom prefix in priority order.** `<tip>` is the top of the largest contiguous bottom prefix whose PRs pass. Under the `label` adapter, `ledger.py label --pr <tip> --checkout <path>` walks base refs to the repo's default branch and re-reads every PR in that prefix. Each must be open, with approval in force, successful commit status, no failed checks, and a completed, successful latest `ai-review`. Approval on any commit counts; a dismissed or withdrawn approval does not. Each head must have no desk hold or lane `held` verdict on that head, no prior label or pull, and no conflict with its base.
 
-Allowed `mergeable_state` values are `clean`, `behind`, and `has_hooks`; a PR above the bottom of a stack may also read `unstable` while Graphite's `mergeability_check` is its only unfinished check. `--expect-head` takes a lowercase hex prefix of the tip's sha, 7 to 40 characters long. An untracked downstack PR or an orphaned base refuses the whole attempt.
+Allowed `mergeable_state` values are `clean`, `behind`, and `has_hooks`; on a legacy Graphite stack, a PR above the bottom may also read `unstable` while Graphite's `mergeability_check` is its only unfinished check. `--expect-head` takes a lowercase hex prefix of the tip's sha, 7 to 40 characters long. An untracked downstack PR or an orphaned base refuses the whole attempt.
 
-An open child outside the prefix is allowed only when a lane tracks its ledger row and its head carries Graphite's `Graphite / mergeability_check` check run. Restack any other child through Graphite or retarget it to the trunk before adding the label. `--expect-head` pins the tip you graded; each call re-reads its tip immediately before grading it. A report is not required; the forge decides whether a head is red or conflicting.
+On a legacy Graphite stack, an open child outside the prefix is allowed only when a lane tracks its ledger row and its head carries Graphite's `Graphite / mergeability_check` check run; restack any other child through Graphite or retarget it to the trunk before adding the label. `--expect-head` pins the tip you graded; each call re-reads its tip immediately before grading it. A report is not required; the forge decides whether a head is red or conflicting.
 
 `desk-runner.py run --desk landing` runs D3 as the drive's merge queue. `runner.json`
-names its adapter as `landing.adapter`: `{"kind": "graphite-stack-enqueue", "script":
-"<path to stack-enqueue under the checkout>"}` or `{"kind": "label"}`. The runner
-refuses to start with `MQ-CONFIG-INVALID` on an adapter, a check, or a high-risk
+names its adapter as `landing.adapter`: `{"kind": "trunk-stack-enqueue", "script":
+"<path to stack-enqueue under the checkout>"}` when `ccx.queue` is `trunk`,
+`{"kind": "graphite-stack-enqueue", "script": "<path to stack-enqueue under the checkout>"}`
+for a legacy Graphite queue, or `{"kind": "label"}`. The native `trunk-stack-enqueue`
+adapter consumes the helper's `GREEN`, `WAITING`, and `BLOCKED` prefix statuses plus the
+structured `tools/ci trunk status` `active` boolean and never guesses queue membership.
+The runner refuses to start with `MQ-CONFIG-INVALID` on an adapter, a check, or a high-risk
 setting it cannot run. Each pass fast-forwards the checkout
 to the remote trunk, so `landing.checkout` names a worktree only the runner uses;
 one its repository no longer lists, or one on a branch with no commit, is rebuilt
@@ -1471,16 +1476,17 @@ Two lines to root name what a batch leaves out, per root #131054 and the root's
 Oct 26 runner brief:
 
 - `HELD-OUT`: a hold covers a PR the check would sweep into the batch. The PR and
-  every PR above it stay out, and the enqueue names only the tops below it, with
-  `--partial`. No check or enqueue call ever names a held PR.
+  every PR above it stay out, and the enqueue names only the tops below it (`--partial`
+  on `graphite-stack-enqueue`; `trunk-stack-enqueue` never passes `--partial`). No check
+  or enqueue call ever names a held PR.
 - `BATCH-WAITS`: a root `go #<n> at <sha> with #<a> #<b>` binds its PRs and the
   `with` PRs into one batch, and the prefix holds only part of it, because one is
   held, red, or not yet tracked. Every PR of the batch and every PR above them stay
   out until the whole batch is enqueueable in one call.
 - `FORK-DEFERRED`: the batch sits on an open fork outside it, so it waits until
-  that fork lands, and the line names the PRs that wait and the fork. Graphite keeps
-  one linear chain per batch, so a batch that forks within itself goes in as one
-  stack-enqueue call per chain in the same pass, bottom chain first.
+  that fork lands, and the line names the PRs that wait and the fork. One linear chain
+  goes per batch, so a batch that forks within itself goes in as one stack-enqueue call
+  per chain in the same pass, bottom chain first.
 
 A failing required check posts one `blocker` per PR, refusal, red job and cause. The
 cause is the job's status description with run numbers and durations folded. A later
@@ -1642,8 +1648,10 @@ the root asks the owner once which merge mode the drive runs in:
 The root records the pick as a cc-notes answer, `ccn answer add` with the question
 verbatim and the label `program:<drive>`, and writes it to `runner.json` as
 `landing.merge_mode`, with the repository's high-risk globs as `landing.high_risk_paths`,
-and names the adapter as `landing.adapter`: `graphite-stack-enqueue` when the checkout carries
-`.agents/skills/submit-pr/scripts/stack-enqueue`, else `label`. The landing runner refuses to start without one of the three
+and names the adapter as `landing.adapter`: `trunk-stack-enqueue` when the checkout carries
+`.agents/skills/submit-pr/scripts/stack-enqueue` and repo `ccx.queue` is `trunk`,
+`graphite-stack-enqueue` when the checkout carries that script on a legacy Graphite queue,
+else `label`. The landing runner refuses to start without one of the three
 values and posts `MERGE-MODE-UNSET`. It re-reads the value on every use, so a later
 change is one edit plus an `answer supersede`, with no restart.
 
@@ -1656,7 +1664,7 @@ lists that row in force, until an approval on the root's board names that head. 
 whose newest fidelity grade says one of `landing.exempt_grades` (default
 `pure port, no interaction` and `test-only or CI-only, no non-test code`; the legacy
 `landing.port_phrase` replaces the first) needs no tap and no go in any merge mode and
-goes straight to Graphite's queue once the hold, fidelity, finder, build and CI checks
+goes straight to the merge queue once the hold, fidelity, finder, build and CI checks
 pass (owner 7:00 PM Oct 29, root #194387), with one `EXEMPT-ADMITTED` note to the root and
 each `landing.board_lane` naming the grade when a tap rule names its files. A grade saying the port touches rebuild
 code keeps the tap. Either class is also checked against every file the PR changes
@@ -1712,7 +1720,11 @@ An answer covers only the head it names, so a new head asks again. A changed-fil
 read GitHub refuses logs `FILES-READ-FAILED`, and nothing in that prefix enqueues
 until it reads.
 
-**Graphite down, merge directly.** Graphite reads down when no batch has started in 15
+**Graphite down, merge directly (legacy `graphite-stack-enqueue` only; never Trunk).** On
+`trunk-stack-enqueue`, Trunk failures or unreadable queue states stay `BLOCKED` or
+`UNKNOWN` and never trigger direct merges or automated orphan/own-red/flake recovery;
+native retry is a manual `stack-enqueue --flake` after inspecting verification. On a
+legacy Graphite queue, Graphite reads down when no batch has started in 15
 minutes while PRs are queued, or its two newest batches both timed out. The runner then
 posts `GRAPHITE-DOWN since <time>` to root and the landing desks. It squash-merges each
 stack it would have enqueued, once it is green, approved, and unheld (owner b530f5d). It
@@ -1764,9 +1776,9 @@ a green PR on 2 blocking findings five minutes after its push, and the runner an
 it as no verdict for 19 minutes. Oct 28 12:31 AM: repeat `LANE-GONE` records for two
 lanes went to the desks only, and root, the one lane that relaunches, learned 25 minutes late twice.*
 
-**A PR left on a Graphite base is resubmitted.** Each pass, the runner takes the lowest open
-drive PR whose ledger base starts with `graphite-base/`, where a landed parent leaves it
-reading conflicted or stuck, and ships its branch as it stands with
+**A PR left on a legacy Graphite base is resubmitted.** Each pass, the runner takes the lowest open
+drive PR whose ledger base starts with `graphite-base/`, where a landed parent on a legacy
+Graphite stack leaves it reading conflicted or stuck, and ships its branch as it stands with
 `ccx vcs ship --branch <branch> --tip-only --no-commit` from the landing checkout. It runs on
 a stack worker beside the landing work, one at a time and once per head, and a `note` naming
 the outcome goes to `landing.desk_lane`, else root.
@@ -2070,7 +2082,7 @@ growing with the board until its pass takes 20 minutes.*
 
 **D13. Register each lane's stack when it starts and whenever it opens a PR.** The root registers the drive with `drive.py start --ledger <id>`. The pack's PR hook then registers every PR a drive session or Orca worker opens under the lane's name. It records the head when the command prints one. This covers in-process subagents and teammates at any depth; `orca-launch.sh` passes the drive to Orca workers, resolving it from the Orca run when the desk runner, which holds no session, launches them. A session no drive claims prints one stderr line from `drive.py record`. The same hook settles the row when a drive session announces a landing with `cci post --kind landed --pr <n>` or closes a PR with `gh pr close`: `drive.py landed` proves the squash or the close against the trunk through `ledger.py landed`, so the row leaves the open set in that step.
 
-Lanes still register their branch at spawn with `ledger.py register --ledger <id> --lane <name> --branch-prefix <branch>`, and still `report` verdicts; a value ending in `/` or `-` is a namespace covering a stack, any other value one exact branch. Run from the lane's worktree, `register` also records that worktree when its Graphite stack holds the branch, and every `refresh` then tracks each open PR on that stack, including branches `ccx vcs stack new` cuts later, so a stacked PR needs no hand registration. `register` refuses a prefix that covers the owner's whole `<user>/` namespace or already matches open PRs another lane tracks or that predate the ledger, naming those PRs and suggesting the exact branch, `<user>/<lane-slug>-`, or `--pr`; `ledger.py unregister --ledger <id> --lane <name>` removes a prefix and drops the untouched rows only it pulled in. To un-admit a PR no drive lane owns, `ledger.py unregister --ledger <id> --pr <n>` removes its row whole, so the runner neither mirrors a `fidelity` status onto it nor gates it. Hand-register a PR only when the hook's context line says it was not recorded, using the command it gives. When the root moves a PR to another lane, it runs `ledger.py reassign --ledger <id> --pr <n> --lane <new>`; `route` and `refresh` then address the new lane, and the row's `reassigned` field keeps each move. Read recorded PRs with `ledger.py list --ledger <id> [--lane <name>] [--open] [--json]`.
+Lanes still register their branch at spawn with `ledger.py register --ledger <id> --lane <name> --branch-prefix <branch>`, and still `report` verdicts; a value ending in `/` or `-` is a namespace covering a stack, any other value one exact branch. Run from the lane's worktree, `register` also records that worktree when its native GitHub stack (`.git/gh-stack`) or legacy Graphite stack holds the branch, and every `refresh` then tracks each open PR on that stack, including branches `ccx vcs stack new` cuts later, so a stacked PR needs no hand registration. `register` refuses a prefix that covers the owner's whole `<user>/` namespace or already matches open PRs another lane tracks or that predate the ledger, naming those PRs and suggesting the exact branch, `<user>/<lane-slug>-`, or `--pr`; `ledger.py unregister --ledger <id> --lane <name>` removes a prefix and drops the untouched rows only it pulled in. To un-admit a PR no drive lane owns, `ledger.py unregister --ledger <id> --pr <n>` removes its row whole, so the runner neither mirrors a `fidelity` status onto it nor gates it. Hand-register a PR only when the hook's context line says it was not recorded, using the command it gives. When the root moves a PR to another lane, it runs `ledger.py reassign --ledger <id> --pr <n> --lane <new>`; `route` and `refresh` then address the new lane, and the row's `reassigned` field keeps each move. Read recorded PRs with `ledger.py list --ledger <id> [--lane <name>] [--open] [--json]`.
 
 Each refresh makes one `ccx vcs pr state --repo <repo> <PR numbers> --lane-prefix <prefix>` call with every row's PR number and any explicit `--pr` numbers, repeating `--lane-prefix` for each registered prefix. The same read returns the lanes' open PRs from ccx's machine-wide pull request cache. Every discovered PR enters the same batch and takes the same gates as a reported PR; the desk never lists the repository's pull requests.
 
@@ -2109,7 +2121,7 @@ In the same pass, run `route` and send its messages. D3's merge queue handles ev
 
 *Prevents the desk waiting silently while five ready PRs sat unmerged for hours.*
 
-**D16. The green bottom of a stack lands now.** Enqueue the largest contiguous bottom prefix whose PRs are green, approved, and unheld as one Graphite batch. Never wait for the top of a stack to go green before landing a green bottom. PRs above the prefix wait on their CI, review, or hold. After the prefix lands, route a restack of the first PR above it to its owning lane; the lane restacks the remaining PRs with `ccx vcs stack submit`.
+**D16. The green bottom of a stack lands now.** Enqueue the largest contiguous bottom prefix whose PRs are green, approved, and unheld as one batch. Never wait for the top of a stack to go green before landing a green bottom. PRs above the prefix wait on their CI, review, or hold. After a native GitHub stack prefix merges atomically, inspect whether GitHub automatically rebased the remaining stack before routing an explicit restack; when a restack is needed, route the first PR above the landed prefix to its owning lane, which restacks the remaining PRs with `ccx vcs stack submit`.
 
 The landing runner sends this route after verifying ledger `landed` rows, by relay for Orca lanes or `cci post --drive <drive> --lane landing-desk --kind blocker --topic <pr> --to <lane> --text "<restack route>"` for others. The landing desk never duplicates it.
 
@@ -3811,9 +3823,12 @@ holds prints `SKIP queued`, and every PR above it waits as `NOT-READY <sha> down
 until it lands. The first PR to fail stops the walk, and every PR above it prints
 `NOT-READY <sha> downstack #N` without reading its checks.
 
-A stack's largest passing bottom prefix goes into the queue now. One
-`POST /v1/graphite/merge`, the call `gt merge` makes, sends the prefix's PR numbers
-bottom first. Graphite queues them as one batch.
+When `LABEL_WATCH_QUEUE=trunk`, `label-watch.sh` delegates only `once` mode to the gated
+native `stack-enqueue` helper; its legacy mutable-file `watch` and hold-file modes refuse
+visibly for Trunk and direct callers to `mq.py` with `trunk-stack-enqueue`. On the legacy
+Graphite path, a stack's largest passing bottom prefix goes into the queue in one
+`POST /v1/graphite/merge` call, the call `gt merge` makes, sending the prefix's PR numbers
+bottom first so Graphite queues them as one batch.
 
 When open PRs remain above it, the prefix top prints `<top> ENQUEUED <sha> prefix`
 and the PRs below it `SKIP covered-by #<top>`. Each PR above keeps its `NOT-READY` reason with

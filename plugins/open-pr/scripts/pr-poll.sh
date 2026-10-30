@@ -69,6 +69,7 @@ MERGEABLE_FALSE_READS=2
 INTERVAL_MIN=120
 INTERVAL_FLOOR_PER_PR=10
 QUEUE_LABEL="${PR_POLL_QUEUE_LABEL:-merge}"
+QUEUE_PROVIDER="${PR_POLL_QUEUE_PROVIDER:-}"
 DEADLINE="${PR_POLL_DEADLINE:-14400}"
 [[ $DEADLINE =~ ^[0-9]+$ ]] || DEADLINE=14400
 WINDOW="${PR_POLL_WINDOW:-1500}"
@@ -195,6 +196,18 @@ STATE_FILE=$3
 [[ $REPO =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || usage
 [[ $PR =~ ^[0-9]+$ ]] || usage
 
+if [ -z "$QUEUE_PROVIDER" ]; then
+  origin=$(git remote get-url origin 2>/dev/null || true)
+  case "$origin" in
+  "https://github.com/$REPO"|"https://github.com/$REPO.git"|"git@github.com:$REPO"|"git@github.com:$REPO.git"|"ssh://git@github.com/$REPO"|"ssh://git@github.com/$REPO.git")
+    QUEUE_PROVIDER=$(git config --get ccx.queue 2>/dev/null || true)
+    if [ -z "$QUEUE_PROVIDER" ] && [ "$(git config --get ccx.stack 2>/dev/null || true)" = github ]; then
+      QUEUE_PROVIDER=github
+    fi
+    ;;
+  esac
+fi
+
 STACK="${PR_POLL_STACK:-1}"
 [[ $STACK =~ ^[1-9][0-9]*$ ]] || STACK=1
 FLOOR=$((INTERVAL_FLOOR_PER_PR * STACK))
@@ -230,11 +243,15 @@ if [ -f "$STATE_FILE" ] && jq -e '.watermarks' "$STATE_FILE" >/dev/null 2>&1; th
 
 normalize() {
   jq -c --argjson schema "$STATE_SCHEMA" --argjson pr "$PR" --arg repo "$REPO" --arg now "$NOW" \
-    --argjson started "$STARTED" '
+    --argjson started "$STARTED" --arg provider "${QUEUE_PROVIDER:-graphite}" '
     { head_at_last_pass: null, head_committed_at: null, checks_seen: {}, merge_activity: {}, merge_state_seen: null,
       mergeable_false_reads: 0, conflicted_head: null, awaiting_review_head: null,
-      queue: { queued: null, head: null, evicted: null, resolved_stint: null },
+      queue: { provider: "graphite", queued: null, head: null, evicted: null, resolved_stint: null },
       attempts: {}, applied: [], escalated: [], watcher: null } * .
+    | if .queue.provider != $provider then
+        .queue = { provider: $provider, queued: null, head: null, evicted: null, resolved_stint: null }
+        | .merge_activity = {}
+      else . end
     | .schema = $schema | .pr = $pr | .repo = $repo
     | .started_at = (.started_at // $started)
     | .watermarks = ({ comments: $now, reviews: $now, events: { at: $now, id: 0 } } * (.watermarks // {}))
@@ -336,12 +353,16 @@ green() {
   write_state
 }
 
+native_queue() {
+  [ "$QUEUE_PROVIDER" = trunk ] || [ "$QUEUE_PROVIDER" = github ]
+}
+
 poll() {
   local view head prev base default_branch stacked_on="" downstack="" pr_state merged mergeable merge_state present
   local checks checks_ok=1 events comments items reviews_ok=1 changes_requested seen wm_c wm_r next_c next_r queue
   local activity act_id act_author act_seen act_n bullets latest latest_kind requeued history reads
   local last_event last_bot last_actor stint committed
-  local evicted="" conflicted=0 settled n_checks verdict closed_as
+  local evicted="" conflicted=0 settled n_checks verdict closed_as authoritative="" authoritative_queue=""
 
   view=$(gh api "repos/$REPO/pulls/$PR" \
     --jq '{state, merged, head: .head.sha, base: .base.ref, default_branch: .base.repo.default_branch, mergeable, mergeable_state, labels: [.labels[].name]}' \
@@ -365,6 +386,22 @@ poll() {
   ) || checks_ok=0
   [ "$checks_ok" = 1 ] || checks='[]'
 
+  if native_queue; then
+    if ! authoritative=$(ccx vcs pr status "$PR" --json -R "$REPO" | jq -ce --argjson n "$PR" '.[] | select(.number == $n)'); then
+      authoritative='{"queue":"unknown","verdict":"unread"}'
+    fi
+    if [ "$(jq -r '.head // ""' <<<"$authoritative")" != "$head" ] || [ "$(jq -r '.stale == null' <<<"$authoritative")" != true ]; then
+      authoritative='{"queue":"unknown","verdict":"unread"}'
+    fi
+    authoritative_queue=$(jq -r '.queue' <<<"$authoritative")
+    case "$authoritative_queue" in
+    queued|landed|evicted|"not queued") ;;
+    *) authoritative_queue=unknown; emit "QUEUE unknown" ;;
+    esac
+    checks=$(jq -c 'map(select(.graphite_mergeability != true))' <<<"$checks")
+    downstack=$(jq -r '.downstack // empty' <<<"$authoritative")
+  fi
+
   if [ "$base" != "$default_branch" ]; then
     stacked_on=$(gh api "repos/$REPO/pulls?state=open&head=$(jq -rn --arg h "${REPO%%/*}:$base" '$h | @uri')" \
       --jq '.[0].number // empty' 2>/dev/null) || return 0
@@ -373,8 +410,12 @@ poll() {
     downstack=$stacked_on
   fi
 
-  events=$(gh api --paginate "repos/$REPO/issues/$PR/events?per_page=100" --jq "$LABEL_EVENTS" \
-    2>/dev/null | jq -cs .) || return 0
+  if native_queue; then
+    events='[]'
+  else
+    events=$(gh api --paginate "repos/$REPO/issues/$PR/events?per_page=100" --jq "$LABEL_EVENTS" \
+      2>/dev/null | jq -cs .) || return 0
+  fi
 
   load_state
 
@@ -391,7 +432,7 @@ poll() {
   last_actor=$(jq -r '.last.actor // "-"' <<<"$queue")
   stint=$(jq -r '.stint' <<<"$queue")
 
-  if [ "$FRESH" = 1 ] || [ "$(state '.queue.queued == null')" = true ]; then
+  if ! native_queue && { [ "$FRESH" = 1 ] || [ "$(state '.queue.queued == null')" = true ]; }; then
     if history=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
       --jq '.[] | select((.body // "") | test("Merge activity")) | { id, at: .created_at, body }' 2>/dev/null |
       jq -cs .); then
@@ -452,7 +493,7 @@ poll() {
   latest=""
   requeued=false
   activity=$(jq -cs 'map(select((.body // "") | test("Merge activity"))) | sort_by(.at) | last // empty' <<<"$comments")
-  if [ -n "$activity" ]; then
+  if ! native_queue && [ -n "$activity" ]; then
     act_id=$(jq -r '.id' <<<"$activity")
     act_author=$(jq -r '.author' <<<"$activity")
     act_seen=$(state ".merge_activity[\"$act_id\"] // 0")
@@ -471,6 +512,32 @@ poll() {
 
   latest_kind=$(jq -r '.kind // ""' <<<"${latest:-null}")
 
+  if native_queue; then
+    case "$authoritative_queue" in
+    landed) finish queue-merged ;;
+    queued)
+      [ "$(state '.queue.queued')" = true ] || emit "QUEUED $QUEUE_PROVIDER api"
+      STATE=$(jq -c --arg h "$(jq -r '.enqueued // ""' <<<"$authoritative")" '.queue.queued = true | .queue.head = $h | .queue.evicted = null' <<<"$STATE")
+      present=true
+      ;;
+    evicted)
+      if [ "$(state '.queue.evicted == null')" = true ]; then
+        evicted="other $(jq -r '(.evicted // "queue entry failed") | gsub("[\r\n\t]+"; " ")' <<<"$authoritative")"
+      fi
+      STATE=$(jq -c '.queue.queued = false' <<<"$STATE")
+      present=false
+      ;;
+    unknown)
+      STATE=$(jq -c '.queue.queued = null' <<<"$STATE")
+      present=false
+      ;;
+    "not queued")
+      [ "$(state '.queue.queued')" != true ] || emit "UNQUEUED $QUEUE_PROVIDER"
+      STATE=$(jq -c '.queue.queued = false' <<<"$STATE")
+      present=false
+      ;;
+    esac
+  else
   case "$latest_kind" in
   queued)
     STATE=$(jq -c --arg h "$head" '.queue.queued = true | .queue.head = $h | .queue.evicted = null' <<<"$STATE")
@@ -504,6 +571,7 @@ poll() {
     fi
     ;;
   esac
+  fi
   if [ -n "$evicted" ]; then
     STATE=$(jq -c --arg r "$evicted" --arg h "$head" --arg s "$stint" '
       .queue.evicted = $r | .queue.queued = false | .queue.resolved_stint = $s
@@ -523,6 +591,7 @@ poll() {
   write_state
 
   if [ "$merged" = true ]; then finish merged; fi
+  if [ "$pr_state" = closed ] && native_queue; then finish closed; fi
   if [ "$pr_state" = closed ]; then
     closed_as=$(closed_verdict "$base")
     if [ -n "$closed_as" ]; then finish "$closed_as"; fi
@@ -546,7 +615,7 @@ poll() {
   settled=0
   if [ "$mergeable" = true ] && [ "$present" = false ] &&
     [ "$(state '.queue.queued == false and .queue.evicted == null')" = true ]; then
-    settled=1
+    if ! native_queue || [ "$(jq -r '.verdict' <<<"$authoritative")" = landable ]; then settled=1; fi
   fi
 
   n_checks=$(jq 'length' <<<"$checks")

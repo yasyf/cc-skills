@@ -84,14 +84,20 @@ a floor of 120 seconds or 10 times `PR_POLL_STACK`, whichever is larger.
 the Monitor command with `PR_POLL_QUEUE_LABEL=<label>` when the repo's queue
 label is not `merge`.
 
+On the native Trunk or GitHub path (`PR_POLL_QUEUE_PROVIDER=trunk|github`,
+repo `ccx.queue`, or `ccx.stack=github`), `pr-poll.sh` reads authoritative
+queue state for the current head from `ccx vcs pr status --json -R <repo>`,
+emits `QUEUE unknown` when that snapshot is unreadable, and never infers
+queue state from Graphite comments or labels. On the legacy Graphite path,
 `QUEUED` means the PR entered the queue by label or a Graphite UI enqueue
-bullet, and keeps the watch armed through green checks. A bullet names the
-enqueuer, not the comment author. `UNQUEUED` means a human removed the queue
-label or dequeued the PR in Graphite's UI; neither event ends the round.
-`queue-merged` is a merge: the queue
-squash-merges, so the PR reads `CLOSED` with a null `mergedAt` and only the
-squash on the base branch or the queue's "Merged by" line distinguishes it
-from an abandoned one. `deadline-still-open` ends the watch on time instead
+bullet, and keeps the watch armed through green checks; a bullet names the
+enqueuer, not the comment author, and `UNQUEUED` means a human removed the
+queue label or dequeued the PR in Graphite's UI. Neither event ends the round.
+`queue-merged` is a merge: when a squash-merge queue closes a landed PR with
+`CLOSED` and a null `mergedAt`, `ccx` landed proof (including a reachable
+squash or admitted head on the base branch) — or on legacy Graphite the
+queue's "Merged by" comment line — distinguishes it from an abandoned PR.
+`deadline-still-open` ends the watch on time instead
 of polling forever; `PR_POLL_DEADLINE` sets it, four hours by default,
 counted from the state file's `started_at`. `window-elapsed` is the script
 ending its own round after `PR_POLL_WINDOW` seconds (25 minutes, under the

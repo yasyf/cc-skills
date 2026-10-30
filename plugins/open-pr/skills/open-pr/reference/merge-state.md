@@ -1,6 +1,6 @@
 # Merge state
 
-Graphite's merge queue squash-merges: the squashed commit lands on trunk and the PR closes without GitHub ever recording a merge. The fields everyone reads first — `state=CLOSED`, `mergedAt=null`, `mergeCommit=null` — are identical for a landed PR and an abandoned one, so reading state alone reports a successful merge as an abandonment. In one measured repo, 58 of the last 69 closed PRs had actually merged through the queue. Everything below reduces to one rule: confirm by content on trunk, never by PR state.
+On native GitHub and Trunk queues (`ccx.queue=trunk`), verify landings first from GitHub's merged metadata or `ccx` landed proof (including a reachable squash commit or admitted head on trunk) via `ccx vcs pr status --json -R <repo>`, and never classify every `CLOSED` PR as merged or apply Graphite synthetic-ref recovery to a native stack. On a legacy Graphite merge queue, Graphite squash-merges: the squashed commit lands on trunk and the PR closes without GitHub ever recording a merge. The fields everyone reads first — `state=CLOSED`, `mergedAt=null`, `mergeCommit=null` — are identical for a landed PR and an abandoned one, so reading state alone reports a successful merge as an abandonment. In one measured repo, 58 of the last 69 closed PRs had actually merged through the queue. Everything below reduces to one rule: confirm by content on trunk, never by PR state alone.
 
 ## Merged or abandoned
 
@@ -88,7 +88,7 @@ Queue-merged PRs read `CLOSED` with `mergedAt: null`, so the drop path and the s
 
 ## After a downstack squash-merge
 
-A squash orphans the Graphite stack parent: the merged branch's content is on trunk under a new SHA, so children still point at commits gt can no longer place.
+On a native GitHub stack, a bottom prefix can merge atomically and GitHub may automatically rebase the remaining stack; inspect the remaining branches before running an explicit restack with `ccx vcs stack submit`. On a legacy Graphite stack, a squash orphans the Graphite stack parent: the merged branch's content is on trunk under a new SHA, so children still point at commits `gt` can no longer place.
 
 - **Restack can't find the parent.** Replay the child by hand — `git rebase --onto origin/<trunk> <old-parent-sha> <child>` — then reattach with `gt track --parent <trunk>`.
 - **The phantom replay.** When `gt restack` does run, it replays the merged parent's commit under a new SHA. `git diff <trunk> --stat` reads exactly right — the replayed commit is a no-op against a trunk that already holds its content — and only `git log --oneline <trunk>..<branch>` shows the extra commit; the PR then ships carrying a re-do of merged work. Count commits after every restack; never trust the diff. Drop it with `git rebase --no-autosquash --onto <trunk> <replayed-sha> <branch>`, then `gt track --parent <trunk>`.
@@ -101,7 +101,7 @@ Two repair regimes follow, and patch-id tells them apart. `gt submit` restacks s
 
 Either way, verify: `git rev-list --count <trunk>..<tip>` drops by exactly the merged commit count.
 
-## Stale graphite-base refs
+## Stale graphite-base refs (legacy Graphite only)
 
 Leftover `graphite-base/<n>` refs on origin pin Graphite's web UI to an old stack even after correct GitHub bases, correct `gt track` parents, and a clean submit — Graphite re-derives parentage from those synthetic refs. Record their SHAs, then `git push origin --delete graphite-base/<n>` per PR you own (the namespace is shared; don't touch others'), and re-submit. Recreate with `git push origin <sha>:refs/heads/graphite-base/<n>` if needed.
 

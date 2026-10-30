@@ -20,7 +20,7 @@ QUEUE_LABELS = frozenset({"merge", "merge-fast"})
 LABEL_FIELDS = frozenset({"labels[]", "labels"})
 LABELS_ENDPOINT = re.compile(r"(?:^|/)repos/[^/]+/[^/]+/issues/\d+/labels(?:\?|$)")
 READ_ONLY_ENQUEUE = frozenset({"--check", "--status", "-h", "--help"})
-ENQUEUERS = frozenset({"stack-enqueue", "mq.py enqueue"})
+ENQUEUERS = frozenset({"stack-enqueue", "mq.py enqueue", "ci trunk submit", "gh stack merge"})
 NOT_AN_ENQUEUE = frozenset({"--dequeue"})
 QUEUE_STEERING = frozenset({"dequeue", "requeue", "priority", "recover", "hold", "lift"})
 MQ_VALUE_OPTIONS = frozenset({"--config"})
@@ -234,6 +234,10 @@ def landing_verb(call: Call) -> str | None:
         return None if READ_ONLY_ENQUEUE & set(run[1:]) else "stack-enqueue"
     if mq_subcommand(call) == "enqueue":
         return "mq.py enqueue"
+    if run and Path(run[0]).name == "ci" and run[1:3] == ("trunk", "submit"):
+        return "ci trunk submit"
+    if argv[:3] == ("gh", "stack", "merge"):
+        return "gh stack merge"
     if argv[:2] == ("gt", "merge"):
         return "gt merge"
     if argv[:3] == ("gh", "pr", "merge"):
@@ -253,6 +257,9 @@ def landing_verb(call: Call) -> str | None:
     tests={
         Input(command=ENQUEUE, agent_id=LANE, state=ACTIVE): Block(pattern=r"^Lanes never enqueue: the landing desk is the only enqueuer, so lane `lane-a` may not run `stack-enqueue`\."),
         Input(command="stack-enqueue 36039 --fast", agent_id="aL23-dashboard-wasm-follower-14fd0a86e696c1e3", state=ACTIVE): Block(pattern=r"`L23-dashboard-wasm-follower`"),
+        Input(command="tools/ci trunk submit 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`ci trunk submit`"),
+        Input(command="tools/ci trunk status 36023", agent_id=LANE, state=ACTIVE): Allow(),
+        Input(command="gh stack merge 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`gh stack merge`"),
         Input(command="cd ~/wt && gt merge", agent_id=LANE, state=ACTIVE): Block(pattern=r"`gt merge`"),
         Input(command="gh pr merge 36023 --squash", agent_id=LANE, state=ACTIVE): Block(pattern=r"`gh pr merge`"),
         Input(command="gh -R Forge-AI/monorepo pr merge 36023 --squash", agent_id=LANE, state=ACTIVE): Block(pattern=r"`gh pr merge`"),
@@ -479,7 +486,13 @@ def only_the_root_steers_the_queue(evt: BaseHookEvent) -> HookResult | None:
     if evt.agent_id and not reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") and not CompactionState.load(evt).active:
         return None
     verb = next((verb for call in evt.cmd.calls() if (verb := mq_verb(call))), None)
-    return evt.block(STEERING_REFUSAL.format(lane=lane or "unnamed", verb=verb)) if verb else None
+    if verb:
+        return evt.block(STEERING_REFUSAL.format(lane=lane or "unnamed", verb=verb))
+    for call in evt.cmd.calls():
+        run = program((call.name, *call.args))
+        if len(run) > 2 and Path(run[0]).name == "ci" and run[1] == "trunk" and run[2] in ("dequeue", "restart", "prioritize"):
+            return evt.block(f"Only the root steers the merge queue, so lane `{lane or 'unnamed'}` may not run `ci trunk {run[2]}`. Ask the root and read the queue with `mq.py why <n>`.")
+    return None
 
 
 def option(args: tuple[str, ...], name: str) -> list[str]:

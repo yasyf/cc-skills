@@ -77,13 +77,15 @@ Do, one pass at a time, a pass at least every two hours and whenever a car repor
      lane's. The train never waits on either.
   7. Enqueue the whole train. A train lands whole: its cars are one batch by design.
      Eject every red car (step 6), poll the rest until every car is green,
-     then label the top car for that batch:
-     ledger.py label --repo <repo> --ledger <id> --pr <top-car> --expect-head <sha> --checkout <checkout>
+     then enqueue the top car through the repository's configured adapter (`mq.py` with
+     `trunk-stack-enqueue` when `ccx.queue` is `trunk`, or `LABEL_WATCH_QUEUE=trunk label-watch.sh once <top-car>`
+     which delegates `once` mode to the gated native helper; on a label or legacy Graphite
+     queue, run `ledger.py label --repo <repo> --ledger <id> --pr <top-car> --expect-head <sha> --checkout <checkout>`).
      The queue takes the train as one entry. Ejected cars ride the next train.
      Within three minutes, `ccx vcs pr status <top-car>` must read `queued`;
-     silence is a missing enqueue, not a queued PR. Graphite can miss a REST label:
-     pull it with `ledger.py unlabel`, then enqueue the train through the API with
-     `label-watch.sh once <top-car>`.
+     silence is a missing enqueue, not a queued PR. On a legacy Graphite queue, Graphite can
+     miss a REST label: pull it with `ledger.py unlabel`, then enqueue the train through the
+     API with `label-watch.sh once <top-car>`.
   8. Log the pass. One section per train in the log: time, trunk sha, cars in
      order with their heads before and after, each conflict and how it was
      resolved, each ejection and its reason, what was enqueued, and what landed.

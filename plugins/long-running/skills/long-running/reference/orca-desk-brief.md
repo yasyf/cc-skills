@@ -426,9 +426,11 @@ describes. Start the landing desk from the root's shell after its first status c
 
 `landing.adapter` names the merge queue's repository adapter, and the root writes it at
 drive start along with `landing.high_risk_paths`. Use
+`{"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}`
+when the checkout carries that script and the repository sets `ccx.queue` to `trunk`,
 `{"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}`
-when the checkout carries that script, and `{"kind": "label"}` otherwise, for a queue that
-takes the `merge` label through `ledger.py label`. The runner never picks one itself. `landing.checks`, optional, lists the
+when the checkout carries that script on a legacy Graphite queue, and `{"kind": "label"}` otherwise,
+for a queue that takes the `merge` label through `ledger.py label`. The runner never picks one itself. `landing.checks`, optional, lists the
 check registry in order, from `hold`, `precondition`, `rules-review`, `rulings`, `fidelity`, `finder`,
 `merge-mode`, `approvals`, and `required-ci`; without it every check runs. On an adapter, a check,
 or a high-risk setting it cannot run, the landing runner exits and posts `MQ-CONFIG-INVALID`,
@@ -523,7 +525,7 @@ the launch. The worker's brief then ends with the command and the path of its lo
     "fidelity_lane": "fidelity-desk",
     "merge_mode": "high-risk",
     "high_risk_paths": ["*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "infra/rows/*"],
-    "adapter": {"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"},
+    "adapter": {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"},
     "release_owner": "peer:<release session>",
     "release_cli": "tools/ci release",
     "applying": {"build": "tools/ci bk api /pipelines/{pipeline}/builds/{number}", "step": "apply-(?P<component>.+?)--(?P<env>.+)", "components": ["sandsql", "api", "executor", "rsw-*"]},
@@ -752,7 +754,10 @@ Every pass runs `ledger.py refresh` and `reconcile`, then reads the rows. It
 reconciles uncertain enqueues, verifies prefixes whose rows are `landed` by squash
 on the base, and routes restacks. It gates every tracked open stack tip in
 parallel through the adapter's check, `stack-enqueue <tip> --check [--whole]` under
-`graphite-stack-enqueue`, in `(priority, root PR)` order.
+`trunk-stack-enqueue` or `graphite-stack-enqueue`, in `(priority, root PR)` order.
+`trunk-stack-enqueue` consumes the helper's `GREEN`, `WAITING`, and `BLOCKED` prefix
+statuses and the structured `tools/ci trunk status` `active` boolean without guessing
+queue membership, and never passes `--partial`.
 Under `graphite-stack-enqueue`, a check or enqueue that exits 5 with no verdict and a transient network error (TLS handshake
 timeout, connection reset, DNS failure, HTTP 5xx) runs again, three attempts 20 seconds apart,
 and only the third failure posts its one `GATE-FAILED` or `ENQUEUE-FAILED`.

@@ -464,7 +464,7 @@ parent's payload, where the parent merges as a no-op and its own page shows only
 the queue closed something. Neither source is sufficient alone, and the order matters,
 because the tree is cheap and certain when it agrees.
 
-## Enqueue the green bottom prefix and keep children in Graphite's stack record
+## Enqueue the green bottom prefix and keep children in the stack record
 
 When a parent lands with an open child Graphite did not submit, the queue deletes
 its branch and the forge closes the child. Reopening is refused outright:
@@ -478,13 +478,14 @@ measured in seconds, and a poll does not win it: one desk watched at thirty-seco
 intervals, got `HTTP 422` on its retarget, and lost a pull request whose one-line fix was
 still absent from the trunk.
 
-**Enqueue the largest green, approved, unheld bottom prefix as one batch.** Graphite
+**Enqueue the largest green, approved, unheld bottom prefix as one batch.** A repository
+that carries `.agents/skills/submit-pr/scripts/stack-enqueue` uses `stack-enqueue <prefix top>`
+(`trunk-stack-enqueue` when `ccx.queue` is `trunk`, or `graphite-stack-enqueue` on a legacy
+Graphite queue). It takes no hold flag and reads no holds, so the caller checks them first,
+and its gate can refuse the prefix too. On a legacy label-driven Graphite queue, Graphite
 [propagates the top PR's label downstack](https://graphite.dev/docs/get-started-merge-queue) and takes
-the prefix as one entry with one `merge` label on its top. The desk re-reads every PR
-in the prefix and runs every guard before adding the label. A repository that carries
-`.agents/skills/submit-pr/scripts/stack-enqueue` uses
-`stack-enqueue <prefix top>` instead. It takes no hold flag and reads no holds, so
-the caller checks them first. Its gate can refuse the prefix too.
+the prefix as one entry with one `merge` label on its top; the desk re-reads every PR
+in the prefix and runs every guard before adding the label.
 
 An open child above it does not block the label when a lane tracks its ledger row
 and its head carries `Graphite / mergeability_check`. Graphite's stack record
@@ -1037,10 +1038,14 @@ and GitHub auto-closes the child. `gh pr reopen` is refused outright — the chi
 dead, not stale. Retargeting is not available either, because there is no base to
 retarget from.
 
-The only move is a replacement PR: rebase the branch onto the trunk, where git drops
-the parent's commit as already-applied, and open a new one with `gt track --parent
-dev` so it has a real stack record. Before enqueueing a green bottom prefix, every
-open child outside it must have a tracked ledger row and a
+On a native GitHub stack (`.git/gh-stack`), register and update the stack with
+`ccx vcs stack submit` (or `gh stack link`), never raw `gh pr` base retargeting alone;
+after a bottom prefix merges atomically, inspect whether GitHub already rebased the
+remaining stack before routing an explicit restack. On a legacy Graphite stack, the only
+move for an orphaned closed child is a replacement PR: rebase the branch onto the trunk,
+where git drops the parent's commit as already-applied, and open a new one with
+`gt track --parent dev` so it has a real stack record. Before enqueueing a green bottom
+prefix on Graphite, every open child outside it must have a tracked ledger row and a
 `Graphite / mergeability_check` check run. Restack a child outside that record through
 Graphite or retarget it to the trunk BEFORE adding the label. After the prefix lands,
 route the PR immediately above it to its lane to restack the rest; Orca routes use

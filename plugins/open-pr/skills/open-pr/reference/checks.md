@@ -58,7 +58,7 @@ Judge a stack by its tip's build or the merge queue's speculative build, never b
 
 ## Closed is not abandoned
 
-A merge-queue squash-merge (Graphite's included) leaves the PR reading `state: CLOSED` with `mergedAt: null` and no `mergeCommit` — in one measured repo, 58 of the last 69 closed PRs had actually landed. Reading state alone reports a merge as an abandonment; the close event's actor and a suffix-anchored trunk grep settle it, per [merge-state.md](merge-state.md).
+On native GitHub and Trunk queues, check GitHub's merged metadata or `ccx` landed proof (including a reachable squash or admitted head on trunk) first, and never classify every `CLOSED` PR as merged. On squash-merge queues that close PRs with `state: CLOSED`, `mergedAt: null`, and no `mergeCommit` (legacy Graphite included — in one measured repo, 58 of the last 69 closed PRs had actually landed), reading state alone reports a merge as an abandonment; confirm on trunk per [merge-state.md](merge-state.md).
 
 ## Diffs that answer a narrower question
 

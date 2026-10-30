@@ -69,10 +69,15 @@ re-triage. The deadline counts from the state file's `started_at`, so
 `deadline-still-open` still arrives after `PR_POLL_DEADLINE` seconds (four
 hours by default) however many windows it took.
 
-`QUEUED` means the PR entered the queue by label or a Graphite UI enqueue bullet,
-and keeps the watch armed through green checks. A bullet names the enqueuer,
-not the comment author. `UNQUEUED` means a human removed the queue label or
-dequeued the PR in Graphite's UI; neither event ends the round.
+On the native Trunk or GitHub path (selected by `PR_POLL_QUEUE_PROVIDER=trunk|github`,
+repo `ccx.queue`, or `ccx.stack=github` when no queue override is set), `pr-poll.sh`
+reads `ccx vcs pr status --json -R <repo>` for the current head, queue/enqueued state,
+squash proof, downstack, and verdict; it refuses a stale or mismatched head and emits
+`QUEUE unknown` without declaring `ready-to-merge` when the snapshot is unreadable.
+On the legacy Graphite path, `QUEUED` means the PR entered the queue by label or a
+Graphite UI enqueue bullet, and keeps the watch armed through green checks; a bullet
+names the enqueuer, not the comment author, and `UNQUEUED` means a human removed the
+queue label or dequeued the PR in Graphite's UI. Neither event ends the round.
 
 `queue-merged` is a merge the queue squash-landed, which reads `CLOSED`
 with a null `mergedAt`. The script exits after any `DONE`, which ends that
@@ -85,13 +90,13 @@ Each `DONE` ends a round; handle queue events while it runs:
 - On `ready-to-merge`, use `SendMessage` to send the report under
   `<reporting>` before any other tool call: no comment sweep, no CI
   diagnosis, no re-read of the PR first. The script emits it only when every
-  check passed, `mergeable` is true, queue state has been read, the PR is
-  neither queued nor evicted on its current head, no reviewer's latest review
-  requests changes, and `mergeable_state` is not `blocked` (a required
-  approval still missing). On a stacked PR, Graphite's mergeability check
-  waits in progress until the downstack PR merges; the script doesn't count
-  that wait as pending and prints `ready-to-merge downstack #<n>` instead.
-  Report it as ready, naming `#<n>`: it lands only with its downstack
+  check passed, `mergeable` is true, queue state has been read (never on
+  `QUEUE unknown`), the PR is neither queued nor evicted on its current head,
+  no reviewer's latest review requests changes, and `mergeable_state` is not
+  `blocked` (a required approval still missing). On a stacked PR waiting on
+  its downstack (or when Graphite's mergeability check waits in progress on a
+  legacy Graphite stack), the script prints `ready-to-merge downstack #<n>`
+  instead. Report it as ready, naming `#<n>`: it lands only with its downstack
   enqueued together.
 - `GREEN awaiting-review` means checks are green but approval is missing or a
   reviewer requested changes. It is not a `DONE`: send nothing and keep
@@ -99,12 +104,13 @@ Each `DONE` ends a round; handle queue events while it runs:
   `REVIEW <author> CHANGES_REQUESTED` line as a review round
 - queued for merge (`QUEUED`) → keep watching through green; the queue can
   still eject it
-- a closure → resolve merged vs abandoned and report which. A merge queue
-  squash-merges onto trunk and closes the PR it landed, leaving
-  `state: CLOSED` with `mergedAt: null`, so the state field reads a landed
-  PR as dropped. The queue closes the PRs it drops the same way, so the
-  closer actor proves nothing; the landing itself is the verdict — the
-  squash whose subject ends `(#<n>)` on the base branch, or the queue's own
+- a closure → resolve merged vs abandoned and report which. On native GitHub
+  and Trunk queues, check GitHub's merged metadata or `ccx` landed proof
+  (including a reachable squash or admitted head on the base branch) first,
+  and never classify every `CLOSED` PR as merged. A squash merge queue
+  (including legacy Graphite) can close a landed PR with `state: CLOSED` and
+  `mergedAt: null`; on legacy Graphite the landing verdict is the squash
+  whose subject ends `(#<n>)` on the base branch, or the queue's own
   "Merged by the Graphite merge queue" line in its merge-activity comment
 - the deadline → report `blocked` with the PR still open and what it waits on
 - checks failed → triage the reds against the lanes below, and after
@@ -132,14 +138,14 @@ stint ended in an eviction report or `UNQUEUED`. A later bot unlabel of that
 stint stays silent; a relabel starts a new stint and re-arms reporting.
 
 <queue_drop>
-`DONE evicted` means a bot removed the queue label from an unresolved stint,
-or Graphite's "Merge activity" comment logged a drop as its latest queue
-entry. A drop counts regardless of the label or `mergeable_state`, unless
-its bullet's time predates the head's commit: that drop ejected an earlier
-head, so a rebased head is never evicted by it. A human
-dequeue in Graphite's UI emits `UNQUEUED` and resolves the stint. The script
-checks for the squash on the base before reporting an eviction; a landing
-emits `DONE queue-merged`.
+`DONE evicted` means the queue dropped the current head — reported by
+`ccx vcs pr status --json` on the native Trunk/GitHub path, or by a bot
+removing the queue label from an unresolved stint or logging a drop in
+Graphite's "Merge activity" comment on the legacy Graphite path. A drop
+predating the current head's commit ejected an earlier head, so a rebased
+head is never evicted by it. A human dequeue emits `UNQUEUED` and resolves
+the stint. The script checks for a landed squash on the base before
+reporting an eviction; a landing emits `DONE queue-merged`.
 Report the reason immediately, then act within the fix lanes:
 
 - `conflicts`: report that the PR was dropped from the merge queue for

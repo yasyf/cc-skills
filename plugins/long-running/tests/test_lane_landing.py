@@ -258,3 +258,17 @@ def test_a_hand_enqueue_of_a_head_the_runner_refuses_for_the_owners_tap_is_refus
 
     assert refusal.action == Action.block
     assert refusal.message == lane_landing.HAND_ENQUEUE_TAP_REFUSAL.format(lines=TAP_REQUIRED)
+
+
+@pytest.mark.parametrize("command,verb", [("tools/ci trunk submit 36023", "ci trunk submit"), ("gh stack merge 36023", "gh stack merge")])
+def test_native_queue_and_stack_merge_keep_the_landing_desk_as_only_enqueuer(tmp_path, command, verb):
+    subagent(tmp_path, "a1f2e3d4", name="native-stack-fix", agentType="long-running:lane-ship")
+    assert run(tmp_path, "a1f2e3d4", command) == [lane_landing.REFUSAL.format(lane="native-stack-fix", verb=verb)]
+
+
+@pytest.mark.parametrize("verb", ["dequeue", "restart", "prioritize"])
+def test_only_the_root_steers_trunk_directly(tmp_path, verb):
+    subagent(tmp_path, "a1f2e3d4", name="native-stack-fix", agentType="long-running:lane-ship")
+    messages = run(tmp_path, "a1f2e3d4", f"tools/ci trunk {verb} 36023")
+    assert len(messages) == 1
+    assert f"ci trunk {verb}" in messages[0]
