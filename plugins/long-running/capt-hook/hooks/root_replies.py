@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 import re
+import subprocess
+import sys
 import time
 from collections.abc import Callable
 from datetime import datetime
@@ -12,6 +15,7 @@ from cc_transcript.models import AttachmentEvent, UserEvent
 from captain_hook import (
     Allow,
     Ask,
+    Block,
     BaseHookEvent,
     Event,
     FromSubagent,
@@ -23,13 +27,16 @@ from captain_hook import (
     on,
 )
 from captain_hook.transcripts import TranscriptLoadError
+from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState
+from .compaction_handoff import CompactionState, bus_name, drive_entry, script
 from .nudges import NagClock, once_per_hour
 from .owner_facing import CCI_POST, incident_sources, last_reply, open_incidents, record_text
 from .tests.incident_fixtures import CLOSED_0820, SAND_NOT_MIGRATED
+from .tests.register_fixtures import DRIVE_CONFIG
 
 ACTIVE = [CompactionState(active=True)]
+DRIVE_ACTIVE = [CompactionState(active=True, slug="brook")]
 REPLY_WINDOW = 256
 PACIFIC = ZoneInfo("America/Los_Angeles")
 MINUTES_A_DAY = 24 * 60
@@ -565,3 +572,77 @@ def owner_numbers_cite_their_query(evt: BaseHookEvent) -> HookResult | None:
         return None
     lines = [line.strip()[:NUMBER_TEXT_SHOWN] for line in last_reply(evt).splitlines() if MEASURED.search(line) and not QUERY_CITED.search(line)][:NUMBERS_SHOWN]
     return evt.allow(system_message="\n".join([UNSOURCED_NUMBER, "", "```", *lines, "```"])) if lines else None
+
+
+TAP_CLAIM = re.compile(
+    r"\b(?:wait(?:s|ing)?\s+(?:only\s+)?(?:on|for)|await(?:s|ing)?|needs?|needing|blocked\s+on|held\s+for)\s+(?:your|his|the\s+owner'?s?)\s+(?:board\s+)?(?:taps?|approvals?|picks?|go-ahead)\b"
+    r"|\bon\s+your\s+board\b|\bfor\s+you\s+to\s+(?:tap|approve|pick)\b",
+    re.IGNORECASE,
+)
+CLAIM_NEGATED = re.compile(r"\b(?:no|nothing|none|not|never|without)\b|n't\b", re.IGNORECASE)
+CLAIMED_PR = re.compile(r"(?<![\w&])#(\d{4,})\b")
+OWNER_WAITS = f"{sys.executable} {script('owner_waits.py')}"
+OWNER_WAITS_SECONDS = 30
+FALSE_TAP = (
+    "Your reply says something waits on the owner's tap, approval or pick, and his board does not show it. "
+    "Restate it in plain words from these lines, and quote `cci owner-waits --drive {drive}` for what waits on him:\n```\n{lines}\n```"
+)
+NOTHING_WAITS = "nothing on his board awaits his tap or pick"
+FALSE_PR = json.dumps([{"pr": "45507", "head": "632c4a5", "waiting": False, "line": "#45507 at 632c4a5: not waiting on you: the board holds no row for it; its fidelity grade by fidelity-desk-3 reads missing since 3:02 AM (cci #203600); a PR comment by yasyf answered it at 3:19 AM and no grade has followed"}])
+TRUE_PR = json.dumps([{"pr": "45541", "head": "3502b11", "waiting": True, "line": "#45541 at 3502b11: waits on your tap on merge-prs, up since 4:50 AM"}])
+CHECK_PR = f"{OWNER_WAITS} --drive brook-drive --json --pr"
+CHECK_BOARD = f"{OWNER_WAITS} --drive brook-drive --json"
+
+
+def tap_claims(reply: str) -> tuple[list[str], bool]:
+    """The PRs a reply says wait on the owner's tap, approval or pick, and whether it says so of something it names by no PR number; a sentence whose claim follows a negation claims nothing."""
+    prs: list[str] = []
+    bare = False
+    for sentence in SENTENCE_END.split(reply):
+        claimed = [found for found in TAP_CLAIM.finditer(sentence) if not CLAIM_NEGATED.search(sentence[: found.start()])]
+        if not claimed:
+            continue
+        named = CLAIMED_PR.findall(sentence)
+        prs += [pr for pr in named if pr not in prs]
+        bare = bare or not named
+    return prs, bare
+
+
+def owner_waits(drive: str, *args: str) -> list[dict]:
+    argv = [sys.executable, str(script("owner_waits.py")), "--drive", drive, "--json", *args]
+    done = subprocess.run(argv, capture_output=True, text=True, timeout=OWNER_WAITS_SECONDS, env=dict(reqenv.env_map()), check=True)
+    return json.loads(done.stdout)
+
+
+@on(
+    Event.Stop,
+    skip_if=[FromSubagent()],
+    transcript_events=REPLY_WINDOW,
+    tests={
+        Input(transcript=[T.user("anything for me?"), T.assistant("#45507 waits on your tap, and #45524 waits on it below.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={f"{CHECK_PR} 45507": FALSE_PR}): Block(
+            pattern=r"#45507 at 632c4a5: not waiting on you: the board holds no row for it; its fidelity grade .* reads missing since 3:02 AM"
+        ),
+        Input(transcript=[T.user("anything for me?"), T.assistant("#45541 waits on your tap.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={f"{CHECK_PR} 45541": TRUE_PR}): Allow(),
+        Input(transcript=[T.user("anything for me?"), T.assistant("Two fixes are waiting on your approval.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK_BOARD: "[]"}): Block(pattern=NOTHING_WAITS),
+        Input(transcript=[T.user("anything for me?"), T.assistant("The routing card is on your board.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={CHECK_BOARD: TRUE_PR}): Allow(),
+        Input(transcript=[T.user("anything for me?"), T.assistant("No PR waits on your tap; #45507 is not waiting on your approval either.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG): Allow(),
+        Input(transcript=[T.user("anything for me?"), T.assistant("#45507 waits on your tap.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={f"{CHECK_PR} 45507": (1, "cc-present down")}): Allow(),
+        Input(transcript=[T.user("anything for me?"), T.assistant("#45507 waits on your tap.")], state=DRIVE_ACTIVE, env=DRIVE_CONFIG, agent_id="a1b2c3"): Allow(),
+        Input(transcript=[T.user("anything for me?"), T.assistant("#45507 waits on your tap.")], env=DRIVE_CONFIG): Allow(),
+    },
+)
+def tap_claims_match_the_board(evt: BaseHookEvent) -> HookResult | None:
+    """A root reply that says a PR or anything else waits on the owner's tap, approval or pick stands only when `cci owner-waits` finds a board row awaiting him at that PR's head, or anything awaiting him for a claim naming no PR; otherwise the reply goes back with the real state to say instead (owner, 4:40 AM Oct 30, #207532). A board that does not read blocks nothing."""
+    if not CompactionState.load(evt).active or not (entry := drive_entry(evt)):
+        return None
+    prs, bare = tap_claims(last_reply(evt))
+    if not prs and not bare:
+        return None
+    drive = bus_name(entry)
+    try:
+        lines = [found["line"] for found in owner_waits(drive, *(arg for pr in prs for arg in ("--pr", pr))) if not found["waiting"]] if prs else []
+        if bare and not owner_waits(drive):
+            lines.append(NOTHING_WAITS)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    return evt.block(FALSE_TAP.format(lines="\n".join(lines), drive=drive)) if lines else None
