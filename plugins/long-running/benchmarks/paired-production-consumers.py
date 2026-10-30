@@ -100,9 +100,12 @@ def measure(count):
         def seed_polls(live):
             live.facts[desk.runner_module.RELEASE_BUILDS] = {str(index): {"done": True} for index in range(count)}
             live.facts[desk.runner_module.RELEASE_BUILDS]["active"] = {"done": False, "lane": "release", "release": ""}
-            live.facts[desk.runner_module.CUT_CLOCKS] = {str(index): {"ended": "closed"} for index in range(count)}
-            live.facts[desk.runner_module.CUT_CLOCKS]["active"] = {"ended": ""}
-            live.facts[desk.runner_module.CUT_CLOCKS]["silent"] = {"ended": "silent"}
+            def cut_clock(lane, ended):
+                return {"lane": lane, "components": ["component"], "since": actions.stamp(shell.now()), "trigger": "fixture", "commit": "head", "env": "dev", "pr": "", "prs": [], "ended": ended}
+
+            live.facts[desk.runner_module.CUT_CLOCKS] = {str(index): cut_clock(str(index), "closed") for index in range(count)}
+            live.facts[desk.runner_module.CUT_CLOCKS]["active"] = cut_clock("active", "")
+            live.facts[desk.runner_module.CUT_CLOCKS]["silent"] = cut_clock("silent", "silent")
 
         book.edit(desk.runner_module.RUNNER, seed_polls)
         runner.config.landing["applying"] = {"build": "build", "step": "step", "components": []}
@@ -110,12 +113,13 @@ def measure(count):
         monkeypatch.setattr(desk.runner_module, "release_build_argv", lambda *_: None)
         monkeypatch.setattr(runner, "escalate", lambda *parts: escalated.append(parts))
         monkeypatch.setattr(runner, "open_cut_clocks", lambda: None)
-        monkeypatch.setattr(runner, "press_cut", lambda key, clock: pressed.append((key, clock)))
+        monkeypatch.setattr(runner, "cut_closed", lambda *_: "")
+        monkeypatch.setattr(runner, "cut_records", lambda clock, *_: pressed.append((clock["lane"], clock["ended"])) or [])
         with measured() as polls:
             runner.watch_applies()
             runner.cut_clock()
         assert len(escalated) == 1
-        assert pressed == [("active", {"ended": ""}), ("silent", {"ended": "silent"})]
+        assert pressed == [("active", ""), ("silent", "silent")]
         overflow = desk.landing_of(shell, config, root)
 
         def seed_overflow(live):
