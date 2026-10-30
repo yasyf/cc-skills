@@ -11969,7 +11969,7 @@ def test_a_pr_graphite_asks_to_restack_hears_it_from_the_status_read_without_a_c
     shell.pr_status["29020"] = {"queue": "not queued", "verdict": "blocked:needs-restack (parent landed)"}
     landing_pass(shell, config)
     assert checks(shell) == []
-    assert [post_body(post) for post in blockers(shell) if post["to"] != "root"] == ["#29020 cccc333333: Graphite reads it as needs-restack (parent landed); run ccx vcs stack submit from the branch's worktree"]
+    assert [post_body(post) for post in blockers(shell) if post["to"] != "root"] == ["#29020 cccc333333: The stack reads as needs-restack (parent landed); run ccx vcs stack submit from the branch's worktree"]
 
 
 @pytest.mark.parametrize(
