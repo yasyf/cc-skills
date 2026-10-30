@@ -538,7 +538,7 @@ names, one lane or a list, and, when no go names the new head, one `go` record o
 behavior draws one `TAP-NOT-CARRIED` note to the same lanes saying the board needs a new row; a fidelity ok grade naming none draws one
 `TAP-KEPT` note saying his tap keeps over that review fix, which still waits for root's go naming the fix (rule 399b5fa, root #195224), and once a go
 names the head the runner carries the tap there itself, citing the grade and the go; a root `go` or a
-patch-identical fidelity carry grade naming that head otherwise draws neither. A board that does not read, or a carry cc-present refuses for any cause but an absent merge block, which leaves nothing to carry, logs `TAP-CARRY-FAILED` once per
+patch-identical fidelity carry grade naming that head otherwise draws neither, except that a go'd head whose tap does not keep draws one `TAP-CARRY-FAILED` naming why (#193444). A board that does not read, or a carry cc-present refuses for any cause but an absent merge block, which leaves nothing to carry, logs `TAP-CARRY-FAILED` once per
 cause and tries again next pass. An exempt change, one whose fidelity grade and whole diff
 make it a pure port, test-only or CI-only (`EXEMPT-ADMITTED`), needs no go and no tap in any mode: its tree gates with the go'd ones, it asks no
 merge question, and it goes straight to Graphite's queue once the hold, fidelity, finder, build and CI checks pass (root #194387). Under `every` the runner
@@ -6630,7 +6630,7 @@ class Landing:
         return ",".join(dict.fromkeys(map(self.successor, [*desks, *self.board_lanes, *owners])))
 
     def carry_taps(self, rows: dict[str, dict]) -> None:
-        """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head when a chain of `head` records reading `<new> (was <old>)` and fidelity carries calls each move patch-identical: `cc-present verdict carry` records it, so the row shows his tap and asks nothing, and one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads. A tap whose new head a record names with no such chain, a fixed version, is never carried: a record saying the head adds new behavior draws one `TAP-NOT-CARRIED` note to the same lanes saying the board needs a new row, with the three facts its row opens with: his tap's Pacific time, the heads since it, and that record's sentence naming the new behavior (root #194315), and a fidelity ok grade of the head that names none draws one `TAP-KEPT` note saying his tap keeps over that review fix, so root posts the go naming the fix and the row lists it (rule 399b5fa, root #151306). Once root posts that go, the runner carries the tap to the fix itself the same way, citing the grade and the go. A head a root `go` or a patch-identical fidelity carry grade already names is otherwise settled and gets no such note, and a carry onto a merge block the board no longer holds has nothing to carry, so it logs no `TAP-CARRY-FAILED` (root #151003, #151839)."""
+        """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head when a chain of `head` records reading `<new> (was <old>)` and fidelity carries calls each move patch-identical: `cc-present verdict carry` records it, so the row shows his tap and asks nothing, and one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads. A tap whose new head a record names with no such chain, a fixed version, is never carried: a record saying the head adds new behavior draws one `TAP-NOT-CARRIED` note to the same lanes saying the board needs a new row, with the three facts its row opens with: his tap's Pacific time, the heads since it, and that record's sentence naming the new behavior (root #194315), and a fidelity ok grade of the head that names none draws one `TAP-KEPT` note saying his tap keeps over that review fix, so root posts the go naming the fix and the row lists it (rule 399b5fa, root #151306). Once root posts that go, the runner carries the tap to the fix itself the same way, citing the grade and the go. A head a root `go` names whose tap does not keep draws one `TAP-CARRY-FAILED` naming why, the new behavior, the grade or the finder, never a silent wait on a tap the go assumed (#193444); a head a patch-identical fidelity carry grade already names is otherwise settled and gets no such note, and a carry onto a merge block the board no longer holds has nothing to carry, so it logs no `TAP-CARRY-FAILED` (root #151003, #151839)."""
         if self.landing_config.get("merge_ask_surface", "slack") != "board":
             return
         if not (session := self.runner.root_session()):
@@ -6674,7 +6674,18 @@ class Landing:
             if kept and (gos := self.head_gos(pr, head)):
                 self.carry_tap(session, block, pr, tapped, head, f"review fix with no new behavior, per fidelity grade cci #{standing.record['seq']} and root go cci #{gos[-1]['seq']} (rule 399b5fa)", self.landing_audience([pr], rows, to))
                 continue
-            if self.head_gos(pr, head) or graded and any(seq == graded["seq"] and identical for _, _, identical, seq in moves):
+            if self.head_gos(pr, head):
+                if adds:
+                    why = f"cci #{adds[-1]['seq']} says that head adds new behavior"
+                elif not graded_ok:
+                    why = standing.why or f"no fidelity ok grade stands at {head[:10]}"
+                elif not says_kept:
+                    why = f"fidelity grade cci #{standing.record['seq']} does not say {head[:10]} adds no new behavior since the tap at {tapped[:10]}"
+                else:
+                    why = f"the finder is not clear at {head[:10]}"
+                self.runner.escalate(f"tap-carry:{pr}:{head[:7]}:{hashlib.sha1(why.encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", f"#{pr}", f"the owner's tap on #{pr} at {tapped[:10]} on board block {block} does not carry to {head[:10]}, which a root go names: {why}; until it carries, #{pr} waits on the tap at this head", "", self.go_audience([pr], rows))
+                continue
+            if graded and any(seq == graded["seq"] and identical for _, _, identical, seq in moves):
                 continue
             if (adds or graded_ok and not says_kept) and not self.book.known(LANDING, key := f"tap-new-row:{block}:{pr}:{tapped}:{head}"):
                 record = adds[-1] if adds else standing.record
