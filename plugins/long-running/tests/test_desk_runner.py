@@ -6482,6 +6482,19 @@ def test_mq_why_names_the_refusal_of_a_check_that_read_no_verdict(shell, config,
     assert capsys.readouterr().out.splitlines()[0] == "#29020 cccc333333 graphite-stack-enqueue: no verdict, the check exited 5: stack-enqueue failed: ci trunk: runs with no TRUNK_MERGE_API_KEY"
 
 
+def test_mq_why_in_a_shell_without_the_trunk_key_says_so_instead_of_reporting_the_runner(shell, config, capsys, monkeypatch):
+    """Root #223262: a lane's unkeyed mq.py why read as the runner lacking TRUNK_MERGE_API_KEY while the runner held it."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["adapter"] = {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}
+    config.write_text(json.dumps(raw))
+    monkeypatch.delenv("TRUNK_MERGE_API_KEY", raising=False)
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    assert mq(shell, config, "why", "29020") == 0
+    assert capsys.readouterr().out.splitlines()[0].startswith("#29020 cccc333333 trunk-stack-enqueue: not checked: this shell sets no TRUNK_MERGE_API_KEY")
+    assert not [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
+
+
 def test_mq_why_reads_past_peer_mail_that_cci_returns_with_no_status(shell, config, capsys):
     lone_green_pr(shell)
     grade_gated_heads_ok(shell)
