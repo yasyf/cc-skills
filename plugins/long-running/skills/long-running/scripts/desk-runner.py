@@ -258,6 +258,9 @@ however many times the PR entered the queue, and routes
 blockers and restacks. Every queue call goes through the repository adapter `landing.adapter` names, from `merge_queue.py`:
 `trunk-stack-enqueue` and `graphite-stack-enqueue` run the script `landing.adapter.script` names under the landing checkout, and `label` runs
 `ledger.py label`; the landing desk refuses to start with `MQ-CONFIG-INVALID` on an adapter, a check, or a high-risk setting it cannot run.
+A check the script refuses because a stack is no native GitHub stack runs `gh stack link` over each tip's chain, bottom first, posts
+one `STACK-LINK` note to the lanes, and checks again in the same pass; a check that prints a `would enqueue` line the adapter cannot
+read escalates `GATE-FAILED` with that line.
 Each prefix passes the check registry, `landing.checks` in order, every built-in when it names none, and `hold` first whether it names it or not: `hold`, `precondition`,
 `rules-review`, `rulings`, `fidelity`, `finder`, and `merge-mode` are the desk's own, and `approvals` and `required-ci` are the adapter's verdict;
 `old-app` and `build-failed` run only when `landing.checks` names them. Trees gate in
@@ -753,6 +756,7 @@ ASYNC_POLLS = 60
 ASYNC_RESULT_POLLS = 120
 ASYNC_STATE = '.state + " " + .headRefOid'
 STACK_PARTIAL = "Include all existing PRs"
+UNLINKED_STACK = "without a native GitHub stack"
 STACK_MEMBER = "part of a stack"
 SQUASH_POLLS = 12
 APPROVAL_POLL_SECONDS = 60
@@ -5697,7 +5701,21 @@ class Landing:
         return gated
 
     def checked(self, tips: list[str]) -> merge_queue.Gate:
-        return self.proven(self.adapter.check(tips, self.whole(), self.row_heads, False))
+        gate = self.adapter.check(tips, self.whole(), self.row_heads, False)
+        if verdictless(gate) and UNLINKED_STACK in gate.err + gate.out and not self.read_only and self.link_chains(tips):
+            gate = self.adapter.check(tips, self.whole(), self.row_heads, False)
+        return self.proven(gate)
+
+    def link_chains(self, tips: list[str]) -> bool:
+        open_rows = {pr: row for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"}
+        linked = True
+        for tip in tips:
+            chain = sorted(downstack(open_rows, tip), key=lambda pr: len(downstack(open_rows, pr)))
+            done = self.shell.run(["gh", "stack", "link", *chain], env={"GH_REPO": self.repo}, cwd=str(self.checkout))
+            said = "linked them as one native GitHub stack and checks again" if done.code == 0 else f"gh stack link exited {done.code}: {((done.err or done.out).strip().splitlines() or ['no output'])[-1][:300]}"
+            self.post_record("note", f"stack-link:{','.join(chain)}@{open_rows[tip].get('head', '')}", self.routine_audience(chain, self.ledger_rows), f"STACK-LINK {numbered(chain)}: the {self.adapter.kind} check refused them as no native GitHub stack; the landing runner {said}", tip)
+            linked = linked and done.code == 0
+        return linked
 
     def left(self, prefix: list[str], refused: Iterable[str], rows: dict[str, dict]) -> str:
         return cut_at(prefix, refused, self.whole(), {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"})

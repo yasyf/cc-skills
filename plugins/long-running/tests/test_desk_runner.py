@@ -2569,6 +2569,26 @@ def test_a_green_check_in_a_dialect_the_adapter_does_not_read_escalates_instead_
     assert shell.enqueues() == []
 
 
+def test_a_check_refused_for_a_missing_native_stack_links_the_chain_and_enqueues_on_the_same_pass(shell, config, tmp_path):
+    """Oct 30, root #222251: every Graphite-stacked PR read GATE-FAILED under Trunk until a lane ran gh stack link by hand."""
+    shell.rows = [
+        {"pr": "29016", "lane": LANE, "branch": "a/2", "base": "dev", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222", "ours": True},
+        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "a/2", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": True},
+    ]
+    shell.gates["29020"] = [
+        (5, "", "stack-enqueue failed: #29020 targets a/2 without a native GitHub stack; link it with gh stack link\n"),
+        gate("#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#29016 #29020"),
+    ]
+    shell.enqueue_out["29020"] = (0, "enqueue #29016 #29020: {}\n")
+    grade(shell, "29016", "ok F307 at bbbb222.")
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    assert [call for call in shell.calls if call[:3] == ["gh", "stack", "link"]] == [["gh", "stack", "link", "29016", "29020"]]
+    assert shell.enqueues() != []
+    assert not [line for line in escalations(shell) if "GATE-FAILED" in line]
+    assert [post["text"].split(":", 1)[0] for post in shell.posts if post["text"].startswith("STACK-LINK ")] == ["STACK-LINK #29016 #29020"]
+
+
 def test_a_check_with_no_verdict_on_a_pr_github_reads_merged_escalates_nothing(shell, config, tmp_path):
     """Root #200922: #44828 merged directly, its branch went, and the gate's fetch of that branch read as a GATE-FAILED defect."""
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": True}]
