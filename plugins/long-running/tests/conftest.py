@@ -129,7 +129,7 @@ class FakeShell(ledger.Shell):
         while rest:
             flag = rest.pop(0)
             name, _, value = flag.partition("=")
-            flags.setdefault(name, []).append(value or ("" if name == "--json" else rest.pop(0)))
+            flags.setdefault(name, []).append(value or ("" if name in ("--json", "--force") else rest.pop(0)))
         one = {name: values[-1] for name, values in flags.items()}
         assert one["--drive"] == DRIVE, argv
         if argv[1] == "post":
