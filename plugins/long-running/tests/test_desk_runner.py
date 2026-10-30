@@ -7283,7 +7283,7 @@ def test_while_graphite_is_down_an_admitted_chain_waiting_in_the_serial_merge_qu
     landing_pass(shell, config)
     assert direct_merges(shell) == []
     assert [post for post in shell.posts if post["kind"] == "state" and post["text"].startswith("QUEUE ")]
-    assert skipped(shell) == []
+    assert skipped(shell) == [], (skipped(shell), [(action.action_id, action.accepted_at, action.status, action.response) for action in enqueues_of(tmp_path).values()])
 
 
 def test_an_admitted_head_its_lane_was_told_about_draws_no_admitted_skipped(shell, config, tmp_path):
