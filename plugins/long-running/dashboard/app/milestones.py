@@ -69,10 +69,15 @@ def release_events(releases, pattern):
 
 
 def blockers_of(blockers, release):
-    found = []
+    newest = {}
     for record in blockers:
         attrs = (record.get("fields") or {}).get("attrs") or {}
-        if attrs.get("milestone") != release or record.get("status") != "open":
+        if attrs.get("milestone") == release:
+            newest[attrs.get("topic", "")] = record
+    found = []
+    for record in newest.values():
+        attrs = record["fields"]["attrs"]
+        if attrs.get("cleared"):
             continue
         found.append({
             "text": record["text"],
