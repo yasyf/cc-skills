@@ -56,7 +56,7 @@ def pairs(*marks: str) -> str:
 
 
 class Fake:
-    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0, gone: tuple[str, ...] = (), ranges: dict | None = None, shows: dict | None = None, trunk: str = BASE, history: tuple[str, ...] = (), pulls: dict | None = None, races: int = 0):
+    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0, gone: tuple[str, ...] = (), ranges: dict | None = None, shows: dict | None = None, trunk: str = BASE, history: tuple[str, ...] = (), pulls: dict | None = None, races: int = 0, unregistered: tuple[str, ...] = ()):
         self.tmp_path = tmp_path
         self.replies = list(replies)
         self.state = state
@@ -70,6 +70,7 @@ class Fake:
         self.history = history
         self.pulls = pulls
         self.races = races
+        self.unregistered = unregistered
         self.shows = LANDED | ({OLD_OWN[:11]: patch("-poll()", "+stream()"), OWN[:11]: patch("-poll()", "+stream()", "+resubscribe()")} if shows is None else shows)
         self.calls: list[tuple[list[str], Path | None]] = []
         self.comments = [{"body": "## Rulings\n- the resubscribe test pins finder #150321's fix"}, {"body": "LGTM from the review bot"}]
@@ -93,7 +94,11 @@ class Fake:
             reply.write_text(json.dumps(self.replies.pop(0)))
             return f"REPLY_FILE: {reply}\nLOG_FILE: {reply}.log\nAWAIT: codex-ask --await {argv[argv.index('-s') + 1]}\n"
         if argv[:2] == ["cci", "post"]:
-            self.posted.append(dict(zip(argv[2::2], argv[3::2], strict=True)))
+            flags = [arg for arg in argv[2:] if arg != "--force"]
+            post = dict(zip(flags[::2], flags[1::2], strict=True))
+            if "--force" not in argv and (refused := next((lane for lane in post.get("--to", "").split(",") if lane in self.unregistered), None)):
+                raise subprocess.CalledProcessError(1, argv, stderr=f"cci: --to {refused}: no live session or registered lane on drive {post['--drive']} is named {refused}")
+            self.posted.append(post)
             return "#150001\n"
         raise AssertionError(f"unexpected call {argv}")
 
@@ -172,6 +177,14 @@ def test_a_head_with_only_minors_posts_finder_ok_over_its_whole_change_to_the_he
     assert "## Rulings\n- the resubscribe test pins finder #150321's fix" in question and "LGTM from the review bot" not in question
     assert result(directory) == {"verdict": "ok", "record": post["--text"], "posted": "#150001"}
 
+
+def test_a_review_addressed_to_a_worker_no_lane_registered_still_posts_and_the_pass_succeeds(tmp_path):
+    directory = job(tmp_path, lane="p8a7-send-latency", to=["desk-runner", "p8a-step7"])
+    shell = Fake(tmp_path, [reply(finding("major"))], unregistered=("p8a7-send-latency",))
+    assert finder.main([str(directory)], shell) == 0
+    [post] = shell.posted
+    assert post["--to"] == "p8a7-send-latency,desk-runner,p8a-step7" and finder_grade(post["--text"]) == FINDER_FAIL
+    assert result(directory)["posted"] == "#150001"
 
 @pytest.mark.parametrize(("fast", "tier"), [(True, ["--incident"]), (False, [])], ids=["fast", "standard"])
 def test_a_finder_pass_asks_codex_at_the_tier_its_job_names(tmp_path, fast, tier):
