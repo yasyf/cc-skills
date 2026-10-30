@@ -19,6 +19,7 @@ from types import SimpleNamespace
 
 from long_running import actions
 import mq as mq_module
+import owner_waits
 import pytest
 from conftest import gateway
 
@@ -503,7 +504,7 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, json.dumps({"body": self.bodies.get(argv[3], "")}), "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "comments":
             assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--json", "comments"]
-            return runner_module.Done(0, json.dumps({"comments": [{"body": body} for body in self.comments.get(argv[3], [])]}), "")
+            return runner_module.Done(0, json.dumps({"comments": [body if isinstance(body, dict) else {"body": body} for body in self.comments.get(argv[3], [])]}), "")
         if len(argv) > 2 and Path(argv[1]).name == "rulings.py":
             return self.rulings(argv[2:])
         if len(argv) > 1 and Path(argv[1]).name == "ledger.py":
@@ -1980,7 +1981,7 @@ def test_a_lanes_claim_takes_the_blocker_for_the_prs_it_lists_and_roots_and_desk
 
 
 def post_body(post: dict) -> str:
-    return Path(post["path"]).read_text() if "path" in post else post["text"]
+    return Path(post["path"]).read_text().removesuffix("\n") if "path" in post else post["text"]
 
 
 @pytest.mark.parametrize(("minutes", "to"), [(59, "p8e-desktop-ship-3,root"), (61, "root")])
@@ -3174,7 +3175,7 @@ def test_a_go_on_a_head_a_tap_rule_names_enqueues_only_on_the_owners_board_tap_a
         return
     assert shell.enqueues() == []
     [blocker] = refusals
-    assert "root" in blocker["to"].split(",") and post_body(blocker).endswith("; TAP-REQUIRED rule/82317b0: it lands only on the owner's tap at this head, and a root go is no tap; no approval on the root's board names cccc333333")
+    assert "root" in blocker["to"].split(",") and post_body(blocker).endswith("; TAP-REQUIRED rule/82317b0: it lands only on the owner's tap at this head, and a root go is no tap; #29020 at cccc333: not waiting on the owner: the board holds no row for it; the owner approved it at bbbb222, an older head")
 
 
 @pytest.mark.parametrize(
@@ -4029,7 +4030,7 @@ def test_a_root_go_on_a_head_whose_tap_does_not_keep_draws_one_tap_carry_failed_
     landing_pass(shell, config)
     assert shell.carries == []
     [line] = [line for line in said(shell) if line.startswith("TAP-CARRY-FAILED")]
-    assert line.endswith(f"#29020: the owner's tap on #29020 at aaaa111111 on board block merge-rows does not carry to cccc333333, which a root go names: fidelity grade cci #{seq} does not say cccc333333 adds no new behavior since the tap at aaaa111111; until it carries, #29020 waits on the tap at this head")
+    assert line.endswith(f"#29020: the owner's tap on #29020 at aaaa111111 on board block merge-rows does not carry to cccc333333, which a root go names: fidelity grade cci #{seq} does not say cccc333333 adds no new behavior since the tap at aaaa111111; #29020 at cccc333: not waiting on the owner: the board holds no row for it; the owner approved it at aaaa111, an older head")
 
 
 def test_a_kept_tap_under_a_root_go_lands_the_tap_rule_head_when_the_board_refuses_the_carry(shell, config, tmp_path):
@@ -4267,11 +4268,16 @@ def test_on_a_board_surface_no_check_or_enqueue_names_a_pr_without_a_root_go_at_
     landing_pass(shell, config)
     assert stack_named(shell) == {"29020"}
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
-    assert escalations(shell) == [ungone_parents("29100", "#29101 at ffff666666", "#29100 at eeee555555")]
+    assert escalations(shell) == [ungone_parents("29100", "#29101 at ffff666666", "#29100 at eeee555555", UNGRADED_29100)]
 
 
-def ungone_parents(bottom: str, heads: str, parents: str) -> str:
-    return f"BELOW-BLOCKED above #{bottom}: root gos name {heads}, stacked on {parents} with no go at that head, so none of them is enqueued, and the stack below #{bottom} lands without them; the owner taps each parent's merge row and root posts `go #<parent> at <head>`"
+def ungone_parents(bottom: str, heads: str, parents: str, *waits: str) -> str:
+    return f"BELOW-BLOCKED above #{bottom}: root gos name {heads}, stacked on {parents} with no go at that head, so none of them is enqueued, and the stack below #{bottom} lands without them; {' / '.join(waits)}; root posts `go #<parent> at <head>` once his tap stands"
+
+
+UNGRADED_29100 = "#29100 at eeee555: not waiting on the owner: the board holds no row for it; no fidelity grade names eeee555"
+NO_ROW_29020 = "#29020 at cccc333: not waiting on the owner: the board holds no row for it"
+ROW_29020 = "#29020 at cccc333: waits on the owner's tap on its board row, up since 10:00 AM"
 
 
 def notes(shell: FakeShell) -> list[dict]:
@@ -4304,10 +4310,26 @@ def test_on_a_board_surface_a_root_go_naming_a_parent_in_passing_never_sweeps_it
     root_go(shell, passing, shell.now())
     landing_pass(shell, config)
     assert stack_named(shell) == set() and shell.enqueues() == []
-    assert ungone_parents("29020", "#29031 at dddd444444", "#29020 at cccc333333") in [post_body(post) for post in notes(shell) if post["to"] == "root"]
+    assert ungone_parents("29020", "#29031 at dddd444444", "#29020 at cccc333333", NO_ROW_29020) in [post_body(post) for post in notes(shell) if post["to"] == "root"]
     merge_go(shell, "29020", "GO #29020 AT CCCC333 and #29031 at dddd444 (owner taps 3:10 PM)")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29031", "--partial"]]
+
+
+def test_a_parent_with_no_row_and_a_missing_grade_answered_by_a_comment_reads_as_that_never_as_a_tap(shell, config, tmp_path):
+    """Owner 4:40 AM Oct 30 (#207532): "there are no PRs waiting for taps dont lie". Root said #45507 and #45524 waited on his taps from the BELOW-BLOCKED note; no board row existed, and #45507's missing grade, answered by a PR comment at 3:19, was never regraded."""
+    board_surface(config)
+    two_pr_stack(shell)
+    seq = grade(shell, "29020", "missing cccc333 exception/E12 restores content without the 180 MiB cap")
+    graded_at = shell.clock
+    answered = graded_at + timedelta(minutes=17)
+    shell.comments["29020"] = [{"author": {"login": "forge-pr-reviewer[bot]"}, "createdAt": actions.stamp(graded_at + timedelta(minutes=5)), "body": "Held"}, {"author": {"login": "yasyf"}, "createdAt": actions.stamp(answered), "body": "The cap lives in the relay."}]
+    merge_go(shell, "29031", "merge #29031 at dddd444")
+    landing_pass(shell, config)
+    said = f"#29020 at cccc333: not waiting on the owner: the board holds no row for it; its fidelity grade by fidelity-desk reads missing since {owner_waits.pacific(graded_at)} (cci #{seq}); a PR comment by yasyf answered it at {owner_waits.pacific(answered)} and no grade has followed"
+    [note] = [post_body(post) for post in notes(shell) if post_body(post).startswith("BELOW-BLOCKED")]
+    assert note == ungone_parents("29020", "#29031 at dddd444444", "#29020 at cccc333333", said)
+    assert "waits on the owner's tap" not in note
 
 
 def test_the_parent_tap_blocker_posts_once_per_set_of_parents_without_a_go_whatever_their_heads(shell, config, tmp_path):
@@ -4319,7 +4341,7 @@ def test_the_parent_tap_blocker_posts_once_per_set_of_parents_without_a_go_whate
     shell.rows[0] = dict(shell.rows[0], head="eeee555555", reported_head="eeee555555")
     shell.gates["29031"] = [gate("#29020 GREEN eeee555555 graphite READY", "#29031 GREEN dddd444444 graphite READY", would="#29020 #29031")]
     landing_pass(shell, config)
-    assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [ungone_parents("29020", "#29031 at dddd444444", "#29020 at cccc333333")]
+    assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [ungone_parents("29020", "#29031 at dddd444444", "#29020 at cccc333333", ROW_29020)]
 
 
 def test_gos_on_several_rows_of_one_stack_above_untapped_parents_post_one_note_for_the_stack(shell, config, tmp_path):
@@ -4334,7 +4356,7 @@ def test_gos_on_several_rows_of_one_stack_above_untapped_parents_post_one_note_f
         merge_go(shell, pr, f"merge #{pr} at {head}")
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [ungone_parents("29020", "#29042 at eeee555555 and #29053 at ffff666666", "#29020 at cccc333333 and #29031 at dddd444444")]
+    assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [ungone_parents("29020", "#29042 at eeee555555 and #29053 at ffff666666", "#29020 at cccc333333 and #29031 at dddd444444", "#29020 at cccc333: not waiting on the owner: the board holds no row for it; no fidelity grade names cccc333", "#29031 at dddd444: not waiting on the owner: the board holds no row for it; no fidelity grade names dddd444; it is stacked on open #29020")]
     assert not [post for post in blockers(shell) if post["to"] == "root" and "root gos name" in post_body(post)]
 
 
@@ -6331,7 +6353,7 @@ def test_mq_enqueue_refuses_a_go_named_head_the_owner_never_tapped_with_the_runn
     merge_go(shell, "29020", "go #29020 at cccc333: his tap on the board (watchdog #172407)")
     assert mq(shell, config, "enqueue", "29020", "--partial") == 1
     out = capsys.readouterr().out.splitlines()
-    assert "#29020 cccc333333 merge-mode pending TAP-REQUIRED rule/82317b0: it lands only on the owner's tap at this head, and a root go is no tap; no approval on the root's board names cccc333333" in out
+    assert "#29020 cccc333333 merge-mode pending TAP-REQUIRED rule/82317b0: it lands only on the owner's tap at this head, and a root go is no tap; #29020 at cccc333: not waiting on the owner: the board holds no row for it" in out
     assert out[-1] == "REFUSED: a check above does not pass a head this enqueue puts in the queue" and shell.enqueues() == []
     tap(shell, "29020", "cccc333333")
     assert mq(shell, config, "enqueue", "29020", "--partial") == 0
@@ -7050,7 +7072,7 @@ def test_a_go_named_green_head_above_a_parent_no_go_names_draws_one_below_blocke
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert unqueued(shell) == []
-    assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [ungone_parents("29020", "#29031 at dddd444444", "#29020 at cccc333333")]
+    assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [ungone_parents("29020", "#29031 at dddd444444", "#29020 at cccc333333", ROW_29020)]
 
 
 @pytest.mark.parametrize("broken", [{"test_state": "failure"}, {"test_state": "success", "mergeable_state": "dirty"}])
