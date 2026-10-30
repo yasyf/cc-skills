@@ -14429,14 +14429,72 @@ def test_orca_historical_lane_read_connection_cost(shell, config, tmp_path, monk
     monkeypatch.setattr(sqlite_store.sqlite3, "connect", opened)
     initial = write_bytes()
     receipts = []
-    for _ in range(2):
-        runner.deadlines_orca()
-        runner.incident_clock()
-        runner.in_process()
-        receipts.append({**costs, "process_write_bytes": write_bytes() - initial})
+    with store.reading():
+        for _ in range(2):
+            runner.deadlines_orca()
+            runner.incident_clock()
+            runner.in_process()
+            receipts.append({**costs, "process_write_bytes": write_bytes() - initial})
     print(json.dumps({"fixture_lanes": len(lanes), "callers": ["deadlines_orca", "incident_clock", "in_process"], "passes": receipts}))
     assert paths == {store.path(lane).name for lane in lanes}
-    assert [receipt["opens"] for receipt in receipts] == [280, 560]
+    assert [receipt["opens"] for receipt in receipts] == [56, 56]
     assert costs["closes"] == costs["opens"]
     assert costs["changed_rows"] == 0
     assert not shell.calls
+
+
+@pytest.mark.parametrize("desk", ["orca", "landing"])
+@pytest.mark.parametrize("exit_mode", ["once", "stop", "exception"])
+def test_controller_entry_owns_and_closes_its_read_scope(shell, config, tmp_path, monkeypatch, desk, exit_mode):
+    readers, owners, stops = [], set(), []
+    connect, initialize = sqlite_store.Store._connect, runner_module.Runner.__init__
+    owner_thread = threading.get_ident()
+
+    def opened(self, path, writable=False):
+        connection = connect(self, path, writable)
+        if not writable and threading.get_ident() == owner_thread:
+            assert self._readers.connections is not None
+            readers.append(connection)
+            owners.add(self)
+        return connection
+
+    def initialized(self, *args, **kwargs):
+        initialize(self, *args, **kwargs)
+        if exit_mode == "stop":
+            self.stop_marker().write_text(f"{os.getpid()}\n")
+
+    def failed(runner):
+        runner.book.header(runner_module.RUNNER)
+        raise RuntimeError("controller scope failure")
+
+    for name in ("keep_alive", "keep_finding", "keep_probing"):
+        original = getattr(runner_module.Runner, name)
+
+        def stopping(self, *args, original=original):
+            stop = original(self, *args)
+            stops.append(stop)
+            return stop
+
+        monkeypatch.setattr(runner_module.Runner, name, stopping)
+    monkeypatch.setattr(sqlite_store.Store, "_connect", opened)
+    monkeypatch.setattr(runner_module.Runner, "__init__", initialized)
+    if exit_mode == "exception":
+        if desk == "orca":
+            monkeypatch.setattr(runner_module.Runner, "binding", failed)
+        else:
+            monkeypatch.setattr(runner_module, "seed_policy", failed)
+    arguments = ["run", "--desk", desk, *(["--once"] if exit_mode == "once" else [])]
+    try:
+        if exit_mode == "exception":
+            with pytest.raises(RuntimeError, match="controller scope failure"):
+                cli(shell, config, *arguments)
+        else:
+            assert cli(shell, config, *arguments) == 0
+    finally:
+        for stop in stops:
+            stop.set()
+    assert readers and len(owners) == 1
+    assert all(store._readers.connections is None for store in owners)
+    for connection in readers:
+        with pytest.raises(sqlite_store.sqlite3.ProgrammingError):
+            connection.execute("SELECT 1")
