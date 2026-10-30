@@ -3790,6 +3790,22 @@ def test_a_merge_ask_names_only_a_graded_head_with_a_board_row(shell, config, tm
         assert missing == []
 
 
+def test_a_tap_keeps_only_once_the_finder_is_clear_at_the_fixed_head(shell, config, tmp_path):
+    """p8a-step7 #192190: the runner noted TAP-KEPT for #44103 at 78aad32 while finder #191854's major on the head before it stood unanswered, and root's go on it had to be withdrawn."""
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    tap(shell, "29020", "aaaa111111")
+    finder_verdict(shell, "29020", "major aaaa111 1 open: go/a.go:12 the retry drops the sealed read")
+    grade(shell, "29020", "ok cccc333333 a fixed version of aaaa111111: a review fix without new behavior.", finder=False)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert tap_notes(shell) == []
+    finder_verdict(shell, "29020", "ok cccc333 no findings")
+    landing_pass(shell, config)
+    assert [note["text"].split(":")[0] for note in tap_notes(shell)] == ["TAP-KEPT #29020"]
+
+
 def test_a_kept_tap_under_a_root_go_lands_the_tap_rule_head_when_the_board_refuses_the_carry(shell, config, tmp_path):
     """Root #192094: the runner noted TAP-KEPT for #44704, root posted the go, and the runner still refused it TAP-REQUIRED because the board named only the old head."""
     board_surface(config)

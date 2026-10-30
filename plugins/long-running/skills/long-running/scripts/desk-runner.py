@@ -6118,10 +6118,9 @@ class Landing:
                 for record in self.finder_reviews(pr):
                     if not (record["grade"] and record["head"]):
                         self.ask_finder_line(pr, record)
-            if (verdict := self.finder(pr, sha)) and (verdict["grade"] == FINDER_PASS or self.root_answered(pr, sha, verdict)):
+            if self.finder_clear(pr, sha):
                 continue
-            if not verdict and self.finder_carried(pr, sha):
-                continue
+            verdict = self.finder(pr, sha)
             why = f"{verdict['lane']} posted on cci #{verdict['seq']}: {verdict['text']}" if verdict else f"no `finder:` review record names this head; run the sol finder {finder.BRIEF} names and post its record"
             states[pr] = merge_queue.State(merge_queue.FAIL, f"FINDER-PENDING #{pr}: {why}")
             failed[pr] = f":{verdict['seq']}" if verdict else ""
@@ -6131,6 +6130,12 @@ class Landing:
                 if not failed[pr]:
                     self.runner.requeue_pending_finder(self.repo, pr, graded.heads[pr], self.owner(pr, graded.rows.get(pr, {})) or ROOT)
         return states
+
+    def finder_clear(self, pr: str, sha: str) -> bool:
+        """Whether the newest finder record naming `sha` passes or root settled it, or none names it and a passing one carries to it."""
+        if verdict := self.finder(pr, sha):
+            return verdict["grade"] == FINDER_PASS or self.root_answered(pr, sha, verdict)
+        return self.finder_carried(pr, sha)
 
     def root_answered(self, pr: str, sha: str, verdict: dict) -> bool:
         """Whether root settled `verdict`, a failing finder record at `sha`: a root `go` naming `pr` at `sha` posted after it, or a root `decision` replying to it directly or along a chain of `--re` replies, since root refutes an edge-case finding in one line (rule 2cc5a1f3, root #152572)."""
@@ -6592,7 +6597,7 @@ class Landing:
                 continue
             said = [record for record in reviews if record["kind"] == "head" and about_pr(record, self.repo, pr) and names_head(graded_head(record["text"]), head)]
             adds = [record for record in [*said, *([graded] if graded else [])] if ADDS_BEHAVIOR.search(full_text(record))]
-            kept = not adds and graded and graded["text"].startswith(FIDELITY_OK)
+            kept = not adds and graded and graded["text"].startswith(FIDELITY_OK) and self.finder_clear(pr, head)
             if kept and not self.book.known(LANDING, key := f"tap-kept:{block}:{pr}:{tapped}:{head}"):
                 self.post_record("note", key, to, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} on board block {block} keeps at {head[:10]}, a review fix with no new behavior per fidelity grade cci #{graded['seq']} (rule 399b5fa); root posts `go #{pr} at {head[:10]}` naming the fix, and the row lists the fix", pr)
             if kept and (gos := self.head_gos(pr, head)):
@@ -6674,8 +6679,8 @@ class Landing:
             )
 
     def askable(self, heads: dict[str, str], asking: list[str], rows: dict[str, dict]) -> list[str]:
-        """The PRs of `asking` the owner can tap now: a fidelity ok stands at the head, and the root's board holds a row at that head or the runner noted `TAP-KEPT` there under a root go (root #191653). A graded head with no row is told to the board lanes once, so the row goes up in their next pass; an ungraded head already has its grade blocker."""
-        graded = [pr for pr in asking if self.fidelity(pr, heads[pr]).ok]
+        """The PRs of `asking` the owner can tap now: a fidelity ok stands at the head, the finder is clear there, and the root's board holds a row at that head or the runner noted `TAP-KEPT` there under a root go (root #191653). A graded head with no row is told to the board lanes once, so the row goes up in their next pass; an ungraded head already has its grade blocker."""
+        graded = [pr for pr in asking if self.fidelity(pr, heads[pr]).ok and self.finder_clear(pr, heads[pr])]
         if not graded or (board := self.board_heads()) is None:
             return []
         askable = [pr for pr in graded if (pr, heads[pr][:7]) in board or self.tap_kept(pr, heads[pr])]
