@@ -285,3 +285,16 @@ def test_back_then_tab_keeps_the_reading_position(page):
     after = page.evaluate("() => window.scrollY")
     page.set_viewport_size(LAPTOP)
     assert after > y - 420
+
+
+def test_a_work_row_reads_its_pull_requests_runner_state_over_the_summary(page):
+    now(page)
+    item = json.loads(MODEL.read_text())["brief"]["work"][0]["item"]
+    page.evaluate("""(item) => {
+        state.model.brief.work.find((w) => w.item === item).changes = [42742];
+        state.model.pr_state = { 42742: { state: 'Landed', since: new Date().toISOString(), line: 'Landed at 6:09 PM' } };
+        render();
+    }""", item)
+    row = page.locator(f'.nw-live .wr[data-feed="{item}"]')
+    assert row.locator(".chip").inner_text() == "Landed"
+    assert "Landed at 6:09 PM" in row.inner_text()

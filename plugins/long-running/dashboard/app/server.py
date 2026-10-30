@@ -929,6 +929,7 @@ class Drive:
             "now": {**progress.get("now", {}), "releases": releases},
             "steps_at": progress["updated"],
             "history": progress.get("history", {}),
+            "pr_state": progress.get("pr_state", {}),
             "live": LIVE_SOURCES,
             "needs": need_items,
             "journeys": journeys(drive, steps, releases, need_items, model["records"], model["prs"], progress.get("now", {}), model["tree_names"], now),
