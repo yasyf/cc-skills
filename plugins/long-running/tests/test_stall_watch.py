@@ -216,7 +216,7 @@ def test_a_new_head_counts_from_the_first_record_naming_it_never_from_an_older_r
 
 
 def test_a_source_that_does_not_read_keeps_its_stall_open_so_nothing_posts_twice(config):
-    shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35)], [row("101")])
+    shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35)], [row("101", test_state="pending")])
 
     watch(shell, config)
     shell.ledger_code = 1
@@ -1105,7 +1105,7 @@ def test_a_stall_only_desks_own_goes_to_those_desks_and_not_to_root(config, desk
 
 def test_a_stall_that_clears_and_comes_back_posts_again_only_thirty_minutes_after_its_last_post(config):
     review = finder(3, "101", HEAD, 1)
-    shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35)], [row("101")])
+    shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35)], [row("101", test_state="pending")])
 
     watch(shell, config)
     shell.records.append(review)
@@ -1218,6 +1218,28 @@ def test_a_head_in_the_finder_queue_draws_no_finder_stall_until_its_pass_runs_pa
     assert [topic for topic in shell.topics() if topic.startswith("finder:")] == stalls
     for topic in stalls:
         assert shell.post(topic)["to"] == "landing-desk-3@d1"
+
+
+def test_green_heads_the_finder_desk_holds_queued_go_to_the_landing_desk_and_root_hears_them_in_one_line(config, tmp_path):
+    """#224787, #224882 and #224883 sent root one line per green head the finder desk's queue held."""
+    desk_lane(config, "landing-desk-3")
+    store = actions.Store(tmp_path / "store")
+    store.create(actions.Incident("desk-finder", "desk-finder", 0, stamp(60), {}))
+    with store.transaction("desk-finder", generation=0) as incident:
+        for pr, sha in (("101", HEAD), ("102", OTHER)):
+            incident.accept(f"finder:{pr}:{sha}", "finder", json.dumps({"pr": pr, "head": sha, "lane": "api-lane", "seq": 1, "full": False}), "cci#1", NOW - timedelta(minutes=60))
+    shell = FakeShell([head(1, "101", HEAD, 30), fidelity(2, "101", HEAD, 25), head(3, "102", OTHER, 30), fidelity(4, "102", OTHER, 25)], [row("101", green_at=stamp(13)), row("102", OTHER, green_at=stamp(11))])
+
+    watch(shell, config)
+    watch(shell, config)
+
+    assert [topic for topic in shell.topics() if topic.startswith("finder:")] == ["finder:101:abc1234", "finder:102:fedcba9"]
+    for topic in ("finder:101:abc1234", "finder:102:fedcba9"):
+        assert shell.post(topic)["to"] == "landing-desk-3@d1"
+        assert "queued since 12:00 PM" in shell.post(topic)["text"]
+    digests = [topic for topic in shell.topics() if topic.startswith("ungraded:")]
+    assert len(digests) == 1 and shell.post(digests[0])["to"] == "root"
+    assert shell.post(digests[0])["text"].startswith("STALL ungraded, 2 green heads past 10 min with no grade: #101 at abc1234 has no finder grade, green since 12:47 PM, owner desk-runner; #102 at fedcba9")
 
 
 @pytest.mark.parametrize(("started", "stalls"), [(None, []), (30, ["fidelity:101:abc1234"])])

@@ -72,7 +72,9 @@ its ledger row names, it finds:
     ungraded  a `head` record names the head, its build has read green for `stall.minutes.ungraded`, counted
               from its ledger row's `green_at`, and no finder review or no fidelity grade names it, whatever
               the desks hold queued; it is the finder or fidelity stall of a green head, posted to the
-              graders and always to root, as an unassigned failure is
+              graders, or the landing desk when the finder desk holds the pass, naming how long it has
+              waited there; root hears every head a pass newly finds ungraded in one urgent line per pass,
+              as it hears an unassigned failure, and never one line per head
     finder    a `head` record names the head, and no finder review does, and the finder desk holds
               no queued pass on the head, nor a running one younger than `stall.minutes.running`;
               a pass past that is the desk runner's to stop and requeue
@@ -210,7 +212,7 @@ MODEL = "claude-sonnet-5-5"
 WINDOW_HOURS = 24
 MINUTES = {"go": 10, "silent": 15, "refusal": 10, "successor": 20, "red": 2, "unclassed": 20, "unfixed": 60, "sweep": 20, "order": 3, "tap": 10, "ungraded": 10, "finder": 10, "fidelity": 10, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "lane": 10, "ask": 15, "gate": 10, "stale": 120, "desk": 10, "shape": 10}
 DESK_KINDS = frozenset({"finder", "fidelity"})
-ROOT_KINDS = frozenset({"ungraded", "missing", "unclassed", "unfixed"})
+ROOT_KINDS = frozenset({"missing", "unclassed", "unfixed"})
 REPOSTED = frozenset({"red"})
 POST_KINDS = {"red": "blocker", "unclassed": "blocker", "unfixed": "blocker", "sweep": "blocker", "probe": "report"}
 RED_CLASSES = ("inherited", "flake", "real", "stale")
@@ -660,6 +662,7 @@ class Pass:
         kept = {key: entry for key, entry in saved["open"].items() if key not in standing and entry["kind"] in self.unread}
         last = {key: stamp for key, stamp in saved.get("last", {}).items() if self.now - actions.parse_stamp(stamp) < REPEAT}
         failed = 0
+        alarms: list[Stall] = []
         for stall in sorted(standing.values(), key=lambda stall: stall.since):
             if stall.id in saved["open"] and (stall.kind not in REPOSTED or stall.owner == (ROOT,) or stall.id in last):
                 kept[stall.id] = saved["open"][stall.id]
@@ -677,9 +680,17 @@ class Pass:
                 print(f"cci post exited {done.code} for {stall.id}: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
                 continue
             kept[stall.id] = {"kind": stall.kind, "since": actions.stamp(stall.since), "posted": done.out.strip()[:200]}
+            if stall.kind == "ungraded" and stall.id not in saved["open"] and not stall.to(self.watch.drive, self.watch.desk_lanes, self.live_lane).startswith(ROOT):
+                alarms.append(stall)
             if stall.kind == "probe":
                 self.probe_day = stall.id.split(":", 1)[1]
             last[stall.id] = actions.stamp(self.now)
+        if alarms:
+            listed = "; ".join(f"{stall.subject} has no {stall.id.split(':', 1)[0]} grade, green since {pacific(stall.since)}, owner {', '.join(stall.owner)}" for stall in alarms)
+            done = self.shell.run(["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", "urgent", "--to", ROOT, "--topic", f"ungraded:{actions.stamp(self.now)}", *(arg for pr in dict.fromkeys(stall.pr for stall in alarms) for arg in ("--pr", f"{self.watch.landing['repo']}#{pr}")), "--text", f"STALL ungraded, {len(alarms)} green head{'' if len(alarms) == 1 else 's'} past {self.watch.minutes['ungraded']} min with no grade: {listed} | each owner heard its own line"])
+            if done.code:
+                failed += 1
+                print(f"cci post exited {done.code} for the ungraded digest: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
         heads = None if self.stack is None else {f"{found['pr']}:{short(found['head'])}" for found in self.stack}
         told = {key: stamp for key, stamp in saved.get("told", {}).items() if heads is None or key in heads}
         fresh = {key: wait for key, wait in (self.tap_waits or {}).items() if key not in told}
@@ -930,7 +941,9 @@ class Pass:
             green = actions.parse_stamp(row["green_at"]) if row.get("green_at") else None
             ungraded = green is not None and self.now - green >= self.watch.age("ungraded")
             if not finders and ungraded:
-                stalls.append(Stall(f"finder:{pr}:{short(head)}", "ungraded", green, subject, f"its build has read green since {pacific(green)}, and no finder review names this head", (RUNNER if self.desk_runs(FINDER_DESK) else lane,), f"ask finder-desk for `finder: whole` on {subject}", pr))
+                held = self.queued(FINDER_DESK, pr, head)
+                step = f"run the finder desk's pass on {subject}, {'running' if held.status == 'started' else 'queued'} since {pacific(actions.parse_stamp(held.started_at or held.accepted_at))}, or say in `desk-runner.py show` why the queue holds it" if held else f"ask finder-desk for `finder: whole` on {subject}"
+                stalls.append(Stall(f"finder:{pr}:{short(head)}", "ungraded", green, subject, f"its build has read green since {pacific(green)}, and no finder review names this head", (RUNNER if self.desk_runs(FINDER_DESK) else lane,), step, pr))
             elif not finders and self.now - head_at >= self.watch.age("finder"):
                 if started := self.overran(FINDER_DESK, pr, head):
                     stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", started, subject, f"the finder desk's pass on this head has run since {pacific(started)}", (RUNNER,), f"read `desk-runner.py show`, then stop and requeue the finder pass on {subject}", pr))
