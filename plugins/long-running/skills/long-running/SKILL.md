@@ -908,8 +908,14 @@ lane asked for them has not replied, and cite the research verdict the options r
 the largest option Recommended before the options lane replied. Four PRs then built a
 second grader beside the Watch, and release 5445 failed its Switch on every env.*
 
-The pack's `settled_questions` hook matches each question in an asking call (`AskUserQuestion`, `cc-present start --doc`, `push`, `update-block`) against the tracked plan's Decisions lines, the `scope:durable` answers, and the feedback memories while a drive is active.
-It blocks only on a match and quotes the matching plan line, answer id, or memory; drop those questions and re-issue the rest. A wrong match passes when re-issued, since asking calls then pass for ten minutes.
+A found violation of an existing owner ruling is applied, never put back to him as a card
+or pick. The pack's `settled_questions` hook matches each question in an asking call
+(`AskUserQuestion`, `cc-present start --doc`, `push`, `update-block`, a Slack status card
+with options, and a root DECIDE sentence that orders a card) against the register's
+in-force rows, the tracked plan's Decisions lines, the `scope:durable` answers, and the
+feedback memories. It runs in lanes too, so the board refresher's pushes are checked. It
+warns on a match and quotes the ruling or answer that settles it; apply that and drop the
+question. The same question re-issued passes, so a wrong match costs one retry.
 
 An owner message that states a standing rule, with "from now on", "always", "never", "I
 told you", or "the plan is", is recorded the turn it arrives, as an `answer_add` with
