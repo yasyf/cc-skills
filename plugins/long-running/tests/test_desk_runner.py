@@ -5292,7 +5292,7 @@ def test_an_open_finder_major_holds_the_head_until_a_finder_pass_answers_it(shel
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and len(blockers(shell)) == 1
 
 
-@pytest.mark.parametrize("settled", ["decision", "go", "resolves"])
+@pytest.mark.parametrize("settled", ["decision", "go", "resolves", "also-resolves"])
 def test_a_root_decision_answering_a_finder_major_or_a_later_root_go_lets_the_head_enqueue(shell, config, tmp_path, settled):
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333", finder=False)
@@ -5304,6 +5304,8 @@ def test_a_root_decision_answering_a_finder_major_or_a_later_root_go_lets_the_he
         shell.records.append({"seq": seq + 2, "drive": "d1", "lane": "root", "kind": "decision", "to": [LANE], "re": seq + 1, "refs": {}, "text": "land it; the test gap is a follow-up PR"})
     elif settled == "resolves":
         shell.records.append({"seq": seq + 1, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {}, "resolves": [seq], "text": "the migration seed is a test gap; land it"})
+    elif settled == "also-resolves":
+        shell.records.append({"seq": seq + 1, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {}, "resolves": seq - 1, "also_resolves": [seq], "text": "Settled, root #201709: the migration seed is a test gap; land it"})
     else:
         merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
@@ -13090,6 +13092,19 @@ def test_while_graphite_is_down_an_admitted_pr_squash_merges_at_its_head_instead
     assert merged_records(shell) == ["MERGED #29020 at cccc333333 direct as 9999aaaa00, Graphite down, b530f5d: gh pr merge --squash"]
     assert [post["pr"] for post in shell.posts if post["text"].startswith("MERGED ")] == ["29020"]
     assert [action.response["outcome"] for action in enqueues_of(tmp_path).values()] == ["merged"]
+
+
+def test_while_graphite_is_down_a_pr_its_dead_queue_still_holds_merges_directly(shell, config, tmp_path):
+    """Root #202044: #45016, #45367 and #45377 passed every check but read QUEUED in Graphite's dead queue, so the direct merger never took them."""
+    lone_green_pr(shell)
+    shell.gates["29020"] = [gate("#29020 QUEUED cccc333333 graphite WAITING_TO_MERGE")]
+    shell.pr_status["29020"] = {"verdict": "queued"}
+    grade(shell, "29020", "ok F307 at cccc333.")
+    queue_drafts(shell, (40, True), (50, True))
+    shell.merge_commits["29020"] = "9999aaaa0000"
+    landing_pass(shell, config)
+    assert direct_merges(shell) == [["gh", "pr", "merge", "29020", "--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit", "cccc333333"]]
+    assert merged_records(shell) == ["MERGED #29020 at cccc333333 direct as 9999aaaa00, Graphite down, b530f5d: gh pr merge --squash"]
 
 
 @pytest.mark.parametrize("excluded", ["hold", "no-go", "red", "draft"])

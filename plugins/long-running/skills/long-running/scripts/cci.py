@@ -89,6 +89,12 @@ def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: i
     return list(found)
 
 
+def resolved(record: dict) -> set[int]:
+    """Every seq `record` resolves: its `resolves` and each of its `also_resolves`, which a `--resolves a,b` post stores past the first."""
+    first = record.get("resolves") or []
+    return (set(first) if isinstance(first, list) else {first}) | set(record.get("also_resolves") or [])
+
+
 def expired(record: dict, now: datetime) -> bool:
     return bool(record.get("expires_at")) and datetime.fromisoformat(record["expires_at"]) <= now
 
