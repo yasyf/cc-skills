@@ -225,7 +225,7 @@ def digest(question: str) -> str:
 
 
 GATE_MESSAGE = (
-    "Warning, nothing was blocked: This asks the owner what a settled plan decision, owner ruling, owner answer, or feedback memory already answers."
+    "Warning, nothing was blocked: This asks the owner what a plan decision, register row, owner answer, or feedback memory already settles."
     " Apply the answer below and drop the question; the same question re-issued passes."
 )
 
@@ -239,7 +239,7 @@ GATE_MESSAGE = (
             tool_input=SETTLED_ASK,
             file=FileFixture(home=True, name="brook.md", content=PLAN),
             state=[CompactionState(active=True, plan_path="~/brook.md")],
-        ): Warn(pattern=r"settled plan decision"),
+        ): Warn(pattern=r"plan decision"),
         Input(
             tool="AskUserQuestion",
             tool_input=OPEN_ASK,
@@ -259,7 +259,7 @@ GATE_MESSAGE = (
             state=[CompactionState(active=True, plan_path="~/brook.md"), SettledState(warned=[digest(SETTLED_ASK["questions"][0]["question"])])],
         ): Allow(),
         Input(tool=SLACK_CARD, tool_input=RULED_CARD, cwd=CWD, env=DRIVE_CONFIG, state=[CompactionState(active=True)], commands={ROWS: REGISTER}): Warn(
-            pattern=r"already answers[\s\S]*rule/4ac9243, the owner's words: \"there is only one local replica"
+            pattern=r"already settles[\s\S]*rule/4ac9243, the owner's words: \"there is only one local replica"
         ),
         Input(
             command="cci post --lane board-refresher-2 --kind note --text 'board ready'",
@@ -294,7 +294,7 @@ GATE_MESSAGE = (
             tool_input=SLACK_MENTION_ASK,
             file=FileFixture(home=True, name="brook.md", content=PLAN),
             state=[CompactionState(active=True, plan_path="~/brook.md")],
-        ): Warn(pattern=r"settled plan decision"),
+        ): Warn(pattern=r"plan decision"),
         Input(tool="AskUserQuestion", tool_input=SETTLED_ASK): Allow(),
         Input(
             tool="Bash",
