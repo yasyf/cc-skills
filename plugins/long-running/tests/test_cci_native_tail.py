@@ -11,8 +11,8 @@ import cci
 import pytest
 
 
-@pytest.fixture
-def native_endpoint(monkeypatch):
+@pytest.fixture(params=[False, True], ids=["content-length", "chunked"])
+def native_endpoint(monkeypatch, request):
     replies, requests, connections = [], [], []
 
     class Handler(BaseHTTPRequestHandler):
@@ -24,9 +24,18 @@ def native_endpoint(monkeypatch):
             body = json.dumps(payload).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
+            if request.param:
+                self.send_header("Transfer-Encoding", "chunked")
+            else:
+                self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(body)
+            if request.param:
+                for start in range(0, len(body), 7):
+                    chunk = body[start:start + 7]
+                    self.wfile.write(f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n")
+                self.wfile.write(b"0\r\n\r\n")
+            else:
+                self.wfile.write(body)
 
         def log_message(self, *args):
             pass
@@ -98,7 +107,7 @@ def test_native_tail_binds_effective_child_identity_and_home_without_mutating_en
     assert dict(os.environ) == before
 
 
-@pytest.mark.parametrize("status,error", [(400, "explicit drive and since required"), (409, "native tail home mismatch")])
+@pytest.mark.parametrize("status,error", [(400, "explicit drive and since required"), (409, "native tail home mismatch"), (413, "native tail request too large")])
 def test_native_tail_protocol_errors_are_visible_and_do_not_fall_back(native_endpoint, status, error):
     replies, requests, connections = native_endpoint
     replies.append((status, {"error": error}))
