@@ -3142,7 +3142,7 @@ def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge
     landing_pass(shell, config)
     assert shell.enqueues() == [] and enqueues_of(tmp_path) == {}
     [line] = escalations(shell)
-    assert line == "MERGE-ASK merge-ask:29020 #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on merge card cci #900001 (merge mode every)"
+    assert line == "MERGE-ASK merge-ask:29020 #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on merge card cci #900001 (merge mode every); no go names this head"
     [card] = shell.pr_cards
     assert card == {
         "card": {
@@ -4210,7 +4210,7 @@ def test_a_board_surface_asks_from_the_status_read_with_no_check_until_a_root_go
     landing_pass(shell, config)
     assert checks(shell) == [] and shell.pr_cards == []
     [line] = escalations(shell)
-    assert line == "MERGE-ASK merge-ask:29020 #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on the root's board (merge mode every)"
+    assert line == "MERGE-ASK merge-ask:29020 #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on the root's board (merge mode every); no go names this head"
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and len(escalations(shell)) == 1
@@ -4279,11 +4279,27 @@ def test_on_a_board_surface_no_check_or_enqueue_names_a_pr_without_a_root_go_at_
     landing_pass(shell, config)
     assert stack_named(shell) == {"29020"}
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
-    assert escalations(shell) == [ungone_parents("29100", "#29101 at ffff666666", "#29100 at eeee555555", UNGRADED_29100)]
+    older = next(record for record in shell.records if record["text"] == "merge #29100 at bbbb222")
+    parent = f"#29100 at eeee555555 (no go names this head; the newest, go #{older['seq']} by root at {datetime.fromisoformat(older['at']).astimezone(runner_module.PACIFIC):%-I:%M %p}, names bbbb222)"
+    assert escalations(shell) == [ungone_parents("29100", went(shell, ("29101", "ffff666666")), parent, UNGRADED_29100)]
+
+
+def went(shell: FakeShell, *heads: tuple[str, str]) -> str:
+    """Each PR at its head with the newest root go record naming that head, by seq, lane and Pacific time."""
+
+    def said(pr: str, head: str) -> str:
+        go = [record for record in shell.records if record["kind"] == "go" and head.startswith(runner_module.go_heads(record).get(pr) or "-")][-1]
+        return f"#{pr} at {head} (go #{go['seq']} by {go['lane']} at {datetime.fromisoformat(go['at']).astimezone(runner_module.PACIFIC):%-I:%M %p})"
+
+    return " and ".join(said(pr, head) for pr, head in heads)
+
+
+def ungone(*heads: str) -> str:
+    return " and ".join(f"{head} (no go names this head)" for head in heads)
 
 
 def ungone_parents(bottom: str, heads: str, parents: str, *waits: str) -> str:
-    return f"BELOW-BLOCKED above #{bottom}: root gos name {heads}, stacked on {parents} with no go at that head, so none of them is enqueued, and the stack below #{bottom} lands without them; {' / '.join(waits)}; root posts `go #<parent> at <head>` once his tap stands"
+    return f"BELOW-BLOCKED above #{bottom}: root gos name {heads}, stacked on {parents}, so none of them is enqueued, and the stack below #{bottom} lands without them; {' / '.join(waits)}; root posts `go #<parent> at <head>` once his tap stands"
 
 
 UNGRADED_29100 = "#29100 at eeee555: not waiting on the owner: the board holds no row for it; no fidelity grade names eeee555"
@@ -4321,7 +4337,7 @@ def test_on_a_board_surface_a_root_go_naming_a_parent_in_passing_never_sweeps_it
     root_go(shell, passing, shell.now())
     landing_pass(shell, config)
     assert stack_named(shell) == set() and shell.enqueues() == []
-    assert ungone_parents("29020", "#29031 at dddd444444", "#29020 at cccc333333", NO_ROW_29020) in [post_body(post) for post in notes(shell) if post["to"] == "root"]
+    assert ungone_parents("29020", went(shell, ("29031", "dddd444444")), ungone("#29020 at cccc333333"), NO_ROW_29020) in [post_body(post) for post in notes(shell) if post["to"] == "root"]
     merge_go(shell, "29020", "GO #29020 AT CCCC333 and #29031 at dddd444 (owner taps 3:10 PM)")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29031", "--partial"]]
@@ -4339,7 +4355,7 @@ def test_a_parent_with_no_row_and_a_missing_grade_answered_by_a_comment_reads_as
     landing_pass(shell, config)
     said = f"#29020 at cccc333: not waiting on the owner: the board holds no row for it; its fidelity grade by fidelity-desk reads missing since {owner_waits.pacific(graded_at)} (cci #{seq}); a PR comment by yasyf answered it at {owner_waits.pacific(answered)} and no grade has followed"
     [note] = [post_body(post) for post in notes(shell) if post_body(post).startswith("BELOW-BLOCKED")]
-    assert note == ungone_parents("29020", "#29031 at dddd444444", "#29020 at cccc333333", said)
+    assert note == ungone_parents("29020", went(shell, ("29031", "dddd444444")), ungone("#29020 at cccc333333"), said)
     assert "waits on the owner's tap" not in note
 
 
@@ -4352,7 +4368,7 @@ def test_the_parent_tap_blocker_posts_once_per_set_of_parents_without_a_go_whate
     shell.rows[0] = dict(shell.rows[0], head="eeee555555", reported_head="eeee555555")
     shell.gates["29031"] = [gate("#29020 GREEN eeee555555 graphite READY", "#29031 GREEN dddd444444 graphite READY", would="#29020 #29031")]
     landing_pass(shell, config)
-    assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [ungone_parents("29020", "#29031 at dddd444444", "#29020 at cccc333333", ROW_29020)]
+    assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [ungone_parents("29020", went(shell, ("29031", "dddd444444")), ungone("#29020 at cccc333333"), ROW_29020)]
 
 
 def test_gos_on_several_rows_of_one_stack_above_untapped_parents_post_one_note_for_the_stack(shell, config, tmp_path):
@@ -4367,7 +4383,7 @@ def test_gos_on_several_rows_of_one_stack_above_untapped_parents_post_one_note_f
         merge_go(shell, pr, f"merge #{pr} at {head}")
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [ungone_parents("29020", "#29042 at eeee555555 and #29053 at ffff666666", "#29020 at cccc333333 and #29031 at dddd444444", "#29020 at cccc333: not waiting on the owner: the board holds no row for it; no fidelity grade names cccc333", "#29031 at dddd444: not waiting on the owner: the board holds no row for it; no fidelity grade names dddd444; it is stacked on open #29020")]
+    assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [ungone_parents("29020", went(shell, ("29042", "eeee555555"), ("29053", "ffff666666")), ungone("#29020 at cccc333333", "#29031 at dddd444444"), "#29020 at cccc333: not waiting on the owner: the board holds no row for it; no fidelity grade names cccc333", "#29031 at dddd444: not waiting on the owner: the board holds no row for it; no fidelity grade names dddd444; it is stacked on open #29020")]
     assert not [post for post in blockers(shell) if post["to"] == "root" and "root gos name" in post_body(post)]
 
 
@@ -4467,7 +4483,7 @@ def test_a_reserved_touch_puts_the_row_on_the_merge_card_and_waits_past_the_go_f
     assert shell.enqueues() == [] and blockers(shell) == []
     [line] = escalations(shell)
     assert line.startswith("MERGE-ASK merge-ask:29020 #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on merge card cci #")
-    assert f"(merge mode {mode}); only the tap authorizes reserved/user-data" in line
+    assert f"(merge mode {mode}); no go names this head; only the tap authorizes reserved/user-data" in line
     assert ' It touches your rule "User data stays where it is." Merging also allows it.\n\n' in shell.pr_cards[0]["card"]["children"][0]["md"]
     assert line.endswith("; only the tap authorizes reserved/user-data: `rulings.py authorize --drive d1 --row reserved/user-data --action <tap ts>`")
     shell.clock += timedelta(minutes=1)
@@ -6989,7 +7005,7 @@ def test_a_green_head_a_go_names_whose_enqueue_failed_escalates_go_unqueued_once
     landing_pass(shell, config)
     landing_pass(shell, config)
     [line] = unqueued(shell)
-    assert line.startswith("GO-UNQUEUED go-unqueued:33001 #33001: #33001 is green at aaaa111111 and root go #")
+    assert line.startswith("GO-UNQUEUED go-unqueued:33001 #33001: #33001 is green at aaaa111111 and go #")
     assert "yet it is not in the queue after 6 minutes; its newest enqueue since the go ended failed" in line
 
 
@@ -7083,7 +7099,7 @@ def test_a_go_named_green_head_above_a_parent_no_go_names_draws_one_below_blocke
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert unqueued(shell) == []
-    assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [ungone_parents("29020", "#29031 at dddd444444", "#29020 at cccc333333", ROW_29020)]
+    assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [ungone_parents("29020", went(shell, ("29031", "dddd444444")), ungone("#29020 at cccc333333"), ROW_29020)]
 
 
 @pytest.mark.parametrize("broken", [{"test_state": "failure"}, {"test_state": "success", "mergeable_state": "dirty"}])
@@ -7100,7 +7116,7 @@ def test_a_go_named_green_head_above_a_red_or_conflicting_parent_with_its_own_go
     landing_pass(shell, config)
     assert unqueued(shell) == []
     assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [
-        "BELOW-BLOCKED above #29020: root gos name #29031 at dddd444444, stacked on #29020 at cccc333333, red on CI or conflicting with its base, so none of them is enqueued, and the stack below #29020 lands without them; each red or conflicting parent's lane makes it green and mergeable"
+        f"BELOW-BLOCKED above #29020: root gos name {went(shell, ('29031', 'dddd444444'))}, stacked on #29020 at cccc333333, red on CI or conflicting with its base, so none of them is enqueued, and the stack below #29020 lands without them; each red or conflicting parent's lane makes it green and mergeable"
     ]
 
 
@@ -7119,7 +7135,7 @@ def test_a_go_named_green_head_above_a_held_parent_draws_one_below_held_note_and
     landing_pass(shell, config)
     assert unqueued(shell) == []
     assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [
-        "BELOW-HELD above #29020: root gos name #29031 at dddd444444, stacked on #29020 at cccc333333, which a hold covers, so none of them is enqueued, and the stack below #29020 lands without them; the stack waits for each hold to lift"
+        f"BELOW-HELD above #29020: root gos name {went(shell, ('29031', 'dddd444444'))}, stacked on #29020 at cccc333333, which a hold covers, so none of them is enqueued, and the stack below #29020 lands without them; the stack waits for each hold to lift"
     ]
 
 
@@ -7262,7 +7278,7 @@ def test_go_named_green_heads_out_of_the_queue_in_one_stack_draw_one_go_unqueued
     landing_pass(shell, config)
     landing_pass(shell, config)
     [line] = unqueued(shell)
-    assert line.startswith("GO-UNQUEUED go-unqueued:29020 #29020: #29020 is green at cccc333333 and root go #")
+    assert line.startswith("GO-UNQUEUED go-unqueued:29020 #29020: #29020 is green at cccc333333 and go #")
     assert "; #29031 above it in the stack from #29020 wait on it too; owner lane " in line
 
 
@@ -7283,6 +7299,7 @@ def test_a_go_a_fidelity_carry_moved_to_a_new_head_counts_its_five_minutes_from_
     landing_pass(shell, config)
     [line] = unqueued(shell)
     assert "yet it is not in the queue after 6 minutes" in line
+    assert ", carried to this head named it" in line
 
 
 def test_go_unqueued_never_counts_an_enqueue_attempt_from_before_the_go(shell, config, tmp_path):

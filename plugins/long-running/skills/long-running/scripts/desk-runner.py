@@ -11,6 +11,7 @@
     desk-runner.py rebind --config PATH
     desk-runner.py show   --config PATH
     desk-runner.py gc     --config PATH [--dry-run]
+    desk-runner.py go     --config PATH PR...
 
 STDLIB ONLY. Every action lives in the store `actions.py` owns: one container per lane,
 `desk-lane-<lane>`, whose owner is the lane's current Orca dispatch, plus `desk-landing`
@@ -277,6 +278,9 @@ them at most 120 s, skips a tree whose worker still runs or waits, and its relea
 on a side worker, never ahead of the gate, and its worktree removal on a worker of its own, so a slow removal holds back neither. Each worker writes its step and when it began to `<config>.landing-stacks.json`, which
 stall_watch reads to name a stack stuck past its step's budget. Every pass posts one `state` record to root on topic `landing-state`
 counting the queued, waiting, held and refused PRs, the workers running and the overflow's enqueues, with the pass's seconds.
+Every text that says a PR has, lacks or lost a go, `GO-UNQUEUED`, `BELOW-BLOCKED` and `MERGE-ASK`, says it through
+`grades.go_state`, citing the newest go at the head, a carried one included, by seq, lane and time, or the newest go at
+an older head when none names it; `go --config PATH PR...` prints the same for any PR, and `drive.py go` runs it.
 `GO-UNQUEUED` is raised only when the newest enqueue of a go'd head since its go ended blocked, failed, stranded or unsettled, or went in and the queue's merge activity then evicted it, naming that eviction's time and reason, never for
 backlog, `ADMITTED-SKIPPED` when a head a go or an exemption admits has, ten minutes on, no record saying it is queued, merging or refused, naming the branch of the pass that left it out, and `OVERFLOW-STALLED` when the overflow thread finished no run in five minutes. A go'd head whose queue draft closed unmerged is taken out with the adapter's dequeue once per head, posting `ORPHAN-RELEASED`, and enqueued afresh, never `--recover`ed. Beside the passes, an overflow thread reads afresh every minute and puts straight
 into the queue, with none of the runner's checks, each stack that has stayed green, named at its heads by a root go, unheld, unqueued
@@ -632,7 +636,7 @@ from grades import carry_of, delegated, keeps_tap, succeeds, with_successors
 from grades import carries as carry_grade
 from grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
 from grades import WITHDRAWN as WITHDRAWN_OPENING
-from grades import owes
+from grades import go_state, owes
 from grades import REVIEW_BOT_CHECK, REVIEW_BOT_HELD, review_bot_wait, withdrawn
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
@@ -5305,6 +5309,9 @@ class Landing:
         def named(prs: list[str]) -> str:
             return " and ".join(f"#{pr} at {open_rows[pr]['head'][:10]}" for pr in prs)
 
+        def cited(prs: list[str]) -> str:
+            return " and ".join(f"#{pr} at {open_rows[pr]['head'][:10]} ({go_state(gos, pr, open_rows[pr]['head']).said()})" for pr in prs)
+
         for lowest, (gone, waiting) in stacks.items():
             parents = sorted(waiting, key=int)
             key = f"go-parents:{lowest}:" + ",".join(parents)
@@ -5313,11 +5320,11 @@ class Landing:
             on_hold = [parent for parent in parents if parent in holding]
             untapped = [parent for parent in parents if parent in self.no_go and parent not in holding]
             broken = [parent for parent in parents if parent not in self.no_go and parent not in holding]
-            on = [f"{named(untapped)} with no go at that head"] * bool(untapped) + [f"{named(on_hold)}, which a hold covers"] * bool(on_hold) + [f"{named(broken)}, red on CI or conflicting with its base"] * bool(broken)
+            on = [cited(untapped)] * bool(untapped) + [f"{named(on_hold)}, which a hold covers"] * bool(on_hold) + [f"{named(broken)}, red on CI or conflicting with its base"] * bool(broken)
             board = self.owner_board() if untapped else None
             asks = [f"{' / '.join(self.owner_state(parent, board) for parent in untapped)}; root posts `go #<parent> at <head>` once his tap stands"] * bool(untapped) + ["the stack waits for each hold to lift"] * bool(on_hold) + ["each red or conflicting parent's lane makes it green and mergeable"] * bool(broken)
             label = "BELOW-HELD" if len(on_hold) == len(parents) else "BELOW-BLOCKED"
-            self.post_record("note", key, ROOT if label == "BELOW-HELD" else self.landing_audience([*parents, *gone], open_rows, ROOT), f"{label} above #{lowest}: root gos name {named(gone)}, stacked on {' and '.join(on)}, so none of them is enqueued, and the stack below #{lowest} lands without them; {'; '.join(asks)}", lowest)
+            self.post_record("note", key, ROOT if label == "BELOW-HELD" else self.landing_audience([*parents, *gone], open_rows, ROOT), f"{label} above #{lowest}: root gos name {cited(gone)}, stacked on {' and '.join(on)}, so none of them is enqueued, and the stack below #{lowest} lands without them; {'; '.join(asks)}", lowest)
 
     def stack_trees(self, rows: dict[str, dict], held: list[str]) -> list[list[str]]:
         """The tips to gate, as `trees` groups them or one tip each under the whole-stack policy, over the rows no hold covers, so no call names a held PR or one stacked above it; every tip at or above an incident fix is left out."""
@@ -6890,7 +6897,7 @@ class Landing:
                 f"merge-ask:{pr}@{heads[pr]}{rows_named}" + (f":title-stale:{stale[0]['seq']}" if stale else ""),
                 "MERGE-ASK",
                 f"#{pr}",
-                f"#{pr} {short} waits on the owner's tap on `{waits}` {where} (merge mode {mode})"
+                f"#{pr} {short} waits on the owner's tap on `{waits}` {where} (merge mode {mode}); {go_state(self.root_gos(), pr, heads[pr]).said()}"
                 + (f"; no go until the lane's title fix: cci #{stale[0]['seq']} says `{stale[1]}`" if stale else "")
                 + authorize,
                 f"merge-ask:{pr}",
@@ -7692,7 +7699,7 @@ class Landing:
             waits = f"; {', '.join(above)} above it in the stack from #{bottom} wait on it too" if above else ""
             key, subject = f"go-unqueued:{pr}@{head}", f"go-unqueued:{pr}"
             to = self.go_audience([pr], rows)
-            self.runner.escalate(key, "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and root go #{gos[0]['seq']} at {pacific(actions.parse_stamp(gos[0]['at']))} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}{waits}; owner lane {owner}", subject, to)
+            self.runner.escalate(key, "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and {go_state(self.root_gos(), pr, head).said()} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}{waits}; owner lane {owner}", subject, to)
 
     def audit_admitted(self, rows: dict[str, dict], held: list[str]) -> None:
         """Escalate `ADMITTED-SKIPPED` to the root and the owning lane, once per head, for each open drive PR green at its ledger head that a root `go` or an exemption admits there, `ADMISSION_AUDIT` after it was admitted, that the pass's queue read finds neither queued nor landed (only landed counts while Graphite is down), that no stack worker holds, that sits on no parent `refuse_ungone_parents` names, that this runner's own `MERGED` record does not name as merged directly, which its ledger row lags until the next refresh settles it (root #211747), and that no refusal of this runner or the desk lane, `GO-UNQUEUED` or failed direct merge names: the escalation says which branch of the pass last left it out, or that none recorded one (owner, 5:16 AM Oct 30; root #208560)."""
@@ -8842,7 +8849,9 @@ def build_parser() -> argparse.ArgumentParser:
     show = verbs.add_parser("show")
     gc = verbs.add_parser("gc")
     gc.add_argument("--dry-run", action="store_true")
-    for sub in (relay, launch, policy, loop, rebind, handoff, quiesce, show, gc):
+    go = verbs.add_parser("go", help="each PR's ledger head and the newest go naming it, else the newest go at an older head, read as the landing runner reads them")
+    go.add_argument("prs", nargs="+")
+    for sub in (relay, launch, policy, loop, rebind, handoff, quiesce, show, gc, go):
         sub.add_argument("--config", type=Path, required=True)
     return parser
 
@@ -8873,6 +8882,16 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
             runner.shell.sleep(WAKE_SECONDS)
     if args.verb == "show":
         sys.stdout.write(runner.render())
+        return 0
+    if args.verb == "go":
+        landing = Landing(runner, config.landing)
+        if (rows := landing.rows()) is None:
+            print("desk-runner go: the drive's ledger did not list", file=sys.stderr)
+            return 1
+        gos = landing.root_gos()
+        for pr in (pr.lstrip("#") for pr in args.prs):
+            head = rows.get(pr, {}).get("head", "")
+            print(f"#{pr} at {head[:10]}: {go_state(gos, pr, head).said()}" if head else f"#{pr}: no ledger row with a head")
         return 0
     if args.verb == "rebind":
         return runner.rebind()

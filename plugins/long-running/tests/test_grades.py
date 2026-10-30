@@ -137,3 +137,22 @@ def test_carry_rechecks_rejected_lands_on_the_next_wave_and_stops_at_cycles():
 def test_a_grade_keeps_the_tap_however_it_names_whose_tap_it_was(grade, kept):
     """Root #204975: grade #204887 'No new behavior since the owner's tap at 1f93c6d.' was read as no carry because it said the owner's tap."""
     assert grades.keeps_tap(grade, "aaaa111111") is kept
+
+
+def test_the_go_state_names_the_newest_go_at_the_head_the_carry_that_reached_it_or_the_newest_go_at_an_older_head():
+    """10:47 PM Oct 29 the watchdog told the merger a go was withdrawn seven minutes after root re-granted it at the new head (retro step 447)."""
+
+    def go(seq: int, at: str, text: str) -> dict:
+        return {"seq": seq, "at": at, "drive": "d1", "lane": "root", "kind": "go", "text": text, "voided": set()}
+
+    first, again = go(5, "2026-10-30T05:40:00Z", "go #45001 at aaaa111"), go(9, "2026-10-30T05:47:00Z", "go #45001 at bbbb222")
+    assert grades.go_state([first, again], "45001", "bbbb222222").said() == "go #9 by root at 10:47 PM"
+    assert grades.go_state([first, again], "45001", "cccc333333").said() == "no go names this head; the newest, go #9 by root at 10:47 PM, names bbbb222"
+
+    grade = {"seq": 12, "at": "2026-10-30T05:55:00Z", "refs": {"prs": ["Forge-AI/monorepo#45001"]}, "text": "fidelity: ok cccc333 carried from bbbb222, patch-identical by git patch-id over its own commits."}
+    gos = [first, again, *grades.carried_gos([first, again], [grade], "Forge-AI/monorepo", lambda pr, head: True)]
+    assert grades.go_state(gos, "45001", "cccc333333").said() == "go #9 by root at 10:47 PM, carried to this head"
+
+    withdrawn = again | {"voided": {"45001"}}
+    assert grades.go_state([first, withdrawn], "45001", "bbbb222222").said() == "no go names this head; the newest, go #5 by root at 10:40 PM, names aaaa111"
+    assert grades.go_state([], "45001", "bbbb222222").said() == "no go names this head"

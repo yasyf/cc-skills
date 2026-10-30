@@ -488,6 +488,16 @@ def test_digest_quiet_point_holds_while_a_desk_runs_a_pass_or_a_merge_and_passes
     assert capsys.readouterr().out.splitlines()[-1] == "quiet point: no, orca posted no alive record in the last 2 min"
 
 
+def test_go_reads_the_go_state_through_the_landing_runner_on_the_runner_json_beside_the_drive_state(repo, monkeypatch):
+    entry = started(repo, "--cci-drive", DRIVE)
+    execs: list[list[str]] = []
+    monkeypatch.setattr(drive.os, "execv", lambda path, argv: execs.append(argv))
+
+    drive.main(["go", "45001", "#45002"])
+
+    assert execs == [[drive.sys.executable, str(Path(drive.__file__).resolve().with_name("desk-runner.py")), "go", "--config", str(Path(entry["state_dir"]) / "runner.json"), "45001", "#45002"]]
+
+
 def installed(*versions: str, manifest: str | None = None) -> Path:
     plugins = drive.drives_dir().parents[1] / "plugins"
     for version in versions:
