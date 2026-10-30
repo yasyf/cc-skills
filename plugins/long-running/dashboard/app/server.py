@@ -925,8 +925,6 @@ class Drive:
         seen = {path: path.stat().st_mtime_ns for path in sources}
         while all(path.stat().st_mtime_ns == stamp for path, stamp in seen.items()):
             time.sleep(2)
-        while any(curator.running for curator in self.curators):
-            time.sleep(1)
         self.stories.stop_all()
         for pid in subprocess.run(["pgrep", "-P", str(os.getpid()), "-f", "^cc-(present|review) watch "], capture_output=True, text=True).stdout.split():
             os.kill(int(pid), signal.SIGTERM)
