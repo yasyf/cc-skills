@@ -320,7 +320,7 @@ function historyBlock(h) {
   if (!h) return '';
   const [e] = h.events;
   const quiet = Date.now() - new Date(e.ts) > 3600e3;
-  return `<section class="nw hist"><dl class="pg-facts"><dt>Who holds it now</dt><dd>${esc(e.holder)}</dd><dt>What is next</dt><dd>${esc(e.next)}</dd>${quiet ? `<dt>Why it has been quiet</dt><dd>${esc(h.quiet ?? 'Nobody has said.')}</dd>` : ''}</dl>
+  return `<section class="nw hist"><dl class="pg-facts">${e.holder ? `<dt>Who holds it now</dt><dd>${esc(e.holder)}</dd>` : ''}${e.next ? `<dt>What is next</dt><dd>${esc(e.next)}</dd>` : ''}${quiet ? `<dt>Why it has been quiet</dt><dd>${esc(h.quiet ?? 'Nobody has said.')}</dd>` : ''}</dl>
     <h2 class="nw-h">What happened, newest first</h2><ol class="evs">${h.events.map((x) => `<li><time>${clock(x.ts)}</time>${esc(x.text)}</li>`).join('')}</ol></section>`;
 }
 function hangNode(n) {

@@ -905,3 +905,14 @@ def test_findings_read_from_the_ledger_named_in_findings_json_and_a_missing_file
     assert [group["sweep"] for group in drive.read_findings()] == ["go-sweep-6", "owner"]
     assert asked == [("ledger", "show", "abc123", "--json")]
     assert "findings" not in drive.errors
+
+
+def test_a_release_record_becomes_the_newest_story_line_of_its_worker_once():
+    history = {"lane:release": {"events": [{"ts": "2026-10-30T13:14:00Z", "kind": "state", "text": "Release failed at its first step", "holder": None, "next": None}]}}
+    releases = [
+        {"lane": "release-5", "kind": "release", "at": "2026-10-30T13:26:00Z", "text": "Release started"},
+        {"lane": "release-5", "kind": "release", "at": "2026-10-30T13:14:00Z", "text": "Release failed"},
+    ]
+    events = server.with_releases(history, releases)["lane:release"]["events"]
+    assert [event["text"] for event in events] == ["Release started", "Release failed at its first step"]
+    assert len(history["lane:release"]["events"]) == 1

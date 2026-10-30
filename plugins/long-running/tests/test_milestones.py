@@ -114,6 +114,7 @@ def test_a_promised_time_written_in_words_is_shown_as_written():
 def test_several_blockers_give_one_next_step_and_count_the_rest():
     early = blocker(5, "R1", "release-5", "You: pick on the board", "First production release needs your pick", at="2026-10-30T04:04:00Z")
     late = blocker(6, "R1", "fixer", "Fixer: reruns the gate", "Gate fails at startup", at="2026-10-30T05:00:00Z")
+    early["fields"]["attrs"]["topic"], late["fields"]["attrs"]["topic"] = "release", "gate"
     rows = compute([FIRST], [], [late, early], [release(1, "10970 passed: api live")])
     assert rows[0]["waits"] == "First production release needs your pick (+1 more)"
     assert rows[0]["next"] == "You: pick on the board"

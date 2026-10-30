@@ -131,22 +131,27 @@ it as fields, never prose:
 | Since | The time the state began, with the last change and its time |
 | Why it matters | What waits behind it, shown only on a stop blocked over an hour |
 
-An open `blocker` record with a `milestone` attribute blocks that stop. The progress desk
+The newest `blocker` record for each `milestone` and `topic` pair blocks that stop
+until a newer one on the same topic carries `cleared`. The progress desk
 and the curator write its fields at twelve words or fewer each, as fragments:
 
 ```sh
 cci post --kind blocker --text 'First production release needs your pick' \
-  --attr milestone=R4 --attr owner=release-5 --attr since=2026-10-30T04:04:00Z \
+  --attr milestone=R4 --attr topic=release --attr owner=release-5 --attr since=2026-10-30T04:04:00Z \
   --attr 'next=You: pick on the board' --attr 'changed=card posted' \
   --attr 'why=The Mac app waits on this release'
 ```
 
 The text is the thing itself, never a sentence about it. `next` leads with who acts:
 you, a worker named by its job, or the release. `by` adds a promised time to it.
-`changed` is what changed last; reposting the blocker with a new `changed` updates
-it, and `since` keeps the time the problem started. Once the owner has picked, the
-blocker is resolved or reposted with what happens to his pick; it never says he
+`changed` is what changed last; reposting the blocker on its topic with a new
+`changed` updates it, and `since` keeps the time the problem started. Once the owner has picked, the
+blocker is cleared or reposted with what happens to his pick; it never says he
 answers the card.
+
+A story's facts show only the fields it has: an event with no holder or next step
+leaves those rows out. Every `release` record joins its worker's story within a
+minute, ahead of the progress desk's rewrite.
 
 The curator runs when a record that can change an answer arrives, when `steps.json`
 changes, or when the board changes. One run is in flight at a time, at most one starts

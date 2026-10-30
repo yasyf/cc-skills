@@ -209,6 +209,16 @@ def pr_state(pr, row, go_head, active, now):
     return "doing" if active or pr.get("test_state") == "pending" else "waiting"
 
 
+def with_releases(history, releases):
+    merged = {key: {**entry, "events": list(entry["events"])} for key, entry in history.items()}
+    for record in releases:
+        events = merged.setdefault("lane:" + re.sub(r"-\d+$", "", record["lane"]), {"events": []})["events"]
+        if all(event["ts"] != record["at"] for event in events):
+            events.append({"ts": record["at"], "kind": "release", "text": record["text"], "holder": None, "next": None})
+            events.sort(key=lambda event: event["ts"], reverse=True)
+    return merged
+
+
 def lean(records):
     return [{k: r[k] for k in CLIENT_RECORD if k in r} for r in records]
 
@@ -1046,6 +1056,7 @@ class Drive:
         workers = drive_workers(activity_records, model["prs"], progress["steps"], now)
         steps = step_rows(progress["steps"], drive, workers)
         releases = release_path(progress.get("now", {}).get("releases", []))
+        milestone_rows = self.milestone_state(drive["prs"], now)
         need_items = needs(board["rows"], board["cards"], model["story"].get("asks", []), board["url"], {entry["number"] for entry in drive["prs"] if entry["state"] == "landed"})
         return {
             **model,
@@ -1057,7 +1068,7 @@ class Drive:
             "parts": self.config["parts"],
             "now": {**progress.get("now", {}), "releases": releases},
             "steps_at": progress["updated"],
-            "history": progress.get("history", {}),
+            "history": with_releases(progress.get("history", {}), self.milestone_cache[2]),
             "pr_state": progress.get("pr_state", {}),
             "preventions": progress.get("preventions", []),
             "live": LIVE_SOURCES,
@@ -1072,7 +1083,7 @@ class Drive:
             "latest_words": self.words(),
             "evidence": live_evidence(self.evidences(), model["prs"], progress.get("pr_state", {}), model["records"]),
             "pages": without_finished_prs({name: curator.brief for name, curator in self.pages.items()}, model["prs"], progress.get("pr_state", {})),
-            "milestone_state": self.milestone_state(drive["prs"], now),
+            "milestone_state": milestone_rows,
             "milestones": [m["name"] for m in self.config["milestones"]],
             "milestones_label": self.config["milestones_label"],
             "views": self.config.get("views", {}),
