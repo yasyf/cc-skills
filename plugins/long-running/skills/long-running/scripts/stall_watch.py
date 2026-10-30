@@ -45,8 +45,13 @@ its ledger row names, it finds:
     red       the head's `landing.trunk_check` check, such as `buildkite/test`, has read failed for
               `stall.minutes.red`, counted from its ledger row's `red_at`, the refresh that first read
               the head's build red, held or not; it names the failed Buildkite job, its first error
-              line and the build, goes to root and the PR's lane as a `blocker`, and posts again every
-              30 minutes while it stands; a red trunk is the desk runner's DEV-RED, never a stall
+              line and the build, and goes as a `blocker` to the PR's owner alone, posting again every
+              30 minutes while it stands; the owner is the lane the newest root record that reassigns
+              the PR names (`reassigns #1 and #2 to lane-a; #3 to lane-b`), else its ledger row's lane;
+              a red no live lane owns goes to root once per head and never again; a red whose failed
+              job logged only Buildkite's benign step-export or meta-data 404 probe posts nothing
+              itself, and one `report` line a Pacific day names every such head to root; a red trunk
+              is the desk runner's DEV-RED, never a stall
     tap       the owner's board tap approves the head, and no go names it
     ungraded  a `head` record names the head, its build has read green for `stall.minutes.ungraded`, counted
               from its ledger row's `green_at`, and no finder review or no fidelity grade names it, whatever
@@ -120,7 +125,7 @@ posts once while it stands: `cci post --lane stall-watch --kind urgent --to root
 for a stale PR. A stall every owner of which is a desk, a lane named `<x>-desk` or `<x>-desk-<n>`, goes to
 its owners and not to root, except an `ungraded` one, which root always hears; one the desk runner owns goes
 to `landing.desk_lane` when the config names one.
-A `red` stall posts again every `REPEAT` while it stands. An id that no longer stands clears, and posts again if it stalls again, but never sooner than `REPEAT` after
+A `red` stall a live lane owns posts again every `REPEAT` while it stands. An id that no longer stands clears, and posts again if it stalls again, but never sooner than `REPEAT` after
 its last post; a source that does not read keeps the stalls it would have cleared. `stall.board_lane`, else the first `landing.board_lane`, else root, owns missing board rows. State lives in
 `stall-watch.json` beside `orca.desk_inbox`, under a lock a second pass meets by exiting. Each pass also
 writes `stack.json` there: one row per open PR with its head, base, the PR below it, its state and next
@@ -164,9 +169,12 @@ MODEL = "claude-sonnet-5-5"
 WINDOW_HOURS = 24
 MINUTES = {"go": 10, "refusal": 10, "successor": 20, "red": 2, "tap": 10, "ungraded": 10, "finder": 30, "fidelity": 30, "running": 25, "board": 15, "carry": 20, "lane": 30, "ask": 15, "gate": 30, "stale": 120}
 DESK_KINDS = frozenset({"finder", "fidelity"})
-ROOT_KINDS = frozenset({"ungraded", "red"})
+ROOT_KINDS = frozenset({"ungraded"})
 REPOSTED = frozenset({"red"})
-POST_KINDS = {"red": "blocker"}
+POST_KINDS = {"red": "blocker", "probe": "report"}
+REASSIGNS = re.compile(r"\breassign", re.IGNORECASE)
+CLAUSE = re.compile(r"[;\n]|\.\s")
+REASSIGNED_TO = re.compile(r"\bto\s+([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b")
 QUIET = timedelta(minutes=10)
 PR_KINDS = frozenset({"go", "refusal", "successor", "red", "tap", "ungraded", "finder", "fidelity", "board", "carry", "stale"})
 BOARD_KINDS = frozenset({"tap", "board", "carry"})
@@ -578,6 +586,7 @@ class Pass:
         self.tapped: set[str] = set()
         self.refused: set[str] = set()
         self.queues: dict[str, list[actions.Action]] = {}
+        self.probe_day = ""
 
     def tail(self, argv: list[str]) -> str:
         done = self.shell.run(argv)
@@ -596,6 +605,7 @@ class Pass:
 
     def run(self, dry_run: bool) -> int:
         saved = json.loads(self.watch.state.read_text()) if self.watch.state.is_file() else {"open": {}, "verdicts": {}}
+        self.probe_day = saved.get("probe_day", "")
         records = [record for record in cci.records(self.tail, self.watch.drive, since=actions.stamp(self.now - self.watch.window)) if record["drive"] == self.watch.drive]
         self.lane_newest = {record["lane"]: record for record in records}
         if (session := root_session(self.watch.drive)) is None:
@@ -617,7 +627,7 @@ class Pass:
         last = {key: stamp for key, stamp in saved.get("last", {}).items() if self.now - actions.parse_stamp(stamp) < REPEAT}
         failed = 0
         for stall in sorted(standing.values(), key=lambda stall: stall.since):
-            if stall.id in saved["open"] and (stall.kind not in REPOSTED or stall.id in last):
+            if stall.id in saved["open"] and (stall.kind not in REPOSTED or stall.owner == (ROOT,) or stall.id in last):
                 kept[stall.id] = saved["open"][stall.id]
                 print(f"open {stall.line(self.now)}")
                 continue
@@ -633,6 +643,8 @@ class Pass:
                 print(f"cci post exited {done.code} for {stall.id}: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
                 continue
             kept[stall.id] = {"kind": stall.kind, "since": actions.stamp(stall.since), "posted": done.out.strip()[:200]}
+            if stall.kind == "probe":
+                self.probe_day = stall.id.split(":", 1)[1]
             last[stall.id] = actions.stamp(self.now)
         heads = None if self.stack is None else {f"{found['pr']}:{short(found['head'])}" for found in self.stack}
         told = {key: stamp for key, stamp in saved.get("told", {}).items() if heads is None or key in heads}
@@ -649,7 +661,7 @@ class Pass:
                 told |= dict.fromkeys(fresh, actions.stamp(self.now))
         if not dry_run:
             staged = self.watch.state.with_name(f".{STATE}")
-            staged.write_text(json.dumps({"open": kept, "last": last, "verdicts": verdicts, "states": self.states, "told": told}, indent=1) + "\n")
+            staged.write_text(json.dumps({"open": kept, "last": last, "verdicts": verdicts, "states": self.states, "told": told, "probe_day": self.probe_day}, indent=1) + "\n")
             staged.replace(self.watch.state)
             if self.stack is not None:
                 stack = self.watch.state.with_name(drive.STACK)
@@ -820,6 +832,8 @@ class Pass:
         entries: list[dict] = []
         lanes: dict[str, str] = {}
         boards: dict[str, list[Stall]] = {}
+        probes: list[Stall] = []
+        reassigned = self.reassignments(records)
 
         def holding(pr: str) -> bool:
             return pr in held or bool(rows[pr].get("hold_until")) and actions.parse_stamp(rows[pr]["hold_until"]) > self.now
@@ -832,13 +846,13 @@ class Pass:
             head_at = at(announced[0]) if announced else None
             going = grades.gone_at(gos, pr, head)
             in_queue = any(named == pr and grades.names_head(sha, head) for named, sha in queued)
-            lane = lanes[pr] = row.get("lane") or next((record["lane"] for record in reversed(announced) if record["kind"] == "head"), ROOT)
+            lane = lanes[pr] = reassigned.get(pr) or row.get("lane") or next((record["lane"] for record in reversed(announced) if record["kind"] == "head"), ROOT)
             tapping = board is not None and board.shows(pr, head) and not board_rows.at_head(board.taps.get(pr), "rejected", head)
             readied = [at(record) for record in announced if record["kind"] == "ready" or READY.search(record["text"])]
             tap_at = min([*readied, *([live] if (live := board.live_at(pr, head)) else [])], default=None) if tapping else None
             entries.append(stack_row(pr, row, rows, lane, holding(pr) or pr in self.hold_gates, bool(going), in_queue, tapping) | {"head_at": head_at, "tap_at": tap_at})
             if red := self.red(pr, row, lane):
-                stalls.append(red)
+                (probes if red.kind == "probe" else stalls).append(red)
             if holding(pr):
                 continue
             subject = f"#{pr} at {short(head)}"
@@ -910,6 +924,7 @@ class Pass:
             quiet = self.handled(records, pr)
             if not (quiet and self.watch.board_lane in ROOT_NAMES):
                 boards.setdefault((downstack(rows, row) or [pr])[-1], []).append(Stall(f"board:{pr}:{short(head)}", "board", ready, subject, f"finder ok, fidelity ok and a green build since {pacific(ready)}, and the owner's board holds no row or card for it at this head{told}", (self.watch.board_lane,), f"put the merge row for {subject} on the owner's board", pr, quiet))
+        stalls += self.probe_line(probes, self.probe_day)
         for group in boards.values():
             first, *rest = sorted(group, key=lambda stall: len(downstack(rows, rows[stall.pr])))
             above = f"; {', '.join(f'#{stall.pr}' for stall in rest)} above it in its stack wait on their rows too" if rest else ""
@@ -930,14 +945,39 @@ class Pass:
         return stalls, questions, entries
 
     def red(self, pr: str, row: dict, lane: str) -> Stall | None:
+        """The red stall of `pr`'s head: its live owning lane's alone, reposted every `REPEAT`, or root's once per head when no live lane owns it; a red whose failed job logged only Buildkite's benign 404 probe is a `probe` stall the pass folds into one daily line."""
         required = self.watch.landing.get("trunk_check")
         failed = next((check for check in json.loads(row.get("failing_checks") or "[]") if check["name"] == required), None)
         if failed is None or not row.get("red_at") or self.now - (since := actions.parse_stamp(row["red_at"])) < self.watch.age("red"):
             return None
         subject = f"#{pr} at {short(row['head'])}"
+        if failed.get("probe"):
+            return Stall(f"probe:{pr}:{short(row['head'])}", "probe", since, subject, failed["url"], (lane,), "", pr)
         job = f" in job {failed['job']}" if failed.get("job") else ""
         error = f": {clip(failed['error'])}" if failed.get("error") else ""
-        return Stall(f"red:{pr}:{short(row['head'])}", "red", since, subject, f"{required} has read failed{job} since {pacific(since)}{error} ({failed['url']})", (lane,), f"fix the red build of {subject} and push", pr)
+        owned = lane not in ROOT_NAMES and self.lane_live(lane)
+        what = f"{required} has read failed{job} since {pacific(since)}{error} ({failed['url']})" + ("" if owned else f"; {lane} has posted nothing live in {int(self.watch.window.total_seconds() // 3600)} h")
+        return Stall(f"red:{pr}:{short(row['head'])}{'' if owned else ':root'}", "red", since, subject, what, (lane,) if owned else (ROOT,), f"fix the red build of {subject} and push" if owned else f"assign the red build of {subject} to a live lane", pr)
+
+    def probe_line(self, probes: list[Stall], posted: str) -> list[Stall]:
+        """One line a day, to root, naming every red head whose failed job logged only Buildkite's benign 404 probe, so its owner reruns CI at that head."""
+        day = self.now.astimezone(PACIFIC).date().isoformat()
+        if not probes or posted == day:
+            return []
+        named = "; ".join(f"{stall.subject} ({stall.owner[0]}, {stall.what})" for stall in probes)
+        return [Stall(f"probe:{day}", "probe", min(stall.since for stall in probes), f"{len(probes)} red heads", f"each failed job logged only Buildkite's benign step-export or meta-data 404 probe: {named}", (ROOT,), "each owner reruns CI at the same head; no code change")]
+
+    @staticmethod
+    def reassignments(records: list[dict]) -> dict[str, str]:
+        """Each PR a root record reassigns, such as `root reassigns #1 and #2 to lane-a; #3 to lane-b`, to the lane the newest such record names."""
+        owners: dict[str, str] = {}
+        for record in records:
+            if record["lane"] not in ROOT_NAMES or not REASSIGNS.search(record["text"]):
+                continue
+            for clause in CLAUSE.split(record["text"]):
+                if lane := REASSIGNED_TO.findall(clause):
+                    owners |= dict.fromkeys(PR_REF.findall(clause.rsplit(f"to {lane[-1]}", 1)[0]), lane[-1])
+        return owners
 
     def stale(self, entries: list[dict], saved: dict[str, dict], records: list[dict], stalled: set[str]) -> list[Stall]:
         if "stale" in self.unread:

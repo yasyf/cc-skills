@@ -210,6 +210,7 @@ WRAPPER_NOISE = (
     "running agent",
     "exited with code",
 )
+BK_PROBE = re.compile(r"failed to get (?:step|meta-data)")
 
 SHOW_COLUMNS = (
     ("pr", "key"),
@@ -762,15 +763,16 @@ def failing_checks(contexts: list[dict], repo: str) -> str:
 
 
 def with_errors(shell: Shell, checks: str, stored: str | None) -> str:
-    """Each failing check with `job`, the name of its failed Buildkite job, and `error`, that job's first error line, read once per check URL and kept from the stored row after that; a check outside Buildkite, or whose log read fails or names no failed job, carries neither and is read again on the next refresh (root #148571)."""
-    known = {check["url"]: check for check in json.loads(stored or "[]") if "job" in check}
+    """Each failing check with `job`, the name of its failed Buildkite job, `error`, that job's first error line, and `probe`, whether that line is only Buildkite's benign step-export or meta-data 404 probe, read once per check URL and kept from the stored row after that; a check outside Buildkite, or whose log read fails or names no failed job, carries neither and is read again on the next refresh (root #148571)."""
+    known = {check["url"]: check for check in json.loads(stored or "[]") if "probe" in check}
     enriched = []
     for check in json.loads(checks):
         if check["url"] in known:
-            check |= {"job": known[check["url"]]["job"], "error": known[check["url"]]["error"]}
+            check |= {name: known[check["url"]][name] for name in ("job", "error", "probe")}
         elif target := BUILDKITE_URL.match(check["url"]):
             try:
                 check["job"], check["error"] = resolve_error(shell, target)
+                check["probe"] = bool(BK_PROBE.search(check["error"]))
             except (subprocess.CalledProcessError, StopIteration):
                 pass
         enriched.append(check)
@@ -959,6 +961,8 @@ def failed_job(shell: Shell, pipeline: str, build: str, job_id: str | None) -> d
 
 
 def first_error_line(log: str) -> str:
+    """The log's first error line that is not a benign Buildkite step-export or meta-data 404 probe, else its first probe line."""
+    probe = ""
     for raw in log.splitlines():
         line = ANSI.sub("", BK_TIMESTAMP.sub("", raw)).strip()
         if not line or BK_SECTION.match(line) or BK_SOURCE_ECHO.match(line):
@@ -966,9 +970,11 @@ def first_error_line(log: str) -> str:
         lowered = line.lower()
         if any(noise in lowered for noise in WRAPPER_NOISE):
             continue
-        if ERROR_LINE.search(line):
+        if ERROR_LINE.search(line) and not BK_PROBE.search(line):
             return line
-    return ""
+        if ERROR_LINE.search(line):
+            probe = probe or line
+    return probe
 
 
 def resolve_error(shell: Shell, target: re.Match) -> tuple[str, str]:
