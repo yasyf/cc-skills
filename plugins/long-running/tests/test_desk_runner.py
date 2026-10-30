@@ -2732,6 +2732,20 @@ def test_a_hold_that_appears_after_the_gate_refuses_the_enqueue_with_one_line_na
     assert shell.enqueues() == []
 
 
+def test_an_open_incident_naming_the_pr_refuses_its_enqueue_naming_the_incident(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    incident = {"seq": 42, "drive": "d1", "lane": "incident-api-1", "kind": "incident", "status": "open", "to": ["root"], "refs": {}, "text": "INCIDENT api 5xx; the fix is #29020", "source": "post", "at": "2026-10-01T17:59:00Z"}
+    after_call(shell, is_check, lambda: shell.records.append(incident))
+    landing_pass(shell, config)
+    refused = [line for line in escalations(shell) if line.startswith("REFUSED refused:")]
+    assert len(refused) == 1 and "#29020 is held by open INCIDENT #42, whose lane squash-merges it directly" in refused[0]
+    assert shell.enqueues() == []
+    shell.records[-1] = {**incident, "status": "closed"}
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+
+
 def test_a_label_read_github_refuses_holds_the_enqueue(shell, config, tmp_path):
     lone_green_pr(shell)
     grade_gated_heads_ok(shell)
