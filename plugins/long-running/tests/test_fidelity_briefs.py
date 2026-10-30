@@ -73,6 +73,7 @@ def test_both_graders_hold_each_added_test_to_the_plan_line_it_rests_on():
     for name in ("finder-brief.md", "fidelity-desk-brief.md"):
         brief = " ".join((SKILL / "reference" / name).read_text().split())
         assert "pins unplanned behavior" in brief and "(e20e623)" in brief, name
+        assert "Every assertion the diff adds or changes in a test" in brief and "untouched assertions are dev's" in brief, name
         assert "behavior a plan line, sub-plan line, or owner ruling names" in brief, name
 
 
