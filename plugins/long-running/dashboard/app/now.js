@@ -107,14 +107,22 @@ function liveFeed(b) {
 const PREVENT_WORD = { none: 'No prevention yet', building: 'Being built', open: 'Fix open', merged: 'Merged', live: 'Live' };
 function preventions() {
   const list = state.model.preventions;
-  if (!list.length) return '';
+  const findings = state.model.findings ?? [];
+  if (!list.length && !findings.length) return '';
   const order = Object.keys(PREVENT_WORD);
   const table = (rows) => `<div class="pt"><div class="pt-head"><span>What failed</span><span>What stops it happening again</span><span>State</span><span>Owner</span><span>Due</span></div>${rows.map((p) => `<div class="pt-row ${p.state}"><b>${esc(p.failure)}</b><span>${esc(p.prevention ?? '')}${p.pr ? ` <span class="pr">${esc(p.pr)}</span>` : ''}</span><span><span class="chip pv-${p.state}">${PREVENT_WORD[p.state]}</span></span><span>${p.owner ? esc(workerName(p.owner)) : ''}</span><span>${p.due ? esc(clock(p.due)) : ''}</span></div>`).join('')}</div>`;
   const open = list.filter((p) => p.state !== 'live').sort((a, b) => order.indexOf(a.state) - order.indexOf(b.state));
   const live = list.filter((p) => p.state === 'live');
   return `<section class="nw-prevent"><h2 class="nw-h">What failed, and what stops it happening again</h2>
     ${open.length ? table(open) : ''}
-    ${live.length ? fold('pv-live', `Prevention live <span class="pg-n">${live.length}</span>`, table(live)) : ''}</section>`;
+    ${live.length ? fold('pv-live', `Prevention live <span class="pg-n">${live.length}</span>`, table(live)) : ''}
+    ${findings.map(findingTable).join('')}</section>`;
+}
+function findingTable(group) {
+  const picks = group.sweep === 'owner';
+  const title = picks ? 'Your picks not yet carried out' : `Open findings from ${esc(workerName(group.sweep))}`;
+  const rows = group.rows.map((f) => `<div class="pt-row fd-${f.state}"><b>${esc(f.text)}${f.line ? ` <span class="pr">${esc(f.line)}</span>` : ''}</b><span>${f.pr ? `<a href="${prHref(f.pr)}">#${esc(f.pr)}</a>` : ''}</span><span><span class="chip fd-${f.state}">${f.state === 'routed' ? 'Routed' : 'Open'}</span></span><span>${f.owner ? esc(workerName(f.owner)) : ''}</span><span>${esc(blockedFor(f.at))}</span></div>`).join('');
+  return `<h3 class="nw-fh">${title} <span class="pg-n">${group.rows.length}</span></h3><div class="pt fd"><div class="pt-head"><span>${picks ? 'Your answer' : 'Finding'}</span><span>Pull request</span><span>State</span><span>Owner</span><span>Open</span></div>${rows}</div>`;
 }
 function workOpen() {
   return stackOf().length > 0 && route().screen === 'work';
