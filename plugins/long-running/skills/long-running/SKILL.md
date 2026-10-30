@@ -1041,9 +1041,19 @@ through `comms-desk` or the R20 Slack lane.
 
 Every owner ask the drive blocks on goes on the root's cc-present board, except a
 per-PR merge ask under D3, which is the merge card (abddb9a). The root puts each
-question card on the board with `cc-present push` or `update-block`: the card's id is
-the question id, its title the question, and its one single-select `choice` holds the
-answers with exactly one `recommended`. The dashboard's Needs you lists every open
+question card on the board with one command, never a hand-built block or a cci ask to
+the board refresher:
+
+```bash
+drive.py ask-owner --title "<question>" --lede "<what he needs to decide>" \
+  --option "<answer>" --option "<answer>" --recommend <n> [--for <waiting lane>...]
+```
+
+It pushes `card-<id>` with `cc-present update-block --round current` to the root
+session's board: the title is the question, the lede its summary, and one single-select
+`choice` holds the 2 to 4 answers with exactly one `recommended`. It then opens one
+`ask` record naming the card to each `--for` lane, which the board recorder resolves
+on his tap, and refuses a card whose text names a change or record number. The dashboard's Needs you lists every open
 card, so nothing about it goes to Slack. Never an `AskUserQuestion`. The lane that
 asked stops on that item until the tap, and the root never parks waiting for it. Each card offers Other and `Explain more`
 (93037c3), so no card lists either among its answers. An `Explain more` tap resolves

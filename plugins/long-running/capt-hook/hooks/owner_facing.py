@@ -34,7 +34,7 @@ from captain_hook.cmd import Call
 from captain_hook.util import reqenv
 from pydantic import BaseModel
 
-from .compaction_handoff import CompactionState, ccn, drive_entry, post_blocker, rulings, script
+from .compaction_handoff import CompactionState, ccn, drive_entry, post_blocker, rulings, script, script_module
 from .nudges import once_per_hour, queue_nudge
 from .pr_ledger import lane_name
 from .register_injection import drive_args, incident_spawn, prose
@@ -125,20 +125,7 @@ PLAIN_ENGLISH = frozenset(
     version vm webhook worktree
     """.split()
 )
-PLAIN_FOR = {
-    "census box": "a temporary machine we delete afterwards",
-    "pass box": "a temporary machine we delete afterwards",
-    "lane": "worker",
-    "desk": "standing worker",
-    "watchdog": "the check that watches the workers",
-    "finder": "automated code review",
-    "slice": "the rules that apply here",
-    "fidelity grade": "check against your rules",
-    "read-back": "summary of your rules",
-    "merge card": "merge question",
-    "runner": "background script",
-    "sweep": "search",
-}
+PLAIN_FOR = script_module("overview").PLAIN_FOR
 UNREADABLE = (
     *IDS,
     (
