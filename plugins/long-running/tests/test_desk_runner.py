@@ -7272,17 +7272,18 @@ def test_while_graphite_is_down_an_admitted_chain_waiting_in_the_serial_merge_qu
     lone_green_pr(shell)
     shell.rows[0] |= {"test_state": "success", "green_at": actions.stamp(shell.clock)}
     shell.queue["29020"] = "not queued"
+    queue_drafts(shell, (40, True), (50, True))
+    landing_pass(shell, config)
     grade(shell, "29020", "ok F307 at cccc333.")
     merge_go(shell, "29020", "merge #29020 at cccc333")
-    queue_drafts(shell, (40, True), (50, True))
     shell.checks["29020"] = [{"name": "buildkite/test", "bucket": "pending"}]
     landing_pass(shell, config)
     shell.sleep(11 * 60)
     landing_pass(shell, config)
-    print(json.dumps({"posts": [(post["kind"], post["text"][:300]) for post in shell.posts], "calls": [call[:6] for call in shell.calls if call[:1] == ["gh"]][-40:], "enqueues": [(action.action_id, action.status, action.response) for action in enqueues_of(tmp_path).values()]}, default=str, indent=1), file=sys.stderr)
+    print(json.dumps({"posts": [(post["kind"], post["text"][:300]) for post in shell.posts], "enqueues": [(action.action_id, action.status, action.response) for action in enqueues_of(tmp_path).values()]}, default=str, indent=1), file=sys.stderr)
     assert direct_merges(shell) == []
     assert [post for post in shell.posts if post["kind"] == "state" and post["text"].startswith("QUEUE ")]
-    assert skipped(shell) == [], (skipped(shell), [(action.action_id, action.accepted_at, action.status, action.response) for action in enqueues_of(tmp_path).values()])
+    assert skipped(shell) == []
 
 
 def test_an_admitted_head_its_lane_was_told_about_draws_no_admitted_skipped(shell, config, tmp_path):
