@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,10 +43,13 @@ class LaneShell(ledger.Shell):
         if argv[:2] == ["cci", "post"]:
             self.posts.append(argv)
             return f"#{len(self.posts)}\n"
-        if argv[:3] == ["gh", "pr", "list"]:
-            return json.dumps(self.pulls.get(argv[argv.index("--head") + 1], []))
-        if argv[:3] == ["gh", "pr", "view"]:
-            return json.dumps({"headRefName": self.heads[argv[3]]})
+        if argv[:3] == ["gh", "api", "graphql"]:
+            heads = {f"p{pr}": {"headRefName": self.heads[pr]} for pr in re.findall(r"p(\d+): pullRequest\(number:", argv[4])}
+            pulls = {
+                alias: {"nodes": [{"number": pull["number"], "state": pull["state"], "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": pull["statusCheckRollup"]}}}}]}} for pull in self.pulls.get(json.loads(branch), [])]}
+                for alias, branch in re.findall(r'(b\d+): pullRequests\(headRefName: ("[^"]*")', argv[4])
+            }
+            return json.dumps({"data": {"repository": heads | pulls}})
         return super().run(argv, stdin)
 
 

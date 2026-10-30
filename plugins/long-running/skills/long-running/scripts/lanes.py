@@ -22,14 +22,19 @@ import json
 import re
 import subprocess
 from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import TypeVar
 
 import cci
 import ghread
 
 Run = Callable[[list[str]], str]
+Item = TypeVar("Item")
+Result = TypeVar("Result")
+WORKERS = 8
 WORKTREE_PATH = re.compile(r"(?<![\w/])(/[\w.~/-]*/(?:worktrees|workspaces)/[\w.-]+(?:/[\w.-]+)*)")
 DIRTY_NAMED = 5
 PULLS_SHOWN = 3
@@ -50,6 +55,7 @@ TEAMMATE = "in_process_teammate"
 TEAMMATE_STALLED = timedelta(hours=1)
 TRANSCRIPT_TAIL = 1 << 20
 TURN_ENTRIES = frozenset({"assistant", "user"})
+PULL_FIELDS = "nodes { number state commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { status conclusion } ... on StatusContext { state } } } } } } } }"
 
 
 @dataclass
@@ -65,6 +71,9 @@ class Worktree:
     pushed: str = "not pushed"
     pr: str = ""
     error: str = ""
+    ref: str = ""
+    head: str = ""
+    common: str = ""
 
     def line(self) -> str:
         if self.error:
@@ -109,6 +118,31 @@ def output(run: Run, argv: list[str]) -> str | None:
         return None
 
 
+def concurrently(work: Callable[[Item], Result], items: Iterable[Item]) -> list[Result]:
+    with ThreadPoolExecutor(WORKERS) as pool:
+        return list(pool.map(work, items))
+
+
+def repository(run: Run, repo: str, fields: str) -> dict:
+    """The `repository` object of one GraphQL read selecting `fields` from `owner/name`, keeping every alias that resolved when another did not."""
+    owner, _, name = repo.partition("/")
+    argv = ghread.read("api", "graphql", "-f", f"query=query {{ repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ {fields} }} }}")
+    try:
+        reply = run(argv)
+    except subprocess.CalledProcessError as error:
+        reply = error.output or ""
+    return (json.loads(reply or "{}").get("data") or {}).get("repository") or {}
+
+
+def pr_heads(run: Run, prs: list[tuple[str, str]]) -> dict[tuple[str, str], str]:
+    """Each PR's head branch, read with one GraphQL query per repository."""
+    numbers: dict[str, list[str]] = {}
+    for pr_repo, pr in prs:
+        numbers.setdefault(pr_repo, []).append(pr)
+    found = concurrently(lambda pr_repo: repository(run, pr_repo, " ".join(f"p{pr}: pullRequest(number: {pr}) {{ headRefName }}" for pr in numbers[pr_repo])), numbers)
+    return {(pr_repo, pr): head for pr_repo, pulls in zip(numbers, found) for pr in numbers[pr_repo] if (head := (pulls.get(f"p{pr}") or {}).get("headRefName"))}
+
+
 def record_paths(records: Iterable[dict]) -> list[str]:
     paths: list[str] = []
     for record in records:
@@ -138,14 +172,14 @@ def pool_worktrees(run: Run, checkout: Path) -> dict[str, tuple[str, str]]:
     """Each worktree of the drive's checkout and of every repository with a working copy under `~/.claude/worktrees`, mapped to its branch and its repository's name."""
     pool = Path.home() / ".claude" / "worktrees"
     anchors = [checkout, *(next((child for child in repo.iterdir() if (child / ".git").exists()), None) for repo in sorted(pool.iterdir()) if repo.is_dir())] if pool.is_dir() else [checkout]
+    anchors = list(filter(None, anchors))
+    firsts: dict[str, Path] = {}
+    for anchor, common in zip(anchors, concurrently(lambda anchor: (output(run, ["git", "-C", str(anchor), "rev-parse", "--path-format=absolute", "--git-common-dir"]) or "").strip(), anchors)):
+        if common:
+            firsts.setdefault(common, anchor)
     found: dict[str, tuple[str, str]] = {}
-    seen: set[str] = set()
-    for anchor in filter(None, anchors):
-        common = (output(run, ["git", "-C", str(anchor), "rev-parse", "--path-format=absolute", "--git-common-dir"]) or "").strip()
-        if not common or common in seen:
-            continue
-        seen.add(common)
-        for path, branch in listed_worktrees(run, anchor).items():
+    for common, listed in zip(firsts, concurrently(lambda anchor: listed_worktrees(run, anchor), firsts.values())):
+        for path, branch in listed.items():
             found.setdefault(path, (branch, repo_name(Path(path), pool, Path(common).parent.name)))
     return found
 
@@ -175,10 +209,11 @@ def lane_worktrees(lane: str, records: list[dict], receipts: Iterable[Path], che
     for path, (branch, _) in listed.items():
         if Path(path).name == lane or branch == lane or branch.endswith(f"/{lane}"):
             add(path, "git worktree list")
-    for pr_repo, pr in record_prs(records, repo) if repo else []:
-        head = json.loads(output(run, ghread.read("pr", "view", pr, "--repo", pr_repo, "--json", "headRefName")) or "{}").get("headRefName")
+    prs = record_prs(records, repo) if repo else []
+    heads = pr_heads(run, prs)
+    for pr_repo, pr in prs:
         for path, (branch, _) in listed.items():
-            if head and branch == head:
+            if (head := heads.get((pr_repo, pr))) and branch == head:
                 add(path, f"PR #{pr} head")
     for worktree in found.values():
         worktree.sources = list(dict.fromkeys(worktree.sources))
@@ -194,8 +229,8 @@ def ci_state(rollup: list[dict]) -> str:
     return "CI pending"
 
 
-def inspect(worktree: Worktree, trunk: str, repo: str, now: datetime, run: Run) -> Worktree:
-    """Fill in the worktree's branch, dirty files, commits ahead of `origin/<trunk>`, last commit, whether the origin branch holds HEAD, and the branch's newest PRs with an open one's CI state."""
+def inspect(worktree: Worktree, trunk: str, now: datetime, run: Run) -> Worktree:
+    """Fill in the worktree's branch, dirty files, commits ahead of `origin/<trunk>`, last commit, and the branch, HEAD, and repository `mark_pushed` and `mark_pulls` read."""
     path = str(worktree.path)
     status = output(run, ["git", "-C", path, "status", "--short", "--branch"])
     if status is None:
@@ -212,17 +247,51 @@ def inspect(worktree: Worktree, trunk: str, repo: str, now: datetime, run: Run) 
         worktree.commit, worktree.commit_minutes = subject, int((now - datetime.fromtimestamp(int(stamp), timezone.utc)).total_seconds() // 60)
     branch = head.removeprefix("## ").split("...")[0]
     if branch and not branch.startswith("HEAD "):
-        remote = (output(run, ["git", "-C", path, "ls-remote", "origin", f"refs/heads/{branch}"]) or "").split()
-        local = (output(run, ["git", "-C", path, "rev-parse", "HEAD"]) or "").strip()
-        worktree.pushed = "no origin branch" if not remote else "pushed" if remote[0] == local else f"HEAD not pushed, origin at {remote[0][:SHORT]}"
-    if branch and repo and not branch.startswith("HEAD "):
-        pulls = json.loads(output(run, ghread.read("pr", "list", "--repo", repo, "--head", branch, "--state", "all", "--limit", str(PULLS_SHOWN), "--json", "number,state,statusCheckRollup")) or "[]")
-        worktree.pr = ", ".join(f"PR #{pull['number']} {pull['state'].lower()}" + (f" {ci_state(pull.get('statusCheckRollup') or [])}" if pull["state"] == "OPEN" else "") for pull in pulls)
+        worktree.ref = branch
+        worktree.common, _, worktree.head = (output(run, ["git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir", "HEAD"]) or "").strip().partition("\n")
     return worktree
 
 
+def mark_pushed(worktrees: list[Worktree], run: Run) -> None:
+    """Set whether the origin branch holds each worktree's HEAD, from one `git ls-remote` per repository naming every branch."""
+    repos: dict[str, list[Worktree]] = {}
+    for worktree in worktrees:
+        if worktree.common:
+            repos.setdefault(worktree.common, []).append(worktree)
+
+    def origin_heads(group: list[Worktree]) -> dict[str, str]:
+        listing = output(run, ["git", "-C", str(group[0].path), "ls-remote", "origin", *dict.fromkeys(f"refs/heads/{worktree.ref}" for worktree in group)]) or ""
+        return {ref: sha for sha, _, ref in (line.partition("\t") for line in listing.splitlines())}
+
+    for group, remote in zip(repos.values(), concurrently(origin_heads, repos.values())):
+        for worktree in group:
+            sha = remote.get(f"refs/heads/{worktree.ref}")
+            worktree.pushed = "no origin branch" if not sha else "pushed" if sha == worktree.head else f"HEAD not pushed, origin at {sha[:SHORT]}"
+
+
+def mark_pulls(worktrees: list[Worktree], repo: str, run: Run) -> None:
+    """Name each branch's newest PRs in `repo` with an open one's CI state, from one GraphQL query covering every branch."""
+    branches = list(dict.fromkeys(worktree.ref for worktree in worktrees if worktree.ref))
+    if not repo or not branches:
+        return
+    found = repository(run, repo, " ".join(f"b{index}: pullRequests(headRefName: {json.dumps(branch)}, states: [OPEN, CLOSED, MERGED], first: {PULLS_SHOWN}, orderBy: {{field: CREATED_AT, direction: DESC}}) {{ {PULL_FIELDS} }}" for index, branch in enumerate(branches)))
+    named = {branch: ", ".join(pull_line(pull) for pull in (found.get(f"b{index}") or {}).get("nodes") or []) for index, branch in enumerate(branches)}
+    for worktree in worktrees:
+        worktree.pr = named.get(worktree.ref, "")
+
+
+def pull_line(pull: dict) -> str:
+    if pull["state"] != "OPEN":
+        return f"PR #{pull['number']} {pull['state'].lower()}"
+    rollup = next(iter(pull["commits"]["nodes"]), {}).get("commit", {}).get("statusCheckRollup") or {}
+    return f"PR #{pull['number']} open {ci_state((rollup.get('contexts') or {}).get('nodes') or [])}"
+
+
 def lane_status(lane: str, records: list[dict], receipts: Iterable[Path], checkout: Path, repo: str, trunk: str, now: datetime, run: Run, excluded: frozenset[str] = frozenset()) -> list[Worktree]:
-    return [inspect(worktree, trunk, repo, now, run) for worktree in lane_worktrees(lane, records, receipts, checkout, repo, run, excluded)]
+    worktrees = concurrently(lambda worktree: inspect(worktree, trunk, now, run), lane_worktrees(lane, records, receipts, checkout, repo, run, excluded))
+    mark_pushed(worktrees, run)
+    mark_pulls(worktrees, repo, run)
+    return worktrees
 
 
 def task_lanes(task: dict) -> set[str]:
