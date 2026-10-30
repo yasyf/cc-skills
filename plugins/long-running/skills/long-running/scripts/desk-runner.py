@@ -463,7 +463,9 @@ the other `landing.fidelity_lane` lanes as `fidelity: reader`. A pass whose job 
 record for the PR queues it again. `show` lists each queued and running pass.
 With `finder.sprite` or `fidelity.sprite` naming a Sprite, each pass runs there through `sprite-job.sh` at the same
 paths and posts its records over the drive's cci relay; the runner still writes the job, tracks the local process, and
-settles the pass from the result copied back.
+settles the pass from the result copied back. `finder.sprite_keys` or `fidelity.sprite_keys` maps each environment name the pass
+needs there, such as `OPENAI_API_KEY` or `GH_TOKEN`, to the command that prints its value here; sprite-job.sh runs
+each at start and hands the values to the pass's process through its standard input, never a file or an argument.
 Between orca passes the runner waits ten seconds, cut short within a quarter second by a desk
 inbox append or an exiting launch, and its sweep shows only dispatches it has not
 named for reclaim, once each in a `RECLAIM` line that names `gc` and then `orca.gc` for the worktrees.
@@ -1292,11 +1294,11 @@ def full_pass(action: actions.Action) -> bool:
     return json.loads(action.target).get("full", False)
 
 
-def job_argv(spec: dict, script: str, directory: Path) -> list[str]:
-    """The command that runs the desk job `directory` through `script`: here, or through sprite-job.sh on the Sprite the desk's `sprite` names."""
+def job_command(spec: dict, script: str, directory: Path) -> tuple[list[str], dict[str, str]]:
+    """The command and environment that run the desk job `directory` through `script`: here, or through sprite-job.sh on the Sprite the desk's `sprite` names, with the desk's `sprite_keys`, each an environment name to the command that prints its value, for sprite-job.sh to run at start."""
     if sprite := spec.get("sprite"):
-        return [str(SCRIPTS / "sprite-job.sh"), sprite, str(SCRIPTS / script), str(directory)]
-    return [sys.executable, str(SCRIPTS / script), str(directory)]
+        return [str(SCRIPTS / "sprite-job.sh"), sprite, str(SCRIPTS / script), str(directory)], {"SPRITE_JOB_KEYS": json.dumps(spec.get("sprite_keys", {}))}
+    return [sys.executable, str(SCRIPTS / script), str(directory)], {}
 
 
 def whole_minutes(start: datetime, end: datetime) -> int:
@@ -4431,7 +4433,8 @@ class Runner:
         deadline = self.now() + timedelta(minutes=spec.get("timeout_minutes", FINDER_MINUTES))
         if not self.book.attempt(FINDER, lambda incident: incident.start(action.action_id, self.now(), deadline=deadline, dispatch_id=str(directory))):
             return False
-        process = self.shell.spawn(job_argv(spec, "finder.py", directory), directory / finder.LOG, {})
+        argv, env = job_command(spec, "finder.py", directory)
+        process = self.shell.spawn(argv, directory / finder.LOG, env)
         (directory / finder.PID).write_text(f"{process.pid}\n")
         return True
 
@@ -4609,7 +4612,8 @@ class Runner:
         deadline = self.now() + timedelta(minutes=spec.get("timeout_minutes", FIDELITY_MINUTES))
         if not self.book.attempt(FIDELITY, lambda incident: incident.start(action.action_id, self.now(), deadline=deadline, dispatch_id=str(directory))):
             return False
-        self.shell.spawn(job_argv(spec, "fidelity.py", directory), directory / fidelity.LOG, {})
+        argv, env = job_command(spec, "fidelity.py", directory)
+        self.shell.spawn(argv, directory / fidelity.LOG, env)
         return True
 
     def settle(self, container: str, key: str, response: dict) -> None:
