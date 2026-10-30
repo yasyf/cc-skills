@@ -3241,16 +3241,14 @@ def test_a_pure_port_lands_on_a_root_go_with_no_board_tap_only_when_grade_and_go
 
 
 @pytest.mark.parametrize(("lane", "admitted"), [("go-sweep-5", True), ("go-sweep-6", True), ("p8a-step7", False)], ids=["configured-go-lane", "its-successor", "other-lane"])
-def test_a_pure_port_go_from_a_configured_go_lane_lands_like_a_root_go(shell, config, lane, admitted):
+def test_a_go_from_a_configured_go_lane_lands_like_a_root_go(shell, config, lane, admitted):
     merge_mode(config, "every")
     raw = json.loads(config.read_text())
-    raw["landing"] |= {"tap_rules": {"rule/82317b0": ["go/sand/next/*"]}, "go_lanes": ["go-sweep-5"]}
+    raw["landing"] |= {"go_lanes": ["go-sweep-5"]}
     config.write_text(json.dumps(raw))
-    shell.register = {"rule/82317b0": {"kind": "order", "status": "in-force"}}
     lone_green_pr(shell)
-    shell.files["29020"] = ["go/sand/next/vm/run.go"]
-    grade(shell, "29020", "ok cccc333 pure port, no interaction: it only ports old-tree #43020.")
-    merge_go(shell, "29020", "go port #29020 at cccc333", lane)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    merge_go(shell, "29020", "go #29020 at cccc333", lane)
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == ([["29020", "--partial"]] if admitted else [])
