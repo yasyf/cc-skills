@@ -14531,3 +14531,50 @@ def test_controller_entry_owns_and_closes_its_read_scope(shell, config, tmp_path
     for connection in readers:
         with pytest.raises(sqlite_store.sqlite3.ProgrammingError):
             connection.execute("SELECT 1")
+
+
+@pytest.mark.parametrize("history", [32, 10_000])
+def test_empty_rulings_report_does_not_decode_bus_history(shell, config, tmp_path, monkeypatch, history):
+    landing = landing_of(shell, config, tmp_path)
+    store = landing.book.store
+    with store.transaction(runner_module.LANDING) as current:
+        for index in range(history):
+            current.accept(f"history:{index}", "bus", json.dumps({"text": "old unrelated report"}), "history", shell.now())
+        current.accept("rulings:29020:aaaaaaa:remembered", "bus", json.dumps({"text": "the head is not held for it: an old cause"}), "history", shell.now())
+    costs = {"decoded_bytes": 0, "action_dtos": 0, "read_connections": 0, "sql_opcodes": 0}
+    loads, construct, connect = json.loads, actions.Action.load.__func__, store._connect
+    owner_thread = threading.get_ident()
+
+    def decoded(value, *args, **kwargs):
+        if threading.get_ident() == owner_thread:
+            costs["decoded_bytes"] += len(value.encode())
+        return loads(value, *args, **kwargs)
+
+    def built(cls, record):
+        if threading.get_ident() == owner_thread:
+            costs["action_dtos"] += 1
+        return construct(cls, record)
+
+    def opened(path, writable=False):
+        connection = connect(path, writable)
+        if not writable:
+            costs["read_connections"] += 1
+
+            def progress():
+                costs["sql_opcodes"] += 1
+                return 0
+
+            connection.set_progress_handler(progress, 1)
+        return connection
+
+    monkeypatch.setattr(json, "loads", decoded)
+    monkeypatch.setattr(actions.Action, "load", classmethod(built))
+    monkeypatch.setattr(store, "_connect", opened)
+    shell.calls.clear()
+    with store.reading():
+        assert landing.unwarned("29020", "a" * 40, []) == []
+        first = costs.copy()
+        assert landing.unwarned("29020", "a" * 40, []) == []
+    print(json.dumps({"history": history, "first_empty_report": first, "two_empty_reports": costs}))
+    assert costs == {"decoded_bytes": 0, "action_dtos": 0, "read_connections": 0, "sql_opcodes": 0}
+    assert not shell.calls
