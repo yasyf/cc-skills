@@ -8914,6 +8914,23 @@ def test_a_handoff_whose_runner_re_executes_into_this_version_under_its_pid_is_d
     assert shell.successors == [] and bool(stalled) is not in_place and runner.stop_marker().exists() is not in_place
 
 
+def test_a_handoff_of_a_runner_already_on_this_version_waits_for_it_to_exit_so_it_reloads_runner_json(shell, config, tmp_path, monkeypatch):
+    """cci #215987: three handoffs on Oct 30 took the 0.7.668 runner's routine alive record for an in-place re-execution, withdrew the stop, and left the edited runner.json unread."""
+    runner, held = live_runner(shell, config, tmp_path, "orca")
+    runner.post_alive("orca")
+    sleep = shell.sleep
+
+    def beats(seconds):
+        sleep(seconds)
+        runner.alive_posted.clear()
+        runner.post_alive("orca")
+
+    monkeypatch.setattr(shell, "sleep", beats)
+    with held:
+        assert cli(shell, config, "handoff", "--desk", "orca") == 1
+    assert runner.stop_marker().exists() and [line for line in escalations(shell) if line.startswith("HANDOFF-STALLED ")]
+
+
 @pytest.mark.parametrize("desk", ["orca", "landing"])
 def test_a_second_runner_on_the_same_config_and_desk_refuses_to_start_and_names_the_first(shell, config, tmp_path, capsys, desk):
     _, held = live_runner(shell, config, tmp_path, desk)
