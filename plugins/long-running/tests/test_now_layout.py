@@ -232,15 +232,18 @@ def test_the_milestones_show_the_state_computed_from_records_not_a_stale_summary
     assert page.locator(".nw-spine .sp .unb").all_inner_texts() == [f"Unblocking: {m['unblocking']}" for m in computed if m["blockers"]]
 
 
-def test_a_blocked_milestone_s_panel_names_its_blocker_and_how_long_it_has_held(page):
+def test_a_blocked_milestone_says_its_state_its_blocker_and_its_unblocking_once_each(page):
     now(page)
-    i, held = next((i, m) for i, m in enumerate(json.loads(MODEL.read_text())["milestone_state"]) if m["blockers"])
-    cards = page.locator(f'.nw-slot .pan[data-i="{i}"] .held .hc')
-    assert cards.count() == len(held["blockers"])
-    text = cards.first.text_content()
-    assert held["blockers"][0]["text"] in text
-    assert f"Unblocking: {held['blockers'][0]['next']}" in text
-    assert re.search(r"for \d+ (min|h|hours)", text)
+    model = json.loads(MODEL.read_text())
+    i, held = next((i, m) for i, m in enumerate(model["milestone_state"]) if m["blockers"])
+    block = page.locator(f'.nw-spine .sp[data-i="{i}"]').inner_text()
+    assert block.count(held["label"]) == 1
+    assert block.count(held["waits"]) == 1
+    assert block.count("Unblocking:") == 1 and held["unblocking"] in block
+    assert re.search(r"for \d+ (min|h|hours), since", block)
+    nodes = next(p for p in model["brief"]["paths"] if p["milestone"] == i)["nodes"]
+    shown = page.locator(f'.nw-slot .pan[data-i="{i}"] .chain .unb').all_text_contents()
+    assert shown == [f"Unblocking: {n['how']}" for n in nodes if n["state"] != "you"]
 
 
 def test_blockers_and_work_share_the_full_width_under_the_milestones(page):

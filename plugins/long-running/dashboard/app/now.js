@@ -141,7 +141,7 @@ function journey(b) {
   const html = `<div class="nw-panel">${progressLabel()}
     <div class="nw-journey nw-spine${lastPaint.stops === null ? ' fill' : ''}" style="--phase:-${Date.now() % 2400}ms;--n:${list.length};grid-template-columns:${weight.map((w) => `minmax(0, ${w}fr)`).join(' ')}">${list.map((s, i) => {
       const cls = ['sp', `ms-${s.state}`, i === cur && 'cur', i === focus && 'focus', i > 0 && i <= lastLive && 'l-on', i < lastLive && 'r-on', moved(s, i) && 'moved'].filter(Boolean).join(' ');
-      return `<div class="${cls}" data-i="${i}"><a class="ms ms-${s.state}${i === cur ? ' cur' : ''}" href="#/plan/m${i}"><span class="here">${i === cur ? 'Drive is here' : ''}</span><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.blockers.length ? unblockLine(s.unblocking) : ''}${waitsOnOwner(s) ? '<span class="need">Needs you</span>' : ''}</a>
+      return `<div class="${cls}" data-i="${i}"><a class="ms ms-${s.state}${i === cur ? ' cur' : ''}" href="#/plan/m${i}"><span class="here">${i === cur ? 'Drive is here' : ''}</span><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.blockers.length ? `<span class="when">${blockedFor(s.since)}</span><span class="why">${esc(s.waits)}</span>${unblockLine(s.unblocking)}` : ''}${waitsOnOwner(s) ? '<span class="need">Needs you</span>' : ''}</a>
         <div class="bd"><i class="stem"></i></div></div>`;
     }).join('')}</div>
     <div class="nw-slot" data-cur="${cur}" style="--hold:${hover.hold}px">${list.map((s, i) => `<div class="pan${i === focus ? ' focus' : ''}" data-i="${i}">${openStop(s, b, i === cur)}</div>`).join('')}</div>
@@ -191,13 +191,12 @@ function focusLane() {
   return s ? leadOf(s)?.item : null;
 }
 function openStop(s, b, cur) {
-  const held = s.blockers.length ? `<div class="held"><p class="hl">Blocked by</p>${s.blockers.map((x) => `<div class="hc ${s.state}"><span class="bar">${esc(s.label)}</span><span class="in"><b>${esc(x.text)}</b>${unblockLine(x.next)}<span class="when">${blockedFor(x.since)}</span></span></div>`).join('')}</div>` : '';
   const left = s.left.length ? `<div><p class="hl">What blocks it, nearest first</p><div class="chain">${s.left.map(hangNode).join('')}</div></div>` : '';
   const lead = leadOf(s);
   const work = s.work.length ? `<div><p class="hl">Work on it</p><div class="feed">${[lead, ...s.work.filter((w) => w !== lead)].map((w) => hangWork(w, w === lead)).join('')}</div></div>` : '';
   const done = s.done.length ? fold(`done${s.i}`, `Done so far <span class="pg-n">${s.done.length}</span>`, `<ul class="did">${s.done.map((n) => `<li>${esc(n.text)}</li>`).join('')}</ul>`) : '';
   const calm = s.state === 'live' ? 'Live. Nothing is left to do here.' : cur ? b.calm || 'Nothing is stuck.' : s.state === 'not' ? 'Not started yet.' : 'Nothing is in the way.';
-  return `<div class="nw-col ms-${s.state}">${held}${left || work ? `<div class="two">${left}${work}</div>` : `<div class="nw-calm"><span class="ok">✓</span>${esc(calm)}</div>`}${done}</div>`;
+  return `<div class="nw-col ms-${s.state}">${left || work ? `<div class="two">${left}${work}</div>` : `<div class="nw-calm"><span class="ok">✓</span>${esc(calm)}</div>`}${done}</div>`;
 }
 function tray(b) {
   const loose = placed(b).filter((w) => w.at < 0);
@@ -301,9 +300,9 @@ function historyBlock(h) {
     <h2 class="nw-h">What happened, newest first</h2><ol class="evs">${h.events.map((x) => `<li><time>${clock(x.ts)}</time>${esc(x.text)}</li>`).join('')}</ol></section>`;
 }
 function hangNode(n) {
-  const h = historyOf(rowKeys(n.item, n.change));
+  const h = n.change ? historyOf([`pr:${n.change}`]) : null;
   const when = h ? waited(n.since) : clockLine(n.since, nodeWord(n));
-  const how = n.state === 'you' ? (n.how ? `<span class="how">${esc(n.how)}</span>` : '') : unblockLine(h?.unblocking ?? n.how);
+  const how = n.state === 'you' ? (n.how ? `<span class="how">${esc(n.how)}</span>` : '') : unblockLine(n.how || h?.unblocking);
   return `<a class="hc ${esc(n.state)}" href="#/blocker/${encodeURIComponent(n.id)}"><span class="bar">${NODE_WORD[n.state]}</span><span class="in"><b>${esc(n.text)}</b>${how}${when ? `<span class="when">${when}</span>` : ''}${latestLine(h)}</span></a>`;
 }
 function hangWork(w, lead) {

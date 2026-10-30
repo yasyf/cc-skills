@@ -49,6 +49,8 @@
 .nw-journey .nm { font-size: 12.5px; line-height: 1.28; color: var(--ink); }
 .nw-journey .cur .nm { font-weight: 700; }
 .nw-journey .st { font-size: 11.5px; color: var(--ink2); margin-top: 2px; }
+.nw-journey .when { font-size: 11px; color: var(--ink3); }
+.nw-journey .why { font-size: 11.5px; line-height: 1.25; margin-top: 2px; }
 .nw-journey .ms-live .st { color: var(--done); }
 .nw-journey .ms-progress .st, .nw-journey .ms-next .st { color: var(--doing); }
 .nw-journey .ms-paused .st { color: var(--you); }
@@ -180,9 +182,8 @@
 .nw-col .chain .hc + .hc::after { content: ""; position: absolute; left: 50%; top: -20px; margin-left: -5px; border: 5px solid transparent; border-top: 0; border-bottom: 7px solid var(--ink3); }
 .nw-col .hc { --lit-tone: var(--ink2); position: relative; display: block; color: var(--ink); background: var(--panel-face); border: 1.5px solid var(--lit); border-radius: 10px; box-shadow: var(--depth), var(--lit-glow); }
 .nw-col .hc:is(.fixing, .st-building, .st-fixing, .st-investigating, .st-testing, .st-rolling-out) { --lit-tone: var(--doing); }
-.nw-col .hc:is(.you, .paused, .st-ready-for-you) { --lit-tone: var(--you); }
-.nw-col .hc:is(.nobody, .broken, .st-stuck) { --lit-tone: var(--bad); }
-.nw-col .held { margin-bottom: 14px; }
+.nw-col .hc:is(.you, .st-ready-for-you) { --lit-tone: var(--you); }
+.nw-col .hc:is(.nobody, .st-stuck) { --lit-tone: var(--bad); }
 .nw-col .hc:is(.done, .st-ready-to-merge, .st-passed, .st-finished) { --lit-tone: var(--done); }
 .nw-col a.hc:hover, .nw-col .hc.on { text-decoration: none; --lit: color-mix(in srgb, var(--lit-tone) 80%, transparent); }
 .nw-col .hc .bar { display: block; padding: 3px 11px; border-radius: 8px 8px 0 0; background: var(--lit-tone); color: #0b0e13; font: 700 10.5px/1.5 var(--sans); letter-spacing: .07em; text-transform: uppercase; }
