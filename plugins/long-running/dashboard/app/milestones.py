@@ -44,7 +44,7 @@ def release_events(releases, pattern):
     if not pattern:
         return None, None
     matching = [r for r in releases if re.search(pattern, r["text"])]
-    done = next((r for r in reversed(matching) if DONE.search(r["text"])), None)
+    done = next((r for r in matching if DONE.search(r["text"])), None)
     newest = matching[-1] if matching else None
     running = newest if newest and STARTED.search(newest["text"]) and not DONE.search(newest["text"]) and not FAILED.search(newest["text"]) else None
     return done, running

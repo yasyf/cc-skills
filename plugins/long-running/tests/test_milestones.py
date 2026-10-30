@@ -70,3 +70,8 @@ def test_a_reposted_blocker_keeps_the_time_the_problem_started():
     record["fields"]["attrs"]["since"] = "2026-10-30T01:58:00Z"
     rows = compute([FIRST], [], [record], [release(1, "10970 passed: api live")])
     assert rows[0]["since"] == "2026-10-30T01:58:00Z"
+
+
+def test_a_live_milestone_is_live_since_its_first_release():
+    rows = compute([FIRST], [], [], [release(1, "10970 passed: api live", at="2026-10-28T12:00:00Z"), release(2, "10980 passed: api live", at="2026-10-29T22:00:00Z")])
+    assert rows[0]["since"] == "2026-10-28T12:00:00Z"
