@@ -7,6 +7,7 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import ledger
 import pytest
@@ -1454,7 +1455,7 @@ def test_labelling_mid_stack_refuses_when_the_pr_above_is_untracked(capsys):
 
     assert label_stack(shell, "24002") == 1
     out = capsys.readouterr().out
-    assert "#24002's branch stack/24002 is the base of #24003, which no lane tracks in Graphite's stack record" in out
+    assert "#24002's branch stack/24002 is the base of #24003, which no lane tracks in a native GitHub stack or Graphite's stack record" in out
     assert shell.labelled == []
 
 
@@ -1473,8 +1474,27 @@ def test_a_tracked_child_outside_graphites_stack_record_refuses_the_prefix(capsy
 
     assert label_stack(shell, "24002") == 1
 
-    assert "is the base of #24003, which no lane tracks in Graphite's stack record" in capsys.readouterr().out
+    assert "is the base of #24003, which no lane tracks in a native GitHub stack or Graphite's stack record" in capsys.readouterr().out
     assert shell.labelled == []
+
+
+def test_a_green_bottom_prefix_is_labelled_under_a_tracked_native_stack_child(capsys):
+    shell = stack_shell(tracked=STACK)
+    shell.routes[f"checks:{'3' * 40}"] = "check-runs-no-graphite.json"
+    shell.pulls["24003"]["stack"] = {"number": 24010, "position": 3, "base": {"ref": "dev"}}
+
+    assert label_stack(shell, "24002") == 0
+
+    assert shell.labelled == ["24002:merge"]
+
+
+def test_trunk_removing_the_merge_label_is_an_ejection():
+    events = [
+        {"event": "labeled", "created_at": "2026-10-30T18:09:44Z", "label": {"name": "merge"}, "actor": {"login": "kentwalters"}},
+        {"event": "unlabeled", "created_at": "2026-10-30T18:10:07Z", "label": {"name": "merge"}, "actor": {"login": "trunk-io[bot]"}},
+    ]
+
+    assert ledger.queue_ejected(SimpleNamespace(api=lambda path: events), "45811") == "2026-10-30T18:10:07Z"
 
 
 def test_a_stack_whose_parent_closed_without_landing_is_refused(capsys):

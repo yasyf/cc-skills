@@ -102,6 +102,11 @@ def test_suggested_queue_kind_follows_explicit_repo_queue_selection(tmp_path, mo
     assert merge_queue.suggested_adapter(tmp_path)["kind"] == "trunk-stack-enqueue"
     monkeypatch.setattr(merge_queue.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout="", stderr=""))
     assert merge_queue.suggested_adapter(tmp_path)["kind"] == "graphite-stack-enqueue"
+    (tmp_path / merge_queue.CCX_CONFIG).parent.mkdir()
+    (tmp_path / merge_queue.CCX_CONFIG).write_text('[vcs]\nqueue = "trunk"\n')
+    assert merge_queue.suggested_adapter(tmp_path)["kind"] == "trunk-stack-enqueue"
+    monkeypatch.setattr(merge_queue.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="graphite\n", stderr=""))
+    assert merge_queue.suggested_adapter(tmp_path)["kind"] == "graphite-stack-enqueue"
 
 
 def test_native_dequeue_refuses_stale_head_instead_of_accepting_legacy_exit_one():

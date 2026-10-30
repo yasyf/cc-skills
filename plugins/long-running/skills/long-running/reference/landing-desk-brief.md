@@ -396,11 +396,12 @@ Rules that are not the tool's to enforce:
   - A green bottom prefix goes as one entry. On a native GitHub stack, register and
     submit the stack through `ccx vcs stack submit` (or `gh stack link`), never raw
     `gh pr` base retargeting alone; after a prefix lands atomically, check whether
-    GitHub already rebased the remaining stack before routing an explicit restack. On
-    a legacy Graphite stack, an open child outside the prefix must have a tracked
-    ledger row and a `Graphite / mergeability_check` check run so Graphite retargets
-    it when its parent lands; otherwise restack it through Graphite or retarget it to
-    the base branch BEFORE labelling (`gh api -X PATCH repos/<repo>/pulls/<n> -f base=<base>`).
+    GitHub already rebased the remaining stack before routing an explicit restack. An
+    open child outside the prefix must have a tracked ledger row and sit in its stack's
+    record, GitHub's `stack` field on the pull request or, on a legacy Graphite stack,
+    a `Graphite / mergeability_check` check run, so its parent's landing retargets it;
+    otherwise link it with `ccx vcs stack submit` or retarget it to the base branch
+    BEFORE labelling (`gh api -X PATCH repos/<repo>/pulls/<n> -f base=<base>`).
     After the prefix lands, the landing runner routes the first PR above it for
     a restack.
   - A closed PR still based on one of our branches keeps the stack graph and reds the

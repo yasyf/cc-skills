@@ -39,7 +39,7 @@
     ledger.py list    --ledger ID [--repo owner/name] [--lane NAME] [--open] [--json]
 
 STDLIB ONLY. A PR row exists because one of our lanes reported it, because it sits on a
-branch under a lane's registered prefix or in the Graphite stack of the worktree the lane registered from, or because refresh was handed its number; the
+branch under a lane's registered prefix or in the stack of the worktree the lane registered from, or because refresh was handed its number; the
 repository's PR list is never read and this script calls no GraphQL itself: ``refresh`` reads ``ccx vcs pr state``
 and ``watch`` subscribes through ``ccx vcs pr watch``, both over ccx's machine-wide pull request cache, one poll per
 repository at most every 30 seconds however many desks and lanes ask. Holds, routing, the label history, and the landing are fields on that row;
@@ -177,7 +177,7 @@ ASK_STATES = (*ASK_OVERRIDES, ASK_OPEN)
 ASK_ANSWERED = "answered"
 WAITING_REASONS = ("ungraded", "refused", "red", "held")
 UNROUTED_REFUSALS = ("moved", "fetched", "held", "labelled", "rules", "rules-pending")
-QUEUE_BOT = "graphite-app[bot]"
+QUEUE_BOTS = frozenset({"graphite-app[bot]", "trunk-io[bot]"})
 LANDED = "landed"
 CLOSED_WITHOUT_SQUASH = "closed-without-squash"
 SQUASH_SUBJECT = re.compile(r"\(#(\d+)\)$")
@@ -265,7 +265,7 @@ REFUSAL = {
     "unapproved": "#{pr} has no approval in force: a reviewer's latest decision must be APPROVED, never dismissed or withdrawn, and mergeable_state is no proxy",
     "reviewing": "ai-review still reviewing {head}; retry once its latest run completes",
     "ai-review": "ai-review is {state} on {head}; only success is labelled, and `neutral` is a held blocking finding whose reason is a review comment on the diff",
-    "children": "#{pr}'s branch {branch} is the base of {children}, which no lane tracks in Graphite's stack record; restack them through Graphite, or retarget them to {trunk} BEFORE labelling, or the branch delete closes them unrecoverably",
+    "children": "#{pr}'s branch {branch} is the base of {children}, which no lane tracks in a native GitHub stack or Graphite's stack record; link them with ccx vcs stack submit, or retarget them to {trunk} BEFORE labelling, or the branch delete closes them unrecoverably",
     "orphaned": "#{pr} is based on {base}, which is neither {trunk} nor exactly one open pull request's branch (found {found}); retarget it to {trunk}",
     "cycle": "#{pr} is its own ancestor through {stack}; retarget the stack to its trunk",
     "foreign": "#{pr} is in #{tip}'s stack, but no drive lane registered it in the ledger, by name or by a branch prefix or stack its branch is on, and it carries no drive label; the desk never enqueues a PR the drive did not admit",
@@ -679,10 +679,12 @@ def open_children(gh: Github, branch: str) -> list[dict]:
     return gh.api("pulls", base=branch, state="open")
 
 
-def graphite_stacked(gh: Github, rows: dict[str, dict[str, str]], child: dict) -> bool:
-    """A tracked child carrying Graphite's mergeability check is in Graphite's stack record, so the queue retargets it when its parent lands."""
+def stacked(gh: Github, rows: dict[str, dict[str, str]], child: dict) -> bool:
+    """A tracked child GitHub lists in a native stack, or carrying Graphite's mergeability check on a legacy Graphite stack, is in its stack's record, so its parent's landing retargets it."""
     if not is_tracked(rows.get(str(child["number"]), {})):
         return False
+    if child.get("stack"):
+        return True
     return bool(gh.api(f"commits/{child['head']['sha']}/check-runs", check_name=STACK_MERGEABILITY_CHECK, per_page=PAGE_SIZE)["check_runs"])
 
 
@@ -697,7 +699,7 @@ def queue_ejected(gh: Github, pr: str) -> str:
     ejected = [
         e["created_at"]
         for e in events
-        if e["event"] == "unlabeled" and e["label"]["name"] == MERGE_LABEL and e["actor"]["login"] == QUEUE_BOT
+        if e["event"] == "unlabeled" and e["label"]["name"] == MERGE_LABEL and e["actor"]["login"] in QUEUE_BOTS
     ]
     if ejected and (not labelled or ejected[-1] > labelled[-1]):
         return ejected[-1]
@@ -1448,7 +1450,7 @@ def stack_listing(shell: Shell, ccx: str, worktree: Path) -> dict:
 
 
 def lane_worktree(shell: Shell, args: argparse.Namespace) -> str:
-    """The working copy register runs in when its Graphite stack holds the lane's branch in the lane's repository, else empty."""
+    """The working copy register runs in when its stack holds the lane's branch in the lane's repository, else empty."""
     try:
         listing = stack_listing(shell, args.ccx, Path.cwd())
     except subprocess.CalledProcessError:
@@ -1905,7 +1907,7 @@ def guard(
     verdict = review["conclusion"] if review else AI_REVIEW_ABSENT
     if verdict != "success":
         raise refusal("ai-review", state=verdict, head=head[:9])
-    children = [str(child["number"]) for child in open_children(gh, pull["head"]["ref"]) if str(child["number"]) != above and not graphite_stacked(gh, rows, child)]
+    children = [str(child["number"]) for child in open_children(gh, pull["head"]["ref"]) if str(child["number"]) != above and not stacked(gh, rows, child)]
     if children:
         raise refusal("children", pr=pr, branch=pull["head"]["ref"], children=", ".join(f"#{c}" for c in children), trunk=trunk)
     if checkout:

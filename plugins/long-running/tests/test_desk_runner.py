@@ -922,6 +922,7 @@ def shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeShell:
 
 @pytest.fixture
 def config(tmp_path: Path, shell: FakeShell) -> Path:
+    (tmp_path / "checkout").mkdir()
     briefs = tmp_path / "lfs"
     briefs.mkdir()
     (briefs / "f85c00ba").write_text("Lane brief: rebase onto dev when asked; never touch production.\n")
@@ -6776,10 +6777,17 @@ def test_a_label_refusal_its_lane_must_fix_routes_as_the_adapters_blocker_and_a_
     assert ledger_calls(shell, "label") == [] and ledger_calls(shell, "route") == []
 
 
+def trunk_queue(landing: dict) -> None:
+    config = Path(landing["checkout"]) / ".claude/ccx.toml"
+    config.parent.mkdir()
+    config.write_text('[vcs]\nqueue = "trunk"\n')
+
+
 @pytest.mark.parametrize(
     ("change", "named", "member"),
     [
         (lambda landing: landing.pop("adapter"), "names no landing.adapter.kind", '"adapter": {"kind": "label"}'),
+        (trunk_queue, "names landing.adapter.kind graphite-stack-enqueue on a repository whose ccx queue is trunk", '"adapter": {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}'),
         (lambda landing: landing.update(adapter={"kind": "graphite-stack-enqueue"}), "names no landing.adapter.script", '"adapter": {"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}'),
         (lambda landing: landing.update(checks=["hold", "lint"]), "lists lint under landing.checks", '"checks": ["hold"]'),
         (lambda landing: landing.update(merge_mode="high-risk"), "runs merge mode high-risk with no landing.high_risk_paths globs", '"high_risk_paths": ["*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "*creds*"]'),

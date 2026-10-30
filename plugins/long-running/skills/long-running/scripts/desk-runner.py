@@ -8846,6 +8846,9 @@ def mq_config_fault(landing: dict) -> str:
     if adapter.get("kind") not in (merge_queue.TrunkStackEnqueue.kind, merge_queue.GraphiteStackEnqueue.kind, merge_queue.LabelEnqueue.kind):
         faults.append(f"names no landing.adapter.kind of {merge_queue.TrunkStackEnqueue.kind}, {merge_queue.GraphiteStackEnqueue.kind} or {merge_queue.LabelEnqueue.kind}, so the merge queue has no repository adapter")
         members.append(f'"adapter": {json.dumps(merge_queue.suggested_adapter(Path(landing["checkout"])))}')
+    elif adapter["kind"] == merge_queue.GraphiteStackEnqueue.kind and merge_queue.repo_queue(Path(landing["checkout"])) == merge_queue.TRUNK_QUEUE:
+        faults.append(f"names landing.adapter.kind {merge_queue.GraphiteStackEnqueue.kind} on a repository whose ccx queue is {merge_queue.TRUNK_QUEUE}, which only {merge_queue.TrunkStackEnqueue.kind} enqueues")
+        members.append(f'"adapter": {json.dumps({**adapter, "kind": merge_queue.TrunkStackEnqueue.kind, "script": adapter.get("script") or merge_queue.STACK_ENQUEUE})}')
     elif adapter["kind"] in (merge_queue.TrunkStackEnqueue.kind, merge_queue.GraphiteStackEnqueue.kind) and not adapter.get("script"):
         faults.append("names no landing.adapter.script, the stack-enqueue script relative to landing.checkout")
         members.append(f'"adapter": {json.dumps({**adapter, "script": merge_queue.STACK_ENQUEUE})}')

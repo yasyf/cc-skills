@@ -1399,11 +1399,14 @@ one long-lived lane, `landing-desk`, that takes those reports and reconciles lan
 
 Lanes never enqueue under D1. `desk-runner.py run --desk landing` is the drive's
 merge queue and owns D3, D14, D16, and D20, including for shards. It reaches the
-repository's queue through the adapter `landing.adapter` names in `runner.json`:
-`trunk-stack-enqueue` runs the repository's stack-enqueue helper for a repository with
-`ccx.queue` set to `trunk`, `graphite-stack-enqueue` runs the repository's own
-stack-enqueue script on a legacy Graphite queue, and `label` runs `ledger.py label`
-for a queue that takes the `merge` label. The landing desk never enqueues beside it.
+repository's queue through the adapter `landing.adapter` names in `runner.json`. The
+repository's queue is the one ccx selects: git config `ccx.queue`, else `[vcs] queue`
+in the checkout's `.claude/ccx.toml`. `trunk-stack-enqueue` runs the repository's
+stack-enqueue helper on a Trunk queue, over native GitHub stacks.
+`graphite-stack-enqueue` runs the same script on a legacy Graphite queue only; on a
+Trunk repository the runner refuses it and names `trunk-stack-enqueue` instead.
+`label` runs `ledger.py label` for a queue that takes the `merge` label, which is also
+Trunk's enqueueing label. The landing desk never enqueues beside it.
 The root owns holds and priority PRs under D3, and steers the queue with `mq.py`.
 It receives P0 lines immediately and a summary every 30 minutes.
 
@@ -1458,17 +1461,18 @@ Lanes record each report themselves with `ledger.py report --drive <drive>`: PR,
 
 Allowed `mergeable_state` values are `clean`, `behind`, and `has_hooks`; on a legacy Graphite stack, a PR above the bottom may also read `unstable` while Graphite's `mergeability_check` is its only unfinished check. `--expect-head` takes a lowercase hex prefix of the tip's sha, 7 to 40 characters long. An untracked downstack PR or an orphaned base refuses the whole attempt.
 
-On a legacy Graphite stack, an open child outside the prefix is allowed only when a lane tracks its ledger row and its head carries Graphite's `Graphite / mergeability_check` check run; restack any other child through Graphite or retarget it to the trunk before adding the label. `--expect-head` pins the tip you graded; each call re-reads its tip immediately before grading it. A report is not required; the forge decides whether a head is red or conflicting.
+An open child outside the prefix is allowed only when a lane tracks its ledger row and its stack records it: GitHub lists it in a native stack, the pull request's `stack` field, or on a legacy Graphite stack its head carries the `Graphite / mergeability_check` check run. Link any other child into its stack with `ccx vcs stack submit`, or retarget it to the trunk, before adding the label. `--expect-head` pins the tip you graded; each call re-reads its tip immediately before grading it. A report is not required; the forge decides whether a head is red or conflicting.
 
 `desk-runner.py run --desk landing` runs D3 as the drive's merge queue. `runner.json`
 names its adapter as `landing.adapter`: `{"kind": "trunk-stack-enqueue", "script":
-"<path to stack-enqueue under the checkout>"}` when `ccx.queue` is `trunk`,
+"<path to stack-enqueue under the checkout>"}` when the repository's ccx queue is `trunk`,
 `{"kind": "graphite-stack-enqueue", "script": "<path to stack-enqueue under the checkout>"}`
-for a legacy Graphite queue, or `{"kind": "label"}`. The native `trunk-stack-enqueue`
+for a legacy Graphite queue only, or `{"kind": "label"}`. The native `trunk-stack-enqueue`
 adapter consumes the helper's `GREEN`, `WAITING`, and `BLOCKED` prefix statuses plus the
 structured `tools/ci trunk status` `active` boolean and never guesses queue membership.
 The runner refuses to start with `MQ-CONFIG-INVALID` on an adapter, a check, or a high-risk
-setting it cannot run. Each pass fast-forwards the checkout
+setting it cannot run, including `graphite-stack-enqueue` on a repository whose ccx queue
+is `trunk`; the refusal names the `trunk-stack-enqueue` adapter that replaces it. Each pass fast-forwards the checkout
 to the remote trunk, so `landing.checkout` names a worktree only the runner uses;
 one its repository no longer lists, or one on a branch with no commit, is rebuilt
 at the trunk head in that pass and logs `MIRROR-REBUILT`; one that still cannot
@@ -1690,7 +1694,7 @@ The root records the pick as a cc-notes answer, `ccn answer add` with the questi
 verbatim and the label `program:<drive>`, and writes it to `runner.json` as
 `landing.merge_mode`, with the repository's high-risk globs as `landing.high_risk_paths`,
 and names the adapter as `landing.adapter`: `trunk-stack-enqueue` when the checkout carries
-`.agents/skills/submit-pr/scripts/stack-enqueue` and repo `ccx.queue` is `trunk`,
+`.agents/skills/submit-pr/scripts/stack-enqueue` and the repository's ccx queue is `trunk`,
 `graphite-stack-enqueue` when the checkout carries that script on a legacy Graphite queue,
 else `label`. The landing runner refuses to start without one of the three
 values and posts `MERGE-MODE-UNSET`. It re-reads the value on every use, so a later
@@ -3886,7 +3890,8 @@ holds prints `SKIP queued`, and every PR above it waits as `NOT-READY <sha> down
 until it lands. The first PR to fail stops the walk, and every PR above it prints
 `NOT-READY <sha> downstack #N` without reading its checks.
 
-When `LABEL_WATCH_QUEUE=trunk`, `label-watch.sh` delegates only `once` mode to the gated
+`LABEL_WATCH_QUEUE` defaults to the repository's ccx queue, so a Trunk repository needs no
+setting. When the queue is `trunk`, `label-watch.sh` delegates only `once` mode to the gated
 native `stack-enqueue` helper; its legacy mutable-file `watch` and hold-file modes refuse
 visibly for Trunk and direct callers to `mq.py` with `trunk-stack-enqueue`. On the legacy
 Graphite path, a stack's largest passing bottom prefix goes into the queue in one

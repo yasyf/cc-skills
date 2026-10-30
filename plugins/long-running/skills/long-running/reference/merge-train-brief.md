@@ -78,7 +78,7 @@ Do, one pass at a time, a pass at least every two hours and whenever a car repor
   7. Enqueue the whole train. A train lands whole: its cars are one batch by design.
      Eject every red car (step 6), poll the rest until every car is green,
      then enqueue the top car through the repository's configured adapter (`mq.py` with
-     `trunk-stack-enqueue` when `ccx.queue` is `trunk`, or `LABEL_WATCH_QUEUE=trunk label-watch.sh once <top-car>`
+     `trunk-stack-enqueue` when the repository's ccx queue is `trunk`, or `label-watch.sh once <top-car>`
      which delegates `once` mode to the gated native helper; on a label or legacy Graphite
      queue, run `ledger.py label --repo <repo> --ledger <id> --pr <top-car> --expect-head <sha> --checkout <checkout>`).
      The queue takes the train as one entry. Ejected cars ride the next train.
