@@ -528,6 +528,68 @@ def test_search_only_team_preserves_readable_config_and_binding_changes(tmp_path
         team.chmod(0o700)
 
 
+@pytest.mark.skipif(sys.platform != "darwin" or os.geteuid() == 0, reason="Darwin denied watch authority")
+def test_shared_denied_frontier_validates_each_path_and_child_once(tmp_path, monkeypatch):
+    shared = tmp_path / "shared"
+    nested = shared / "nested"
+    nested.mkdir(parents=True)
+    (nested / "config.json").write_text(json.dumps({"members": [{"name": "desk", "joinedAt": 1}]}))
+    teams = tmp_path / "teams"
+    teams.mkdir()
+    for number in range(32):
+        (teams / str(number)).symlink_to(nested, target_is_directory=True)
+    shared.chmod(0o111)
+    try:
+        with rosters.RosterIndex(tmp_path) as index:
+            assert_lookup(index, tmp_path, "desk")
+            assert len(index.unwatched) == 32
+            assert len(index.frontiers) == 1
+            opened = []
+            bound = []
+            original_open = os.open
+            original_binding = rosters.binding
+
+            def open(path, *args, **kwargs):
+                opened.append(path)
+                return original_open(path, *args, **kwargs)
+
+            def binding(path):
+                bound.append(path)
+                return original_binding(path)
+
+            monkeypatch.setattr(os, "open", open)
+            monkeypatch.setattr(rosters, "binding", binding)
+            before = dict(index.work)
+            for _ in range(3):
+                assert index.lookup("desk") is not None
+            assert opened == [shared] * 3
+            assert bound == [nested] * 3
+            assert dict(index.work) == before
+    finally:
+        shared.chmod(0o700)
+
+
+@pytest.mark.skipif(sys.platform != "darwin" or os.geteuid() == 0, reason="Darwin ACL authority")
+def test_cold_config_acl_restoration_recovers_without_mode_or_inode_change(tmp_path):
+    config = write(tmp_path, "acl", ("desk", 1))
+    before = config.stat()
+    subprocess.run(["chmod", "+a", f"user:{os.getuid()} deny read", str(config)], check=True)
+    try:
+        assert config.stat().st_mode == before.st_mode
+        with rosters.RosterIndex(tmp_path) as index:
+            with pytest.raises(PermissionError):
+                reference(tmp_path, "desk")
+            with pytest.raises(PermissionError):
+                index.lookup("desk")
+            subprocess.run(["chmod", "-N", str(config)], check=True)
+            after = config.stat()
+            assert (after.st_ino, after.st_mode) == (before.st_ino, before.st_mode)
+            assert_lookup(index, tmp_path, "desk")
+            assert index.frontiers == {}
+    finally:
+        subprocess.run(["chmod", "-N", str(config)], check=True)
+
+
 def test_symlink_parent_traversal_preserves_logical_root(helper, monkeypatch):
     actual = helper / "actual"
     (actual / "child").mkdir(parents=True)

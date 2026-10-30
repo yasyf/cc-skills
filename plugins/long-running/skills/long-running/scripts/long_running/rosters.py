@@ -45,6 +45,12 @@ class Watch:
 
 
 @dataclass
+class Frontier:
+    owners: set[str] = field(default_factory=set)
+    edges: dict = field(default_factory=dict)
+
+
+@dataclass
 class Lane:
     teams: dict[Path, list] = field(default_factory=dict)
     ordered: list = field(default_factory=list)
@@ -79,6 +85,7 @@ class RosterIndex:
         self.inodes = {}
         self.dependencies = {}
         self.unwatched = {}
+        self.frontiers = {}
         self.projections = {}
         self.errors = {}
         self.lane_errors = {}
@@ -167,10 +174,22 @@ class RosterIndex:
         return os.open(current, os.O_RDONLY | os.O_CLOEXEC)
 
     def commit_dependencies(self, owner: str, dependencies: dict, unwatched=None) -> None:
+        for path, edges in self.unwatched.pop(owner, {}).items():
+            frontier = self.frontiers[path]
+            frontier.owners.remove(owner)
+            for edge in edges.items():
+                frontier.edges[edge].remove(owner)
+                if not frontier.edges[edge]:
+                    del frontier.edges[edge]
+            if not frontier.owners:
+                del self.frontiers[path]
         if unwatched:
             self.unwatched[owner] = unwatched
-        else:
-            self.unwatched.pop(owner, None)
+            for path, edges in unwatched.items():
+                frontier = self.frontiers.setdefault(path, Frontier())
+                frontier.owners.add(owner)
+                for edge in edges.items():
+                    frontier.edges.setdefault(edge, set()).add(owner)
         previous = self.dependencies.get(owner, {})
         self.dependencies[owner] = dependencies
         for token, edges in previous.items():
@@ -298,24 +317,24 @@ class RosterIndex:
         dirty = set()
         # Only denied Darwin watch frontiers need query-time validation. Ordinary
         # healthy queries never inspect roster paths or retry watch opens.
-        frontiers = defaultdict(dict)
-        for owner, paths in self.unwatched.items():
-            for path, edges in paths.items():
-                frontiers[path][owner] = edges
-        for path, owners in frontiers.items():
+        for path, frontier in list(self.frontiers.items()):
             try:
                 fd = os.open(path, os.O_EVTONLY | os.O_CLOEXEC)
             except PermissionError:
-                for owner, edges in owners.items():
-                    if any(binding(child) != previous for child, previous in edges.items()):
-                        dirty.add(owner)
+                states = {}
+                for (child, previous), owners in frontier.edges.items():
+                    if child not in states:
+                        states[child] = binding(child)
+                    if states[child] != previous:
+                        dirty.update(owners)
             except OSError as error:
                 if error.errno not in (errno.ENOENT, errno.ENOTDIR, errno.ELOOP):
                     raise
-                dirty.update(owners)
+                dirty.update(frontier.owners)
             else:
                 dependencies = {}
                 token = self.watch(fd, path, ROOT, None, dependencies)
+                owners = set(frontier.owners)
                 for owner in owners:
                     updated = {key: list(edges) for key, edges in self.dependencies[owner].items()}
                     updated.setdefault(token, []).append(None)
