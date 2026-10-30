@@ -6831,8 +6831,8 @@ class Landing:
             touched = "".join(f" It touches your rule \"{sentence}\" Merging also allows it." for _, sentence in reserved)
             if self.landing_config.get("merge_ask_surface", "slack") == "board":
                 where = "on the root's board"
-            elif ts := self.merge_card(pr, heads[pr], f"{why}{touched}"):
-                where = f"on merge card ts {ts}"
+            elif card := self.merge_card(pr, heads[pr], f"{why}{touched}"):
+                where = f"on merge card {card}"
             else:
                 continue
             stale = self.stale_title(pr)
