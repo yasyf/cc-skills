@@ -977,6 +977,36 @@ def test_a_repeat_extends_its_row_counts_it_and_posts_its_sweep_hits_to_the_fide
     assert not list((state / "register").glob("repeat-*.json"))
 
 
+class RefusingPostShell(RegisterShell):
+    def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
+        if argv[:2] == ["cci", "post"] and "--path" in argv:
+            self.calls.append(argv)
+            raise subprocess.CalledProcessError(1, argv, "", "cci: no live lane fidelity-desk-15")
+        return super().run(argv, stdin, cwd)
+
+
+def test_a_repeat_whose_sweep_post_cci_refuses_warns_and_finishes_the_classify(
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
+) -> None:
+    """register-seed-6 #203695: cci refused the sweep post to fidelity desks that had not started, and the CalledProcessError aborted classify mid-batch."""
+    fidelity_desks(state)
+    captured(state, capture("5", "how many times: no parked worker on relay-server, and no relay hook either"))
+    shell = RefusingPostShell(seeded(package), records=LIVE)
+    entry = {"digest": "5" * 16, "extends": "rule/aaaaaaa", "words": "no parked worker on relay-server, and no relay hook either", "names": ["relay hook"]}
+
+    classified = tmp_path / "classified.json"
+    classified.write_text(json.dumps([entry]))
+
+    code = rulings.main(["classify", "--program", "brook", "--repo", REPO, str(classified)], shell)
+
+    said = capsys.readouterr()
+    assert code == 0, said.out
+    assert shell.rows["rule/aaaaaaa"]["said"] == "2"
+    [swept] = sweep_posts(shell, state)
+    assert "--force" in swept
+    assert "WARN the sweep hits of rule/aaaaaaa did not post to the fidelity desks (cci: no live lane fidelity-desk-15)" in said.err
+
+
 def test_a_repeat_in_a_drive_with_no_landing_runner_writes_its_sweep_hits_and_posts_them_to_no_one(
     home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
 ) -> None:

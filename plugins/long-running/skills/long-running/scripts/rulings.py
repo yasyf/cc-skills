@@ -1257,10 +1257,13 @@ def post_repeat(loaded: Register, cci: str, key: str, hits: list[str]) -> None:
     write_atomic(path, "\n".join([f"The owner repeated {key}. Each sweep hit of its names stays open until its line is deleted or an owner answer names it.", *hits]) + "\n")
     if not (lanes := fidelity_lanes(loaded)):
         return
-    argv = ["cci", "post", "--drive", cci, "--lane", "root", "--kind", "state", "--text", f"owner repeated {key}: {len(hits)} sweep hits, posted by classify", "--path", str(path)]
+    argv = ["cci", "post", "--drive", cci, "--lane", "root", "--kind", "state", "--force", "--text", f"owner repeated {key}: {len(hits)} sweep hits, posted by classify", "--path", str(path)]
     for lane in sorted(lanes):
         argv += ["--to", lane]
-    loaded.shell.run(argv)
+    try:
+        loaded.shell.run(argv)
+    except subprocess.CalledProcessError as failed:
+        print(f"WARN the sweep hits of {key} did not post to the fidelity desks ({(failed.stderr or '').strip() or failed}); they stay at {path}", file=sys.stderr)
 
 
 def applied(loaded: Register, captured: dict[str, dict], entry: dict, files: Callable[[], list[Path]]) -> dict:
