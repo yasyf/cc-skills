@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+import runpy
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+import drive
 from long_running import actions
 from long_running.book import Book
 
@@ -150,3 +153,14 @@ def test_current_malformed_container_is_not_hidden_by_a_read_view(tmp_path):
     store.path("runner").write_text("invalid")
     with pytest.raises(json.JSONDecodeError):
         store.actions("runner")
+
+
+def test_original_actions_script_keeps_installed_version_routing(monkeypatch):
+    script = Path(__file__).parents[1] / "skills/long-running/scripts/actions.py"
+    routed = []
+    monkeypatch.setattr(drive, "run_installed", routed.append)
+    monkeypatch.setattr(sys, "argv", [str(script), "--help"])
+    with pytest.raises(SystemExit) as exited:
+        runpy.run_path(str(script), run_name="__main__")
+    assert exited.value.code == 0
+    assert routed == [str(script)]
