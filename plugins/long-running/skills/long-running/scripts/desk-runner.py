@@ -1994,8 +1994,9 @@ class Runner:
     def reexec(self, desk: str) -> None:
         self.shell.reexec([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk])
 
-    def stop_marker(self) -> Path:
-        return self.config.source.with_name(f"{self.config.source.name}.stop")
+    def stop_marker(self, pid: int | None = None) -> Path:
+        """The file `handoff` writes to stop the runner `pid`, this process by default: one per runner, so the orca and landing runners on one config never remove each other's."""
+        return self.config.source.with_name(f"{self.config.source.name}.stop.{pid or os.getpid()}")
 
     def stop_requested(self) -> bool:
         marker = self.stop_marker()
@@ -2044,7 +2045,7 @@ class Runner:
             return 1
         pid = self.desk_holder(desk)
         if pid is not None:
-            marker = self.stop_marker()
+            marker = self.stop_marker(pid)
             marker.write_text(f"{pid}\n")
             asked = self.now()
             deadline = asked + HANDOFF_WAIT
