@@ -1748,7 +1748,12 @@ report naming itself (owner 9524276). The overflow sends a stack in whole once a
 is due, and a blocked enqueue five minutes old no longer keeps the stack out. The runner logs one `GO-UNQUEUED` per head still
 out only when its own newest enqueue of that head since the go ended blocked, failed,
 stranded or unsettled, or went in and the queue then evicted it, never for backlog, naming that
-outcome or the eviction's time and reason. A go'd head whose queue draft closed unmerged is
+outcome or the eviction's time and reason. A head the queue evicted before any enqueue gets one
+blocker to the root and its lane naming the eviction, and while Graphite is down it merges
+directly like a head the dead queue still holds. Every head a go or an exemption admits is,
+within ten minutes, queued, merging or refused by a record; one with none gets one
+`ADMITTED-SKIPPED` to the root and its lane naming the branch of the pass that left it out
+(owner, 5:16 AM Oct 30). A go'd head whose queue draft closed unmerged is
 dequeued once and enqueued afresh (`ORPHAN-RELEASED`), never `--recover`ed. The root clears that one
 thing in the same turn or spawns the lane that does. When the review bot's newest
 `ai-review` run on that head reads Held, the line says the bot holds it on N blocking

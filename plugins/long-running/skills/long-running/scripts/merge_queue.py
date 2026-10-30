@@ -73,9 +73,10 @@ LABEL_ROUTED = re.compile(
 )
 UNNAMED_RIDER = "rides the batch through"
 ROUTED_BLOCKER = re.compile(
-    r"^(?:graphite (?:FAILING\w*|MERGE_CONFLICTS)|unproven: |fidelity (?:failure|error):|conflicts with origin/|GitHub reads CONFLICTING|carries .* already squashed on|changes requested by |ejected from the merge queue)"
+    r"^(?:graphite (?:FAILING\w*|MERGE_CONFLICTS|EVICTED)|unproven: |fidelity (?:failure|error):|conflicts with origin/|GitHub reads CONFLICTING|carries .* already squashed on|changes requested by |ejected from the merge queue)"
 )
 BLOCKER_HINT = re.compile(r"^(?:run ccx vcs stack submit from|read the failure |.+, so the red check is its own$)")
+EVICTED_SEGMENT = "graphite EVICTED"
 STACK_ENQUEUE = ".agents/skills/submit-pr/scripts/stack-enqueue"
 LABEL_STATE = ("ccx", "vcs", "pr", "status")
 LABEL_IN_QUEUE = frozenset({"queued", "landed"})
@@ -217,6 +218,11 @@ class GraphiteStackEnqueue:
             return None
         text = "; ".join(segment for segment in kept if ROUTED_BLOCKER.match(segment) or BLOCKER_HINT.match(segment))
         return Blocker(text, bool(GITHUB_CONFLICT.search(text)))
+
+    def evicted_only(self, verdict: dict) -> bool:
+        """Whether a `BLOCKED` verdict says only that the queue dropped the head, with the submit hint stack-enqueue prints beside it, and nothing a lane must fix."""
+        found = segments(verdict)
+        return verdict["verdict"] == "BLOCKED" and EVICTED_SEGMENT in found and all(segment == EVICTED_SEGMENT or BLOCKER_HINT.match(segment) for segment in found)
 
     def classify(self, verdict: dict) -> dict[str, State]:
         if verdict["verdict"] in CLEAR:
@@ -385,6 +391,9 @@ class LabelEnqueue:
 
     def failing_required(self, verdict: dict) -> bool:
         return bool(LABEL_CI_FAILED.search(verdict["detail"]))
+
+    def evicted_only(self, verdict: dict) -> bool:
+        return False
 
     def blocker(self, verdict: dict, stack: set[str], gated_red: bool) -> Blocker | None:
         """`ledger.py label` names one refusal per PR, and only a red check, a conflict, an ai-review finding, or a stack shape the lane must fix routes to it; a red check is left out when `gated_red` says only gates and the base are red."""

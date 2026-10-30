@@ -7133,6 +7133,54 @@ def test_a_go_named_head_whose_queue_draft_closed_is_dequeued_once_and_never_rec
     assert not [post for post in blockers(shell) if "orphaned" in post_body(post)]
 
 
+EVICTED_GATE = "#33001 BLOCKED aaaa111111 graphite EVICTED; run ccx vcs stack submit from the branch's worktree: cd /w/g1 && ccx vcs stack submit"
+
+
+def test_a_go_named_head_the_queue_evicted_before_any_enqueue_gets_one_blocker_to_root_and_its_lane_naming_the_eviction(shell, config, tmp_path):
+    """Root #208430: #45286's gate read `graphite EVICTED` every pass from 6:42 PM, no rule routed that verdict, and nothing said why it sat out for 2 h 21 m."""
+    merge_mode(config, "every")
+    gone_green(shell, EVICTED_GATE)
+    shell.queue["33001"] = "evicted"
+    shell.pr_status["33001"] = {"evicted": "the batch it was included in timed out", "evicted_at": "Oct 30, 1:42 AM UTC"}
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [post] = blockers(shell)
+    assert "root" in post["to"].split(",") and LANE in post["to"].split(",")
+    assert post_body(post) == "#33001 aaaa111111: graphite EVICTED; run ccx vcs stack submit from the branch's worktree: cd /w/g1 && ccx vcs stack submit; the queue dropped it at Oct 30, 1:42 AM UTC: the batch it was included in timed out"
+    assert shell.enqueues() == []
+
+
+def skipped(shell: FakeShell) -> list[str]:
+    return [line for line in said(shell) if line.startswith("ADMITTED-SKIPPED")]
+
+
+def test_an_admitted_head_no_record_accounts_for_draws_one_admitted_skipped_naming_the_branch_ten_minutes_on(shell, config, tmp_path):
+    """Owner 5:16 AM Oct 30 on #45286, admitted and unqueued for two hours with no record: "make a durable fix for this not jsut a done-off" (root #208560). The gate reads a verdict no rule routes, so the pass leaves it out silently."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
+    shell.queue["33001"] = "not queued"
+    shell.sleep(9 * 60)
+    landing_pass(shell, config)
+    assert skipped(shell) == []
+    shell.sleep(2 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [line] = skipped(shell)
+    assert line.startswith("ADMITTED-SKIPPED admitted-skipped:33001 #33001: #33001 is green at aaaa111111 and root go #")
+    assert "yet no record says it is queued, merging or refused: the gate read aaaa111111 BLOCKED: merge conflict (graphite CONFLICT); owner lane api-fix" in line
+    assert "root" in heard(shell, "ADMITTED-SKIPPED")[0].split(",")
+
+
+def test_an_admitted_head_its_lane_was_told_about_draws_no_admitted_skipped(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, EVICTED_GATE)
+    shell.queue["33001"] = "evicted"
+    shell.sleep(11 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(blockers(shell)) == 1 and skipped(shell) == []
+
+
 def test_a_go_whose_newest_enqueue_shows_it_queued_draws_no_go_unqueued(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
@@ -13162,6 +13210,19 @@ def test_while_graphite_is_down_a_pr_its_dead_queue_still_holds_merges_directly(
     landing_pass(shell, config)
     assert direct_merges(shell) == [["gh", "pr", "merge", "29020", "--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit", "cccc333333"]]
     assert merged_records(shell) == ["MERGED #29020 at cccc333333 direct as 9999aaaa00, Graphite down, b530f5d: gh pr merge --squash"]
+
+
+def test_while_graphite_is_down_a_pr_the_queue_evicted_merges_directly_and_tells_no_lane(shell, config, tmp_path):
+    """Root #208430: the queue evicted #45286 at 6:42 PM, 8 minutes before the runner read Graphite down, and the direct merger offered only the would-enqueue and QUEUED PRs, so it sat green with a go for 2 h 21 m."""
+    lone_green_pr(shell)
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite EVICTED; run ccx vcs stack submit from the branch's worktree: ccx vcs stack submit from a checkout of a/3")]
+    shell.queue["29020"] = "evicted"
+    grade(shell, "29020", "ok F307 at cccc333.")
+    queue_drafts(shell, (40, True), (50, True))
+    shell.merge_commits["29020"] = "9999aaaa0000"
+    landing_pass(shell, config)
+    assert direct_merges(shell) == [["gh", "pr", "merge", "29020", "--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit", "cccc333333"]]
+    assert blockers(shell) == []
 
 
 @pytest.mark.parametrize("excluded", ["hold", "no-go", "red", "draft"])

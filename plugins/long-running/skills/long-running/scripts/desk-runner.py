@@ -278,7 +278,7 @@ on a side worker, never ahead of the gate, and its worktree removal on a worker 
 stall_watch reads to name a stack stuck past its step's budget. Every pass posts one `state` record to root on topic `landing-state`
 counting the queued, waiting, held and refused PRs, the workers running and the overflow's enqueues, with the pass's seconds.
 `GO-UNQUEUED` is raised only when the newest enqueue of a go'd head since its go ended blocked, failed, stranded or unsettled, or went in and the queue's merge activity then evicted it, naming that eviction's time and reason, never for
-backlog, and `OVERFLOW-STALLED` when the overflow thread finished no run in five minutes. A go'd head whose queue draft closed unmerged is taken out with the adapter's dequeue once per head, posting `ORPHAN-RELEASED`, and enqueued afresh, never `--recover`ed. Beside the passes, an overflow thread reads afresh every minute and puts straight
+backlog, `ADMITTED-SKIPPED` when a head a go or an exemption admits has, ten minutes on, no record saying it is queued, merging or refused, naming the branch of the pass that left it out, and `OVERFLOW-STALLED` when the overflow thread finished no run in five minutes. A go'd head whose queue draft closed unmerged is taken out with the adapter's dequeue once per head, posting `ORPHAN-RELEASED`, and enqueued afresh, never `--recover`ed. Beside the passes, an overflow thread reads afresh every minute and puts straight
 into the queue, with none of the runner's checks, each stack that has stayed green, named at its heads by a root go, unheld, unqueued
 and unrefused for five minutes, posting a QUEUED report that names the overflow (owner 9524276). Under `graphite-stack-enqueue` only (never `trunk-stack-enqueue`, where Trunk failures stay blocked or `UNKNOWN`), Graphite reads down when no queue
 draft from its app has opened in 15 minutes while the queue read holds a PR, or its two newest drafts are both still open 30 minutes after
@@ -702,6 +702,7 @@ RESERVED_TOUCH = "RESERVED-NO-ANSWER"
 CHECK_PR_BLOCKER = "BLOCKER"
 UNGRADED_AFTER = timedelta(minutes=30)
 GO_TO_QUEUE = timedelta(minutes=5)
+ADMISSION_AUDIT = timedelta(minutes=10)
 OVERFLOW = "overflow"
 OVERFLOW_AFTER = timedelta(minutes=5)
 OVERFLOW_EVERY = timedelta(minutes=1)
@@ -4963,6 +4964,7 @@ class Landing:
         self.bodies: dict[str, tuple[datetime, str]] = {}
         self.trunk_read: tuple[str, datetime, bool, dict] | None = None
         self.unchecked: set[str] = set()
+        self.skips: dict[str, str] = {}
         self.unproven_why: dict[str, str] = {}
         self.sessions: dict[str, bool] = {}
         self.live: list[dict] | None = None
@@ -5413,6 +5415,7 @@ class Landing:
                 kept.append(tree)
             else:
                 self.unchecked |= prs
+                self.skips |= {pr: f"the status read kept its stack unchecked: {', '.join(f'#{member} {statuses.get(member, {}).get('verdict') or 'unread'}' for member in sorted(prs, key=int))}" for pr in prs}
         return kept
 
     def settle_tree(self, rows: dict[str, dict], held: list[str], gated: list[tuple[list[str], merge_queue.Gate]]) -> None:
@@ -5429,10 +5432,12 @@ class Landing:
             if (would := self.direct_would(done)) is not None:
                 self.accept(tips, would, verdicts, rows, held)
             for pr, match in verdicts.items():
+                if match["verdict"] == "BLOCKED" and pr in rows:
+                    self.skips[pr] = f"the gate read {match['sha']} BLOCKED: {match['detail']}"
                 if match["verdict"] == "BLOCKED" and pr not in rows and self.adapter.rider(match):
                     if pr not in self.admit({pr: match["sha"]}):
                         self.runner.escalate(f"unnamed:{pr}@{match['sha']}", "FOREIGN", numbered(tips), f"#{pr} would ride the batch, and {NOT_ADMITTED}; nothing was enqueued; {ADMIT_HOW.format(pr=pr)}", "", self.routine_audience(tips, rows))
-                elif match["verdict"] == "BLOCKED" and pr in rows and pr not in covered:
+                elif match["verdict"] == "BLOCKED" and pr in rows and pr not in covered and pr not in (would or []):
                     stack = set(verdicts) | downstack(open_rows, pr)
                     if self.adapter.failing_required(match) and self.red_by_design(pr):
                         continue
@@ -5446,10 +5451,10 @@ class Landing:
                         self.route_blocker(pr, match["sha"], blocker, rows[pr], tips, stack, gated_red, self.adapter.failing_required(match))
 
     def direct_would(self, done: merge_queue.Gate) -> list[str] | None:
-        """The PRs a gate's prefix offers for landing: what the check would enqueue, and, while Graphite is down, every PR it reads queued in Graphite's dead queue too, bottom first, since nothing else merges them (root #202044)."""
-        if not self.down_since() or not (queued := {pr for pr, match in done.verdicts.items() if match["verdict"] == QUEUED_VERDICT}):
+        """The PRs a gate's prefix offers for landing: what the check would enqueue, and, while Graphite is down, every PR it reads queued in Graphite's dead queue or reads blocked only by that queue's eviction too, bottom first, since nothing else merges them (root #202044, #208430)."""
+        if not self.down_since() or not (dead := {pr for pr, match in done.verdicts.items() if match["verdict"] == QUEUED_VERDICT or self.adapter.evicted_only(match)}):
             return done.would
-        offered = queued | set(done.would or [])
+        offered = dead | set(done.would or [])
         return list(itertools.takewhile(lambda pr: pr in offered, done.verdicts)) or None
 
     def release_orphan(self, pr: str, row: dict, detail: str) -> None:
@@ -7529,7 +7534,7 @@ class Landing:
             tried = sorted((action for action in self.book.actions(LANDING, kind="enqueue") if head.startswith(enqueued_heads(action.action_id).get(pr) or "-") and actions.parse_stamp(action.accepted_at) >= at), key=lambda action: action.accepted_at)
             bot = self.review_bot(pr, head, row)
             evicted = (self.pr_statuses() or {}).get(pr, {}) if queue.get(pr) == "evicted" else {}
-            if not tried or (tried[-1].response or {}).get("outcome") not in GO_UNQUEUED_OUTCOMES and not evicted:
+            if not evicted and (not tried or (tried[-1].response or {}).get("outcome") not in GO_UNQUEUED_OUTCOMES):
                 continue
             if not evicted and any(match["pr"] == pr and match["verdict"] == QUEUED_VERDICT and head.startswith(match["sha"]) for match in merge_queue.VERDICT_LINE.finditer(tried[-1].response.get("out", ""))):
                 continue
@@ -7539,7 +7544,8 @@ class Landing:
             elif reserved:
                 why = f"it waits on his tap authorizing {', '.join(reserved)}, as MERGE-ASK says; a go never authorizes a reserved row (C224)"
             elif evicted:
-                why = f"the queue let it go at {evicted.get('evicted_at') or 'an unstamped time'} after its newest enqueue since the go ({tried[-1].response['outcome']}): {evicted.get('evicted') or 'no reason given'}"
+                after = f" after its newest enqueue since the go ({tried[-1].response['outcome']})" if tried else ", and no enqueue ran since the go"
+                why = f"the queue let it go at {evicted.get('evicted_at') or 'an unstamped time'}{after}: {evicted.get('evicted') or 'no reason given'}"
             else:
                 why = f"its newest enqueue since the go ended {tried[-1].response['outcome']}: {' '.join(tried[-1].response.get('out', '').split())[-300:]}"
             bottom = min(stack, key=lambda member: len(downstack(open_rows, member)))
@@ -7556,6 +7562,44 @@ class Landing:
             key, subject = f"go-unqueued:{pr}@{head}", f"go-unqueued:{pr}"
             to = self.go_audience([pr], rows)
             self.runner.escalate(key, "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and root go #{gos[0]['seq']} at {pacific(actions.parse_stamp(gos[0]['at']))} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}{waits}; owner lane {owner}", subject, to)
+
+    def audit_admitted(self, rows: dict[str, dict], held: list[str]) -> None:
+        """Escalate `ADMITTED-SKIPPED` to the root and the owning lane, once per head, for each open drive PR green at its ledger head that a root `go` or an exemption admits there, `ADMISSION_AUDIT` after it was admitted, that the pass's queue read finds neither queued nor landed (only landed counts while Graphite is down), that no stack worker holds, that sits on no parent `refuse_ungone_parents` names, and that no refusal of this runner or the desk lane, `GO-UNQUEUED` or failed direct merge names: the escalation says which branch of the pass last left it out, or that none recorded one (owner, 5:16 AM Oct 30; root #208560)."""
+        if (statuses := self.pr_statuses()) is None:
+            return
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
+        covered = under_hold(open_rows, held)
+        settled = {"landed"} if self.down_since() else STATUS_SETTLED
+        with self.dispatching:
+            busy = {pr for members, future in self.inflight.values() if not future.done() for pr in members}
+        now, gos = self.runner.now(), self.root_gos()
+        for pr, row in sorted(open_rows.items(), key=lambda item: int(item[0])):
+            head = row.get("head", "")
+            if not row.get("ours") or row.get("test_state") != "success" or not head or pr in covered or pr in busy or statuses.get(pr, {}).get("queue") in settled:
+                continue
+            if not (gos_at := gone_at(gos, pr, head)) and not self.exempt_admitted(pr, head)[0]:
+                continue
+            since = [min(max(actions.parse_stamp(go["at"]), actions.parse_stamp(go.get("graded_at") or go["at"])) for go in gos_at)] if gos_at else []
+            since += [actions.parse_stamp(row["green_at"])] if row.get("green_at") else []
+            if not since or now - (admitted := max(since)) < ADMISSION_AUDIT:
+                continue
+            stack = downstack(open_rows, pr)
+            if (stack - {pr}) & self.below_blocking or self.recorded(stack, open_rows, admitted):
+                continue
+            owner = self.owner(pr, row)
+            by = f"root go #{gos_at[0]['seq']}" if gos_at else "its exemption"
+            why = self.skips.get(pr) or "no branch of the landing pass recorded why it left it out"
+            self.runner.escalate(f"admitted-skipped:{pr}@{head}", "ADMITTED-SKIPPED", f"#{pr}", f"#{pr} is green at {head[:10]} and {by} admitted it {whole_minutes(admitted, now)} minutes ago, yet no record says it is queued, merging or refused: {why}; owner lane {owner or ROOT}", f"admitted-skipped:{pr}", ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])))
+
+    def recorded(self, members: set[str], open_rows: dict[str, dict], since: datetime) -> bool:
+        """Whether a record already accounts for a PR of `members` left out of the queue: a refusal `last_refusal` finds, or a `GO-UNQUEUED` or failed direct merge escalated since `since`."""
+        if self.last_refusal(members, open_rows, since):
+            return True
+        return any(
+            action.target.split()[0] == "GO-UNQUEUED" or action.target.startswith("DIRECT-MERGE-")
+            for action in self.book.actions(RUNNER, kind="escalation")
+            if actions.parse_stamp(action.accepted_at) >= since and any(re.search(rf"#{member}\b|\b{member}@", action.target) for member in members)
+        )
 
     def keep_overflowing(self) -> None:
         """Run `overflow` every `OVERFLOW_EVERY` from a daemon thread, on a Landing of its own that reads cci afresh, so no pass, however slow, holds a landable stack out of the queue (owner 9524276). An overflow that raises prints its traceback and the next one runs."""
@@ -8105,7 +8149,10 @@ class Landing:
         current = self.checked(tips).verdicts.get(pr)
         if not current or current["verdict"] != "BLOCKED" or self.adapter.blocker(current, stack, gated_red) != blocker:
             return
-        if parked:
+        if self.adapter.evicted_only(current):
+            status = (self.pr_statuses() or {}).get(pr, {})
+            self.post_blocker(key, ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])), f"#{pr} {sha}: {blocker.text}; the queue dropped it at {status.get('evicted_at') or 'an unstamped time'}: {status.get('evicted') or 'no reason given'}", pr)
+        elif parked:
             self.runner.escalate(f"{PARKED}:{pr}", "PARKED", f"#{pr}", f"{sha}: {owner} has no live dispatch or cci session, so its conflict routes to no one until the lane is back: {blocker.text}")
         elif earlier and (seq := POSTED_SEQ.match(earlier.response["posted"])):
             to = ",".join(self.reach(owner)) if owner else json.loads(earlier.target)["lane"]
@@ -8455,7 +8502,7 @@ class Landing:
         if held is not None:
             self.runner.steps(lambda: self.squash_incidents(rows, held))
             if gating:
-                self.runner.steps(lambda: self.gate(rows, barred, gone), self.enqueue, self.post_queue, lambda: self.unqueued_gos(rows, held), lambda: self.tell_unpassed(rows, held))
+                self.runner.steps(lambda: self.gate(rows, barred, gone), self.enqueue, self.post_queue, lambda: self.unqueued_gos(rows, held), lambda: self.tell_unpassed(rows, held), lambda: self.audit_admitted(rows, held))
         self.runner.overdue(LANDING, "landing")
 
 
