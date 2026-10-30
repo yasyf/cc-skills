@@ -5522,7 +5522,7 @@ def test_the_overflow_tries_a_blocked_enqueue_again_five_minutes_later(shell, co
     merge_mode(config, "every")
     gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
     shell.queue["33001"] = "not queued"
-    shell.enqueue_out["33001"] = (1, "#33001 BLOCKED aaaa111111 GitHub still computing mergeability; rerun on the next pass\nenqueued nothing: the bottom PR #33001 is BLOCKED\n")
+    shell.enqueue_out["33001"] = (1, "#33001 BLOCKED aaaa111111 CI running (graphite RUNNING)\nenqueued nothing: the bottom PR #33001 is BLOCKED\n")
     overflow = landing_of(shell, config, tmp_path)
     overflow.overflow()
     shell.sleep(6 * 60)
