@@ -401,7 +401,7 @@ class RegisterShell(ledger.Shell):
                 made = {"id": "4444444" + "0" * 33, "title": title, "body": body, "tags": labels[1::2]}
                 self.answers.append(made)
                 return json.dumps(made)
-            case ["cc-present", "outcomes", "--session", "s-root"]:
+            case ["cc-present", "outcomes", "--all", "--session", "s-root"]:
                 return json.dumps(self.board)
             case ["cc-present", "block", "show", block, "--session", "s-root"] if block in self.blocks:
                 return self.blocks[block]

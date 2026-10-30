@@ -4314,7 +4314,7 @@ class Runner:
         if self.now() - read < FINDER_TAPS_EVERY:
             return taps
         try:
-            verdicts = board_rows.verdicts_of(self.shell.run(["cc-present", "outcomes", "--no-doc", "--session", session])) if (session := self.root_session()) else {}
+            verdicts = board_rows.verdicts_of(self.shell.run(["cc-present", "outcomes", "--all", "--no-doc", "--session", session])) if (session := self.root_session()) else {}
         except board_rows.ReadFailed:
             verdicts = {}
         taps = {pr for rows in verdicts.values() for row, entry in rows.items() if entry["verdict"] == "approved" and (pr := board_rows.pr_of(row))}
@@ -6269,7 +6269,7 @@ class Landing:
         register = json.loads(done.out)["rows"] if done.code == 0 else None
         session = self.runner.root_session()
         try:
-            verdicts = board_rows.verdicts_of(self.present(["cc-present", "outcomes", "--no-doc", "--session", session])) if session else None
+            verdicts = board_rows.verdicts_of(self.present(["cc-present", "outcomes", "--all", "--no-doc", "--session", session])) if session else None
         except board_rows.ReadFailed:
             verdicts = None
         waits = {}
@@ -6534,7 +6534,7 @@ class Landing:
             self.runner.escalate("tap-carry:unset", "TAP-CARRY-FAILED", "landing", f"no drive registry entry for {self.runner.config.drive} names a root session, so no board tap carries to a restacked head | run `drive.py start --drive <drive> --ledger <ledger>` from the root session; the next pass carries them")
             return
         try:
-            verdicts = board_rows.verdicts_of(self.present(["cc-present", "outcomes", "--no-doc", "--session", session]))
+            verdicts = board_rows.verdicts_of(self.present(["cc-present", "outcomes", "--all", "--no-doc", "--session", session]))
         except board_rows.ReadFailed as failed:
             self.runner.escalate(f"tap-carry:unread:{hashlib.sha1(VOLATILE.sub('', str(failed)).encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", "landing", f"the root's board did not read ({failed}), so no tap carries to a restacked head this pass; the next pass reads it again")
             return

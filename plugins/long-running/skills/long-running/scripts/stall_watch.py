@@ -669,7 +669,7 @@ class Pass:
     def board(self, session: str | None) -> Board | None:
         if session is None:
             return None
-        done = self.shell.run(["cc-present", "outcomes", "--session", session])
+        done = self.shell.run(["cc-present", "outcomes", "--all", "--session", session])
         start = done.out.find("{")
         if done.code or start < 0:
             self.warn(BOARD_KINDS, f"cc-present outcomes exited {done.code}: {(done.err or done.out).strip()[:200]}")

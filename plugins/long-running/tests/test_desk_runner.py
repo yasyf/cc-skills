@@ -297,8 +297,10 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, f"url: http://127.0.0.1:4100/a/board\nslack: https://example.slack.com/archives/D0OWNER/p{ts.replace('.', '')}?thread_ts=1700000000.000100\n", "")
         if argv[:2] == ["codex-ask", "--cancel"]:
             return runner_module.Done(0, "", "")
-        if argv[:3] == ["cc-present", "outcomes", "--no-doc"]:
-            assert argv[3:] == ["--session", "s-root"]
+        if argv[:2] == ["cc-present", "outcomes"] and "--all" not in argv:
+            return runner_module.Done(0, json.dumps({"since": "last-submit", "interactions": [{"seq": 1, "type": "triage.decided", "payload": {}}]}), "")
+        if argv[:4] == ["cc-present", "outcomes", "--all", "--no-doc"]:
+            assert argv[4:] == ["--session", "s-root"]
             if self.board_error:
                 return runner_module.Done(1, "", self.board_error)
             return runner_module.Done(0, json.dumps({"interactions": {"triage": self.board}, "rounds": []}, indent=2), "")

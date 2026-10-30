@@ -38,6 +38,8 @@ class FakeShell(board_rows.Shell):
             query = argv[-1]
             found = {f"p{pr}": pull for pr, pull in self.pulls.items() if f"pullRequest(number: {pr})" in query}
             return board_rows.Done(0, json.dumps({"data": {"repository": found}}), "")
+        if argv[:2] == ["cc-present", "outcomes"] and "--all" not in argv:
+            return board_rows.Done(0, json.dumps({"since": "last-submit", "interactions": [{"seq": 1, "type": "triage.decided", "payload": {}}]}), "")
         if argv[:2] == ["cc-present", "outcomes"]:
             if self.outcomes_fail:
                 return board_rows.Done(1, "", "no board for this session")
