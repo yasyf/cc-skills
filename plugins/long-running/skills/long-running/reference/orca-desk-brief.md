@@ -731,8 +731,8 @@ it needs no restart. Each stall the pass finds reaches root once as an `urgent`
 the drive's `head` records past its saved sequence and queues one finder pass per PR and
 full head; two records naming one head queue it once. The newest queued head of each PR
 starts at once, beside the fidelity desks, while fewer than `finder.concurrent` run, and
-an older queued head of the same PR settles as superseded. A head some lane's `finder:`
-record already names starts nothing. Each pass runs `finder.py` detached, which runs
+an older queued head of the same PR settles as superseded. A head a `finder-desk`
+`finder:` record already names starts nothing. Each pass runs `finder.py` detached, which runs
 `codex-ask --schema findings` from `reference/finder-desk-brief.md` over the head's own
 commits against the base branch's current tip, or only since the head the PR's last finder
 record graded, skipping a patch-identical restack and a head the PR no longer carries, and posts `finder: ok <head> …` or
@@ -740,8 +740,8 @@ record graded, skipping a patch-identical restack and a head the PR no longer ca
 runner, whose landing check reads finder records by address. A pass
 that fails, whose process exits with no result, or that writes no result within
 `finder.timeout_minutes` frees its slot that pass and runs again, up to three attempts;
-the third failure posts one `FINDER-FAILED` to the root, and the lane then runs that head's
-pass by hand. A head the landing check refuses `FINDER-PENDING` with no finder record and
+the third failure posts one `FINDER-FAILED` to the root, and root asks `finder-desk` for
+`finder: whole` on the PR. A head the landing check refuses `FINDER-PENDING` with no finder record and
 no pass waiting or running queues one again. While passes wait and none settles for 15
 minutes, the runner posts one `FINDER-DESK-STALLED` to the root, naming how many wait and
 each running pass's age. `show` lists each queued and running pass.

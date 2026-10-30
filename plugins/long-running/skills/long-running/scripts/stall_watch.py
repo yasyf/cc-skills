@@ -872,7 +872,7 @@ class Pass:
             green = actions.parse_stamp(row["green_at"]) if row.get("green_at") else None
             ungraded = green is not None and self.now - green >= self.watch.age("ungraded")
             if not finders and ungraded:
-                stalls.append(Stall(f"finder:{pr}:{short(head)}", "ungraded", green, subject, f"its build has read green since {pacific(green)}, and no finder review names this head", (RUNNER if self.desk_runs(FINDER_DESK) else lane,), f"run the finder on {subject} and post its review", pr))
+                stalls.append(Stall(f"finder:{pr}:{short(head)}", "ungraded", green, subject, f"its build has read green since {pacific(green)}, and no finder review names this head", (RUNNER if self.desk_runs(FINDER_DESK) else lane,), f"ask finder-desk for `finder: whole` on {subject}", pr))
             elif not finders and self.now - head_at >= self.watch.age("finder"):
                 if started := self.overran(FINDER_DESK, pr, head):
                     stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", started, subject, f"the finder desk's pass on this head has run since {pacific(started)}", (RUNNER,), f"read `desk-runner.py show`, then stop and requeue the finder pass on {subject}", pr))

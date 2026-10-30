@@ -38,7 +38,7 @@ def head(seq: int, pr: str, sha: str, minutes_ago: float, text: str = "") -> dic
 
 
 def finder(seq: int, pr: str, sha: str, minutes_ago: float) -> dict:
-    return record(seq, "api-lane", "review", f"finder: ok at {sha[:7]}", minutes_ago, pr)
+    return record(seq, "finder-desk", "review", f"finder: ok at {sha[:7]}", minutes_ago, pr)
 
 
 def fidelity(seq: int, pr: str, sha: str, minutes_ago: float) -> dict:

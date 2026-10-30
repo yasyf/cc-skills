@@ -57,10 +57,9 @@ from pathlib import Path
 
 import drive
 import ghread
-from grades import FINDER_PASS, finder_grade, names_head, repo_prs
+from grades import FINDER_DESK, FINDER_PASS, finder_grade, names_head, repo_prs
 
 SCRIPTS = Path(__file__).resolve().parent
-BRIEF = SCRIPTS.parent / "reference" / "finder-brief.md"
 TEMPLATE = SCRIPTS.parent / "reference" / "finder-desk-brief.md"
 ROWS_STEP = SCRIPTS.parent / "reference" / "finder-desk-rows.md"
 SCOPED_STEP = (
@@ -68,7 +67,7 @@ SCOPED_STEP = (
     "   only when a hunk this pass reads breaks it, as one major finding whose defect starts\n"
     '   "row <key> missing:".'
 )
-LANE = "finder-desk"
+LANE = FINDER_DESK
 JOB = "job.json"
 RESULT = "result.json"
 LOG = "job.log"

@@ -252,7 +252,8 @@ may have left a remote worker: it becomes `unverifiable` and logs
 `SPRITE-UNVERIFIABLE` with that directory and the Task and Dispatch its `worker-start.json`
 names, and nothing is launched locally, retried, or cleaned up. A ready Sprite
 launch's receipts are copied beside the local ones. `run --desk landing` is the merge queue: it gates and enqueues ready
-prefixes under the accepted landing policy, verifies landings by squash, and routes
+prefixes under the accepted landing policy, verifies landings by squash, posting one `landed` record per PR and landing squash
+however many times the PR entered the queue, and routes
 blockers and restacks. Every queue call goes through the repository adapter `landing.adapter` names, from `merge_queue.py`:
 `graphite-stack-enqueue` runs the script `landing.adapter.script` names under the landing checkout, and `label` runs
 `ledger.py label`; the landing desk refuses to start with `MQ-CONFIG-INVALID` on an adapter, a check, or a high-risk setting it cannot run.
@@ -339,12 +340,11 @@ Any other head gets one cci `blocker` per head and grade, to the PR's lane and t
 that refuses a PR cuts the prefix below it: the PRs under the cut enqueue on their own with `--partial`, leaving the refused PR
 and every PR above it out, and the refused PR's blocker names it as the cut. Graphite keeps one linear chain per batch, so a
 prefix that forks enqueues one call per chain in the same pass, bottom chain first, each naming its top with `--partial`; a
-prefix stacked on an open fork outside it logs `FORK-DEFERRED` and waits until that fork lands. The `finder` check reads every review record that names the finder, from any lane, as a verdict in plain
-words: `finder: ok`, "no majors", "no findings" or "ok" pass, and `finder: major` or "N major" fail. The head is the record's first short
+prefix stacked on an open fork outside it logs `FORK-DEFERRED` and waits until that fork lands. The `finder` check reads only the finder desk's own review records, from `finder-desk` or a numbered successor, whose text opens
+`finder:`; a lane's reply that names a finder record never grades a head. `finder: ok` passes and `finder: major` fails. The head is the record's first short
 sha, or else the head the PR's newest `head` record named before it. The newest record naming the head must pass, unless a root `go` at
 that head came after it or a root `decision` replies to it, directly or along a chain of `--re` replies (rule 2cc5a1f3); a head with none,
-or whose newest fails, gets one `FINDER-PENDING` blocker per head and failing record to its lane and `finder-desk` (E4.1). A record the runner cannot read for a verdict or a head
-gets one `note` to its lane naming the line it reads. The `old-app` check reads a fidelity lane's `old-app: unchanged`, `old-app: bug fix` or
+or whose newest fails, gets one `FINDER-PENDING` blocker per head and failing record to its lane and `finder-desk` (E4.1). The `old-app` check reads a fidelity lane's `old-app: unchanged`, `old-app: bug fix` or
 `old-app: CHANGES` line, in a review or the body a fidelity grade spills to, at the head the finder rule reads; a head whose newest grade is
 neither of the first two, carried along a chain of fidelity carries, gets one `OLD-APP-PENDING` warning to its lane and the fidelity lanes and is not held for it.
 The `build-failed` check reads `landing.build_failures`: `tree`, a path prefix such as `go/sand/next/`; `context`, the Buildkite annotation
@@ -425,7 +425,7 @@ record is graded with no hand requeue. At most `finder.concurrent`
 passes (default 8) run at once and the rest wait queued; each PR's newest queued head starts, a lower ledger `priority` first, then longest waiting, and an older
 queued head of the same PR settles as superseded, and so does a running pass of it: the runner writes its job's `cancelled`
 mark and runs `codex-ask --cancel` on each codex run the pass started. Before it starts any, one fresh GraphQL read of every
-queued PR settles a head whose PR is closed, or no longer at that head, as skipped. A head some lane's `finder:` record already names starts nothing. A root
+queued PR settles a head whose PR is closed, or no longer at that head, as skipped. A head a `finder:` record of `finder-desk` already names starts nothing. A root
 `ask` to `finder-desk` that names a PR and says `finder: whole` queues one `full` pass of that PR that
 starts ahead of the rest and wins over its queued heads: it reads the PR's whole own change at its live head even when a record
 names that head, unless a whole-range finder record about the PR is newer than its newest `head` record. A pass
@@ -748,6 +748,7 @@ RELEASE_WITH = re.compile(r"^Release-With:[ \t]*(\S.*)$", re.MULTILINE)
 RELEASE_READ = "release-read"
 LANDED_READ = "landed-read"
 LANDED_TIDIED = "landed-tidied"
+LANDED_KEY = "landed:"
 DEQUEUE_READ = "dequeue-read"
 DEQUEUE_ORDERS = "dequeue-orders"
 PULLED_HEADS = "pulled-heads"
@@ -4278,7 +4279,7 @@ class Runner:
             self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_SETTLED: self.book.stamp()}))
 
     def start_finders(self, spec: dict, repo: str, rows: dict[str, dict]) -> None:
-        """Start the newest queued head of each PR, a requested full pass over any head, while fewer than `finder.concurrent` passes run: a lower ledger `priority` first, then full passes, then those a root `go` or an owner's board tap names, then heads of a PR a finder pass or a lane's finder record already graded, which carry or read only a delta, then the PR waiting longest, counted from the first of its heads a newer one superseded. An older queued head of the same PR settles as superseded, and so does a running pass of it, its codex run cancelled. A queued head whose PR is closed, or no longer at that head, or whose number names no PR, settles as skipped without a pass."""
+        """Start the newest queued head of each PR, a requested full pass over any head, while fewer than `finder.concurrent` passes run: a lower ledger `priority` first, then full passes, then those a root `go` or an owner's board tap names, then heads of a PR a finder pass already graded, which carry or read only a delta, then the PR waiting longest, counted from the first of its heads a newer one superseded. An older queued head of the same PR settles as superseded, and so does a running pass of it, its codex run cancelled. A queued head whose PR is closed, or no longer at that head, or whose number names no PR, settles as skipped without a pass."""
         newest: dict[str, actions.Action] = {}
         for action in sorted(self.book.actions(FINDER, kind="finder", status="accepted"), key=lambda action: (full_pass(action), json.loads(action.target)["seq"])):
             if (older := newest.get(pr := json.loads(action.target)["pr"])) is not None:
@@ -4366,7 +4367,7 @@ class Runner:
         return sorted((record for record in found if record["drive"] == drive), key=lambda record: record["seq"])
 
     def start_finder(self, spec: dict, repo: str, action: actions.Action, rows: dict[str, dict]) -> bool:
-        """Settle a head some lane's finder record already names, or a full pass a whole-range finder record posted after the PR's newest `head` record answered, or after the request when no `head` record names the PR, or write the pass's job and start finder.py on it detached, reading since the head the PR's newest finder record at another head read, or the whole change for a full pass."""
+        """Settle a head a finder desk record already names, or a full pass a whole-range finder record posted after the PR's newest `head` record answered, or after the request when no `head` record names the PR, or write the pass's job and start finder.py on it detached, reading since the head the PR's newest finder record at another head read, or the whole change for a full pass."""
         job = json.loads(action.target)
         full = full_pass(action)
         records = cci.records(self.cci_tail, self.config.drive, "--kind=review", "--kind=head", "--pr", f"{repo}#{job['pr']}")
@@ -4439,7 +4440,7 @@ class Runner:
         if not self.book.attempt(FINDER, lambda incident: incident.fail(action.action_id, why)) or self.requeue_finder(action.action_id.partition("#")[0], action.target, action.authority_ref):
             return
         log = Path(action.dispatch_id) / finder.LOG
-        self.escalate(f"finder:{job['pr']}:{job['head']}", "FINDER-FAILED", job["lane"], f"#{job['pr']} {job['head'][:12]}: the finder desk's pass failed on the last of its {FINDER_ATTEMPTS} attempts: {why}; its log is {log}; the lane runs the pass by hand from {finder.BRIEF}")
+        self.escalate(f"finder:{job['pr']}:{job['head']}", "FINDER-FAILED", job["lane"], f"#{job['pr']} {job['head'][:12]}: the finder desk's pass failed on the last of its {FINDER_ATTEMPTS} attempts: {why}; its log is {log}; root asks {finder.LANE} `finder: whole` on #{job['pr']} to run it again, since only its records grade a head")
 
     def requeue_finder(self, key: str, target: str, authority: str) -> bool:
         """Accept one more attempt at the finder job `key` names, `key` itself first and then `<key>#<n>`, while it has had fewer than `FINDER_ATTEMPTS`."""
@@ -6200,15 +6201,12 @@ class Landing:
             reviews = self.reviews = [*scanned, *cci.records(self.cci_tail.run, self.runner.config.drive, "--kind=review", "--kind=head", since=max((record["seq"] for record in scanned), default=0))]
         return reviews
 
-    def finder_reviews(self, pr: str) -> list[dict]:
-        """Every finder review about `pr`."""
-        return finder_reviews_in(self.scanned_reviews(), self.runner.config.drive, self.repo, pr)
-
     def finder_records(self, pr: str) -> list[dict]:
-        return finder_records(self.finder_reviews(pr))
+        """Every finder grade about `pr`: the finder desk's own `finder:` records."""
+        return finder_records(finder_reviews_in(self.scanned_reviews(), self.runner.config.drive, self.repo, pr))
 
     def finder(self, pr: str, sha: str) -> dict | None:
-        """The newest finder review record about `pr` naming `sha`, from whichever lane ran the pass (reference/finder-brief.md)."""
+        """The newest finder desk record about `pr` naming `sha`."""
         return newest_finder(self.finder_records(pr), sha)
 
     def finder_carried(self, pr: str, sha: str) -> bool:
@@ -6243,14 +6241,10 @@ class Landing:
         """Each head with no finder record, or whose newest names an open major that root has not settled, fails `FINDER-PENDING`, with one blocker to its lane and `finder-desk` per head and failing record (E4.1); a head with no finder record queues a finder pass when none waits or runs on it."""
         states, failed = {}, {}
         for pr, sha in graded.heads.items():
-            if graded.act:
-                for record in self.finder_reviews(pr):
-                    if not (record["grade"] and record["head"]):
-                        self.ask_finder_line(pr, record)
             if self.finder_clear(pr, sha):
                 continue
             verdict = self.finder(pr, sha)
-            why = f"{verdict['lane']} posted on cci #{verdict['seq']}: {verdict['text']}" if verdict else f"no `finder:` review record names this head; run the sol finder {finder.BRIEF} names and post its record"
+            why = f"{verdict['lane']} posted on cci #{verdict['seq']}: {verdict['text']}" if verdict else f"no `finder:` record from {finder.LANE} names this head, and a lane's own finder record never grades it"
             states[pr] = merge_queue.State(merge_queue.FAIL, f"FINDER-PENDING #{pr}: {why}")
             failed[pr] = f":{verdict['seq']}" if verdict else ""
         if graded.act:
@@ -6280,14 +6274,6 @@ class Landing:
                 return True
             answered.add(record["seq"])
         return False
-
-    def ask_finder_line(self, pr: str, record: dict) -> None:
-        key = f"finder-line:{record['seq']}"
-        if self.book.known(LANDING, key):
-            return
-        unread = "verdict" if not record["grade"] else "head"
-        text = f"#{pr}: cci #{record['seq']} names the finder, but the runner reads no {unread} in it. Post `finder: ok <head>` or `finder: major <head> <what is open>`, naming the head the finder read."
-        self.post_record("note", key, record["lane"], text, pr)
 
     def check_old_app(self, graded: Graded) -> dict[str, merge_queue.State]:
         """No head fails here (4236611, root #142277): each head whose newest `old-app:` grade from a fidelity lane, at that head or carried to it along a chain of fidelity carries, is not `unchanged` or `bug fix` gets one `OLD-APP-PENDING` warning per head and grade to its lane and the fidelity lanes (root #140437)."""
@@ -7400,15 +7386,21 @@ class Landing:
                 self.runner.escalate(key, "UNVERIFIABLE", f"#{prefix[-1]}", f"the queue holds {', '.join('#' + pr for pr in queued) or 'none'} of {', '.join('#' + pr for pr in prefix)}; nothing was re-enqueued")
 
     def verify(self, rows: dict[str, dict]) -> None:
-        for action in self.book.actions(LANDING, kind="enqueue", status="completed"):
+        """Verify each admitted enqueue whose PRs all read landed, and post one `landed` record per PR and landing squash, naming the newest enqueue that carried it, however many queue entries the runner recorded for it (p8a-step7 #202436)."""
+        announced = {landing for action in self.book.actions(LANDING, kind="bus") if action.action_id.startswith(LANDED_KEY) for landing in action.action_id.removeprefix(LANDED_KEY).split(",")}
+        for action in sorted(self.book.actions(LANDING, kind="enqueue", status="completed"), key=lambda action: action.accepted_at, reverse=True):
             prefix = action.target.split(",")
             if action.response["outcome"] not in ADMITTED or not all(rows.get(pr, {}).get("state") == "landed" for pr in prefix):
                 continue
             receipt = {"landed": {pr: rows[pr].get("landed_sha", "") for pr in prefix}, "at": self.book.stamp()}
             self.book.attempt(LANDING, lambda incident, key=action.action_id: incident.verify(key, receipt))
-            landed = ", ".join(f"#{pr} as {sha[:10]}" for pr, sha in receipt["landed"].items())
+            if not (fresh := {pr: sha for pr, sha in receipt["landed"].items() if f"{pr}@{sha}" not in announced}):
+                continue
+            landings = [f"{pr}@{sha}" for pr, sha in fresh.items()]
+            announced.update(landings)
+            landed = ", ".join(f"#{pr} as {sha[:10]}" for pr, sha in fresh.items())
             text = f"LANDED {landed}: through the merge queue, which the landing runner entered at {pacific(actions.parse_stamp(action.started_at or action.accepted_at))} with {self.queue_line(enqueued_heads(action.action_id))}"
-            self.post_record("landed", f"landed:{action.action_id}", self.landing_audience(prefix, rows, self.queue_audience(prefix, rows)), text, prefix[-1])
+            self.post_record("landed", LANDED_KEY + ",".join(landings), self.landing_audience(list(fresh), rows, self.queue_audience(list(fresh), rows)), text, list(fresh)[-1])
         for action in self.book.actions(LANDING, kind="enqueue", status="verified"):
             top = action.target.split(",")[-1]
             self.restack(top, rows)

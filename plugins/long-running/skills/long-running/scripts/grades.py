@@ -23,6 +23,8 @@ GRADER_LINES = ("fidelity:", "old-app:", "touches ")
 PORT_PHRASE = "pure port, no interaction"
 TEST_ONLY_PHRASE = "test-only or CI-only, no non-test code"
 TEST_ONLY_PHRASES = (TEST_ONLY_PHRASE, "test-only, no non-test code", "CI-only, no non-test code")
+FINDER_DESK = "finder-desk"
+FINDER_LINE = "finder:"
 FINDER_PASS = "ok"
 FINDER_FAIL = "major"
 FINDER_NAMED = re.compile(r"\bfinder\b", re.IGNORECASE)
@@ -307,15 +309,20 @@ def about_pr(record: dict, repo: str, pr: str) -> bool:
     return re.search(rf"#{pr}\b|\[{pr}\]", record["text"]) is not None
 
 
+def finder_desk_line(record: dict) -> bool:
+    """Whether `record` is a finder grade: a line the finder desk, or a numbered successor of it, posted opening `finder:`, never a lane's reply that names a finder record (root #202594)."""
+    return delegated(record["lane"], [FINDER_DESK]) and record["text"].startswith(FINDER_LINE)
+
+
 def finder_reviews_in(found: list[dict], drive: str, repo: str, pr: str) -> list[dict]:
-    """Every finder review in `found` about `pr`, with the verdict it reads as and the head it names, or the head the newest `head` record about `pr` before it posted."""
+    """Every review in `found` about `pr` that names the finder, the history a finder pass reads, with the verdict a finder grade reads as, empty for a lane's reply, and the head it names, or the head the newest `head` record about `pr` before it posted."""
     records = [record for record in found if record["drive"] == drive and record["kind"] in ("review", "head") and about_pr(record, repo, pr)]
     heads = [record for record in records if record["kind"] == "head"]
     reviews = []
     for record in records:
         if record["kind"] != "review" or not FINDER_NAMED.search(record["text"]) or record["text"].startswith(GRADER_LINES):
             continue
-        reviews.append(record | {"grade": finder_grade(record["text"]), "head": head_named(record, heads)})
+        reviews.append(record | {"grade": finder_grade(record["text"]) if finder_desk_line(record) else "", "head": head_named(record, heads)})
     return reviews
 
 

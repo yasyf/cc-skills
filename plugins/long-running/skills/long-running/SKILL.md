@@ -1531,7 +1531,8 @@ name or a list of lane names when grading is sharded. The runner re-reads the la
 to start without `landing.fidelity_lane` and posts `FIDELITY-LANE-UNSET` to the root.
 
 The `finder` check needs the newest `finder:` review record naming the head, from
-any lane, to read `finder: ok`. A head with none, or whose newest is `finder: major`,
+`finder-desk` or a numbered successor, to read `finder: ok`; a lane's own record or a
+reply naming a finder record never grades a head. A head with none, or whose newest is `finder: major`,
 gets one `FINDER-PENDING #<n>` blocker per head to its lane and `finder-desk`. A finder pass answers a
 major with a new head's record or a later `finder: ok <head7> answered: <how>`.
 
@@ -1552,11 +1553,11 @@ carry of a settled record. Only a root `ask` to `finder-desk` saying `finder: wh
 whole-PR pass; a `decide` never does. A
 head the PR no longer carries when the pass starts or finishes posts nothing. It posts
 `finder: ok <head>` or `finder: major <head> <n> open: …` under lane `finder-desk` to
-the head's lane. A head reaches the finder once, a head some lane's
-finder record already names gets no second pass, and the runner holds at most
+the head's lane. A head reaches the finder once, a head a `finder-desk`
+record already names gets no second pass, and the runner holds at most
 `concurrent` passes at once, queueing the rest. A failed pass, or one whose process
 exited with no result, frees its slot and runs again, up to three attempts; the third
-failure is one `FINDER-FAILED` to root, and the lane runs that head's pass by hand. A
+failure is one `FINDER-FAILED` to root, and root asks `finder-desk` for `finder: whole` on the PR. A
 `FINDER-PENDING` head with no pass waiting or running queues one again, and passes left
 waiting 15 minutes with none settling are one `FINDER-DESK-STALLED` to root. `finder-desk` posts once per pass, so `LANE-GONE` never counts it
 as a lane.
