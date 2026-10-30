@@ -250,6 +250,35 @@ def test_gos_stacked_on_one_parent_post_once_naming_the_parent_and_a_held_parent
     assert "root gos name #202, #203 in the stack from #201, and no QUEUED record does | owner root | #201 at abc1234 has no go, and a stack enqueues from the bottom" in shell.post("go:201:abc1234")["text"]
 
 
+def test_a_root_decide_that_opens_with_a_go_at_the_head_counts_as_its_go(config):
+    """Root #202036 went to #44922 at 519ea97 as a decide opening `go ... TAP-KEPT`, and the watch still raised go and carry stalls on that head (#202033, #202103)."""
+    records = [record(1, "root", "go", f"go #202 at {OTHER[:7]}", 30), record(2, "root", "decide", f"12:32 AM go #201 at {HEAD[:7]} TAP-KEPT: no new behavior since the tap at {OLD[:7]}", 30)]
+    shell = FakeShell(records, [row("201"), row("202", OTHER, base="b201")])
+
+    watch(shell, config)
+
+    assert shell.topics() == []
+
+
+def test_a_pr_below_a_go_that_waits_only_on_the_owners_tap_is_no_go_stall(config):
+    """#200414 raised a go stall to root for #45334, whose merge row already waited on the owner's tap."""
+    shell = FakeShell([record(1, "root", "go", f"go #202 at {OTHER[:7]}", 30)], [row("201"), row("202", OTHER, base="b201")])
+    shell.doc = {"blocks": [{"id": f"merge:201:{HEAD[:7]}", "type": "card", "children": []}]}
+
+    watch(shell, config)
+
+    assert not [topic for topic in shell.topics() if topic.startswith("go:")]
+
+
+def test_a_go_the_runner_answered_with_a_merge_ask_is_no_go_stall(config):
+    records = [record(1, "root", "go", f"go #101 at {HEAD[:7]}", 30), record(2, "desk-runner", "blocker", f"MERGE-ASK #101 at {HEAD[:10]}: the owner's merge row waits on his tap", 20)]
+    shell = FakeShell(records, [row("101")])
+
+    watch(shell, config)
+
+    assert not [topic for topic in shell.topics() if topic.startswith("go:")]
+
+
 def test_gos_above_a_green_unqueued_bottom_post_one_stall_naming_the_first_pr_whose_build_still_runs(config):
     records = [record(1, "root", "go", f"go #401 at {HEAD[:7]}", 30), record(2, "root", "go", f"go #402 at {OTHER[:7]}", 30), record(3, "root", "go", f"go #403 at {OLD[:7]}", 30)]
     rows = [row("401"), row("402", OTHER, base="b401", test_state="pending"), row("403", OLD, base="b402", test_state="pending")]
@@ -299,7 +328,7 @@ def test_a_go_the_runner_refused_names_its_newest_open_blocker_for_that_head_and
     records = gone("101", HEAD)
     records.append(record(5, "desk-runner", "blocker", f"#101 {OLD[:10]}: nothing in #101 was enqueued; BUILD-FAILED #101: an older head", 11, to=["api-lane"], topic="101"))
     records.append(record(6, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; FINDER-PENDING #101: an answered finding", 10, to=["api-lane"], topic="101", status="closed"))
-    records.append(record(7, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; MERGE-ASK rule/82317b0: it lands only on the owner's tap at this head", 9, to=["api-lane", "board-refresher"], topic="101", status="open"))
+    records.append(record(7, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; GO-UNQUEUED #101: the merge queue refused it at this head", 9, to=["api-lane", "board-refresher"], topic="101", status="open"))
     records.append(record(8, "desk-runner", "note", f"#101 {HEAD[:10]}: WARNING `rulings.py check-pr` warns at {HEAD[:10]}, and the head is not held for it", 8, to=["api-lane"], topic="101"))
     shell = FakeShell(records, [row("101")])
 
@@ -307,7 +336,7 @@ def test_a_go_the_runner_refused_names_its_newest_open_blocker_for_that_head_and
 
     post = shell.post("go:101:abc1234")
     assert post["to"] == "root,api-lane@d1,board-refresher@d1"
-    assert post["text"].endswith(f"| owner api-lane, board-refresher | MERGE-ASK: the runner's newest blocker for #101 at abc1234, cci #7: #101 {HEAD[:10]}: nothing in #101 was enqueued; MERGE-ASK rule/82317b0: it lands only on the owner's tap at this head")
+    assert post["text"].endswith(f"| owner api-lane, board-refresher | GO-UNQUEUED: the runner's newest blocker for #101 at abc1234, cci #7: #101 {HEAD[:10]}: nothing in #101 was enqueued; GO-UNQUEUED #101: the merge queue refused it at this head")
 
 
 def finder_pass(tmp_path: Path, pr: str, sha: str, status: str) -> None:
