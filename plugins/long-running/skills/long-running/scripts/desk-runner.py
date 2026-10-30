@@ -2049,18 +2049,19 @@ class Runner:
             return holder
 
     def handoff(self, desk: str) -> int:
-        """Stop the runner holding `desk`'s lock at its next step boundary, wait until it has exited, then start its successor; a runner whose newest alive record, posted after the stop was asked, shows it re-executed into this version under the same pid has handed over in place, so its stop is withdrawn and no successor starts (root, Oct 29 11:46 AM); refuse, naming its pid, when neither happens within HANDOFF_WAIT (#140225). Refuse before stopping anything when the install lacks a brief the runner, finder, or incident job reads, or any reference or script file the marketplace copy it was installed from holds."""
+        """Stop the runner holding `desk`'s lock at its next step boundary, wait until it has exited, then start its successor; a runner whose newest alive record, posted after the stop was asked, shows it re-executed into this version under the same pid has handed over in place, so its stop is withdrawn and no successor starts (root, Oct 29 11:46 AM), unless it already ran this version when the stop was asked, since only a restart then reloads runner.json (cci #215987); refuse, naming its pid, when neither happens within HANDOFF_WAIT (#140225). Refuse before stopping anything when the install lacks a brief the runner, finder, or incident job reads, or any reference or script file the marketplace copy it was installed from holds."""
         if missing := list(dict.fromkeys([*(f"{path.parent.name}/{path.name}" for path in BRIEF_FILES if not path.exists()), *install_gaps()])):
             print(f"desk-runner handoff: this install lacks {', '.join(missing)}, so no runner was stopped; reinstall the plugin and hand off again", file=sys.stderr)
             return 1
         pid = self.desk_holder(desk)
         if pid is not None:
+            current = self.on_this_version(desk, pid, datetime.min.replace(tzinfo=timezone.utc))
             marker = self.stop_marker(pid)
             marker.write_text(f"{pid}\n")
             asked = self.now()
             deadline = asked + HANDOFF_WAIT
             while self.desk_holder(desk) == pid:
-                if self.reexecuted(desk, pid, asked):
+                if not current and self.on_this_version(desk, pid, asked):
                     marker.unlink(missing_ok=True)
                     self.shell.sleep(WAKE_SECONDS)
                     if self.desk_holder(desk) == pid:
@@ -2078,7 +2079,7 @@ class Runner:
         print(f"desk-runner handoff: {f'runner {pid} exited' if pid is not None else f'no live {desk} runner'}; started runner {started.pid}, logging to {self.runner_log(desk)}")
         return 0
 
-    def reexecuted(self, desk: str, pid: int, since: datetime) -> bool:
+    def on_this_version(self, desk: str, pid: int, since: datetime) -> bool:
         beat = drive.heartbeat(self.cci_tail, self.config.drive, desk)
         return beat is not None and beat.get("pid") == str(pid) and beat.get("version") == RUNNING_VERSION and actions.parse_stamp(beat["at"]) >= since
 
