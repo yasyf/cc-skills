@@ -173,6 +173,7 @@ class FakeShell(runner_module.Shell):
         self.reviews: dict[str, dict] = {}
         self.queue_drafts: list[dict] | None = None
         self.squashed: set[str] = set()
+        self.merged_heads: list[str] = []
         self.behind: dict[str, int] = {}
         self.stack_code = 0
         self.checks: dict[str, list[dict]] = {}
@@ -417,7 +418,9 @@ class FakeShell(runner_module.Shell):
         if argv[:2] == ["gh", "api"] and argv[2].startswith("repos/Forge-AI/monorepo/commits/") and argv[2].endswith("/status"):
             return runner_module.Done(0, json.dumps({"statuses": self.commit_statuses.get(argv[2].split("/")[4], [])}), "")
         if argv[:2] == ["gh", "api"] and "/compare/" in argv[2] and argv[3:] == ["--jq", ".behind_by"]:
-            return runner_module.Done(0, f"{self.behind.get(argv[2].rsplit('...', 1)[1], 0)}\n", "")
+            base, head = argv[2].rsplit("/", 1)[1].split("...")
+            moved = sum(1 for merged in self.merged_heads if merged != head) if base == "dev" else 0
+            return runner_module.Done(0, f"{self.behind.get(head, 0) + moved}\n", "")
         if argv[:2] == ["gh", "api"] and "/compare/" in argv[2] and argv[3:] == ["--jq", ".status"]:
             return runner_module.Done(0, "ahead\n", "")
         if argv[:2] == ["gh", "api"] and "/compare/" in argv[2]:
@@ -446,7 +449,7 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == ".headRefOid":
             return runner_module.Done(0, f"{self.current_heads[argv[3]]}\n", "") if argv[3] in self.current_heads else runner_module.Done(1, "", "no pull requests found")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "mergeCommit":
-            return runner_module.Done(0, json.dumps({"mergeCommit": {"oid": self.merge_commits[argv[3]]}}), "")
+            return runner_module.Done(0, json.dumps({"mergeCommit": {"oid": self.merge_commits[argv[3]]} if argv[3] in self.merge_commits else None}), "")
         if argv[:3] == ["gh", "pr", "checks"]:
             assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--required", "--json", "name,bucket"]
             checks = self.checks[argv[3]]
@@ -454,6 +457,7 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == ["gh", "pr", "merge"]:
             assert argv[4:8] == ["--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit"]
             self.reviews.setdefault(argv[3], {})["state"] = "MERGED"
+            self.merged_heads.append(argv[8])
             return runner_module.Done(0, "", "")
         if argv == [str(self.root / "checkout/tools/ci"), "release", "live", "--json"]:
             return runner_module.Done(0, json.dumps(self.running), "")
@@ -12948,10 +12952,11 @@ def test_while_graphite_is_down_an_admitted_pr_squash_merges_at_its_head_instead
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
     queue_drafts(shell, (40, True), (50, True))
+    shell.merge_commits["29020"] = "9999aaaa0000"
     landing_pass(shell, config)
     assert shell.enqueues() == []
     assert direct_merges(shell) == [["gh", "pr", "merge", "29020", "--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit", "cccc333333"]]
-    assert merged_records(shell) == ["MERGED #29020 at cccc333333 direct, Graphite down, b530f5d: gh pr merge --squash"]
+    assert merged_records(shell) == ["MERGED #29020 at cccc333333 direct as 9999aaaa00, Graphite down, b530f5d: gh pr merge --squash"]
     assert [post["pr"] for post in shell.posts if post["text"].startswith("MERGED ")] == ["29020"]
     assert [action.response["outcome"] for action in enqueues_of(tmp_path).values()] == ["merged"]
 
@@ -12977,9 +12982,10 @@ def test_while_graphite_is_down_a_stack_rebased_on_dev_merges_as_one_gh_stack_bo
     """Owner 8:15 PM Oct 29 (e7170fa): for direct merges always use stacks and always rebase first."""
     two_pr_stack(shell)
     queue_drafts(shell, (40, True), (50, True))
+    shell.merge_commits |= {"29020": "1111aaaa0000", "29031": "2222bbbb0000"}
     landing_pass(shell, config)
     assert direct_merges(shell) == [["gh", "stack", "link", "29020", "29031"], ["gh", "stack", "merge", "29031", "--yes", "--squash"]]
-    assert merged_records(shell) == [f"MERGED #{pr} at {head} direct, Graphite down, b530f5d: gh stack merge of #29020 #29031" for pr, head in (("29020", "cccc333333"), ("29031", "dddd444444"))]
+    assert merged_records(shell) == [f"MERGED #{pr} at {head} direct as {squash}, Graphite down, b530f5d: gh stack merge of #29020 #29031" for pr, head, squash in (("29020", "cccc333333", "1111aaaa00"), ("29031", "dddd444444", "2222bbbb00"))]
     compared = [call[2].rsplit("/", 1)[1] for call in shell.calls if call[:2] == ["gh", "api"] and call[3:] == ["--jq", ".behind_by"]]
     assert compared == ["dev...cccc333333", "cccc333333...dddd444444"]
 
@@ -13017,3 +13023,32 @@ def test_an_enqueue_of_a_pr_another_lane_already_merged_settles_it_landed_and_en
     landing_pass(shell, config)
     assert shell.enqueues() == [] and direct_merges(shell) == []
     assert [action.response["outcome"] for action in enqueues_of(tmp_path).values()] == ["landed"]
+
+
+def test_while_graphite_is_down_two_admitted_prs_merge_one_at_a_time_and_the_second_waits_for_a_rebase_onto_the_first(shell, config, tmp_path):
+    """Owner 9:00 PM Oct 29: when you are bypassing graphite MQ, your MQ needs to do things serially, one at a time, and always rebased on latest first."""
+    shell.rows = [
+        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
+        {"pr": "29100", "lane": LANE, "branch": "b/1", "base": "dev", "head": "eeee555555", "state": "open", "reported_head": "eeee555555"},
+    ]
+    for pr, head in (("29020", "cccc333333"), ("29100", "eeee555555")):
+        shell.gates[pr] = [gate(f"#{pr} GREEN {head} graphite READY", would=f"#{pr}")]
+        shell.enqueue_out[pr] = (0, f"enqueue #{pr}: {{}}\n")
+        shell.merge_commits[pr] = f"{pr}aaaa0000"
+        grade(shell, pr, f"ok F307 at {head[:7]}.")
+    queue_drafts(shell, (40, True), (50, True))
+    landing_pass(shell, config)
+    assert len(direct_merges(shell)) == 1 and len(merged_records(shell)) == 1
+    waiting = "29100" if direct_merges(shell)[0][3] == "29020" else "29020"
+    head = {"29020": "cccc333333", "29100": "eeee555555"}[waiting]
+    assert [post_body(post).split(":")[0] for post in blockers(shell) if "rebased onto the latest dev" in post_body(post)] == [f"#{waiting} {head}"]
+
+
+def test_an_approved_green_incident_fix_behind_dev_waits_for_a_rebase_and_asks_its_lane_once(shell, config, tmp_path):
+    """#45425, the 8:35 PM Oct 29 revert, merged ten commits behind dev and broke it at 8:48; the owner's 9:00 PM rule covers every merge outside the queue."""
+    incident_pr(shell)
+    shell.behind[INCIDENT_HEAD] = 3
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert merges(shell) == []
+    assert [post_body(post).split(":")[0] for post in blockers(shell) if "rebased onto the latest dev" in post_body(post)] == ["#36650 ffff666666"]

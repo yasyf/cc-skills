@@ -287,7 +287,7 @@ opening, which is how its batches time out; a draft read that fails changes noth
 overflow stops and each accepted enqueue merges its prefix straight into the trunk instead (owner b530f5d): chain by chain, bottom first,
 only once each chain sits on the latest trunk, its bottom behind none of it and each PR behind none of the PR below (owner e7170fa), a
 lone PR by `gh pr merge --squash --match-head-commit` and a longer chain by `gh stack link` and one all-or-nothing `gh stack merge --squash`
-of its top, posting one `MERGED #N at <head> direct, Graphite down, b530f5d` state record per PR. A chain behind its base gets one
+of its top, posting one `MERGED #N at <head> direct as <squash>, Graphite down, b530f5d` state record per PR once its squash reads, one merge in flight at a time, an incident squash included (owner 9:00 PM Oct 29). A chain behind its base gets one
 blocker per head asking the restack lanes and its lane to rebase it, and the chains above it wait. Every enqueue first settles its PRs
 through `ledger.py landed`, so a PR another lane merged directly is never enqueued. The queue read is one `ccx vcs pr status` call over every open row a pass,
 allowed 300 s, which the gate, the requeue and the landed check share. A PR body is read at most once per five minutes, a head's
@@ -707,6 +707,9 @@ GRAPHITE_QUIET = timedelta(minutes=15)
 BATCH_TIMEOUT = timedelta(minutes=30)
 DIRECT_RULING = "b530f5d"
 REBASE_RULING = "e7170fa"
+SQUASH_POLL_SECONDS = 5
+SQUASH_POLLS = 12
+DIRECT_MERGING = threading.Lock()
 UNGRADED_READ = "ungraded_read"
 DIFF_MEDIA = "Accept: application/vnd.github.diff"
 ALLOW_ESCAPES = "--allow-escape-sequences"
@@ -6939,12 +6942,16 @@ class Landing:
         return outcome, "".join(outs)[-1500:], last
 
     def merge_chains(self, tops: list[str], heads: dict[str, str], rows: dict[str, dict]) -> tuple[str, str, str]:
-        """While Graphite is down, merge each chain of an admitted prefix straight into the trunk, bottom chain first (owner b530f5d): a chain behind the latest trunk, or a PR behind the PR below it, gets one blocker per head asking for a rebase and ends the run (owner e7170fa); a lone PR merges by squash pinned to its head, a longer chain by one all-or-nothing `gh stack merge` of its top, and each merged PR posts its `MERGED` record. The first chain that does not merge ends the run and names its outcome."""
+        """While Graphite is down, merge each chain of an admitted prefix straight into the trunk, bottom chain first (owner b530f5d), one merge in flight in the runner at a time (owner 9:00 PM Oct 29): a chain behind the latest trunk, read fresh once the merge before it has squashed, or a PR behind the PR below it, gets one blocker per head asking for a rebase and ends the run (owner e7170fa); a lone PR merges by squash pinned to its head, a longer chain by one all-or-nothing `gh stack merge` of its top, the run waits for each squash on the trunk, and each merged PR posts its `MERGED` record. The first chain that does not merge ends the run and names its outcome."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         outcome, outs, last = "noop", [], ""
         for top in tops:
             chain = sorted((pr for pr in downstack(open_rows, top) if pr in heads), key=lambda pr: len(downstack(open_rows, pr)))
-            if behind := self.unrebased(chain, heads):
+            with DIRECT_MERGING:
+                behind = self.unrebased(chain, heads)
+                done = None if behind else self.merge_chain(chain, heads)
+                squashes = self.squashes(chain) if done and not done.code else {}
+            if behind:
                 pr, base = behind
                 last = f"#{pr} at {heads[pr][:10]} is behind {base}, so {numbered(chain)} waits for a rebase onto the latest {TRUNK}"
                 if not self.book.known(LANDING, ask := f"rebase-direct:{pr}@{heads[pr]}"):
@@ -6952,7 +6959,6 @@ class Landing:
                     to = ",".join(dict.fromkeys([*self.restack_lanes(), *(self.reach(owner) if owner else [])]))
                     self.post_blocker(ask, to, f"#{pr} {heads[pr][:10]}: Graphite is down, so the landing runner merges directly, and a direct merge needs its stack rebased onto the latest {TRUNK} first (owner {REBASE_RULING}); it is behind {base}. Rebase {numbered(chain)} onto {TRUNK} and push; it merges once green at the new heads.", pr)
                 return (MERGED if outcome == MERGED else "blocked"), "".join(outs)[-1500:], last
-            done = self.merge_chain(chain, heads)
             outs.append(done.out + done.err)
             last = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
             if done.code:
@@ -6960,8 +6966,22 @@ class Landing:
             outcome = MERGED
             how = f"gh stack merge of {numbered(chain)}" if len(chain) > 1 else "gh pr merge --squash"
             for pr in chain:
-                self.post_record("state", f"merged-direct:{pr}@{heads[pr]}", self.landing_audience([pr], rows, self.queue_audience([pr], rows)), f"MERGED #{pr} at {heads[pr][:10]} direct, Graphite down, {DIRECT_RULING}: {how}", pr)
+                landed = f"as {squashes[pr][:10]}" if squashes.get(pr) else "with its squash unread"
+                self.post_record("state", f"merged-direct:{pr}@{heads[pr]}", self.landing_audience([pr], rows, self.queue_audience([pr], rows)), f"MERGED #{pr} at {heads[pr][:10]} direct {landed}, Graphite down, {DIRECT_RULING}: {how}", pr)
         return outcome, "".join(outs)[-1500:], last
+
+    def squashes(self, chain: list[str]) -> dict[str, str]:
+        """Each PR of a chain just merged, to the squash commit GitHub reads for it, polling every `SQUASH_POLL_SECONDS` up to `SQUASH_POLLS` times until every squash reads, so the next merge reads the trunk with them on it; a squash still unread then maps to empty."""
+        squashes = dict.fromkeys(chain, "")
+        for poll in range(SQUASH_POLLS):
+            if poll:
+                self.shell.sleep(SQUASH_POLL_SECONDS)
+            for pr in [pr for pr, sha in squashes.items() if not sha]:
+                read = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "mergeCommit", max_age=ghread.FRESH))
+                squashes[pr] = ((json.loads(read.out) if read.code == 0 else {}).get("mergeCommit") or {}).get("oid", "")
+            if all(squashes.values()):
+                break
+        return squashes
 
     def unrebased(self, chain: list[str], heads: dict[str, str]) -> tuple[str, str] | None:
         """The first PR of `chain`, bottom first, whose head is behind its base, the latest trunk for the bottom and the head of the PR below for the rest, with that base; a compare GitHub refuses reads as behind."""
@@ -7214,16 +7234,21 @@ class Landing:
         if pr in holds.held(holds.read(self.holds), {pr: row}):
             return
         self.check_precondition(Graded({pr: view["headRefOid"]}, {pr: row}, self.runner.now(), act=True))
-        self.book.accept(LANDING, key, "squash", json.dumps({"pr": pr, "head": view["headRefOid"]}), f"#{pr} incident", None)
-        self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
-        merged = self.shell.run(["gh", "pr", "merge", pr, "--repo", self.repo, "--squash", "--match-head-commit", view["headRefOid"]])
+        with DIRECT_MERGING:
+            if self.unrebased([pr], {pr: view["headRefOid"]}):
+                if not self.book.known(LANDING, ask := f"rebase-direct:{pr}@{view['headRefOid']}"):
+                    owner = self.owner(pr, row)
+                    self.post_blocker(ask, ",".join(dict.fromkeys([*(self.reach(owner) if owner else []), ROOT])), f"#{pr} {view['headRefOid'][:10]}: the approved, green incident fix is behind the latest {TRUNK}, and a merge outside the queue needs its head rebased onto the latest {TRUNK} first (owner {REBASE_RULING}, 9:00 PM Oct 29). Rebase it onto {TRUNK} and push; it merges once green at the new head.", pr)
+                return
+            self.book.accept(LANDING, key, "squash", json.dumps({"pr": pr, "head": view["headRefOid"]}), f"#{pr} incident", None)
+            self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
+            merged = self.shell.run(["gh", "pr", "merge", pr, "--repo", self.repo, "--squash", "--match-head-commit", view["headRefOid"]])
+            commit = self.squashes([pr])[pr] if merged.code == 0 else ""
         if merged.code != 0:
             why = (merged.err or merged.out).strip()[:300] or f"exit {merged.code}"
             self.book.attempt(LANDING, lambda incident: incident.fail(key, why))
             self.runner.escalate(key, "SQUASH-FAILED", f"#{pr}", f"gh pr merge --squash refused the approved, green incident fix at {view['headRefOid'][:10]}: {why}")
             return
-        read = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "mergeCommit", max_age=ghread.FRESH))
-        commit = ((json.loads(read.out) if read.code == 0 else {}).get("mergeCommit") or {}).get("oid", "")
         self.book.attempt(LANDING, lambda incident: incident.complete(key, {"sha": commit, "at": self.book.stamp()}))
         self.announce(pr, row, key, view["headRefOid"], commit)
 

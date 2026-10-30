@@ -1708,7 +1708,10 @@ onto the latest `dev`, its bottom behind none of `dev` and each PR behind none o
 below; one behind gets one blocker per head asking the restack lanes for the rebase (owner
 e7170fa). A lone PR merges by `gh pr merge --squash --match-head-commit`, a longer chain by
 `gh stack link` and one all-or-nothing `gh stack merge --squash`, and each PR posts `MERGED
-#N at <head> direct, Graphite down, b530f5d`. The overflow stops meanwhile, and
+#N at <head> direct as <squash>, Graphite down, b530f5d`. One merge is in flight at a time:
+the next reads `dev` only after the last squash reads on it, so it waits for a rebase onto
+that squash (owner, 9:00 PM Oct 29). An incident fix's plain squash takes the same turn and
+needs the same rebase. The overflow stops meanwhile, and
 `GRAPHITE-UP` follows the first batch Graphite starts after that time.
 
 **Five minutes from go to queue.** A green PR a root `go` names at its head is in the
