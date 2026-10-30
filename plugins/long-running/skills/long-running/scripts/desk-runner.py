@@ -527,10 +527,10 @@ its ledger head, moves to that head through `cc-present verdict carry` once `hea
 call each move between the two patch-identical, with one `TAP-CARRIED` note naming both heads to root and each lane `landing.board_lane`
 names, one lane or a list, and, when no go names the new head, one `go` record of the runner's own for it, which `go_lane` counts. A new head a record names with no such chain, a fixed version, is never carried. A record saying it adds new
 behavior draws one `TAP-NOT-CARRIED` note to the same lanes saying the board needs a new row; a fidelity ok grade naming none draws one
-`TAP-KEPT` note saying his tap keeps over that review fix, which then lands with no go like an exempt change (rule 399b5fa, root #194387), and once a go
+`TAP-KEPT` note saying his tap keeps over that review fix, which still waits for root's go naming the fix (rule 399b5fa, root #195224), and once a go
 names the head the runner carries the tap there itself, citing the grade and the go; a root `go` or a
 patch-identical fidelity carry grade naming that head otherwise draws neither. A board that does not read, or a carry cc-present refuses for any cause but an absent merge block, which leaves nothing to carry, logs `TAP-CARRY-FAILED` once per
-cause and tries again next pass. An exempt change, a head the runner noted `TAP-KEPT` at or one whose fidelity grade and whole diff
+cause and tries again next pass. An exempt change, one whose fidelity grade and whole diff
 make it a pure port, test-only or CI-only (`EXEMPT-ADMITTED`), needs no go and no tap in any mode: its tree gates with the go'd ones, it asks no
 merge question, and it goes straight to Graphite's queue once the hold, fidelity, finder, build and CI checks pass (root #194387). Under `every` the runner
 then bars each other open PR no root `go` names at its head like a held one: no check or enqueue call names it or sweeps it in, and a PR
@@ -6343,14 +6343,12 @@ class Landing:
         )
 
     def exempt_admitted(self, pr: str, sha: str) -> tuple[str, str]:
-        """The `EXEMPT-ADMITTED` note for `pr` at `sha` when its change is exempt and goes straight to Graphite's queue with no go and no board tap, and why its whole diff breaks the class its grade claims, read once per pass (root #194387, 06288326, owner Oct 28 8:45 PM). A head the runner noted `TAP-KEPT` at is exempt. Otherwise the head grades ok by `fidelity`'s rule and `exempt_class` finds one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first) in its grades. Both classes are checked against every file the PR changes against its base, never the grade's words alone (root #182391): a test-only or CI-only class fails on a file outside the test, CI, skill-script and docs set, and a port class on a file outside `PORT_PREFIXES` unless a `Rulings` comment clears its interaction; changed files that do not read admit nothing that pass."""
+        """The `EXEMPT-ADMITTED` note for `pr` at `sha` when its change is exempt and goes straight to Graphite's queue with no go and no board tap, and why its whole diff breaks the class its grade claims, read once per pass (root #194387, 06288326, owner Oct 28 8:45 PM). The head grades ok by `fidelity`'s rule and `exempt_class` finds one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first) in its grades. Both classes are checked against every file the PR changes against its base, never the grade's words alone (root #182391): a test-only or CI-only class fails on a file outside the test, CI, skill-script and docs set, and a port class on a file outside `PORT_PREFIXES` unless a `Rulings` comment clears its interaction; changed files that do not read admit nothing that pass."""
         if (pr, sha) not in self.exempts:
             self.exempts[(pr, sha)] = self.exemption(pr, sha)
         return self.exempts[(pr, sha)]
 
     def exemption(self, pr: str, sha: str) -> tuple[str, str]:
-        if self.tap_kept(pr, sha):
-            return f"EXEMPT-ADMITTED #{pr} at {sha[:10]}: the runner noted TAP-KEPT at this head, so it goes straight to the merge queue with no go or board tap (root #194387)", ""
         if not (found := self.exempt_class(pr, sha, ())) or not self.fidelity(pr, sha).ok:
             return "", ""
         grade, said = found

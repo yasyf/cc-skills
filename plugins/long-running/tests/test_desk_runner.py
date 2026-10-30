@@ -3439,7 +3439,8 @@ def test_an_exempt_change_a_hold_names_stays_out_of_the_queue(shell, config, tmp
     assert shell.enqueues() == []
 
 
-def test_a_kept_tap_goes_straight_to_the_queue_with_no_go(shell, config, tmp_path):
+def test_a_kept_tap_waits_for_the_root_go_before_the_queue(shell, config, tmp_path):
+    """Root #195224: TAP-KEPT misread four grades on Oct 29, so a kept tap is never exempt; the head waits for root's go naming the fix."""
     board_surface(config)
     board_lane(config)
     lone_green_pr(shell)
@@ -3447,7 +3448,8 @@ def test_a_kept_tap_goes_straight_to_the_queue_with_no_go(shell, config, tmp_pat
     grade(shell, "29020", "ok cccc333333 a fixed version of aaaa111111: a review fix without new behavior.")
     landing_pass(shell, config)
     assert [note["text"].split(":")[0] for note in tap_notes(shell)] == ["TAP-KEPT #29020"]
-    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    assert shell.enqueues() == []
+    assert not [post for post in shell.posts if "EXEMPT-ADMITTED" in post_body(post)]
 
 
 @pytest.mark.parametrize("state", ["board unread", "row absent", "row superseded"])
