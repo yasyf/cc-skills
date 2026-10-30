@@ -16,7 +16,9 @@ is partial.
 SPRITE_JOB_KEYS, a JSON object of environment names to the commands that print
 their values, such as {"GH_TOKEN": ["gh", "auth", "token"]}, is run here at
 start; each value reaches the job's process on the Sprite through its standard
-input and its environment only, never a file or an argument.
+input and its environment only, never a file or an argument. A GH_TOKEN also
+refreshes git's in-memory credential cache on the Sprite for an hour, so
+long-running processes there read GitHub between passes.
 
 The plugin version holding <script> is copied over once, when the Sprite lacks
 it, and the drive's registry file on every run. The job's checkout fetches every
@@ -46,6 +48,8 @@ for name, argv in json.loads(os.environ.get("SPRITE_JOB_KEYS") or "{}").items():
     print(f"{name}={subprocess.run(argv, capture_output=True, text=True, check=True).stdout.strip()}")
 ' | sprite exec -s "$sprite" -- sh -c '
   while IFS= read -r line; do export "$line"; done
+  [ -z "${GH_TOKEN:-}" ] || printf "protocol=https\nhost=github.com\nusername=x-access-token\npassword=%s\n\n" "$GH_TOKEN" |
+    git credential-cache --timeout=3900 store
   flock "$3.fetch.lock" git -C "$3" -c credential.helper= -c "credential.helper=!gh auth git-credential" fetch --quiet --all
   exec python3 "$1" "$2"' sh "$script" "$dir" "$checkout" &
 job=$!
