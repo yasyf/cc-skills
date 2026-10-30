@@ -8,8 +8,9 @@
 
 STDLIB ONLY. desk-runner.py's orca desk writes `DIR/job.json` for each head it dispatches and starts
 this script detached. The job reads the PR, skips a closed PR or a head that is no longer its live
-head, and takes the PR's own commits as finder.py does. When `git patch-id --stable` of those
-commits matches the same number of commits up to an earlier head every fidelity lane's newest grade
+head, and takes the PR's own commits as finder.py does, running `rulings.py plan`, and the slice when no
+earlier grade could carry, while the head fetches. When `git patch-id --stable` of those
+commits, read for every earlier graded head at once, matches the same number of commits up to an earlier head every fidelity lane's newest grade
 of which is ok, or a `missing` the job's `settled` map names, it posts `fidelity: ok <head> carried from
 <earlier>`, citing the root `decide` that settled a carried `missing`, with the earlier head's
 `old-app:` line and no model call. The carry repeats no exempt phrase when a root `class wrong`
@@ -35,6 +36,7 @@ import argparse
 import json
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import drive
@@ -62,17 +64,26 @@ def patch_id(shell: finder.Shell, job: dict, start: str, end: str) -> str:
     return next(iter(out.split()), "")
 
 
-def carry(shell: finder.Shell, job: dict, own: list[str]) -> dict | None:
-    """The newest earlier head whose every fidelity lane stands at ok, or at a `missing` a root `decide` settled, and whose last `len(own)` commits have the head's patch, with that lane's newest grade and the patch id."""
-    ours = patch_id(shell, job, f"{own[0]}^", job["head"])
+def candidates(job: dict) -> list[tuple[str, list[dict]]]:
+    """Each earlier graded head, newest first, whose every fidelity lane stands at ok, or at a `missing` a root `decide` settled, with those lanes' grades."""
     oks = [grade for grade in sorted(job["grades"], key=lambda grade: grade["seq"], reverse=True) if passes(job, grade)]
-    for named in dict.fromkeys(head for grade in oks if (head := graded_head(grade["text"].split(maxsplit=2)[2])) and not names_head(head, job["head"])):
-        stand = standing(job["grades"], job["lanes"], named)
-        if not stand or not all(passes(job, grade) for grade in stand) or not (full := finder.fetched(shell, job, named)):
-            continue
-        if ours and patch_id(shell, job, f"{full}~{len(own)}", full) == ours:
-            return {"head": full, "grade": max(stand, key=lambda grade: grade["seq"]), "patch": ours}
-    return None
+    named = dict.fromkeys(head for grade in oks if (head := graded_head(grade["text"].split(maxsplit=2)[2])) and not names_head(head, job["head"]))
+    return [(head, stand) for head in named if (stand := standing(job["grades"], job["lanes"], head)) and all(passes(job, grade) for grade in stand)]
+
+
+def carry(shell: finder.Shell, job: dict, own: list[str], heads: list[tuple[str, list[dict]]]) -> dict | None:
+    """The first of `heads` whose last `len(own)` commits have the head's patch, with its lanes' newest grade and the patch id; every head is fetched and read at once."""
+
+    def patch_at(named: str) -> tuple[str, str]:
+        full = finder.fetched(shell, job, named)
+        return full, patch_id(shell, job, f"{full}~{len(own)}", full) if full else ""
+
+    with ThreadPoolExecutor() as pool:
+        reading = pool.submit(patch_id, shell, job, f"{own[0]}^", job["head"])
+        patches = list(pool.map(patch_at, [named for named, _ in heads]))
+    if not (ours := reading.result()):
+        return None
+    return next(({"head": full, "grade": max(stand, key=lambda grade: grade["seq"]), "patch": ours} for (full, patch), (_, stand) in zip(patches, heads, strict=True) if patch == ours), None)
 
 
 def passes(job: dict, grade: dict) -> bool:
@@ -205,29 +216,30 @@ def post(shell: finder.Shell, job: dict, lines: list[tuple[str, list[str]]], bod
 def run(directory: Path, shell: finder.Shell) -> dict:
     job = json.loads((directory / JOB).read_text())
     pr, head = f"{job['repo']}#{job['pr']}", job["head"]
+    pool = ThreadPoolExecutor()
+    plan = pool.submit(shell.run, finder.rulings(job, "plan"))
     view = finder.view_pr(shell, job)
     if view["state"] == "CLOSED":
         return {"skipped": f"{pr} is closed"}
     if not view["headRefOid"].startswith(head):
         return {"skipped": f"{pr} moved to {view['headRefOid'][:12]}"}
     job["head"] = head = view["headRefOid"]
-    base = finder.git(shell, job, "ls-remote", "origin", f"refs/heads/{view['baseRefName']}").split()[0]
-    trunk = finder.git(shell, job, "ls-remote", "origin", "HEAD").split()[0]
-    finder.fetch(shell, job, head, base, trunk)
-    base = finder.parent(shell, job, base, trunk)
+    heads = candidates(job)
+    slicing = None if heads else pool.submit(finder.slice_rows, shell, job, pr, head, view["baseRefName"])
+    base, trunk = finder.checked_out(shell, job, view)
     if not (own := finder.beyond(shell, job, (base, trunk), head)):
         return {"skipped": f"{pr} at {head[:12]} carries no commit {view['baseRefName']} lacks"}
     body = directory / "record.md"
-    if found := carry(shell, job, own):
+    if heads and (found := carry(shell, job, own, heads)):
         lines = carried_lines(job, found)
         body.write_text("\n".join(text for text, _ in lines) + f"\n\npatch-id {found['patch']} at both heads.\n\n#{found['grade']['seq']}: {found['grade']['text']}\n")
         return {"verdict": "carried", "from": found["head"], "posted": post(shell, job, lines, body)}
     rows = directory / "rows.md"
-    rows.write_text(shell.run(finder.rulings(job, "slice", "--required", "--pr", pr, "--head", head, "--base", view["baseRefName"]), timeout=finder.SLICE_SECONDS))
+    rows.write_text((slicing or pool.submit(finder.slice_rows, shell, job, pr, head, view["baseRefName"])).result())
     keys = finder.ROW_KEY.findall(rows.read_text())
     touched = finder.hunks(finder.git(shell, job, "diff", "--unified=0", "--no-color", "--no-ext-diff", f"{own[0]}^", head))
     question = directory / "question-1.md"
-    question.write_text(prompt(job, view, base, own, rows, shell.run(finder.rulings(job, "plan")).strip(), touched))
+    question.write_text(prompt(job, view, base, own, rows, plan.result().strip(), touched))
     reply = ask(shell, job, directory, question, 1)
     if short := shortfalls(keys, reply):
         retry = directory / "question-2.md"

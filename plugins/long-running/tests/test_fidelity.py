@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import fidelity
@@ -30,8 +31,9 @@ SAME = {(f"{OWN}^", HEAD): "5f1e", (f"{OLD}~1", OLD): "5f1e"}
 
 
 class Fake:
-    def __init__(self, tmp_path: Path, replies: list[dict] = (), patches: dict | None = None, state: str = "OPEN", heads: tuple[str, ...] = (HEAD,)):
+    def __init__(self, tmp_path: Path, replies: list[dict] = (), patches: dict | None = None, state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), known: tuple[str, ...] = (OLD,)):
         self.tmp_path = tmp_path
+        self.known = known
         self.replies = list(replies)
         self.patches = SAME if patches is None else patches
         self.state = state
@@ -63,16 +65,17 @@ class Fake:
 
     def git(self, argv: list[str]) -> str:
         if argv[0] == "ls-remote":
-            return f"{BASE}\t{argv[-1]}\n"
+            return "".join(f"{BASE}\t{ref}\n" for ref in argv[2:])
         if argv[0] in ("fetch", "merge-base"):
             return ""
         if argv[0] == "rev-list":
             assert argv[-1] == f"{BASE}...{HEAD}"
             return f"{OWN}\n"
         if argv[0] == "rev-parse":
-            if (named := argv[-1].removesuffix("^{commit}")) not in (OLD, OLD[:7]):
+            named = argv[-1].removesuffix("^{commit}")
+            if (full := next((sha for sha in self.known if named in (sha, sha[:7])), None)) is None:
                 raise subprocess.CalledProcessError(1, argv)
-            return f"{OLD}\n"
+            return f"{full}\n"
         if argv[0] == "diff":
             return DIFF
         raise AssertionError(f"unexpected git {argv}")
@@ -142,6 +145,25 @@ def test_a_restack_patch_identical_to_a_graded_ok_head_carries_its_port_phrase_a
     assert carries(grade) and graded_head(grade) == HEAD and OLD_APP.search(old_app)[1] == "unchanged"
     assert all(post["--lane"] == fidelity.LANE and post["--to"] == "p8a-step9,desk-runner,board-refresher-2" for post in shell.posted)
     assert result(directory) == {"verdict": "carried", "from": OLD, "posted": ["#150002", "#150003"]}
+
+
+def test_every_earlier_graded_head_is_fetched_and_patch_read_at_once_and_the_newest_match_carries(tmp_path):
+    newer = {"seq": 170005, "lane": "fidelity-desk-5", "text": f"fidelity: ok {MOVED} an earlier restack that reads the same."}
+    read = {OLD: threading.Event(), MOVED: threading.Event()}
+    overlapped = []
+
+    class Slow(Fake):
+        def run(self, argv: list[str], cwd: Path | None = None, timeout: int = finder.READ_SECONDS) -> str:
+            if argv[:2] == ["sh", "-c"] and argv[-1] in read:
+                read[argv[-1]].set()
+                overlapped.append(all(event.wait(5) for event in read.values()))
+            return super().run(argv, cwd, timeout)
+
+    directory = job(tmp_path, grades=[DESK_OK, newer])
+    shell = Slow(tmp_path, known=(OLD, MOVED))
+    assert fidelity.main([str(directory)], shell) == 0
+    assert overlapped == [True, True] and not shell.asks()
+    assert shell.texts()[0] == f"fidelity: ok {HEAD} carried from {OLD[:7]} (cci #170001), patch-identical by git patch-id over its own commits."
 
 
 PIPELINE_TEST_ONLY = {"seq": 170003, "lane": fidelity.LANE, "text": f"fidelity: ok {OLD} {TEST_ONLY_PHRASE}: carried from {MOVED[:7]} (cci #170000), patch-identical by git patch-id over its own commits."}

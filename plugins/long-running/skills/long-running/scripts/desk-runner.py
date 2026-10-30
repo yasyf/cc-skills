@@ -448,8 +448,8 @@ third failure logs `FINDER-FAILED` once. A head the landing check refuses `FINDE
 attempt when no pass on it waits or runs, so a job a pass skipped while its PR was closed, or one no record queued, runs again.
 While passes wait queued and none has settled for 15 minutes, one `FINDER-DESK-STALLED` per streak names how many wait and each
 running pass's age. `show` lists each queued and running pass.
-With a `fidelity` object in runner.json, each orca pass also dispatches one fidelity grade per drive head the same
-way: each `head` or `opened` record queues one `fidelity:<pr>:<head>:<seq>` action in the `desk-fidelity` container, and
+With a `fidelity` object in runner.json, each orca pass and the finder's 15-second thread also dispatch one fidelity grade
+per drive head the same way: each `head` or `opened` record queues one `fidelity:<pr>:<head>:<seq>` action in the `desk-fidelity` container, and
 the green head of each open drive row with no pass waiting or running queues one `fidelity:<pr>:<head>:ledger`,
 the newest queued head of each PR starts, a lower ledger `priority` first, while fewer than `fidelity.concurrent` (default 8) run, and a head any
 fidelity lane, `fidelity-pipeline` included, already graded or sent to a reader starts nothing. A pass writes
@@ -4224,17 +4224,19 @@ class Runner:
                 self.tail_failed(failure)
 
     def keep_finding(self) -> threading.Event:
-        """Run the finder desk every `FINDER_EVERY` from a daemon thread until the returned event is set, so a slot a finished pass frees refills in seconds rather than on the next orca pass, which runs for minutes. A loop that raises the same twice running stops, and the orca pass still runs the desk."""
+        """Run the finder and fidelity desks every `FINDER_EVERY` from a daemon thread until the returned event is set, so a new head starts its passes, and a slot a finished pass frees refills, in seconds rather than on the next orca pass, which runs for minutes. A desk whose loop raises the same twice running drops out of the thread, and the orca pass still runs it."""
         stop = threading.Event()
+        desks = {FINDER: self.finders, FIDELITY: self.fidelities}
 
         def loop() -> None:
-            while not stop.wait(FINDER_EVERY.total_seconds()):
-                try:
-                    self.finders()
-                except Exception as error:
-                    if self.pass_raised(FINDER, error):
-                        return
-                self.passes[FINDER] += 1
+            while desks and not stop.wait(FINDER_EVERY.total_seconds()):
+                for desk, step in list(desks.items()):
+                    try:
+                        step()
+                    except Exception as error:
+                        if self.pass_raised(desk, error):
+                            del desks[desk]
+                    self.passes[desk] += 1
 
         threading.Thread(target=loop, name="finders", daemon=True).start()
         return stop
@@ -4484,18 +4486,19 @@ class Runner:
         self.escalate(f"finder-desk:{streak['since']}", "FINDER-DESK-STALLED", finder.LANE, f"{len(queued)} queued, and no finder pass has settled since {pacific(since)}; running (at most {spec.get('concurrent', FINDER_CONCURRENT)} at once): {running or 'none'}; each pass logs to job.log in its directory under {self.config.source.parent / finder.LANE}")
 
     def fidelities(self) -> None:
-        """Dispatch one fidelity grade per drive head while runner.json carries `fidelity`: queue each new `head` or `opened` record's PR and full head, settle the passes that wrote a result, then start the newest queued head of each PR, up to `fidelity.concurrent` at once."""
+        """Dispatch one fidelity grade per drive head while runner.json carries `fidelity`: queue each new `head` or `opened` record's PR and full head, settle the passes that wrote a result, then start the newest queued head of each PR, up to `fidelity.concurrent` at once. The orca pass and the `keep_finding` thread take turns under the finder desk's lock."""
         if (spec := json.loads(self.config.source.read_text()).get("fidelity")) is None:
             return
         repo = spec.get("repo") or self.config.landing["repo"]
-        self.book.ensure(FIDELITY, FIDELITY)
-        try:
-            rows = self.open_rows()
-            self.queue_fidelities(repo, rows)
-            self.settle_fidelities()
-            self.start_fidelities(spec, repo, rows)
-        except CciTailFailed as failure:
-            self.tail_failed(failure)
+        with self.finding:
+            self.book.ensure(FIDELITY, FIDELITY)
+            try:
+                rows = self.open_rows()
+                self.queue_fidelities(repo, rows)
+                self.settle_fidelities()
+                self.start_fidelities(spec, repo, rows)
+            except CciTailFailed as failure:
+                self.tail_failed(failure)
 
     def queue_fidelities(self, repo: str, rows: dict[str, dict]) -> None:
         """Accept one `fidelity:<pr>:<head>:<seq>` action per PR, full head and record past the saved sequence, so the next `head` record for a PR queues a pass again after one failed, and one `fidelity:<pr>:<head>:ledger` per green head of an open ledger row, so a restack that posted no record queues once; a first read starts at the newest record."""
