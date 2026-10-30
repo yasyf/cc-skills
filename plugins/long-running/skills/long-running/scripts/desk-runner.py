@@ -6006,11 +6006,10 @@ class Landing:
                 continue
             why = grade.why
             owner = self.owner(pr, rows[pr])
+            to = ",".join([*(self.reach(owner) if owner else [ROOT]), *self.fidelity_to])
             if grade.record and grade.record["text"].startswith(FIDELITY_MISSING) and not owner_grounded(grade.record["text"]):
                 grounds = missing_grounds(grade.record["text"]) or "nothing"
-                self.post_blocker(key, ",".join([ROOT, *self.fidelity_to]), f"#{pr} {heads[pr]}: {self.left(list(heads), ungraded, rows)}; {why} | it rests on `{grounds}`, no plan line and no owner row, so it changes no code: the grader re-posts it from `rulings.py grade`, or root puts the gap on the owner's board", pr)
-                continue
-            to = ",".join([*(self.reach(owner) if owner else []), *self.fidelity_to])
+                why = f"{why} | it rests on `{grounds}`, no plan line and no owner row: the lane answers with a fix or a refutation, the grader re-posts it from `rulings.py grade`, or root puts the gap on the owner's board"
             self.post_blocker(key, to, f"{self.dead_note(owner)}#{pr} {heads[pr]}: {self.left(list(heads), ungraded, rows)}; {why}", pr)
 
     def accept(self, tips: list[str], prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict], held: list[str]) -> None:
