@@ -3103,6 +3103,7 @@ def test_a_go_at_an_older_head_carries_to_a_fidelity_ok_head_with_the_same_own_p
     lone_green_pr(shell)
     merge_go(shell, "29020", "go port #29020 at aaaa111")
     grade(shell, "29020", "ok cccc333 pure port, no interaction; restacked onto dev")
+    shell.files["29020"] = ["x.go"]
     shell.diffs["aaaa111"] = "diff --git a/x.go b/x.go\n+port\n"
     shell.diffs["cccc333333"] = shell.diffs["aaaa111"] if identical else "diff --git a/x.go b/x.go\n+changed\n"
     landing_pass(shell, config)
@@ -3236,20 +3237,18 @@ def test_a_pure_port_lands_on_a_root_go_with_no_board_tap_only_when_grade_and_go
         assert shell.enqueues() == [] and len(refusals) == 1 and admissions == []
         return
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and refusals == []
-    assert admissions == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "pure port, no interaction" and go #{seq + 2} names it, so it lands with no board tap (06288326)']
+    assert admissions == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "pure port, no interaction", so it goes straight to the merge queue with no go or board tap (root #194387)']
 
 
 @pytest.mark.parametrize(("lane", "admitted"), [("go-sweep-5", True), ("go-sweep-6", True), ("p8a-step7", False)], ids=["configured-go-lane", "its-successor", "other-lane"])
-def test_a_pure_port_go_from_a_configured_go_lane_lands_like_a_root_go(shell, config, lane, admitted):
+def test_a_go_from_a_configured_go_lane_lands_like_a_root_go(shell, config, lane, admitted):
     merge_mode(config, "every")
     raw = json.loads(config.read_text())
-    raw["landing"] |= {"tap_rules": {"rule/82317b0": ["go/sand/next/*"]}, "go_lanes": ["go-sweep-5"]}
+    raw["landing"] |= {"go_lanes": ["go-sweep-5"]}
     config.write_text(json.dumps(raw))
-    shell.register = {"rule/82317b0": {"kind": "order", "status": "in-force"}}
     lone_green_pr(shell)
-    shell.files["29020"] = ["go/sand/next/vm/run.go"]
-    grade(shell, "29020", "ok cccc333 pure port, no interaction: it only ports old-tree #43020.")
-    merge_go(shell, "29020", "go port #29020 at cccc333", lane)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    merge_go(shell, "29020", "go #29020 at cccc333", lane)
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == ([["29020", "--partial"]] if admitted else [])
@@ -3317,7 +3316,7 @@ def test_a_test_only_pr_lands_on_a_root_go_with_no_board_tap_and_one_exempt_admi
     refusals = [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
     admissions = [post_body(post) for post in notes(shell) if "EXEMPT-ADMITTED" in post_body(post)]
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and refusals == []
-    assert admissions == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "test-only or CI-only, no non-test code" and go #{seq + 2} names it, so it lands with no board tap (06288326)']
+    assert admissions == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "test-only or CI-only, no non-test code", so it goes straight to the merge queue with no go or board tap (root #194387)']
 
 
 @pytest.mark.parametrize("said", ["test-only, no non-test code", "CI-only, no non-test code"])
@@ -3328,7 +3327,7 @@ def test_a_grade_saying_test_only_or_ci_only_alone_lands_on_a_root_go_with_no_bo
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and not [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
-    assert [post_body(post) for post in notes(shell) if "EXEMPT-ADMITTED" in post_body(post)] == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "{said}" and go #{seq + 2} names it, so it lands with no board tap (06288326)']
+    assert [post_body(post) for post in notes(shell) if "EXEMPT-ADMITTED" in post_body(post)] == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "{said}", so it goes straight to the merge queue with no go or board tap (root #194387)']
 
 
 @pytest.mark.parametrize("go", ["go test-only #29020 at cccc333", "go port #29020 at cccc333"], ids=["go-test-only", "go-port"])
@@ -3407,6 +3406,48 @@ def test_the_legacy_port_phrase_key_still_sets_the_port_grade_phrase(shell, conf
 )
 def test_only_test_files_and_ci_configuration_count_as_exempt(name, exempt):
     assert runner_module.is_test_or_ci_file(name) is exempt
+
+
+@pytest.mark.parametrize(
+    ("graded", "files", "straight"),
+    [
+        (TEST_ONLY_GRADE, ["go/sand/next/vm/run_test.go", ".buildkite/pipeline.yml"], True),
+        ("ok cccc333 CI-only, no non-test code: it adds a pipeline step.", [".buildkite/pipeline.yml"], True),
+        ("ok cccc333 pure port, no interaction: it only ports old-tree #43020.", ["go/sand/next/vm/run.go"], True),
+        (TEST_ONLY_GRADE, ["go/sand/next/vm/run_test.go", "go/sand/next/vm/run.go"], False),
+        ("ok F307 at cccc333.", ["go/sand/next/vm/run_test.go"], False),
+    ],
+    ids=["test-only", "ci-only", "pure-port", "test-only-claim-over-code", "plain-ok"],
+)
+def test_an_exempt_change_goes_straight_to_the_queue_in_the_same_pass_with_no_go_or_tap(shell, config, graded, files, straight):
+    """Owner 7:00 PM Oct 29 on card land-faster, 'all 3' (root #194387): test-only, CI-only and pure-port changes go straight to Graphite's queue by default, not through the drive queue's gate."""
+    board_surface(config)
+    lone_green_pr(shell)
+    shell.files["29020"] = files
+    grade(shell, "29020", graded)
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == ([["29020", "--partial"]] if straight else [])
+
+
+def test_an_exempt_change_a_hold_names_stays_out_of_the_queue(shell, config, tmp_path):
+    board_surface(config)
+    lone_green_pr(shell)
+    shell.files["29020"] = ["go/sand/next/vm/run_test.go"]
+    grade(shell, "29020", TEST_ONLY_GRADE)
+    (tmp_path / "holds.md").write_text("#29020 owner hold until the parity waves land\n")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+
+
+def test_a_kept_tap_goes_straight_to_the_queue_with_no_go(shell, config, tmp_path):
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    tap(shell, "29020", "aaaa111111")
+    grade(shell, "29020", "ok cccc333333 a fixed version of aaaa111111: a review fix without new behavior.")
+    landing_pass(shell, config)
+    assert [note["text"].split(":")[0] for note in tap_notes(shell)] == ["TAP-KEPT #29020"]
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
 @pytest.mark.parametrize("state", ["board unread", "row absent", "row superseded"])
@@ -3801,7 +3842,7 @@ def test_a_board_tap_keeps_over_a_graded_review_fix_and_root_hears_once_to_post_
     assert shell.carries == []
     [note] = tap_notes(shell)
     assert note["to"] == "root,board-refresher"
-    assert note["text"] == f"TAP-KEPT #29020: the owner's tap at aaaa111111 on board block merge-rows keeps at cccc333333, a review fix with no new behavior per fidelity grade cci #{seq} (rule 399b5fa); root posts `go #29020 at cccc333333` naming the fix, and the row lists the fix"
+    assert note["text"] == f"TAP-KEPT #29020: the owner's tap at aaaa111111 on board block merge-rows keeps at cccc333333, a review fix with no new behavior per fidelity grade cci #{seq} (rule 399b5fa), so it goes straight to the merge queue with no go (root #194387), and the row lists the fix"
 
 
 @pytest.mark.parametrize(("graded", "row"), [(True, False), (False, True)], ids=["no-row", "ungraded"])
