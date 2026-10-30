@@ -369,6 +369,7 @@ class RegisterShell(ledger.Shell):
         self.diff = diff
         self.records = records or []
         self.calls: list[list[str]] = []
+        self.status = "active"
 
     def writes(self) -> list[list[str]]:
         return [argv for argv in self.calls if argv[3:6] == ["ledger", "row", "set"]]
@@ -382,7 +383,7 @@ class RegisterShell(ledger.Shell):
             case ["ccn", "-R", "/repo", "ledger", "list", "--label", "register", "--label", label, "--json"]:
                 return json.dumps([{"id": REGISTER_LEDGER, "updated_at": STAMP}] if label == "program:brook" else [])
             case ["ccn", "-R", "/repo", "ledger", "show", identity, "--json"] if identity == REGISTER_LEDGER:
-                return json.dumps({"id": REGISTER_LEDGER, "rows": [{"key": key, "fields": fields, "updated_at": STAMP} for key, fields in self.rows.items()]})
+                return json.dumps({"id": REGISTER_LEDGER, "status": self.status, "rows": [{"key": key, "fields": fields, "updated_at": STAMP} for key, fields in self.rows.items()]})
             case ["ccn", "-R", "/repo", "ledger", "row", "set", identity, "--key", key, *flags] if identity == REGISTER_LEDGER:
                 for flag, value in zip(flags[::2], flags[1::2], strict=True):
                     assert flag == "--field"
@@ -514,6 +515,21 @@ def test_rows_reads_the_ledger_once_until_a_ledger_ref_moves(home: Path, package
     shell.rows["rule/aaaaaaa"]["words"] = "Relay code lives in relay-journal."
     code, out = ran(capsys, shell, "rows", "--json")
     assert code == 0 and json.loads(out)["rows"]["rule/aaaaaaa"]["words"] == "Relay code lives in relay-journal."
+
+
+def test_a_stale_register_copy_rebuilds_from_its_own_ledger_until_that_ledger_is_archived(home: Path, package: Path, state: Path, capsys) -> None:
+    """cci #215987: `ccn ledger list` folds every ledger's history and took 80 to 180 s on a Sprite after each cc-notes fetch, so every finder pass there timed out reading the plan."""
+    shell = RegisterShell(seeded(package))
+    assert ran(capsys, shell, "rows", "--json")[0] == 0
+    shell.rows["rule/aaaaaaa"]["words"] = "Relay code lives in relay-journal."
+    code, out = ran(capsys, shell, "rows", "--json")
+    assert code == 0 and json.loads(out)["rows"]["rule/aaaaaaa"]["words"] == "Relay code lives in relay-journal."
+    assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"]] == [["ledger", "list"], ["ledger", "show"], ["ledger", "show"]]
+
+    shell.status = "archived"
+    shell.rows["rule/aaaaaaa"]["words"] = "Relay code lives in relay-journal, never the server."
+    assert ran(capsys, shell, "rows", "--json")[0] == 0
+    assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"]][3:] == [["ledger", "show"], ["ledger", "list"], ["ledger", "show"]]
 
 
 class SlowShowShell(RegisterShell):
