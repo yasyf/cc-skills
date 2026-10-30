@@ -744,3 +744,39 @@ def test_non_object_request_does_not_terminate_owner(helper, frame):
         new = roster_service.handshake(connection, helper)
     assert new["pid"] == old["pid"]
     assert roster_service.mailbox_of("desk") == reference(helper, "desk")
+
+
+@pytest.mark.parametrize("warm", [False, True])
+@pytest.mark.parametrize("ancestor", [False, True])
+def test_cyclic_root_discovery_is_skipped_and_recovers(tmp_path, warm, ancestor):
+    root = tmp_path / "config" if ancestor else tmp_path
+    write(root, "old", ("desk", 1))
+    binding = root if ancestor else root / "teams"
+    retired = tmp_path / "retired"
+
+    def cycle():
+        binding.rename(retired)
+        binding.symlink_to(binding.name, target_is_directory=True)
+
+    if not warm:
+        cycle()
+    with rosters.RosterIndex(root) as index:
+        if warm:
+            assert_lookup(index, root, "desk")
+            cycle()
+        assert_lookup(index, root, "desk", "new")
+        binding.unlink()
+        write(root, "new", ("new", 2))
+        assert_lookup(index, root, "desk", "new")
+
+
+def test_helper_bootstrap_cannot_import_modules_from_caller_checkout(helper, monkeypatch):
+    write(helper, "a", ("desk", 1))
+    checkout = helper / "checkout"
+    checkout.mkdir()
+    marker = helper / "untrusted-import"
+    for module in ("json", "pathlib", "types", "hashlib"):
+        (checkout / f"{module}.py").write_text(f"from builtins import open\nopen({str(marker)!r}, 'w').write('executed')\nraise RuntimeError('untrusted checkout import')\n")
+    monkeypatch.chdir(checkout)
+    assert roster_service.mailbox_of("desk") == reference(helper, "desk")
+    assert not marker.exists()

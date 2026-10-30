@@ -261,8 +261,9 @@ class RosterIndex:
                             continue
             finally:
                 os.close(fd)
-        except (FileNotFoundError, NotADirectoryError, PermissionError):
-            pass
+        except OSError as error:
+            if error.errno not in (errno.ENOENT, errno.ENOTDIR, errno.EACCES, errno.EPERM, errno.ELOOP):
+                raise
         finally:
             self.commit_dependencies(ROOT, dependencies)
         self.root_identity = identity(self.root)

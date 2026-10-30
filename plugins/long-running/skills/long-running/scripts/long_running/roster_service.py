@@ -154,7 +154,7 @@ service.main()
             snapshot.write(json.dumps(source_snapshot()).encode())
             snapshot.seek(0)
             subprocess.Popen(
-                [sys.executable, "-c", bootstrap, str(snapshot.fileno()), str(root), str(owner), str(writer)],
+                [sys.executable, "-I", "-c", bootstrap, str(snapshot.fileno()), str(root), str(owner), str(writer)],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
