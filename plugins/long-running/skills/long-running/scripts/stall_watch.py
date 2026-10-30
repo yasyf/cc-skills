@@ -595,9 +595,12 @@ class Pass:
         return done.out
 
     def lane_live(self, lane: str) -> bool:
-        """Whether `lane` or its numbered successor posted in the window, its newest record no end of the lane."""
+        return self.live_lane(lane) is not None
+
+    def live_lane(self, lane: str) -> str | None:
+        """`lane` or its numbered successor, whichever posted the newest record in the window, when that record is no end of the lane."""
         last = max((record for name, record in self.lane_newest.items() if successor_of(lane).fullmatch(name)), key=lambda record: record["seq"], default=None)
-        return last is not None and last["kind"] not in ENDED
+        return last["lane"] if last is not None and last["kind"] not in ENDED else None
 
     def warn(self, kinds: frozenset[str] | set[str], why: str) -> None:
         self.unread |= kinds
@@ -955,9 +958,9 @@ class Pass:
             return Stall(f"probe:{pr}:{short(row['head'])}", "probe", since, subject, failed["url"], (lane,), "", pr)
         job = f" in job {failed['job']}" if failed.get("job") else ""
         error = f": {clip(failed['error'])}" if failed.get("error") else ""
-        owned = lane not in ROOT_NAMES and self.lane_live(lane)
+        owned = None if lane in ROOT_NAMES else self.live_lane(lane)
         what = f"{required} has read failed{job} since {pacific(since)}{error} ({failed['url']})" + ("" if owned else f"; {lane} has posted nothing live in {int(self.watch.window.total_seconds() // 3600)} h")
-        return Stall(f"red:{pr}:{short(row['head'])}{'' if owned else ':root'}", "red", since, subject, what, (lane,) if owned else (ROOT,), f"fix the red build of {subject} and push" if owned else f"assign the red build of {subject} to a live lane", pr)
+        return Stall(f"red:{pr}:{short(row['head'])}{'' if owned else ':root'}", "red", since, subject, what, (owned,) if owned else (ROOT,), f"fix the red build of {subject} and push" if owned else f"assign the red build of {subject} to a live lane", pr)
 
     def probe_line(self, probes: list[Stall], posted: str) -> list[Stall]:
         """One line a day, to root, naming every red head whose failed job logged only Buildkite's benign 404 probe, so its owner reruns CI at that head."""

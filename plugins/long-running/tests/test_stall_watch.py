@@ -484,7 +484,7 @@ def test_a_red_head_goes_to_its_live_lane_every_half_hour_to_root_once_when_no_l
     red = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/9", "job": "Lint (fmt, clippy)", "error": "error: used `expect()` on a `Result` value", "probe": False}
     probe = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/8", "job": "Run api tests", "error": "buildkite-agent: fatal: failed to get step: 404 Not Found", "probe": True}
     bot = {"name": "ai-review", "url": "https://github.com/Forge-AI/monorepo/runs/7"}
-    records = [record(1, "api-lane", "state", "working on #101", 5), record(2, "root", "answer", "root reassigns #105 (gone-lane) to api-lane; #106 to other-lane", 4)]
+    records = [record(1, "api-lane", "state", "working on #101", 5), record(2, "root", "answer", "root reassigns #105 (gone-lane) to api-lane; #106 to other-lane", 4), record(3, "old-lane-2", "state", "took over #107", 3)]
     shell = FakeShell(
         records,
         [
@@ -493,6 +493,7 @@ def test_a_red_head_goes_to_its_live_lane_every_half_hour_to_root_once_when_no_l
             row("103", OLD, lane="gone-lane", test_state="failure", red_at=stamp(1), failing_checks=json.dumps([red])),
             row("104", lane="gone-lane", test_state="failure", red_at=stamp(1), failing_checks=json.dumps([probe])),
             row("105", lane="gone-lane", test_state="failure", red_at=stamp(1), failing_checks=json.dumps([red])),
+            row("107", OTHER, lane="old-lane", test_state="failure", red_at=stamp(1), failing_checks=json.dumps([red])),
         ],
     )
 
@@ -501,7 +502,8 @@ def test_a_red_head_goes_to_its_live_lane_every_half_hour_to_root_once_when_no_l
 
     shell.clock = NOW + timedelta(minutes=2)
     watch(shell, config)
-    assert sorted(shell.topics()) == ["probe:2026-10-27", "red:101:abc1234", "red:103:0123456:root", "red:105:abc1234"]
+    assert sorted(shell.topics()) == ["probe:2026-10-27", "red:101:abc1234", "red:103:0123456:root", "red:105:abc1234", "red:107:fedcba9"]
+    assert shell.post("red:107:fedcba9")["to"] == "old-lane-2@d1"
     assert shell.post("red:101:abc1234") == {
         "to": "api-lane@d1",
         "kind": "blocker",
@@ -515,11 +517,11 @@ def test_a_red_head_goes_to_its_live_lane_every_half_hour_to_root_once_when_no_l
 
     shell.clock = NOW + timedelta(minutes=20)
     watch(shell, config)
-    assert len(shell.posts) == 4
+    assert len(shell.posts) == 5
 
     shell.clock = NOW + timedelta(minutes=33)
     watch(shell, config)
-    assert sorted(shell.topics()[4:]) == ["red:101:abc1234", "red:105:abc1234"]
+    assert sorted(shell.topics()[5:]) == ["red:101:abc1234", "red:105:abc1234", "red:107:fedcba9"]
 
     shell.rows[0] = row("101")
     watch(shell, config)
