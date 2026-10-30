@@ -776,6 +776,7 @@ COMMAND_TIMEOUT_SECONDS = 1800
 ENQUEUE_SECONDS = 300
 LEDGER_SECONDS = 300
 FETCH_SECONDS = 120
+GRAPHITE_BASE = "graphite-base/"
 QUICK_SECONDS = 60
 CHECK_PR_SECONDS = 180
 GATE_CHECK_SECONDS = 60
@@ -1045,13 +1046,13 @@ class Shell:
     waited: Counter[str] = Counter()
     spending = threading.Lock()
 
-    def run(self, argv: list[str], stdin: str | None = None, env: dict[str, str] | None = None) -> Done:
-        done = self.run_once(argv, stdin, env)
+    def run(self, argv: list[str], stdin: str | None = None, env: dict[str, str] | None = None, cwd: str | None = None) -> Done:
+        done = self.run_once(argv, stdin, env, cwd)
         if rereadable(argv) and done.code and (done.code == TIMED_OUT or merge_queue.TRANSIENT_FAILURE.search(done.err + done.out)):
-            done = self.run_once(argv, stdin, env)
+            done = self.run_once(argv, stdin, env, cwd)
         return done
 
-    def run_once(self, argv: list[str], stdin: str | None, env: dict[str, str] | None) -> Done:
+    def run_once(self, argv: list[str], stdin: str | None, env: dict[str, str] | None, cwd: str | None) -> Done:
         timeout = time_bound(argv)
         started = time.monotonic()
         self.in_progress[threading.get_ident()] = (command_name(argv), started)
@@ -1060,7 +1061,7 @@ class Shell:
                 feed.write(stdin or "")
                 feed.seek(0)
                 try:
-                    proc = subprocess.run(argv, stdin=feed, capture_output=True, text=True, errors="replace", env={**os.environ, **env} if env else None, timeout=timeout)
+                    proc = subprocess.run(argv, stdin=feed, capture_output=True, text=True, errors="replace", env={**os.environ, **env} if env else None, cwd=cwd, timeout=timeout)
                 except subprocess.TimeoutExpired:
                     print(f"TIMED-OUT after {timeout}s, skipped: {command_name(argv)}", file=sys.stderr, flush=True)
                     return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {timeout}s and was killed")
@@ -5272,6 +5273,25 @@ class Landing:
         for priority in sorted(waves):
             self.await_workers([future for tree in lane_turns(waves[priority], open_rows) if (future := self.dispatch(",".join(tree), {pr for tip in tree for pr in downstack(open_rows, tip)}, lambda tree=tree: self.land_tree(rows, held, tree)))])
 
+    def resubmit_graphite_base(self, rows: dict[str, dict]) -> None:
+        """Resubmit the lowest open drive PR whose base is a `graphite-base/` branch, where a landed parent leaves it reading conflicted or stuck, on a stack worker beside the landing work: one at a time, once per head."""
+        with self.dispatching:
+            if any(key.startswith(GRAPHITE_BASE) and not future.done() for key, (_, future) in self.inflight.items()):
+                return
+        stale = [pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("ours") and row.get("base", "").startswith(GRAPHITE_BASE) and not self.book.known(LANDING, f"{GRAPHITE_BASE}{pr}@{row['head']}")]
+        if stale:
+            pr = min(stale, key=int)
+            self.dispatch(f"{GRAPHITE_BASE}{pr}@{rows[pr]['head']}", {pr}, lambda: self.resubmit(pr, rows[pr]))
+
+    def resubmit(self, pr: str, row: dict) -> None:
+        """Ship `pr`'s branch as it stands from the landing checkout with `ccx vcs ship --branch <branch> --tip-only --no-commit`, which moves it off its `graphite-base/` base, and post the outcome to the desk lane as a cci note."""
+        argv = ["ccx", "vcs", "ship", "--branch", row["branch"], "--tip-only", "--no-commit", "--no-watch"]
+        done = self.shell.run(argv, cwd=str(self.checkout))
+        last = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1][:300]
+        outcome = "resubmitted" if done.code == 0 else f"resubmit failed with exit {done.code}"
+        text = f"#{pr} {row['head'][:10]} sat on {row['base']} after its parent landed; {outcome} with {shlex.join(argv)}: {last}"
+        self.post_record("note", f"{GRAPHITE_BASE}{pr}@{row['head']}", ",".join(self.runner.landing_lanes("desk_lane")) or ROOT, text, pr)
+
     def dispatch(self, key: str, members: set[str], work: Callable[[], None]) -> Future | None:
         """Queue `work` on a stack worker under `key`, unless a worker that still runs or waits holds any PR of `members`, so two workers never enqueue one PR."""
         with self.dispatching:
@@ -7968,6 +7988,7 @@ class Landing:
         self.runner.steps(lambda: self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}), self.reconcile, lambda: self.requeue(rows))
         if not self.side_work:
             self.side_work = self.side.submit(self.runner.steps, lambda: self.verify(rows), lambda: self.announce_landings(rows), lambda: self.remove_landed_worktrees(rows), lambda: self.releases(rows), self.ungraded_after, lambda: self.verify_restacks(rows))
+        self.runner.steps(lambda: self.resubmit_graphite_base(rows))
         if held is not None:
             self.runner.steps(lambda: self.squash_incidents(rows, held))
             if gating:

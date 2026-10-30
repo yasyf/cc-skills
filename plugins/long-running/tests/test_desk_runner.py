@@ -179,6 +179,7 @@ class FakeShell(runner_module.Shell):
         self.kept: dict[str, str] = {}
         self.removed: list[str] = []
         self.pr_lists: dict[str, list[dict]] = {}
+        self.ships: list[tuple[list[str], str | None]] = []
         self.drives: list[str] = ["d1"]
         self.flake_code = 0
         self.claims: list[list[str]] = []
@@ -281,7 +282,7 @@ class FakeShell(runner_module.Shell):
         self.sequence += 1
         return f"{prefix}_{self.sequence:04d}"
 
-    def run(self, argv, stdin=None, env=None):
+    def run(self, argv, stdin=None, env=None, cwd=None):
         self.raw.append(list(argv))
         argv = gateway(argv)
         self.calls.append(argv)
@@ -508,6 +509,9 @@ class FakeShell(runner_module.Shell):
             if "--id" in flags:
                 self.post_ids[flags["--id"]] = len(self.posts)
             return runner_module.Done(0, self.post_out or f"#{len(self.posts)}\n", "")
+        if argv[:3] == ["ccx", "vcs", "ship"]:
+            self.ships.append((argv[3:], cwd))
+            return runner_module.Done(0, f"submitted {argv[4]} → PR #1 https://example.com/1\n", "")
         raise AssertionError(f"unexpected call {argv}")
 
     def rulings(self, argv: list[str]) -> runner_module.Done:
@@ -6038,6 +6042,26 @@ def test_a_flaky_retry_the_queue_strands_escalates_like_any_enqueue_and_asks_the
     assert retry.response["outcome"] == "stranded"
     landing_pass(shell, config)
     assert len(flakes(shell)) == 1 and blockers(shell) == []
+
+
+def test_a_pr_left_on_a_graphite_base_is_resubmitted_once_per_head_one_a_pass_with_a_note_to_the_desk_lane(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    raw["landing"]["desk_lane"] = "landing-desk-3"
+    config.write_text(json.dumps(raw))
+    shell.rows = [
+        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "graphite-base/29020", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
+        {"pr": "29031", "lane": LANE, "branch": "a/4", "base": "graphite-base/29031", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
+    ]
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 GitHub reads CONFLICTING")]
+    shell.gates["29031"] = [gate("#29031 BLOCKED dddd444444 GitHub reads CONFLICTING")]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    checkout = str(Path(json.loads(config.read_text())["landing"]["checkout"]).expanduser())
+    assert shell.ships == [(["--branch", "a/3", "--tip-only", "--no-commit", "--no-watch"], checkout), (["--branch", "a/4", "--tip-only", "--no-commit", "--no-watch"], checkout)]
+    notes = [post for post in shell.posts if post["kind"] == "note" and post["to"] == "landing-desk-3"]
+    assert [post["topic"] for post in notes] == ["29020", "29031"]
+    assert notes[0]["text"].startswith("#29020 cccc333333 sat on graphite-base/29020 after its parent landed; resubmitted with ccx vcs ship --branch a/3 --tip-only --no-commit --no-watch")
 
 
 def test_a_lower_priority_value_gates_and_enqueues_first(shell, config, tmp_path, capsys):
