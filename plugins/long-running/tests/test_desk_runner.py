@@ -183,6 +183,7 @@ class FakeShell(runner_module.Shell):
         self.removed: list[str] = []
         self.pr_lists: dict[str, list[dict]] = {}
         self.ships: list[tuple[list[str], str | None]] = []
+        self.ship_envs: list[dict | None] = []
         self.drives: list[str] = ["d1"]
         self.claims: list[list[str]] = []
         self.claim_error = ""
@@ -526,6 +527,7 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, "dropped the stopped stack rebase\n", "")
         if argv[:3] == ["ccx", "vcs", "ship"]:
             self.ships.append((argv[3:], cwd))
+            self.ship_envs.append(env)
             if self.ship_failure:
                 return self.ship_failure
             return runner_module.Done(0, f"submitted {argv[4]} → PR #1 https://example.com/1\n", "")
@@ -6328,6 +6330,16 @@ def test_a_pr_left_on_a_graphite_base_is_resubmitted_once_per_head_one_a_pass_wi
     notes = [post for post in shell.posts if post["kind"] == "note" and post["to"] == "landing-desk-3"]
     assert [post["topic"] for post in notes] == ["29020", "29031"]
     assert notes[0]["text"].startswith("#29020 cccc333333 sat on graphite-base/29020 after its parent landed; resubmitted with ccx vcs ship --branch a/3 --tip-only --no-commit --no-watch")
+
+
+def test_a_runner_started_from_a_lane_posts_a_resubmits_head_as_the_prs_owner_not_that_lane(shell, config, tmp_path):
+    """Oct 29: tooling-mq-redesign-2 ran `desk-runner.py handoff`, its CCI_AGENT_ID reached the runner, and ccx posted the resubmits' head records for #45379 and #45383 as tooling-mq-redesign-2, so their blockers went to it."""
+    shell.environ |= {"CCI_AGENT_ID": "atooling-mq-redesign-2-477d5e57b81838a8", "CLAUDE_CODE_SESSION_ID": "d50e80e8", "CCI_LANE": "tooling-mq-redesign-2"}
+    shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "graphite-base/29020", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 GitHub reads CONFLICTING")]
+    landing_pass(shell, config)
+    assert [shell.environ[name] for name in runner_module.LANE_IDENTITY] == ["", "", "", ""]
+    assert shell.ship_envs == [{"CCI_DRIVE": json.loads(config.read_text())["drive"], "CCI_LANE": LANE}]
 
 
 @pytest.mark.parametrize(
