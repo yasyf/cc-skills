@@ -400,9 +400,10 @@ func TestDispatchThroughSymlinkFindsAgentsMd(t *testing.T) {
 	if got := strings.TrimSpace(readFile(reply)); got != "pong" {
 		t.Fatalf("reply = %q, want pong (stderr: %s)", got, stderr.String())
 	}
-	if got := developerInstructions(t, sdir); got != "symlink-layout developer instructions" {
+	if got := developerInstructions(t, sdir); got != "symlink-layout developer instructions\n\n"+boundedFilesystemDiscovery {
 		t.Fatalf("developer instructions = %q, want symlink-layout override", got)
 	}
+	requireBoundedFilesystemDiscovery(t, developerInstructions(t, sdir))
 	await := stdoutLine(out, "AWAIT: ")
 	if !strings.Contains(await, link) {
 		t.Fatalf("AWAIT = %q, want symlink invocation path %q", await, link)
@@ -598,10 +599,11 @@ func TestDispatchEnvPluginRootOverridesEmbed(t *testing.T) {
 	}
 	sdir := filepath.Dir(reply)
 	t.Cleanup(func() { killLane(sdir) })
-	want := "binrun-layout developer instructions\n\nbinrun-layout review lane"
+	want := "binrun-layout developer instructions\n\n" + boundedFilesystemDiscovery + "\n\nbinrun-layout review lane"
 	if got := developerInstructions(t, sdir); got != want {
 		t.Fatalf("developer instructions = %q, want %q", got, want)
 	}
+	requireBoundedFilesystemDiscovery(t, developerInstructions(t, sdir))
 }
 
 // askRun drives the built binary against a stub codex under the given runs dir,
@@ -683,6 +685,42 @@ func TestLaneAppendsAfterAgentsBaseline(t *testing.T) {
 	}
 	if !strings.Contains(dev, "Finder pass over the stated scope") {
 		t.Fatalf("lane block truncated:\n%s", dev)
+	}
+}
+
+func TestFilesystemDiscoveryPrecedesLaneAndMCPContracts(t *testing.T) {
+	for _, args := range [][]string{{"ping"}, {"--lane", "review", "--mcp", "slack", "ping"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			stdout, stderr, code := askRun(t, mustTempDir(t), stubCodexListsMCPServers, args...)
+			if code != 0 {
+				t.Fatalf("dispatch exit %d\nstderr: %s", code, stderr)
+			}
+			requireBoundedFilesystemDiscovery(t, developerInstructions(t, laneDir(t, stdout)))
+		})
+	}
+}
+
+func requireBoundedFilesystemDiscovery(t *testing.T, dev string) {
+	t.Helper()
+	position := strings.Index(dev, "## Filesystem Discovery")
+	if position < 0 {
+		t.Fatalf("developer instructions omit bounded filesystem discovery: %s", dev)
+	}
+	for _, required := range []string{
+		"checking those exact filenames in the current working directory and each ancestor directory",
+		"check exact instruction filenames along the path from the current checkout root to that directory",
+		"Never recursively scan parent directories, sibling worktrees, home, or temporary roots",
+		"`find ..` and `rg --files . .. ../..` are forbidden",
+		"use caller-known checkout roots and targeted path or glob searches",
+	} {
+		if !strings.Contains(dev, required) {
+			t.Errorf("developer instructions omit %q", required)
+		}
+	}
+	for _, later := range []string{"## Lane:", "## MCP"} {
+		if index := strings.Index(dev, later); index >= 0 && index < position {
+			t.Errorf("bounded filesystem discovery follows %q", later)
+		}
 	}
 }
 
