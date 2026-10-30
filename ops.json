@@ -1,1 +1,1 @@
-{"v":1,"lamport":3,"ops":[{"kind":"set_branch","branch":"yasyf/trunk-native-skills-release"}]}
+{"v":1,"lamport":4,"ops":[{"kind":"set_criterion_status","id":"7468ab451589aadd781a53e0a8869c43","status":"met","note":"Audited published b99be016 relevant guides/open-pr/long-running/dashboard Markdown and manifests plus merged PR1180 body. No v0.87.37/v0.87.38/v0.87.39 minimum claim exists; body requires coordinated ccx authoritative-head release without guessed version."}]}
