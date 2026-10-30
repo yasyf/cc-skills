@@ -284,9 +284,9 @@ def fetch(shell: Shell, job: dict, *shas: str) -> None:
 
 
 def tips(shell: Shell, job: dict, branch: str) -> tuple[str, str]:
-    """The remote tips of `branch` and of the trunk, `HEAD`, from one `ls-remote`."""
+    """The remote tips of `branch` and of the trunk, `HEAD`, from one `ls-remote`; a base branch the remote deleted once its PR merged into it reads as the trunk's tip, which now carries it (#219204)."""
     refs = {ref: sha for sha, ref in (line.split("\t") for line in git(shell, job, "ls-remote", "origin", "HEAD", f"refs/heads/{branch}").splitlines())}
-    return refs[f"refs/heads/{branch}"], refs["HEAD"]
+    return refs.get(f"refs/heads/{branch}", refs["HEAD"]), refs["HEAD"]
 
 
 def checked_out(shell: Shell, job: dict, view: dict) -> tuple[str, str]:
