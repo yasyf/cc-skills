@@ -74,8 +74,8 @@ class FakeShell(board_rows.Shell):
         assert directory.name == "finders"
         return self.saved
 
-    def pull(self, pr: str, head: str = HEAD, state: str = "OPEN", committed: str = COMMITTED) -> None:
-        self.pulls[pr] = {"state": state, "headRefOid": head, "commits": {"nodes": [{"commit": {"committedDate": committed}}]}}
+    def pull(self, pr: str, head: str = HEAD, state: str = "OPEN", committed: str = COMMITTED, base: str = "dev") -> None:
+        self.pulls[pr] = {"state": state, "headRefOid": head, "baseRefName": base, "headRefName": f"b/{pr}", "commits": {"nodes": [{"commit": {"committedDate": committed}}]}}
 
     def post(self, kind: str, lane: str, text: str, pr: str | None = None, path: str | None = None, drive: str = DRIVE, topic: str = "") -> int:
         seq = len(self.records) + 1
@@ -666,3 +666,56 @@ def test_a_failing_one_tap_group_holds_every_row_it_covers(tmp_path: Path, shell
     assert gate(tmp_path, shell, claimed("Gateway fix: your one tap approves both.", pr_row("42590"), pr_row("42593")), "--", "cc-present", "update-block") == 1
 
     assert lines(capsys)[-1].startswith("rows 2 failing 2 ") and shell.pushed == []
+
+
+REASK = "the row re-asks his tap"
+
+
+def stacked(shell: FakeShell, grade: str = "fidelity: ok {head} a review fix, no new behavior", base: str = "b/42590") -> None:
+    shell.pull("42591", base=base)
+    for pr in ("42590", "42591"):
+        shell.post("review", "fidelity-desk", grade.format(head=HEAD[:7]), pr)
+        shell.post("review", "p7", f"finder: ok {HEAD[:7]} no majors", pr)
+        shell.post("decide", "root", f"#{pr} {HEAD[:7]} answers the finder: {REASK}", pr)
+    shell.verdicts = {"merge-prs": {"42590": approved("42590", NEW_HEAD), "42591": approved("42591", NEW_HEAD, at="2026-10-30T01:59:00Z")}}
+
+
+def stack_rows() -> dict:
+    return groups(
+        pr_row("42590", title="Saves turns", change="Each turn is saved.", since={"changed": "a nil check answers the finder", "because": "the finder's major is fixed"}),
+        pr_row("42591", title="Reads turns", change="Each turn reads back.", since={"changed": "a rename the review asked for", "because": "the finder's major is fixed"}),
+    )
+
+
+def test_a_stack_of_re_asked_review_fixes_pushes_as_one_row_his_one_tap_decides(tmp_path: Path, shell: FakeShell) -> None:
+    """Owner 7:00 PM Oct 29 (root #194387), on land-faster: one board row per stack when every change in it is a pure review fix or patch-identical replay."""
+    stacked(shell)
+
+    assert gate(tmp_path, shell, stack_rows(), "--", "cc-present", "update-block") == 0
+
+    [(_, pushed)] = shell.pushed
+    [(_, _, row)] = list(board_rows.pr_group_rows(pushed))
+    assert row["number"] == 42591 and row["head"] == HEAD[:7]
+    assert row["stack"] == [{"number": 42590, "head": HEAD[:7]}]
+    assert row["title"] == "Reads turns (stack of 2)"
+    assert row["change"] == "You approved these 2 changes between 1:00 PM Oct 26 and 6:59 PM Oct 29. Since then: #42590 a nil check answers the finder; #42591 a rename the review asked for. Shown again because: the finder's major is fixed. #42590: Each turn is saved; #42591: Each turn reads back."
+    assert row["risk"] == "risk in plain words"
+    assert "since" not in row and "textAt" not in row
+
+
+@pytest.mark.parametrize(
+    ("grade", "base"),
+    [
+        ("fidelity: ok {head} adds new behavior: a retry", "b/42590"),
+        ("fidelity: missing {head} rule/2", "b/42590"),
+        ("fidelity: ok {head} a review fix, no new behavior", "dev"),
+    ],
+    ids=["new-behavior", "no-ok-grade", "not-stacked"],
+)
+def test_a_stack_with_new_behavior_an_ungraded_fix_or_no_chain_keeps_a_row_per_pr(tmp_path: Path, shell: FakeShell, grade: str, base: str) -> None:
+    stacked(shell, grade, base)
+
+    gate(tmp_path, shell, stack_rows(), "--", "cc-present", "update-block")
+
+    pushed = [row for _, pushed in shell.pushed for *_, row in board_rows.pr_group_rows(pushed)]
+    assert all("stack" not in row for row in pushed)

@@ -77,7 +77,13 @@ for `--session`, else the push command's `--session`, else cc-present's default 
 line counts rows, failing rows, ungraded rows, and flags. Any failing row exits 1, and `--check` exits 0
 otherwise. The push form opens each re-asked `pr-groups` row's `change` with `You approved this at <his
 tap's Pacific time>. Since then: <changed>. Shown again because: <because>.` and drops every row's
-`since`. It runs its command with a copy of the block, `textAt` removed and each failing
+`since`. Rows of one `pr-groups` block that GitHub chains into one stack, each PR based on the
+branch of the one below it, push as one row at the tip when every one of them passes, asks again
+with its `since`, and moved only by a fix with no new behavior: a fidelity ok grade at its head,
+or a carry record calling the head patch-identical, and no grade or `head` record at that head
+saying new behavior (root #194387). The row lists the others as cc-present's `stack`, so his one
+tap decides each at its own head; its `change` opens with one line for the stack, then each PR's
+change, and each other fact reads as one line when every PR shares it, else one clause per PR. It runs its command with a copy of the block, `textAt` removed and each failing
 row left out (its triage item, its `pr-groups` entry, or its `- #<pr>:` line, and a triage or `pr-groups` block
 left empty), as its last argument, so one refused row never holds the rest of the board, and exits 1 when it left a
 row out, else with the command's status. When every row fails it pushes nothing. A one-tap claim that fails marks
@@ -182,6 +188,9 @@ class Row:
     required: tuple[str, ...] = FIELDS
     since: dict[str, str] = field(default_factory=dict)
     opener: str = ""
+    entry: dict | None = None
+    pure: bool = False
+    pull: Pull | None = None
     reasons: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -191,6 +200,8 @@ class Pull:
     state: str
     head: str
     committed: str
+    base: str = ""
+    branch: str = ""
 
 
 def triage_items(node: object) -> Iterator[tuple[str, dict]]:
@@ -292,7 +303,7 @@ def pr_of(row_id: str) -> str | None:
 
 def pulls_query(repo: str, prs: list[str]) -> str:
     owner, name = repo.split("/")
-    fields = " ".join(f"p{pr}: pullRequest(number: {pr}) {{ state headRefOid commits(last: 1) {{ nodes {{ commit {{ committedDate }} }} }} }}" for pr in prs)
+    fields = " ".join(f"p{pr}: pullRequest(number: {pr}) {{ state headRefOid baseRefName headRefName commits(last: 1) {{ nodes {{ commit {{ committedDate }} }} }} }}" for pr in prs)
     return f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'
 
 
@@ -309,7 +320,7 @@ def read_pulls(shell: Shell, repo: str, prs: list[str], warnings: list[str]) -> 
             continue
         for pr in batch:
             node = found.get(f"p{pr}")
-            pulls[pr] = Pull(node["state"], node["headRefOid"], node["commits"]["nodes"][0]["commit"]["committedDate"]) if node else None
+            pulls[pr] = Pull(node["state"], node["headRefOid"], node["commits"]["nodes"][0]["commit"]["committedDate"], node["baseRefName"], node["headRefName"]) if node else None
     return pulls
 
 
@@ -422,6 +433,65 @@ def tap_reasons(row: Row, entry: dict | None, gos: list[dict], rulings: list[dic
 
 def moved_tap(row: Row, entry: dict | None) -> bool:
     return entry is not None and entry.get("verdict") == "approved" and bool(entry.get("head")) and not at_head(entry, "approved", row.head) and not any(grades.names_head(sha, entry["head"]) for sha in row.carried)
+
+
+def pure_fix(records: list[dict], drive: str, lanes: list[str], repo: str, row: Row) -> bool:
+    """Whether `row`'s head is a fix with no new behavior: a fidelity ok grade or a patch-identical carry names it, and no grade or `head` record naming it says new behavior."""
+    mine = [record for record in records if record["drive"] == drive]
+    graded = grades.newest_naming(grades.fidelity_grades_in(mine, drive, lanes, repo, row.pr), row.head)
+    ok = graded is not None and graded["text"].startswith(grades.FIDELITY_OK)
+    said = [record for record in mine if record["kind"] == "head" and grades.about_pr(record, repo, row.pr) and grades.names_head(grades.graded_head(record["text"]), row.head)]
+    fixed = ok or any(carries(record, repo, row.pr, row.head) for record in mine)
+    return fixed and not any(grades.ADDS_BEHAVIOR.search(grades.full_text(record)) for record in [*([graded] if graded else []), *said])
+
+
+def stacks(rows: list[Row]) -> list[list[Row]]:
+    """Each chain of two or more `pr-groups` rows of one block that GitHub stacks, each based on the branch of the one below, bottom first, when every row in it passes, asks again with its `since`, and moved only by a fix with no new behavior."""
+    chains = []
+    for block_id in dict.fromkeys(row.block for row in rows if row.required == PR_FIELDS):
+        mine = [row for row in rows if row.block == block_id and row.required == PR_FIELDS and row.pull]
+        above = {row.pull.base: row for row in mine}
+        for bottom in (row for row in mine if not any(row.pull.base == other.pull.branch for other in mine)):
+            chain = [bottom]
+            while (up := above.get(chain[-1].pull.branch)) and up not in chain:
+                chain.append(up)
+            if len(chain) > 1 and all(row.pure and row.opener and not row.reasons for row in chain):
+                chains.append(chain)
+    return chains
+
+
+def stack_row(chain: list[Row], tip: dict) -> dict:
+    times = list(dict.fromkeys(tapped_at(row.entry) for row in sorted(chain, key=lambda row: row.entry.get("at", ""))))
+    when = f"at {times[0]}" if len(times) == 1 else f"between {times[0]} and {times[-1]}"
+    since = "; ".join(f"#{row.pr} {row.since['changed'].strip().rstrip('.')}" for row in chain)
+    because = "; ".join(dict.fromkeys(row.since["because"].strip().rstrip(".") for row in chain))
+    opener = f"You approved these {len(chain)} changes {when}. Since then: {since}. Shown again because: {because}."
+    facts = {name: shared([(row.pr, row.facts[name]) for row in chain]) for name in PR_FIELDS}
+    return {key: value for key, value in tip.items() if key != SINCE} | facts | {
+        "change": f"{opener} {facts['change']}",
+        "title": f"{tip.get('title', '')} (stack of {len(chain)})",
+        "md": "\n\n".join(f"#{row.pr} {row.label}: {row.facts['change']}" for row in chain) + (f"\n\n{tip['md']}" if tip.get("md") else ""),
+        "stack": [{"number": int(row.pr), "head": row.head} for row in chain[:-1]],
+    }
+
+
+def shared(values: list[tuple[str, str]]) -> str:
+    return values[0][1] if len({value for _, value in values}) == 1 else "; ".join(f"#{pr}: {value.rstrip('.')}" for pr, value in values) + "."
+
+
+def folded(node: object, chains: list[list[Row]]) -> object:
+    """`node` with each chain of `chains` pushed as one row at its tip, standing for the others through its `stack`, and each group left empty dropped."""
+    if isinstance(node, list):
+        return [folded(value, chains) for value in node]
+    if not isinstance(node, dict):
+        return node
+    if node.get("type") != PR_GROUPS:
+        return {key: folded(value, chains) for key, value in node.items()}
+    mine = [chain for chain in chains if chain[-1].block == node["id"]]
+    tips = {chain[-1].pr: chain for chain in mine}
+    under = {row.pr for chain in mine for row in chain[:-1]}
+    groups = [dict(group, prs=[stack_row(tips[str(pr["number"])], pr) if str(pr["number"]) in tips else pr for pr in group.get("prs", []) if str(pr["number"]) not in under]) for group in node.get("groups", [])]
+    return dict(node, groups=[group for group in groups if group["prs"]])
 
 
 def tapped_at(entry: dict) -> str:
@@ -568,14 +638,16 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
         row.reasons += moved.get(row.id, [])
     for row in named:
         if row.pr in pulls:
+            row.pull = pulls[row.pr]
             row.reasons += github_reasons(row, pulls[row.pr])
         if rulings is not None and (ruling := closing_ruling(rulings, row.pr, row.head)):
             row.reasons.append(f"not open: root ruled it superseded or closed on cci #{ruling['seq']}")
         if verdicts is not None:
-            entry = verdicts.get(row.block, {}).get(row.id)
-            row.reasons += tap_reasons(row, entry, standing_gos(rulings, withdrawn, row.pr, row.head) if rulings is not None else [], rulings or [])
-            if moved_tap(row, entry):
-                row.reasons += since_reasons(row, entry)
+            row.entry = verdicts.get(row.block, {}).get(row.id)
+            row.reasons += tap_reasons(row, row.entry, standing_gos(rulings, withdrawn, row.pr, row.head) if rulings is not None else [], rulings or [])
+            if moved_tap(row, row.entry):
+                row.reasons += since_reasons(row, row.entry)
+                row.pure = reviews is not None and pure_fix(reviews + (rulings or []), drive, lanes, repo, row)
         if reviews is not None:
             gaps = graded_warnings(reviews, reviews + (rulings or []), saved, drive, lanes, repo, row)
             row.reasons += [gap for gap in gaps if "fidelity" in gap]
@@ -733,7 +805,9 @@ def main(argv: list[str], shell: Shell | None = None) -> int:
     if failing and len(failing) == len(rows):
         return 1
     with tempfile.NamedTemporaryFile("w", prefix=f"{args.block.stem}.", suffix=".json") as copy:
-        json.dump(stripped(withheld(opened(bannered(block, banner) if banner else block, rows), failing)), copy, indent=1)
+        chains = stacks(rows)
+        folds = {row.pr for chain in chains for row in chain}
+        json.dump(stripped(withheld(opened(folded(bannered(block, banner) if banner else block, chains), [row for row in rows if row.pr not in folds]), failing)), copy, indent=1)
         copy.flush()
         pushed = shell.push([*command, copy.name])
     return 1 if failing else pushed

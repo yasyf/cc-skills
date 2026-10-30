@@ -1799,7 +1799,10 @@ adds behavior asks again. The re-asked row's `since` holds `changed` and `becaus
 `board_rows.py` refuses it (`since`) without both, then opens its `change` with "You
 approved this at <time>. Since then: <what changed>. Shown again because: <the behavior
 change>." Owner, 6:59 PM Oct 29: "if ur asking for a PR tap that Ive alrady apporiove dyou
-ned to tell me whats changed / why ur showing it gain". Every verdict is read live
+ned to tell me whats changed / why ur showing it gain". A stack whose every row asks
+again this way, each moved only by a fix with no new behavior, pushes as one row at its tip:
+the row lists the others in cc-present's `stack`, and his one tap decides each at its own head
+(root #194387, his 7:00 PM Oct 29 "all 3" on land-faster). Every verdict is read live
 from the cc-present store (`cc-present outcomes`) and the root's `go` records at the
 moment it is used; no writer, row, card, or dashboard keeps a copy. Owner, 12:28 PM Oct
 27: "for each Biggest blocker, how are you fixing it structurally for future e.g. the
