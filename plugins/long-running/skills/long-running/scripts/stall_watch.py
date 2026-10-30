@@ -86,6 +86,10 @@ and, across the drive:
               its answer to the reviewer bot is idle when it has open PRs or its last record is a
               done or READY one
     ask       a lane's `ask` to root is open, and no root record answers it
+    order     a root `decide` record relays an owner order ("owner ... verbatim"), Sonnet reads it as
+              naming a change that ships as a new PR, no `opened` record from a lane it names or a
+              numbered successor follows it, and no root record closes it; it goes to root alone,
+              from `stall.minutes.order` until the order is two hours old
     gate      a lane's `state` or `report` record says work waits on PR N (`waits on #N`, `waits only
               on #N`, `blocked on #N`, `when #N lands`), the desk runner or a landing desk lane posted
               N landed or QUEUED, and neither that lane nor a numbered successor of it has posted an
@@ -107,7 +111,7 @@ and, across the drive:
               is tapped, or the hold lifts; each PR in the run of PR numbers a holds-file
               line leads with counts as held here
 
-Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, successor 20, red 2, tap 10, ungraded 10, finder 30,
+Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, successor 20, red 2, order 3, tap 10, ungraded 10, finder 30,
 fidelity 30, running 25, board 15, carry 20 (one fidelity pass), lane 30, ask 15, gate 30, stale 120. A PR's head is as old as the first record about the
 PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record. A board
 stall counts from the latest of its finder ok, its fidelity ok, and its ledger row's `green_at`, the refresh that
@@ -167,11 +171,13 @@ NOT_LANES = frozenset({*ROOT_NAMES, "team-lead", LANE, RUNNER})
 PACIFIC = ZoneInfo("America/Los_Angeles")
 MODEL = "claude-sonnet-5-5"
 WINDOW_HOURS = 24
-MINUTES = {"go": 10, "refusal": 10, "successor": 20, "red": 2, "tap": 10, "ungraded": 10, "finder": 30, "fidelity": 30, "running": 25, "board": 15, "carry": 20, "lane": 30, "ask": 15, "gate": 30, "stale": 120}
+MINUTES = {"go": 10, "refusal": 10, "successor": 20, "red": 2, "order": 3, "tap": 10, "ungraded": 10, "finder": 30, "fidelity": 30, "running": 25, "board": 15, "carry": 20, "lane": 30, "ask": 15, "gate": 30, "stale": 120}
 DESK_KINDS = frozenset({"finder", "fidelity"})
 ROOT_KINDS = frozenset({"ungraded"})
 REPOSTED = frozenset({"red"})
 POST_KINDS = {"red": "blocker", "probe": "report"}
+OWNER_ORDER = re.compile(r"\bowner\b.{0,80}\bverbatim\b", re.IGNORECASE | re.DOTALL)
+ORDER_WINDOW = timedelta(hours=2)
 REASSIGNS = re.compile(r"\breassign", re.IGNORECASE)
 CLAUSE = re.compile(r"[;\n]|\.\s")
 REASSIGNED_TO = re.compile(r"\bto\s+([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b")
@@ -262,6 +268,7 @@ SCHEMA = json.dumps(
                         "id": {"type": "string"},
                         "restack": {"type": "boolean"},
                         "fix": {"type": "boolean"},
+                        "pr": {"type": "boolean"},
                         "explained": {"type": "boolean"},
                         "promised": {"type": "string"},
                         "why": {"type": "string"},
@@ -278,6 +285,8 @@ PROMPT = """You read coordination records from a multi-agent software drive and 
 A question of kind "restack": the owner approved a pull request at tapped_head, and it now sits at head. The records are the lane's own `head` announcements for that PR, oldest first. Answer restack true only when they say head replays the tapped change unchanged: a rebase or restack onto a newer base that adds no commit, fix, or test of its own. Answer fix true when every commit head adds beyond the tapped change adds no new behavior of its own: a fix for a finding a reviewer, a reviewer bot, the finder, or a red CI build raised, a conflict resolution, or their tests; the owner's rule keeps his approval over any change that adds no new behavior. Answer both false when head adds new behavior, or the records do not say what it adds.
 
 A question of kind "silence": a lane has posted nothing for minutes_silent minutes since last_record. Answer promised with the RFC 3339 UTC time by which that record says the lane's next state or result will come, such as "next state by 1:30 PM", "back in 20 minutes", or "ETA 13:05", reading a time with no zone as Pacific and a relative time from last_at; leave promised empty when it names none. Answer explained true only when the record names something the lane waits on that takes this long, such as a CI build, a release, or a long command it runs; a record that reports finished work, asks a question, or says nothing of what comes next is explained false.
+
+A question of kind "order": root relayed the owner's order in a decide record. Answer pr true only when the order tells a lane to make a change that ships as a new pull request, such as a revert, a fix, a port, or new code. Answer pr false when it orders only a merge, a release, a hold, a reply, a rule, or a question, or names no action.
 
 Answer every question by its id, each with a one-sentence why.
 
@@ -616,7 +625,7 @@ class Pass:
         stalls, questions, entries = self.prs(records, session)
         lane_stalls, lane_questions = self.lanes(records, session, entries)
         stalls += lane_stalls + self.asks(records) + self.gates(records)
-        questions += lane_questions
+        questions += lane_questions + self.orders(records)
         cached = saved.get("verdicts", {})
         fresh = self.judge([question.ask | {"id": question.key} for question in questions if question.key not in cached])
         verdicts = {question.key: cached.get(question.key) or fresh.get(question.key) for question in questions}
@@ -1186,6 +1195,31 @@ class Pass:
             return Stall(f"lane:{lane}", "lane", quiet, lane, f"{what}; it owns task {owned}", (lane,), f"{lane} posts its state now; root pings it and relaunches it if no answer comes in 10 min")
 
         return Question(f"lane:{lane}:{last['seq']}", {"kind": "silence", "lane": lane, "last_at": last["at"], "minutes_silent": int((self.now - quiet).total_seconds() // 60), "last_record": clip(grades.full_text(last), RECORD_CHARS)}, settle)
+
+    def orders(self, records: list[dict]) -> list[Question]:
+        """A question for each root decide record relaying an owner order, `stall.minutes.order` to `ORDER_WINDOW` old, unclosed, that no lane it names, or a numbered successor, has answered with an `opened` record since: one Sonnet verdict says whether the order names a change that ships as a new PR, and a yes is root's urgent stall."""
+        closed = {seq for record in records if record["lane"] in ROOT_NAMES for seq in grades.closes(record)}
+        questions = []
+        for order in records:
+            text = grades.full_text(order)
+            if order["lane"] not in ROOT_NAMES or order["kind"] != "decide" or order["seq"] in closed or not OWNER_ORDER.search(text):
+                continue
+            if not self.watch.age("order") <= self.now - at(order) < ORDER_WINDOW:
+                continue
+            lanes = [lane for lane in order.get("to") or [] if lane not in NOT_LANES]
+            if any(record["kind"] == "opened" and record["seq"] > order["seq"] and any(successor_of(lane).fullmatch(record["lane"]) for lane in lanes) for record in records):
+                continue
+            questions.append(self.order(order, text, lanes))
+        return questions
+
+    def order(self, order: dict, text: str, lanes: list[str]) -> Question:
+        def settle(verdict: dict | None) -> Stall | None:
+            if not verdict or not verdict.get("pr"):
+                return None
+            named = ", ".join(lanes) or "no lane"
+            return Stall(f"order:{order['seq']}", "order", at(order), f"owner order #{order['seq']}", f"root relayed it at {pacific(at(order))} and it names a PR to open ({clip(verdict['why'])}), yet no OPENED record from {named} follows", (ROOT,), f"find why {named} has not opened the PR, and have it opened now")
+
+        return Question(f"order:{order['seq']}", {"kind": "order", "order": clip(text, RECORD_CHARS)}, settle)
 
     def asks(self, records: list[dict]) -> list[Stall]:
         answered = {record["re"] for record in records if record["lane"] in ROOT_NAMES and record.get("re")}

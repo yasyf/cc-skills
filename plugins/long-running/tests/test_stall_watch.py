@@ -528,6 +528,25 @@ def test_a_red_head_goes_to_its_live_lane_every_half_hour_to_root_once_when_no_l
     assert "red:101:abc1234" not in opened(config) and "red:103:0123456:root" in opened(config)
 
 
+def test_an_owner_order_naming_a_pr_with_no_opened_record_three_minutes_on_posts_one_urgent_record_to_root(config):
+    revert = record(1, "root", "decide", "Owner 8:15 PM, verbatim (answer e7170fa): 'back that out, revert the merge'. Binding now: landing-desk reverts 78a4e35.", 4, to=["landing-desk-3", "drive-watchdog-2"])
+    merge = record(2, "root", "decide", "Owner 8:16 PM, verbatim: 'merge it now'.", 4, to=["landing-desk-3"])
+    fresh = record(3, "root", "decide", "Owner 8:18 PM, verbatim: 'fix the lint'.", 2, to=["lint-lane"])
+    plain = record(4, "root", "decide", "root settles fidelity #9 on #45403: refuted.", 10, to=["signal-infra-1"])
+    shell = FakeShell([revert, merge, fresh, plain], [])
+    shell.answer = lambda question: {"pr": "revert" in question["order"] or "fix" in question["order"]} if question["kind"] == "order" else {}
+
+    watch(shell, config)
+
+    assert shell.topics() == ["order:1"]
+    assert shell.post("order:1")["to"] == "root" and shell.post("order:1")["kind"] == "urgent"
+    assert "no OPENED record from landing-desk-3, drive-watchdog-2 follows" in shell.post("order:1")["text"]
+    assert len(shell.prompts) == 1 and '"kind": "order"' in shell.prompts[0]
+    shell.records.append(record(5, "landing-desk-3", "opened", "opened #45425", 1))
+    watch(shell, config)
+    assert "order:1" not in opened(config)
+
+
 def graded(seq: int, pr: str, sha: str, minutes_ago: float) -> list[dict]:
     return [head(seq, pr, sha, minutes_ago), finder(seq + 1, pr, sha, minutes_ago - 1), fidelity(seq + 2, pr, sha, minutes_ago - 1)]
 
