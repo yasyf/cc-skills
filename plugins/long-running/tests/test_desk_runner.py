@@ -3020,15 +3020,16 @@ def test_a_head_graded_missing_is_blocked_with_the_grade(shell, config, tmp_path
 
 
 @pytest.mark.parametrize("grounds", ["owner-words. root #131110 keeps this missing", "design/s9 the plan's design row", "#131668 root's tap-carry rule"])
-def test_a_missing_that_names_no_plan_line_or_owner_row_goes_to_root_and_the_graders_never_the_lane(shell, config, tmp_path, grounds):
+def test_a_missing_that_names_no_plan_line_or_owner_row_goes_to_the_owning_lane_and_the_graders_not_root(shell, config, tmp_path, grounds):
+    """Root #198356: the lane that owns the PR owes the answer, and root hears only when no live lane owns it."""
     lone_green_pr(shell)
     seq = grade(shell, "29020", f"missing cccc333 {grounds}")
     landing_pass(shell, config)
     assert shell.enqueues() == []
     [blocker] = blockers(shell)
-    assert blocker["to"] == "root,fidelity-desk"
+    assert blocker["to"] == f"{LANE},fidelity-desk"
     key = grounds.split()[0].rstrip(".")
-    assert blocker["text"].endswith(f"cci #{seq}: fidelity: missing cccc333 {grounds} | it rests on `{key}`, no plan line and no owner row, so it changes no code: the grader re-posts it from `rulings.py grade`, or root puts the gap on the owner's board")
+    assert blocker["text"].endswith(f"cci #{seq}: fidelity: missing cccc333 {grounds} | it rests on `{key}`, no plan line and no owner row: the lane answers with a fix or a refutation, the grader re-posts it from `rulings.py grade`, or root puts the gap on the owner's board")
 
 
 def test_an_ok_at_an_older_head_only_is_blocked(shell, config, tmp_path):
