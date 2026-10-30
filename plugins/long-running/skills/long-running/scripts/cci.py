@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 PAGE_BYTES = 4_000_000
+PAGE_ROWS = 500
 CLAIM_KINDS = ("opened", "head")
 INCIDENT_LANE = re.compile(r"^(?:inc|incident|outage)-")
 FIX_LANE = re.compile(r"-(?:fix(?:-\d+)?|opus|case\d+)$")
@@ -65,7 +66,7 @@ class Tail:
 
 
 def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: int | str = 0) -> list[dict]:
-    """Every record on `drive` after `since`, a sequence or any `cci tail --since` time, that matches the `cci tail` filters, paged by sequence; a page under half the budget is the last, since cci caps a record far below that; touches no cursor. A `Tail` answers a query it read since its last `forget` without running cci."""
+    """Every record on `drive` after `since`, a sequence or any `cci tail --since` time, that matches the `cci tail` filters, paged by sequence; a page is the last when it holds fewer than the `PAGE_ROWS` records cci prints per call and fills under half the byte budget, since cci caps a record far below that; touches no cursor. A `Tail` answers a query it read since its last `forget` without running cci."""
     key = (drive, filters, str(since))
     read = run.read if isinstance(run, Tail) else None
     if read is not None and (kept := read.get(key)) is not None:
@@ -78,7 +79,7 @@ def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: i
         out = run(["cci", "tail", "--drive", drive, "--since", str(since), "--json", "--budget", str(PAGE_BYTES), *filters])
         page = [json.loads(line) for line in out.splitlines() if line.strip()]
         found += page
-        if len(out.encode()) < PAGE_BYTES // 2:
+        if len(page) < PAGE_ROWS and len(out.encode()) < PAGE_BYTES // 2:
             break
         since = page[-1]["seq"]
     if grown is not None:
