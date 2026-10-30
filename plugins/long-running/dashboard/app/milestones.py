@@ -13,12 +13,14 @@ OPEN_KINDS = {
     "waiting": "waiting on a review or a tap",
     "doing": "being built",
     "failing": "with a failing build",
+    "you": "waiting on your tap",
 }
 NEXT_BY_KIND = {
     "queued": "the merge queue lands the queued ones",
     "waiting": "the graders and the board take the waiting ones",
     "doing": "their workers finish the ones being built",
     "failing": "their workers fix the failing builds",
+    "you": "you tap the ones on your board",
 }
 
 
@@ -99,7 +101,7 @@ def compute(config_milestones, drive_prs, blockers, releases):
             row.update(
                 state="progress",
                 label="Being built",
-                waits=f"{len(still_open)} of {len(changes)} changes still open: " + ", ".join(f"{count} {OPEN_KINDS.get(kind, kind)}" for kind, count in counts.items()),
+                waits=f"{len(still_open)} of {len(changes)} changes still open: " + ", ".join(f"{count} {OPEN_KINDS.get(kind, 'in progress')}" for kind, count in counts.items()),
                 unblocking="; ".join(NEXT_BY_KIND.get(kind, "their workers move them") for kind in counts).capitalize(),
             )
         elif testing:
