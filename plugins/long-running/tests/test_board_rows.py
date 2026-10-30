@@ -467,6 +467,16 @@ def test_a_row_root_approved_at_its_head_fails_until_the_board_holds_the_approva
     assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 0
 
 
+def test_a_root_withdraw_naming_the_go_in_its_text_clears_the_approval_check(tmp_path: Path, shell: FakeShell) -> None:
+    """board-refresher-2 #199137: root's WITHDRAW #198682 answered #198673 by --re and named the go only as 'withdraws go #198635', so the gate kept refusing the row it ordered."""
+    seq = shell.post("go", "root", f"go #42590 at {HEAD[:7]} (owner tap 9:12 PM)", "42590")
+    asked = shell.post("decide", "root", "row #42590 at its head with his 1:00 PM words")
+    assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 1
+    shell.post("withdraw", "root", f"10:37 PM root withdraws go #{seq} on #42590: it rested on design words, not a tap of the PR")
+    shell.records[-1]["re"] = asked
+    assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 0
+
+
 @pytest.mark.parametrize(("verdict_head", "failing"), [(HEAD, 1), (NEW_HEAD, 0)])
 def test_a_row_he_rejected_at_its_head_fails_and_returns_at_a_new_head(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], verdict_head: str, failing: int) -> None:
     shell.verdicts = {"merge-prs": {"42590": rejected("42590", verdict_head)}}
