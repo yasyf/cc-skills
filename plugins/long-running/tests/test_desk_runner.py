@@ -5532,6 +5532,8 @@ def test_the_overflow_tries_a_blocked_enqueue_again_five_minutes_later(shell, co
     shell.enqueue_out["33001"] = (0, "enqueue #33001: {}\n")
     shell.sleep(6 * 60)
     overflow.overflow()
+    shell.sleep(6 * 60)
+    overflow.overflow()
     assert len(shell.enqueues()) == 2
 
 

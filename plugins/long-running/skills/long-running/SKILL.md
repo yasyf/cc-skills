@@ -1704,7 +1704,7 @@ until it reads.
 merge queue within five minutes of that go. A stack the passes leave out that long, unheld and
 unrefused, goes straight into the queue through the runner's overflow, which posts a QUEUED
 report naming itself (owner 9524276). The overflow sends a stack in whole once any PR of it
-is due, and tries a blocked enqueue again after five minutes. The runner logs one `GO-UNQUEUED` per head still
+is due, and a blocked enqueue five minutes old no longer keeps the stack out. The runner logs one `GO-UNQUEUED` per head still
 out only when its own newest enqueue of that head since the go ended blocked, failed,
 stranded or unsettled, or went in and the queue then evicted it, never for backlog, naming that
 outcome or the eviction's time and reason. A go'd head whose queue draft closed unmerged is
