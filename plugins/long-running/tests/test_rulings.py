@@ -434,6 +434,8 @@ class RegisterShell(ledger.Shell):
                 return ""
             case ["cci", "grep", "--drive", "brook-cci", "--json", *_]:
                 return "".join(json.dumps(record) + "\n" for record in self.records)
+            case ["cci", "show", seq, "--json"]:
+                return "".join(json.dumps({"drive": "brook-cci"} | record) + "\n" for record in self.records if str(record["seq"]) == seq)
         raise AssertionError(argv)
 
 
@@ -1706,6 +1708,36 @@ def test_readback_accepts_a_line_per_slice_row_and_a_verdict_per_hit(home: Path,
     )
     assert ran(capsys, read_back(*header, *rows, *marked, lane="lane-b"), "readback", "--lane", "lane-a", "--contract", "500")[1].startswith("READBACK-NOT-LANES #500: ")
     assert ran(capsys, read_back(*header, *rows, *marked, lane="lane-b"), "readback", "--lane", "lane-b", "--contract", "500")[1].startswith("READBACK-NOT-LANES #500: ")
+
+
+def test_readback_warns_where_a_line_scopes_an_owner_row_narrower_than_his_words(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
+    _, sliced = ran(capsys, RegisterShell(seeded(package)), "slice", "--lane", "lane-a", "--step", "1.9")
+    marked = [f"{hit} - keep: the line states the ban" for hit in sliced.splitlines() if hit.startswith(("open ", "authorized "))]
+    rows = ["rule/aaaaaaa: builds nothing in relay-server", "rule/eeeeeee: leaves the outage gate alone", "exception/E1: leaves the pass alone"]
+    body = tmp_path / "readback.md"
+    records = [{"seq": 500, "kind": "contract", "lane": "lane-a", "text": "read-back", "refs": {"path": str(body)}, "at": AT}]
+
+    def warned(line: str) -> list[str]:
+        body.write_text("\n".join(["Register slice: lane=lane-a step=1.9", *rows, line, *marked]) + "\n")
+        code, out = ran(capsys, RegisterShell(seeded(package), records=records), "readback", "--lane", "lane-a", "--contract", "500")
+        assert code == 0
+        return [warning for warning in out.splitlines() if "NARROWED" in warning]
+
+    assert warned("rule/ccccccc: one card per destination and key quotes the words, only on the board") == [
+        'WARNING READBACK-NARROWED rule/ccccccc: says "per destination", "per key", "only"; the owner\'s words say none of them'
+    ]
+    assert warned('rule/ccccccc: every card quotes the words, per root #12, as he said: "Cards quote the words they ask about."') == []
+
+
+def test_narrowed_reads_rows_cited_by_key_answer_or_quote_and_exits_one_on_a_narrower_scope(home: Path, package: Path, state: Path, registered: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    def narrowed(text: str) -> tuple[int, str]:
+        monkeypatch.setattr("sys.stdin", io.StringIO(text))
+        return ran(capsys, RegisterShell(seeded(package)), "narrowed")
+
+    assert narrowed("Under bbbbbbb the pool drains per run only when it closes.") == (1, 'NARROWED rule/bbbbbbb: says "per run", "only"; the owner\'s words say none of them\n')
+    assert narrowed('He said "Drain the pool when a run closes."\nSo each pool drains, except the shared one.') == (1, 'NARROWED rule/bbbbbbb: says "except"; the owner\'s words say none of them\n')
+    assert narrowed("rule/bbbbbbb: the pool drains when a run closes.") == (0, "")
+    assert narrowed("Pools drain per run, except the shared one.") == (0, "")
 
 
 def test_a_read_back_with_no_slice_line_names_the_roots_command_then_takes_the_step_into_the_lanes_brief(

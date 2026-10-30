@@ -961,6 +961,12 @@ that adds a mechanism the plan file does not name, with no owner row id or plan 
 cited in the same sentence, draws a warning from `root_decide_gate`. The root also reads what
 each lane reports it did against the plan before relaying it; "a worker did X" is the
 root's to check, not to pass on.
+A contract, read-back, or DECIDE is never narrower than the owner row it cites. A
+partition (`per key`, `per destination`, `per chat`) or an exception (`only`,
+`except`, `unless`) his words lack is graded missing against his words:
+`rulings.py readback` prints it as `READBACK-NARROWED`, `rulings.py accepted` refuses
+an ok grade that leaves a narrowed key unnamed, and the `narrowed_contracts` hook warns
+the grade or root post that accepts such a contract.
 
 *Prevents the release-v3 repeats of 2026-10-22. The owner said for the fifth time that
 starting a session in the cloud and then writing on the Mac is out of scope, and again
@@ -969,6 +975,10 @@ been recorded as an id and a gist and applied to the one mechanism named. Siblin
 mechanisms, the reverse direction, budget lines, test rows, board cards, and briefs kept
 the old assumption. Board writers drafted from code on dev, and compactions carried the
 plan text as the authority.*
+
+*Prevents the 146 replicators for 144 chats of 2026-10-30. The owner picked one upload
+process per Mac at 9:16 PM on Oct 29; a lane contract read it as one per destination and
+key, the root accepted it, and no check compared the two.*
 
 **R20. A Slack link from the owner is an assignment, and Slack drafting is a lane.**
 A Slack permalink the owner pastes, bare or with words, is the root's to own, whoever
