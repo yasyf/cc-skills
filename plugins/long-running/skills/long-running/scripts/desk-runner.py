@@ -7072,10 +7072,12 @@ class Landing:
                 return (MERGED if outcome == MERGED else "blocked"), "".join(outs)[-1500:], f"{numbered(chain)} waits to merge: {waiting}"
             outs.append(done.out + done.err)
             last = " / ".join(line.strip() for line in (done.out + done.err).splitlines() if line.strip())[-600:] or f"exit {done.code}"
-            for pr in merged if done.code else chain:
+            landed_prs = merged if done.code else chain
+            for pr in landed_prs:
                 landed = f"as {squashes[pr][:10]}" if squashes.get(pr) else "with its squash unread"
                 moved = "" if landing[pr].startswith(heads[pr]) else f", rebased to {landing[pr][:10]},"
                 self.post_record("state", f"merged-direct:{pr}@{heads[pr]}", self.landing_audience([pr], rows, self.queue_audience([pr], rows)), f"MERGED #{pr} at {heads[pr][:10]}{moved} direct {landed}, Graphite down, {DIRECT_RULING}: {how}", pr)
+            self.restack_children(landed_prs, landing, squashes, open_rows)
             if done.code:
                 return (MERGED if outcome == MERGED else "failed"), "".join(outs)[-1500:], last
             outcome = MERGED
@@ -7177,6 +7179,17 @@ class Landing:
             if not self.approved_again(pr, landing[pr]):
                 return landing, (pr, f"{REVIEW_BOT} has not approved #{pr} again at {landing[pr][:10]} in {APPROVAL_POLLS} minutes since the rebase push")
         return landing, None
+
+    def restack_children(self, merged: list[str], landing: dict[str, str], squashes: dict[str, str], open_rows: dict[str, dict]) -> None:
+        """Replay each open PR stacked on a PR the direct merge just squashed onto that squash, from its head read fresh, so its branch stops carrying the merged commits the trunk now holds as one squash, which stack-enqueue reads as a conflict (#45428, Oct 30)."""
+        moved = {open_rows[pr]["branch"]: (landing[pr], squashes[pr]) for pr in merged if squashes.get(pr)}
+        if not moved or not (children := stacked_on(merged, open_rows)):
+            return
+        fresh = open_rows | {pr: dict(open_rows[pr], head=head) for pr in children if (head := self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "headRefOid", "--jq", ".headRefOid", max_age=ghread.FRESH)).out.strip())}
+        git = ["git", "-C", str(self.checkout)]
+        if self.shell.run([*git, "fetch", "-q", "--no-tags", "origin", *(new for _, new in moved.values()), *(fresh[pr]["head"] for pr in children), "--no-write-fetch-head"]).code:
+            return
+        self.replay_riders(children, moved, fresh, [*moved.values()][-1][1])
 
     def trunk_touches(self, tip: str, bottom: str, top: str) -> bool:
         """Whether a commit that landed on the trunk after the base `bottom` sits on touches a file the chain from `bottom` to `top` changes: only then does a chain the runner already rebased go onto the trunk again, since the trunk's required checks are not strict and a rebase on every trunk move restarts CI forever (root #199733)."""

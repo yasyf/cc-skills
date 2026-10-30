@@ -13382,6 +13382,19 @@ def test_while_graphite_is_down_a_rebased_pr_whose_approval_does_not_come_back_i
     assert "forge-pr-reviewer[bot] has not approved #29020 again" in asked
 
 
+def test_while_graphite_is_down_a_child_of_a_squashed_pr_is_replayed_onto_the_squash(shell, config, tmp_path):
+    """#45428, Oct 30: once #45377 squash-merged, #45428's branch still carried #45377's commits, and stack-enqueue read it conflicted with dev."""
+    two_pr_stack(shell)
+    shell.gates["29031"] = [gate("#29020 GREEN cccc333333 graphite READY", "#29031 BLOCKED dddd444444 graphite RUNNING", would="#29020")]
+    queue_drafts(shell, (40, True), (50, True))
+    shell.current_heads |= {"29020": "cccc333333", "29031": "dddd444444"}
+    shell.merge_commits["29020"] = "1111aaaa0000"
+    landing_pass(shell, config)
+    assert merged_records(shell) == ["MERGED #29020 at cccc333333 direct as 1111aaaa00, Graphite down, b530f5d: gh pr merge --squash"]
+    assert [(onto, head) for onto, head, _ in shell.replayed] == [("1111aaaa0000", "dddd444444")]
+    assert shell.pushes[-1] == ["--no-verify", "--force-with-lease=refs/heads/a/2:dddd444444", "origin", f"{shell.replayed[0][2]}:refs/heads/a/2"]
+
+
 def test_while_graphite_is_down_a_child_whose_parent_has_not_landed_never_merges_into_the_parent_branch(shell, config, tmp_path):
     """Finder on cc-skills#1110: the gate can admit a child alone while its parent sits in Graphite's queue, and gh pr merge would squash it into the parent's branch."""
     two_pr_stack(shell)
