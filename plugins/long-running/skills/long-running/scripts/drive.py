@@ -52,7 +52,9 @@ leaves the open set in the same step that announced the landing or the close.
 
 ``lane-status`` answers what code a lane holds. It prints one line per worktree the lane owns, found by
 ``lanes.lane_worktrees`` from the drive's launch receipts, the lane's cci records of the last day, the
-checkout's ``git worktree list``, and its PRs' head branches. Each line names the branch, dirty files,
+``git worktree list`` of the checkout and of every repository under ``~/.claude/worktrees``, and its PRs'
+head branches in any repository, never the landing runner's own checkout from ``runner.json``. Each line
+names the repository, then the path, the branch, dirty files,
 commits ahead of ``origin/<trunk>``, the last commit's age, whether the branch is pushed, and its open PR
 with CI state. A lane with no worktree here, such as an Orca worker on a paired remote server, falls back to
 ``lanes.orca_status`` over ``--run``, the drive's Orca run, or else the newest Run its root terminal coordinates: one line per matching dispatch with its worktree,
@@ -433,6 +435,13 @@ def trunk_of(shell: ledger.Shell, checkout: str) -> str:
     return ref.strip().removeprefix("origin/")
 
 
+def runner_checkouts(entry: dict) -> frozenset[str]:
+    """The landing runner's own checkout, from the `runner.json` beside the drive's state, which holds no lane's work."""
+    config = Path(entry["state_dir"]) / "runner.json"
+    checkout = json.loads(config.read_text()).get("landing", {}).get("checkout") if config.is_file() else None
+    return frozenset({checkout} if checkout else ())
+
+
 def cmd_lane_status(args: argparse.Namespace, shell: ledger.Shell) -> int:
     entry = find(args.drive or current_drive(), os.environ.get(SESSION_ENV)) if args.run else resolve(args)
     if entry is None and not args.run:
@@ -443,7 +452,7 @@ def cmd_lane_status(args: argparse.Namespace, shell: ledger.Shell) -> int:
         since = (now - LANE_RECORDS).strftime("%Y-%m-%dT%H:%M:%SZ")
         drive = cci_drive(entry)
         records = [record for record in cci.records(shell.run, drive, "--lane", args.lane, since=since) if record["drive"] == drive and record["lane"] == args.lane]
-        worktrees = lanes.lane_status(args.lane, records, receipt_dirs(entry), Path(entry["checkout"]), entry["repo"], trunk_of(shell, entry["checkout"]), now, shell.run)
+        worktrees = lanes.lane_status(args.lane, records, receipt_dirs(entry), Path(entry["checkout"]), entry["repo"], trunk_of(shell, entry["checkout"]), now, shell.run, runner_checkouts(entry))
     run = args.run or (entry or {}).get("orca_run") or (lanes.coordinated_run(shell.run, entry["root_terminal"]) if entry and entry.get("root_terminal") else None)
     teammates = lanes.teammate_status(args.lane, (entry or {}).get("sessions") or [], config_dir(), now)
     found = [*(worktrees or lanes.orca_status(args.lane, run, now, shell.run)), *teammates]
