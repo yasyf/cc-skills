@@ -43,7 +43,9 @@ for <lane>, and the call exits 1 when no roster lists it. A <file> source must b
 absolute path; a relative one exits 2. A cci:<drive>:<lane> source prints the cci
 records addressed to <lane> past the cursor named <lane>-wake, through `cci tail`, which
 advances it. It never moves the cursor named <lane>, so the lane's own read still
-finds the broadcasts the wake skipped.
+finds the broadcasts the wake skipped. A cci binary missing from PATH, as during a
+reinstall, reads as no new records; once missing for 30 s, or at the deadline,
+wait ends the command and exits 127 naming cci.
 
 wait ... -- <command> runs the command in its own process group, with its output
 passing through, and returns with its exit status when it exits first. When a source
@@ -88,6 +90,8 @@ WAIT_SOURCE = re.compile(r"cci:(?P<drive>[^:=]+):(?P<lane>[^:=]+)|(?P<file>[^=]+
 WAIT_SLICE = 2.0
 MAILBOX_POLL = 0.2
 CHILD_GRACE = 5.0
+CCI_GRACE = 30.0
+CCI_MISSING = 127
 
 
 def clip(text: str, cap: int = DISPLAY_CHARS) -> str:
@@ -282,6 +286,13 @@ def digest(paths: list[Path], state: Path | None, cap: int, budget: int) -> str:
     return "\n".join(out or ["no new inbox lines"]) + "\n"
 
 
+def tail_cci(drive: str, lane: str) -> str | None:
+    try:
+        return subprocess.run(["cci", "tail", "--drive", drive, "--cursor", f"{lane}-wake", "--to", lane], capture_output=True, text=True, check=True).stdout
+    except FileNotFoundError:
+        return None
+
+
 def seen_count(cursor: Path) -> int:
     text = cursor.read_text().strip() if cursor.is_file() else ""
     return int(text) if text else 0
@@ -308,10 +319,15 @@ def wait(argv: list[str]) -> int:
     files = [(path, cursor) for _, path, cursor in paths if not Mailbox.holds(path)]
     mailboxes = [(Mailbox(path), cursor) for _, path, cursor in paths if Mailbox.holds(path)]
     child = subprocess.Popen(command, start_new_session=True) if command else None
+    cci_missing_since: float | None = None
     while True:
         changed = False
         for drive, lane in feeds:
-            unread = subprocess.run(["cci", "tail", "--drive", drive, "--cursor", f"{lane}-wake", "--to", lane], capture_output=True, text=True, check=True).stdout
+            unread = tail_cci(drive, lane)
+            if unread is None:
+                cci_missing_since = cci_missing_since or time.monotonic()
+                continue
+            cci_missing_since = None
             for line in unread.splitlines():
                 print(clip(line), flush=True)
                 changed = True
@@ -338,6 +354,11 @@ def wait(argv: list[str]) -> int:
         if not changed and child and child.poll() is not None:
             return child.returncode if child.returncode >= 0 else 128 - child.returncode
         remaining = deadline - time.monotonic()
+        if not changed and cci_missing_since is not None and (remaining <= 0 or time.monotonic() - cci_missing_since >= CCI_GRACE):
+            print(f"desk-wait.sh: cci not found on PATH for {time.monotonic() - cci_missing_since:.0f} s", file=sys.stderr)
+            if child:
+                end(child)
+            return CCI_MISSING
         if not changed and remaining <= 0:
             print(f"QUIET {datetime.now(PACIFIC):%-I:%M %p}")
             changed = True
