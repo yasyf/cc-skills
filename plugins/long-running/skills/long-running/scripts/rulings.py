@@ -349,8 +349,8 @@ def mirror(answers: list[dict], directory: Path) -> None:
             write_atomic(path, text)
 
 
-def kept_copy(kept: Path, repo: str, tips: str) -> dict | None:
-    return cached if kept.is_file() and (cached := json.loads(kept.read_text()))["repo"] == repo and cached["tips"] == tips else None
+def kept_copy(kept: Path, repo: str, tips: str | None) -> dict | None:
+    return cached if kept.is_file() and (cached := json.loads(kept.read_text()))["repo"] == repo and tips in (None, cached["tips"]) else None
 
 
 def active_register(shell: ledger.Shell, repo: str, kept: Path) -> dict | None:
@@ -507,14 +507,16 @@ class Register:
         return briefs(self.state)
 
     @classmethod
-    def load(cls, args: argparse.Namespace, shell: ledger.Shell, repo: str | None = None) -> Register:
-        """The register, read from the copy kept in the drive's state while no ledger ref has moved since, so a read never waits on `ccn` scanning every cc-notes ref behind a concurrent write (cci #200150). One reader at a time rebuilds a stale copy and the rest wait for it, since each `ccn` scan holds most of a gigabyte and eight at once exhausted a Sprite (cci #214457)."""
+    def load(cls, args: argparse.Namespace, shell: ledger.Shell, repo: str | None = None, last: bool = False) -> Register:
+        """The register, read from the copy kept in the drive's state while no ledger ref has moved since, so a read never waits on `ccn` scanning every cc-notes ref behind a concurrent write (cci #200150). One reader at a time rebuilds a stale copy and the rest wait for it, since each `ccn` scan holds most of a gigabyte and eight at once exhausted a Sprite (cci #214457). With `last`, a reader that finds another process rebuilding takes the copy as last kept instead of waiting (cci #220219)."""
         program = program_of(args)
         repo = repo or register_repo(args)
         state = state_dir(args)
         tips = shell.run(["git", "-C", repo, "for-each-ref", "--format=%(refname) %(objectname)", LEDGER_REFS])
         kept = state / f"register-{program}.json"
         if cached := kept_copy(kept, repo, tips):
+            return cls(shell, repo, program, state, cached["ledger"], cached["rows"])
+        if last and ledger.held(kept.with_suffix(".lock")) and (cached := kept_copy(kept, repo, None)):
             return cls(shell, repo, program, state, cached["ledger"], cached["rows"])
         with ledger.locked(kept.with_suffix(".lock")):
             if cached := kept_copy(kept, repo, tips):
@@ -1568,7 +1570,7 @@ def plan_path(args: argparse.Namespace, loaded: Register) -> Path | None:
 
 
 def cmd_slice(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    loaded = Register.load(args, shell)
+    loaded = Register.load(args, shell, last=True)
     if args.required:
         if not (args.pr and args.head):
             raise SystemExit("slice --required needs --pr and --head")
@@ -1587,7 +1589,7 @@ def cmd_slice(args: argparse.Namespace, shell: ledger.Shell) -> int:
 
 
 def cmd_plan(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    if plan := Register.load(args, shell).plan(None):
+    if plan := Register.load(args, shell, last=True).plan(None):
         print(plan)
     return 0
 
