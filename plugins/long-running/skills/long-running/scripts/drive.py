@@ -18,6 +18,8 @@
     drive.py digest  [--drive ID]
     drive.py worktree --lane NAME --path DIR [--session ID] [--drive ID]
     drive.py release --cci-drive NAME --owner LANE@DRIVE --build BUILD [--release ID]
+    drive.py overview [--drive ID] [--steps PATH] [--json] [--step ID] [--since TIME]    (alias plan-status)
+    drive.py ask-owner --title Q --lede TEXT --option LABEL... --recommend N [--id SLUG] [--for LANE...] [--lane NAME] [--drive ID] [--session ID]
 
 STDLIB ONLY. One file per drive at ``$CLAUDE_CONFIG_DIR/long-running/drives/<drive>.json`` (default ``~/.claude``) names the
 drive's ledger, its repository, the git common dir every checkout of that repository shares,
@@ -83,6 +85,18 @@ its state, its owning lane, since when, and its next step, marked ``STALE`` once
 ``release`` is the desk runner's entry point when a lane's ``release --build`` record names a build: it records
 the build under ``releases`` in the registry entry of the drive whose cci drive is ``--cci-drive``, with its owner
 ``<lane>@<drive>``, its release id, and the time, and exits 1 when no registered drive posts to that cci drive.
+
+``overview`` prints the owner's plan report from the progress desk's ``<state dir>/progress-desk/steps.json``: one row
+per plan step and per milestone with what it delivers, its state, what blocks it, what is being done to unblock it, and
+what went wrong so far, then every step and milestone left until completion with the gate it waits on, all in plain
+words (``overview.py``). ``--json`` prints the same for tools, ``--step`` one row by id, label, title, or milestone
+number, and ``--since`` only the rows that moved after a time, ``90m``, ``2h``, ``7:05 PM`` or ISO, saying what moved.
+
+``ask-owner`` puts one question card on the owner's board, the root session's cc-present board that the board
+refresher pushes to: the title is the question, the lede its summary, and one single-select choice holds the 2 to 4
+options with ``--recommend`` (1-based) marked recommended. It then posts one ``ask`` record naming the card to each
+``--for`` lane, the root by default, which the board recorder resolves when he taps. Text naming a change or record
+number is refused before anything is pushed.
 """
 
 from __future__ import annotations
@@ -99,6 +113,7 @@ from pathlib import Path
 import cci
 import lanes
 import ledger
+import overview
 
 SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
 DRIVE_ENV = ledger.DRIVE_ENV
@@ -117,6 +132,8 @@ PLUGIN = Path(__file__).resolve().parents[3]
 HEARTBEATS = {"orca": "orca-runner.heartbeat.json", "landing": "landing-runner.heartbeat.json"}
 STACK = "stack.json"
 VERSION_PART = re.compile(r"\d+")
+NUMBERED = re.compile(r"(?<![\w&])#\d+\b")
+SLUG_WORDS = 6
 
 
 def config_dir() -> Path:
@@ -524,6 +541,51 @@ def cmd_worktree(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
+def cmd_overview(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    if args.steps:
+        path = args.steps
+    elif (entry := resolve(args)) is None:
+        return 1
+    else:
+        path = Path(entry["state_dir"]) / overview.STEPS
+    if not path.is_file():
+        print(f"no progress record at {path}; the progress desk writes it, or pass --steps", file=sys.stderr)
+        return 1
+    text, code = overview.render(path, as_json=args.json, step=args.step, after=args.since)
+    print(text, file=sys.stderr if code else sys.stdout)
+    return code
+
+
+def card(slug: str, title: str, lede: str, options: list[str], recommend: int) -> dict:
+    choices = [{"id": f"{slug}-{n}", "label": label, **({"recommended": True} if n == recommend else {})} for n, label in enumerate(options, 1)]
+    return {"id": f"card-{slug}", "type": "card", "title": title, "summary": lede, "children": [{"id": f"{slug}-choice", "type": "choice", "options": choices}]}
+
+
+def cmd_ask_owner(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    if not 2 <= len(args.option) <= 4:
+        raise SystemExit(f"a card offers 2 to 4 options; got {len(args.option)}")
+    if not 1 <= args.recommend <= len(args.option):
+        raise SystemExit(f"--recommend {args.recommend} names no option; pass 1 to {len(args.option)}")
+    if numbered := [hit for text in (args.title, args.lede, *args.option) for hit in NUMBERED.findall(text)]:
+        raise SystemExit(f"the card names {', '.join(numbered)}; say what each is in plain words")
+    if (entry := resolve(args)) is None:
+        return 1
+    slug = args.id or "-".join(re.findall(r"[a-z0-9]+", args.title.lower())[:SLUG_WORDS])
+    block = card(slug, args.title, args.lede, args.option, args.recommend)
+    try:
+        shell.run(["cc-present", "update-block", "-", "--session", args.session or entry["sessions"][-1], "--round", "current"], stdin=json.dumps(block), cwd=Path(entry["checkout"]))
+    except subprocess.CalledProcessError as failure:
+        print(f"card {block['id']} not pushed: {(str(failure.stderr or '').strip().splitlines() or ['cc-present gave no reason'])[-1]}", file=sys.stderr)
+        return failure.returncode
+    recommended = args.option[args.recommend - 1]
+    posted = shell.run(
+        ["cci", "post", "--drive", cci_drive(entry), "--lane", args.lane, "--kind", "ask", "--to", ",".join(args.waiting or ["root"]), "--id", f"ask-owner:{block['id']}",
+         "--text", f"Owner card {block['id']} is on his board: {args.title} Recommended: {recommended}"]
+    )
+    print(f"card {block['id']} is on the owner's board; ask {NUMBERED.search(posted)[0]} stays open until his tap")
+    return 0
+
+
 def pr_spec(value: str) -> re.Match:
     if not (match := PR_SPEC.match(value)):
         raise argparse.ArgumentTypeError(f"{value!r} is not [OWNER/NAME#]N[=SHA]")
@@ -615,6 +677,26 @@ def build_parser() -> argparse.ArgumentParser:
     release.add_argument("--build", required=True, help="the build id or URL the lane's release record names")
     release.add_argument("--release", default="", metavar="ID", help="the release id, such as releases/<date>/<n>")
     release.set_defaults(handler=cmd_release)
+
+    plan = subparsers.add_parser("overview", aliases=["plan-status"], help="the plan's steps and milestones in plain words, and what is left until completion")
+    plan.add_argument("--drive")
+    plan.add_argument("--steps", type=Path, metavar="PATH", help="the progress record to read; default <state dir>/progress-desk/steps.json")
+    plan.add_argument("--json", action="store_true")
+    plan.add_argument("--step", metavar="ID", help="one row: a step id, label or title, or a milestone number")
+    plan.add_argument("--since", metavar="TIME", help="only rows that moved after 90m, 2h, 1d, a Pacific clock such as 7:05 PM, or an ISO time")
+    plan.set_defaults(handler=cmd_overview)
+
+    ask_owner = subparsers.add_parser("ask-owner", help="put one question card on the owner's board and open its ask record")
+    ask_owner.add_argument("--title", required=True, help="the question, in plain words")
+    ask_owner.add_argument("--lede", required=True, help="what he needs to decide it")
+    ask_owner.add_argument("--option", required=True, action="append", metavar="LABEL", help="one answer; 2 to 4")
+    ask_owner.add_argument("--recommend", required=True, type=int, metavar="N", help="the recommended option, counting from 1")
+    ask_owner.add_argument("--id", metavar="SLUG", help="the card's id after card-; default the title's first words")
+    ask_owner.add_argument("--for", dest="waiting", action="append", metavar="LANE", help="a lane that stops until his tap; default root")
+    ask_owner.add_argument("--lane", default="root", help="the lane that asks")
+    ask_owner.add_argument("--drive")
+    ask_owner.add_argument("--session", metavar="ID", help="the board's root session; default the drive's newest")
+    ask_owner.set_defaults(handler=cmd_ask_owner)
 
     return parser
 

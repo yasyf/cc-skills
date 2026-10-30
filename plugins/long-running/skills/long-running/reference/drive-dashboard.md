@@ -70,7 +70,17 @@ The progress desk rewrites `steps.json` atomically on every pass:
 - `now.blocker`: a drive-wide stop only, such as a red trunk or a dead merge queue,
   with its start time; null otherwise. A step's own blocker stays on the step.
 
-It writes no counts; the dashboard counts.
+It writes no counts; the dashboard counts. It lives at `<state dir>/progress-desk/steps.json`.
+
+`drive.py overview` (alias `plan-status`) prints the owner's plan report from that file
+in about a tenth of a second: one row per step and per milestone with what it delivers,
+its state, what blocks it, what is being done to unblock it, and what went wrong so far,
+then everything left until completion with the gate it waits on. A step's state counts
+its changes from `pr_state`; change numbers fold into "a change", lane names into "a
+worker", and drive words into their plain names. `--json` serves tools, `--step <id>`
+prints one row by id, label, title, or milestone number, and `--since <90m|7:05 PM|ISO>`
+keeps the rows that moved and says what moved. The root answers "where does the plan
+stand" with it, never by parsing `/api/model` by hand.
 
 A row or record the owner reads says he approved or tapped a PR only when the root's
 board holds his approval at that head (`cc-present outcomes --no-doc`), and gives its
