@@ -4715,6 +4715,21 @@ def slack_ts(out: str) -> str | None:
     return f"{found[1]}.{found[2]}" if found else None
 
 
+def queue_state(action: actions.Action) -> str:
+    """One admitted chain's state for the `QUEUE` record, read from its newest enqueue attempt."""
+    if action.status == "accepted":
+        return "waiting its turn"
+    if action.status != "completed":
+        return "merging now: rebasing, waiting on its checks, or merging"
+    why = " ".join((action.response.get("why") or action.response["out"]).split())[:200]
+    if action.response["outcome"] == "failed":
+        return f"merge failed, retried within {int(FAILED_RETRY.total_seconds() // 60)} minutes: {why}"
+    for marker, state in (("still run", "CI pending"), ("failed at", "CI red"), ("did not rebase", "rebase blocked"), ("no go at its head", "go withdrawn"), ("waits for the PR below it", "waits for the PR below to land")):
+        if marker in why:
+            return f"{state}: {why}"
+    return f"blocked: {why}"
+
+
 def numbered(prs: list[str]) -> str:
     return " ".join(f"#{pr}" for pr in prs)
 
@@ -6972,7 +6987,7 @@ class Landing:
             self.moved_in_queue(enqueued_heads(key))
         if outcome in BELIEVED_QUEUED and (late := self.holding(prefix, rows, accepted_at)):
             outcome, out = self.dequeue(key, prefix, rows, late)
-        self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": out, "drive": self.runner.config.drive, "version": RUNNING_VERSION, "at": self.book.stamp()}))
+        self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": out, "why": last, "drive": self.runner.config.drive, "version": RUNNING_VERSION, "at": self.book.stamp()}))
         if outcome in BELIEVED_QUEUED:
             self.post_record("report", f"queued:{key}", self.landing_audience(prefix, rows, self.queue_audience(prefix, rows)), f"QUEUED {self.queue_line(enqueued_heads(key))}: the landing runner put it in the merge queue at {pacific(self.runner.now())}", prefix[-1])
         if outcome in ("stranded", "failed", "unsettled"):
@@ -6981,6 +6996,35 @@ class Landing:
     def queue_line(self, heads: dict[str, str]) -> str:
         """Each PR the runner enqueued, at the head it enqueued, with the root `go` that names that head or `no go at this head`."""
         return ", ".join(f"#{pr} at {sha[:10]} ({self.go_named(pr, sha)})" for pr, sha in heads.items())
+
+    def post_queue(self) -> None:
+        """While Graphite is down, post one `QUEUE` state record listing every admitted chain still waiting to merge at its current heads, in the order the runner merges them, with its position and state, whenever that list changes, so a lane reads where it stands instead of asking root (root #200367)."""
+        if not self.down_since() or (rows := self.rows()) is None:
+            return
+        first: dict[str, str] = {}
+        latest: dict[str, actions.Action] = {}
+        for action in self.book.actions(LANDING, kind="enqueue"):
+            base = action.action_id.split("#")[0]
+            first[base] = min(first.get(base, action.accepted_at), action.accepted_at)
+            if base not in latest or action.accepted_at > latest[base].accepted_at:
+                latest[base] = action
+        waiting = []
+        for base, action in latest.items():
+            heads = enqueued_heads(base)
+            if any(rows.get(pr, {}).get("state", "open") != "open" or not rows.get(pr, {}).get("head", "").startswith(sha) for pr, sha in heads.items()):
+                continue
+            if action.status == "completed" and action.response["outcome"] not in ("blocked", "failed"):
+                continue
+            waiting.append((min(self.priority(rows, pr) for pr in heads), first[base], heads, queue_state(action)))
+        if not waiting:
+            return
+        body = "\n".join(f"{n}. {numbered(list(heads))} at {' '.join(sha[:7] for sha in heads.values())}: {state}" for n, (_, _, heads, state) in enumerate(sorted(waiting, key=lambda chain: chain[:2]), 1))
+        key = f"queue:{hashlib.sha1(body.encode()).hexdigest()[:12]}"
+        if self.book.known(LANDING, key):
+            return
+        prs = [pr for _, _, heads, _ in waiting for pr in heads]
+        text = f"QUEUE {pacific(self.runner.now())}: Graphite is down, so the landing runner merges one chain at a time, in this order:\n{body}"
+        self.post_record("state", key, ",".join(dict.fromkeys([ROOT, *self.landing_audience(prs, rows, ROOT).split(",")])), text, prs[0])
 
     def go_named(self, pr: str, head: str) -> str:
         if gos := self.head_gos(pr, head):
@@ -8464,7 +8508,7 @@ class Landing:
         if held is not None:
             self.runner.steps(lambda: self.squash_incidents(rows, held))
             if gating:
-                self.runner.steps(lambda: self.gate(rows, barred, gone), self.enqueue, lambda: self.unqueued_gos(rows, held), lambda: self.tell_unpassed(rows, held))
+                self.runner.steps(lambda: self.gate(rows, barred, gone), self.enqueue, self.post_queue, lambda: self.unqueued_gos(rows, held), lambda: self.tell_unpassed(rows, held))
         self.runner.overdue(LANDING, "landing")
 
 
