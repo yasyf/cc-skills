@@ -11,6 +11,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from time import monotonic
 
 PAGE_BYTES = 4_000_000
 PAGE_ROWS = 500
@@ -71,19 +72,41 @@ class Tail:
 
 def native_tail(argv: list[str], timeout: float, env: dict[str, str] | None = None, cwd: str | None = None) -> tuple[int, str, str]:
     """Read a cursor-free tail through the daemon's native CLI handler."""
+    deadline = monotonic() + timeout
+
+    def remaining():
+        seconds = deadline - monotonic()
+        if seconds <= 0:
+            raise TimeoutError("native tail read budget expired")
+        return seconds
+
     environment = os.environ | (env or {})
     home = environment.get("CCI_HOME") or os.path.join(environment["HOME"], ".cc-inbox")
-    body = json.dumps({
+    request = {
         "argv": argv,
         "session": environment.get("CLAUDE_CODE_SESSION_ID") or environment.get("CODEX_THREAD_ID", ""),
         "agent": environment.get("CCI_AGENT_ID", ""),
         "home": os.path.abspath(os.path.join(cwd or os.getcwd(), home)),
-    }).encode()
-    connection = http.client.HTTPConnection("127.0.0.1", 7377, timeout=timeout)
+    }
+    connection = http.client.HTTPConnection("127.0.0.1", 7377, timeout=remaining())
     try:
-        connection.request("POST", "/v1/tail", body, {"Content-Type": "application/json"})
+        connection.request("POST", "/v1/tail", json.dumps(request).encode(), {"Content-Type": "application/json"})
+        wire = connection.sock
+        wire.settimeout(remaining())
         response = connection.getresponse()
-        result = json.loads(response.read())
+        chunks = []
+        while not response.isclosed():
+            wire.settimeout(remaining())
+            chunk = response.read1(65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        packet = b"".join(chunks)
+        chunks.clear()
+        if response.length:
+            raise http.client.IncompleteRead(packet, response.length)
+        result = json.loads(packet)
+        del packet
         if response.status != 200:
             return 1, "", f"cci: {result['error']}\n"
         return result["returncode"], _tail_output(result["stdout_b64"]), _tail_output(result["stderr_b64"])

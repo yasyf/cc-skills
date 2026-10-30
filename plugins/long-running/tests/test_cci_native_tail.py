@@ -21,6 +21,16 @@ def native_endpoint(monkeypatch, request):
         def do_POST(self):
             requests.append((self.path, self.headers["Content-Type"], json.loads(self.rfile.read(int(self.headers["Content-Length"])))))
             status, payload = replies.pop(0)
+            if status is None:
+                payload.wait()
+                return
+            if status == 0:
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(payload) + 10))
+                self.end_headers()
+                self.wfile.write(payload)
+                self.close_connection = True
+                return
             body = json.dumps(payload).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
@@ -146,3 +156,64 @@ def test_native_tail_timeout_keeps_the_shell_timeout_classification(monkeypatch)
     with pytest.raises(TimeoutError, match="native query timed out"):
         cci.native_tail(["cci", "tail", "--drive", "d1", "--since", "0"], 5)
     assert closed == [True]
+
+
+
+def test_a_blocked_native_header_uses_the_existing_shell_timeout_and_retry(native_endpoint, monkeypatch):
+    from test_desk_runner import runner_module
+
+    replies, _, connections = native_endpoint
+    release = threading.Event()
+    replies.extend([(None, release), (None, release)])
+    monkeypatch.setattr(runner_module, "QUICK_SECONDS", 1)
+    try:
+        result = runner_module.Shell().cci_query(["cci", "tail", "--drive", "d1", "--since", "0", "--json"])
+        assert result.code == runner_module.TIMED_OUT
+        assert "timed out" in result.err
+        assert len(connections) == 2
+    finally:
+        release.set()
+
+
+def test_progressing_native_body_reads_do_not_extend_the_read_budget(monkeypatch):
+    clock, closed, timeouts, reads = [0.0], [], [], []
+
+    class Wire:
+        def settimeout(self, value):
+            timeouts.append(value)
+
+    class Response:
+        def isclosed(self):
+            return False
+
+        def read1(self, size):
+            reads.append(size)
+            clock[0] += 0.6
+            return b"x"
+
+    class Connection:
+        sock = Wire()
+
+        def request(self, *args):
+            pass
+
+        def getresponse(self):
+            return Response()
+
+        def close(self):
+            closed.append(True)
+
+    monkeypatch.setattr(cci, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(cci.http.client, "HTTPConnection", lambda *args, **kwargs: Connection())
+    with pytest.raises(TimeoutError, match="read budget expired"):
+        cci.native_tail(["cci", "tail", "--drive", "d1", "--since", "0"], 1)
+    assert len(reads) == 2 and timeouts[-1] == pytest.approx(0.4)
+    assert closed == [True]
+
+
+
+def test_a_truncated_native_content_length_is_a_transport_failure(native_endpoint):
+    replies, _, _ = native_endpoint
+    replies.append((0, b'{"returncode":0'))
+    code, out, err = cci.native_tail(["cci", "tail", "--drive", "d1", "--since", "0"], 5)
+    assert code == 1 and not out and "IncompleteRead" in err
