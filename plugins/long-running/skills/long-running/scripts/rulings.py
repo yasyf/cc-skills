@@ -139,6 +139,7 @@ LIVE_BUDGET = 10_000_000
 NOT_LANES = frozenset({"root", "main", "desk-runner"})
 FINISHED = re.compile(r"\bFINAL\b|\bverdict: done\b")
 BRIEF_DEPTH = 3
+LEDGER_REFS = "refs/cc-notes/ledgers/"
 SOURCE_TREE = frozenset({".git", ".claude-plugin", "node_modules", "package.json", "go.mod", "pyproject.toml", "Cargo.toml"})
 PATH_TOKEN = re.compile(r"\S*/\S*")
 ASK_QUOTE = 120
@@ -476,12 +477,19 @@ class Register:
 
     @classmethod
     def load(cls, args: argparse.Namespace, shell: ledger.Shell, repo: str | None = None) -> Register:
+        """The register, read from the copy kept in the drive's state while no ledger ref has moved since, so a read never waits on `ccn` scanning every cc-notes ref behind a concurrent write (cci #200150)."""
         program = program_of(args)
         repo = repo or register_repo(args)
+        state = state_dir(args)
+        tips = shell.run(["git", "-C", repo, "for-each-ref", "--format=%(refname) %(objectname)", LEDGER_REFS])
+        kept = state / f"register-{program}.json"
+        if kept.is_file() and (cached := json.loads(kept.read_text()))["repo"] == repo and cached["tips"] == tips:
+            return cls(shell, repo, program, state, cached["ledger"], cached["rows"])
         identity = ledger_of(shell, repo, program)
         shown = ccn(shell, repo, "ledger", "show", identity)
         rows = {row["key"]: row["fields"] | {"updated_at": row["updated_at"]} for row in shown["rows"]}
-        return cls(shell, repo, program, state_dir(args), identity, rows)
+        write_atomic(kept, json.dumps({"repo": repo, "tips": tips, "ledger": identity, "rows": rows}, ensure_ascii=False))
+        return cls(shell, repo, program, state, identity, rows)
 
     def write(self, key: str, **fields: object) -> None:
         values = {name: stored(value) for name, value in fields.items()}

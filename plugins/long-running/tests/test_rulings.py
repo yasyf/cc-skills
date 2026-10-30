@@ -375,6 +375,8 @@ class RegisterShell(ledger.Shell):
         argv = gateway(argv)
         self.calls.append(argv)
         match argv:
+            case ["git", "-C", "/repo", "for-each-ref", "--format=%(refname) %(objectname)", rulings.LEDGER_REFS]:
+                return f"{rulings.LEDGER_REFS}{REGISTER_LEDGER} {hashlib.sha1(json.dumps(self.rows, sort_keys=True).encode()).hexdigest()}\n"
             case ["ccn", "-R", "/repo", "ledger", "list", "--label", "register", "--label", label, "--json"]:
                 return json.dumps([{"id": REGISTER_LEDGER, "updated_at": STAMP}] if label == "program:brook" else [])
             case ["ccn", "-R", "/repo", "ledger", "show", identity, "--json"] if identity == REGISTER_LEDGER:
@@ -497,6 +499,17 @@ def test_rows_prints_every_row_with_its_update_time_and_the_classified_digests(h
     assert printed["rows"]["rule/aaaaaaa"]["updated_at"] == STAMP
     assert printed["rows"]["rule/aaaaaaa"]["words"] == "Relay code lives in relay-journal. Never in relay-server."
     assert printed["classified"] == ["0123456789abcdef", "fedcba9876543210"]
+
+
+def test_rows_reads_the_ledger_once_until_a_ledger_ref_moves(home: Path, package: Path, state: Path, capsys) -> None:
+    """cci #200150: the plain-words hook timed out after 20 s on `rows`, whose two ccn reads scan 67,000 cc-notes refs and wait behind a concurrent write."""
+    shell = RegisterShell(seeded(package))
+    assert ran(capsys, shell, "rows", "--json")[0] == 0
+    assert ran(capsys, shell, "rows", "--json")[0] == 0
+    assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"]] == [["ledger", "list"], ["ledger", "show"]]
+    shell.rows["rule/aaaaaaa"]["words"] = "Relay code lives in relay-journal."
+    code, out = ran(capsys, shell, "rows", "--json")
+    assert code == 0 and json.loads(out)["rows"]["rule/aaaaaaa"]["words"] == "Relay code lives in relay-journal."
 
 
 def test_classify_refuses_a_scope_row_without_three_implications_or_any_names(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
