@@ -151,6 +151,8 @@ class FakeShell(runner_module.Shell):
         self.generation = 3
         self.run_use_error: dict | None = None
         self.unstarted: set[str] = set()
+        self.unregistered: set[str] = set()
+        self.checkout_edits = ""
         self.posts: list[dict] = []
         self.states: list[dict] = []
         self.alive: list[str] = []
@@ -424,6 +426,8 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == ["git", "-C", str(self.root / "checkout")] and argv[3:5] in (["rev-parse", "--verify"], ["symbolic-ref", "-q"], ["rev-parse", "--path-format=absolute"]):
             self.indexes += 1
             return runner_module.Done(0, {"--verify": "cccc333\n", "-q": "runner/drive\n"}.get(argv[4], f"{self.root}/admin-{self.indexes}/index\n"), "")
+        if argv == ["git", "-C", str(self.root / "checkout"), "status", "--porcelain", "--untracked-files=no"]:
+            return runner_module.Done(0, self.checkout_edits, "")
         if argv[:3] == ["git", "-C", str(self.root / "checkout")] and argv[3] in ("worktree", "reset") or argv[0] == "cp":
             self.mirror = "cccc333"
             return runner_module.Done(0, "", "")
@@ -564,6 +568,8 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == [str(self.root / "checkout/tools/ci"), "bk", "api"]:
             build = self.builds[argv[3].rsplit("/", 1)[1]]
             return runner_module.Done(0, build if isinstance(build, str) else json.dumps(build), "")
+        if argv[:4] == ["cci", "who", "--drive", "d1"] and argv[4] == "--lane" and argv[6:] == ["--all", "--json"]:
+            return runner_module.Done(0, "" if argv[5] in self.unregistered else json.dumps({"lane": argv[5], "live": False}) + "\n", "")
         if argv == ["cci", "who", "--drive", "d1", "--json"]:
             return runner_module.Done(0, "".join(json.dumps({"lane": lane, "agent_name": name, "live": True, "seen_at": at} | ({"announced_at": self.announced[name]} if name in self.announced else {})) + "\n" for name, (lane, at) in self.seen_as.items()) + "".join(json.dumps({"lane": lane, "live": True, "seen_at": at, "announced_at": at}) + "\n" for lane, at in self.seen.items() if lane not in self.gone), "")
         if argv[:2] == ["cci", "who"]:
@@ -4941,6 +4947,43 @@ def test_the_landing_desk_refuses_to_start_without_a_merge_mode(shell, config, t
     assert line.startswith("MERGE-MODE-UNSET ") and "names no landing.merge_mode of every, high-risk, auto" in line
 
 
+def test_the_landing_desk_refuses_to_start_on_a_lane_that_never_registered(shell, config, tmp_path):
+    """Oct 30: runner.json named two fidelity desks that had never started, and the passes wedged on 16,836 refused posts instead of the runner refusing to start."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-desk-14", "fidelity-pipeline"]
+    config.write_text(json.dumps(raw))
+    shell.unregistered = {"fidelity-desk-14"}
+    lone_green_pr(shell)
+    assert cli(shell, config, "run", "--desk", "landing", "--once") == 3
+    assert shell.enqueues() == []
+    [line] = escalations(shell)
+    assert line.startswith("PREFLIGHT-FAILED ") and "names fidelity-desk-14, which never registered on drive d1" in line and "fidelity-pipeline" not in line
+
+
+def test_a_landing_checkout_with_local_edits_refuses_to_start(shell, config, tmp_path):
+    """Oct 30, cci #219067: stray edits in the runner checkout left every pass gating nothing."""
+    shell.checkout_edits = " M infra/ci/src/pipelines/test/product.ts\n"
+    lone_green_pr(shell)
+    assert cli(shell, config, "run", "--desk", "landing", "--once") == 3
+    [line] = escalations(shell)
+    assert line.startswith("PREFLIGHT-FAILED ") and "has local edits to infra/ci/src/pipelines/test/product.ts" in line
+
+
+def test_preflight_names_the_missing_trunk_key_without_starting_or_posting(shell, config, tmp_path, monkeypatch, capsys):
+    raw = json.loads(config.read_text())
+    raw["landing"]["adapter"] = {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}
+    config.write_text(json.dumps(raw))
+    monkeypatch.delenv("TRUNK_MERGE_API_KEY", raising=False)
+    assert cli(shell, config, "preflight", "--json") == 3
+    verdict = json.loads(capsys.readouterr().out)
+    assert verdict["ok"] is False and verdict["label"] == "PREFLIGHT-FAILED" and "TRUNK_MERGE_API_KEY is unset" in verdict["why"]
+    monkeypatch.setenv("TRUNK_MERGE_API_KEY", "trunk-secret")
+    assert cli(shell, config, "preflight", "--json") == 0
+    out = capsys.readouterr().out
+    assert json.loads(out)["ok"] is True and "trunk-secret" not in out
+    assert escalations(shell) == []
+
+
 def test_a_config_without_a_release_cli_is_refused_with_every_missing_member_in_one_line(shell, config, tmp_path):
     raw = json.loads(config.read_text())
     del raw["landing"]["release_cli"]
@@ -5071,7 +5114,7 @@ def test_a_checkout_that_cannot_fast_forward_gates_nothing_until_it_can(shell, c
     shell.calls.clear()
     landing_pass(shell, config)
     names = [call[3] if call[0] == "git" else Path(call[0]).name for call in shell.calls if call[0] == "git" or Path(call[0]).name == "stack-enqueue"]
-    assert names[:3] == ["fetch", "worktree", "merge"] and "stack-enqueue" in names[3:]
+    assert names[:4] == ["status", "fetch", "worktree", "merge"] and "stack-enqueue" in names[4:]
 
 
 @pytest.mark.parametrize(("mirror", "found"), [(None, "was not a registered worktree of its repository"), ("0" * 40, "was on a branch with no commit")])
@@ -5081,7 +5124,7 @@ def test_a_checkout_git_lost_or_left_unborn_is_rebuilt_at_the_trunk_head_and_the
     shell.mirror = mirror
     landing_pass(shell, config)
     checkout = str(shell.root / "checkout")
-    rebuilt = [call[3:] if call[:3] == ["git", "-C", checkout] else call[:1] for call in shell.calls if call[:3] == ["git", "-C", checkout] or call[0] == "cp"]
+    rebuilt = [call[3:] if call[:3] == ["git", "-C", checkout] else call[:1] for call in shell.calls if call[:3] == ["git", "-C", checkout] and call[3] != "status" or call[0] == "cp"]
     repair = [["rev-parse", "--verify", "-q", "FETCH_HEAD^{commit}"]]
     if mirror is None:
         staged = rebuilt[5][-2]

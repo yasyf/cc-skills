@@ -166,6 +166,7 @@ class GraphiteStackEnqueue:
     """The repository's own stack-enqueue script: one Graphite API call per prefix, every gate in its `--check`, and `--dequeue`, `--recover`, and `--status` for the rest."""
 
     kind = "graphite-stack-enqueue"
+    required_env: tuple[str, ...] = ()
 
     def __init__(self, shell, checkout: Path, config: dict, ledger_py: Callable, repo: str):
         self.shell = shell
@@ -293,6 +294,7 @@ class GraphiteStackEnqueue:
 
 class TrunkStackEnqueue(GraphiteStackEnqueue):
     kind = "trunk-stack-enqueue"
+    required_env = ("TRUNK_MERGE_API_KEY",)
 
     def __init__(self, shell, checkout: Path, config: dict, ledger_py: Callable, repo: str):
         super().__init__(shell, checkout, config, ledger_py, repo)
@@ -366,6 +368,7 @@ class LabelEnqueue:
     """`ledger.py label`, for a repository whose merge queue takes a merge label: every guard in its `--dry-run`, the label on the tip enqueues the whole downstack, and `ledger.py unlabel` pulls it."""
 
     kind = "label"
+    required_env: tuple[str, ...] = ()
 
     def __init__(self, shell, checkout: Path, config: dict, ledger_py: Callable, repo: str):
         self.shell = shell
@@ -457,5 +460,7 @@ class LabelEnqueue:
 
 def adapter(shell, checkout: Path, config: dict, ledger_py: Callable, repo: str, ledger: str):
     """The adapter `landing.adapter` names; a kind no adapter has raises KeyError, which the landing desk refuses to start on."""
-    kinds = {kind.kind: kind for kind in (TrunkStackEnqueue, GraphiteStackEnqueue, LabelEnqueue)}
-    return kinds[config["kind"]](shell, checkout, {**config, "ledger": ledger}, ledger_py, repo)
+    return ADAPTERS[config["kind"]](shell, checkout, {**config, "ledger": ledger}, ledger_py, repo)
+
+
+ADAPTERS = {kind.kind: kind for kind in (TrunkStackEnqueue, GraphiteStackEnqueue, LabelEnqueue)}
