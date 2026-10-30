@@ -139,6 +139,11 @@ SAME_JACCARD = 0.8
 OPEN = "OPEN"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 SINCE = "since"
+OWNER_LANE = "board-watch"
+RUNNER_LANE = "desk-runner"
+SNAPSHOT_TOPIC = "board-rows"
+WRITE_TOPIC = "board-write"
+MERGE_CARD = re.compile(r"^merge:(\d+):([0-9a-f]{7,40})$")
 
 
 @dataclass(frozen=True)
@@ -509,6 +514,71 @@ def since_reasons(row: Row, entry: dict) -> list[str]:
 
 def reasked(rulings: list[dict], row: Row) -> bool:
     return any(REASK.search(record["full"]) and re.search(rf"#{row.pr}\b", record["full"]) and any(grades.names_head(sha, row.head) for sha in grades.SHORT_SHA.findall(record["full"])) for record in rulings)
+
+
+def attrs(record: dict) -> dict[str, str]:
+    return (record.get("fields") or {}).get("attrs") or {}
+
+
+def verdicts_of_records(records: list[dict]) -> dict[str, dict[str, dict]]:
+    """Each block's standing verdict per row, an entry of verdict, head, time and the head a carry came from, from the board-watch `owner` records that carry the row and verdict and the runner's own `board-write` carries, the newest tap time winning and a later record breaking a tie."""
+    entries = []
+    for record in records:
+        found = attrs(record)
+        owner = (record["lane"], record["kind"]) == (OWNER_LANE, "owner") and found.get("row") and found.get("verdict")
+        carry = record["lane"] == RUNNER_LANE and record.get("topic") == WRITE_TOPIC and found.get("op") == "carry"
+        if not (owner or carry):
+            continue
+        entry = {"verdict": found["verdict"] if owner else "approved", "head": found.get("head", ""), "at": found.get("at") or record["at"]}
+        if carried := found.get("carried_from" if owner else "from"):
+            entry["carriedFrom"] = carried
+        entries.append((found["block"], found["row"], entry, record["seq"]))
+    verdicts: dict[str, dict[str, dict]] = {}
+    for block, row, entry, _ in sorted(entries, key=lambda item: (parsed(item[2]["at"]) or datetime.min.replace(tzinfo=PACIFIC), item[3])):
+        verdicts.setdefault(block, {})[row] = entry
+    return verdicts
+
+
+def answered_of_records(records: list[dict]) -> set[str]:
+    """Each choice block the owner picked an option on or wrote into, from board-watch `owner` records."""
+    return {found["block"] for record in records if (record["lane"], record["kind"]) == (OWNER_LANE, "owner") and (found := attrs(record)).get("event") == "choice.selected" and (found.get("picked") or found.get("other"))}
+
+
+def snapshot(doc: dict) -> dict:
+    """What the runner and the stall watch read of the board's document: each PR row's PR, head and write time, each merge card's PR and head, and each card's choice blocks and PRs."""
+    return {
+        "rows": [[row.pr, row.head, row.text_at] for row in rows_of(doc) if row.head],
+        "merges": [[found[1], found[2]] for key in block_ids(doc) if (found := MERGE_CARD.match(key))],
+        "cards": [[card["id"], sorted(choice["id"] for choice in typed(card, "choice")), sorted(str(found["number"]) for found in typed(card, "pr"))] for card in typed(doc, "card")],
+    }
+
+
+def snapshot_of_records(records: list[dict]) -> dict | None:
+    """The newest board snapshot board-watch posted, or None while it has posted none."""
+    found = [record for record in records if record["lane"] == OWNER_LANE and record.get("topic") == SNAPSHOT_TOPIC and "board" in attrs(record)]
+    return json.loads(attrs(found[-1])["board"]) if found else None
+
+
+def block_ids(node: object) -> Iterator[str]:
+    if isinstance(node, dict):
+        if isinstance(node.get("id"), str):
+            yield node["id"]
+        for value in node.values():
+            yield from block_ids(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from block_ids(value)
+
+
+def typed(node: object, kind: str) -> Iterator[dict]:
+    if isinstance(node, dict):
+        if node.get("type") == kind:
+            yield node
+        for value in node.values():
+            yield from typed(value, kind)
+    elif isinstance(node, list):
+        for value in node:
+            yield from typed(value, kind)
 
 
 def newest_by_pr(verdicts: dict[str, dict[str, dict]]) -> dict[str, dict]:
