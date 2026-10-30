@@ -21,7 +21,9 @@ refreshes git's in-memory credential cache on the Sprite for an hour, so
 long-running processes there read GitHub between passes.
 
 The plugin version holding <script> is copied over once, when the Sprite lacks
-it, and the drive's registry file on every run. The job's checkout fetches every
+it, the drive's registry file on every run, and the plan package the drive's
+register names, the directory holding plan/plan.md, whenever a file in it was
+added, removed or changed since the Sprite's copy. The job's checkout fetches every
 remote, the job runs there, and <dir> is copied back, result.json included, so the runner settles the
 pass from this process and its files as it does a local one. A `cancelled` mark
 the runner writes while the job runs is forwarded, and each codex run the job
@@ -31,16 +33,36 @@ EOF2
 }
 
 [ $# -eq 3 ] || usage
+export COPYFILE_DISABLE=1
 sprite=$1 script=$2 dir=$3
 plugin=$(cd "$(dirname "$script")/../../.." && pwd)
 checkout=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["checkout"])' "$dir/job.json")
-registry=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/long-running/drives/$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["drive"])' "$dir/job.json").json
+drive=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["drive"])' "$dir/job.json")
+registry=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/long-running/drives/$drive.json
+plan=$(python3 "$(dirname "$script")/rulings.py" plan --repo "$checkout" --drive "$drive")
 
 if ! sprite exec -s "$sprite" --no-stdin -- test -d "$plugin"; then
   tar --no-xattrs -C "$plugin" -cz . | sprite exec -s "$sprite" -- sh -c 'mkdir -p "$1" && tar -xz -m -C "$1"' sh "$plugin"
 fi
 tar --no-xattrs -C "$dir" -cz . | sprite exec -s "$sprite" -- sh -c 'mkdir -p "$1" && tar -xz -m -C "$1"' sh "$dir"
 sprite exec -s "$sprite" -- sh -c 'mkdir -p "$(dirname "$1")" && cat >"$1"' sh "$registry" <"$registry"
+if [ -n "$plan" ]; then
+  package=$(dirname "$(dirname "$plan")")
+  digest=$(python3 -c '
+import hashlib, os, sys
+seen = hashlib.sha256()
+for here, _, names in sorted(os.walk(sys.argv[1])):
+    for name in sorted(names):
+        path = os.path.join(here, name)
+        stat = os.stat(path)
+        seen.update(f"{os.path.relpath(path, sys.argv[1])} {stat.st_size} {stat.st_mtime_ns}\n".encode())
+print(seen.hexdigest())' "$package")
+  if [ "$(sprite exec -s "$sprite" --no-stdin -- sh -c 'mkdir -p "$(dirname "$1")"; cat "$1.digest" 2>/dev/null' sh "$package")" != "$digest" ]; then
+    tar --no-xattrs -C "$package" -cz . | sprite exec -s "$sprite" -- flock "$package.lock" sh -c '
+      if [ "$(cat "$1.digest" 2>/dev/null)" = "$2" ]; then exec cat >/dev/null; fi
+      rm -rf "$1.new" && mkdir -p "$1.new" && tar -xz -m -C "$1.new" && rm -rf "$1" && mv "$1.new" "$1" && printf %s "$2" >"$1.digest"' sh "$package" "$digest"
+  fi
+fi
 
 python3 -c '
 import json, os, subprocess

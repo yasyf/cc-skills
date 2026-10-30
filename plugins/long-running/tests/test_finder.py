@@ -610,3 +610,13 @@ def test_a_replay_whose_dropped_commit_moved_into_the_base_amended_carries_the_g
     shell = Fake(tmp_path, [], own={(BASE, HEAD): [OWN], (BASE, OLD): [OLD_OWN]}, resolve={OLD: OLD}, ranges={EARLIER: pairs("=", "=")}, shows={f"{BASE}:api/parent.go": "pending()\n"}, subjects=("api: the parent's commit before its restack",))
     finder.main([str(directory)], shell)
     assert not shell.asks() and [post["--text"] for post in shell.posted] == [f"finder: ok {HEAD[:7]} carried from #149302"]
+
+
+def test_a_failed_command_reports_the_end_of_its_traceback_where_the_exception_is_named():
+    trace = "Traceback (most recent call last):\n" + '  File "rulings.py", line 2832, in <module>\n    raise SystemExit(main())\n' * 20 + "subprocess.TimeoutExpired: ccn ledger show timed out\n"
+    error = subprocess.CalledProcessError(1, [sys.executable, "rulings.py", "plan", "--repo", "/repo"], stderr=trace)
+
+    reported = finder.failure(error)
+
+    assert reported.endswith("subprocess.TimeoutExpired: ccn ledger show timed out")
+    assert "rulings.py plan --repo exited 1: " in reported
