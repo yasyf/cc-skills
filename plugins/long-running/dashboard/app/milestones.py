@@ -30,7 +30,9 @@ def when(iso):
 
 
 def clock(iso):
-    return when(iso).astimezone(PACIFIC).strftime("%-I:%M %p")
+    at = when(iso).astimezone(PACIFIC)
+    label = at.strftime("%-I:%M %p")
+    return label if at.date() == dt.datetime.now(PACIFIC).date() else f"{label} {at:%b} {at.day}"
 
 
 def promised(by):

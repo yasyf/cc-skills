@@ -79,14 +79,14 @@ def test_a_live_milestone_is_live_since_its_first_release():
 
 def test_a_blocker_without_a_promised_time_says_so_and_since_when():
     rows = compute([FIRST], [], [blocker(5, "R1", "fixer", "The fixer finds the cause", "Runs fail on start")], [release(1, "10970 passed: api live")])
-    assert rows[0]["unblocking"] == "The fixer finds the cause, no time given since 2:00 PM"
+    assert rows[0]["unblocking"] == "The fixer finds the cause, no time given since 2:00 PM Oct 29"
 
 
 def test_a_blocker_with_a_promised_time_shows_it():
     record = blocker(5, "R1", "fixer", "The fixer ships the patch", "Runs fail on start")
     record["fields"]["attrs"]["by"] = "2026-10-30T04:30:00Z"
     rows = compute([FIRST], [], [record], [release(1, "10970 passed: api live")])
-    assert rows[0]["unblocking"] == "The fixer ships the patch, by 9:30 PM"
+    assert rows[0]["unblocking"] == "The fixer ships the patch, by 9:30 PM Oct 29"
 
 
 def test_a_promised_time_written_in_words_is_shown_as_written():
