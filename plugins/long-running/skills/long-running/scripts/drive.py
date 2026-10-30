@@ -95,7 +95,8 @@ number, and ``--since`` only the rows that moved after a time, ``90m``, ``2h``, 
 ``ask-owner`` puts one question card on the owner's board, the root session's cc-present board that the board
 refresher pushes to: the title is the question, the lede its summary, and one single-select choice holds the 2 to 4
 options with ``--recommend`` (1-based) marked recommended. It then posts one ``ask`` record naming the card to each
-``--for`` lane, the root by default, which the board recorder resolves when he taps. Text naming a change or record
+``--for`` lane, the root by default, which the board recorder resolves when he taps; a lane cci has not
+registered yet still gets it. Text naming a change or record
 number is refused before anything is pushed.
 """
 
@@ -579,7 +580,7 @@ def cmd_ask_owner(args: argparse.Namespace, shell: ledger.Shell) -> int:
         return failure.returncode
     recommended = args.option[args.recommend - 1]
     posted = shell.run(
-        ["cci", "post", "--drive", cci_drive(entry), "--lane", args.lane, "--kind", "ask", "--to", ",".join(args.waiting or ["root"]), "--id", f"ask-owner:{block['id']}",
+        ["cci", "post", "--drive", cci_drive(entry), "--lane", args.lane, "--kind", "ask", "--to", ",".join(args.waiting or ["root"]), "--force", "--id", f"ask-owner:{block['id']}",
          "--text", f"Owner card {block['id']} is on his board: {args.title} Recommended: {recommended}"]
     )
     print(f"card {block['id']} is on the owner's board; ask {NUMBERED.search(posted)[0]} stays open until his tap")
