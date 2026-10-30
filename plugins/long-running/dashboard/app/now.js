@@ -142,7 +142,7 @@ function journey(b) {
   const html = `<div class="nw-panel">${progressLabel()}
     <div class="nw-journey nw-spine${lastPaint.stops === null ? ' fill' : ''}" style="--phase:-${Date.now() % 2400}ms;--n:${list.length};grid-template-columns:${columns(list, focus)}">${list.map((s, i) => {
       const cls = ['sp', `ms-${s.state}`, i === cur && 'cur', i === focus && 'focus', i > 0 && i <= lastLive && 'l-on', i < lastLive && 'r-on', moved(s, i) && 'moved'].filter(Boolean).join(' ');
-      return `<div class="${cls}" data-i="${i}"><a class="ms ms-${s.state}${i === cur ? ' cur' : ''}" href="#/plan/m${i}"><span class="here">${i === cur ? 'Drive is here' : ''}</span><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${s.blockers.length ? `<span class="when">${blockedFor(s.since)}</span><span class="why">${esc(s.waits)}</span>${unblockLine(s.unblocking)}` : ''}${waitsOnOwner(s) ? '<span class="need">Needs you</span>' : ''}</a>
+      return `<div class="${cls}" data-i="${i}"><a class="ms ms-${s.state}${i === cur ? ' cur' : ''}" href="#/plan/m${i}"><span class="here">${i === cur ? 'Drive is here' : ''}</span><span class="dot"></span><span class="nm">${esc(s.name)}</span><span class="st">${esc(s.label)}</span>${held(s)}${waitsOnOwner(s) ? '<span class="need">Needs you</span>' : ''}</a>
         <div class="bd"><i class="stem"></i></div></div>`;
     }).join('')}</div>
     <div class="nw-slot" data-cur="${cur}" style="--hold:${hover.hold}px">${list.map((s, i) => `<div class="pan${i === focus ? ' focus' : ''}" data-i="${i}">${openStop(s, b, i === cur)}</div>`).join('')}</div>
@@ -154,9 +154,6 @@ function journey(b) {
 }
 function waitsOnOwner(s) {
   return s.left.some((n) => n.state === 'you') || s.work.some((w) => /^(ready for you|needs you)$/i.test(w.status));
-}
-function columns(list, focus) {
-  return list.map((s, i) => `minmax(0, ${i === focus ? 3.2 : s.state === 'live' ? 0.7 : 1}fr)`).join(' ');
 }
 function spineFocus(i) {
   const slot = $('.nw-slot');
@@ -194,6 +191,12 @@ function focusLane() {
   const list = spine(b);
   const s = list[current(b, list)];
   return s ? leadOf(s)?.item : null;
+}
+function held(s) {
+  return s.blockers.length ? `<span class="when">${blockedFor(s.since)}</span><span class="why">${esc(s.waits)}</span>${unblockLine(s.unblocking)}` : '';
+}
+function columns(list, focus) {
+  return list.map((s, i) => `minmax(0, ${i === focus ? 3.2 : s.state === 'live' ? 0.7 : 1}fr)`).join(' ');
 }
 function openStop(s, b, cur) {
   const left = s.left.length ? `<div><p class="hl">What blocks it, nearest first</p><div class="chain">${s.left.map(hangNode).join('')}</div></div>` : '';
