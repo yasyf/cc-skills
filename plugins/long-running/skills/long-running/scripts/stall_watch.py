@@ -724,13 +724,13 @@ class Pass:
 
     def landing_facts(self) -> dict:
         store = actions.Store(self.watch.store)
-        return store.load(LANDING).facts if store.path(LANDING).is_file() else {}
+        return store.facts(LANDING) if store.exists(LANDING) else {}
 
     def queued(self, desk: str, pr: str, head: str) -> actions.Action | None:
         """The queued or running pass `desk` holds on `pr` at `head`, a full pass on the PR included, read once a pass."""
         if desk not in self.queues:
             store = actions.Store(self.watch.store)
-            self.queues[desk] = [action for action in store.load(desk).actions.values() if action.status in QUEUE_LIVE] if store.path(desk).is_file() else []
+            self.queues[desk] = store.actions(desk, statuses=QUEUE_LIVE) if store.exists(desk) else []
         return next((action for action in self.queues[desk] if (job := json.loads(action.target))["pr"] == pr and (job.get("full") or grades.names_head(job["head"], head))), None)
 
     def desk_runs(self, desk: str) -> bool:

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-import os
 import runpy
+import sqlite3
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -20,7 +20,8 @@ class Clock:
 
 
 def history(tmp_path: Path, count: int) -> actions.Store:
-    store = actions.Store(tmp_path)
+    root = tmp_path / "store"
+    store = actions.Store(root)
     incident = actions.Incident("runner", "root", 0, "2026-10-30T00:00:00Z", {})
     for index in range(count):
         action = incident.accept(str(index), "send", "target", "owner", Clock().now())
@@ -31,16 +32,17 @@ def history(tmp_path: Path, count: int) -> actions.Store:
 
 
 @pytest.mark.parametrize("count", [32, 10_000])
-def test_targeted_book_queries_decode_unchanged_history_once(tmp_path, monkeypatch, count):
+def test_cold_book_queries_construct_only_selected_actions(tmp_path, monkeypatch, count):
     store = history(tmp_path, count)
-    book = Book(store, Clock())
     loads, builds = 0, 0
     load_json, load_action = json.loads, actions.Action.load.__func__
 
     def decode(*args, **kwargs):
         nonlocal loads
+        record = load_json(*args, **kwargs)
+        assert "action_id" in record
         loads += 1
-        return load_json(*args, **kwargs)
+        return record
 
     def construct(cls, record):
         nonlocal builds
@@ -50,109 +52,83 @@ def test_targeted_book_queries_decode_unchanged_history_once(tmp_path, monkeypat
     monkeypatch.setattr(json, "loads", decode)
     monkeypatch.setattr(actions.Action, "load", classmethod(construct))
     for _ in range(50):
+        book = Book(actions.Store(store.root), Clock())
         selected = book.actions("runner", kind="send", status="accepted")
         assert [action.action_id for action in selected] == [str(count - 1)]
         assert book.known("runner", str(count - 1)) == selected[0]
-    print(f"history={count} queries=100 json_decodes={loads} action_builds={builds}")
-    assert loads == 1
-    assert builds == count
+    assert loads == builds == 100
 
 
-def test_selected_actions_are_independent_and_keep_stored_order(tmp_path):
+def test_selected_actions_are_detached_and_status_union_keeps_order(tmp_path):
     store = history(tmp_path, 5)
     selected = store.actions("runner", kind="send")
     selected[0].response["items"].append("changed")
     selected[0].status = "accepted"
-    assert [action.action_id for action in store.actions("runner", kind="send")] == ["0", "1", "2", "3", "4"]
+    assert [action.action_id for action in store.actions("runner", statuses={"accepted", "verified"})] == ["0", "1", "2", "3", "4"]
     assert store.find_action("runner", "0").response == {"items": [0]}
-    assert [action.action_id for action in store.actions("runner", status="accepted")] == ["4"]
+    assert store.actions("runner", statuses=[]) == []
     assert store.find_action("runner", "missing") is None
-    assert store.actions("runner", kind="missing") == []
+    with pytest.raises(actions.UnknownAction):
+        store.action("runner", "missing")
 
 
-def test_query_refreshes_after_another_writer_replaces_the_container(tmp_path):
+def test_readers_see_other_commits_without_retained_view(tmp_path):
     store = history(tmp_path, 5)
-    assert [action.action_id for action in store.actions("runner", status="accepted")] == ["4"]
-    other = actions.Store(tmp_path)
-    with other.edit("runner") as incident:
+    other = actions.Store(store.root)
+    with other.transaction("runner") as incident:
         incident.verify("4", {"done": True})
     assert store.actions("runner", status="accepted") == []
     assert store.find_action("runner", "4").verification_receipt == {"done": True}
 
 
-def test_query_refreshes_after_in_place_change_with_restored_mtime(tmp_path):
-    store = history(tmp_path, 5)
-    assert store.ownership("runner") == ("root", 0)
-    path = store.path("runner")
-    before = path.stat()
-    path.write_text(path.read_text().replace('"root"', '"peer"', 1))
-    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
-    assert path.stat().st_size == before.st_size
-    assert store.ownership("runner") == ("peer", 0)
-
-
-def test_in_place_change_during_decode_is_not_reused_as_current(tmp_path, monkeypatch):
-    store = history(tmp_path, 5)
-    load_json = json.load
-    changed = False
-
-    def decode(stream):
-        nonlocal changed
-        record = load_json(stream)
-        if not changed:
-            changed = True
-            path = store.path("runner")
-            path.write_text(path.read_text().replace('"root"', '"peer"', 1))
-        return record
-
-    monkeypatch.setattr(json, "load", decode)
-    assert store.ownership("runner") == ("root", 0)
-    assert store.ownership("runner") == ("peer", 0)
-
-
-def test_concurrent_queries_share_one_decode(tmp_path, monkeypatch):
+def test_concurrent_cold_queries_return_detached_results(tmp_path):
     store = history(tmp_path, 64)
-    load_json = json.loads
-    loads = 0
-
-    def decode(*args, **kwargs):
-        nonlocal loads
-        loads += 1
-        return load_json(*args, **kwargs)
-
-    monkeypatch.setattr(json, "loads", decode)
     with ThreadPoolExecutor(2) as pool:
         results = list(pool.map(lambda _: store.find_action("runner", "63"), range(64)))
     assert all(action.action_id == "63" for action in results)
-    assert loads == 1
+    results[0].response["items"].append(99)
+    assert results[1].response == {"items": [63]}
 
 
-def test_owned_generation_is_checked_against_the_actual_writer_state(tmp_path):
+def test_owned_generation_is_checked_against_actual_writer_state(tmp_path):
     store = history(tmp_path, 5)
     book = Book(store, Clock())
-    assert store.ownership("runner") == ("root", 0)
-    other = actions.Store(tmp_path)
+    other = actions.Store(store.root)
     other.transfer("runner", 0, "peer")
     other.ack("runner", "peer")
     assert not book.as_owner("runner", "root", lambda incident: incident.facts.update(wrong=True))
     assert book.as_owner("runner", "peer", lambda incident: incident.facts.update(right=True))
-    assert store.load("runner").facts == {"right": True}
+    assert store.facts("runner") == {"right": True}
 
 
-def test_legacy_whole_container_reads_do_not_share_mutable_state(tmp_path):
+def test_book_ensure_avoids_existing_snapshot_and_edit_returns_detached_values(tmp_path, monkeypatch):
     store = history(tmp_path, 5)
-    store.actions("runner")
+    book = Book(store, Clock())
+    monkeypatch.setattr(store, "load", lambda _: pytest.fail("ensure loaded full snapshot"))
+    assert book.ensure("runner", "ignored") is None
+    selected = book.edit("runner", lambda incident: incident.facts.setdefault("cache", {"items": [1]}))
+    assert isinstance(selected, dict)
+    selected["items"].append(2)
+    assert book.fact("runner", "cache") == {"items": [1]}
+    action, created = book.accept("runner", "next", "send", "target", "owner", None)
+    assert created and action.action_id == "next"
+    action.target = "changed"
+    assert book.action("runner", "next").target == "target"
+
+
+def test_full_snapshot_is_detached_and_corruption_is_not_hidden(tmp_path):
+    store = history(tmp_path, 5)
     incident = store.load("runner")
     incident.actions["4"].status = "failed"
     assert store.find_action("runner", "4").status == "accepted"
-
-
-def test_current_malformed_container_is_not_hidden_by_a_read_view(tmp_path):
-    store = history(tmp_path, 5)
-    store.actions("runner")
-    store.path("runner").write_text("invalid")
+    connection = sqlite3.connect(store.path("runner"))
+    try:
+        connection.execute("UPDATE action SET record = 'invalid' WHERE action_key = '4'")
+        connection.commit()
+    finally:
+        connection.close()
     with pytest.raises(json.JSONDecodeError):
-        store.actions("runner")
+        store.find_action("runner", "4")
 
 
 def test_original_actions_script_keeps_installed_version_routing(monkeypatch):
