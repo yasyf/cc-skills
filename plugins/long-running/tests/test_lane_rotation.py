@@ -965,7 +965,7 @@ def test_the_four_stop_callers_of_one_request_share_one_scan(tree: Tree, clock: 
         lane_rotation.ask_lanes_to_rotate(handle.evt())
         lane_rotation.escalate_unrotated_lanes(handle.evt())
         stale = task_list.drifted(handle.evt(), handle.evt().tasks, clock[0])
-        loose = task_list.untracked(handle.evt(), handle.evt().tasks, clock[0])
+        loose = task_list.untracked(handle.evt(), clock[0])
 
     assert (parsed, len(tree.inbox("desk")), stale, loose) == (["desk"], 1, {}, [])
 
