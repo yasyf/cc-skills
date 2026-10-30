@@ -5041,7 +5041,7 @@ class Landing:
         self.body_preconditions: dict[tuple[str, str], list[str]] = {}
         self.said_preconditions: dict[str, list[tuple[str, str]]] = {}
         self.resolved_preconditions: dict[str, set[int]] = {}
-        self.successor_lanes: tuple[int, list[str]] = (-1, [])
+        self.successor_lanes: tuple[tuple[int, tuple[str, ...]], list[str]] = ((-1, ()), [])
         self.gos: list[dict] | None = None
         self.cleared: dict[str, int] = {}
         self.going = threading.Lock()
@@ -5859,8 +5859,8 @@ class Landing:
         configured = json.loads(self.runner.config.source.read_text())["landing"]["fidelity_lane"]
         lanes = [configured] if isinstance(configured, str) else list(configured)
         reviews = self.scanned_reviews()
-        if self.successor_lanes[0] != len(reviews):
-            self.successor_lanes = (len(reviews), with_successors(lanes, reviews))
+        if self.successor_lanes[0] != (key := (len(reviews), tuple(lanes))):
+            self.successor_lanes = (key, with_successors(lanes, reviews))
         return self.successor_lanes[1]
 
     @property
