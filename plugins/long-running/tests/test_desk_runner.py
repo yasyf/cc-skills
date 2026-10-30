@@ -7396,6 +7396,23 @@ def test_a_head_a_gate_refuses_or_that_sits_on_one_draws_no_admitted_skipped(she
     assert skipped(shell) == []
 
 
+def test_an_admitted_head_a_check_still_refuses_draws_no_admitted_skipped_and_names_that_check(shell, config, tmp_path):
+    """Root #218731: ADMITTED-SKIPPED on #45814, #45799 and #45427 said no branch recorded why, while `mq.py why` read finder fail FINDER-PENDING."""
+    merge_mode(config, "every")
+    lone_green_pr(shell)
+    shell.rows[0] |= {"test_state": "success", "green_at": actions.stamp(shell.clock)}
+    shell.queue["29020"] = "not queued"
+    grade(shell, "29020", "ok cccc333", finder=False)
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    shell.sleep(11 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and skipped(shell) == []
+    landing = landing_of(shell, config, tmp_path)
+    assert landing.unpassed_check("29020", "cccc333333", landing.rows()).startswith("finder fail FINDER-PENDING #29020")
+
+
 def test_an_admitted_head_its_lane_was_told_about_draws_no_admitted_skipped(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, EVICTED_GATE)
