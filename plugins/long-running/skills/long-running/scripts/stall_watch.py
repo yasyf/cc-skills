@@ -244,6 +244,7 @@ CAUSE_COMMANDS = {
     "FOREIGN": "admit or hold the PR the batch for #{pr} would carry",
 }
 MERGE_ASK = "MERGE-ASK"
+SILENT_STEP = "root routes the tooling lane: "
 HEAD_BLOCKERS = ("GO-UNQUEUED", "ADMITTED-SKIPPED", "BELOW-BLOCKED", "BELOW-HELD", MERGE_ASK, "AWAITS-GO")
 GO_KINDS = frozenset({"go", "decide", "decision"})
 BLOCKER_LABEL = re.compile(r"\b[A-Z]+(?:-[A-Z]+)+\b")
@@ -948,7 +949,7 @@ class Pass:
         for bottom, group in waiting.items():
             if any(member in self.refused for pr, *_ in group for member in [pr, *downstack(rows, rows[pr])]):
                 continue
-            group.sort(key=lambda entry: entry[2])
+            group.sort(key=lambda entry: (entry[3][2].startswith(SILENT_STEP), entry[2]))
             blocker, owner, step = group[0][3]
             named = [f"#{pr}" for pr, *_ in group]
             listed = ", ".join(named[:LISTED]) + (f" and {len(named) - LISTED} more" if len(named) > LISTED else "")
@@ -1139,7 +1140,7 @@ class Pass:
         """A go'd head that no runner record names and no stack worker holds `stall.minutes.silent` after its go is the runner's own defect, raised to the root and the landing desk beside the runner's `ADMITTED-SKIPPED`, so one defect cannot hide itself (owner, 5:16 AM Oct 30; root #208560)."""
         if self.now - since < self.watch.age("silent"):
             return None
-        return pr, (ROOT, RUNNER), f"root routes the tooling lane: the landing runner wrote no QUEUED, MERGED or blocker record for #{pr} at {short(head)} since the go at {pacific(since)}, and no worker holds its stack, so its loop skipped an admitted head silently"
+        return pr, (ROOT, RUNNER), f"{SILENT_STEP}the landing runner wrote no QUEUED, MERGED or blocker record for #{pr} at {short(head)} since the go at {pacific(since)}, and no worker holds its stack, so its loop skipped an admitted head silently"
 
     def review_title(self, head: str) -> str:
         done = self.shell.run(ghread.read("api", f"repos/{self.watch.landing['repo']}/commits/{head}/check-runs?check_name={grades.REVIEW_BOT_CHECK}", "--jq", ".check_runs | max_by(.started_at) | .output.title // \"\""))
