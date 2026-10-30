@@ -322,6 +322,9 @@ class FakeShell(runner_module.Shell):
         self.sequence += 1
         return f"{prefix}_{self.sequence:04d}"
 
+    def cci_query(self, argv, env=None, cwd=None):
+        return self.run(argv, env=env, cwd=cwd)
+
     def run(self, argv, stdin=None, env=None, cwd=None):
         self.raw.append(list(argv))
         argv = gateway(argv)
@@ -14611,11 +14614,11 @@ def test_an_explicit_since_tail_reads_natively_without_a_process_or_temporary_fe
     monkeypatch.setattr(runner_module.tempfile, "TemporaryFile", forbidden)
     argv = ["cci", "tail", *tail_args, "--json", "--budget", "4000000"]
     env = {"CCI_AGENT_ID": "lane-child"}
-    assert runner_module.Shell().run(argv, env=env) == runner_module.Done(0, '{"seq":7}\n', "")
+    assert runner_module.Shell().cci_query(argv, env=env) == runner_module.Done(0, '{"seq":7}\n', "")
     assert calls == [(argv, runner_module.QUICK_SECONDS, env, None)]
 
-@pytest.mark.parametrize("argv", [runner_module.BUS_PROBE, ["cci", "tail", "--since", "0"]])
-def test_a_tail_outside_the_explicit_drive_and_since_native_mode_keeps_its_cli_operation(monkeypatch, argv):
+@pytest.mark.parametrize("argv", [runner_module.BUS_PROBE, ["cci", "tail", "--since", "0"], ["cci", "tail", "--drive", "d1", "--topic", "--since"], ["cci", "tail", "--drive", "d1", "--since", "0"]])
+def test_shell_run_keeps_cci_cli_operations(monkeypatch, argv):
     calls = []
 
     def process(argv, **kwargs):

@@ -1132,23 +1132,47 @@ class Shell:
     spending = threading.Lock()
 
     def run(self, argv: list[str], stdin: str | None = None, env: dict[str, str] | None = None, cwd: str | None = None) -> Done:
-        done = self.run_once(argv, stdin, env, cwd)
+        return self._repeat(argv, lambda: self.run_once(argv, stdin, env, cwd))
+
+    def cci_query(self, argv: list[str], env: dict[str, str] | None = None, cwd: str | None = None) -> Done:
+        return self._repeat(argv, lambda: self._cci_query_once(argv, env, cwd))
+
+    def _repeat(self, argv: list[str], operation: Callable[[], Done]) -> Done:
+        done = operation()
         for wait in MISSING_BACKOFF:
             if done.code != MISSING_BINARY:
                 break
             self.sleep(wait)
-            done = self.run_once(argv, stdin, env, cwd)
+            done = operation()
         if rereadable(argv) and done.code and (done.code == TIMED_OUT or merge_queue.TRANSIENT_FAILURE.search(done.err + done.out)):
-            done = self.run_once(argv, stdin, env, cwd)
+            done = operation()
         return done
 
-    def run_once(self, argv: list[str], stdin: str | None, env: dict[str, str] | None, cwd: str | None) -> Done:
+    @contextmanager
+    def _measuring(self, argv: list[str]) -> Iterator[float]:
         timeout = time_bound(argv)
         started = time.monotonic()
         self.in_progress[threading.get_ident()] = (command_name(argv), started)
         try:
-            if argv[:2] == ["cci", "tail"] and {"--drive", "--since"} <= {arg.partition("=")[0] for arg in argv[2:]}:
+            yield timeout
+        finally:
+            self.in_progress.pop(threading.get_ident(), None)
+            with self.spending:
+                self.spent[command_family(argv)] += time.monotonic() - started
+                self.called[command_family(argv)] += 1
+                if threading.current_thread() is threading.main_thread():
+                    self.waited[command_family(argv)] += time.monotonic() - started
+
+    def _cci_query_once(self, argv: list[str], env: dict[str, str] | None, cwd: str | None) -> Done:
+        with self._measuring(argv) as timeout:
+            try:
                 return Done(*cci.native_tail(argv, timeout, env, cwd))
+            except TimeoutError:
+                print(f"TIMED-OUT after {timeout}s, skipped: {command_name(argv)}", file=sys.stderr, flush=True)
+                return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {timeout}s")
+
+    def run_once(self, argv: list[str], stdin: str | None, env: dict[str, str] | None, cwd: str | None) -> Done:
+        with self._measuring(argv) as timeout:
             with tempfile.TemporaryFile("w+") as feed:
                 feed.write(stdin or "")
                 feed.seek(0)
@@ -1159,16 +1183,6 @@ class Shell:
                     return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {timeout}s and was killed")
                 except FileNotFoundError:
                     return Done(MISSING_BINARY, "", f"{argv[0]} is not on PATH")
-        except TimeoutError:
-            print(f"TIMED-OUT after {timeout}s, skipped: {command_name(argv)}", file=sys.stderr, flush=True)
-            return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {timeout}s")
-        finally:
-            self.in_progress.pop(threading.get_ident(), None)
-            with self.spending:
-                self.spent[command_family(argv)] += time.monotonic() - started
-                self.called[command_family(argv)] += 1
-                if threading.current_thread() is threading.main_thread():
-                    self.waited[command_family(argv)] += time.monotonic() - started
         return Done(proc.returncode, proc.stdout, proc.stderr)
 
     def pass_cost(self) -> str:
@@ -2265,7 +2279,7 @@ class Runner:
         return written if clipped_by_cci(kept) or kept_by_cci(written) == kept else kept
 
     def cci_read(self, argv: list[str]) -> str:
-        done = self.shell.run(argv)
+        done = self.shell.cci_query(argv)
         if done.code != 0:
             self.read_failed_at = time.monotonic()
             raise CciTailFailed(f"cci tail exited {done.code}: {(done.err or done.out).strip()[:300]}")
