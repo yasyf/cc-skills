@@ -815,9 +815,9 @@ wheels = [
 ]
 
 [[package]]
-name = "long-running-dev"
-version = "0.0.0"
-source = { virtual = "." }
+name = "long-running-tools"
+version = "0.1.0"
+source = { editable = "." }
 
 [package.dev-dependencies]
 dev = [
