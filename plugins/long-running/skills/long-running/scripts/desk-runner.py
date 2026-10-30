@@ -8588,12 +8588,16 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     config = Config.load(args.config)
     runner = Runner(shell or Shell(), config, actions.Store(config.store))
     if args.verb == "run":
-        with runner.desk_lock(args.desk) as holder:
-            if holder is not None:
+        deadline = runner.now() + HANDOFF_WAIT
+        while True:
+            with runner.desk_lock(args.desk) as holder:
+                if holder is None:
+                    runner.shell.adopt(dict.fromkeys(LANE_IDENTITY, "") | config.desk_env[args.desk])
+                    return (run_orca if args.desk == "orca" else run_landing)(runner, args.once)
+            if not runner.stop_marker(holder).exists() or runner.now() >= deadline:
                 print(f"desk-runner run: runner {holder} already runs the {args.desk} desk on {config.source}; `desk-runner.py handoff --config {config.source} --desk {args.desk}` replaces it", file=sys.stderr)
                 return 3
-            runner.shell.adopt(dict.fromkeys(LANE_IDENTITY, "") | config.desk_env[args.desk])
-            return (run_orca if args.desk == "orca" else run_landing)(runner, args.once)
+            runner.shell.sleep(WAKE_SECONDS)
     if args.verb == "show":
         sys.stdout.write(runner.render())
         return 0

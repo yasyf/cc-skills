@@ -8723,6 +8723,25 @@ def test_a_second_runner_on_the_same_config_and_desk_refuses_to_start_and_names_
     assert not (tmp_path / "inbox" / runner_module.HEARTBEATS[desk]).exists()
 
 
+@pytest.mark.parametrize("desk", ["orca", "landing"])
+def test_a_runner_started_while_its_handed_off_predecessor_still_holds_the_lock_waits_for_it_to_exit_then_runs(shell, config, tmp_path, monkeypatch, desk):
+    runner, held = live_runner(shell, config, tmp_path, desk)
+    predecessor = contextlib.ExitStack()
+    predecessor.enter_context(held)
+    marker = runner.stop_marker()
+    marker.write_text(f"{os.getpid()}\n")
+    sleep = shell.sleep
+
+    def exits(seconds):
+        sleep(seconds)
+        marker.unlink(missing_ok=True)
+        predecessor.close()
+
+    monkeypatch.setattr(shell, "sleep", exits)
+    assert cli(shell, config, "run", "--desk", desk, "--once") != 3
+    assert (tmp_path / "inbox" / runner_module.HEARTBEATS[desk]).exists()
+
+
 def test_the_landing_loop_exits_on_its_stop_marker_within_one_interval_and_its_successor_resumes_from_the_same_book(shell, config, tmp_path):
     """Tasks 36d2185 and f04ea6b: landing runner 76826 stayed on 0.7.183 through the 2:48 PM rotation on Oct 20, because its loop never read the stop marker."""
     land_fast(shell, config)
