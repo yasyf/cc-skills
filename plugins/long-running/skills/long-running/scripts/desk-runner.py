@@ -273,8 +273,8 @@ over every other tree. Every gate checks only a tree holding a PR the queue read
 or queued, since a check of any other tree enqueues nothing and spends GitHub reads; each PR of the rest hears what its status
 entry asks of its lane. Each tree runs in a stack worker of its own from its check through its settling to the enqueue it accepts, so no
 stack waits on another stack's checks or enqueue. The workers outlive the pass: the pass queues them with the lanes taking turns, waits for
-them at most 120 s, skips a tree whose worker still runs or waits, and its releases, announcements, worktree removal and restack checks run
-on a side worker, never ahead of the gate. Each worker writes its step and when it began to `<config>.landing-stacks.json`, which
+them at most 120 s, skips a tree whose worker still runs or waits, and its releases, announcements and restack checks run
+on a side worker, never ahead of the gate, and its worktree removal on a worker of its own, so a slow removal holds back neither. Each worker writes its step and when it began to `<config>.landing-stacks.json`, which
 stall_watch reads to name a stack stuck past its step's budget. Every pass posts one `state` record to root on topic `landing-state`
 counting the queued, waiting, held and refused PRs, the workers running and the overflow's enqueues, with the pass's seconds.
 `GO-UNQUEUED` is raised only when the newest enqueue of a go'd head since its go ended blocked, failed, stranded or unsettled, or went in and the queue's merge activity then evicted it, naming that eviction's time and reason, never for
@@ -370,7 +370,7 @@ which merge mode settles, is a warning, one `note` record per head and set of ca
 none of its earlier warnings named, and never once an `answer` replies to or resolves one of them. A run that exits with a code other than 0 or 1 or
 prints a line naming no cause passes the head with nothing posted, and so does each `BLOCKER` line it prints: the check fails open.
 Each pass reads the commit statuses of every open row's head in one GraphQL query, and reuses a
-head's statuses for 60 s; a head read that fails counts as unread for that pass, and the pass ends with one
+head's statuses for 60 s and the Buildkite builds they name for five minutes; a head read that fails counts as unread for that pass, and the pass ends with one
 `STATUS-READ-FAILED` per cause naming the count and each PR and head, once per cause and set of heads. Every GitHub read goes through
 `ccx vcs gh --max-age 5m`, which answers a read made in the last five minutes from ccx's machine-wide cache; the incident squash's
 precondition reads pass `--max-age 0s`, and the trunk's tip is read with `git ls-remote`. Each pass starts with one `ccx vcs auth status --json`
@@ -494,7 +494,8 @@ record of the form `froze <scope> until <RFC 3339> as freeze <id>` is tracked un
 lane gets one lift `ask`, and once the lane has no live session the root gets one. The runner's first read
 on a drive starts at the newest record.
 With `landing.ci_build` set to a command that prints one Buildkite build's JSON, such as
-`tools/ci bk api /pipelines/{pipeline}/builds/{number}`, a GREEN head whose passing build has a job named
+`tools/ci bk api /pipelines/{pipeline}/builds/{number}`, read once per build and its passed builds kept in
+`<config>.landing-builds.json` for three days, so a re-exec reads none of them again, a GREEN head whose passing build has a job named
 "Redundant within its stack" reads BLOCKED `unproven: redundant skip, child #<n> <state>` and drops out of the prefix
 that would enqueue, with everything above it. It is GREEN again once a passed build with no skip job runs on a commit that
 contains the head: a build at the stack's tip, or one a `full run green <build>: #<pr>` note or report from the PR's lane
@@ -820,6 +821,9 @@ GATE_WORKERS = 16
 GATE_BUDGET = timedelta(seconds=120)
 STEP_BUDGETS = {"check": 180, "settle": 300, "enqueue": 300}
 STACKS_FILE = "landing-stacks.json"
+BUILDS_FILE = "landing-builds.json"
+BUILDS_KEPT = timedelta(days=3)
+BUILD_JOB_FIELDS = ("type", "name", "step_key", "state", "soft_failed")
 CHECK_PR_WORKERS = 8
 TELL_BUDGET = timedelta(seconds=60)
 REFRESH_EVERY = timedelta(minutes=2)
@@ -4837,7 +4841,7 @@ def prefix_tops(prefix: list[str], rows: dict[str, dict]) -> list[str]:
 def heads_query(repo: str, shas: list[str]) -> str:
     owner, name = repo.split("/")
     review = f'checkSuites(last: 10, filterBy: {{checkName: "{REVIEW_BOT_CHECK}"}}) {{ nodes {{ checkRuns(last: 1, filterBy: {{checkName: "{REVIEW_BOT_CHECK}"}}) {{ nodes {{ title startedAt }} }} }} }}'
-    fields = " ".join(f'h{index}: object(expression: "{sha}") {{ ... on Commit {{ status {{ contexts {{ context state description }} }} {review} }} }}' for index, sha in enumerate(shas))
+    fields = " ".join(f'h{index}: object(expression: "{sha}") {{ ... on Commit {{ status {{ contexts {{ context state description targetUrl }} }} {review} }} }}' for index, sha in enumerate(shas))
     return f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'
 
 
@@ -5037,7 +5041,15 @@ class Landing:
         self.row_heads: dict[str, str] = {}
         self.ledger_rows: dict[str, dict] = {}
         self.builds_read: dict[str, tuple[datetime, list[tuple[str, str, bool | None]]]] = {}
-        self.builds: dict[str, dict] = {}
+        self.targets: dict[str, tuple[datetime, list[tuple[str, str]]]] = {}
+        self.builds_file = runner.config.source.with_name(f"{runner.config.source.stem}.{BUILDS_FILE}")
+        self.builds: dict[str, dict] = self.kept_builds()
+        self.builds_kept = set(self.builds)
+        self.contained: dict[tuple[str, str], bool] = {}
+        self.board: Done | None = None
+        self.boarding = threading.Lock()
+        self.tidying = ThreadPoolExecutor(1)
+        self.tidy_work: Future | None = None
         self.full_runs_read: dict[str, list[dict]] = {}
         self.grading = False
         self.grade_tried: set[str] = set()
@@ -5386,12 +5398,13 @@ class Landing:
         self.surface()
 
     def close(self) -> None:
-        """Let every running stack worker and the side work finish and start nothing queued, so no worker of this runner acts after it hands off."""
+        """Let every running stack worker, the side work and the worktree removal finish and start nothing queued, so no worker of this runner acts after it hands off."""
         self.workers.shutdown(cancel_futures=True)
         self.side.shutdown(cancel_futures=True)
+        self.tidying.shutdown(cancel_futures=True)
 
     def surface(self) -> None:
-        """Raise the first error a stack worker or the side work raised after an earlier pass stopped waiting for it, dropping each finished one, so the pass counts it as its own."""
+        """Raise the first error a stack worker, the side work or the worktree removal raised after an earlier pass stopped waiting for it, dropping each finished one, so the pass counts it as its own."""
         with self.dispatching:
             finished = {key: future for key, (_, future) in self.inflight.items() if future.done()}
             for key in finished:
@@ -5399,14 +5412,18 @@ class Landing:
         side = self.side_work if self.side_work and self.side_work.done() else None
         if side:
             self.side_work = None
-        for future in [*finished.values(), *([side] if side else [])]:
+        tidy = self.tidy_work if self.tidy_work and self.tidy_work.done() else None
+        if tidy:
+            self.tidy_work = None
+        for future in [*finished.values(), *([side] if side else []), *([tidy] if tidy else [])]:
             if error := future.exception():
                 raise error
 
     def drain(self) -> None:
-        """Wait for every stack worker and the side work, raising what any raised, for a `--once` pass whose process ends with it."""
-        for future in [future for _, future in list(self.inflight.values())] + ([self.side_work] if self.side_work else []):
+        """Wait for every stack worker, the side work and the worktree removal, raising what any raised, and keep the builds they read, for a `--once` pass whose process ends with it."""
+        for future in [future for _, future in list(self.inflight.values())] + [work for work in (self.side_work, self.tidy_work) if work]:
             future.result()
+        self.keep_builds()
 
     def land_tree(self, rows: dict[str, dict], held: list[str], tree: list[str]) -> None:
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
@@ -5640,15 +5657,21 @@ class Landing:
         return url
 
     def ci_builds(self, sha: str) -> list[tuple[str, str, bool | None]] | None:
-        """Each Buildkite build GitHub's combined status names at `sha`, read again once the copy kept across passes is `BODY_MAX_AGE` old, so a head waiting on its proof costs one status read per interval, not per pass (root #146561): its URL, its state, and whether it is a redundant-within-its-stack skip; None when the status does not read, and None for a build that does not."""
+        """Each Buildkite build GitHub's combined status names at `sha`, read again once the copy kept across passes is `BODY_MAX_AGE` old, so a head waiting on its proof costs one status read per interval, not per pass (root #146561), and none while the pass's own read of the open heads names it: its URL, its state, and whether it is a redundant-within-its-stack skip; None when the status does not read, and None for a build that does not."""
         now = self.runner.now()
         if not (kept := self.builds_read.get(sha)) or now - kept[0] >= BODY_MAX_AGE:
-            done = self.shell.run(ghread.read("api", f"repos/{self.repo}/commits/{sha}/status"))
-            if done.code != 0:
-                return None
-            statuses = json.loads(done.out)["statuses"]
-            self.builds_read[sha] = (now, [(status["target_url"], status["state"], self.redundant(status["target_url"]) if status["state"] == "success" else False) for status in statuses if "buildkite.com/" in (status.get("target_url") or "") and BUILD_URL.search(status["target_url"])])
+            if (read := self.read_targets(sha, now)) is None:
+                done = self.shell.run(ghread.read("api", f"repos/{self.repo}/commits/{sha}/status"))
+                if done.code != 0:
+                    return None
+                read = (now, [(status.get("target_url") or "", status["state"]) for status in json.loads(done.out)["statuses"]])
+            at, targets = read
+            self.builds_read[sha] = (at, [(url, state, self.redundant(url) if state == "success" else False) for url, state in targets if "buildkite.com/" in url and BUILD_URL.search(url)])
         return self.builds_read[sha][1]
+
+    def read_targets(self, sha: str, now: datetime) -> tuple[datetime, list[tuple[str, str]]] | None:
+        with self.reading:
+            return next(((at, targets) for head, (at, targets) in self.targets.items() if same_head(head, sha) and now - at < BODY_MAX_AGE), None)
 
     def watch_trunk(self, rows: dict[str, dict]) -> bool:
         """Read `landing.trunk_check` over the trunk's last `TRUNK_DEPTH` commits and post its state on the `dev-red` topic to root and the watchdog. A red run whose failed jobs include one a PR build also runs is DEV-RED, posted as an incident that says no PR can land; one whose failed jobs no PR build runs is POST-MERGE-RED, a report that says landing continues and a fix is owed; each posts the pass it is first read and again every 30 minutes while red, and DEV-GREEN posts once when the check passes again. It bars nothing: the queue's own required checks hold what cannot land, and a hold here would freeze the queue. False when the trunk does not read, so the pass gates nothing: `TRUNK-READ-FAILED` posts once per run of unread passes and `TRUNK-READ-RECOVERED` once a read succeeds."""
@@ -5740,7 +5763,10 @@ class Landing:
 
     def landing_steps(self, pipeline: str, rows: dict[str, dict]) -> set[str] | None:
         """Every job any open row's finished full build of `pipeline` runs: a PR build leaves out each unit it did not touch, so one build alone reads a landing job as post-merge. None when no such build reads."""
-        builds = [build for row in rows.values() if row.get("state", "open") == "open" and row.get("head") for url, state, skip in self.ci_builds(row["head"]) or [] if skip is False and state in ("success", "failure") and BUILD_URL.search(url)["pipeline"] == pipeline and (build := self.build(url))]
+        heads = [row["head"] for row in rows.values() if row.get("state", "open") == "open" and row.get("head")]
+        with ThreadPoolExecutor(GATE_WORKERS) as pool:
+            urls = [url for found in pool.map(self.ci_builds, heads) for url, state, skip in found or [] if skip is False and state in ("success", "failure") and BUILD_URL.search(url)["pipeline"] == pipeline]
+            builds = [build for build in pool.map(self.build, urls) if build]
         return {job.get("step_key") or job["name"] for build in builds for job in build.get("jobs", []) if job.get("type") == "script"} if builds else None
 
     def build(self, url: str) -> dict | None:
@@ -5782,8 +5808,31 @@ class Landing:
         return found
 
     def contains(self, head: str, sha: str) -> bool:
-        done = self.shell.run(ghread.read("api", f"repos/{self.repo}/compare/{sha}...{head}", "--jq", ".status"))
-        return done.code == 0 and done.out.strip() in ("ahead", "identical")
+        """Whether commit `head` contains `sha`, read once per pair since two commits' ancestry never changes; False, and read again next time, when the compare does not read."""
+        if (head, sha) not in self.contained:
+            done = self.shell.run(ghread.read("api", f"repos/{self.repo}/compare/{sha}...{head}", "--jq", ".status"))
+            if done.code != 0:
+                return False
+            self.contained[(head, sha)] = done.out.strip() in ("ahead", "identical")
+        return self.contained[(head, sha)]
+
+    def kept_builds(self) -> dict[str, dict]:
+        try:
+            return json.loads(self.builds_file.read_text())
+        except FileNotFoundError:
+            return {}
+
+    def keep_builds(self) -> None:
+        """Write every passed build this runner read, finished within `BUILDS_KEPT`, beside the config with those an earlier or sibling runner kept, each cut to the fields the gates read, so a re-exec on a new release reads no finished build again. A failed build is never kept, since a retried job can still turn it green."""
+        floor = self.runner.now() - BUILDS_KEPT
+        passed = {url: {key: build[key] for key in ("state", "commit", "finished_at") if key in build} | {"jobs": [{key: job[key] for key in BUILD_JOB_FIELDS if key in job} for job in build.get("jobs", [])]} for url, build in list(self.builds.items()) if build.get("state") == "passed" and build.get("finished_at") and actions.parse_stamp(build["finished_at"]) >= floor}
+        if passed.keys() <= self.builds_kept:
+            return
+        kept = {url: build for url, build in (self.kept_builds() | passed).items() if actions.parse_stamp(build["finished_at"]) >= floor}
+        staged = self.builds_file.with_name(f".{self.builds_file.name}.{threading.get_ident()}")
+        staged.write_text(json.dumps(kept))
+        staged.replace(self.builds_file)
+        self.builds_kept = set(kept)
 
     def deferred_child(self, pr: str) -> dict | None:
         """The topmost PR the ledger stacks on `pr`, whose build the Graphite optimizer runs for the stack."""
@@ -5911,6 +5960,7 @@ class Landing:
                 runs = [run for suite in commit["checkSuites"]["nodes"] for run in suite["checkRuns"]["nodes"]]
                 with self.reading:
                     self.read[sha] = (now, statuses)
+                    self.targets[sha] = (now, [(context["targetUrl"] or "", context["state"].lower()) for context in (commit["status"] or {"contexts": []})["contexts"]])
                     self.review_titles[sha] = max(runs, key=lambda run: run["startedAt"] or "", default={"title": ""})["title"] or ""
                 found[sha] = statuses
         return found
@@ -6383,7 +6433,7 @@ class Landing:
         register = json.loads(done.out)["rows"] if done.code == 0 else None
         session = self.runner.root_session()
         try:
-            verdicts = board_rows.verdicts_of(self.present(["cc-present", "outcomes", "--all", "--no-doc", "--session", session])) if session else None
+            verdicts = board_rows.verdicts_of(self.board_read(session)) if session else None
         except board_rows.ReadFailed:
             verdicts = None
         waits = {}
@@ -6627,7 +6677,7 @@ class Landing:
             self.runner.escalate("merge-card:unset", "MERGE-CARD-FAILED", "landing", f"no drive registry entry for {self.runner.config.drive} names a root session, so no merge card posts | run `drive.py start --drive <drive> --ledger <ledger>` from the root session; the next pass posts the cards")
             return None
         view = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", MERGE_CARD_FIELDS))
-        done = view if view.code else self.present(["cc-present", "ask", "-", "--session", session], stdin=json.dumps(merge_card_block(self.repo, pr, waits, detail, json.loads(view.out))))
+        done = view if view.code else self.board_write(["cc-present", "ask", "-", "--session", session], stdin=json.dumps(merge_card_block(self.repo, pr, waits, detail, json.loads(view.out))))
         if done.code or not (ts := slack_ts(done.out)):
             why = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
             cause = VOLATILE.sub("", why)
@@ -6641,6 +6691,21 @@ class Landing:
             return self.shell.run(argv, stdin=stdin)
         except OSError as error:
             return Done(127, "", f"cc-present did not start: {error}")
+
+    def board_read(self, session: str) -> Done:
+        """The root board's rows and verdicts from one `cc-present outcomes --all`, read once a pass and again after the runner writes to the board; a read that fails is read again by its next caller."""
+        with self.boarding:
+            if self.board is not None:
+                return self.board
+            done = self.present(["cc-present", "outcomes", "--all", "--session", session])
+            self.board = None if done.code else done
+            return done
+
+    def board_write(self, argv: list[str], stdin: str | None = None) -> Done:
+        done = self.present(argv, stdin)
+        with self.boarding:
+            self.board = None
+        return done
 
     @property
     def board_lanes(self) -> list[str]:
@@ -6670,7 +6735,7 @@ class Landing:
             self.runner.escalate("tap-carry:unset", "TAP-CARRY-FAILED", "landing", f"no drive registry entry for {self.runner.config.drive} names a root session, so no board tap carries to a restacked head | run `drive.py start --drive <drive> --ledger <ledger>` from the root session; the next pass carries them")
             return
         try:
-            verdicts = board_rows.verdicts_of(self.present(["cc-present", "outcomes", "--all", "--no-doc", "--session", session]))
+            verdicts = board_rows.verdicts_of(self.board_read(session))
         except board_rows.ReadFailed as failed:
             self.runner.escalate(f"tap-carry:unread:{hashlib.sha1(VOLATILE.sub('', str(failed)).encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", "landing", f"the root's board did not read ({failed}), so no tap carries to a restacked head this pass; the next pass reads it again")
             return
@@ -6755,7 +6820,7 @@ class Landing:
 
     def carry_tap(self, session: str, block: str, pr: str, tapped: str, head: str, why: str, to: str, label: str = "TAP-CARRIED") -> bool:
         """Carry the owner's tap on `pr` from `tapped` to `head` on the board and post `label`, `TAP-CARRIED` by default, once; whether the board took it."""
-        done = self.present(["cc-present", "verdict", "carry", "--session", session, "--block", block, "--row", pr, "--head", head, "--note", why])
+        done = self.board_write(["cc-present", "verdict", "carry", "--session", session, "--block", block, "--row", pr, "--head", head, "--note", why])
         if done.code:
             why = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
             if UNKNOWN_BLOCK.search(why):
@@ -6817,7 +6882,7 @@ class Landing:
         """Each PR and seven-character head the root board's rows name, or None when the board did not read."""
         if not (session := self.runner.root_session()):
             return None
-        done = self.present(["cc-present", "outcomes", "--all", "--session", session])
+        done = self.board_read(session)
         if done.code or (start := done.out.find("{")) < 0:
             return None
         return {(row.pr, row.head[:7]) for row in board_rows.rows_of(json.loads(done.out[start:]).get("doc") or {}) if row.head}
@@ -7440,7 +7505,7 @@ class Landing:
         """Enqueue straight into the merge queue, through the adapter and with none of the runner's own checks, each stack that has stayed landable for `OVERFLOW_AFTER` since an overflow first found it so: every unqueued PR of it green at its ledger head, named at that head by a root go, under no hold, pull, or incident fix, with no enqueue of it running and nothing the runner decided against it at that head, which is a refusal `last_refusal` finds since the go, an enqueue outcome outside `OVERFLOW_RETRIES` other than a `blocked` one five minutes old, a drop still waiting on a go, or a reserved row no answer authorizes (C224). A stack is due once any PR of it is, so a restack that restarted an upper PR's clock never sends the bottom in alone for Graphite to hold the rest on. Each goes in as its stack's top, recorded as an enqueue and posted as a QUEUED report that names the overflow."""
         self.cci_tail.remember()
         try:
-            self.statuses, self.queues_read, self.gos, self.cleared = None, False, None, {}
+            self.statuses, self.queues_read, self.gos, self.cleared, self.board = None, False, None, {}, None
             if self.quota_low() or (rows := self.rows()) is None or (held := self.held(rows)) is None or self.checks_paused() or (queue := self.queue_states()) is None:
                 return
             open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
@@ -8229,6 +8294,7 @@ class Landing:
         finally:
             self.cci_tail.stop()
             self.report_unread()
+            self.keep_builds()
 
     def ask_rulings(self) -> None:
         """Log one `RULING-ASK` per board round while ruling cards `rulings.py classify` wrote queue under the drive's `cards/`; the root puts the round on the cc-present board with `rulings.py round`, never one card per ruling."""
@@ -8257,7 +8323,7 @@ class Landing:
         self.gate_deadline = time.monotonic() + GATE_BUDGET.total_seconds()
         self.trusted_from, self.pass_began = self.pass_began, time.monotonic()
         self.surface()
-        self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why, self.cleared, self.exempts = None, False, None, None, None, set(), {}, {}, {}
+        self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why, self.cleared, self.exempts, self.board = None, False, None, None, None, set(), {}, {}, {}, None
         if self.quota_low():
             return
         with ThreadPoolExecutor(1) as pool:
@@ -8286,7 +8352,9 @@ class Landing:
         gone = self.land_gone(rows, barred) if gating else set()
         self.runner.steps(lambda: self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}), self.reconcile, lambda: self.requeue(rows))
         if not self.side_work:
-            self.side_work = self.side.submit(self.runner.steps, lambda: self.verify(rows), lambda: self.announce_landings(rows), lambda: self.remove_landed_worktrees(rows), lambda: self.releases(rows), self.ungraded_after, lambda: self.verify_restacks(rows))
+            self.side_work = self.side.submit(self.runner.steps, lambda: self.verify(rows), lambda: self.announce_landings(rows), lambda: self.releases(rows), self.ungraded_after, lambda: self.verify_restacks(rows))
+        if not self.tidy_work:
+            self.tidy_work = self.tidying.submit(self.remove_landed_worktrees, rows)
         self.runner.steps(lambda: self.resubmit_graphite_base(rows))
         self.runner.steps(self.watch_graphite)
         if held is not None:

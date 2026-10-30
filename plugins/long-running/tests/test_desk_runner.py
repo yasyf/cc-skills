@@ -321,6 +321,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, json.dumps({"interactions": {"triage": self.board}, "rounds": []}, indent=2), "")
         if argv[:3] == ["cc-present", "outcomes", "--all"]:
             assert argv[3:] == ["--session", "s-root"]
+            if self.board_error:
+                return runner_module.Done(1, "", self.board_error)
             prs = [{"number": int(pr), "head": head} for pr, head in self.board_rows]
             return runner_module.Done(0, json.dumps({"doc": {"blocks": [{"type": "pr-groups", "id": "merge-prs", "groups": [{"id": "ready", "prs": prs}]}]}, "interactions": {"triage": self.board}}), "")
         if argv[:3] == ["cc-present", "verdict", "carry"]:
@@ -605,10 +607,10 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(int(bool(missing)), json.dumps(data | ({"errors": errors} if errors else {})), "".join(f"gh: {error['message']}\n" for error in errors))
         if self.trunk and f'object(expression: "{self.trunk[0]["oid"]}") {{ ... on Commit {{ history(' in query:
             return runner_module.Done(0, json.dumps({"data": {"repository": {"object": {"history": {"nodes": self.trunk}}}}}), "")
-        heads = re.findall(r'(h\d+): object\(expression: "([0-9a-f]+)"\) \{ \.\.\. on Commit \{ status \{ contexts \{ context state description \} \} checkSuites\(last: 10, filterBy: \{checkName: "ai-review"\}\) \{ nodes \{ checkRuns\(last: 1, filterBy: \{checkName: "ai-review"\}\) \{ nodes \{ title startedAt \} \} \} \} \} \}', query)
+        heads = re.findall(r'(h\d+): object\(expression: "([0-9a-f]+)"\) \{ \.\.\. on Commit \{ status \{ contexts \{ context state description targetUrl \} \} checkSuites\(last: 10, filterBy: \{checkName: "ai-review"\}\) \{ nodes \{ checkRuns\(last: 1, filterBy: \{checkName: "ai-review"\}\) \{ nodes \{ title startedAt \} \} \} \} \} \}', query)
         commits = {
             alias: {
-                "status": {"contexts": [{"description": None, **status, "state": status["state"].upper()} for status in self.combined_statuses[sha]]} if sha in self.combined_statuses else None,
+                "status": {"contexts": [{"description": None, "targetUrl": status.get("target_url")} | {key: value for key, value in status.items() if key != "target_url"} | {"state": status["state"].upper()} for status in statuses]} if (statuses := self.combined_statuses.get(sha, self.commit_statuses.get(sha))) is not None else None,
                 "checkSuites": {"nodes": [{"checkRuns": {"nodes": [{"title": title, "startedAt": f"2026-10-27T19:0{index}:00Z"}]}} for index, title in enumerate(self.review_runs.get(sha, []))]},
             }
             for alias, sha in heads
@@ -3973,6 +3975,20 @@ def test_a_merge_ask_names_only_a_graded_head_with_a_board_row(shell, config, tm
         assert missing == []
 
 
+def test_a_pass_reads_the_root_board_once_for_its_tap_carries_and_its_rows(shell, config, tmp_path):
+    """Oct 29: a landing pass spent 32 s on 14 `cc-present outcomes --all` reads of one board."""
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    shell.queue["29020"] = "not queued"
+    shell.pr_status["29020"] = {"verdict": "landable"}
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [post_body(note).split(":")[0] for note in notes(shell) if post_body(note).startswith("BOARD-ROW-MISSING")] == ["BOARD-ROW-MISSING #29020 at cccc333333"]
+    assert len([call for call in shell.calls if call[:3] == ["cc-present", "outcomes", "--all"]]) == 2
+
+
 def test_a_tap_keeps_only_once_the_finder_is_clear_at_the_fixed_head(shell, config, tmp_path):
     """p8a-step7 #192190: the runner noted TAP-KEPT for #44103 at 78aad32 while finder #191854's major on the head before it stood unanswered, and root's go on it had to be withdrawn."""
     board_surface(config)
@@ -4688,6 +4704,55 @@ def test_a_red_pr_left_unchecked_hears_what_its_status_entry_asks(shell, config,
     landing_pass(shell, config)
     assert checks(shell) == []
     assert [post_body(post) for post in blockers(shell) if post["to"] != "root"] == [f"#29020 cccc333333: {said}"]
+
+
+def build_reads(shell: FakeShell, number: str) -> list[list[str]]:
+    return [call for call in shell.calls if call[:3] == [str(shell.root / "checkout/tools/ci"), "bk", "api"] and call[3].endswith(f"/builds/{number}")]
+
+
+def test_a_passed_build_is_read_once_and_a_new_runner_reads_it_from_the_kept_copy(shell, config, tmp_path):
+    """Oct 29: the 0.7.580 landing pass waited 247 s on 192 `ci bk api` reads, every finished build read again by the runner each release re-executes."""
+    with_ci_build(config)
+    shell.launch(LANE, "ctx_a")
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    built(shell, "cccc333333", "78197", SKIP_BUILD)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(build_reads(shell, "78197")) == 1 and shell.enqueues() == []
+
+
+def test_a_failed_build_is_never_kept_so_a_retried_job_that_passes_reads_green(shell, config, tmp_path):
+    with_ci_build(config)
+    shell.launch(LANE, "ctx_a")
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    shell.commit_statuses["cccc333333"] = [status("test", "78299", "failure")]
+    shell.builds["78299"] = finished(FULL_BUILD, "cccc333333", "failed")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    shell.commit_statuses["cccc333333"] = [status("test", "78299")]
+    shell.builds["78299"] = finished(FULL_BUILD, "cccc333333")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
+def test_an_open_heads_builds_come_from_the_passs_one_status_query_with_no_rest_status_read(shell, config, tmp_path):
+    """Oct 29: the 0.7.584 landing pass waited 125 s on 87 `gh api` reads, one commit status read per head its single GraphQL query had already read."""
+    with_ci_build(config)
+    shell.launch(LANE, "ctx_a")
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    built(shell, "cccc333333", "78197", SKIP_BUILD)
+    landing_pass(shell, config)
+    assert len(build_reads(shell, "78197")) == 1
+    assert not [call for call in shell.calls if call[:2] == ["gh", "api"] and "/commits/" in call[2]]
+
+
+def test_whether_a_commit_contains_another_is_read_once_per_pair(shell, config, tmp_path):
+    landing = landing_of(shell, config, tmp_path)
+    assert landing.contains("ffff666666", "cccc333333") and landing.contains("ffff666666", "cccc333333")
+    assert len([call for call in shell.calls if call[:2] == ["gh", "api"] and call[2].endswith("/compare/cccc333333...ffff666666")]) == 1
 
 
 def test_no_full_build_starts_below_a_tip_whose_own_build_is_still_running(shell, config, tmp_path):
@@ -7216,6 +7281,25 @@ def test_a_handoff_stops_worktree_removal_between_worktrees(shell, config, tmp_p
     with pytest.raises(runner_module.StopRequested):
         landing.remove_landed_worktrees({row["pr"]: row for row in shell.rows})
     assert shell.removed == [first]
+
+
+def test_a_slow_worktree_removal_holds_back_none_of_the_side_work(shell, config, tmp_path, monkeypatch):
+    """Oct 29: the 0.7.584 landing runner spent 481 s in 24 `ccx vcs worktree rm` calls on the side worker, so the releases and restack checks queued behind them waited minutes."""
+    shell.rows = [single_row()[0] | {"state": "landed", "landed_sha": "dddd444444"}]
+    shell.listed = [(str(tmp_path / "worktrees" / "a-3"), "a/3")]
+    checked = threading.Event()
+    monkeypatch.setattr(runner_module.Landing, "verify_restacks", lambda self, rows: checked.set())
+    run = shell.run
+    waited = []
+
+    def slow(argv, *args, **kwargs):
+        if argv[:4] == ["ccx", "vcs", "worktree", "rm"]:
+            waited.append(checked.wait(5))
+        return run(argv, *args, **kwargs)
+
+    shell.run = slow
+    landing_pass(shell, config)
+    assert waited == [True] and shell.removed == [str(tmp_path / "worktrees" / "a-3")]
 
 
 def test_a_runner_enqueue_posts_queued_and_then_landed_naming_the_go(shell, config, tmp_path):
