@@ -11,6 +11,7 @@ from pathlib import Path
 
 
 LANE_NUMBER = re.compile(r"(.+?)(?:-(\d+))?")
+WITHDRAWS = re.compile(r"\bwithdraws?\b[^.;:\n#]*#(\d+)", re.IGNORECASE)
 WITHDRAWN_NAMED = re.compile(r"#(\d+)\b(?=(?:(?!\bnot\b)[^.;:\n])*\bwithdrawn\b)", re.IGNORECASE)
 FIDELITY_OK = "fidelity: ok"
 FIDELITY_MISSING = "fidelity: missing"
@@ -273,10 +274,12 @@ def gone_at(gos: list[dict], pr: str, head: str) -> list[dict]:
 
 
 def closes(record: dict) -> set[int]:
-    """The seqs `record` closes: each it resolves, and the one a `withdraw` answers by `--re`."""
+    """The seqs `record` closes: each it resolves, and for a `withdraw`, the one it answers by `--re` and each it names after "withdraw", such as `root withdraws go #198635`."""
     resolves = record.get("resolves") or []
     closed = set(resolves) if isinstance(resolves, list) else {resolves}
-    return closed | ({record["re"]} if record["kind"] == "withdraw" and record.get("re") else set())
+    if record["kind"] != "withdraw":
+        return closed
+    return closed | ({record["re"]} if record.get("re") else set()) | {int(seq) for seq in WITHDRAWS.findall(record["text"])}
 
 
 def fidelity_grades_in(reviews: list[dict], drive: str, lanes: list[str], repo: str, pr: str) -> list[dict]:
