@@ -289,9 +289,8 @@ PR, never from comment text. A `conflict` stays out at that head and its ejectio
 is gated again, and the adapter blocks it until a new head. A `batch-mate-red` the adapter retries is gated again; one blaming a PR outside the
 PR's own stack is the batch's failure: it routes no blocker, logs one `AWAITS-GO` line to root, and the same head re-enqueues once a root
 `go` record naming the PR is posted after the drop, with no new head. A `flaky-check`, a red check that read green on the PR's own head and
-failed only in a queue draft holding nothing but its stack, goes back in at the same head through the adapter's `flake` once on the desk's
-policy, which the adapter comments on the PR, and routes no blocker meanwhile; a second at the same head logs `AWAITS-GO`, and the root's next `go`
-naming the PR puts it back the same way. A retry the adapter refuses logs `FLAKE-RETRY-FAILED`. The lane a PR's blocker or restack goes to is the poster of the newest cci `head`, `opened`, `ready`,
+failed only in a queue draft holding nothing but its stack, stays out at that head after its first ejection: one `blocker` naming the failing
+job goes to the live lanes `landing.restack_lane` names, else the root, and the desk enqueues the PR again only at a new head. The lane a PR's blocker or restack goes to is the poster of the newest cci `head`, `opened`, `ready`,
 or `claim` record naming the PR, else the lane that registered its ledger row; a blocker posted on cci also goes to the root
 when `cci who` lists no live session for that lane, and to the live lanes `landing.restack_lane` names instead, else the root
 alone, opening with `owner lane dead`, once that lane has no live dispatch or session and no cci record on the drive in the last 60 minutes. A conflict blocker for a lane with no dispatch Orca
@@ -532,7 +531,7 @@ cause and tries again next pass. Under `every` the runner
 then bars each open PR no root `go` names at its head like a held one: no check or enqueue call names it or sweeps it in, and a PR
 stacked on it waits. The pass's one `ccx vcs pr status` read routes it instead: a conflict, red CI, or requested changes is that head's
 blocker, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK`. `landing.checks_wait_for_go`, a cci sequence number, pauses the gate until a root `go` record comes after it:
-no `stack-enqueue --check`, `MERGE-ASK`, flake retry, or enqueue runs meanwhile, one `GATE-PAUSED` says so, and the rest of the pass goes on,
+no `stack-enqueue --check`, `MERGE-ASK`, or enqueue runs meanwhile, one `GATE-PAUSED` says so, and the rest of the pass goes on,
 an incident fix's plain squash included. A reserved touch puts the first sentence of the row's words in the card's question, whose
 tap is the authorization: only an answer `rulings.py authorize` labels `authorizes:<key>` from that captured tap covers the row, which `check-pr` then
 stops naming, and a root `go` never does, whatever it names (C224). A quiet pass writes nothing.
@@ -699,7 +698,6 @@ CHECK_STAGES = {"hold": "enqueue", "precondition": "accept, enqueue", "rules-rev
 DEFAULT_PRIORITY = 100
 HIGH_RISK_STARTER = ("*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "*creds*")
 PULLED = "pulled"
-FLAKE_RETRY = "flake"
 VOLATILE = re.compile(r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b|\d+")
 RELAYED_PR = re.compile(r"^(?:blocker|restack):(\d+):")
 RED_BY_DESIGN = re.compile(r"^\W*red by design\b", re.IGNORECASE)
@@ -4887,7 +4885,7 @@ def release_posted(incident: actions.Incident, key: str, step: str, seq: int, at
 
 def pull_action(incident: actions.Incident, key: str, pr: str, why: str, at: str) -> None:
     kept = incident.action(key).response
-    incident.action(key).response = {**kept, "outcome": PULLED, "pulled": {"pr": pr, "why": why, "at": at}, "flaky": {n: h for n, h in kept.get("flaky", {}).items() if n != pr}, "flaky_due": {n: h for n, h in kept.get("flaky_due", {}).items() if n != pr}}
+    incident.action(key).response = {**kept, "outcome": PULLED, "pulled": {"pr": pr, "why": why, "at": at}}
 
 
 def verdictless(gate: merge_queue.Gate) -> bool:
@@ -5209,7 +5207,7 @@ class Landing:
         return orders, max((record["seq"] for record in records), default=read)
 
     def latch_pulled(self, pr: str, head: str, why: str) -> None:
-        """Keep `pr` at `head` out of every check and enqueue until `mq.py requeue`, and mark each finished enqueue that admitted it at that head `pulled`, dropping its flaky retries."""
+        """Keep `pr` at `head` out of every check and enqueue until `mq.py requeue`, and mark each finished enqueue that admitted it at that head `pulled`."""
         self.book.edit(LANDING, lambda incident: incident.facts.setdefault(PULLED_HEADS, {}).update({pr: head}))
         for action in self.book.actions(LANDING, kind="enqueue", status="completed"):
             if (sha := enqueued_heads(action.action_id).get(pr)) and head.startswith(sha):
@@ -5391,7 +5389,7 @@ class Landing:
                     if self.adapter.failing_required(match) and self.red_by_design(pr):
                         continue
                     gated_red = pr in children and self.adapter.failing_required(match) and self.gated_red(pr, match["sha"])
-                    if self.retrying(pr, match, stack):
+                    if self.restacking(match, stack):
                         continue
                     if blocker := self.adapter.blocker(match, stack, gated_red):
                         self.route_blocker(pr, match["sha"], blocker, rows[pr], tips, stack, gated_red, self.adapter.failing_required(match))
@@ -5428,14 +5426,10 @@ class Landing:
         rows = self.rows() or {}
         return {tip for tip in tips if rows.get(tip, {}).get("state") == "landed"}
 
-    def retrying(self, pr: str, verdict: dict, stack: set[str]) -> bool:
-        """Whether the queue's ejection of a head this desk enqueued is a flaky check the desk retries itself, or whose retry the queue still holds, so the lane is not asked for a new head."""
+    def restacking(self, verdict: dict, stack: set[str]) -> bool:
+        """Whether the queue ejected this head for a flaky check, which `requeue` sends to the restack lane, so the owner lane is not asked as well."""
         ejection = self.adapter.ejection(verdict, stack)
-        if not ejection or ejection.kind != merge_queue.FLAKY_CHECK:
-            return False
-        sha = self.row_heads.get(pr) or verdict["sha"]
-        enqueued_here = any(same_head(enqueued_heads(action.action_id).get(pr) or "-", sha) for action in self.book.actions(LANDING, kind="enqueue"))
-        return enqueued_here and (not self.flake_retried(pr, sha) or self.flake_retried(pr, sha, BELIEVED_QUEUED | {"flake-refused", "stranded", "unsettled", "failed"}))
+        return bool(ejection) and ejection.kind == merge_queue.FLAKY_CHECK
 
     def red_cause(self, pr: str, sha: str) -> str:
         """The red jobs on `pr`'s head outside the gates, each with its status description and run numbers and durations folded, so the same job failing the same way on the next head reads the same; empty when the statuses are unread or no such job is red."""
@@ -6379,7 +6373,7 @@ class Landing:
         return self.files[(pr, sha)], ""
 
     def checks_paused(self) -> bool:
-        """Whether `landing.checks_wait_for_go` names a cci sequence no root `go` record on this drive has come after yet: until one does, the pass runs no gate, so no `stack-enqueue --check`, MERGE-ASK, flake retry, or enqueue, and logs one `GATE-PAUSED` per sequence; an approved, green incident fix still lands by plain squash."""
+        """Whether `landing.checks_wait_for_go` names a cci sequence no root `go` record on this drive has come after yet: until one does, the pass runs no gate, so no `stack-enqueue --check`, MERGE-ASK, or enqueue, and logs one `GATE-PAUSED` per sequence; an approved, green incident fix still lands by plain squash."""
         if not (after := self.landing_config.get("checks_wait_for_go")):
             return False
         drive = self.runner.config.drive
@@ -6398,7 +6392,7 @@ class Landing:
         return [record for record in cci.records(self.cci_tail, drive, *lanes, "--kind=go") if (record["drive"], record["kind"]) == (drive, "go") and self.go_lane(record["lane"])]
 
     def root_gos(self) -> list[dict]:
-        """The `go` records of the root and of each `landing.go_lanes` lane or its numbered successor on this drive, read once per pass and again before each enqueue wave and each flake retry, without any that a later root record resolves, answers with a `withdraw`, or names by `#<seq>` or `--re` with the word "withdrawn", plus the gos a fidelity desk's `ok H carried from G` grade carries from G to H. Each carries `voided`, the PRs of its clause that a later root `withdraw` record, or one opening `WITHDRAWN`, names, which it no longer lets merge nor carries to a later head."""
+        """The `go` records of the root and of each `landing.go_lanes` lane or its numbered successor on this drive, read once per pass and again before each enqueue wave, without any that a later root record resolves, answers with a `withdraw`, or names by `#<seq>` or `--re` with the word "withdrawn", plus the gos a fidelity desk's `ok H carried from G` grade carries from G to H. Each carries `voided`, the PRs of its clause that a later root `withdraw` record, or one opening `WITHDRAWN`, names, which it no longer lets merge nor carries to a later head."""
         with self.going:
             if self.gos is None:
                 drive = self.runner.config.drive
@@ -7354,7 +7348,7 @@ class Landing:
         }
 
     def requeue(self, rows: dict[str, dict]) -> None:
-        """A believed-queued prefix the queue no longer holds at the heads it admitted is classified from the adapter's verdict on each dropped PR. A `conflict` stays out at that head, and the gate routes its ejection to the lane; an `own-red` is gated again, and the adapter blocks it until a new head; a `batch-mate-red` blaming a PR outside the PR's own stack tells the root once and re-enqueues the same head after the root's next `go` record naming the PR, while one the adapter itself retries is gated again. A `flaky-check` goes back in at the same head through the adapter once, on the desk's own policy; a second at the same head waits for a root `go` record naming the PR. An enqueue is judged only once its whole-second completion stamp is before `statuses_floor`, since the status read may answer from a poll made before it."""
+        """A believed-queued prefix the queue no longer holds at the heads it admitted is classified from the adapter's verdict on each dropped PR. A `conflict` stays out at that head, and the gate routes its ejection to the lane; an `own-red` is gated again, and the adapter blocks it until a new head; a `batch-mate-red` blaming a PR outside the PR's own stack tells the root once and re-enqueues the same head after the root's next `go` record naming the PR, while one the adapter itself retries is gated again. A `flaky-check` stays out at that head after its first ejection, and one `blocker` naming the failing job goes to the restack lanes, so the desk enqueues it again only at a new head. An enqueue is judged only once its whole-second completion stamp is before `statuses_floor`, since the status read may answer from a poll made before it."""
         believed = self.believed_queued(rows)
         if not any(believed.values()) or (queue := self.queue_states()) is None:
             return
@@ -7377,75 +7371,17 @@ class Landing:
             for pr, named in blamed.items():
                 self.runner.escalate(f"awaits-go:{pr}:{heads[pr]}", "AWAITS-GO", f"#{pr}", f"{heads[pr]}: the merge queue dropped it for downstack failures on #{named}, outside its stack; no new head is needed, and a root `go` record naming #{pr} re-enqueues this head")
             awaiting = {pr: heads[pr] for pr in blamed}
-            due = {pr: sha for pr, sha in flaky.items() if not self.flake_retried(pr, sha)}
             for pr, sha in flaky.items():
-                if pr not in due:
-                    awaiting[pr] = sha
-                    self.runner.escalate(f"awaits-go:{pr}:{sha}", "AWAITS-GO", f"#{pr}", f"{sha}: a flaky check ejected it again at the same head after the desk's one automatic retry ({ejections[pr].detail}); a root `go` record naming #{pr} puts this head back in, and a new head enqueues as usual")
+                if not self.book.known(LANDING, restack := f"restack:{pr}:{sha}"):
+                    self.post_blocker(restack, ",".join(self.restack_lanes()), f"#{pr} {sha}: the merge queue ejected it, failing in a queue draft holding only its stack though its own head reads green ({ejections[pr].detail}); restack it onto trunk and post the new head, since the desk never enqueues {sha} again", pr)
             drop = {
-                "outcome": "ejected" if conflicts else "dropped",
+                "outcome": "ejected" if conflicts or flaky else "dropped",
                 "drop": {pr: {"kind": kinds[pr], "detail": gated.verdicts[pr]["detail"] if pr in gated.verdicts else ""} for pr in dropped},
-                "ejected": conflicts,
+                "ejected": conflicts | flaky,
                 "awaiting_go": awaiting,
-                "flaky": {pr: sha for pr, sha in flaky.items() if pr in awaiting},
-                "flaky_due": due,
                 "dropped_at": self.book.stamp(),
             }
             self.book.attempt(LANDING, lambda incident, key=key, drop=drop: setattr(incident.action(key), "response", {**incident.action(key).response, **drop}))
-
-    def flake_retried(self, pr: str, sha: str, outcomes: frozenset[str] | None = None) -> bool:
-        """Whether the desk already put `pr` back at `sha` through the adapter, and with `outcomes`, whether that retry still reads one of them."""
-        return any(
-            (response := action.response or {}).get(FLAKE_RETRY, {}).get("pr") == pr and same_head(response[FLAKE_RETRY]["head"], sha) and (outcomes is None or response["outcome"] in outcomes)
-            for action in self.book.actions(LANDING, kind="enqueue")
-        )
-
-    def flake_retry(self, pr: str, sha: str, prefix: list[str], heads: dict[str, str], rows: dict[str, dict], why: str) -> str:
-        """Put `pr` back in the queue at its unchanged head through the adapter once its prefix passes the `hold` check and every enqueue check, recorded before the call as one more enqueue of its prefix so it is verified and dropped like any other, naming `why` in the journal; the adapter comments on the PR. Returns `enqueued`, `refused` when the adapter refused it, which logs `FLAKE-RETRY-FAILED` and waits for a root `go` or `mq requeue`, `unsettled` when the queue left it stranded, unsettled, or failed, which logs `ENQUEUE-<OUTCOME>` like any enqueue, or `held` when a check refused it, which tries again on a later pass."""
-        graded = Graded({member: heads.get(member, "") for member in prefix}, rows, self.runner.now(), act=True)
-        if self.failing((*HOLD_CHECKS, *ENQUEUE_CHECKS), graded):
-            return "held"
-        base = "enqueue:" + ",".join(f"{member}@{heads.get(member, '')}" for member in prefix)
-        attempt = len([action for action in self.book.actions(LANDING, kind="enqueue") if action.action_id.split("#")[0] == base]) + 1
-        key = f"{base}#{attempt}"
-        self.book.accept(LANDING, key, "enqueue", ",".join(prefix), self.authority(), None)
-        self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
-        outcome, out, last = self.adapter.flake(pr)
-        retry = {"pr": pr, "head": sha, "why": why}
-        if outcome == "blocked":
-            refused = {"outcome": "flake-refused", "out": out, "drive": self.runner.config.drive, FLAKE_RETRY: retry, "flaky": {pr: sha}, "dropped_at": self.book.stamp(), "at": self.book.stamp()}
-            self.book.attempt(LANDING, lambda incident: incident.complete(key, refused))
-            self.runner.escalate(f"flake:{pr}:{sha}", "FLAKE-RETRY-FAILED", f"#{pr}", f"{sha}: the {self.adapter.kind} queue refused the same-head retry of its flaky-check ejection: {last}; a root `go` naming #{pr} or `mq.py requeue {pr}` tries it again")
-            return "refused"
-        self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": out, "drive": self.runner.config.drive, FLAKE_RETRY: retry, "at": self.book.stamp()}))
-        if outcome not in BELIEVED_QUEUED:
-            self.runner.escalate(key, f"ENQUEUE-{outcome.upper()}", f"#{pr}", last)
-            return "unsettled"
-        return "enqueued"
-
-    def retry_flakes(self, rows: dict[str, dict]) -> None:
-        """Put each flaky head back in the queue: once on the desk's policy right after its first drop, and again once a root `go` record naming its PR is posted after a later drop, citing that record. Runs only on a pass that read the holds and fast-forwarded the checkout."""
-        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
-        for action in self.book.actions(LANDING, kind="enqueue", status="completed"):
-            for pr, sha in dict(action.response.get("flaky_due", {})).items():
-                if not rows.get(pr, {}).get("head", "").startswith(sha):
-                    continue
-                heads = enqueued_heads(action.action_id)
-                if self.flake_retry(pr, sha, [p for p in heads if p in downstack(open_rows, pr)] or [pr], heads, rows, "the desk's policy of one automatic same-head retry per flaky-check ejection") != "held":
-                    self.book.attempt(LANDING, lambda incident, key=action.action_id, pr=pr: incident.action(key).response["flaky_due"].pop(pr))
-        waiting = [(action, pr, sha) for action in self.book.actions(LANDING, kind="enqueue", status="completed") for pr, sha in action.response.get("flaky", {}).items() if rows.get(pr, {}).get("head", "").startswith(sha)]
-        if not waiting:
-            return
-        self.reread()
-        gos = self.root_gos()
-        for action, pr, sha in waiting:
-            at = actions.parse_stamp(action.response["dropped_at"])
-            go = next((record for record in gos if actions.parse_stamp(record["at"]) > at and goes(record, pr)), None)
-            if go is None:
-                continue
-            heads = enqueued_heads(action.action_id)
-            if self.flake_retry(pr, sha, [p for p in heads if p in downstack(open_rows, pr)] or [pr], heads, rows, f"the root's go #{go['seq']}") != "held":
-                self.book.attempt(LANDING, lambda incident, key=action.action_id, pr=pr: incident.action(key).response["flaky"].pop(pr))
 
     def owned(self, pr: str, rows: dict[str, dict]) -> bool:
         """Whether this drive's queue answers for `pr`: an enqueue this drive's store believes queued names it, or a drive lane of this drive opened it."""
@@ -7491,7 +7427,7 @@ class Landing:
         return True, line
 
     def requeue_pr(self, pr: str) -> tuple[bool, str]:
-        """Let `mq requeue` put `pr` back at its current head: a flaky head goes back in through the adapter at once, and a pulled, ejected, or go-awaiting head becomes retryable once the adapter releases whatever latch it keeps on that head, so the next pass enqueues it once every check passes."""
+        """Let `mq requeue` put `pr` back at its current head: a pulled, ejected, or go-awaiting head becomes retryable once the adapter releases whatever latch it keeps on that head, so the next pass enqueues it once every check passes."""
         rows = self.rows() or {}
         head = rows.get(pr, {}).get("head", "")
         latched = pr in self.book.load(LANDING).facts.get(PULLED_HEADS, {})
@@ -7503,13 +7439,6 @@ class Landing:
             sha = enqueued_heads(action.action_id).get(pr)
             if not sha or not head.startswith(sha):
                 continue
-            if pr in response.get("flaky", {}):
-                heads = enqueued_heads(action.action_id)
-                open_rows = {number: row for number, row in rows.items() if row.get("state", "open") == "open"}
-                result = self.flake_retry(pr, sha, [p for p in heads if p in downstack(open_rows, pr)] or [pr], heads, rows, "the root's mq requeue")
-                if result != "held":
-                    self.book.attempt(LANDING, lambda incident, key=action.action_id: incident.action(key).response["flaky"].pop(pr))
-                return result == "enqueued", {"enqueued": f"#{pr} {sha} back in the queue", "refused": f"#{pr} {sha}: the {self.adapter.kind} queue refused the same-head retry", "unsettled": f"#{pr} {sha}: the same-head retry did not settle in the {self.adapter.kind} queue; read the ENQUEUE- escalation", "held": f"#{pr} {sha}: a check still refuses it; read mq.py why {pr}"}[result]
             if response["outcome"] in (PULLED, "ejected") or pr in response.get("awaiting_go", {}) or pr in response.get("ejected", {}):
                 cleared.append(action.action_id)
         if not cleared:
@@ -7581,7 +7510,7 @@ class Landing:
         lines = []
         for action in self.book.actions(LANDING, kind="enqueue", status="completed"):
             outcome = action.response["outcome"]
-            if outcome in BELIEVED_QUEUED or action.response.get("flaky") or action.response.get("awaiting_go"):
+            if outcome in BELIEVED_QUEUED or action.response.get("awaiting_go"):
                 lines.append(f"{action.action_id} {outcome} by {action.response.get('drive', self.runner.config.drive)}")
         for tree in self.trees(rows):
             open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
@@ -7971,7 +7900,7 @@ class Landing:
         if held is not None:
             self.runner.steps(lambda: self.squash_incidents(rows, held))
             if gating:
-                self.runner.steps(lambda: self.retry_flakes(rows), lambda: self.gate(rows, barred, gone), self.enqueue, lambda: self.unqueued_gos(rows, held), lambda: self.tell_unpassed(rows, held))
+                self.runner.steps(lambda: self.gate(rows, barred, gone), self.enqueue, lambda: self.unqueued_gos(rows, held), lambda: self.tell_unpassed(rows, held))
         self.runner.overdue(LANDING, "landing")
 
 

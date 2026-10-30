@@ -894,7 +894,6 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `SLICE-UNREAD` | Read the named `rulings.py slice --refresh` failure, fix the register or the brief's `Register slice:` line, run the refresh by hand, and relay the fresh slice to the lane, which launched without it. The key is the launch. |
 | `MERGE-MODE-UNSET` | Ask the owner which merge mode the drive runs in, record the answer, write `landing.merge_mode` to `runner.json`, and start the landing runner again. |
 | `MQ-CONFIG-INVALID` | Add the members the line ends with to the `landing` object of `runner.json`, replacing any of the same name, adjust the suggested `high_risk_paths` globs to the repository, and start the landing runner again. |
-| `FLAKE-RETRY-FAILED` | Read `mq.py why <n>`; when the head is still flaky, `mq.py requeue <n>` tries the same head again, and otherwise route the red to the lane. |
 | `FILES-READ-FAILED` | None while it is brief; the runner reads the PR's changed files again on its next pass. |
 | `LOAD-HIGH` | Move the load off the Mac in that turn: stop or move each local pass, backfill, dry run, or bulk rewrite to in-region compute, and launch a refused incident lane in-process meanwhile, as an Agent named for the refused lane, which the pack's Agent hook lets through for 30 minutes. Never wait the load out. The key is the ten-minute window. |
 | `ALERT-FAILED` | Correct the alert line's slug, link, or form and append it again. |
