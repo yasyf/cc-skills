@@ -7022,8 +7022,8 @@ class Landing:
                 landing, refused = self.rebased(chain, heads, open_rows)
                 refused = refused or (self.moved_heads(chain, landing) if len(chain) > 1 else None)
                 waiting = "" if refused else self.checks_settled(chain, landing) or self.go_lost(chain, rows)
-                done, how = (None, "") if refused or waiting else self.merge_chain(chain, landing)
-                squashes = self.squashes(chain) if done and done.code in (0, TIMED_OUT) else {}
+                done, how, merged = (None, "", []) if refused or waiting else self.merge_chain(chain, landing)
+                squashes = self.squashes(merged)
                 if done and done.code == TIMED_OUT and squashes and all(squashes.values()):
                     done = Done(0, done.out, done.err)
             if refused:
@@ -7038,13 +7038,13 @@ class Landing:
                 return (MERGED if outcome == MERGED else "blocked"), "".join(outs)[-1500:], f"{numbered(chain)} waits to merge: {waiting}"
             outs.append(done.out + done.err)
             last = " / ".join(line.strip() for line in (done.out + done.err).splitlines() if line.strip())[-600:] or f"exit {done.code}"
-            if done.code:
-                return (MERGED if outcome == MERGED else "failed"), "".join(outs)[-1500:], last
-            outcome = MERGED
-            for pr in chain:
+            for pr in merged if done.code else chain:
                 landed = f"as {squashes[pr][:10]}" if squashes.get(pr) else "with its squash unread"
                 moved = "" if landing[pr].startswith(heads[pr]) else f", rebased to {landing[pr][:10]},"
                 self.post_record("state", f"merged-direct:{pr}@{heads[pr]}", self.landing_audience([pr], rows, self.queue_audience([pr], rows)), f"MERGED #{pr} at {heads[pr][:10]}{moved} direct {landed}, Graphite down, {DIRECT_RULING}: {how}", pr)
+            if done.code:
+                return (MERGED if outcome == MERGED else "failed"), "".join(outs)[-1500:], last
+            outcome = MERGED
         return outcome, "".join(outs)[-1500:], last
 
     def go_lost(self, chain: list[str], rows: dict[str, dict]) -> str:
@@ -7203,20 +7203,41 @@ class Landing:
                 return pr, f"#{below} at {base[:10]}" if below else f"the latest {TRUNK}"
         return None
 
-    def merge_chain(self, chain: list[str], heads: dict[str, str]) -> tuple[Done, str]:
-        """Squash `chain` into the trunk, with how: a lone PR pinned to its head, a longer chain linked as one GitHub stack, bottom first, and merged up to its top in one call. A chain GitHub already tracks inside a longer stack, which refuses the link, and a lone PR GitHub calls a stack member go through GitHub's asynchronous merge of the chain's top, which merges its open downstack with it (root #199186, #199779)."""
-        if len(chain) == 1:
-            merged = self.shell.run(["gh", "pr", "merge", chain[0], "--repo", self.repo, "--squash", "--match-head-commit", heads[chain[0]]])
-            if not merged.code or STACK_MEMBER not in merged.out + merged.err:
-                return merged, "gh pr merge --squash"
-            return self.merge_async(chain[0], heads[chain[0]]), "the asynchronous merge API"
+    def merge_chain(self, chain: list[str], heads: dict[str, str]) -> tuple[Done, str, list[str]]:
+        """Squash `chain` into the trunk, with how and the PRs merged: a chain of several PRs linked as one GitHub stack, bottom first, and merged up to its top in one call; a lone PR, or a chain GitHub already tracks inside a longer stack, which refuses the link, one PR at a time, bottom first, each only once GitHub reads its base as the trunk, so no merge ever lands in a parent's branch (root #199186, #200822)."""
         env = {"GH_REPO": self.repo}
-        linked = self.shell.run(["gh", "stack", "link", *chain], env=env, cwd=str(self.checkout))
-        if not linked.code:
-            return self.shell.run(["gh", "stack", "merge", chain[-1], "--yes", "--squash"], env=env, cwd=str(self.checkout)), f"gh stack merge of {numbered(chain)}"
-        if STACK_PARTIAL not in linked.out + linked.err:
-            return linked, f"gh stack link of {numbered(chain)}"
-        return self.merge_async(chain[-1], heads[chain[-1]]), f"the asynchronous merge API on #{chain[-1]}"
+        if len(chain) > 1:
+            linked = self.shell.run(["gh", "stack", "link", *chain], env=env, cwd=str(self.checkout))
+            if not linked.code:
+                done = self.shell.run(["gh", "stack", "merge", chain[-1], "--yes", "--squash"], env=env, cwd=str(self.checkout))
+                return done, f"gh stack merge of {numbered(chain)}", chain if done.code in (0, TIMED_OUT) else []
+            if STACK_PARTIAL not in linked.out + linked.err:
+                return linked, f"gh stack link of {numbered(chain)}", []
+        hows: list[str] = []
+        merged: list[str] = []
+        for pr in chain:
+            done, how = self.merge_one(pr, heads[pr])
+            hows.append(f"#{pr} by {how}" if len(chain) > 1 else how)
+            if done.code:
+                break
+            merged.append(pr)
+        return done, ", ".join(hows), merged
+
+    def merge_one(self, pr: str, head: str) -> tuple[Done, str]:
+        """Squash `pr` at `head` into the trunk once GitHub reads its base as the trunk, read fresh every `SQUASH_POLL_SECONDS` up to `ASYNC_POLLS` times since GitHub retargets a child only after its parent's branch goes, and refuse it on any other base; a PR GitHub calls a stack member goes through the asynchronous merge API."""
+        base = ""
+        for poll in range(ASYNC_POLLS):
+            if poll:
+                self.shell.sleep(SQUASH_POLL_SECONDS)
+            base = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "baseRefName", "--jq", ".baseRefName", max_age=ghread.FRESH)).out.strip()
+            if base == TRUNK:
+                break
+        if base != TRUNK:
+            return Done(1, "", f"refused: #{pr} still reads base {base or 'unread'}, not {TRUNK}, after {ASYNC_POLLS * SQUASH_POLL_SECONDS // 60} minutes, and a direct merge lands only on {TRUNK}"), "no merge"
+        merged = self.shell.run(["gh", "pr", "merge", pr, "--repo", self.repo, "--squash", "--match-head-commit", head])
+        if not merged.code or STACK_MEMBER not in merged.out + merged.err:
+            return merged, "gh pr merge --squash"
+        return self.merge_async(pr, head), "the asynchronous merge API"
 
     def merge_async(self, pr: str, head: str) -> Done:
         """Squash-merge `pr` at `head` with GitHub's asynchronous merge API, then read its state every `SQUASH_POLL_SECONDS` up to `ASYNC_POLLS` times until GitHub reads it merged, since the API only accepts the merge and runs it in the background."""
