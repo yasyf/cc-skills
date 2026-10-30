@@ -1293,7 +1293,8 @@ def test_a_pr_comment_answers_a_missing_grade_and_a_bot_comment_does_not(config)
     assert "regrade:101:3" not in opened(config) and "missing:101:3" not in opened(config)
 
 
-def test_a_red_no_record_classes_alarms_root_once_at_twenty_minutes_a_real_class_with_no_new_head_once_at_sixty_and_drive_reds_prints_the_register(config, tmp_path, capsys):
+def test_a_red_no_record_classes_alarms_root_once_at_twenty_minutes_a_real_class_with_no_new_head_once_at_sixty_and_drive_reds_prints_the_register(config, tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", SESSION)
     lint = {"name": "buildkite/lint", "url": "https://buildkite.com/forge/lint/builds/4"}
     classed = record(1, "red-sweep", "red", "12:50 PM class=real head=fedcba9 owner=web-lane needs a schema fix; blocker sent", 10, "202")
     shell = FakeShell([classed, finder(2, "202", OTHER, 10), fidelity(3, "202", OTHER, 10)], [row("201", test_state="failure", red_at=stamp(25), failing_checks=json.dumps([lint])), row("202", OTHER, lane="web-lane", test_state="failure", red_at=stamp(25), failing_checks=json.dumps([lint]))])
