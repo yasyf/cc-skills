@@ -1741,6 +1741,17 @@ def active_policy(incident: actions.Incident) -> actions.Action | None:
     return next((action for action in verified if json.loads(action.target)["revision"] not in superseded), None)
 
 
+def refused_members(routes: Iterable[actions.Action], members: set[str], open_rows: dict[str, dict]) -> Iterator[str]:
+    found: set[str] = set()
+    for action in routes:
+        target = json.loads(action.target)
+        if target.get("kind") == "blocker" and (pr := str(target["pr"])) in members and (sha := re.search(rf":{pr}:([0-9a-f]{{7,40}})", action.action_id)) and names_head(sha[1], open_rows[pr].get("head", "")):
+            found.add(pr)
+            yield pr
+            if found == members:
+                return
+
+
 class Runner:
     def __init__(self, shell: Shell, config: Config, store: actions.Store):
         self.shell = shell
@@ -7122,7 +7133,8 @@ class Landing:
         """Post the pass's one `state` record to root on topic `landing-state`, which cci delivers newest-only, so root never asks what the runner is doing (owner 9524276): the open rows the queue holds, the green ones a root go names at their heads that are out of it and neither held nor refused, with the oldest stack step in flight, the held, the refused at their heads, the stack workers running, the overflow's enqueues this hour, and the pass's seconds. It logs `OVERFLOW-STALLED` once an hour while the overflow thread has finished no run in `OVERFLOW_STALLED`."""
         open_rows = {pr: row for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"}
         statuses, gos, held = self.statuses or {}, self.gos or [], set(self.held_now)
-        refused = {pr for pr in open_rows if self.refused_at_head({pr}, open_rows)}
+        landing = self.book.load(LANDING)
+        refused = set(refused_members(landing.of_kind("bus"), set(open_rows), open_rows)) if open_rows else set()
         queued = {pr for pr in open_rows if statuses.get(pr, {}).get("queue") == QUEUED_STATE}
         waiting = [pr for pr, row in open_rows.items() if pr not in queued | held | refused and row.get("test_state") == "success" and row.get("head") and gone_at(gos, pr, row["head"])]
         now = self.runner.now()
@@ -7130,7 +7142,7 @@ class Landing:
             oldest = min(self.steps.values(), key=lambda entry: entry["since"], default=None)
             running = sum(1 for _, future in self.inflight.values() if not future.done())
         hour = now - timedelta(hours=1)
-        overflowed = sum(1 for action in self.book.actions(LANDING, kind="enqueue") if f"#{OVERFLOW}-" in action.action_id and actions.parse_stamp(action.accepted_at) >= hour)
+        overflowed = sum(1 for action in landing.of_kind("enqueue") if f"#{OVERFLOW}-" in action.action_id and actions.parse_stamp(action.accepted_at) >= hour)
         step = f" (oldest #{oldest['root']} {oldest['step']} {whole_minutes(actions.parse_stamp(oldest['since']), now)}m)" if oldest else ""
         text = f"LANDING queued {len(queued)}, waiting {len(waiting)}{step}, held {len(held)}, refused {len(refused)}, in flight {running}, overflowed {overflowed} this hour; pass {took:.0f}s"
         self.runner.cci_post("state", text, ROOT, "landing-state", f"landing-state:{self.book.stamp()}")
@@ -7216,11 +7228,7 @@ class Landing:
 
     def refused_at_head(self, members: set[str], open_rows: dict[str, dict]) -> bool:
         """Whether this runner posted a `blocker` for a PR of `members` at its current head: that refusal is the record, so no `GO-UNQUEUED` repeats it (root, Oct 29 10:35 AM)."""
-        for action in self.book.actions(LANDING, kind="bus"):
-            target = json.loads(action.target)
-            if target.get("kind") == "blocker" and (pr := str(target["pr"])) in members and (sha := re.search(rf":{pr}:([0-9a-f]{{7,40}})", action.action_id)) and names_head(sha[1], open_rows[pr].get("head", "")):
-                return True
-        return False
+        return next(refused_members(self.book.actions(LANDING, kind="bus"), members, open_rows), None) is not None
 
     def last_refusal(self, members: set[str], open_rows: dict[str, dict], since: datetime) -> tuple[str, str] | None:
         """The newest refusal any PR of `members` stands under, with the lane that owns that PR: a blocker this runner routed for its current head or base, a refusal it escalated since `since`, or a `blocker` record a `landing.desk_lane` lane posted naming it since then (root, Oct 29 2:37 AM)."""

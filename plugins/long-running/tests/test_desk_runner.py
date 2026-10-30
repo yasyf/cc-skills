@@ -5437,6 +5437,77 @@ def test_an_overflow_thread_that_finished_no_run_in_five_minutes_logs_overflow_s
     assert "the overflow thread has finished no run in 6 minutes and is dead" in line
 
 
+@pytest.mark.parametrize("count", [0, 1, 20])
+def test_landing_state_reads_one_incident_snapshot(shell, config, tmp_path, monkeypatch, count):
+    landing = landing_of(shell, config, tmp_path)
+    landing.ledger_rows = {str(index): {"state": "open", "head": f"{index:040x}", "test_state": "failure"} for index in range(1, count + 1)}
+    landing.statuses = {"3": {"queue": runner_module.QUEUED_STATE}} if count >= 3 else {}
+    landing.held_now = ["4"] if count >= 4 else []
+    with landing.book.store.owned(runner_module.LANDING, 0) as current:
+        for index in range(1, min(count, 2) + 1):
+            current.accept(f"blocker:{index}:{index:040x}", "bus", json.dumps({"kind": "blocker", "pr": str(index)}), "owner", shell.now())
+        current.accept("sample#overflow-1", "enqueue", "1", "owner", shell.now())
+    decoded, opened = [], []
+    load, read = actions.Incident.load, Path.read_text
+
+    def counted(record):
+        decoded.append(record["incident_id"])
+        return load(record)
+
+    def watched(path, *args, **kwargs):
+        if path == landing.book.store.path(runner_module.LANDING):
+            opened.append(path)
+        return read(path, *args, **kwargs)
+
+    monkeypatch.setattr(actions.Incident, "load", staticmethod(counted))
+    monkeypatch.setattr(Path, "read_text", watched)
+    landing.post_state(1.0)
+    assert shell.states[-1]["text"] == f"LANDING queued {int(count >= 3)}, waiting 0, held {int(count >= 4)}, refused {min(count, 2)}, in flight 0, overflowed 1 this hour; pass 1s"
+    assert decoded == [runner_module.LANDING]
+    assert len(opened) == 1
+
+
+@pytest.mark.parametrize("count", [0, 1, 2])
+def test_landing_state_preserves_refusal_target_errors_and_short_circuit(shell, config, tmp_path, count):
+    landing = landing_of(shell, config, tmp_path)
+    landing.ledger_rows = {str(index): {"state": "open", "head": f"{index:040x}"} for index in range(1, count + 1)}
+    with landing.book.store.owned(runner_module.LANDING, 0) as current:
+        current.accept(f"blocker:1:{1:040x}", "bus", json.dumps({"kind": "blocker", "pr": "1"}), "owner", shell.now())
+        current.accept("invalid-target", "bus", "{", "owner", shell.now())
+    if count == 2:
+        with pytest.raises(json.JSONDecodeError):
+            landing.post_state(1.0)
+    else:
+        landing.post_state(1.0)
+        assert f"refused {count}," in shell.states[-1]["text"]
+
+
+def test_landing_refusal_gate_keeps_fresh_reads_and_empty_member_errors(shell, config, tmp_path):
+    landing = landing_of(shell, config, tmp_path)
+    rows = {"1": {"head": f"{1:040x}"}}
+    assert not landing.refused_at_head({"1"}, rows)
+    with landing.book.store.owned(runner_module.LANDING, 0) as current:
+        current.accept(f"blocker:1:{1:040x}", "bus", json.dumps({"kind": "blocker", "pr": "1"}), "owner", shell.now())
+        current.accept("invalid-target", "bus", "{", "owner", shell.now())
+    assert landing.refused_at_head({"1"}, rows)
+    with pytest.raises(json.JSONDecodeError):
+        landing.refused_at_head(set(), rows)
+
+
+def test_landing_state_reloads_actions_and_clock_on_each_report(shell, config, tmp_path):
+    landing = landing_of(shell, config, tmp_path)
+    landing.ledger_rows = {"1": {"state": "open", "head": f"{1:040x}"}}
+    with landing.book.store.owned(runner_module.LANDING, 0) as current:
+        current.accept("sample#overflow-1", "enqueue", "1", "owner", shell.now())
+    landing.post_state(1.0)
+    assert "refused 0, in flight 0, overflowed 1 this hour" in shell.states[-1]["text"]
+    with landing.book.store.owned(runner_module.LANDING, 0) as current:
+        current.accept(f"blocker:1:{1:040x}", "bus", json.dumps({"kind": "blocker", "pr": "1"}), "owner", shell.now())
+    shell.sleep(3601)
+    landing.post_state(2.0)
+    assert "refused 1, in flight 0, overflowed 0 this hour; pass 2s" in shell.states[-1]["text"]
+
+
 def test_a_read_that_fails_on_a_transient_network_error_runs_once_more_and_a_write_never_does(tmp_path, monkeypatch):
     bin_dir, tries = tmp_path / "bin", tmp_path / "tries"
     bin_dir.mkdir()
