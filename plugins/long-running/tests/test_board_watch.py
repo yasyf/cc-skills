@@ -167,6 +167,8 @@ def test_a_credential_in_a_board_note_is_redacted_in_its_capture() -> None:
     [capture] = board_watch.captures(event, SESSION, None, ARRIVED, 1)
 
     assert capture["text"] == "token [credential redacted] works"
+    dotted = {**event, "verdicts": {"r1": {"verdict": "ok", "note": "token ghs_1aB2cD3eF4gH5iJ6kL7m.Nb8Pq9-Rs0Tu1Vw2 works"}}}
+    assert board_watch.captures(dotted, SESSION, None, ARRIVED, 1)[0]["text"] == "token [credential redacted] works"
 
 
 SHARE = "Owner on board board-1, Should a shared note open in the browser? (share-open-pick)"

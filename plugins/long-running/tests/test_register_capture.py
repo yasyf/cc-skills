@@ -128,7 +128,7 @@ def test_an_owner_prompt_lands_with_its_transcript_stamp_at_the_next_hook(root):
     ]
 
 
-@pytest.mark.parametrize("token", ["api-0f3c2b1a-9d8e-4f7a-b6c5-1a2b3c4d5e6f", "ghp_aB3dE6gH9jK2mN5pQ8sT1vW4yZ7", "sk-ant-api03-Zx9Yw8Vu7Ts6Rq5Po4Nm", "Xq7Lp2Rz9Tk4Wm8Nc3Vb6Hj1Gf5Dd0Ss2", "ASIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"])
+@pytest.mark.parametrize("token", ["api-0f3c2b1a-9d8e-4f7a-b6c5-1a2b3c4d5e6f", "ghp_aB3dE6gH9jK2mN5pQ8sT1vW4yZ7", "ghs_1aB2cD3eF4gH5iJ6kL7m.Nb8Pq9-Rs0Tu1Vw2", "sk-ant-api03-Zx9Yw8Vu7Ts6Rq5Po4Nm", "Xq7Lp2Rz9Tk4Wm8Nc3Vb6Hj1Gf5Dd0Ss2", "ASIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"])
 def test_a_credential_typed_in_a_prompt_is_redacted_in_its_capture(root, token):
     text = f"use {token} for the flags api, and keep 6e74115 on Release-2026-10-26-owner-capture-redaction as the head"
     root.prompt(text)
