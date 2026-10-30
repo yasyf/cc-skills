@@ -2069,7 +2069,7 @@ def acknowledges(line: str, key: str, fields: dict[str, str]) -> bool:
     if key not in line and not answers & {token[:SHORT] for token in CITED.findall(line)}:
         return False
     said = said_words(fields)
-    spans = [span for span in QUOTED.finditer(line) if len(span[1].split()) >= QUOTED_WORDS and any(folded(span[1]) in words for words in said)]
+    spans = [span for span in QUOTED.finditer(line) if folded(span[1]) in said or len(span[1].split()) >= QUOTED_WORDS and any(folded(span[1]) in words for words in said)]
     return bool(spans) and len(WORD.findall(line[spans[-1].end() :].lower())) >= PLAIN_WORDS
 
 
