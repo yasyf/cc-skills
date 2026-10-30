@@ -5,9 +5,12 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime
 from functools import cache
 from itertools import pairwise
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import cci
 
@@ -55,6 +58,7 @@ ADDS_BEHAVIOR = re.compile(r"(?<!\bno )(?<!\bwithout )\bnew behaviou?r\b", re.IG
 REVIEW_BOT_CHECK = "ai-review"
 REVIEW_BOT_HELD = re.compile(r"\bHeld — (?:(\d+) blocking open\b)?")
 REVIEW_BOT_RESTACK = "Waiting for restack"
+PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
 def succeeds(name: str, lane: str) -> bool:
@@ -276,6 +280,34 @@ def full_text(record: dict) -> str:
 def gone_at(gos: list[dict], pr: str, head: str) -> list[dict]:
     """The root `go` records of `gos` whose opening clause names `pr` at `head` by a short sha."""
     return [record for record in gos if (named := go_heads(record).get(pr)) and names_head(named, head) and pr not in record.get("voided", ())]
+
+
+@dataclass(frozen=True)
+class GoState:
+    """Where a PR's go stands at its head: the newest go naming that head, a root go or one a carry brought there, else the newest go naming another head of the PR."""
+
+    pr: str
+    go: dict | None
+    older: dict | None
+
+    def said(self) -> str:
+        """The go state in words that cite the go's seq, the one text every desk says a PR has, lacks, or lost a go with."""
+        if self.go:
+            return f"go #{self.go['seq']} by {self.go['lane']} at {clock(self.go['at'])}" + (", carried to this head" if "graded_at" in self.go else "")
+        if self.older:
+            return f"no go names this head; the newest, go #{self.older['seq']} by {self.older['lane']} at {clock(self.older['at'])}, names {go_heads(self.older)[self.pr][:10]}"
+        return "no go names this head"
+
+
+def go_state(gos: list[dict], pr: str, head: str) -> GoState:
+    """The `GoState` of `pr` at `head` over `gos`, root gos with their `voided` PRs and the gos carries made, as `desk-runner.py`'s `root_gos` reads them."""
+    newest = max(gone_at(gos, pr, head), key=lambda go: (go["seq"], "graded_at" not in go), default=None)
+    older = None if newest else max((go for go in gos if pr in go_heads(go) and pr not in go.get("voided", ())), key=lambda go: go["seq"], default=None)
+    return GoState(pr, newest, older)
+
+
+def clock(stamp: str) -> str:
+    return datetime.fromisoformat(stamp).astimezone(PACIFIC).strftime("%-I:%M %p")
 
 
 def with_successors(lanes: list[str], records: list[dict]) -> list[str]:

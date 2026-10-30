@@ -899,12 +899,13 @@ class Pass:
                 if not any(holding(parent) for parent in below) and (waits_on := self.unqueued(pr, row, rows, below, gos, since, queued, lane, records, awaits_tap)):
                     waiting.setdefault(below[-1] if below else pr, []).append((pr, since, len(below), waits_on))
                 continue
+            state = grades.go_state(gos, pr, head)
             tap = (board.taps.get(pr) if board else None) or {}
             tapped = tap["head"] if tap.get("verdict") == "approved" and tap.get("head") and tap.get("at") else ""
             if tapped and grades.names_head(tapped, head):
                 tapped_at = actions.parse_stamp(tap["at"])
                 if self.now - tapped_at >= self.watch.age("tap"):
-                    stalls.append(Stall(f"tap:{pr}:{short(head)}", "tap", tapped_at, subject, f"the owner approved it on the board at {pacific(tapped_at)}, and no go names this head", tuple(go_lanes), f"post `go #{pr} at {short(head)}`", pr))
+                    stalls.append(Stall(f"tap:{pr}:{short(head)}", "tap", tapped_at, subject, f"the owner approved it on the board at {pacific(tapped_at)}, and {state.said()}", tuple(go_lanes), f"post `go #{pr} at {short(head)}`", pr))
                 continue
             if head_at is None:
                 continue
@@ -939,7 +940,7 @@ class Pass:
                 stalls.append(stall)
             if board is None:
                 continue
-            taps = [(sha, f"root go #{go['seq']}") for go in gos if (sha := grades.go_heads(go).get(pr))]
+            taps = [(grades.go_heads(older)[pr], f"go #{older['seq']} by {older['lane']} at {grades.clock(older['at'])}")] if (older := state.older) else []
             if tapped:
                 taps.append((tapped, "his board tap"))
             if taps:
@@ -983,7 +984,9 @@ class Pass:
             listed = ", ".join(named[:LISTED]) + (f" and {len(named) - LISTED} more" if len(named) > LISTED else "")
             stack = f" in the stack from #{bottom}" if bottom != blocker or len(named) > 1 else ""
             sha = short(rows[blocker]["head"])
-            stalls.append(Stall(f"go:{blocker}:{sha}", "go", min(since for _, since, *_ in group), f"#{blocker} at {sha}", f"root go{'s name' if len(named) > 1 else ' names'} {listed}{stack}, and no QUEUED record does", owner, step, blocker))
+            first = group[0][0]
+            cite = grades.go_state(gos, first, rows[first]["head"]).said()
+            stalls.append(Stall(f"go:{blocker}:{sha}", "go", min(since for _, since, *_ in group), f"#{blocker} at {sha}", f"root go{'s name' if len(named) > 1 else ' names'} {listed}{stack} (#{first}: {cite}), and no QUEUED record does", owner, step, blocker))
         reds = [found for found in entries if "red" in found]
         if reds and self.live_lane(RED_SWEEP) is None and self.now - (oldest := min(actions.parse_stamp(found["red"]["since"]) for found in reds)) >= self.watch.age("sweep"):
             named = [f"#{found['pr']} ({found['red']['class']})" for found in reds]
@@ -1147,7 +1150,7 @@ class Pass:
             named = f"#{member} at {short(other['head'])}"
             owns = lane if member == pr else other.get("lane") or ROOT
             if member != pr and not grades.gone_at(gos, member, other["head"]):
-                return None if awaits_tap(member, other["head"]) else (member, (ROOT,), f"{named} has no go, and a stack enqueues from the bottom")
+                return None if awaits_tap(member, other["head"]) else (member, (ROOT,), f"{named}: {grades.go_state(gos, member, other['head']).said()}, and a stack enqueues from the bottom")
             if other.get("test_state") == "failure":
                 return member, (owns,), f"fix the red build of {named}; the go waits on it"
             if other.get("mergeable_state") == "dirty":

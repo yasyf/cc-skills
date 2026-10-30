@@ -17,6 +17,7 @@
     drive.py pr-owed LANE [--drive ID]
     drive.py digest  [--drive ID] [--quiet-point]
     drive.py reds    [--drive ID]
+    drive.py go      [--drive ID] PR...
     drive.py worktree --lane NAME --path DIR [--session ID] [--drive ID]
     drive.py release --cci-drive NAME --owner LANE@DRIVE --build BUILD [--release ID]
     drive.py overview [--drive ID] [--steps PATH] [--json] [--step ID] [--since TIME]    (alias plan-status)
@@ -87,6 +88,10 @@ pass or merge runs through the swap; ``--quiet-point`` exits 0 at a quiet point 
 head, its failing checks, its class, its owner, since when it has read red, and the last action its newest
 ``red`` record names. A lane classes a red head with ``cci post --kind red --pr N --text "class=<inherited|flake|real|stale>
 head=<sha> owner=<lane> <what was done>"``; a red head with no such record reads ``unclassed``.
+
+``go`` prints, per PR, its ledger head and the newest go naming that head, a carried one included, by seq, lane and
+time, else the newest go at an older head: ``desk-runner.py go`` on the ``runner.json`` beside the drive's state, the
+reading every desk text that says a PR has, lacks, or lost a go comes from.
 
 ``worktree`` is the pack's entry point the first time a lane runs a command in a worktree: it posts one
 ``state`` record ``WORKTREE <lane> <path> <branch>`` with a ``worktree`` attr, keyed
@@ -603,6 +608,14 @@ def cmd_reds(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
+def cmd_go(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    if (entry := resolve(args)) is None:
+        return 1
+    runner = str(Path(__file__).resolve().with_name("desk-runner.py"))
+    os.execv(sys.executable, [sys.executable, runner, "go", "--config", str(Path(entry["state_dir"]) / "runner.json"), *args.prs])
+    return 0
+
+
 def cmd_worktree(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if (entry := resolve(args)) is None:
         return 1
@@ -740,6 +753,10 @@ def build_parser() -> argparse.ArgumentParser:
     digest.add_argument("--drive")
     digest.add_argument("--quiet-point", action="store_true", help="exit 0 only at a quiet point, where no desk runs a pass or a merge, the one time a tooling lane installs a cci or long-running release")
     digest.set_defaults(handler=cmd_digest)
+    go = subparsers.add_parser("go", help="each PR's ledger head and the newest go naming it, else the newest go at an older head")
+    go.add_argument("--drive")
+    go.add_argument("prs", nargs="+")
+    go.set_defaults(handler=cmd_go)
 
     reds = subparsers.add_parser("reds", help="every open PR whose build reads red, with its class, owner, since when, and last action")
     reds.add_argument("--drive")

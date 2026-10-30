@@ -10,6 +10,7 @@ from pathlib import Path
 from long_running import actions
 import board_rows
 import drive
+import grades
 import pytest
 import stall_watch
 
@@ -255,7 +256,8 @@ def test_gos_stacked_on_one_parent_post_once_naming_the_parent_and_a_held_parent
 
     assert shell.topics() == ["go:201:abc1234"]
     assert shell.post("go:201:abc1234")["to"] == "root"
-    assert "root gos name #202, #203 in the stack from #201, and no QUEUED record does | owner root | #201 at abc1234 has no go, and a stack enqueues from the bottom" in shell.post("go:201:abc1234")["text"]
+    said = f"root gos name #202, #203 in the stack from #201 (#202: go #1 by root at {grades.clock(records[0]['at'])}), and no QUEUED record does | owner root | #201 at abc1234: no go names this head, and a stack enqueues from the bottom"
+    assert said in shell.post("go:201:abc1234")["text"]
 
 
 def test_a_root_decide_that_opens_with_a_go_at_the_head_counts_as_its_go(config):
@@ -266,7 +268,7 @@ def test_a_root_decide_that_opens_with_a_go_at_the_head_counts_as_its_go(config)
     watch(shell, config)
 
     assert shell.topics() == ["go:201:abc1234"]
-    assert "#201 at abc1234 has no go" not in shell.post("go:201:abc1234")["text"]
+    assert "#201 at abc1234: no go names this head" not in shell.post("go:201:abc1234")["text"]
     assert "the landing runner wrote no QUEUED, MERGED or blocker record for #201 at abc1234" in shell.post("go:201:abc1234")["text"]
 
 
@@ -672,14 +674,15 @@ def test_a_pr_in_one_state_for_two_hours_posts_one_stale_record_naming_its_owner
 def test_a_green_head_with_a_go_left_unqueued_stalls_to_root_and_the_landing_desk_as_the_runners_defect_not_its_lane(config):
     """p8a-step7 #200851: #45381 sat green with its go for two hours, and the stale record went to p8a-step7, whose step it was not. Owner, 5:16 AM Oct 30 (root #208560): such a head is the runner's defect, raised fifteen minutes after its go."""
     desk_lane(config, "landing-desk-3")
-    shell = FakeShell([*graded(1, "101", HEAD, 150), record(4, "root", "go", f"go #101 at {HEAD[:7]}", 150)], [row("101")])
+    go = record(4, "root", "go", f"go #101 at {HEAD[:7]}", 150)
+    shell = FakeShell([*graded(1, "101", HEAD, 150), go], [row("101")])
 
     watch(shell, config)
 
     assert shell.topics() == ["go:101:abc1234"]
     post = shell.post("go:101:abc1234")
     assert post["to"] == "root,landing-desk-3@d1"
-    assert post["text"].startswith("STALL go #101 at abc1234, 150 min: root go names #101, and no QUEUED record does | owner root, desk-runner | root routes the tooling lane: the landing runner wrote no QUEUED, MERGED or blocker record for #101 at abc1234")
+    assert post["text"].startswith(f"STALL go #101 at abc1234, 150 min: root go names #101 (#101: go #4 by root at {grades.clock(go['at'])}), and no QUEUED record does | owner root, desk-runner | root routes the tooling lane: the landing runner wrote no QUEUED, MERGED or blocker record for #101 at abc1234")
 
 
 def test_a_graphite_base_under_an_open_parent_reads_as_a_drifted_base_never_a_landed_parent(config):
