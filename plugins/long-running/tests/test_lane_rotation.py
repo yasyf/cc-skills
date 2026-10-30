@@ -880,7 +880,7 @@ def test_a_start_tie_keeps_the_namesake_listed_first(tree: Tree) -> None:
     assert lane.turn.tokens == 450_000
 
 
-@pytest.mark.parametrize("case", ["finished-empty", "untracked-empty", "untracked-stale"])
+@pytest.mark.parametrize("case", ["finished-empty", "untracked-empty", "untracked-stale", "dispatched-stop-empty", "dispatched-update-empty"])
 def test_unselected_lanes_do_not_resolve_the_task_list(
     tree: Tree, clock: list[float], monkeypatch: pytest.MonkeyPatch, case: str
 ) -> None:
@@ -891,6 +891,8 @@ def test_unselected_lanes_do_not_resolve_the_task_list(
         (subagents / f"agent-history-{index}.meta.json").write_text(json.dumps({"agentType": "general-purpose"}))
     monkeypatch.delenv("CLAUDE_CODE_TASK_LIST_ID")
     evt = stop(tree, payload).evt()
+    if case == "dispatched-update-empty":
+        evt = PostToolUseEvent(_raw=evt._raw | {"tool_name": "TaskUpdate", "tool_input": {"taskId": "1", "status": "completed"}}, ctx=evt.ctx)
     task_list.UntrackedState(turns=task_list.RECONCILE_TURNS - 1).save(evt)
     calls = {"identity": 0, "store": 0, "metadata_reads": 0, "metadata_enumerations": 0}
     resolving = False
@@ -929,6 +931,9 @@ def test_unselected_lanes_do_not_resolve_the_task_list(
 
     if case == "finished-empty":
         assert lane_rotation.finished(evt, []) == set()
+    elif case.startswith("dispatched-"):
+        assert task_list.require_task_for_dispatched_lane(evt) is None
+        assert pending(stop(tree, payload)) == []
     else:
         assert task_list.flag_untracked_lanes(evt) is None
         assert pending(stop(tree, payload)) == []
@@ -956,6 +961,22 @@ def test_selected_lanes_read_task_changes_on_each_new_event(tree: Tree, clock: l
     task_list.UntrackedState(turns=task_list.RECONCILE_TURNS - 1).save(evt)
     assert task_list.flag_untracked_lanes(evt) is None
     assert pending(handle) == [task_list.untracked_line(["desk"])]
+
+
+@pytest.mark.parametrize("event", ["stop", "update"])
+@pytest.mark.parametrize("status", ["pending", "completed"])
+def test_dispatched_lane_task_checks_preserve_selected_outcomes(tree: Tree, clock: list[float], event: str, status: str) -> None:
+    tree.task("worker", status)
+    handle = stop(tree, [])
+    evt = handle.evt()
+    if event == "update":
+        evt = PostToolUseEvent(_raw=evt._raw | {"tool_name": "TaskUpdate", "tool_input": {"taskId": "1", "status": "completed"}}, ctx=evt.ctx)
+    task_list.UnownedState(lanes=["worker"]).save(evt)
+
+    assert task_list.require_task_for_dispatched_lane(evt) is None
+
+    assert task_list.UnownedState.load(evt).lanes == (["worker"] if event == "update" and status == "completed" else [])
+    assert pending(handle) == (["Lane `worker` has no task. Run `TaskCreate` with `owner=worker`."] if event == "stop" and status == "completed" else [])
 
 
 def test_the_four_stop_callers_of_one_request_share_one_scan(tree: Tree, clock: list[float], parsed: list[str]) -> None:

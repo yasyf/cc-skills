@@ -278,13 +278,11 @@ def require_task_for_owner_ask(evt: BaseHookEvent) -> HookResult | None:
 def require_task_for_dispatched_lane(evt: BaseHookEvent) -> HookResult | None:
     with UnownedState.mutate(evt) as state:
         if evt.event == Event.Stop:
-            tasks = evt.tasks
-            missing = nag_due(evt, [name for name in state.lanes if not covered(tasks, name)], time.time())
+            missing = nag_due(evt, [name for name in state.lanes if not covered(evt.tasks, name)], time.time())
             state.lanes = []
             return deliver(evt, [f"Lane `{name}` has no task. Run `TaskCreate` with `owner={name}`." for name in missing])
         if evt.tool_name in TASK_TOOLS:
-            tasks = evt.tasks
-            state.lanes = [name for name in state.lanes if not covered(tasks, name)]
+            state.lanes = [name for name in state.lanes if not covered(evt.tasks, name)]
         elif (name := spawned_lane(evt)) and evt.annotations.get("role") not in HELPER_ROLES:
             state.lanes.append(name)
     return None
