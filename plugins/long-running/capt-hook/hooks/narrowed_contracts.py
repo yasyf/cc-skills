@@ -24,7 +24,7 @@ FLAGGED = 'NARROWED rule/0f31b56: says "per destination", "per key"; the owner\'
 ACTIVE = [CompactionState(active=True, slug="brook")]
 
 
-def post(command: str, said: str | tuple[int, str] = (1, FLAGGED)) -> Input:
+def post(command: str, said: str = FLAGGED) -> Input:
     return Input(command=command, state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands={CHECK: said})
 
 
