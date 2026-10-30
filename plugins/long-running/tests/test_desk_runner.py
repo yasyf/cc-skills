@@ -207,6 +207,7 @@ class FakeShell(runner_module.Shell):
         self.slack_ts: dict[str, str] = {}
         self.stall_pass = Running()
         self.board: dict[str, dict[str, dict]] = {}
+        self.board_rows: list[tuple[str, str]] = []
         self.unknown_blocks: set[str] = set()
         self.carries: list[dict[str, str]] = []
         self.register: dict[str, dict] = {}
@@ -304,6 +305,10 @@ class FakeShell(runner_module.Shell):
             if self.board_error:
                 return runner_module.Done(1, "", self.board_error)
             return runner_module.Done(0, json.dumps({"interactions": {"triage": self.board}, "rounds": []}, indent=2), "")
+        if argv[:3] == ["cc-present", "outcomes", "--all"]:
+            assert argv[3:] == ["--session", "s-root"]
+            prs = [{"number": int(pr), "head": head} for pr, head in self.board_rows]
+            return runner_module.Done(0, json.dumps({"doc": {"blocks": [{"type": "pr-groups", "id": "merge-prs", "groups": [{"id": "ready", "prs": prs}]}]}, "interactions": {"triage": self.board}}), "")
         if argv[:3] == ["cc-present", "verdict", "carry"]:
             carry = dict(zip(argv[3::2], argv[4::2], strict=True))
             if carry["--block"] in self.unknown_blocks:
@@ -3762,6 +3767,66 @@ def test_a_board_tap_keeps_over_a_graded_review_fix_and_root_hears_once_to_post_
     assert note["text"] == f"TAP-KEPT #29020: the owner's tap at aaaa111111 on board block merge-rows keeps at cccc333333, a review fix with no new behavior per fidelity grade cci #{seq} (rule 399b5fa); root posts `go #29020 at cccc333333` naming the fix, and the row lists the fix"
 
 
+@pytest.mark.parametrize(("graded", "row"), [(True, False), (False, True)], ids=["no-row", "ungraded"])
+def test_a_merge_ask_names_only_a_graded_head_with_a_board_row(shell, config, tmp_path, graded, row):
+    """Owner 5:22 PM Oct 29, third time: "tjhers nothing to tap on the baord stop using tht as an excuse"; root #191653 binds a MERGE-ASK to a fidelity grade and a board row at the head."""
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    shell.queue["29020"] = "not queued"
+    shell.pr_status["29020"] = {"verdict": "landable"}
+    if graded:
+        grade(shell, "29020", "ok F307 at cccc333.")
+    if row:
+        shell.board_rows = [("29020", "cccc333333")]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [line for line in escalations(shell) if line.startswith("MERGE-ASK")] == []
+    missing = [note for note in notes(shell) if post_body(note).startswith("BOARD-ROW-MISSING")]
+    if graded:
+        [note] = missing
+        assert note["to"] == "board-refresher" and post_body(note).startswith("BOARD-ROW-MISSING #29020 at cccc333333: graded ok")
+    else:
+        assert missing == []
+
+
+def test_a_tap_keeps_only_once_the_finder_is_clear_at_the_fixed_head(shell, config, tmp_path):
+    """p8a-step7 #192190: the runner noted TAP-KEPT for #44103 at 78aad32 while finder #191854's major on the head before it stood unanswered, and root's go on it had to be withdrawn."""
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    tap(shell, "29020", "aaaa111111")
+    finder_verdict(shell, "29020", "major aaaa111 1 open: go/a.go:12 the retry drops the sealed read")
+    grade(shell, "29020", "ok cccc333333 a fixed version of aaaa111111: a review fix without new behavior.", finder=False)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert tap_notes(shell) == []
+    finder_verdict(shell, "29020", "ok cccc333 no findings")
+    landing_pass(shell, config)
+    assert [note["text"].split(":")[0] for note in tap_notes(shell)] == ["TAP-KEPT #29020"]
+
+
+def test_a_kept_tap_under_a_root_go_lands_the_tap_rule_head_when_the_board_refuses_the_carry(shell, config, tmp_path):
+    """Root #192094: the runner noted TAP-KEPT for #44704, root posted the go, and the runner still refused it TAP-REQUIRED because the board named only the old head."""
+    board_surface(config)
+    board_lane(config)
+    raw = json.loads(config.read_text())
+    raw["landing"]["tap_rules"] = {"rule/82317b0": ["go/sand/next/*"]}
+    config.write_text(json.dumps(raw))
+    shell.register = {"rule/82317b0": {"kind": "order", "status": "in-force"}}
+    lone_green_pr(shell)
+    shell.files["29020"] = ["go/sand/next/vm/run.go"]
+    tap(shell, "29020", "aaaa111111")
+    shell.unknown_blocks = {"merge-rows"}
+    grade(shell, "29020", "ok cccc333333 a fixed version of aaaa111111: a review fix without new behavior.")
+    landing_pass(shell, config)
+    merge_go(shell, "29020", "go #29020 at cccc333333: carried from his tap on aaaa111 (go at that head), no new behavior (rule 399b5fa).")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)] == []
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
 @pytest.mark.parametrize(
     "said",
     [
@@ -3897,6 +3962,7 @@ def test_a_root_go_posted_while_the_pass_runs_stops_its_merge_ask(shell, config,
 def test_a_board_surface_asks_from_the_status_read_with_no_check_until_a_root_go_names_the_head(shell, config, tmp_path):
     board_surface(config)
     lone_green_pr(shell)
+    shell.board_rows = [("29020", "cccc333333")]
     shell.queue["29020"] = "not queued"
     shell.pr_status["29020"] = {"verdict": "landable"}
     grade(shell, "29020", "ok F307 at cccc333.")
@@ -4019,6 +4085,7 @@ def test_on_a_board_surface_a_root_go_naming_a_parent_in_passing_never_sweeps_it
 def test_the_parent_tap_blocker_posts_once_per_set_of_parents_without_a_go_whatever_their_heads(shell, config, tmp_path):
     board_surface(config)
     two_pr_stack(shell)
+    shell.board_rows = [("29020", "cccc333333"), ("29020", "eeee555555"), ("29031", "dddd444444")]
     merge_go(shell, "29031", "merge #29031 at dddd444")
     landing_pass(shell, config)
     shell.rows[0] = dict(shell.rows[0], head="eeee555555", reported_head="eeee555555")
@@ -6527,6 +6594,7 @@ def test_a_go_named_head_that_waits_on_a_reserved_row_tap_draws_no_go_unqueued(s
 def test_a_go_named_green_head_above_a_parent_no_go_names_draws_one_below_blocked_note_and_no_go_unqueued(shell, config, tmp_path):
     board_surface(config)
     two_pr_stack(shell)
+    shell.board_rows = [("29020", "cccc333333"), ("29031", "dddd444444")]
     shell.rows[1] = dict(shell.rows[1], test_state="success")
     shell.queue["29031"] = "not queued"
     merge_go(shell, "29031", "merge #29031 at dddd444")
@@ -12231,6 +12299,7 @@ def test_with_a_desk_lane_a_merge_ask_skips_root(shell, config, tmp_path):
     board_surface(config)
     desk_lane(config)
     lone_green_pr(shell)
+    shell.board_rows = [("29020", "cccc333333")]
     shell.queue["29020"] = "not queued"
     shell.pr_status["29020"] = {"verdict": "landable"}
     grade(shell, "29020", "ok F307 at cccc333.")

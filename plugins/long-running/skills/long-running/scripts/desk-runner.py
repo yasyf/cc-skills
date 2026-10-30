@@ -6119,10 +6119,9 @@ class Landing:
                 for record in self.finder_reviews(pr):
                     if not (record["grade"] and record["head"]):
                         self.ask_finder_line(pr, record)
-            if (verdict := self.finder(pr, sha)) and (verdict["grade"] == FINDER_PASS or self.root_answered(pr, sha, verdict)):
+            if self.finder_clear(pr, sha):
                 continue
-            if not verdict and self.finder_carried(pr, sha):
-                continue
+            verdict = self.finder(pr, sha)
             why = f"{verdict['lane']} posted on cci #{verdict['seq']}: {verdict['text']}" if verdict else f"no `finder:` review record names this head; run the sol finder {finder.BRIEF} names and post its record"
             states[pr] = merge_queue.State(merge_queue.FAIL, f"FINDER-PENDING #{pr}: {why}")
             failed[pr] = f":{verdict['seq']}" if verdict else ""
@@ -6132,6 +6131,12 @@ class Landing:
                 if not failed[pr]:
                     self.runner.requeue_pending_finder(self.repo, pr, graded.heads[pr], self.owner(pr, graded.rows.get(pr, {})) or ROOT)
         return states
+
+    def finder_clear(self, pr: str, sha: str) -> bool:
+        """Whether the newest finder record naming `sha` passes or root settled it, or none names it and a passing one carries to it."""
+        if verdict := self.finder(pr, sha):
+            return verdict["grade"] == FINDER_PASS or self.root_answered(pr, sha, verdict)
+        return self.finder_carried(pr, sha)
 
     def root_answered(self, pr: str, sha: str, verdict: dict) -> bool:
         """Whether root settled `verdict`, a failing finder record at `sha`: a root `go` naming `pr` at `sha` posted after it, or a root `decision` replying to it directly or along a chain of `--re` replies, since root refutes an edge-case finding in one line (rule 2cc5a1f3, root #152572)."""
@@ -6304,10 +6309,16 @@ class Landing:
             if register is None or verdicts is None:
                 unread[pr] = f"TAP-UNREAD #{pr}: {'the register' if register is None else 'the root board'} did not read, so the runner leaves it unqueued for the landing desk"
                 continue
-            if any(entry["verdict"] == "approved" and names_head(heads[pr], entry.get("head") or "") for by_row in verdicts.values() for row, entry in by_row.items() if board_rows.pr_of(row) == pr):
+            if self.tap_kept(pr, heads[pr]) or any(entry["verdict"] == "approved" and names_head(heads[pr], entry.get("head") or "") for by_row in verdicts.values() for row, entry in by_row.items() if board_rows.pr_of(row) == pr):
                 continue
             waits[pr] = f"{mismatched[pr]}TAP-REQUIRED {','.join(found)}: it lands only on the owner's tap at this head, and a root go is no tap; no approval on the root's board names {heads[pr][:10]}"
         return waits, unread, exempt
+
+    def tap_kept(self, pr: str, head: str) -> bool:
+        """Whether this runner noted `TAP-KEPT` for `pr` at `head` and a root `go` names that head: the owner's tap then carries without a board row at the new head (root #192094)."""
+        return bool(self.head_gos(pr, head)) and any(
+            (parts := action.action_id.split(":"))[0] == "tap-kept" and parts[2] == pr and names_head(parts[-1], head) for action in self.book.actions(LANDING, kind="bus")
+        )
 
     def exempt_admitted(self, pr: str, sha: str) -> tuple[str, str]:
         """The `EXEMPT-ADMITTED` note for `pr` at `sha` when it lands on a go with no board tap, and why its whole diff breaks the class its grade claims (06288326, owner Oct 28 8:45 PM): the head grades ok by `fidelity`'s rule, `exempt_class` finds one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first) in its grades, and any root or `landing.go_lanes` go names the head, whatever its words (root #181182). Both classes are checked against every file the PR changes against its base, never the grade's words alone (root #182391): a test-only or CI-only class fails on a file outside the test, CI, skill-script and docs set, and a port class on a file outside `PORT_PREFIXES` unless a `Rulings` comment clears its interaction."""
@@ -6587,7 +6598,9 @@ class Landing:
                 continue
             said = [record for record in reviews if record["kind"] == "head" and about_pr(record, self.repo, pr) and names_head(graded_head(record["text"]), head)]
             adds = [record for record in [*said, *([graded] if graded else [])] if ADDS_BEHAVIOR.search(full_text(record))]
-            kept = not adds and graded and graded["text"].startswith(FIDELITY_OK)
+            kept = not adds and graded and graded["text"].startswith(FIDELITY_OK) and self.finder_clear(pr, head)
+            if kept and not self.book.known(LANDING, key := f"tap-kept:{block}:{pr}:{tapped}:{head}"):
+                self.post_record("note", key, to, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} on board block {block} keeps at {head[:10]}, a review fix with no new behavior per fidelity grade cci #{graded['seq']} (rule 399b5fa); root posts `go #{pr} at {head[:10]}` naming the fix, and the row lists the fix", pr)
             if kept and (gos := self.head_gos(pr, head)):
                 self.carry_tap(session, block, pr, tapped, head, f"review fix with no new behavior, per fidelity grade cci #{graded['seq']} and root go cci #{gos[-1]['seq']} (rule 399b5fa)", self.landing_audience([pr], rows, to))
                 continue
@@ -6595,8 +6608,6 @@ class Landing:
                 continue
             if adds and not self.book.known(LANDING, key := f"tap-new-row:{block}:{pr}:{tapped}:{head}"):
                 self.post_record("note", key, to, f"TAP-NOT-CARRIED #{pr}: the owner's tap at {tapped[:10]} on board block {block} does not carry to {head[:10]}, since cci #{adds[-1]['seq']} says that head adds new behavior; the board needs a new row for #{pr} at {head[:10]}", pr)
-            elif kept and not self.book.known(LANDING, key := f"tap-kept:{block}:{pr}:{tapped}:{head}"):
-                self.post_record("note", key, to, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} on board block {block} keeps at {head[:10]}, a review fix with no new behavior per fidelity grade cci #{graded['seq']} (rule 399b5fa); root posts `go #{pr} at {head[:10]}` naming the fix, and the row lists the fix", pr)
 
     def question_tap_claims(self, heads: dict[str, str], verdicts: dict[str, dict[str, dict]], rows: dict[str, dict]) -> None:
         """One `GO-TAP-MISSING` to root per root `go` and PR when the go says the owner tapped or approved an open PR at its ledger head, claims no port, test-only or CI-only exemption, and no approval on the root's board names that head or a head the go names, saying what the board holds for the PR instead: a go rests on a board verdict, never on a lane's line that says tapped (rule/82317b0, root #172682)."""
@@ -6638,6 +6649,8 @@ class Landing:
         asking = self.waiting_on_owner(heads, list(waiting))
         if not asking:
             return
+        if self.landing_config.get("merge_ask_surface", "slack") == "board":
+            asking = self.askable(heads, asking, rows)
         for pr in asking:
             paths, short = waiting[pr], heads[pr][:7]
             waits = f"merge:{pr}:{short}"
@@ -6665,6 +6678,26 @@ class Landing:
                 f"merge-ask:{pr}",
                 self.landing_audience([pr], rows, ""),
             )
+
+    def askable(self, heads: dict[str, str], asking: list[str], rows: dict[str, dict]) -> list[str]:
+        """The PRs of `asking` the owner can tap now: a fidelity ok stands at the head, the finder is clear there, and the root's board holds a row at that head or the runner noted `TAP-KEPT` there under a root go (root #191653). A graded head with no row is told to the board lanes once, so the row goes up in their next pass; an ungraded head already has its grade blocker."""
+        graded = [pr for pr in asking if self.fidelity(pr, heads[pr]).ok and self.finder_clear(pr, heads[pr])]
+        if not graded or (board := self.board_heads()) is None:
+            return []
+        askable = [pr for pr in graded if (pr, heads[pr][:7]) in board or self.tap_kept(pr, heads[pr])]
+        for pr in sorted(set(graded) - set(askable), key=int):
+            if not self.book.known(LANDING, key := f"board-row-missing:{pr}:{heads[pr]}"):
+                self.post_record("note", key, ",".join(self.board_lanes) or ROOT, f"BOARD-ROW-MISSING #{pr} at {heads[pr][:10]}: graded ok and waiting on the owner's tap, but the root's board holds no row at this head; put its row up, and the runner asks for the tap once it is there (root #191653)", pr)
+        return askable
+
+    def board_heads(self) -> set[tuple[str, str]] | None:
+        """Each PR and seven-character head the root board's rows name, or None when the board did not read."""
+        if not (session := self.runner.root_session()):
+            return None
+        done = self.present(["cc-present", "outcomes", "--all", "--session", session])
+        if done.code or (start := done.out.find("{")) < 0:
+            return None
+        return {(row.pr, row.head[:7]) for row in board_rows.rows_of(json.loads(done.out[start:]).get("doc") or {}) if row.head}
 
     def stale_title(self, pr: str) -> tuple[dict, str] | None:
         """The newest fidelity grade on `pr` with its `title: stale, <why>` line, when that grade judges the title against the head's commits and finds it stale."""
