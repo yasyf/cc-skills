@@ -282,7 +282,7 @@ Reads: `cc-slack thread --url`.
 _How do the open PRs stack, and which bottom prefix can land?_
 
 **Stack.** The ledger's open PRs that `ccx vcs pr status` still reports open, as stacks rooted at their trunk branches, drawn
-from base and branch fields, or the status's base where the ledger has none; a Graphite `graphite-base/<n>` base names no PR, so `parents` maps a PR number to its parent PR or trunk. Nodes are toned by the
+from `ccx vcs pr status` native `downstack` metadata first, then ledger `base` and `branch` fields or the status's `base` as legacy fallback, with `parents` for explicit overrides or legacy Graphite `graphite-base/<n>` bases that name no PR; a PR whose native downstack parent is outside the open ledger scope stays unproven with no landable prefix. Nodes are toned by the
 `ccx vcs pr status` verdict and ledger holds; the largest landable bottom prefix of each stack is highlighted.
 
 Reads: `ccn ledger row list`, `ccx vcs pr status`.

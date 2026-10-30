@@ -14,7 +14,7 @@ def queue_status(ctx: Context, repo: str, numbers: list[int]) -> dict[int, dict]
 
 
 def still_open(rows: dict[int, dict], statuses: dict[int, dict]) -> dict[int, dict]:
-    return {number: fields | {"base": fields.get("base") or statuses[number].get("base")} for number, fields in rows.items() if statuses[number]["state"] == OPEN}
+    return {number: fields | {"base": statuses[number].get("base") or fields.get("base"), "downstack": statuses[number].get("downstack")} for number, fields in rows.items() if statuses[number]["state"] == OPEN}
 
 
 def parents_of(prs: dict[int, dict], overrides: dict[str, str]) -> dict[int, int | str]:
@@ -23,6 +23,8 @@ def parents_of(prs: dict[int, dict], overrides: dict[str, str]) -> dict[int, int
     for number, fields in prs.items():
         if (override := overrides.get(str(number))) is not None:
             out[number] = int(override) if override.isdigit() and int(override) in prs else override
+        elif parent := fields.get("downstack"):
+            out[number] = parent
         else:
             out[number] = by_branch.get(fields.get("base"), fields.get("base") or "?")
     return out
@@ -70,13 +72,14 @@ def node_tone(status: dict, fields: dict) -> str:
 @component("stack-graph", "Stack", question="How do the open PRs stack, and which bottom prefix can land?", reads=["ccn ledger row list", "ccx vcs pr status"], every="2m", timeout="60s")
 def stack_graph(ctx: Context, *, ledger: str, repo: str, parents: dict[str, str] | None = None) -> Graph:
     """The ledger's open PRs that `ccx vcs pr status` still reports open, as stacks rooted at their trunk branches, drawn
-    from base and branch fields, or the status's base where the ledger has none; a Graphite `graphite-base/<n>` base names no PR, so `parents` maps a PR number to its parent PR or trunk. Nodes are toned by the
+    from `ccx vcs pr status` native `downstack` metadata first, then ledger `base` and `branch` fields or the status's `base` as legacy fallback, with `parents` for explicit overrides or legacy Graphite `graphite-base/<n>` bases that name no PR; a PR whose native downstack parent is outside the open ledger scope stays unproven with no landable prefix. Nodes are toned by the
     `ccx vcs pr status` verdict and ledger holds; the largest landable bottom prefix of each stack is highlighted."""
     listed = {int(key): fields for key, fields in ledgers.rows(ctx, ledger).items() if key.isdigit() and fields.get("state", "open") == "open"}
     statuses = queue_status(ctx, repo, sorted(listed))
     rows = still_open(listed, statuses)
     tree = parents_of(rows, parents or {})
     nodes = [Node(trunk, trunk, "warn" if trunk.startswith("graphite-base/") else "muted") for trunk in sorted({parent for parent in tree.values() if isinstance(parent, str)})]
+    nodes += [Node(str(parent), f"#{parent} (outside scope)", "warn", f"https://github.com/{repo}/pull/{parent}") for parent in sorted({parent for parent in tree.values() if isinstance(parent, int) and parent not in tree})]
     for number in ordered(tree):
         status = statuses.get(number, {})
         lane = view.lane_name(rows[number].get("lane"), ctx.facts) or ""
@@ -99,7 +102,7 @@ def landing_preview(ctx: Context, *, graph: str = "stack", queue: str = "review"
     prefix = set(bottom_prefix(tree, verdicts))
     children = children_of(tree)
     pairs: dict[str, str | int | float | None] = {}
-    for root in [number for number, parent in sorted(tree.items()) if isinstance(parent, str)]:
+    for root in [number for number, parent in sorted(tree.items()) if isinstance(parent, str) or parent not in tree]:
         chain, node = [root], root
         while len(children.get(node, [])) == 1:
             node = children[node][0]
@@ -111,6 +114,7 @@ def landing_preview(ctx: Context, *, graph: str = "stack", queue: str = "review"
             head = f"lands #{landing[0]}" + (f"…#{landing[-1]} ({len(landing)} PRs)" if len(landing) > 1 else "")
         else:
             head = "lands nothing"
-        tail = f"; stops at #{stopped}: {verdicts.get(stopped) or 'no verdict'}" if stopped else ""
-        pairs[f"Approve #{root} ({tree[root]})"] = head + tail + (f"; {behind} more behind it" if behind > 0 else "")
+        reason = f"parent #{tree[root]} outside scope" if isinstance(tree[root], int) and tree[root] not in tree else verdicts.get(stopped) or "no verdict"
+        tail = f"; stops at #{stopped}: {reason}" if stopped else ""
+        pairs[f"Approve #{root} ({f'#{tree[root]}' if isinstance(tree[root], int) else tree[root]})"] = head + tail + (f"; {behind} more behind it" if behind > 0 else "")
     return Kv(pairs or {"stacks": "none open"})

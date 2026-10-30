@@ -656,3 +656,66 @@ def test_eviction_keeps_the_claim(poll):
     run = poll(queued, surface(pull(), events=[labeled(1), unlabeled(2)]))
     assert run.done.startswith("DONE evicted ")
     assert run.cci_calls == [CLAIM]
+
+
+def native_surface(queue="not queued", *, head=HEAD, verdict="landable", stale=None, **kwargs):
+    fixture = surface(pull(**kwargs))
+    fixture["ccx-status"] = [{"number": PR, "head": head, "queue": queue, "verdict": verdict, "stale": stale}]
+    return fixture
+
+
+def test_trunk_api_queue_holds_green_pr_without_a_merge_label(poll):
+    run = poll(native_surface("queued", verdict="queued"), env={"PR_POLL_QUEUE_PROVIDER": "trunk"})
+    assert "QUEUED trunk api" in run.lines
+    assert run.done is None
+    assert not any("/issues/7/events" in call for call in run.gh_calls)
+
+
+def test_trunk_native_head_mismatch_never_reports_ready(poll):
+    run = poll(native_surface(head=MOVED_HEAD), env={"PR_POLL_QUEUE_PROVIDER": "trunk"})
+    assert "QUEUE unknown" in run.lines
+    assert run.done is None
+
+
+def test_trunk_unknown_does_not_fall_back_to_legacy_labels_or_green_checks(poll):
+    run = poll(native_surface("unknown"), env={"PR_POLL_QUEUE_PROVIDER": "trunk"})
+    assert "QUEUE unknown" in run.lines
+    assert run.done is None
+
+
+def test_trunk_native_ready_requires_authoritative_landable_verdict(poll):
+    run = poll(native_surface(verdict="blocked:review-required"), env={"PR_POLL_QUEUE_PROVIDER": "trunk"})
+    assert run.done is None
+    ready = poll(native_surface(), env={"PR_POLL_QUEUE_PROVIDER": "trunk"})
+    assert ready.done == "DONE ready-to-merge"
+
+
+def test_trunk_landing_is_read_from_authoritative_queue_evidence(poll):
+    run = poll(native_surface("landed", verdict="landed", state="closed"), env={"PR_POLL_QUEUE_PROVIDER": "trunk"})
+    assert run.done == "DONE queue-merged"
+
+
+def test_trunk_stale_snapshot_does_not_report_ready(poll):
+    run = poll(native_surface(stale={"reason": "rate limited"}), env={"PR_POLL_QUEUE_PROVIDER": "trunk"})
+    assert "QUEUE unknown" in run.lines
+
+
+def test_trunk_api_outage_does_not_hide_proven_github_merge_or_reviews(poll):
+    fixture = native_surface("unknown", state="closed", merged=True)
+    fixture["pulls/7/reviews"] = [review(11, "APPROVED")]
+    run = poll(fixture, env={"PR_POLL_QUEUE_PROVIDER": "trunk"})
+    assert "QUEUE unknown" in run.lines
+    assert "REVIEW reviewer APPROVED 11" in run.lines
+    assert run.done == "DONE merged"
+
+
+def test_foreign_checkout_queue_config_does_not_select_trunk_for_another_repo(poll):
+    run = poll(surface(pull()), env={"GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "ccx.queue", "GIT_CONFIG_VALUE_0": "trunk", "GIT_CONFIG_KEY_1": "remote.origin.url", "GIT_CONFIG_VALUE_1": "https://github.com/other/project.git"})
+    assert run.done == "DONE ready-to-merge"
+    assert "QUEUE unknown" not in run.lines
+
+
+def test_matching_checkout_inherits_its_explicit_trunk_queue_selection(poll):
+    run = poll(native_surface("queued", verdict="queued"), env={"GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "ccx.queue", "GIT_CONFIG_VALUE_0": "trunk", "GIT_CONFIG_KEY_1": "remote.origin.url", "GIT_CONFIG_VALUE_1": "https://github.com/acme/widgets.git"})
+    assert "QUEUED trunk api" in run.lines
+    assert run.done is None

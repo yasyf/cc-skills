@@ -72,11 +72,12 @@ Two cards with the same `use` and the same bound parameters share one run. `land
 reads the `stack-graph` and `pr-review-queue` cards by id, `stack` and `review` by
 default, so keep those ids or pass `graph:` and `queue:`.
 
-## Stacks Graphite rebased
+## Legacy Graphite stacks with `graphite-base/<n>`
 
-A PR whose base is `graphite-base/<n>` names no parent PR, so `stack-graph` draws it
-under that branch as its own trunk. Map it to its real parent with `parents`, keyed by
-PR number:
+Native GitHub stacks report parentage directly through the GitHub stack API. On a legacy
+Graphite stack, a PR whose base is `graphite-base/<n>` names no parent PR, so `stack-graph`
+draws it under that branch as its own trunk. Map it to its real parent with `parents`,
+keyed by PR number:
 
 ```yaml
 - {use: stack-graph, id: stack, width: 2, with: {parents: {'31055': '31129', '31079': '31071'}}}

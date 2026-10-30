@@ -3,8 +3,8 @@
 STDLIB ONLY. `runner.json` names one adapter under `landing.adapter.kind`, and every queue operation
 desk-runner.py's landing desk and mq.py make goes through it: `check` grades the tips read-only and names
 each PR's verdict and the prefix that would enqueue, `enqueue` admits that prefix, `queued` reads which PRs
-the queue holds, `dequeue` takes one back out, and `recover` frees what an earlier enqueue stranded. `graphite-stack-enqueue` drives the repository's own
-stack-enqueue script, named relative to the landing checkout by `landing.adapter.script`; `label` drives
+the queue holds, `dequeue` takes one back out, and `recover` frees what an earlier enqueue stranded. `trunk-stack-enqueue` and `graphite-stack-enqueue` drive the repository's own
+stack-enqueue script, named relative to the landing checkout by `landing.adapter.script`, for Trunk and legacy Graphite queues; `label` drives
 `ledger.py label`, for a repository whose queue takes a merge label. An adapter also reads its own verdict
 text: `classify` grades the `approvals` and `required-ci` checks from a PR's verdict, and `ejection` names
 why the queue dropped a PR, as `conflict`, `own-red`, `batch-mate-red`, or `flaky-check`, and `blocker`
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +33,9 @@ OWN_RED = "own-red"
 BATCH_MATE_RED = "batch-mate-red"
 FLAKY_CHECK = "flaky-check"
 VERDICT_LINE = re.compile(r"^#(?P<pr>\d+) (?P<verdict>[A-Z]+) (?P<sha>[0-9a-f]{0,10}) ?(?P<detail>.*)$", re.MULTILINE)
+TRUNK_WOULD_ENQUEUE = re.compile(r"^would enqueue native stack through #\d+: ((?:#\d+ ?)+)$", re.MULTILINE)
+TRUNK_REQUIRED_CHECK = re.compile(r"^required check .+ is (\S+)$")
+TRUNK_FAILED_CHECKS = frozenset({"FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"})
 WOULD_ENQUEUE = re.compile(r"^would enqueue ((?:#\d+ ?)+) in one call$", re.MULTILINE)
 STATUS_LINE = re.compile(r"^#(?P<pr>\d+) (?P<status>[A-Z_]+) ", re.MULTILINE)
 GRAPHITE_QUEUED = frozenset({"QUEUED_TO_MERGE", "WAITING_TO_MERGE", "FAILURE_HANDLING", "REBASING", "MERGED"})
@@ -117,7 +121,11 @@ class Blocker:
 def suggested_adapter(checkout: Path) -> dict:
     """The adapter a drive on `checkout` names: the repository's own stack-enqueue script when it carries one, else the merge label."""
     if (checkout / STACK_ENQUEUE).is_file():
-        return {"kind": GraphiteStackEnqueue.kind, "script": STACK_ENQUEUE}
+        selected = subprocess.run(["git", "-C", str(checkout), "config", "--get", "ccx.queue"], capture_output=True, text=True)
+        if selected.returncode not in (0, 1):
+            raise RuntimeError(selected.stderr.strip())
+        kind = TrunkStackEnqueue.kind if selected.stdout.strip() == "trunk" else GraphiteStackEnqueue.kind
+        return {"kind": kind, "script": STACK_ENQUEUE}
     return {"kind": LabelEnqueue.kind}
 
 
@@ -240,6 +248,72 @@ class GraphiteStackEnqueue:
         return Ejection(OWN_RED, verdict["detail"])
 
 
+class TrunkStackEnqueue(GraphiteStackEnqueue):
+    kind = "trunk-stack-enqueue"
+
+    def __init__(self, shell, checkout: Path, config: dict, ledger_py: Callable, repo: str):
+        super().__init__(shell, checkout, config, ledger_py, repo)
+        self.ci = str(checkout / "tools/ci")
+
+    def run_settled(self, argv: list[str]):
+        return self.shell.run(argv)
+
+    def check(self, tips: list[str], whole: bool, heads: dict[str, str], partial: bool) -> Gate:
+        done = self.run([self.script, *tips, "--check", *(["--whole"] if whole else [])])
+        would = TRUNK_WOULD_ENQUEUE.search(done.out)
+        verdicts = {match["pr"]: match.groupdict() for match in VERDICT_LINE.finditer(done.out)}
+        return Gate(done.code, done.out, done.err, verdicts, [number.lstrip("#") for number in would.group(1).split()] if would else None)
+
+    def enqueue(self, tops: list[str], whole: bool, heads: dict[str, str]) -> tuple[str, str, str]:
+        done = self.run([self.script, *tops, *(["--whole"] if whole else [])])
+        outcome = ENQUEUE_OUTCOMES.get(done.code, "failed")
+        if outcome == "enqueued" and not re.search(r"^#\d+ (?:QUEUED \S+ native stack covers|MERGED \S+ Trunk reports merged)", done.out, re.MULTILINE):
+            outcome = "noop"
+        last = (done.out or done.err).strip().splitlines()
+        return outcome, done.out[-1500:], last[-1] if last else f"exit {done.code}"
+
+    def queued(self, prs: list[str]) -> dict[str, bool] | None:
+        done = self.shell.run([self.ci, "trunk", "status", *prs])
+        if done.code != 0:
+            return None
+        statuses = json.loads(done.out)
+        if set(statuses) != set(prs):
+            return None
+        return {pr: bool(statuses[pr] and statuses[pr]["isCurrentlySubmittedToQueue"]) for pr in prs}
+
+    def recover(self, prs: list[str]) -> tuple[int, str]:
+        return 1, "Trunk recovery requires inspecting its verification run; use mq dequeue or the repository's explicit retry gate"
+
+    def release(self, pr: str, head: str) -> tuple[bool, str]:
+        return False, f"inspect Trunk's failed verification, then explicitly run {self.script} {pr} --flake; this adapter does not automatically retry a failed head"
+
+    def classify(self, verdict: dict) -> dict[str, State]:
+        states = super().classify(verdict)
+        if verdict["verdict"] in CLEAR:
+            return states
+        checks = [(part, match[1]) for part in segments(verdict) if (match := TRUNK_REQUIRED_CHECK.match(part))]
+        failed = [part for part, state in checks if state in TRUNK_FAILED_CHECKS]
+        pending = [part for part, state in checks if state not in TRUNK_FAILED_CHECKS]
+        absent = "GitHub returned no required checks" in segments(verdict)
+        states["required-ci"] = State(FAIL, "; ".join(failed)) if failed else State(PENDING, "; ".join(pending)) if pending else State(PENDING, "GitHub returned no required checks") if absent else State(PASS)
+        return states
+
+    def failing_required(self, verdict: dict) -> bool:
+        return self.classify(verdict)["required-ci"].state == FAIL
+
+    def blocker(self, verdict: dict, stack: set[str], gated_red: bool) -> Blocker | None:
+        kept = [part for part in segments(verdict) if not (gated_red and (match := TRUNK_REQUIRED_CHECK.match(part)) and match[1] in TRUNK_FAILED_CHECKS)]
+        actionable = [part for part in kept if ROUTED_BLOCKER.match(part) or TRUNK_REQUIRED_CHECK.match(part) or part.startswith(("Trunk indexed ", "Trunk's last attempt failed", "GitHub mergeability ", "GitHub merge state ", "base "))]
+        if not actionable:
+            return None
+        return Blocker("; ".join(actionable), bool(re.search(r"conflicts with origin/|GitHub mergeability CONFLICTING|GitHub merge state DIRTY", "; ".join(actionable))))
+
+    def ejection(self, verdict: dict, stack: set[str]) -> Ejection | None:
+        if any(re.search(r"conflicts with origin/|GitHub mergeability CONFLICTING|GitHub merge state DIRTY", part) for part in segments(verdict)):
+            return Ejection(CONFLICT, verdict["detail"])
+        return None
+
+
 class LabelEnqueue:
     """`ledger.py label`, for a repository whose merge queue takes a merge label: every guard in its `--dry-run`, the label on the tip enqueues the whole downstack, and `ledger.py unlabel` pulls it."""
 
@@ -332,5 +406,5 @@ class LabelEnqueue:
 
 def adapter(shell, checkout: Path, config: dict, ledger_py: Callable, repo: str, ledger: str):
     """The adapter `landing.adapter` names; a kind no adapter has raises KeyError, which the landing desk refuses to start on."""
-    kinds = {kind.kind: kind for kind in (GraphiteStackEnqueue, LabelEnqueue)}
+    kinds = {kind.kind: kind for kind in (TrunkStackEnqueue, GraphiteStackEnqueue, LabelEnqueue)}
     return kinds[config["kind"]](shell, checkout, {**config, "ledger": ledger}, ledger_py, repo)

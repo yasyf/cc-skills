@@ -207,15 +207,15 @@ time, and where a human eye should look first.
 - `watermarks.events` — `{at, id}` start of the watch; queue-label events at or before it are history. Never advanced.
 - `checks_seen` — last known bucket per check; `pr-poll.sh` emits a `CHECK`
   line only on change.
-- `merge_activity` — count of merge-activity bullets already read per comment id; a fresh watch records the existing bullets as history.
+- `merge_activity` — count of legacy Graphite merge-activity bullets already read per comment id; a fresh watch records the existing bullets as history.
 - `merge_state_seen` — the last REST `mergeable_state` value.
 - `mergeable_false_reads` — false reads since the last true or head change; null neither counts nor resets.
 - `conflicted_head` — head already reported conflicted, including conflict evictions; suppresses repeats on that head.
 - `awaiting_review_head` — head already reported `GREEN awaiting-review`; suppresses repeats on that head.
-- `queue.queued` — true when the PR entered the queue by label or a Graphite UI enqueue bullet; false after eviction or `UNQUEUED`. Null until the first queue-state read, which withholds `ready-to-merge`. A fresh state file or one missing this field reads the full Merge-activity log and starts queued if its latest queue entry is an enqueue.
+- `queue.queued` — true when the PR is queued (via `ccx vcs pr status --json` on the native Trunk/GitHub path, or by label or a Graphite UI enqueue bullet on the legacy Graphite path); false after eviction or `UNQUEUED`. Null until the first valid queue-state read (or while the native snapshot is unreadable and emits `QUEUE unknown`), which withholds `ready-to-merge`. On the legacy Graphite path, a fresh state file or one missing this field reads the full Merge-activity log and starts queued if its latest queue entry is an enqueue.
 - `queue.head` — head recorded when the PR entered the queue; cleared with an eviction when a new head arrives.
-- `queue.evicted` — emitted eviction reason and detail; null until eviction, cleared by re-enqueueing with the label or in Graphite's UI, or by a new head.
-- `queue.resolved_stint` — id of the `labeled` event whose queue stint ended in an eviction report or `UNQUEUED`. A later bot unlabel of that stint stays silent; a relabel starts a new stint and re-arms reporting.
+- `queue.evicted` — emitted eviction reason and detail; null until eviction, cleared by re-enqueueing or by a new head.
+- `queue.resolved_stint` — id of the legacy `labeled` event whose queue stint ended in an eviction report or `UNQUEUED`. A later bot unlabel of that stint stays silent; a relabel starts a new stint and re-arms reporting.
 - `attempts` — per check, the count of shipped fixes while it stayed red.
   Increment after each ship targeting the check; clear the entry when the
   check goes green, so a fresh failure on new commits starts a fresh count.

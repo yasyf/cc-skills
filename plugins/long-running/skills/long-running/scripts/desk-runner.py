@@ -255,7 +255,7 @@ launch's receipts are copied beside the local ones. `run --desk landing` is the 
 prefixes under the accepted landing policy, verifies landings by squash, posting one `landed` record per PR and landing squash
 however many times the PR entered the queue, and routes
 blockers and restacks. Every queue call goes through the repository adapter `landing.adapter` names, from `merge_queue.py`:
-`graphite-stack-enqueue` runs the script `landing.adapter.script` names under the landing checkout, and `label` runs
+`trunk-stack-enqueue` and `graphite-stack-enqueue` run the script `landing.adapter.script` names under the landing checkout, and `label` runs
 `ledger.py label`; the landing desk refuses to start with `MQ-CONFIG-INVALID` on an adapter, a check, or a high-risk setting it cannot run.
 Each prefix passes the check registry, `landing.checks` in order, every built-in when it names none, and `hold` first whether it names it or not: `hold`, `precondition`,
 `rules-review`, `rulings`, `fidelity`, `finder`, and `merge-mode` are the desk's own, and `approvals` and `required-ci` are the adapter's verdict;
@@ -280,7 +280,7 @@ counting the queued, waiting, held and refused PRs, the workers running and the 
 `GO-UNQUEUED` is raised only when the newest enqueue of a go'd head since its go ended blocked, failed, stranded or unsettled, or went in and the queue's merge activity then evicted it, naming that eviction's time and reason, never for
 backlog, and `OVERFLOW-STALLED` when the overflow thread finished no run in five minutes. A go'd head whose queue draft closed unmerged is taken out with the adapter's dequeue once per head, posting `ORPHAN-RELEASED`, and enqueued afresh, never `--recover`ed. Beside the passes, an overflow thread reads afresh every minute and puts straight
 into the queue, with none of the runner's checks, each stack that has stayed green, named at its heads by a root go, unheld, unqueued
-and unrefused for five minutes, posting a QUEUED report that names the overflow (owner 9524276). Graphite reads down when no queue
+and unrefused for five minutes, posting a QUEUED report that names the overflow (owner 9524276). Under `graphite-stack-enqueue` only (never `trunk-stack-enqueue`, where Trunk failures stay blocked or `UNKNOWN`), Graphite reads down when no queue
 draft from its app has opened in 15 minutes while the queue read holds a PR, or its two newest drafts are both still open 30 minutes after
 opening, which is how its batches time out; a draft read that fails changes nothing. The pass that sees it posts one `GRAPHITE-DOWN since
 <time>` state record to root and each `landing.desk_lane`, and one `GRAPHITE-UP` once a draft opens after that time. While down, the
@@ -337,9 +337,9 @@ parent also moved still matches (root #131054), cited as `fidelity: ok at <head>
 a compare GitHub refuses for the PR's own head logs `PATCH-READ-FAILED` once and carries nothing. The compare is read with
 `--allow-escape-sequences`, so a diff that carries terminal escape sequences reads as bytes for `git patch-id`.
 Any other head gets one cci `blocker` per head and grade, to the PR's lane and the fidelity lane, and any accept check
-that refuses a PR cuts the prefix below it: the PRs under the cut enqueue on their own with `--partial`, leaving the refused PR
-and every PR above it out, and the refused PR's blocker names it as the cut. Graphite keeps one linear chain per batch, so a
-prefix that forks enqueues one call per chain in the same pass, bottom chain first, each naming its top with `--partial`; a
+that refuses a PR cuts the prefix below it: the PRs under the cut enqueue on their own (`--partial` under `graphite-stack-enqueue`; `trunk-stack-enqueue` never passes `--partial`), leaving the refused PR
+and every PR above it out, and the refused PR's blocker names it as the cut. One linear chain per batch means a
+prefix that forks enqueues one call per chain in the same pass, bottom chain first, naming its top (`--partial` under `graphite-stack-enqueue`); a
 prefix stacked on an open fork outside it logs `FORK-DEFERRED` and waits until that fork lands. The `finder` check reads only the finder desk's own review records, from `finder-desk` or a numbered successor, whose text opens
 `finder:`; a lane's reply that names a finder record never grades a head. `finder: ok` passes and `finder: major` fails. The head is the record's first short
 sha, or else the head the PR's newest `head` record named before it. The newest record naming the head must pass, unless a root `go` at
@@ -543,7 +543,7 @@ names the head the runner carries the tap there itself, citing the grade and the
 patch-identical fidelity carry grade naming that head otherwise draws neither, except that a go'd head whose tap does not keep draws one `TAP-CARRY-FAILED` naming why (#193444). The runner reads the board only from records: board-watch's `owner` records carrying a row and verdict, its newest `board-rows` snapshot of what the board shows, and the runner's own carries, each of which stands as the owner's tap at its new head the moment it posts. A carry onto a block the newest snapshot no longer holds has nothing to carry; records that do not read, or a carry that does not post, log `TAP-CARRY-FAILED` once per
 cause and try again next pass, and the board's watch answers a carry cc-present refuses with a `defect` record. An exempt change, one whose fidelity grade and whole diff
 make it a pure port, test-only or CI-only (`EXEMPT-ADMITTED`), needs no go and no tap in any mode: its tree gates with the go'd ones, it asks no
-merge question, and it goes straight to Graphite's queue once the hold, fidelity, finder, build and CI checks pass (root #194387). Under `every` the runner
+merge question, and it goes straight to the merge queue once the hold, fidelity, finder, build and CI checks pass (root #194387). Under `every` the runner
 then bars each other open PR no root `go` names at its head like a held one: no check or enqueue call names it or sweeps it in, and a PR
 stacked on it waits. The pass's one `ccx vcs pr status` read routes it instead: a conflict, red CI, or requested changes is that head's
 blocker, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK`. `landing.checks_wait_for_go`, a cci sequence number, pauses the gate until a root `go` record comes after it:
@@ -4768,7 +4768,7 @@ def status_blocker(entry: dict, red: bool = True) -> str:
     if "conflict" in causes:
         said.append(CONFLICT_BLOCKER)
     if restack := next((cause for cause in causes if cause.startswith("needs-restack")), ""):
-        said.append(f"Graphite reads it as {restack}; run ccx vcs stack submit from the branch's worktree")
+        said.append(f"The stack reads as {restack}; run ccx vcs stack submit from the branch's worktree")
     if "ci-red" in causes and red:
         said.append(f"CI is red: {', '.join(entry['ci'].get('failing') or [entry['ci'].get('rollup', 'red')])}")
     if "changes-requested" in causes:
@@ -5280,6 +5280,8 @@ class Landing:
 
     def resubmit_graphite_base(self, rows: dict[str, dict]) -> None:
         """Resubmit the lowest open drive PR whose base is a `graphite-base/` branch, where a landed parent leaves it reading conflicted or stuck, on a stack worker beside the landing work: one at a time, once per head."""
+        if self.adapter.kind != merge_queue.GraphiteStackEnqueue.kind:
+            return
         with self.dispatching:
             if any(key.startswith(GRAPHITE_BASE) and not future.done() for key, (_, future) in self.inflight.items()):
                 return
@@ -7231,6 +7233,8 @@ class Landing:
 
     def down_since(self) -> datetime | None:
         """When Graphite went down, as the newest queue draft before it, while the landing desk reads it down."""
+        if self.adapter.kind != merge_queue.GraphiteStackEnqueue.kind:
+            return None
         since = self.book.load(LANDING).facts.get(GRAPHITE_DOWN)
         return actions.parse_stamp(since) if since else None
 
@@ -8520,10 +8524,10 @@ def mq_config_fault(landing: dict) -> str:
     """What `landing` lacks for the merge queue to run, or empty: an adapter kind it knows, a script for the stack-enqueue adapter, only built-in checks, the high-risk globs merge mode high-risk reads, and the release command line. Each fault ends with the exact `landing` members that fix it in one edit; none is ever assumed."""
     faults, members = [], []
     adapter = landing.get("adapter") or {}
-    if adapter.get("kind") not in (merge_queue.GraphiteStackEnqueue.kind, merge_queue.LabelEnqueue.kind):
-        faults.append(f"names no landing.adapter.kind of {merge_queue.GraphiteStackEnqueue.kind} or {merge_queue.LabelEnqueue.kind}, so the merge queue has no repository adapter")
+    if adapter.get("kind") not in (merge_queue.TrunkStackEnqueue.kind, merge_queue.GraphiteStackEnqueue.kind, merge_queue.LabelEnqueue.kind):
+        faults.append(f"names no landing.adapter.kind of {merge_queue.TrunkStackEnqueue.kind}, {merge_queue.GraphiteStackEnqueue.kind} or {merge_queue.LabelEnqueue.kind}, so the merge queue has no repository adapter")
         members.append(f'"adapter": {json.dumps(merge_queue.suggested_adapter(Path(landing["checkout"])))}')
-    elif adapter["kind"] == merge_queue.GraphiteStackEnqueue.kind and not adapter.get("script"):
+    elif adapter["kind"] in (merge_queue.TrunkStackEnqueue.kind, merge_queue.GraphiteStackEnqueue.kind) and not adapter.get("script"):
         faults.append("names no landing.adapter.script, the stack-enqueue script relative to landing.checkout")
         members.append(f'"adapter": {json.dumps({**adapter, "script": merge_queue.STACK_ENQUEUE})}')
     known = merge_queue.CHECKS + merge_queue.OPT_IN_CHECKS

@@ -1,5 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
-[ "${1:-} ${2:-} ${3:-}" = "vcs gh --" ] || { echo "fake ccx: only 'ccx vcs gh --' is served" >&2; exit 1; }
-shift 3
-exec "$(dirname "$0")/gh" "$@"
+if [ "${1:-} ${2:-} ${3:-}" = "vcs gh --" ]; then
+  shift 3
+  exec "$(dirname "$0")/gh" "$@"
+fi
+[ "${1:-} ${2:-} ${3:-}" = "vcs pr status" ] || exit 1
+pass=$(cat "$FAKE_PASS_FILE")
+for ((p = pass; p >= 0; p--)); do
+  fixture="$FAKE_GH_ROOT/$p/ccx-status.json"
+  [ -f "$fixture" ] && break
+  fixture=""
+done
+[ -n "$fixture" ] || exit 1
+[ "$(cat "$fixture")" != '"FAIL"' ] || exit 1
+cat "$fixture"

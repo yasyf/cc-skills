@@ -1,10 +1,10 @@
 # The gt stack
 
-Graphite is local-refs-first: `gt` reads local branches and the local trunk, records parent edges in its own metadata, and force-pushes what it derives. Every hazard here is a place where that model and reality diverge silently — the command exits 0 and the damage surfaces later, on someone else's branch or in a PR carrying the wrong commits.
+Native GitHub stacks (`ccx.stack=github`, cataloged in `<git-common-dir>/gh-stack` at schema version 1 and backed by the GitHub stack API) are the default for new stacks; `ccx vcs info` reports the selected provider, and actual native branch membership takes precedence while existing Graphite branches stay on Graphite until migrated (`--no-stack` bypasses both; `--no-gt` remains for legacy compatibility). Register and update native stacks through `ccx vcs stack submit` or `gh stack link` — never rely on raw `gh pr` base retargeting as stack registration, and make an explicit repair call on forked, stale, or capped stacks instead of auto-linearizing them. When a repository or stack runs on the legacy Graphite backend, Graphite is local-refs-first: `gt` reads local branches and the local trunk, records parent edges in its own metadata, and force-pushes what it derives. Every legacy Graphite hazard below is a place where that model and reality diverge silently — the command exits 0 and the damage surfaces later, on someone else's branch or in a PR carrying the wrong commits.
 
 ## One stack, never siblings
 
-Related PRs from one body of work go in one stack, chained, never as independent siblings off trunk — even when the diffs are provably disjoint. "The files don't overlap" is not a reason to split: siblings lose review order and the mid-stack restack machinery. Chain order comes from what consumes what, and a lane still in flight goes at the tip so finished lanes don't get re-rebased under it. `gt track --parent <branch>` per branch, then submit.
+Related PRs from one body of work go in one stack, chained, never as independent siblings off trunk — even when the diffs are provably disjoint. "The files don't overlap" is not a reason to split: siblings lose review order and the mid-stack restack machinery. Chain order comes from what consumes what, and a lane still in flight goes at the tip so finished lanes don't get re-rebased under it. On a native GitHub stack, cut and submit through `ccx vcs stack new` and `ccx vcs stack submit` (or `gh stack link`); on a legacy Graphite stack, run `gt track --parent <branch>` per branch, then submit.
 
 ## gt owns stack mutations
 

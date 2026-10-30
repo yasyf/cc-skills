@@ -15,6 +15,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 from long_running import actions
 import mq as mq_module
@@ -6651,13 +6652,14 @@ def test_the_landing_desk_refuses_to_start_on_a_merge_queue_config_it_cannot_run
     assert runner_module.mq_config_fault(raw["landing"]) == ""
 
 
-def test_a_config_with_no_adapter_on_a_checkout_carrying_stack_enqueue_is_told_to_name_it_and_every_fault_at_once(shell, config, tmp_path):
+def test_a_config_with_no_adapter_on_a_checkout_carrying_stack_enqueue_is_told_to_name_it_and_every_fault_at_once(shell, config, tmp_path, monkeypatch):
     raw = json.loads(config.read_text())
     del raw["landing"]["adapter"]
     raw["landing"]["merge_mode"] = "high-risk"
     script = tmp_path / "checkout" / ".agents/skills/submit-pr/scripts/stack-enqueue"
     script.parent.mkdir(parents=True, exist_ok=True)
     script.write_text("")
+    monkeypatch.setattr(runner_module.merge_queue.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout="", stderr=""))
     fault = runner_module.mq_config_fault(raw["landing"])
     assert "names no landing.adapter.kind" in fault and "no landing.high_risk_paths globs" in fault
     assert fault.endswith(': "adapter": {"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}, "high_risk_paths": ["*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "*creds*"]')
@@ -13527,3 +13529,16 @@ def test_while_graphite_is_down_a_stack_whose_head_moved_during_the_wait_never_m
     assert direct_merges(shell) == [] and merged_records(shell) == []
     [asked] = [post_body(post) for post in blockers(shell) if "rebases each admitted stack" in post_body(post)]
     assert "#29031's head reads ffff777777 on GitHub, not the checked dddd444444" in asked
+
+
+def test_native_adapter_never_uses_a_saved_graphite_outage_to_merge_directly():
+    landing = object.__new__(runner_module.Landing)
+    landing.adapter = SimpleNamespace(kind="trunk-stack-enqueue")
+    landing.book = SimpleNamespace(load=lambda _: pytest.fail("native queue must not inspect Graphite outage facts"))
+    assert landing.down_since() is None
+
+
+def test_native_adapter_does_not_repair_graphite_caps():
+    landing = object.__new__(runner_module.Landing)
+    landing.adapter = SimpleNamespace(kind="trunk-stack-enqueue")
+    landing.resubmit_graphite_base({"20": {"state": "open", "ours": True, "base": "graphite-base/10", "head": "abcd"}})

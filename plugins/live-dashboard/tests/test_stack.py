@@ -52,3 +52,25 @@ def test_the_landing_preview_reads_both_cards(tmp_path):
 
 def test_the_landing_preview_waits_for_its_cards(tmp_path):
     assert stack.landing_preview(fake(tmp_path)).pairs == {"waiting on": "cards stack and review to run once"}
+
+
+def test_native_parent_overrides_stale_ledger_base():
+    rows = {101: {"base": "main", "branch": "first"}, 102: {"base": "graphite-base/102", "branch": "second"}}
+    statuses = {101: {"state": "OPEN", "base": "main"}, 102: {"state": "OPEN", "base": "first", "downstack": 101}}
+    current = stack.still_open(rows, statuses)
+    assert current[102]["base"] == "first"
+    assert stack.parents_of(current, {}) == {101: "main", 102: 101}
+
+
+def test_native_parent_outside_the_panel_is_named_without_inventing_membership():
+    assert stack.parents_of({102: {"base": "unlisted", "downstack": 101}}, {}) == {102: 101}
+
+
+def test_missing_native_ancestor_is_not_a_landable_trunk(tmp_path):
+    from livedash import Graph, Node
+
+    tree = stack.parents_of({102: {"downstack": 101}}, {})
+    assert stack.bottom_prefix(tree, {102: "landable"}) == []
+    ctx = fake(tmp_path)
+    ctx.lookup = {"stack": Graph([Node("101", "#101"), Node("102", "#102")], [["101", "102"]], []), "review": Table([Col("pr")], [{"key": "102", "verdict": "landable"}])}.get
+    assert stack.landing_preview(ctx).pairs == {"Approve #102 (#101)": "lands nothing; stops at #102: parent #101 outside scope"}

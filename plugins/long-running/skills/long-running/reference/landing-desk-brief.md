@@ -388,14 +388,19 @@ Rules that are not the tool's to enforce:
     the squash on a freshly fetched trunk first.
   - A pulled label is not a hold. The queue may already own the head; reason about
     the landing, not about stopping it. Never label a head you might need to hold.
-  - A `merge` label that disappears means the queue took the PR or ejected it. Read
-    the PR's Merge activity comment; never infer either from the label event, and
-    never re-label the same head.
-  - A green bottom prefix goes as one entry, with one label on its top. An open
-    child outside the prefix must have a tracked ledger row and a
-    `Graphite / mergeability_check` check run so Graphite retargets it when its
-    parent lands. Otherwise restack it through Graphite or retarget it to the base
-    branch BEFORE labelling (`gh api -X PATCH repos/<repo>/pulls/<n> -f base=<base>`).
+  - On a legacy Graphite or label-driven queue, a `merge` label that disappears means
+    the queue took the PR or ejected it. Read the PR's Merge activity comment; never
+    infer either from the label event, and never re-label the same head. Native Trunk
+    and GitHub queues read queue state from `ccx vcs pr status`, never from labels or
+    Graphite comments.
+  - A green bottom prefix goes as one entry. On a native GitHub stack, register and
+    submit the stack through `ccx vcs stack submit` (or `gh stack link`), never raw
+    `gh pr` base retargeting alone; after a prefix lands atomically, check whether
+    GitHub already rebased the remaining stack before routing an explicit restack. On
+    a legacy Graphite stack, an open child outside the prefix must have a tracked
+    ledger row and a `Graphite / mergeability_check` check run so Graphite retargets
+    it when its parent lands; otherwise restack it through Graphite or retarget it to
+    the base branch BEFORE labelling (`gh api -X PATCH repos/<repo>/pulls/<n> -f base=<base>`).
     After the prefix lands, the landing runner routes the first PR above it for
     a restack.
   - A closed PR still based on one of our branches keeps the stack graph and reds the
