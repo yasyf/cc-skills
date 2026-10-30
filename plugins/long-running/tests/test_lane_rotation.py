@@ -885,15 +885,38 @@ def test_unselected_lanes_do_not_resolve_the_task_list(
     tree: Tree, clock: list[float], monkeypatch: pytest.MonkeyPatch, case: str
 ) -> None:
     payload = [tree.lane("stale", 450_000, behind=timedelta(seconds=task_list.IDLE_SECONDS + 1))] if case == "untracked-stale" else []
+    subagents = tree.root.with_suffix("") / "subagents"
+    subagents.mkdir(parents=True, exist_ok=True)
+    for index in range(64):
+        (subagents / f"agent-history-{index}.meta.json").write_text(json.dumps({"agentType": "general-purpose"}))
+    monkeypatch.delenv("CLAUDE_CODE_TASK_LIST_ID")
     evt = stop(tree, payload).evt()
     task_list.UntrackedState(turns=task_list.RECONCILE_TURNS - 1).save(evt)
-    calls = {"identity": 0, "store": 0}
+    calls = {"identity": 0, "store": 0, "metadata_reads": 0, "metadata_enumerations": 0}
+    resolving = False
+    read_text = Path.read_text
+    glob = Path.glob
     list_id = task_list.Tasks.list_id
     for_session = task_list.Tasks.for_session
 
     def identity(cls, session_id, transcript_path):
+        nonlocal resolving
         calls["identity"] += 1
-        return list_id(session_id, transcript_path)
+        resolving = True
+        try:
+            return list_id(session_id, transcript_path)
+        finally:
+            resolving = False
+
+    def read_metadata(path, *args, **kwargs):
+        if resolving and path.name.endswith(".meta.json"):
+            calls["metadata_reads"] += 1
+        return read_text(path, *args, **kwargs)
+
+    def enumerate_metadata(path, pattern, **kwargs):
+        if resolving and pattern == "agent-*.meta.json":
+            calls["metadata_enumerations"] += 1
+        return glob(path, pattern, **kwargs)
 
     def store(cls, session_id, **kwargs):
         calls["store"] += 1
@@ -901,6 +924,8 @@ def test_unselected_lanes_do_not_resolve_the_task_list(
 
     monkeypatch.setattr(task_list.Tasks, "list_id", classmethod(identity))
     monkeypatch.setattr(task_list.Tasks, "for_session", classmethod(store))
+    monkeypatch.setattr(Path, "read_text", read_metadata)
+    monkeypatch.setattr(Path, "glob", enumerate_metadata)
 
     if case == "finished-empty":
         assert lane_rotation.finished(evt, []) == set()
@@ -908,7 +933,7 @@ def test_unselected_lanes_do_not_resolve_the_task_list(
         assert task_list.flag_untracked_lanes(evt) is None
         assert pending(stop(tree, payload)) == []
 
-    assert calls == {"identity": 0, "store": 0}
+    assert calls == {"identity": 0, "store": 0, "metadata_reads": 0, "metadata_enumerations": 0}
 
 
 def test_selected_lanes_read_task_changes_on_each_new_event(tree: Tree, clock: list[float]) -> None:
