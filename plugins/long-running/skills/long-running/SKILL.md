@@ -3172,6 +3172,13 @@ lanes never clobber each other's build-script output, and every call removes the
 targets and source trees idle for more than six hours, so idle lanes do not fill
 the Sprite's disk.
 
+A lane checks its change before it pushes with
+`remote-vet.py --config <runner config> --lane <lane> [<worktree>]`, never a local
+`go build`, `go vet` or `cargo check`. It ships everything the worktree changed since
+its merge base, uncommitted and untracked files included, to the lane's own worktree
+on a Sprite, runs the config's `vet.prepare` code generation, then builds and vets
+only the Go packages and Rust crates the change touches, and exits 1 on any `FAIL`.
+
 For in-process subagents, use one of this plugin's two lane types with the
 routing table's `model`. Both definitions default to Opus; set a different
 model explicitly when the assignment calls for it. Roots run Opus 5.5. Fable is
