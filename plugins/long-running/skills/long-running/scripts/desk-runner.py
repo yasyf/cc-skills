@@ -675,7 +675,7 @@ FINDER_FAST = True
 FINDER_ATTEMPTS = 3
 FINDER_STALLED_AFTER = timedelta(minutes=15)
 FINDER_SETTLED = "settled_at"
-FINDER_SKIPS = {"CLOSED": "#{pr} is closed", "NOT_FOUND": "#{pr} is no pull request in {repo}"}
+FINDER_SKIPS = {"CLOSED": "#{pr} is closed", "MERGED": "#{pr} is merged", "NOT_FOUND": "#{pr} is no pull request in {repo}"}
 FINDER_STALLED = "stalled"
 FIDELITY = "desk-fidelity"
 FIDELITY_CONCURRENT = 8

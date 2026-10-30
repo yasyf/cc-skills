@@ -514,12 +514,14 @@ def test_a_fixed_head_named_short_by_the_last_finder_record_reads_only_its_new_c
     assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over delta {OLD[:7]}..{HEAD[:7]}: no majors"
 
 
-def test_a_closed_pr_runs_no_finder_and_posts_nothing(tmp_path):
+@pytest.mark.parametrize("state", ["CLOSED", "MERGED"])
+def test_a_closed_or_merged_pr_runs_no_finder_and_posts_nothing(tmp_path, state):
+    """p8a-step7 #219270: a pass queued for a PR merged into a since-deleted base failed on the missing base ref."""
     directory = job(tmp_path)
-    shell = Fake(tmp_path, [], "CLOSED")
+    shell = Fake(tmp_path, [], state)
     finder.main([str(directory)], shell)
     assert not shell.asks() and not shell.posted
-    assert result(directory) == {"skipped": f"{REPO}#43299 is closed"}
+    assert result(directory) == {"skipped": f"{REPO}#43299 is {state.lower()}"}
 
 
 def test_a_head_record_names_its_commit_field_else_its_first_full_sha_no_was_precedes():

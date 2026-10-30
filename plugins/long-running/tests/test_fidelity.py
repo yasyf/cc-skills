@@ -370,7 +370,7 @@ def test_a_reply_that_breaks_the_grade_contract_is_asked_once_more_and_a_second_
     assert result(failing)["error"].startswith("JobFailed: two replies gave")
 
 
-@pytest.mark.parametrize(("state", "heads"), [("CLOSED", (HEAD,)), ("OPEN", (MOVED,)), ("OPEN", (HEAD, MOVED))], ids=["closed", "moved", "moved-while-read"])
+@pytest.mark.parametrize(("state", "heads"), [("CLOSED", (HEAD,)), ("MERGED", (HEAD,)), ("OPEN", (MOVED,)), ("OPEN", (HEAD, MOVED))], ids=["closed", "merged", "moved", "moved-while-read"])
 def test_a_closed_pr_or_a_head_that_moved_posts_nothing(tmp_path, state, heads):
     directory = job(tmp_path, grades=[])
     shell = Fake(tmp_path, [reply()], state=state, heads=heads)

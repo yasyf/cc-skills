@@ -240,8 +240,8 @@ def run(directory: Path, shell: finder.Shell) -> dict:
     pool = ThreadPoolExecutor()
     plan = pool.submit(shell.run, finder.rulings(job, "plan"))
     view = finder.view_pr(shell, job)
-    if view["state"] == "CLOSED":
-        return {"skipped": f"{pr} is closed"}
+    if view["state"] in ("CLOSED", "MERGED"):
+        return {"skipped": f"{pr} is {view['state'].lower()}"}
     if not view["headRefOid"].startswith(head):
         return {"skipped": f"{pr} moved to {view['headRefOid'][:12]}"}
     job["head"] = head = view["headRefOid"]
