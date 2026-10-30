@@ -237,13 +237,12 @@ def state(pr: str, rows: dict[str, dict], board: Board, records: list[dict], com
 
 
 def board_fact(pr: str, head: str, board: Board, voice: Voice) -> str:
+    entry = board.taps_by_pr.get(pr) or {}
+    if decided := board.decided(Row("", pr, head)):
+        return f"{voice.you} {decided} it at {head[:7]}{' at ' + pacific_text(entry['at']) if entry.get('at') else ''}"
     rows = board.rows_for(pr)
-    if decided := next((verdict for row in rows if grades.names_head(row.head, head) and (verdict := board.decided(row))), ""):
-        when = board.taps_by_pr[pr].get("at")
-        return f"{voice.you} {decided} it at {head[:7]}{' at ' + pacific_text(when) if when else ''}"
-    if rows:
-        return f"its board row names {rows[-1].head[:7]}, not its head"
-    return "the board holds no row for it"
+    shown = f"its board row names {rows[-1].head[:7]}, not its head" if rows else "the board holds no row for it"
+    return f"{shown}; {voice.you} {entry['verdict']} it at {entry['head'][:7]}, an older head" if entry.get("verdict") and entry.get("head") else shown
 
 
 def downstack(rows: dict[str, dict], row: dict) -> list[str]:
