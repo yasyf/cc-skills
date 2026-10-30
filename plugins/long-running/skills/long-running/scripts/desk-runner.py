@@ -3108,6 +3108,7 @@ class Runner:
             if len(messages) < limit or (messages[-1]["sequence"] <= cursor + 1 and unrelayed <= {message["id"] for message in messages}):
                 break
             limit *= 2
+        heartbeat_cursor = None
         for message in reversed(messages):
             behind = message["sequence"] <= cursor
             if behind and message["id"] not in unrelayed:
@@ -3115,14 +3116,19 @@ class Runner:
             cursor = max(cursor, message["sequence"])
             if message["type"] == "heartbeat":
                 self.beat_lane(message)
-                self.book.edit(RUNNER, lambda incident: incident.facts.update({key: cursor}))
+                heartbeat_cursor = cursor
                 continue
+            if heartbeat_cursor is not None:
+                self.book.edit(RUNNER, lambda incident, at=heartbeat_cursor: incident.facts.update({key: at}))
+                heartbeat_cursor = None
             lane = self.orca.lane_of(message["from_handle"])
             if not self.message(message | {"lane": lane}) and behind:
                 self.keep(message)
                 self.escalate(message["id"], "UNRELAYED", lane, f"{message['type']} from {message['from_handle']} at sequence {message['sequence']}, behind cursor {cursor}, has no relay record and its type has no relay: {message.get('subject') or ''}")
             self.book.edit(RUNNER, lambda incident: (incident.facts.update({key: cursor}), incident.facts.setdefault(relayed, []).append(message["id"])))
             unrelayed.discard(message["id"])
+        if heartbeat_cursor is not None:
+            self.book.edit(RUNNER, lambda incident, at=heartbeat_cursor: incident.facts.update({key: at}))
         if delivery.get("deliveryId") and not unrelayed:
             self.orca.call("orchestration", "check", "--run", self.config.run, "--ack", delivery["deliveryId"], "--peek")
         return True
