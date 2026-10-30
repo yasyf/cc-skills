@@ -185,6 +185,7 @@ class FakeShell(runner_module.Shell):
         self.stack_code = 0
         self.checks: dict[str, list[dict]] = {}
         self.stack_merge_out = ""
+        self.on_sleep: list = []
         self.merge_commits: dict[str, str] = {}
         self.current_heads: dict[str, str] = {}
         self.live: dict[str, dict] = {}
@@ -239,6 +240,8 @@ class FakeShell(runner_module.Shell):
 
     def sleep(self, seconds):
         self.clock += timedelta(seconds=seconds)
+        while self.on_sleep:
+            self.on_sleep.pop(0)()
 
     def load(self):
         return self.cpu_load
@@ -13187,6 +13190,26 @@ def test_while_graphite_is_down_a_stack_waits_for_its_required_checks_before_the
     shell.checks |= {pr: [{"name": "buildkite/test", "bucket": "pass"}] for pr in ("29020", "29031")}
     landing_pass(shell, config)
     assert direct_merges(shell) == [["gh", "stack", "link", "29020", "29031"], ["gh", "stack", "merge", "29031", "--yes", "--squash"]]
+
+
+def test_a_go_withdrawn_while_a_stack_waits_for_its_checks_keeps_the_stack_unmerged(shell, config, tmp_path):
+    """Root #199069: the direct merge waits for checks for minutes, so a go a root record withdraws meanwhile must still stop the merge."""
+    board_surface(config)
+    merge_mode(config, "every")
+    two_pr_stack(shell)
+    queue_drafts(shell, (40, True), (50, True))
+    shell.current_heads |= {"29020": "cccc333333", "29031": "dddd444444"}
+    merge_go(shell, "29020", "go #29020 at cccc333")
+    merge_go(shell, "29031", "go #29031 at dddd444")
+    shell.checks |= {pr: [{"name": "buildkite/test", "bucket": "pending"}] for pr in ("29020", "29031")}
+
+    def withdraw():
+        shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "root", "kind": "withdraw", "re": shell.records[-1]["seq"], "to": ["desk-runner"], "refs": {"prs": [29031]}, "text": "withdraw the go on #29031: new behavior since the tap", "at": actions.stamp(shell.clock)})
+        shell.checks |= {pr: [{"name": "buildkite/test", "bucket": "pass"}] for pr in ("29020", "29031")}
+
+    shell.on_sleep.append(withdraw)
+    landing_pass(shell, config)
+    assert [call for call in direct_merges(shell) if call[:3] == ["gh", "stack", "merge"]] == []
 
 
 def test_a_failed_direct_merge_names_githubs_whole_refusal_not_its_last_line(shell, config, tmp_path):

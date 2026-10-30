@@ -7054,7 +7054,7 @@ class Landing:
             with DIRECT_MERGING:
                 landing, refused = self.rebased(chain, heads, open_rows)
                 refused = refused or (self.moved_heads(chain, landing) if len(chain) > 1 else None)
-                waiting = "" if refused else self.checks_settled(chain, landing)
+                waiting = "" if refused else self.checks_settled(chain, landing) or self.go_lost(chain, rows)
                 done = None if refused or waiting else self.merge_chain(chain, landing)
                 squashes = self.squashes(chain) if done and done.code in (0, TIMED_OUT) else {}
                 if done and done.code == TIMED_OUT and squashes and all(squashes.values()):
@@ -7080,6 +7080,13 @@ class Landing:
                 moved = "" if landing[pr].startswith(heads[pr]) else f", rebased to {landing[pr][:10]},"
                 self.post_record("state", f"merged-direct:{pr}@{heads[pr]}", self.landing_audience([pr], rows, self.queue_audience([pr], rows)), f"MERGED #{pr} at {heads[pr][:10]}{moved} direct {landed}, Graphite down, {DIRECT_RULING}: {how}", pr)
         return outcome, "".join(outs)[-1500:], last
+
+    def go_lost(self, chain: list[str], rows: dict[str, dict]) -> str:
+        """Which PRs of `chain` a root record withdrew or resolved the go of since the pass read the gos, read fresh just before the merge, since the checks wait can run for minutes; a later root `go` grants it again (root #199069)."""
+        with self.going:
+            self.gos = None
+        barred = self.unpassed(rows)
+        return f"{numbered([pr for pr in chain if pr in barred])} has no go at its head any more, read just before the merge" if any(pr in barred for pr in chain) else ""
 
     def checks_settled(self, chain: list[str], heads: dict[str, str]) -> str:
         """Why `chain` may not merge yet, or empty: the checks the trunk requires, named by the bottom PR's required checks, must pass on every head first, read every `CHECK_POLL_SECONDS` up to `CHECK_POLLS` times, since GitHub refuses a merge while one is pending and the runner's own rebase push restarts them (#198874)."""
