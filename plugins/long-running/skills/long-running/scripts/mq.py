@@ -17,7 +17,8 @@
     mq.py --config PATH dequeue PR [--reason R]
     mq.py --config PATH recover PR...
 
-STDLIB ONLY. `--config` is the drive's desk-runner `runner.json`; every verb reads the same ledger,
+STDLIB ONLY. `--config` is the drive's desk-runner `runner.json`; any other file, such as a `runner.<name>.json` state file
+beside it, exits 3 naming the `drive`, `orca` or `landing` block it lacks; every verb reads the same ledger,
 cci hold records, action store, and repository adapter the landing desk runs on. `status` prints each enqueue
 this drive's store believes queued and each open tree in the order the desk gates it. `gos` prints each
 open PR a standing root go names that the queue does not hold, with the head the go names, the queue state
@@ -41,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -48,6 +50,7 @@ from long_running import actions
 import cci
 
 SCRIPTS = Path(__file__).resolve().parent
+CONFIG_KEYS = ("drive", "orca", "landing")
 
 
 def desk_runner():
@@ -88,6 +91,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, shell=None) -> int:
     args = build_parser().parse_args(argv)
+    if missing := [key for key in CONFIG_KEYS if key not in json.loads(args.config.read_text())]:
+        print(f"mq.py: {args.config} is no desk-runner config, since it has no {' or '.join(missing)} block; pass the drive's runner.json", file=sys.stderr)
+        return 3
     runner_module = desk_runner()
     config = runner_module.Config.load(args.config)
     if fault := runner_module.mq_config_fault(config.landing):
