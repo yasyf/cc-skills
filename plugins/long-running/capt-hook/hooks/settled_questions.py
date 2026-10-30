@@ -160,7 +160,7 @@ def durable_answers(cwd: str) -> list[Settled]:
     listed = ccn(cwd, "answer", "list", "--label", "scope:durable", "--limit", "0", "--json")
     if listed.returncode:
         return []
-    return [Settled(answer["title"]) for answer in json.loads(listed.stdout or "[]")]
+    return [Settled(f"answer {answer['id'][:7]}: {answer['title']}") for answer in json.loads(listed.stdout or "[]")]
 
 
 def memory_dirs(evt: BaseHookEvent) -> set[Path]:
@@ -218,6 +218,10 @@ def matches(questions: list[str], settled: list[Settled]) -> list[tuple[str, Set
         if hits:
             found.append((question, max(hits, key=lambda hit: hit[0])[1]))
     return found
+
+
+def digest(question: str) -> str:
+    return hashlib.sha256(" ".join(question.split()).encode()).hexdigest()[:16]
 
 
 GATE_MESSAGE = (
@@ -318,7 +322,3 @@ def check_settled_before_asking(evt: BaseHookEvent) -> HookResult | None:
             return None
         state.warned = [*state.warned, *(digest(question) for question, _ in found)]
     return evt.context("\n".join([GATE_MESSAGE, fenced("\n".join(f"{question}\n  {item.text}" for question, item in found))]))
-
-
-def digest(question: str) -> str:
-    return hashlib.sha256(" ".join(question.split()).encode()).hexdigest()[:16]
