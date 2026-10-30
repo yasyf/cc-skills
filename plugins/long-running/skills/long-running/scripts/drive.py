@@ -241,6 +241,11 @@ def cci_drive(entry: dict) -> str:
     return entry.get("cci_drive") or program_of(entry)
 
 
+def root_session(drive_name: str) -> str | None:
+    """The newest session of the registry entry whose cci drive is `drive_name`: the drive root, whose board holds the rows the owner taps."""
+    return next((entry["sessions"][-1] for entry in drives() if cci_drive(entry) == drive_name and entry.get("sessions")), None)
+
+
 def heartbeat(run: Callable[[list[str]], str], drive_name: str, desk: str) -> dict | None:
     """The fields of the newest `<desk> alive` record the desk's runner posted on `drive_name`, its pid, version, config, terminal and restart command, with the record's `at`; None when it posted none. The runner may run on any machine, so the record's age, never its pid, says whether it runs."""
     found = cci.records(run, drive_name, "--lane", DESK_RUNNER, "--kind=state", f"--topic={desk}", "--to", f"{WATCHDOG}@{drive_name}", "--limit", "1")

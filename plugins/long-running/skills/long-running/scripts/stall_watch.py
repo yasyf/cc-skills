@@ -66,6 +66,13 @@ its ledger row names, it finds:
               a pass past that is the desk runner's to stop and requeue
     fidelity  a `head` record names the head, and no fidelity grade does, and the fidelity desk holds
               no queued grade on it, nor a running one younger than `stall.minutes.running`
+    missing   the newest fidelity grade naming the head reads `fidelity: missing`, and for
+              `stall.minutes.missing` (default 20) no record of a lane other than a grader or desk answers
+              its seq by `--re` or names `#<seq>`, and no PR comment a bot did not write follows it; it
+              goes to root and the PR's lane, naming the grader and the missing text, as a red build does
+    regrade   such a grade was answered, by that record or comment, and for `stall.minutes.regrade`
+              (default 15) no grade has followed; it goes to the lane that graded it, or to the runner's
+              desks when the fidelity pipeline did
     board     a finder ok and a fidelity ok name the head, its build is green, it waits on the owner's
               tap (merge mode every, or the landing desk records it waiting on `merge:<pr>:<sha7>`),
               the board holds no row or card for it at that head, no open `hold` record holds it, and no
@@ -167,6 +174,7 @@ import cci
 import drive
 import ghread
 import grades
+import owner_waits
 
 SCRIPTS = Path(__file__).resolve().parent
 LANE = "stall-watch"
@@ -178,9 +186,9 @@ NOT_LANES = frozenset({*ROOT_NAMES, "team-lead", LANE, RUNNER})
 PACIFIC = ZoneInfo("America/Los_Angeles")
 MODEL = "claude-sonnet-5-5"
 WINDOW_HOURS = 24
-MINUTES = {"go": 10, "refusal": 10, "successor": 20, "red": 2, "order": 3, "tap": 10, "ungraded": 10, "finder": 30, "fidelity": 30, "running": 25, "board": 15, "carry": 20, "lane": 30, "ask": 15, "gate": 30, "stale": 120, "desk": 10}
+MINUTES = {"go": 10, "refusal": 10, "successor": 20, "red": 2, "order": 3, "tap": 10, "ungraded": 10, "finder": 30, "fidelity": 30, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "lane": 30, "ask": 15, "gate": 30, "stale": 120, "desk": 10}
 DESK_KINDS = frozenset({"finder", "fidelity"})
-ROOT_KINDS = frozenset({"ungraded"})
+ROOT_KINDS = frozenset({"ungraded", "missing"})
 REPOSTED = frozenset({"red"})
 POST_KINDS = {"red": "blocker", "probe": "report"}
 OWNER_ORDER = re.compile(r"\bowner\b.{0,80}\bverbatim\b", re.IGNORECASE | re.DOTALL)
@@ -189,7 +197,7 @@ REASSIGNS = re.compile(r"\breassign", re.IGNORECASE)
 CLAUSE = re.compile(r"[;\n]|\.\s")
 REASSIGNED_TO = re.compile(r"\bto\s+([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b")
 QUIET = timedelta(minutes=10)
-PR_KINDS = frozenset({"go", "refusal", "successor", "red", "tap", "ungraded", "finder", "fidelity", "board", "carry", "stale"})
+PR_KINDS = frozenset({"go", "refusal", "successor", "red", "tap", "ungraded", "finder", "fidelity", "missing", "regrade", "board", "carry", "stale"})
 BOARD_KINDS = frozenset({"tap", "board", "carry"})
 REVIEW_HELD = frozenset({"neutral", "failure"})
 PROMISE_FLOOR = timedelta(minutes=10)
@@ -203,6 +211,7 @@ JUDGE_SECONDS = 300
 LANDING = "desk-landing"
 FINDER_DESK = "desk-finder"
 FIDELITY_DESK = "desk-fidelity"
+FIDELITY_PIPELINE = "fidelity-pipeline"
 QUEUE_LIVE = frozenset({"accepted", "started"})
 FINDER_PENDING = "FINDER-PENDING"
 REFUSAL_KINDS = frozenset({"blocker", "report", "note", "defect", "urgent"})
@@ -437,10 +446,6 @@ def lanes_of(value: str | list[str]) -> list[str]:
     return [value] if isinstance(value, str) else list(value)
 
 
-def root_session(drive_name: str) -> str | None:
-    return next((entry["sessions"][-1] for entry in drive.drives() if drive.cci_drive(entry) == drive_name and entry.get("sessions")), None)
-
-
 def task_owners(session: str) -> dict[str, list[tuple[str, datetime]]]:
     tasks = drive.drives_dir().parents[1] / "tasks"
     owners: dict[str, list[tuple[str, datetime]]] = {}
@@ -459,12 +464,7 @@ def carried_heads(head: str, carries: list[tuple[str, str]]) -> set[str]:
     return reached
 
 
-def downstack(rows: dict[str, dict], row: dict) -> list[str]:
-    below: list[str] = []
-    while parent := next((pr for pr, other in rows.items() if other.get("branch") and other["branch"] == row.get("base") and pr not in below), None):
-        below.append(parent)
-        row = rows[parent]
-    return below
+downstack = owner_waits.downstack
 
 
 def stack_row(pr: str, row: dict, rows: dict[str, dict], owner: str, held: bool, going: bool, in_queue: bool, tapping: bool) -> dict:
@@ -609,7 +609,7 @@ class Pass:
         self.probe_day = saved.get("probe_day", "")
         records = [record for record in cci.records(self.tail, self.watch.drive, since=actions.stamp(self.now - self.watch.window)) if record["drive"] == self.watch.drive]
         self.lane_newest = {record["lane"]: record for record in records}
-        if (session := root_session(self.watch.drive)) is None:
+        if (session := drive.root_session(self.watch.drive)) is None:
             self.warn({"lane"}, f"no drive registry entry for {self.watch.drive} names a root session, so the task list does not read")
         stalls, questions, entries = self.prs(records)
         lane_stalls, lane_questions = self.lanes(records, session, entries)
@@ -897,6 +897,13 @@ class Pass:
                     stalls.append(Stall(f"fidelity:{pr}:{short(head)}", "fidelity", started, subject, f"the fidelity desk's grade of this head has run since {pacific(started)}", (RUNNER,), f"read `desk-runner.py show`, then stop and requeue the fidelity grade of {subject}", pr))
                 elif self.queued(FIDELITY_DESK, pr, head) is None:
                     stalls.append(Stall(f"fidelity:{pr}:{short(head)}", "fidelity", head_at, subject, f"no fidelity grade names this head, and the fidelity desk holds none queued, first named {pacific(head_at)} in #{announced[0]['seq']}", tuple(fidelity_lanes), f"grade {subject} and post its `fidelity: ok` or `fidelity: missing` line", pr))
+            try:
+                found = owner_waits.missing(standing, records, lambda pr=pr: self.comments(pr), fidelity_lanes)
+            except ReadFailed as failed:
+                self.warn({"missing", "regrade"}, str(failed))
+                found = None
+            if found and (stall := self.missing(pr, subject, lane, found)):
+                stalls.append(stall)
             if board is None:
                 continue
             taps = [(sha, f"root go #{go['seq']}") for go in gos if (sha := grades.go_heads(go).get(pr))]
@@ -945,6 +952,26 @@ class Pass:
             sha = short(rows[blocker]["head"])
             stalls.append(Stall(f"go:{blocker}:{sha}", "go", min(since for _, since, *_ in group), f"#{blocker} at {sha}", f"root go{'s name' if len(named) > 1 else ' names'} {listed}{stack}, and no QUEUED record does", owner, step, blocker))
         return stalls, questions, entries
+
+    def comments(self, pr: str) -> list[dict]:
+        done = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.watch.landing["repo"], "--json", "comments"))
+        if done.code:
+            raise ReadFailed(f"gh pr view {pr} exited {done.code}: {(done.err or done.out).strip()[:200]}")
+        return json.loads(done.out)["comments"]
+
+    def missing(self, pr: str, subject: str, lane: str, found: owner_waits.Missing) -> Stall | None:
+        """A `fidelity: missing` grade standing at the head: unanswered for `stall.minutes.missing`, a stall to root and the PR's lane like a red build; answered by a lane record or a PR comment with no grade since for `stall.minutes.regrade`, a stall to the lane that graded it, or the runner's desks for the fidelity pipeline."""
+        grade = found.grade
+        graded_at = at(grade)
+        said = f"fidelity grade cci #{grade['seq']} by {grade['lane']} reads missing since {pacific(graded_at)}: {clip(grade['text'])}"
+        if found.answered_at is None:
+            if self.now - graded_at < self.watch.age("missing"):
+                return None
+            return Stall(f"missing:{pr}:{grade['seq']}", "missing", graded_at, subject, f"{said}; nobody has answered it", (lane,), f"answer it: push the fix and post HEAD, or post `cci post --re {grade['seq']}` saying why the plan holds", pr)
+        if self.now - found.answered_at < self.watch.age("regrade"):
+            return None
+        grader = RUNNER if grade["lane"] == FIDELITY_PIPELINE else grade["lane"]
+        return Stall(f"regrade:{pr}:{grade['seq']}", "regrade", found.answered_at, subject, f"{said}; {found.answer} answered it at {pacific(found.answered_at)}, and no grade has followed", (grader,), f"grade {subject} again against that answer and post its `fidelity: ok` or `fidelity: missing` line", pr)
 
     def red(self, pr: str, row: dict, lane: str) -> Stall | None:
         """The red stall of `pr`'s head: its live owning lane's alone, reposted every `REPEAT`, or root's once per head when no live lane owns it; a red whose failed job logged only Buildkite's benign 404 probe is a `probe` stall the pass folds into one daily line."""

@@ -1063,6 +1063,13 @@ nothing. The root posts
 then answers in plain words with `cc-present reply --block <card id> --body <answer>`,
 and the lane stays stopped until an answer is tapped.
 
+What waits on the owner is what `cci owner-waits --drive <drive>` prints: each board row
+awaiting his tap at the head it names and each unanswered pick, with when it went up. The
+root quotes those lines, never a runner note or a lane's state line, when it tells him what
+waits on him. `cci owner-waits --drive <drive> --pr <n>` says what a PR not on the board
+really waits on: no row, a red build, a `fidelity: missing` grade unanswered since a time,
+or an open parent below it.
+
 Every tap on the board reaches the bus the moment it happens, without the root. The
 board recorder (`board_watch.py`, launched detached per board by the
 `start_board_watch` hook) posts one `owner` record to all from lane `board-watch` for
@@ -2724,6 +2731,8 @@ stalls in one stack post as one record, on the stack's lowest PR.
 | `tap` | the owner approved a head on the board, and no go names it | 10 | root and `landing.go_lanes` |
 | `finder` | a `head` record names the head, no finder review does, and the finder desk holds no queued pass on it nor one running past 25 minutes | 30 | the landing desk when the finder desk runs and queued nothing, or its pass ran past 25 minutes; else the PR's lane |
 | `fidelity` | a `head` record names the head, no fidelity grade does, and the fidelity desk holds no queued grade on it nor one running past 25 minutes | 30 | the landing desk for a grade past 25 minutes, else `landing.fidelity_lane` |
+| `missing` | the newest fidelity grade naming the head reads `fidelity: missing`, and no lane record answers its seq by `--re` or `#<seq>`, nor a PR comment no bot wrote follows it; the record names the grader and the missing text | 20 | root and the PR's lane, as for a red build |
+| `regrade` | that grade was answered by such a record or comment, and no grade has followed | 15 | the lane that posted the grade, or the landing desk when the fidelity pipeline did |
 | `board` | finder ok, fidelity ok, a green build, a wait on the owner's tap, and no board row or `merge:<pr>:<sha7>` card at the head, counted from the latest of the two grades and the ledger row's `green_at` | 15 | `stall.board_lane`, root by default |
 | `carry` | a tap or go names an earlier head, nothing carries it to this head, and the board shows no row at it | 15 | the fidelity lane when Sonnet reads a patch-identical restack, else root, to ask the owner again |
 | `lane` | a lane with an in-progress task on root's task list stays silent past the time its last record promised, or past 30 minutes | 30 | the lane, or root when the lane posted nothing in the window |
