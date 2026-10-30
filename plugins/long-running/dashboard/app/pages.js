@@ -299,7 +299,9 @@ function rowFacts(row) {
 function waitLine(row, w) {
   const since = waitingSince(row.number);
   if (!SETTLED.test(w.blocker.trim())) return `<p class="mr-waits">${dotted('Waits on', 'warn')} ${esc(w.blocker)}${since ? `<small class="pg-for">${blockedFor(since)}</small>` : ''}</p>`;
-  return verdictState(row) === 'you' && since ? `<p class="mr-waits">${dotted('Waiting on you', 'you')} ${blockedFor(since)}</p>` : '';
+  if (verdictState(row) !== 'you') return '';
+  const checked = row.checked_at && row.head.slice(0, 7) === row.checked_at.slice(0, 7) ? ' Reviewed and checked; it lands on your tap.' : '';
+  return since || checked ? `<p class="mr-waits">${dotted('Waiting on you', 'you')}${checked} ${since ? blockedFor(since) : ''}</p>` : '';
 }
 function rowActs(row) {
   const busy = pending.number === row.number && !pending.error;
