@@ -56,7 +56,7 @@ For every record, judge seven things:
   (f) DEAD RUNNER: with each digest, `cci state --drive <drive> --lane desk-runner`
       shows each desk runner's newest `<desk> alive <time> pass <n>` record. One
       older than 10 minutes, or a `blocker` from desk-runner saying a pass raised,
-      goes to root at once with the desk's heartbeat restart line.
+      goes to root at once with the `restart` attr of the desk's newest alive record.
   (g) RED TRUNK: the landing runner's newest `dev-red` record (`cci tail --drive
       <drive> --topic dev-red -n 5`) reads DEV-RED and no record there names a
       fix PR within 15 minutes, or any record calls a red trunk or a failing job

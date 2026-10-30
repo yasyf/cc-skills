@@ -111,9 +111,12 @@ and, across the drive:
               names an open PR the owner has not tapped at its head is never stale, until that PR lands,
               is tapped, or the hold lifts; each PR in the run of PR numbers a holds-file
               line leads with counts as held here
+    desk      a desk runner that posted a `<desk> alive` record in the window posted none for
+              `stall.minutes.desk`; the record is its heartbeat wherever it runs, and the stall goes
+              to root with the restart command the runner's newest record carries
 
 Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, successor 20, red 2, order 3, tap 10, ungraded 10, finder 30,
-fidelity 30, running 25, board 15, carry 20 (one fidelity pass), lane 30, ask 15, gate 30, stale 120. A PR's head is as old as the first record about the
+fidelity 30, running 25, board 15, carry 20 (one fidelity pass), lane 30, ask 15, gate 30, stale 120, desk 10. A PR's head is as old as the first record about the
 PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record. A board
 stall counts from the latest of its finder ok, its fidelity ok, and its ledger row's `green_at`, the refresh that
 first read the head's build green, since the board refresher puts a row up only once the build is green.
@@ -172,7 +175,7 @@ NOT_LANES = frozenset({*ROOT_NAMES, "team-lead", LANE, RUNNER})
 PACIFIC = ZoneInfo("America/Los_Angeles")
 MODEL = "claude-sonnet-5-5"
 WINDOW_HOURS = 24
-MINUTES = {"go": 10, "refusal": 10, "successor": 20, "red": 2, "order": 3, "tap": 10, "ungraded": 10, "finder": 30, "fidelity": 30, "running": 25, "board": 15, "carry": 20, "lane": 30, "ask": 15, "gate": 30, "stale": 120}
+MINUTES = {"go": 10, "refusal": 10, "successor": 20, "red": 2, "order": 3, "tap": 10, "ungraded": 10, "finder": 30, "fidelity": 30, "running": 25, "board": 15, "carry": 20, "lane": 30, "ask": 15, "gate": 30, "stale": 120, "desk": 10}
 DESK_KINDS = frozenset({"finder", "fidelity"})
 ROOT_KINDS = frozenset({"ungraded"})
 REPOSTED = frozenset({"red"})
@@ -629,7 +632,7 @@ class Pass:
             self.warn(BOARD_KINDS | {"lane"}, f"no drive registry entry for {self.watch.drive} names a root session, so neither the board nor the task list read")
         stalls, questions, entries = self.prs(records, session)
         lane_stalls, lane_questions = self.lanes(records, session, entries)
-        stalls += lane_stalls + self.asks(records) + self.gates(records)
+        stalls += lane_stalls + self.asks(records) + self.gates(records) + self.desks(records)
         questions += lane_questions + self.orders(records)
         cached = saved.get("verdicts", {})
         fresh = self.judge([question.ask | {"id": question.key} for question in questions if question.key not in cached])
@@ -1239,6 +1242,16 @@ class Pass:
             and self.now - at(record) >= self.watch.age("ask")
         ]
 
+
+    def desks(self, records: list[dict]) -> list[Stall]:
+        stalls = []
+        for desk in drive.DESKS:
+            beats = [record for record in records if record["lane"] == RUNNER and record["kind"] == "state" and record.get("topic") == desk and record["text"].startswith(f"{desk} alive ")]
+            if not beats or self.now - at(beats[-1]) < self.watch.age("desk"):
+                continue
+            restart = beats[-1]["fields"].get("attrs", {}).get("restart") or f"desk-runner.py run --config <runner.json> --desk {desk}"
+            stalls.append(Stall(f"desk:{desk}", "desk", at(beats[-1]), f"{desk} desk runner", f"the {desk} desk runner has posted no `{desk} alive` record since {pacific(at(beats[-1]))}", (ROOT,), f"restart it from the Run's bound terminal: `{restart}`"))
+        return stalls
 
     def gates(self, records: list[dict]) -> list[Stall]:
         landed: dict[str, dict] = {}

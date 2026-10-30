@@ -44,7 +44,8 @@ desk-runner.py rebind --config C
 desk-runner.py show --config C
 ```
 
-A relay can also be one line appended to the desk inbox. Set the required
+A relay can also be one line appended to the desk inbox, which the runner still reads
+while the root moves to cci records. Set the required
 `orca.desk_inbox` config field to the drive's `inbox/orca-desk.md`. The orca runner
 reads each complete line appended since its saved byte offset; its first read starts
 at the file's end, so history never replays. It reads each cci record addressed to
@@ -478,7 +479,6 @@ the launch. The worker's brief then ends with the command and the path of its lo
 {
   "store": "/absolute/drive/actions",
   "drive": "<cci drive>",
-  "view": "/absolute/drive/inbox/runner-state.md",
   "alert": {"facts": "/absolute/drive/alert-facts.md"},
   "incident": {"case_lanes": 2},
   "orca": {
@@ -557,11 +557,11 @@ nohup desk-runner.py run --config "$CONFIG" --desk landing > "$DRIVE/landing-run
 Restarting either process uses the same records and is idempotent. Keep one process
 per desk. Restarting a runner never means relaunching its workers.
 
-The orca process rewrites `orca-runner.heartbeat.json` beside the desk inbox every
-pass, and its `restart` field is the command to run from the bound terminal when the
-`desk_liveness` hook reports `LAUNCH-FAILED`. The hook finds that file under the
-drive registry's `state_dir`, in `inbox/`, so the desk inbox has to sit at
-`<state_dir>/inbox/orca-desk.md`.
+Each process posts a `<desk> alive` cci `state` record to the drive watchdog when it
+starts and every minute after, and its `restart` attr is the command to run from the
+bound terminal when the `desk_liveness` hook or `desk-launch.py` reports
+`LAUNCH-FAILED`. Every reader reads that record from cci, so neither runner writes a
+heartbeat file and either may run on another machine.
 
 For the cci cutover, the root adds `drive` to the runner config, confirms
 `orca.desk_inbox`, and restarts both runners. Its records keep arriving over the

@@ -469,6 +469,26 @@ def test_an_open_ask_to_root_stalls_until_root_answers_it(config):
     assert "answer it with `cci post --re 1`" in shell.post("ask:1")["text"]
 
 
+def alive(seq: int, desk: str, minutes_ago: float) -> dict:
+    restart = f"nohup desk-runner.py run --config /drive/runner.json --desk {desk} >> /drive/{desk}-runner.log 2>&1 < /dev/null &"
+    return record(seq, "desk-runner", "state", f"{desk} alive 9:00 PM pass 4", minutes_ago, topic=desk, to=[f"drive-watchdog@{DRIVE}"], fields={"attrs": {"pid": "73091", "restart": restart}})
+
+
+def test_a_desk_runner_whose_alive_record_went_silent_stalls_to_root_with_its_restart_command_wherever_it_runs(config):
+    """Oct 29: the runners must move off this Mac, so the stall watch reads their alive records, never a heartbeat file (cci #199401)."""
+    shell = FakeShell([alive(1, "orca", 30), alive(2, "landing", 25), alive(3, "orca", 1)], [])
+
+    watch(shell, config)
+
+    assert shell.topics() == ["desk:landing"]
+    assert shell.post("desk:landing")["to"] == "root"
+    assert shell.post("desk:landing")["text"].startswith("STALL desk landing desk runner, 25 min: the landing desk runner has posted no `landing alive` record since ")
+    assert shell.post("desk:landing")["text"].endswith("restart it from the Run's bound terminal: `nohup desk-runner.py run --config /drive/runner.json --desk landing >> /drive/landing-runner.log 2>&1 < /dev/null &`")
+    shell.records.append(alive(4, "landing", 0))
+    watch(shell, config)
+    assert "desk:landing" not in opened(config)
+
+
 def test_a_held_pr_draws_no_stall(config, tmp_path):
     (tmp_path / "holds.md").write_text("#101 waits on the schema release\n")
     shell = FakeShell([head(1, "101", HEAD, 40)], [row("101"), row("102", OTHER, hold_until=stamp(-60))])

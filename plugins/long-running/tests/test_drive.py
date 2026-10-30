@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import drive
@@ -391,47 +392,63 @@ def test_release_records_the_builds_owner_on_the_drive_its_cci_drive_names(repo,
     assert "no registered drive posts to cci drive other-drive; build 1 not recorded" in capsys.readouterr().err
 
 
-def heartbeat(entry: dict, desk: str, pid: int, version: str) -> str:
+def heartbeat(shell: FakeShell, desk: str, pid: int, version: str, ago: timedelta = timedelta()) -> str:
     restart = f"nohup desk-runner.py run --config /drive/runner.json --desk {desk} > /drive/{desk}-runner.log 2>&1 < /dev/null &"
-    inbox = Path(entry["state_dir"]) / "inbox"
-    inbox.mkdir(parents=True, exist_ok=True)
-    beat = {"pid": pid, "at": "2026-10-20T21:26:00-07:00", "config": "/drive/runner.json", "terminal": "term_root", "restart": restart, "version": version}
-    (inbox / drive.HEARTBEATS[desk]).write_text(json.dumps(beat) + "\n")
-    return restart
+    at = (datetime.now(timezone.utc) - ago).isoformat()
+    attrs = {"pid": str(pid), "version": version, "config": "/drive/runner.json", "terminal": "term_root", "restart": restart}
+    shell.cci.append({"seq": len(shell.cci) + 1, "drive": DRIVE, "lane": "desk-runner", "kind": "state", "topic": desk, "to": [f"drive-watchdog@{DRIVE}"], "at": at, "text": f"{desk} alive 9:26 PM pass 3", "fields": {"attrs": attrs}})
+    return at
 
 
 def test_digest_names_each_desk_runner_behind_the_installed_plugin_with_the_handoff_that_rotates_it(repo, capsys):
     """#535 shipped as 0.7.186 at 5:07 PM on Oct 20 and the live runner stayed on 0.7.185 until 9:26 PM (#107539)."""
-    entry = started(repo)
+    started(repo, "--cci-drive", DRIVE)
+    shell = FakeShell()
     plugins = drive.drives_dir().parents[1] / "plugins"
     plugins.mkdir(parents=True)
     (plugins / "installed_plugins.json").write_text(
         json.dumps({"version": 2, "plugins": {"long-running@skills": [{"version": "0.7.185"}, {"version": "0.7.186"}], "long-running-extras@skills": [{"version": "9.0.0"}]}})
     )
-    heartbeat(entry, "orca", 73091, "0.7.186")
-    heartbeat(entry, "landing", 49612, "0.7.185")
+    orca = heartbeat(shell, "orca", 73091, "0.7.186")
+    landing = heartbeat(shell, "landing", 49612, "0.7.185")
     capsys.readouterr()
 
-    assert drive.main(["digest"]) == 1
+    assert drive.main(["digest"], shell) == 1
 
     assert capsys.readouterr().out.splitlines() == [
-        "orca: pid 73091 runs 0.7.186, installed 0.7.186, last pass 2026-10-20T21:26:00-07:00: current",
-        f"landing: pid 49612 runs 0.7.185, installed 0.7.186, last pass 2026-10-20T21:26:00-07:00: stale; rotate it with `desk-runner.py handoff --config /drive/runner.json --desk landing`, which starts the next one",
+        f"orca: pid 73091 runs 0.7.186, installed 0.7.186, last alive {orca}: current",
+        f"landing: pid 49612 runs 0.7.185, installed 0.7.186, last alive {landing}: stale; rotate it with `desk-runner.py handoff --config /drive/runner.json --desk landing`, which starts the next one",
     ]
-    heartbeat(entry, "landing", 50113, "0.7.186")
-    assert drive.main(["digest"]) == 0
+    heartbeat(shell, "landing", 50113, "0.7.186")
+    assert drive.main(["digest"], shell) == 0
 
 
-def test_digest_names_a_desk_with_no_heartbeat_and_exits_one(repo, capsys):
-    entry = started(repo)
-    heartbeat(entry, "orca", 73091, "0.7.186")
+def test_digest_names_a_desk_with_no_alive_record_and_exits_one(repo, capsys):
+    started(repo, "--cci-drive", DRIVE)
+    shell = FakeShell()
+    heartbeat(shell, "orca", 73091, "0.7.186")
     capsys.readouterr()
 
-    assert drive.main(["digest"]) == 1
+    assert drive.main(["digest"], shell) == 1
 
     lines = capsys.readouterr().out.splitlines()
     assert lines[0].startswith("orca: pid 73091 runs 0.7.186, installed unknown") and lines[0].endswith(": current")
-    assert lines[1] == f"landing: no heartbeat at {Path(entry['state_dir']) / 'inbox' / drive.HEARTBEATS['landing']}, so no landing runner has finished a pass"
+    assert lines[1] == f"landing: no landing alive record on cci drive {DRIVE}, so no landing runner has run there"
+
+
+def test_digest_reads_a_desk_runner_on_another_machine_from_its_alive_record_and_names_a_silent_one_down(repo, capsys):
+    """Oct 29: the runners must move off this Mac, so the digest reads cci records, never a heartbeat file or a local pid (cci #199401)."""
+    started(repo, "--cci-drive", DRIVE)
+    shell = FakeShell()
+    heartbeat(shell, "orca", 73091, "0.7.186")
+    landing = heartbeat(shell, "landing", 49612, "0.7.186", ago=timedelta(minutes=6))
+    capsys.readouterr()
+
+    assert drive.main(["digest"], shell) == 1
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].endswith(": current")
+    assert lines[1] == f"landing: pid 49612 runs 0.7.186, installed unknown, last alive {landing}: down; restart it with `nohup desk-runner.py run --config /drive/runner.json --desk landing > /drive/landing-runner.log 2>&1 < /dev/null &`"
 
 
 def installed(*versions: str, manifest: str | None = None) -> Path:
@@ -482,9 +499,11 @@ def test_a_current_script_marks_its_children_with_its_version(repo, monkeypatch)
 
 
 def test_digest_prints_the_stack_ledger_the_stall_watch_wrote_and_marks_each_stale_pr(repo, capsys):
-    entry = started(repo)
-    heartbeat(entry, "orca", 73091, "0.7.186")
-    heartbeat(entry, "landing", 49612, "0.7.186")
+    entry = started(repo, "--cci-drive", DRIVE)
+    shell = FakeShell()
+    heartbeat(shell, "orca", 73091, "0.7.186")
+    heartbeat(shell, "landing", 49612, "0.7.186")
+    (Path(entry["state_dir"]) / "inbox").mkdir(parents=True)
     prs = [
         {"pr": "201", "title": "", "head": "abc1234def", "base": "dev", "below": "", "state": "conflicts with its base", "next": "restack #201 at abc1234 and post HEAD", "owner": "gone-lane", "since": "2026-10-27T17:00:00Z", "live": False, "stale": True},
         {"pr": "202", "title": "", "head": "fedcba9876", "base": "b201", "below": "201", "state": "in the merge queue", "next": "the landing desk reads why the merge queue still holds #202 at fedcba9", "owner": "api-lane", "since": "2026-10-27T19:30:00Z", "live": True, "stale": False},
@@ -492,7 +511,7 @@ def test_digest_prints_the_stack_ledger_the_stall_watch_wrote_and_marks_each_sta
     (Path(entry["state_dir"]) / "inbox" / drive.STACK).write_text(json.dumps({"at": "2026-10-27T20:00:00Z", "prs": prs}))
     capsys.readouterr()
 
-    drive.main(["digest"])
+    drive.main(["digest"], shell)
 
     assert capsys.readouterr().out.splitlines()[2:] == [
         "stack at 2026-10-27T20:00:00Z: 2 open PRs, 1 stale",

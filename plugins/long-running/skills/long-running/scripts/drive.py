@@ -71,10 +71,11 @@ It prints ``owed: <mark> #<seq>`` and exits 0 when the lane's newest MECHANISM o
 and no PR, ready, fix-live, or root go from any lane answers it by ``--re``, topic, or incident tag such as ``SAND-5A``.
 Otherwise it prints ``not owed: <why>`` and exits 1, as it does for an evidence, proof, closeout, desk, or audit lane.
 
-``digest`` prints one line per desk runner from its heartbeat in ``<state dir>/inbox``: its pid, the plugin version it
-runs, the version ``installed_plugins.json`` lists, and its last pass. A runner behind the installed version, or one whose
-heartbeat names no version, reads stale with the ``desk-runner.py handoff`` command that rotates it; the
-command exits 1 while any desk is stale or has no heartbeat. It then prints the stack ledger the stall watch wrote
+``digest`` prints one line per desk runner from its newest ``<desk> alive`` cci record on the drive: its pid, the plugin
+version it runs, the version ``installed_plugins.json`` lists, and when it posted. A runner behind the installed version, or
+one whose record names no version, reads stale with the ``desk-runner.py handoff`` command that rotates it, and one whose
+record is five minutes old reads down with the restart command it posted; the command exits 1 while any desk is stale,
+down, or has posted no record. It then prints the stack ledger the stall watch wrote
 to ``<state dir>/inbox/stack.json`` on its last pass: one line per open PR with its head, the PR or branch it sits on,
 its state, its owning lane, since when, and its next step, marked ``STALE`` once that state has stood two hours.
 
@@ -107,6 +108,7 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -129,7 +131,10 @@ PR_OWED_WINDOW = timedelta(hours=12)
 OUTSIDE_REPO = 3
 LAUNCH_RECEIPTS = Path(".claude") / "scratch" / "orca-launch"
 PLUGIN = Path(__file__).resolve().parents[3]
-HEARTBEATS = {"orca": "orca-runner.heartbeat.json", "landing": "landing-runner.heartbeat.json"}
+DESKS = ("orca", "landing")
+DESK_RUNNER = "desk-runner"
+WATCHDOG = "drive-watchdog"
+BEAT_STALE = timedelta(minutes=5)
 STACK = "stack.json"
 VERSION_PART = re.compile(r"\d+")
 NUMBERED = re.compile(r"(?<![\w&])#\d+\b")
@@ -234,6 +239,16 @@ def program_of(entry: dict) -> str:
 
 def cci_drive(entry: dict) -> str:
     return entry.get("cci_drive") or program_of(entry)
+
+
+def heartbeat(run: Callable[[list[str]], str], drive_name: str, desk: str) -> dict | None:
+    """The fields of the newest `<desk> alive` record the desk's runner posted on `drive_name`, its pid, version, config, terminal and restart command, with the record's `at`; None when it posted none. The runner may run on any machine, so the record's age, never its pid, says whether it runs."""
+    found = cci.records(run, drive_name, "--lane", DESK_RUNNER, "--kind=state", f"--topic={desk}", "--to", f"{WATCHDOG}@{drive_name}", "--limit", "1")
+    return {**found[-1]["fields"].get("attrs", {}), "at": found[-1]["at"]} if found else None
+
+
+def beating(beat: dict | None, now: datetime) -> bool:
+    return beat is not None and now - datetime.fromisoformat(beat["at"]) < BEAT_STALE
 
 
 def context_of(entry: dict) -> dict:
@@ -504,18 +519,23 @@ def cmd_digest(args: argparse.Namespace, shell: ledger.Shell) -> int:
         return 1
     installed = installed_version()
     current = True
-    for desk, name in HEARTBEATS.items():
-        path = Path(entry["state_dir"]) / "inbox" / name
-        if not path.is_file():
+    for desk in DESKS:
+        if (beat := heartbeat(shell.run, cci_drive(entry), desk)) is None:
             current = False
-            print(f"{desk}: no heartbeat at {path}, so no {desk} runner has finished a pass")
+            print(f"{desk}: no {desk} alive record on cci drive {cci_drive(entry)}, so no {desk} runner has run there")
             continue
-        beat = load(path)
         running = beat.get("version", "")
         late = behind(running, installed)
-        current &= not late
-        state = f"stale; rotate it with `desk-runner.py handoff --config {beat['config']} --desk {desk}`, which starts the next one" if late else "current"
-        print(f"{desk}: pid {beat['pid']} runs {running or 'a version it does not report'}, installed {installed or 'unknown'}, last pass {beat['at']}: {state}")
+        down = not beating(beat, datetime.now(timezone.utc))
+        current &= not late and not down
+        if down:
+            state = f"down; restart it with `{beat.get('restart', f'desk-runner.py run --desk {desk}')}`"
+        elif late:
+            state = f"stale; rotate it with `desk-runner.py handoff --config {beat.get('config', '<runner.json>')} --desk {desk}`, which starts the next one"
+        else:
+            state = "current"
+        pid = f"pid {beat['pid']} " if "pid" in beat else ""
+        print(f"{desk}: {pid}runs {running or 'a version it does not report'}, installed {installed or 'unknown'}, last alive {beat['at']}: {state}")
     if (stack := Path(entry["state_dir"]) / "inbox" / STACK).is_file():
         written = load(stack)
         prs = written["prs"]

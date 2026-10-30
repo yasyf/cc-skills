@@ -5,8 +5,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
-import shutil
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -22,9 +22,15 @@ def flag(argv: tuple[str, ...], name: str) -> str:
     return argv[argv.index(name) + 1]
 
 
+def alive(at: datetime) -> dict:
+    attrs = {"pid": "4242", "version": "0.7.500", "config": "/prog/runner.json", "terminal": "term_root", "restart": "nohup desk-runner.py run --config /prog/runner.json --desk orca &"}
+    return {"seq": 99, "lane": "desk-runner", "kind": "state", "topic": "orca", "to": ["drive-watchdog@prog"], "at": at.isoformat(), "text": "orca alive 11:20 PM pass 3", "fields": {"attrs": attrs}}
+
+
 class Drive:
     def __init__(self):
         self.records = [
+            alive(datetime.now(timezone.utc)),
             {"seq": 100, "lane": "root", "kind": "go", "to": ["orca-desk"], "text": "R2025 (11:50 PM) orca-desk: launch old-fix NOW incident xhigh brief=/b.md"},
             {"seq": 101, "lane": "root", "kind": "go", "to": ["orca-desk"], "text": "orca-desk: unhold sandsql-5177"},
         ]
@@ -45,15 +51,25 @@ class Drive:
                 self.records.append({"seq": record["seq"] + 1, "lane": "desk-runner", "kind": "report", "text": self.verdicts[key].format(lane=lane)})
             return json.dumps(record)
         assert argv[0] == "tail"
-        since = int(argv[argv.index("--since") + 1])
-        return "".join(f"{json.dumps(record)}\n" for record in self.records if record["seq"] > since and record["lane"] == argv[argv.index("--lane") + 1])
+        since = int(flag(argv, "--since"))
+        fields = [arg[2:].split("=", 1) for arg in argv if arg.startswith(("--kind=", "--topic="))]
+        found = [
+            record
+            for record in self.records
+            if record["seq"] > since
+            and record["lane"] == flag(argv, "--lane")
+            and ("--to" not in argv or flag(argv, "--to") in record.get("to", []))
+            and all(record.get(name) == value for name, value in fields)
+        ]
+        if "--limit" in argv:
+            found = found[-int(flag(argv, "--limit")) :]
+        return "".join(f"{json.dumps(record)}\n" for record in found)
 
 
 @pytest.fixture
 def state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     directory = tmp_path / "prog"
     (directory / "inbox").mkdir(parents=True)
-    (directory / "inbox" / desk_launch.registry.HEARTBEATS["orca"]).write_text("{}")
     monkeypatch.setenv(desk_launch.registry.SESSION_ENV, "s1")
     monkeypatch.setattr(desk_launch.registry, "drives", lambda: [{"drive": "prog", "sessions": ["s1"], "state_dir": str(directory)}])
     return directory
@@ -186,7 +202,7 @@ def test_each_keyed_line_posts_under_the_next_key_and_prints_it_without_waiting(
     assert desk_launch.main(argv) == 0
     [text] = posted(drive)
     assert re.fullmatch(rf"R2026 \(\d{{1,2}}:\d\d [AP]M\) {re.escape(line)}", text)
-    assert [call[1] for call in drive.calls] == ["grep", "post"]
+    assert [call[1] for call in drive.calls] == ["tail", "grep", "post"]
     assert capsys.readouterr().out == f"posted R2026 as cci #102: {text}\n"
 
 
@@ -206,12 +222,25 @@ def test_a_drive_the_registry_lacks_posts_nothing(drive, monkeypatch):
         (["relay", "lane-a", "go"], "nothing was posted"),
     ],
 )
-def test_a_drive_with_no_orca_desk_refuses_in_one_line_naming_the_agent_fallback(drive, state, tmp_path, argv, instead):
+@pytest.mark.parametrize("last", [None, timedelta(minutes=6)], ids=["never", "stale"])
+def test_a_drive_whose_orca_runner_posted_no_recent_alive_record_refuses_in_one_line_naming_the_agent_fallback(drive, state, tmp_path, argv, instead, last):
     fix, evidence = briefs(tmp_path)
-    shutil.rmtree(state / "inbox")
+    drive.records = [record for record in drive.records if record["lane"] != "desk-runner"]
+    if last:
+        drive.records.insert(0, alive(datetime.now(timezone.utc) - last))
     with pytest.raises(SystemExit) as refused:
         desk_launch.main([arg.format(fix=fix, evidence=evidence) for arg in argv])
-    assert str(refused.value).startswith("refused: no orca desk runner has finished a pass on this drive")
+    assert str(refused.value).startswith("refused: no orca desk runner has posted an orca alive record on cci drive prog in the last five minutes (")
+    assert ("(never)" in str(refused.value)) is (last is None)
     assert str(refused.value).endswith(f"nothing reads orca-desk lines; {instead}")
     assert "\n" not in str(refused.value)
-    assert drive.calls == []
+    assert [call[1] for call in drive.calls] == ["tail"]
+
+
+def test_an_orca_runner_on_another_machine_takes_launches_with_no_heartbeat_file_on_this_one(drive, state, tmp_path, capsys):
+    """Oct 29: the orca and landing runners must move off this Mac, so a heartbeat file only this Mac reads cannot gate a launch (cci #199401)."""
+    _, evidence = briefs(tmp_path)
+    assert not list((state / "inbox").glob("*.heartbeat.json"))
+    drive.verdicts = {"R2026": "LAUNCHED R2026 {lane}: dispatch ctx_r terminal term_r"}
+    assert desk_launch.main(["lane", "remote-lane", "opus", "xhigh", str(evidence)]) == 0
+    assert "remote-lane R2026 LAUNCHED R2026 remote-lane: dispatch ctx_r terminal term_r" in capsys.readouterr().out
