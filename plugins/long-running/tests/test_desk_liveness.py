@@ -27,7 +27,7 @@ def drive(tmp_path, monkeypatch) -> Path:
     (state / "inbox").mkdir(parents=True)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    (bin_dir / "cci").write_text(f"#!/bin/sh\necho \"$@\" >> {tmp_path / 'cci-calls'}\ncat {tmp_path / 'alive.jsonl'} 2>/dev/null\n")
+    (bin_dir / "cci").write_text(f"#!/bin/sh\necho \"$@\" >> {tmp_path / 'cci-calls'}\ncat {tmp_path / 'alive.jsonl'} 2>/dev/null || true\n")
     (bin_dir / "cci").chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
     return state
