@@ -20,6 +20,7 @@ def model():
         "drive": {"prs": [{"number": 43421, "state": "failing", "worker": {"lane": "p8f-replica-3", "at": T0.isoformat()}, "owner": "p8f-replica-3", "next": "p8f-replica-3 fixes buildkite/test."}]},
         "prs": {"43421": {"title": "Cloud viewer reads chats through the replica"}},
         "now": {"releases": []},
+        "milestone_state": [],
         "steps": [],
         "needs": [],
         "fetch": lambda kinds, since: [],

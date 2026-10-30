@@ -5,8 +5,9 @@ import hashlib
 import json
 import re
 
+import milestones
 import plainwords
-from brief import COORDINATORS, PACIFIC, RULES, SCHEMA, Page, at, change_records, clip, clock, listing, mentioned, open_changes, owner_asks, pr_stages, rulings, said, strict, string, trouble, unasked
+from brief import COORDINATORS, PACIFIC, RULES, SCHEMA, Page, at, unchecked, change_records, clip, clock, listing, mentioned, open_changes, owner_asks, pr_stages, rulings, said, strict, string, trouble, unasked
 
 WORK_WINDOW = dt.timedelta(hours=12)
 MIN_DAY = dt.timedelta(hours=8)
@@ -55,7 +56,7 @@ PLAN_SCHEMA = strict({
 })
 
 PLAN_PROMPT = PAGE_PROMPT.format(what="the Plan page of a live dashboard that a busy engineering lead reads. For each milestone and each part of the plan it says where it stands, what blocks it, and what is being done about it.", fields="""- summary: one sentence of at most 25 words: how far the plan is and the one thing most in the way.
-- milestones: exactly one entry per milestone, in order. state and label as on the main page; copy them from main_page.stops when the facts agree, except never "Half live": a partly live milestone's label names what is live, such as "Old app live". ships: at most 16 words, what users get when it is live. waits: at most 30 words, exactly what it waits on now and why, or empty when it is live or nothing is open. note is what went wrong so far: at most 40 words, a short retro of what went wrong on the way to this milestone and its cause, such as unplanned logic bundled into fixes, a revert, branches drifting apart, or conflicts from changes that landed midway; never the current blocker restated; for a milestone not started, what went wrong so far in the parts it builds on, or that nothing has gone wrong because no work on it has started. unblock: at most 30 words, what is being done to unblock it now: who does it, named by their job, the exact action, and when it is due from the records; when no record gives a time, say who owes one, such as "the cloud runs worker has not given a time". For a milestone not started, the planned path to start it: which milestone or part must land first, and who starts it then. Empty only when it is live.
+- milestones: exactly one entry per milestone, in order. milestone_state is computed from the records and wins: copy its state, label and since, and make waits and unblock say its waits and unblocking in plain words without adding facts. Otherwise state and label as on the main page; copy them from main_page.stops when the facts agree, except never "Half live": a partly live milestone's label names what is live, such as "Old app live". ships: at most 16 words, what users get when it is live. waits: at most 30 words, exactly what it waits on now and why, or empty when it is live or nothing is open. note is what went wrong so far: at most 40 words, a short retro of what went wrong on the way to this milestone and its cause, such as unplanned logic bundled into fixes, a revert, branches drifting apart, or conflicts from changes that landed midway; never the current blocker restated; for a milestone not started, what went wrong so far in the parts it builds on, or that nothing has gone wrong because no work on it has started. unblock: at most 30 words, what is being done to unblock it now: who does it, named by their job, the exact action, and when it is due from the records; when no record gives a time, say who owes one, such as "the cloud runs worker has not given a time". For a milestone not started, the planned path to start it: which milestone or part must land first, and who starts it then. Empty only when it is live.
 - parts: one entry per plan part, in the facts' order. id is the part's id. name: at most 6 words, what the part makes for users. state: done, doing (being built or tested), you (waits on the owner), stuck, waiting (on tests, the merge process or another part), or later. label: two to four words such as Done, Being built, Waits on you, Stuck in testing, Not started. name it by what a person can do once it is done, never by its mechanism (protocol, credentials, token, follower, conversion). state and label come from the earliest thing still unresolved in it: a change whose tests fail makes it stuck, not waiting on merging. blocks: at most 30 words, exactly what blocks it now and why, or empty; a decision it waits on is named, such as "your pick on the browser live-update question", never "your word". doing: at most 30 words, what is being done to unblock it: who acts, named by their job such as "the cloud runs worker", "codex" or "the merge process", never just "a worker", the exact action, and when it is due from the records, or who owes a time when no record gives one; empty for a part that is done or not started; never "not known": when no one is on it, say who assigns it. delivers: at most 16 words. went_wrong: at most 40 words, a short retro of what went wrong in this part and its cause, as for a milestone's note; empty for a done part whose problems are settled.
 - changes: each open change of the part, at most 8, the ones nearest to landing first: number from the facts, name at most 8 words for what it does for users, state at most 4 words such as Waits on you, Tests failing, Being built, Approved.
 - landed: up to four landed changes of the part, newest first, each at most 8 words for what it lets a person do, never its title.
@@ -157,6 +158,7 @@ def plan_digest(model, config, previous, now):
     return {
         "now": clock(now),
         "milestones": [{"name": m["name"], **{k: v for k, v in releases.get(m.get("release"), {}).items() if k != "parts"}} for m in config["milestones"]],
+        "milestone_state": model["milestone_state"],
         "main_page": {"stops": brief.get("progress", {}).get("stops"), "blockers": [node for path in brief.get("paths", []) for node in path["nodes"]]},
         "parts": [
             {
@@ -176,6 +178,11 @@ def plan_digest(model, config, previous, now):
         "previous": previous_of(previous, PLAN_SCHEMA),
         "worker_names": worker_names(model),
     }
+
+
+def plan_settle(brief, facts):
+    for milestone, computed in zip(brief["milestones"], facts["milestone_state"]):
+        milestone.update(state=computed["state"], label=computed["label"], waits=computed["waits"], unblock=computed["unblocking"], since=clock(milestones.when(computed["since"])) if computed["since"] else "")
 
 
 def work_slot(path):
@@ -347,7 +354,7 @@ def review_digest(model, config, previous, now):
     return {"now": clock(now), "rows": rows, "groups": groups, "cards": cards, "open_changes": open_changes(model, change_records(model, now)), "worker_names": list(lanes)}
 
 PAGES = (
-    Page("plan", PLAN_PROMPT, PLAN_SCHEMA, plan_digest, plan_slot, frozenset({"blocker", "ask", "answer", "decide", "go", "landed", "release", "incident", "mechanism", "fix-live", "hold", "lift", "defect"}), 180),
+    Page("plan", PLAN_PROMPT, PLAN_SCHEMA, plan_digest, plan_slot, frozenset({"blocker", "ask", "answer", "decide", "go", "landed", "release", "incident", "mechanism", "fix-live", "hold", "lift", "defect"}), 180, unchecked, plan_settle),
     Page("work", WORK_PROMPT, WORK_SCHEMA, work_digest, work_slot, frozenset({*WORK_KINDS, "head", "review", "defect", "fix-live", "go", "decide", "hold", "lift", "answer", "evidence"}), 180, work_checks, work_settle),
     Page("history", HISTORY_PROMPT, HISTORY_SCHEMA, history_digest, history_slot, frozenset({*HISTORY_KINDS, "go", "landed"}), 300),
     Page("review", REVIEW_PROMPT, REVIEW_SCHEMA, review_digest, review_slot, frozenset({"review", "head", "go", "report"}), 60),

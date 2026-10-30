@@ -32,6 +32,7 @@ from story import Stories
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills" / "long-running" / "scripts"))
 import holds
+import milestones
 
 HERE = Path(__file__).resolve().parent
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -63,6 +64,7 @@ RECORD_ROUTE = re.compile(r"/record/(\d+)")
 LANE_ROUTE = re.compile(r"/api/lane/([\w.-]+)")
 REGISTER_DAY = dt.timedelta(days=1)
 REGISTER_SHOWN = 25
+MILESTONE_TTL = 60
 SOURCE_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>{title}</title><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"></head><body><main class="wrap pg"><a class="pg-back" href="/">‹ The drive dashboard</a><header class="pg-h"><div><h1>{title}</h1></div></header><pre class="src-text">{text}</pre></main></body></html>'
 STORY_ROUTE = re.compile(r"/api/story/([a-z0-9-]+)")
 TRANSCRIPT_ROUTE = re.compile(r"/api/transcript/([a-z0-9-]+)")
@@ -571,6 +573,7 @@ class Drive:
         self.changed = threading.Condition(self.lock)
         self.records = deque(maxlen=4000)
         self.latest_words = {}
+        self.milestone_cache = None
         self.evidence = {}
         self.version = 0
         self.model = {}
@@ -691,6 +694,11 @@ class Drive:
             found, query = page, {"drive": self.config["drive"], "lane": lane, "limit": 500, "since": page[-1]["seq"]}
         records = [*found, *page]
         return [{k: r[k] for k in ("seq", "kind", "at")} for r in ([r for r in records if r["kind"] != "state"] or records)[-8:][::-1]]
+
+    def milestone_state(self, drive_prs, now):
+        if not self.milestone_cache or time.monotonic() - self.milestone_cache[0] > MILESTONE_TTL:
+            self.milestone_cache = (time.monotonic(), self.fetch({"blocker"}, now - dt.timedelta(days=7)), self.fetch({"release"}, now - dt.timedelta(days=14)))
+        return milestones.compute(self.config["milestones"], drive_prs, self.milestone_cache[1], self.milestone_cache[2])
 
     def fetch(self, kinds, since):
         found, after = [], 0
@@ -993,6 +1001,7 @@ class Drive:
             "latest_words": self.words(),
             "evidence": {number: entry for number, entry in self.evidences().items() if still_open(number, model["prs"], progress.get("pr_state", {}))},
             "pages": without_finished_prs({name: curator.brief for name, curator in self.pages.items()}, model["prs"], progress.get("pr_state", {})),
+            "milestone_state": self.milestone_state(drive["prs"], now),
             "milestones": [m["name"] for m in self.config["milestones"]],
             "milestones_label": self.config["milestones_label"],
             "views": self.config.get("views", {}),
