@@ -11453,6 +11453,19 @@ def test_a_cci_page_under_half_the_budget_is_the_last_one_read(monkeypatch):
     assert [call[call.index("--since") + 1] for call in calls] == ["0", "2"]
 
 
+def test_a_full_page_of_cci_rows_is_never_the_last_one_read_however_small(monkeypatch):
+    monkeypatch.setattr(runner_module.cci, "PAGE_ROWS", 2)
+    pages = [[{"seq": 1, "text": "a"}, {"seq": 2, "text": "b"}], [{"seq": 3, "text": "c"}]]
+    calls: list[list[str]] = []
+
+    def run(argv: list[str]) -> str:
+        calls.append(argv)
+        return "".join(json.dumps(record) + "\n" for record in pages[len(calls) - 1])
+
+    assert [record["seq"] for record in runner_module.cci.records(run, "d1", "--kind=go")] == [1, 2, 3]
+    assert [call[call.index("--since") + 1] for call in calls] == ["0", "2"]
+
+
 def script_build(*steps: str, failed: str = "") -> dict:
     return {"jobs": [{"type": "script", "step_key": step, "name": step, "state": "failed" if step == failed else "passed"} for step in steps]}
 
