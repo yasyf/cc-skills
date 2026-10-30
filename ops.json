@@ -1,1 +1,1 @@
-{"v":1,"lamport":7,"ops":[{"kind":"renew"}]}
+{"v":1,"lamport":8,"ops":[{"kind":"set_criterion_status","id":"c8d8fc2aa05c6fe331d3b2704f651168","status":"met","note":"Actual feature v0.87.40 published from merged b594bc4391c9aaa411cf6df9e65dce24cd084874. Fresh installed /opt/homebrew/Cellar/ccx/0.87.40/bin/ccx returnsv0.87.40; SHA256320fb864f520f1a997a73ec9218cdc361522444aba183a19a5b37a3be68859ec matches official artifact checksum verified by release owner and fresh local hash."}]}
