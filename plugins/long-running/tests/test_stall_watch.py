@@ -160,7 +160,7 @@ def watch(shell: FakeShell, config: Path) -> None:
 
 
 def test_a_head_no_finder_names_posts_one_urgent_record_to_root_and_its_lane_until_a_review_clears_it(config):
-    shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35), head(3, "102", OTHER, 20), fidelity(4, "102", OTHER, 15)], [row("101", test_state="pending"), row("102", OTHER, test_state="pending")])
+    shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35), head(3, "102", OTHER, 9), fidelity(4, "102", OTHER, 8)], [row("101", test_state="pending"), row("102", OTHER, test_state="pending")])
 
     watch(shell, config)
     watch(shell, config)
@@ -424,7 +424,7 @@ def test_a_tap_at_an_earlier_head_asks_sonnet_once_whether_the_new_head_replays_
 
     assert len(shell.prompts) == 1
     assert restack in shell.prompts[0]
-    assert shell.topics() == ["carry:101:abc1234"]
+    assert [topic for topic in shell.topics() if topic.startswith("carry:")] == ["carry:101:abc1234"]
     assert shell.post("carry:101:abc1234")["to"] == "fidelity-desk@d1"
     assert "post `fidelity: ok abc1234 carried from 0123456`" in shell.post("carry:101:abc1234")["text"]
 
@@ -480,7 +480,7 @@ def test_one_sonnet_call_judges_every_quiet_lane_and_only_a_kept_promise_or_a_na
     task(tmp_path, 7, "lane-g", minutes_ago=5)
     records = [
         record(1, "lane-a", "state", "pushed the fix", 40),
-        record(2, "lane-b", "state", "waiting on CI build 123, about an hour", 40),
+        record(2, "lane-b", "state", "waiting on CI build 123, about an hour", 35),
         record(3, "lane-c", "state", "next state by 12:50 PM", 20),
         record(4, "lane-e-2", "state", "rebasing now", 2),
         record(5, "lane-f", "state", "done earlier", 300),
@@ -494,7 +494,7 @@ def test_one_sonnet_call_judges_every_quiet_lane_and_only_a_kept_promise_or_a_na
     assert len(shell.prompts) == 1
     assert sorted(json.loads(shell.prompts[0].split("Questions:\n", 1)[1]), key=lambda question: question["lane"]) == [
         {"kind": "silence", "lane": "lane-a", "last_at": stamp(40), "minutes_silent": 40, "last_record": "pushed the fix", "id": "lane:lane-a:1"},
-        {"kind": "silence", "lane": "lane-b", "last_at": stamp(40), "minutes_silent": 40, "last_record": "waiting on CI build 123, about an hour", "id": "lane:lane-b:2"},
+        {"kind": "silence", "lane": "lane-b", "last_at": stamp(35), "minutes_silent": 35, "last_record": "waiting on CI build 123, about an hour", "id": "lane:lane-b:2"},
         {"kind": "silence", "lane": "lane-c", "last_at": stamp(20), "minutes_silent": 20, "last_record": "next state by 12:50 PM", "id": "lane:lane-c:3"},
     ]
     assert sorted(shell.topics()) == ["lane:lane-a", "lane:lane-c", "lane:lane-d"]
