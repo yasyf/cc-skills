@@ -8,6 +8,7 @@ PR = re.compile(r"#(\d+)")
 DONE = re.compile(r"\b(LIVE|passed|published)\b", re.I)
 STARTED = re.compile(r"\bstarted\b", re.I)
 FAILED = re.compile(r"\bfailed\b", re.I)
+PROMISED = re.compile(r"\bby \d|\d:\d\d|\b\d{1,2} ?(AM|PM)\b", re.I)
 OPEN_KINDS = {
     "queued": "in the merge queue",
     "waiting": "waiting on a review or a tap",
@@ -32,6 +33,14 @@ def clock(iso):
     return when(iso).astimezone(PACIFIC).strftime("%-I:%M %p")
 
 
+def timed(step, by, since):
+    if by:
+        return f"{step}, by {clock(by)}"
+    if PROMISED.search(step):
+        return step
+    return f"{step}, no time given" + (f" since {clock(since)}" if since else "")
+
+
 def changes_of(milestone):
     if "changes" in milestone:
         return [int(n) for n in milestone["changes"]]
@@ -44,7 +53,7 @@ def release_events(releases, pattern):
     if not pattern:
         return None, None
     matching = [r for r in releases if re.search(pattern, r["text"])]
-    done = next((r for r in reversed(matching) if DONE.search(r["text"])), None)
+    done = next((r for r in matching if DONE.search(r["text"])), None)
     newest = matching[-1] if matching else None
     running = newest if newest and STARTED.search(newest["text"]) and not DONE.search(newest["text"]) and not FAILED.search(newest["text"]) else None
     return done, running
@@ -61,6 +70,7 @@ def blockers_of(blockers, release):
             "owner": attrs.get("owner") or (record.get("to") or [record["lane"]])[0],
             "next": attrs.get("next") or "",
             "since": attrs.get("since") or record["at"],
+            "by": attrs.get("by"),
             "seq": record["seq"],
         })
     return found
@@ -85,7 +95,7 @@ def compute(config_milestones, drive_prs, blockers, releases):
                 state="broken",
                 label="Blocked",
                 waits=first["text"] if len(found) == 1 else f"{first['text']} (and {len(found) - 1} more)",
-                unblocking="; ".join(b["next"] for b in found if b["next"]) + (f"; {len(unknown)} without a next step yet, asked of their owners" if unknown else ""),
+                unblocking="; ".join(timed(b["next"], b["by"], b["since"]) for b in found if b["next"]) + (f"; {len(unknown)} without a next step yet, asked of their owners" if unknown else ""),
                 since=first["since"],
                 owners=sorted({b["owner"] for b in found}),
                 blockers=found,
@@ -103,6 +113,7 @@ def compute(config_milestones, drive_prs, blockers, releases):
                 label="Being built",
                 waits=f"{len(still_open)} of {len(changes)} changes still open: " + ", ".join(f"{count} {OPEN_KINDS.get(kind, 'in progress')}" for kind, count in counts.items()),
                 unblocking="; ".join(NEXT_BY_KIND.get(kind, "their workers move them") for kind in counts).capitalize(),
+                owners=[milestone["owner"]] if "owner" in milestone else [],
             )
         elif testing:
             row.update(state="progress", label="Publishing a test build", waits=f"A test build started at {clock(testing['at'])}", unblocking="The release worker follows it to the test channel", since=testing["at"], owners=[testing["lane"]])
@@ -111,7 +122,7 @@ def compute(config_milestones, drive_prs, blockers, releases):
         elif before and before["state"] != "live":
             row.update(state="not", label="Not started", waits=f"{before['name']} first", unblocking=f"It starts once {before['name']} is live")
         elif changes or milestone.get("live_match"):
-            row.update(state="next", label="Ready to release", waits="Its release has not started", unblocking="The release worker starts it")
+            row.update(state="next", label="Ready to release", waits="Its release has not started", unblocking=timed("The release worker starts it", None, None), owners=[milestone["owner"]] if "owner" in milestone else [])
         else:
             row.update(state="not", label="Not started", waits="Nothing tracks it yet", unblocking="The coordinator names its changes")
         result.append(row)
