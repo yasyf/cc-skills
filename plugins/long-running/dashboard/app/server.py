@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -40,6 +41,7 @@ TIMELINE_WINDOW = dt.timedelta(hours=24)
 LEDGER_KINDS = {"landed", "go", "opened", "head", "hold", "lift"}
 LIVE_SOURCES = ["cc-present store: taps and questions", "cci bus: records and workers", "drive ledger in cc-notes: pull request states, re-read on every landing, go, head, opened, hold or lift record", "progress-desk steps.json: the step rows"]
 REBUILD_AFTER = 2.0
+LIVE_REFRESH = 5.0
 WORD_BYSTANDERS = ("dashboard", "register", "cc-present", "desk-runner")
 PR_NAMED = re.compile(r"#(\d{5})(?!\d)")
 SLOW_REFRESH = 300
@@ -572,6 +574,9 @@ class Drive:
         self.evidence = {}
         self.version = 0
         self.model = {}
+        self.serving = threading.Condition()
+        self.served = None
+        self.live_model = None
         self.slow = {}
         self.slow_at = 0.0
         self.dirty_at = time.monotonic()
@@ -593,9 +598,10 @@ class Drive:
     def curator_model(self):
         while "prs" not in self.model:
             time.sleep(1)
-        with self.lock:
-            model = dict(self.model)
-        return {**self.live(model), "fetch": self.fetch}
+        with self.serving:
+            self.serving.wait_for(lambda: self.live_model is not None)
+            live = self.live_model
+        return {**live, "fetch": self.fetch}
 
     def lane_names(self):
         with self.lock:
@@ -828,6 +834,39 @@ class Drive:
             self.dirty_at = self.dirty_at or time.monotonic()
             if slow:
                 self.slow_at = 0.0
+
+    def restore(self, snapshot):
+        if snapshot.exists():
+            lean = gzip.decompress(snapshot.read_bytes())
+            self.served = {"version": json.loads(lean)["version"], "full": None, "lean": (lean, snapshot.read_bytes())}
+
+    def serve_loop(self, snapshot):
+        seen = None
+        while True:
+            with self.changed:
+                self.changed.wait_for(lambda: self.version != seen, timeout=LIVE_REFRESH)
+                seen = self.version
+                model = dict(self.model)
+            if "prs" not in model:
+                continue
+            try:
+                live = self.live(model)
+            except Exception:
+                traceback.print_exc()
+                continue
+            sig = hashlib.sha256(json.dumps({**browser_view(live), "version": None}).encode()).hexdigest()
+            if self.served and self.served.get("sig") == sig:
+                continue
+            version = (self.served["version"] if self.served else 0) + 1
+            live = {**live, "version": version}
+            full, lean = json.dumps(live).encode(), json.dumps(browser_view(live)).encode()
+            zipped = gzip.compress(lean, 5)
+            with self.serving:
+                self.live_model = live
+                self.served = {"version": version, "sig": sig, "full": (full, gzip.compress(full, 5)), "lean": (lean, zipped)}
+                self.serving.notify_all()
+            snapshot.with_suffix(".tmp").write_bytes(zipped)
+            snapshot.with_suffix(".tmp").replace(snapshot)
 
     def rebuild_loop(self):
         while True:
@@ -1076,11 +1115,13 @@ def handler(drive):
                     body = body.replace("</body>", ASSIST.read_text() + "</body>").replace("<head>", f'<head>\n<meta name="build" content="{BUILD}">', 1)
                 return self.send(200, kind, body.encode())
             if path == "/api/model":
-                with drive.lock:
-                    model = {"version": drive.version, **drive.model}
-                if "prs" in model:
-                    model = drive.live(model)
-                return self.send(200, "application/json", json.dumps(model if "full=1" in self.path or "prs" not in model else browser_view(model)).encode())
+                kind = "full" if "full=1" in self.path else "lean"
+                with drive.serving:
+                    drive.serving.wait_for(lambda: drive.served and drive.served[kind], timeout=60)
+                    served = drive.served and drive.served[kind]
+                if not served:
+                    return self.send(503, "text/plain", b"The dashboard is building its first view.")
+                return self.send_built(*served)
             if path == "/api/words":
                 with drive.lock:
                     words = drive.model.get("words", [])
@@ -1152,6 +1193,17 @@ def handler(drive):
             self.end_headers()
             self.wfile.write(body)
 
+        def send_built(self, raw, zipped):
+            body = zipped if "gzip" in self.headers.get("Accept-Encoding", "") else raw
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            if body is zipped:
+                self.send_header("Content-Encoding", "gzip")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
         def story(self, item):
             if "mirror" in drive.config:
                 return self.relay(f"{drive.config['mirror']}/api/story/{item}")
@@ -1205,11 +1257,11 @@ def handler(drive):
             self.wfile.write(f"event: build\ndata: {BUILD}\n\n".encode())
             seen = -1
             while True:
-                with drive.changed:
-                    drive.changed.wait_for(lambda: drive.version != seen, timeout=15)
-                    version = drive.version
+                with drive.serving:
+                    drive.serving.wait_for(lambda: drive.served and drive.served["version"] != seen, timeout=15)
+                    version = drive.served and drive.served["version"]
                 try:
-                    if version == seen:
+                    if version in (None, seen):
                         self.wfile.write(b": keep-alive\n\n")
                     else:
                         self.wfile.write(f"event: version\ndata: {version}\n\n".encode())
@@ -1227,10 +1279,12 @@ def main():
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
     drive = Drive(config, ReviewAssistant(config, args.config.parent / "reviews", f"http://{config['host']}:{config['port']}/api/model"))
+    snapshot = args.config.parent / "served-model.json.gz"
+    drive.restore(snapshot)
     after = drive.load_records()
     drive.load_gos()
     writers = [(drive.follow_mirror, ())] if "mirror" in config else [(curator.loop, ()) for curator in drive.curators]
-    for target, rest in ((drive.follow_code, ()), *writers, (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.follow_status, ()), (drive.rebuild_loop, ()), (drive.follow_paths, ())):
+    for target, rest in ((drive.follow_code, ()), *writers, (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.follow_status, ()), (drive.rebuild_loop, ()), (drive.serve_loop, (snapshot,)), (drive.follow_paths, ())):
         threading.Thread(target=target, args=rest, daemon=True).start()
     server = ThreadingHTTPServer((config["host"], config["port"]), handler(drive))
     server.daemon_threads = True
