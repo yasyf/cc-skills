@@ -138,7 +138,7 @@ def watch(shell: FakeShell, config: Path) -> None:
 
 
 def test_a_head_no_finder_names_posts_one_urgent_record_to_root_and_its_lane_until_a_review_clears_it(config):
-    shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35), head(3, "102", OTHER, 20), fidelity(4, "102", OTHER, 15)], [row("101"), row("102", OTHER)])
+    shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35), head(3, "102", OTHER, 20), fidelity(4, "102", OTHER, 15)], [row("101", test_state="pending"), row("102", OTHER, test_state="pending")])
 
     watch(shell, config)
     watch(shell, config)
@@ -150,10 +150,23 @@ def test_a_head_no_finder_names_posts_one_urgent_record_to_root_and_its_lane_unt
     shell.records.append(finder(5, "101", HEAD, 1))
     watch(shell, config)
     assert "finder:101:abc1234" not in opened(config)
-    shell.rows[0] = row("101", OTHER)
+    shell.rows[0] = row("101", OTHER, test_state="pending")
     shell.records += [head(6, "101", OTHER, 31), fidelity(7, "101", OTHER, 25)]
     watch(shell, config)
     assert shell.topics() == ["finder:101:abc1234", "finder:101:fedcba9"]
+
+
+@pytest.mark.parametrize(("green", "stalls"), [(5, []), (11, ["fidelity:101:abc1234"])])
+def test_a_green_head_with_no_fidelity_grade_for_ten_minutes_alarms_the_graders_and_root_whatever_the_desk_holds_queued(config, tmp_path, green, stalls):
+    desk_job(tmp_path, "desk-fidelity", "fidelity", "101", HEAD, None)
+    shell = FakeShell([head(1, "101", HEAD, 20), finder(2, "101", HEAD, 15)], [row("101", green_at=stamp(green))])
+
+    watch(shell, config)
+
+    assert shell.topics() == stalls
+    for topic in stalls:
+        assert shell.post(topic)["to"].split(",")[0] == "root" and "fidelity-desk@d1" in shell.post(topic)["to"]
+        assert shell.post(topic)["text"].startswith(f"STALL ungraded #101 at abc1234, {green} min: its build has read green since")
 
 
 @pytest.mark.parametrize(("named", "stalls"), [(5, []), (40, ["finder:101:abc1234"])])
@@ -972,7 +985,7 @@ def desk_job(tmp_path: Path, desk: str, kind: str, pr: str, sha: str, started_mi
 def test_a_head_in_the_finder_queue_draws_no_finder_stall_until_its_pass_runs_past_25_minutes_and_then_only_the_desk_hears(config, tmp_path, started, stalls):
     desk_lane(config, "landing-desk-3")
     desk_job(tmp_path, "desk-finder", "finder", "101", HEAD, started)
-    shell = FakeShell([head(1, "101", HEAD, 50), fidelity(2, "101", HEAD, 45)], [row("101")])
+    shell = FakeShell([head(1, "101", HEAD, 50), fidelity(2, "101", HEAD, 45)], [row("101", test_state="pending")])
     watch(shell, config)
     assert [topic for topic in shell.topics() if topic.startswith("finder:")] == stalls
     for topic in stalls:
@@ -983,7 +996,7 @@ def test_a_head_in_the_finder_queue_draws_no_finder_stall_until_its_pass_runs_pa
 def test_a_head_in_the_fidelity_queue_draws_no_fidelity_stall_until_its_grade_runs_past_25_minutes(config, tmp_path, started, stalls):
     desk_lane(config, "landing-desk-3")
     desk_job(tmp_path, "desk-fidelity", "fidelity", "101", HEAD, started)
-    shell = FakeShell([head(1, "101", HEAD, 50), finder(2, "101", HEAD, 45)], [row("101")])
+    shell = FakeShell([head(1, "101", HEAD, 50), finder(2, "101", HEAD, 45)], [row("101", test_state="pending")])
     watch(shell, config)
     assert [topic for topic in shell.topics() if topic.startswith("fidelity:")] == stalls
     for topic in stalls:
