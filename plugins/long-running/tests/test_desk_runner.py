@@ -10914,7 +10914,7 @@ def test_an_incident_lanes_mechanism_with_no_pr_or_blocker_escalates_pr_silent_w
     shell.sleep(60)
     orca_pass(shell, config)
     assert silent_lines(shell) == [
-        f"PR-SILENT {SILENT_LANE} #{mechanism}: MECHANISM at 11:00, 10 min with no OPENED or BLOCKER record; {worktree} (git worktree list): HEAD (no branch), 0 dirty files, 0 ahead of trunk, last commit 130 min ago 1a2b3c4 dev: bump the sidecar, not pushed, no PR | {SILENT_LANE}: commit and push the fix, open its PR with the submit skill and post OPENED, or post BLOCKER"
+        f"PR-SILENT {SILENT_LANE} #{mechanism}: MECHANISM at 11:00, 10 min with no OPENED or BLOCKER record; monorepo: {worktree} (git worktree list): HEAD (no branch), 0 dirty files, 0 ahead of trunk, last commit 130 min ago 1a2b3c4 dev: bump the sidecar, not pushed, no PR | {SILENT_LANE}: commit and push the fix, open its PR with the submit skill and post OPENED, or post BLOCKER"
     ]
     assert [(post["kind"], post["topic"]) for post in shell.posts if post["text"].startswith("PR-SILENT ")] == [("blocker", SILENT_LANE)]
     shell.sleep(4 * 60)
@@ -10948,7 +10948,7 @@ def test_a_dirty_worktree_names_its_branch_and_files_and_a_missing_one_says_so(s
     shell.sleep(10 * 60)
     orca_pass(shell, config)
     [line] = silent_lines(shell)
-    assert f"; {worktree} (cci record): inc-liam-fork-parent-grant, 2 dirty files: rust/crates/sandsql-server/src/chain.rs, rust/crates/sandsql-server/src/grant.rs, 1 ahead of trunk, last commit 13 min ago 1a2b3c4 dev: bump the sidecar, no origin branch, no PR |" in line
+    assert f"; monorepo: {worktree} (cci record): inc-liam-fork-parent-grant, 2 dirty files: rust/crates/sandsql-server/src/chain.rs, rust/crates/sandsql-server/src/grant.rs, 1 ahead of trunk, last commit 13 min ago 1a2b3c4 dev: bump the sidecar, no origin branch, no PR |" in line
     assert line.startswith(f"PR-SILENT {SILENT_LANE} #") and ": CANDIDATE at 11:00, 10 min" in line
     [ghost] = silent_lines(shell, "inc-ghost-fix")
     assert "; no worktree found for lane inc-ghost-fix |" in ghost
@@ -11006,7 +11006,7 @@ def test_a_clocked_orca_fix_lane_reports_the_worktree_its_launch_receipt_names_a
     orca_pass(shell, config)
     orca_pass(shell, config)
     [line] = silent_lines(shell, LANE)
-    assert f"; {worktree} (launch receipt): HEAD (no branch), 0 dirty files," in line
+    assert f"; orca: {worktree} (launch receipt): HEAD (no branch), 0 dirty files," in line
     assert not [post for post in shell.posts if post["text"].startswith("DEFERRED ")]
 
 
@@ -11028,7 +11028,7 @@ def test_an_incident_lane_named_for_no_fix_starts_its_clock_once_it_owns_a_workt
     shell.sleep(5 * 60)
     orca_pass(shell, config)
     [line] = silent_lines(shell, "inc-mac-cpu-spin")
-    assert f"; {worktree} (git worktree list): HEAD (no branch)," in line
+    assert f"; monorepo: {worktree} (git worktree list): HEAD (no branch)," in line
 
 
 def silent_posts(shell: FakeShell) -> list[str]:

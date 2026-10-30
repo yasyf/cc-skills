@@ -146,8 +146,13 @@ def pool_worktrees(run: Run, checkout: Path) -> dict[str, tuple[str, str]]:
             continue
         seen.add(common)
         for path, branch in listed_worktrees(run, anchor).items():
-            found.setdefault(path, (branch, Path(common).parent.name))
+            found.setdefault(path, (branch, repo_name(Path(path), pool, Path(common).parent.name)))
     return found
+
+
+def repo_name(path: Path, pool: Path, fallback: str) -> str:
+    """The pool folder a worktree sits in, `~/.claude/worktrees/<repo>/<lane>`, else `fallback`."""
+    return path.relative_to(pool).parts[0] if path.is_relative_to(pool) else fallback
 
 
 def lane_worktrees(lane: str, records: list[dict], receipts: Iterable[Path], checkout: Path, repo: str, run: Run, excluded: frozenset[str] = frozenset()) -> list[Worktree]:
@@ -159,7 +164,8 @@ def lane_worktrees(lane: str, records: list[dict], receipts: Iterable[Path], che
     def add(path: str, source: str) -> None:
         resolved = str(Path(path).expanduser())
         if Path(resolved).is_dir() and str(Path(resolved).resolve()) not in skip:
-            found.setdefault(resolved, Worktree(Path(resolved), listed.get(resolved, ("", Path(resolved).parent.name))[1])).sources.append(source)
+            name = listed[resolved][1] if resolved in listed else repo_name(Path(resolved), Path.home() / ".claude" / "worktrees", Path(resolved).parent.name)
+            found.setdefault(resolved, Worktree(Path(resolved), name)).sources.append(source)
 
     for receipt in receipts:
         if (file := receipt / f"{lane}.worktree").is_file():
