@@ -11,6 +11,7 @@ from pathlib import Path
 
 
 LANE_NUMBER = re.compile(r"(.+?)(?:-(\d+))?")
+SUCCESSOR_NUMBER = re.compile(r"(?:-\d{1,2})+$")
 WITHDRAWS = re.compile(r"\bwithdraws?\b[^.;:\n#]*#(\d+)", re.IGNORECASE)
 WITHDRAWN_NAMED = re.compile(r"#(\d+)\b(?=(?:(?!\bnot\b)[^.;:\n])*\bwithdrawn\b)", re.IGNORECASE)
 FIDELITY_OK = "fidelity: ok"
@@ -271,6 +272,12 @@ def full_text(record: dict) -> str:
 def gone_at(gos: list[dict], pr: str, head: str) -> list[dict]:
     """The root `go` records of `gos` whose opening clause names `pr` at `head` by a short sha."""
     return [record for record in gos if (named := go_heads(record).get(pr)) and names_head(named, head) and pr not in record.get("voided", ())]
+
+
+def with_successors(lanes: list[str], records: list[dict]) -> list[str]:
+    """`lanes` plus every lane posting in `records` that succeeds one of them, such as `fidelity-desk-13` for `fidelity-desk-12`, so a successor counts with no config edit."""
+    family = re.compile("|".join(rf"{re.escape(SUCCESSOR_NUMBER.sub('', lane))}(?:-\d{{1,2}})*" for lane in lanes))
+    return list(dict.fromkeys([*lanes, *sorted({record["lane"] for record in records if family.fullmatch(record["lane"])})]))
 
 
 def closes(record: dict) -> set[int]:

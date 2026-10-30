@@ -317,6 +317,16 @@ def test_a_github_or_board_outage_warns_and_fails_no_row_on_what_it_could_not_re
     assert out[1].startswith("WARN the board's verdicts did not read (cc-present outcomes exited 1: no board for this session)")
 
 
+def test_a_grade_from_a_successor_fidelity_desk_counts_with_no_config_edit(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
+    """Root #200233: fidelity-desk-13 succeeded a listed desk, and the gate read its grades as missing until root edited runner.json."""
+    shell.pull("42590")
+    shell.post("review", "fidelity-desk-13", f"fidelity: ok {HEAD[:7]} checked rule/1", "42590")
+    shell.post("review", "p7", f"finder: ok {HEAD[:7]} no majors", "42590")
+
+    assert gate(tmp_path, shell, card(row("42590")), "--", "cc-present", "update-block") == 0
+    assert not [line for line in lines(capsys) if "ungraded" in line and "fidelity grade" in line]
+
+
 def fidelity_only(shell: FakeShell, pr: str) -> None:
     shell.pull(pr)
     shell.post("review", "fidelity-desk", f"fidelity: ok {HEAD[:7]} checked rule/1", pr)
