@@ -23,10 +23,12 @@ long-running processes there read GitHub between passes.
 The plugin version holding <script> is copied over once, when the Sprite lacks
 it, the drive's registry file on every run, and the plan package the drive's
 register names, the directory holding plan/plan.md, whenever a file in it was
-added, removed or changed since the Sprite's copy. The job's checkout fetches every
-remote, the job runs there, the Sprite pushes the records the job posted to the
-drive's cci relay, and <dir> is copied back, result.json included, so the runner settles the
-pass from this process and its files as it does a local one. A failed push fails
+added, removed or changed since the Sprite's copy. The job's checkout drops the
+empty loose refs a Sprite restart leaves, which every fetch reads as the zero
+object, and fetches every remote, the job runs there, the Sprite pushes the
+records the job posted to the drive's cci relay, and <dir> is copied back,
+result.json included and job.json and pid left as this machine wrote them, so
+the runner settles the pass from this process and its files as it does a local one. A failed push fails
 the pass, since a grade that never reached the relay grades nothing. A `cancelled` mark
 the runner writes while the job runs is forwarded, and each codex run the job
 started there is cancelled. Exits with the script's status.
@@ -74,6 +76,7 @@ for name, argv in json.loads(os.environ.get("SPRITE_JOB_KEYS") or "{}").items():
   while IFS= read -r line; do export "$line"; done
   [ -z "${GH_TOKEN:-}" ] || printf "protocol=https\nhost=github.com\nusername=x-access-token\npassword=%s\n\n" "$GH_TOKEN" |
     git credential-cache --timeout=3900 store
+  find "$(git -C "$3" rev-parse --path-format=absolute --git-common-dir)/refs" -type f -empty ! -name "*.lock" -delete
   flock "$3.fetch.lock" git -C "$3" -c credential.helper= -c "credential.helper=!gh auth git-credential" fetch --quiet --all
   exec python3 "$1" "$2"' sh "$script" "$dir" "$checkout" &
 job=$!
@@ -88,5 +91,5 @@ done
 status=0
 wait "$job" || status=$?
 sprite exec -s "$sprite" --no-stdin -- cci relay push >/dev/null
-sprite exec -s "$sprite" --no-stdin -- tar -C "$dir" -cz . | tar -xz -m -C "$dir"
+sprite exec -s "$sprite" --no-stdin -- sh -c 'cd "$1" && find . -mindepth 1 ! -path ./job.json ! -path ./pid | tar -cz --no-recursion -T -' sh "$dir" | tar -xz -m -C "$dir"
 exit "$status"

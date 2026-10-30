@@ -4293,7 +4293,7 @@ class Runner:
         for action in self.book.actions(FINDER, kind="finder", status="started"):
             directory = Path(action.dispatch_id)
             pid = directory / finder.PID
-            exited = pid.is_file() and not self.shell.pid_alive(int(pid.read_text()))
+            exited = pid.is_file() and not ((said := pid.read_text().strip()).isdigit() and self.shell.pid_alive(int(said)))
             result = directory / finder.RESULT
             ran = whole_minutes(actions.parse_stamp(action.started_at), self.now())
             if result.is_file():
@@ -4422,34 +4422,33 @@ class Runner:
         directory.mkdir(parents=True, exist_ok=True)
         landing = self.config.landing or {}
         sprite = self.least_busy_sprite(FINDER, spec)
-        (directory / finder.JOB).write_text(
-            json.dumps(
-                {
-                    "drive": self.config.drive,
-                    "repo": repo,
-                    "pr": job["pr"],
-                    "head": job["head"],
-                    "since": last,
-                    "prior": prior,
-                    "previous": finder.previous(next((record for record in records if record["seq"] == job["seq"]), None)) if named and not full else "",
-                    "history": [{"seq": record["seq"], "lane": record["lane"], "text": record["text"], "path": (record.get("refs") or {}).get("path", "")} for record in named],
-                    "settled": self.root_settled(repo, job["pr"], named),
-                    "lane": job["lane"],
-                    "to": [RUNNER, *filter(None, [rows.get(job["pr"], {}).get("lane")]), *spec.get("to", [])],
-                    "checkout": spec.get("checkout") or landing["checkout"],
-                    "model": spec.get("model", FINDER_MODEL),
-                    "fast": spec.get("fast", FINDER_FAST),
-                    "full": full,
-                    "sprite": sprite,
-                }
-            )
+        drive.write_atomic(
+            directory / finder.JOB,
+            {
+                "drive": self.config.drive,
+                "repo": repo,
+                "pr": job["pr"],
+                "head": job["head"],
+                "since": last,
+                "prior": prior,
+                "previous": finder.previous(next((record for record in records if record["seq"] == job["seq"]), None)) if named and not full else "",
+                "history": [{"seq": record["seq"], "lane": record["lane"], "text": record["text"], "path": (record.get("refs") or {}).get("path", "")} for record in named],
+                "settled": self.root_settled(repo, job["pr"], named),
+                "lane": job["lane"],
+                "to": [RUNNER, *filter(None, [rows.get(job["pr"], {}).get("lane")]), *spec.get("to", [])],
+                "checkout": spec.get("checkout") or landing["checkout"],
+                "model": spec.get("model", FINDER_MODEL),
+                "fast": spec.get("fast", FINDER_FAST),
+                "full": full,
+                "sprite": sprite,
+            },
         )
         deadline = self.now() + timedelta(minutes=spec.get("timeout_minutes", FINDER_MINUTES))
         if not self.book.attempt(FINDER, lambda incident: incident.start(action.action_id, self.now(), deadline=deadline, dispatch_id=str(directory))):
             return False
         argv, env = job_command(spec, sprite, "finder.py", directory)
         process = self.shell.spawn(argv, directory / finder.LOG, env)
-        (directory / finder.PID).write_text(f"{process.pid}\n")
+        drive.write_atomic(directory / finder.PID, process.pid)
         return True
 
     def root_settled(self, repo: str, pr: str, named: list[dict]) -> dict[str, int]:
@@ -4596,44 +4595,43 @@ class Runner:
     def start_fidelity(self, spec: dict, repo: str, action: actions.Action, rows: dict[str, dict]) -> bool:
         """Settle a head a fidelity lane already graded or sent to a reader, or write the pass's job, with every fidelity grade and `old-app:` line on the PR, the grades a root `class wrong` decision answers, and the lane's newest contract, and start fidelity.py on it detached."""
         job = json.loads(action.target)
-        drive, landing = self.config.drive, self.config.landing or {}
+        drive_id, landing = self.config.drive, self.config.landing or {}
         lanes = list(dict.fromkeys([*self.landing_lanes("fidelity_lane"), fidelity.LANE]))
-        records = cci.records(self.cci_tail, drive, "--kind=review", "--kind=head", "--pr", f"{repo}#{job['pr']}")
-        grades = [record | {"text": full_text(record)} for record in fidelity_grades_in(records, drive, lanes, repo, job["pr"])]
+        records = cci.records(self.cci_tail, drive_id, "--kind=review", "--kind=head", "--pr", f"{repo}#{job['pr']}")
+        grades = [record | {"text": full_text(record)} for record in fidelity_grades_in(records, drive_id, lanes, repo, job["pr"])]
         sent = [record for record in records if (record["kind"], record["lane"]) == ("review", fidelity.LANE) and record["text"].startswith(fidelity.READER)]
         if answered := newest_naming(grades, job["head"]) or newest_naming(sent, job["head"]):
             self.settle(FIDELITY, action.action_id, {"answered": f"cci #{answered['seq']} from {answered['lane']}"})
             return False
-        contracts = [record for record in cci.records(self.cci_tail, drive, "--kind=contract", "--lane", job["lane"]) if (record["kind"], record["lane"]) == ("contract", job["lane"])]
+        contracts = [record for record in cci.records(self.cci_tail, drive_id, "--kind=contract", "--lane", job["lane"]) if (record["kind"], record["lane"]) == ("contract", job["lane"])]
         contract = max((record for record in contracts if about_pr(record, repo, job["pr"])), key=lambda record: record["seq"], default=None) or max(contracts, key=lambda record: record["seq"], default=None)
         directory = self.config.source.parent / fidelity.LANE / f"{job['pr']}-{job['head'][:12]}-{job['seq']}"
         directory.mkdir(parents=True, exist_ok=True)
         sprite = self.least_busy_sprite(FIDELITY, spec)
-        (directory / fidelity.JOB).write_text(
-            json.dumps(
-                {
-                    "drive": drive,
-                    "repo": repo,
-                    "pr": job["pr"],
-                    "head": job["head"],
-                    "lane": job["lane"],
-                    "to": [RUNNER, *filter(None, [rows.get(job["pr"], {}).get("lane")]), *spec.get("to", [])],
-                    "readers": [lane for lane in lanes if lane != fidelity.LANE],
-                    "lanes": lanes,
-                    "grades": [{key: grade[key] for key in ("seq", "lane", "text")} for grade in grades],
-                    "old_apps": [{"seq": grade["seq"], "lane": grade["lane"], "head": grade["head"], "line": OLD_APP_LINE.search(full_text(grade))[0]} for grade in old_app_grades_in(records, drive, lanes, repo, job["pr"])],
-                    "settled": self.root_settled(repo, job["pr"], grades),
-                    "corrected": [record["re"] for record in cci.records(self.cci_tail, drive, "--kind=decide", "--lane", ROOT, "--pr", f"{repo}#{job['pr']}") if (record["kind"], record["lane"]) == ("decide", ROOT) and record.get("re") and CLASS_WRONG.match(record["text"])],
-                    "contract": full_text(contract) if contract else "",
-                    "exempt": {"port": landing.get("port_phrase", PORT_PHRASE), "test-only": TEST_ONLY_PHRASE},
-                    "exempt_grades": landing.get("exempt_grades", [landing.get("port_phrase", PORT_PHRASE), TEST_ONLY_PHRASE]),
-                    "baseline": spec.get("baseline", ""),
-                    "checkout": spec.get("checkout") or landing["checkout"],
-                    "model": spec.get("model", FINDER_MODEL),
-                    "fast": spec.get("fast", FINDER_FAST),
-                    "sprite": sprite,
-                }
-            )
+        drive.write_atomic(
+            directory / fidelity.JOB,
+            {
+                "drive": drive_id,
+                "repo": repo,
+                "pr": job["pr"],
+                "head": job["head"],
+                "lane": job["lane"],
+                "to": [RUNNER, *filter(None, [rows.get(job["pr"], {}).get("lane")]), *spec.get("to", [])],
+                "readers": [lane for lane in lanes if lane != fidelity.LANE],
+                "lanes": lanes,
+                "grades": [{key: grade[key] for key in ("seq", "lane", "text")} for grade in grades],
+                "old_apps": [{"seq": grade["seq"], "lane": grade["lane"], "head": grade["head"], "line": OLD_APP_LINE.search(full_text(grade))[0]} for grade in old_app_grades_in(records, drive_id, lanes, repo, job["pr"])],
+                "settled": self.root_settled(repo, job["pr"], grades),
+                "corrected": [record["re"] for record in cci.records(self.cci_tail, drive_id, "--kind=decide", "--lane", ROOT, "--pr", f"{repo}#{job['pr']}") if (record["kind"], record["lane"]) == ("decide", ROOT) and record.get("re") and CLASS_WRONG.match(record["text"])],
+                "contract": full_text(contract) if contract else "",
+                "exempt": {"port": landing.get("port_phrase", PORT_PHRASE), "test-only": TEST_ONLY_PHRASE},
+                "exempt_grades": landing.get("exempt_grades", [landing.get("port_phrase", PORT_PHRASE), TEST_ONLY_PHRASE]),
+                "baseline": spec.get("baseline", ""),
+                "checkout": spec.get("checkout") or landing["checkout"],
+                "model": spec.get("model", FINDER_MODEL),
+                "fast": spec.get("fast", FINDER_FAST),
+                "sprite": sprite,
+            },
         )
         deadline = self.now() + timedelta(minutes=spec.get("timeout_minutes", FIDELITY_MINUTES))
         if not self.book.attempt(FIDELITY, lambda incident: incident.start(action.action_id, self.now(), deadline=deadline, dispatch_id=str(directory))):

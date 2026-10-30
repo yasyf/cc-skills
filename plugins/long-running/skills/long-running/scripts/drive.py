@@ -249,7 +249,7 @@ def find(drive: str | None, session: str | None) -> dict | None:
     return None
 
 
-def write_atomic(path: Path, payload: dict) -> Path:
+def write_atomic(path: Path, payload: object) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     staged = path.with_name(f".{path.name}.{os.getpid()}")
     staged.write_text(json.dumps(payload, indent=2) + "\n")
