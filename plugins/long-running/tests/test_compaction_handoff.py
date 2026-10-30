@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import compact_job
@@ -580,10 +581,88 @@ def test_compact_job_stops_once_the_session_compacts(tmp_path: Path) -> None:
     transcript = tmp_path / "t.jsonl"
     transcript.write_text('{"type":"assistant"}\n')
     offset = transcript.stat().st_size
-    assert not compact_job.compacted_since(transcript, offset)
+    cursor = compact_job.CompactionCursor(transcript, offset)
+    assert not cursor.compacted()
     with transcript.open("a") as file:
         file.write('{"type":"system","subtype":"compact_boundary","content":"Conversation compacted"}\n')
-    assert compact_job.compacted_since(transcript, offset)
+    assert cursor.compacted()
+    assert cursor.compacted()
+
+
+@pytest.mark.parametrize("polls", [5, 50])
+def test_compact_job_reads_appended_transcript_bytes_once(tmp_path, monkeypatch, polls):
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_bytes(b'{"type":"assistant"}\n')
+    clock, reads = [0], [0]
+    original_open = Path.open
+
+    class Reader:
+        def __init__(self, file):
+            self.file = file
+
+        def __getattr__(self, name):
+            return getattr(self.file, name)
+
+        def read(self, size=-1):
+            data = self.file.read(size)
+            reads[0] += len(data)
+            return data
+
+    @contextmanager
+    def opened(path, *args, **kwargs):
+        with original_open(path, *args, **kwargs) as file:
+            yield Reader(file) if path == transcript and args == ("rb",) else file
+
+    def sleep(seconds):
+        clock[0] += seconds
+        with transcript.open("ab") as file:
+            file.write(b"x" * 128)
+
+    monkeypatch.setattr(Path, "open", opened)
+    monkeypatch.setattr(compact_job.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(compact_job.time, "sleep", sleep)
+    monkeypatch.setattr(compact_job, "DEADLINE_SECONDS", polls * compact_job.POLL_SECONDS)
+    monkeypatch.setattr(compact_job, "orca", lambda *args: subprocess.CompletedProcess(args, 1))
+    compact_job.main("terminal", "/compact", str(transcript))
+    print(f"polls={polls} transcript_bytes_read={reads[0]} expected={(polls - 1) * 128}")
+    assert reads[0] == (polls - 1) * 128
+
+
+@pytest.mark.parametrize("split", [1, 13, len(compact_job.COMPACT_BOUNDARY) - 1])
+def test_compact_job_finds_boundary_split_between_polls(tmp_path, split):
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_bytes(compact_job.COMPACT_BOUNDARY)
+    cursor = compact_job.CompactionCursor(transcript, transcript.stat().st_size)
+    with transcript.open("ab") as file:
+        file.write(compact_job.COMPACT_BOUNDARY[:split])
+    assert not cursor.compacted()
+    with transcript.open("ab") as file:
+        file.write(compact_job.COMPACT_BOUNDARY[split:])
+    assert cursor.compacted()
+
+
+def test_compact_job_finds_boundary_split_between_read_chunks(tmp_path):
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_bytes(b"x" * (64 * 1024 - 13) + compact_job.COMPACT_BOUNDARY)
+    assert compact_job.CompactionCursor(transcript, 0).compacted()
+
+
+@pytest.mark.parametrize("replace", [False, True])
+def test_compact_job_restarts_its_original_offset_after_rotation_or_truncation(tmp_path, replace):
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_bytes(b"before\n")
+    cursor = compact_job.CompactionCursor(transcript, transcript.stat().st_size)
+    with transcript.open("ab") as file:
+        file.write(b"x" * 1024)
+    assert not cursor.compacted()
+    data = b"before\n" + (b"y" * 2048 if replace else b"") + compact_job.COMPACT_BOUNDARY
+    if replace:
+        staged = transcript.with_suffix(".new")
+        staged.write_bytes(data)
+        staged.replace(transcript)
+    else:
+        transcript.write_bytes(data)
+    assert cursor.compacted()
 
 
 def test_retry_outlives_the_previous_job() -> None:
