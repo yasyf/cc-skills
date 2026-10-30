@@ -461,6 +461,9 @@ contract and the PR body, and posts the fidelity line and the `old-app:` line ag
 the other `landing.fidelity_lane` lanes as `fidelity: reader`. A pass whose job wrote an error, or no result within
 `fidelity.timeout_minutes` (default 60), fails at once and logs `FIDELITY-FAILED` to those lanes; the next `head`
 record for the PR queues it again. `show` lists each queued and running pass.
+With `finder.sprite` or `fidelity.sprite` naming a Sprite, each pass runs there through `sprite-job.sh` at the same
+paths and posts its records over the drive's cci relay; the runner still writes the job, tracks the local process, and
+settles the pass from the result copied back.
 Between orca passes the runner waits ten seconds, cut short within a quarter second by a desk
 inbox append or an exiting launch, and its sweep shows only dispatches it has not
 named for reclaim, once each in a `RECLAIM` line that names `gc` and then `orca.gc` for the worktrees.
@@ -1287,6 +1290,13 @@ def queued_since(passes: list[actions.Action], action: actions.Action) -> tuple[
 def full_pass(action: actions.Action) -> bool:
     """Whether `action` is a requested full pass; an action queued before full passes existed carries no mark and is not."""
     return json.loads(action.target).get("full", False)
+
+
+def job_argv(spec: dict, script: str, directory: Path) -> list[str]:
+    """The command that runs the desk job `directory` through `script`: here, or through sprite-job.sh on the Sprite the desk's `sprite` names."""
+    if sprite := spec.get("sprite"):
+        return [str(SCRIPTS / "sprite-job.sh"), sprite, str(SCRIPTS / script), str(directory)]
+    return [sys.executable, str(SCRIPTS / script), str(directory)]
 
 
 def whole_minutes(start: datetime, end: datetime) -> int:
@@ -4421,7 +4431,7 @@ class Runner:
         deadline = self.now() + timedelta(minutes=spec.get("timeout_minutes", FINDER_MINUTES))
         if not self.book.attempt(FINDER, lambda incident: incident.start(action.action_id, self.now(), deadline=deadline, dispatch_id=str(directory))):
             return False
-        process = self.shell.spawn([sys.executable, str(SCRIPTS / "finder.py"), str(directory)], directory / finder.LOG, {})
+        process = self.shell.spawn(job_argv(spec, "finder.py", directory), directory / finder.LOG, {})
         (directory / finder.PID).write_text(f"{process.pid}\n")
         return True
 
@@ -4599,7 +4609,7 @@ class Runner:
         deadline = self.now() + timedelta(minutes=spec.get("timeout_minutes", FIDELITY_MINUTES))
         if not self.book.attempt(FIDELITY, lambda incident: incident.start(action.action_id, self.now(), deadline=deadline, dispatch_id=str(directory))):
             return False
-        self.shell.spawn([sys.executable, str(SCRIPTS / "fidelity.py"), str(directory)], directory / fidelity.LOG, {})
+        self.shell.spawn(job_argv(spec, "fidelity.py", directory), directory / fidelity.LOG, {})
         return True
 
     def settle(self, container: str, key: str, response: dict) -> None:
