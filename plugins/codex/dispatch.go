@@ -358,13 +358,17 @@ func pluginRoots() []string {
 	})
 }
 
+const boundedFilesystemDiscovery = "## Filesystem Discovery\n\nRead `AGENTS.md` and `CLAUDE.md` by checking those exact filenames in the current working directory and each ancestor directory; do not search recursively. Read explicitly named style guides directly at their known paths. When entering a source subdirectory, check exact instruction filenames along the path from the current checkout root to that directory. Never recursively scan parent directories, sibling worktrees, home, or temporary roots merely to locate instruction or style files (`find ..` and `rg --files . .. ../..` are forbidden). For source discovery, use caller-known checkout roots and targeted path or glob searches."
+
 func readAgentsMd() string {
+	baseline := embeddedAgentsMd
 	for _, root := range pluginRoots() {
 		if b, err := os.ReadFile(filepath.Join(root, "AGENTS.md")); err == nil { //nolint:gosec // reads the plugin's own AGENTS.md, by design
-			return strings.TrimRight(string(b), "\n")
+			baseline = string(b)
+			break
 		}
 	}
-	return strings.TrimRight(embeddedAgentsMd, "\n")
+	return strings.TrimRight(baseline, "\n") + "\n\n" + boundedFilesystemDiscovery
 }
 
 type mcpServer struct {
