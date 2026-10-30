@@ -685,9 +685,10 @@ def test_an_answer_on_the_dashboard_is_the_same_board_interaction(body, interact
 
 
 def test_a_tap_answers_with_the_board_position_and_leaves_the_slow_sources_alone(monkeypatch):
-    drive = Drive({"board_url": "http://board/p/x"}, None)
+    drive = Drive({"board_url": "http://board/p/x", "board_session": "s"}, None)
     drive.store_seq = lambda: 41
     drive.slow_at = 123.0
+    monkeypatch.setattr(server, "run", lambda argv: json.dumps(board_with([{"number": 43211, "head": "8242887"}])))
     monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: contextlib.nullcontext())
 
     assert drive.decide("merge-prs", 43211, "approved", "8242887", None) == (200, {"seq": 41})
