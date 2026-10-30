@@ -28,7 +28,7 @@ jobs:
       - name: pytest
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q
       - name: capt-hook pack test
-        run: uvx --isolated 'capt-hook>=12.103.1' pack test plugins/long-running
+        run: uvx --isolated 'capt-hook>=12.107.12' pack test plugins/long-running
       - name: installed state package
         run: |
           uv build --project plugins/long-running --wheel --out-dir "$RUNNER_TEMP/long-running-wheel"

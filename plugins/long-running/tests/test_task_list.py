@@ -518,3 +518,27 @@ def test_owner_ask_soon_after_a_task_create_is_not_flagged(drive: Drive) -> None
         state.created_at -= task_list.ASK_GRACE_SECONDS
     drive.say("fix the ledger hook again")
     assert [drive.bash(), drive.bash(), drive.bash()] == [None, None, ASK_LINE]
+
+
+def test_task_completion_reads_only_selected_native_record(drive: Drive, monkeypatch: pytest.MonkeyPatch) -> None:
+    for index in range(64):
+        drive.task(str(index), f"Task {index}", owner="selected-lane" if index == 17 else None)
+    original = Path.read_text
+    reads: list[Path] = []
+
+    def read_text(path: Path, *args, **kwargs) -> str:
+        if path.parent == drive.tasks:
+            reads.append(path)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    assert "lane selected-lane" in gate(drive, "17")
+    assert reads == [drive.tasks / "17.json"]
+    reads.clear()
+    drive.task("17", "Task 17")
+    assert gate(drive, "17") is None
+    assert reads == [drive.tasks / "17.json"]
+    reads.clear()
+    (drive.tasks / "17.json").unlink()
+    assert gate(drive, "17") is None
+    assert reads == [drive.tasks / "17.json"]
