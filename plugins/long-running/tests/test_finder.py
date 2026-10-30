@@ -509,6 +509,17 @@ def test_a_graded_head_origin_no_longer_serves_reads_the_whole_change(tmp_path):
     assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over whole {OWN[:7]}^..{HEAD[:7]}: no majors"
 
 
+def test_a_graded_head_with_no_own_commit_past_the_base_reads_the_whole_change_with_no_range_diff(tmp_path):
+    prior = {"seq": 149302, "lane": "p8a-step9", "head": "a269784", "text": "finder: ok a269784"}
+    directory = job(tmp_path, since=OLD, prior=prior)
+    shell = Fake(tmp_path, [reply()], own={(BASE, HEAD): [OWN]}, resolve={OLD: OLD})
+    finder.main([str(directory)], shell)
+    question = (directory / "question-1.md").read_text()
+    assert f"This pass reads the PR's whole change: `git diff {OWN}^ {HEAD}`." in question and (directory / "rows.md").exists()
+    assert not [argv for argv, _ in shell.calls if argv[1:2] == ["range-diff"]]
+    assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over whole {OWN[:7]}^..{HEAD[:7]}: no majors"
+
+
 def test_an_amended_commit_that_only_drops_a_hunk_the_base_now_carries_is_a_carry(tmp_path):
     prior = {"seq": 149302, "lane": "p8a-step9", "head": "a269784", "text": "finder: ok a269784"}
     directory = job(tmp_path, since=OLD, prior=prior)

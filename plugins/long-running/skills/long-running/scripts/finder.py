@@ -322,10 +322,9 @@ def previous(record: dict | None) -> str:
     return found[1] if record and (found := WAS.search(record["text"])) else ""
 
 
-def range_pairs(shell: Shell, job: dict, base: str, trunk: str, last: str, own: list[str]) -> tuple[str, list[tuple[str, str]]]:
-    """The `git range-diff` ranges pairing `last`'s own commits with the head's, each head commit it marks amended (`!`) or new (`>`), leaving out an amended commit that only drops hunks `base` carries, and each earlier commit it marks dropped (`<`) that `base` does not carry."""
-    earlier = beyond(shell, job, (base, trunk), last)
-    pairs = f"{earlier[0] + '^' if earlier else last}..{last} {own[0]}^..{job['head']}"
+def range_pairs(shell: Shell, job: dict, base: str, last: str, earlier: list[str], own: list[str]) -> tuple[str, list[tuple[str, str]]]:
+    """The `git range-diff` ranges pairing `last`'s own commits, `earlier`, with the head's, each head commit it marks amended (`!`) or new (`>`), leaving out an amended commit that only drops hunks `base` carries, and each earlier commit it marks dropped (`<`) that `base` does not carry."""
+    pairs = f"{earlier[0]}^..{last} {own[0]}^..{job['head']}"
     marks = RANGE_PAIR.findall(git(shell, job, "range-diff", "--no-patch", "--no-color", *pairs.split()))
     return pairs, [(mark, left if mark == "<" else sha) for left, mark, sha in marks if mark == ">" or (mark in "!<" and not drops_carried(shell, job, base, left, sha))]
 
@@ -391,7 +390,9 @@ def run(directory: Path, shell: Shell) -> dict:
     last = reviewed(shell, job)
     if not (own := beyond(shell, job, (base, trunk), head)):
         return {"skipped": f"{pr} at {head[:12]} carries no commit {view['baseRefName']} lacks"}
-    pairs, changed = range_pairs(shell, job, base, trunk, last, own) if last else ("", [])
+    earlier = beyond(shell, job, (base, trunk), last) if last else []
+    last = last if earlier else ""
+    pairs, changed = range_pairs(shell, job, base, last, earlier, own) if last else ("", [])
     if last and not changed:
         replayed = f"{pr} at {head[:12]} replays every own commit of {last[:12]}, patch for patch or dropping only hunks {view['baseRefName']} carries"
         if not ((earlier := job["prior"]) and names_head(earlier["head"], last)):
