@@ -1721,6 +1721,13 @@ a green PR on 2 blocking findings five minutes after its push, and the runner an
 it as no verdict for 19 minutes. Oct 28 12:31 AM: repeat `LANE-GONE` records for two
 lanes went to the desks only, and root, the one lane that relaunches, learned 25 minutes late twice.*
 
+**A PR left on a Graphite base is resubmitted.** Each pass, the runner takes the lowest open
+drive PR whose ledger base starts with `graphite-base/`, where a landed parent leaves it
+reading conflicted or stuck, and ships its branch as it stands with
+`ccx vcs ship --branch <branch> --tip-only --no-commit` from the landing checkout. It runs on
+a stack worker beside the landing work, one at a time and once per head, and a `note` naming
+the outcome goes to `landing.desk_lane`, else root.
+
 With `landing.merge_ask_surface` set to `board`, the root asks every merge question
 on its own board, and under `every` the runner checks only heads a root `go` names.
 It bars every other open PR like a held one: no `stack-enqueue` call, `--check`
