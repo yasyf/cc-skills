@@ -51,6 +51,7 @@ function nowScreen() {
     ${diagramSlot()}
     <section><h2 class="nw-h">Overall progress</h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
     ${liveFeed(b)}
+    ${preventions()}
   </div>`;
   lastPaint.events = lastPaint.next;
   lastPaint.next = new Map();
@@ -102,6 +103,16 @@ function liveFeed(b) {
   const lead = focusLane();
   const rows = [...b.work].sort((x, y) => (y.item === lead) - (x.item === lead)).map((w) => workRow(w, w.item === lead));
   return `<section class="nw-live"><h2 class="nw-h">Being worked on now</h2>${rows.length ? `<div class="nw-work">${rows.join('')}</div>` : '<div class="nw-calm">No work is running right now.</div>'}</section>`;
+}
+function preventions() {
+  const list = state.model.preventions;
+  if (!list.length) return '';
+  const open = list.filter((p) => !p.prevented_by);
+  const done = list.filter((p) => p.prevented_by);
+  const due = (p) => [p.owner && `${workerName(p.owner)} owns it`, p.due && `due ${clock(p.due)}`].filter(Boolean).join(', ');
+  return `<section class="nw-prevent"><h2 class="nw-h">What failed, and what stops it happening again</h2>
+    ${open.map((p) => `<div class="pv open"><b>${esc(p.failure)}</b><span>No prevention yet${due(p) ? `. ${esc(due(p))}` : ''}.</span></div>`).join('')}
+    ${done.length ? fold('pv-done', `Prevented <span class="pg-n">${done.length}</span>`, done.map((p) => `<div class="pv"><b>${esc(p.failure)}</b><span>Prevented by ${esc(p.prevented_by)}</span></div>`).join('')) : ''}</section>`;
 }
 function workOpen() {
   return stackOf().length > 0 && route().screen === 'work';
