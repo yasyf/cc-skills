@@ -315,3 +315,11 @@ def test_the_feed_shows_the_focused_work_first_and_other_works_latest_line_only_
     assert not rest.locator(".ev").is_visible()
     rest.hover()
     assert rest.locator(".ev").is_visible()
+
+
+def test_a_failure_without_a_prevention_shows_in_red_and_prevented_ones_fold_away(page):
+    now(page)
+    model = json.loads(MODEL.read_text())
+    open_ = [p["failure"] for p in model["preventions"] if not p["prevented_by"]]
+    assert [t.split("\n")[0] for t in page.locator(".nw-prevent .pv.open").all_inner_texts()] == open_
+    assert not page.locator(".nw-prevent details .pv").first.is_visible()
