@@ -185,7 +185,6 @@ class FakeShell(runner_module.Shell):
         self.listed: list[tuple[str, str]] = []
         self.kept: dict[str, str] = {}
         self.removed: list[str] = []
-        self.pr_lists: dict[str, list[dict]] = {}
         self.ships: list[tuple[list[str], str | None]] = []
         self.ship_envs: list[dict | None] = []
         self.drives: list[str] = ["d1"]
@@ -350,7 +349,7 @@ class FakeShell(runner_module.Shell):
         if argv[:5] == ["git", "-C", str(self.root / "checkout"), "merge-base", "--is-ancestor"]:
             return runner_module.Done(0 if tuple(argv[5:]) in self.ancestors else 1, "", "")
         if argv[:2] == ["git", "-C"] and argv[2] in self.worktrees:
-            assert argv[3:] in (["status", "--short", "--branch"], ["log", "-1", "--format=%ct %h %s"], ["rev-list", "--count", "origin/dev..HEAD"], ["rev-parse", "HEAD"]) or argv[3] == "ls-remote"
+            assert argv[3:] in (["status", "--short", "--branch"], ["log", "-1", "--format=%ct %h %s"], ["rev-list", "--count", "origin/dev..HEAD"], ["rev-parse", "--path-format=absolute", "--git-common-dir", "HEAD"]) or argv[3] == "ls-remote"
             found = self.worktrees[argv[2]].get(argv[3])
             return runner_module.Done(0, found, "") if found is not None else runner_module.Done(128, "", "fatal")
         if argv == ["git", "-C", str(self.root / "checkout"), "worktree", "list", "--porcelain"]:
@@ -369,8 +368,8 @@ class FakeShell(runner_module.Shell):
             assert env == {"GH_REPO": "Forge-AI/monorepo"} and cwd == str(self.root / "checkout")
             code = self.stack_code if argv[2] == "merge" else 0
             return runner_module.Done(code, "", "a pull request in the stack is not mergeable" if code else "")
-        if argv[:3] == ["gh", "pr", "list"] and "--head" in argv:
-            return runner_module.Done(0, json.dumps(self.pr_lists.get(argv[argv.index("--head") + 1], [])), "")
+        if argv[:3] == ["gh", "api", "graphql"] and "pullRequests(headRefName: " in argv[4]:
+            return runner_module.Done(0, json.dumps({"data": {"repository": {}}}), "")
         if argv[:3] == ["git", "-C", str(self.root / "checkout")] and argv[3:] == ["ls-remote", "origin", "refs/heads/dev"]:
             if self.trunk_error:
                 return runner_module.Done(128, "", self.trunk_error)
@@ -11262,7 +11261,7 @@ def silent_lines(shell: FakeShell, lane: str = SILENT_LANE) -> list[str]:
 
 def lane_worktree(shell: FakeShell, path: Path, status: str = "## HEAD (no branch)\n", committed: timedelta = timedelta(hours=2), listed: bool = True, ahead: int = 0) -> Path:
     path.mkdir(parents=True, exist_ok=True)
-    shell.worktrees[str(path)] = {"status": status, "log": f"{int((shell.clock - committed).timestamp())} 1a2b3c4 dev: bump the sidecar\n", "rev-list": f"{ahead}\n", "rev-parse": "1a2b3c4d\n", "ls-remote": ""}
+    shell.worktrees[str(path)] = {"status": status, "log": f"{int((shell.clock - committed).timestamp())} 1a2b3c4 dev: bump the sidecar\n", "rev-list": f"{ahead}\n", "rev-parse": "/repo/.git\n1a2b3c4d\n", "ls-remote": ""}
     if listed:
         branch = status.splitlines()[0].removeprefix("## ").split("...")[0]
         shell.listed.append((str(path), "" if branch.startswith("HEAD ") else branch))
