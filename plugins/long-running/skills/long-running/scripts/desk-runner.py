@@ -7739,7 +7739,12 @@ class Landing:
             self.runner.escalate(f"admitted-skipped:{pr}@{head}", "ADMITTED-SKIPPED", f"#{pr}", f"#{pr} is green at {head[:10]} and {by} admitted it {whole_minutes(admitted, now)} minutes ago, yet no record says it is queued, merging or refused: {why}; owner lane {owner or ROOT}", f"admitted-skipped:{pr}", ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])))
 
     def recorded(self, members: set[str], open_rows: dict[str, dict], since: datetime) -> bool:
-        """Whether a record already accounts for a PR of `members` left out of the queue: a refusal `last_refusal` finds, or a `GO-UNQUEUED` or failed direct merge escalated since `since`."""
+        """Whether a record already accounts for a PR of `members` left out of the queue: an enqueue of it at its head still running, or, while Graphite is down, one waiting in the `QUEUE` record's serial line, a refusal `last_refusal` finds, or a `GO-UNQUEUED` or failed direct merge escalated since `since`."""
+        down = self.down_since() is not None
+        for action in self.book.actions(LANDING, kind="enqueue"):
+            named = [pr for pr, sha in enqueued_heads(action.action_id).items() if pr in members and sha and open_rows[pr].get("head", "").startswith(sha)]
+            if named and (action.status != "completed" or down and action.response.get("outcome") in ("blocked", "failed") and action.response.get("why")):
+                return True
         if self.last_refusal(members, open_rows, since):
             return True
         return any(
