@@ -44,9 +44,17 @@ class Timespec(ctypes.Structure):
 
 class Kqueue:
     RECEIPT = 0x0040
+    IOPOL_TYPE_VFS_DISALLOW_RW_FOR_O_EVTONLY = 10
+    IOPOL_SCOPE_PROCESS = 0
+    IOPOL_VFS_DISALLOW_RW_FOR_O_EVTONLY_ON = 1
 
     def __init__(self):
         self.libc = ctypes.CDLL(None, use_errno=True)
+        self.libc.setiopolicy_np.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int]
+        self.libc.setiopolicy_np.restype = ctypes.c_int
+        # Notification descriptors must not request content-read authority.
+        if self.libc.setiopolicy_np(self.IOPOL_TYPE_VFS_DISALLOW_RW_FOR_O_EVTONLY, self.IOPOL_SCOPE_PROCESS, self.IOPOL_VFS_DISALLOW_RW_FOR_O_EVTONLY_ON) < 0:
+            raise OSError(ctypes.get_errno(), os.strerror(ctypes.get_errno()))
         maximum = ctypes.c_int()
         size = ctypes.c_size_t(ctypes.sizeof(maximum))
         self.libc.sysctlbyname.argtypes = [ctypes.c_char_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t), ctypes.c_void_p, ctypes.c_size_t]

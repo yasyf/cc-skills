@@ -415,12 +415,41 @@ def test_private_runtime_rejects_symlinks_and_public_permissions(tmp_path):
 @pytest.mark.skipif(sys.platform != "darwin", reason="Darwin SDK ABI")
 def test_kevent_layout_matches_installed_darwin_sdk(tmp_path):
     source = tmp_path / "layout.c"
-    source.write_text('#include <sys/event.h>\n#include <stddef.h>\n#include <stdio.h>\nint main(void) { printf("%zu %zu %zu %zu %zu %zu %zu %u\\n", sizeof(struct kevent), offsetof(struct kevent, ident), offsetof(struct kevent, filter), offsetof(struct kevent, flags), offsetof(struct kevent, fflags), offsetof(struct kevent, data), offsetof(struct kevent, udata), EV_RECEIPT); }\n')
+    source.write_text('#include <sys/event.h>\n#include <sys/resource.h>\n#include <stddef.h>\n#include <stdio.h>\nint main(void) { int (*policy)(int, int, int) = setiopolicy_np; (void)policy; printf("%zu %zu %zu %zu %zu %zu %zu %u %d %d %d\\n", sizeof(struct kevent), offsetof(struct kevent, ident), offsetof(struct kevent, filter), offsetof(struct kevent, flags), offsetof(struct kevent, fflags), offsetof(struct kevent, data), offsetof(struct kevent, udata), EV_RECEIPT, IOPOL_TYPE_VFS_DISALLOW_RW_FOR_O_EVTONLY, IOPOL_SCOPE_PROCESS, IOPOL_VFS_DISALLOW_RW_FOR_O_EVTONLY_ON); }\n')
     executable = tmp_path / "layout"
     subprocess.run(["cc", str(source), "-o", str(executable)], check=True)
     output = subprocess.check_output([str(executable)], text=True)
-    layout = [ctypes.sizeof(roster_events.Kevent), *(getattr(roster_events.Kevent, name).offset for name, _ in roster_events.Kevent._fields_), roster_events.Kqueue.RECEIPT]
+    layout = [ctypes.sizeof(roster_events.Kevent), *(getattr(roster_events.Kevent, name).offset for name, _ in roster_events.Kevent._fields_), roster_events.Kqueue.RECEIPT, roster_events.Kqueue.IOPOL_TYPE_VFS_DISALLOW_RW_FOR_O_EVTONLY, roster_events.Kqueue.IOPOL_SCOPE_PROCESS, roster_events.Kqueue.IOPOL_VFS_DISALLOW_RW_FOR_O_EVTONLY_ON]
     assert list(map(int, output.split())) == layout
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="Darwin event-only authority")
+@pytest.mark.skipif(os.geteuid() == 0, reason="root bypasses file permissions")
+def test_event_only_watch_observes_denied_file_restoration_without_read_access(tmp_path):
+    path = tmp_path / "denied"
+    path.write_text("private")
+    path.chmod(0)
+    events = roster_events.Kqueue()
+    fd = None
+    try:
+        fd = os.open(path, os.O_EVTONLY | os.O_CLOEXEC)
+        token = events.add(fd, str(path))
+        with pytest.raises(OSError) as failure:
+            os.read(fd, 1)
+        assert failure.value.errno == errno.EBADF
+        with pytest.raises(PermissionError):
+            path.read_text()
+        path.chmod(0o600)
+        assert any(event.token == token and event.authority for event in events.cut())
+        assert path.read_text() == "private"
+        with pytest.raises(OSError) as failure:
+            os.read(fd, 1)
+        assert failure.value.errno == errno.EBADF
+    finally:
+        path.chmod(0o600)
+        if fd is not None:
+            os.close(fd)
+        events.close()
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux child event scope")
