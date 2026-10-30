@@ -83,6 +83,7 @@ def test_the_board_still_reads_after_he_submits_it(monkeypatch):
     since_submit = {"since": 3200, "through": 3240, "interactions": [{"seq": 3234, "type": "choice.selected", "blockId": "b", "payload": {"optionIds": ["a"]}}]}
     monkeypatch.setattr(server, "run", lambda argv: json.dumps(reduced if "--all" in argv else since_submit))
     monkeypatch.setattr(Drive, "store_seq", lambda self: 3240)
+    monkeypatch.setattr(Drive, "answer_times", lambda self: {})
     rows = Drive({"board_url": "http://board/p/x", "board_session": "s"}, None).board()["rows"]
     assert rows[0]["verdict"] == {"verdict": "approved", "head": "8242887"}
 
@@ -114,6 +115,39 @@ def board(*cards, retired=(), **answers):
 )
 def test_a_question_he_answered_leaves_the_board_count(store, open_ids):
     assert [c["id"] for c in Drive({"board_url": "http://board/p/x"}, None).read_board(store)["cards"]] == open_ids
+
+
+def test_a_card_he_answered_reads_as_his_picks_at_the_time_of_his_last_answer(monkeypatch):
+    release = card("card-release", ("choice", "when"), ("approval", "ok"), ("input", "why"))
+    release["children"][0]["options"] = [{"id": "now", "label": "Release now"}, {"id": "later", "label": "Tomorrow"}, {"id": "o", "label": "Other"}]
+    store = board(release, card("card-open", ("choice", "pick")), choices={"when": {"optionIds": ["now"], "other": "after the smoke run"}}, decisions={"ok": {"verdict": "approved"}}, inputs={"why": {"text": "ship it"}})
+    monkeypatch.setattr(server, "run", lambda argv: json.dumps(store))
+    monkeypatch.setattr(Drive, "store_seq", lambda self: 7)
+    monkeypatch.setattr(Drive, "answer_times", lambda self: {"when": "2026-10-30T12:53:00+00:00", "ok": "2026-10-30T12:59:00+00:00", "why": "2026-10-30T12:54:00+00:00", "pick": "2026-10-30T11:00:00+00:00"})
+
+    out = Drive({"board_url": "http://board/p/x", "board_session": "s"}, None).board()
+
+    assert out["answered"] == {"card-release": {"picked": "Release now, after the smoke run; approved; ship it", "at": "2026-10-30T12:59:00+00:00"}}
+    assert [c["id"] for c in out["cards"]] == ["card-open"]
+
+
+def test_a_step_or_milestone_still_waiting_on_an_answered_card_a_minute_later_is_flagged_once_to_its_writer():
+    answered = {"card-release": {"picked": "Release now", "at": "2026-10-27T07:58:30+00:00"}, "card-fresh": {"picked": "Yes", "at": "2026-10-27T07:59:30+00:00"}}
+    rows = [{"release": "R4", "picked": [{**answered["card-release"], "card": "card-release", "seq": 210000, "lane": "progress-desk-2"}, {**answered["card-fresh"], "card": "card-fresh", "seq": 210001, "lane": "progress-desk-2"}]}]
+    steps = [{**step([1], step_id="cloud"), "blocker": "You answer the card on your board", "card": "card-release"}, {**step([2], step_id="mac"), "card": "card-fresh"}]
+    drive = {"prs": [], "tracked": [1, 2]}
+
+    assert [row["blocker"] for row in step_rows(steps, drive, [], answered)] == [None, None]
+    flagged = server.stale_waits(rows, steps, answered, NOW)
+    assert [(key, lanes) for key, lanes, _ in flagged] == [("blocker:210000:card-release", ("progress-desk-2",)), ("step:cloud:card-release", ())]
+    assert "answered at 12:58 AM Oct 27 (Release now)" in flagged[0][2]
+
+    posted = []
+    dashboard = Drive({"board_url": "http://board/p/x", "drive": "d", "keeper_lane": "keeper", "defects_to": ["keeper", "root"]}, None)
+    dashboard.flag = lambda text, lanes: posted.append(lanes)
+    dashboard.flag_stale(rows, steps, answered, NOW)
+    dashboard.flag_stale(rows, steps, answered, NOW)
+    assert posted == [("progress-desk-2",), ()]
 
 
 def test_a_card_keeps_his_earlier_picks_and_offers_the_next_one():
@@ -343,7 +377,7 @@ def test_a_step_takes_its_tone_from_its_lights_and_workers(states, live, tone):
     drive = {"prs": [{"number": n, "state": state} for n, state in states.items()], "tracked": [*states, 99]}
     workers = [{"lane": "p8a-step7", "at": "2026-10-27T07:55:00Z", "prs": [], "step": "s", "live": live}]
 
-    row = step_rows([step([*states, 99])], drive, workers)[0]
+    row = step_rows([step([*states, 99])], drive, workers, {})[0]
 
     assert row["tone"] == tone
     assert [entry["number"] for entry in row["prs"]] == list(states)
@@ -352,7 +386,7 @@ def test_a_step_takes_its_tone_from_its_lights_and_workers(states, live, tone):
 def test_a_step_whose_blocker_names_an_open_pull_request_is_not_done():
     drive = {"prs": [{"number": 42001, "state": "landed"}, {"number": 42002, "state": "failing"}], "tracked": [42001, 42002]}
 
-    row = step_rows([{**step([42001]), "blocker": "a fix for what the check found in #42002"}], drive, [])[0]
+    row = step_rows([{**step([42001]), "blocker": "a fix for what the check found in #42002"}], drive, [], {})[0]
 
     assert (row["tone"], [entry["number"] for entry in row["prs"]]) == ("failing", [42001, 42002])
 
@@ -360,7 +394,7 @@ def test_a_step_whose_blocker_names_an_open_pull_request_is_not_done():
 def test_a_step_whose_blocker_names_a_pull_request_outside_the_ledger_is_not_done():
     drive = {"prs": [{"number": 42712, "state": "landed"}, {"number": 42714, "state": "landed"}], "tracked": [42712, 42714]}
 
-    row = step_rows([{**step([42712, 42714, 43196]), "blocker": "a fix for what the plan check found in #43197"}], drive, [])[0]
+    row = step_rows([{**step([42712, 42714, 43196]), "blocker": "a fix for what the plan check found in #43197"}], drive, [], {})[0]
 
     assert (row["tone"], row["untracked"]) == ("waiting", [43196, 43197])
 
@@ -368,7 +402,7 @@ def test_a_step_whose_blocker_names_a_pull_request_outside_the_ledger_is_not_don
 def test_a_step_the_progress_desk_reads_done_is_done_though_the_ledger_misses_some_of_its_pull_requests():
     drive = {"prs": [{"number": 42712, "state": "landed"}, {"number": 42714, "state": "landed"}], "tracked": [42712, 42714]}
 
-    row = step_rows([{**step([42712, 42714, 43196, 43197]), "tone": "done"}], drive, [])[0]
+    row = step_rows([{**step([42712, 42714, 43196, 43197]), "tone": "done"}], drive, [], {})[0]
 
     assert (row["tone"], row["untracked"]) == ("done", [43196, 43197])
 

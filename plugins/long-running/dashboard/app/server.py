@@ -71,6 +71,8 @@ LANE_ROUTE = re.compile(r"/api/lane/([\w.-]+)")
 REGISTER_DAY = dt.timedelta(days=1)
 REGISTER_SHOWN = 25
 MILESTONE_TTL = 60
+PICK_GRACE = dt.timedelta(minutes=1)
+ANSWER_EVENTS = ("choice.selected", "decision.created", "input.submitted")
 UNSETTLED = ("open", "routed")
 RECORD_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>{title}</title><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"></head><body><main class="wrap pg"><a class="pg-back" href="/">‹ The drive dashboard</a><header class="pg-h"><div><h1>{title}</h1></div><span class="pg-at">{byline}</span></header>{lead}<section class="pg-lead">{body}</section><p class="pg-at"><a href="/record/{seq}?raw=1">The raw record</a></p></main></body></html>'
 SOURCE_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>{title}</title><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"></head><body><main class="wrap pg"><a class="pg-back" href="/">‹ The drive dashboard</a><header class="pg-h"><div><h1>{title}</h1></div></header><pre class="src-text">{text}</pre></main></body></html>'
@@ -498,11 +500,13 @@ def step_tone(step, prs, workers, untracked):
     return "waiting" if prs else step["tone"]
 
 
-def step_rows(steps, drive, workers):
+def step_rows(steps, drive, workers, answered):
     by_number = {entry["number"]: entry for entry in drive["prs"]}
     tracked = set(drive["tracked"])
     rows = []
     for step in steps:
+        if step.get("card") in answered:
+            step = {**step, "blocker": None}
         named = [int(n) for n in PR_MENTION.findall(step.get("blocker") or "")]
         prs = [by_number[n] for n in dict.fromkeys([*step["prs"], *named]) if n in by_number]
         on = [{"lane": w["lane"], "at": w["at"], "prs": w["prs"]} for w in workers if w["live"] and w["step"] == step["id"]]
@@ -616,6 +620,26 @@ def ask_need(ask):
     return {"kind": "ask", "ask": ask, "why": f"{record['lane']} asked in #{record['seq']}, due now: {ask['why']}", "source": {"label": "Open the record", "href": f"/record/{record['seq']}"}}
 
 
+def picked_words(child, answer):
+    if child["type"] == "choice":
+        labels = {option["id"]: option["label"] for option in child.get("options", [])}
+        return ", ".join([*(labels.get(option, option) for option in answer["optionIds"]), *([answer["other"]] if answer.get("other") else [])])
+    return answer["verdict"] if child["type"] == "approval" else answer["text"]
+
+
+def stale_waits(milestone_rows, steps, answered, now):
+    late = {card for card, answer in answered.items() if now - at(answer["at"]) >= PICK_GRACE}
+    found = []
+    for row in milestone_rows:
+        for pick in row["picked"]:
+            if pick["card"] in late:
+                found.append((f"blocker:{pick['seq']}:{pick['card']}", (pick["lane"],), f"milestone {row['release']} blocker #{pick['seq']} still waits on board card {pick['card']}, answered at {milestones.clock(pick['at'])} ({pick['picked']}); post its clearing blocker record with --attr cleared=yes now"))
+    for step in steps:
+        if (card := step.get("card")) in late:
+            found.append((f"step:{step['id']}:{card}", (), f"step {step['id']} in steps.json still waits on board card {card}, answered at {milestones.clock(answered[card]['at'])} ({answered[card]['picked']}); rewrite it without that wait now"))
+    return found
+
+
 def card_part(child, answer):
     kind = child["type"]
     if kind == "record":
@@ -681,6 +705,8 @@ class Drive:
         self.paths = {}
         self.board_seq = None
         self.reported_build = None
+        self.flagged = set()
+        self.board_times = {}
         self.gos = {}
         self.carried = {}
         self.ci_fixes = set()
@@ -788,10 +814,10 @@ class Drive:
         records = [*found, *page]
         return [{k: r[k] for k in ("seq", "kind", "at")} for r in ([r for r in records if r["kind"] != "state"] or records)[-8:][::-1]]
 
-    def milestone_state(self, drive_prs, now):
+    def milestone_state(self, drive_prs, now, answered):
         if not self.milestone_cache or time.monotonic() - self.milestone_cache[0] > MILESTONE_TTL:
             self.milestone_cache = (time.monotonic(), self.fetch({"blocker"}, now - dt.timedelta(days=7)), self.fetch({"release"}, now - dt.timedelta(days=14)))
-        return milestones.compute(self.config["milestones"], drive_prs, self.milestone_cache[1], self.milestone_cache[2])
+        return milestones.compute(self.config["milestones"], drive_prs, self.milestone_cache[1], self.milestone_cache[2], answered)
 
     def fetch(self, kinds, since):
         found, after = [], 0
@@ -1035,12 +1061,21 @@ class Drive:
         with sqlite3.connect(f"file:{STORE}?mode=ro", uri=True) as store:
             return store.execute("SELECT max(seq) FROM events JOIN subjects ON subjects.id = events.subject_id WHERE subjects.slug = ?", (subject,)).fetchone()[0]
 
+    def answer_times(self):
+        subject = self.config["board_url"].rsplit("/p/", 1)[1]
+        with sqlite3.connect(f"file:{STORE}?mode=ro", uri=True) as store:
+            found = store.execute(f"SELECT json_extract(payload, '$.blockId'), max(created_at) FROM events JOIN subjects ON subjects.id = events.subject_id WHERE subjects.slug = ? AND events.type IN ({', '.join('?' * len(ANSWER_EVENTS))}) GROUP BY 1", (subject, *ANSWER_EVENTS)).fetchall()
+        return {block: dt.datetime.fromtimestamp(stamp, dt.timezone.utc).isoformat() for block, stamp in found}
+
     def board(self):
         seq = self.store_seq()
         if seq != self.board_seq:
             self.board_raw = run(["cc-present", "outcomes", "--all", "--session", self.config["board_session"]])
+            self.board_times = self.answer_times()
             self.board_seq = seq
-        return {**self.read_board(json.loads(self.board_raw)), "seq": seq}
+        read = self.read_board(json.loads(self.board_raw))
+        answered = {card: {"picked": answer["picked"], "at": max(self.board_times[ask] for ask in answer["asks"])} for card, answer in read["answered"].items()}
+        return {**read, "answered": answered, "seq": seq}
 
     def live(self, model):
         board = self.board()
@@ -1054,9 +1089,10 @@ class Drive:
         gated = {row["number"] for row in board["rows"] if not row["go_head"]}
         drive = drive_prs(model["prs"], board["rows"], {number: head for number, head in self.gos.items() if number not in gated}, activity_records, model["trees"], model["tree_names"], progress["steps"], self.config["parts"], hold_reasons(holds.read(Path(self.config["holds"])), model["prs"]), now)
         workers = drive_workers(activity_records, model["prs"], progress["steps"], now)
-        steps = step_rows(progress["steps"], drive, workers)
+        steps = step_rows(progress["steps"], drive, workers, board["answered"])
         releases = release_path(progress.get("now", {}).get("releases", []))
-        milestone_rows = self.milestone_state(drive["prs"], now)
+        milestone_rows = self.milestone_state(drive["prs"], now, board["answered"])
+        self.flag_stale(milestone_rows, progress["steps"], board["answered"], now)
         need_items = needs(board["rows"], board["cards"], model["story"].get("asks", []), board["url"], {entry["number"] for entry in drive["prs"] if entry["state"] == "landed"})
         return {
             **model,
@@ -1089,10 +1125,19 @@ class Drive:
             "views": self.config.get("views", {}),
         }
 
+    def flag_stale(self, milestone_rows, steps, answered, now):
+        for key, lanes, text in stale_waits(milestone_rows, steps, answered, now):
+            if key not in self.flagged:
+                self.flagged.add(key)
+                self.flag(text, lanes)
+
     def report_defect(self, text):
+        self.flag(f"drive dashboard build failed: {text}", ())
+
+    def flag(self, text, lanes):
         if not self.config.get("defects_to"):
             return
-        subprocess.run(["cci", "post", "--drive", self.config["drive"], "--lane", self.config["keeper_lane"], "--to", ",".join(self.config["defects_to"]), "--kind", "defect", "--text", f"drive dashboard build failed: {text}"[:390]], capture_output=True)
+        subprocess.run(["cci", "post", "--drive", self.config["drive"], "--lane", self.config["keeper_lane"], "--to", ",".join(dict.fromkeys([*lanes, *self.config["defects_to"]])), "--kind", "defect", "--text", text[:390]], capture_output=True)
 
     def build(self, refresh_slow):
         if refresh_slow or not self.slow:
@@ -1169,7 +1214,7 @@ class Drive:
         interactions = board["interactions"]
         verdicts = interactions["triage"]
         retired = set(board.get("retired") or [])
-        rows, cards, merge = [], [], None
+        rows, cards, answered, merge = [], [], {}, None
         for block in board["doc"]["blocks"]:
             if block["type"] != "card" or block["id"] in retired:
                 continue
@@ -1186,7 +1231,10 @@ class Drive:
             asks = [child for child in children if child["type"] in ASKS]
             answers = {child["id"]: interactions[ASKS[child["type"]]].get(child["id"]) for child in asks}
             noted = any(interactions["feedback"].get(child["id"]) for child in [block, *children])
-            if (asks and all(answers.values())) or (not asks and (noted or block.get("status") != "open")):
+            if asks and all(answers.values()):
+                answered[block["id"]] = {"picked": "; ".join(picked_words(child, answers[child["id"]]) for child in asks), "asks": [child["id"] for child in asks]}
+                continue
+            if not asks and (noted or block.get("status") != "open"):
                 continue
             choice = next((child for child in asks if child["type"] == "choice" and not answers[child["id"]]), None)
             decides = any(not answers[child["id"]] and (child["type"] != "choice" or sum(not OTHER.match(option["label"]) for option in child.get("options", [])) > 1) for child in asks)
@@ -1199,7 +1247,7 @@ class Drive:
                 "parts": [] if embed else [card_part(child, answers.get(child["id"])) for child in children],
                 "embed": f"{self.config['board_url']}?{urllib.parse.urlencode({'block': block['id'], 'theme': 'dark'})}" if embed else None,
             })
-        return {"rows": rows, "cards": cards, "merge": merge, "url": self.config["board_url"]}
+        return {"rows": rows, "cards": cards, "answered": answered, "merge": merge, "url": self.config["board_url"]}
 
 
 def handler(drive):

@@ -63,16 +63,19 @@ def release_events(releases, pattern):
     return done, running
 
 
-def blockers_of(blockers, release):
+def blockers_of(blockers, release, answered):
     newest = {}
     for record in blockers:
         attrs = (record.get("fields") or {}).get("attrs") or {}
         if attrs.get("milestone") == release:
             newest[attrs.get("topic", "")] = record
-    found = []
+    found, picked = [], []
     for record in newest.values():
         attrs = record["fields"]["attrs"]
         if attrs.get("cleared"):
+            continue
+        if attrs.get("card") in answered:
+            picked.append({**answered[attrs["card"]], "card": attrs["card"], "seq": record["seq"], "lane": record["lane"]})
             continue
         found.append({
             "text": record["text"],
@@ -85,16 +88,16 @@ def blockers_of(blockers, release):
             "at": record["at"],
             "seq": record["seq"],
         })
-    return found
+    return found, picked
 
 
-def compute(config_milestones, drive_prs, blockers, releases):
+def compute(config_milestones, drive_prs, blockers, releases, answered):
     states = {entry["number"]: entry["state"] for entry in drive_prs}
     result = []
     for index, milestone in enumerate(config_milestones):
         release = milestone.get("release")
-        row = {"name": milestone["name"], "release": release, "waits": "", "next": "", "since": None, "changed": None, "why": "", "owners": [], "blockers": []}
-        found = blockers_of(blockers, release)
+        found, picked = blockers_of(blockers, release, answered)
+        row = {"name": milestone["name"], "release": release, "waits": "", "next": "", "since": None, "changed": None, "why": "", "owners": [], "blockers": [], "picked": picked}
         shipped, shipping = release_events(releases, milestone.get("live_match"))
         tested, testing = release_events(releases, milestone.get("testing_match"))
         changes = changes_of(milestone)
@@ -140,5 +143,9 @@ def compute(config_milestones, drive_prs, blockers, releases):
             row.update(state="next", label="Ready", waits="Its release has not started", next="Release worker: starts it", owners=[milestone["owner"]] if "owner" in milestone else [])
         else:
             row.update(state="not", label="Untracked", waits="Nothing tracks it yet", next="Coordinator: names its changes")
+        if picked and not found:
+            pick = max(picked, key=lambda p: p["at"])
+            if not row["changed"] or row["changed"]["at"] < pick["at"]:
+                row.update(changed={"at": pick["at"], "text": f"you picked {pick['picked']}"}, since=row["since"] or pick["at"])
         result.append(row)
     return result

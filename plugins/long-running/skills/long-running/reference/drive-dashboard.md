@@ -75,7 +75,9 @@ The progress desk rewrites `steps.json` atomically on every pass:
 
 - `steps[]` in plan order, each with an `id`, a label of at most two words, a plain
   title with no PR numbers, its `state`, `blocker` (null when nothing blocks it),
-  `next`, every PR of the step landed ones included, and the lanes working on it.
+  `next`, every PR of the step landed ones included, and the lanes working on it. A
+  step whose blocker waits on the owner's answer to a board card names that card's
+  block id in `card`.
 - `now.release` and `now.releases[]`: the next release and every release with the parts
   it ships, in plain words; `tonight` marks the releases the release track shows.
 - `now.goal`: the end state's checks, each (such as `enabled` and `old_app`) with a
@@ -89,6 +91,10 @@ The progress desk rewrites `steps.json` atomically on every pass:
   with its start time; null otherwise. A step's own blocker stays on the step.
 
 It writes no counts; the dashboard counts.
+
+The moment he answers a step's `card`, the dashboard drops that step's blocker. A minute
+after his answer, a step that still names the card gets one `defect` to `defects_to`
+until the progress desk rewrites it.
 
 ## Layout
 
