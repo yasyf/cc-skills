@@ -104,6 +104,9 @@ class FakeShell(runner_module.Shell):
         self.stop_answers: dict[str, tuple[str, int | None]] = {}
         self.gates: dict[str, list[str]] = {}
         self.enqueue_out: dict[str, tuple[int, str]] = {}
+        self.mergeable_reads: list[str] = []
+        self.aborts: list[str | None] = []
+        self.ship_timeout = False
         self.statuses = ""
         self.combined_statuses: dict[str, list[dict]] = {}
         self.review_runs: dict[str, list[str]] = {}
@@ -515,8 +518,16 @@ class FakeShell(runner_module.Shell):
             if "--id" in flags:
                 self.post_ids[flags["--id"]] = len(self.posts)
             return runner_module.Done(0, self.post_out or f"#{len(self.posts)}\n", "")
+        if argv[:2] == ["gh", "api"] and argv[2].startswith("repos/Forge-AI/monorepo/pulls/") and argv[3:] == ["--jq", ".mergeable"]:
+            self.mergeable_reads.append(argv[2].rsplit("/", 1)[1])
+            return runner_module.Done(0, "MERGEABLE\n", "")
+        if argv[:4] == ["ccx", "vcs", "stack", "abort"]:
+            self.aborts.append(cwd)
+            return runner_module.Done(0, "dropped the stopped stack rebase\n", "")
         if argv[:3] == ["ccx", "vcs", "ship"]:
             self.ships.append((argv[3:], cwd))
+            if self.ship_timeout:
+                return runner_module.Done(runner_module.TIMED_OUT, "", f"{' '.join(argv)} timed out after 300s and was killed")
             return runner_module.Done(0, f"submitted {argv[4]} → PR #1 https://example.com/1\n", "")
         raise AssertionError(f"unexpected call {argv}")
 
@@ -2886,6 +2897,18 @@ def blockers(shell: FakeShell) -> list[dict]:
     return [post for post in shell.posts if post["kind"] == "blocker"]
 
 
+def test_a_check_that_finds_mergeability_uncomputed_asks_github_over_rest_and_runs_again_in_the_same_pass(shell, config, tmp_path):
+    """Owner 6:09 PM Oct 29 on #45291's 5:52-5:57 refusal: "thats false it never takes that long so something is wrong with your tooling, fix it". GitHub computes mergeability only once something reads the pull over REST (root #192866)."""
+    lone_green_pr(shell)
+    shell.gates["29020"] = [(1, gate("#29020 BLOCKED cccc333333 GitHub still computing mergeability; rerun on the next pass"), ""), (1, gate("#29020 BLOCKED cccc333333 GitHub still computing mergeability; rerun on the next pass"), ""), gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    grade(shell, "29020", "ok F307 at cccc333.")
+    started = shell.clock
+    landing_pass(shell, config)
+    assert shell.mergeable_reads == ["29020"]
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    assert blockers(shell) == [] and shell.clock - started >= timedelta(seconds=20)
+
+
 def test_a_head_the_fidelity_lane_graded_ok_is_enqueued(shell, config, tmp_path):
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307,F321 at cccc333. The restack onto dev has a range-diff of '='.")
@@ -3816,6 +3839,22 @@ def test_a_tap_keeps_only_once_the_finder_is_clear_at_the_fixed_head(shell, conf
     landing_pass(shell, config)
     assert tap_notes(shell) == []
     finder_verdict(shell, "29020", "ok cccc333 no findings")
+    landing_pass(shell, config)
+    assert [note["text"].split(":")[0] for note in tap_notes(shell)] == ["TAP-KEPT #29020"]
+
+
+def test_a_tap_keeps_over_a_pipeline_missing_a_desk_ok_overrides_at_the_same_head(shell, config, tmp_path):
+    """p8a-step7 #193454: fidelity-desk-3's ok and root's TAP-KEPT go stood at #45286 c8a6014, but fidelity-pipeline's newer missing at that head kept the runner from noting TAP-KEPT, so it refused the head TAP-REQUIRED."""
+    board_surface(config)
+    board_lane(config)
+    raw = json.loads(config.read_text())
+    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-pipeline"]
+    config.write_text(json.dumps(raw))
+    lone_green_pr(shell)
+    tap(shell, "29020", "aaaa111111")
+    grade(shell, "29020", "ok cccc333333 a fixed version of aaaa111111: a review fix without new behavior.")
+    grade(shell, "29020", "missing cccc333333 plan:266 lists every local chat before grouping teams.", lane="fidelity-pipeline")
+    landing_pass(shell, config)
     landing_pass(shell, config)
     assert [note["text"].split(":")[0] for note in tap_notes(shell)] == ["TAP-KEPT #29020"]
 
@@ -6209,6 +6248,17 @@ def test_a_pr_left_on_a_graphite_base_is_resubmitted_once_per_head_one_a_pass_wi
     assert notes[0]["text"].startswith("#29020 cccc333333 sat on graphite-base/29020 after its parent landed; resubmitted with ccx vcs ship --branch a/3 --tip-only --no-commit --no-watch")
 
 
+def test_a_resubmit_killed_at_its_bound_drops_the_stopped_stack_rebase(shell, config, tmp_path):
+    """p8a-step7 #192681: the 60 s kill of a graphite-base resubmit left a stopped stack rebase that blocked the owner's next `ccx vcs stack submit`."""
+    shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "graphite-base/29020", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 GitHub reads CONFLICTING")]
+    shell.ship_timeout = True
+    landing_pass(shell, config)
+    checkout = str(Path(json.loads(config.read_text())["landing"]["checkout"]).expanduser())
+    assert shell.aborts == [checkout]
+    assert runner_module.time_bound(["ccx", "vcs", "ship", "--branch", "a/3", "--tip-only"]) == runner_module.ENQUEUE_SECONDS
+
+
 def test_a_lower_priority_value_gates_and_enqueues_first(shell, config, tmp_path, capsys):
     shell.rows = [ONE_ROW, {"pr": "29100", "lane": LANE, "branch": "p/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444", "priority": 0}]
     shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
@@ -6872,6 +6922,26 @@ def test_a_landing_removes_each_worktree_on_the_landed_branch_once_and_logs_one_
     assert [line for line in escalations(shell) if line.startswith("WORKTREE-KEPT")] == [
         f"WORKTREE-KEPT worktree-kept:{dirty} #29020: {dirty} stays on landed #29020's branch: ccx: worktree rm: {dirty}: uncommitted changes: notes.md"
     ]
+
+
+def test_a_handoff_stops_worktree_removal_between_worktrees(shell, config, tmp_path):
+    """Oct 29 6:00 PM: a 0.7.560 landing runner kept removing landed worktrees one by one for over ten minutes after `handoff` asked it to stop."""
+    shell.rows = [single_row()[0] | {"state": "landed", "landed_sha": "dddd444444"}]
+    first, second = str(tmp_path / "worktrees" / "a-3"), str(tmp_path / "worktrees" / "a-3-copy")
+    shell.listed = [(first, "a/3"), (second, "a/3")]
+    landing = landing_of(shell, config, tmp_path)
+    run = shell.run
+
+    def handed_off(argv, *args, **kwargs):
+        done = run(argv, *args, **kwargs)
+        if argv[:4] == ["ccx", "vcs", "worktree", "rm"]:
+            landing.runner.stop_marker().write_text(str(os.getpid()))
+        return done
+
+    shell.run = handed_off
+    with pytest.raises(runner_module.StopRequested):
+        landing.remove_landed_worktrees({row["pr"]: row for row in shell.rows})
+    assert shell.removed == [first]
 
 
 def test_a_runner_enqueue_posts_queued_and_then_landed_naming_the_go(shell, config, tmp_path):

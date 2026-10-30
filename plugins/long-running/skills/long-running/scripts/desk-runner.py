@@ -984,7 +984,7 @@ def time_bound(argv: list[str]) -> float:
         return GATE_CHECK_SECONDS
     if argv[:4] == ["ccx", "vcs", "pr", "status"]:
         return QUEUE_STATUS_SECONDS
-    if Path(argv[0]).name == "stack-enqueue":
+    if Path(argv[0]).name == "stack-enqueue" or argv[:3] == ["ccx", "vcs", "ship"]:
         return ENQUEUE_SECONDS
     if len(argv) > 1 and Path(argv[1]).name == "ledger.py":
         return LEDGER_SECONDS
@@ -5312,9 +5312,11 @@ class Landing:
             self.dispatch(f"{GRAPHITE_BASE}{pr}@{rows[pr]['head']}", {pr}, lambda: self.resubmit(pr, rows[pr]))
 
     def resubmit(self, pr: str, row: dict) -> None:
-        """Ship `pr`'s branch as it stands from the landing checkout with `ccx vcs ship --branch <branch> --tip-only --no-commit`, which moves it off its `graphite-base/` base, and post the outcome to the desk lane as a cci note."""
+        """Ship `pr`'s branch as it stands from the landing checkout with `ccx vcs ship --branch <branch> --tip-only --no-commit`, which moves it off its `graphite-base/` base, and post the outcome to the desk lane as a cci note. A ship killed at its bound runs `ccx vcs stack abort`, so no stopped rebase blocks the next stack write (#192681)."""
         argv = ["ccx", "vcs", "ship", "--branch", row["branch"], "--tip-only", "--no-commit", "--no-watch"]
         done = self.shell.run(argv, cwd=str(self.checkout))
+        if done.code == TIMED_OUT:
+            self.shell.run(["ccx", "vcs", "stack", "abort"], cwd=str(self.checkout))
         last = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1][:300]
         outcome = "resubmitted" if done.code == 0 else f"resubmit failed with exit {done.code}"
         text = f"#{pr} {row['head'][:10]} sat on {row['base']} after its parent landed; {outcome} with {shlex.join(argv)}: {last}"
@@ -6609,11 +6611,12 @@ class Landing:
                 continue
             said = [record for record in reviews if record["kind"] == "head" and about_pr(record, self.repo, pr) and names_head(graded_head(record["text"]), head)]
             adds = [record for record in [*said, *([graded] if graded else [])] if ADDS_BEHAVIOR.search(full_text(record))]
-            kept = not adds and graded and graded["text"].startswith(FIDELITY_OK) and self.finder_clear(pr, head)
+            standing = self.fidelity(pr, head)
+            kept = not adds and standing.ok and standing.record and self.finder_clear(pr, head)
             if kept and not self.book.known(LANDING, key := f"tap-kept:{block}:{pr}:{tapped}:{head}"):
-                self.post_record("note", key, to, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} on board block {block} keeps at {head[:10]}, a review fix with no new behavior per fidelity grade cci #{graded['seq']} (rule 399b5fa); root posts `go #{pr} at {head[:10]}` naming the fix, and the row lists the fix", pr)
+                self.post_record("note", key, to, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} on board block {block} keeps at {head[:10]}, a review fix with no new behavior per fidelity grade cci #{standing.record['seq']} (rule 399b5fa); root posts `go #{pr} at {head[:10]}` naming the fix, and the row lists the fix", pr)
             if kept and (gos := self.head_gos(pr, head)):
-                self.carry_tap(session, block, pr, tapped, head, f"review fix with no new behavior, per fidelity grade cci #{graded['seq']} and root go cci #{gos[-1]['seq']} (rule 399b5fa)", self.landing_audience([pr], rows, to))
+                self.carry_tap(session, block, pr, tapped, head, f"review fix with no new behavior, per fidelity grade cci #{standing.record['seq']} and root go cci #{gos[-1]['seq']} (rule 399b5fa)", self.landing_audience([pr], rows, to))
                 continue
             if self.head_gos(pr, head) or graded and any(seq == graded["seq"] and identical for _, _, identical, seq in moves):
                 continue
@@ -6984,6 +6987,7 @@ class Landing:
             tree = dict(line.partition(" ")[::2] for line in entry.splitlines())
             if (pr := branches.get(tree.get("branch", ""))) is None:
                 continue
+            self.runner.checkpoint()
             done = self.shell.run(["ccx", "vcs", "worktree", "rm", "--path", tree["worktree"]])
             if done.code:
                 self.runner.escalate(f"worktree-kept:{tree['worktree']}", "WORKTREE-KEPT", f"#{pr}", f"{tree['worktree']} stays on landed #{pr}'s branch: {(done.err or done.out).strip()[:300]}")
