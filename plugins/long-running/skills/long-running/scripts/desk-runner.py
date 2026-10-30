@@ -5024,6 +5024,7 @@ class Landing:
         self.trunk_read: tuple[str, datetime, bool, dict] | None = None
         self.unchecked: set[str] = set()
         self.skips: dict[str, str] = {}
+        self.check_refused: dict[str, str] = {}
         self.unproven_why: dict[str, str] = {}
         self.sessions: dict[str, bool] = {}
         self.live: list[dict] | None = None
@@ -6149,7 +6150,10 @@ class Landing:
         early = {"merge-mode": self.check("merge-mode", graded)} if "merge-mode" in stage and "merge-mode" in self.checks else {}
         for name in self.checks:
             if name in stage and (states := {pr: state for pr, state in (early[name] if name in early else self.check(name, graded)).items() if state.state != merge_queue.PASS}):
+                self.check_refused |= {pr: graded.heads[pr] for pr in states if pr in graded.heads}
                 return name, states
+        for pr in graded.heads:
+            self.check_refused.pop(pr, None)
         return None
 
     def check(self, name: str, graded: Graded) -> dict[str, merge_queue.State]:
@@ -7710,7 +7714,7 @@ class Landing:
             self.runner.escalate(key, "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and {go_state(self.root_gos(), pr, head).said()} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}{waits}; owner lane {owner}", subject, to)
 
     def audit_admitted(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Escalate `ADMITTED-SKIPPED` to the root and the owning lane, once per head, for each open drive PR green at its ledger head that a root `go` or an exemption admits there, `ADMISSION_AUDIT` after it was admitted, that the pass's queue read finds neither queued nor landed (only landed counts while Graphite is down), that no stack worker holds, that sits on no parent `refuse_ungone_parents` names, that this runner's own `MERGED` record does not name as merged directly, which its ledger row lags until the next refresh settles it (root #211747), and that no refusal of this runner or the desk lane, `GO-UNQUEUED` or failed direct merge names: the escalation says which branch of the pass last left it out, or that none recorded one (owner, 5:16 AM Oct 30; root #208560)."""
+        """Escalate `ADMITTED-SKIPPED` to the root and the owning lane, once per head, for each open drive PR green at its ledger head that a root `go` or an exemption admits there, `ADMISSION_AUDIT` after it was admitted, that the pass's queue read finds neither queued nor landed (only landed counts while Graphite is down), that no stack worker holds, that no check of the runner refused at that head the last time it ran (a finder or fidelity refusal is its own record, root #210691), whose every PR below is admitted the same way or already queued, that this runner's own `MERGED` record does not name as merged directly, which its ledger row lags until the next refresh settles it (root #211747), and that no refusal of this runner or the desk lane, `GO-UNQUEUED` or failed direct merge names: the escalation says which branch of the pass last left it out, or that none recorded one (owner, 5:16 AM Oct 30; root #208560)."""
         if (statuses := self.pr_statuses()) is None:
             return
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
@@ -7720,18 +7724,22 @@ class Landing:
             busy = {pr for members, future in self.inflight.values() if not future.done() for pr in members}
         now, gos = self.runner.now(), self.root_gos()
         merged = {action.action_id.removeprefix(MERGED_DIRECT).split("@")[0] for action in self.book.actions(LANDING, kind="bus") if action.action_id.startswith(MERGED_DIRECT)}
+
+        def cleared(member: str) -> bool:
+            row, head = open_rows[member], open_rows[member].get("head", "")
+            if statuses.get(member, {}).get("queue") in settled:
+                return True
+            return bool(row.get("ours") and head and row.get("test_state") == "success") and member not in covered and self.check_refused.get(member) != head and bool(gone_at(gos, member, head) or self.exempt_admitted(member, head)[0])
+
         for pr, row in sorted(open_rows.items(), key=lambda item: int(item[0])):
             head = row.get("head", "")
-            if not row.get("ours") or row.get("test_state") != "success" or not head or pr in covered or pr in busy or pr in merged or statuses.get(pr, {}).get("queue") in settled:
+            stack = downstack(open_rows, pr)
+            if pr in busy or pr in merged or statuses.get(pr, {}).get("queue") in settled or not all(map(cleared, stack)):
                 continue
-            if not (gos_at := gone_at(gos, pr, head)) and not self.exempt_admitted(pr, head)[0]:
-                continue
+            gos_at = gone_at(gos, pr, head)
             since = [min(max(actions.parse_stamp(go["at"]), actions.parse_stamp(go.get("graded_at") or go["at"])) for go in gos_at)] if gos_at else []
             since += [actions.parse_stamp(row["green_at"])] if row.get("green_at") else []
-            if not since or now - (admitted := max(since)) < ADMISSION_AUDIT:
-                continue
-            stack = downstack(open_rows, pr)
-            if (stack - {pr}) & self.below_blocking or self.recorded(stack, open_rows, admitted):
+            if not since or now - (admitted := max(since)) < ADMISSION_AUDIT or self.recorded(stack, open_rows, admitted):
                 continue
             owner = self.owner(pr, row)
             by = f"root go #{gos_at[0]['seq']}" if gos_at else "its exemption"
