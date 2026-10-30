@@ -170,13 +170,13 @@ def test_a_ccn_read_retries_while_another_desk_writes(monkeypatch):
     calls: list[list[str]] = []
     slept: list[float] = []
 
-    def flaky(argv, **_):
+    def flaky(argv, stdin, cwd=None):
         calls.append(argv)
         if len(calls) < 3:
             raise subprocess.CalledProcessError(1, argv, stderr="ledger busy")
-        return subprocess.CompletedProcess(argv, 0, stdout="{}", stderr="")
+        return "{}"
 
-    monkeypatch.setattr(ledger.subprocess, "run", flaky)
+    monkeypatch.setattr(ledger.Shell, "once", staticmethod(flaky))
     monkeypatch.setattr(ledger.time, "sleep", slept.append)
 
     assert ledger.Shell().run(["ccn", "ledger", "show", LEDGER, "--json"]) == "{}"
@@ -187,11 +187,11 @@ def test_a_ccn_read_retries_while_another_desk_writes(monkeypatch):
 def test_a_ccn_read_that_keeps_failing_raises_and_a_write_is_never_retried(monkeypatch):
     calls: list[list[str]] = []
 
-    def failing(argv, **_):
+    def failing(argv, stdin, cwd=None):
         calls.append(argv)
         raise subprocess.CalledProcessError(1, argv, stderr="ledger busy")
 
-    monkeypatch.setattr(ledger.subprocess, "run", failing)
+    monkeypatch.setattr(ledger.Shell, "once", staticmethod(failing))
     monkeypatch.setattr(ledger.time, "sleep", lambda _: None)
 
     with pytest.raises(subprocess.CalledProcessError):
