@@ -102,6 +102,7 @@ function driveEntry(n) {
   return state.drive.get(Number(n));
 }
 function prState(n) {
+  if (state.model.pr_state[n]?.state === 'Landed') return 'landed';
   return driveEntry(n)?.state ?? (state.model.steps.some((s) => s.untracked.includes(Number(n))) ? 'untracked' : 'closed');
 }
 const STATE_WORD = { landed: 'Landed', closed: 'Closed', you: 'Waiting on you', failing: 'Tests failing', held: 'Held', queued: 'Approved, waiting to land', doing: 'Being worked on', waiting: 'Waiting its turn', untracked: 'Not tracked by the merge ledger yet' };

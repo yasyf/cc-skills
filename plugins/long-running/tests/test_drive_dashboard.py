@@ -793,3 +793,10 @@ def test_the_newest_evidence_record_is_a_pull_requests_state_owner_and_clock():
     drive.note_evidence({**record, "seq": 11, "kind": "evidence", "text": "another lane's evidence with no row attributes"})
     drive.note_evidence({**record, "seq": 12, "fields": {"attrs": {"actor": "platy"}}})
     assert drive.evidences()["44087"] == {"state": "Out of the queue until its tests pass", "owner": "merge-process", "since": "2026-10-28T20:10:00Z", "next": "", "at": "2026-10-28T20:20:00Z", "seq": 10}
+
+
+def test_a_landed_or_closed_pull_request_drops_out_of_the_work_pages_waiting_rows():
+    pages = {"work": {"running": [], "pull_requests": [{"number": 1, "stage": "In the merge queue"}, {"number": 2, "stage": "Waits on your tap"}, {"number": 3, "stage": "Held"}, {"number": 4, "stage": "Grading"}]}}
+    prs = {"1": {"state": "landed"}, "2": {"state": "open"}, "3": {"state": "closed"}, "4": {"state": "open"}}
+    out = server.without_finished_prs(pages, prs, {"2": {"state": "Landed"}})
+    assert [row["number"] for row in out["work"]["pull_requests"]] == [4]
