@@ -479,35 +479,51 @@ def test_a_held_pr_draws_no_stall(config, tmp_path):
     assert shell.topics() == []
 
 
-def test_a_red_head_posts_a_blocker_to_root_and_its_lane_at_two_minutes_and_again_every_half_hour_until_it_greens(config, tmp_path):
+def test_a_red_head_goes_to_its_live_lane_every_half_hour_to_root_once_when_no_live_lane_owns_it_and_probe_reds_fold_into_one_daily_line(config, tmp_path):
     (tmp_path / "holds.md").write_text("#103 waits on the schema release\n")
-    red = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/9", "job": "Lint (fmt, clippy)", "error": "error: used `expect()` on a `Result` value"}
+    red = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/9", "job": "Lint (fmt, clippy)", "error": "error: used `expect()` on a `Result` value", "probe": False}
+    probe = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/8", "job": "Run api tests", "error": "buildkite-agent: fatal: failed to get step: 404 Not Found", "probe": True}
     bot = {"name": "ai-review", "url": "https://github.com/Forge-AI/monorepo/runs/7"}
-    shell = FakeShell([], [row("101", test_state="failure", red_at=stamp(1), failing_checks=json.dumps([red, bot])), row("102", OTHER, test_state="failure", red_at=stamp(60), failing_checks=json.dumps([bot])), row("103", OLD, test_state="failure", red_at=stamp(1), failing_checks=json.dumps([red]))])
+    records = [record(1, "api-lane", "state", "working on #101", 5), record(2, "root", "answer", "root reassigns #105 (gone-lane) to api-lane; #106 to other-lane", 4)]
+    shell = FakeShell(
+        records,
+        [
+            row("101", test_state="failure", red_at=stamp(1), failing_checks=json.dumps([red, bot])),
+            row("102", OTHER, test_state="failure", red_at=stamp(60), failing_checks=json.dumps([bot])),
+            row("103", OLD, lane="gone-lane", test_state="failure", red_at=stamp(1), failing_checks=json.dumps([red])),
+            row("104", lane="gone-lane", test_state="failure", red_at=stamp(1), failing_checks=json.dumps([probe])),
+            row("105", lane="gone-lane", test_state="failure", red_at=stamp(1), failing_checks=json.dumps([red])),
+        ],
+    )
 
     watch(shell, config)
     assert shell.topics() == []
 
     shell.clock = NOW + timedelta(minutes=2)
     watch(shell, config)
-    assert shell.topics() == ["red:101:abc1234", "red:103:0123456"]
+    assert sorted(shell.topics()) == ["probe:2026-10-27", "red:101:abc1234", "red:103:0123456:root", "red:105:abc1234"]
     assert shell.post("red:101:abc1234") == {
-        "to": "root,api-lane@d1",
+        "to": "api-lane@d1",
         "kind": "blocker",
         "text": "STALL red #101 at abc1234, 3 min: buildkite/test has read failed in job Lint (fmt, clippy) since 12:59 PM: error: used `expect()` on a `Result` value (https://buildkite.com/forge/test/builds/9) | owner api-lane | fix the red build of #101 at abc1234 and push",
     }
+    assert shell.post("red:105:abc1234")["to"] == "api-lane@d1"
+    assert shell.post("red:103:0123456:root")["to"] == "root"
+    assert shell.post("red:103:0123456:root")["text"].endswith("| owner root | assign the red build of #103 at 0123456 to a live lane")
+    assert shell.post("probe:2026-10-27")["to"] == "root" and shell.post("probe:2026-10-27")["kind"] == "report"
+    assert "#104 at abc1234 (gone-lane, https://buildkite.com/forge/test/builds/8)" in shell.post("probe:2026-10-27")["text"]
 
     shell.clock = NOW + timedelta(minutes=20)
     watch(shell, config)
-    assert len(shell.posts) == 2
+    assert len(shell.posts) == 4
 
     shell.clock = NOW + timedelta(minutes=33)
     watch(shell, config)
-    assert shell.topics() == ["red:101:abc1234", "red:103:0123456", "red:101:abc1234", "red:103:0123456"]
+    assert sorted(shell.topics()[4:]) == ["red:101:abc1234", "red:105:abc1234"]
 
     shell.rows[0] = row("101")
     watch(shell, config)
-    assert "red:101:abc1234" not in opened(config) and "red:103:0123456" in opened(config)
+    assert "red:101:abc1234" not in opened(config) and "red:103:0123456:root" in opened(config)
 
 
 def graded(seq: int, pr: str, sha: str, minutes_ago: float) -> list[dict]:

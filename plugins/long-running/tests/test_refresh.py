@@ -121,6 +121,29 @@ def test_the_first_error_line_skips_the_buildkite_timestamp_escape_around_sectio
     assert ledger.first_error_line(log) == "error: used `expect()` on a `Result` value"
 
 
+@pytest.mark.parametrize(
+    ("log", "line"),
+    [
+        ("\x1b_bk;t=1\x07buildkite-agent: fatal: failed to get step: POST x: 404 Not Found\n\x1b_bk;t=2\x07error[E0505]: cannot move out of `journal`\n", "error[E0505]: cannot move out of `journal`"),
+        ("\x1b_bk;t=1\x07buildkite-agent: fatal: failed to get meta-data: POST x: 404 Not Found\n", "buildkite-agent: fatal: failed to get meta-data: POST x: 404 Not Found"),
+    ],
+    ids=["probe-then-real-error", "probe-only"],
+)
+def test_the_first_error_line_passes_over_buildkites_404_probe_to_the_jobs_real_error(log, line):
+    assert ledger.first_error_line(log) == line
+
+
+def test_a_stored_probe_error_is_read_again_once_and_then_kept():
+    url = "https://buildkite.com/forge/test/builds/9"
+    stored = json.dumps([{"name": "buildkite/test", "url": url, "job": "Run api tests", "error": "buildkite-agent: fatal: failed to get step: 404"}])
+    shell = FakeShell()
+    first = json.loads(ledger.with_errors(shell, json.dumps([{"name": "buildkite/test", "url": url}]), stored))
+    assert [call[:3] for call in shell.calls if call[0] == "bk"] == [["bk", "build", "view"], ["bk", "job", "log"]]
+    again = FakeShell()
+    assert json.loads(ledger.with_errors(again, json.dumps([{"name": "buildkite/test", "url": url}]), json.dumps(first))) == first
+    assert [call for call in again.calls if call[0] == "bk"] == []
+
+
 def test_ai_review_absent_when_no_such_check_run(lock):
     shell = FakeShell(routes={f"checks:{MOVED_HEAD}": "check-runs-no-ai-review.json"})
     refresh(shell, lock, pr=["21052"])
@@ -466,7 +489,7 @@ def test_a_red_buildkite_check_carries_its_first_error_line_read_once_per_url():
     shell = FakeShell()
     first = json.loads(ledger.with_errors(shell, checks, None))
     assert (first[0]["job"], first[0]["error"]) == ledger.resolve_error(FakeShell(), ledger.BUILDKITE_URL.match(url))
-    assert first[0]["job"] == "Gate sand build timing" and first[0]["error"] != ""
+    assert first[0]["job"] == "Gate sand build timing" and first[0]["error"] != "" and first[0]["probe"] is False
     assert "job" not in first[1] and "error" not in first[1]
     again = FakeShell()
     assert json.loads(ledger.with_errors(again, checks, json.dumps(first))) == first

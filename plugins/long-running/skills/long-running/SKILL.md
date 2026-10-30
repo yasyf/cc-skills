@@ -2659,8 +2659,11 @@ board, and the root's task list. For each stall it posts one `urgent` record fro
 `stall-watch` to root and the owning lane:
 `STALL <kind> <subject>, <age> min: <what stopped> | owner <lane> | <next step>`. A stall
 posts again only after it clears and comes back, and never sooner than 30 minutes after
-its last post. A `red` stall posts as a `blocker`, always to root and the PR's lane, and
-again every 30 minutes while it stands. A stall whose owners are all desks, lanes named `<x>-desk` or
+its last post. A `red` stall posts as a `blocker` to the PR's live owning lane alone, and
+again every 30 minutes while it stands; the owner is the lane the newest root record that
+reassigns the PR names, else the ledger row's lane, and a red no live lane owns reaches root
+once per head. Reds whose failed job logged only Buildkite's benign 404 probe fold into one
+`report` line to root a day. A stall whose owners are all desks, lanes named `<x>-desk` or
 `<x>-desk-<n>`, goes to those desks and not to root. A stall the landing desk owns goes
 to `landing.desk_lane` when `runner.json` names one, else to root. Finder and fidelity
 stalls never reach root. A `stale` or `board` stall spares root while a lane in
@@ -2673,7 +2676,7 @@ stalls in one stack post as one record, on the stack's lowest PR.
 | `go` | a root go names a PR's head, no `QUEUED` record does, no hold covers a PR below it, and no standing refusal names a PR of its stack | 10 | the first PR in the stack, from the bottom, with no go (root), or with a red, conflicting, or unfinished build (its lane), else the landing desk; one record per blocking PR |
 | `refusal` | the desk runner or a landing desk lane refused to queue a PR a go or tap names: a needed restack, a conflict, an untracked or closed parent, a lost Graphite parent, mergeability GitHub is still computing, or `FOREIGN`, `TAP-REQUIRED`, `CONTRACT-MISSING`, `PARKED`, `UNOWNED`, `NOT-QUEUEABLE`, `ENQUEUE-*`; no `head` or `--re` answer from the owning lane, no `QUEUED`, no closing record, and the PR still sits at the refused head | 10 | root and the lane the refusal names as `owner lane <lane>` or `<lane>: #<pr>`, else the PR's lane; root for `FOREIGN` and `TAP-REQUIRED`; the landing desk for mergeability. The record names the refusal's command |
 | `successor` | the same refusal still stands | 20 | root, asked to spawn the owning lane's successor to run that command |
-| `red` | the head's `landing.trunk_check` check has read failed since the ledger row's `red_at`, held or not; the record names the failed Buildkite job, its first error line, and the build | 2 | root and the PR's lane |
+| `red` | the head's `landing.trunk_check` check has read failed since the ledger row's `red_at`, held or not; the record names the failed Buildkite job, its first error line, and the build | 2 | the PR's live lane, from the newest root reassignment or the ledger row; root once per head when no live lane owns it |
 | `tap` | the owner approved a head on the board, and no go names it | 10 | root and `landing.go_lanes` |
 | `finder` | a `head` record names the head, no finder review does, and the finder desk holds no queued pass on it nor one running past 25 minutes | 30 | the landing desk when the finder desk runs and queued nothing, or its pass ran past 25 minutes; else the PR's lane |
 | `fidelity` | a `head` record names the head, no fidelity grade does, and the fidelity desk holds no queued grade on it nor one running past 25 minutes | 30 | the landing desk for a grade past 25 minutes, else `landing.fidelity_lane` |
