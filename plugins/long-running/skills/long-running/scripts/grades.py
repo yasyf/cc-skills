@@ -143,7 +143,7 @@ def head_of(record: dict, repo: str, pr: str) -> str:
 
 
 def head_says(record: dict, repo: str, pr: str) -> str:
-    """What a `head` record says of `pr`'s move: its `fields.heads` entry's note, else its whole text."""
+    """What `record` says of `pr`'s head: a multi-head `head` record's note for `pr`, else the record's whole text."""
     return ((head_entries(record, repo) or {}).get(pr) or {}).get("note") or full_text(record)
 
 

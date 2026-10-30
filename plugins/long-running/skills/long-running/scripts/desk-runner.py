@@ -7192,8 +7192,8 @@ class Landing:
                 if self.carry_tap(session, block, pr, tapped, head, why, self.landing_audience([pr], rows, to), label):
                     self.go_carried_tap(pr, head, tapped, rows, to)
                 continue
-            said = [head_says(record, self.repo, pr) for record in reviews if record["kind"] == "head" and about_pr(record, self.repo, pr) and names_head(head_of(record, self.repo, pr), head)]
-            adds = [text for text in [*said, *([full_text(graded)] if graded else [])] if ADDS_BEHAVIOR.search(text)]
+            said = [record for record in reviews if record["kind"] == "head" and about_pr(record, self.repo, pr) and names_head(head_of(record, self.repo, pr), head)]
+            adds = [record for record in [*said, *([graded] if graded else [])] if ADDS_BEHAVIOR.search(head_says(record, self.repo, pr))]
             standing = self.fidelity(pr, head)
             graded_ok = bool(standing.ok and standing.record)
             keeper = self.keeper(reviews, pr, head, tapped)
@@ -7219,7 +7219,7 @@ class Landing:
                 continue
             if (adds or graded_ok and not says_kept) and not self.book.known(LANDING, key := f"tap-new-row:{block}:{pr}:{tapped}:{head}"):
                 record = adds[-1] if adds else standing.record
-                text = full_text(record)
+                text = head_says(record, self.repo, pr)
                 why = f"says that head adds new behavior: \"{board_rows.sentence_at(text, ADDS_BEHAVIOR.search(text).start()).strip()}\"" if adds else f"grades it ok without saying no new behavior since the tap at {tapped[:10]}"
                 when = board_rows.tapped_at(entry)
                 since = " -> ".join(sha[:10] for sha in heads_since(moves, head, entry["head"]))
