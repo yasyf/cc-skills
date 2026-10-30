@@ -915,7 +915,10 @@ with options, and a root DECIDE sentence that orders a card) against the registe
 in-force rows, the tracked plan's Decisions lines, the `scope:durable` answers, and the
 feedback memories. It runs in lanes too, so the board refresher's pushes are checked. It
 warns on a match and quotes the ruling or answer that settles it; apply that and drop the
-question. The same question re-issued passes, so a wrong match costs one retry.
+question. A card on something the owner picked before, superseded picks and picks that
+point the other way included, shows him each one as a line `You picked "<pick>" on
+<date>`; the hook warns a card that leaves one out and lists the lines to add. The same
+question re-issued passes, so a wrong match costs one retry.
 
 An owner message that states a standing rule, with "from now on", "always", "never", "I
 told you", or "the plan is", is recorded the turn it arrives, as an `answer_add` with
