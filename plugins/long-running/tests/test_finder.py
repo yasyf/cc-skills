@@ -500,7 +500,7 @@ def test_a_head_whose_only_finder_review_names_no_head_reads_since_the_head_its_
     shell = Fake(tmp_path, [], own={(BASE, HEAD): [OWN], (BASE, OLD): [OLD_OWN]}, resolve={OLD: OLD}, ranges={EARLIER: pairs("=", "=")})
     finder.main([str(directory)], shell)
     assert not shell.asks() and not shell.posted
-    assert result(directory) == {"skipped": f"{REPO}#43299 at {HEAD[:12]} replays every own commit of {OLD[:12]}, patch for patch or dropping only hunks dev carries"}
+    assert result(directory) == {"skipped": f"{REPO}#43299 at {HEAD[:12]} replays every own commit of {OLD[:12]}, patch for patch or dropping only hunks dev carries", "ungraded": True}
     assert finder.previous({"text": f"HEAD #43299 {HEAD} (was {OLD}): restack onto #42751"}) == OLD and finder.previous({"text": f"HEAD #43299 {HEAD}"}) == ""
 
 

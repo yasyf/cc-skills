@@ -12786,6 +12786,17 @@ def test_a_head_after_a_finder_review_carries_the_head_its_head_record_replaced(
     assert named["lane"] == "p8a-step6b-creds-6" and named["text"].startswith("p8b-step8 finder (gpt-6.1-sol, one pass")
 
 
+def test_a_pass_that_posts_nothing_on_a_replay_of_an_ungraded_head_queues_a_whole_pass_of_its_pr(shell, config):
+    """Root #215820: every green head that replayed an ungraded head waited for a hand-posted `finder: whole` ask."""
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    head_record(shell, "43299", FINDER_HEAD)
+    orca_pass(shell, config)
+    (shell.finder_jobs[0] / "result.json").write_text(json.dumps({"skipped": "replay", "ungraded": True}))
+    orca_pass(shell, config)
+    assert [(job["pr"], job["full"]) for job in finder_jobs(shell)] == [("43299", False), ("43299", True)]
+
+
 def test_a_finder_that_fails_or_writes_nothing_by_its_deadline_runs_again_and_escalates_once_on_its_third_failure(shell, config):
     finder_config(config, timeout_minutes=1)
     orca_pass(shell, config)

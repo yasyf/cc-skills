@@ -160,6 +160,16 @@ def watch(shell: FakeShell, config: Path) -> None:
     assert stall_watch.main(["--config", str(config)], shell) == 0
 
 
+def test_a_stall_reaches_the_live_successor_of_the_lane_that_posted_the_prs_newest_head(config):
+    """Root #215820: stalls went to n-enumeration-1 and port-memory-1, dead since their successors took over."""
+    rotated = record(1, "port-memory-1", "head", f"HEAD #101 {HEAD}", 40, "101")
+    shell = FakeShell([rotated, fidelity(2, "101", HEAD, 35), record(3, "port-memory-3", "state", "took over port-memory-1's PRs", 5)], [row("101", test_state="pending")])
+
+    watch(shell, config)
+
+    assert shell.post("finder:101:abc1234")["to"] == "port-memory-3@d1"
+
+
 def test_a_head_no_finder_names_posts_one_urgent_record_to_root_and_its_lane_until_a_review_clears_it(config):
     shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35), head(3, "102", OTHER, 9), fidelity(4, "102", OTHER, 8)], [row("101", test_state="pending"), row("102", OTHER, test_state="pending")])
 
