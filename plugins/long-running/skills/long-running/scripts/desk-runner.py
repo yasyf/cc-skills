@@ -7083,7 +7083,7 @@ class Landing:
             self.book.attempt(LANDING, lambda incident, key=action.action_id: incident.action(key).response.update({UNGRADED_READ: self.book.stamp()}))
 
     def unqueued_gos(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Escalate `GO-UNQUEUED` once per head and stack for the lowest open, green, unheld PR of each stack a root `go` names at its ledger head that the pass's queue read still finds out of the queue five minutes after that go, and whose newest enqueue since the go does not show it QUEUED at that head (#185418), or after the fidelity grade that carried it to that head, naming the stack's bottom and the gone PRs above that wait on it (root #151213), whoever enqueued it, naming what the review bot's newest `ai-review` run on that head says when it holds the PR or waits for a restack push (root #154137), else the reserved rows below or at it that this runner's check-pr reads still wait on his tap, else the outcome of the newest enqueue at that head accepted since the go, so an attempt that ran before the go never reads as the reason. A head stacked on a parent no go names, one a hold covers, or one red on CI or conflicting with its base, is left to `refuse_ungone_parents`' one `BELOW-BLOCKED` or `BELOW-HELD` note per stack (root #142036, #142931, #145011)."""
+        """Escalate `GO-UNQUEUED` once per head and stack for the lowest open, green, unheld PR of each stack a root `go` names at its ledger head that the pass's queue read still finds out of the queue five minutes after that go, and whose newest enqueue since the go does not show it QUEUED at that head (#185418), or after the fidelity grade that carried it to that head, naming the stack's bottom and the gone PRs above that wait on it (root #151213), whoever enqueued it, unless the adapter's own queue status reads it queued, such as Graphite's `WAITING_TO_MERGE` on a child whose base is still `graphite-base/<n>` (#194272), naming what the review bot's newest `ai-review` run on that head says when it holds the PR or waits for a restack push (root #154137), else the reserved rows below or at it that this runner's check-pr reads still wait on his tap, else the outcome of the newest enqueue at that head accepted since the go, so an attempt that ran before the go never reads as the reason. A head stacked on a parent no go names, one a hold covers, or one red on CI or conflicting with its base, is left to `refuse_ungone_parents`' one `BELOW-BLOCKED` or `BELOW-HELD` note per stack (root #142036, #142931, #145011)."""
         queued = {pr for prs in self.believed_queued(rows).values() for pr in prs}
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         now = self.runner.now()
@@ -7111,7 +7111,10 @@ class Landing:
                 why = f"its newest enqueue since the go ended {tried[-1].response['outcome']}: {' '.join(tried[-1].response.get('out', '').split())[-300:]}"
             bottom = min(stack, key=lambda member: len(downstack(open_rows, member)))
             stuck.setdefault(bottom, []).append((len(stack), pr, head, gos, at, why))
+        graphite = (self.adapter.queued(sorted({member[1] for group in stuck.values() for member in group}, key=int)) if stuck else None) or {}
         for bottom, group in stuck.items():
+            if not (group := [member for member in group if not graphite.get(member[1])]):
+                continue
             _, pr, head, gos, at, why = min(group)
             owner = self.owner(pr, open_rows[pr]) or ROOT
             above = [f"#{other}" for _, other, *_ in sorted(group) if other != pr]
