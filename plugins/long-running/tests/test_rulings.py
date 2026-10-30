@@ -763,6 +763,7 @@ def test_classify_writes_a_scope_row_its_card_and_one_record_to_every_live_lane(
 ) -> None:
     (state / "briefs").mkdir()
     (state / "briefs" / "lane-a.md").write_text("Brief.\nThe desktop shell keeps its uploads.\n")
+    sliced(state, {"lane-a": "1.1", "lane-b": "7.1"})
     captured(state, capture("4", "uploads stay out of the desktop shell. keep them in the journal"))
     shell = RegisterShell(seeded(package), records=LIVE)
     three = [
@@ -800,12 +801,13 @@ def test_classify_writes_a_scope_row_its_card_and_one_record_to_every_live_lane(
     assert f"Register new {PROMPT_KEY} (scope): the owner's words and what they mean, verbatim." in announced
     assert "> uploads stay out of the desktop shell. keep them in the journal" in announced
     assert "3. The journal may keep an upload queue. (permits, proposed, waits for the owner's tick)" in announced
-    assert [post[index + 1] for index, flag in enumerate(post) if flag == "--to"] == ["lane-a", "lane-b", "lane-c"]
+    assert [post[index + 1] for index, flag in enumerate(post) if flag == "--to"] == ["lane-a", "lane-b"]
 
 
 def test_classify_posts_one_record_per_batch_however_many_rows_and_captures_it_touches(
     home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
 ) -> None:
+    sliced(state, {"lane-a": "1.1", "lane-b": "7.1"})
     captured(state, capture("1", "no parked worker here"), capture("2", "no parked worker there"), capture("3", "the probe stays on relay-server"))
     shell = RegisterShell(seeded(package), records=LIVE)
     one = [{"text": "One more line.", "direction": "removes"}]
@@ -826,7 +828,27 @@ def test_classify_posts_one_record_per_batch_however_many_rows_and_captures_it_t
     assert "Register extended rule/aaaaaaa (scope): the owner's words and what they mean, verbatim." in announced
     assert "Register extended rule/9999999 (pick): the owner's words and what they mean, verbatim." in announced
     assert "> also, Oct 23 5:30 AM PT: no parked worker there" in announced
-    assert [post[index + 1] for index, flag in enumerate(post) if flag == "--to"] == ["lane-a", "lane-b", "lane-c"]
+    assert [post[index + 1] for index, flag in enumerate(post) if flag == "--to"] == ["lane-a", "lane-b"]
+
+
+def test_classify_announces_a_row_only_to_the_live_lanes_whose_slice_it_changes(
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys
+) -> None:
+    sliced(state, {"lane-a": "1.1", "lane-b": "7.1"})
+    captured(state, capture("3", "the probe stays on relay-server"))
+    shell = RegisterShell(seeded(package), records=LIVE)
+
+    code, _ = classify(tmp_path, capsys, shell, {"digest": "3" * 16, "extends": "rule/9999999", "words": "the probe stays on relay-server"})
+
+    assert code == 0
+    [post] = [argv for argv in shell.calls if argv[:2] == ["cci", "post"]]
+    assert [post[index + 1] for index, flag in enumerate(post) if flag == "--to"] == ["lane-b"]
+
+
+def sliced(state: Path, steps: dict[str, str]) -> None:
+    (state / "briefs").mkdir(exist_ok=True)
+    for lane, step in steps.items():
+        (state / "briefs" / f"{lane}-slice.md").write_text(f"Brief.\nRegister slice: lane={lane} step={step}\n")
 
 
 def test_classify_loads_the_register_once_and_walks_the_briefs_once_per_batch(
@@ -851,7 +873,7 @@ def test_classify_loads_the_register_once_and_walks_the_briefs_once_per_batch(
     assert walks == [state]
 
 
-def test_classify_walks_no_briefs_for_a_row_with_no_names(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_classify_walks_the_briefs_once_for_its_announce_and_sweeps_nothing_for_a_row_with_no_names(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch) -> None:
     walks: list[Path] = []
     monkeypatch.setattr(rulings, "briefs", lambda root: walks.append(root) or [])
     captured(state, capture("1", "drain the pool when a run closes, every time"))
@@ -860,7 +882,7 @@ def test_classify_walks_no_briefs_for_a_row_with_no_names(home: Path, package: P
 
     assert code == 0
     assert json.loads(out)["hits"] == []
-    assert walks == []
+    assert walks == [state]
 
 
 def test_briefs_skip_a_copied_source_tree_and_anything_below_three_levels(state: Path) -> None:
