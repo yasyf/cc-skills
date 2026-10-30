@@ -613,6 +613,16 @@ def test_a_pr_in_one_state_for_two_hours_posts_one_stale_record_naming_its_owner
     assert opened(config) == {}
 
 
+def test_a_green_head_with_a_go_left_unqueued_stales_to_the_landing_desk_not_its_lane(config):
+    """p8a-step7 #200851: #45381 sat green with its go for two hours, and the stale record went to p8a-step7, whose step it was not."""
+    desk_lane(config, "landing-desk-3")
+    shell = FakeShell([*graded(1, "101", HEAD, 150), record(4, "root", "go", f"go #101 at {HEAD[:7]}", 150)], [row("101")])
+
+    watch(shell, config)
+
+    assert shell.post("stale:101:abc1234") == {"to": "landing-desk-3@d1", "kind": "urgent", "text": "STALE #101 at abc1234, 150 min: green with a go, not queued | owner desk-runner | the landing desk enqueues #101 at abc1234"}
+
+
 def test_a_graphite_base_under_an_open_parent_reads_as_a_drifted_base_never_a_landed_parent(config):
     shell = FakeShell([*graded(1, "100", HEAD, 150), *graded(4, "101", HEAD, 150)], [row("100", test_state="pending"), row("101", base="graphite-base/101")])
     shell.doc = {"blocks": [{"id": f"merge:101:{HEAD[:7]}", "type": "card", "children": []}]}
@@ -941,6 +951,7 @@ def test_a_stale_stack_posts_once_from_its_lowest_stale_pr_a_held_pr_counts_and_
         "state": "waits on #201 below it",
         "next": "land #201 first",
         "owner": "api-lane",
+        "actor": "api-lane",
         "since": "",
         "live": True,
         "stale": True,

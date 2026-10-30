@@ -12,7 +12,7 @@ from captain_hook.util import reqenv
 
 from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, bus_name, drive_entry, script, script_module
 from .register_injection import INCIDENT_NAME, INCIDENT_SLICE
-from .session_tree import nearest_name
+from .session_tree import drive_lane
 
 LANDERS = re.compile(r"^(?:desk-runner|merge-train)(?:-.+)?$|^(?:\w+-)*desk(?:-\d+)?$")
 TEAMMATE_NAME = re.compile(r"^a(?P<name>.+)-[0-9a-f]{16}$")
@@ -147,11 +147,11 @@ def program(argv: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def lane_name(evt: BaseHookEvent) -> str | None:
+    if lane := drive_lane(evt):
+        return lane
     if evt.agent_id:
-        if match := TEAMMATE_NAME.match(evt.agent_id):
-            return match["name"]
-        return nearest_name(evt) or reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") or ""
-    return reqenv.getenv("CLAUDE_LONG_RUNNING_LANE")
+        return match["name"] if (match := TEAMMATE_NAME.match(evt.agent_id)) else ""
+    return None
 
 
 def incident_lane(evt: BaseHookEvent, lane: str) -> bool:

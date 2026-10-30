@@ -105,8 +105,9 @@ and, across the drive:
               answered, post one `state` record to root per head instead, once while the PR stays open
               at that head, and one digest record when several post in one pass; a tap row counts from
               the earlier of its board row's write and the head's READY record; a PR that waits on the PR
-              below it posts nothing itself and is listed on the stale PR its stack waits on, and a
-              PR whose owning lane has no live record in the window goes to root; a changed state on
+              below it posts nothing itself and is listed on the stale PR its stack waits on, a PR in
+              the merge queue or green with a go goes to the landing desk lanes, whose step it is, and
+              any other PR whose owning lane has no live record in the window goes to root; a changed state on
               the same head counts from the pass that saw it change; a held PR whose open `hold` record
               names an open PR the owner has not tapped at its head is never stale, until that PR lands,
               is tapped, or the hold lifts
@@ -464,9 +465,9 @@ def stack_row(pr: str, row: dict, rows: dict[str, dict], owner: str, held: bool,
     named = f"#{pr} at {short(row['head'])}"
     below = next((other for other, parent in rows.items() if parent.get("branch") and parent["branch"] == row.get("base")), "")
     red = ", ".join(check["name"] for check in json.loads(row.get("failing_checks") or "[]")) or "a required check"
-    waits = ""
+    waits, actor = "", owner
     if in_queue:
-        state, step = IN_QUEUE, f"the landing desk reads why the merge queue still holds {named}"
+        state, step, actor = IN_QUEUE, f"the landing desk reads why the merge queue still holds {named}", RUNNER
     elif held:
         state, step = f"{HELD}{clip(row.get('hold_reason') or 'a hold record covers it')}", f"lift the hold on #{pr} or do what it waits on"
     elif row.get("base", "").startswith("graphite-base/"):
@@ -484,12 +485,12 @@ def stack_row(pr: str, row: dict, rows: dict[str, dict], owner: str, held: bool,
     elif row.get("ai_review") != "success":
         state, step = NO_VERDICT, f"re-request the reviewer bot's review of {named}"
     elif going:
-        state, step = "green with a go, not queued", f"the landing desk enqueues {named}"
+        state, step, actor = "green with a go, not queued", f"the landing desk enqueues {named}", RUNNER
     elif tapping:
         state, step = TAP_WAIT, f"the owner taps the merge row for {named} on his board"
     else:
         state, step = "green, and no go names this head", f"root posts `go #{pr} at {short(row['head'])}` or puts its merge row on the owner's board"
-    return {"pr": pr, "title": row.get("title", ""), "head": row["head"], "base": row.get("base", ""), "below": below, "waits": waits, "state": state, "next": step, "owner": owner}
+    return {"pr": pr, "title": row.get("title", ""), "head": row["head"], "base": row.get("base", ""), "below": below, "waits": waits, "state": state, "next": step, "owner": owner, "actor": actor}
 
 
 def blocks_head(record: dict, pr: str, head: str) -> bool:
@@ -1023,7 +1024,8 @@ class Pass:
             quiet = self.handled(records, pr)
             if quiet and not live:
                 continue
-            stalls.append(Stall(f"stale:{pr}:{short(found['head'])}{':quiet' if quiet else ''}", "stale", since, subject, what, (found["owner"],) if live else (ROOT,), found["next"], pr, quiet))
+            owners = (found["actor"],) if live or found["actor"] == RUNNER else (ROOT,)
+            stalls.append(Stall(f"stale:{pr}:{short(found['head'])}{':quiet' if quiet else ''}", "stale", since, subject, what, owners, found["next"], pr, quiet))
         return stalls
 
     def owner_gates(self, pr: str, found_by_pr: dict[str, dict], seen: set[str]) -> set[str] | None:

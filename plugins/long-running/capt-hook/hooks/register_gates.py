@@ -34,7 +34,7 @@ from .owner_facing import CCI_POST, INCIDENT_DIGEST, INCIDENT_STORE, inbox_text,
 from .pr_ledger import OPENERS
 from .register_injection import drive_args, helper
 from .root_context import FILE_WRITES
-from .session_tree import nearest_name
+from .session_tree import drive_lane
 from .tests.register_fixtures import (
     ACTIVE,
     CWD,
@@ -819,7 +819,7 @@ def reports_ready(run: tuple[str, ...]) -> bool:
 
 
 def owning_lane(evt: BaseHookEvent) -> str | None:
-    return (evt.agent_id and nearest_name(evt, helper)) or lane_name(evt)
+    return (evt.agent_id and drive_lane(evt, helper)) or lane_name(evt)
 
 
 def incident_lane(evt: BaseHookEvent, lane: str) -> bool:
