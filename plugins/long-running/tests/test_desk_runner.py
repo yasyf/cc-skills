@@ -9,6 +9,7 @@ import importlib.util
 import fcntl
 import itertools
 import json
+import shutil
 import os
 import re
 import sys
@@ -13366,6 +13367,20 @@ def test_a_failed_fidelity_pass_fails_at_once_to_the_human_desks_and_the_next_he
     again = head_record(shell, "43439", FINDER_HEAD)
     orca_pass(shell, config)
     assert shell.fidelity_jobs[-1] == config.resolve().parent / "fidelity-pipeline" / f"43439-{FINDER_HEAD[:12]}-{again}"
+
+
+def test_a_pass_whose_job_directory_is_gone_fails_without_raising(shell, config, tmp_path):
+    """Root #223934: a finder pass's directory went away while it ran, and every orca pass raised reading its pid; a fidelity pass's moved directory raised the same way on job.json."""
+    finder_config(config, concurrent=1)
+    fidelity_config(config)
+    orca_pass(shell, config)
+    seq = head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    for directory in (*shell.finder_jobs, *shell.fidelity_jobs):
+        shutil.rmtree(directory)
+    orca_pass(shell, config)
+    assert incident(tmp_path, "desk-finder").actions[f"finder:43439:{FINDER_HEAD}"].reason == f"its job directory {shell.finder_jobs[0]} is gone"
+    assert [text for _, text in fidelity_failures(shell)] == [f"FIDELITY-FAILED fidelity:43439:{FINDER_HEAD}:{seq} p8a-step9: #43439 {FINDER_HEAD[:12]}: the fidelity pass failed: its job directory {shell.fidelity_jobs[0]} is gone; its log is {shell.fidelity_jobs[0] / 'job.log'}; a fidelity desk grades it by hand, and the next head record for #43439 queues the pass again"]
 
 
 def test_a_failed_fidelity_pass_settles_when_a_reader_lane_in_runner_json_has_not_started(shell, config):
