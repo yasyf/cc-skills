@@ -561,7 +561,8 @@ stops naming, and a root `go` never does, whatever it names (C224). A quiet pass
 The orca runner rotates every *.md inbox beside `orca.desk_inbox` once an hour,
 using the default six-hour window. While `runner.json` holds a `stall` object, read every pass so an edit needs no
 restart, the orca runner starts `stall_watch.py --config <config>` detached every `stall.every_minutes` (default 5)
-once its last pass has exited, logging to `stall-watch.log` beside `orca.desk_inbox`.
+once its last pass has exited, logging to `stall-watch.log` beside `orca.desk_inbox`; a pass that exits non-zero posts one
+`STALL-WATCH-FAILED` to root per distinct last log line, since a failing pass posts no stall at all.
 Each desk's heartbeat is its `<desk> alive <time> pass <n>` cci `state` record to the drive watchdog, posted when `run`
 starts and then once a minute from a thread whatever the pass is doing, whose attrs name its pid, config, terminal, restart
 command, the plugin version the runner runs, and its `flight`: the command in flight, `landing pass` while a landing pass
@@ -1952,8 +1953,12 @@ class Runner:
         stall = json.loads(self.config.source.read_text()).get("stall")
         if not stall or (self.stall_pass and self.stall_pass.poll() is None) or self.now() - self.stall_started < timedelta(minutes=stall.get("every_minutes", STALL_EVERY_MINUTES)):
             return
+        log = self.config.desk_inbox.with_name("stall-watch.log")
+        if self.stall_pass and (code := self.stall_pass.poll()):
+            error = next((line.strip() for line in reversed(log.read_text(errors="replace").splitlines()) if line.strip()), f"exit {code}")
+            self.escalate(f"stall-watch-failed:{error[:200]}", "STALL-WATCH-FAILED", "stall_watch.py", f"the last stall watch pass exited {code}, so no stall alarm posts until it passes again: {error}; log {log}", "stall-watch-failed", ROOT)
         self.stall_started = self.now()
-        self.stall_pass = self.shell.spawn([sys.executable, str(STALL_WATCH), "--config", str(self.config.source)], self.config.desk_inbox.with_name("stall-watch.log"), {})
+        self.stall_pass = self.shell.spawn([sys.executable, str(STALL_WATCH), "--config", str(self.config.source)], log, {})
 
     def keep_alive(self, desk: str) -> threading.Event:
         """Post the alive record now, then every minute from a daemon thread, whatever the pass is doing, until the returned event is set, so a long first pass never leaves a predecessor's pid as the desk's newest record."""
