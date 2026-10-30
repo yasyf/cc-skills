@@ -7044,7 +7044,7 @@ class Landing:
         return outcome, "".join(outs)[-1500:], last
 
     def merge_chains(self, tops: list[str], heads: dict[str, str], rows: dict[str, dict]) -> tuple[str, str, str]:
-        """While Graphite is down, merge each chain of an admitted prefix straight into the trunk, bottom chain first (owner b530f5d), one merge in flight in the runner at a time (owner 9:00 PM Oct 29): a chain behind the latest trunk, read fresh once the merge before it has squashed, or a PR behind the PR below it, gets one blocker per head asking for a rebase and ends the run (owner e7170fa); a lone PR merges by squash pinned to its head, a longer chain by one all-or-nothing `gh stack merge` of its top, the run waits for each squash on the trunk, and each merged PR posts its `MERGED` record. The first chain that does not merge ends the run and names its outcome."""
+        """While Graphite is down, merge each chain of an admitted prefix straight into the trunk, bottom chain first (owner b530f5d), one merge in flight in the runner at a time (owner 9:00 PM Oct 29): a chain behind the latest trunk, read fresh once the merge before it has squashed, or a PR behind the PR below it, gets one blocker per head asking for a rebase and ends the run (owner e7170fa); a lone PR merges by squash pinned to its head, a longer chain by one all-or-nothing `gh stack merge` of its top, the run waits for each squash on the trunk, and each merged PR posts its `MERGED` record. The first chain that does not merge ends the run and names its outcome. A prefix shorter than its GitHub stack, which `gh stack link` refuses, merges one PR at a time instead, each once GitHub reads it retargeted onto the trunk and its checks passed (root #199186)."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         outcome, outs, last = "noop", [], ""
         for top in tops:
@@ -7053,12 +7053,21 @@ class Landing:
                 return (MERGED if outcome == MERGED else "blocked"), "".join(outs)[-1500:], f"#{chain[0]} sits on {base}, not {TRUNK}, so {numbered(chain)} waits for the PR below it to land"
             with DIRECT_MERGING:
                 landing, refused = self.rebased(chain, heads, open_rows)
+                branches = {open_rows[pr].get("branch") for pr in chain}
+                whole = not any(row.get("base") in branches and other not in chain for other, row in open_rows.items())
                 refused = refused or (self.moved_heads(chain, landing) if len(chain) > 1 else None)
-                waiting = "" if refused else self.checks_settled(chain, landing) or self.go_lost(chain, rows)
-                done = None if refused or waiting else self.merge_chain(chain, landing)
-                squashes = self.squashes(chain) if done and done.code in (0, TIMED_OUT) else {}
-                if done and done.code == TIMED_OUT and squashes and all(squashes.values()):
-                    done = Done(0, done.out, done.err)
+                merged, waiting, done = [], "", None
+                for group in ([] if refused else [chain] if whole else [[pr] for pr in chain]):
+                    waiting = (self.retargeted(group[0]) if merged else "") or self.checks_settled(group, landing) or self.go_lost(group, rows)
+                    if waiting:
+                        break
+                    done = self.merge_chain(group, landing)
+                    squashes = self.squashes(group) if done.code in (0, TIMED_OUT) else {}
+                    if done.code == TIMED_OUT and squashes and all(squashes.values()):
+                        done = Done(0, done.out, done.err)
+                    if done.code:
+                        break
+                    merged.append((group, squashes))
             if refused:
                 pr, why = refused
                 last = f"{numbered(chain)} did not rebase onto the latest {TRUNK}: {why}"
@@ -7067,19 +7076,30 @@ class Landing:
                     to = ",".join(dict.fromkeys([*(self.reach(owner) if owner else []), *self.restack_lanes()]))
                     self.post_blocker(ask, to, f"#{pr} {heads[pr][:10]}: Graphite is down, so the landing runner rebases each admitted stack onto the latest {TRUNK} and merges it directly (owner {REBASE_RULING}), and {why}. Clear that for {numbered(chain)}, a conflict or a changed patch by your own rebase onto {TRUNK}; it merges once admitted at its heads.", pr)
                 return (MERGED if outcome == MERGED else "blocked"), "".join(outs)[-1500:], last
+            for group, squashes in merged:
+                outcome = MERGED
+                how = f"gh stack merge of {numbered(group)}" if len(group) > 1 else "gh pr merge --squash"
+                for pr in group:
+                    landed = f"as {squashes[pr][:10]}" if squashes.get(pr) else "with its squash unread"
+                    moved = "" if landing[pr].startswith(heads[pr]) else f", rebased to {landing[pr][:10]},"
+                    self.post_record("state", f"merged-direct:{pr}@{heads[pr]}", self.landing_audience([pr], rows, self.queue_audience([pr], rows)), f"MERGED #{pr} at {heads[pr][:10]}{moved} direct {landed}, Graphite down, {DIRECT_RULING}: {how}", pr)
             if waiting:
                 return (MERGED if outcome == MERGED else "blocked"), "".join(outs)[-1500:], f"{numbered(chain)} waits to merge: {waiting}"
             outs.append(done.out + done.err)
             last = " / ".join(line.strip() for line in (done.out + done.err).splitlines() if line.strip())[-600:] or f"exit {done.code}"
             if done.code:
                 return (MERGED if outcome == MERGED else "failed"), "".join(outs)[-1500:], last
-            outcome = MERGED
-            how = f"gh stack merge of {numbered(chain)}" if len(chain) > 1 else "gh pr merge --squash"
-            for pr in chain:
-                landed = f"as {squashes[pr][:10]}" if squashes.get(pr) else "with its squash unread"
-                moved = "" if landing[pr].startswith(heads[pr]) else f", rebased to {landing[pr][:10]},"
-                self.post_record("state", f"merged-direct:{pr}@{heads[pr]}", self.landing_audience([pr], rows, self.queue_audience([pr], rows)), f"MERGED #{pr} at {heads[pr][:10]}{moved} direct {landed}, Graphite down, {DIRECT_RULING}: {how}", pr)
         return outcome, "".join(outs)[-1500:], last
+
+    def retargeted(self, pr: str) -> str:
+        """Why `pr` may not merge after the PR below it squashed, or empty once GitHub reads it based on the trunk, read every `SQUASH_POLL_SECONDS` up to `SQUASH_POLLS` times: GitHub retargets it when the merged branch goes, and a merge before that would squash it into its old base (root #199186)."""
+        for poll in range(SQUASH_POLLS):
+            if poll:
+                self.shell.sleep(SQUASH_POLL_SECONDS)
+            base = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "baseRefName", "--jq", ".baseRefName", max_age=ghread.FRESH)).out.strip()
+            if base == TRUNK:
+                return ""
+        return f"#{pr} still sits on {base or 'an unread base'}, not {TRUNK}, after the PR below it merged"
 
     def go_lost(self, chain: list[str], rows: dict[str, dict]) -> str:
         """Which PRs of `chain` a root record withdrew or resolved the go of since the pass read the gos, read fresh just before the merge, since the checks wait can run for minutes; a later root `go` grants it again (root #199069)."""
