@@ -619,7 +619,7 @@ import prompt_watch
 import stall_watch
 import testfiles
 from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, heads_since, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
-from grades import carry_of, delegated, keeps_tap, succeeds
+from grades import carry_of, delegated, keeps_tap, succeeds, with_successors
 from grades import carries as carry_grade
 from grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
 from grades import WITHDRAWN as WITHDRAWN_OPENING
@@ -5034,7 +5034,7 @@ class Landing:
         self.body_preconditions: dict[tuple[str, str], list[str]] = {}
         self.said_preconditions: dict[str, list[tuple[str, str]]] = {}
         self.resolved_preconditions: dict[str, set[int]] = {}
-        self.successor_lanes: tuple[int, list[str]] = (-1, [])
+        self.successor_lanes: tuple[tuple[int, tuple[str, ...]], list[str]] = ((-1, ()), [])
         self.gos: list[dict] | None = None
         self.cleared: dict[str, int] = {}
         self.going = threading.Lock()
@@ -5831,10 +5831,9 @@ class Landing:
         configured = json.loads(self.runner.config.source.read_text())["landing"]["fidelity_lane"]
         lanes = [configured] if isinstance(configured, str) else list(configured)
         reviews = self.scanned_reviews()
-        if self.successor_lanes[0] != len(reviews):
-            family = re.compile("|".join(successors(lane).pattern for lane in lanes))
-            self.successor_lanes = (len(reviews), sorted({record["lane"] for record in reviews if family.fullmatch(record["lane"])}))
-        return list(dict.fromkeys([*lanes, *self.successor_lanes[1]]))
+        if self.successor_lanes[0] != (key := (len(reviews), tuple(lanes))):
+            self.successor_lanes = (key, with_successors(lanes, reviews))
+        return self.successor_lanes[1]
 
     @property
     def fidelity_to(self) -> list[str]:

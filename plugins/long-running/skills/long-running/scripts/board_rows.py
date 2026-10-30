@@ -630,6 +630,7 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
     moved = verdict_reasons(rows, verdicts, rulings) if verdicts is not None else {}
     try:
         reviews = cci.records(tail(shell), drive, "--kind=review", "--kind=head")
+        lanes = grades.with_successors(lanes, reviews)
     except ReadFailed as failed:
         reviews = None
         warnings.append(f"WARN the grades did not read ({failed}); no row is checked for a grade or finder at its head")
