@@ -185,9 +185,9 @@ def test_a_question_opens_in_a_panel_with_its_answers(page):
     assert page.locator(".pr-drawer.front [data-choose]").count() == len(card["options"])
 
 
-def test_the_live_feed_sits_between_the_picture_and_the_milestones(page):
+def test_the_milestones_sit_between_the_picture_and_the_live_feed(page):
     now(page)
-    assert page.locator(".nw-diagram").bounding_box()["y"] < page.locator(".nw-live").bounding_box()["y"] < page.locator(".nw-spine").bounding_box()["y"]
+    assert page.locator(".nw-diagram").bounding_box()["y"] < page.locator(".nw-spine").bounding_box()["y"] < page.locator(".nw-live").bounding_box()["y"]
 
 
 def test_tapping_a_worker_swaps_the_live_feed_to_its_story_and_back(page):

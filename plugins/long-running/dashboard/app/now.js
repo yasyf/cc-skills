@@ -48,8 +48,8 @@ function nowScreen() {
     <p class="nw-sub">Written from the drive's records at ${clock(b.at)}. <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>
     ${state.open.has('nw-why') ? `<ul class="nw-why">${b.because.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     ${diagramSlot()}
-    ${liveFeed(b)}
     <section><h2 class="nw-h">Overall progress</h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
+    ${liveFeed(b)}
   </div>`;
   lastPaint.events = lastPaint.next;
   lastPaint.next = new Map();
