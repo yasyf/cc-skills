@@ -36,4 +36,40 @@ jobs:
           uv pip install --python "$RUNNER_TEMP/long-running-venv/bin/python" "$RUNNER_TEMP"/long-running-wheel/*.whl
           "$RUNNER_TEMP/long-running-venv/bin/python" -I -m long_running.actions --help
       - name: action-store scaling costs
+        if: ${{ always() }}
         run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/action-store.py
+      - name: Measure production SQLite scaling costs
+        if: ${{ always() }}
+        run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/sqlite-action-store.py
+      - uses: actions/checkout@v7
+        if: ${{ always() }}
+        with:
+          ref: 02347e0d913a966999b0dc794e07071220299105
+          path: .ci-baseline
+      - name: Confirm JSON baseline behavior for corrected integration regressions
+        if: ${{ always() }}
+        run: >-
+          uv run --locked --project plugins/long-running pytest
+          -c .ci-baseline/plugins/long-running/pyproject.toml
+          .ci-baseline/plugins/long-running/tests/test_desk_runner.py
+          .ci-baseline/plugins/long-running/tests/test_incident.py
+          .ci-baseline/plugins/long-running/tests/test_owner_facing.py
+          -q -k 'test_a_conflict_beside_a_running_check_routes_once_per_head_without_the_check or test_a_redundant_skip_head_is_proven_by_a_full_run_its_lane_reports_green_on_a_commit_containing_it or test_a_redundant_skip_head_no_tip_build_covers_gets_one_full_build_on_a_grade_branch_and_is_green_once_it_passes or test_a_head_ccx_reads_unproven_gets_its_full_build_and_blocker_without_a_check_and_is_checked_once_proven or test_a_failed_build_is_never_kept_so_a_retried_job_that_passes_reads_green or test_a_full_build_that_does_not_start_escalates_once_per_head_and_is_tried_again or test_a_red_check_drop_its_gate_blocks_waits_for_a_new_head or test_a_launch_the_script_cannot_start_is_refused_when_submitted or test_brief_writes_the_briefs_run_would_launch_and_prints_their_paths or test_an_adopted_lane_is_recorded_not_launched or test_the_record_lives_in_cc_notes_and_briefs_carry_its_ids or test_open_records_the_rulings_and_entry_point_the_fix_brief_quotes or test_a_brief_with_no_rulings_says_so_and_asks_nothing or test_the_fix_brief_names_the_report_time_and_carries_the_standing_orders or test_a_publish_line_during_an_open_incident_quotes_the_released_record or test_plan_mode_warns_while_a_drive_incident_is_open or test_an_owner_question_on_other_work_warns_while_the_alert_is_active or test_a_root_probe_warns_while_the_alert_is_active'
+      - name: Compare fact replacement order with JSON baseline
+        if: ${{ always() }}
+        run: |
+          uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/fact-replacement-parity.py --plugin .ci-baseline/plugins/long-running --format json > "$RUNNER_TEMP/long-running-json-fact-order.json"
+          uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/fact-replacement-parity.py --plugin plugins/long-running --format sqlite > "$RUNNER_TEMP/long-running-sqlite-fact-order.json"
+          diff -u "$RUNNER_TEMP/long-running-json-fact-order.json" "$RUNNER_TEMP/long-running-sqlite-fact-order.json"
+          cat "$RUNNER_TEMP/long-running-sqlite-fact-order.json"
+      - name: Measure actual consumers against JSON baseline
+        if: ${{ always() }}
+        run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/paired-production-consumers.py --plugin .ci-baseline/plugins/long-running --format json > "$RUNNER_TEMP/long-running-json-consumers.json"
+      - name: Measure actual consumers against SQLite candidate
+        if: ${{ always() }}
+        run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/paired-production-consumers.py --plugin plugins/long-running --format sqlite > "$RUNNER_TEMP/long-running-sqlite-consumers.json"
+      - name: Paired actual consumer receipts
+        if: ${{ always() }}
+        run: |
+          cat "$RUNNER_TEMP/long-running-json-consumers.json"
+          cat "$RUNNER_TEMP/long-running-sqlite-consumers.json"
