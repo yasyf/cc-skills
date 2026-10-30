@@ -246,3 +246,42 @@ def test_only_a_new_event_animates(page):
     assert page.locator(".ev.fresh").count() >= 1
     page.evaluate("() => render()")
     assert page.locator(".ev.fresh").count() == 0
+
+
+def test_tab_never_leaves_an_open_panel(page):
+    page.goto(page.url.split("#")[0] + "#/~plan/m0")
+    page.wait_for_selector(".pr-drawer.front")
+    for _ in range(12):
+        page.keyboard.press("Tab")
+        assert page.evaluate("() => Boolean(document.activeElement.closest('.pr-drawer.front'))")
+    for _ in range(4):
+        page.keyboard.press("Shift+Tab")
+        assert page.evaluate("() => Boolean(document.activeElement.closest('.pr-drawer.front'))")
+
+
+def test_a_milestone_panel_links_to_its_own_page(page):
+    page.goto(page.url.split("#")[0] + "#/~plan/m0")
+    page.wait_for_selector(".pr-drawer.front")
+    page.locator('.pr-drawer.front a[href="#/milestone/0"]').click()
+    page.wait_for_function("() => location.hash === '#/milestone/0' && !document.querySelector('.pr-drawer')")
+    assert json.loads(MODEL.read_text())["milestones"][0] in page.locator("#main .pg").inner_text()
+
+
+def test_back_then_tab_keeps_the_reading_position(page):
+    page.set_viewport_size({"width": 1440, "height": 420})
+    now(page)
+    page.locator("#main a[data-seg]").first.click()
+    page.wait_for_selector(".pr-drawer.front")
+    page.keyboard.press("Escape")
+    page.wait_for_function("() => !document.querySelector('.pr-drawer')")
+    page.evaluate("() => window.scrollTo(0, document.documentElement.scrollHeight)")
+    y = page.evaluate("() => window.scrollY")
+    assert y > 300
+    page.locator('#tabs a[href="#/plan"]').click()
+    page.wait_for_function("() => location.hash === '#/plan'")
+    page.go_back()
+    page.wait_for_function("() => location.hash === '#/'")
+    page.keyboard.press("Tab")
+    after = page.evaluate("() => window.scrollY")
+    page.set_viewport_size(LAPTOP)
+    assert after > y - 420
