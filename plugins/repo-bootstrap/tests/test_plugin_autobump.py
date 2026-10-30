@@ -261,8 +261,8 @@ def test_bump_tags_each_plugin_at_the_pushed_commit(repo, tmp_path, monkeypatch)
         assert _out(remote, "rev-parse", f"{name}--v0.1.1^{{commit}}") == bump
 
 
-# 10c — a version tag that already exists fails the run instead of moving the tag
-def test_an_existing_version_tag_fails_the_run(repo, tmp_path, monkeypatch):
+@pytest.mark.parametrize("tag_location", ["local", "remote"])
+def test_a_version_tag_at_a_different_commit_fails_the_run(repo, tmp_path, monkeypatch, tag_location):
     m = _manifest_path("plugins/a")
     _write(repo, m, _manifest_text("a", "0.1.0"))
     _commit(repo, "create a")
@@ -272,11 +272,14 @@ def test_an_existing_version_tag_fails_the_run(repo, tmp_path, monkeypatch):
     _run(tmp_path, "init", "--bare", "remote.git")
     _run(repo, "remote", "add", "origin", str(tmp_path / "remote.git"))
     _run(repo, "push", "-u", "origin", "main")
-    _run(repo, "push", "origin", f"{taken}:refs/tags/a--v0.1.1")
+    if tag_location == "remote":
+        _run(repo, "push", "origin", f"{taken}:refs/tags/a--v0.1.1")
+    else:
+        _run(repo, "tag", "a--v0.1.1", taken)
 
     _set_env(monkeypatch, repo, dry_run="false", force="1")
     assert autobump.main() == 1
-    assert _out(tmp_path / "remote.git", "rev-parse", "a--v0.1.1") == taken
+    assert _out(tmp_path / "remote.git" if tag_location == "remote" else repo, "rev-parse", "a--v0.1.1") == taken
 
 
 # 11 — non-semver version is a hard error
@@ -388,3 +391,71 @@ def test_cursor_manifest_mirror_is_not_drift_for_a_guarded_plugin(repo):
     _commit(repo, "cursor-bump: mirror manifest to 0.2.0")
 
     assert _by_name(autobump.analyze(repo, {"a"}, []), "a").verdict == "clean"
+
+
+def test_a_stale_bump_dropped_by_rebase_accepts_the_published_canonical_tag(repo, tmp_path, monkeypatch):
+    _write(repo, _manifest_path("plugins/a"), _manifest_text("a", "0.1.0"))
+    _commit(repo, "create a")
+    _write(repo, "plugins/a/src.py", "print('x')\n")
+    _commit(repo, "add content")
+    remote, stale = tmp_path / "remote.git", tmp_path / "stale"
+    _run(tmp_path, "init", "--bare", str(remote))
+    _run(repo, "remote", "add", "origin", str(remote))
+    _run(repo, "push", "-u", "origin", "main")
+    _run(tmp_path, "clone", "--branch", "main", str(remote), str(stale))
+    _set_env(monkeypatch, repo, dry_run="false", force="1")
+    monkeypatch.setenv("GIT_AUTHOR_DATE", "2026-10-30T10:00:00Z")
+    monkeypatch.setenv("GIT_COMMITTER_DATE", "2026-10-30T10:00:00Z")
+    assert autobump.main() == 0
+    canonical = _out(remote, "rev-parse", "main")
+    assert _out(stale, "rev-parse", "HEAD") != canonical
+    assert _by_name(autobump.analyze(stale, set(), []), "a").verdict == "bump"
+    calls = []
+    git = autobump._git
+
+    def recorded(repo, *args, **kwargs):
+        calls.append(args)
+        return git(repo, *args, **kwargs)
+
+    monkeypatch.setattr(autobump, "_git", recorded)
+    _set_env(monkeypatch, stale, dry_run="false", force="1")
+    monkeypatch.setenv("GIT_AUTHOR_DATE", "2026-10-30T11:00:00Z")
+    monkeypatch.setenv("GIT_COMMITTER_DATE", "2026-10-30T11:00:00Z")
+    assert autobump.main() == 0
+    assert _out(stale, "rev-parse", "HEAD") == canonical
+    assert _out(remote, "rev-parse", "refs/tags/a--v0.1.1") == canonical
+    assert not [args for args in calls if args[0] in {"tag", "push"}]
+
+
+@pytest.mark.parametrize("published", [False, True])
+def test_tag_bumps_pushes_only_missing_remote_tags_and_reuses_matching_local_tags(repo, tmp_path, monkeypatch, published):
+    for name in ("a", "b"):
+        _write(repo, _manifest_path(f"plugins/{name}"), _manifest_text(name, "0.1.0"))
+    _commit(repo, "create plugins")
+    for name in ("a", "b"):
+        _write(repo, f"plugins/{name}/src.py", "print('x')\n")
+    _commit(repo, "add content")
+    remote = tmp_path / "remote.git"
+    _run(tmp_path, "init", "--bare", str(remote))
+    _run(repo, "remote", "add", "origin", str(remote))
+    _run(repo, "push", "-u", "origin", "main")
+    bumps = [result for result in autobump.analyze(repo, set(), []) if result.verdict == "bump"]
+    assert autobump.commit_and_push(repo, bumps, "main")
+    canonical = _out(repo, "rev-parse", "HEAD")
+    if published:
+        _run(repo, "push", "origin", "HEAD:refs/tags/a--v0.1.1")
+    else:
+        _run(repo, "tag", "a--v0.1.1")
+    calls = []
+    git = autobump._git
+
+    def recorded(repo, *args, **kwargs):
+        calls.append(args)
+        return git(repo, *args, **kwargs)
+
+    monkeypatch.setattr(autobump, "_git", recorded)
+    assert autobump.tag_bumps(repo, bumps)
+    expected = ("refs/tags/b--v0.1.1",) if published else ("refs/tags/a--v0.1.1", "refs/tags/b--v0.1.1")
+    assert [args for args in calls if args[0] == "push"] == [("push", "origin", *expected)]
+    assert [args for args in calls if args[0] == "tag"] == [("tag", "b--v0.1.1")]
+    assert all(_out(remote, "rev-parse", f"refs/tags/{name}--v0.1.1") == canonical for name in ("a", "b"))

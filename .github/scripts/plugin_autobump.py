@@ -245,10 +245,17 @@ def commit_and_push(repo: Path, bumps: list[Result], branch: str) -> bool:
 
 
 def tag_bumps(repo: Path, bumps: list[Result]) -> bool:
-    tags = [f"{r.name}--v{r.new_version}" for r in bumps]
-    for tag in tags:
-        _git_out(repo, "tag", tag)
-    return _git(repo, "push", "origin", *(f"refs/tags/{tag}" for tag in tags)).returncode == 0
+    refs = [f"refs/tags/{r.name}--v{r.new_version}" for r in bumps]
+    head = _git_out(repo, "rev-parse", "HEAD").strip()
+    local = {ref: target for target, ref in (line.split() for line in _git_out(repo, "for-each-ref", "--format=%(objectname) %(refname)", *refs).splitlines())}
+    remote = {ref: target for target, ref in (line.split() for line in _git_out(repo, "ls-remote", "--refs", "origin", *refs).splitlines())}
+    if any(known[ref] != head for known in (local, remote) for ref in refs if ref in known):
+        return False
+    missing = [ref for ref in refs if ref not in remote]
+    for ref in missing:
+        if ref not in local:
+            _git_out(repo, "tag", ref.removeprefix("refs/tags/"))
+    return not missing or _git(repo, "push", "origin", *missing).returncode == 0
 
 
 def main() -> int:
