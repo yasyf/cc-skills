@@ -152,6 +152,8 @@ def scan_lanes(evt: BaseHookEvent) -> tuple[Lane, ...]:
     reqenv.checkpoint()
     live_subagents = {task.id for task in evt.background_tasks if task.type == "subagent"}
     teammate_tasks = Counter(task.description for task in evt.background_tasks if task.type == "teammate")
+    if not live_subagents and not teammate_tasks:
+        return ()
     rosters: dict[str, dict[str, str]] = {}
     agents = [
         agent
