@@ -59,6 +59,6 @@ The resumed root runs `drive.py start --drive <id> --ledger <id>` to join the ex
 | `desk-runner.py`, `desk-launch.py`, `desk-wait.sh`, `sprite-job.sh`, `orca-launch.sh`, `orca-check.sh`, `prompt_watch.py`, `inboxes.py`, `inbox-digest.py`, `inbox-rotate.py` | CLI | Detached desk runners through `desk-runner.py run --desk orca` and `run --desk landing`, finder and fidelity passes on a remote Sprite box, Orca worker launchers, and inbox management tools |
 | `incident.py`, `actions.py`, `bus.py`, `monitor-watch.py` | CLI | Production incident lifecycle, lane bus helpers, and monitor transition watchers |
 | `board_rows.py`, `board_watch.py`, `plan-table.py`, `dashboard/app/server.py` | CLI | Owner board helpers and the drive web dashboard app |
-| `pr-prose.py`, `sprite-cargo.sh` | CLI | Lane helpers that write a branch's PR title, body, and commit message with a headless Claude Opus, or build a ref on a remote Sprite box |
+| `pr-prose.py`, `sprite-cargo.sh`, `remote-restack.py` | CLI | Lane helpers that write a branch's PR title, body, and commit message with a headless Claude Opus, build a ref on a remote Sprite box, or restack a PR and the open PRs below it on a Sprite |
 
 Part of [cc-skills](../../README.md).
