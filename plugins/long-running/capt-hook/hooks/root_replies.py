@@ -584,9 +584,8 @@ CLAIMED_PR = re.compile(r"(?<![\w&])#(\d{4,})\b")
 OWNER_WAITS = f"{sys.executable} {script('owner_waits.py')}"
 OWNER_WAITS_SECONDS = 30
 FALSE_TAP = (
-    "Your reply tells the owner something waits on his tap, approval or pick, and his board says otherwise:\n{lines}\n"
-    "Correct it now in plain words from these lines; `cci owner-waits --drive {drive}` prints exactly what waits on him. "
-    'Owner, 4:40 AM Oct 30: "there are no PRs waiting for taps dont lie".'
+    "Your reply says something waits on the owner's tap, approval or pick, and his board does not show it. "
+    "Restate it in plain words from these lines, and quote `cci owner-waits --drive {drive}` for what waits on him:\n```\n{lines}\n```"
 )
 NOTHING_WAITS = "nothing on his board awaits his tap or pick"
 FALSE_PR = json.dumps([{"pr": "45507", "head": "632c4a5", "waiting": False, "line": "#45507 at 632c4a5: not waiting on you: the board holds no row for it; its fidelity grade by fidelity-desk-3 reads missing since 3:02 AM (cci #203600); a PR comment by yasyf answered it at 3:19 AM and no grade has followed"}])
@@ -646,4 +645,4 @@ def tap_claims_match_the_board(evt: BaseHookEvent) -> HookResult | None:
             lines.append(NOTHING_WAITS)
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
-    return evt.block(FALSE_TAP.format(lines="\n".join(f"- {line}" for line in lines), drive=drive)) if lines else None
+    return evt.block(FALSE_TAP.format(lines="\n".join(lines), drive=drive)) if lines else None
