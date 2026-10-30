@@ -2881,6 +2881,37 @@ def test_the_enqueue_names_the_prefix_top_with_no_head_pin_or_hold(shell, config
     assert not [call for call in stack_enqueue_calls(shell) if "--head" in call or "--hold" in call]
 
 
+def test_a_fidelity_ok_posted_after_the_pass_scanned_reviews_counts_before_the_pass_refuses(shell, config, tmp_path):
+    """Oct 29 #190787: fidelity-pipeline's ok on #44900 landed at 4:55 while the 4:54 pass ran, and the pass refused the head at 4:56 for having none."""
+    lone_green_pr(shell)
+    finder_verdict(shell, "29020", "ok cccc333 no findings")
+    scan = shell.cci_tail
+    late = {"seq": 99999, "drive": "d1", "lane": "fidelity-desk", "kind": "review", "to": ["root"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": "fidelity: ok cccc333333 carried, patch-identical."}
+
+    def ok_lands_after_the_scan(argv: list[str]) -> runner_module.Done:
+        done = scan(argv)
+        if "--kind=review" in argv and "--kind=head" in argv and late not in shell.records:
+            shell.records.append(late)
+        return done
+
+    shell.cci_tail = ok_lands_after_the_scan
+    landing_pass(shell, config)
+    assert blockers(shell) == []
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
+def test_a_failed_cci_read_stops_every_refusal_until_a_pass_reads_cleanly(shell, config, tmp_path):
+    """Oct 29 4:43 PM: while cci reads timed out, stack workers kept refusing heads on what the failed reads left out."""
+    landing = landing_of(shell, config, tmp_path)
+    shell.tail_error = "cci: store locked"
+    with pytest.raises(runner_module.CciTailFailed):
+        landing.runner.cci_read(["cci", "tail", "--drive", "d1", "--since", "0", "--json"])
+    shell.tail_error = ""
+    with pytest.raises(runner_module.CciTailFailed):
+        landing.post_blocker("blocker:29020:cccc333333", LANE, "#29020 cccc333333: no review", "29020")
+    assert blockers(shell) == []
+
+
 def test_a_head_graded_missing_is_blocked_with_the_grade(shell, config, tmp_path):
     lone_green_pr(shell)
     seq = grade(shell, "29020", "missing F307 at cccc333 (View fix). It carries no test.")
