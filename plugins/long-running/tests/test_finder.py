@@ -536,7 +536,8 @@ def test_a_head_record_names_its_commit_field_else_its_first_full_sha_no_was_pre
     named = {"refs": {"prs": [f"{REPO}#43299"]}}
     assert finder.heads(named | {"text": f"HEAD #43299 {HEAD} (was {OLD})", "fields": {"commit": HEAD}}, REPO) == [("43299", HEAD)]
     assert finder.heads({"refs": {"prs": [43299]}, "text": f"#43299 HEAD (was {OLD}), now {HEAD}", "fields": {}}, REPO) == [("43299", HEAD)]
-    assert finder.heads(named | {"text": "#43299 HEAD 7414944e30bf (was a269784e4900)"}, REPO) == []
+    assert finder.heads(named | {"text": "#43299 HEAD 7414944e30bf (was a269784e4900)"}, REPO) == [("43299", "7414944e30bf")]
+    assert finder.heads(named | {"text": "#43299 HEAD restacked onto 4329900 (was a269784e4900)"}, REPO) == []
     assert finder.heads({"refs": {"prs": ["yasyf/cc-skills#836"]}, "text": f"dashboard-tap-fast {HEAD}"}, REPO) == []
 
 
