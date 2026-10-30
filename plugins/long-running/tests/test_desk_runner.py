@@ -184,6 +184,7 @@ class FakeShell(runner_module.Shell):
         self.behind: dict[str, int] = {}
         self.stack_code = 0
         self.checks: dict[str, list[dict]] = {}
+        self.stack_merge_out = ""
         self.merge_commits: dict[str, str] = {}
         self.current_heads: dict[str, str] = {}
         self.live: dict[str, dict] = {}
@@ -397,7 +398,7 @@ class FakeShell(runner_module.Shell):
         if argv[:2] == ["gh", "stack"]:
             assert env == {"GH_REPO": "Forge-AI/monorepo"} and cwd == str(self.root / "checkout")
             code = self.stack_code if argv[2] == "merge" else 0
-            return runner_module.Done(code, "", "a pull request in the stack is not mergeable" if code else "")
+            return runner_module.Done(code, self.stack_merge_out if code else "", "a pull request in the stack is not mergeable" if code and not self.stack_merge_out else "")
         if argv[:3] == ["gh", "api", "graphql"] and "pullRequests(headRefName: " in argv[4]:
             return runner_module.Done(0, json.dumps({"data": {"repository": {}}}), "")
         if argv[:3] == ["git", "-C", str(self.root / "checkout")] and argv[3:] == ["ls-remote", "origin", "refs/heads/dev"]:
@@ -482,8 +483,8 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "mergeCommit":
             return runner_module.Done(0, json.dumps({"mergeCommit": {"oid": self.merge_commits[argv[3]]} if argv[3] in self.merge_commits else None}), "")
         if argv[:3] == ["gh", "pr", "checks"]:
-            assert argv[4:] == ["--repo", "Forge-AI/monorepo", "--required", "--json", "name,bucket"]
-            checks = self.checks[argv[3]]
+            assert argv[4:6] == ["--repo", "Forge-AI/monorepo"] and argv[-2:] == ["--json", "name,bucket"]
+            checks = self.checks.get(argv[3], [{"name": "buildkite/test", "bucket": "pass"}])
             return runner_module.Done(8 if any(check["bucket"] == "pending" for check in checks) else 0, json.dumps(checks), "")
         if argv[:3] == ["gh", "pr", "merge"]:
             assert argv[4:8] == ["--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit"]
@@ -13172,6 +13173,31 @@ def test_while_graphite_is_down_a_stack_rebased_on_dev_merges_as_one_gh_stack_bo
     assert merged_records(shell) == [f"MERGED #{pr} at {head} direct as {squash}, Graphite down, b530f5d: gh stack merge of #29020 #29031" for pr, head, squash in (("29020", "cccc333333", "1111aaaa00"), ("29031", "dddd444444", "2222bbbb00"))]
     compared = [call[2].rsplit("/", 1)[1] for call in shell.calls if call[:2] == ["gh", "api"] and call[3:] == ["--jq", ".behind_by"]]
     assert compared == ["dev...cccc333333", "cccc333333...dddd444444"]
+
+
+def test_while_graphite_is_down_a_stack_waits_for_its_required_checks_before_the_merge_and_merges_once_they_pass(shell, config, tmp_path):
+    """Root #198761, #198874: the runner merged right after its own rebase push, and GitHub refused every stack with 'Required status check "buildkite/test" is pending'."""
+    two_pr_stack(shell)
+    queue_drafts(shell, (40, True), (50, True))
+    shell.current_heads |= {"29020": "cccc333333", "29031": "dddd444444"}
+    shell.merge_commits |= {"29020": "1111aaaa0000", "29031": "2222bbbb0000"}
+    shell.checks |= {pr: [{"name": "buildkite/test", "bucket": "pending"}] for pr in ("29020", "29031")}
+    landing_pass(shell, config)
+    assert direct_merges(shell) == [] and merged_records(shell) == []
+    shell.checks |= {pr: [{"name": "buildkite/test", "bucket": "pass"}] for pr in ("29020", "29031")}
+    landing_pass(shell, config)
+    assert direct_merges(shell) == [["gh", "stack", "link", "29020", "29031"], ["gh", "stack", "merge", "29031", "--yes", "--squash"]]
+
+
+def test_a_failed_direct_merge_names_githubs_whole_refusal_not_its_last_line(shell, config, tmp_path):
+    two_pr_stack(shell)
+    queue_drafts(shell, (40, True), (50, True))
+    shell.current_heads |= {"29020": "cccc333333", "29031": "dddd444444"}
+    shell.stack_code = 1
+    shell.stack_merge_out = ('Merging #29020, #29031 into dev via squash...\n✗ merge failed: Required status check "buildkite/test" is pending.\nStack merges are atomic, so nothing was merged.\n')
+    landing_pass(shell, config)
+    failed = [post_body(post) for post in shell.posts if "DIRECT-MERGE-FAILED" in post_body(post)]
+    assert failed and 'Required status check "buildkite/test" is pending.' in failed[0]
 
 
 @pytest.mark.parametrize("behind", ["cccc333333", "dddd444444"], ids=["bottom-behind-dev", "child-behind-parent"])
