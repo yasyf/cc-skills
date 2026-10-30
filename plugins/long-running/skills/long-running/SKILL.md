@@ -2958,7 +2958,10 @@ Design rulings, verbatim: <each owner ruling on the subsystem this lane touches,
   with its id and its confirmed implications (R19b), and the entry point (symbol at
   file:line) it makes the change call; or "none">. Before READY, state which entry point your diff calls, each ruling it meets,
   and anything it leaves out, as a `contract` record on the bus (R22). Never wait for
-  a confirm.
+  a confirm. A contract quotes the owner's words for each pick. A narrower reading the
+  build needs, such as per key for per Mac, is an ask to root, never a choice. Its
+  failing-first test asserts the owner's invariant, such as process count flat in chat
+  count, not the narrowed case.
 Design questions: settle each from this brief, the standing rules register, and the
   base branch yourself, and post the choice as a `contract` record with its reason.
   Ask the root (`cci post --kind ask --to root`) only when the choice changes
