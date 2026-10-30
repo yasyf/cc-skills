@@ -426,6 +426,24 @@ def test_a_hit_on_a_rows_own_name_clears_once_rulings_quote_that_row_and_say_how
     assert check(capsys, CheckShell(rows, body=body, diff=SERIES_DIFF)) == (1 if refusals else 0, refusals)
 
 
+SHORT_ROW = EDGE_CASES | {"words": "Yes (my pick)", "answer": '["6b6b6b6"]', "names": '["writable"]'}
+WRITABLE_HIT = "NAME-HIT rule/6b6b6b6 src/relay/pool.rs:2 writable"
+
+
+@pytest.mark.parametrize(
+    ("line", "refusals"),
+    [
+        ('- 6b6b6b6, Oct 22: "Yes (my pick)". Chats a Mac started stay writable after its host goes.', []),
+        ('- 6b6b6b6, Oct 22: "my pick". Chats a Mac started stay writable after its host goes.', [WRITABLE_HIT]),
+    ],
+)
+def test_a_row_shorter_than_a_quote_clears_when_the_line_quotes_all_of_its_words(
+    package: Path, state: Path, registered: Path, capsys, line: str, refusals: list[str]
+) -> None:
+    rows = pinned(package) | {"rule/6b6b6b6": dict(SHORT_ROW)}
+    diff = DIFF.replace("+    self.drain();", "+    let writable = true;")
+    assert check(capsys, CheckShell(rows, body=citing(line), diff=diff)) == (1 if refusals else 0, refusals)
+
 def test_in_your_words_must_be_there_and_read_plainly(package: Path, state: Path, registered: Path, capsys) -> None:
     jargon = CLEAN.replace(
         "The pool empties itself when a run ends.", 'The lane moves `Pool.drain` into src/relay/pool.rs (bbbbbbb) and "keep the relay-server small".'
