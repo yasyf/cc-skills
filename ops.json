@@ -1,1 +1,1 @@
-{"v":1,"lamport":6,"ops":[{"kind":"set_branch","branch":"yasyf/fix-ccnotes-blob-fetch"}]}
+{"v":1,"lamport":7,"ops":[{"kind":"set_criterion_status","id":"43b931e200abe3832cff1e49c64ec673","status":"met","note":"Paired exact affected blob fetch: ordinary commit negotiation returned empty pack and bad revision; changing only fetch.negotiationAlgorithm=noop fetched blob1541B. Both operations left every ref SHA unchanged. Server object is available; ordinary negotiation was incorrect for blobless clone."}]}
