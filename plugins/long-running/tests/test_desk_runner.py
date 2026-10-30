@@ -7353,6 +7353,46 @@ def test_while_graphite_is_down_an_admitted_chain_waiting_in_the_serial_merge_qu
     assert skipped(shell) == []
 
 
+def gone_on(shell: FakeShell, *, parent_graded: bool) -> None:
+    shell.rows = [
+        {"pr": "33000", "lane": LANE, "branch": "g/0", "base": "dev", "head": "aaaa000000", "state": "open", "reported_head": "aaaa000000", "test_state": "success"},
+        {"pr": "33001", "lane": LANE, "branch": "g/1", "base": "g/0", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111", "test_state": "success"},
+    ]
+    shell.gates["33001"] = [gate("#33000 GREEN aaaa000000 graphite READY", "#33001 GREEN aaaa111111 graphite READY", would="#33000 #33001")]
+    shell.enqueue_out["33001"] = (0, "enqueue #33000 #33001: {}\n")
+    if parent_graded:
+        grade(shell, "33000", "ok F307 at aaaa000.")
+    grade(shell, "33001", "ok F307 at aaaa111.")
+    merge_go(shell, "33000", "merge #33000 at aaaa000")
+    merge_go(shell, "33001", "merge #33001 at aaaa111")
+
+
+@pytest.mark.parametrize(
+    "shape",
+    ["finder-major", "fidelity-missing", "on-a-fidelity-refused-parent", "on-a-held-parent"],
+    ids=["45199-45590-finder-major", "45404-fidelity-missing", "45407-on-45404", "45491-45496-on-held-45488"],
+)
+def test_a_head_a_gate_refuses_or_that_sits_on_one_draws_no_admitted_skipped(shell, config, tmp_path, shape):
+    """Root #210691: the first ADMITTED-SKIPPED pass flagged six heads a finder or fidelity refusal, or a refused or held PR below them, already kept out; each refusal is its own record."""
+    merge_mode(config, "every")
+    if shape == "finder-major":
+        gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+        finder_verdict(shell, "33001", "major aaaa111 1 open: go/a.go:12 the retry drops the sealed read")
+    elif shape == "fidelity-missing":
+        shell.rows = [{"pr": "33001", "lane": LANE, "branch": "g/1", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111", "test_state": "success"}]
+        shell.gates["33001"] = [gate("#33001 GREEN aaaa111111 graphite READY", would="#33001")]
+        merge_go(shell, "33001", "merge #33001 at aaaa111")
+    else:
+        gone_on(shell, parent_graded=shape == "on-a-held-parent")
+        if shape == "on-a-held-parent":
+            root_hold(shell, 33000, text="hold #33000 the old-tree memory chain waits on its release")
+    shell.queue |= {"33000": "not queued", "33001": "not queued"}
+    shell.sleep(11 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert skipped(shell) == []
+
+
 def test_an_admitted_head_its_lane_was_told_about_draws_no_admitted_skipped(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, EVICTED_GATE)
