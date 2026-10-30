@@ -3760,15 +3760,16 @@ def said_on(shell: FakeShell, said: list[tuple[str, str]]) -> int:
 
 
 @pytest.mark.parametrize(
-    "said",
+    ("said", "quote", "heads"),
     [
-        [("head", "HEAD #29020 cccc333333 (was aaaa111111): patch-identical except one new behavior: retries the upload")],
-        [("head", "HEAD #29020 cccc333333 (was bbbb222222): adds upload retries; bbbb222222 (was aaaa111111): restack, range-diff patch-identical"), ("fidelity", "ok cccc333333 a fixed version of bbbb222222 that adds new behavior: the upload retries.")],
-        [("fidelity", "ok cccc333333 carried from aaaa111111, patch-identical except one new behavior: retries the upload.")],
-        [("fidelity", "ok cccc333333 a fixed version of aaaa111111."), ("head", "HEAD #29020 cccc333333: adds new behavior: upload retries")],
+        ([("head", "HEAD #29020 cccc333333 (was aaaa111111): patch-identical except one new behavior: retries the upload")], "HEAD #29020 cccc333333 (was aaaa111111): patch-identical except one new behavior: retries the upload", "cccc333333"),
+        ([("head", "HEAD #29020 cccc333333 (was bbbb222222): adds upload retries; bbbb222222 (was aaaa111111): restack, range-diff patch-identical"), ("fidelity", "ok cccc333333 a fixed version of bbbb222222 that adds new behavior: the upload retries.")], "fidelity: ok cccc333333 a fixed version of bbbb222222 that adds new behavior: the upload retries.", "bbbb222222 -> cccc333333"),
+        ([("fidelity", "ok cccc333333 carried from aaaa111111, patch-identical except one new behavior: retries the upload.")], "fidelity: ok cccc333333 carried from aaaa111111, patch-identical except one new behavior: retries the upload.", "cccc333333"),
+        ([("fidelity", "ok cccc333333 a fixed version of aaaa111111."), ("head", "HEAD #29020 cccc333333: adds new behavior: upload retries")], "HEAD #29020 cccc333333: adds new behavior: upload retries", "cccc333333"),
     ],
 )
-def test_a_board_tap_never_carries_to_a_head_that_adds_new_behavior_and_root_and_the_board_lane_hear_once_it_needs_a_new_row(shell, config, tmp_path, said):
+def test_a_board_tap_never_carries_to_a_head_that_adds_new_behavior_and_root_and_the_board_lane_hear_once_it_needs_a_new_row(shell, config, tmp_path, said, quote, heads):
+    """Owner 6:59 PM Oct 29 (root #194315): a re-asked row says when he tapped, what changed since, and why it is shown again, so the note carries his tap's Pacific time, the heads since it, and the record naming the new behavior."""
     board_surface(config)
     board_lane(config)
     lone_green_pr(shell)
@@ -3779,7 +3780,7 @@ def test_a_board_tap_never_carries_to_a_head_that_adds_new_behavior_and_root_and
     assert shell.carries == [] and shell.board["merge-rows"]["29020"]["head"] == "aaaa111111"
     [note] = tap_notes(shell)
     assert note["to"] == "root,board-refresher"
-    assert note["text"] == f"TAP-NOT-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows does not carry to cccc333333, since cci #{seq} says that head adds new behavior; the board needs a new row for #29020 at cccc333333"
+    assert note["text"] == f"TAP-NOT-CARRIED #29020: the owner's tap at aaaa111111 (10:40 AM Oct 1 Pacific) on board block merge-rows does not carry to cccc333333, since cci #{seq} says that head adds new behavior: \"{quote}\". Heads since his tap: {heads}. The board needs a new row for #29020 at cccc333333 opening 'You approved this at 10:40 AM Oct 1. Since then: <what changed>. Shown again because: <the new behavior>.'"
 
 
 @pytest.mark.parametrize(

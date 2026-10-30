@@ -1779,11 +1779,16 @@ behavior, is another. One
 names, one lane or a list, and a patch-identical carry onto a head no go names also draws the
 runner's own `go` record for that head, so root posts none. A new head that a record names but no such chain reaches is a
 fixed version, and its tap stays at the old head. One `TAP-NOT-CARRIED` note to the same
-lanes says the board needs a new row at that head. For a review fix, the
+lanes says the board needs a new row at that head, and gives his tap's Pacific time, the
+heads since it, and the sentence of the record that names the new behavior. For a review fix, the
 root posts `go #<n> at <new head>` naming the fix, and the runner then carries the tap to
 that head itself, citing the fidelity grade and the go, so the row lists his approved head
 in `carried` and he is never asked again. A head that
-adds behavior asks again, with one line saying what is new. Every verdict is read live
+adds behavior asks again. The re-asked row's `since` holds `changed` and `because`, and
+`board_rows.py` refuses it (`since`) without both, then opens its `change` with "You
+approved this at <time>. Since then: <what changed>. Shown again because: <the behavior
+change>." Owner, 6:59 PM Oct 29: "if ur asking for a PR tap that Ive alrady apporiove dyou
+ned to tell me whats changed / why ur showing it gain". Every verdict is read live
 from the cc-present store (`cc-present outcomes`) and the root's `go` records at the
 moment it is used; no writer, row, card, or dashboard keeps a copy. Owner, 12:28 PM Oct
 27: "for each Biggest blocker, how are you fixing it structurally for future e.g. the
