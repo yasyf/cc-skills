@@ -8254,8 +8254,9 @@ class Landing:
         if row is None:
             return [f"#{pr} has no ledger row, so the queue never gates it"]
         head = row.get("head", "")
-        verdict = self.checked([pr]).verdicts.get(pr)
-        said = " ".join(filter(None, (verdict["verdict"], verdict["detail"]))) if verdict else "no verdict"
+        gate = self.checked([pr])
+        verdict = gate.verdicts.get(pr)
+        said = " ".join(filter(None, (verdict["verdict"], verdict["detail"]))) if verdict else f"no verdict, the check exited {gate.code}: {gate.last}"
         lines = [f"#{pr} {head[:10]} {self.adapter.kind}: {said}"]
         if not row.get("ours"):
             lines.append(f"ours fail {NOT_ADMITTED}")
