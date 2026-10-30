@@ -198,7 +198,7 @@ class RegisterShapedTitle(unittest.TestCase):
 
     def test_a_title_naming_t2_is_data_and_init_passes_check(self):
         self.assertEqual(self.init, 0)
-        [written] = (self.docs / retro_live.RETRO_DIR).glob("*/retro.json")
+        [written] = [p for p in (self.docs / retro_live.RETRO_DIR).glob("*/retro.json") if p.parent.name != OLDER]
         summary = json.loads(written.read_text())["summary"]
         self.assertTrue(summary["text"].startswith("live proof `T2`: the test monitor pages again."))
         self.assertTrue(summary["p"].startswith("live proof T2: the test monitor pages again."))
