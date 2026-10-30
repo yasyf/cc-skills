@@ -171,6 +171,7 @@ class FakeShell(runner_module.Shell):
         self.finder_jobs: list[Path] = []
         self.exited: set[int] = set()
         self.fidelity_jobs: list[Path] = []
+        self.sprite_jobs: list[tuple[str, str]] = []
         self.reexeced: list[list[str]] = []
         self.reviews: dict[str, dict] = {}
         self.queue_drafts: list[dict] | None = None
@@ -290,6 +291,13 @@ class FakeShell(runner_module.Shell):
             assert argv == [sys.executable, str(runner_module.SCRIPTS / "fidelity.py"), str(out.parent)] and not env
             self.fidelity_jobs.append(out.parent)
             return Process()
+        if Path(argv[0]).name == "sprite-job.sh":
+            assert argv[2] in (str(runner_module.SCRIPTS / "finder.py"), str(runner_module.SCRIPTS / "fidelity.py")) and argv[3] == str(out.parent)
+            (self.finder_jobs if argv[2].endswith("finder.py") else self.fidelity_jobs).append(out.parent)
+            self.sprite_jobs.append((argv[1], Path(argv[2]).name))
+            process = Process()
+            process.pid = 6000 + len(self.sprite_jobs)
+            return process
         if Path(argv[0]).name == "worker-launch.sh":
             out.write_text(self.sprite_line)
             attempt = Path(argv[4]).with_suffix(".worker")
@@ -12731,7 +12739,7 @@ def test_each_head_starts_one_finder_at_once_however_many_records_name_it(shell,
     orca_pass(shell, config)
     assert shell.finder_jobs == [config.resolve().parent / "finder-desk" / f"43439-{FINDER_HEAD[:12]}"]
     assert finder_jobs(shell) == [
-        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "previous": "", "history": [], "settled": {}, "lane": "p8a-step9", "to": ["desk-runner"], "checkout": str(config.parent / "checkout"), "model": "sol", "fast": True, "full": False}
+        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "previous": "", "history": [], "settled": {}, "lane": "p8a-step9", "to": ["desk-runner"], "checkout": str(config.parent / "checkout"), "model": "sol", "fast": True, "full": False, "sprite": ""}
     ]
 
 
@@ -12835,6 +12843,61 @@ def test_finders_past_the_cap_wait_queued_and_start_as_running_ones_finish(shell
     orca_pass(shell, config)
     assert [job["pr"] for job in finder_jobs(shell)] == ["43439", "43299", "42784"]
     assert not finder_failures(shell)
+
+
+def test_each_pass_goes_to_the_listed_sprite_running_the_fewest_of_its_desks_passes_first_listed_on_a_tie(shell, config):
+    finder_config(config, concurrent=3, sprite=["sprite-a", "sprite-b"])
+    fidelity_config(config, concurrent=1, sprite="sprite-b")
+    orca_pass(shell, config)
+    heads = {pr: hashlib.sha1(pr.encode()).hexdigest() for pr in ("43439", "43299", "42784", "43601")}
+    for pr, head in heads.items():
+        head_record(shell, pr, head)
+    orca_pass(shell, config)
+    assert [job["sprite"] for job in finder_jobs(shell)] == ["sprite-a", "sprite-b", "sprite-a"]
+    assert [job["sprite"] for job in fidelity_jobs(shell)] == ["sprite-b"]
+    (shell.finder_jobs[1] / "result.json").write_text(json.dumps({"verdict": "ok", "record": f"finder: ok {heads['43299']}", "posted": "#150001"}))
+    orca_pass(shell, config)
+    assert [(job["pr"], job["sprite"]) for job in finder_jobs(shell)][3:] == [("43601", "sprite-b")]
+    assert shell.sprite_jobs == [("sprite-a", "finder.py"), ("sprite-b", "finder.py"), ("sprite-a", "finder.py"), ("sprite-b", "fidelity.py"), ("sprite-b", "finder.py")]
+
+
+def sprite_records(shell: FakeShell) -> list[tuple[str, str, str]]:
+    return [(post["kind"], post["to"], post["text"]) for post in shell.posts if post.get("topic", "").startswith("sprite:")]
+
+
+def test_each_listed_sprite_posts_one_heartbeat_every_ten_minutes_naming_its_passes_and_the_oldests_age(shell, config):
+    finder_config(config, sprite=["sprite-a", "sprite-b"])
+    fidelity_config(config, sprite="sprite-b")
+    orca_pass(shell, config)
+    beat = ("state", "root,drive-watchdog@d1")
+    assert sprite_records(shell) == [(*beat, "sprite sprite-a: 0 finder and 0 fidelity passes, none running"), (*beat, "sprite sprite-b: 0 finder and 0 fidelity passes, none running")]
+    head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    shell.clock += timedelta(minutes=9)
+    orca_pass(shell, config)
+    assert len(sprite_records(shell)) == 2
+    shell.clock += timedelta(minutes=1)
+    orca_pass(shell, config)
+    assert sprite_records(shell)[2:] == [(*beat, "sprite sprite-a: 1 finder and 0 fidelity passes, oldest 10 min"), (*beat, "sprite sprite-b: 0 finder and 1 fidelity passes, oldest 10 min")]
+
+
+def test_a_sprite_running_passes_with_none_settled_in_thirty_minutes_posts_a_defect_to_root_instead_of_its_heartbeat(shell, config):
+    finder_config(config, concurrent=2, sprite="sprite-a")
+    orca_pass(shell, config)
+    heads = {pr: hashlib.sha1(pr.encode()).hexdigest() for pr in ("43439", "43299")}
+    for pr, head in heads.items():
+        head_record(shell, pr, head)
+    orca_pass(shell, config)
+    shell.clock += timedelta(minutes=31)
+    orca_pass(shell, config)
+    stalled = "SPRITE-STALLED sprite-a: 2 passes running, oldest 31 min, and none it ran settled in the last 30 min; check the Sprite and each pass's job.log"
+    assert sprite_records(shell)[1:] == [("defect", "root", stalled)]
+    (shell.finder_jobs[1] / "result.json").write_text(json.dumps({"verdict": "ok", "record": f"finder: ok {heads['43299']}", "posted": "#150001"}))
+    shell.clock += timedelta(minutes=1)
+    orca_pass(shell, config)
+    shell.clock += timedelta(minutes=9)
+    orca_pass(shell, config)
+    assert sprite_records(shell)[2:] == [("state", "root,drive-watchdog@d1", "sprite sprite-a: 1 finder and 0 fidelity passes, oldest 41 min")]
 
 
 def test_a_queued_head_whose_pr_a_root_go_names_starts_before_older_heads(shell, config):
@@ -13174,6 +13237,7 @@ def test_each_head_starts_one_fidelity_pass_carrying_the_prs_grades_old_app_line
         "checkout": str(config.parent / "checkout"),
         "model": "sol",
         "fast": True,
+        "sprite": "",
     }
 
 
