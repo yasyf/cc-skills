@@ -2690,7 +2690,7 @@ stalls in one stack post as one record, on the stack's lowest PR.
 | `carry` | a tap or go names an earlier head, nothing carries it to this head, and the board shows no row at it | 15 | the fidelity lane when Sonnet reads a patch-identical restack, else root, to ask the owner again |
 | `lane` | a lane with an in-progress task on root's task list stays silent past the time its last record promised, or past 30 minutes | 30 | the lane, or root when the lane posted nothing in the window |
 | `ask` | a lane's ask to root is open, and no root record answers it | 15 | root |
-| `order` | a root `decide` record relays an owner order, Sonnet reads it as naming a change that ships as a new PR, and no lane it names, or a numbered successor, posts an `opened` record after it; it stops at two hours or when a root record closes it | 3 | root, as `urgent` |
+| `order` | a root `decide` record relays an owner order, Sonnet reads it as naming a change that ships as a new PR, and no lane it names, or a numbered successor, posts a record citing a PR after it, such as `opened`, `done`, or a `state` with a PR reference; it stops at two hours or when a root record closes it | 3 | root, as `urgent` |
 
 **S2. Python checks the facts, and one Sonnet call answers the judgment.** Sonnet judges
 whether a new head replays the tapped one unchanged, and whether a quiet lane's last

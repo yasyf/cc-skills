@@ -87,8 +87,9 @@ and, across the drive:
               done or READY one
     ask       a lane's `ask` to root is open, and no root record answers it
     order     a root `decide` record relays an owner order ("owner ... verbatim"), Sonnet reads it as
-              naming a change that ships as a new PR, no `opened` record from a lane it names or a
-              numbered successor follows it, and no root record closes it; it goes to root alone,
+              naming a change that ships as a new PR, no record from a lane it names or a numbered
+              successor cites a PR after it (an `opened` record, or any record with a PR reference),
+              and no root record closes it; it goes to root alone,
               from `stall.minutes.order` until the order is two hours old
     gate      a lane's `state` or `report` record says work waits on PR N (`waits on #N`, `waits only
               on #N`, `blocked on #N`, `when #N lands`), the desk runner or a landing desk lane posted
@@ -574,6 +575,10 @@ def refuses(record: dict, desks: list[str]) -> bool:
         and not record["text"].startswith(STACK_NOTES)
         and not WARNS_ONLY.search(record["text"])
     )
+
+
+def cites_pr(record: dict) -> bool:
+    return record["kind"] == "opened" or bool((record.get("refs") or {}).get("prs"))
 
 
 def successor_of(lane: str) -> re.Pattern[str]:
@@ -1197,7 +1202,7 @@ class Pass:
         return Question(f"lane:{lane}:{last['seq']}", {"kind": "silence", "lane": lane, "last_at": last["at"], "minutes_silent": int((self.now - quiet).total_seconds() // 60), "last_record": clip(grades.full_text(last), RECORD_CHARS)}, settle)
 
     def orders(self, records: list[dict]) -> list[Question]:
-        """A question for each root decide record relaying an owner order, `stall.minutes.order` to `ORDER_WINDOW` old, unclosed, that no lane it names, or a numbered successor, has answered with an `opened` record since: one Sonnet verdict says whether the order names a change that ships as a new PR, and a yes is root's urgent stall."""
+        """A question for each root decide record relaying an owner order, `stall.minutes.order` to `ORDER_WINDOW` old, unclosed, that no lane it names, or a numbered successor, has answered since with a record citing a PR: one Sonnet verdict says whether the order names a change that ships as a new PR, and a yes is root's urgent stall."""
         closed = {seq for record in records if record["lane"] in ROOT_NAMES for seq in grades.closes(record)}
         questions = []
         for order in records:
@@ -1207,7 +1212,7 @@ class Pass:
             if not self.watch.age("order") <= self.now - at(order) < ORDER_WINDOW:
                 continue
             lanes = [lane for lane in order.get("to") or [] if lane not in NOT_LANES]
-            if any(record["kind"] == "opened" and record["seq"] > order["seq"] and any(successor_of(lane).fullmatch(record["lane"]) for lane in lanes) for record in records):
+            if any(record["seq"] > order["seq"] and cites_pr(record) and any(successor_of(lane).fullmatch(record["lane"]) for lane in lanes) for record in records):
                 continue
             questions.append(self.order(order, text, lanes))
         return questions
@@ -1217,7 +1222,7 @@ class Pass:
             if not verdict or not verdict.get("pr"):
                 return None
             named = ", ".join(lanes) or "no lane"
-            return Stall(f"order:{order['seq']}", "order", at(order), f"owner order #{order['seq']}", f"root relayed it at {pacific(at(order))} and it names a PR to open ({clip(verdict['why'])}), yet no OPENED record from {named} follows", (ROOT,), f"find why {named} has not opened the PR, and have it opened now")
+            return Stall(f"order:{order['seq']}", "order", at(order), f"owner order #{order['seq']}", f"root relayed it at {pacific(at(order))} and it names a PR to open ({clip(verdict['why'])}), yet no record from {named} cites a PR since", (ROOT,), f"find why {named} has not opened the PR, and have it opened now")
 
         return Question(f"order:{order['seq']}", {"kind": "order", "order": clip(text, RECORD_CHARS)}, settle)
 
