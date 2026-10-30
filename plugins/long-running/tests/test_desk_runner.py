@@ -12498,6 +12498,89 @@ def test_a_trunk_commit_that_stays_red_posts_dev_red_and_no_flake(shell, config,
     assert not [post for post in shell.posts if "FLAKE" in post["text"]]
 
 
+@pytest.mark.parametrize("history", [32, 10_000])
+@pytest.mark.parametrize("recovered", [False, True])
+def test_flake_watch_reads_only_remembered_red_builds(shell, config, tmp_path, monkeypatch, history, recovered):
+    with_ci_build(config)
+    landing = trunk_watch(shell, config, tmp_path)
+    store = landing.book.store
+    red = "https://buildkite.com/forge/test/builds/29019"
+    with store.transaction(runner_module.LANDING) as current:
+        for index in range(history):
+            key = f"history:{index}"
+            current.accept(key, "history", "old", None, shell.now())
+            current.verify(key, {"done": True})
+            current.facts[key] = {"payload": "old"}
+        current.facts[runner_module.TRUNK_REDS_FACT] = {"b" * 10: red}
+    costs = {"decoded_bytes": 0, "actions": 0, "opcodes": 0, "changed_rows": 0}
+    loads, construct = json.loads, actions.Action.load.__func__
+    connect, flush = sqlite_store.Store._connect, sqlite_store.Transaction.flush
+    flakes = []
+
+    def decoded(value, *args, **kwargs):
+        costs["decoded_bytes"] += len(value.encode())
+        return loads(value, *args, **kwargs)
+
+    def built(cls, record):
+        costs["actions"] += 1
+        return construct(cls, record)
+
+    def opened(self, *args, **kwargs):
+        connection = connect(self, *args, **kwargs)
+
+        def progress():
+            costs["opcodes"] += 1
+            return 0
+
+        connection.set_progress_handler(progress, 1)
+        return connection
+
+    def written(transaction):
+        flush(transaction)
+        costs["changed_rows"] += transaction._connection.total_changes
+
+    def flake(*args):
+        flakes.append(args)
+        return True
+
+    monkeypatch.setattr(json, "loads", decoded)
+    monkeypatch.setattr(actions.Action, "load", classmethod(built))
+    monkeypatch.setattr(sqlite_store.Store, "_connect", opened)
+    monkeypatch.setattr(sqlite_store.Transaction, "flush", written)
+    monkeypatch.setattr(landing, "flake", flake)
+    commits = [trunk_commit("b", "SUCCESS" if recovered else "FAILURE", "29019", "2026-10-01T17:50:00Z")]
+    landing.watch_flakes(commits, TRUNK_CHECK, OPEN_ROWS)
+    first = costs.copy()
+    landing.watch_flakes(commits, TRUNK_CHECK, OPEN_ROWS)
+    two_passes = costs.copy()
+    config_bytes = 2 * len(config.read_bytes())
+    print(json.dumps({"history": history, "recovered": recovered, "config_decoded_bytes": config_bytes, "first_pass": first, "two_passes": two_passes}))
+    assert costs["actions"] == 0
+    assert costs["decoded_bytes"] == config_bytes + len(json.dumps(red).encode()) * (1 if recovered else 2)
+    assert costs["opcodes"] < 2_000
+    assert (first["changed_rows"] > 0) == recovered
+    assert costs["changed_rows"] == first["changed_rows"]
+    assert flakes == ([("b" * 10, red, red, OPEN_ROWS)] if recovered else [])
+    assert store.fact(runner_module.LANDING, runner_module.TRUNK_REDS_FACT) == ({} if recovered else {"b" * 10: red})
+
+
+@pytest.mark.parametrize("posted", [False, True])
+def test_flake_watch_keeps_unposted_recoveries_and_prunes_old_commits(shell, config, tmp_path, monkeypatch, posted):
+    with_ci_build(config)
+    landing = trunk_watch(shell, config, tmp_path)
+    history = [trunk_commit("b", "FAILURE", "29019", "2026-10-01T17:50:00Z")]
+    landing.watch_flakes(history, TRUNK_CHECK, OPEN_ROWS)
+    red = history[0]["status"]["contexts"][0]["targetUrl"]
+    landing.book.edit(runner_module.LANDING, lambda current: current.facts[runner_module.TRUNK_REDS_FACT].update({"gone": "old"}))
+    monkeypatch.setattr(landing, "flake", lambda *args: posted)
+    history = [trunk_commit("b", "SUCCESS", "29030", "2026-10-01T17:50:00Z"), trunk_commit("c", "FAILURE", "29031", "2026-10-01T17:55:00Z")]
+    landing.watch_flakes(history, TRUNK_CHECK, OPEN_ROWS)
+    expected = {"c" * 10: "https://buildkite.com/forge/test/builds/29031"}
+    if not posted:
+        expected["b" * 10] = red
+    assert landing.book.fact(runner_module.LANDING, runner_module.TRUNK_REDS_FACT) == expected
+
+
 FINDER_HEAD = "7414944e30bfec89dee45328414dbc1016e35afa"
 FINDER_OLD = "a269784e49009c5aa92b2341e08d6945f7ff8e95"
 

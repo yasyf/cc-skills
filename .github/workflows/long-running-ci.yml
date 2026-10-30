@@ -27,6 +27,8 @@ jobs:
       - uses: astral-sh/setup-uv@v8.2.0
       - name: pytest
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q
+      - name: flake watch operation counts
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py -q -s -k test_flake_watch_reads_only_remembered_red_builds
       - name: capt-hook pack test
         run: uvx --isolated 'capt-hook>=12.107.12' pack test plugins/long-running
       - name: installed state package

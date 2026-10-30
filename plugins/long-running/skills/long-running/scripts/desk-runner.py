@@ -5727,7 +5727,7 @@ class Landing:
         if not self.landing_config.get("ci_build"):
             return
         statuses = {commit["oid"]: context for commit in history for context in (commit["status"] or {"contexts": []})["contexts"] if context["context"] == check and context["state"] in FINISHED_STATES}
-        known = self.book.load(LANDING).facts.get(TRUNK_REDS_FACT, {})
+        known = self.book.fact(LANDING, TRUNK_REDS_FACT, {})
         reds = {oid: url for oid, url in known.items() if any(commit["oid"] == oid for commit in history)}
         for oid, context in statuses.items():
             if context["state"] != "SUCCESS":
