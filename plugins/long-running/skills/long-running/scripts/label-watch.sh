@@ -74,11 +74,8 @@ GRAPHITE_API=${LABEL_WATCH_GRAPHITE_API:-https://api.graphite.com/v1}
 GRAPHITE_AUTH=${LABEL_WATCH_GRAPHITE_AUTH:-$HOME/.config/graphite/auth}
 HOLD=${LABEL_WATCH_HOLD:-}
 HELD=
-repo_queue() {
-  git -C "$CHECKOUT" config --get ccx.queue && return
-  [ ! -f "$CHECKOUT/.claude/ccx.toml" ] || sed -n '/^\[vcs\]/,/^\[/s/^queue *= *"\(.*\)".*/\1/p' "$CHECKOUT/.claude/ccx.toml"
-}
-QUEUE_PROVIDER=${LABEL_WATCH_QUEUE:-$(repo_queue)}
+case "$0" in */*) SCRIPTS=${0%/*} ;; *) SCRIPTS=. ;; esac
+QUEUE_PROVIDER=${LABEL_WATCH_QUEUE:-$(python3 -c 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); import merge_queue; print(merge_queue.repo_queue(Path(sys.argv[2])))' "$SCRIPTS" "$CHECKOUT")}
 QUEUE_PROVIDER=${QUEUE_PROVIDER:-graphite}
 case $QUEUE_PROVIDER in
   trunk)

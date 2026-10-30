@@ -922,7 +922,6 @@ def shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeShell:
 
 @pytest.fixture
 def config(tmp_path: Path, shell: FakeShell) -> Path:
-    (tmp_path / "checkout").mkdir()
     briefs = tmp_path / "lfs"
     briefs.mkdir()
     (briefs / "f85c00ba").write_text("Lane brief: rebase onto dev when asked; never touch production.\n")
@@ -6778,9 +6777,10 @@ def test_a_label_refusal_its_lane_must_fix_routes_as_the_adapters_blocker_and_a_
 
 
 def trunk_queue(landing: dict) -> None:
-    config = Path(landing["checkout"]) / ".claude/ccx.toml"
-    config.parent.mkdir()
-    config.write_text('[vcs]\nqueue = "trunk"\n')
+    checkout = Path(landing["checkout"])
+    for name, text in ((".agents/skills/submit-pr/scripts/stack-enqueue", ""), (".claude/ccx.toml", '[vcs]\nqueue = "trunk"\n')):
+        (checkout / name).parent.mkdir(parents=True, exist_ok=True)
+        (checkout / name).write_text(text)
 
 
 @pytest.mark.parametrize(
