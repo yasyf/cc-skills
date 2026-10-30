@@ -48,3 +48,75 @@ def test_a_carried_go_keeps_the_port_or_test_only_claim_of_the_go_it_carries():
 )
 def test_withdrawn_names_every_record_a_record_withdraws(record, seqs):
     assert grades.withdrawn(record) == seqs
+
+
+def carry_source(pr, head, seq=5, claim=""):
+    return {"seq": seq, "at": "2026-10-29T08:00:00Z", "drive": "d1", "lane": "root", "kind": "go", "text": f"go {claim}#{pr} at {head}"}
+
+
+def carry_grade(pr, head, earlier, minute=1):
+    return {"seq": 10 + minute, "at": f"2026-10-29T08:{minute:02d}:00Z", "refs": {"prs": [f"Forge-AI/monorepo#{pr}"]}, "text": f"fidelity: ok {head} patch-identical carried from {earlier}"}
+
+
+@pytest.mark.parametrize("metric", ["carries", "carry_of", "visited"])
+def test_carry_chain_parses_each_grade_once_and_visits_only_its_pr(monkeypatch, metric):
+    counts = {"carries": 0, "carry_of": 0, "visited": 0}
+    for name in ("carries", "carry_of"):
+        original = getattr(grades, name)
+
+        def counted(text, name=name, original=original):
+            counts[name] += 1
+            return original(text)
+
+        monkeypatch.setattr(grades, name, counted)
+    reached = grades.reached
+
+    def measured(gone, pr, sha):
+        class Entries:
+            def items(self):
+                for entry in gone.items():
+                    counts["visited"] += 1
+                    yield entry
+
+        return reached(Entries(), pr, sha)
+
+    monkeypatch.setattr(grades, "reached", measured)
+    sources = [carry_source(pr, "ddddddd") for pr in range(100, 600)] + [carry_source(12, "aaaaaaa")]
+    records = [carry_grade(12, "ccccccc", "bbbbbbb", 2), carry_grade(12, "bbbbbbb", "aaaaaaa")]
+    moved = grades.carried_gos(sources, records, "Forge-AI/monorepo", lambda pr, head: True)
+    assert [record["text"] for record in moved] == ["go #12 at bbbbbbb", "go #12 at ccccccc"]
+    assert counts[metric] == {"carries": 2, "carry_of": 2, "visited": 18}[metric]
+
+
+def test_carry_chain_keeps_prefix_insertion_order_duplicate_waves_and_callback_order():
+    sources = [carry_source(12, "abcdef1", 5), carry_source(12, "abcdef1234", 6, "test-only "), carry_source(12, "abcdef1", 7, "port ")]
+    records = [carry_grade(12, "ccccccc", "bbbbbbb", 3), carry_grade(12, "bbbbbbb", "abcdef1234"), carry_grade(12, "bbbbbbb", "abcdef1234", 2)]
+    calls = []
+    moved = grades.carried_gos(sources, records, "Forge-AI/monorepo", lambda pr, head: calls.append((pr, head)) or True)
+    assert calls == [("12", "bbbbbbb"), ("12", "bbbbbbb"), ("12", "ccccccc")]
+    assert [(record["seq"], record["text"], record["graded_at"]) for record in moved] == [
+        (7, "go port #12 at bbbbbbb", records[1]["at"]),
+        (7, "go port #12 at bbbbbbb", records[2]["at"]),
+        (7, "go port #12 at ccccccc", records[0]["at"]),
+    ]
+
+
+def test_carry_parsing_keeps_first_wave_errors_after_prior_lands_calls():
+    calls = []
+    with pytest.raises(TypeError):
+        grades.carried_gos([carry_source(12, "aaaaaaa")], [carry_grade(12, "bbbbbbb", "aaaaaaa"), {"text": None}], "Forge-AI/monorepo", lambda pr, head: calls.append(head) or True)
+    assert calls == ["bbbbbbb"]
+
+
+def test_carry_rechecks_rejected_lands_on_the_next_wave_and_stops_at_cycles():
+    calls = []
+
+    def lands(pr, head):
+        calls.append((pr, head))
+        return pr != "12" or calls.count((pr, head)) > 1
+
+    sources = [carry_source(12, "aaaaaaa"), carry_source(13, "ccccccc")]
+    records = [carry_grade(12, "bbbbbbb", "aaaaaaa"), carry_grade(13, "ddddddd", "ccccccc"), carry_grade(12, "aaaaaaa", "bbbbbbb")]
+    moved = grades.carried_gos(sources, records, "Forge-AI/monorepo", lands)
+    assert calls == [("12", "bbbbbbb"), ("13", "ddddddd"), ("12", "bbbbbbb")]
+    assert [record["text"] for record in moved] == ["go #13 at ddddddd", "go #12 at bbbbbbb"]
