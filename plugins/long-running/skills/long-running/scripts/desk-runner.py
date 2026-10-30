@@ -687,6 +687,8 @@ EFFORTS = ("low", "medium", "high", "xhigh", "max")
 GO_UNQUEUED_OUTCOMES = frozenset({"blocked", "failed", "stranded", "unsettled"})
 RETRYABLE = frozenset({"blocked", "superseded", "foreign", "dropped", "refused", "dequeued"})
 FAILED_RETRY = timedelta(minutes=10)
+DIRECT_DEADLINE = timedelta(minutes=60)
+HANDING_OFF = "the runner is handing off, so its successor takes this chain up on its first pass"
 BELIEVED_QUEUED = frozenset({"enqueued", "noop"})
 MERGED = "merged"
 ADMITTED = BELIEVED_QUEUED | {"dropped", "ejected", MERGED}
@@ -3487,7 +3489,7 @@ class Runner:
                 "relay": f"delivered to {sent[-1].target}, no started reply" if sent and sent[-1].status == "completed" else "never delivered: no live dispatch" if not sent else f"send {sent[-1].status}",
                 "reply": "never delivered: no live dispatch" if not sent else f"send {sent[-1].status}",
                 "launch": "launch never finished" if action.status == "started" else "launch never started",
-                "enqueue": "the adapter's enqueue never returned" if action.status == "started" else "enqueue never ran",
+                "enqueue": "the enqueue, or the direct merge with its wait on checks, never returned" if action.status == "started" else "enqueue never ran",
             }[action.kind]
             self.escalate(f"deadline:{container}/{action.action_id}:{action.status}", "DEADLINE", about, f"{action.authority_ref} {action.kind}: {missing}; accepted {pacific(actions.parse_stamp(action.accepted_at))}")
 
@@ -4701,7 +4703,7 @@ def queue_state(action: actions.Action) -> str:
     if action.status == "accepted":
         return "waiting its turn"
     if action.status != "completed":
-        return "merging now: rebasing, waiting on its checks, or merging"
+        return f"merging since {pacific(actions.parse_stamp(action.started_at))}: rebasing, waiting on its checks, or merging"
     why = " ".join((action.response.get("why") or action.response["out"]).split())[:200]
     if action.response["outcome"] == "failed":
         return f"merge failed, retried within {int(FAILED_RETRY.total_seconds() // 60)} minutes: {why}"
@@ -6054,7 +6056,7 @@ class Landing:
             return set()
         if failed := self.failing(ACCEPT_CHECKS, Graded(enqueued_heads(base), rows, self.runner.now(), act=True)):
             return set(failed[1])
-        self.book.accept(LANDING, f"{base}#{len(attempts) + 1}", "enqueue", ",".join(prefix), self.authority(), self.runner.now() + timedelta(minutes=self.runner.config.enqueue_minutes))
+        self.book.accept(LANDING, f"{base}#{len(attempts) + 1}", "enqueue", ",".join(prefix), self.authority(), self.runner.now() + (DIRECT_DEADLINE if self.down_since() else timedelta(minutes=self.runner.config.enqueue_minutes)))
         return set()
 
     def retries(self, attempt: actions.Action) -> bool:
@@ -7035,6 +7037,8 @@ class Landing:
             if (base := open_rows[chain[0]].get("base")) != TRUNK:
                 return (MERGED if outcome == MERGED else "blocked"), "".join(outs)[-1500:], f"#{chain[0]} sits on {base}, not {TRUNK}, so {numbered(chain)} waits for the PR below it to land"
             with DIRECT_MERGING:
+                if self.runner.stop_requested():
+                    return (MERGED if outcome == MERGED else "blocked"), "".join(outs)[-1500:], f"{numbered(chain)} waits to merge: {HANDING_OFF}"
                 landing, refused = self.rebased(chain, heads, open_rows)
                 refused = refused or (self.moved_heads(chain, landing) if len(chain) > 1 else None)
                 waiting = "" if refused else self.checks_settled(chain, landing) or self.go_lost(chain, rows)
@@ -7073,7 +7077,7 @@ class Landing:
         return f"{numbered([pr for pr in chain if pr in barred])} has no go at its head any more, read just before the merge" if any(pr in barred for pr in chain) else ""
 
     def checks_settled(self, chain: list[str], heads: dict[str, str]) -> str:
-        """Why `chain` may not merge yet, or empty: the checks the trunk requires, named by the bottom PR's required checks, must pass on every head first, read every `CHECK_POLL_SECONDS` up to `CHECK_POLLS` times, since GitHub refuses a merge while one is pending and the runner's own rebase push restarts them (#198874)."""
+        """Why `chain` may not merge yet, or empty: the checks the trunk requires, named by the bottom PR's required checks, must pass on every head first, read every `CHECK_POLL_SECONDS` up to `CHECK_POLLS` times, since GitHub refuses a merge while one is pending and the runner's own rebase push restarts them (#198874); a handoff ends the wait, so the runner exits at once and its successor reads the checks again."""
         listed = self.shell.run(ghread.read("pr", "checks", chain[0], "--repo", self.repo, "--required", "--json", "name,bucket", max_age=ghread.FRESH))
         try:
             required = {check["name"] for check in json.loads(listed.out)}
@@ -7081,6 +7085,8 @@ class Landing:
             return ""
         for pr in chain:
             for poll in range(CHECK_POLLS):
+                if self.runner.stop_requested():
+                    return HANDING_OFF
                 if poll:
                     self.shell.sleep(CHECK_POLL_SECONDS)
                 read = self.shell.run(ghread.read("pr", "checks", pr, "--repo", self.repo, "--json", "name,bucket", max_age=ghread.FRESH))
