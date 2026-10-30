@@ -375,6 +375,35 @@ def test_fact_mapping_replacement_never_revives_old_proxies(tmp_path, intermedia
     assert store.fact("runner", "replaced") == {"child": {"replacement": 2, "current": 3}}
 
 
+@pytest.mark.parametrize("nested", [False, True])
+def test_reordered_fact_replacement_invalidates_prior_mapping_proxies(tmp_path, nested):
+    store = history(tmp_path, 0)
+    original = {"a": {"value": 1}, "b": {"value": 2}}
+    replacement = {"b": {"value": 2}, "a": {"value": 1}}
+    with store.transaction("runner") as transaction:
+        transaction.facts = {"m": original} if nested else original
+    with store.transaction("runner") as transaction:
+        prior = transaction.facts["m"] if nested else transaction.facts
+        children = [prior["a"], prior["b"]]
+        if nested:
+            transaction.facts["m"] = replacement
+        else:
+            transaction.facts = replacement
+        for child in children:
+            with pytest.raises(RuntimeError, match="replaced or removed"):
+                child["orphan"] = True
+        current = transaction.facts["m"] if nested else transaction.facts
+        assert list(current) == ["b", "a"]
+        del current["b"]
+        current["b"] = {"value": 3}
+        assert list(current) == ["a", "b"]
+        current["b"]["current"] = True
+    facts = store.load("runner").facts
+    current = facts["m"] if nested else facts
+    assert list(current) == ["a", "b"]
+    assert current["b"] == {"value": 3, "current": True}
+
+
 def test_fact_paths_order_replacement_and_detached_values(tmp_path):
     store = history(tmp_path, 0)
     with store.transaction("runner") as transaction:
