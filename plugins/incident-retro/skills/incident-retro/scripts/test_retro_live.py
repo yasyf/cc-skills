@@ -195,11 +195,11 @@ class RegisterShapedTitle(unittest.TestCase):
         state.update(title="live proof T2: the test monitor pages again")
         (self.incident / "state.json").write_text(json.dumps(state))
         self.init = run(retro_live.init, args(self.incident, self.docs))
-        self.root = self.docs / retro_live.RETRO_DIR / SLUG
 
     def test_a_title_naming_t2_is_data_and_init_passes_check(self):
         self.assertEqual(self.init, 0)
-        summary = json.loads((self.root / "retro.json").read_text())["summary"]
+        [written] = (self.docs / retro_live.RETRO_DIR).glob("*/retro.json")
+        summary = json.loads(written.read_text())["summary"]
         self.assertTrue(summary["text"].startswith("live proof `T2`: the test monitor pages again."))
         self.assertTrue(summary["p"].startswith("live proof T2: the test monitor pages again."))
 
