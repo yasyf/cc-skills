@@ -189,6 +189,8 @@ class FakeShell(runner_module.Shell):
         self.on_sleep: list = []
         self.link_out = ""
         self.pr_states: dict[str, str] = {}
+        self.bases: dict[str, str] = {}
+        self.stack_members: set[str] = set()
         self.diff_names: dict[str, list[str]] = {}
         self.merge_commits: dict[str, str] = {}
         self.current_heads: dict[str, str] = {}
@@ -492,6 +494,8 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "reviewDecision,reviews":
             reviewed = self.review_commit or self.current_heads.get(argv[3], "")
             return runner_module.Done(0, json.dumps({"reviewDecision": self.approval_after_push, "reviews": [{"state": "APPROVED", "commit": {"oid": reviewed}}]}), "")
+        if argv[:3] == ["gh", "pr", "view"] and argv[-1] == ".baseRefName":
+            return runner_module.Done(0, f"{self.bases.get(argv[3], 'dev')}\n", "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == ".state":
             return runner_module.Done(0, f"{self.pr_states.get(argv[3], 'OPEN')}\n", "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == ".headRefOid":
@@ -504,6 +508,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(8 if any(check["bucket"] == "pending" for check in checks) else 0, json.dumps(checks), "")
         if argv[:3] == ["gh", "pr", "merge"]:
             assert argv[4:8] == ["--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit"]
+            if argv[3] in self.stack_members:
+                return runner_module.Done(1, "", "GraphQL: This pull request is part of a stack and must be merged using the asynchronous merge REST API. (mergePullRequest)")
             self.reviews.setdefault(argv[3], {})["state"] = "MERGED"
             self.merged_heads.append(argv[8])
             return runner_module.Done(0, "", "")
@@ -13271,8 +13277,8 @@ def test_a_go_withdrawn_while_a_stack_waits_for_its_checks_keeps_the_stack_unmer
     assert [call for call in direct_merges(shell) if call[:3] == ["gh", "stack", "merge"]] == []
 
 
-def test_while_graphite_is_down_a_prefix_github_tracks_inside_a_longer_stack_merges_through_the_async_api_on_its_top(shell, config, tmp_path):
-    """Root #199186, #199779: gh stack link refused 'Include all existing PRs in the command to update the stack' for 4 of #44828's 7 PRs, and gh pr merge refused a stack member, which needs the asynchronous merge API."""
+def partial_prefix(shell: FakeShell) -> None:
+    """Root #199186: gh stack link refused 'Include all existing PRs in the command to update the stack' for 4 of #44828's 7 PRs."""
     two_pr_stack(shell)
     shell.rows.append({"pr": "29042", "lane": LANE, "branch": "a/3", "base": "a/2", "head": "eeee555555", "state": "open", "reported_head": "eeee555555"})
     shell.gates["29042"] = [gate("#29020 GREEN cccc333333 graphite READY", "#29031 GREEN dddd444444 graphite READY", "#29042 BLOCKED eeee555555 graphite RUNNING", would="#29020 #29031")]
@@ -13280,9 +13286,31 @@ def test_while_graphite_is_down_a_prefix_github_tracks_inside_a_longer_stack_mer
     shell.current_heads |= {"29020": "cccc333333", "29031": "dddd444444", "29042": "eeee555555"}
     shell.merge_commits |= {"29020": "1111aaaa0000", "29031": "2222bbbb0000"}
     shell.link_out = "Include all existing PRs in the command to update the stack"
+    shell.bases["29031"] = "a/1"
+
+
+def test_while_graphite_is_down_a_prefix_inside_a_longer_stack_merges_bottom_up_each_pr_once_github_retargets_it_onto_dev(shell, config, tmp_path):
+    """Root #200822: the asynchronous merge of #44923, the prefix's top, squashed it into its parent's branch instead of dev."""
+    partial_prefix(shell)
+    shell.stack_members = {"29031"}
+    shell.on_sleep.append(lambda: shell.bases.pop("29031", None))
     landing_pass(shell, config)
-    assert [call for call in direct_merges(shell) if call[:2] != ["gh", "stack"]] == [["gh", "api", "-X", "PUT", "repos/Forge-AI/monorepo/pulls/29031/merge-async", "-f", "merge_method=squash", "-f", "merge_action=direct_merge", "-f", "sha=dddd444444"]]
+    assert [call for call in direct_merges(shell) if call[:2] != ["gh", "stack"]] == [
+        ["gh", "pr", "merge", "29020", "--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit", "cccc333333"],
+        ["gh", "pr", "merge", "29031", "--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit", "dddd444444"],
+        ["gh", "api", "-X", "PUT", "repos/Forge-AI/monorepo/pulls/29031/merge-async", "-f", "merge_method=squash", "-f", "merge_action=direct_merge", "-f", "sha=dddd444444"],
+    ]
     assert [record.split(" direct")[0] for record in merged_records(shell)] == ["MERGED #29020 at cccc333333", "MERGED #29031 at dddd444444"]
+
+
+def test_while_graphite_is_down_a_pr_github_never_retargets_onto_dev_is_refused_and_never_merged_into_its_parent(shell, config, tmp_path):
+    partial_prefix(shell)
+    landing_pass(shell, config)
+    assert [call[3] for call in direct_merges(shell) if call[:3] == ["gh", "pr", "merge"]] == ["29020"]
+    assert not [call for call in direct_merges(shell) if call[:4] == ["gh", "api", "-X", "PUT"]]
+    assert [record.split(" direct")[0] for record in merged_records(shell)] == ["MERGED #29020 at cccc333333"]
+    [action] = enqueues_of(tmp_path).values()
+    assert action.response["outcome"] == "failed" and "refused: #29031 still reads base a/1, not dev" in action.response["out"]
 
 
 @pytest.mark.parametrize("overlap", [False, True], ids=["dev-moved-elsewhere", "dev-touched-its-files"])
