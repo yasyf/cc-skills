@@ -86,6 +86,41 @@ def test_a_build_that_is_not_green_clears_green_at(lock, red_routes):
     assert shell.fields("21052")["green_at"] == ""
 
 
+RED = "2026-10-28T21:00:00Z"
+
+
+@pytest.mark.parametrize(
+    ("stored", "kept"),
+    [
+        ({}, False),
+        ({"head": MOVED_HEAD, "test_state": "failure", "red_at": RED}, True),
+        ({"head": LISTED_HEAD, "test_state": "failure", "red_at": RED}, False),
+        ({"head": MOVED_HEAD, "test_state": "pending", "red_at": ""}, False),
+    ],
+    ids=["first-red-read", "still-red-at-the-head", "red-at-a-new-head", "red-again-after-a-rerun"],
+)
+def test_red_at_is_the_refresh_that_first_read_the_heads_build_red(lock, red_routes, stored, kept):
+    shell = FakeShell(rows=[{"key": "21052", "fields": stored}] if stored else [], routes=red_routes)
+    refresh(shell, lock, pr=["21052"])
+
+    fields = shell.fields("21052")
+    assert fields["red_at"] == (RED if kept else fields["last_refresh"])
+    assert fields["green_at"] == ""
+
+
+def test_a_build_that_is_not_red_clears_red_at(lock):
+    shell = FakeShell(rows=[{"key": "21052", "fields": {"head": MOVED_HEAD, "test_state": "failure", "red_at": RED}}])
+    refresh(shell, lock, pr=["21052"])
+
+    assert shell.fields("21052")["red_at"] == ""
+
+
+def test_the_first_error_line_skips_the_buildkite_timestamp_escape_around_section_markers():
+    log = "\x1b_bk;t=1793326269774\x07~~~ Running commands\n\x1b_bk;t=1793326269775\x07error: used `expect()` on a `Result` value\n"
+
+    assert ledger.first_error_line(log) == "error: used `expect()` on a `Result` value"
+
+
 def test_ai_review_absent_when_no_such_check_run(lock):
     shell = FakeShell(routes={f"checks:{MOVED_HEAD}": "check-runs-no-ai-review.json"})
     refresh(shell, lock, pr=["21052"])
@@ -430,8 +465,9 @@ def test_a_red_buildkite_check_carries_its_first_error_line_read_once_per_url():
     checks = json.dumps([{"name": "buildkite/test", "url": url}, {"name": "unit", "url": "https://github.com/acme/app/runs/13"}])
     shell = FakeShell()
     first = json.loads(ledger.with_errors(shell, checks, None))
-    assert first[0]["error"] == ledger.resolve_error(FakeShell(), ledger.BUILDKITE_URL.match(url)) != ""
-    assert "error" not in first[1]
+    assert (first[0]["job"], first[0]["error"]) == ledger.resolve_error(FakeShell(), ledger.BUILDKITE_URL.match(url))
+    assert first[0]["job"] == "Gate sand build timing" and first[0]["error"] != ""
+    assert "job" not in first[1] and "error" not in first[1]
     again = FakeShell()
     assert json.loads(ledger.with_errors(again, checks, json.dumps(first))) == first
     assert [call for call in again.calls if call[0] == "bk"] == []
