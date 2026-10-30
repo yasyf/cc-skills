@@ -317,7 +317,10 @@ class RosterIndex:
         dirty = set()
         # Only denied Darwin watch frontiers need query-time validation. Ordinary
         # healthy queries never inspect roster paths or retry watch opens.
-        for path, frontier in list(self.frontiers.items()):
+        for path in list(self.frontiers):
+            frontier = self.frontiers.get(path)
+            if frontier is None:
+                continue
             try:
                 fd = os.open(path, os.O_EVTONLY | os.O_CLOEXEC)
             except PermissionError:
