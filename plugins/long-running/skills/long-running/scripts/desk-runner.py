@@ -5576,7 +5576,7 @@ class Landing:
         self.read_reports({pr: sha for _, done in gated if (would := self.direct_would(done)) is not None for pr, sha in enqueued_heads(enqueue_key(would, done.verdicts)).items()})
         for tips, done in gated:
             verdicts = done.verdicts
-            if verdictless(done):
+            if verdictless(done) or done.unparsed:
                 if done.code == TIMED_OUT:
                     self.skips |= {pr: f"GATE-TIMEOUT its {self.adapter.kind} check ran past {GATE_CHECK_SECONDS}s on both tries and was killed, so the next pass checks it again" for tip in tips for pr in downstack(open_rows, tip)}
                 else:
@@ -5642,10 +5642,11 @@ class Landing:
         return self.bodies[pr][1]
 
     def gate_failed(self, tips: list[str], done: merge_queue.Gate) -> None:
-        """Escalate `GATE-FAILED` for a check that read no verdict, naming only the tips that have not landed since the pass read the ledger and that GitHub does not read merged, since a direct merge deletes the branch the check fetches before the ledger settles its squash (root #200922)."""
+        """Escalate `GATE-FAILED` for a check that read no verdict, or printed an enqueue prefix the adapter cannot read, naming only the tips that have not landed since the pass read the ledger and that GitHub does not read merged, since a direct merge deletes the branch the check fetches before the ledger settles its squash (root #200922)."""
         landed = self.landed_now(tips)
         if left := [tip for tip in tips if tip not in landed and self.shell.run(ghread.read("pr", "view", tip, "--repo", self.repo, "--json", "state", "--jq", ".state", max_age=ghread.FRESH)).out.strip() != "MERGED"]:
-            self.runner.escalate(f"gate:{','.join(left)}:{hashlib.sha1(done.last.encode()).hexdigest()[:8]}", "GATE-FAILED", numbered(left), f"the {self.adapter.kind} check exited {done.code} with no verdict: {done.last}")
+            said = f"printed an enqueue prefix the adapter cannot read, so nothing enqueues until the adapter matches the script: {done.unparsed}" if done.unparsed else f"exited {done.code} with no verdict: {done.last}"
+            self.runner.escalate(f"gate:{','.join(left)}:{hashlib.sha1(done.last.encode()).hexdigest()[:8]}", "GATE-FAILED", numbered(left), f"the {self.adapter.kind} check {said}")
 
     def landed_now(self, tips: list[str]) -> set[str]:
         """The tips whose ledger row reads landed once `ledger.py landed` settles them by their squash on the freshly fetched trunk."""

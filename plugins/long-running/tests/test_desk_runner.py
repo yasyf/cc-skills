@@ -2553,6 +2553,16 @@ def test_a_check_that_exits_with_no_verdict_escalates_once_instead_of_passing_si
     assert shell.enqueues() == []
 
 
+def test_a_green_check_in_a_dialect_the_adapter_does_not_read_escalates_instead_of_enqueueing_nothing_silently(shell, config, tmp_path):
+    """Oct 30: stack-enqueue moved to Trunk while runner.json named graphite-stack-enqueue, and every GREEN head queued nothing and posted nothing for five hours."""
+    shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": True}]
+    shell.gates["29020"] = [(0, "#29020 GREEN cccc333333 Trunk notSubmitted\nwould enqueue native stack through #29020: #29020\n", "")]
+    landing_pass(shell, config)
+    lines = [line for line in escalations(shell) if "GATE-FAILED" in line]
+    assert len(lines) == 1 and "#29020" in lines[0] and "would enqueue native stack through #29020" in lines[0]
+    assert shell.enqueues() == []
+
+
 def test_a_check_with_no_verdict_on_a_pr_github_reads_merged_escalates_nothing(shell, config, tmp_path):
     """Root #200922: #44828 merged directly, its branch went, and the gate's fetch of that branch read as a GATE-FAILED defect."""
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": True}]

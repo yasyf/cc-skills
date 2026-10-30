@@ -39,6 +39,7 @@ VERDICT_LINE = re.compile(r"^#(?P<pr>\d+) (?P<verdict>[A-Z]+) (?P<sha>[0-9a-f]{0
 TRUNK_WOULD_ENQUEUE = re.compile(r"^would enqueue native stack through #\d+: ((?:#\d+ ?)+)$", re.MULTILINE)
 TRUNK_REQUIRED_CHECK = re.compile(r"^required check .+ is (\S+)$")
 TRUNK_FAILED_CHECKS = frozenset({"FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"})
+SAID_WOULD = re.compile(r"^would enqueue\b.*$", re.MULTILINE)
 WOULD_ENQUEUE = re.compile(r"^would enqueue ((?:#\d+ ?)+) in one call$", re.MULTILINE)
 STATUS_LINE = re.compile(r"^#(?P<pr>\d+) (?P<status>[A-Z_]+) ", re.MULTILINE)
 GRAPHITE_QUEUED = frozenset({"QUEUED_TO_MERGE", "WAITING_TO_MERGE", "FAILURE_HANDLING", "REBASING", "MERGED"})
@@ -105,6 +106,7 @@ class Gate:
     err: str
     verdicts: dict[str, dict]
     would: list[str] | None
+    unparsed: str = ""
 
     @property
     def last(self) -> str:
@@ -136,6 +138,11 @@ def repo_queue(checkout: Path) -> str:
         raise RuntimeError(selected.stderr.strip())
     config = checkout / CCX_CONFIG
     return tomllib.loads(config.read_text()).get("vcs", {}).get("queue", "") if config.is_file() else ""
+
+
+def unread_would(out: str) -> str:
+    said = SAID_WOULD.search(out)
+    return said.group(0) if said else ""
 
 
 def suggested_adapter(checkout: Path) -> dict:
@@ -207,7 +214,7 @@ class GraphiteStackEnqueue:
         done = self.run([self.script, *tips, "--check", *(["--whole"] if whole else []), *(["--partial"] if partial else [])])
         would = WOULD_ENQUEUE.search(done.out)
         verdicts = {match["pr"]: match.groupdict() for match in VERDICT_LINE.finditer(done.out)}
-        return Gate(done.code, done.out, done.err, verdicts, [number.lstrip("#") for number in would.group(1).split()] if would else None)
+        return Gate(done.code, done.out, done.err, verdicts, [number.lstrip("#") for number in would.group(1).split()] if would else None, "" if would else unread_would(done.out))
 
     def enqueue(self, tops: list[str], whole: bool, heads: dict[str, str]) -> tuple[str, str, str]:
         done = self.run([self.script, *tops, "--whole" if whole else "--partial"])
@@ -298,7 +305,7 @@ class TrunkStackEnqueue(GraphiteStackEnqueue):
         done = self.run([self.script, *tips, "--check", *(["--whole"] if whole else [])])
         would = TRUNK_WOULD_ENQUEUE.search(done.out)
         verdicts = {match["pr"]: match.groupdict() for match in VERDICT_LINE.finditer(done.out)}
-        return Gate(done.code, done.out, done.err, verdicts, [number.lstrip("#") for number in would.group(1).split()] if would else None)
+        return Gate(done.code, done.out, done.err, verdicts, [number.lstrip("#") for number in would.group(1).split()] if would else None, "" if would else unread_would(done.out))
 
     def enqueue(self, tops: list[str], whole: bool, heads: dict[str, str]) -> tuple[str, str, str]:
         done = self.run([self.script, *tops, *(["--whole"] if whole else [])])
