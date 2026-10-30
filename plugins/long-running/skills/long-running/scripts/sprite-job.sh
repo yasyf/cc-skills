@@ -21,7 +21,8 @@ refreshes git's in-memory credential cache on the Sprite for an hour, so
 long-running processes there read GitHub between passes.
 
 The plugin version holding <script> is copied over once, when the Sprite lacks
-it, the drive's registry file on every run, and the plan package the drive's
+it, the drive's registry file on every run with its `checkout` set to the job's
+checkout, since the Sprite holds that clone and not this machine's, and the plan package the drive's
 register names, the directory holding plan/plan.md, whenever a file in it was
 added, removed or changed since the Sprite's copy. The job's checkout drops the
 empty loose refs a Sprite restart leaves, which every fetch reads as the zero
@@ -49,7 +50,8 @@ if ! sprite exec -s "$sprite" --no-stdin -- test -d "$plugin"; then
   tar --no-xattrs -C "$plugin" -cz . | sprite exec -s "$sprite" -- sh -c 'mkdir -p "$1" && tar -xz -m -C "$1"' sh "$plugin"
 fi
 tar --no-xattrs -C "$dir" -cz . | sprite exec -s "$sprite" -- sh -c 'mkdir -p "$1" && tar -xz -m -C "$1"' sh "$dir"
-sprite exec -s "$sprite" -- sh -c 'mkdir -p "$(dirname "$1")" && cat >"$1"' sh "$registry" <"$registry"
+python3 -c 'import json, sys; entry = json.load(open(sys.argv[1])); entry["checkout"] = sys.argv[2]; print(json.dumps(entry))' "$registry" "$checkout" |
+  sprite exec -s "$sprite" -- sh -c 'mkdir -p "$(dirname "$1")" && cat >"$1"' sh "$registry"
 if [ -n "$plan" ]; then
   package=$(dirname "$(dirname "$plan")")
   digest=$(python3 -c '
