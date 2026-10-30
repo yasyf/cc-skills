@@ -1137,6 +1137,9 @@ class Shell:
         return os.environ.get(name, "")
 
 
+LANE_IDENTITY = ("CCI_AGENT_ID", "CCI_LANE", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID")
+
+
 def brief_incidents(brief: Path) -> set[str]:
     return set(INCIDENT_ANNOTATION.findall(brief.read_text())) if brief.is_file() else set()
 
@@ -5325,9 +5328,10 @@ class Landing:
             self.dispatch(f"{GRAPHITE_BASE}{pr}@{rows[pr]['head']}", {pr}, lambda: self.resubmit(pr, rows[pr]))
 
     def resubmit(self, pr: str, row: dict) -> None:
-        """Ship `pr`'s branch as it stands from the landing checkout with `ccx vcs ship --branch <branch> --tip-only --no-commit`, which moves it off its `graphite-base/` base, and post the outcome to the desk lane as a cci note. A ship that fails or is killed at its bound runs `ccx vcs stack abort --stack <branch>`, so its stopped rebase never blocks the next stack write, and the note carries the abort's outcome (#192681); a ship refused because another run already holds the branch leaves that run alone."""
+        """Ship `pr`'s branch as it stands from the landing checkout with `ccx vcs ship --branch <branch> --tip-only --no-commit`, which moves it off its `graphite-base/` base, with the PR's owning lane as `CCI_LANE` so ccx posts its `head` record as that lane, never as whoever started the runner, and post the outcome to the desk lane as a cci note. A ship that fails or is killed at its bound runs `ccx vcs stack abort --stack <branch>`, so its stopped rebase never blocks the next stack write, and the note carries the abort's outcome (#192681); a ship refused because another run already holds the branch leaves that run alone."""
         argv = ["ccx", "vcs", "ship", "--branch", row["branch"], "--tip-only", "--no-commit", "--no-watch"]
-        done = self.shell.run(argv, cwd=str(self.checkout))
+        owner = self.owner(pr, row)
+        done = self.shell.run(argv, env={"CCI_DRIVE": self.runner.config.drive, "CCI_LANE": owner} if owner else None, cwd=str(self.checkout))
         last = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1][:300]
         outcome = "resubmitted" if done.code == 0 else f"resubmit failed with exit {done.code}"
         text = f"#{pr} {row['head'][:10]} sat on {row['base']} after its parent landed; {outcome} with {shlex.join(argv)}: {last}"
@@ -8270,7 +8274,7 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
             if holder is not None:
                 print(f"desk-runner run: runner {holder} already runs the {args.desk} desk on {config.source}; `desk-runner.py handoff --config {config.source} --desk {args.desk}` replaces it", file=sys.stderr)
                 return 3
-            runner.shell.adopt(config.desk_env[args.desk])
+            runner.shell.adopt(dict.fromkeys(LANE_IDENTITY, "") | config.desk_env[args.desk])
             return (run_orca if args.desk == "orca" else run_landing)(runner, args.once)
     if args.verb == "show":
         sys.stdout.write(runner.render())
