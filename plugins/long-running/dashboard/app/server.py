@@ -97,7 +97,7 @@ def activity(records, now):
 def pr_state(pr, row, active, now):
     if pr.get("state") == "landed":
         return "landed"
-    if row and row["state"] == "you":
+    if row and row["state"] == "you" and row["head"][:7] == pr["head"][:7]:
         return "you"
     if pr.get("test_state") == "failure":
         return "failing"
@@ -334,7 +334,7 @@ class Drive:
         self.check_gos(board["rows"], records)
         now = dt.datetime.now(dt.timezone.utc)
         drive = drive_prs(model.get("prs", {}), board["rows"], [*records, *model.get("lanes", [])], model.get("trees", {}), model.get("tree_names", []), now)
-        waiting = sum(1 for row in board["rows"] if row["state"] == "you")
+        waiting = sum(1 for entry in drive["prs"] if entry["state"] == "you")
         progress = json.loads(Path(self.config["steps"]).read_text())
         steps = step_rows(progress["steps"], drive, model.get("lanes", []), now)
         return {**model, "board": board, "drive": drive, "steps": steps, "now": progress.get("now", {}), "steps_at": progress["updated"], "live": LIVE_SOURCES, "needs": {"taps": waiting, "questions": len(board["cards"])}}
