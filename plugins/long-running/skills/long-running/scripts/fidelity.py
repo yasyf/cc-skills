@@ -12,8 +12,11 @@ head, and takes the PR's own commits as finder.py does, running `rulings.py plan
 earlier grade could carry, while the head fetches. When `git patch-id --stable` of those
 commits, read for every earlier graded head at once, matches the same number of commits up to an earlier head every fidelity lane's newest grade
 of which is ok, or a `missing` the job's `settled` map names, it posts `fidelity: ok <head> carried from
-<earlier>`, citing the root `decide` that settled a carried `missing`, with the earlier head's
-`old-app:` line and no model call. The carry repeats no exempt phrase when a root `class wrong`
+<earlier>` with the earlier head's `old-app:` line and no model call. So does a head whose `git range-diff`
+against the newest such earlier head pairs every own commit equal, or amended only by lines the base now
+carries, whitespace aside, as finder.py reads a carry: a restack whose conflict resolution moved only
+context keeps what root settled, and only a changed own commit opens grading again. A carry whose grade,
+or a grade it was carried from, is a `missing` root settled names that decide as `settled by root #<n>`. The carry repeats no exempt phrase when a root `class wrong`
 decision answers the carried grade or a grade it was carried from, else each one the newest
 fidelity-desk ok grade on the PR says, else each one the carried grade says. Otherwise it fills
 `reference/fidelity-job-brief.md` with the head's own hunks, the change to read (the whole PR, or, past the newest
@@ -95,26 +98,33 @@ def exempt_phrases(job: dict, text: str) -> list[str]:
     return [phrase for phrase in job["exempt_grades"] if phrase.casefold() in text.casefold()]
 
 
-def carried_class(job: dict, grade: dict) -> str:
+def chain(job: dict, grade: dict) -> list[int]:
+    """`grade`'s seq, then the seq of each grade it was carried from, back to the first."""
     by_seq = {record["seq"]: record for record in job["grades"]}
-    chain, record = set(), grade
+    seqs, record = [], grade
     while record:
-        chain.add(record["seq"])
+        seqs.append(record["seq"])
         record = by_seq.get(int(carried[1])) if (carried := CARRIED_SEQ.search(record["text"])) else None
-    if chain & set(job["corrected"]):
+    return seqs
+
+
+def carried_class(job: dict, grade: dict) -> str:
+    if set(chain(job, grade)) & set(job["corrected"]):
         return ""
     desk = max((record for record in job["grades"] if record["lane"] != LANE and record["text"].startswith(FIDELITY_OK)), key=lambda record: record["seq"], default=grade)
     return "".join(f"{phrase}: " for phrase in exempt_phrases(job, desk["text"]))
 
 
-def carried_lines(job: dict, found: dict) -> list[tuple[str, list[str]]]:
+def carried(shell: finder.Shell, job: dict, found: dict, by: str, proof: str, body: Path) -> dict:
+    """Post `found`'s grade carried to the head, patch-identical `by` git patch-id or git range-diff over its own commits, naming the root `decide` that settled a `missing` it carries."""
     head, earlier, grade = job["head"], found["head"], found["grade"]
     said = carried_class(job, grade)
-    settled = f" Root settled its missing points at #{root}." if (root := job["settled"].get(str(grade["seq"]))) else ""
-    lines = [(f"{FIDELITY_OK} {head} {said}carried from {earlier[:7]} (cci #{grade['seq']}), patch-identical by git patch-id over its own commits.{settled}", [])]
+    settled = f", settled by root #{root}" if (root := next((job["settled"][str(seq)] for seq in chain(job, grade) if str(seq) in job["settled"]), None)) else ""
+    lines = [(f"{FIDELITY_OK} {head} {said}carried from {earlier[:7]} (cci #{grade['seq']}), patch-identical by {by} over its own commits{settled}.", [])]
     if (old_app := newest_finder(job["old_apps"], earlier)) and (parts := OLD_APP_LINE.match(old_app["line"])):
         lines.append((f"old-app: {parts[1]} {head[:7]} {parts[2]}".rstrip(), []))
-    return lines
+    body.write_text("\n".join(text for text, _ in lines) + f"\n\n{proof}\n\n#{grade['seq']}: {grade['text']}\n")
+    return {"verdict": "carried", "from": earlier, "posted": post(shell, job, lines, body)}
 
 
 def prompt(job: dict, view: dict, base: str, rows: Path, plan: str, touched: dict[str, list[tuple[int, int]]], scope: str) -> str:
@@ -232,13 +242,14 @@ def run(directory: Path, shell: finder.Shell) -> dict:
         return {"skipped": f"{pr} at {head[:12]} carries no commit {view['baseRefName']} lacks"}
     body = directory / "record.md"
     if heads and (found := carry(shell, job, own, heads)):
-        lines = carried_lines(job, found)
-        body.write_text("\n".join(text for text, _ in lines) + f"\n\npatch-id {found['patch']} at both heads.\n\n#{found['grade']['seq']}: {found['grade']['text']}\n")
-        return {"verdict": "carried", "from": found["head"], "posted": post(shell, job, lines, body)}
+        return carried(shell, job, found, "git patch-id", f"patch-id {found['patch']} at both heads.", body)
     last = finder.fetched(shell, job, heads[0][0]) if heads else ""
     earlier = finder.beyond(shell, job, (base, trunk), last) if last else []
     last = last if earlier else ""
     pairs, changed = finder.range_pairs(shell, job, base, last, earlier, own) if last else ("", [])
+    if last and not changed:
+        found = {"head": last, "grade": max(heads[0][1], key=lambda grade: grade["seq"])}
+        return carried(shell, job, found, "git range-diff", f"`git range-diff {pairs}` pairs every own commit equal, or amended only by lines the base now carries.", body)
     rows = directory / "rows.md"
     rows.write_text((slicing or pool.submit(finder.slice_rows, shell, job, pr, head, view["baseRefName"])).result())
     keys = finder.ROW_KEY.findall(rows.read_text())

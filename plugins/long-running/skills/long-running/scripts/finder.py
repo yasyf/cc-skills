@@ -18,7 +18,7 @@ newest pull request head in the head's history the trunk lacks: a graphite-base 
 the parent's old tip names none of the commits the restacked parent added. A head after one an earlier finder record
 graded, or after the head its `head` record replaced when the PR has any finder review, is a fixed
 head: `git range-diff` pairs its own commits with that head's, and it reads only the hunks of each
-changed pair, each new commit, and each dropped commit the base lacks, and runs no row pass. A changed pair that adds no line and drops only
+changed pair, each new commit, and each dropped commit the base lacks, and runs no row pass. A changed pair that adds no line, whitespace aside, and drops only
 hunks the base now carries is a carry, and a head whose every pair is equal or a carry posts the
 graded head's verdict as `finder: ok|major <head7> carried from #<seq>`, or nothing when no finder
 record graded that head. A major that root settled, or one carried from a record root settled, carries as
@@ -358,13 +358,13 @@ def range_pairs(shell: Shell, job: dict, base: str, last: str, earlier: list[str
 
 
 def patch_lines(shell: Shell, job: dict, sha: str) -> set[tuple[str, str, str]]:
-    """Each added or removed line of `sha`'s patch as `(file, sign, stripped text)`, blank lines left out."""
+    """Each added or removed line of `sha`'s patch as `(file, sign, text)`, its whitespace collapsed as `git patch-id` ignores it, blank lines left out."""
     lines, path = set(), ""
     for line in git(shell, job, "show", "--format=", "--no-color", "--no-ext-diff", sha).splitlines():
         if found := DIFF_FILE.match(line):
             path = found[1]
         elif line.startswith(("+", "-")) and not line.startswith(("+++", "---")) and line[1:].strip():
-            lines.add((path, line[0], line[1:].strip()))
+            lines.add((path, line[0], " ".join(line[1:].split())))
     return lines
 
 
@@ -377,7 +377,7 @@ def drops_carried(shell: Shell, job: dict, base: str, left: str, right: str) -> 
     for path, sign, text in earlier - later:
         if path not in texts:
             try:
-                texts[path] = {line.strip() for line in git(shell, job, "show", f"{base}:{path}").splitlines()}
+                texts[path] = {" ".join(line.split()) for line in git(shell, job, "show", f"{base}:{path}").splitlines()}
             except subprocess.CalledProcessError:
                 texts[path] = set()
         if (text in texts[path]) != (sign == "+"):
