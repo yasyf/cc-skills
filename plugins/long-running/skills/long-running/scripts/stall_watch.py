@@ -42,6 +42,11 @@ its ledger row names, it finds:
               `stall.minutes.refusal` it posts to root and the lane, naming the command, and at
               `stall.minutes.successor` it posts again, to root alone, as `successor`, asking root to
               spawn the lane's successor to run it
+    red       the head's `landing.trunk_check` check, such as `buildkite/test`, has read failed for
+              `stall.minutes.red`, counted from its ledger row's `red_at`, the refresh that first read
+              the head's build red, held or not; it names the failed Buildkite job, its first error
+              line and the build, goes to root and the PR's lane as a `blocker`, and posts again every
+              30 minutes while it stands; a red trunk is the desk runner's DEV-RED, never a stall
     tap       the owner's board tap approves the head, and no go names it
     ungraded  a `head` record names the head, its build has read green for `stall.minutes.ungraded`, counted
               from its ledger row's `green_at`, and no finder review or no fidelity grade names it, whatever
@@ -97,7 +102,7 @@ and, across the drive:
               is tapped, or the hold lifts; each PR in the run of PR numbers a holds-file
               line leads with counts as held here
 
-Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, successor 20, tap 10, ungraded 10, finder 30,
+Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, successor 20, red 2, tap 10, ungraded 10, finder 30,
 fidelity 30, running 25, board 15, carry 20 (one fidelity pass), lane 30, ask 15, gate 30, stale 120. A PR's head is as old as the first record about the
 PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record. A board
 stall counts from the latest of its finder ok, its fidelity ok, and its ledger row's `green_at`, the refresh that
@@ -115,7 +120,7 @@ posts once while it stands: `cci post --lane stall-watch --kind urgent --to root
 for a stale PR. A stall every owner of which is a desk, a lane named `<x>-desk` or `<x>-desk-<n>`, goes to
 its owners and not to root, except an `ungraded` one, which root always hears; one the desk runner owns goes
 to `landing.desk_lane` when the config names one.
-An id that no longer stands clears, and posts again if it stalls again, but never sooner than `REPEAT` after
+A `red` stall posts again every `REPEAT` while it stands. An id that no longer stands clears, and posts again if it stalls again, but never sooner than `REPEAT` after
 its last post; a source that does not read keeps the stalls it would have cleared. `stall.board_lane`, else the first `landing.board_lane`, else root, owns missing board rows. State lives in
 `stall-watch.json` beside `orca.desk_inbox`, under a lock a second pass meets by exiting. Each pass also
 writes `stack.json` there: one row per open PR with its head, base, the PR below it, its state and next
@@ -157,11 +162,13 @@ NOT_LANES = frozenset({*ROOT_NAMES, "team-lead", LANE, RUNNER})
 PACIFIC = ZoneInfo("America/Los_Angeles")
 MODEL = "claude-sonnet-5-5"
 WINDOW_HOURS = 24
-MINUTES = {"go": 10, "refusal": 10, "successor": 20, "tap": 10, "ungraded": 10, "finder": 30, "fidelity": 30, "running": 25, "board": 15, "carry": 20, "lane": 30, "ask": 15, "gate": 30, "stale": 120}
+MINUTES = {"go": 10, "refusal": 10, "successor": 20, "red": 2, "tap": 10, "ungraded": 10, "finder": 30, "fidelity": 30, "running": 25, "board": 15, "carry": 20, "lane": 30, "ask": 15, "gate": 30, "stale": 120}
 DESK_KINDS = frozenset({"finder", "fidelity"})
-ROOT_KINDS = frozenset({"ungraded"})
+ROOT_KINDS = frozenset({"ungraded", "red"})
+REPOSTED = frozenset({"red"})
+POST_KINDS = {"red": "blocker"}
 QUIET = timedelta(minutes=10)
-PR_KINDS = frozenset({"go", "refusal", "successor", "tap", "ungraded", "finder", "fidelity", "board", "carry", "stale"})
+PR_KINDS = frozenset({"go", "refusal", "successor", "red", "tap", "ungraded", "finder", "fidelity", "board", "carry", "stale"})
 BOARD_KINDS = frozenset({"tap", "board", "carry"})
 REVIEW_HELD = frozenset({"neutral", "failure"})
 PROMISE_FLOOR = timedelta(minutes=10)
@@ -610,14 +617,14 @@ class Pass:
         last = {key: stamp for key, stamp in saved.get("last", {}).items() if self.now - actions.parse_stamp(stamp) < REPEAT}
         failed = 0
         for stall in sorted(standing.values(), key=lambda stall: stall.since):
-            if stall.id in saved["open"]:
+            if stall.id in saved["open"] and (stall.kind not in REPOSTED or stall.id in last):
                 kept[stall.id] = saved["open"][stall.id]
                 print(f"open {stall.line(self.now)}")
                 continue
             if stall.id in last:
                 print(f"held {stall.line(self.now)}: posted at {pacific(actions.parse_stamp(last[stall.id]))}")
                 continue
-            print(f"new {stall.line(self.now)}")
+            print(f"{'again' if stall.id in saved['open'] else 'new'} {stall.line(self.now)}")
             if dry_run:
                 continue
             done = self.post(stall)
@@ -652,7 +659,7 @@ class Pass:
         return 1 if failed else 0
 
     def post(self, stall: Stall) -> Done:
-        argv = ["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", "urgent", "--to", stall.to(self.watch.drive, self.watch.desk_lanes, self.lane_live), "--topic", stall.id]
+        argv = ["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", POST_KINDS.get(stall.kind, "urgent"), "--to", stall.to(self.watch.drive, self.watch.desk_lanes, self.lane_live), "--topic", stall.id]
         if stall.pr:
             argv += ["--pr", f"{self.watch.landing['repo']}#{stall.pr}"]
         return self.shell.run([*argv, "--text", stall.line(self.now)])
@@ -830,6 +837,8 @@ class Pass:
             readied = [at(record) for record in announced if record["kind"] == "ready" or READY.search(record["text"])]
             tap_at = min([*readied, *([live] if (live := board.live_at(pr, head)) else [])], default=None) if tapping else None
             entries.append(stack_row(pr, row, rows, lane, holding(pr) or pr in self.hold_gates, bool(going), in_queue, tapping) | {"head_at": head_at, "tap_at": tap_at})
+            if red := self.red(pr, row, lane):
+                stalls.append(red)
             if holding(pr):
                 continue
             subject = f"#{pr} at {short(head)}"
@@ -919,6 +928,16 @@ class Pass:
             sha = short(rows[blocker]["head"])
             stalls.append(Stall(f"go:{blocker}:{sha}", "go", min(since for _, since, *_ in group), f"#{blocker} at {sha}", f"root go{'s name' if len(named) > 1 else ' names'} {listed}{stack}, and no QUEUED record does", owner, step, blocker))
         return stalls, questions, entries
+
+    def red(self, pr: str, row: dict, lane: str) -> Stall | None:
+        required = self.watch.landing.get("trunk_check")
+        failed = next((check for check in json.loads(row.get("failing_checks") or "[]") if check["name"] == required), None)
+        if failed is None or not row.get("red_at") or self.now - (since := actions.parse_stamp(row["red_at"])) < self.watch.age("red"):
+            return None
+        subject = f"#{pr} at {short(row['head'])}"
+        job = f" in job {failed['job']}" if failed.get("job") else ""
+        error = f": {clip(failed['error'])}" if failed.get("error") else ""
+        return Stall(f"red:{pr}:{short(row['head'])}", "red", since, subject, f"{required} has read failed{job} since {pacific(since)}{error} ({failed['url']})", (lane,), f"fix the red build of {subject} and push", pr)
 
     def stale(self, entries: list[dict], saved: dict[str, dict], records: list[dict], stalled: set[str]) -> list[Stall]:
         if "stale" in self.unread:

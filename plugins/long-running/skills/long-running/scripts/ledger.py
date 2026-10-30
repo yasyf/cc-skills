@@ -192,7 +192,7 @@ HOLD_FIELDS = ("hold_reason", "hold_since", "hold_until")
 
 RATE_LIMITED = re.compile(r"rate limit", re.IGNORECASE)
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-BK_TIMESTAMP = re.compile(r"^_bk;t=\d+")
+BK_TIMESTAMP = re.compile(r"^\x1b?_bk;t=\d+\x07?")
 BK_SECTION = re.compile(r"^(~~~|---|\+\+\+|\^\^\^|\$ |# )")
 BK_SOURCE_ECHO = re.compile(r"^\d+\s*\|")
 BUILDKITE_URL = re.compile(
@@ -762,16 +762,16 @@ def failing_checks(contexts: list[dict], repo: str) -> str:
 
 
 def with_errors(shell: Shell, checks: str, stored: str | None) -> str:
-    """Each failing check with `error`, the first error line of its Buildkite job, read once per check URL and kept from the stored row after that; a check outside Buildkite, or whose log read fails or names no failed job, carries no `error` and is read again on the next refresh (root #148571)."""
-    known = {check["url"]: check["error"] for check in json.loads(stored or "[]") if "error" in check}
+    """Each failing check with `job`, the name of its failed Buildkite job, and `error`, that job's first error line, read once per check URL and kept from the stored row after that; a check outside Buildkite, or whose log read fails or names no failed job, carries neither and is read again on the next refresh (root #148571)."""
+    known = {check["url"]: check for check in json.loads(stored or "[]") if "job" in check}
     enriched = []
     for check in json.loads(checks):
         if check["url"] in known:
-            check["error"] = known[check["url"]]
+            check |= {"job": known[check["url"]]["job"], "error": known[check["url"]]["error"]}
         elif target := BUILDKITE_URL.match(check["url"]):
             try:
-                check["error"] = resolve_error(shell, target)
-            except (subprocess.CalledProcessError, IndexError):
+                check["job"], check["error"] = resolve_error(shell, target)
+            except (subprocess.CalledProcessError, StopIteration):
                 pass
         enriched.append(check)
     return json.dumps(enriched)
@@ -953,10 +953,9 @@ def buildkite_targets(status: dict, checks: dict) -> list[re.Match]:
     return [match for match in matches if match]
 
 
-def failed_job(shell: Shell, pipeline: str, build: str) -> str:
-    payload = json.loads(shell.run(["bk", "build", "view", "-p", pipeline, build]))
-    failed = [job for job in payload["jobs"] if job["state"] == "failed" and not job["soft_failed"]]
-    return failed[0]["id"]
+def failed_job(shell: Shell, pipeline: str, build: str, job_id: str | None) -> dict:
+    jobs = json.loads(shell.run(["bk", "build", "view", "-p", pipeline, build]))["jobs"]
+    return next(job for job in jobs if job["id"] == job_id) if job_id else next(job for job in jobs if job["state"] == "failed" and not job["soft_failed"])
 
 
 def first_error_line(log: str) -> str:
@@ -972,10 +971,11 @@ def first_error_line(log: str) -> str:
     return ""
 
 
-def resolve_error(shell: Shell, target: re.Match) -> str:
+def resolve_error(shell: Shell, target: re.Match) -> tuple[str, str]:
+    """The failed job's name and its log's first error line."""
     pipeline, build = target["pipeline"], target["build"]
-    job = target["job"] or failed_job(shell, pipeline, build)
-    return first_error_line(shell.run(["bk", "job", "log", "-p", pipeline, "-b", build, job]))
+    job = failed_job(shell, pipeline, build, target["job"])
+    return job["name"], first_error_line(shell.run(["bk", "job", "log", "-p", pipeline, "-b", build, job["id"]]))
 
 
 def route_verdict(shell: Shell, gh: Github, fields: dict[str, str]) -> tuple[str, str]:
@@ -990,7 +990,7 @@ def route_verdict(shell: Shell, gh: Github, fields: dict[str, str]) -> tuple[str
         return NO_TARGET_TEXT.format(head=head[:9]), "red outside buildkite"
     target = targets[0]
     url = target.group(0)
-    error = resolve_error(shell, target)
+    _, error = resolve_error(shell, target)
     if not error:
         return NO_ERROR_TEXT.format(head=head[:9], url=url), "red with no error line"
     return FAILURE_TEXT.format(head=head[:9], url=url, error=error), "fix: " + error[:120]
@@ -1637,12 +1637,13 @@ def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: d
         was = every.get(key, {})
         fields = grade(state["prs"][key], scope.repo)
         fields["failing_checks"] = with_errors(shell, fields["failing_checks"], was.get("failing_checks"))
-        if fields["test_state"] != "success":
-            fields["green_at"] = ""
-        elif (was.get("head"), was.get("test_state")) == (fields["head"], "success"):
-            fields["green_at"] = was.get("green_at", moment)
-        else:
-            fields["green_at"] = moment
+        for since, build in (("green_at", "success"), ("red_at", "failure")):
+            if fields["test_state"] != build:
+                fields[since] = ""
+            elif (was.get("head"), was.get("test_state")) == (fields["head"], build):
+                fields[since] = was.get(since, moment)
+            else:
+                fields[since] = moment
         fields["last_refresh"] = moment
         if key not in known:
             fields["first_seen"] = moment

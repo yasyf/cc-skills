@@ -114,7 +114,7 @@ def config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
                 "store": str(tmp_path / "store"),
                 "drive": DRIVE,
                 "orca": {"desk_inbox": str(tmp_path / "inbox/orca-desk.md")},
-                "landing": {"repo": REPO, "ledger": "abc", "checkout": str(tmp_path / "checkout"), "holds": str(tmp_path / "holds.md"), "fidelity_lane": "fidelity-desk", "merge_mode": "every"},
+                "landing": {"repo": REPO, "ledger": "abc", "checkout": str(tmp_path / "checkout"), "holds": str(tmp_path / "holds.md"), "fidelity_lane": "fidelity-desk", "merge_mode": "every", "trunk_check": "buildkite/test"},
                 "stall": {},
             }
         )
@@ -477,6 +477,37 @@ def test_a_held_pr_draws_no_stall(config, tmp_path):
     watch(shell, config)
 
     assert shell.topics() == []
+
+
+def test_a_red_head_posts_a_blocker_to_root_and_its_lane_at_two_minutes_and_again_every_half_hour_until_it_greens(config, tmp_path):
+    (tmp_path / "holds.md").write_text("#103 waits on the schema release\n")
+    red = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/9", "job": "Lint (fmt, clippy)", "error": "error: used `expect()` on a `Result` value"}
+    bot = {"name": "ai-review", "url": "https://github.com/Forge-AI/monorepo/runs/7"}
+    shell = FakeShell([], [row("101", test_state="failure", red_at=stamp(1), failing_checks=json.dumps([red, bot])), row("102", OTHER, test_state="failure", red_at=stamp(60), failing_checks=json.dumps([bot])), row("103", OLD, test_state="failure", red_at=stamp(1), failing_checks=json.dumps([red]))])
+
+    watch(shell, config)
+    assert shell.topics() == []
+
+    shell.clock = NOW + timedelta(minutes=2)
+    watch(shell, config)
+    assert shell.topics() == ["red:101:abc1234", "red:103:0123456"]
+    assert shell.post("red:101:abc1234") == {
+        "to": "root,api-lane@d1",
+        "kind": "blocker",
+        "text": "STALL red #101 at abc1234, 3 min: buildkite/test has read failed in job Lint (fmt, clippy) since 12:59 PM: error: used `expect()` on a `Result` value (https://buildkite.com/forge/test/builds/9) | owner api-lane | fix the red build of #101 at abc1234 and push",
+    }
+
+    shell.clock = NOW + timedelta(minutes=20)
+    watch(shell, config)
+    assert len(shell.posts) == 2
+
+    shell.clock = NOW + timedelta(minutes=33)
+    watch(shell, config)
+    assert shell.topics() == ["red:101:abc1234", "red:103:0123456", "red:101:abc1234", "red:103:0123456"]
+
+    shell.rows[0] = row("101")
+    watch(shell, config)
+    assert "red:101:abc1234" not in opened(config) and "red:103:0123456" in opened(config)
 
 
 def graded(seq: int, pr: str, sha: str, minutes_ago: float) -> list[dict]:
