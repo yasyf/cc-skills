@@ -186,6 +186,7 @@ class FakeShell(runner_module.Shell):
         self.pr_states: dict[str, str] = {}
         self.bases: dict[str, str] = {}
         self.stack_members: set[str] = set()
+        self.async_pending: set[str] = set()
         self.diff_names: dict[str, list[str]] = {}
         self.merge_commits: dict[str, str] = {}
         self.current_heads: dict[str, str] = {}
@@ -379,6 +380,8 @@ class FakeShell(runner_module.Shell):
             code = self.stack_code if argv[2] == "merge" else 0
             return runner_module.Done(code, self.stack_merge_out if code else "", "a pull request in the stack is not mergeable" if code and not self.stack_merge_out else "")
         if argv[:4] == ["gh", "api", "-X", "PUT"] and argv[4].endswith("/merge-async"):
+            if argv[4].split("/")[4] in self.async_pending:
+                return runner_module.Done(0, json.dumps({"status": "pending"}), "")
             self.pr_states[argv[4].split("/")[4]] = "MERGED"
             return runner_module.Done(0, json.dumps({"status": "queued"}), "")
         if argv[:3] == ["gh", "api", "graphql"] and "pullRequests(headRefName: " in argv[4]:
@@ -460,6 +463,8 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "reviewDecision,reviews":
             reviewed = self.review_commit or self.current_heads.get(argv[3], "")
             return runner_module.Done(0, json.dumps({"reviewDecision": self.approval_after_push, "reviews": [{"state": "APPROVED", "commit": {"oid": reviewed}}]}), "")
+        if argv[:3] == ["gh", "pr", "view"] and argv[-1] == runner_module.ASYNC_STATE:
+            return runner_module.Done(0, f"{self.pr_states.get(argv[3], 'OPEN')} {self.current_heads.get(argv[3], '')}\n", "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == ".baseRefName":
             return runner_module.Done(0, f"{self.bases.get(argv[3], 'dev')}\n", "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == ".state":
@@ -13233,6 +13238,41 @@ def test_while_graphite_is_down_a_prefix_inside_a_longer_stack_merges_bottom_up_
         ["gh", "api", "-X", "PUT", "repos/Forge-AI/monorepo/pulls/29031/merge-async", "-f", "merge_method=squash", "-f", "merge_action=direct_merge", "-f", "sha=dddd444444"],
     ]
     assert [record.split(" direct")[0] for record in merged_records(shell)] == ["MERGED #29020 at cccc333333", "MERGED #29031 at dddd444444"]
+
+
+@pytest.mark.parametrize("moved", [False, True], ids=["still-open", "head-moved"])
+def test_an_asynchronous_merge_that_does_not_land_fails_its_attempt_naming_why(shell, config, tmp_path, moved):
+    """Root #202936, #203042: GitHub accepted #45010's asynchronous merge at 541fbe47 after its head had moved to 7e5a512, and only the PR still reading open told the runner."""
+    partial_prefix(shell)
+    shell.bases.pop("29031")
+    shell.stack_members = {"29031"}
+    shell.async_pending = {"29031"}
+    if moved:
+        shell.on_sleep.append(lambda: shell.current_heads.update({"29031": "ffff888888"}))
+    landing_pass(shell, config)
+    [action] = enqueues_of(tmp_path).values()
+    assert [record.split(" direct")[0] for record in merged_records(shell)] == ["MERGED #29020 at cccc333333"]
+    if moved:
+        assert action.response["outcome"] == "failed" and "#29031's head moved to ffff888888 after the asynchronous merge was asked at dddd444444" in action.response["why"]
+    else:
+        assert action.response["outcome"] == "failed" and "GitHub accepted the asynchronous merge of #29031 at dddd444444, but it has not merged after 10 minutes" in action.response["why"]
+
+
+def test_a_pr_whose_head_moved_before_its_direct_merge_is_refused_unmerged(shell, config, tmp_path):
+    partial_prefix(shell)
+    shell.bases.pop("29031")
+    run = shell.run
+
+    def pushed(argv, *args, **kwargs):
+        if argv[:4] == ["gh", "pr", "merge", "29020"]:
+            shell.current_heads["29031"] = "ffff888888"
+        return run(argv, *args, **kwargs)
+
+    shell.run = pushed
+    landing_pass(shell, config)
+    assert [call[3] for call in direct_merges(shell) if call[:3] == ["gh", "pr", "merge"]] == ["29020"]
+    [action] = enqueues_of(tmp_path).values()
+    assert "refused: #29031's head moved to ffff888888 from the admitted dddd444444" in action.response["why"]
 
 
 def test_while_graphite_is_down_a_pr_github_never_retargets_onto_dev_is_refused_and_never_merged_into_its_parent(shell, config, tmp_path):
