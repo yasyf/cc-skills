@@ -108,9 +108,20 @@ def test_a_board_row_waits_on_him_only_at_the_pr_current_head():
     prs = {"42001": {"state": "open", "head": "bbbbbbb1", "test_state": "success"}, "42002": {"state": "open", "head": "ccccccc1", "test_state": "success"}}
     rows = [{"number": 42001, "head": "aaaaaaa1", "state": "you"}, {"number": 42002, "head": "ccccccc1", "state": "you"}]
 
-    drive = drive_prs(prs, rows, [], {}, TREES, None, NOW)
+    drive = drive_prs(prs, rows, [], {}, TREES, None, NOW, {})
 
     assert {square["number"]: square["state"] for square in drive["prs"]} == {42001: "work", 42002: "you"}
+
+
+def test_a_head_the_landing_runner_admitted_shows_merging_or_runner_defect_with_its_age_never_waiting_on_him():
+    """Root #208560 item 4: "waiting on you" never lists a head the runner has admitted."""
+    prs = {"42001": {"state": "open", "head": "aaaaaaa1", "test_state": "success"}, "42002": {"state": "open", "head": "bbbbbbb1", "test_state": "success"}, "42003": {"state": "open", "head": "ccccccc1", "test_state": "success"}}
+    rows = [{"number": 42001, "head": "aaaaaaa1", "state": "you"}, {"number": 42002, "head": "bbbbbbb1", "state": "you"}, {"number": 42003, "head": "ccccccc1", "state": "you"}]
+    admitted = {"42001": {"head": "aaaaaaa1", "since": "2026-10-27T07:40:00Z", "state": "merging"}, "42002": {"head": "bbbbbbb1", "since": "2026-10-27T07:20:00Z", "state": "defect", "why": "no branch recorded"}, "42003": {"head": "0000000", "since": "2026-10-27T07:20:00Z", "state": "merging"}}
+
+    drive = drive_prs(prs, rows, [], {}, TREES, None, NOW, admitted)
+
+    assert {square["number"]: (square["state"], square.get("since")) for square in drive["prs"]} == {42001: ("merging", "2026-10-27T07:40:00Z"), 42002: ("defect", "2026-10-27T07:20:00Z"), 42003: ("you", None)}
 
 
 def test_the_ring_counts_exactly_the_green_squares():
@@ -126,7 +137,7 @@ def test_the_ring_counts_exactly_the_green_squares():
     trees = {"42001": ["Old tree", "New tree"], "42002": ["Shared"], "42004": ["Old tree"]}
     records = [{"lane": "p8a-step7", "at": "2026-10-27T07:50:00Z", "text": "pushed #42005", "topic": ""}]
 
-    drive = drive_prs(prs, [], records, trees, TREES, None, NOW)
+    drive = drive_prs(prs, [], records, trees, TREES, None, NOW, {})
 
     squares = drive["prs"]
     assert drive["landed"] == sum(1 for square in squares if square["state"] == "landed") == 3
@@ -141,7 +152,7 @@ def test_each_failing_square_names_its_red_class_and_holder_and_the_drive_counts
     red = {"checks": "buildkite/test", "since": "2026-10-27T07:00:00Z", "classed_at": "", "action": ""}
     stack = {"at": "2026-10-27T08:00:00Z", "prs": [{"pr": "42001", "red": red | {"class": "flake", "owner": "red-sweep"}}, {"pr": "42002", "red": red | {"class": "unclassed", "owner": "api-lane"}}, {"pr": "42004"}]}
 
-    drive = drive_prs(prs, [], [], {}, TREES, stack, NOW)
+    drive = drive_prs(prs, [], [], {}, TREES, stack, NOW, {})
 
     assert {square["number"]: square.get("red", {}).get("owner") for square in drive["prs"]} == {42001: "red-sweep", 42002: "api-lane", 42003: None, 42004: None}
     assert drive["reds"] == {"count": 3, "unclassed": 2, "holders": {"red-sweep": 1, "api-lane": 1, "nobody": 1}}

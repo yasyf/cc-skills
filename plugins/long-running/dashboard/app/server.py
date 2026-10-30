@@ -34,6 +34,7 @@ AI_CONFIG = {"endpoint": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b"}
 ASSIST = HERE.parents[1] / "skills" / "long-running" / "templates" / "drive-assist.html"
 PR_ROUTE = re.compile(r"/api/pr/(\d+)")
 PR_FACTS = "{body: .body, additions: .additions, deletions: .deletions, files: .changed_files, commits: .commits, head: .head.sha}"
+ADMITTED = "landing-admitted.json"
 STORE = Path.home() / ".cc-present" / "cc-interact-v1" / "state.db"
 ASKS = {"choice": "choices", "approval": "decisions", "input": "inputs"}
 ACTIVE = dt.timedelta(minutes=30)
@@ -95,9 +96,11 @@ def activity(records, now):
     return seen
 
 
-def pr_state(pr, row, active, now):
+def pr_state(pr, row, active, now, admitted):
     if pr.get("state") == "landed":
         return "landed"
+    if admitted and admitted["head"][:7] == pr.get("head", "")[:7]:
+        return admitted["state"]
     if row and row["state"] == "you" and row["head"][:7] == pr["head"][:7]:
         return "you"
     if pr.get("test_state") == "failure":
@@ -107,7 +110,7 @@ def pr_state(pr, row, active, now):
     return "doing" if active or pr.get("test_state") == "pending" else "work"
 
 
-def drive_prs(prs, rows, records, trees, tree_names, stack, now):
+def drive_prs(prs, rows, records, trees, tree_names, stack, now, admitted):
     by_number = {str(row["number"]): row for row in rows}
     reds = {row["pr"]: row["red"] for row in (stack or {}).get("prs", []) if "red" in row}
     active = activity(records, now)
@@ -117,8 +120,8 @@ def drive_prs(prs, rows, records, trees, tree_names, stack, now):
             continue
         found = trees.get(number, [])
         tree = next((name for name in tree_names if name in found), tree_names[-1])
-        state = pr_state(pr, by_number.get(number), active.get(number), now)
-        listed.append({"number": int(number), "state": state, "tree": tree, "worker": active.get(number), **({"red": reds[number]} if state == "failing" and number in reds else {})})
+        state = pr_state(pr, by_number.get(number), active.get(number), now, admitted.get(number))
+        listed.append({"number": int(number), "state": state, "tree": tree, "worker": active.get(number), **({"red": reds[number]} if state == "failing" and number in reds else {}), **({"since": admitted[number]["since"]} if state in ("merging", "defect") else {})})
     landed = sum(1 for entry in listed if entry["state"] == "landed")
     failing = [entry for entry in listed if entry["state"] == "failing"]
     holders = Counter(entry["red"]["owner"] if "red" in entry else "nobody" for entry in failing)
@@ -341,8 +344,12 @@ class Drive:
         board = self.board()
         records = model.get("records", [])
         self.check_gos(board["rows"], records)
+        admitted = model.get("admitted") or {}
+        for row in board["rows"]:
+            if row["state"] == "you" and (entry := admitted.get(str(row["number"]))) and entry["head"][:7] == row["head"][:7]:
+                row["state"], row["since"] = entry["state"], entry["since"]
         now = dt.datetime.now(dt.timezone.utc)
-        drive = drive_prs(model.get("prs", {}), board["rows"], [*records, *model.get("lanes", [])], model.get("trees", {}), model.get("tree_names", []), model.get("stack"), now)
+        drive = drive_prs(model.get("prs", {}), board["rows"], [*records, *model.get("lanes", [])], model.get("trees", {}), model.get("tree_names", []), model.get("stack"), now, admitted)
         waiting = sum(1 for entry in drive["prs"] if entry["state"] == "you")
         progress = json.loads(Path(self.config["steps"]).read_text())
         steps = step_rows(progress["steps"], drive, model.get("lanes", []), now)
@@ -369,6 +376,7 @@ class Drive:
             "tree_names": [tree["name"] for tree in self.config["trees"]],
             "lanes": lanes,
             "stack": json.loads(stack.read_text()) if (stack := Path(self.config["stack"])).is_file() else None,
+            "admitted": json.loads(heads.read_text())["heads"] if (heads := Path(self.config["stack"]).with_name(ADMITTED)).is_file() else {},
             "built_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             "errors": dict(self.errors),
         }
