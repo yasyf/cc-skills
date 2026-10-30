@@ -353,6 +353,14 @@ def kept_copy(kept: Path, repo: str, tips: str) -> dict | None:
     return cached if kept.is_file() and (cached := json.loads(kept.read_text()))["repo"] == repo and cached["tips"] == tips else None
 
 
+def active_register(shell: ledger.Shell, repo: str, kept: Path) -> dict | None:
+    """The register ledger a stale copy names, read whole while it is still active, so a rebuild reads one ledger instead of `ccn ledger list` folding every ledger's history, which took minutes on a Sprite after each cc-notes fetch (cci #215987)."""
+    if not kept.is_file() or (cached := json.loads(kept.read_text()))["repo"] != repo:
+        return None
+    shown = ccn(shell, repo, "ledger", "show", cached["ledger"])
+    return shown if shown["status"] == "active" else None
+
+
 def write_atomic(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     staged = path.with_name(f".{path.name}.{os.getpid()}")
@@ -511,8 +519,8 @@ class Register:
         with ledger.locked(kept.with_suffix(".lock")):
             if cached := kept_copy(kept, repo, tips):
                 return cls(shell, repo, program, state, cached["ledger"], cached["rows"])
-            identity = ledger_of(shell, repo, program)
-            shown = ccn(shell, repo, "ledger", "show", identity)
+            shown = active_register(shell, repo, kept) or ccn(shell, repo, "ledger", "show", ledger_of(shell, repo, program))
+            identity = shown["id"]
             rows = {row["key"]: row["fields"] | {"updated_at": row["updated_at"]} for row in shown["rows"]}
             write_atomic(kept, json.dumps({"repo": repo, "tips": tips, "ledger": identity, "rows": rows}, ensure_ascii=False))
         return cls(shell, repo, program, state, identity, rows)
