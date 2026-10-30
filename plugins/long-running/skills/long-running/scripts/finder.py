@@ -7,9 +7,10 @@
     finder.py DIR
 
 STDLIB ONLY. desk-runner.py's orca desk writes `DIR/job.json` for each head it dispatches and starts
-this script detached. The job reads the PR through ccx's gateway, retrying a failed read once after
-`RETRY_SECONDS`, and a fetch git killed on a zero ref another lane's `git worktree add` left in the
-shared checkout once after the same pause. It skips a closed PR or a head that is no longer the
+this script detached. The job reads the PR through ccx's gateway, retrying a failed read after each pause of
+`RETRY_BACKOFF`, and a fetch git killed on a zero ref another lane's `git worktree add` left in the
+shared checkout the same way. It reads the base branch's and trunk's tips in one `ls-remote`, and runs
+`rulings.py plan` and a whole pass's `rulings.py slice` while the head fetches. It skips a closed PR or a head that is no longer the
 PR's live head. It reads the PR's own commits as the head's commits no commit on its parent's tip, nor on the trunk's, matches
 by patch, so neither a parent restacked onto a newer trunk nor a stale base branch the head was
 rebased past adds a commit. The parent is the base branch's tip when the head carries it, else the
@@ -50,6 +51,8 @@ import shlex
 import subprocess
 import sys
 import time
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import drive
@@ -94,7 +97,7 @@ REASON_WORDS = 12
 REASONLESS = "no reasoning in `swept`, which gives one sentence per group of related hunks saying what it changes and why it holds or fails"
 CCI_TEXT = 400
 READ_SECONDS = 120
-RETRY_SECONDS = 30
+RETRY_BACKOFF = (2, 5, 10)
 SLICE_SECONDS = 900
 FINDER_SECONDS = 5400
 
@@ -253,13 +256,21 @@ def shortfalls(keys: list[str], reply: str) -> list[str]:
     return ([f"no verdict for {', '.join(missing)}"] if missing else []) + ([] if reasoned(reply) else [REASONLESS])
 
 
+def retried[T](attempt: Callable[[], T], transient: Callable[[subprocess.CalledProcessError], bool] = lambda error: True) -> T:
+    """`attempt()`, run again after each pause of `RETRY_BACKOFF` while it raises a failure `transient` accepts."""
+    for pause in RETRY_BACKOFF:
+        try:
+            return attempt()
+        except subprocess.CalledProcessError as error:
+            if not transient(error):
+                raise
+        time.sleep(pause)
+    return attempt()
+
+
 def view_pr(shell: Shell, job: dict) -> dict:
     argv = ghread.read("pr", "view", job["pr"], "--repo", job["repo"], "--json", "state,baseRefName,headRefOid,body,comments", max_age=ghread.FRESH)
-    try:
-        return json.loads(shell.run(argv))
-    except subprocess.CalledProcessError:
-        time.sleep(RETRY_SECONDS)
-        return json.loads(shell.run(argv))
+    return json.loads(retried(lambda: shell.run(argv)))
 
 
 def git(shell: Shell, job: dict, *argv: str) -> str:
@@ -267,19 +278,27 @@ def git(shell: Shell, job: dict, *argv: str) -> str:
 
 
 def fetch(shell: Shell, job: dict, *shas: str) -> None:
-    """Fetch `shas`, once more after `RETRY_SECONDS` when the connectivity walk died on a zero ref a lane creating a worktree in the shared checkout had not yet written."""
-    try:
-        git(shell, job, "fetch", "--no-write-fetch-head", "-q", "origin", *shas)
-    except subprocess.CalledProcessError as error:
-        if not ZERO_REF.search(error.stderr):
-            raise
-        time.sleep(RETRY_SECONDS)
-        git(shell, job, "fetch", "--no-write-fetch-head", "-q", "origin", *shas)
+    """Fetch `shas`, again after each pause of `RETRY_BACKOFF` while the connectivity walk dies on a zero ref a lane creating a worktree in the shared checkout had not yet written."""
+    retried(lambda: git(shell, job, "fetch", "--no-write-fetch-head", "-q", "origin", *shas), lambda error: bool(ZERO_REF.search(error.stderr)))
+
+
+def tips(shell: Shell, job: dict, branch: str) -> tuple[str, str]:
+    """The remote tips of `branch` and of the trunk, `HEAD`, from one `ls-remote`."""
+    refs = {ref: sha for sha, ref in (line.split("\t") for line in git(shell, job, "ls-remote", "origin", "HEAD", f"refs/heads/{branch}").splitlines())}
+    return refs[f"refs/heads/{branch}"], refs["HEAD"]
+
+
+def checked_out(shell: Shell, job: dict, view: dict) -> tuple[str, str]:
+    """The tip the head's own commits sit on, and the trunk's, once the head and both tips are fetched."""
+    base, trunk = tips(shell, job, view["baseRefName"])
+    fetch(shell, job, job["head"], base, trunk)
+    return parent(shell, job, base, trunk), trunk
 
 
 def beyond(shell: Shell, job: dict, others: tuple[str, ...], head: str) -> list[str]:
     """The commits `head` carries, oldest first, that no commit since its merge-base with any of `others` matches by patch."""
-    first, *rest = (git(shell, job, "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{other}...{head}").split() for other in dict.fromkeys(others))
+    with ThreadPoolExecutor() as pool:
+        first, *rest = (commits.split() for commits in pool.map(lambda other: git(shell, job, "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{other}...{head}"), dict.fromkeys(others)))
     return [sha for sha in first if all(sha in commits for commits in rest)]
 
 
@@ -312,10 +331,18 @@ def fetched(shell: Shell, job: dict, named: str) -> str:
     return resolve(shell, job, named)
 
 
+def earlier_heads(job: dict) -> list[str]:
+    """The heads this pass may read since: the one the PR's last finder record graded, then the head the `head` record replaced."""
+    return [name for name in (job["since"], (job["prior"] or {}).get("head", ""), job["previous"]) if name]
+
+
 def reviewed(shell: Shell, job: dict) -> str:
-    """The head this pass reads since: the one the PR's last finder record graded, else the head the `head` record replaced, empty when neither resolves."""
-    named = [job["since"], (job["prior"] or {}).get("head", ""), job["previous"]]
-    return next((full for name in named if name and (full := fetched(shell, job, name))), "")
+    """The first of `earlier_heads` that resolves, empty when none does."""
+    return next((full for name in earlier_heads(job) if (full := fetched(shell, job, name))), "")
+
+
+def slice_rows(shell: Shell, job: dict, pr: str, head: str, branch: str) -> str:
+    return shell.run(rulings(job, "slice", "--required", "--pr", pr, "--head", head, "--base", branch), timeout=SLICE_SECONDS)
 
 
 def previous(record: dict | None) -> str:
@@ -378,20 +405,21 @@ def post(shell: Shell, job: dict, text: str, body: Path) -> str:
 def run(directory: Path, shell: Shell) -> dict:
     job = json.loads((directory / JOB).read_text())
     pr, head = f"{job['repo']}#{job['pr']}", job["head"]
+    pool = ThreadPoolExecutor()
+    plan = pool.submit(shell.run, rulings(job, "plan"))
     view = view_pr(shell, job)
     if view["state"] == "CLOSED":
         return {"skipped": f"{pr} is closed"}
     if not view["headRefOid"].startswith(head):
         return {"skipped": f"{pr} moved to {view['headRefOid'][:12]}"}
     job["head"] = head = view["headRefOid"]
-    base = git(shell, job, "ls-remote", "origin", f"refs/heads/{view['baseRefName']}").split()[0]
-    trunk = git(shell, job, "ls-remote", "origin", "HEAD").split()[0]
-    fetch(shell, job, head, base, trunk)
-    base = parent(shell, job, base, trunk)
+    slicing = None if earlier_heads(job) else pool.submit(slice_rows, shell, job, pr, head, view["baseRefName"])
+    base, trunk = checked_out(shell, job, view)
     last = reviewed(shell, job)
-    if not (own := beyond(shell, job, (base, trunk), head)):
-        return {"skipped": f"{pr} at {head[:12]} carries no commit {view['baseRefName']} lacks"}
+    owning = pool.submit(beyond, shell, job, (base, trunk), head)
     earlier = beyond(shell, job, (base, trunk), last) if last else []
+    if not (own := owning.result()):
+        return {"skipped": f"{pr} at {head[:12]} carries no commit {view['baseRefName']} lacks"}
     last = last if earlier else ""
     pairs, changed = range_pairs(shell, job, base, last, earlier, own) if last else ("", [])
     if last and not changed:
@@ -408,10 +436,10 @@ def run(directory: Path, shell: Shell) -> dict:
     touched = hunks(git(shell, job, "diff", "--unified=0", "--no-color", "--no-ext-diff", f"{own[0]}^", head))
     keys: list[str] = []
     if rows:
-        rows.write_text(shell.run(rulings(job, "slice", "--required", "--pr", pr, "--head", head, "--base", view["baseRefName"]), timeout=SLICE_SECONDS))
+        rows.write_text((slicing or pool.submit(slice_rows, shell, job, pr, head, view["baseRefName"])).result())
         keys = ROW_KEY.findall(rows.read_text())
     question = directory / "question-1.md"
-    question.write_text(prompt(job, view, base, own, last, pairs, changed, rows, shell.run(rulings(job, "plan")).strip(), touched))
+    question.write_text(prompt(job, view, base, own, last, pairs, changed, rows, plan.result().strip(), touched))
     if (cancelled := directory / CANCELLED).is_file():
         return {"skipped": f"{pr} at {head[:12]} was superseded by {cancelled.read_text().strip()[:12]} before codex read it"}
     reply = ask(shell, job, directory, question, 1)

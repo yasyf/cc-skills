@@ -12444,6 +12444,19 @@ def test_a_head_a_fidelity_lane_already_graded_or_sent_to_a_reader_starts_no_pas
     assert not shell.fidelity_jobs
 
 
+def test_the_finder_thread_starts_a_new_heads_fidelity_pass_before_the_next_orca_pass(shell, config, tmp_path, monkeypatch):
+    fidelity_config(config)
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    monkeypatch.setattr(runner_module, "FINDER_EVERY", timedelta(milliseconds=10))
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    stop = runner.keep_finding()
+    deadline = time.monotonic() + 5
+    while not shell.fidelity_jobs and time.monotonic() < deadline:
+        time.sleep(0.01)
+    stop.set()
+    assert [(job["pr"], job["head"]) for job in fidelity_jobs(shell)] == [("43439", FINDER_HEAD)]
+
 def test_fidelity_passes_past_eight_wait_queued_and_show_lists_queued_and_running_ones(shell, config, capsys):
     fidelity_config(config)
     orca_pass(shell, config)

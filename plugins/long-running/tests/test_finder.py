@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -106,7 +107,8 @@ class Fake:
         if argv[0] == "ls-remote" and argv[-1] == "refs/pull/*/head":
             return "".join(f"{sha}\trefs/pull/{number}/head\n" for sha, number in self.pulls.items())
         if argv[0] == "ls-remote":
-            return f"{self.trunk}\tHEAD\n" if argv[-1] == "HEAD" else f"{BASE}\trefs/heads/dev\n"
+            tips = {"HEAD": self.trunk, "refs/heads/dev": BASE}
+            return "".join(f"{tips[ref]}\t{ref}\n" for ref in argv[2:])
         if argv[0] == "fetch":
             if self.races:
                 self.races -= 1
@@ -390,33 +392,55 @@ def test_a_job_the_runner_cancelled_for_a_newer_head_asks_codex_nothing(tmp_path
     assert result(directory) == {"skipped": f"{REPO}#43299 at {HEAD[:12]} was superseded by {NEWER[:12]} before codex read it"}
 
 
-def test_a_failed_pr_read_is_retried_once_after_a_pause(tmp_path, monkeypatch):
+def test_a_failed_pr_read_is_retried_on_a_short_backoff_and_fails_the_job_once_every_pause_is_spent(tmp_path, monkeypatch):
     slept = []
     monkeypatch.setattr(finder.time, "sleep", slept.append)
     directory = job(tmp_path)
-    shell = Fake(tmp_path, [reply()], failures=1)
+    shell = Fake(tmp_path, [reply()], failures=2)
     finder.main([str(directory)], shell)
-    assert slept == [finder.RETRY_SECONDS] and len(shell.posted) == 1
+    assert slept == [2, 5] and len(shell.posted) == 1
 
     again = job(tmp_path / "again")
     with pytest.raises(subprocess.CalledProcessError):
-        finder.main([str(again)], Fake(tmp_path, [], failures=2))
+        finder.main([str(again)], Fake(tmp_path, [], failures=len(finder.RETRY_BACKOFF) + 1))
     assert "TLS handshake timeout" in result(again)["error"]
 
 
-def test_a_fetch_git_killed_on_another_lanes_zero_worktree_ref_is_retried_once_after_a_pause(tmp_path, monkeypatch):
+def test_a_fetch_git_killed_on_another_lanes_zero_worktree_ref_is_retried_on_a_short_backoff(tmp_path, monkeypatch):
     slept = []
     monkeypatch.setattr(finder.time, "sleep", slept.append)
     directory = job(tmp_path)
-    shell = Fake(tmp_path, [reply()], races=1)
+    shell = Fake(tmp_path, [reply()], races=2)
     finder.main([str(directory)], shell)
-    assert slept == [finder.RETRY_SECONDS] and len(shell.posted) == 1
-    assert [argv for argv, _ in shell.calls if argv[:2] == ["git", "fetch"]] == [["git", "fetch", "--no-write-fetch-head", "-q", "origin", HEAD, BASE, BASE]] * 2
+    assert slept == [2, 5] and len(shell.posted) == 1
+    assert [argv for argv, _ in shell.calls if argv[:2] == ["git", "fetch"]] == [["git", "fetch", "--no-write-fetch-head", "-q", "origin", HEAD, BASE, BASE]] * 3
 
     again = job(tmp_path / "again")
     with pytest.raises(subprocess.CalledProcessError):
-        finder.main([str(again)], Fake(tmp_path, [], races=2))
+        finder.main([str(again)], Fake(tmp_path, [], races=len(finder.RETRY_BACKOFF) + 1))
     assert "bad object 0000000000000000000000000000000000000000" in result(again)["error"]
+
+
+def test_a_whole_pass_reads_both_tips_in_one_ls_remote_and_runs_the_rulings_slice_and_plan_while_the_head_fetches(tmp_path):
+    started = {"slice": threading.Event(), "plan": threading.Event()}
+    overlapped = []
+
+    class Slow(Fake):
+        def run(self, argv: list[str], cwd: Path | None = None, timeout: int = finder.READ_SECONDS) -> str:
+            if argv[:2] == [sys.executable, str(finder.SCRIPTS / "rulings.py")]:
+                started[argv[2]].set()
+            return super().run(argv, cwd, timeout)
+
+        def git(self, argv: list[str]) -> str:
+            if argv[0] == "fetch":
+                overlapped.append(all(event.wait(5) for event in started.values()))
+            return super().git(argv)
+
+    directory = job(tmp_path)
+    shell = Slow(tmp_path, [reply()])
+    finder.main([str(directory)], shell)
+    assert overlapped == [True] and len(shell.posted) == 1
+    assert [argv for argv, _ in shell.calls if argv[:2] == ["git", "ls-remote"]] == [["git", "ls-remote", "origin", "HEAD", "refs/heads/dev"]]
 
 
 @pytest.mark.parametrize(
