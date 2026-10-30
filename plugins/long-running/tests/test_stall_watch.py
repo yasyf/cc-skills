@@ -258,7 +258,8 @@ def test_a_go_whose_green_head_the_review_bot_holds_or_waits_to_see_restacked_go
 
 
 def test_gos_stacked_on_one_parent_post_once_naming_the_parent_and_a_held_parent_draws_none(config, tmp_path):
-    records = [record(1, "root", "go", f"go #202 at {OTHER[:7]}", 12), record(2, "root", "go", f"go #203 at {OLD[:7]}", 11), record(3, "root", "go", f"go #302 at {OTHER[:7]}", 12), hold(900, "hold #301 waits on the schema release", "301")]
+    merge_mode(config, "ask")
+    records = [head(10, "201", HEAD, 40), finder(11, "201", HEAD, 39), fidelity(12, "201", HEAD, 39), record(1, "root", "go", f"go #202 at {OTHER[:7]}", 12), record(2, "root", "go", f"go #203 at {OLD[:7]}", 11), record(3, "root", "go", f"go #302 at {OTHER[:7]}", 12), hold(900, "hold #301 waits on the schema release", "301")]
     rows = [row("201"), row("202", OTHER, base="b201"), row("203", OLD, base="b202"), row("301"), row("302", OTHER, base="b301")]
     shell = FakeShell(records, rows)
 
@@ -290,6 +291,53 @@ def test_a_pr_below_a_go_that_waits_only_on_the_owners_tap_is_no_go_stall(config
     watch(shell, config)
 
     assert not [topic for topic in shell.topics() if topic.startswith("go:")]
+
+
+@pytest.mark.parametrize(
+    ("mode", "reviewed", "stalls"),
+    [("every", True, []), ("ask", False, []), ("ask", True, ["go:201:abc1234"])],
+    ids=["tap-row-under-merge-mode-every", "no-finder-review", "graded-and-waits-on-root"],
+)
+def test_a_pr_below_a_go_draws_a_go_stall_only_when_its_next_step_is_roots_go(config, mode, reviewed, stalls):
+    """Root #220563: a stack bottom with no grades waits on its grades, not on root; #224791 and #224880 raised go stalls to root for a bottom whose next step was its re-ask on the owner's board."""
+    merge_mode(config, mode)
+    below = [head(10, "201", HEAD, 40), record(11, "fidelity-desk", "review", f"fidelity: ok {HEAD[:7]} new-tree fix, stays a tap row", 39, "201"), *([finder(12, "201", HEAD, 39)] if reviewed else [])]
+    shell = FakeShell([*below, record(1, "root", "go", f"go #202 at {OTHER[:7]}", 30)], [row("201"), row("202", OTHER, base="b201")])
+
+    watch(shell, config)
+
+    assert [topic for topic in shell.topics() if topic.startswith("go:")] == stalls
+
+
+@pytest.mark.parametrize(
+    "note",
+    [
+        f"TAP-NOT-CARRIED #101: the owner's tap at {OLD[:10]} (1:14 PM Oct 30 Pacific) on board block merge-prs does not carry to {HEAD[:10]}, since cci #2 says that head adds new behavior",
+        f"TAP-KEPT #101: the owner's tap at {OLD[:10]} on board block merge-prs keeps at {HEAD[:10]}, a review fix with no new behavior per fidelity grade cci #3 (rule 399b5fa)",
+        f"TAP-CARRIED #101: the owner's tap at {OLD[:10]} on board block merge-prs now stands at {HEAD[:10]}, a patch-identical restack, per cci #2",
+    ],
+    ids=["not-carried", "kept", "carried"],
+)
+def test_a_carry_the_desk_runners_tap_note_settles_at_the_head_draws_no_carry_stall_and_asks_sonnet_nothing(config, note):
+    """#224789, #224790 and #224879 raised carry stalls to root on heads whose desk runner TAP-NOT-CARRIED or TAP-KEPT note already settled the carry (root #224826)."""
+    fixed = f"HEAD #101 {HEAD} (was {OLD}): one added commit, NEW BEHAVIOR: the startup pass runs as its own task"
+    shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 40, fixed), record(3, "desk-runner", "note", note, 30, "101", to=["root", "board-refresher-2"])], [row("101")])
+    shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": OLD[:7], "at": stamp(60)}}}
+
+    watch(shell, config)
+
+    assert not [topic for topic in shell.topics() if topic.startswith("carry:")] and shell.prompts == []
+
+
+def test_a_desk_runner_tap_note_about_another_head_leaves_the_carry_stall_standing(config):
+    fixed = f"HEAD #101 {HEAD} (was {OLD}): answers the reviewer bot's finding with a nil check and its test"
+    note = f"TAP-NOT-CARRIED #101: the owner's tap at {OLD[:10]} (1:14 PM Oct 30 Pacific) on board block merge-prs does not carry to {OTHER[:10]}, since cci #2 says that head adds new behavior"
+    shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 40, fixed), record(3, "desk-runner", "note", note, 30, "101")], [row("101")])
+    shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": OLD[:7], "at": stamp(60)}}}
+
+    watch(shell, config)
+
+    assert shell.post("carry:101:abc1234")["to"] == "root"
 
 
 def test_a_go_the_runner_answered_with_a_merge_ask_is_no_go_stall(config):

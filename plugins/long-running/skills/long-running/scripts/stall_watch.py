@@ -27,8 +27,11 @@ its ledger row names, it finds:
               `stall.minutes.silent` (default 15), to the root and the landing desk as the runner's own
               defect, since an admitted head no record names was skipped silently (root #208560),
               and every go in one stack shares one stall naming the stack's bottom and that blocker;
-              a PR below a go whose merge row waits only on the owner's tap, and a head whose newest
-              blocker is the runner's MERGE-ASK, draw none, since the row's own tap wait reports it;
+              a PR below a go with no go of its own draws none unless its next step is root's go: one
+              ungraded at its head, or one that waits on the owner's tap (merge mode `every`, a merge row
+              up, or his tap at its head) waits on its own row's grade, board, carry or tap stall, never
+              on root (root #220563); a head whose newest blocker is the runner's MERGE-ASK draws none,
+              since the row's own tap wait reports it;
               a head whose blocker is FINDER-PENDING while the finder desk holds a pass on it queued
               or running draws none, since the desk's own FINDER-DESK-STALLED covers a stalled
               queue; a go a fidelity carry moved to a new head counts from the carry grade, not the go
@@ -93,7 +96,9 @@ its ledger row names, it finds:
     carry     the owner's board tap or a root go names an earlier head, no go or carry names this
               one, and the board holds no row for it at this head; a head that adds no new behavior,
               such as a review, CI or conflict fix, keeps his tap (rule 399b5fa) and waits on root's
-              go, and only new behavior, or records that do not say, re-asks
+              go, and only new behavior, or records that do not say, re-asks; a head the desk runner's
+              TAP-KEPT, TAP-CARRIED or TAP-NOT-CARRIED note names draws none, since that note already
+              settles the carry and names the lane that acts on it (root #224826)
 
 and, across the drive:
 
@@ -291,6 +296,7 @@ STACKS_FILE = "landing-stacks.json"
 GATE_REPEAT = timedelta(hours=1)
 WAITS_ON = re.compile(r"\b(?:waits?\s+(?:only\s+)?on|blocked\s+on)\s+#(\d+)|\bwhen\s+#(\d+)\s+lands\b", re.IGNORECASE)
 LANDED = re.compile(r"^LANDED\s+#(\d+)\b")
+TAP_NOTE = re.compile(r"^TAP-(?:KEPT|NOT-CARRIED|CARRIED(?:-BY-PATCH)?) #(\d+): .*?\b(?:keeps at|does not carry to|now stands at) ([0-9a-f]{7,40})\b")
 LANE_NUMBER = re.compile(r"-\d+$")
 SCHEMA = json.dumps(
     {
@@ -860,6 +866,7 @@ class Pass:
         boards: dict[str, list[Stall]] = {}
         probes: list[Stall] = []
         reassigned = self.reassignments(records)
+        carried = {(found[1], found[2]) for record in records if record["lane"] == RUNNER and (found := TAP_NOTE.match(record["text"]))}
         classes = [record for record in records if record["kind"] == "red"]
 
         def holding(pr: str) -> bool:
@@ -867,6 +874,14 @@ class Pass:
 
         def awaits_tap(pr: str, head: str) -> bool:
             return waits.get(pr) == f"merge:{pr}:{short(head)}" or board is not None and board.shows(pr, head) and not board_rows.at_head(board.taps.get(pr), "rejected", head)
+
+        def own_row(pr: str, head: str) -> bool:
+            if awaits_tap(pr, head) or pr in self.tapped or landing.get("merge_mode") == "every":
+                return True
+            about = [record for record in reviews if grades.about_pr(record, repo, pr)]
+            standing = grades.standing(grades.fidelity_grades_in(about, drive_name, fidelity_lanes, repo, pr), fidelity_lanes, head)
+            finders = [record for record in grades.finder_records(grades.finder_reviews_in(about, drive_name, repo, pr)) if grades.names_head(record["head"], head)]
+            return not finders or bool(fidelity_lanes) and not (standing and all(grade["text"].startswith(grades.FIDELITY_OK) for grade in standing))
 
         for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
             head = row.get("head", "")
@@ -895,7 +910,7 @@ class Pass:
                 below = downstack(rows, row)
                 ready = min(max(at(go), actions.parse_stamp(go.get("graded_at") or go["at"])) for go in going)
                 since = max(ready, head_at) if head_at else ready
-                if not any(holding(parent) for parent in below) and (waits_on := self.unqueued(pr, row, rows, below, gos, since, queued, lane, records, awaits_tap)):
+                if not any(holding(parent) for parent in below) and (waits_on := self.unqueued(pr, row, rows, below, gos, since, queued, lane, records, own_row)):
                     waiting.setdefault(below[-1] if below else pr, []).append((pr, since, len(below), waits_on))
                 continue
             state = grades.go_state(gos, pr, head)
@@ -943,7 +958,7 @@ class Pass:
             if tapped:
                 taps.append((tapped, "his board tap"))
             if taps:
-                if not board.shows(pr, head) and self.now - head_at >= self.watch.age("carry"):
+                if not board.shows(pr, head) and self.now - head_at >= self.watch.age("carry") and not any(named == pr and grades.names_head(sha, head) for named, sha in carried):
                     questions.append(self.carry(pr, head, head_at, taps[-1], about, announced[-1], fidelity_lanes))
                 continue
             if not row.get("green_at") or not (landing.get("merge_mode") == "every" or waits.get(pr) == f"merge:{pr}:{short(head)}"):
@@ -1140,8 +1155,8 @@ class Pass:
             return set() if below in seen else self.waits_on_owner(below, found_by_pr, seen | {below})
         return None
 
-    def unqueued(self, pr: str, row: dict, rows: dict[str, dict], below: list[str], gos: list[dict], since: datetime, queued: set[tuple[str, str]], lane: str, records: list[dict], awaits_tap: Callable[[str, str], bool]) -> tuple[str, tuple[str, ...], str] | None:
-        """What holds a go'd `pr` out of the queue, with the lanes that own the step, or None when nothing is stuck: a PR below with no go that waits only on the owner's tap, or a runner MERGE-ASK, is a tap wait its own row reports, never a stall."""
+    def unqueued(self, pr: str, row: dict, rows: dict[str, dict], below: list[str], gos: list[dict], since: datetime, queued: set[tuple[str, str]], lane: str, records: list[dict], own_row: Callable[[str, str], bool]) -> tuple[str, tuple[str, ...], str] | None:
+        """What holds a go'd `pr` out of the queue, with the lanes that own the step, or None when nothing is stuck: a PR below with no go whose next step is its own row's, a grade or the owner's tap, or a runner MERGE-ASK, is a wait its own row reports, never a stall."""
         if any(named == pr and grades.names_head(sha, row["head"]) for named, sha in queued) or self.now - since < self.watch.age("go"):
             return None
         for member in [*reversed(below), pr]:
@@ -1149,7 +1164,7 @@ class Pass:
             named = f"#{member} at {short(other['head'])}"
             owns = lane if member == pr else other.get("lane") or ROOT
             if member != pr and not grades.gone_at(gos, member, other["head"]):
-                return None if awaits_tap(member, other["head"]) else (member, (ROOT,), f"{named}: {grades.go_state(gos, member, other['head']).said()}, and a stack enqueues from the bottom")
+                return None if own_row(member, other["head"]) else (member, (ROOT,), f"{named}: {grades.go_state(gos, member, other['head']).said()}, and a stack enqueues from the bottom")
             if other.get("test_state") == "failure":
                 return member, (owns,), f"fix the red build of {named}; the go waits on it"
             if other.get("mergeable_state") == "dirty":
