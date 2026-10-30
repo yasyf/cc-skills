@@ -3828,6 +3828,7 @@ def test_a_board_tap_carries_itself_to_a_patch_identical_restack_once_a_record_s
     tap(shell, "29020", "aaaa111111")
     landing_pass(shell, config)
     assert shell.carries == [] and tap_notes(shell) == []
+    shell.diffs["aaaa111111"] = shell.diffs["cccc333333"] = "diff --git a/x.go b/x.go\n+same\n"
     if restack == "head":
         seqs = [lane_head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): restack onto dev, range-diff patch-identical (3 commits)")]
     elif restack == "fidelity":
@@ -3852,6 +3853,21 @@ def test_a_board_tap_carries_itself_to_a_patch_identical_restack_once_a_record_s
     assert go["text"].startswith("go #29020 at cccc333 TAP-CARRIED: the owner's tap at aaaa111111 carries to cccc333333, a patch-identical restack; the runner posts this go itself")
     assert note["text"] == f"TAP-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, a patch-identical restack, per {cited}, recorded with cc-present verdict carry; the row asks no new tap"
     assert [line for line in escalations(shell) if line.startswith("TAP-")] == []
+
+
+def test_a_record_calling_a_head_patch_identical_carries_no_tap_when_the_head_adds_a_commit(shell, config, tmp_path):
+    """p8a-step7 #199440: #45309's head record said "adds one test-only commit on top of the patch-identical e86a899", and the runner carried the tap to d6f1bca on those words."""
+    board_surface(config)
+    board_lane(config)
+    lone_green_pr(shell)
+    tap(shell, "29020", "aaaa111111")
+    shell.diffs["aaaa111111"] = "diff --git a/x.go b/x.go\n+same\n"
+    shell.diffs["cccc333333"] = "diff --git a/x.go b/x.go\n+same\ndiff --git a/x_test.go b/x_test.go\n+added\n"
+    lane_head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): adds one test-only commit on top of the patch-identical aaaa111111.")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.carries == [] and [post for post in shell.posts if post["kind"] == "go"] == []
+    assert not [note for note in tap_notes(shell) if note["text"].startswith("TAP-CARRIED")]
 
 
 def said_on(shell: FakeShell, said: list[tuple[str, str]]) -> int:
@@ -12895,6 +12911,7 @@ def test_with_a_desk_lane_a_carried_tap_tells_the_desk_the_board_and_the_owning_
     desk_lane(config)
     lone_green_pr(shell)
     tap(shell, "29020", "aaaa111111")
+    shell.diffs["aaaa111111"] = shell.diffs["cccc333333"] = "diff --git a/x.go b/x.go\n+same\n"
     head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): restack onto dev, range-diff patch-identical (3 commits)")
     landing_pass(shell, config)
     landing_pass(shell, config)
