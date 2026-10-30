@@ -29,3 +29,11 @@ jobs:
         run: uv run --project plugins/long-running pytest plugins/long-running/tests -q
       - name: capt-hook pack test
         run: uvx --isolated 'capt-hook>=12.103.1' pack test plugins/long-running
+      - name: installed state package
+        run: |
+          uv build --project plugins/long-running --wheel --out-dir "$RUNNER_TEMP/long-running-wheel"
+          uv venv "$RUNNER_TEMP/long-running-venv"
+          uv pip install --python "$RUNNER_TEMP/long-running-venv/bin/python" "$RUNNER_TEMP"/long-running-wheel/*.whl
+          "$RUNNER_TEMP/long-running-venv/bin/python" -I -m long_running.actions --help
+      - name: action-store scaling costs
+        run: uv run --project plugins/long-running python plugins/long-running/benchmarks/action-store.py

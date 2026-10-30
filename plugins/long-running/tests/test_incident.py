@@ -5,10 +5,10 @@ import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import actions
+from long_running import actions
 import incident
 import pytest
-from actions import Incident, StaleGeneration, Store, parse_stamp, stamp
+from long_running.actions import Incident, StaleGeneration, Store, parse_stamp, stamp
 from conftest import gateway
 from incident import ResponseLost, RouteRefused, Runner, World
 
