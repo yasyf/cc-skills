@@ -67,7 +67,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import ghread
-from actions import Action, Incident, StaleGeneration, Store, parse_stamp, stamp
+from long_running.actions import Action, Incident, StaleGeneration, Store, parse_stamp, stamp
 
 SCRIPTS = Path(__file__).resolve().parent
 TEMPLATE = SCRIPTS.parent / "reference" / "active-alert-brief.md"
