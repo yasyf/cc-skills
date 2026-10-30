@@ -326,7 +326,8 @@ function render() {
   }
   if (p.screen === 'overview') mountNow();
   const top = route();
-  if (stack.length && top.screen === 'work') follow(decodeURIComponent(top.id));
+  const followed = stack.length && top.screen === 'work' ? decodeURIComponent(top.id) : p.screen === 'overview' ? feed.item : null;
+  if (followed) follow(followed);
   else unfollow();
   tickFresh();
 }

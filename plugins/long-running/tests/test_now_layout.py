@@ -183,3 +183,66 @@ def test_a_question_opens_in_a_panel_with_its_answers(page):
     page.goto(page.url.split("#")[0] + f"#/~question/{card['id']}")
     page.wait_for_selector(".pr-drawer.front .bq")
     assert page.locator(".pr-drawer.front [data-choose]").count() == len(card["options"])
+
+
+def test_the_live_feed_sits_between_the_picture_and_the_milestones(page):
+    now(page)
+    assert page.locator(".nw-diagram").bounding_box()["y"] < page.locator(".nw-live").bounding_box()["y"] < page.locator(".nw-spine").bounding_box()["y"]
+
+
+def test_tapping_a_worker_swaps_the_live_feed_to_its_story_and_back(page):
+    now(page)
+    item = json.loads(MODEL.read_text())["brief"]["work"][0]["item"]
+    page.locator(f'.nw-live .wr[data-feed="{item}"]').click()
+    page.wait_for_selector(".nw-live .nw-storyhead .nw-sub")
+    assert "Three files still use the deleted store" in page.locator(".nw-live .nw-storyhead .now").inner_text()
+    page.locator(".nw-live [data-feed-all]").click()
+    page.wait_for_selector(".nw-live .nw-work")
+
+
+def test_a_row_shows_its_newest_event_and_its_panel_the_whole_history(page):
+    now(page)
+    model = json.loads(MODEL.read_text())
+    key, entry = next(iter(model["history"].items()))
+    item = next(w["item"] for w in model["brief"]["work"] if key.removeprefix("lane:") in (w.get("workers") or []))
+    assert entry["events"][0]["text"] in page.locator(f'.nw-live .wr[data-feed="{item}"] .ev').inner_text()
+    page.goto(page.url.split("#")[0] + f"#/~work/{item}")
+    page.wait_for_selector(".pr-drawer.front .hist")
+    shown = page.locator(".pr-drawer.front .hist .evs li").all_inner_texts()
+    assert len(shown) == len(entry["events"])
+    assert all(line.endswith(e["text"]) for line, e in zip(shown, entry["events"]))
+    assert entry["events"][0]["holder"] in page.locator(".pr-drawer.front .hist .pg-facts").inner_text()
+
+
+def test_every_blocked_milestone_and_blocker_says_what_unblocks_it(page):
+    now(page)
+    blocked = page.locator(".nw-spine .sp:is(.ms-paused, .ms-broken)")
+    assert blocked.count() >= 1
+    assert [t[:12] for t in blocked.locator(".unb").all_inner_texts()] == ["Unblocking: "] * blocked.count()
+    rows = page.locator(".nw-slot .pan.focus .chain .hc:not(.you)")
+    assert [t[:12] for t in rows.locator(".unb").all_inner_texts()] == ["Unblocking: "] * rows.count()
+
+
+def test_blockers_and_work_share_the_full_width_under_the_milestones(page):
+    now(page)
+    slot = page.locator(".nw-slot").bounding_box()
+    pan = page.locator(".nw-slot .pan.focus").bounding_box()
+    assert pan["width"] > slot["width"] * 0.95
+    cols = [page.locator(".nw-slot .pan.focus .two > div").nth(i).bounding_box() for i in range(page.locator(".nw-slot .pan.focus .two > div").count())]
+    assert len(cols) == 2
+    assert cols[1]["x"] >= cols[0]["x"] + cols[0]["width"] and abs(cols[1]["y"] - cols[0]["y"]) < 2
+
+
+def test_only_a_new_event_animates(page):
+    now(page)
+    assert page.locator(".ev.fresh").count() == 0
+    page.evaluate("() => render()")
+    assert page.locator(".ev.fresh").count() == 0
+    page.evaluate("""() => {
+        const h = Object.values(state.model.history)[0];
+        h.events.unshift({ ...h.events[0], ts: new Date().toISOString(), text: 'Re-graded clean' });
+        render();
+    }""")
+    assert page.locator(".ev.fresh").count() >= 1
+    page.evaluate("() => render()")
+    assert page.locator(".ev.fresh").count() == 0
