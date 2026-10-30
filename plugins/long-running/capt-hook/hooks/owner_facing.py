@@ -1100,15 +1100,15 @@ def posts_board(use) -> bool:
 
 def board_text(evt: BaseHookEvent, use) -> str:
     command = use.call.command
-    written = evt.ctx.turn.tool_calls.named("Write").where(lambda write: write.call.file_path in command)
-    return "\n".join([command, *(write.call.content for write in written.items)])
+    written = evt.ctx.turn.tool_calls.named("Write").items
+    return "\n".join([command, *(write.call.content for write in written if write.call.file_path in command)])
 
 
 def asked_subjects(evt: BaseHookEvent) -> set[str]:
-    open_questions = evt.ctx.t.tool_calls.named("AskUserQuestion").where(lambda use: use.result is None)
-    boards = evt.ctx.turn.tool_calls.named("Bash").where(posts_board)
-    texts = [json.dumps(use.call.raw, ensure_ascii=False) for use in open_questions.items]
-    texts += [board_text(evt, use) for use in boards.items]
+    questions = evt.ctx.t.tool_calls.named("AskUserQuestion").items
+    boards = evt.ctx.turn.tool_calls.named("Bash").items
+    texts = [json.dumps(use.call.raw, ensure_ascii=False) for use in questions if use.result is None]
+    texts += [board_text(evt, use) for use in boards if posts_board(use)]
     return set().union(*map(subjects, texts))
 
 
