@@ -890,7 +890,7 @@ class Drive:
             self.report_defect(f"#{row['number']} has a root go at {row['head']} but the board store holds no approval at that head; the dashboard shows it approved, landing")
 
     def board_rows_now(self):
-        return self.read_board(json.loads(run(["cc-present", "outcomes", "--session", self.config["board_session"]])))["rows"]
+        return self.read_board(json.loads(run(["cc-present", "outcomes", "--all", "--session", self.config["board_session"]])))["rows"]
 
     def store_seq(self):
         subject = self.config["board_url"].rsplit("/p/", 1)[1]
@@ -900,7 +900,7 @@ class Drive:
     def board(self):
         seq = self.store_seq()
         if seq != self.board_seq:
-            self.board_raw = run(["cc-present", "outcomes", "--session", self.config["board_session"]])
+            self.board_raw = run(["cc-present", "outcomes", "--all", "--session", self.config["board_session"]])
             self.board_seq = seq
         return {**self.read_board(json.loads(self.board_raw)), "seq": seq}
 

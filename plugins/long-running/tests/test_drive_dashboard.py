@@ -1,6 +1,7 @@
 import contextlib
 import datetime as dt
 import itertools
+import json
 import queue
 import urllib.error
 import urllib.parse
@@ -9,6 +10,7 @@ import pytest
 from holds import Entry
 from pages import stamp
 from review_assistant import ReviewAssistant
+import server
 from server import QUEUED_NEXT, Drive, drive_prs, drive_workers, journeys, needs, parse_plan, plan_prs, step_rows, release_path, paths_current, hold_reasons, verdict_state, with_conflicts
 
 NOW = dt.datetime(2026, 10, 27, 8, 0, tzinfo=dt.timezone.utc)
@@ -66,6 +68,18 @@ def test_read_board_finds_a_verdict_keyed_by_the_bare_pr_number():
     assert rows[0]["block"] == "merge-prs"
     assert rows[0]["verdict"] == {"verdict": "approved", "head": "8242887"}
 
+
+
+def test_the_board_still_reads_after_he_submits_it(monkeypatch):
+    row = {"number": 43211, "head": "8242887", "title": "T", "change": "C.", "plan": "P.", "risk": "R.", "review": "V.", "blocker": "B."}
+    reduced = {
+        "doc": {"blocks": [{"id": "card-merge", "type": "card", "children": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "title": "G", "summary": "S.", "prs": [row]}]}]}]},
+        "interactions": {"triage": {"merge-prs": {"43211": {"verdict": "approved", "head": "8242887"}}}, "choices": {}},
+    }
+    since_submit = {"since": 3200, "through": 3240, "interactions": [{"seq": 3234, "type": "choice.selected", "blockId": "b", "payload": {"optionIds": ["a"]}}]}
+    monkeypatch.setattr(server, "run", lambda argv: json.dumps(reduced if "--all" in argv else since_submit))
+    rows = Drive({"board_url": "http://board/p/x", "board_session": "s"}, None).board_rows_now()
+    assert rows[0]["verdict"] == {"verdict": "approved", "head": "8242887"}
 
 def card(block_id, *children, status=None):
     return {"id": block_id, "type": "card", **({"status": status} if status else {}), "children": [{"id": child_id, "type": kind} for kind, child_id in children]}
