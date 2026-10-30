@@ -2282,6 +2282,22 @@ def test_amend_links_an_answer_and_rewrites_one_implication_and_records_both_on_
     assert [(edit.get("answer"), edit.get("implication"), edit.get("was")) for edit in json.loads(row["amends"])] == [([ROUND_TWO["id"]], None, None), (None, 2, was)]
 
 
+def test_an_owner_requirement_binds_when_recorded_and_amend_moves_a_permits_line_to_requires(home: Path, package: Path, state: Path, capsys) -> None:
+    """perf-prevention-1 (ccn fa32987, root #209337): his speed and one-process requirements sat as permits lines waiting for a tick for a day."""
+    rows = seeded(package)
+    rows["rule/aaaaaaa"]["implications"] = implied([("The chat list answers within half a second.", "permits"), ("The Mac runs one replication process.", "requires")])
+    shell = RegisterShell(rows)
+
+    assert ran(capsys, shell, "implications", "rule/aaaaaaa") == (
+        0,
+        "1. [permits, proposed, waits for the owner's tick] The chat list answers within half a second.\n2. [requires, proposed, binds now] The Mac runs one replication process.\n",
+    )
+    code, out = ran(capsys, shell, "amend", "rule/aaaaaaa", "--implication", "1", "--direction", "requires")
+    assert code == 0 and out.startswith("1. [requires, proposed, binds now] The chat list answers within half a second.\n")
+    assert [(edit["implication"], edit["was_direction"], edit["direction"]) for edit in json.loads(shell.rows["rule/aaaaaaa"]["amends"])] == [(1, "permits", "requires")]
+    assert ran(capsys, shell, "amend", "rule/aaaaaaa", "--implication", "1") == (2, "AMEND-USAGE: --implication goes with --text, --direction, or both\n")
+
+
 def test_confirm_refuses_an_owner_answer_the_row_never_cites_and_the_rows_own_source(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
     unrelated = dict(ROUND_TWO, id="0dd0c0de" + "0" * 32)
     shell = RegisterShell(seeded(package), answers=[ROUND_TWO, unrelated])

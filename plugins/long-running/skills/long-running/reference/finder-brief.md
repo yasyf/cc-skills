@@ -19,7 +19,7 @@ Codex reads neither the hooks nor the register, so the prompt carries everything
   that prints its diff.
 - Every row `rulings.py slice --pr <owner/name>#<n> --head <sha> --base <base> --repo <checkout> --required`
   prints (every global, pending, and matched row), each with its key, the owner's
-  words verbatim, its implications with their `removes` or `permits` mark and
+  words verbatim, its implications with their `removes`, `requires` or `permits` mark and
   status, and its names. Paste them as the register holds them, never summarized.
 - The PR body, `## Rulings` and `## Regression tests` included, as claims to check.
 - The plan's path and the paths of the sub-plans the slice names, so the finder can
@@ -157,5 +157,5 @@ PR body:
 <the PR body, verbatim>
 
 Rows (`rulings.py slice --required` for this head, slice-hash <sha12>):
-<for each row: key, words verbatim, implications with removes/permits and status, names>
+<for each row: key, words verbatim, implications with removes/requires/permits and status, names>
 ```
