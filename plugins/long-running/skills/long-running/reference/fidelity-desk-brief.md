@@ -36,8 +36,10 @@ line.
 Per row, a desk reads three things:
 
 - The owner's words, verbatim.
-- The implications. A `removes` line binds at once; a `permits` line binds
-  only once the owner has ticked it; a struck line binds nothing (d1bb802).
+- The implications. A `removes` line, and a `requires` line holding an owner
+  requirement (a latency bound, batching a per-item loop, one process per Mac),
+  binds at once; a `permits` line binds only once the owner has ticked it; a
+  struck line binds nothing (d1bb802, root #209337).
 - The names, every alias the thing has in the plan, the boards, and the code.
 
 It never reads our readings. The census's "Reading" lines, a brief's summary of a

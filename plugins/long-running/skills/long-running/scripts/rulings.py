@@ -10,7 +10,7 @@
     rulings.py classify     [--program SLUG | --drive ID] [--answer ID] [CLASSIFICATION...]
     rulings.py implications [--program SLUG | --drive ID] KEY
     rulings.py confirm      [--program SLUG | --drive ID] KEY --capture DIGEST [--tick N,...|all] [--strike N,...] [--implication TEXT]
-    rulings.py amend        [--program SLUG | --drive ID] KEY [--answer ID ...] [--implication N --text TEXT]
+    rulings.py amend        [--program SLUG | --drive ID] KEY [--answer ID ...] [--implication N [--text TEXT] [--direction DIR]]
     rulings.py round        [--program SLUG | --drive ID]
     rulings.py slice        [--program SLUG | --drive ID] (--lane NAME --step N [--paths GLOB]... [--codex] | --root | --refresh BRIEF) [--plan PATH]
     rulings.py slice        [--program SLUG | --drive ID] --required --pr [OWNER/NAME#]N --head SHA [--base REF]
@@ -58,8 +58,9 @@ round takes or skips moves under ``<state dir>/cards/rounds/``, so the queue hol
 capture ``classify`` already put on that row as a repeat, with the capture's words as the proof. ``--implication`` adds the narrowed line
 that replaces the one line ``--strike`` names, in that line's direction.
 
-``amend`` links answer ids to a row and rewrites one implication's text, keeping its state and proof; each edit lands on
-the row's ``amends`` list with its time and, for an implication, the text it replaced.
+``amend`` links answer ids to a row and rewrites one implication's text or direction, keeping its state and proof; each edit
+lands on the row's ``amends`` list with its time and, for an implication, the text or direction it replaced. An implication
+``removes`` or ``requires`` binds the moment it is recorded; only a ``permits`` line waits for the owner's tick.
 
 ``--program`` uses ``~/.claude/scratch/<program>`` as the state directory. ``--drive``
 resolves the program and the state directory from the drive registry. With neither, the drive is the
@@ -135,7 +136,8 @@ NOT_RULINGS = ("corpus/", "no/")
 CORPUS_KEY = "corpus/b-tests"
 UNANCHORED = frozenset({"pending", "none", "all"})
 IMPLICATION_COUNTS = range(3, 7)
-DIRECTIONS = ("removes", "permits")
+DIRECTIONS = ("removes", "requires", "permits")
+BINDING_DIRECTIONS = frozenset({"removes", "requires"})
 ANSWER_SOURCE = "answer"
 CONFIRM_SOURCES = frozenset({"slack-action", "slack-reply", "prompt", "board", ANSWER_SOURCE})
 RECOMMENDED_MARK = " (Recommended)"
@@ -443,7 +445,7 @@ def digest(text: str) -> str:
 def binding(implication: dict) -> str:
     if implication.get("state") == "struck":
         return "struck"
-    if implication.get("direction") == "removes" or implication.get("state") == "ticked":
+    if implication.get("direction") in BINDING_DIRECTIONS or implication.get("state") == "ticked":
         return "binds now"
     return "waits for the owner's tick"
 
@@ -1111,7 +1113,7 @@ def refusals(loaded: Register, captured: dict[str, dict], entry: dict, batch: Ba
     if kind == "scope" and not (entry.get("names") or names_of(extended)):
         found.append(f"SCOPE-NAMES {item}: a scope row lists every name the thing has in the plan, the boards and the code")
     if any(implication.get("direction") not in DIRECTIONS or not implication.get("text") for implication in implications):
-        found.append(f"IMPLICATION {item}: each implication is one plain sentence marked removes or permits")
+        found.append(f"IMPLICATION {item}: each implication is one plain sentence marked removes, requires or permits")
     markers = repeat_markers(loaded, words)
     supersedes = entry.get("supersedes")
     strong, _ = named_rows(loaded, words)
@@ -1512,8 +1514,8 @@ def confirmed(args: argparse.Namespace, loaded: Register, key: str) -> int:
 
 
 def cmd_amend(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    if (args.implication is None) != (args.text is None):
-        print("AMEND-USAGE: --implication and --text go together")
+    if (args.implication is None) != (args.text is None and args.direction is None):
+        print("AMEND-USAGE: --implication goes with --text, --direction, or both")
         return 2
     with writing(args, shell) as loaded:
         fields = loaded.row(args.key)
@@ -1529,8 +1531,14 @@ def cmd_amend(args: argparse.Namespace, shell: ledger.Shell) -> int:
             if not (named := [item for item in implications if item["n"] == args.implication]):
                 print(f"NO-IMPLICATION {args.key}: it carries no implication {args.implication}")
                 return 1
-            edits.append({"at": stamp(), "implication": args.implication, "was": named[0]["text"], "now": args.text})
-            named[0]["text"] = args.text
+            edit = {"at": stamp(), "implication": args.implication}
+            if args.text is not None:
+                edit |= {"was": named[0]["text"], "now": args.text}
+                named[0]["text"] = args.text
+            if args.direction is not None:
+                edit |= {"was_direction": named[0]["direction"], "direction": args.direction}
+                named[0]["direction"] = args.direction
+            edits.append(edit)
         if not edits:
             print(f"{args.key} already carries every answer named")
             return 0
@@ -2715,6 +2723,7 @@ def build_parser() -> argparse.ArgumentParser:
     amend.add_argument("--answer", action="append", default=[], metavar="ID")
     amend.add_argument("--implication", type=int, metavar="N")
     amend.add_argument("--text", metavar="TEXT", help="the implication's new text")
+    amend.add_argument("--direction", choices=DIRECTIONS, help="the implication's new direction: an owner requirement is `requires` and binds at once, like `removes`")
     verb("round", cmd_round, "put at most ten queued ruling cards on the live cc-present board as one round, foundational rows first")
     sliced = verb("slice", cmd_slice, "print the rows a lane, the root, or a head's grade must carry, verbatim")
     sliced.add_argument("--lane")
