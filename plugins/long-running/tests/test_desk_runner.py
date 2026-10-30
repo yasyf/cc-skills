@@ -6673,6 +6673,19 @@ def test_a_green_head_a_go_names_whose_enqueue_failed_escalates_go_unqueued_once
     assert "yet it is not in the queue after 6 minutes; its newest enqueue since the go ended failed" in line
 
 
+@pytest.mark.parametrize("status", ["WAITING_TO_MERGE", "QUEUED_TO_MERGE", "FAILURE_HANDLING"])
+def test_a_go_named_head_graphite_reads_queued_draws_no_go_unqueued_though_the_status_read_says_not_queued(shell, config, tmp_path, status):
+    merge_mode(config, "every")
+    gone_failing(shell)
+    shell.queue["33001"] = "not queued"
+    shell.statuses = f"#33001 {status} aaaa111111 base graphite-base/33001\n"
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert unqueued(shell) == []
+    assert ["--status"] in [call[-1:] for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
+
+
 def test_a_green_head_a_go_names_that_the_runner_has_not_enqueued_yet_is_backlog_and_draws_no_go_unqueued(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
