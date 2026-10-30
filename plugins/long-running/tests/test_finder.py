@@ -522,7 +522,7 @@ def test_a_head_whose_only_finder_review_names_no_head_reads_since_the_head_its_
     finder.main([str(directory)], shell)
     assert not shell.asks() and not shell.posted
     assert result(directory) == {"skipped": f"{REPO}#43299 at {HEAD[:12]} replays every own commit of {OLD[:12]}, patch for patch or dropping only hunks dev carries", "ungraded": True}
-    assert finder.previous({"text": f"HEAD #43299 {HEAD} (was {OLD}): restack onto #42751"}) == OLD and finder.previous({"text": f"HEAD #43299 {HEAD}"}) == ""
+    assert finder.previous({"text": f"HEAD #43299 {HEAD} (was {OLD}): restack onto #42751"}, REPO, "43299") == OLD and finder.previous({"text": f"HEAD #43299 {HEAD}"}, REPO, "43299") == ""
 
 
 def test_a_fixed_head_named_short_by_the_last_finder_record_reads_only_its_new_commits(tmp_path):
@@ -651,3 +651,13 @@ def test_a_failed_command_reports_the_end_of_its_traceback_where_the_exception_i
 
     assert reported.endswith("subprocess.TimeoutExpired: ccn ledger show timed out")
     assert "rulings.py plan --repo exited 1: " in reported
+
+
+def test_a_multi_head_record_names_each_prs_own_head_and_the_head_it_replaced():
+    record = {
+        "refs": {"prs": [f"{REPO}#43299", 43300, "yasyf/cc-skills#836"]},
+        "fields": {"heads": [{"pr": f"{REPO}#43299", "commit": HEAD, "was": OLD}, {"pr": 43300, "commit": NEWER}, {"pr": "yasyf/cc-skills#836", "commit": MOVED}]},
+        "text": f"HEAD 3 PRs: #43299 {HEAD[:7]}, #43300 {NEWER[:7]}, #836 {MOVED[:7]}: restack onto dev",
+    }
+    assert finder.heads(record, REPO) == [("43299", HEAD), ("43300", NEWER)]
+    assert (finder.previous(record, REPO, "43299"), finder.previous(record, REPO, "43300")) == (OLD, "")

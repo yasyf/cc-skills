@@ -119,13 +119,32 @@ def newest_naming(grades: list[dict], sha: str) -> dict | None:
 
 def repo_prs(record: dict, repo: str) -> list[tuple[str, bool]]:
     """Each PR `record` names that may be in `repo`, with whether its ref says so: `owner/repo#N` refs to `repo`, and bare numbers, which name no repo."""
-    named = []
-    for ref in record.get("refs", {}).get("prs", []):
-        if isinstance(ref, int):
-            named.append((str(ref), False))
-        elif (where := str(ref).rpartition("#"))[0].lower() == repo.lower():
-            named.append((where[2], True))
-    return named
+    return [named for ref in record.get("refs", {}).get("prs", []) if (named := repo_pr(ref, repo))]
+
+
+def repo_pr(ref: int | str, repo: str) -> tuple[str, bool] | None:
+    if isinstance(ref, int):
+        return str(ref), False
+    where = str(ref).rpartition("#")
+    return (where[2], True) if where[0].lower() == repo.lower() else None
+
+
+def head_entries(record: dict, repo: str) -> dict[str, dict] | None:
+    """Each PR in `repo` a multi-head `head` record's `fields.heads` names, to its entry of `commit` and, when given, `was` and `note`, as one `cci post --head` record carries every head a restack moved; None for a record with no `fields.heads`."""
+    if not (entries := (record.get("fields") or {}).get("heads")):
+        return None
+    return {named[0]: entry for entry in entries if (named := repo_pr(entry["pr"], repo))}
+
+
+def head_of(record: dict, repo: str, pr: str) -> str:
+    """The head a `head` record names for `pr`: its `fields.heads` entry's commit, else its text's first short sha."""
+    entries = head_entries(record, repo)
+    return graded_head(record["text"]) if entries is None else entries.get(pr, {}).get("commit", "")
+
+
+def head_says(record: dict, repo: str, pr: str) -> str:
+    """What a `head` record says of `pr`'s move: its `fields.heads` entry's note, else its whole text."""
+    return ((head_entries(record, repo) or {}).get(pr) or {}).get("note") or full_text(record)
 
 
 def names_pr(record: dict, pr: str) -> bool:
@@ -192,7 +211,11 @@ def head_moves(found: list[dict], drive: str, lanes: list[str], repo: str, pr: s
     graded = [graded_head(record["text"][len(FIDELITY_OK) :]) for record in mine if record["kind"] == "review" and record["lane"] in lanes and record["text"].startswith(FIDELITY_OK) and identical(record["text"])]
     for record in mine:
         text = record["text"]
-        if record["kind"] == "head":
+        if record["kind"] == "head" and (entries := head_entries(record, repo)) is not None:
+            if (entry := entries.get(pr)) and entry.get("was"):
+                said = head_says(record, repo, pr)
+                moves.append((entry["commit"].lower(), entry["was"].lower(), bool(PATCH_IDENTICAL.search(said)) and not ADDS_BEHAVIOR.search(said) or any(names_head(sha, entry["commit"]) for sha in graded), record["seq"]))
+        elif record["kind"] == "head":
             named = list(HEAD_MOVE.finditer(text))
             for move, after in pairwise([*named, None]):
                 said = SENTENCE_BREAK.split(text[move.start() : after.start() if after else len(text)], maxsplit=1)[0]
@@ -368,7 +391,7 @@ def finder_reviews_in(found: list[dict], drive: str, repo: str, pr: str) -> list
     for record in records:
         if record["kind"] != "review" or not FINDER_NAMED.search(record["text"]) or record["text"].startswith(GRADER_LINES):
             continue
-        reviews.append(record | {"grade": finder_grade(record["text"]) if finder_desk_line(record) else "", "head": head_named(record, heads)})
+        reviews.append(record | {"grade": finder_grade(record["text"]) if finder_desk_line(record) else "", "head": head_named(record, heads, repo, pr)})
     return reviews
 
 
@@ -376,10 +399,10 @@ def finder_records(reviews: list[dict]) -> list[dict]:
     return [record for record in reviews if record["grade"] and record["head"]]
 
 
-def head_named(record: dict, heads: list[dict]) -> str:
-    """The head `record` names: its first short sha, or the first short sha of the newest `head` record of `heads` posted before it."""
+def head_named(record: dict, heads: list[dict], repo: str, pr: str) -> str:
+    """The head `record` names: its first short sha, or the head the newest `head` record of `heads` posted before it names for `pr`."""
     posted = max((head for head in heads if head["seq"] < record["seq"]), key=lambda head: head["seq"], default=None)
-    return graded_head(record["text"]) or (graded_head(posted["text"]) if posted else "")
+    return graded_head(record["text"]) or (head_of(posted, repo, pr) if posted else "")
 
 
 def old_app_grades_in(found: list[dict], drive: str, lanes: list[str], repo: str, pr: str) -> list[dict]:
@@ -389,7 +412,7 @@ def old_app_grades_in(found: list[dict], drive: str, lanes: list[str], repo: str
     return [
         record | {"grade": said[1].lower(), "head": head}
         for record in records
-        if record["kind"] == "review" and record["lane"] in lanes and (said := OLD_APP.search(full_text(record))) and (head := head_named(record, heads))
+        if record["kind"] == "review" and record["lane"] in lanes and (said := OLD_APP.search(full_text(record))) and (head := head_named(record, heads, repo, pr))
     ]
 
 

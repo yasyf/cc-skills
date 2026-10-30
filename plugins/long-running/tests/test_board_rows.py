@@ -772,3 +772,18 @@ def test_a_ledger_that_does_not_read_warns_and_fails_no_row(tmp_path: Path, shel
 
     assert "WARN the drive's ledger did not read (ledger.py list exited 1: ccn: no ledger 1a2b); no row is checked for a PR the ledger never admitted" in lines(capsys)
     assert pushed_rows(shell) == ["42590"]
+
+
+def test_a_multi_head_record_carries_only_the_prs_whose_own_note_says_patch_identical():
+    record = {
+        "kind": "head",
+        "refs": {"prs": ["Forge-AI/monorepo#45001", "Forge-AI/monorepo#45002"]},
+        "fields": {"heads": [
+            {"pr": "Forge-AI/monorepo#45001", "commit": "a1b2c3d4e5", "was": "0f0f0f0f0f", "note": "restack, range-diff patch-identical (2 commits)"},
+            {"pr": "Forge-AI/monorepo#45002", "commit": "c3b44a3fee", "was": "4423264aaa", "note": "replay, range-diff 1 identical, 1 changed"},
+        ]},
+        "text": "HEAD 2 PRs: #45001 a1b2c3d, #45002 c3b44a3: restacked onto dev",
+    }
+    assert board_rows.carries(record, "Forge-AI/monorepo", "45001", "a1b2c3d4e5")
+    assert not board_rows.carries(record, "Forge-AI/monorepo", "45002", "c3b44a3fee")
+    assert not board_rows.carries(record, "Forge-AI/monorepo", "45001", "c3b44a3fee")

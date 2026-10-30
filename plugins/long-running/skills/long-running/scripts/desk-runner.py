@@ -657,7 +657,7 @@ import prompt_screen
 import prompt_watch
 import stall_watch
 import testfiles
-from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, heads_since, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
+from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, head_of, head_says, heads_since, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
 from grades import carry_of, delegated, keeps_tap, succeeds, with_successors
 from grades import carries as carry_grade
 from grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
@@ -4507,7 +4507,7 @@ class Runner:
                 "head": job["head"],
                 "since": last,
                 "prior": prior,
-                "previous": finder.previous(next((record for record in records if record["seq"] == job["seq"]), None)) if named and not full else "",
+                "previous": finder.previous(next((record for record in records if record["seq"] == job["seq"]), None), repo, job["pr"]) if named and not full else "",
                 "history": [{"seq": record["seq"], "lane": record["lane"], "text": record["text"], "path": (record.get("refs") or {}).get("path", "")} for record in named],
                 "settled": self.root_settled(repo, job["pr"], named),
                 "lane": job["lane"],
@@ -7192,8 +7192,8 @@ class Landing:
                 if self.carry_tap(session, block, pr, tapped, head, why, self.landing_audience([pr], rows, to), label):
                     self.go_carried_tap(pr, head, tapped, rows, to)
                 continue
-            said = [record for record in reviews if record["kind"] == "head" and about_pr(record, self.repo, pr) and names_head(graded_head(record["text"]), head)]
-            adds = [record for record in [*said, *([graded] if graded else [])] if ADDS_BEHAVIOR.search(full_text(record))]
+            said = [head_says(record, self.repo, pr) for record in reviews if record["kind"] == "head" and about_pr(record, self.repo, pr) and names_head(head_of(record, self.repo, pr), head)]
+            adds = [text for text in [*said, *([full_text(graded)] if graded else [])] if ADDS_BEHAVIOR.search(text)]
             standing = self.fidelity(pr, head)
             graded_ok = bool(standing.ok and standing.record)
             keeper = self.keeper(reviews, pr, head, tapped)
