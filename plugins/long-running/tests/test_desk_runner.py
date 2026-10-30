@@ -14593,3 +14593,37 @@ def test_empty_rulings_report_does_not_decode_bus_history(shell, config, tmp_pat
     print(json.dumps({"history": history, "first_empty_report": first, "two_empty_reports": costs}))
     assert costs == {"decoded_bytes": 0, "action_dtos": 0, "read_connections": 0, "sql_opcodes": 0}
     assert not shell.calls
+
+
+def test_an_explicit_since_tail_reads_natively_without_a_process_or_temporary_feed(monkeypatch):
+    calls = []
+
+    def native(args, timeout, env, cwd):
+        calls.append((args, timeout, env, cwd))
+        return 0, '{"seq":7}\n', ""
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("a native tail read must not launch a process or open a temporary feed")
+
+    monkeypatch.setattr(runner_module.cci, "native_tail", native)
+    monkeypatch.setattr(runner_module.subprocess, "run", forbidden)
+    monkeypatch.setattr(runner_module.tempfile, "TemporaryFile", forbidden)
+    argv = ["cci", "tail", "--drive", "d1", "--since", "0", "--json", "--budget", "4000000"]
+    env = {"CCI_AGENT_ID": "lane-child"}
+    assert runner_module.Shell().run(argv, env=env) == runner_module.Done(0, '{"seq":7}\n', "")
+    assert calls == [(argv, runner_module.QUICK_SECONDS, env, None)]
+
+def test_a_cursor_owning_bus_probe_keeps_its_cli_operation(monkeypatch):
+    calls = []
+
+    def process(argv, **kwargs):
+        calls.append(argv)
+        return SimpleNamespace(returncode=0, stdout="probe\n", stderr="")
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("a cursor-owning probe is not a native read-only query")
+
+    monkeypatch.setattr(runner_module.cci, "native_tail", forbidden)
+    monkeypatch.setattr(runner_module.subprocess, "run", process)
+    assert runner_module.Shell().run(runner_module.BUS_PROBE) == runner_module.Done(0, "probe\n", "")
+    assert calls == [runner_module.BUS_PROBE]

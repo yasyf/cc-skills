@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import base64
+import http.client
+import io
 import json
+import os
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -63,6 +67,37 @@ class Tail:
 
     def stop(self) -> None:
         self.read = None
+
+
+def native_tail(argv: list[str], timeout: float, env: dict[str, str] | None = None, cwd: str | None = None) -> tuple[int, str, str]:
+    """Read a cursor-free tail through the daemon's native CLI handler."""
+    environment = os.environ | (env or {})
+    home = environment.get("CCI_HOME") or os.path.join(environment["HOME"], ".cc-inbox")
+    body = json.dumps({
+        "argv": argv,
+        "session": environment.get("CLAUDE_CODE_SESSION_ID") or environment.get("CODEX_THREAD_ID", ""),
+        "agent": environment.get("CCI_AGENT_ID", ""),
+        "home": os.path.abspath(os.path.join(cwd or os.getcwd(), home)),
+    }).encode()
+    connection = http.client.HTTPConnection("127.0.0.1", 7377, timeout=timeout)
+    try:
+        connection.request("POST", "/v1/tail", body, {"Content-Type": "application/json"})
+        response = connection.getresponse()
+        result = json.loads(response.read())
+        if response.status != 200:
+            return 1, "", f"cci: {result['error']}\n"
+        return result["returncode"], _tail_output(result["stdout_b64"]), _tail_output(result["stderr_b64"])
+    except TimeoutError:
+        raise
+    except (OSError, http.client.HTTPException) as error:
+        return 1, "", f"cci: native tail: {error}\n"
+    finally:
+        connection.close()
+
+
+def _tail_output(encoded: str) -> str:
+    with io.TextIOWrapper(io.BytesIO(base64.b64decode(encoded, validate=True)), errors="replace") as output:
+        return output.read()
 
 
 def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: int | str = 0) -> list[dict]:

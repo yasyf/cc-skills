@@ -1147,6 +1147,8 @@ class Shell:
         started = time.monotonic()
         self.in_progress[threading.get_ident()] = (command_name(argv), started)
         try:
+            if argv[:2] == ["cci", "tail"] and "--since" in argv:
+                return Done(*cci.native_tail(argv, timeout, env, cwd))
             with tempfile.TemporaryFile("w+") as feed:
                 feed.write(stdin or "")
                 feed.seek(0)
@@ -1157,6 +1159,9 @@ class Shell:
                     return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {timeout}s and was killed")
                 except FileNotFoundError:
                     return Done(MISSING_BINARY, "", f"{argv[0]} is not on PATH")
+        except TimeoutError:
+            print(f"TIMED-OUT after {timeout}s, skipped: {command_name(argv)}", file=sys.stderr, flush=True)
+            return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {timeout}s")
         finally:
             self.in_progress.pop(threading.get_ident(), None)
             with self.spending:
