@@ -176,3 +176,10 @@ def test_a_story_links_to_its_full_transcript(page):
     page.goto(page.url.split("#")[0] + f"#/story/{item}")
     page.wait_for_selector(".nw-raw")
     assert page.locator(".nw-raw").get_attribute("href") == f"/api/transcript/{item}"
+
+
+def test_a_question_opens_in_a_panel_with_its_answers(page):
+    card = next(item["card"] for item in json.loads(MODEL.read_text())["needs"] if item["kind"] == "card")
+    page.goto(page.url.split("#")[0] + f"#/~question/{card['id']}")
+    page.wait_for_selector(".pr-drawer.front .bq")
+    assert page.locator(".pr-drawer.front [data-choose]").count() == len(card["options"])

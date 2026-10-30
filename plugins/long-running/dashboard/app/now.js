@@ -84,8 +84,8 @@ function needLine(item) {
     const busy = sending(c.choice ?? c.id) ? ' disabled' : '';
     const said = rewritten('cards', c.key);
     const question = said?.question ?? c.title;
-    if (!rec) return line(question, item.why, '<a class="nbtn" href="#/review">Choose an answer</a>');
-    return line(question, item.why, `<button class="nbtn pri" data-choose="${esc(rec.id)}" data-card="${esc(c.id)}" data-choice="${esc(c.choice)}"${busy}>Pick it</button><a class="nbtn" href="#/review">Other answers</a>`, `Recommended: ${said?.answers?.[c.options.indexOf(rec)] || rec.label.replace(/\s*\(Recommended\)\s*$/i, '')}`);
+    if (!rec) return line(question, item.why, `<a class="nbtn" href="#/question/${encodeURIComponent(c.id)}">Choose an answer</a>`);
+    return line(question, item.why, `<button class="nbtn pri" data-choose="${esc(rec.id)}" data-card="${esc(c.id)}" data-choice="${esc(c.choice)}"${busy}>Pick it</button><a class="nbtn" href="#/question/${encodeURIComponent(c.id)}">Other answers</a>`, `Recommended: ${said?.answers?.[c.options.indexOf(rec)] || rec.label.replace(/\s*\(Recommended\)\s*$/i, '')}`);
   }
   return line(item.ask.what, item.why, item.ask.link ? `<a class="nbtn" href="${esc(item.ask.link)}" target="_blank" rel="noopener">${esc(item.ask.link_text ?? 'Open')}</a>` : '<a class="nbtn" href="#/review">Details</a>');
 }

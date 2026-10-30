@@ -188,6 +188,9 @@ function markdown(md) {
 function needsTotal() {
   return (state.model?.needs ?? []).reduce((n, item) => n + (item.kind === 'prs' ? item.prs.length : item.kind === 'card' ? 1 : 0), 0);
 }
+function openQuestion(card) {
+  return state.model.needs.find((item) => item.kind === 'card' && item.card.id === card);
+}
 function boardCard(item) {
   const c = item.card;
   const said = rewritten('cards', c.key);
@@ -253,7 +256,7 @@ async function ask(question) {
   }
 }
 
-const DRAWER = /^(?:review\/\d+(?:\/code)?|plan\/[^/~]+|status\/s\d+|(?:work|story|worker|blocker)\/[^/~]+)$/;
+const DRAWER = /^(?:review\/\d+(?:\/code)?|plan\/[^/~]+|status\/s\d+|(?:work|story|worker|blocker|question)\/[^/~]+)$/;
 const NATURAL = { review: '#/review', plan: '#/plan', status: '#/status', work: '#/work', worker: '#/work' };
 const BASE_WORD = { overview: 'Now', plan: 'Plan', status: 'Status', work: 'Work', review: 'Review', history: 'History', ask: 'Ask' };
 function drawerSeg(href) {
@@ -334,6 +337,10 @@ function drawerOf(seg) {
   if (kind === 'review') return { kick: `Pull request #${id}`, title: prTitle(id), tone: verdictState(boardRow(id) ?? {}) === 'you' ? 'you' : '', body: () => reviewPR(id, tab) };
   if (kind === 'work') return { kick: 'Work', title: workItem(id)?.title ?? id, body: () => workDrawer(id) };
   if (kind === 'worker') return { kick: 'Worker', title: workerName(id), body: () => workerScreen(id) };
+  if (kind === 'question') {
+    const item = openQuestion(id);
+    return { kick: 'Needs you', title: 'A question for you', tone: 'you', body: item ? () => boardCard(item) : gone('This question is answered or no longer open.') };
+  }
   if (kind === 'blocker') return { kick: 'Blocker', title: blockerById(id)?.node.text ?? id, tone: blockerById(id)?.node.state ?? '', body: () => blockerPage(id) };
   if (kind === 'status') {
     const row = statusRows().rows[id.slice(1)];
