@@ -211,7 +211,6 @@ JUDGE_SECONDS = 300
 LANDING = "desk-landing"
 FINDER_DESK = "desk-finder"
 FIDELITY_DESK = "desk-fidelity"
-FIDELITY_PIPELINE = "fidelity-pipeline"
 QUEUE_LIVE = frozenset({"accepted", "started"})
 FINDER_PENDING = "FINDER-PENDING"
 REFUSAL_KINDS = frozenset({"blocker", "report", "note", "defect", "urgent"})
@@ -970,7 +969,7 @@ class Pass:
             return Stall(f"missing:{pr}:{grade['seq']}", "missing", graded_at, subject, f"{said}; nobody has answered it", (lane,), f"answer it: push the fix and post HEAD, or post `cci post --re {grade['seq']}` saying why the plan holds", pr)
         if self.now - found.answered_at < self.watch.age("regrade"):
             return None
-        grader = RUNNER if grade["lane"] == FIDELITY_PIPELINE else grade["lane"]
+        grader = RUNNER if grade["lane"] == owner_waits.PIPELINE else grade["lane"]
         return Stall(f"regrade:{pr}:{grade['seq']}", "regrade", found.answered_at, subject, f"{said}; {found.answer} answered it at {pacific(found.answered_at)}, and no grade has followed", (grader,), f"grade {subject} again against that answer and post its `fidelity: ok` or `fidelity: missing` line", pr)
 
     def red(self, pr: str, row: dict, lane: str) -> Stall | None:

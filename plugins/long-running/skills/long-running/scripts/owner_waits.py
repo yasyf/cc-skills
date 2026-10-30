@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Callable
@@ -47,6 +48,8 @@ PACIFIC = ZoneInfo("America/Los_Angeles")
 NOTHING = "Nothing waits on your tap or pick."
 BOT_AUTHOR = "[bot]"
 QUIET_LANES = frozenset({"desk-runner", "stall-watch", "board-watch", "finder-desk"})
+ROOT_NAMES = frozenset({"root", "main"})
+PIPELINE = "fidelity-pipeline"
 TITLE_CHARS = 120
 SNAPSHOT_HOURS = "24h"
 
@@ -68,21 +71,32 @@ class Wait:
 
 
 @dataclass(frozen=True)
+class Row:
+    block: str
+    pr: str
+    head: str
+
+
+@dataclass(frozen=True)
+class Voice:
+    you: str
+    your: str
+
+
+OWNER = Voice("you", "your")
+RUNNER = Voice("the owner", "the owner's")
+
+
+@dataclass(frozen=True)
 class Board:
-    rows: list[board_rows.Row]
-    verdicts: dict[str, dict[str, dict]]
+    rows: list[Row]
+    taps_by_pr: dict[str, dict]
     picks: list[Wait]
     shown: dict[str, datetime]
 
-    def entry(self, row: board_rows.Row) -> dict | None:
-        return self.verdicts.get(row.block, {}).get(row.id)
-
-    def decided(self, row: board_rows.Row) -> str:
-        entry = self.entry(row)
-        if board_rows.at_head(entry, "rejected", row.head):
-            return "rejected"
-        carried = entry is not None and entry.get("verdict") == "approved" and any(grades.names_head(sha, entry.get("head") or "") for sha in row.carried)
-        return "approved" if board_rows.at_head(entry, "approved", row.head) or carried else ""
+    def decided(self, row: Row) -> str:
+        entry = self.taps_by_pr.get(row.pr)
+        return next((verdict for verdict in ("approved", "rejected") if board_rows.at_head(entry, verdict, row.head)), "")
 
     def taps(self) -> list[Wait]:
         return [Wait("tap", row.block, f"#{row.pr}", row.head, self.since(f"row:{row.pr}:{row.head[:7]}"), pr=row.pr) for row in self.rows if row.head and not self.decided(row)]
@@ -96,7 +110,7 @@ class Board:
     def tap_at(self, pr: str, head: str) -> Wait | None:
         return next((wait for wait in self.taps() if wait.pr == pr and grades.names_head(wait.head, head)), None)
 
-    def rows_for(self, pr: str) -> list[board_rows.Row]:
+    def rows_for(self, pr: str) -> list[Row]:
         return [row for row in self.rows if row.pr == pr and row.head]
 
 
@@ -119,7 +133,18 @@ def board_of(outcomes: dict, snapshots: list[dict]) -> Board:
         for choice in board_rows.typed(card, "choice")
         if not ((answer := picked.get(choice["id"]) or {}).get("optionIds") or answer.get("other"))
     ]
-    return Board(board_rows.rows_of(doc), interactions.get("triage") or {}, picks, shown)
+    rows = [Row(row.block, row.pr, row.head) for row in board_rows.rows_of(doc)]
+    return Board(rows, board_rows.newest_by_pr(interactions.get("triage") or {}), picks, shown)
+
+
+def board_of_records(records: list[dict]) -> Board | None:
+    """The board as board-watch's records show it on any machine, from its newest `board-rows` snapshot, its `owner` taps and picks, and the runner's carries; None while it has posted no snapshot. A snapshot names no row's block, so each row's block reads empty."""
+    if (snapshot := board_rows.snapshot_of_records(records)) is None:
+        return None
+    shown = first_shown([record for record in records if record.get("topic") == board_rows.SNAPSHOT_TOPIC])
+    answered = board_rows.answered_of_records(records)
+    picks = [Wait("pick", card, choice, "", pacific(shown[key]) if (key := f"card:{card}") in shown else "just now", card) for card, choices, _ in snapshot["cards"] for choice in choices if choice not in answered]
+    return Board([Row("", pr, head) for pr, head, *_ in snapshot["rows"]], board_rows.newest_by_pr(board_rows.verdicts_of_records(records)), picks, shown)
 
 
 def first_shown(snapshots: list[dict]) -> dict[str, datetime]:
@@ -154,15 +179,17 @@ def at(record: dict) -> datetime:
 
 
 def missing(standing: list[dict], records: list[dict], comments: Callable[[], list[dict]], fidelity_lanes: list[str]) -> Missing | None:
-    """The `fidelity: missing` grade that stands at a head, the newest of `standing`, with its first answer: a record of a lane other than a grader or desk that answers its seq by `--re` or names `#<seq>`, or a PR comment no bot wrote, posted after it; `comments` reads the PR's comments only when such a grade stands."""
-    grade = max(standing, key=lambda record: record["seq"], default=None)
-    if grade is None or not grade["text"].startswith(grades.FIDELITY_MISSING):
+    """The newest `fidelity: missing` grade among the lanes' `standing` grades of a head that still holds it, as the landing runner reads them: no root record closes it, and a desk's ok outranks the pipeline's missing; with its first answer after it, a record of a lane other than a grader or desk that answers its seq by `--re` or names `#<seq>`, or a PR comment no bot wrote. `comments` is read only when such a grade stands."""
+    desk_ok = any(grade["lane"] != PIPELINE and grade["text"].startswith(grades.FIDELITY_OK) for grade in standing)
+    closed = {seq for record in records if record["lane"] in ROOT_NAMES for seq in grades.closes(record)}
+    grade = max((grade for grade in standing if grade["text"].startswith(grades.FIDELITY_MISSING) and grade["seq"] not in closed and not (desk_ok and grade["lane"] == PIPELINE)), key=lambda record: record["seq"], default=None)
+    if grade is None:
         return None
     graded_at = at(grade)
     answers = [
         (at(record), f"{record['lane']} in cci #{record['seq']}")
         for record in records
-        if record["seq"] > grade["seq"] and not grades.delegated(record["lane"], fidelity_lanes) and record["lane"] not in QUIET_LANES and (record.get("re") == grade["seq"] or f"#{grade['seq']}" in record["text"])
+        if record["seq"] > grade["seq"] and not grades.delegated(record["lane"], fidelity_lanes) and record["lane"] not in QUIET_LANES and (record.get("re") == grade["seq"] or re.search(rf"#{grade['seq']}\b", record["text"]))
     ]
     answers += [
         (posted, f"a PR comment by {comment['author']['login']}")
@@ -181,41 +208,39 @@ def missing_words(found: Missing) -> str:
     return f"{said}; {found.answer} answered it at {pacific(found.answered_at)} and no grade has followed"
 
 
-def state(pr: str, rows: dict[str, dict], board: Board, records: list[dict], comments: Callable[[], list[dict]], *, repo: str, drive_name: str, fidelity_lanes: list[str]) -> str:
-    """One line on what `pr` waits on: his tap when a row at its ledger head awaits it, else every fact that holds it, in plain words."""
+def state(pr: str, rows: dict[str, dict], board: Board, records: list[dict], comments: Callable[[], list[dict]], *, repo: str, drive_name: str, fidelity_lanes: list[str], voice: Voice = OWNER) -> str:
+    """One line on what `pr` waits on: the owner's tap when a row at its ledger head awaits it, else every fact that holds it, in plain words addressed as `voice` says."""
     row = rows.get(pr)
     if row is None or not row.get("head"):
-        return f"#{pr}: not waiting on you: it is no open PR of this drive's landing ledger"
+        return f"#{pr}: not waiting on {voice.you}: it is no open PR of this drive's landing ledger"
     head = row["head"]
     subject = f"#{pr} at {head[:7]}"
     if wait := board.tap_at(pr, head):
-        return f"{subject}: waits on your tap on {wait.block}, up since {wait.since}"
-    facts = [board_fact(pr, head, board)]
+        return f"{subject}: waits on {voice.your} tap on {wait.block or 'its board row'}, up since {wait.since}"
+    facts = [board_fact(pr, head, board, voice)]
     if row.get("test_state") == "failure":
         facts.append(f"its build is red since {pacific_text(row.get('red_at') or '')}")
     if row.get("mergeable_state") == "dirty":
         facts.append("it conflicts with its base")
     about = [record for record in records if record["drive"] == drive_name and grades.about_pr(record, repo, pr)]
-    graded = grades.fidelity_grades_in(about, drive_name, fidelity_lanes, repo, pr)
-    standing = grades.standing(graded, fidelity_lanes, head)
+    standing = grades.standing(grades.fidelity_grades_in(about, drive_name, fidelity_lanes, repo, pr), fidelity_lanes, head)
     if not standing:
         facts.append(f"no fidelity grade names {head[:7]}")
-    elif found := missing(standing, about, comments, fidelity_lanes):
+    elif found := missing(standing, records, comments, fidelity_lanes):
         facts.append(missing_words(found))
     finder = grades.newest_finder(grades.finder_records(grades.finder_reviews_in(about, drive_name, repo, pr)), head)
     if finder is not None and finder["grade"] == grades.FINDER_FAIL:
         facts.append(f"the finder found majors at {head[:7]} (cci #{finder['seq']})")
     if parents := downstack(rows, row):
         facts.append(f"it is stacked on open {' and '.join(f'#{parent}' for parent in parents)}")
-    return f"{subject}: not waiting on you: {'; '.join(facts)}"
+    return f"{subject}: not waiting on {voice.you}: {'; '.join(facts)}"
 
 
-def board_fact(pr: str, head: str, board: Board) -> str:
+def board_fact(pr: str, head: str, board: Board, voice: Voice) -> str:
     rows = board.rows_for(pr)
-    at_head = [row for row in rows if grades.names_head(row.head, head)]
-    if decided := next((verdict for row in at_head if (verdict := board.decided(row))), ""):
-        entry = next(entry for row in at_head if (entry := board.entry(row)))
-        return f"you {decided} it at {head[:7]}{' at ' + pacific_text(entry['at']) if entry.get('at') else ''}"
+    if decided := next((verdict for row in rows if grades.names_head(row.head, head) and (verdict := board.decided(row))), ""):
+        when = board.taps_by_pr[pr].get("at")
+        return f"{voice.you} {decided} it at {head[:7]}{' at ' + pacific_text(when) if when else ''}"
     if rows:
         return f"its board row names {rows[-1].head[:7]}, not its head"
     return "the board holds no row for it"

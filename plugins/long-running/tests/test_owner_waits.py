@@ -154,3 +154,16 @@ def test_a_red_build_and_an_open_parent_are_named_and_his_approval_is_no_wait(re
     out = printed(capsys, Runner(outcomes, [], rows, records), "--pr", "45524")
 
     assert out == "#45524 at 632c4a5: not waiting on you: you approved it at 632c4a5 at 4:30 AM; its build is red since 4:00 AM; it is stacked on open #45521"
+
+
+def test_a_missing_grade_root_closed_or_a_desk_ok_outranks_holds_nothing(registry, capsys):
+    pipeline = record(11, "fidelity-pipeline", "review", f"fidelity: missing {HEAD} exception/E12", 98)
+    desk_ok = record(12, "fidelity-desk", "review", f"fidelity: ok {HEAD}", 90)
+    desk_missing = record(13, "fidelity-desk", "review", f"fidelity: missing {HEAD} exception/E14", 80)
+    closed = record(14, "root", "decide", "accept the E14 gap on #45507; the plan holds", 70, resolves=[13])
+
+    outranked = Runner({"doc": doc(), "interactions": {}}, [], [ledger("45507")], [pipeline, desk_ok])
+    accepted = Runner({"doc": doc(), "interactions": {}}, [], [ledger("45507")], [pipeline, desk_missing, closed])
+
+    assert printed(capsys, outranked, "--pr", "45507") == "#45507 at 632c4a5: not waiting on you: the board holds no row for it"
+    assert printed(capsys, accepted, "--pr", "45507") == "#45507 at 632c4a5: not waiting on you: the board holds no row for it; its fidelity grade by fidelity-pipeline reads missing since 3:02 AM (cci #11), unanswered"
