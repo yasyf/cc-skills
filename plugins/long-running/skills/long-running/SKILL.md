@@ -1085,6 +1085,10 @@ root quotes those lines, never a runner note or a lane's state line, when it tel
 waits on him. `cci owner-waits --drive <drive> --pr <n>` says what a PR not on the board
 really waits on: no row, a red build, a `fidelity: missing` grade unanswered since a time,
 or an open parent below it.
+The root's Stop hook checks every reply that says a PR or anything else waits on his tap,
+approval or pick against `cci owner-waits`, and sends the reply back with the real state when
+no board row at that PR's head awaits him (owner, 4:40 AM Oct 30: "there are no PRs waiting for
+taps dont lie").
 
 Every tap on the board reaches the bus the moment it happens, without the root. The
 board recorder (`board_watch.py`, launched detached per board by the
