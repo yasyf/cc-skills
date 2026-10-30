@@ -20,6 +20,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+import ghread
+
 PASS = "pass"
 PENDING = "pending"
 FAIL = "fail"
@@ -144,7 +146,7 @@ class GraphiteStackEnqueue:
         if not (computing := COMPUTING.findall(done.out)):
             return done
         for pr in dict.fromkeys(computing):
-            self.shell.run(["gh", "api", f"repos/{self.repo}/pulls/{pr}", "--jq", ".mergeable"])
+            self.shell.run(ghread.read("api", f"repos/{self.repo}/pulls/{pr}", "--jq", ".mergeable", max_age="0s"))
         for _ in range(COMPUTE_ROUNDS):
             self.shell.sleep(COMPUTE_POLL_SECONDS)
             done = self.run_settled(argv)
