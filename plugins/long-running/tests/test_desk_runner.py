@@ -1564,6 +1564,29 @@ def test_the_orca_runner_starts_one_stall_pass_at_a_time_on_the_cadence_runner_j
     assert [call for call in shell.calls if call[1:2] == [str(runner_module.STALL_WATCH)]][-1] == [sys.executable, str(runner_module.STALL_WATCH), "--config", str(config.resolve())]
 
 
+def test_a_stall_pass_that_exits_non_zero_posts_one_stall_watch_failed_to_root_per_distinct_error(shell, config, tmp_path):
+    """Oct 30: every stall pass from 4:36 AM to 8:10 AM died on a tarball an evidence record attached (#207472), and nothing said so, so no stall alarm posted for 3.5 hours."""
+    config.write_text(json.dumps(json.loads(config.read_text()) | {"stall": {"every_minutes": 5}}))
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    log = runner.config.desk_inbox.with_name("stall-watch.log")
+
+    def failed() -> list[str]:
+        return [line for line in said(shell) if line.startswith("STALL-WATCH-FAILED")]
+
+    runner.stall_watch()
+    log.write_text("Traceback (most recent call last):\nUnicodeDecodeError: 'utf-8' codec can't decode byte 0x8b in position 1: invalid start byte\n")
+    for _ in range(2):
+        shell.stall_pass.code = 1
+        shell.clock += timedelta(minutes=6)
+        runner.stall_watch()
+    [text] = failed()
+    assert text.startswith("STALL-WATCH-FAILED stall-watch-failed stall_watch.py: the last stall watch pass exited 1, so no stall alarm posts until it passes again: UnicodeDecodeError: 'utf-8' codec can't decode byte 0x8b")
+    shell.stall_pass.code = 0
+    shell.clock += timedelta(minutes=6)
+    runner.stall_watch()
+    assert len(failed()) == 1
+
+
 def launches(shell: FakeShell) -> list[list[str]]:
     return [call for call in shell.calls if Path(call[0]).name == "orca-launch.sh"]
 

@@ -272,9 +272,14 @@ def owes(record: dict, lane: str) -> bool:
 
 
 def full_text(record: dict) -> str:
-    """The whole text of `record`: the body file cci spilled it to when it ran past cci's text limit, else its text."""
+    """The whole text of `record`: the body file cci spilled it to when it ran past cci's text limit, else its text, as when its path names an attachment such as a tarball rather than a text body (#207472 stopped every stall pass for 3.5 hours on Oct 30)."""
     spilled = Path(record.get("refs", {}).get("path") or "")
-    return spilled.read_text() if spilled.is_file() else record["text"]
+    if not spilled.is_file():
+        return record["text"]
+    try:
+        return spilled.read_text()
+    except UnicodeDecodeError:
+        return record["text"]
 
 
 def gone_at(gos: list[dict], pr: str, head: str) -> list[dict]:

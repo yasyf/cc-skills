@@ -156,3 +156,12 @@ def test_the_go_state_names_the_newest_go_at_the_head_the_carry_that_reached_it_
     withdrawn = again | {"voided": {"45001"}}
     assert grades.go_state([first, withdrawn], "45001", "bbbb222222").said() == "no go names this head; the newest, go #5 by root at 10:40 PM, names aaaa111"
     assert grades.go_state([], "45001", "bbbb222222").said() == "no go names this head"
+
+
+def test_full_text_reads_a_spilled_body_and_keeps_the_record_text_when_the_path_is_a_binary_attachment(tmp_path):
+    body = tmp_path / "body.txt"
+    body.write_text("the whole body")
+    tarball = tmp_path / "logs.tgz"
+    tarball.write_bytes(b"\x1f\x8b\x08\x00binary")
+    assert grades.full_text({"text": "short", "refs": {"path": str(body)}}) == "the whole body"
+    assert grades.full_text({"text": "short", "refs": {"path": str(tarball)}}) == "short"
