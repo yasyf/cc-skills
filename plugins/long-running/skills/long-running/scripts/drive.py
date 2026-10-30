@@ -116,6 +116,8 @@ number is refused before anything is pushed.
 
 from __future__ import annotations
 
+from long_running import register_reads
+
 import argparse
 import json
 import os
@@ -258,7 +260,7 @@ def write_atomic(path: Path, payload: object) -> Path:
 
 
 def program_of(entry: dict) -> str:
-    return entry.get("program") or Path(entry["state_dir"]).name
+    return register_reads.program_of(entry)
 
 
 def cci_drive(entry: dict) -> str:

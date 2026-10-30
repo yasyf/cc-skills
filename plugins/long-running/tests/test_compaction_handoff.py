@@ -857,15 +857,13 @@ def register_drive(home: Path, monkeypatch: pytest.MonkeyPatch, **extra: str) ->
 
 def stub_slice(monkeypatch: pytest.MonkeyPatch, answer) -> list[tuple[str, ...]]:
     asked: list[tuple[str, ...]] = []
-    real = handoff.rulings
 
-    def rulings(cwd: str, *args: str, **kwargs) -> str:
-        if args[:1] != ("slice",):
-            return real(cwd, *args, **kwargs)
+    def root_slice(reader) -> str:
+        args = ("slice", "--root", "--drive", reader.entry["drive"])
         asked.append(args)
         return answer(args)
 
-    monkeypatch.setattr(handoff, "rulings", rulings)
+    monkeypatch.setattr(handoff.RegisterRead, "root_slice", root_slice)
     return asked
 
 
