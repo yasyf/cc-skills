@@ -287,7 +287,7 @@ opening, which is how its batches time out; a draft read that fails changes noth
 overflow stops and each accepted enqueue merges its prefix straight into the trunk instead (owner b530f5d), one merge in flight at a time, an incident
 squash included (owner 9:00 PM Oct 29): chain by chain, bottom first, a chain behind the latest trunk is first replayed onto its tip in the landing
 checkout with `git replay`, each PR kept only when its own patch is unchanged, pushed in one atomic push leased on the admitted heads, and merged once
-GitHub reads each PR approved again, read every minute for ten minutes, since the push dismisses the approval (root #197237, #197434); a lone PR
+GitHub reads each PR approved again, read every minute for ten minutes, since the push dismisses the approval, with no second CI run (root #197237, #197434, #197878); a lone PR
 merges by `gh pr merge --squash --match-head-commit` and a longer chain by `gh stack link` and one all-or-nothing `gh stack merge --squash` of its
 top; the run waits for each squash and posts one `MERGED #N at <head> direct as <squash>, Graphite down, b530f5d` state record per PR. A conflict,
 a changed patch or an approval that does not come back gets one blocker per head to the PR's lane and the restack lanes, and the chains above it wait. Every enqueue first settles its PRs
@@ -7027,23 +7027,19 @@ class Landing:
         for pr in chain:
             self.post_record("head", f"rebased-direct:{pr}@{landing[pr]}", ",".join(dict.fromkeys([ROOT, *map(self.successor, self.fidelity_lanes)])), f"HEAD #{pr} {landing[pr]} (was {heads[pr]}): the landing runner rebased it onto {TRUNK} {tip[:10]} for its direct merge, patch-identical to {heads[pr][:10]} by patch-id, so its go and grades carry (root #197571)", pr)
         for pr in chain:
-            if waiting := self.carried_again(pr, heads[pr], landing[pr]):
-                return landing, (pr, f"{waiting} at {landing[pr][:10]} in {APPROVAL_POLLS} minutes since the rebase push")
+            if not self.approved_again(pr):
+                return landing, (pr, f"{REVIEW_BOT} has not approved #{pr} again at {landing[pr][:10]} in {APPROVAL_POLLS} minutes since the rebase push")
         return landing, None
 
-    def carried_again(self, pr: str, admitted: str, rebased: str) -> str:
-        """What `pr` at `rebased` still lacks after `APPROVAL_POLLS` reads `APPROVAL_POLL_SECONDS` apart, empty once GitHub reads it approved and, when a root go admitted it at `admitted`, a root go names `rebased`: the rebase push dismisses the approval, the review bot approves a patch-identical head again within minutes, and the go sweep carries the go (root #197434, #197584)."""
-        needs_go = bool(self.head_gos(pr, admitted))
+    def approved_again(self, pr: str) -> bool:
+        """Whether GitHub reads `pr` approved within `APPROVAL_POLLS` reads `APPROVAL_POLL_SECONDS` apart: the rebase push dismisses the approval, and the review bot approves a patch-identical head again within minutes; the runner waits for nothing else, no go and no second CI run, since it checked the patch itself (root #197434, #197878)."""
         for poll in range(APPROVAL_POLLS):
             if poll:
                 self.shell.sleep(APPROVAL_POLL_SECONDS)
-                self.reread()
             read = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "reviewDecision", "--jq", ".reviewDecision", max_age=ghread.FRESH))
-            approved = read.out.strip() == "APPROVED"
-            gone = not needs_go or bool(self.head_gos(pr, rebased))
-            if approved and gone:
-                return ""
-        return " and ".join(filter(None, [f"{REVIEW_BOT} has not approved #{pr} again" if not approved else "", f"no root go names #{pr}" if not gone else ""]))
+            if read.out.strip() == "APPROVED":
+                return True
+        return False
 
     def own_patch(self, base: str, head: str) -> str:
         """The stable patch id of `head`'s change on `base`, empty for no change."""
