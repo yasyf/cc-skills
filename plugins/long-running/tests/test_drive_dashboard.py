@@ -103,6 +103,15 @@ def test_a_tap_at_the_head_or_a_carried_head_is_not_waiting_on_him(row, state):
     assert verdict_state(row) == state
 
 
+def test_a_board_row_waits_on_him_only_at_the_pr_current_head():
+    prs = {"42001": {"state": "open", "head": "bbbbbbb1", "test_state": "success"}, "42002": {"state": "open", "head": "ccccccc1", "test_state": "success"}}
+    rows = [{"number": 42001, "head": "aaaaaaa1", "state": "you"}, {"number": 42002, "head": "ccccccc1", "state": "you"}]
+
+    drive = drive_prs(prs, rows, [], {}, TREES, NOW)
+
+    assert {square["number"]: square["state"] for square in drive["prs"]} == {42001: "work", 42002: "you"}
+
+
 def test_the_ring_counts_exactly_the_green_squares():
     prs = {
         "42001": {"state": "landed"},
