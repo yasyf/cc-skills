@@ -1,4 +1,5 @@
 import datetime as dt
+import json
 import queue
 
 import pytest
@@ -205,3 +206,19 @@ def test_a_cc_notes_doc_is_read_once_until_its_ref_moves(monkeypatch):
     assert drive.read_doc("aaa1111") == {"markdown": "Release two", "updated": "second"}
     assert drive.read_plan()[0] == "2026-10-27T06:30:00Z"
     assert shown == ["aaa1111", "bbb2222", "aaa1111"]
+
+
+def test_the_bus_alarm_beside_the_steps_is_the_drive_wide_stop_until_the_runner_clears_it(tmp_path, monkeypatch):
+    """4:31 to 4:40 PM Oct 29 the bus hung and nothing on the dashboard said so (root #190549)."""
+    steps = tmp_path / "progress-desk" / "steps.json"
+    steps.parent.mkdir()
+    steps.write_text(json.dumps({"updated": "2026-10-30T13:00:00Z", "steps": [], "now": {"blocker": None, "release": {"name": "New code in the cloud"}}}))
+    drive = Drive({"steps": str(steps)}, None)
+    monkeypatch.setattr(drive, "board", lambda: {"rows": [], "cards": []})
+    monkeypatch.setattr(drive, "check_gos", lambda rows, records: None)
+    model = {"prs": {}, "records": [], "lanes": [], "trees": {}, "tree_names": TREES}
+    assert drive.live(model)["now"] == {"blocker": None, "release": {"name": "New code in the cloud"}}
+
+    alarm = {"since": "2026-10-30T13:31:00Z", "text": "BUS-DOWN since 6:31 AM: cci has not answered 2 probes in a row"}
+    (tmp_path / "bus-down.json").write_text(json.dumps(alarm))
+    assert drive.live(model)["now"] == {"blocker": alarm, "release": {"name": "New code in the cloud"}}

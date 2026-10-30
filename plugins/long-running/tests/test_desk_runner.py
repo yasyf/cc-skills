@@ -8640,6 +8640,7 @@ def test_the_orca_heartbeat_is_a_cci_alive_record_naming_the_runner_and_writes_n
         "terminal": "term_root",
         "restart": f"nohup desk-runner.py run --config {config.resolve()} --desk orca >> {tmp_path / 'orca-runner.log'} 2>&1 < /dev/null &",
         "version": runner_module.RUNNING_VERSION,
+        "flight": "",
     }
     assert heartbeat(shell, "landing") is None
     assert list(tmp_path.glob("inbox/*.heartbeat.json")) == [] and not (tmp_path / "desk-runner.md").exists()
@@ -12234,6 +12235,44 @@ def test_a_trunk_build_green_only_because_a_job_soft_fails_posts_post_merge_red_
     assert "dev's build https://buildkite.com/forge/test/builds/29020 has jobs failing that https://buildkite.com/forge/test/builds/29018 did not: new-tree soft-failed. Landed between the two: #29020, #29019." in red["text"]
     assert trunk_posts(shell) == []
     assert len([call for call in shell.calls if call[1:3] == ["bk", "api"]]) == 2
+
+
+def test_two_missed_bus_probes_raise_the_dashboard_alarm_and_the_first_good_read_posts_bus_recovered_once(shell, config, tmp_path):
+    """4:31 to 4:40 PM Oct 29 every cci call hung about nine minutes, and desks posted false refusals while nothing said the bus was down (root #190549)."""
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    alarm = runner.bus_alarm()
+    probes: list[list[str]] = []
+
+    def hung(argv: list[str]) -> runner_module.Done:
+        probes.append(argv)
+        return runner_module.Done(runner_module.TIMED_OUT, "", "cci tail -n 1 timed out after 15s and was killed")
+
+    def answers(argv: list[str]) -> runner_module.Done:
+        probes.append(argv)
+        return runner_module.Done(0, "", "")
+
+    shell.cci_tail = hung
+    runner.probe_bus()
+    shell.cci_tail = answers
+    runner.probe_bus()
+    shell.cci_tail = hung
+    runner.probe_bus()
+    assert not alarm.exists()
+
+    shell.clock += timedelta(minutes=1)
+    runner.probe_bus()
+    assert json.loads(alarm.read_text()) == {"since": "2026-10-01T18:00:00Z", "text": "BUS-DOWN since 11:00 AM: cci has not answered 2 probes in a row (cci tail -n 1 timed out after 15s and was killed); every desk reads no record until it answers"}
+    assert alarm.parent == config.resolve().parent
+
+    shell.clock += timedelta(minutes=9)
+    shell.cci_tail = answers
+    runner.probe_bus()
+    runner.probe_bus()
+
+    [recovered] = [post for post in shell.posts if post["text"].startswith("BUS-RECOVERED")]
+    assert (recovered["kind"], recovered["to"], recovered["text"]) == ("report", "root", "BUS-RECOVERED cci answers again; it was down from 11:00 AM for 10 min.")
+    assert not alarm.exists()
+    assert probes[0][:4] == runner_module.BUS_PROBE and runner_module.time_bound(probes[0]) == 15 and not runner_module.rereadable(probes[0])
 
 
 FLAKY_LOG = "\x1b_bk;t=1793340053769\x07~~~ Running sand tests\r\n=== RUN   TestADrainedSidecarEndsItsLagSeriesAtZero\r\n    lag_test.go:88: lag 3, want 0\r\n\x1b[31m--- FAIL: TestADrainedSidecarEndsItsLagSeriesAtZero (0.41s)\x1b[0m\r\nFAIL\r\n"

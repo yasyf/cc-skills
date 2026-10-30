@@ -560,8 +560,12 @@ restart, the orca runner starts `stall_watch.py --config <config>` detached ever
 once its last pass has exited, logging to `stall-watch.log` beside `orca.desk_inbox`.
 Each desk's heartbeat is its `<desk> alive <time> pass <n>` cci `state` record to the drive watchdog, posted when `run`
 starts and then once a minute from a thread whatever the pass is doing, whose attrs name its pid, config, terminal, restart
-command, and the plugin version the runner runs; every reader reads the newest such record, so the runner may run on any
-machine, and `desk-runner.py show` renders its state from the store. A runner behind the version `installed_plugins.json` lists posts nothing and re-executes into the installed version after
+command, the plugin version the runner runs, and its `flight`: the command in flight, `landing pass` while a landing pass
+runs, or empty, which `drive.py digest --quiet-point` reads; every reader reads the newest such record, so the runner may run on any
+machine, and `desk-runner.py show` renders its state from the store. Every minute the orca runner also reads the bus's
+newest record under 15 seconds; two misses in a row write `BUS-DOWN` with the first miss's time to `bus-down.json` beside
+`runner.json`, the drive dashboard's alarm, since the bus cannot carry news of its own outage, and the first good read
+after it posts one `BUS-RECOVERED` to root with how long the bus was down. A runner behind the version `installed_plugins.json` lists posts nothing and re-executes into the installed version after
 that pass's wait, keeping its pid, config, and desk; `--once` never re-executes. An `env` object under a desk's config
 object, such as `"landing": {"env": {"AWS_PROFILE": "release-operator"}}`, is merged into that desk's process environment
 each time `run` starts, a re-execution included, and is carried by its restart command and its `handoff` successor. `handoff` stops the live runner at the next
@@ -869,6 +873,11 @@ STALL_WATCH = SCRIPTS / "stall_watch.py"
 STALL_EVERY_MINUTES = 5
 WATCHDOG = drive.WATCHDOG
 ALIVE_EVERY = timedelta(minutes=1)
+BUS_PROBE = ["cci", "tail", "-n", "1"]
+BUS_PROBE_EVERY = timedelta(seconds=60)
+BUS_PROBE_SECONDS = 15
+BUS_MISSES = 2
+BUS_ALARM = "bus-down.json"
 DESKS = drive.DESKS
 RUNNING_VERSION = drive.plugin_manifest()["version"]
 LAUNCH_STALL = timedelta(seconds=60)
@@ -1031,6 +1040,8 @@ def quick(argv: list[str]) -> bool:
 
 
 def time_bound(argv: list[str]) -> float:
+    if argv[:4] == BUS_PROBE:
+        return BUS_PROBE_SECONDS
     if len(argv) > 2 and Path(argv[1]).name == "rulings.py" and argv[2] == "check-pr":
         return CHECK_PR_SECONDS
     if "--check" in argv:
@@ -1048,7 +1059,7 @@ def time_bound(argv: list[str]) -> float:
 
 def rereadable(argv: list[str]) -> bool:
     """Whether `argv` only reads, so a run that timed out or failed on a transient network error may run once more."""
-    return argv[:2] in (["cci", "tail"], ["cci", "who"]) or argv[:3] == ghread.GATEWAY or argv[:4] == ["ccx", "vcs", "pr", "status"] or (Path(argv[0]).name == "stack-enqueue" and bool({"--check", "--status"} & set(argv)))
+    return (argv[:2] in (["cci", "tail"], ["cci", "who"]) and argv[:4] != BUS_PROBE) or argv[:3] == ghread.GATEWAY or argv[:4] == ["ccx", "vcs", "pr", "status"] or (Path(argv[0]).name == "stack-enqueue" and bool({"--check", "--status"} & set(argv)))
 
 
 def command_family(argv: list[str]) -> str:
@@ -1774,6 +1785,8 @@ class Runner:
         self.taps: tuple[datetime, set[str]] = (datetime.min.replace(tzinfo=timezone.utc), set())
         self.cci_tail = cci.Tail(self.cci_read)
         self.read_failed_at = float("-inf")
+        self.passing: set[str] = set()
+        self.bus_misses: list[datetime] = []
         self.book.ensure(RUNNER, RUNNER)
 
     def now(self) -> datetime:
@@ -1919,13 +1932,13 @@ class Runner:
         return f"{WATCHDOG}@{self.config.drive}"
 
     def post_alive(self, desk: str) -> None:
-        """Post the desk's `<desk> alive <time> pass <n>` record to the drive watchdog at most once a minute, naming the command in flight and how long it has run when one is; its attrs carry the runner's pid, version, config, terminal and restart command, the heartbeat every reader reads from cci on whatever machine it runs."""
+        """Post the desk's `<desk> alive <time> pass <n>` record to the drive watchdog at most once a minute, naming the command in flight and how long it has run when one is; its attrs carry the runner's pid, version, config, terminal, restart command and flight, the heartbeat every reader reads from cci on whatever machine it runs."""
         if self.now() - self.alive_posted.get(desk, datetime.min.replace(tzinfo=timezone.utc)) < ALIVE_EVERY:
             return
         self.alive_posted[desk] = self.now()
         flight = self.shell.in_flight()
         doing = f"{self.passes[desk] + 1} running `{flight[0]}` for {int(flight[1]) // 60}m{int(flight[1]) % 60:02d}s" if flight else str(self.passes[desk])
-        beat = {"pid": os.getpid(), "version": RUNNING_VERSION, "config": str(self.config.source), "terminal": self.shell.env("ORCA_TERMINAL_HANDLE"), "restart": self.restart_command(desk)}
+        beat = {"pid": os.getpid(), "version": RUNNING_VERSION, "config": str(self.config.source), "terminal": self.shell.env("ORCA_TERMINAL_HANDLE"), "restart": self.restart_command(desk), "flight": flight[0] if flight else f"{desk} pass" if desk in self.passing else ""}
         attrs = [arg for name, value in beat.items() for arg in ("--attr", f"{name}={value}")]
         self.cci_post("state", f"{desk} alive {self.now().astimezone(PACIFIC).strftime('%-I:%M %p')} pass {doing}", self.watchdog, desk, f"alive:{desk}", flags=attrs)
 
@@ -1947,6 +1960,38 @@ class Runner:
 
         threading.Thread(target=tick, name=f"{desk}-alive", daemon=True).start()
         return stop
+
+    def keep_probing(self) -> threading.Event:
+        """Probe the bus every `BUS_PROBE_EVERY` from a daemon thread until the returned event is set."""
+        stop = threading.Event()
+
+        def tick() -> None:
+            while not stop.wait(BUS_PROBE_EVERY.total_seconds()):
+                self.probe_bus()
+
+        threading.Thread(target=tick, name="bus-probe", daemon=True).start()
+        return stop
+
+    def bus_alarm(self) -> Path:
+        """The drive dashboard's bus alarm, `bus-down.json` in the drive's state directory beside `runner.json`: the bus cannot carry news of its own outage."""
+        return self.config.source.with_name(BUS_ALARM)
+
+    def probe_bus(self) -> None:
+        """Read the newest record under `BUS_PROBE_SECONDS`. `BUS_MISSES` misses in a row write `BUS-DOWN` with the first miss's time to the dashboard's bus alarm; the first good read after it posts one `BUS-RECOVERED` to root with how long the bus was down, then clears the alarm."""
+        alarm = self.bus_alarm()
+        done = self.shell.run([*BUS_PROBE, "--drive", self.config.drive, "--since", "1m", "--json"])
+        if done.code != 0:
+            self.bus_misses.append(self.now())
+            if len(self.bus_misses) >= BUS_MISSES and not alarm.is_file():
+                since = self.bus_misses[0]
+                drive.write_atomic(alarm, {"since": actions.stamp(since), "text": f"BUS-DOWN since {kitchen(since)}: cci has not answered {len(self.bus_misses)} probes in a row ({(done.err or done.out).strip()[:200]}); every desk reads no record until it answers"})
+            return
+        self.bus_misses = []
+        if not alarm.is_file():
+            return
+        since = actions.parse_stamp(json.loads(alarm.read_text())["since"])
+        if self.cci_post("report", f"BUS-RECOVERED cci answers again; it was down from {kitchen(since)} for {whole_minutes(since, self.now())} min.", ROOT, "bus", f"bus-recovered:{actions.stamp(since)}", record_id=f"bus-recovered:{actions.stamp(since)}").code == 0:
+            alarm.unlink()
 
     def beat(self, desk: str) -> None:
         self.passes[desk] += 1
@@ -8621,6 +8666,7 @@ def run_orca(runner: Runner, once: bool) -> int:
     runner.keep_alive("orca")
     if not once:
         runner.keep_finding()
+        runner.keep_probing()
     while True:
         if runner.now() - rotated >= ROTATE_EVERY:
             runner.rotate_inboxes()
@@ -8722,6 +8768,7 @@ def run_landing(runner: Runner, once: bool) -> int:
     runner.keep_alive("landing")
     while True:
         started = runner.now()
+        runner.passing.add("landing")
         try:
             landing.run()
             if once:
@@ -8738,6 +8785,7 @@ def run_landing(runner: Runner, once: bool) -> int:
         except Exception as error:
             if runner.pass_raised("landing", error):
                 return 1
+        runner.passing.discard("landing")
         behind = runner.stale()
         took = (runner.now() - started).total_seconds()
         landing.post_state(took)

@@ -423,6 +423,10 @@ the owner to ask. A lane that cannot spawn records a `ccn papercut` and names th
 defect in its report, and the root dispatches the tooling lane on reading it. The
 capt-hook `tooling_nudge` hook flags these signals; the rule holds without it.
 
+Only a tooling lane installs a cci or long-running release under a live drive, and only
+once `drive.py digest --quiet-point` exits 0, so no runner pass or merge runs through
+the swap.
+
 A lesson is a process fix. When the root, a lane, or a retro names a lesson, a rule,
 or a "fix for next time", the skill or tool PR that encodes it opens in that same turn,
 from a lane spawned for it, unprompted. A lesson that lives in a status, a memory file,
