@@ -126,7 +126,7 @@ incident reached, a clocked fix lane sharing the lane's incident name, its name 
 `-<part>` such as `-fix`, `-fix-2`, or `-cred`, or its `incident=` slug, or the executor's Opus backup
 for one of them, counts as the lane's mechanism, so no mechanism fallback launches; the PR and ready thresholds stay the
 lane's own. A lane the root withdrew, or sent `stand-down` or `stopped`, ends its clock as `withdrawn by <who>` and logs
-nothing. While any clock runs, a DEADLINE, UNACKED, HOLDS-UNREAD, LIVENESS, STALE-MAIL, or RECLAIM about anything outside
+nothing. While any clock runs, a DEADLINE, UNACKED, LIVENESS, STALE-MAIL, or RECLAIM about anything outside
 the incident waits in the view, and the pass after the last clock ends posts them as one `DEFERRED <n> escalations held
 during <lanes>` record. A root `go` or `decision` to a release lane that orders a cut or `release start`, or a landing's
 `release` record this runner posted, opens a cut clock only when it names components: the order's `--target` refs, or the
@@ -317,19 +317,14 @@ under its head branch, so the next pass gates it as ours. A row `ledger.py unadm
 except by an explicit `ledger.py register`. It logs one `NOT-OURS` escalation per head of an open stack-top PR it skips
 for that reason. Every PR an open cci `hold` record
 names is held until a `lift --resolves <seq>` closes that record. No check or enqueue call names a held PR or a PR stacked above one: the gate names
-the tips below it, and a prefix a check would sweep it into is cut below it, with one `HELD-OUT` line to root naming the hold. A `hold:all <reason>` line in
-the holds file holds every open row except those a `release #<n>` or `release lane:<name>` line names. A
-`<lane> HOLD <reason>` or `HOLD <lane> <reason>` line holds a lane's open rows the way `lane:<name>` does. `holds.py`
-parses the file. A line that matches none of its forms, or a lane line naming a lane no ledger row carries in any state,
-may hold something the runner cannot name. The runner checks the file first thing on each pass, an empty ledger included: on such a pass it
-gates and enqueues nothing, and logs `HOLDS-UNREAD` once per distinct line, quoting it. Each enqueue re-reads the file under the same
-rule just before its call and completes as `blocked` on such a line. The same moment it reads every hold fresh, whatever the
-pass read earlier: the holds file, the `hold` label GitHub serves for each PR, and the PR's cci `hold` records. An enqueue completes as
-`refused`, with one `REFUSED` line naming each hold, when a line, label, or open record holds a PR in its prefix, when a `hold` record of any status was
+the tips below it, and a prefix a check would sweep it into is cut below it, with one `HELD-OUT` line to root naming the hold. Holds
+travel only as cci `hold` records, so no hold is a file on the runner's machine. Just before each enqueue call the runner reads every hold fresh, whatever the
+pass read earlier: the `hold` label GitHub serves for each PR, and the PR's cci `hold` records. An enqueue completes as
+`refused`, with one `REFUSED` line naming each hold, when a label or open record holds a PR in its prefix, when a `hold` record of any status was
 posted after the enqueue was accepted, or when the PR's newest `hold` record is newer than its newest `ready` record, so a stale
 `ready` never enqueues a PR after a hold. The same read repeats once the adapter's enqueue returns success: a hold that appeared during the
 call completes the enqueue as `dequeued`, after the adapter's dequeue takes each held PR and each PR above one back out of the queue
-top first, with a `DEQUEUED` line and a cci `stopped` record to every drive naming each; a dequeue that fails logs `DEQUEUE-FAILED`. Both outcomes enqueue again once nothing holds the prefix. The holds file stays the root's interface; a `hold` label
+top first, with a `DEQUEUED` line and a cci `stopped` record to every drive naming each; a dequeue that fails logs `DEQUEUE-FAILED`. Both outcomes enqueue again once nothing holds the prefix. A `hold` label
 on a PR holds it too, and the runner never adds or removes that label. A prefix
 enqueues only when every PR in it has a fidelity ok at its current head. A grade is a cci `review` record from
 a fidelity lane (`landing.fidelity_lane`, one lane name or a list of them, which the landing desk refuses to start without), read by the PR's
@@ -384,7 +379,7 @@ An incident fix PR on the trunk, one whose ledger lane is an `incident-` or `out
 number an open executor incident names as its `repair_pr`, and no root go, hold, lift, decide or release naming it says it is not an incident fix, takes it
 off the incident path, or owes no release, which also settles any release its landing owes, which logs `INCIDENT-TAG-CLEARED` once and gates it as a normal row, is never enqueued: in the pass its head reads `APPROVED` and every
 required check passes, `rulings.py check-pr --incident` names none of `RULINGS-UNCITED`, `RESERVED-NO-ANSWER`, or `TEST-REMOVED`,
-and the holds file, read again just before, holds no line over it,
+and no open cci `hold` record, read again just before, names it,
 the runner runs `gh pr merge <n> --squash --match-head-commit <head>` once per head, recorded as
 `land:<pr>@<head>`, and posts `landed` to the PR's lane and the root; a merge GitHub refuses logs `SQUASH-FAILED`. A head
 those checks name is not merged: it draws one `RULINGS-REFUSED` blocker to the PR's lane and the root per head and set of causes,
@@ -481,7 +476,7 @@ does at once for a terminal Orca shows closed. Everything else is kept and named
 Each escalation runs
 `cci post --drive <drive> --lane desk-runner --to root --kind <k> --topic <key>`,
 once per cause. The key is the line's second token. DECIDE maps to decide, INCIDENT to incident,
-INCIDENT-OWNED to state, UNBOUND, UNOWNED, CLASS-UNOWNED, UNACKED, INCIDENT-CLOCK, PR-SILENT, LAUNCH-STALLED, LAUNCH-DUPLICATE, HOLDS-UNREAD,
+INCIDENT-OWNED to state, UNBOUND, UNOWNED, CLASS-UNOWNED, UNACKED, INCIDENT-CLOCK, PR-SILENT, LAUNCH-STALLED, LAUNCH-DUPLICATE,
 UNGRADED-30, and SLICE-UNREAD to blocker, any *-FAILED to defect, and all other labels to report.
 Text over cci's 400-character limit is clipped; the full line is written to
 `<receipts>/cci/<hash>.txt` and attached with `--path`. A line relaying an Orca question,
@@ -615,7 +610,6 @@ import drive
 import fidelity
 import finder
 import ghread
-import holds
 import incident
 import inboxes
 import lanes
@@ -676,7 +670,7 @@ FINDER_EVERY = timedelta(seconds=15)
 FINDER_TAPS_EVERY = timedelta(minutes=5)
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "HOLDS-UNREAD": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker", "GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": "blocker", "GO-TAP-MISSING": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker", "GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": "blocker", "GO-TAP-MISSING": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 TRUNK = "dev"
@@ -800,7 +794,7 @@ APPLYING_KEYS = ("build", "step", "components")
 RELEASE_CLI = "tools/ci release"
 MANUAL_RELEASE = "manual-release-"
 MANUAL_TEMPLATE = SCRIPTS.parent / "reference" / "manual-release-brief.md"
-DEFERRABLE = frozenset({"DEADLINE", "UNACKED", "HOLDS-UNREAD", "LIVENESS", "STALE-MAIL", "RECLAIM"})
+DEFERRABLE = frozenset({"DEADLINE", "UNACKED", "LIVENESS", "STALE-MAIL", "RECLAIM"})
 DEFERRED = "deferred-escalations"
 POSTED = re.compile(r"#(\d+)")
 SWEEP_EVERY = timedelta(minutes=5)
@@ -1906,7 +1900,7 @@ class Runner:
         return self.shell.run([*argv, "--text", text])
 
     def flush(self) -> bool:
-        """Post each accepted escalation to root. While an incident clock runs, a DEADLINE, UNACKED, HOLDS-UNREAD, LIVENESS, STALE-MAIL, or RECLAIM about anything outside the incident waits in the view, and the pass after the last clock ends posts them as one DEFERRED record."""
+        """Post each accepted escalation to root. While an incident clock runs, a DEADLINE, UNACKED, LIVENESS, STALE-MAIL, or RECLAIM about anything outside the incident waits in the view, and the pass after the last clock ends posts them as one DEFERRED record."""
         failures = []
         clocks = self.live_clocks()
         incident = {alias for lane in clocks for name in (lane, *self.siblings(lane)) for alias in lane_aliases(name)}
@@ -4988,7 +4982,6 @@ class Landing:
         self.repo = config["repo"]
         self.ledger = config["ledger"]
         self.checkout = Path(config["checkout"]).expanduser()
-        self.holds = Path(config["holds"]).expanduser()
         self.release_owner = config["release_owner"]
         self.release_cli = release_cli(self.checkout, config)
         self.status_card = config.get("status_card", False)
@@ -5088,23 +5081,19 @@ class Landing:
         self.ledger_rows = rows
         return rows
 
-    def held(self, rows: dict[str, dict]) -> list[str] | None:
-        """Every PR the holds file, a rules-review block, an open cci hold, or GitHub's `hold` label holds, from one read of the file, so the gate routes no blocker for it or for the PRs stacked above it; None when that read carries a line the desk cannot hold by, and then the caller gates and enqueues nothing."""
-        entries = holds.read(self.holds)
-        if self.holds_unread(entries, rows):
-            return None
-        numbers = holds.held(entries, rows) | {pr for pr, row in rows.items() if row.get("rules_blocked") or HOLD_LABEL in row.get("labels", "").split(",")}
+    def held(self, rows: dict[str, dict]) -> list[str]:
+        """Every PR an open cci `hold` record, a rules-review block, or GitHub's `hold` label holds, so the gate routes no blocker for it or for the PRs stacked above it."""
+        numbers = {pr for pr, row in rows.items() if row.get("rules_blocked") or HOLD_LABEL in row.get("labels", "").split(",")}
         numbers |= cci.held_prs(self.cci_tail, self.runner.config.drive).keys()
         return sorted(numbers, key=int)
 
     def hold_sources(self, prs: list[str], rows: dict[str, dict]) -> str:
-        """Each of `prs` with where its hold stands: the holds file, an open cci `hold` record by seq, a rules-review block, or GitHub's `hold` label, so a reader finds the hold the runner obeys."""
-        filed = holds.held(holds.read(self.holds), rows)
+        """Each of `prs` with where its hold stands: an open cci `hold` record by seq, a rules-review block, or GitHub's `hold` label, so a reader finds the hold the runner obeys."""
         posted = cci.held_prs(self.cci_tail, self.runner.config.drive)
 
         def where(pr: str) -> str:
             row = rows.get(pr, {})
-            found = ["the holds file" if pr in filed else "", f"cci hold #{posted[pr]}" if pr in posted else "", "rules-review" if row.get("rules_blocked") else "", "the hold label" if HOLD_LABEL in row.get("labels", "").split(",") else ""]
+            found = [f"cci hold #{posted[pr]}" if pr in posted else "", "rules-review" if row.get("rules_blocked") else "", "the hold label" if HOLD_LABEL in row.get("labels", "").split(",") else ""]
             return "; ".join(filter(None, found))
 
         return " ".join(f"#{pr} ({where(pr)})" for pr in prs)
@@ -5114,7 +5103,7 @@ class Landing:
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         landed = [pr for pr, row in rows.items() if row.get("state") == "landed"]
         queued = sorted({pr for prs in self.believed_queued(rows).values() for pr in prs}, key=int)
-        held = set(holds.held(holds.read(self.holds), rows)) | {pr for pr, row in open_rows.items() if row.get("hold_reason") or HOLD_LABEL in row.get("labels", "").split(",")}
+        held = set(cci.held_prs(self.cci_tail, self.runner.config.drive)) | {pr for pr, row in open_rows.items() if row.get("hold_reason") or HOLD_LABEL in row.get("labels", "").split(",")}
 
         def url(pr: str) -> str:
             return f"https://github.com/{self.repo}/pull/{pr}"
@@ -5170,23 +5159,6 @@ class Landing:
             self.runner.escalate(f"card:{hashlib.sha1(why.encode()).hexdigest()[:8]}", "CARD-FAILED", "landing", f"the drive root card was not redrawn: {why} | post one status card with slack_dm_status, and the next pass redraws its root")
             return
         self.card_drawn = card
-
-    def holds_unread(self, entries: list[holds.Entry], rows: dict[str, dict]) -> bool:
-        """Whether `entries` carry a line the desk cannot hold by, each escalated once: a line no form matches, or a lane line naming a lane no ledger row carries in any state. Such a line may hold something the desk cannot name, so nothing is gated or enqueued on that read."""
-        faults = {
-            entry.line: f"no form matches the holds-file line `{entry.line}`, so the desk enqueues nothing until it is fixed"
-            f" | in {self.holds} write `#<pr> <why>`, `lane:<name> <why>`, `<lane> HOLD <why>`, `HOLD <lane> <why>`, `hold:all <why>`, or `release #<pr>`"
-            for entry in entries
-            if entry.unknown
-        }
-        faults |= {
-            line: f"the holds-file line `{line}` names lane {', '.join(lanes)}, which no ledger row carries, so it holds nothing and the desk enqueues nothing until it is fixed"
-            f" | in {self.holds} hold each PR as `#<pr> <why>`, or delete the line"
-            for line, lanes in holds.rowless(entries, rows).items()
-        }
-        for line, text in faults.items():
-            self.runner.escalate(f"holds:{hashlib.sha1(line.encode()).hexdigest()[:8]}", "HOLDS-UNREAD", "landing", text)
-        return bool(faults)
 
     def whole(self) -> bool:
         policy = self.runner.landing_policy()
@@ -6978,9 +6950,6 @@ class Landing:
         if landed := self.landed_now(prefix):
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "landed", "out": f"{numbered(sorted(landed, key=int))} already landed on {TRUNK}", "at": self.book.stamp()}))
             return
-        if self.held(rows) is None:
-            self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": f"{self.holds} carries a line the desk cannot hold by", "at": self.book.stamp()}))
-            return
         accepted_at = actions.parse_stamp(action.accepted_at)
         graded = Graded(enqueued_heads(key), rows, accepted_at, act=True)
         if failed := self.failing(HOLD_CHECKS, graded):
@@ -7295,17 +7264,12 @@ class Landing:
         self.runner.cci_post("state", f"GRAPHITE-DOWN since {pacific(since)}: {why}, so the landing runner squash-merges each admitted stack directly, rebased onto {TRUNK} first, until a batch starts again (owner {DIRECT_RULING})", to, GRAPHITE_DOWN, f"graphite-down:{actions.stamp(since)}", record_id=f"graphite-down:{actions.stamp(since)}")
 
     def holding(self, prefix: list[str], rows: dict[str, dict], accepted_at: datetime) -> dict[str, str]:
-        """Why each PR of `prefix` may not be in the queue right now, read fresh: a holds-file line, an open cci `incident` record that names it, whose lane squash-merges the fix directly (ef905a6), the `hold` label on GitHub, an open cci `hold` record, a `hold` record posted after this enqueue was accepted, or a `hold` record newer than the PR's newest `ready` record. A label read GitHub refuses holds the PR too."""
-        entries = holds.read(self.holds)
-        held = holds.held(entries, rows)
+        """Why each PR of `prefix` may not be in the queue right now, read fresh: an open cci `incident` record that names it, whose lane squash-merges the fix directly (ef905a6), the `hold` label on GitHub, an open cci `hold` record, a `hold` record posted after this enqueue was accepted, or a `hold` record newer than the PR's newest `ready` record. A label read GitHub refuses holds the PR too."""
         drive = self.runner.config.drive
         incidents = [record for record in cci.records(self.cci_tail.run, drive, "--kind=incident") if (record["kind"], record["drive"], record["status"]) == ("incident", drive, "open")]
         why = {}
         for pr in prefix:
-            if pr in held:
-                line = next(entry.line for entry in entries if pr in holds.held([entry], rows))
-                why[pr] = f"the holds-file line `{line}`"
-            elif named := [record for record in incidents if names_pr({**record, "text": full_text(record)}, pr)]:
+            if named := [record for record in incidents if names_pr({**record, "text": full_text(record)}, pr)]:
                 why[pr] = f"open INCIDENT #{named[-1]['seq']}, whose lane squash-merges it directly, never through the queue"
             elif reason := self.label_hold(pr) or self.record_hold(pr, accepted_at):
                 why[pr] = reason
@@ -7493,7 +7457,7 @@ class Landing:
                 owner = self.owner(pr, row)
                 self.post_blocker(refusal, ",".join(dict.fromkeys([*(self.reach(owner) if owner else []), ROOT])), self.dead_note(owner) + text, pr)
             return
-        if pr in holds.held(holds.read(self.holds), {pr: row}):
+        if pr in cci.held_prs(self.cci_tail.run, self.runner.config.drive):
             return
         self.check_precondition(Graded({pr: view["headRefOid"]}, {pr: row}, self.runner.now(), act=True))
         with DIRECT_MERGING:
@@ -7626,8 +7590,9 @@ class Landing:
         self.cci_tail.remember()
         try:
             self.statuses, self.queues_read, self.gos, self.cleared, self.board = None, False, None, {}, None
-            if self.quota_low() or (rows := self.rows()) is None or (held := self.held(rows)) is None or self.checks_paused() or (queue := self.queue_states()) is None:
+            if self.quota_low() or (rows := self.rows()) is None or self.checks_paused() or (queue := self.queue_states()) is None:
                 return
+            held = self.held(rows)
             open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
             landable = self.overflow_landable(open_rows, held, queue)
 
@@ -8091,7 +8056,7 @@ class Landing:
             return ["the ledger could not be listed"]
         if (statuses := self.pr_statuses()) is None:
             return ["the status read failed; see the STATUS-READ-FAILED escalation"]
-        held = set(self.held(rows) or [])
+        held = set(self.held(rows))
         gos = self.root_gos()
         lines = []
         for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
@@ -8458,12 +8423,10 @@ class Landing:
             return
         if self.status_card:
             self.draw_card(rows)
-        entries = holds.read(self.holds)
-        unread = self.holds_unread(entries, rows)
         if not rows:
             return
         self.carry_taps(rows)
-        held = self.held(rows) if advanced and read and not unread else None
+        held = self.held(rows) if advanced and read else None
         self.held_now = held or []
         gating = held is not None and not self.checks_paused()
         self.no_go = self.unpassed(rows) if gating else set()

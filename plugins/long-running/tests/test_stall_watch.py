@@ -28,6 +28,10 @@ def record(seq: int, lane: str, kind: str, text: str, minutes_ago: float, pr: st
     return {"seq": seq, "drive": DRIVE, "lane": lane, "kind": kind, "at": stamp(minutes_ago), "text": text, "to": ["root"], "refs": {"prs": [f"{REPO}#{pr}"]} if pr else {}} | extra
 
 
+def hold(seq: int, text: str, *prs: str) -> dict:
+    return record(seq, "root", "hold", text, 300, status="open", refs={"prs": [f"{REPO}#{pr}" for pr in prs]})
+
+
 def head(seq: int, pr: str, sha: str, minutes_ago: float, text: str = "") -> dict:
     return record(seq, "api-lane", "head", text or f"HEAD #{pr} {sha}", minutes_ago, pr)
 
@@ -114,7 +118,7 @@ def config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
                 "store": str(tmp_path / "store"),
                 "drive": DRIVE,
                 "orca": {"desk_inbox": str(tmp_path / "inbox/orca-desk.md")},
-                "landing": {"repo": REPO, "ledger": "abc", "checkout": str(tmp_path / "checkout"), "holds": str(tmp_path / "holds.md"), "fidelity_lane": "fidelity-desk", "merge_mode": "every", "trunk_check": "buildkite/test"},
+                "landing": {"repo": REPO, "ledger": "abc", "checkout": str(tmp_path / "checkout"), "fidelity_lane": "fidelity-desk", "merge_mode": "every", "trunk_check": "buildkite/test"},
                 "stall": {},
             }
         )
@@ -225,8 +229,7 @@ def test_a_go_whose_green_head_the_review_bot_holds_or_waits_to_see_restacked_go
 
 
 def test_gos_stacked_on_one_parent_post_once_naming_the_parent_and_a_held_parent_draws_none(config, tmp_path):
-    (tmp_path / "holds.md").write_text("#301 waits on the schema release\n")
-    records = [record(1, "root", "go", f"go #202 at {OTHER[:7]}", 12), record(2, "root", "go", f"go #203 at {OLD[:7]}", 11), record(3, "root", "go", f"go #302 at {OTHER[:7]}", 12)]
+    records = [record(1, "root", "go", f"go #202 at {OTHER[:7]}", 12), record(2, "root", "go", f"go #203 at {OLD[:7]}", 11), record(3, "root", "go", f"go #302 at {OTHER[:7]}", 12), hold(900, "hold #301 waits on the schema release", "301")]
     rows = [row("201"), row("202", OTHER, base="b201"), row("203", OLD, base="b202"), row("301"), row("302", OTHER, base="b301")]
     shell = FakeShell(records, rows)
 
@@ -490,8 +493,7 @@ def test_a_desk_runner_whose_alive_record_went_silent_stalls_to_root_with_its_re
 
 
 def test_a_held_pr_draws_no_stall(config, tmp_path):
-    (tmp_path / "holds.md").write_text("#101 waits on the schema release\n")
-    shell = FakeShell([head(1, "101", HEAD, 40)], [row("101"), row("102", OTHER, hold_until=stamp(-60))])
+    shell = FakeShell([head(1, "101", HEAD, 40), hold(900, "hold #101 waits on the schema release", "101")], [row("101"), row("102", OTHER, hold_until=stamp(-60))])
     shell.records.append(head(2, "102", OTHER, 40))
 
     watch(shell, config)
@@ -500,11 +502,10 @@ def test_a_held_pr_draws_no_stall(config, tmp_path):
 
 
 def test_a_red_head_goes_to_its_live_lane_every_half_hour_to_root_once_when_no_live_lane_owns_it_and_probe_reds_fold_into_one_daily_line(config, tmp_path):
-    (tmp_path / "holds.md").write_text("#103 waits on the schema release\n")
     red = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/9", "job": "Lint (fmt, clippy)", "error": "error: used `expect()` on a `Result` value", "probe": False}
     probe = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/8", "job": "Run api tests", "error": "buildkite-agent: fatal: failed to get step: 404 Not Found", "probe": True}
     bot = {"name": "ai-review", "url": "https://github.com/Forge-AI/monorepo/runs/7"}
-    records = [record(1, "api-lane", "state", "working on #101", 5), record(2, "root", "answer", "root reassigns #105 (gone-lane) to api-lane; #106 to other-lane", 4), record(3, "old-lane-2", "state", "took over #107", 3)]
+    records = [record(1, "api-lane", "state", "working on #101", 5), record(2, "root", "answer", "root reassigns #105 (gone-lane) to api-lane; #106 to other-lane", 4), record(3, "old-lane-2", "state", "took over #107", 3), hold(900, "hold #103 waits on the schema release", "103")]
     shell = FakeShell(
         records,
         [
@@ -627,9 +628,8 @@ def test_a_drifted_base_stale_stays_open_through_a_head_record_that_changes_noth
     assert "stale:101:abc1234" not in opened(config) and shell.topics() == ["stale:101:abc1234"]
 
 
-def test_a_pr_in_a_holds_lines_leading_run_draws_no_board_stall(config, tmp_path):
-    (tmp_path / "holds.md").write_text("#100 #101 restack onto #200 and land after the cloud-runs batch\n")
-    shell = FakeShell([*graded(1, "101", HEAD, 150), *graded(4, "200", HEAD, 150)], [row("101"), row("200", test_state="pending")])
+def test_a_pr_a_hold_record_names_by_ref_draws_no_board_stall(config, tmp_path):
+    shell = FakeShell([*graded(1, "101", HEAD, 150), *graded(4, "200", HEAD, 150), hold(900, "hold the batch: restack onto #200 and land after the cloud-runs batch", "100", "101")], [row("101"), row("200", test_state="pending")])
 
     watch(shell, config)
 
@@ -693,10 +693,9 @@ def test_a_quiet_lane_with_open_prs_stalls_only_when_it_owes_a_record_or_a_fix(c
     [({}, []), ({"test_state": "failure"}, ["stale:303:abc1234"])],
     ids=["gates-on-the-tap-list", "a-gate-is-red"],
 )
-def test_a_held_batch_whose_holds_line_names_prs_on_or_stacked_above_the_tap_list_posts_one_state_record_per_head_and_a_red_gate_stales_only_itself(config, tmp_path, gate, stales):
+def test_a_held_batch_whose_hold_record_names_prs_on_or_stacked_above_the_tap_list_posts_one_state_record_per_head_and_a_red_gate_stales_only_itself(config, tmp_path, gate, stales):
     merge_mode(config, "ask")
-    (tmp_path / "holds.md").write_text("#201 held (root #159418): lands after #301 and #302\n#202 held (root #159418): same batch as #201\n")
-    records = [*graded(1, "201", HEAD, 150), *graded(4, "202", HEAD, 150), *graded(7, "301", HEAD, 150), *graded(10, "302", HEAD, 150), *graded(13, "303", HEAD, 150)]
+    records = [*graded(1, "201", HEAD, 150), *graded(4, "202", HEAD, 150), *graded(7, "301", HEAD, 150), *graded(10, "302", HEAD, 150), *graded(13, "303", HEAD, 150), hold(900, "hold #201 (root #159418): lands after #301 and #302", "201"), hold(901, "hold #202 (root #159418): same batch as #201", "202")]
     shell = FakeShell(records, [row("201"), row("202"), row("301"), row("302", base="b303"), row("303", **gate)])
     shell.doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": number, "head": HEAD[:7]} for number in (301, 302, 303)]}]}]}
 
@@ -712,8 +711,7 @@ def test_a_held_batch_whose_holds_line_names_prs_on_or_stacked_above_the_tap_lis
 @pytest.mark.parametrize(("tap", "stales"), [(None, []), ("approved", ["stale:201:abc1234"])], ids=["parent-untapped", "parent-tapped"])
 def test_a_row_held_behind_an_open_untapped_parent_never_stales(config, tmp_path, tap, stales):
     merge_mode(config, "ask")
-    (tmp_path / "holds.md").write_text("#201 lands as the top of the cloud-runs batch above #301 (root 162279)\n")
-    shell = FakeShell([*graded(1, "201", HEAD, 150), *graded(4, "301", HEAD, 150)], [row("201"), row("301", test_state="pending")])
+    shell = FakeShell([*graded(1, "201", HEAD, 150), *graded(4, "301", HEAD, 150), hold(900, "hold #201 lands as the top of the cloud-runs batch above #301 (root 162279)", "201")], [row("201"), row("301", test_state="pending")])
     shell.doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": 301, "head": HEAD[:7]}]}]}]}
     if tap:
         shell.triage = {"merge-prs": {"301": {"verdict": tap, "head": HEAD[:7], "at": stamp(140)}}}
@@ -726,16 +724,15 @@ def test_a_row_held_behind_an_open_untapped_parent_never_stales(config, tmp_path
 @pytest.mark.parametrize(
     ("line", "pr_block", "answer", "topic"),
     [
-        ("#401 off the merge card until his pick on the eviction-card question", True, None, "tap-wait:401:abc1234"),
-        ("#401 waits on eviction-route-choice", False, None, "tap-wait:401:abc1234"),
-        ("#401 off the merge card until his pick on the eviction-card question", True, {"optionIds": ["eviction-route-app"]}, "stale:401:abc1234"),
+        ("hold #401 off the merge card until his pick on the eviction-card question", True, None, "tap-wait:401:abc1234"),
+        ("hold #401 waits on eviction-route-choice", False, None, "tap-wait:401:abc1234"),
+        ("hold #401 off the merge card until his pick on the eviction-card question", True, {"optionIds": ["eviction-route-app"]}, "stale:401:abc1234"),
     ],
     ids=["card-holding-the-pr-unanswered", "block-id-unanswered", "card-answered"],
 )
 def test_a_hold_on_an_owner_card_waits_while_the_card_is_unanswered_and_stales_once_he_answers(config, tmp_path, line, pr_block, answer, topic):
     merge_mode(config, "ask")
-    (tmp_path / "holds.md").write_text(line + "\n")
-    shell = FakeShell(graded(1, "401", HEAD, 150), [row("401")])
+    shell = FakeShell([*graded(1, "401", HEAD, 150), hold(900, line, "401")], [row("401")])
     children = [{"id": "eviction-route-choice", "type": "choice", "options": [{"id": "eviction-route-app"}]}, *([{"id": "eviction-route-pr", "type": "pr", "number": 401}] if pr_block else [])]
     shell.doc = {"blocks": [{"id": "card-eviction", "type": "card", "children": children}]}
     shell.choices = {"eviction-route-choice": answer}
@@ -910,8 +907,7 @@ def test_a_pr_that_moved_less_than_two_hours_ago_is_not_stale_and_a_new_state_on
 
 
 def test_a_stale_stack_posts_once_from_its_lowest_stale_pr_a_held_pr_counts_and_a_lane_with_no_live_record_goes_to_root(config, tmp_path):
-    (tmp_path / "holds.md").write_text("#301 waits on the schema release\n")
-    records = [*graded(1, "201", HEAD, 200), *graded(4, "202", OTHER, 200), *graded(7, "203", OLD, 200), head(10, "301", HEAD, 200)]
+    records = [*graded(1, "201", HEAD, 200), *graded(4, "202", OTHER, 200), *graded(7, "203", OLD, 200), head(10, "301", HEAD, 200), hold(900, "hold #301 waits on the schema release", "301")]
     rows = [row("201", mergeable_state="dirty", lane="gone-lane"), row("202", OTHER, base="b201", test_state="pending"), row("203", OLD, base="b202", test_state="pending"), row("301")]
     shell = FakeShell(records, rows)
     shell.doc = {"blocks": [{"id": f"merge:201:{HEAD[:7]}", "type": "card", "children": []}]}

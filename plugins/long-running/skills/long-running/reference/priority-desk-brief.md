@@ -20,7 +20,7 @@ GO record with `--ccn <answer id> --topic standing` under [I6](../SKILL.md#desk-
 
 Other desks post these lanes' traffic with `cci post --to <outcome>-desk` and
 stop handling them.
-The root owns the holds file. Read the desk's 15-minute reports and read priority
+The root owns holds, which are cci `hold` records. Read the desk's 15-minute reports and read priority
 PR state directly in one batched `ccx vcs pr status <n1> <n2> ...` call.
 Dispatch every owed item with no PR in the same turn under R13.
 Follow [Desk inboxes](../SKILL.md#desk-inboxes) if the cursor stays stale.
@@ -40,7 +40,6 @@ Authority: drive only the named lanes; enqueue their green, approved, unheld
 Verified facts, do not re-derive:
   repo <owner/name>; base branch <base>; checkout <path, read-only for you>
   ledger <id>; cci drive <drive>; tools ledger.py, cci, and desk-wait.sh, on PATH by name
-  holds file <path>, root-owned
   cci cursor <outcome>-desk; addressed records use --to <outcome>-desk
   team mailbox source `mailbox:<outcome>-desk`, resolved by desk-wait; mailbox cursor <path>
   standing rules <live scope:durable answer ids, plus the plan's Decisions;
@@ -103,17 +102,14 @@ Do, in this order, every iteration:
      `(#N)` squash on the freshly fetched base branch under R7.
   2. Act on all owed items in parallel, one dispatch per lane in this iteration:
      - Enqueue each stack's largest ready, unqueued bottom prefix at once. Lanes never
-       enqueue under D1; never enqueue above a held PR or any PR of a held lane.
+       enqueue under D1; never enqueue above a held PR.
        Lanes report `held` on the tip, name the held PR, and leave release to the root.
        `stack-enqueue` takes no hold flag and reads no holds, so the hold check
        below is the only thing keeping a held PR out of a hand enqueue.
-       Before every enqueue, re-read the root's holds file. Each line names one
-       held PR as a leading #<n>, or whole lanes as lane:<name>, `<lane> HOLD`, or
-       `HOLD <lane>`, then the reason. Add the PRs `ledger.py held --drive <drive>`
-       prints and every open PR whose row's lane matches one of those lane entries,
-       from `ledger.py show --ledger <id> --json` across the whole ledger, even
-       for a shard. Never cache this held set. Mirror it with `ledger.py hold`,
-       the reasons, and expiries under D6; lift holds when the root removes them.
+       Before every enqueue, re-read the held set: the PRs
+       `ledger.py held --drive <drive>` prints from open cci `hold` records.
+       Never cache it. Mirror it with `ledger.py hold`, the reasons, and expiries
+       under D6; lift a mirror when its record is resolved.
        Where the checkout carries an enqueue script, call it directly: one
        `stack-enqueue <prefix top>` per prefix in one Bash call,
        each backgrounded with `&`, then `wait` and collect each output. Report
@@ -130,7 +126,7 @@ Do, in this order, every iteration:
        the first PR above it to its owning lane; Orca routes use
        `desk-runner.py relay --config C --key R<n> --lane L --text T`.
      - Route an ejection, conflict, or red to its lane at once. The lane rebases,
-       fixes the blocker, and re-enqueues when the gates and holds file permit.
+       fixes the blocker, and re-enqueues when the gates and holds permit.
        Relaunch a dead lane in this iteration.
      - For pushed heads with no PR, tell the lane to submit those exact heads
        as one linear stack in this turn and report the numbers. If it has not
@@ -151,10 +147,10 @@ Rules:
     the iteration ends.
   - Apply R7 before stating any PR's state. Read it; never report from memory.
   - Never touch another desk's lanes. Forward traffic for them to their desk.
-  - Only the root edits the holds file. Priority approval covers only the named
+  - Only the root posts or resolves a hold. Priority approval covers only the named
     head under D1. Every stack takes D3's gates.
 
-Do NOT touch: another desk's lanes; worker files or branches; the holds file;
+Do NOT touch: another desk's lanes; worker files or branches; hold records;
   production; merge labels by hand.
 Worktree: none. The checkout is for reads and fetching the base branch.
 Finish: when every owed item is landed or proven, send the complete owed list

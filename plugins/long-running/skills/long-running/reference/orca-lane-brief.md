@@ -168,8 +168,7 @@ Worktree and VCS:
 Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkout):
 - Ledger `<id>`; script `ledger.py`, on PATH by name; repo
   `<owner/name>`; base `<base>`.
-- Holds file `<path>`, root-owned; #<n> names a held PR, and lane:<name>, `<lane> HOLD`,
-  or `HOLD <lane>` a held lane, followed by the reason. Only the root edits it.
+- Holds are root cci `hold` records; `ledger.py held --drive <drive>` prints the held PRs.
 - You are a separate session. Register your prefix and report verdicts yourself;
   in a Claude session `ccx vcs ship` records each PR you open in the ledger and posts its
   `opened` record on cci, so never post `opened` yourself; a Codex session runs the
@@ -184,7 +183,7 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   only enqueuer, and the pack's `lane_landing` hook refuses `stack-enqueue`, `gt merge`,
   `gh pr merge`, and `ledger.py label` from a lane. Report READY the moment a PR is green;
   the landing runner enqueues the largest green, approved, unheld bottom prefix against the
-  holds file. On a held PR or a PR of a held lane, report `held` on your tip with the held
+  open cci `hold` records. On a held PR, report `held` on your tip with the held
   PR named and leave release to the root. After the prefix lands, restack the rest with
   `ccx vcs stack submit`.
 - After opening a PR, run

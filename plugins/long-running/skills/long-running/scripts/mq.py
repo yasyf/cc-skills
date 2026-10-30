@@ -18,7 +18,7 @@
     mq.py --config PATH recover PR...
 
 STDLIB ONLY. `--config` is the drive's desk-runner `runner.json`; every verb reads the same ledger,
-holds file, action store, and repository adapter the landing desk runs on. `status` prints each enqueue
+cci hold records, action store, and repository adapter the landing desk runs on. `status` prints each enqueue
 this drive's store believes queued and each open tree in the order the desk gates it. `gos` prints each
 open PR a standing root go names that the queue does not hold, with the head the go names, the queue state
 and verdict from one batched status read, and any hold, never a GitHub read per PR. `why` prints the
@@ -27,7 +27,9 @@ configured check, posting nothing. `gate` prints each hold or enqueue check that
 `stack-enqueue` of the PRs puts in the queue, and exits 1 when it prints any. `enqueue` runs that gate and
 enqueues through the desk's adapter only when it prints nothing, then names the head the queue took
 for each PR, and posts a note for one that moved while the call ran; it is the hand enqueue a desk runs. `checks` prints the registry in order with the stage each runs at.
-`hold` and `lift` write and remove the PR's holds-file line through holds.py. `priority` sets the
+`hold` posts a root cci `hold` record leading `hold #<n> <reason>`, and `lift` posts one `lift` record
+resolving every open hold record that holds the PR, naming any other PR such a record held, which lifts
+with it. `priority` sets the
 ledger `priority` the desk orders trees and enqueue waves by, lower first. `dequeue` refuses a PR this
 drive's queue does not answer for, naming the drives whose records name it; otherwise it takes the PR
 out through the adapter and posts a cci `stopped` record to every drive that names it, and the desk
@@ -43,7 +45,7 @@ import sys
 from pathlib import Path
 
 import actions
-import holds
+import cci
 
 SCRIPTS = Path(__file__).resolve().parent
 
@@ -86,9 +88,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, shell=None) -> int:
     args = build_parser().parse_args(argv)
-    if args.verb in ("hold", "lift"):
-        edit = ["add", "--pr", args.pr, "--reason", args.reason] if args.verb == "hold" else ["rm", "--pr", args.pr]
-        return holds.main(["--config", str(args.config), *edit])
     runner_module = desk_runner()
     config = runner_module.Config.load(args.config)
     if fault := runner_module.mq_config_fault(config.landing):
@@ -96,6 +95,8 @@ def main(argv: list[str] | None = None, shell=None) -> int:
         return 3
     runner = runner_module.Runner(shell or runner_module.Shell(), config, actions.Store(config.store))
     landing = runner_module.Landing(runner, config.landing)
+    if args.verb in ("hold", "lift"):
+        return hold_or_lift(runner_module, runner, landing, args)
     if args.verb == "checks":
         print("\n".join(f"{name} {runner_module.CHECK_STAGES[name]}" for name in landing.checks))
         return 0
@@ -133,6 +134,23 @@ def main(argv: list[str] | None = None, shell=None) -> int:
     code, text = landing.adapter.recover(args.prs)
     print(text)
     return code
+
+
+def hold_or_lift(runner_module, runner, landing, args: argparse.Namespace) -> int:
+    pr = args.pr.lstrip("#")
+    post = ["cci", "post", "--drive", runner.config.drive, "--lane", runner_module.ROOT, "--to", "all", "--pr", f"{landing.repo}#{pr}"]
+    if args.verb == "hold":
+        done = runner.shell.run([*post, "--kind", "hold", "--text", f"hold #{pr} {args.reason}"])
+        print((done.out or done.err).strip(), file=sys.stderr if done.code else sys.stdout)
+        return done.code
+    holding = [record for record in cci.open_holds(runner.cci_tail, runner.config.drive) if pr in cci.held_by(record)]
+    if not holding:
+        print(f"no open cci hold record holds #{pr}")
+        return 0
+    others = sorted({other for record in holding for other in cci.held_by(record)} - {pr}, key=int)
+    done = runner.shell.run([*post, "--kind", "lift", "--resolves", ",".join(str(record["seq"]) for record in holding), "--text", f"lift #{pr}"])
+    print((done.out or done.err).strip() + (f"; the same records held {', '.join(f'#{other}' for other in others)}, which lift too" if others and not done.code else ""), file=sys.stderr if done.code else sys.stdout)
+    return done.code
 
 
 if __name__ == "__main__":

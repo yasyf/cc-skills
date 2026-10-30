@@ -629,7 +629,7 @@ stops the clock. Three rules keep the clock to the incident, not the lane:
   has no PR.
 - A clock whose lane the root withdrew, or sent `stand-down` or `stopped`, ends as
   `withdrawn by <who>` and posts no `INCIDENT-CLOCK` line.
-- While any incident clock runs, `DEADLINE`, `UNACKED`, `HOLDS-UNREAD`, `LIVENESS`,
+- While any incident clock runs, `DEADLINE`, `UNACKED`, `LIVENESS`,
   `STALE-MAIL`, and `RECLAIM` escalations about anything outside the incident go to
   the runner's view only. When the last clock ends they reach the root as one
   `DEFERRED <n> escalations held during <incident>` record naming each.
@@ -1356,7 +1356,7 @@ merge queue and owns D3, D14, D16, and D20, including for shards. It reaches the
 repository's queue through the adapter `landing.adapter` names in `runner.json`:
 `graphite-stack-enqueue` runs the repository's own stack-enqueue script, and `label`
 runs `ledger.py label` for a queue that takes the `merge` label. The landing desk
-never enqueues beside it. The root owns the holds file and priority PRs under D3,
+never enqueues beside it. The root owns holds and priority PRs under D3,
 and steers the queue with `mq.py`. It receives P0 lines immediately and a summary
 every 30 minutes.
 
@@ -1391,13 +1391,13 @@ will ship through one merge queue or the drive will outlive one context window. 
 that the lane that opened the PR lands it, or the root lists it for the label watch
 under Mechanics, and there is no desk.
 
-**D1. The landing desk is the only enqueuer; lanes report; the root owns holds and priority PRs.** A lane never runs `stack-enqueue` (outside `--check` and `--status`), `gt merge`, `gh pr merge`, or `ledger.py label`, and never adds a `merge` or `merge-fast` label. The pack's `lane_landing` hook refuses those commands against the drive's repo, read from the drive registry, from every lane except the desks (`landing-desk`, its shards, priority desks), `desk-runner`, `merge-train` lanes, and incident lanes, named `incident-` or `outage-` or briefed with a `ccx: incident=<id>` line other than `none`, or named `<x>-fix` and briefed with its own `Register slice: lane=<x>-fix step=incident` line, which it refuses only `stack-enqueue` and `gh pr merge --admin` and lets run `gh pr merge <n> --squash`: incident fixes land by plain squash the pass they are approved and green (ef905a6), and the landing runner merges them. The same pack refuses `mq.py dequeue`, `requeue`, `priority`, `recover`, `hold`, and `lift` from every lane, desks included: only the root steers the queue. A tooling lane merges its own PRs in other repos. The merge queue enqueues every bottom prefix its check registry passes under D3, through its adapter in every repository. A hold is a holds-file line, an open cci `hold` record, which `ledger.py held --drive <drive>` prints, or GitHub's `hold` label. Only the queue's `hold` check reads holds: no adapter takes a hold flag or reads one. A lane's `cci post --kind hold --pr <n>` holds that PR until a `lift --resolves <seq>` closes the record. The queue re-reads every hold just before each enqueue call, never a cached set.
+**D1. The landing desk is the only enqueuer; lanes report; the root owns holds and priority PRs.** A lane never runs `stack-enqueue` (outside `--check` and `--status`), `gt merge`, `gh pr merge`, or `ledger.py label`, and never adds a `merge` or `merge-fast` label. The pack's `lane_landing` hook refuses those commands against the drive's repo, read from the drive registry, from every lane except the desks (`landing-desk`, its shards, priority desks), `desk-runner`, `merge-train` lanes, and incident lanes, named `incident-` or `outage-` or briefed with a `ccx: incident=<id>` line other than `none`, or named `<x>-fix` and briefed with its own `Register slice: lane=<x>-fix step=incident` line, which it refuses only `stack-enqueue` and `gh pr merge --admin` and lets run `gh pr merge <n> --squash`: incident fixes land by plain squash the pass they are approved and green (ef905a6), and the landing runner merges them. The same pack refuses `mq.py dequeue`, `requeue`, `priority`, `recover`, `hold`, and `lift` from every lane, desks included: only the root steers the queue. A tooling lane merges its own PRs in other repos. The merge queue enqueues every bottom prefix its check registry passes under D3, through its adapter in every repository. A hold is an open cci `hold` record, which `ledger.py held --drive <drive>` prints, or GitHub's `hold` label. Only the queue's `hold` check reads holds: no adapter takes a hold flag or reads one. A lane's `cci post --kind hold --pr <n>` holds that PR until a `lift --resolves <seq>` closes the record. The queue re-reads every hold just before each enqueue call, never a cached set.
 
 The lane's part is the report. The moment a PR is green, it reports `READY` with `ledger.py report --drive <drive>`, then keeps `ccx vcs pr watch` on the stack. On ejection or conflict it rebases at once and reports the new head; the runner re-enqueues it. It is not finished until its squash `(#N)` is on the base branch. After the prefix lands, it restacks the PRs above it with `ccx vcs stack submit`. No ruling is needed.
 
 A ready stack is enqueued as one batch from any of its PRs: the adapter lands the largest green bottom prefix in one call, never the first PR alone and the rest later, and never through the `merge` label or `gt merge` on one PR of a stack. On a stalled queue, where a head's draft closed unmerged, the root reads `mq.py --config <runner config> why <head>`, then runs `mq.py recover <head>`.
 
-Only the root edits the holds file, and only through `holds.py`, never a hand or `python` rewrite. `holds.py --config <runner config> add --pr <n> --reason "<why>"` writes `#<n> <why>`, `add --lane <name> --reason "<why>"` writes `lane:<name> <why>`, `rm --pr <n>` or `rm --lane <name>` lifts that entry, and `list` prints each line with what it holds; `--file <holds file>` names the file directly. A line holds the one PR its leading `#<n>` names, and a later `#<n>` in the reason is prose. `add` refuses a reason that carries `lane:<name>`, and refuses a PR line whose reason says the PR should land, such as `ours to land`: lift its hold with `rm` instead. The runner reads the same file through `holds.py`, the one parser. It also reads a lane hold written by hand as `<lane> HOLD <why>` or `HOLD <lane> <why>`, which holds what `lane:<name>` holds: every open ledger row of that lane. A line that matches no form stops the landing pass, and so does a lane line naming a lane no ledger row carries in any state, because it holds nothing: the runner gates and enqueues nothing and posts `HOLDS-UNREAD` to the root once per distinct line, quoting it, until the line is fixed. The runner checks first thing on each pass, an empty ledger included, and each enqueue re-reads the file under the same rule just before its call. That moment it also reads the `hold` label and the PR's cci `hold` and `ready` records fresh, refuses with one `REFUSED` line when any holds it or a `hold` record is newer than its newest `ready` record, and repeats the read once the adapter's enqueue returns, taking a prefix a hold appeared on back out of the queue through the adapter's dequeue, with a `DEQUEUED` line and a cci `stopped` record to every drive that names each PR. Hold a pull request whose lane has no row by its `#<n>`. Blank lines are fine. `add --all --reason "<why>"` writes `hold:all <why>`, `release --pr <n> --reason "<why>"` or `release --lane <name> --reason "<why>"` writes `release #<n> <why>` or `release lane:<name> <why>`, and `rm --all` or `rm --pr <n> --release` takes one back; a release reason that names another `#<n>` or `lane:<name>` is refused, since the runner would read it as a second release. Under a `hold:all <reason>` line the landing runner holds every open row except those a `release #<n>` or `release lane:<name>` line names. The runner never enqueues a prefix containing or sitting above a held PR, including any PR of a held lane; the lane reports `held` on its tip, names the held PR, and leaves that PR and those above it to the root to release. The desk mirrors each entry as a `ledger.py hold` with that reason so `label` refuses it, and lifts it when the root removes the line.
+Holds travel only as cci records, so the landing runner reads no hold from a file and can run on any machine. The root holds a PR with `mq.py --config <runner config> hold <n> --reason "<why>"`, which posts a root `hold` record leading `hold #<n> <why>`, or with `cci post --kind hold` naming the PRs by `--pr`; a record holds the one PR its text leads with as `hold #<n>`, else every PR its refs name, and a later `#<n>` in the text is prose. `mq.py lift <n>` posts one `lift` record resolving every open hold record that holds the PR, and any record that resolves a hold lifts it. Just before each enqueue call the runner reads the `hold` label and the PR's cci `hold` and `ready` records fresh, refuses with one `REFUSED` line when any holds it or a `hold` record is newer than its newest `ready` record, and repeats the read once the adapter's enqueue returns, taking a prefix a hold appeared on back out of the queue through the adapter's dequeue, with a `DEQUEUED` line and a cci `stopped` record to every drive that names each PR. The runner never enqueues a prefix containing or sitting above a held PR; the lane reports `held` on its tip, names the held PR, and leaves that PR and those above it to the root to release.
 
 Lanes record each report themselves with `ledger.py report --drive <drive>`: PR, full head sha, verdict, and one line of text. The desk reads them with `ledger.py inbox --drive <drive> --take` every iteration, and its watch prints a `REPORT` line the moment one lands. The root receives `P0` and `RULING NEEDED` lines immediately and the 30-minute summary. If the owner flags a PR as priority, or it blocks a release or a user, the root runs `mq.py --config <runner config> priority <n> 0` and `mq.py why <n>` in the same turn under D3, and fixes or routes whatever check `why` names. An open owner ask that links the PR gives it priority 0 already. That approval covers only the head the owner named; if the PR gains commits or scope, the root gets fresh approval naming the new head. Never relay an ETA for a green priority PR.
 
@@ -1433,7 +1433,7 @@ priority, lowest first.
 Every prefix passes the check registry before it enqueues. `landing.checks` lists the
 checks in order, and every built-in runs when it lists none:
 
-- `hold`: the holds file, the `hold` label, the PR's cci `hold` and `ready` records, and any open cci `incident` record whose refs or text name the PR, read fresh just before the enqueue call. An incident's fix never enters the queue: its lane squash-merges it directly, and the refusal names the incident's seq. It runs first on every enqueue path, the runner's and `mq.py gate` and `enqueue`, whether `landing.checks` lists it or not; `mq.py enqueue` refuses a held PR with a `HELD` line after the hold's own line, and an open `hold` record of any age holds until the root's `--resolves` closes it.
+- `hold`: the `hold` label, the PR's cci `hold` and `ready` records, and any open cci `incident` record whose refs or text name the PR, read fresh just before the enqueue call. An incident's fix never enters the queue: its lane squash-merges it directly, and the refusal names the incident's seq. It runs first on every enqueue path, the runner's and `mq.py gate` and `enqueue`, whether `landing.checks` lists it or not; `mq.py enqueue` refuses a held PR with a `HELD` line after the hold's own line, and an open `hold` record of any age holds until the root's `--resolves` closes it.
 - `precondition`: a sentence in the PR body or the PR's cci records that holds its landing on something outside the PR in so many words (`lands only after`, `merge only after`, `before it lands`, `do not land until`, `not for landing`), outside quotes, code and block quotes, so a body that cites the phrases holds nothing. It never refuses a head: the root gets one `note` warning per head quoting the sentence, on the incident squash too, and posts a `hold` record when the sentence is a real dependency.
 - `rules-review`: the ledger's `review/<pr>@<head>` row, which `ledger.py list` reports as `rules_blocked`.
 - `rulings`: `rulings.py check-pr` at the head, below.
@@ -1495,8 +1495,8 @@ the landing runner take the PR out before any enqueue of its next pass. A root
 PR of that go the runner already enqueued at the head the go names. It says
 `DEQUEUED` only once a status read shows the queue let the PR go, and
 `DEQUEUE-FAILED` when the read still finds it queued or the dequeue is refused.
-`mq.py hold <n> --reason R` and `mq.py lift <n>` write the holds file through
-`holds.py`, and `mq.py status` prints what the queue holds and the order it gates.
+`mq.py hold <n> --reason R` and `mq.py lift <n>` post and resolve the PR's cci
+`hold` record, and `mq.py status` prints what the queue holds and the order it gates.
 A PR's lane, for every blocker and restack the runner routes, is the poster
 of the newest cci `head`, `opened`, `ready`, or `claim` record naming it, never root's
 or a desk's, since a fidelity desk claims the heads it grades without owning them, else
@@ -1694,7 +1694,7 @@ and the runner enqueues the prefix on its next pass once a root `go` names every
 waiting PR at its current head. Only the clause a `go` opens with names a PR: `go` or
 `merge`, then `#<n> at <short sha>` pairs joined by commas or `and`. A PR and sha the
 rest of the text mentions, a routing note or ruling posted as `go`, and a `go` a root
-`withdraw` answers by `--re` let nothing merge. The root answers `Hold` with `holds.py add --pr <n>`. `Other` opens a Slack modal, and
+`withdraw` answers by `--re` let nothing merge. The root answers `Hold` with `mq.py hold <n> --reason "<why>"`. `Other` opens a Slack modal, and
 the text the owner types there reaches the root as the card's capture. It merges nothing,
 and the root classifies it as a capture.
 An answer covers only the head it names, so a new head asks again. A changed-files
@@ -1900,8 +1900,8 @@ that build passes. A start that fails logs one `CI-GRADE-FAILED` per head and is
 tried again next pass.
 
 Incident fixes still land by plain squash under every mode, and a `checks_wait_for_go`
-pause never stops them. An approved, green fix merges once the holds file, read again
-just before `gh pr merge`, holds no line over it and `check-pr --incident` names none of
+pause never stops them. An approved, green fix merges once no open cci `hold` record, read again
+just before `gh pr merge`, names it and `check-pr --incident` names none of
 `RULINGS-UNCITED`, `RESERVED-NO-ANSWER`, and `TEST-REMOVED`. A head it names one of them
 for is refused: one cci `RULINGS-REFUSED` blocker to the PR's lane and the root, and the
 fix merges in the first pass they clear (45200f2). Neither grade gates it: a fix
@@ -1921,7 +1921,7 @@ lane's merge is the exception: the hook refuses it with `RULINGS-REFUSED` while
 `check-pr --incident` names `RULINGS-UNCITED`, `RESERVED-NO-ANSWER` or `TEST-REMOVED` (45200f2).
 The root reads `mq.py why <n>` before any of those.
 
-The holds file stays the root's interface. A `hold` label on a PR holds it too,
+A `hold` label on a PR holds it too,
 with every PR stacked above it. The enqueue names every top of the prefix, since
 the stack-enqueue adapter refuses a green PR the batch would carry unnamed. A
 `held` refusal waits for the root and is never routed as a red.
@@ -1937,7 +1937,7 @@ A command naming another predecessor is rejected with `STALE-POLICY`; a
 stale-checkout ruling such as L260 cannot replace the accepted rule that way.
 
 Under the `label` adapter, one label on the prefix top enqueues the prefix as a
-batch, and the desk mirrors PR holds and held lanes' open PRs as `ledger.py hold`
+batch, and the desk mirrors held PRs as `ledger.py hold`
 rows under D1 so `label` refuses them too.
 
 Lanes never enqueue under D1. For priority PRs, the root reads `mq.py why` for each
@@ -2979,7 +2979,7 @@ Holds file: <path>, root-owned. Never enqueue, merge, or add a `merge` or `merge
   label: the landing desk is the only enqueuer, and the pack's `lane_landing` hook refuses
   `stack-enqueue`, `gt merge`, `gh pr merge`, and `ledger.py label` from this lane.
   Report READY the moment a PR is green; the landing runner enqueues its largest green,
-  approved, unheld bottom prefix against the holds file. A held PR or a PR of a held lane
+  approved, unheld bottom prefix against the open cci `hold` records. A held PR
   gets `held` on your tip with the held PR named; release is the root's.
   Keep `ccx vcs pr watch` on the stack; on ejection or conflict, rebase and report the new
   head at once. After the prefix lands, restack the PRs above it with
