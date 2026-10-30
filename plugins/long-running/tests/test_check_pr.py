@@ -591,7 +591,7 @@ def test_accepted_refuses_an_ok_that_leaves_a_contract_narrower_than_the_owners_
     assert accepted(f"readback: ok lane-a {stamp}") == (
         1,
         f"CONTRACT-MISSING lane-a: the newest grade, #9, accepts contract #{CONTRACT_SEQ} without answering where it is narrower than the owner's words: "
-        "NARROWED rule/bbbbbbb: says \"per destination\", \"per key\"; the owner's words say none of them\n",
+        "NARROWED rule/bbbbbbb: says \"per destination\"; the owner's words say none of them\n",
     )
     assert accepted(f"readback: ok lane-a {stamp}; rule/bbbbbbb drains each pool, as his words say") == (0, "accepted lane-a\n")
 

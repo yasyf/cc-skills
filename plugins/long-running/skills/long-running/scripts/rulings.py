@@ -268,7 +268,8 @@ READBACK_GRADE = re.compile(r"^readback: (?P<verdict>ok|missing) (?:[0-9a-f]{7,4
 READBACK_SAID = re.compile(r"^read-back (?P<lane>\S+): (?P<verdict>ok|missing)\b[.:,;]?(?:\s+(?P<rest>.*))?$", re.DOTALL)
 READBACK_KINDS = ("review", "answer")
 READBACK_FLAGS = ("--kind", "review", "--kind", "answer")
-NARROWING = re.compile(r"\b(?:per|for (?:each|every))[- ](?P<noun>[a-z][a-z-]*)(?:\s+(?:and|or)\s+(?:per\s+)?(?P<more>[a-z][a-z-]*))?|\b(?P<word>only|except|unless|excluding)\b", re.IGNORECASE)
+NARROWING = re.compile(r"\b(?:per|for (?:each|every))[- ](?P<noun>[a-z][a-z-]*)|\b(?P<word>only|except|unless|excluding)\b", re.IGNORECASE)
+CLAUSE = re.compile(r"(?<=[.;!?])\s+")
 NOT_PARTITIONS = frozenset({"the", "a", "an", "his", "her", "its", "their", "our", "my", "your", "this", "that", "these", "those", "root", "owner", "plan", "rule", "design", "spec", "se", "cent"})
 ROW_LINE = ("### ", ">")
 SHAPE = re.compile(
@@ -1610,9 +1611,9 @@ def qualifiers(line: str, said: str) -> list[str]:
             if not re.search(rf"\b{word.lower()}\b", said):
                 found.append(word.lower())
             continue
-        for noun in (noun.lower() for noun in (match["noun"], match["more"]) if noun):
-            if noun not in NOT_PARTITIONS and not re.search(rf"\b(?:per|each|every)[- ]{re.escape(noun.removesuffix('s'))}(?:e?s)?\b", said):
-                found.append(f"per {noun}")
+        noun = match["noun"].lower()
+        if noun not in NOT_PARTITIONS and not re.search(rf"\b(?:per|each|every)[- ]{re.escape(noun.removesuffix('s'))}(?:e?s)?\b", said):
+            found.append(f"per {noun}")
     return found
 
 
@@ -1630,7 +1631,7 @@ def narrowings(loaded: Register, text: str) -> dict[str, list[str]]:
     for key, fields in rows.items():
         for answer in [*listed(fields.get("answer")), *(found for repeat in listed(fields.get("repeats")) for found in repeat_answers(repeat))]:
             answers.setdefault(str(answer)[:SHORT], []).append(key)
-    lines = [line for line in text.splitlines() if line.strip() and not line.lstrip().startswith(ROW_LINE)]
+    lines = [clause for line in text.splitlines() if line.strip() and not line.lstrip().startswith(ROW_LINE) for clause in CLAUSE.split(line)]
     citing = [(line, cited_rows(rows, answers, line)) for line in lines]
     everywhere = list(dict.fromkeys(key for _, keys in citing for key in keys))
     found: dict[str, list[str]] = {}
