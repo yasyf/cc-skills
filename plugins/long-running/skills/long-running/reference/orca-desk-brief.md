@@ -344,7 +344,7 @@ DECIDE hold:<slug> <owner>: held <n> min: <what> | the root decides it now with 
 The root resolves it with the named lane ahead of any open owner card on another
 subject; that card keeps waiting for its tap. The line reaches the root over the `cci` channel as
 soon as the runner writes it. The hold verb records
-a decision clock; it does not change the landing holds file or authorize a release.
+a decision clock; it does not hold or lift a PR or authorize a release.
 
 *Prevents the api/runtime-v2/restate-worker catch-up waiting behind the Demeter
 questions on 2026-10-03 while executor shipped alone. cc-notes answer `5548bb2`,
@@ -359,7 +359,7 @@ Keep each brief complete as an attachment on the drive's `briefs: <slug>` log.
 Read runner traffic from the cci drive named by the config's `drive` field.
 Each escalation posts with `--lane desk-runner --to root`; its topic is the line's
 key, the second token. `DECIDE` uses kind `decide`, `INCIDENT` uses `incident`,
-`UNBOUND`, `UNOWNED`, `UNACKED`, `INCIDENT-CLOCK`, `PR-SILENT`, `HOLDS-UNREAD`, and `LOAD-HIGH` use `blocker`, any `*-FAILED` uses
+`UNBOUND`, `UNOWNED`, `UNACKED`, `INCIDENT-CLOCK`, `PR-SILENT`, and `LOAD-HIGH` use `blocker`, any `*-FAILED` uses
 `defect`, and all other labels use `report`. Text over 400 characters is clipped, with the full line saved
 to `<receipts>/cci/<hash>.txt` and attached with `--path`. Landing restack
 routes sent through cci use `--kind blocker --to <lane> --topic <pr>` with the same
@@ -523,7 +523,6 @@ the launch. The worker's brief then ends with the command and the path of its lo
     "repo": "Forge-AI/monorepo",
     "ledger": "<ledger id>",
     "checkout": "/absolute/monorepo/worktree",
-    "holds": "/absolute/drive/holds.md",
     "fidelity_lane": "fidelity-desk",
     "merge_mode": "high-risk",
     "high_risk_paths": ["*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "infra/rows/*"],
@@ -764,8 +763,8 @@ and only the third failure posts its one `GATE-FAILED` or `ENQUEUE-FAILED`.
 Each exact set of prefix heads gets one enqueue action. Only attempts proven to
 have enqueued nothing permit another attempt for those heads. Accepted enqueues
 run in one parallel wave per priority, lowest first, each through the adapter's
-enqueue after the check registry's `hold` check reads the holds file fresh, and
-none runs while the file carries a line the runner cannot read. The holds file stays the root's interface. A `hold` label on a PR holds it too,
+enqueue after the check registry's `hold` check reads the open cci `hold` records fresh.
+A `hold` label on a PR holds it too,
 and the runner never adds or removes that label.
 
 A prefix is accepted only when every PR in it has a fidelity ok at its current
@@ -888,7 +887,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `INCIDENT` | Ratify the fix launch, start evidence and incident-doc lanes, fence the target, and start account comms plus `#outage` for a platform-wide incident; adopt the fix lane into the incident executor. For a line that says a fix does not cover a case, ratify the case lane it launched and keep the reporter told that the case is still open. A `DECIDE unfixed:<msg>` line lists cases the runner did not launch; post the launch line of each case worth a lane. |
 | `INCIDENT-OWNED` | None. Another owner holds the incident the line names, so the runner launched nothing; check the named record agrees. |
 | `INCIDENT-CLOCK` | Tell the owner the line in one plain line of your next reply, ahead of any other work in that turn, never as a Slack post. Ratify the `<lane>-opus` fallback the line names. When the line says none was launched, launch one unless it names an Opus backup already on the lane. For `in-process`, start `<lane>-opus` in that turn as an `Agent` of type `long-running:lane-ship` on opus in fast mode with the brief the line names. For `ready`, clear what holds the missing milestone. The key is the lane. |
-| `MERGE-ASK` | One line: `#<n> <head> waits on the owner's tap on `merge:<n>:<head>``, where the card is, and the merge mode. The runner already asked that merge card on the root's board and in the root's Slack status thread, with `Merge (Recommended)`, `Hold`, `Other`, and `Explain more` (93037c3); never send a second card or an `AskUserQuestion`. On a `Merge` tap, post `cci post --kind go --pr <n> --text "merge #<n> at <head>"`, and for each reserved row the line names, run the `rulings.py authorize` command it gives, since a go never authorizes a row; on a `Hold` tap, run `holds.py add --pr <n>`; the text the owner types in `Other`'s modal arrives as the card's capture, which merges nothing and is a capture to classify; on an `Explain more` tap, post `cci post --kind ask --to root --text "explain more: merge:<n>:<head>"` and answer in plain words with `cc-present reply --block <the card's waits id> --body <answer>`, which replies on the board and under the Slack card with the link back to it and resolves nothing. The key is the PR and head. |
+| `MERGE-ASK` | One line: `#<n> <head> waits on the owner's tap on `merge:<n>:<head>``, where the card is, and the merge mode. The runner already asked that merge card on the root's board and in the root's Slack status thread, with `Merge (Recommended)`, `Hold`, `Other`, and `Explain more` (93037c3); never send a second card or an `AskUserQuestion`. On a `Merge` tap, post `cci post --kind go --pr <n> --text "merge #<n> at <head>"`, and for each reserved row the line names, run the `rulings.py authorize` command it gives, since a go never authorizes a row; on a `Hold` tap, run `mq.py --config <runner config> hold <n> --reason "owner's Hold tap"`; the text the owner types in `Other`'s modal arrives as the card's capture, which merges nothing and is a capture to classify; on an `Explain more` tap, post `cci post --kind ask --to root --text "explain more: merge:<n>:<head>"` and answer in plain words with `cc-present reply --block <the card's waits id> --body <answer>`, which replies on the board and under the Slack card with the link back to it and resolves nothing. The key is the PR and head. |
 | `MERGE-CARD-FAILED` | A merge card did not post: register the root session with `drive.py start --drive <drive> --ledger <ledger>` from that session when the line says it is missing, otherwise read the error; the next pass tries again. |
 | `RULING-ASK` | Ruling confirmations queue for the next board round, never one card each (standing rule 23: 5 to 10 cards a round, foundational picks first). When the owner can take a round, run `rulings.py round --drive <id>`: it opens a new round on the root's cc-present board with at most ten queued rulings, foundational rows first, and leaves out a row the owner's own pick, tap or reply on a card made. Never as an `AskUserQuestion` or a bare Slack card. An `Explain more` tap resolves nothing: answer in plain words with `cc-present reply --block <card id> --body <answer>`, which also replies under the Slack card with a link back to it. A pick or a note on a ruling is a capture: `Right` runs `rulings.py confirm <key> --tick all --capture <digest>`, and `Some wrong` waits for the owner's note naming the lines. Silence decides nothing. The key is the round. |
 | `SLICE-UNREAD` | Read the named `rulings.py slice --refresh` failure, fix the register or the brief's `Register slice:` line, run the refresh by hand, and relay the fresh slice to the lane, which launched without it. The key is the launch. |
@@ -919,7 +918,6 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `ROUTE`, `UNOWNED` | Supply the missing route or owner. |
 | `GITHUB-BACKOFF` | None while it lasts; the landing desk reads nothing from GitHub until the reset the line names, and accepted enqueues and root `go` records run on the first pass after it. A line every quota window means another consumer is spending the installation's quota; find it before the next window. |
 | `QUOTA-READ-FAILED` | Read why `ccx vcs gh -- api rate_limit` failed; until it reads again the desk runs without its back-off. |
-| `HOLDS-UNREAD` | Rewrite the quoted holds-file line as `#<pr> <why>`, `lane:<name> <why>`, `<lane> HOLD <why>`, `HOLD <lane> <why>`, `hold:all <why>`, or `release #<pr>`, or delete it. When the line names a lane no ledger row carries, hold each PR as `#<pr> <why>` instead. The landing runner gates and enqueues nothing while the line stands. |
 | `RELEASED` | Forward the line to the owner verbatim; it is the only publish line the root sends. |
 | `RELEASE-HELD-AFTER-LANDING` | Lift the hold the line names and start the landed fix's cut now; the other PR gets its own cut when it lands. |
 | `PR-SILENT` | Read the code state in the line, or run `drive.py lane-status <lane>` for it now. With dirty files or a fresh commit, order the lane to push and open its PR now; with a clean, detached, or missing worktree, start `<lane>-opus` on the lane's brief and tell the owner. Resolve the line once the PR is open or the lane is stood down. |
@@ -940,4 +938,4 @@ quiet polls do not wake a model.
 
 The runner never edits worker code, mutates production, writes Slack, invents
 scope, or derives authority from a branch prefix or a display name. The root
-owns decisions and the holds file; lanes own their worktrees.
+owns decisions and holds; lanes own their worktrees.

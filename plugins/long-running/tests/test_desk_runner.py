@@ -36,11 +36,6 @@ RULING = "Requirement: " + "the release holds until the canary reads back green.
 PARAGRAPHS = "Ruling, in three parts:\n\n- hold the release; relay the canary result to walker\n- " + "rebuild each failed head once, " * 15 + "then stop\n\nReport on this thread."
 FAST_SQUASH = "5e11a9d0c2b47f6e8a1d3c5b7f9e0a2c4d6b8e1f"
 FAST_BODY = "Resume uploads a pre-session-rows thread instead of refusing.\n\nRelease-With: sand\n"
-PUBLISH_LANE = "phase-b-replace-publish-command"
-SIZING_LANE = "phase-b-executor-sidecar-sizing"
-PUBLISH_HOLD = f"{PUBLISH_LANE} HOLD (L34 re-land, revert of #36397): no enqueue until root posts 'L32 pass done' (F189)"
-SIZING_HOLD = f"{SIZING_LANE} HOLD (L35 drop sessions-backfill/upload): no enqueue until root posts 'L32 pass done'"
-UNREAD_HOLD = f"{PUBLISH_LANE}: no enqueue until root posts 'L32 pass done' (F189)"
 
 
 class Reexeced(Exception):
@@ -571,7 +566,7 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, "" if argv[5] in self.gone else json.dumps({"lane": argv[5], "live": True} | ({"seen_at": self.seen[argv[5]]} if argv[5] in self.seen else {})) + "\n", "")
         if argv[:2] == ["cci", "post"]:
             flags = dict(zip(argv[2::2], argv[3::2], strict=True))
-            assert flags["--drive"] in self.drives and flags["--lane"] == "desk-runner" and len(flags["--text"]) <= 400
+            assert flags["--drive"] in self.drives and flags["--lane"] in ("desk-runner", "root") and len(flags["--text"]) <= 400
             if self.post_error:
                 return runner_module.Done(1, "", self.post_error)
             if (flags["--kind"], flags["--to"]) == ("state", f"{runner_module.WATCHDOG}@{flags['--drive']}"):
@@ -905,7 +900,6 @@ def config(tmp_path: Path, shell: FakeShell) -> Path:
                     "repo": "Forge-AI/monorepo",
                     "ledger": "abc",
                     "checkout": str(tmp_path / "checkout"),
-                    "holds": str(tmp_path / "holds.md"),
                     "fidelity_lane": "fidelity-desk",
                     "merge_mode": "auto",
                     "adapter": {"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"},
@@ -2103,7 +2097,7 @@ def test_a_conflict_beside_a_running_check_routes_once_per_head_without_the_chec
 
 def test_a_stack_above_a_held_pr_gets_no_blocker_until_the_hold_lifts(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
-    (tmp_path / "holds.md").write_text("#37102 HOLD until reworked into replan B1\n")
+    seq = root_hold(shell, 37102, text="hold #37102 until reworked into replan B1")
     shell.rows = [
         {"pr": "37102", "lane": LANE, "branch": "r/1", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111"},
         {"pr": "37103", "lane": LANE, "branch": "r/2", "base": "r/1", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222"},
@@ -2119,7 +2113,7 @@ def test_a_stack_above_a_held_pr_gets_no_blocker_until_the_hold_lifts(shell, con
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert shell.sends() == [] and shell.posts == []
-    (tmp_path / "holds.md").write_text("")
+    lift(shell, seq)
     shell.gates["37156"] = [
         gate(
             "#37102 BLOCKED aaaa111111 graphite FAILING_REQUIRED",
@@ -2231,7 +2225,8 @@ def test_a_pr_its_lane_contracted_as_red_by_design_gets_no_failing_required_bloc
 
 def test_a_held_pr_is_never_named_in_a_stack_enqueue_call_or_routed(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
-    (tmp_path / "holds.md").write_text("#29020 owner hold until the parity waves land\nlane:d4 ships whole\n")
+    root_hold(shell, 29020, text="hold #29020 owner hold until the parity waves land")
+    root_hold(shell, 28349, text="hold #28349 d4 ships whole")
     shell.rows = [
         {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
         {"pr": "28349", "lane": "d4", "branch": "d/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
@@ -2241,20 +2236,14 @@ def test_a_held_pr_is_never_named_in_a_stack_enqueue_call_or_routed(shell, confi
     assert shell.sends() == [] and escalations(shell) == []
 
 
-def held_in_the_file(shell: FakeShell, tmp_path: Path) -> str:
-    (tmp_path / "holds.md").write_text("#29020 owner hold until the parity waves land\n")
-    return "the holds file"
-
-
 def held_on_the_bus(shell: FakeShell, tmp_path: Path) -> str:
     seq = 34766 + len(shell.records)
     shell.records.append({"seq": seq, "drive": "d1", "lane": "root", "kind": "hold", "status": "open", "to": ["root"], "refs": {"prs": [29020]}, "text": "hold #29020 until the parity waves land"})
     return f"cci hold #{seq}"
 
 
-@pytest.mark.parametrize("hold", [held_in_the_file, held_on_the_bus])
-def test_a_held_pr_above_a_green_chain_is_cut_out_and_only_the_chain_below_it_is_named_with_where_its_hold_stands(shell, config, tmp_path, hold):
-    where = hold(shell, tmp_path)
+def test_a_held_pr_above_a_green_chain_is_cut_out_and_only_the_chain_below_it_is_named_with_where_its_hold_stands(shell, config, tmp_path):
+    where = held_on_the_bus(shell, tmp_path)
     shell.rows = stack_rows()
     shell.gates["29016"] = [
         gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#28997 #29016 #29020"),
@@ -2278,9 +2267,9 @@ def test_a_hold_record_holds_the_pr_it_leads_with_and_not_the_prs_it_waits_on(sh
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and not [line for line in escalations(shell) if line.startswith("REFUSED ")]
 
 
-def test_a_hold_line_holds_only_its_leading_pr(shell, config, tmp_path):
+def test_a_hold_record_holds_only_its_leading_pr(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
-    (tmp_path / "holds.md").write_text("#36525 lands only after the Switch batch (#35413 deletes the SandSQL sandbox exclusion) and without its infra/rows/datadog/sandsql.ts hunk\n")
+    root_hold(shell, 36525, 35413, text="hold #36525 lands only after the Switch batch (#35413 deletes the SandSQL sandbox exclusion) and without its infra/rows/datadog/sandsql.ts hunk")
     shell.rows = [
         {"pr": "35413", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
         {"pr": "36525", "lane": "d4", "branch": "d/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
@@ -2291,6 +2280,31 @@ def test_a_hold_line_holds_only_its_leading_pr(shell, config, tmp_path):
     shell.enqueue_out["35413"] = (0, "enqueue #35413\n")
     landing_pass(shell, config)
     assert [call[1] for call in shell.enqueues()] == ["35413"]
+
+
+def test_a_holds_file_line_holds_nothing_since_holds_are_cci_records_alone(shell, config, tmp_path):
+    raw = json.loads(config.read_text())
+    raw["landing"]["holds"] = str(tmp_path / "holds.md")
+    config.write_text(json.dumps(raw))
+    (tmp_path / "holds.md").write_text("#29020 owner hold\n")
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1 and escalations(shell) == []
+
+
+def test_mq_hold_posts_a_root_hold_record_and_mq_lift_resolves_every_open_record_holding_the_pr(shell, config, capsys):
+    assert mq(shell, config, "hold", "29020", "--reason", "owner review") == 0
+    [held] = shell.posts
+    assert (held["lane"], held["kind"], held["pr"], held["text"]) == ("root", "hold", "Forge-AI/monorepo#29020", "hold #29020 owner review")
+    first = root_hold(shell, 29020, text="hold #29020 owner review")
+    second = root_hold(shell, 28349, 29020, text="hold the parity wave")
+    root_hold(shell, 28400, text="hold #28400 unrelated")
+    capsys.readouterr()
+    assert mq(shell, config, "lift", "29020") == 0
+    lifted = shell.posts[-1]
+    assert (lifted["lane"], lifted["kind"], lifted["resolves"], lifted["text"]) == ("root", "lift", f"{first},{second}", "lift #29020")
+    assert capsys.readouterr().out.strip().endswith("the same records held #28349, which lift too")
 
 
 def test_an_open_cci_hold_holds_its_pr_and_a_closed_one_holds_nothing(shell, config, tmp_path):
@@ -2312,25 +2326,6 @@ def test_an_open_cci_hold_holds_its_pr_and_a_closed_one_holds_nothing(shell, con
     assert shell.sends() == []
 
 
-def test_hold_all_holds_every_open_row_except_the_released_prs_and_lanes(shell, config, tmp_path):
-    (tmp_path / "holds.md").write_text("hold:all every PR waits for owner review\nrelease #29020 owner reviewed\nrelease lane:d5\n")
-    shell.rows = [
-        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
-        {"pr": "28349", "lane": "d4", "branch": "d/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
-        {"pr": "28400", "lane": "d5", "branch": "e/1", "base": "dev", "head": "eeee555555", "state": "open", "reported_head": "eeee555555"},
-        {"pr": "28300", "lane": "d6", "branch": "f/1", "base": "dev", "head": "ffff666666", "state": "landed", "reported_head": "ffff666666"},
-    ]
-    shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
-    shell.gates["28349"] = [gate("#28349 BLOCKED dddd444444 held")]
-    shell.gates["28400"] = [gate("#28400 GREEN eeee555555 graphite READY", would="#28400")]
-    grade_gated_heads_ok(shell)
-    shell.enqueue_out["29020"] = (0, "enqueue #29020\n")
-    shell.enqueue_out["28400"] = (0, "enqueue #28400\n")
-    landing_pass(shell, config)
-    assert sorted(call[1] for call in shell.enqueues()) == ["28400", "29020"]
-    assert shell.sends() == [] and escalations(shell) == []
-
-
 def fork_rows() -> list[dict]:
     return [
         {"pr": "36463", "lane": "release-order", "branch": "ro/monitors", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111"},
@@ -2344,7 +2339,7 @@ def fork_rows() -> list[dict]:
 
 def test_each_green_chain_of_a_fork_enqueues_in_its_own_call_in_one_pass(shell, config, tmp_path):
     shell.launch("release-order", "ctx_r")
-    (tmp_path / "holds.md").write_text("#36510 owner hold until the monitors soak\n")
+    root_hold(shell, 36510, text="hold #36510 owner hold until the monitors soak")
     shell.rows = fork_rows()
     verdicts = (
         "#36463 GREEN aaaa111111 graphite READY",
@@ -2651,127 +2646,18 @@ def test_an_accepted_tree_enqueues_while_a_later_tree_is_still_being_checked(she
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
-def test_a_release_line_without_hold_all_holds_nothing(shell, config, tmp_path):
-    (tmp_path / "holds.md").write_text("release #29020 owner reviewed\n")
-    shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
-    shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
-    grade_gated_heads_ok(shell)
-    shell.enqueue_out["29020"] = (0, "enqueue #29020\n")
-    landing_pass(shell, config)
-    assert len(shell.enqueues()) == 1
-
-
-def phase_b_rows() -> list[dict]:
-    return [
-        {"pr": "36397", "lane": PUBLISH_LANE, "branch": "p/0", "base": "dev", "head": "bbbb222222", "state": "landed", "reported_head": "bbbb222222"},
-        {"pr": "36934", "lane": SIZING_LANE, "branch": "s/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
-        {"pr": "36935", "lane": PUBLISH_LANE, "branch": "p/1", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
-    ]
-
-
 def stack_enqueue_calls(shell: FakeShell) -> list[list[str]]:
     return [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
 
 
-@pytest.mark.parametrize(
-    "line",
-    [
-        PUBLISH_HOLD,
-        f"HOLD {PUBLISH_LANE} (L34 re-land, revert of #36397): no enqueue until root posts 'L32 pass done' (F189)",
-        f"lane:{PUBLISH_LANE} no enqueue until root posts 'L32 pass done' (F189)",
-    ],
-)
-def test_each_lane_form_holds_the_open_rows_of_the_lane_it_names(shell, config, tmp_path, line):
-    (tmp_path / "holds.md").write_text(f"{line}\n")
-    shell.rows = phase_b_rows()
-    shell.gates["36934"] = [gate("#36934 GREEN dddd444444 graphite READY", would="#36934")]
-    shell.gates["36935"] = [gate("#36935 BLOCKED cccc333333 held")]
-    grade_gated_heads_ok(shell)
-    shell.enqueue_out["36934"] = (0, "enqueue #36934\n")
-    landing_pass(shell, config)
-    assert [call[1] for call in shell.enqueues()] == ["36934"]
-    assert shell.sends() == [] and escalations(shell) == []
+def root_hold(shell: FakeShell, *prs: int, text: str = "") -> int:
+    seq = 34766 + len(shell.records)
+    shell.records.append({"seq": seq, "drive": "d1", "lane": "root", "kind": "hold", "status": "open", "to": ["root"], "refs": {"prs": list(prs)}, "text": text or f"hold #{prs[0]}", "at": actions.stamp(shell.clock)})
+    return seq
 
 
-def test_the_two_lane_lines_the_reader_dropped_hold_both_lanes(shell, config, tmp_path):
-    (tmp_path / "holds.md").write_text(f"{PUBLISH_HOLD}\n{SIZING_HOLD}\n")
-    shell.rows = phase_b_rows()
-    landing_pass(shell, config)
-    assert stack_enqueue_calls(shell) == [] and escalations(shell) == []
-
-
-@pytest.mark.parametrize("line", [PUBLISH_HOLD, f"HOLD {PUBLISH_LANE} (L34 re-land)", f"lane:{PUBLISH_LANE} waits for the L32 pass"])
-def test_a_lane_line_naming_a_lane_no_row_carries_stops_every_enqueue_and_escalates_once(shell, config, tmp_path, line):
-    holds_file = tmp_path / "holds.md"
-    holds_file.write_text(f"{line}\n")
-    shell.rows = [{"pr": "36935", "lane": "ship-l34-reland", "branch": "p/1", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"}]
-    shell.gates["36935"] = [gate("#36935 GREEN cccc333333 graphite READY", would="#36935")]
-    grade_gated_heads_ok(shell)
-    shell.enqueue_out["36935"] = (0, "enqueue #36935\n")
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert stack_enqueue_calls(shell) == [] and enqueues_of(tmp_path) == {}
-    assert escalations(shell) == [
-        f"HOLDS-UNREAD holds:{hashlib.sha1(line.encode()).hexdigest()[:8]} landing: the holds-file line `{line}` names lane {PUBLISH_LANE}, which no ledger row carries, so it holds nothing and the desk enqueues nothing until it is fixed"
-        f" | in {holds_file} hold each PR as `#<pr> <why>`, or delete the line"
-    ]
-    assert [post["kind"] for post in shell.posts if post["to"] == "root"] == ["blocker"]
-    holds_file.write_text("#36935 HOLD (L34 re-land): no enqueue until root posts 'L32 pass done'\n")
-    landing_pass(shell, config)
-    assert stack_enqueue_calls(shell) == [] and len(escalations(shell)) == 1
-
-
-def test_a_lane_line_whose_rows_have_all_landed_holds_nothing_and_stops_nothing(shell, config, tmp_path):
-    (tmp_path / "holds.md").write_text(f"{PUBLISH_HOLD}\n")
-    lone_green_pr(shell)
-    shell.rows.append({"pr": "36397", "lane": PUBLISH_LANE, "branch": "p/0", "base": "dev", "head": "bbbb222222", "state": "landed", "reported_head": "bbbb222222"})
-    grade_gated_heads_ok(shell)
-    landing_pass(shell, config)
-    assert len(shell.enqueues()) == 1 and escalations(shell) == []
-
-
-def test_a_holds_line_no_form_matches_stops_every_enqueue_and_escalates_once_per_line(shell, config, tmp_path):
-    holds_file = tmp_path / "holds.md"
-    holds_file.write_text(f"#28349 owner review\n{UNREAD_HOLD}\n")
-    lone_green_pr(shell)
-    grade_gated_heads_ok(shell)
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert stack_enqueue_calls(shell) == [] and enqueues_of(tmp_path) == {}
-    assert escalations(shell) == [
-        f"HOLDS-UNREAD holds:{hashlib.sha1(UNREAD_HOLD.encode()).hexdigest()[:8]} landing: no form matches the holds-file line `{UNREAD_HOLD}`, so the desk enqueues nothing until it is fixed"
-        f" | in {holds_file} write `#<pr> <why>`, `lane:<name> <why>`, `<lane> HOLD <why>`, `HOLD <lane> <why>`, `hold:all <why>`, or `release #<pr>`"
-    ]
-    assert [post["kind"] for post in shell.posts if post["to"] == "root"] == ["blocker"]
-    holds_file.write_text(f"{UNREAD_HOLD}\n36935 waits for the L32 pass\n")
-    landing_pass(shell, config)
-    assert stack_enqueue_calls(shell) == []
-    assert [line.split("`")[1] for line in escalations(shell)] == [UNREAD_HOLD, "36935 waits for the L32 pass"]
-    holds_file.write_text("#28349 owner review\n")
-    landing_pass(shell, config)
-    assert len(shell.enqueues()) == 1 and len(escalations(shell)) == 2
-
-
-def test_a_bad_holds_line_added_after_the_gate_stops_the_enqueue_it_was_about_to_make(shell, config, tmp_path):
-    holds_file = tmp_path / "holds.md"
-    lone_green_pr(shell)
-    grade_gated_heads_ok(shell)
-    gated = shell.stack_enqueue
-
-    def gate_then_add(argv: list[str]) -> runner_module.Done:
-        holds_file.write_text(f"{UNREAD_HOLD}\n")
-        return gated(argv)
-
-    shell.stack_enqueue = gate_then_add
-    landing_pass(shell, config)
-    assert shell.enqueues() == [] and len(stack_enqueue_calls(shell)) == 1
-    [action] = enqueues_of(tmp_path).values()
-    assert (action.status, action.response["outcome"]) == ("completed", "blocked")
-    assert [line.split("`")[1] for line in escalations(shell)] == [UNREAD_HOLD]
-    shell.stack_enqueue = gated
-    holds_file.write_text("")
-    landing_pass(shell, config)
-    assert len(shell.enqueues()) == 1 and len(escalations(shell)) == 1
+def lift(shell: FakeShell, seq: int) -> None:
+    next(record for record in shell.records if record["seq"] == seq)["status"] = "closed"
 
 
 def hold_record(shell: FakeShell, seq: int, pr: int, status: str, at: str) -> None:
@@ -2805,13 +2691,12 @@ def is_enqueue(argv: list[str]) -> bool:
 
 @pytest.mark.parametrize(
     ("source", "named"),
-    [("file", "the holds-file line `#29020 owner hold`"), ("label", "the `hold` label on GitHub"), ("record", "open cci hold #41")],
+    [("label", "the `hold` label on GitHub"), ("record", "open cci hold #41")],
 )
 def test_a_hold_that_appears_after_the_gate_refuses_the_enqueue_with_one_line_naming_it(shell, config, tmp_path, source, named):
     lone_green_pr(shell)
     grade_gated_heads_ok(shell)
     appears = {
-        "file": lambda: (tmp_path / "holds.md").write_text("#29020 owner hold\n"),
         "label": lambda: shell.pr_labels.update({"29020": ["merge", "hold"]}),
         "record": lambda: hold_record(shell, 41, 29020, "open", "2026-10-01T17:59:00Z"),
     }[source]
@@ -2922,16 +2807,6 @@ def test_a_dequeue_the_queue_refuses_is_a_defect_and_the_prefix_is_not_enqueued_
     assert len(shell.enqueues()) == 1
 
 
-def test_a_lane_line_on_an_empty_ledger_posts_its_blocker_and_an_unlistable_ledger_posts_none(shell, config, tmp_path):
-    (tmp_path / "holds.md").write_text(f"{PUBLISH_HOLD}\n")
-    shell.ledger_code = 1
-    landing_pass(shell, config)
-    assert escalations(shell) == []
-    shell.ledger_code = 0
-    landing_pass(shell, config)
-    assert [line.split("`")[1] for line in escalations(shell)] == [PUBLISH_HOLD] and stack_enqueue_calls(shell) == []
-
-
 def test_a_stopped_pass_still_settles_a_lost_enqueue_from_graphite_status_and_makes_no_other_stack_enqueue_call(shell, config, tmp_path):
     shell.rows = stack_rows()
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", would="#28997")]
@@ -2946,21 +2821,14 @@ def test_a_stopped_pass_still_settles_a_lost_enqueue_from_graphite_status_and_ma
         live.start(key, shell.now())
     shell.sleep(16 * 60)
     shell.statuses = "#28997 QUEUED_TO_MERGE aaaa111111 open review APPROVED on dev\n"
-    (tmp_path / "holds.md").write_text(f"{UNREAD_HOLD}\n")
+    raw = json.loads(config.read_text())
+    raw["landing"]["checks_wait_for_go"] = 34700
+    config.write_text(json.dumps(raw))
     landing_pass(shell, config)
     action = store.load("desk-landing").actions[key]
     assert (action.status, action.response["outcome"]) == ("completed", "enqueued")
     assert [call[-1] for call in stack_enqueue_calls(shell)] == ["--status"]
-    assert [line.split("`")[1] for line in escalations(shell) if line.startswith("HOLDS-UNREAD")] == [UNREAD_HOLD]
-
-
-def test_a_blank_holds_line_is_no_error(shell, config, tmp_path):
-    (tmp_path / "holds.md").write_text("\n#29020 owner review\n   \n\n")
-    lone_green_pr(shell)
-    grade_gated_heads_ok(shell)
-    landing_pass(shell, config)
-    assert [line for line in escalations(shell) if line.startswith("HOLDS-UNREAD")] == []
-    assert shell.enqueues() == []
+    assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["GATE-PAUSED"]
 
 
 def lone_green_pr(shell: FakeShell) -> None:
@@ -3511,7 +3379,7 @@ def test_an_exempt_change_a_hold_names_stays_out_of_the_queue(shell, config, tmp
     lone_green_pr(shell)
     shell.files["29020"] = ["go/sand/next/vm/run_test.go"]
     grade(shell, "29020", TEST_ONLY_GRADE)
-    (tmp_path / "holds.md").write_text("#29020 owner hold until the parity waves land\n")
+    root_hold(shell, 29020, text="hold #29020 owner hold until the parity waves land")
     landing_pass(shell, config)
     assert shell.enqueues() == []
 
@@ -4917,8 +4785,8 @@ def test_a_status_read_github_refuses_blocks_the_head_and_is_escalated_once(shel
 
 
 def test_one_github_blip_across_many_heads_logs_one_status_read_record_with_the_count(shell, config, tmp_path):
-    (tmp_path / "holds.md").write_text("hold:all every PR waits for owner review\n")
     prs = [str(29100 + n) for n in range(5)]
+    root_hold(shell, *map(int, prs), text="every PR waits for owner review")
     shell.rows = [{"pr": pr, "lane": LANE, "branch": f"h/{pr}", "base": "dev", "head": f"{pr}abcd", "state": "open", "reported_head": f"{pr}abcd"} for pr in prs]
     shell.gates = {pr: [gate(f"#{pr} BLOCKED {pr}abcd held")] for pr in prs}
     shell.status_read_error = 'Post "https://api.github.com/graphql": net/http: TLS handshake timeout'
@@ -6212,7 +6080,7 @@ QUIET_WHY = ["hold pass", "precondition pass", "rules-review pass", "rulings pas
 @pytest.mark.parametrize(
     ("blocked", "line"),
     [
-        ("hold", "hold fail the holds-file line `#29020 owner review`"),
+        ("hold", "hold fail open cci hold #{seq}"),
         ("fidelity", "fidelity fail no review from fidelity-desk starting `fidelity: ok` names this head"),
         ("finder", f"finder fail FINDER-PENDING #29020: no `finder:` review record names this head; run the sol finder {runner_module.finder.BRIEF} names and post its record"),
         ("rules-review", "rules-review fail rules-review holds cccc333333: its review is pending or carries a finding no `rules-override` waived"),
@@ -6227,7 +6095,7 @@ def test_a_held_an_ungraded_or_a_rules_blocked_head_is_refused_and_mq_why_names_
     else:
         grade_gated_heads_ok(shell)
     if blocked == "hold":
-        (tmp_path / "holds.md").write_text("#29020 owner review\n")
+        line = line.format(seq=root_hold(shell, 29020, text="hold #29020 owner review"))
     if blocked == "rules-review":
         shell.rows[0]["rules_blocked"] = True
     landing_pass(shell, config)
@@ -6904,7 +6772,7 @@ def test_an_incident_fix_short_of_approved_and_green_is_neither_merged_nor_enque
 
 def test_a_held_incident_fix_is_not_merged(shell, config, tmp_path):
     incident_pr(shell)
-    (tmp_path / "holds.md").write_text("#36650 root holds the sand fix\n")
+    root_hold(shell, 36650, text="hold #36650 root holds the sand fix")
     landing_pass(shell, config)
     assert merges(shell) == []
 
@@ -6935,12 +6803,13 @@ def test_an_incident_fix_merges_past_every_cause_but_the_three_it_must_meet_befo
     assert check[2] == "check-pr" and "--incident" in check
 
 
-def test_a_hold_all_written_after_the_pass_read_its_holds_stops_the_incident_squash(shell, config, tmp_path):
+def test_a_hold_posted_after_the_pass_read_its_holds_stops_the_incident_squash(shell, config, tmp_path):
     incident_pr(shell)
     inner = shell.rulings
 
     def rulings(argv: list[str]) -> runner_module.Done:
-        (tmp_path / "holds.md").write_text("hold:all the owner stopped every merge\n")
+        if not any(record["kind"] == "hold" for record in shell.records):
+            root_hold(shell, 36650, text="hold #36650 the owner stopped every merge")
         return inner(argv)
 
     shell.rulings = rulings
@@ -7112,7 +6981,7 @@ def test_a_go_named_green_head_above_a_red_or_conflicting_parent_with_its_own_go
 def test_a_go_named_green_head_above_a_held_parent_draws_one_below_held_note_and_no_go_unqueued(shell, config, tmp_path, parent_go):
     board_surface(config)
     two_pr_stack(shell)
-    (tmp_path / "holds.md").write_text("#29020 owner gate on the old app\n")
+    root_hold(shell, 29020, text="hold #29020 owner gate on the old app")
     shell.rows = [dict(row, test_state="success") for row in shell.rows]
     shell.queue["29031"] = "not queued"
     if parent_go:
@@ -13198,7 +13067,7 @@ def test_while_graphite_is_down_a_held_ungone_red_or_draft_pr_never_merges(shell
     if excluded == "no-go":
         merge_mode(config, "every")
     if excluded == "hold":
-        (tmp_path / "holds.md").write_text("#29020 HOLD (reader release): no enqueue until it is live\n")
+        root_hold(shell, 29020, text="hold #29020 (reader release): no enqueue until it is live")
     verdict = {"red": "BLOCKED cccc333333 graphite FAILING", "draft": "BLOCKED cccc333333 draft"}.get(excluded)
     if verdict:
         shell.gates["29020"] = [gate(f"#29020 {verdict}")]

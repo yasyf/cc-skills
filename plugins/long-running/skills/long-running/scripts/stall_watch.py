@@ -10,7 +10,7 @@ STDLIB ONLY. `--config` is the desk runner's config, and its `stall` object turn
 desk runner reads that object every pass and starts one detached pass every `stall.every_minutes`
 (default 5) once the last has exited, logging to `stall-watch.log` beside `orca.desk_inbox`. A pass reads
 the drive's cci records over the last `stall.window_hours` (default 24), the landing ledger's open rows,
-the holds file and the open `hold` records, the landing desk's store, the root's board through
+the open `hold` records, the landing desk's store, the root's board through
 `cc-present outcomes`, and the root session's task list. For every open PR no hold covers, at the head
 its ledger row names, it finds:
 
@@ -64,7 +64,7 @@ its ledger row names, it finds:
               no queued grade on it, nor a running one younger than `stall.minutes.running`
     board     a finder ok and a fidelity ok name the head, its build is green, it waits on the owner's
               tap (merge mode every, or the landing desk records it waiting on `merge:<pr>:<sha7>`),
-              the board holds no row or card for it at that head, no holds-file line leads with it, and no
+              the board holds no row or card for it at that head, no open `hold` record holds it, and no
               root decide pulled its row with no READY record about the PR since
               (a fidelity grade that says one of `landing.exempt_grades`, default `pure port, no interaction`,
               `test-only or CI-only, no non-test code`, `test-only, no non-test code` and
@@ -99,7 +99,7 @@ and, across the drive:
               merge queue, held, on a drifted graphite-base, conflicting, red, waiting on the PR below it, building,
               held or not yet reviewed by the reviewer bot, green with a go, or green with none; no
               other stall names it, a green PR whose merge row waits on the owner's tap at its head,
-              and a held PR whose holds-file line names open PRs that each wait on that tap, sit in
+              and a held PR whose open `hold` record names open PRs that each wait on that tap, sit in
               the merge queue, are held the same way, or are stacked on such a PR, or that names a
               board card or pick, by its block id or by a card holding the PR, the owner has not
               answered, post one `state` record to root per head instead, once while the PR stays open
@@ -107,10 +107,9 @@ and, across the drive:
               the earlier of its board row's write and the head's READY record; a PR that waits on the PR
               below it posts nothing itself and is listed on the stale PR its stack waits on, and a
               PR whose owning lane has no live record in the window goes to root; a changed state on
-              the same head counts from the pass that saw it change; a held PR whose holds-file line
+              the same head counts from the pass that saw it change; a held PR whose open `hold` record
               names an open PR the owner has not tapped at its head is never stale, until that PR lands,
-              is tapped, or the hold lifts; each PR in the run of PR numbers a holds-file
-              line leads with counts as held here
+              is tapped, or the hold lifts
     desk      a desk runner that posted a `<desk> alive` record in the window posted none for
               `stall.minutes.desk`; the record is its heartbeat wherever it runs, and the stall goes
               to root with the restart command the runner's newest record carries
@@ -163,7 +162,6 @@ import cci
 import drive
 import ghread
 import grades
-import holds
 
 SCRIPTS = Path(__file__).resolve().parent
 LANE = "stall-watch"
@@ -244,7 +242,6 @@ BOT_HOLDS = "the reviewer bot holds it"
 NO_VERDICT = "no reviewer bot verdict on this head"
 LANE_OWES = (RED, CONFLICTS, BASE_DRIFT, BOT_HOLDS, NO_VERDICT)
 PR_REF = re.compile(r"#(\d+)")
-LEADING_PRS = re.compile(r"^(?:#\d+\s+)+")
 SETTLED = frozenset({"done", "ready"})
 READY = re.compile(r"\b(?:READY|DONE)\b")
 NO_ROW = re.compile(r"\bno row\b", re.IGNORECASE)
@@ -835,13 +832,13 @@ class Pass:
         fidelity = [record for record in reviews if record["kind"] == "review" and record["lane"] in fidelity_lanes and record["text"].startswith(grades.FIDELITY_GRADES)]
         gos += grades.carried_gos(gos, fidelity, repo, lambda pr, head: True)
         queued = {(pr, sha) for record in records if (record["lane"] == RUNNER or record["lane"].startswith(LANDING_DESK)) and record["kind"] == "report" and QUEUED.match(record["text"]) for pr, sha in grades.GO_HEAD.findall(record["text"])}
-        hold_lines = holds.read(Path(landing["holds"]).expanduser())
-        held = holds.held(hold_lines, rows) | set(cci.held_prs(self.tail, drive_name))
-        for entry in hold_lines:
-            for named in PR_REF.findall(leading[0] if (leading := LEADING_PRS.match(entry.line)) else ""):
-                self.hold_gates.setdefault(named, []).extend(gate for gate in PR_REF.findall(entry.line) if gate != named)
+        held: set[str] = set()
+        for record in cci.open_holds(self.tail, drive_name):
+            for named in cci.held_by(record):
+                held.add(named)
+                self.hold_gates.setdefault(named, []).extend(gate for gate in PR_REF.findall(record["text"]) if gate != named)
                 if board:
-                    self.hold_asks.setdefault(named, set()).update(board.open_asks(named, entry.line))
+                    self.hold_asks.setdefault(named, set()).update(board.open_asks(named, record["text"]))
         self.tapped = {pr for pr, row in rows.items() if board and (tap := board.taps.get(pr) or {}).get("verdict") == "approved" and tap.get("head") and grades.names_head(tap["head"], row.get("head", ""))}
         facts = self.landing_facts()
         waits = {pr: wait["key"] for pr, wait in facts.get(MERGE_WAITS, {}).items()}

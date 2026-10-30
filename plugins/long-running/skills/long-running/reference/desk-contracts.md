@@ -285,7 +285,7 @@ One desk ran on a 20-minute pacer, put the label on one report at a time, and se
 hourly summary. Clean PRs waited until the owner enqueued one by hand in Graphite.
 
 **Lanes never enqueue under D1; the desk and its runner enqueue and reconcile every three minutes.** A hold
-is a holds-file line, an open cci `hold` record, or GitHub's `hold` label, and the runner never enqueues a held PR
+is an open cci `hold` record or GitHub's `hold` label, and the runner never enqueues a held PR
 or the PRs above it. `stack-enqueue` takes no hold flag and reads no holds. A clean report's largest ready, unheld,
 unqueued bottom prefix enqueues in the turn it arrives. Each pass starts one
 `stack-enqueue <prefix top>` per ready prefix together

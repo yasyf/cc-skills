@@ -93,16 +93,20 @@ def expired(record: dict, now: datetime) -> bool:
     return bool(record.get("expires_at")) and datetime.fromisoformat(record["expires_at"]) <= now
 
 
-def held_prs(run: Callable[[list[str]], str], drive: str) -> dict[str, int]:
-    """Each PR an open `hold` record on `drive` holds, mapped to that record's seq; a `lift --resolves <seq>` closes the record and frees the PR.
+def open_holds(run: Callable[[list[str]], str], drive: str) -> list[dict]:
+    """Every open `hold` record on `drive`, the only place a hold lives; a record that resolves one closes it.
 
     `cci tail --kind=hold` also returns the caller's peer mail of any kind and drive, which carries no status, so only the drive's hold records count."""
-    holds = [record for record in records(run, drive, "--kind=hold") if record["kind"] == "hold" and record["drive"] == drive]
-    return {pr: record["seq"] for record in holds if record["status"] == "open" for pr in held_by(record)}
+    return [record for record in records(run, drive, "--kind=hold") if (record["kind"], record["drive"], record["status"]) == ("hold", drive, "open")]
+
+
+def held_prs(run: Callable[[list[str]], str], drive: str) -> dict[str, int]:
+    """Each PR an open `hold` record on `drive` holds, mapped to that record's seq."""
+    return {pr: record["seq"] for record in open_holds(run, drive) for pr in held_by(record)}
 
 
 def held_by(record: dict) -> list[str]:
-    """The PR numbers a hold record holds: the one its text leads with as `hold #<n>`, every later `#<n>` being prose as in the holds file, else every PR its refs name."""
+    """The PR numbers a hold record holds: the one its text leads with as `hold #<n>`, every later `#<n>` being prose, else every PR its refs name."""
     return [found[1]] if (found := LEADING_HOLD.match(record["text"])) else [str(pr).rsplit("#", 1)[-1] for pr in record["refs"].get("prs", [])]
 
 

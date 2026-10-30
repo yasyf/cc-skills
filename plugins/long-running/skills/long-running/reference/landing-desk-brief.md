@@ -13,15 +13,11 @@ The brief below is ready to paste; fill the angle brackets.
 
 ## Root discipline
 
-The root owns rulings, dispatch, the holds file, and one summary to the owner.
-Only the root edits the holds file, through `holds.py add|rm|list`. Each line names
-one held PR as a leading `#<n>`, or whole held lanes as `lane:<name>`, then the reason.
-Only the leading `#<n>` is held; a later `#<n>` in the reason is prose. A line written
-by hand as `<lane> HOLD <reason>` or `HOLD <lane> <reason>` holds that lane the same way.
-The landing runner fails closed on any other line, and on a lane line naming a lane no
-ledger row carries in any state: it gates and enqueues nothing and posts `HOLDS-UNREAD`
-to the root, quoting the line, until the root rewrites it in one of these forms or holds
-the PR by its `#<n>`. A blank line is not an error.
+The root owns rulings, dispatch, holds, and one summary to the owner.
+A hold is a root cci `hold` record, posted with `mq.py hold <n> --reason "<why>"` or
+`cci post --kind hold`: it holds the one PR its text leads with as `hold #<n>`, else every
+PR its refs name, and a later `#<n>` in the text is prose. A record that resolves it, such
+as the `lift` record `mq.py lift <n>` posts, lifts it. No hold lives in a file.
 
 The owner's merge mode, `landing.merge_mode` in `runner.json`, decides which PRs
 wait for the owner before they enqueue: `every` PR, only `high-risk` ones, or none
@@ -35,22 +31,15 @@ in `Other`'s modal reaches the root as the card's capture and merges nothing.
 A repository the runner's own GitHub account owns lands once green with no card
 (de6c88c). A `Merge` tap becomes a root `go`
 record naming the PR and its head, which the runner enqueues on; a `Hold` tap becomes
-a holds-file line. The desk never answers a `MERGE-ASK` and never enqueues a PR that
+a root `hold` record. The desk never answers a `MERGE-ASK` and never enqueues a PR that
 waits on one.
 
-To stop all landing, the root writes one `hold:all <reason>` line. The landing runner then holds every open ledger row
-except the PRs named on `release #<n>` lines and the open PRs of lanes named on
-`release lane:<name>` lines; an explicit hold or a rules-review block still
-wins. The desk mirrors no hold
-for a `release` line. Deleting the `hold:all` line ends the mode.
-
 Lanes never enqueue under D1; the pack's `lane_landing` hook refuses it. A hold is
-a holds-file line, an open cci `hold` record, or GitHub's `hold` label. The runner
+an open cci `hold` record or GitHub's `hold` label. The runner
 never enqueues a held PR or a PR above it, and no adapter takes a hold flag
 or reads holds. The desk never
-enqueues above a held PR or any PR of a held lane; the lane reports `held` on the tip, names the held
-PR, and leaves release to the root. The desk mirrors the holds file's entries with
-`ledger.py hold` and lifts them when the root removes them.
+enqueues above a held PR; the lane reports `held` on the tip, names the held
+PR, and leaves release to the root.
 
 For priority PRs flagged by the owner or blocking a release or a user, the root reads
 `mq.py --config <runner config> why <n>` for each and runs `mq.py priority <n> 0` in
@@ -171,7 +160,7 @@ Verified facts, do not re-derive:
   repo <owner/name>; base branch <dev>; checkout <absolute path, read-only for you>
   ledger <id from `ledger.py init --title "desk: <drive>"`>
   cci drive <drive>; desk <desk>; cci cursor <desk>
-  holds file <path>, root-owned; rules-override inbox <path, read by rules-review.py>
+  rules-override inbox <path, read by rules-review.py>
   team mailbox source `mailbox:<desk>`, resolved by desk-wait; mailbox cursor <path>
   runner config <absolute JSON path>; the orca runner alone consumes the Run mailbox
   standing rules <live scope:durable answer ids, plus the plan's Decisions;
@@ -233,14 +222,11 @@ Do, in this order, forever:
      and a cci correction names its record with --re <seq>. Never report it done.
      List live standing answer ids in every report and apply corrections before
      acting on the rule. The root posts rulings with cci post --kind go --to <desk>.
-     Read the holds file's leading #<n> entries, its lane:<name>, `<lane> HOLD`, and
-     `HOLD <lane>` entries, and the PRs
-     `ledger.py held --drive <drive>` prints from open cci holds. For each held lane, read
-     every open PR row from `ledger.py show --ledger <id> --json`. Mirror all held
-     PRs with `ledger.py hold`, the stated reason, and an expiry under D6. Lift
-     them when the root removes the line. The queue's `hold` check reads the
-     holds file itself on every pass; the mirrored ledger can lag it.
-     Never edit the holds file. Forward a priority desk's lane traffic with
+     Read the PRs `ledger.py held --drive <drive>` prints from open cci holds.
+     Mirror them with `ledger.py hold`, the stated reason, and an expiry under D6,
+     and lift them when their record is resolved. The queue's `hold` check reads the
+     records itself on every pass; the mirrored ledger can lag them.
+     Never post or resolve a hold. Forward a priority desk's lane traffic with
      `cci post --drive <drive> --lane <desk> --kind <kind> --to <priority desk> --text "<traffic>"`
      and stop handling those lanes.
   1. Inbox. Lanes and Orca workers write their own reports to cci with
