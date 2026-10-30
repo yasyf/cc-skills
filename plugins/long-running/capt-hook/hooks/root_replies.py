@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from cc_transcript.models import AttachmentEvent, UserEvent
 from captain_hook import (
     Allow,
+    Ask,
     BaseHookEvent,
     Event,
     FromSubagent,
@@ -219,6 +220,10 @@ def lane_status_read(evt: BaseHookEvent, lanes: set[str]) -> bool:
     return bool(reads) and all(any(lane in read for read in reads) for lane in lanes)
 
 
+def lane_status_ran(evt: BaseHookEvent) -> bool:
+    return any((args := script_args(argv, frozenset({"drive.py"}))) and args[0] == "lane-status" for argv in turn_commands(evt))
+
+
 def launched_lanes(argv: tuple[str, ...]) -> list[str]:
     if (args := script_args(argv, LAUNCHERS)) is not None:
         return [next((arg for arg in args if not arg.startswith("-") and arg != "launch"), "")]
@@ -262,15 +267,15 @@ def relabeled(evt: BaseHookEvent, texts: Callable[[], list[str]]) -> str | None:
         Input(
             transcript=replied(owner_said("stop all cuts now", "2026-01-15T00:11:00Z"), reply='Logged OWNER 7:58 PM "stop all cuts now" as a hold.'),
             state=ACTIVE,
-        ): Warn(pattern=r"^Warning, nothing was blocked[\s\S]*OWNER 4:11 PM"),
+        ): Allow(system_message=r"^Warning, nothing was blocked[\s\S]*OWNER 4:11 PM"),
         Input(
             transcript=replied(owner_said("stop all cuts now", "2026-01-15T00:11:00Z"), reply='Logged OWNER 4:11 PM "stop all cuts now" as a hold.'),
             state=ACTIVE,
-        ): Allow(),
+        ): Ask(),
         Input(
             transcript=replied(owner_said("stop all cuts now", "2026-01-15T00:11:30Z"), reply="Logged OWNER 4:12 PM as a hold."),
             state=ACTIVE,
-        ): Allow(),
+        ): Ask(),
         Input(
             transcript=replied(
                 owner_said("stop all cuts now", "2026-01-15T00:11:00Z"),
@@ -278,16 +283,16 @@ def relabeled(evt: BaseHookEvent, texts: Callable[[], list[str]]) -> str | None:
                 reply='Logged OWNER 4:30 PM "stop all cuts now" as a hold.',
             ),
             state=ACTIVE,
-        ): Warn(pattern=r"OWNER 4:11 PM"),
-        Input(transcript=replied(*MID_TURN, reply='Recorded OWNER 12:21 PM "post the board once the fix lands".'), state=ACTIVE): Allow(),
-        Input(transcript=replied(owner_said("ship it", "2026-01-15T00:11:00Z"), reply="The fix lane is building."), state=ACTIVE): Allow(),
-        Input(transcript=replied(owner_said("ship it", "2026-01-15T00:11:00Z"), reply="Logged OWNER 7:58 PM as a hold.")): Allow(),
+        ): Allow(system_message=r"OWNER 4:11 PM"),
+        Input(transcript=replied(*MID_TURN, reply='Recorded OWNER 12:21 PM "post the board once the fix lands".'), state=ACTIVE): Ask(),
+        Input(transcript=replied(owner_said("ship it", "2026-01-15T00:11:00Z"), reply="The fix lane is building."), state=ACTIVE): Ask(),
+        Input(transcript=replied(owner_said("ship it", "2026-01-15T00:11:00Z"), reply="Logged OWNER 7:58 PM as a hold.")): Ask(),
     },
 )
 def owner_labels_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active or not (warning := relabeled(evt, lambda: [last_reply(evt)])):
         return None
-    return evt.warn(warning)
+    return evt.allow(system_message=warning)
 
 
 @on(
@@ -339,11 +344,9 @@ def owner_records_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
     tests={
-        Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle with no code; relaunching it.")], state=ACTIVE): Warn(
-            pattern=r"drive\.py lane-status <lane>"
-        ),
-        Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is empty.")], state=ACTIVE): Warn(),
-        Input(transcript=[T.user("status?"), T.assistant("worker-fix-2: idle")], state=ACTIVE): Warn(),
+        Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle with no code; relaunching it.")], state=ACTIVE): Allow(system_message=r"drive\.py lane-status <lane>"),
+        Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is empty.")], state=ACTIVE): Allow(system_message=r"^Warning, nothing was blocked"),
+        Input(transcript=[T.user("status?"), T.assistant("worker-fix-2: idle")], state=ACTIVE): Allow(system_message=r"^Warning, nothing was blocked"),
         Input(
             transcript=[
                 T.user("status?"),
@@ -353,9 +356,9 @@ def owner_records_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
                 T.assistant("worker-fix-2 is idle; relaunching it."),
             ],
             state=ACTIVE,
-        ): Warn(),
-        Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle; relaunching it.")], state=ACTIVE): Warn(),
-        Input(transcript=[T.user("status?"), T.assistant("I stood worker-fix-2 down.")], state=ACTIVE): Warn(),
+        ): Allow(system_message=r"^Warning, nothing was blocked"),
+        Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle; relaunching it.")], state=ACTIVE): Allow(system_message=r"^Warning, nothing was blocked"),
+        Input(transcript=[T.user("status?"), T.assistant("I stood worker-fix-2 down.")], state=ACTIVE): Allow(system_message=r"^Warning, nothing was blocked"),
         Input(
             transcript=[
                 T.user("status?"),
@@ -363,23 +366,31 @@ def owner_records_carry_the_turn_stamp(evt: BaseHookEvent) -> HookResult | None:
                 T.assistant("worker-fix-2 is idle per `drive.py lane-status worker-fix-2`; relaunching it."),
             ],
             state=ACTIVE,
-        ): Allow(),
-        Input(transcript=[T.user("status?"), T.assistant("The fix lane opened its PR.")], state=ACTIVE): Allow(),
+        ): Ask(),
+        Input(
+            transcript=[
+                T.user("status?"),
+                T.assistant(T.tool("Bash", command="drive.py lane-status worker-fix-2 port-misc-3 --drive release-v3")),
+                T.assistant("worker-fix-2 is idle and port-misc-3 is idle per lane-status; the long-running stop-hook fix keeps going."),
+            ],
+            state=ACTIVE,
+        ): Ask(),
+        Input(transcript=[T.user("status?"), T.assistant("The fix lane opened its PR.")], state=ACTIVE): Ask(),
         Input(
             transcript=[T.user("merge?"), T.assistant("Third merge question is up: the judgment rule has no work left and reads clean. Three more to come.")], state=ACTIVE
-        ): Allow(),
+        ): Ask(),
         Input(
             transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle; relaunching it.")],
             state=[*ACTIVE, NagClock(said={"idle-claim:worker-fix-2": time.time()})],
-        ): Allow(),
-        Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle.")]): Allow(),
+        ): Ask(),
+        Input(transcript=[T.user("status?"), T.assistant("worker-fix-2 is idle.")]): Ask(),
     },
 )
 def idle_claims_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
-    if not CompactionState.load(evt).active:
+    if not CompactionState.load(evt).active or lane_status_ran(evt):
         return None
-    unread = [lane for lane in idle_claimed_lanes(last_reply(evt)) if not lane_status_read(evt, {lane})]
-    return evt.context(UNREAD_LANE) if once_per_hour(evt, [f"idle-claim:{lane}" for lane in unread]) else None
+    unread = idle_claimed_lanes(last_reply(evt))
+    return evt.allow(system_message=UNREAD_LANE) if once_per_hour(evt, [f"idle-claim:{lane}" for lane in unread]) else None
 
 
 def read_this_turn(evt: BaseHookEvent) -> bool:
@@ -398,10 +409,8 @@ def read_this_turn(evt: BaseHookEvent) -> bool:
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
     tests={
-        Input(transcript=[T.user("what did review find?"), T.assistant("Codex found two races in the retire path.")], state=ACTIVE): Warn(
-            pattern=r"same turn"
-        ),
-        Input(transcript=[T.user("how does landing work?"), T.assistant("Landing means the journal is copied to a shared server.")], state=ACTIVE): Warn(),
+        Input(transcript=[T.user("what did review find?"), T.assistant("Codex found two races in the retire path.")], state=ACTIVE): Allow(system_message=r"same turn"),
+        Input(transcript=[T.user("how does landing work?"), T.assistant("Landing means the journal is copied to a shared server.")], state=ACTIVE): Allow(system_message=r"^Warning, nothing was blocked"),
         Input(
             transcript=[
                 T.user("what did review find?"),
@@ -409,7 +418,7 @@ def read_this_turn(evt: BaseHookEvent) -> bool:
                 T.assistant("Per #149433, codex found two races in the retire path."),
             ],
             state=ACTIVE,
-        ): Allow(),
+        ): Ask(),
         Input(
             transcript=[
                 T.user("how does landing work?"),
@@ -417,7 +426,7 @@ def read_this_turn(evt: BaseHookEvent) -> bool:
                 T.assistant("The mechanism is a journal upload after each merge."),
             ],
             state=ACTIVE,
-        ): Allow(),
+        ): Ask(),
         Input(
             transcript=[
                 T.user("what did review find?"),
@@ -427,23 +436,23 @@ def read_this_turn(evt: BaseHookEvent) -> bool:
                 T.assistant("The mechanism is a journal upload after each merge."),
             ],
             state=ACTIVE,
-        ): Warn(),
+        ): Allow(system_message=r"^Warning, nothing was blocked"),
         Input(
             transcript=[
                 T.user('<teammate-message teammate_id="p8a-step5-2">Landing uploads the journal after each merge.</teammate-message>'),
                 T.assistant("The mechanism is a journal upload after each merge, per p8a-step5-2."),
             ],
             state=ACTIVE,
-        ): Allow(),
-        Input(transcript=[T.user("status?"), T.assistant("Three PRs are open and two lanes are working.")], state=ACTIVE): Allow(),
-        Input(transcript=[T.user("status?"), T.assistant("The PR lands by means of the queue.")], state=ACTIVE): Allow(),
-        Input(transcript=[T.user("what did review find?"), T.assistant("Codex found two races in the retire path.")]): Allow(),
+        ): Ask(),
+        Input(transcript=[T.user("status?"), T.assistant("Three PRs are open and two lanes are working.")], state=ACTIVE): Ask(),
+        Input(transcript=[T.user("status?"), T.assistant("The PR lands by means of the queue.")], state=ACTIVE): Ask(),
+        Input(transcript=[T.user("what did review find?"), T.assistant("Codex found two races in the retire path.")]): Ask(),
     },
 )
 def code_claims_follow_a_read(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active or not (claims := CODE_CLAIM.findall(last_reply(evt))) or read_this_turn(evt):
         return None
-    return evt.context(UNREAD_CLAIM) if once_per_hour(evt, [f"code-claim:{claim.casefold()}" for claim in claims]) else None
+    return evt.allow(system_message=UNREAD_CLAIM) if once_per_hour(evt, [f"code-claim:{claim.casefold()}" for claim in claims]) else None
 
 
 @on(
@@ -500,7 +509,7 @@ def stand_downs_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
             transcript=[T.user("why is it slow"), T.assistant("My bad: the runner was broken and I missed the stalled launch.")],
             state=ACTIVE,
             commands=incident_sources(SAND_NOT_MIGRATED),
-        ): Warn(pattern=r"ships the fix in the same turn"),
+        ): Allow(system_message=r"ships the fix in the same turn"),
         Input(
             transcript=[
                 T.user("why is it slow"),
@@ -509,7 +518,7 @@ def stand_downs_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
             ],
             state=ACTIVE,
             commands=incident_sources(SAND_NOT_MIGRATED),
-        ): Allow(),
+        ): Ask(),
         Input(
             transcript=[
                 T.user("why is it slow"),
@@ -518,23 +527,23 @@ def stand_downs_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
             ],
             state=ACTIVE,
             commands=incident_sources(SAND_NOT_MIGRATED),
-        ): Warn(),
+        ): Allow(system_message=r"^Warning, nothing was blocked"),
         Input(
             transcript=[T.user("why is it slow"), T.assistant("My bad: the runner was broken and I missed the stalled launch.")],
             state=ACTIVE,
             commands=incident_sources(CLOSED_0820),
-        ): Allow(),
+        ): Ask(),
         Input(
             transcript=[T.user("why is it slow"), T.assistant("The fix lane opened its PR.")],
             state=ACTIVE,
             commands=incident_sources(SAND_NOT_MIGRATED),
-        ): Allow(),
+        ): Ask(),
     },
 )
 def narrated_defects_ship_their_fix(evt: BaseHookEvent) -> HookResult | None:
     reply = last_reply(evt)
     if CompactionState.load(evt).active and DEFECT_ADMITTED.search(reply) and not fix_named(evt, reply) and open_incidents(evt):
-        return evt.context(NARRATED_DEFECT)
+        return evt.allow(system_message=NARRATED_DEFECT)
     return None
 
 
@@ -544,17 +553,15 @@ def narrated_defects_ship_their_fix(evt: BaseHookEvent) -> HookResult | None:
     transcript_events=REPLY_WINDOW,
     max_fires=1,
     tests={
-        Input(transcript=[T.user("how bad?"), T.assistant("About 300 requests per minute fail, and 12 runs crashed.")], state=ACTIVE): Warn(
-            pattern=r"300 requests per minute"
-        ),
-        Input(transcript=[T.user("how bad?"), T.assistant("15 runs crashed in the last hour (#104701).")], state=ACTIVE): Allow(),
-        Input(transcript=[T.user("how bad?"), T.assistant("15 runs crashed in the last hour.")], state=ACTIVE): Warn(),
-        Input(transcript=[T.user("status?"), T.assistant("Three PRs are open and two lanes are working.")], state=ACTIVE): Allow(),
-        Input(transcript=[T.user("how bad?"), T.assistant("15 runs crashed.")]): Allow(),
+        Input(transcript=[T.user("how bad?"), T.assistant("About 300 requests per minute fail, and 12 runs crashed.")], state=ACTIVE): Allow(system_message=r"300 requests per minute"),
+        Input(transcript=[T.user("how bad?"), T.assistant("15 runs crashed in the last hour (#104701).")], state=ACTIVE): Ask(),
+        Input(transcript=[T.user("how bad?"), T.assistant("15 runs crashed in the last hour.")], state=ACTIVE): Allow(system_message=r"^Warning, nothing was blocked"),
+        Input(transcript=[T.user("status?"), T.assistant("Three PRs are open and two lanes are working.")], state=ACTIVE): Ask(),
+        Input(transcript=[T.user("how bad?"), T.assistant("15 runs crashed.")]): Ask(),
     },
 )
 def owner_numbers_cite_their_query(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active:
         return None
     lines = [line.strip()[:NUMBER_TEXT_SHOWN] for line in last_reply(evt).splitlines() if MEASURED.search(line) and not QUERY_CITED.search(line)][:NUMBERS_SHOWN]
-    return evt.context("\n".join([UNSOURCED_NUMBER, "", "```", *lines, "```"])) if lines else None
+    return evt.allow(system_message="\n".join([UNSOURCED_NUMBER, "", "```", *lines, "```"])) if lines else None
