@@ -295,8 +295,8 @@ function render() {
   const caret = typing && [typing.name, typing.dataset.draft ?? '', typing.selectionStart, typing.selectionEnd];
   const spotRoot = [$('#main'), $('#tabs')].find((el) => el.contains(document.activeElement));
   const spot = !typing && state.shown === location.hash && spotRoot && focusSpot(spotRoot);
-  $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${p.screen === id ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="count">${count}</span>` : ''}</a>`).join('');
-  const screens = { overview: nowScreen, plan: planScreen, work: workScreen, review: () => reviewScreen(p.id ?? ''), history: () => historyScreen(p.id), ask: askScreen, status: statusScreen, jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>` };
+  $('#tabs').innerHTML = tabs.map(([id, label, count]) => `<a class="tab${(p.screen === 'milestone' ? 'plan' : p.screen) === id ? ' on' : ''}" href="#/${id === 'overview' ? '' : id}">${label}${count ? `<span class="count">${count}</span>` : ''}</a>`).join('');
+  const screens = { overview: nowScreen, plan: planScreen, work: workScreen, review: () => reviewScreen(p.id ?? ''), milestone: () => (curated('plan') ? milestonePage(curated('plan'), Number(p.id)) : writing(state.model.milestones[p.id])), history: () => historyScreen(p.id), ask: askScreen, status: statusScreen, jump: () => `<div class="pg">${pageHead('Jump to anything')}<p class="pg-lead">Find a change, a part of the plan, a piece of work or a page, or ask the assistant a question.</p></div>` };
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
   $('#main').innerHTML = (screens[p.screen] ?? nowScreen)() + drawers(stack) + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources could not be read just now (${esc(Object.keys(m.errors).join(', '))}). ` : ''}All times Pacific.</div>`;
@@ -349,7 +349,7 @@ function drawerOf(seg) {
   }
   const plan = curated('plan');
   const ms = /^m(\d+)$/.exec(id);
-  if (ms) return { kick: 'Milestone', title: state.model.milestones[ms[1]] ?? 'Milestone', tone: 'ms', body: () => (plan ? milestonePage(plan, Number(ms[1])) : writing('Milestone')) };
+  if (ms) return { kick: 'Milestone', title: state.model.milestones[ms[1]] ?? 'Milestone', tone: 'ms', own: `#/milestone/${ms[1]}`, body: () => (plan ? milestonePage(plan, Number(ms[1])) : writing('Milestone')) };
   const part = plan?.parts.find((x) => x.id === id);
   return { kick: 'Part of the plan', title: part?.name ?? id, body: part ? () => partPage(part) : gone('This part is no longer in the plan.') };
 }
@@ -365,7 +365,7 @@ function drawers(stack) {
   const step = (to, label, key) => (to ? `<a class="btn" href="#/${to}" data-key="${key}" title="${key === 'j' ? 'Next' : 'Previous'} in the list you opened this from">${label}<kbd>${key.toUpperCase()}</kbd></a>` : `<span class="btn off">${label}<kbd>${key.toUpperCase()}</kbd></span>`);
   const stepper = at >= 0 && list.length > 1 ? `<span class="dr-step">${step(list[at - 1], '‹', 'k')}<span class="dr-at">${at + 1} of ${list.length}</span>${step(list[at + 1], '›', 'j')}</span>` : '';
   const under = heads.slice(0, -1).map((d, i) => `<a class="pr-drawer under${tone(d)}" style="--back:${Math.min(3, stack.length - 1 - i)}" href="${stackHash(base, stack.slice(0, i + 1))}" data-pop="${i + 1}" title="Back to ${esc(d.title)}"><span class="dr-spine"><span>${esc(d.kick)}</span>${esc(d.title)}</span></a>`).join('');
-  return `<div class="pr-scrim" data-drawer-close></div>${under}<aside class="pr-drawer front${tone(top)}" role="dialog" aria-label="${esc(top.title)}" data-keep-scroll="drawer-${esc(stack.at(-1))}"><div class="dr-bar"><nav class="dr-crumbs" aria-label="Opened from">${crumbs}</nav>${stepper}<button class="btn pr-x" data-drawer-close>Close <kbd>Esc</kbd></button></div><div class="dr-body">${top.body()}</div></aside>`;
+  return `<div class="pr-scrim" data-drawer-close></div>${under}<aside class="pr-drawer front${tone(top)}" role="dialog" aria-label="${esc(top.title)}" data-keep-scroll="drawer-${esc(stack.at(-1))}"><div class="dr-bar"><nav class="dr-crumbs" aria-label="Opened from">${crumbs}</nav>${stepper}${top.own ? `<a class="btn ghost" href="${top.own}">Open as a page</a>` : ''}<button class="btn pr-x" data-drawer-close>Close <kbd>Esc</kbd></button></div><div class="dr-body">${top.body()}</div></aside>`;
 }
 function composeLinks(stack) {
   const base = baseOf();
@@ -556,6 +556,12 @@ document.addEventListener('keydown', (e) => {
   const key = e.key.toLowerCase();
   if (e.key === 'Escape' && ov.embedCard) { ov.embedCard = null; render(); }
   else if (e.key === 'Escape' && depth) popTo(depth - 1);
+  else if (e.key === 'Tab' && depth) {
+    const stops = [...$('#main .pr-drawer.front').querySelectorAll(FOCUSABLE)].filter((el) => el.checkVisibility());
+    const at = stops.indexOf(document.activeElement);
+    const wrap = at < 0 || (e.shiftKey ? at === 0 : at === stops.length - 1);
+    if (wrap) { e.preventDefault(); (e.shiftKey ? stops.at(-1) : stops[0]).focus(); }
+  }
   else if (depth && (key === 'j' || key === 'k') && !e.metaKey && !e.ctrlKey && !e.altKey && !e.target.closest('input, textarea')) {
     e.preventDefault();
     $(`#main .pr-drawer.front [data-key="${key}"]`)?.click();
@@ -580,7 +586,7 @@ window.addEventListener('hashchange', (e) => {
 });
 document.addEventListener('click', (e) => {
   const control = e.target.closest(FOCUSABLE);
-  if (control) history.replaceState({ ...history.state, y: window.scrollY, spot: focusSpot($('#main'), control) ?? history.state?.spot }, '');
+  if (control) history.replaceState({ ...history.state, y: window.scrollY, spot: focusSpot($('#main'), control) }, '');
 }, true);
 function focusInView() {
   for (const el of $('#main').querySelectorAll(FOCUSABLE)) {
