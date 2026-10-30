@@ -1981,7 +1981,7 @@ def test_a_lanes_claim_takes_the_blocker_for_the_prs_it_lists_and_roots_and_desk
 
 
 def post_body(post: dict) -> str:
-    return Path(post["path"]).read_text() if "path" in post else post["text"]
+    return Path(post["path"]).read_text().removesuffix("\n") if "path" in post else post["text"]
 
 
 @pytest.mark.parametrize(("minutes", "to"), [(59, "p8e-desktop-ship-3,root"), (61, "root")])
@@ -6353,7 +6353,7 @@ def test_mq_enqueue_refuses_a_go_named_head_the_owner_never_tapped_with_the_runn
     merge_go(shell, "29020", "go #29020 at cccc333: his tap on the board (watchdog #172407)")
     assert mq(shell, config, "enqueue", "29020", "--partial") == 1
     out = capsys.readouterr().out.splitlines()
-    assert "#29020 cccc333333 merge-mode pending TAP-REQUIRED rule/82317b0: it lands only on the owner's tap at this head, and a root go is no tap; no approval on the root's board names cccc333333" in out
+    assert "#29020 cccc333333 merge-mode pending TAP-REQUIRED rule/82317b0: it lands only on the owner's tap at this head, and a root go is no tap; #29020 at cccc333: not waiting on the owner: the board holds no row for it" in out
     assert out[-1] == "REFUSED: a check above does not pass a head this enqueue puts in the queue" and shell.enqueues() == []
     tap(shell, "29020", "cccc333333")
     assert mq(shell, config, "enqueue", "29020", "--partial") == 0
