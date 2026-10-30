@@ -39,6 +39,13 @@ The reply follows the `findings` schema, so the codex plugin needs nothing new:
   pending row in force is read against the rows it would have excepted.
 - Defect findings keep the schema's severities. A `blocker` counts as a major and a
   `nit` as a minor.
+- Slow code is a defect. The finder asks what the change runs per chat, team, session,
+  or run at 1,000 of them, and grades major, its `defect` starting `slow at N:`, a loop
+  that awaits I/O per item, a concurrency cap standing in for a batch, a process, timer,
+  or poll per item, a lock or wait wider than the one resource it protects, a poll where
+  a stream or signal exists, a cache, cap, timer, retry, or idle wait whose PR body names
+  no fundamental fix it stands in for, local state in a JSON file, or a branch on whether
+  required configuration is set.
 - A major cites at least one `path:line` inside a hunk the diff adds or changes
   (`git diff --unified=0 origin/<base>...<sha>`). A finding that rests only on lines
   the diff leaves as they were is a census finding, its defect starting `census:`: the

@@ -9010,7 +9010,7 @@ def test_an_inbox_relay_under_a_key_holding_another_relay_fails_visibly(shell, c
 
 def launch_brief(tmp_path: Path) -> Path:
     brief = tmp_path / "fix-brief.md"
-    brief.write_text(f"ccx: place=local\nbrief\n\nRegister slice: lane={LANE} step=1.9\n")
+    brief.write_text(f"ccx: place=local\nbrief\nScale: no N\n\nRegister slice: lane={LANE} step=1.9\n")
     return brief
 
 
@@ -9039,6 +9039,24 @@ def test_a_launch_line_whose_brief_has_no_slice_line_is_refused_unless_it_is_an_
     assert brief.read_text() == f"brief\n\nRegister slice: lane={LANE} step=incident\n"
     assert shell.refreshes == [refreshed(tmp_path, brief)]
     assert not [line for line in escalations(shell) if "R41" in line and "LAUNCH-FAILED" in line]
+
+
+def test_a_launch_line_whose_brief_has_no_scale_line_is_refused_unless_it_is_an_incident_fix(shell, config, tmp_path):
+    brief = tmp_path / "fix-brief.md"
+    brief.write_text(f"brief\n\nRegister slice: lane={LANE} step=1.9\n")
+    orca_pass(shell, config)
+    desk_orders(shell, f"R43 orca-desk: launch {LANE} sol xhigh brief={brief}")
+    orca_pass(shell, config)
+
+    assert launches(shell) == [] and shell.refreshes == []
+    assert escalations(shell) == [f"LAUNCH-FAILED R43 {LANE}: brief {brief} has no `Scale:` line; add the one the lane brief template gives: the N each path runs at, or `no N`; nothing was launched"]
+
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    desk_orders(shell, f"R44 orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)]]
 
 
 def test_a_launch_refreshes_its_slice_first_and_a_slice_that_does_not_read_blocks_nothing(shell, config, tmp_path):
@@ -9220,7 +9238,7 @@ def test_an_inbox_launch_naming_a_pr_a_live_lane_holds_is_refused_as_a_duplicate
     clocked_lane(shell, config, tmp_path)
     holding(monkeypatch, tmp_path, ahead=ahead, pushed=pushed)
     brief = tmp_path / "cache.md"
-    brief.write_text("ccx: place=local\nFinish the cache half of #1201.\n\nRegister slice: lane=api-cache step=1.9\n")
+    brief.write_text("ccx: place=local\nFinish the cache half of #1201.\nScale: no N\n\nRegister slice: lane=api-cache step=1.9\n")
     desk_orders(shell, f"R11 orca-desk: launch api-cache {now}sol xhigh brief={brief}")
     orca_pass(shell, config)
     orca_pass(shell, config)

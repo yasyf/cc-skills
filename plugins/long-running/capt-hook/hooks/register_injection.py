@@ -9,7 +9,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, Input, TaskCall, Tool, Warn, on
+from captain_hook import Allow, Annotated, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, TaskCall, Tool, Warn, on
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState, drive_entry, failure_of, post_blocker, register_context, register_of, rulings, script
@@ -22,6 +22,7 @@ HELPER_PLUGINS = ("cc-context:", "cc-review:", "cc-slack:", "cc-present:", "code
 INCIDENT_NAME = re.compile(r"^(?:incident|outage)-")
 INCIDENT_BRIEF = re.compile(r"\b(?:incident|outage)\b", re.IGNORECASE)
 SLICE_HEADER = re.compile(r"^Register slice: lane=\S+ step=\S+", re.MULTILINE)
+SCALE_HEADER = re.compile(r"^[ \t>*_-]*Scale:", re.MULTILINE)
 INCIDENT_SLICE = "Register slice: lane={lane} step=incident"
 BRIEF_FILE = re.compile(r"(?<![\w.~/-])[~/][\w./~-]*\.md\b")
 LANE_FLAGS = ("--lane", "-l")
@@ -31,13 +32,17 @@ NO_SLICE = (
     "Warning, nothing was blocked: this drive lane's brief has no `Register slice: lane=<name> step=<n>` line."
     " Add one and run `rulings.py slice --refresh {brief}` for the next spawn."
 )
+NO_SCALE = (
+    "This drive lane's brief {brief} has no `Scale:` line, so the spawn is refused."
+    " Add the line the lane brief template gives: the N each path runs at, such as chats on one Mac, or `no N`."
+)
 STALE_SLICE = "Warning, nothing was blocked: this spawn's register slice is stale or empty. Run `rulings.py slice --refresh {brief}` for the next spawn."
 INCIDENT_NOTE = "The incident spawn's prompt now carries its register slice and the unclassified owner captures."
 BRIEFS = Path(__file__).parent / "tests" / "fixtures" / "briefs"
 SLICE = f"{sys.executable} {script('rulings.py')} slice"
 FRESH_SLICE = {SLICE: "fresh /tmp/brief.md slice-hash 0123456789ab\n"}
 STALE = {SLICE: "refreshed /tmp/brief.md slice-hash 0123456789ab -> 89abcdef0123\n"}
-SLICED = "Lane lane-a: build the relay.\nRegister slice: lane=lane-a step=1.9\nslice-hash: 0123456789ab\n"
+SLICED = "Lane lane-a: build the relay.\nScale: chats on one Mac, up to 1,000.\nRegister slice: lane=lane-a step=1.9\nslice-hash: 0123456789ab\n"
 REGISTER = {"id": "c" * 40, "body": "# Register\n\n1. Pulumi state is the only truth.\n"}
 FOUND = {f"{sys.executable} {script('rulings.py')} register": json.dumps(REGISTER)}
 NONE_FOUND = {f"{sys.executable} {script('rulings.py')} register": "null"}
@@ -122,9 +127,11 @@ def spawn(name: str, prompt: str, agent_type: str = "long-running:lane", **extra
 @on(
     Event.PreToolUse,
     only_if=[Tool("Agent", "Bash")],
+    skip_if=[Annotated("raw")],
     tests={
         spawn("lane-a", "Lane lane-a: build the relay."): Warn(pattern=r"has no `Register slice: lane=<name> step=<n>` line"),
         spawn("lane-a", SLICED, commands=FRESH_SLICE): Allow(),
+        spawn("lane-a", SLICED.replace("Scale: chats on one Mac, up to 1,000.\n", "")): Block(pattern=r"has no `Scale:` line, so the spawn is refused\."),
         spawn("lane-a", SLICED, commands=STALE): Warn(pattern=r"stale or empty\. Run `rulings\.py slice --refresh <brief>`"),
         spawn("lane-a", f"Your brief is {BRIEFS / 'sliced.md'}; read it.", commands=FRESH_SLICE): Allow(),
         spawn("lane-a", f"Your brief is {BRIEFS / 'unsliced.md'}; read it."): Warn(pattern=r"--refresh \S*unsliced\.md"),
@@ -158,6 +165,8 @@ def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
         return None
     if not found.incident and not SLICE_HEADER.search(found.text):
         return evt.context(NO_SLICE.format(brief=found.shown)) if once_per_hour(evt, [NO_SLICE]) else None
+    if not found.incident and not SCALE_HEADER.search(found.text):
+        return evt.block(NO_SCALE.format(brief=found.shown))
     try:
         said, fresh = refreshed(evt, which, found)
         if found.incident and not found.inline:

@@ -143,7 +143,7 @@ def test_a_sub_lane_a_lane_spawns_is_warned_without_its_slice_and_refreshed_with
     calls: list[tuple[str, ...]] = []
     monkeypatch.setattr(injection, "rulings", lambda cwd, *args, **_: calls.append(args) or "fresh /tmp/brief.md slice-hash 0123456789ab\n")
     session = activated(tools / "session")
-    sliced = "Lane lane-a-sub.\nRegister slice: lane=lane-a-sub step=1.9\nslice-hash: 0123456789ab\n"
+    sliced = "Lane lane-a-sub.\nScale: no N\nRegister slice: lane=lane-a-sub step=1.9\nslice-hash: 0123456789ab\n"
 
     warned = injection.slice_on_spawn(spawned(session, "Agent", {"name": "lane-a-sub", "prompt": "Lane lane-a-sub: build the tests."}, agent_id="a1b2c3"))
     passed = injection.slice_on_spawn(spawned(session, "Agent", {"name": "lane-a-sub", "prompt": sliced}, agent_id="a1b2c3"))
@@ -171,7 +171,7 @@ def test_a_slice_that_does_not_read_passes_the_spawn_and_posts_one_blocker(tools
     posted: list[tuple[str, dict]] = []
     monkeypatch.setattr(injection, "rulings", broken)
     monkeypatch.setattr(injection, "post_blocker", lambda evt, text, **flags: posted.append((text, flags)))
-    prompt = "Lane lane-a.\nRegister slice: lane=lane-a step=1.9\nslice-hash: 0123456789ab\n"
+    prompt = "Lane lane-a.\nScale: no N\nRegister slice: lane=lane-a step=1.9\nslice-hash: 0123456789ab\n"
 
     assert injection.slice_on_spawn(spawned(activated(tools / "session"), "Agent", {"name": "lane-a", "prompt": prompt})) is None
     assert posted == [("slice_on_spawn: the register slice for lane-a did not read: no register for brook", {"key": "slice-on-spawn:lane-a"})]
