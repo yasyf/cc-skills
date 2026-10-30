@@ -277,8 +277,8 @@ them at most 120 s, skips a tree whose worker still runs or waits, and its relea
 on a side worker, never ahead of the gate. Each worker writes its step and when it began to `<config>.landing-stacks.json`, which
 stall_watch reads to name a stack stuck past its step's budget. Every pass posts one `state` record to root on topic `landing-state`
 counting the queued, waiting, held and refused PRs, the workers running and the overflow's enqueues, with the pass's seconds.
-`GO-UNQUEUED` is raised only when the newest enqueue of a go'd head since its go ended blocked, failed, stranded or unsettled, never for
-backlog, and `OVERFLOW-STALLED` when the overflow thread finished no run in five minutes. Beside the passes, an overflow thread reads afresh every minute and puts straight
+`GO-UNQUEUED` is raised only when the newest enqueue of a go'd head since its go ended blocked, failed, stranded or unsettled, or went in and the queue's merge activity then evicted it, naming that eviction's time and reason, never for
+backlog, and `OVERFLOW-STALLED` when the overflow thread finished no run in five minutes. A go'd head whose queue draft closed unmerged is taken out with the adapter's dequeue once per head, posting `ORPHAN-RELEASED`, and enqueued afresh, never `--recover`ed. Beside the passes, an overflow thread reads afresh every minute and puts straight
 into the queue, with none of the runner's checks, each stack that has stayed green, named at its heads by a root go, unheld, unqueued
 and unrefused for five minutes, posting a QUEUED report that names the overflow (owner 9524276). The queue read is one `ccx vcs pr status` call over every open row a pass,
 allowed 300 s, which the gate, the requeue and the landed check share. A PR body is read at most once per five minutes, a head's
@@ -810,6 +810,7 @@ RULINGS_SOURCES = ("rulings", "board_rows", "testfiles")
 TRUNK_REREAD = timedelta(minutes=5)
 QUEUED_STATE = "queued"
 QUEUED_VERDICT = "QUEUED"
+ORPHANED_HEAD = "queue head orphaned"
 STATUS_SETTLED = frozenset({QUEUED_STATE, "landed"})
 HEADS_PER_QUERY = 100
 QUOTA_FLOOR = 1000
@@ -5458,8 +5459,21 @@ class Landing:
                     gated_red = pr in children and self.adapter.failing_required(match) and self.gated_red(pr, match["sha"])
                     if self.restacking(match, stack):
                         continue
+                    if ORPHANED_HEAD in match["detail"] and self.head_gos(pr, rows[pr].get("head", "")):
+                        self.release_orphan(pr, rows[pr], match["detail"])
+                        continue
                     if blocker := self.adapter.blocker(match, stack, gated_red):
                         self.route_blocker(pr, match["sha"], blocker, rows[pr], tips, stack, gated_red, self.adapter.failing_required(match))
+
+    def release_orphan(self, pr: str, row: dict, detail: str) -> None:
+        """Take a go'd PR whose queue draft closed unmerged out of the queue once per head, through the adapter's dequeue, so the next pass enqueues its approved head afresh. `--recover` is never run: it can release the closed draft, whose content may lack the approved head's commits (root #195775)."""
+        key = f"orphan:{pr}@{row['head']}"
+        if self.book.known(LANDING, key):
+            return
+        released, line = self.adapter.dequeue(pr)
+        label = "ORPHAN-RELEASED" if released else "ORPHAN-RELEASE-FAILED"
+        then = "the next pass enqueues its approved head afresh" if released else "it stays out of the queue until the root dequeues it"
+        self.post_record("note", key, ",".join(dict.fromkeys([ROOT, self.owner(pr, row) or ROOT])), f"{label} #{pr} at {row['head'][:10]}: {detail}; the landing runner ran the adapter's dequeue instead of --recover: {line}; {then}", pr)
 
     def red_by_design(self, pr: str) -> bool:
         """Whether `pr`'s body opens with "red by design", or its lane's newest contract for it names its failing run as expected."""
@@ -7139,20 +7153,24 @@ class Landing:
                 continue
             tried = sorted((action for action in self.book.actions(LANDING, kind="enqueue") if head.startswith(enqueued_heads(action.action_id).get(pr) or "-") and actions.parse_stamp(action.accepted_at) >= at), key=lambda action: action.accepted_at)
             bot = self.review_bot(pr, head, row)
-            if not tried or (tried[-1].response or {}).get("outcome") not in GO_UNQUEUED_OUTCOMES:
+            evicted = (self.pr_statuses() or {}).get(pr, {}) if queue.get(pr) == "evicted" else {}
+            if not tried or (tried[-1].response or {}).get("outcome") not in GO_UNQUEUED_OUTCOMES and not evicted:
                 continue
-            if any(match["pr"] == pr and match["verdict"] == QUEUED_VERDICT and head.startswith(match["sha"]) for match in merge_queue.VERDICT_LINE.finditer(tried[-1].response.get("out", ""))):
+            if not evicted and any(match["pr"] == pr and match["verdict"] == QUEUED_VERDICT and head.startswith(match["sha"]) for match in merge_queue.VERDICT_LINE.finditer(tried[-1].response.get("out", ""))):
                 continue
             reserved = [f"{reserved_row(line)[0]} on #{below}" for below in sorted(downstack(open_rows, pr), key=int) if (kept := self.reported.get((below, open_rows[below].get("head", "")[:7], False))) for line in kept[1] if cause(line) == RESERVED_TOUCH]
             if bot:
                 why = bot
             elif reserved:
                 why = f"it waits on his tap authorizing {', '.join(reserved)}, as MERGE-ASK says; a go never authorizes a reserved row (C224)"
+            elif evicted:
+                why = f"the queue let it go at {evicted.get('evicted_at') or 'an unstamped time'} after its newest enqueue since the go ({tried[-1].response['outcome']}): {evicted.get('evicted') or 'no reason given'}"
             else:
                 why = f"its newest enqueue since the go ended {tried[-1].response['outcome']}: {' '.join(tried[-1].response.get('out', '').split())[-300:]}"
             bottom = min(stack, key=lambda member: len(downstack(open_rows, member)))
             stuck.setdefault(bottom, []).append((len(stack), pr, head, gos, at, why))
-        graphite = (self.adapter.queued(sorted({member[1] for group in stuck.values() for member in group}, key=int)) if stuck else None) or {}
+        unsure = sorted({member[1] for group in stuck.values() for member in group if (self.queue_states() or {}).get(member[1]) != "evicted"}, key=int)
+        graphite = (self.adapter.queued(unsure) if unsure else None) or {}
         for bottom, group in stuck.items():
             if not (group := [member for member in group if not graphite.get(member[1])]):
                 continue
@@ -7202,7 +7220,7 @@ class Landing:
             self.runner.escalate(f"overflow-stalled:{now:%Y%m%d%H}", "OVERFLOW-STALLED", "landing", f"the overflow thread has finished no run in {int(quiet // 60)} minutes{'' if alive else ' and is dead'}, so a stack the passes leave out waits on them alone; `desk-runner.py handoff` restarts the runner")
 
     def overflow(self) -> None:
-        """Enqueue straight into the merge queue, through the adapter and with none of the runner's own checks, each stack that has stayed landable for `OVERFLOW_AFTER` since an overflow first found it so: every unqueued PR of it green at its ledger head, named at that head by a root go, under no hold, pull, or incident fix, with no enqueue of it running and nothing the runner decided against it at that head, which is a refusal `last_refusal` finds since the go, an enqueue outcome outside `OVERFLOW_RETRIES`, a drop still waiting on a go, or a reserved row no answer authorizes (C224). Each goes in as its stack's top, recorded as an enqueue and posted as a QUEUED report that names the overflow."""
+        """Enqueue straight into the merge queue, through the adapter and with none of the runner's own checks, each stack that has stayed landable for `OVERFLOW_AFTER` since an overflow first found it so: every unqueued PR of it green at its ledger head, named at that head by a root go, under no hold, pull, or incident fix, with no enqueue of it running and nothing the runner decided against it at that head, which is a refusal `last_refusal` finds since the go, an enqueue outcome outside `OVERFLOW_RETRIES` other than a `blocked` one five minutes old, a drop still waiting on a go, or a reserved row no answer authorizes (C224). A stack is due once any PR of it is, so a restack that restarted an upper PR's clock never sends the bottom in alone for Graphite to hold the rest on. Each goes in as its stack's top, recorded as an enqueue and posted as a QUEUED report that names the overflow."""
         self.cci_tail.remember()
         try:
             self.statuses, self.queues_read, self.gos, self.cleared = None, False, None, {}
@@ -7218,13 +7236,13 @@ class Landing:
 
             since = self.book.edit(LANDING, seen)
             now = self.runner.now()
-            due = {pr for pr in landable if now - actions.parse_stamp(since[pr][1]) >= OVERFLOW_AFTER}
+            due = {pr for pr in landable if any(now - actions.parse_stamp(since[member][1]) >= OVERFLOW_AFTER for member in downstack(open_rows, pr) & landable)}
             with ThreadPoolExecutor(max(1, len(due))) as pool:
                 touched = dict(zip(due, pool.map(lambda pr: bool(self.reserved_touches(pr, open_rows[pr]["head"])), due)))
             due = {pr for pr in due if not any(touched.get(member, False) for member in downstack(open_rows, pr) & due)}
             tops = [pr for pr in due if not any(pr in downstack(open_rows, other) for other in due - {pr})]
             with ThreadPoolExecutor(max(1, len(tops))) as pool:
-                list(pool.map(lambda top: self.overflow_one(top, open_rows, queue, actions.parse_stamp(since[top][1])), tops))
+                list(pool.map(lambda top: self.overflow_one(top, open_rows, queue, min(actions.parse_stamp(since[member][1]) for member in downstack(open_rows, top) & landable)), tops))
         finally:
             self.cci_tail.stop()
             self.overflowed_at = time.monotonic()
@@ -7250,6 +7268,8 @@ class Landing:
             if not named:
                 continue
             response = action.response or {}
+            if action.status == "completed" and response.get("outcome") == "blocked" and self.runner.now() - actions.parse_stamp(response["at"]) >= OVERFLOW_AFTER:
+                continue
             if action.status == "started" or (action.status == "completed" and response.get("outcome") not in OVERFLOW_RETRIES):
                 return True
             if any(response.get("ejected", {}).get(pr) == sha for pr, sha in named.items()):

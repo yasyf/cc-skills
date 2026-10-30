@@ -5504,6 +5504,37 @@ def test_the_overflow_never_enqueues_a_stack_holding_a_pr_below_with_no_go(shell
     assert shell.enqueues() == []
 
 
+def test_the_overflow_puts_a_go_named_stack_in_whole_when_only_its_bottom_has_waited_five_minutes(shell, config, tmp_path):
+    merge_mode(config, "every")
+    two_pr_stack(shell)
+    shell.rows = [dict(row, test_state="success") for row in shell.rows]
+    shell.queue["29020"] = shell.queue["29031"] = "not queued"
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    overflow = landing_of(shell, config, tmp_path)
+    overflow.overflow()
+    shell.sleep(6 * 60)
+    merge_go(shell, "29031", "merge #29031 at dddd444")
+    overflow.overflow()
+    assert [call[1:] for call in shell.enqueues()] == [["29031", "--partial"]]
+
+
+def test_the_overflow_tries_a_blocked_enqueue_again_five_minutes_later(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.queue["33001"] = "not queued"
+    shell.enqueue_out["33001"] = (1, "#33001 BLOCKED aaaa111111 GitHub still computing mergeability; rerun on the next pass\nenqueued nothing: the bottom PR #33001 is BLOCKED\n")
+    overflow = landing_of(shell, config, tmp_path)
+    overflow.overflow()
+    shell.sleep(6 * 60)
+    overflow.overflow()
+    overflow.overflow()
+    assert len(shell.enqueues()) == 1
+    shell.enqueue_out["33001"] = (0, "enqueue #33001: {}\n")
+    shell.sleep(6 * 60)
+    overflow.overflow()
+    assert len(shell.enqueues()) == 2
+
+
 def test_a_stack_worker_past_the_gate_budget_runs_on_after_the_pass_while_the_other_stack_lands(shell, config, tmp_path, monkeypatch):
     monkeypatch.setattr(runner_module, "GATE_BUDGET", timedelta(seconds=1))
     lone_green_pr(shell)
@@ -6896,6 +6927,36 @@ def test_a_head_the_runner_refused_draws_no_go_unqueued(shell, config, tmp_path)
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert [post for post in blockers(shell) if "TEST-ONLY-MISMATCH" in post_body(post)] and unqueued(shell) == []
+
+
+def test_a_go_named_head_the_queue_evicted_after_its_enqueue_went_in_draws_go_unqueued_naming_the_eviction(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.queue["33001"] = "not queued"
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+    shell.queue["33001"] = "evicted"
+    shell.pr_status["33001"] = {"evicted": "the batch it was included in timed out", "evicted_at": "Oct 30, 1:58 AM UTC"}
+    shell.statuses = "#33001 WAITING_TO_MERGE aaaa111111\n"
+    shell.gates["33001"] = [gate("#33001 QUEUED aaaa111111 graphite WAITING_TO_MERGE", would="")]
+    shell.sleep(6 * 60)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [line] = unqueued(shell)
+    assert "the queue let it go at Oct 30, 1:58 AM UTC after its newest enqueue since the go (" in line and "): the batch it was included in timed out" in line
+
+
+def test_a_go_named_head_whose_queue_draft_closed_is_dequeued_once_and_never_recovered(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 BLOCKED aaaa111111 queue head orphaned: its queue draft #45279 closed unmerged 201 minutes ago and the PR is still queued; rerun stack-enqueue 33001 --recover")
+    shell.queue["33001"] = "not queued"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    calls = [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
+    assert [call[1:] for call in calls if "--dequeue" in call] == [["33001", "--dequeue"]]
+    assert not [call for call in calls if "--recover" in call]
+    assert [post for post in shell.posts if post["text"].startswith("ORPHAN-RELEASED #33001 at aaaa111111")]
+    assert not [post for post in blockers(shell) if "orphaned" in post_body(post)]
 
 
 def test_a_go_whose_newest_enqueue_shows_it_queued_draws_no_go_unqueued(shell, config, tmp_path):
