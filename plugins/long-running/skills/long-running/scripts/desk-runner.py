@@ -77,7 +77,7 @@ per lane, a reply to the lane's latest open question no other reply claims, logg
 `RELAYED` or `RELAY-FAILED`. Each new `orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>`
 line is the `launch` command under its key, `NOW` meaning `--owner-directed` and `role=` meaning `--role`, refused as
 `LAUNCH-FAILED` while the lane has a live dispatch or a launch in flight, or while its brief has no `Register slice:`
-line or no `Scale:` line and the launch is not an incident lane's. Before any launch the runner refreshes the register slice under that
+line or, for a new lane's brief (`lane_brief.owes_scale`), no `Scale:` line, and the launch is not an incident lane's. Before any launch the runner refreshes the register slice under that
 line with `rulings.py slice --refresh`, first writing `Register slice: lane=<lane> step=incident` into an incident
 brief that has none, and writes the slice into every brief it attaches itself; a slice that does not read logs
 `SLICE-UNREAD` and the launch goes ahead. Every verified
@@ -628,6 +628,7 @@ import finder
 import ghread
 import incident
 import inboxes
+import lane_brief
 import lanes
 import merge_queue
 import owner_waits
@@ -956,7 +957,6 @@ INSTALL_PARTS = ("reference", "scripts")
 BRIEF_FILES = (MANUAL_TEMPLATE, ALERT_TEMPLATE, UNFIXED_TEMPLATE, finder.TEMPLATE, finder.ROWS_STEP, fidelity.TEMPLATE, fidelity.RUBRIC, incident.TEMPLATE)
 SLICE_LINE = "Register slice:"
 SLICE_HEADER = re.compile(rf"^{SLICE_LINE}", re.MULTILINE)
-SCALE_HEADER = re.compile(r"^[ \t>*_-]*Scale:", re.MULTILINE)
 INCIDENT_STEP = "incident"
 UNFIXED = re.compile(r"^[ \t>*-]*(?P<tick>`?)UNFIXED (?P<lane>[\w.-]+):[ \t]*(?P<case>\S.*?)(?P=tick)[ \t]*$", re.MULTILINE)
 UNFIXED_CASES = "unfixed-cases"
@@ -2682,8 +2682,8 @@ class Runner:
         text = brief.read_text()
         if not SLICE_HEADER.search(text) and not (model == INCIDENT_MODEL or incident_fix(lane, model, brief, role)):
             return f"brief {brief} has no `{SLICE_LINE} lane=<name> step=<n>` line; add one and run `rulings.py slice --refresh {brief}`"
-        if not SCALE_HEADER.search(text) and INCIDENT_MODEL not in (model, role) and not incident_fix(lane, model, brief, role):
-            return f"brief {brief} has no `Scale:` line; add the one the lane brief template gives: the N each path runs at, or `no N`"
+        if lane_brief.owes_scale(lane, text, brief) and INCIDENT_MODEL not in (model, role) and not incident_fix(lane, model, brief, role):
+            return lane_brief.no_scale(brief)
         container = lane_container(lane)
         if self.book.exists(container):
             if held := self.book.known(container, key):
