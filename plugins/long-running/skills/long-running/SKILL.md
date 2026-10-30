@@ -981,13 +981,25 @@ partition (`per key`, `per destination`, `per chat`) or an exception (`only`,
 `rulings.py readback` prints it as `READBACK-NARROWED`, `rulings.py accepted` refuses
 an ok grade that leaves a narrowed key unnamed, and the `narrowed_contracts` hook warns
 the grade or root post that accepts such a contract.
-Those word checks catch only the shapes they name. The `ruling_misread` hook asks Sonnet
-whether each posted contract, root relay, card request, and the tests a pull request
-ships misread the owner's verbatim words on the rows they cite or match, either narrower
-than he said or applied literally past his purpose. A yes comes back to the writer as
-a warning with his words, the phrase that misreads, and one plain sentence; it never
-blocks. The writer fixes the artifact or answers on its record with the ruling that
-carries it.
+Those word checks catch only the shapes they name. The `ruling_misread` hook asks the
+drive's judge whether each posted contract, root relay, card request, and the tests a
+pull request ships misread the owner's verbatim words on the rows they cite or match,
+either narrower than he said or applied literally past his purpose. A yes comes back to
+the writer as a warning with his words, the phrase that misreads, and one plain
+sentence; it never blocks. The writer fixes the artifact or answers on its record with
+the ruling that carries it.
+Every small-model question in the pack goes through one library,
+`scripts/long_running/judge.py`. A judge reads the owner's words verbatim and what they
+answered, never the register's summaries. A yes is asked a second time, and a split is
+unsure, which never warns. A failed call returns nothing, so the caller keeps the
+behavior it had without a judge. `LONG_RUNNING_JUDGE` picks the model: `sonnet+jev`, the
+default, asks Sonnet at low effort with Claude Code's own system prompt replaced and lets
+TypeSafe Jev settle a first answer of unsure; `sonnet`, `jev` and `jev+sonnet` are the
+others. Each call appends one line to `judge/calls.jsonl` in the drive's state folder,
+and `drive.py digest` prints each judge kind's verdicts, errors and latency over the last
+day. `judge-eval.py <fixtures>` scores every backend on the same answers over fixture
+files kept in the drive's state folder, because they carry the owner's words; it calls
+models, so it runs by hand before a judge ships or a prompt changes, never in CI.
 A ruling about system shape (one process, one primary and one replica, everything a
 client, N things sharing one X) gets a CI test that fails on today's code in the same
 turn as the build. `rulings.py shapes` lists the in-force shape rows; `check-pr` refuses
