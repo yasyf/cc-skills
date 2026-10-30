@@ -1724,7 +1724,7 @@ def test_readback_warns_where_a_line_scopes_an_owner_row_narrower_than_his_words
         return [warning for warning in out.splitlines() if "NARROWED" in warning]
 
     assert warned("rule/ccccccc: one card per destination and key quotes the words, only on the board") == [
-        'WARNING READBACK-NARROWED rule/ccccccc: says "per destination", "per key", "only"; the owner\'s words say none of them'
+        'WARNING READBACK-NARROWED rule/ccccccc: says "per destination", "only"; the owner\'s words say none of them'
     ]
     assert warned('rule/ccccccc: every card quotes the words, per root #12, as he said: "Cards quote the words they ask about."') == []
 
@@ -1738,6 +1738,7 @@ def test_narrowed_reads_rows_cited_by_key_answer_or_quote_and_exits_one_on_a_nar
     assert narrowed('He said "Drain the pool when a run closes."\nSo each pool drains, except the shared one.') == (1, 'NARROWED rule/bbbbbbb: says "except"; the owner\'s words say none of them\n')
     assert narrowed("rule/bbbbbbb: the pool drains when a run closes.") == (0, "")
     assert narrowed("Pools drain per run, except the shared one.") == (0, "")
+    assert narrowed("Under bbbbbbb a chat's kind is worked out per run and never stored; a separate note says only what the sweep marked.") == (1, 'NARROWED rule/bbbbbbb: says "per run", "only"; the owner\'s words say none of them\n')
     assert narrowed("rule/bbbbbbb: the pool drains when a run closes.\nrule/ccccccc: cards quote the words they ask about.\nEvery sweep hit is marked, one per line, only in sweep-marked.tsv.") == (0, "")
 
 
