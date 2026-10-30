@@ -9167,6 +9167,15 @@ def test_each_landing_pass_posts_its_own_alive_record(shell, config, tmp_path):
     assert heartbeat(shell, "orca") is None
 
 
+def test_a_command_whose_binary_is_missing_fails_after_its_backoff_instead_of_raising(monkeypatch):
+    """Root #217937: brew replaced the cci link, the orca runner's call raised FileNotFoundError, and the runner died."""
+    waits = []
+    monkeypatch.setattr(runner_module.Shell, "sleep", lambda self, seconds: waits.append(seconds))
+    done = runner_module.Shell().run(["cci-missing-for-this-test", "tail"])
+    assert done.code == runner_module.MISSING_BINARY and "cci-missing-for-this-test" in done.err
+    assert waits == list(runner_module.MISSING_BACKOFF)
+
+
 def test_the_alive_record_names_the_command_in_flight_and_how_long_it_has_run(shell, config, tmp_path, monkeypatch):
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     monkeypatch.setitem(runner_module.Shell.in_progress, 1, ("stack-enqueue 42627 42676 --check", time.monotonic() - 125))
@@ -9176,7 +9185,8 @@ def test_the_alive_record_names_the_command_in_flight_and_how_long_it_has_run(sh
     assert shell.alive == [f"landing alive {shell.clock.astimezone(runner_module.PACIFIC):%-I:%M %p} pass 1 running `stack-enqueue 42627 42676 --check` for 2m05s"]
 
 
-def test_a_pass_that_raises_posts_a_blocker_and_the_runner_goes_on_until_the_same_raise_twice_in_a_row(shell, config, tmp_path, monkeypatch):
+def test_a_pass_that_raises_posts_a_blocker_and_the_runner_goes_on_until_the_same_raise_twice_in_a_row_then_restarts_itself(shell, config, tmp_path, monkeypatch):
+    """Root #217937: the orca runner exited on a repeated raise and nothing restarted it for 50 minutes."""
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     raises = iter([UnicodeDecodeError("utf-8", b"\xb5", 0, 1, "invalid start byte"), None, KeyError("base"), KeyError("base")])
 
@@ -9187,11 +9197,13 @@ def test_a_pass_that_raises_posts_a_blocker_and_the_runner_goes_on_until_the_sam
     monkeypatch.setattr(runner_module.Landing, "run", run)
     monkeypatch.setattr(runner, "rest", lambda seconds: False)
 
-    assert runner_module.run_landing(runner, False) == 1
+    with pytest.raises(Reexeced):
+        runner_module.run_landing(runner, False)
+    assert shell.reexeced == [[str(runner_module.RUNNER_BIN), "run", "--config", str(config), "--desk", "landing"]]
     assert [(post["to"], post["text"]) for post in blockers(shell)] == [
         ("root", "landing runner pass raised UnicodeDecodeError: 'utf-8' codec can't decode byte 0xb5 in position 0: invalid start byte; the runner goes on with its next pass"),
         ("root", "landing runner pass raised KeyError: 'base'; the runner goes on with its next pass"),
-        ("root", "landing runner pass raised KeyError: 'base'; it raised the same on the pass before, so the runner exited; restart it with the restart attr of its newest alive record"),
+        ("root", "landing runner pass raised KeyError: 'base'; it raised the same on the pass before, so the runner restarts itself in 60 s"),
     ]
 
 

@@ -843,6 +843,9 @@ LANDABLE = "landable"
 CHECK_PR_TIMEOUT = "CHECK-PR-TIMEOUT"
 QUICK_PROGRAMS = frozenset({"gh", "cci", "ccx"})
 TIMED_OUT = 124
+MISSING_BINARY = 127
+MISSING_BACKOFF = (2, 5, 10, 20, 30)
+RAISED_BACKOFF = timedelta(minutes=1)
 WAKE_SECONDS = 0.25
 STOP_CONFIRM = timedelta(seconds=30)
 STOP_POLL_SECONDS = 2
@@ -1108,7 +1111,8 @@ class Shell:
     A GitHub, cci or ccx read gets QUICK_SECONDS, a `--check` GATE_CHECK_SECONDS, `rulings.py check-pr` CHECK_PR_SECONDS, any other
     `stack-enqueue` and `ccx vcs ship` ENQUEUE_SECONDS, `ledger.py` LEDGER_SECONDS and `git fetch` FETCH_SECONDS; one that times out is logged and
     reads as a failed command, never a fatal one. A read `rereadable` names runs once more when it timed out or failed on a transient
-    network error. `in_progress` holds each thread's command in flight
+    network error. A command whose binary is missing, as `cci` is while brew replaces its link, runs again after each wait of
+    `MISSING_BACKOFF` and then reads as a failed command, never a crash (root #217937). `in_progress` holds each thread's command in flight
     and when it started, for the heartbeat.
     """
 
@@ -1120,6 +1124,11 @@ class Shell:
 
     def run(self, argv: list[str], stdin: str | None = None, env: dict[str, str] | None = None, cwd: str | None = None) -> Done:
         done = self.run_once(argv, stdin, env, cwd)
+        for wait in MISSING_BACKOFF:
+            if done.code != MISSING_BINARY:
+                break
+            self.sleep(wait)
+            done = self.run_once(argv, stdin, env, cwd)
         if rereadable(argv) and done.code and (done.code == TIMED_OUT or merge_queue.TRANSIENT_FAILURE.search(done.err + done.out)):
             done = self.run_once(argv, stdin, env, cwd)
         return done
@@ -1137,6 +1146,8 @@ class Shell:
                 except subprocess.TimeoutExpired:
                     print(f"TIMED-OUT after {timeout}s, skipped: {command_name(argv)}", file=sys.stderr, flush=True)
                     return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {timeout}s and was killed")
+                except FileNotFoundError:
+                    return Done(MISSING_BINARY, "", f"{argv[0]} is not on PATH")
         finally:
             self.in_progress.pop(threading.get_ident(), None)
             with self.spending:
@@ -1924,12 +1935,12 @@ class Runner:
         return f"nohup {f'env {env}' if env else ''}desk-runner.py run --config {self.config.source} --desk {desk} >> {self.runner_log(desk)} 2>&1 < /dev/null &"
 
     def pass_raised(self, desk: str, error: Exception) -> bool:
-        """Log a pass's traceback and post one blocker to the root naming the desk and the exception; true when the pass before raised the same, and the runner then exits."""
+        """Log a pass's traceback and post one blocker to the root naming the desk and the exception; true when the pass before raised the same, and the runner then restarts itself after `RAISED_BACKOFF`."""
         print(traceback.format_exc(), file=sys.stderr, flush=True)
         raised = f"{type(error).__name__}: {error}"
         again = self.raised.get(desk) == (raised, self.passes[desk] - 1)
         self.raised[desk] = (raised, self.passes[desk])
-        then = "it raised the same on the pass before, so the runner exited; restart it with the restart attr of its newest alive record" if again else "the runner goes on with its next pass"
+        then = f"it raised the same on the pass before, so the runner restarts itself in {int(RAISED_BACKOFF.total_seconds())} s" if again else "the runner goes on with its next pass"
         self.cci_post("blocker", f"{desk} runner pass raised {raised[:240]}; {then}", ROOT, desk, f"pass-raised:{desk}")
         return again
 
@@ -8731,7 +8742,8 @@ def run_orca(runner: Runner, once: bool) -> int:
             runner.orca_down(down)
         except Exception as error:
             if runner.pass_raised("orca", error):
-                return 1
+                runner.shell.sleep(RAISED_BACKOFF.total_seconds())
+                runner.reexec("orca")
         else:
             runner.orca_back()
         runner.aged_holds()
@@ -8828,7 +8840,8 @@ def run_landing(runner: Runner, once: bool) -> int:
             runner.orca_down(down)
         except Exception as error:
             if runner.pass_raised("landing", error):
-                return 1
+                runner.shell.sleep(RAISED_BACKOFF.total_seconds())
+                runner.reexec("landing")
         runner.passing.discard("landing")
         behind = runner.stale()
         took = (runner.now() - started).total_seconds()
