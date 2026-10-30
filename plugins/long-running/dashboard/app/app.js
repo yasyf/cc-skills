@@ -59,11 +59,11 @@ function driveEntry(n) {
 function prState(n) {
   return driveEntry(n)?.state ?? 'closed';
 }
-const STATE_WORD = { landed: 'Landed', closed: 'Closed', you: 'Waiting on you', failing: 'Tests failing', held: 'Held', doing: 'Being worked on', work: 'Queued' };
-const STATE_TONE = { landed: 'ok', closed: '', you: 'bad', failing: 'bad', held: 'warn', doing: 'acc', work: '' };
+const STATE_WORD = { landed: 'Landed', closed: 'Closed', you: 'Waiting on you', merging: 'Merging', defect: 'Runner defect', failing: 'Tests failing', held: 'Held', doing: 'Being worked on', work: 'Queued' };
+const STATE_TONE = { landed: 'ok', closed: '', you: 'bad', merging: 'acc', defect: 'bad', failing: 'bad', held: 'warn', doing: 'acc', work: '' };
 function stateWord(n) {
-  const red = driveEntry(n)?.red;
-  return STATE_WORD[prState(n)] + (red ? ` · ${red.class}, held by ${red.owner}` : '');
+  const { red, since } = driveEntry(n) ?? {};
+  return STATE_WORD[prState(n)] + (red ? ` · ${red.class}, held by ${red.owner}` : '') + (since ? ` · admitted ${agoWords(since)}` : '');
 }
 function prHref(n) {
   return boardRow(n) ? `#/review/${n}` : `https://github.com/${state.model.repo}/pull/${n}`;
@@ -155,7 +155,7 @@ function partOf(n) {
 function inDrive(numbers) {
   return numbers.filter((n) => state.drive.has(Number(n)));
 }
-const RANK = { landed: 0, doing: 1, work: 2, you: 3, failing: 4, held: 5, closed: 6 };
+const RANK = { landed: 0, merging: 1, doing: 1, work: 2, you: 3, defect: 4, failing: 4, held: 5, closed: 6 };
 function prRank(n) {
   return RANK[prState(n)];
 }

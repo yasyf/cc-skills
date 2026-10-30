@@ -151,6 +151,7 @@ WATCHDOG = "drive-watchdog"
 BEAT_STALE = timedelta(minutes=5)
 QUIET_BEAT = timedelta(minutes=2)
 STACK = "stack.json"
+ADMITTED = "landing-admitted.json"
 VERSION_PART = re.compile(r"\d+")
 NUMBERED = re.compile(r"(?<![\w&])#\d+\b")
 SLUG_WORDS = 6

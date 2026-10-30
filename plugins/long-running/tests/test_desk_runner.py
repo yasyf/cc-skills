@@ -7290,10 +7290,13 @@ def test_an_admitted_head_no_record_accounts_for_draws_one_admitted_skipped_nami
     shell.sleep(9 * 60)
     landing_pass(shell, config)
     assert skipped(shell) == []
+    admitted = Path(json.loads(config.read_text())["orca"]["desk_inbox"]).expanduser().parent / runner_module.drive.ADMITTED
+    assert json.loads(admitted.read_text())["heads"]["33001"]["state"] == "merging"
     shell.sleep(2 * 60)
     landing_pass(shell, config)
     landing_pass(shell, config)
     [line] = skipped(shell)
+    assert json.loads(admitted.read_text())["heads"]["33001"]["state"] == "defect"
     assert line.startswith("ADMITTED-SKIPPED admitted-skipped:33001 #33001: #33001 is green at aaaa111111 and root go #")
     assert "yet no record says it is queued, merging or refused: the gate read aaaa111111 BLOCKED: merge conflict (graphite CONFLICT); owner lane api-fix" in line
     assert "root" in heard(shell, "ADMITTED-SKIPPED")[0].split(",")

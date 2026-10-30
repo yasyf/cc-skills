@@ -7742,7 +7742,7 @@ class Landing:
             self.runner.escalate(key, "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and {go_state(self.root_gos(), pr, head).said()} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}{waits}; owner lane {owner}", subject, to)
 
     def audit_admitted(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Escalate `ADMITTED-SKIPPED` to the root and the owning lane, once per head, for each open drive PR green at its ledger head that a root `go` or an exemption admits there, `ADMISSION_AUDIT` after it was admitted, that the pass's queue read finds neither queued nor landed (only landed counts while Graphite is down), that no stack worker holds, that no check of the runner refused at that head the last time it ran (a finder or fidelity refusal is its own record, root #210691), whose every PR below is admitted the same way or already queued, that this runner's own `MERGED` record does not name as merged directly, which its ledger row lags until the next refresh settles it (root #211747), and that no refusal of this runner or the desk lane, `GO-UNQUEUED` or failed direct merge names: the escalation says which branch of the pass last left it out, or that none recorded one (owner, 5:16 AM Oct 30; root #208560)."""
+        """Escalate `ADMITTED-SKIPPED` to the root and the owning lane, once per head, for each open drive PR green at its ledger head that a root `go` or an exemption admits there, `ADMISSION_AUDIT` after it was admitted, that the pass's queue read finds neither queued nor landed (only landed counts while Graphite is down), that no stack worker holds, that no check of the runner refused at that head the last time it ran (a finder or fidelity refusal is its own record, root #210691), whose every PR below is admitted the same way or already queued, that this runner's own `MERGED` record does not name as merged directly, which its ledger row lags until the next refresh settles it (root #211747), and that no refusal of this runner or the desk lane, `GO-UNQUEUED` or failed direct merge names: the escalation says which branch of the pass last left it out, or that none recorded one (owner, 5:16 AM Oct 30; root #208560). It writes every admitted head, as `merging` or, once escalated, `defect`, with the time it was admitted, to `drive.ADMITTED` beside `orca.desk_inbox`, where the dashboard reads it so an admitted head never waits on the owner."""
         if (statuses := self.pr_statuses()) is None:
             return
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
@@ -7759,20 +7759,27 @@ class Landing:
                 return True
             return bool(row.get("ours") and head and row.get("test_state") == "success") and member not in covered and self.check_refused.get(member) != head and bool(gone_at(gos, member, head) or self.exempt_admitted(member, head)[0])
 
+        published: dict[str, dict] = {}
         for pr, row in sorted(open_rows.items(), key=lambda item: int(item[0])):
             head = row.get("head", "")
             stack = downstack(open_rows, pr)
-            if pr in busy or pr in merged or statuses.get(pr, {}).get("queue") in settled or not all(map(cleared, stack)):
+            if pr in merged or statuses.get(pr, {}).get("queue") == "landed" or not all(map(cleared, stack)):
                 continue
             gos_at = gone_at(gos, pr, head)
             since = [min(max(actions.parse_stamp(go["at"]), actions.parse_stamp(go.get("graded_at") or go["at"])) for go in gos_at)] if gos_at else []
             since += [actions.parse_stamp(row["green_at"])] if row.get("green_at") else []
-            if not since or now - (admitted := max(since)) < ADMISSION_AUDIT or self.recorded(stack, open_rows, admitted):
+            if not since:
+                continue
+            admitted = max(since)
+            published[pr] = {"head": head, "since": actions.stamp(admitted), "state": "merging"}
+            if pr in busy or statuses.get(pr, {}).get("queue") in settled or now - admitted < ADMISSION_AUDIT or self.recorded(stack, open_rows, admitted):
                 continue
             owner = self.owner(pr, row)
             by = f"root go #{gos_at[0]['seq']}" if gos_at else "its exemption"
             why = self.skips.get(pr) or "no branch of the landing pass recorded why it left it out"
+            published[pr] |= {"state": "defect", "why": why}
             self.runner.escalate(f"admitted-skipped:{pr}@{head}", "ADMITTED-SKIPPED", f"#{pr}", f"#{pr} is green at {head[:10]} and {by} admitted it {whole_minutes(admitted, now)} minutes ago, yet no record says it is queued, merging or refused: {why}; owner lane {owner or ROOT}", f"admitted-skipped:{pr}", ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])))
+        drive.write_atomic(self.runner.config.desk_inbox.parent / drive.ADMITTED, {"at": actions.stamp(now), "heads": published})
 
     def recorded(self, members: set[str], open_rows: dict[str, dict], since: datetime) -> bool:
         """Whether a record already accounts for a PR of `members` left out of the queue: an enqueue of it at its head still running, or, while Graphite is down, one waiting in the `QUEUE` record's serial line, a refusal `last_refusal` finds, or a `GO-UNQUEUED` or failed direct merge escalated since `since`."""

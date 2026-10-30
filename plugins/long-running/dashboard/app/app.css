@@ -116,7 +116,8 @@ h2.sec a { margin-left: auto; font: 600 13px var(--sans); }
 .d.landed { background: var(--ok); border-color: var(--ok); }
 .d.you { border-color: var(--amber); background: var(--amber); }
 .d.failing { border-color: var(--bad); background: var(--bad); }
-.d.doing { background: var(--accent); }
+.d.doing, .d.merging { background: var(--accent); }
+.d.defect { border-color: var(--bad); background: var(--bad); }
 .d.held { border-color: var(--ink-3); border-style: dotted; }
 .legend .d { width: 9px; height: 9px; margin-right: 4px; vertical-align: -1px; }
 .lives { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
@@ -183,7 +184,8 @@ h2.sec a { margin-left: auto; font: 600 13px var(--sans); }
 .mosaic { display: flex; flex-wrap: wrap; gap: 3px; }
 .sq { width: 12px; height: 12px; border-radius: 3px; display: inline-block; background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink-3); }
 .sq.landed { background: var(--ok); box-shadow: none; }
-.sq.doing { background: var(--accent); box-shadow: none; animation: breathe 1.8s ease-in-out infinite; }
+.sq.doing, .sq.merging { background: var(--accent); box-shadow: none; animation: breathe 1.8s ease-in-out infinite; }
+.sq.defect { background: var(--bad); box-shadow: none; }
 .sq.you { background: var(--amber); box-shadow: none; }
 .sq.failing { background: var(--bad); box-shadow: none; }
 .sq.held { box-shadow: inset 0 0 0 1.5px var(--ink-3); background: repeating-linear-gradient(45deg, transparent 0 2px, var(--ink-3) 2px 3px); opacity: .6; }
@@ -230,7 +232,8 @@ a.chip-r:hover { text-decoration: none; border-color: var(--ink-3); }
 .segs { flex: 1; display: flex; gap: 2px; height: 12px; min-width: 0; }
 .segs i { flex: 1; border-radius: 3px; box-shadow: inset 0 0 0 1.5px var(--ink-3); }
 .segs i.landed { background: var(--ok); box-shadow: none; }
-.segs i.doing { background: var(--accent); box-shadow: none; animation: breathe 1.8s ease-in-out infinite; }
+.segs i.doing, .segs i.merging { background: var(--accent); box-shadow: none; animation: breathe 1.8s ease-in-out infinite; }
+.segs i.defect { background: var(--bad); box-shadow: none; }
 .segs i.you { background: var(--amber); box-shadow: none; }
 .segs i.failing { background: var(--bad); box-shadow: none; }
 .segs i.held { background: repeating-linear-gradient(45deg, transparent 0 2px, var(--ink-3) 2px 3px); opacity: .6; }
