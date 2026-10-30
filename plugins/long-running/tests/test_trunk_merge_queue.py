@@ -11,10 +11,14 @@ class Shell:
     def __init__(self, *responses):
         self.responses = iter(responses)
         self.calls = []
+        self.slept = []
 
     def run(self, command):
         self.calls.append(command)
         return next(self.responses)
+
+    def sleep(self, seconds):
+        self.slept.append(seconds)
 
 
 def done(out="", code=0, err=""):
@@ -129,3 +133,11 @@ def test_legacy_dequeue_retains_its_existing_exit_one_contract():
     shell = Shell(done("Graphite released its queue entry\n", code=1))
     queue = merge_queue.GraphiteStackEnqueue(shell, Path("/repo"), {"script": "stack-enqueue"}, None, "o/r")
     assert queue.dequeue("20")[0] is True
+
+
+def test_a_tls_handshake_timeout_reaching_trunk_is_retried_instead_of_failing_the_check():
+    """Root #222205: ci trunk TLS handshake timeouts under load read as GATE-FAILED with no retry."""
+    timeout = done(err='stack-enqueue failed: ci trunk: Get "https://api.trunk.io/v2/merge-queues?limit=100": net/http: TLS handshake timeout\n', code=5)
+    shell = Shell(timeout, done("#10 GREEN aaaa111111 Trunk notSubmitted\nwould enqueue native stack through #10: #10\n"))
+    gate = adapter(shell).check(["10"], False, {}, False)
+    assert gate.would == ["10"] and len(shell.calls) == 2 and shell.slept == [merge_queue.TRANSIENT_PAUSE_SECONDS]

@@ -47,7 +47,7 @@ ENQUEUE_OUTCOMES = {0: "enqueued", 1: "blocked", 2: "unsettled", 3: "stranded"}
 ENQUEUE_FAILED = 5
 DEQUEUE_RELEASED = (0, 1)
 TRANSIENT_FAILURE = re.compile(
-    r"handshake operation timed out|urlopen error|Connection reset|reset by peer|Remote end closed|Temporary failure in name resolution|nodename nor servname|Name or service not known|HTTP(?: Error)? 5\d\d|Operation timed out|Failed to connect to .* port 443|Recv failure|Could not resolve host"
+    r"handshake operation timed out|TLS handshake timeout|i/o timeout|context deadline exceeded|urlopen error|Connection reset|reset by peer|Remote end closed|Temporary failure in name resolution|nodename nor servname|Name or service not known|HTTP(?: Error)? 5\d\d|Operation timed out|Failed to connect to .* port 443|Recv failure|Could not resolve host"
 )
 TRUNK_CALLS = 2
 TRUNK_LIMITED = re.compile(r"HTTP 429\b")
@@ -193,6 +193,7 @@ class GraphiteStackEnqueue:
         """Run the script, repeating it after a pause while it exits with a transient network failure and no verdict; a verdict or any other failure returns at once."""
         for attempt in range(TRANSIENT_ATTEMPTS):
             if attempt:
+                print(f"RETRIED {' '.join(argv)} after: {((done.err or done.out).strip().splitlines() or [f'exit {done.code}'])[-1][:300]}", flush=True)
                 self.shell.sleep(TRANSIENT_PAUSE_SECONDS)
             done = self.limited(argv)
             if done.code != ENQUEUE_FAILED or VERDICT_LINE.search(done.out) or not TRANSIENT_FAILURE.search(done.err + done.out):
@@ -301,7 +302,7 @@ class TrunkStackEnqueue(GraphiteStackEnqueue):
         self.ci = str(checkout / "tools/ci")
 
     def run_settled(self, argv: list[str]):
-        return self.limited(argv)
+        return super().run_settled(argv) if "--check" in argv else self.limited(argv)
 
     def check(self, tips: list[str], whole: bool, heads: dict[str, str], partial: bool) -> Gate:
         done = self.run([self.script, *tips, "--check", *(["--whole"] if whole else [])])
