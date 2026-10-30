@@ -6739,9 +6739,9 @@ class Landing:
             says_kept = graded_ok and keeper is not None
             kept = not adds and says_kept and self.finder_clear(pr, head)
             if kept and not self.book.known(LANDING, key := f"tap-kept:{block}:{pr}:{tapped}:{head}"):
-                self.post_record("note", key, to, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} on board block {block} keeps at {head[:10]}, a review fix with no new behavior per cci #{keeper['seq']} (rule 399b5fa), so it goes straight to the merge queue with no go (root #194387), and the row lists the fix", pr)
+                self.post_record("note", key, to, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} on board block {block} keeps at {head[:10]}, a review fix with no new behavior per {'root go' if keeper['kind'] == 'go' else 'fidelity grade'} cci #{keeper['seq']} (rule 399b5fa), so it goes straight to the merge queue with no go (root #194387), and the row lists the fix", pr)
             if kept and (gos := self.head_gos(pr, head)):
-                self.carry_tap(session, block, pr, tapped, head, f"review fix with no new behavior, per cci #{keeper['seq']} and root go cci #{gos[-1]['seq']} (rule 399b5fa)", self.landing_audience([pr], rows, to))
+                self.carry_tap(session, block, pr, tapped, head, f"review fix with no new behavior, per {'root go' if keeper['kind'] == 'go' else 'fidelity grade'} cci #{keeper['seq']} and root go cci #{gos[-1]['seq']} (rule 399b5fa)", self.landing_audience([pr], rows, to))
                 continue
             if self.head_gos(pr, head):
                 if adds:
