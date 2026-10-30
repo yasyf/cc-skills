@@ -50,6 +50,7 @@ PLAN_HEADING = "\n## Ordered plan of action"
 PLAN_ITEM = re.compile(r"^\d+\. (.+)$")
 GO = re.compile(r"^go #(\d+) at (\w+)")
 CI_FIX = re.compile(r"\bCI[- ]fix\b", re.I)
+TAP_CARRY = re.compile(r"\bTAP-(?:CARRIED|KEPT)\b")
 WITHDRAWN_GO = re.compile(r"\bgo\b[^.]*\bwithdr(?:aw|awn|ew)\b", re.I)
 CARD_ID = re.compile(r"\bcard-[a-z0-9]+(?:-[a-z0-9]+)*")
 PR_REF = re.compile(r"#(\d{4,6})\b")
@@ -74,7 +75,7 @@ RECORD_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta 
 SOURCE_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>{title}</title><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"></head><body><main class="wrap pg"><a class="pg-back" href="/">‹ The drive dashboard</a><header class="pg-h"><div><h1>{title}</h1></div></header><pre class="src-text">{text}</pre></main></body></html>'
 STORY_ROUTE = re.compile(r"/api/story/([a-z0-9-]+)")
 TRANSCRIPT_ROUTE = re.compile(r"/api/transcript/([a-z0-9-]+)")
-ROW_FACTS = ("number", "head", "key", "title", "change", "plan", "risk", "review", "blocker", "md", "block", "state", "ci_fix_go")
+ROW_FACTS = ("number", "head", "key", "title", "change", "plan", "risk", "review", "blocker", "md", "block", "state", "ci_fix_go", "checked_at")
 CONFLICT = "Conflicts with its base, so it cannot land until its worker rebases it."
 UNCHECKED = "GitHub has not yet rechecked whether it merges cleanly."
 RELEASED = re.compile(r"^(released|done|live)", re.I)
@@ -660,7 +661,6 @@ class Drive:
         self.dirty_at = time.monotonic()
         self.errors = {}
         self.paths = {}
-        self.reported = set()
         self.board_seq = None
         self.reported_build = None
         self.gos = {}
@@ -984,7 +984,7 @@ class Drive:
     def note_go(self, record):
         if record["kind"] == "go" and (found := GO.match(record["text"])):
             self.gos[int(found[1])] = found[2]
-            self.carried[int(found[1])] = bool(set(re.findall(r"\b[0-9a-f]{7,40}\b", record["text"][found.end():])) - {found[2]})
+            self.carried[int(found[1])] = bool(TAP_CARRY.search(record["text"]))
             if CI_FIX.search(record["text"]):
                 self.ci_fixes.add(int(found[1]))
         elif record["kind"] == "decide" and record["lane"] in ROOT and WITHDRAWN_GO.search(record["text"]):
@@ -1004,26 +1004,13 @@ class Drive:
             after = page[-1]["seq"]
 
     def check_gos(self, rows):
-        suspects = []
         for row in rows:
-            row["go_head"] = self.gos.get(row["number"])
+            exempt = row["number"] in self.ci_fixes and self.config["ci_fix_excludes"] not in self.paths.get(str(row["number"]), {"trees": [self.config["ci_fix_excludes"]]})["trees"]
+            row["checked_at"] = self.gos.get(row["number"])
+            row["go_head"] = row["checked_at"] if exempt or self.carried.get(row["number"]) else None
             stored = verdict_state({**row, "go_head": None}) == "approved"
             row["state"] = verdict_state(row)
-            exempt = row["number"] in self.ci_fixes and self.config["ci_fix_excludes"] not in self.paths.get(str(row["number"]), {"trees": [self.config["ci_fix_excludes"]]})["trees"]
             row["ci_fix_go"] = row["state"] == "approved" and not stored and exempt
-            if row["state"] == "approved" and not stored and not row["ci_fix_go"] and not self.carried.get(row["number"]) and (row["number"], row["head"]) not in self.reported:
-                suspects.append(row)
-        if not suspects:
-            return
-        now = {row["number"]: row for row in self.board_rows_now()}
-        for row in suspects:
-            if verdict_state({**now.get(row["number"], row), "go_head": None}) == "approved":
-                continue
-            self.reported.add((row["number"], row["head"]))
-            self.report_defect(f"#{row['number']} has a root go at {row['head']} but the board store holds no approval at that head; the dashboard shows it approved, landing")
-
-    def board_rows_now(self):
-        return self.read_board(json.loads(run(["cc-present", "outcomes", "--all", "--session", self.config["board_session"]])))["rows"]
 
     def store_seq(self):
         subject = self.config["board_url"].rsplit("/p/", 1)[1]
@@ -1046,7 +1033,8 @@ class Drive:
         now = dt.datetime.now(dt.timezone.utc)
         progress = json.loads(Path(self.config["steps"]).read_text())
         activity_records = [*model["records"], *model["lanes"]]
-        drive = drive_prs(model["prs"], board["rows"], self.gos, activity_records, model["trees"], model["tree_names"], progress["steps"], self.config["parts"], hold_reasons(holds.read(Path(self.config["holds"])), model["prs"]), now)
+        gated = {row["number"] for row in board["rows"] if not row["go_head"]}
+        drive = drive_prs(model["prs"], board["rows"], {number: head for number, head in self.gos.items() if number not in gated}, activity_records, model["trees"], model["tree_names"], progress["steps"], self.config["parts"], hold_reasons(holds.read(Path(self.config["holds"])), model["prs"]), now)
         workers = drive_workers(activity_records, model["prs"], progress["steps"], now)
         steps = step_rows(progress["steps"], drive, workers)
         releases = release_path(progress.get("now", {}).get("releases", []))

@@ -82,7 +82,8 @@ def test_the_board_still_reads_after_he_submits_it(monkeypatch):
     }
     since_submit = {"since": 3200, "through": 3240, "interactions": [{"seq": 3234, "type": "choice.selected", "blockId": "b", "payload": {"optionIds": ["a"]}}]}
     monkeypatch.setattr(server, "run", lambda argv: json.dumps(reduced if "--all" in argv else since_submit))
-    rows = Drive({"board_url": "http://board/p/x", "board_session": "s"}, None).board_rows_now()
+    monkeypatch.setattr(Drive, "store_seq", lambda self: 3240)
+    rows = Drive({"board_url": "http://board/p/x", "board_session": "s"}, None).board()["rows"]
     assert rows[0]["verdict"] == {"verdict": "approved", "head": "8242887"}
 
 def card(block_id, *children, status=None):
@@ -733,18 +734,17 @@ def test_review_assistant_queues_each_request_attempt_once_and_only_his_comments
     assert [e.get("request", {}).get("attempt") or e["id"] for e in queued] == [1, 2, "c3"]
 
 
-def test_a_go_whose_approval_lands_a_moment_later_reports_no_defect():
+def test_a_plain_root_go_on_a_tap_row_waits_on_his_tap_and_only_a_carry_reads_approved():
+    """Root #204463: #45016 at 12cdc5e and #45508 at 37fa7c6 showed 'approved, landing' on a plain root go while the board held no approval at either head."""
     drive = Drive({"board_url": "http://board/p/x"}, None)
-    reported = []
-    drive.report_defect = reported.append
-    drive.board_rows_now = lambda: [{"number": 43344, "head": "ebbe89c", "verdict": {"verdict": "approved", "head": "ebbe89c"}}]
-    drive.note_go({"kind": "go", "text": "go #43344 at ebbe89c (his tap on the board)"})
-    rows = [{"number": 43344, "head": "ebbe89c", "verdict": None}]
+    drive.note_go({"kind": "go", "text": "go #45016 at 12cdc5e: tap row, go on grades per root #203509; fidelity #203204 ok, finder ok #203234. Lands only on his board tap."})
+    drive.note_go({"kind": "go", "text": "go #45508 at 37fa7c6af7 (tap row; lands on the owner's tap)"})
+    drive.note_go({"kind": "go", "text": "go #45412 at bbbb222 TAP-CARRIED: the owner's tap at aaaa111 carries to bbbb222, a patch-identical restack"})
+    rows = [{"number": n, "head": head, "verdict": None} for n, head in ((45016, "12cdc5e"), (45508, "37fa7c6"), (45412, "bbbb222"))]
 
     drive.check_gos(rows)
 
-    assert rows[0]["state"] == "approved"
-    assert reported == []
+    assert [(r["state"], r["checked_at"][:7]) for r in rows] == [("you", "12cdc5e"), ("you", "37fa7c6"), ("approved", "bbbb222")]
 
 
 def test_a_copy_without_defect_recipients_posts_nothing(monkeypatch):
@@ -758,20 +758,16 @@ def test_a_copy_without_defect_recipients_posts_nothing(monkeypatch):
 
 def test_a_ci_fix_on_a_root_go_lands_without_his_tap_only_outside_the_excluded_tree():
     drive = Drive({"board_url": "http://board/p/x", "ci_fix_excludes": "New tree"}, None)
-    reported = []
-    drive.report_defect = reported.append
     drive.paths = {"43644": {"trees": ["Shared"]}, "44138": {"trees": ["Shared"]}, "44087": {"trees": ["New tree"]}}
     drive.note_go({"kind": "go", "text": "go #43644 at a3f2ce2 (CI fix: tests and build fixes; lands on a root go without a tap)"})
     drive.note_go({"kind": "go", "text": "go #44138 at 8783133: one-line tools/ci fix, outside the new tree; CI-fix exemption"})
     drive.note_go({"kind": "go", "text": "go #44087 at c0ffee1: new-tree test fix; CI-fix exemption"})
     drive.note_go({"kind": "go", "text": "go #43700 at b4e5f6a (his tap on the board)"})
     rows = [{"number": n, "head": head, "verdict": None} for n, head in ((43644, "a3f2ce2"), (44138, "8783133"), (44087, "c0ffee1"), (43700, "b4e5f6a"))]
-    drive.board_rows_now = lambda: rows
 
     drive.check_gos(rows)
 
-    assert [r["ci_fix_go"] for r in rows] == [True, True, False, False]
-    assert [line.split(" ")[0] for line in reported] == ["#44087", "#43700"]
+    assert [(r["ci_fix_go"], r["state"]) for r in rows] == [(True, "approved"), (True, "approved"), (False, "you"), (False, "you")]
 
 
 def test_a_go_the_coordinator_withdraws_stops_counting_as_a_ci_fix():

@@ -49,8 +49,10 @@ the group's other rows. A question typed into Ask goes to the bus through
 `POST /api/asked` as an `owner` record; one starting `[user-test]` posts as a `note` from
 lane `dashboard-ask-test`, so a user-test round never reads as his words.
 
-A PR is `you` when the board holds no approval at its current or carried head and no root
-`go` names that head; either one makes it `queued`. Verdicts are read live from the
+A PR is `you` when the board holds no approval at its current or carried head. A root
+`go` at that head means reviewed and checked: the row says so and still waits on his tap.
+Only a board approval, a `TAP-CARRIED` or `TAP-KEPT` go, or a CI-fix go outside the
+excluded tree makes a board row `queued`; a go makes a PR with no board row `queued`. Verdicts are read live from the
 cc-present store on every rebuild, and Approve or Note on the dashboard writes the
 board's own `triage.decided` event, so no board page opens.
 
