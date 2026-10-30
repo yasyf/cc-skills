@@ -37,3 +37,5 @@ jobs:
           "$RUNNER_TEMP/long-running-venv/bin/python" -I -m long_running.actions --help
       - name: action-store scaling costs
         run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/action-store.py
+      - name: Measure indexed SQLite prototype costs
+        run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/sqlite-action-store.py
