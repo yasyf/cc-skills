@@ -1738,6 +1738,7 @@ def test_narrowed_reads_rows_cited_by_key_answer_or_quote_and_exits_one_on_a_nar
     assert narrowed('He said "Drain the pool when a run closes."\nSo each pool drains, except the shared one.') == (1, 'NARROWED rule/bbbbbbb: says "except"; the owner\'s words say none of them\n')
     assert narrowed("rule/bbbbbbb: the pool drains when a run closes.") == (0, "")
     assert narrowed("Pools drain per run, except the shared one.") == (0, "")
+    assert narrowed("rule/bbbbbbb: the pool drains when a run closes.\nrule/ccccccc: cards quote the words they ask about.\nEvery sweep hit is marked, one per line, only in sweep-marked.tsv.") == (0, "")
 
 
 def test_shapes_lists_rows_naming_a_count_or_topology_until_shape_records_a_test_or_no_shape(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:

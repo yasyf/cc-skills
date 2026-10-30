@@ -1635,7 +1635,7 @@ def narrowings(loaded: Register, text: str) -> dict[str, list[str]]:
     everywhere = list(dict.fromkeys(key for _, keys in citing for key in keys))
     found: dict[str, list[str]] = {}
     for line, keys in citing:
-        for key in keys or everywhere:
+        for key in keys or (everywhere if len(everywhere) == 1 else []):
             if added := qualifiers(line, " ".join(said_words(rows[key]))):
                 found[key] = list(dict.fromkeys([*found.get(key, []), *added]))
     return found
