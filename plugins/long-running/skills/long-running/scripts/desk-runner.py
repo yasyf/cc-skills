@@ -614,6 +614,7 @@ import incident
 import inboxes
 import lanes
 import merge_queue
+import owner_waits
 import prompt_screen
 import prompt_watch
 import stall_watch
@@ -5237,7 +5238,7 @@ class Landing:
         return bool(head) and bool(gone_at(gos, pr, head) or self.exempt_admitted(pr, head)[0])
 
     def refuse_ungone_parents(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Post one note to the root per lowest such parent, naming the rows a root `go` names at their heads above a parent nothing can land past, and saying the stack below it lands without them (root #152548): one `unpassed` keeps out, one a hold covers, one red on CI, or one that conflicts with its base. It posts again only when that stack's set of such parents changes, never for a head that moves: the whole stack waits, `unqueued_gos` never reads it as an unqueued go, and the root hears which parents need the owner's tap, which wait on a hold, and which need their lane. A stack whose every such parent is held reads `BELOW-HELD` (root #142036, #142931, #145011)."""
+        """Post one note to the root per lowest such parent, naming the rows a root `go` names at their heads above a parent nothing can land past, and saying the stack below it lands without them (root #152548): one `unpassed` keeps out, one a hold covers, one red on CI, or one that conflicts with its base. It posts again only when that stack's set of such parents changes, never for a head that moves: the whole stack waits, `unqueued_gos` never reads it as an unqueued go, and the root hears, in the words `cci owner-waits` prints, what each parent with no go really waits on, which wait on a hold, and which need their lane; it never says a parent waits on the owner's tap unless a board row at its head does (root #207532). A stack whose every such parent is held reads `BELOW-HELD` (root #142036, #142931, #145011)."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}
         red = {pr for pr, row in open_rows.items() if row.get("test_state") == "failure" or row.get("mergeable_state") == "dirty"}
         holding = set(held)
@@ -5264,7 +5265,8 @@ class Landing:
             untapped = [parent for parent in parents if parent in self.no_go and parent not in holding]
             broken = [parent for parent in parents if parent not in self.no_go and parent not in holding]
             on = [f"{named(untapped)} with no go at that head"] * bool(untapped) + [f"{named(on_hold)}, which a hold covers"] * bool(on_hold) + [f"{named(broken)}, red on CI or conflicting with its base"] * bool(broken)
-            asks = ["the owner taps each parent's merge row and root posts `go #<parent> at <head>`"] * bool(untapped) + ["the stack waits for each hold to lift"] * bool(on_hold) + ["each red or conflicting parent's lane makes it green and mergeable"] * bool(broken)
+            board = self.owner_board() if untapped else None
+            asks = [f"{' / '.join(self.owner_state(parent, board) for parent in untapped)}; root posts `go #<parent> at <head>` once his tap stands"] * bool(untapped) + ["the stack waits for each hold to lift"] * bool(on_hold) + ["each red or conflicting parent's lane makes it green and mergeable"] * bool(broken)
             label = "BELOW-HELD" if len(on_hold) == len(parents) else "BELOW-BLOCKED"
             self.post_record("note", key, ROOT if label == "BELOW-HELD" else self.landing_audience([*parents, *gone], open_rows, ROOT), f"{label} above #{lowest}: root gos name {named(gone)}, stacked on {' and '.join(on)}, so none of them is enqueued, and the stack below #{lowest} lands without them; {'; '.join(asks)}", lowest)
 
@@ -6368,7 +6370,7 @@ class Landing:
             verdicts = board_rows.verdicts_of_records(self.runner.board_records())
         except CciTailFailed:
             verdicts = None
-        waits = {}
+        waits, board = {}, None
         for pr, found in touching.items():
             if register is not None and not (found := [rule for rule in found if register.get(rule, {}).get("status") == "in-force"]):
                 continue
@@ -6377,7 +6379,8 @@ class Landing:
                 continue
             if self.tap_kept(pr, heads[pr]) or any(entry["verdict"] == "approved" and names_head(heads[pr], entry.get("head") or "") for by_row in verdicts.values() for row, entry in by_row.items() if board_rows.pr_of(row) == pr):
                 continue
-            waits[pr] = f"{mismatched[pr]}TAP-REQUIRED {','.join(found)}: it lands only on the owner's tap at this head, and a root go is no tap; no approval on the root's board names {heads[pr][:10]}"
+            board = board or self.owner_board()
+            waits[pr] = f"{mismatched[pr]}TAP-REQUIRED {','.join(found)}: it lands only on the owner's tap at this head, and a root go is no tap; {self.owner_state(pr, board)}"
         return waits, unread, exempt
 
     def tap_kept(self, pr: str, head: str) -> bool:
@@ -6708,7 +6711,7 @@ class Landing:
                     why = f"fidelity grade cci #{standing.record['seq']} does not say {head[:10]} adds no new behavior since the tap at {tapped[:10]}"
                 else:
                     why = f"the finder is not clear at {head[:10]}"
-                self.runner.escalate(f"tap-carry:{pr}:{head[:7]}:{hashlib.sha1(why.encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", f"#{pr}", f"the owner's tap on #{pr} at {tapped[:10]} on board block {block} does not carry to {head[:10]}, which a root go names: {why}; until it carries, #{pr} waits on the tap at this head", "", self.go_audience([pr], rows))
+                self.runner.escalate(f"tap-carry:{pr}:{head[:7]}:{hashlib.sha1(why.encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", f"#{pr}", f"the owner's tap on #{pr} at {tapped[:10]} on board block {block} does not carry to {head[:10]}, which a root go names: {why}; {self.owner_state(pr, self.owner_board())}", "", self.go_audience([pr], rows))
                 continue
             if graded and any(seq == graded["seq"] and identical for _, _, identical, seq in moves):
                 continue
@@ -6803,8 +6806,30 @@ class Landing:
         askable = [pr for pr in graded if (pr, heads[pr][:7]) in board or self.tap_kept(pr, heads[pr])]
         for pr in sorted(set(graded) - set(askable), key=int):
             if not self.book.known(LANDING, key := f"board-row-missing:{pr}:{heads[pr]}"):
-                self.post_record("note", key, ",".join(self.board_lanes) or ROOT, f"BOARD-ROW-MISSING #{pr} at {heads[pr][:10]}: graded ok and waiting on the owner's tap, but the root's board holds no row at this head; put its row up, and the runner asks for the tap once it is there (root #191653)", pr)
+                self.post_record("note", key, ",".join(self.board_lanes) or ROOT, f"BOARD-ROW-MISSING #{pr} at {heads[pr][:10]}: graded ok with the finder clear, and the root's board holds no row at this head, so nothing asks the owner yet; put its row up, and the runner asks for the tap once it is there (root #191653)", pr)
         return askable
+
+    def owner_board(self) -> owner_waits.Board | None:
+        try:
+            return owner_waits.board_of_records(self.runner.board_records())
+        except CciTailFailed:
+            return None
+
+    def owner_state(self, pr: str, board: owner_waits.Board | None) -> str:
+        """What `pr` waits on, in the words `cci owner-waits` prints, so no runner line says it waits on the owner's tap unless a board row at its ledger head awaits it (root #207532)."""
+        if board is None:
+            return f"#{pr}: the board's records did not read, so whether a row awaits the owner is unknown"
+        try:
+            records = cci.records(self.cci_tail, self.runner.config.drive, "--pr", f"{self.repo}#{pr}")
+            return owner_waits.state(pr, self.ledger_rows, board, records, lambda: self.pr_comments(pr), repo=self.repo, drive_name=self.runner.config.drive, fidelity_lanes=self.fidelity_lanes, voice=owner_waits.RUNNER)
+        except (CciTailFailed, owner_waits.ReadFailed) as failed:
+            return f"#{pr}: its records did not read ({failed}), so what it waits on is unknown"
+
+    def pr_comments(self, pr: str) -> list[dict]:
+        done = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "comments"))
+        if done.code:
+            raise owner_waits.ReadFailed(f"gh pr view {pr} exited {done.code}")
+        return json.loads(done.out)["comments"]
 
     def board_heads(self) -> set[tuple[str, str]] | None:
         """Each PR and seven-character head the board's rows name, from board-watch's newest `board-rows` snapshot, or None when none reads."""
@@ -7538,11 +7563,12 @@ class Landing:
                 continue
             if not evicted and any(match["pr"] == pr and match["verdict"] == QUEUED_VERDICT and head.startswith(match["sha"]) for match in merge_queue.VERDICT_LINE.finditer(tried[-1].response.get("out", ""))):
                 continue
-            reserved = [f"{reserved_row(line)[0]} on #{below}" for below in sorted(downstack(open_rows, pr), key=int) if (kept := self.reported.get((below, open_rows[below].get("head", "")[:7], False))) for line in kept[1] if cause(line) == RESERVED_TOUCH]
+            reserved = [(f"{reserved_row(line)[0]} on #{below}", below) for below in sorted(downstack(open_rows, pr), key=int) if (kept := self.reported.get((below, open_rows[below].get("head", "")[:7], False))) for line in kept[1] if cause(line) == RESERVED_TOUCH]
             if bot:
                 why = bot
             elif reserved:
-                why = f"it waits on his tap authorizing {', '.join(reserved)}, as MERGE-ASK says; a go never authorizes a reserved row (C224)"
+                board = self.owner_board()
+                why = f"a go never authorizes a reserved row (C224), so it waits on the owner's tap authorizing {', '.join(row for row, _ in reserved)}: {' / '.join(self.owner_state(below, board) for below in dict.fromkeys(below for _, below in reserved))}"
             elif evicted:
                 after = f" after its newest enqueue since the go ({tried[-1].response['outcome']})" if tried else ", and no enqueue ran since the go"
                 why = f"the queue let it go at {evicted.get('evicted_at') or 'an unstamped time'}{after}: {evicted.get('evicted') or 'no reason given'}"
