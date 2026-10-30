@@ -1834,7 +1834,7 @@ def slack_proof(args: argparse.Namespace, shell: ledger.Shell, key: str, fields:
 
 def board_proof(args: argparse.Namespace, loaded: Register, shell: ledger.Shell, key: str, fields: dict[str, str], owner: list[dict], session: str) -> list[dict] | None:
     try:
-        outcomes = shell.run(["cc-present", "outcomes", "--session", session])
+        outcomes = shell.run(["cc-present", "outcomes", "--all", "--session", session])
     except subprocess.CalledProcessError:
         outcomes = "{}"
     board = json.loads(outcomes[outcomes.index("{") :])

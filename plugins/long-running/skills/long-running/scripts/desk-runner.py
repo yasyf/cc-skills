@@ -414,7 +414,9 @@ starts first, then a head of a PR a finder pass already graded, which carries or
 waited longest, counted from the first of its heads a newer one superseded, so a PR whose head keeps moving keeps its place. Each `head` or `opened` record
 past the saved sequence that names a PR of `finder.repo`, default `landing.repo`, and a full head, its `commit` field or
 the first full sha of its text that no `was` precedes, queues one `finder:<pr>:<head>` action in the `desk-finder`
-container, so a head two records name queues once; a first read starts at the newest record. At most `finder.concurrent`
+container, so a head two records name queues once; a first read starts at the newest record. Each pass also reads the ledger once
+and queues the green head of every open drive row whose PR has no pass waiting or running, so a restack that posted no `head`
+record is graded with no hand requeue. At most `finder.concurrent`
 passes (default 8) run at once and the rest wait queued; each PR's newest queued head starts, a lower ledger `priority` first, then longest waiting, and an older
 queued head of the same PR settles as superseded, and so does a running pass of it: the runner writes its job's `cancelled`
 mark and runs `codex-ask --cancel` on each codex run the pass started. Before it starts any, one fresh GraphQL read of every
@@ -436,7 +438,8 @@ attempt when no pass on it waits or runs, so a job a pass skipped while its PR w
 While passes wait queued and none has settled for 15 minutes, one `FINDER-DESK-STALLED` per streak names how many wait and each
 running pass's age. `show` lists each queued and running pass.
 With a `fidelity` object in runner.json, each orca pass also dispatches one fidelity grade per drive head the same
-way: each `head` or `opened` record queues one `fidelity:<pr>:<head>:<seq>` action in the `desk-fidelity` container,
+way: each `head` or `opened` record queues one `fidelity:<pr>:<head>:<seq>` action in the `desk-fidelity` container, and
+the green head of each open drive row with no pass waiting or running queues one `fidelity:<pr>:<head>:ledger`,
 the newest queued head of each PR starts, a lower ledger `priority` first, while fewer than `fidelity.concurrent` (default 8) run, and a head any
 fidelity lane, `fidelity-pipeline` included, already graded or sent to a reader starts nothing. A pass writes
 `<config dir>/fidelity-pipeline/<pr>-<head12>-<seq>/job.json` and starts `fidelity.py` on it detached, which carries
@@ -4162,9 +4165,10 @@ class Runner:
         with self.finding:
             self.book.ensure(FINDER, FINDER)
             try:
-                self.queue_finders(repo)
+                rows = self.open_rows()
+                self.queue_finders(repo, rows)
                 self.settle_finders()
-                self.start_finders(spec, repo)
+                self.start_finders(spec, repo, rows)
                 self.watch_finder_desk(spec)
             except CciTailFailed as failure:
                 self.tail_failed(failure)
@@ -4185,8 +4189,8 @@ class Runner:
         threading.Thread(target=loop, name="finders", daemon=True).start()
         return stop
 
-    def queue_finders(self, repo: str) -> None:
-        """Accept one `finder:<pr>:<head>` action per PR and full head the drive's `head` and `opened` records past the saved sequence name, so a head two records name queues once; a first read starts at the newest record."""
+    def queue_finders(self, repo: str, rows: dict[str, dict]) -> None:
+        """Accept one `finder:<pr>:<head>` action per PR and full head the drive's `head` and `opened` records past the saved sequence name, and per green head of an open ledger row, so a head two records name, or a restack that posted no record, queues once; a first read starts at the newest record."""
         cursor = self.book.load(FINDER).facts.get(FINDER_CURSOR)
         if cursor is None:
             newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
@@ -4203,7 +4207,10 @@ class Runner:
             for pr, head in finder.heads(record, repo):
                 self.book.accept(FINDER, f"finder:{pr}:{head}", "finder", json.dumps({"pr": pr, "head": head, "lane": record["lane"], "seq": record["seq"], "full": False}), f"cci#{record['seq']}", None)
         if read:
-            self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_CURSOR: read[-1]["seq"]}))
+            cursor = read[-1]["seq"]
+            self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_CURSOR: cursor}))
+        for pr, row in self.green_heads(FINDER, rows):
+            self.book.accept(FINDER, f"finder:{pr}:{row['head']}", "finder", json.dumps({"pr": pr, "head": row["head"], "lane": row.get("lane") or ROOT, "seq": cursor, "full": False}), "ledger", None)
 
     def settle_finders(self) -> None:
         """Settle each started pass from the result its job wrote; one that wrote an error, whose process exited with no result, or that wrote none by its deadline fails, so its slot frees this pass."""
@@ -4230,7 +4237,7 @@ class Runner:
         if settled:
             self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_SETTLED: self.book.stamp()}))
 
-    def start_finders(self, spec: dict, repo: str) -> None:
+    def start_finders(self, spec: dict, repo: str, rows: dict[str, dict]) -> None:
         """Start the newest queued head of each PR, a requested full pass over any head, while fewer than `finder.concurrent` passes run: a lower ledger `priority` first, then full passes, then those a root `go` or an owner's board tap names, then heads of a PR a finder pass or a lane's finder record already graded, which carry or read only a delta, then the PR waiting longest, counted from the first of its heads a newer one superseded. An older queued head of the same PR settles as superseded, and so does a running pass of it, its codex run cancelled. A queued head whose PR is closed, or no longer at that head, or whose number names no PR, settles as skipped without a pass."""
         newest: dict[str, actions.Action] = {}
         for action in sorted(self.book.actions(FINDER, kind="finder", status="accepted"), key=lambda action: (full_pass(action), json.loads(action.target)["seq"])):
@@ -4253,7 +4260,7 @@ class Runner:
         for action in sorted(self.book.actions(FINDER, kind="finder"), key=lambda action: action.accepted_at):
             history.setdefault(json.loads(action.target)["pr"], []).append(action)
         graded = {pr for pr, passes in history.items() if any({"verdict", "answered"} & set(action.response or {}) for action in passes)}
-        ranks = self.grade_ranks()
+        ranks = {pr: int(row.get("priority", DEFAULT_PRIORITY)) for pr, row in rows.items()}
         for action in sorted(newest.values(), key=lambda action: (ranks.get(pr := json.loads(action.target)["pr"], DEFAULT_PRIORITY), not full_pass(action), pr not in going, pr not in graded, queued_since(history[pr], action))):
             if running >= spec.get("concurrent", FINDER_CONCURRENT):
                 return
@@ -4285,14 +4292,19 @@ class Runner:
         missing = {error["path"][-1] for error in read.get("errors") or [] if error.get("type") == "NOT_FOUND"}
         return {alias.removeprefix("p"): state or {"state": "NOT_FOUND", "headRefOid": ""} for alias, state in answered.items() if state or alias in missing}
 
-    def grade_ranks(self) -> dict[str, int]:
-        """Each open ledger row's merge-queue priority by PR, lower first, so a row the root ranks or an open owner ask links is graded before the rest; an unread ledger ranks none."""
+    def green_heads(self, container: str, rows: dict[str, dict]) -> list[tuple[str, dict]]:
+        """Each open drive row whose head is green while no pass of its PR waits or runs in `container`, so a ledger head that trails a newer queued one never supersedes it."""
+        busy = {json.loads(action.target)["pr"] for status in ("accepted", "started") for action in self.book.actions(container, status=status)}
+        return [(pr, row) for pr, row in rows.items() if pr not in busy and row.get("ours") and row.get("test_state") == "success" and finder.FULL_SHA.fullmatch(row.get("head", ""))]
+
+    def open_rows(self) -> dict[str, dict]:
+        """Each open ledger row by PR, whose `priority` ranks the graders' queues, lower first, so a row the root ranks or an open owner ask links is graded before the rest, and whose green head queues a pass no record named; an unread ledger names none."""
         landing = self.config.landing or {}
         done = self.shell.run([sys.executable, str(SCRIPTS / "ledger.py"), "-C", str(Path(landing["checkout"]).expanduser()), "list", "--ledger", landing["ledger"], "--json"], env={"CLAUDE_LONG_RUNNING_DRIVE": self.config.drive})
         if done.code != 0:
-            print(f"grade ranks did not read the ledger: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
+            print(f"the graders did not read the ledger: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
             return {}
-        return {row["pr"]: int(row.get("priority", DEFAULT_PRIORITY)) for row in json.loads(done.out) if row.get("state", "open") == "open"}
+        return {row["pr"]: row for row in json.loads(done.out) if row.get("state", "open") == "open"}
 
     def tapped(self) -> set[str]:
         """The PRs an owner's approval on the root's board names, read at most every `FINDER_TAPS_EVERY`; a board that does not read names none."""
@@ -4300,7 +4312,7 @@ class Runner:
         if self.now() - read < FINDER_TAPS_EVERY:
             return taps
         try:
-            verdicts = board_rows.verdicts_of(self.shell.run(["cc-present", "outcomes", "--no-doc", "--session", session])) if (session := self.root_session()) else {}
+            verdicts = board_rows.verdicts_of(self.shell.run(["cc-present", "outcomes", "--all", "--no-doc", "--session", session])) if (session := self.root_session()) else {}
         except board_rows.ReadFailed:
             verdicts = {}
         taps = {pr for rows in verdicts.values() for row, entry in rows.items() if entry["verdict"] == "approved" and (pr := board_rows.pr_of(row))}
@@ -4428,14 +4440,15 @@ class Runner:
         repo = spec.get("repo") or self.config.landing["repo"]
         self.book.ensure(FIDELITY, FIDELITY)
         try:
-            self.queue_fidelities(repo)
+            rows = self.open_rows()
+            self.queue_fidelities(repo, rows)
             self.settle_fidelities()
-            self.start_fidelities(spec, repo)
+            self.start_fidelities(spec, repo, rows)
         except CciTailFailed as failure:
             self.tail_failed(failure)
 
-    def queue_fidelities(self, repo: str) -> None:
-        """Accept one `fidelity:<pr>:<head>:<seq>` action per PR, full head and record past the saved sequence, so the next `head` record for a PR queues a pass again after one failed; a first read starts at the newest record."""
+    def queue_fidelities(self, repo: str, rows: dict[str, dict]) -> None:
+        """Accept one `fidelity:<pr>:<head>:<seq>` action per PR, full head and record past the saved sequence, so the next `head` record for a PR queues a pass again after one failed, and one `fidelity:<pr>:<head>:ledger` per green head of an open ledger row, so a restack that posted no record queues once; a first read starts at the newest record."""
         cursor = self.book.load(FIDELITY).facts.get(FINDER_CURSOR)
         if cursor is None:
             newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
@@ -4447,7 +4460,10 @@ class Runner:
                 for pr, head in finder.heads(record, repo):
                     self.book.accept(FIDELITY, f"fidelity:{pr}:{head}:{record['seq']}", "fidelity", json.dumps({"pr": pr, "head": head, "lane": record["lane"], "seq": record["seq"]}), f"cci#{record['seq']}", None)
         if read:
-            self.book.edit(FIDELITY, lambda incident: incident.facts.update({FINDER_CURSOR: read[-1]["seq"]}))
+            cursor = read[-1]["seq"]
+            self.book.edit(FIDELITY, lambda incident: incident.facts.update({FINDER_CURSOR: cursor}))
+        for pr, row in self.green_heads(FIDELITY, rows):
+            self.book.accept(FIDELITY, f"fidelity:{pr}:{row['head']}:ledger", "fidelity", json.dumps({"pr": pr, "head": row["head"], "lane": row.get("lane") or ROOT, "seq": cursor}), "ledger", None)
 
     def settle_fidelities(self) -> None:
         for action in self.book.actions(FIDELITY, kind="fidelity", status="started"):
@@ -4462,7 +4478,7 @@ class Runner:
             else:
                 self.settle(FIDELITY, action.action_id, outcome)
 
-    def start_fidelities(self, spec: dict, repo: str) -> None:
+    def start_fidelities(self, spec: dict, repo: str, rows: dict[str, dict]) -> None:
         """Start the newest queued head of each PR, a lower ledger `priority` first, then oldest PR first, while fewer than `fidelity.concurrent` passes run; an older queued head of the same PR settles as superseded, and a queued head whose PR is closed, no longer at that head, or whose number names no PR, such as a cci seq a record bound as one, settles as skipped without a pass."""
         newest: dict[str, actions.Action] = {}
         for action in sorted(self.book.actions(FIDELITY, kind="fidelity", status="accepted"), key=lambda action: json.loads(action.target)["seq"]):
@@ -4477,7 +4493,7 @@ class Runner:
             if (state := live.get(pr)) and (state["state"] in FINDER_SKIPS or state["headRefOid"] != json.loads(action.target)["head"]):
                 self.settle(FIDELITY, action.action_id, {"skipped": FINDER_SKIPS.get(state["state"], "#{pr} moved to {head}").format(pr=pr, repo=repo, head=state["headRefOid"][:12])})
                 del newest[pr]
-        ranks = self.grade_ranks()
+        ranks = {pr: int(row.get("priority", DEFAULT_PRIORITY)) for pr, row in rows.items()}
         for action in sorted(newest.values(), key=lambda action: ranks.get(json.loads(action.target)["pr"], DEFAULT_PRIORITY)):
             if running >= spec.get("concurrent", FIDELITY_CONCURRENT):
                 return
@@ -6247,7 +6263,7 @@ class Landing:
         register = json.loads(done.out)["rows"] if done.code == 0 else None
         session = self.runner.root_session()
         try:
-            verdicts = board_rows.verdicts_of(self.present(["cc-present", "outcomes", "--no-doc", "--session", session])) if session else None
+            verdicts = board_rows.verdicts_of(self.present(["cc-present", "outcomes", "--all", "--no-doc", "--session", session])) if session else None
         except board_rows.ReadFailed:
             verdicts = None
         waits = {}
@@ -6512,7 +6528,7 @@ class Landing:
             self.runner.escalate("tap-carry:unset", "TAP-CARRY-FAILED", "landing", f"no drive registry entry for {self.runner.config.drive} names a root session, so no board tap carries to a restacked head | run `drive.py start --drive <drive> --ledger <ledger>` from the root session; the next pass carries them")
             return
         try:
-            verdicts = board_rows.verdicts_of(self.present(["cc-present", "outcomes", "--no-doc", "--session", session]))
+            verdicts = board_rows.verdicts_of(self.present(["cc-present", "outcomes", "--all", "--no-doc", "--session", session]))
         except board_rows.ReadFailed as failed:
             self.runner.escalate(f"tap-carry:unread:{hashlib.sha1(VOLATILE.sub('', str(failed)).encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", "landing", f"the root's board did not read ({failed}), so no tap carries to a restacked head this pass; the next pass reads it again")
             return

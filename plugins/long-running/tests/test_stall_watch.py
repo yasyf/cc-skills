@@ -69,6 +69,8 @@ class FakeShell(stall_watch.Shell):
         if argv[:2] == ["cci", "post"]:
             self.posts.append(argv)
             return stall_watch.Done(0, f"posted #{9000 + len(self.posts)}", "")
+        if argv[:2] == ["cc-present", "outcomes"] and "--all" not in argv:
+            return stall_watch.Done(0, json.dumps({"since": "last-submit", "interactions": [{"seq": 1, "type": "triage.decided", "payload": {}}]}), "")
         if argv[:2] == ["cc-present", "outcomes"]:
             assert argv[argv.index("--session") + 1] == SESSION
             return stall_watch.Done(0, json.dumps({"doc": self.doc, "interactions": {"triage": self.triage, "choices": self.choices}}), "")

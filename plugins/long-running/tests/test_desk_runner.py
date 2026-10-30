@@ -296,8 +296,10 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, f"url: http://127.0.0.1:4100/a/board\nslack: https://example.slack.com/archives/D0OWNER/p{ts.replace('.', '')}?thread_ts=1700000000.000100\n", "")
         if argv[:2] == ["codex-ask", "--cancel"]:
             return runner_module.Done(0, "", "")
-        if argv[:3] == ["cc-present", "outcomes", "--no-doc"]:
-            assert argv[3:] == ["--session", "s-root"]
+        if argv[:2] == ["cc-present", "outcomes"] and "--all" not in argv:
+            return runner_module.Done(0, json.dumps({"since": "last-submit", "interactions": [{"seq": 1, "type": "triage.decided", "payload": {}}]}), "")
+        if argv[:4] == ["cc-present", "outcomes", "--all", "--no-doc"]:
+            assert argv[4:] == ["--session", "s-root"]
             if self.board_error:
                 return runner_module.Done(1, "", self.board_error)
             return runner_module.Done(0, json.dumps({"interactions": {"triage": self.board}, "rounds": []}, indent=2), "")
@@ -11609,6 +11611,33 @@ def test_a_queued_head_the_ledger_ranks_first_starts_before_a_root_go_and_older_
     assert [job["pr"] for job in finder_jobs(shell)] == ["45244"]
 
 
+def test_a_green_ledger_head_no_record_named_starts_one_finder_pass_and_others_start_none(shell, config):
+    finder_config(config)
+    orca_pass(shell, config)
+    heads = {pr: hashlib.sha1(pr.encode()).hexdigest() for pr in ("44614", "44599", "44713", "45001")}
+    shell.rows = [
+        {"pr": "44614", "head": heads["44614"], "test_state": "success", "lane": "p8c-conversion-ship-6"},
+        {"pr": "44599", "head": heads["44599"], "test_state": "pending", "lane": "p8c-conversion-ship-6"},
+        {"pr": "44713", "head": heads["44713"], "test_state": "success", "lane": "p8c-conversion-ship-6", "state": "closed"},
+        {"pr": "45001", "head": heads["45001"][:12], "test_state": "success", "lane": "p8c-conversion-ship-6"},
+    ]
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [(job["pr"], job["head"], job["lane"]) for job in finder_jobs(shell)] == [("44614", heads["44614"], "p8c-conversion-ship-6")]
+
+
+def test_a_ledger_head_trailing_a_queued_head_record_never_supersedes_it(shell, config):
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    head_record(shell, "43439", hashlib.sha1(b"43439").hexdigest())
+    head_record(shell, "44614", FINDER_HEAD)
+    shell.rows = [{"pr": "44614", "head": FINDER_OLD, "test_state": "success"}]
+    orca_pass(shell, config)
+    (shell.finder_jobs[0] / "result.json").write_text(json.dumps({"verdict": "ok", "record": "finder: ok", "posted": "#150001"}))
+    orca_pass(shell, config)
+    assert [(job["pr"], job["head"]) for job in finder_jobs(shell)][1:] == [("44614", FINDER_HEAD)]
+
+
 def test_a_finder_job_asks_at_the_fast_tier_unless_runner_json_turns_it_off(shell, config):
     finder_config(config, fast=False)
     orca_pass(shell, config)
@@ -11917,6 +11946,15 @@ def test_a_fidelity_head_the_ledger_ranks_first_starts_before_older_heads_and_as
     shell.rows = [{"pr": "45244", "priority": 0}]
     orca_pass(shell, config)
     assert [(job["pr"], job["fast"]) for job in fidelity_jobs(shell)] == [("45244", True)]
+
+
+def test_a_green_ledger_head_no_record_named_starts_one_fidelity_pass(shell, config):
+    fidelity_config(config)
+    orca_pass(shell, config)
+    shell.rows = [{"pr": "44614", "head": FINDER_HEAD, "test_state": "success", "lane": "p8c-conversion-ship-6"}, {"pr": "44599", "head": FINDER_OLD, "test_state": "failure"}]
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [(job["pr"], job["head"], job["lane"]) for job in fidelity_jobs(shell)] == [("44614", FINDER_HEAD, "p8c-conversion-ship-6")]
 
 
 def test_a_failed_fidelity_pass_fails_at_once_to_the_human_desks_and_the_next_head_record_queues_it_again(shell, config):

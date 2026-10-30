@@ -359,7 +359,7 @@ def rekeyed(rulings: list[dict], row: Row) -> dict | None:
 def outcomes_args(session: str | None, command: list[str]) -> list[str]:
     if session is None and "--session" in command[:-1]:
         session = command[command.index("--session") + 1]
-    return ["cc-present", "outcomes", "--no-doc", *(["--session", session] if session else [])]
+    return ["cc-present", "outcomes", "--all", "--no-doc", *(["--session", session] if session else [])]
 
 
 def verdicts_of(done: Done) -> dict[str, dict[str, dict]]:
