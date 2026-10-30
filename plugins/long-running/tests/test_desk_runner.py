@@ -2495,6 +2495,15 @@ def test_a_check_that_exits_with_no_verdict_escalates_once_instead_of_passing_si
     assert shell.enqueues() == []
 
 
+def test_a_check_with_no_verdict_on_a_pr_github_reads_merged_escalates_nothing(shell, config, tmp_path):
+    """Root #200922: #44828 merged directly, its branch went, and the gate's fetch of that branch read as a GATE-FAILED defect."""
+    shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": True}]
+    shell.gates["29020"] = [(5, "", "stack-enqueue failed: git fetch failed with exit 128: fatal: couldn't find remote ref refs/heads/a/3\n")]
+    shell.pr_states["29020"] = "MERGED"
+    landing_pass(shell, config)
+    assert not [line for line in escalations(shell) if "GATE-FAILED" in line]
+
+
 HANDSHAKE = "stack-enqueue failed: _ssl.c:1064: The handshake operation timed out\n"
 
 
