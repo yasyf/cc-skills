@@ -328,7 +328,7 @@ def test_a_go_the_runner_refused_names_its_newest_open_blocker_for_that_head_and
     records = gone("101", HEAD)
     records.append(record(5, "desk-runner", "blocker", f"#101 {OLD[:10]}: nothing in #101 was enqueued; BUILD-FAILED #101: an older head", 11, to=["api-lane"], topic="101"))
     records.append(record(6, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; FINDER-PENDING #101: an answered finding", 10, to=["api-lane"], topic="101", status="closed"))
-    records.append(record(7, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; MERGE-ASK rule/82317b0: it lands only on the owner's tap at this head", 9, to=["api-lane", "board-refresher"], topic="101", status="open"))
+    records.append(record(7, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; GO-UNQUEUED #101: the merge queue refused it at this head", 9, to=["api-lane", "board-refresher"], topic="101", status="open"))
     records.append(record(8, "desk-runner", "note", f"#101 {HEAD[:10]}: WARNING `rulings.py check-pr` warns at {HEAD[:10]}, and the head is not held for it", 8, to=["api-lane"], topic="101"))
     shell = FakeShell(records, [row("101")])
 
@@ -336,7 +336,7 @@ def test_a_go_the_runner_refused_names_its_newest_open_blocker_for_that_head_and
 
     post = shell.post("go:101:abc1234")
     assert post["to"] == "root,api-lane@d1,board-refresher@d1"
-    assert post["text"].endswith(f"| owner api-lane, board-refresher | MERGE-ASK: the runner's newest blocker for #101 at abc1234, cci #7: #101 {HEAD[:10]}: nothing in #101 was enqueued; MERGE-ASK rule/82317b0: it lands only on the owner's tap at this head")
+    assert post["text"].endswith(f"| owner api-lane, board-refresher | GO-UNQUEUED: the runner's newest blocker for #101 at abc1234, cci #7: #101 {HEAD[:10]}: nothing in #101 was enqueued; GO-UNQUEUED #101: the merge queue refused it at this head")
 
 
 def finder_pass(tmp_path: Path, pr: str, sha: str, status: str) -> None:
