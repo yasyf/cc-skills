@@ -14379,3 +14379,64 @@ def test_unchanged_actual_overflow_pass_changes_no_sql_rows(shell, config, tmp_p
     monkeypatch.setattr(sqlite_store.Transaction, "flush", written)
     overflow.overflow()
     assert changed == [0]
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux process write accounting")
+def test_orca_historical_lane_read_connection_cost(shell, config, tmp_path, monkeypatch):
+    store = actions.Store(tmp_path / "store")
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
+    lanes = [runner_module.lane_container(f"history-{index}") for index in range(56)]
+    for lane in lanes:
+        runner.book.ensure(lane, lane)
+    costs = {"opens": 0, "closes": 0, "changed_rows": 0, "sidecar_metadata_transitions": 0}
+    paths = set()
+    connect = sqlite_store.sqlite3.connect
+
+    def sidecar(path):
+        shm = Path(str(path) + "-shm")
+        if not shm.exists():
+            return None
+        state = shm.stat()
+        return state.st_ino, state.st_size, state.st_mtime_ns, state.st_ctime_ns
+
+    class ObservedConnection(sqlite_store.sqlite3.Connection):
+        def execute(self, *args, **kwargs):
+            before = sidecar(self.observed_path)
+            try:
+                return super().execute(*args, **kwargs)
+            finally:
+                costs["sidecar_metadata_transitions"] += sidecar(self.observed_path) != before
+
+        def close(self):
+            before = sidecar(self.observed_path)
+            costs["changed_rows"] += self.total_changes
+            try:
+                return super().close()
+            finally:
+                costs["closes"] += 1
+                costs["sidecar_metadata_transitions"] += sidecar(self.observed_path) != before
+
+    def opened(database, *args, **kwargs):
+        connection = connect(database, *args, factory=ObservedConnection, **kwargs)
+        connection.observed_path = Path(database.removeprefix("file:").partition("?")[0])
+        paths.add(connection.observed_path.name)
+        costs["opens"] += 1
+        return connection
+
+    def write_bytes():
+        return int(dict(line.split(": ") for line in Path("/proc/self/io").read_text().splitlines())["write_bytes"])
+
+    monkeypatch.setattr(sqlite_store.sqlite3, "connect", opened)
+    initial = write_bytes()
+    receipts = []
+    for _ in range(2):
+        runner.deadlines_orca()
+        runner.incident_clock()
+        runner.in_process()
+        receipts.append({**costs, "process_write_bytes": write_bytes() - initial})
+    print(json.dumps({"fixture_lanes": len(lanes), "callers": ["deadlines_orca", "incident_clock", "in_process"], "passes": receipts}))
+    assert paths == {store.path(lane).name for lane in lanes}
+    assert [receipt["opens"] for receipt in receipts] == [280, 560]
+    assert costs["closes"] == costs["opens"]
+    assert costs["changed_rows"] == 0
+    assert not shell.calls
