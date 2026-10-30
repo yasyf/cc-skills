@@ -1,5 +1,6 @@
 const VIEWS = { progress: 'journey', diagram: 'end-state' };
 const NODE_WORD = { fixing: 'Being fixed', you: 'Needs you', nobody: 'No one assigned', waiting: 'Waiting', done: 'Done' };
+const PR_TONE = { Landed: 'st-passed', 'In the merge queue': 'st-rolling-out', 'Cleared to land': 'st-ready-to-merge', 'Refused by the queue': 'st-stuck', Held: 'st-ready-for-you', 'Graded clean': 'st-passed', Grading: 'st-testing', 'On your board': 'st-ready-for-you' };
 const MARK_WORD = { progress: 'Progress', finding: 'Found', stuck: 'Stuck', done: 'Done' };
 const NODE_TONE = { fixing: 'acc', you: 'you', nobody: 'bad', waiting: '', done: 'ok' };
 const hover = { at: null, timer: 0, hold: 0, scrolled: 0 };
@@ -48,8 +49,8 @@ function nowScreen() {
     <p class="nw-sub">Written from the drive's records at ${clock(b.at)}. <button class="linkish" data-toggle="nw-why">Why this sentence ›</button></p>
     ${state.open.has('nw-why') ? `<ul class="nw-why">${b.because.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     ${diagramSlot()}
-    ${liveFeed(b)}
     <section><h2 class="nw-h">Overall progress</h2>${view('progress') === 'compact' ? compact(b) : journey(b)}</section>
+    ${liveFeed(b)}
   </div>`;
   lastPaint.events = lastPaint.next;
   lastPaint.next = new Map();
@@ -58,14 +59,14 @@ function nowScreen() {
 
 function band(b) {
   const m = state.model;
-  if (b.band.kind === 'incident') return `<div class="nw-band incident"><span class="tag">Incident</span><span class="what">${esc(b.band.text)}</span></div>`;
-  if (!m.needs.length) return '';
+  const incident = b.band.kind === 'incident' ? `<div class="nw-band incident"><span class="tag">Incident</span><span class="what">${esc(b.band.text)}</span></div>` : '';
+  if (!m.needs.length) return incident;
   const prs = m.needs.filter((item) => item.kind === 'prs').flatMap((item) => item.prs.map((pr) => ({ pr, item })));
   const approvals = prs.length === 1 ? needLine({ ...prs[0].item, prs: [prs[0].pr] }) : prs.length ? approvalLine(prs) : '';
   const asks = m.needs.filter((item) => item.kind !== 'prs');
   const questions = asks.length > 1 ? `<div class="nl"><span class="what">${asks.length} questions wait on your answer</span><span class="acts"><a class="nbtn pri" href="#/review/q">Answer them</a></span></div>` : asks.map(needLine).join('');
   const rows = approvals + questions;
-  return `<div class="nw-band needs nw-needs"><div class="head"><span class="tag">Needs you</span></div><div class="rows">${rows}</div></div>`;
+  return `${incident}<div class="nw-band needs nw-needs"><div class="head"><span class="tag">Needs you</span></div><div class="rows">${rows}</div></div>`;
 }
 function approvalLine(prs) {
   const features = new Map();
@@ -98,15 +99,18 @@ function needLine(item) {
 
 function liveFeed(b) {
   if (feed.item && workItem(feed.item) && !workOpen()) return `<section class="nw-live"><h2 class="nw-h">Live story <button class="linkish" data-feed-all>‹ All work</button></h2><div class="nw-story-col"><div class="nw-story-host">${storyBody(feed.item)}</div></div></section>`;
-  return `<section class="nw-live"><h2 class="nw-h">Being worked on now</h2>${b.work.length ? `<div class="nw-work">${b.work.map(workRow).join('')}</div>` : '<div class="nw-calm">No work is running right now.</div>'}</section>`;
+  const lead = focusLane();
+  const rows = [...b.work].sort((x, y) => (y.item === lead) - (x.item === lead)).map((w) => workRow(w, w.item === lead));
+  return `<section class="nw-live"><h2 class="nw-h">Being worked on now</h2>${rows.length ? `<div class="nw-work">${rows.join('')}</div>` : '<div class="nw-calm">No work is running right now.</div>'}</section>`;
 }
 function workOpen() {
   return stackOf().length > 0 && route().screen === 'work';
 }
-function workRow(w) {
+function workRow(w, lead) {
   const h = historyOf(rowKeys(w.item));
-  return `<button class="wr ${slug(w.status)}" data-feed="${esc(w.item)}"><span class="pulse"></span>
-    <span class="body"><b>${esc(w.title)}</b><span class="line"><span class="chip ${slug(w.status)}">${esc(w.status)}</span>${esc(w.latest)}</span>${stuck(w) ? unblockLine(h?.unblocking) : ''}${latestLine(h)}</span>
+  const st = statusOf(w);
+  return `<button class="wr ${lead ? 'lead' : 'rest'} ${st.tone}" data-feed="${esc(w.item)}"><span class="pulse"></span>
+    <span class="body"><b>${esc(w.title)}</b><span class="line"><span class="chip ${st.tone}">${esc(st.word)}</span>${esc(st.when ?? w.latest)}</span>${stuck(w) ? unblockLine(h?.unblocking) : ''}${latestLine(h)}</span>
     <span class="side">${lasted(w.since) ? `<span>${lasted(w.since)}</span>` : ''}<span class="open">Live story ›</span></span></button>`;
 }
 function stops(b) {
@@ -139,7 +143,7 @@ function journey(b) {
 function unblocking(s) {
   const n = s.left.find((x) => x.state !== 'you');
   const w = leadOf(s);
-  return (n && (historyOf(rowKeys(n.item, n.change))?.unblocking ?? n.how)) || (w && historyOf(rowKeys(w.item))?.unblocking) || '';
+  return (n && (historyOf(rowKeys(n.item, n.change))?.unblocking ?? n.how)) || (w && historyOf(rowKeys(w.item))?.unblocking) || curated('plan')?.milestones[s.i]?.unblock || '';
 }
 function waitsOnOwner(s) {
   return s.left.some((n) => n.state === 'you') || s.work.some((w) => /^(ready for you|needs you)$/i.test(w.status));
@@ -185,7 +189,7 @@ function openStop(s, b, cur) {
   const lead = leadOf(s);
   const work = s.work.length ? `<div><p class="hl">Work on it</p><div class="feed">${[lead, ...s.work.filter((w) => w !== lead)].map((w) => hangWork(w, w === lead)).join('')}</div></div>` : '';
   const done = s.done.length ? fold(`done${s.i}`, `Done so far <span class="pg-n">${s.done.length}</span>`, `<ul class="did">${s.done.map((n) => `<li>${esc(n.text)}</li>`).join('')}</ul>`) : '';
-  const calm = s.state === 'live' ? 'Live. Nothing is left to do here.' : cur ? b.calm || 'Nothing is stuck.' : 'No blockers recorded yet.';
+  const calm = s.state === 'live' ? 'Live. Nothing is left to do here.' : cur ? b.calm || 'Nothing is stuck.' : s.state === 'not' ? 'Not started yet.' : 'Nothing is in the way.';
   return `<div class="nw-col ms-${s.state}">${left || work ? `<div class="two">${left}${work}</div>` : `<div class="nw-calm"><span class="ok">✓</span>${esc(calm)}</div>`}${done}</div>`;
 }
 function tray(b) {
@@ -270,10 +274,17 @@ function latestLine(h) {
   return `<span class="ev${fresh ? ' fresh' : ''}"><time>${clock(e.ts)}</time>${esc(e.text)}</span>`;
 }
 function unblockLine(text) {
-  return `<span class="unb${text ? '' : ' none'}">Unblocking: ${esc(text || 'nothing recorded yet')}</span>`;
+  return text ? `<span class="unb">Unblocking: ${esc(text)}</span>` : '';
 }
 function stuck(w) {
-  return /stuck|blocked|waiting/i.test(w.status);
+  return /stuck|blocked|waiting|refused|held/i.test(prStatus(w)?.state ?? w.status);
+}
+function prStatus(w) {
+  return (w.changes ?? []).map((n) => state.model.pr_state[n]).filter(Boolean).sort((a, b) => new Date(b.since) - new Date(a.since))[0];
+}
+function statusOf(w) {
+  const p = prStatus(w);
+  return p ? { word: p.state, tone: PR_TONE[p.state] ?? slug(p.state), when: p.line } : { word: w.status, tone: slug(w.status), when: null };
 }
 function historyBlock(h) {
   if (!h) return '';
@@ -290,8 +301,9 @@ function hangNode(n) {
 }
 function hangWork(w, lead) {
   const h = historyOf(rowKeys(w.item));
-  const when = h ? waited(w.since) : clockLine(w.since, workWord(w.item));
-  return `<a class="hc lane ${lead ? 'lead' : 'rest'} ${slug(w.status)}${onStory(w.item) ? ' on' : ''}" href="${storyHref(w.item)}"><span class="bar">${esc(w.status)}</span><span class="in"><b>${esc(w.title)}</b><span class="how">${esc(w.latest)}</span>${stuck(w) ? unblockLine(h?.unblocking) : ''}${when ? `<span class="when">${when}</span>` : ''}${latestLine(h)}<span class="open">Live story ›</span></span></a>`;
+  const st = statusOf(w);
+  const when = st.when ?? (h ? waited(w.since) : clockLine(w.since, workWord(w.item)));
+  return `<a class="hc lane ${lead ? 'lead' : 'rest'} ${st.tone}${onStory(w.item) ? ' on' : ''}" href="${storyHref(w.item)}"><span class="bar">${esc(st.word)}</span><span class="in"><b>${esc(w.title)}</b><span class="how">${esc(w.latest)}</span>${stuck(w) ? unblockLine(h?.unblocking) : ''}${when ? `<span class="when">${when}</span>` : ''}${latestLine(h)}<span class="open">Live story ›</span></span></a>`;
 }
 function follow(item) {
   if (story.item === item && story.es) return;

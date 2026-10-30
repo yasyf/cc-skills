@@ -185,9 +185,9 @@ def test_a_question_opens_in_a_panel_with_its_answers(page):
     assert page.locator(".pr-drawer.front [data-choose]").count() == len(card["options"])
 
 
-def test_the_live_feed_sits_between_the_picture_and_the_milestones(page):
+def test_the_milestones_sit_between_the_picture_and_the_live_feed(page):
     now(page)
-    assert page.locator(".nw-diagram").bounding_box()["y"] < page.locator(".nw-live").bounding_box()["y"] < page.locator(".nw-spine").bounding_box()["y"]
+    assert page.locator(".nw-diagram").bounding_box()["y"] < page.locator(".nw-spine").bounding_box()["y"] < page.locator(".nw-live").bounding_box()["y"]
 
 
 def test_tapping_a_worker_swaps_the_live_feed_to_its_story_and_back(page):
@@ -205,7 +205,7 @@ def test_a_row_shows_its_newest_event_and_its_panel_the_whole_history(page):
     model = json.loads(MODEL.read_text())
     key, entry = next(iter(model["history"].items()))
     item = next(w["item"] for w in model["brief"]["work"] if key.removeprefix("lane:") in (w.get("workers") or []))
-    assert entry["events"][0]["text"] in page.locator(f'.nw-live .wr[data-feed="{item}"] .ev').inner_text()
+    assert entry["events"][0]["text"] in page.locator(f'.nw-live .wr[data-feed="{item}"] .ev').text_content()
     page.goto(page.url.split("#")[0] + f"#/~work/{item}")
     page.wait_for_selector(".pr-drawer.front .hist")
     shown = page.locator(".pr-drawer.front .hist .evs li").all_inner_texts()
@@ -285,3 +285,33 @@ def test_back_then_tab_keeps_the_reading_position(page):
     after = page.evaluate("() => window.scrollY")
     page.set_viewport_size(LAPTOP)
     assert after > y - 420
+
+
+def test_a_work_row_reads_its_pull_requests_runner_state_over_the_summary(page):
+    now(page)
+    item = json.loads(MODEL.read_text())["brief"]["work"][0]["item"]
+    page.evaluate("""(item) => {
+        state.model.brief.work.find((w) => w.item === item).changes = [42742];
+        state.model.pr_state = { 42742: { state: 'Landed', since: new Date().toISOString(), line: 'Landed at 6:09 PM' } };
+        render();
+    }""", item)
+    row = page.locator(f'.nw-live .wr[data-feed="{item}"]')
+    assert row.locator(".chip").text_content() == "Landed"
+    assert "Landed at 6:09 PM" in row.inner_text()
+
+
+def test_an_incident_never_hides_what_waits_on_him(page):
+    now(page)
+    page.evaluate("() => { state.model.brief.band = { kind: 'incident', text: 'The Mac app crashes' }; render(); }")
+    assert page.locator(".nw-band.incident").is_visible()
+    assert page.locator(".nw-band.nw-needs").is_visible()
+
+
+def test_the_feed_shows_the_focused_work_first_and_other_works_latest_line_only_on_hover(page):
+    now(page)
+    rows = page.locator(".nw-live .wr")
+    assert "lead" in rows.first.get_attribute("class")
+    rest = page.locator(".nw-live .wr.rest:not(.st-ready-for-you):has(.ev)").first
+    assert not rest.locator(".ev").is_visible()
+    rest.hover()
+    assert rest.locator(".ev").is_visible()
