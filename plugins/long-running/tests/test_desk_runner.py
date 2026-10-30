@@ -7279,6 +7279,7 @@ def test_while_graphite_is_down_an_admitted_chain_waiting_in_the_serial_merge_qu
     landing_pass(shell, config)
     shell.sleep(11 * 60)
     landing_pass(shell, config)
+    print(json.dumps({"posts": [(post["kind"], post["text"][:300]) for post in shell.posts], "calls": [call[:6] for call in shell.calls if call[:1] == ["gh"]][-40:], "enqueues": [(action.action_id, action.status, action.response) for action in enqueues_of(tmp_path).values()]}, default=str, indent=1), file=sys.stderr)
     assert direct_merges(shell) == []
     assert [post for post in shell.posts if post["kind"] == "state" and post["text"].startswith("QUEUE ")]
     assert skipped(shell) == [], (skipped(shell), [(action.action_id, action.accepted_at, action.status, action.response) for action in enqueues_of(tmp_path).values()])
