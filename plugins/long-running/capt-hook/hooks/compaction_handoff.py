@@ -404,8 +404,8 @@ class RegisterRead:
             return result
 
 
-def queue_register(state: CompactionState, evt: BaseHookEvent) -> None:
-    if state.store == "ccn" and (entry := drive_entry(evt)) and (register := RegisterRead(evt, entry).register()):
+def queue_register(state: CompactionState, reader: RegisterRead) -> None:
+    if register := reader.register():
         state.register_doc, state.register_body = register["id"], register["body"]
 
 
@@ -441,11 +441,10 @@ def failure_of(failed: subprocess.CalledProcessError | subprocess.TimeoutExpired
     return next(iter(failed.stderr.strip().splitlines()[-1:]), f"exit {failed.returncode}")
 
 
-def queue_root_slice(state: CompactionState, evt: BaseHookEvent) -> None:
-    if not (state.store == "ccn" and (entry := drive_entry(evt))):
-        return
+def queue_root_slice(state: CompactionState, evt: BaseHookEvent, reader: RegisterRead) -> None:
+    entry = reader.entry
     try:
-        sliced = RegisterRead(evt, entry).root_slice().rstrip("\n")
+        sliced = reader.root_slice().rstrip("\n")
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as failed:
         if not evt.ctx.s.once(f"root-slice:{entry['drive']}", scope=ROOT_SLICE_BLOCKERS):
             return
@@ -787,7 +786,8 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
             state.model = model
         if evt.source == "resume" and state.active and state.plan_path:
             resolve_record(state, evt.cwd)
-            queue_root_slice(state, evt)
+            if state.store == "ccn" and (entry := drive_entry(evt)):
+                queue_root_slice(state, evt, RegisterRead(evt, entry))
             return evt.context(resume_restore(state, evt.cwd))
         if evt.source != "compact":
             return None
@@ -803,8 +803,10 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
         if not (state.active and state.plan_path):
             return None
         resolve_record(state, evt.cwd)
-        queue_register(state, evt)
-        queue_root_slice(state, evt)
+        if state.store == "ccn" and (entry := drive_entry(evt)):
+            reader = RegisterRead(evt, entry)
+            queue_register(state, reader)
+            queue_root_slice(state, evt, reader)
     if digest:
         return evt.context(digest + pending)
     follow_up = (

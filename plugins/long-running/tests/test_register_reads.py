@@ -15,7 +15,7 @@ import rulings
 from captain_hook.util import reqenv
 
 from hooks import compaction_handoff as handoff
-from test_compaction_handoff import bash, register_drive
+from test_compaction_handoff import bash, register_drive, session_start
 
 
 def alive(pid: int) -> bool:
@@ -67,11 +67,13 @@ def test_register_query_timeout_leaves_no_child(tmp_path: Path, monkeypatch: pyt
     monkeypatch.setattr(handoff, "CCN_TIMEOUT_SECONDS", 2)
     query, database = owned_query(tmp_path, monkeypatch)
     pid_path = tmp_path / "query.pid"
+    session = tmp_path / "session"
+    handoff.CompactionState(active=True, plan_path=str(tmp_path / "plan.md"), slug="durable-program").save(bash(session, cwd=str(tmp_path)))
     with sqlite3.connect(database) as writer:
         writer.execute("BEGIN IMMEDIATE")
         try:
             with pytest.raises(subprocess.TimeoutExpired):
-                handoff.queue_register(handoff.CompactionState(), bash(tmp_path / "session", cwd=str(tmp_path)))
+                handoff.reground(session_start(session, "compact"))
             assert pid_path.exists(), "the actual SQLite-blocked query never started"
             pid = int(pid_path.read_text())
             assert not alive(pid), f"query survived register budget: pid={pid}"
@@ -167,3 +169,36 @@ def test_lock_wait_obeys_the_same_register_budget(tmp_path: Path, monkeypatch: p
             assert holder.poll() is None
         finally:
             holder.communicate(input="x", timeout=5)
+
+
+def test_reground_shares_one_budget_across_both_register_reads(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    register_drive(tmp_path, monkeypatch, checkout=str(tmp_path))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / ".claude"))
+    monkeypatch.setenv("CLAUDE_LONG_RUNNING_DRIVE", "b7")
+    session = tmp_path / "session"
+    handoff.CompactionState(active=True, plan_path=str(tmp_path / "plan.md"), slug="durable-program").save(bash(session))
+    clock = [0.0]
+    readers, remaining, blockers = [], [], []
+
+    def register(reader):
+        readers.append(reader)
+        remaining.append(reader.remaining())
+        clock[0] += 12
+        return None
+
+    def root_slice(reader):
+        readers.append(reader)
+        remaining.append(reader.remaining())
+        clock[0] += 12
+        reader.remaining()
+        return "late slice"
+
+    monkeypatch.setattr(handoff, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(handoff.RegisterRead, "register", register)
+    monkeypatch.setattr(handoff.RegisterRead, "root_slice", root_slice)
+    monkeypatch.setattr(handoff, "post_blocker", lambda evt, text: blockers.append(text))
+    handoff.reground(session_start(session, "compact"))
+    assert readers[0] is readers[1]
+    assert remaining == [20, 8]
+    assert len(blockers) == 1 and "timed out after 20s" in blockers[0]
+    assert handoff.CompactionState.load(bash(session)).root_slice is None

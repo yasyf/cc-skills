@@ -773,7 +773,8 @@ def test_a_drive_whose_plan_stem_differs_from_its_program_queues_the_program_reg
     add_register(docs, "# durable-program register\n\n1. Pulumi state is the only truth.\n", program="durable-program")
     queued = handoff.CompactionState(active=True, slug="brook")
 
-    handoff.queue_register(queued, bash(home / "session"))
+    evt = bash(home / "session")
+    handoff.queue_register(queued, handoff.RegisterRead(evt, handoff.drive_entry(evt)))
 
     assert queued.register_doc == REGISTER_ID
 
