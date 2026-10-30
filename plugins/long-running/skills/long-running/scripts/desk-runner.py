@@ -6336,6 +6336,8 @@ class Landing:
 
     def unwarned(self, pr: str, sha: str, warnings: list[str]) -> list[str]:
         """The lines of `warnings` no warning `check_rulings` posted for `pr` at `sha` named yet, or none once an `answer` replies to or resolves one of those warnings."""
+        if not warnings:
+            return []
         posted = [action for action in self.book.actions(LANDING, kind="bus") if action.action_id.startswith(f"rulings:{pr}:{sha[:7]}:")]
         named = {line for action in posted for line in json.loads(action.target)["text"].partition("the head is not held for it: ")[2].split("; ")}
         fresh = [line for line in "; ".join(warnings).split("; ") if line and line not in named]
