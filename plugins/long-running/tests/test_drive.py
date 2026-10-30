@@ -42,6 +42,24 @@ def record(shell: FakeShell, cwd: Path, *argv: str) -> int:
     return drive.main(["record", "--cwd", str(cwd), *argv], shell)
 
 
+def test_explicit_drive_reads_only_its_canonical_registry_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    root = drive.drives_dir()
+    root.mkdir(parents=True)
+    selected = {"drive": "z-selected", "sessions": [ROOT_SESSION]}
+    (root / "z-selected.json").write_text(json.dumps(selected))
+    for index in range(100):
+        (root / f"unrelated-{index}.json").write_text("not JSON")
+    assert drive.find("z-selected", None) == selected
+    assert drive.find("missing", ROOT_SESSION) is None
+
+
+@pytest.mark.parametrize("name", ["../selected", "nested/selected", "nul\x00id"])
+def test_explicit_drive_does_not_expand_registry_authority(tmp_path, monkeypatch, name):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert drive.find(name, ROOT_SESSION) is None
+
+
 def test_start_registers_the_drive_by_its_root_session(repo, capsys):
     entry = started(repo, "--orca-run", "run_7715a23a5657")
 

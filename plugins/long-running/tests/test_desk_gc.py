@@ -8,6 +8,8 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from long_running import migration
+
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills/long-running/scripts/desk-runner.py"
@@ -95,6 +97,7 @@ def shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeShell:
 
 @pytest.fixture
 def config(tmp_path: Path, shell: FakeShell) -> Path:
+    migration.initialize(tmp_path / "store")
     path = tmp_path / "runner.json"
     path.write_text(
         json.dumps(

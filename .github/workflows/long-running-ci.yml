@@ -37,3 +37,17 @@ jobs:
           "$RUNNER_TEMP/long-running-venv/bin/python" -I -m long_running.actions --help
       - name: action-store scaling costs
         run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/action-store.py
+      - name: Measure production SQLite scaling costs
+        run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/sqlite-action-store.py
+      - uses: actions/checkout@v7
+        with:
+          ref: 02347e0d913a966999b0dc794e07071220299105
+          path: .ci-baseline
+      - name: Measure actual consumers against JSON baseline
+        run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/paired-production-consumers.py --plugin .ci-baseline/plugins/long-running --format json > "$RUNNER_TEMP/long-running-json-consumers.json"
+      - name: Measure actual consumers against SQLite candidate
+        run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/paired-production-consumers.py --plugin plugins/long-running --format sqlite > "$RUNNER_TEMP/long-running-sqlite-consumers.json"
+      - name: Paired actual consumer receipts
+        run: |
+          cat "$RUNNER_TEMP/long-running-json-consumers.json"
+          cat "$RUNNER_TEMP/long-running-sqlite-consumers.json"

@@ -219,8 +219,16 @@ def drives() -> list[dict]:
 
 
 def find(drive: str | None, session: str | None) -> dict | None:
+    if drive:
+        if "/" in drive or "\x00" in drive:
+            return None
+        path = drives_dir() / f"{drive}.json"
+        if not path.is_file():
+            return None
+        entry = load(path)
+        return entry if entry["drive"] == drive else None
     for entry in drives():
-        if entry["drive"] == drive or (not drive and session in entry["sessions"]):
+        if session in entry["sessions"]:
             return entry
     return None
 

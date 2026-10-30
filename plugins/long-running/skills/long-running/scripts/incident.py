@@ -67,7 +67,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import ghread
-from long_running.actions import Action, Incident, StaleGeneration, Store, parse_stamp, stamp
+from long_running.actions import OPEN, Action, Incident, StaleGeneration, Store, parse_stamp, stamp
 
 SCRIPTS = Path(__file__).resolve().parent
 TEMPLATE = SCRIPTS.parent / "reference" / "active-alert-brief.md"
@@ -394,6 +394,13 @@ def incident_lane(incident: Incident, role: str) -> str:
     return incident.facts["adopted"].get(role) or lane_name(incident.incident_id, role)
 
 
+BRIEF_FIELDS = ("records", "adopted", "comms_lane", "bus", "reported", "alert", "code_path", "runbook", "rulings", "entry_point", "common", "routes")
+
+
+def brief_record(store: Store, incident_id: str) -> Incident:
+    return Incident(**store.header(incident_id), facts=store.facts(incident_id, BRIEF_FIELDS))
+
+
 def write_brief(incident: Incident, role: str, briefs: Path) -> Path:
     facts = incident.facts
     records = facts.get("records") or {}
@@ -445,19 +452,32 @@ def next_id(incident: Incident, base: str) -> str:
 class Runner:
     def __init__(self, store: Store, incident_id: str, world: World, shell: Shell, briefs: Path | None = None):
         self.store, self.incident_id, self.world, self.shell = store, incident_id, world, shell
-        self.generation = store.load(incident_id).owner_generation
-        self.briefs = briefs or store.root / incident_id
+        self.generation = store.ownership(incident_id)[1]
+        self.briefs = briefs or store.data_root / incident_id
 
     def owned(self):
-        return self.store.owned(self.incident_id, self.generation)
+        return self.store.transaction(self.incident_id, generation=self.generation)
 
     def now(self) -> datetime:
         return self.shell.now()
 
-    def tick(self) -> Incident:
-        incident = self.store.load(self.incident_id)
-        if incident.status == "closed":
-            return incident
+    def facts(self, *keys: str) -> dict:
+        return self.store.facts(self.incident_id, keys)
+
+    def latest(self, base: str) -> Action | None:
+        found = self.store.action_family(self.incident_id, base)
+        return found[-1] if found else None
+
+    def next_id(self, base: str) -> str:
+        count = len(self.store.action_family(self.incident_id, base))
+        return base if count == 0 else f"{base}#{count + 1}"
+
+    def reached(self, name: str) -> dict | None:
+        return next((entry for entry in self.store.metadata(self.incident_id, "milestones") if entry["name"] == name), None)
+
+    def advance(self) -> None:
+        if self.store.header(self.incident_id)["status"] == "closed":
+            return
         self.mark_lost()
         self.intake()
         self.mechanism()
@@ -473,12 +493,17 @@ class Runner:
         self.exhausted()
         self.deadlines()
         self.finish()
+
+    def tick(self) -> Incident:
+        self.advance()
         return self.store.load(self.incident_id)
 
     def run(self, interval: float) -> Incident:
-        while (incident := self.tick()).status != "closed":
+        while True:
+            self.advance()
+            if self.store.header(self.incident_id)["status"] == "closed":
+                return self.store.load(self.incident_id)
             self.shell.sleep(interval)
-        return incident
 
     def decide(self, key: str, text: str) -> None:
         with self.owned() as incident:
@@ -507,7 +532,7 @@ class Runner:
             self.decide(f"record:{key}", f"cc-notes refused the incident record ({key}): {failure}")
 
     def record(self, name: str, text: str) -> None:
-        facts = self.store.load(self.incident_id).facts
+        facts = self.facts("records", "landed_sha")
         if not (records := facts.get("records")):
             return
         self.keep(name, lambda: self.world.records.entry(records["log"], f"{name} at {pacific(self.now())}: {text}"))
@@ -517,7 +542,7 @@ class Runner:
             self.keep(f"{name}-verdict", lambda: self.world.records.verdict(records["investigation"], verb, text, commit))
 
     def open_records(self) -> None:
-        facts = self.store.load(self.incident_id).facts
+        facts = self.facts("records", "kind", "target", "alert", "code_path", "onset", "thread")
         if facts.get("records"):
             return
         title = f"Incident {self.incident_id}: {facts['kind']} outage on {facts['target']}"
@@ -550,20 +575,17 @@ class Runner:
         return response
 
     def exhausted(self) -> None:
-        incident = self.store.load(self.incident_id)
-        for action in incident.actions.values():
-            if action.status == "failed" and action.action_id.endswith(f"#{MAX_ATTEMPTS}"):
+        for action in self.store.actions(self.incident_id, status="failed"):
+            if action.action_id.endswith(f"#{MAX_ATTEMPTS}"):
                 self.decide(f"exhausted:{action.action_id}", f"{action.kind} {action.target} failed {MAX_ATTEMPTS} times: {action.reason}")
 
     def mark_lost(self) -> None:
         with self.owned() as incident:
-            for action in incident.actions.values():
-                if action.status == "started":
-                    incident.lose(action.action_id)
+            for action in incident.actions.select(status="started"):
+                incident.lose(action.action_id)
 
     def grant(self, name: str) -> str | None:
-        incident = self.store.load(self.incident_id)
-        if ref := incident.facts["grants"].get(name):
+        if ref := self.store.fact(self.incident_id, "grants").get(name):
             self.resolve(f"grant:{name}")
             return ref
         self.decide(f"grant:{name}", f"needs the {name} grant: incident.py grant --incident {self.incident_id} --name {name} --ref <grant id>")
@@ -571,7 +593,7 @@ class Runner:
 
     def comms(self, event: str, facts: dict, surface: str = "thread") -> None:
         base = f"comms:{event}"
-        current = latest(self.store.load(self.incident_id), base)
+        current = self.latest(base)
         if current and current.status == "unverifiable":
             seq = self.world.comms.find(event)
             with self.owned() as incident:
@@ -579,32 +601,31 @@ class Runner:
                     incident.complete(current.action_id, {"seq": seq}, dispatch_id=str(seq))
                 else:
                     incident.fail(current.action_id, f"{RECONCILED} no {event} post on the bus")
-            current = latest(self.store.load(self.incident_id), base)
+            current = self.latest(base)
         if not retryable(current) or not (ref := self.grant(surface)):
             return
-        incident = self.store.load(self.incident_id)
-        payload = {"surface": surface, "thread": incident.facts["thread"], **facts}
-        self.effect(next_id(incident, base), "comms", f"{surface}:{event}", ref, lambda: {"seq": self.world.comms.event(event, payload, ref)}, COMMS_DEADLINE)
+        payload = {"surface": surface, "thread": self.store.fact(self.incident_id, "thread"), **facts}
+        self.effect(self.next_id(base), "comms", f"{surface}:{event}", ref, lambda: {"seq": self.world.comms.event(event, payload, ref)}, COMMS_DEADLINE)
 
     def intake(self) -> None:
         self.open_records()
-        incident = self.store.load(self.incident_id)
-        if self.milestone("opened", f"{incident.facts['kind']} outage from {incident.facts['thread']}; executor owns it"):
-            self.world.comms.fence(f"fence {incident.facts['target']} from applies and deploys except {self.lane('fix')}")
-        self.comms("ack", {"reaction": "eyes", "onset": pacific(incident.facts["onset"])})
+        facts = self.facts("kind", "thread", "target", "onset")
+        if self.milestone("opened", f"{facts['kind']} outage from {facts['thread']}; executor owns it"):
+            self.world.comms.fence(f"fence {facts['target']} from applies and deploys except {self.lane('fix')}")
+        self.comms("ack", {"reaction": "eyes", "onset": pacific(facts["onset"])})
 
     def mechanism(self) -> None:
-        if mechanism := self.store.load(self.incident_id).facts.get("mechanism"):
+        if mechanism := self.store.fact(self.incident_id, 'mechanism', None):
             self.milestone("mechanism", mechanism)
 
     def lane(self, role: str) -> str:
-        return incident_lane(self.store.load(self.incident_id), role)
+        return self.store.fact(self.incident_id, "adopted").get(role) or lane_name(self.incident_id, role)
 
     def launch(self, role: str) -> None:
         base = f"dispatch:{role}"
         lane = self.lane(role)
-        current = latest(self.store.load(self.incident_id), base)
-        if current is None and role in self.store.load(self.incident_id).facts["adopted"]:
+        current = self.latest(base)
+        if current is None and role in self.store.fact(self.incident_id, 'adopted'):
             now = self.now()
             with self.owned() as incident:
                 incident.accept(base, "dispatch", lane, "adopted", now)
@@ -627,11 +648,11 @@ class Runner:
             return
         if not retryable(current):
             return
-        incident = self.store.load(self.incident_id)
+        incident = brief_record(self.store, self.incident_id)
         model, effort = incident.facts["routes"][role]
         assert_route(role, model)
         brief = self.write_brief(incident, role)
-        action_id = next_id(incident, base)
+        action_id = self.next_id(base)
         if response := self.effect(action_id, "dispatch", lane, "R16", lambda: self.world.orca.launch(lane, model, effort, brief, fast=role in FAST_ROLES)):
             with self.owned() as incident:
                 incident.verify(action_id, response)
@@ -643,21 +664,19 @@ class Runner:
         return path
 
     def dispatch(self) -> None:
-        incident = self.store.load(self.incident_id)
-        if incident.facts.get("repair_pr"):
+        if self.store.fact(self.incident_id, "repair_pr", None):
             return
         self.launch("fix")
         self.launch("evidence")
-        fix = latest(self.store.load(self.incident_id), "dispatch:fix")
-        incident = self.store.load(self.incident_id)
-        quiet = not any(incident.facts.get(fact) for fact in ("mechanism", "repair_pr", "not_ours"))
+        fix = self.latest("dispatch:fix")
+        quiet = not any(self.facts("mechanism", "repair_pr", "not_ours").values())
         if fix and fix.status == "verified" and quiet and self.now() - parse_stamp(fix.started_at) >= BACKUP_AFTER:
-            if retryable(latest(incident, "dispatch:backup")) and self.world.orca.engaged(f"{self.lane('fix')}{CLOCK_FALLBACK}", self.now()):
+            if retryable(self.latest("dispatch:backup")) and self.world.orca.engaged(f"{self.lane('fix')}{CLOCK_FALLBACK}", self.now()):
                 return
             self.launch("backup")
 
     def design(self) -> None:
-        facts = self.store.load(self.incident_id).facts
+        facts = self.facts("rulings", "design_check", "design_ok", "repair_pr", "entry_point")
         if not facts.get("rulings"):
             return
         check = facts.get("design_check")
@@ -672,47 +691,48 @@ class Runner:
             self.decide("design", f"#{pr} opened with no design check; hold it, then {confirm}")
 
     def review(self) -> None:
-        incident = self.store.load(self.incident_id)
-        if not (pr := incident.facts.get("repair_pr")):
+        facts = self.facts('repair_pr', 'repo', 'mechanism', 'human_review', 'review_surface')
+        if not (pr := facts.get("repair_pr")):
             return
-        url = f"https://github.com/{incident.facts['repo']}/pull/{pr}"
+        url = f"https://github.com/{facts['repo']}/pull/{pr}"
         self.milestone("pr", url)
-        self.comms("pr", {"pr": url, "mechanism": incident.facts.get("mechanism")})
-        if incident.facts["human_review"]:
-            self.comms("review-request", {"pr": url, "why": "the reviewer is the broken pipeline, so its fix needs a human approval"}, incident.facts["review_surface"])
+        self.comms("pr", {"pr": url, "mechanism": facts.get("mechanism")})
+        if facts["human_review"]:
+            self.comms("review-request", {"pr": url, "why": "the reviewer is the broken pipeline, so its fix needs a human approval"}, facts["review_surface"])
 
     def landing(self) -> None:
-        incident = self.store.load(self.incident_id)
-        if not (pr := incident.facts.get("repair_pr")) or incident.facts.get("landed_sha"):
+        facts = self.facts("repair_pr", "landed_sha")
+        if not (pr := facts.get("repair_pr")) or facts.get("landed_sha"):
             return
         if not (sha := self.world.github.landed(pr)):
             return
         with self.owned() as incident:
+            target = incident.facts["target"]
             incident.facts["landed_sha"] = sha
             incident.status = "activation_pending"
             incident.accept(f"land:{pr}", "land", f"#{pr}", None, self.now())
             incident.verify(f"land:{pr}", {"sha": sha})
-        self.milestone("landed", f"#{pr} landed as {sha[:10]}; not live until {incident.facts['target']} is verified")
+        self.milestone("landed", f"#{pr} landed as {sha[:10]}; not live until {target} is verified")
         self.comms("landed", {"pr": pr, "sha": sha, "live": False})
 
     def config_matches(self, tree: Path) -> dict | None:
-        incident = self.store.load(self.incident_id)
+        facts = self.facts('expect_config')
         if self.world.activation.drifted(tree):
             return None
         configuration = self.world.buildkite.configuration()
-        expected = incident.facts.get("expect_config")
+        expected = facts.get("expect_config")
         if expected and expected not in configuration:
             return None
         return {"digest": hashlib.sha256(configuration.encode()).hexdigest(), "expected": expected, "at": stamp(self.now())}
 
     def activate(self) -> None:
-        incident = self.store.load(self.incident_id)
-        if not incident.facts["pipeline"] or not (sha := incident.facts.get("landed_sha")) or incident.reached("activated"):
+        facts = self.facts('pipeline', 'landed_sha')
+        if not facts["pipeline"] or not (sha := facts.get("landed_sha")) or self.reached("activated"):
             return
-        base = f"sync:{incident.facts['pipeline']}@{sha[:12]}"
+        base = f"sync:{facts['pipeline']}@{sha[:12]}"
         try:
             tree = self.world.activation.prepare(sha)
-            current = latest(incident, base)
+            current = self.latest(base)
             if current and current.status == "verified":
                 self.activated(current.action_id, current.authority_ref, current.verification_receipt)
                 return
@@ -722,13 +742,13 @@ class Runner:
             if not retryable(current):
                 return
             if receipt := self.config_matches(tree):
-                self.activated(next_id(incident, base), None, receipt)
+                self.activated(self.next_id(base), None, receipt)
                 return
             if not (ref := self.grant("sync")):
                 return
-            action_id = next_id(incident, base)
-            if self.effect(action_id, "sync", incident.facts["pipeline"], ref, lambda: {"applied": self.world.activation.apply(tree)}, SYNC_DEADLINE):
-                self.read_back(self.store.load(self.incident_id).action(action_id), tree)
+            action_id = self.next_id(base)
+            if self.effect(action_id, "sync", facts["pipeline"], ref, lambda: {"applied": self.world.activation.apply(tree)}, SYNC_DEADLINE):
+                self.read_back(self.store.action(self.incident_id, action_id), tree)
         except EffectFailed as failure:
             self.decide(f"activation:{sha}", f"activation blocked: {failure}")
 
@@ -754,14 +774,14 @@ class Runner:
             self.record("activated", text)
 
     def unfinished(self) -> list[int]:
-        incident = self.store.load(self.incident_id)
-        window = (incident.facts["onset"], incident.facts["activated_at"])
+        facts = self.facts("onset", "activated_at")
+        window = (facts["onset"], facts["activated_at"])
         return [build["number"] for build in self.world.buildkite.unfinished(*window)]
 
     def inventory(self) -> list[dict]:
-        incident = self.store.load(self.incident_id)
-        until = incident.facts["activated_at"]
-        failed = [build for build in self.world.buildkite.failed(incident.facts["onset"], until) if build.get("pull_request")]
+        facts = self.facts('onset', 'activated_at')
+        until = facts["activated_at"]
+        failed = [build for build in self.world.buildkite.failed(facts["onset"], until) if build.get("pull_request")]
         by_pr: dict[int, list[dict]] = {}
         for build in failed:
             by_pr.setdefault(int(build["pull_request"]["id"]), []).append(build)
@@ -781,16 +801,15 @@ class Runner:
         return entries
 
     def recover(self) -> None:
-        incident = self.store.load(self.incident_id)
-        if not incident.reached("activated") or incident.reached("recovered"):
+        if not self.reached("activated") or self.reached("recovered"):
             return
         entries = self.inventory()
         self.reconcile_rebuilds()
-        incident = self.store.load(self.incident_id)
+        facts = self.facts("canary", "pipeline")
         candidates = {rebuild_key(entry): entry for entry in entries if entry["account"] == "candidate"}
-        pending = [entry for key, entry in candidates.items() if retryable(latest(incident, key))]
-        canary = incident.facts.get("canary")
-        if canary and canary not in candidates and retryable(latest(incident, canary)):
+        pending = [entry for key, entry in candidates.items() if retryable(self.latest(key))]
+        canary = facts.get("canary")
+        if canary and canary not in candidates and retryable(self.latest(canary)):
             canary = None
         if canary is None:
             if pending and self.grant("rebuild"):
@@ -798,11 +817,11 @@ class Runner:
                     incident.facts["canary"] = rebuild_key(pending[0])
                 self.rebuild(pending[0])
             elif not pending and not self.unfinished():
-                self.milestone("live", f"{incident.facts['pipeline']} configuration verified; no failed work to re-run")
-                self.comms("live", {"canary": None, "at": pacific(self.store.load(self.incident_id).reached("live")["at"])})
+                self.milestone("live", f"{facts['pipeline']} configuration verified; no failed work to re-run")
+                self.comms("live", {"canary": None, "at": pacific(self.reached("live")["at"])})
                 self.account(entries)
             return
-        if retryable(latest(incident, canary)):
+        if retryable(self.latest(canary)):
             self.rebuild(candidates[canary])
             return
         if not self.canary_passed(canary):
@@ -818,7 +837,8 @@ class Runner:
         key = rebuild_key(entry)
         with self.owned() as incident:
             incident.facts["sources"][key] = entry["source"]
-            action_id = next_id(incident, key)
+            count = len(incident.action_family(key))
+            action_id = key if count == 0 else f"{key}#{count + 1}"
 
         def call() -> dict:
             build = self.world.buildkite.rebuild(entry["source"])
@@ -827,11 +847,10 @@ class Runner:
         self.effect(action_id, "rebuild", f"#{entry['pr']}@{entry['head'][:10]}", ref, call, REBUILD_DEADLINE)
 
     def reconcile_rebuilds(self) -> None:
-        incident = self.store.load(self.incident_id)
-        open_rebuilds = [action for action in incident.of_kind("rebuild") if action.status in ("completed", "unverifiable")]
+        open_rebuilds = self.store.actions(self.incident_id, "rebuild", statuses=("completed", "unverifiable"))
         if not open_rebuilds:
             return
-        builds = self.world.buildkite.since(incident.facts["activated_at"])
+        builds = self.world.buildkite.since(self.store.fact(self.incident_id, "activated_at"))
         by_number = {build["number"]: build for build in builds}
         by_source: dict[int, dict] = {}
         for build in sorted(builds, key=lambda build: build["number"]):
@@ -851,51 +870,50 @@ class Runner:
                     incident.verify(action.action_id, {"build": build["number"], "state": build["state"], "jobs": job_states(build)})
 
     def canary_passed(self, key: str) -> bool:
-        incident = self.store.load(self.incident_id)
-        action = latest(incident, key)
+        facts = self.facts('canary_job')
+        action = self.latest(key)
         if action is None or action.status in ("accepted", "started", "unverifiable"):
             return False
         if action.status == "failed":
             self.decide(f"canary:{key}", f"canary rebuild {key} failed to start: {action.reason}")
             return False
         build = self.find_build(action.response["build"])
-        job = next((job for job in build["jobs"] if incident.facts["canary_job"] in (job.get("name") or "")), None)
+        job = next((job for job in build["jobs"] if facts["canary_job"] in (job.get("name") or "")), None)
         if job is None and build["state"] in TERMINAL_BUILDS:
-            self.decide(f"canary:{key}", f"canary build {build['number']} finished {build['state']} without a {incident.facts['canary_job']} job")
+            self.decide(f"canary:{key}", f"canary build {build['number']} finished {build['state']} without a {facts['canary_job']} job")
             return False
         if job is None or job["state"] not in TERMINAL_JOBS:
             return False
         if job["state"] != GREEN:
-            self.decide(f"canary:{key}", f"canary build {build['number']} {incident.facts['canary_job']} is {job['state']}: the landed fix is not working")
+            self.decide(f"canary:{key}", f"canary build {build['number']} {facts['canary_job']} is {job['state']}: the landed fix is not working")
             return False
-        self.milestone("live", f"canary {build.get('web_url') or build['number']} passed {incident.facts['canary_job']}")
-        self.comms("live", {"canary": build.get("web_url") or build["number"], "at": pacific(self.store.load(self.incident_id).reached("live")["at"])})
+        self.milestone("live", f"canary {build.get('web_url') or build['number']} passed {facts['canary_job']}")
+        self.comms("live", {"canary": build.get("web_url") or build["number"], "at": pacific(self.reached("live")["at"])})
         return True
 
     def not_ours(self) -> None:
-        incident = self.store.load(self.incident_id)
-        if not (verdict := incident.facts.get("not_ours")) or incident.status in ("recovered", "closed"):
+        facts = self.facts('not_ours')
+        if not (verdict := facts.get("not_ours")) or self.store.header(self.incident_id)["status"] in ("recovered", "closed"):
             return
         self.milestone("not-ours", verdict, status="recovered", facts={"accounting": {"not_ours": verdict}})
 
     def confirm_live(self) -> None:
-        incident = self.store.load(self.incident_id)
-        if incident.facts["pipeline"] or incident.facts.get("not_ours") or not (evidence := incident.facts.get("live")):
+        facts = self.facts('pipeline', 'not_ours', 'live')
+        if facts["pipeline"] or facts.get("not_ours") or not (evidence := facts.get("live")):
             return
         self.milestone("live", evidence)
         self.milestone("recovered", evidence, status="recovered", facts={"accounting": {"live": evidence}})
-        self.comms("live", {"evidence": evidence, "at": pacific(self.store.load(self.incident_id).reached("live")["at"])})
+        self.comms("live", {"evidence": evidence, "at": pacific(self.reached("live")["at"])})
 
     def find_build(self, number: int) -> dict:
-        incident = self.store.load(self.incident_id)
-        return next(build for build in self.world.buildkite.since(incident.facts["activated_at"]) if build["number"] == number)
+        facts = self.facts('activated_at')
+        return next(build for build in self.world.buildkite.since(facts["activated_at"]) if build["number"] == number)
 
     def account(self, entries: list[dict]) -> None:
-        incident = self.store.load(self.incident_id)
-        rebuilds = incident.of_kind("rebuild")
+        rebuilds = self.store.actions(self.incident_id, "rebuild")
         if any(action.status not in ("verified", "failed") for action in rebuilds):
             return
-        if any(entry["account"] == "candidate" and retryable(latest(incident, rebuild_key(entry))) for entry in entries):
+        if any(entry["account"] == "candidate" and retryable(self.latest(rebuild_key(entry))) for entry in entries):
             return
         settled = [action for action in rebuilds if action.status == "verified"]
         failed = [action for action in rebuilds if action.status == "failed" and not retryable(action)]
@@ -911,29 +929,27 @@ class Runner:
         self.milestone("recovered", f"re-run {accounting['rerun']}, green {accounting['green']}, red {len(accounting['red'])}", status="recovered", facts={"accounting": accounting})
 
     def settle_comms(self) -> None:
-        incident = self.store.load(self.incident_id)
-        for action in incident.of_kind("comms"):
-            if action.status == "completed" and (ts := self.world.comms.posted(int(action.dispatch_id))):
+        for action in self.store.actions(self.incident_id, "comms", "completed"):
+            if (ts := self.world.comms.posted(int(action.dispatch_id))):
                 with self.owned() as incident:
                     incident.verify(action.action_id, {"ts": ts})
 
     def deadlines(self) -> None:
-        incident = self.store.load(self.incident_id)
-        for action in incident.actions.values():
+        for action in self.store.actions(self.incident_id, statuses=OPEN):
             if action.overdue(self.now()):
                 self.decide(f"overdue:{action.action_id}", f"{action.kind} {action.target} is overdue: started {pacific(action.started_at)}, due {pacific(action.deadline)}, still {action.status}")
 
     def finish(self) -> None:
-        incident = self.store.load(self.incident_id)
-        if incident.status != "recovered":
+        if self.store.header(self.incident_id)["status"] != "recovered":
             return
-        accounting = dict(incident.facts["accounting"])
-        repo = incident.facts["repo"]
+        facts = self.facts("accounting", "repo")
+        accounting = dict(facts["accounting"])
+        repo = facts["repo"]
         if "red" in accounting:
             accounting["red"] = [{"pr": f"https://github.com/{repo}/pull/{entry['pr']}", "state": entry["state"]} for entry in accounting["red"]]
-        live = incident.reached("live")
+        live = self.reached("live")
         self.comms("recovered", {**accounting, **({"live_at": pacific(live["at"])} if live else {})})
-        final = latest(self.store.load(self.incident_id), "comms:recovered")
+        final = self.latest("comms:recovered")
         if final and final.status == "verified":
             with self.owned() as incident:
                 incident.status = "closed"
@@ -1006,7 +1022,7 @@ def cmd_open(args: argparse.Namespace, store: Store, shell: Shell) -> int:
 
 
 def cmd_note(args: argparse.Namespace, store: Store, shell: Shell) -> int:
-    with store.inputs(args.incident) as incident:
+    with store.transaction(args.incident, inputs=True) as incident:
         if args.pr is not None:
             incident.facts["repair_pr"] = args.pr
         if args.mechanism:
@@ -1024,21 +1040,21 @@ def cmd_note(args: argparse.Namespace, store: Store, shell: Shell) -> int:
 
 
 def cmd_grant(args: argparse.Namespace, store: Store, shell: Shell) -> int:
-    with store.inputs(args.incident) as incident:
+    with store.transaction(args.incident, inputs=True) as incident:
         incident.facts["grants"][args.name] = args.ref
     print(f"{args.incident} grant {args.name}={args.ref}")
     return 0
 
 
 def cmd_run(args: argparse.Namespace, store: Store, shell: Shell) -> int:
-    store.root.mkdir(parents=True, exist_ok=True)
-    with open(store.root / f".{args.incident}.runner", "w") as lock:
+    store.data_root.mkdir(parents=True, exist_ok=True)
+    with open(store.data_root / f".{args.incident}.runner", "w") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             print(f"{args.incident} already has a runner", file=sys.stderr)
             return 2
-        record = store.load(args.incident)
+        record = Incident(**store.header(args.incident), facts=store.facts(args.incident, ("checkout", "trunk", "repo", "pipeline", "orca_run", "orca_repo", "bus", "comms_lane", "root_lane")))
         if record.owner != (args.owner or sender(args.incident)):
             print(f"{args.incident} is owned by {record.owner} at generation {record.owner_generation}; run with --owner {record.owner} only as that owner", file=sys.stderr)
             return 3
@@ -1053,22 +1069,23 @@ def cmd_run(args: argparse.Namespace, store: Store, shell: Shell) -> int:
 
 
 def cmd_status(args: argparse.Namespace, store: Store, shell: Shell) -> int:
-    incident = store.load(args.incident)
     if args.json:
-        print(json.dumps(incident.dump()))
+        print(json.dumps(store.load(args.incident).dump()))
         return 0
-    print(f"{incident.incident_id} {incident.status} owner={incident.owner} generation={incident.owner_generation}")
-    for entry in incident.milestones:
+    header = store.header(args.incident)
+    print(f"{header['incident_id']} {header['status']} owner={header['owner']} generation={header['owner_generation']}")
+    for entry in store.metadata(args.incident, "milestones"):
         print(f"  {pacific(entry['at'])} {entry['name']}: {entry['text']}")
-    for decision in incident.open_decisions():
-        print(f"  open since {pacific(decision['at'])}: {decision['text']}")
+    for decision in store.metadata(args.incident, "decisions"):
+        if decision["resolved_at"] is None:
+            print(f"  open since {pacific(decision['at'])}: {decision['text']}")
     return 0
 
 
 def cmd_brief(args: argparse.Namespace, store: Store, shell: Shell) -> int:
-    incident = store.load(args.incident)
+    incident = brief_record(store, args.incident)
     for role in args.role or INCIDENT_ROLES:
-        print(write_brief(incident, role, store.root / args.incident))
+        print(write_brief(incident, role, store.data_root / args.incident))
     return 0
 
 

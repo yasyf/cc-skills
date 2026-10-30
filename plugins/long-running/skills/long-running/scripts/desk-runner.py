@@ -604,6 +604,7 @@ from zoneinfo import ZoneInfo
 
 from long_running import actions
 from long_running.book import Book
+from long_running.desk_control import DeskControl, QuiesceFailed
 import board_rows
 import cci
 import drive
@@ -1191,13 +1192,13 @@ def incident_fix(lane: str, model: str, brief: Path, role: str) -> bool:
     return roles <= FIX_ROLES and not lanes.NOT_FIX_ROLES & set(lane.split("-")) and (model == INCIDENT_MODEL or INCIDENT_MODEL in roles or bool(brief_incidents(brief) - {NAMES_NOTHING}))
 
 
-def fix_launch(incident: actions.Incident) -> actions.Action | None:
+def fix_launch(container: str, launches: list[actions.Action]) -> actions.Action | None:
     """A lane container's newest verified launch, when it is an incident fix lane's."""
-    launch = next((action for action in reversed(incident.actions.values()) if action.kind == "launch" and action.status == "verified"), None)
+    launch = next(reversed(launches), None)
     if not launch:
         return None
     spec = json.loads(launch.target)
-    return launch if incident_fix(incident.incident_id.removeprefix(LANE_PREFIX), spec["model"], Path(spec["brief"]), spec.get("role", "")) else None
+    return launch if incident_fix(container.removeprefix(LANE_PREFIX), spec["model"], Path(spec["brief"]), spec.get("role", "")) else None
 
 
 def first_lane(lane: str) -> str:
@@ -1726,8 +1727,7 @@ def resends(tries: list[actions.Action]) -> list[actions.Action]:
     return [attempt for attempt in tries if RESEND in attempt.action_id]
 
 
-def active_policy(incident: actions.Incident) -> actions.Action | None:
-    verified = [action for action in incident.actions.values() if action.kind == "policy" and action.status == "verified"]
+def active_policy(verified: list[actions.Action]) -> actions.Action | None:
     superseded = {json.loads(action.target)["supersedes"] for action in verified}
     return next((action for action in verified if json.loads(action.target)["revision"] not in superseded), None)
 
@@ -1747,6 +1747,7 @@ class Runner:
     def __init__(self, shell: Shell, config: Config, store: actions.Store):
         self.shell = shell
         self.config = config
+        self.control = DeskControl(config.source, shell)
         self.book = Book(store, shell)
         self.orca = Orca(shell, config)
         self.launching: dict[str, subprocess.Popen] = {}
@@ -1811,7 +1812,7 @@ class Runner:
     def orca_back(self) -> None:
         """End an unreachable streak with one `ORCA-BACK` once a pass Orca answered completes."""
         self.unreachable_passes = 0
-        if UNREACHABLE_FACT not in self.book.load(RUNNER).facts:
+        if UNREACHABLE_FACT not in self.book.facts(RUNNER, [UNREACHABLE_FACT]):
             return
         streak = self.book.edit(RUNNER, lambda incident: incident.facts.pop(UNREACHABLE_FACT, None))
         if streak:
@@ -1845,7 +1846,7 @@ class Runner:
         incident = {alias for lane in clocks for name in (lane, *self.siblings(lane)) for alias in lane_aliases(name)}
         if not clocks:
             self.release_deferred()
-        held = set(self.book.load(RUNNER).facts.get(DEFERRED, {"ids": []})["ids"])
+        held = set(self.book.fact(RUNNER, DEFERRED, {'ids': []})["ids"])
         for action in self.book.actions(RUNNER, kind="escalation", status="accepted"):
             label = action.target.split()[0]
             if clocks and label in DEFERRABLE and action.target.split()[2].rstrip(":") not in incident:
@@ -1871,10 +1872,10 @@ class Runner:
 
     def release_deferred(self) -> None:
         """Settle every escalation deferred during the incident and log them as one DEFERRED line naming each."""
-        held = self.book.load(RUNNER).facts.get(DEFERRED)
+        held = self.book.fact(RUNNER, DEFERRED, None)
         if not held:
             return
-        lines = [self.book.load(RUNNER).actions[key].target for key in held["ids"]]
+        lines = [self.book.action(RUNNER, key).target for key in held["ids"]]
 
         def settle(incident: actions.Incident) -> None:
             for key in held["ids"]:
@@ -1950,8 +1951,7 @@ class Runner:
         self.shell.reexec([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk])
 
     def stop_marker(self, pid: int | None = None) -> Path:
-        """The file `handoff` writes to stop the runner `pid`, this process by default: one per runner, so the orca and landing runners on one config never remove each other's."""
-        return self.config.source.with_name(f"{self.config.source.name}.stop.{pid or os.getpid()}")
+        return self.control.marker(pid)
 
     def stop_requested(self) -> bool:
         marker = self.stop_marker()
@@ -1976,18 +1976,8 @@ class Runner:
 
     @contextmanager
     def desk_lock(self, desk: str) -> Iterator[int | None]:
-        """Hold the lock one runner of `desk` on this config holds for its life while the block runs, yielding None when this process took it and the holder's pid when another runner holds it."""
-        with self.config.source.with_name(f"{self.config.source.name}.{desk}.lock").open("a+") as handle:
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                handle.seek(0)
-                yield int(handle.read().strip() or 0)
-                return
-            handle.truncate(0)
-            handle.write(f"{os.getpid()}\n")
-            handle.flush()
-            yield None
+        with self.control.lock(desk) as holder:
+            yield holder
 
     def desk_holder(self, desk: str) -> int | None:
         with self.desk_lock(desk) as holder:
@@ -2029,7 +2019,7 @@ class Runner:
 
     def binding(self, via: str = "") -> dict:
         """Ask Orca whether the Run's coordinator is a live terminal that coordinates it, and record the answer, with how it was obtained, in the runner's state."""
-        prior = self.book.load(RUNNER).facts.get(BINDING) or {}
+        prior = self.book.fact(RUNNER, BINDING, None) or {}
         shown, held = self.follow_coordinator()
         terminal = held.get("coordinator_handle") or ""
         current = self.orca.call("orchestration", "run-current") if terminal else {}
@@ -2119,7 +2109,7 @@ class Runner:
     def read_cci(self) -> None:
         """Act in sequence order on each cci record past the saved sequence that is addressed to the orca desk, as one `orca-desk:` line, or that this drive's root posted with `--re`, as a reply; a peer drive's root reply relays nothing. A reply to the runner's `DECIDE` on a worker question answers that question, a reply to a lane's own record answers that lane's open question, which the cci reply superseded, and a `withdraw` of a launch record withdraws that launch. A first read starts at the newest record."""
         fact = f"cci:{self.config.drive}:{ORCA_DESK}"
-        cursor = self.book.load(RUNNER).facts.get(fact)
+        cursor = self.book.fact(RUNNER, fact, None)
         try:
             if cursor is None:
                 newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
@@ -2248,9 +2238,9 @@ class Runner:
         log = f"escalation:withdraw:{at}"
         keyed = bool(LAUNCH_KEY.fullmatch(target))
         if keyed:
-            held = [(container.removeprefix(LANE_PREFIX), [action]) for container in self.book.containers(LANE_PREFIX) if (action := self.book.load(container).actions.get(target)) and action.kind == "launch"]
+            held = [(container.removeprefix(LANE_PREFIX), [action]) for container in self.book.containers(LANE_PREFIX) if (action := self.book.known(container, target)) and action.kind == "launch"]
         else:
-            known = lane_container(target) in self.book.store.ids()
+            known = self.book.exists(lane_container(target))
             held = [(target, self.book.actions(lane_container(target), kind="launch") if known else [])] if known or self.orca.receipt(target) else []
         if not held:
             self.record(log, f"WITHDRAW-FAILED {key} {target}: the runner holds no launch or lane under {target}; nothing was withdrawn")
@@ -2306,7 +2296,7 @@ class Runner:
     def withdrawn_by(self, lane: str) -> str:
         """Who withdrew the lane's current dispatch, or empty."""
         container = lane_container(lane)
-        mark = (self.book.load(container).facts.get(WITHDRAWN) or {}) if container in self.book.store.ids() else {}
+        mark = (self.book.fact(container, WITHDRAWN, None) or {}) if self.book.exists(container) else {}
         return mark.get("by", "") if mark and mark["dispatch"] == self.orca.receipt(lane) else ""
 
     def alert_line(self, at: str, key: str, rest: str) -> None:
@@ -2387,14 +2377,14 @@ class Runner:
     def unfixed(self, lane: str, message: dict) -> None:
         """Launch an incident lane for each case an incident fix lane's `ready:` or `fix-live:` report names as `UNFIXED <lane>: <case>`, up to `incident.case_lanes` per incident, so a case its fix does not cover is never left as backlog. A case is known once its launch is taken, and known across the lane, its fallback, and its case lanes. Every other new case goes to the root as one `DECIDE` carrying a launch line per case: each past the cap, each from a case lane, since case lanes are one generation, and each from a lane whose report or newest mechanism says its cause is UNKNOWN. A report from a lane the root withdrew, or after its incident ended, launches nothing and goes to the root as one line."""
         cases = unfixed_cases(message.get("body") or "", lane)
-        if not cases or handed_back(message) or lane_container(lane) not in self.book.store.ids():
+        if not cases or handed_back(message) or not self.book.exists(lane_container(lane)):
             return
-        launch = fix_launch(self.book.load(lane_container(lane)))
+        launch = self.fix_launch(lane_container(lane))
         if not launch:
             return
         first = first_lane(lane)
         container = self.lane(first)
-        taken = self.book.load(container).facts.get(UNFIXED_CASES) or []
+        taken = self.book.fact(container, UNFIXED_CASES, None) or []
         fresh = [(index, known, case) for index, (known, case) in enumerate(cases.items(), 1) if known not in taken]
         if not fresh:
             return
@@ -2433,7 +2423,7 @@ class Runner:
         """The record that ended the incident `first` leads, as `#<seq> <KIND> <lane>`: a `not-ours` or `stand-down` its fix lane or Opus fallback posted, the root's `stand-down` or `stopped` to either of them or to `lane`, or a `stopped` that `lane` posted before `reported`; empty while the incident is open."""
         owners = {*lane_aliases(first), *lane_aliases(f"{first}{CLOCK_FALLBACK}")}
         own = set(lane_aliases(lane))
-        launch = fix_launch(self.book.load(lane_container(first)))
+        launch = self.fix_launch(lane_container(first))
         since = actions.parse_stamp(launch.verification_receipt["at"]) if launch else datetime.min.replace(tzinfo=timezone.utc)
         posted = cci.records(self.cci_tail, self.config.drive, *(arg for name in sorted(owners | own | {ROOT}) for arg in ("--lane", name)), *(f"--kind={kind}" for kind in (*INCIDENT_ENDS, STOPPED)))
         for record in posted:
@@ -2466,7 +2456,7 @@ class Runner:
             return f"its report {message['id']} says the cause is UNKNOWN"
         launched = actions.parse_stamp(launch.verification_receipt["at"])
         marks = [(record["at"], f"#{record['seq']}", record["text"]) for record in self.lane_records(lane) if clock_mark(record) == "mechanism"]
-        statuses = self.book.load(lane_container(lane)).facts.get(MILESTONE_STATUSES) or {}
+        statuses = self.book.fact(lane_container(lane), MILESTONE_STATUSES, None) or {}
         marks += [(status["at"], f"its status {msg}", path.read_text()) for msg, status in statuses.items() if status["name"] == "mechanism" and (path := self.message_file(msg)).is_file()]
         newest = max((mark for mark in marks if actions.parse_stamp(mark[0]) >= launched), key=lambda mark: actions.parse_stamp(mark[0]), default=None)
         return f"its mechanism {newest[1]} says the cause is UNKNOWN" if newest and UNKNOWN_CAUSE.search(newest[2]) else ""
@@ -2575,7 +2565,7 @@ class Runner:
             live = dispatch.id if dispatch and dispatch.status not in INACTIVE else None
             if any(action.status in ("accepted", "started") or (live and action.dispatch_id == live) for action in launches):
                 return other
-        cursor = self.book.load(RUNNER).facts[f"cci:{self.config.drive}:{ORCA_DESK}"]
+        cursor = self.book.fact(RUNNER, f'cci:{self.config.drive}:{ORCA_DESK}')
         for record in cci.records(self.cci_tail, self.config.drive, "--to", ORCA_DESK, since=cursor):
             directive = INBOX_DIRECTIVE.match(record["text"].strip())
             if not directive or directive["verb"] != "launch" or not (spec := LAUNCH_SPEC.match(directive["rest"])) or spec["lane"] == lane:
@@ -2596,8 +2586,8 @@ class Runner:
         if not SLICE_HEADER.search(brief.read_text()) and not (model == INCIDENT_MODEL or incident_fix(lane, model, brief, role)):
             return f"brief {brief} has no `{SLICE_LINE} lane=<name> step=<n>` line; add one and run `rulings.py slice --refresh {brief}`"
         container = lane_container(lane)
-        if container in self.book.store.ids():
-            if held := self.book.load(container).actions.get(key):
+        if self.book.exists(container):
+            if held := self.book.known(container, key):
                 return f"{key} already holds a {held.kind} for {lane} ({held.status})"
             if flight := next((action for action in self.book.actions(container, kind="launch") if action.status in ("accepted", "started")), None):
                 return f"launch {flight.action_id} for {lane} is {flight.status}"
@@ -2631,7 +2621,7 @@ class Runner:
             launched = self.book.actions(container, kind="launch")
             if other == lane or not launched:
                 continue
-            ours = keys | ({incident_name(lane)} if fix_launch(self.book.load(container)) else set())
+            ours = keys | ({incident_name(lane)} if self.fix_launch(container) else set())
             shared = ours & self.incident_keys(other, launched[-1])
             if not (shared or prs) or not ((dispatch := self.orca.show(other)) and dispatch.status not in INACTIVE):
                 continue
@@ -2671,7 +2661,11 @@ class Runner:
         return self.book.accept(self.lane(lane), key, "launch", target, key, self.now() + timedelta(minutes=self.config.launch_minutes))
 
     def landing_policy(self) -> actions.Action | None:
-        return active_policy(self.book.ensure(LANDING, LANDING))
+        self.book.ensure(LANDING, LANDING)
+        return active_policy(self.book.actions(LANDING, kind="policy", status="verified"))
+
+    def fix_launch(self, container: str) -> actions.Action | None:
+        return fix_launch(container, self.book.actions(container, kind="launch", status="verified"))
 
     def accept_policy(self, key: str, rule: str, revision: str, source: str, supersedes: str) -> tuple[actions.Action, bool]:
         current = self.landing_policy()
@@ -2686,16 +2680,16 @@ class Runner:
             self.escalate(key, "STALE-POLICY", "landing", f"{rule} at {revision} from {source} rejected: {reason}")
         else:
             self.book.attempt(LANDING, lambda incident: incident.verify(key, {"at": self.book.stamp(), "supersedes": supersedes}))
-        return self.book.load(LANDING).actions[key], created
+        return self.book.action(LANDING, key), created
 
     def transfer(self, lane: str) -> None:
         """Offer the container to the lane's receipt dispatch when it moved; ownership changes only on that dispatch's ack."""
         container = self.lane(lane)
-        incident = self.book.load(container)
+        incident = self.book.header(container)
         dispatch = self.orca.receipt(lane)
-        if dispatch and dispatch not in (incident.owner, incident.pending_owner):
+        if dispatch and dispatch not in (incident["owner"], incident["pending_owner"]):
             try:
-                self.book.store.transfer(container, incident.owner_generation, dispatch)
+                self.book.store.transfer(container, incident["owner_generation"], dispatch)
             except actions.StaleGeneration:
                 return
 
@@ -2747,12 +2741,11 @@ class Runner:
         if not action.action_id.startswith(CUT_LAUNCH):
             return False
         key = action.action_id.removeprefix(CUT_LAUNCH)
-        runner = self.book.load(RUNNER)
-        silent = runner.actions[f"escalation:cut:{key}"]
+        silent = self.book.action(RUNNER, f"escalation:cut:{key}")
         if silent.status == "accepted":
             return True
         try:
-            withdrawn = self.cut_withdrawn(key, runner.facts[CUT_CLOCKS][key], silent)
+            withdrawn = self.cut_withdrawn(key, self.book.fact_path(RUNNER, [CUT_CLOCKS, key]), silent)
         except CciTailFailed as failure:
             self.tail_failed(failure)
             return True
@@ -2870,7 +2863,7 @@ class Runner:
             if actions.parse_stamp(send.started_at) < cutoff:
                 self.book.attempt(container, lambda incident, key=send.action_id: incident.lose(key))
         for send in self.book.actions(container, kind="send", status="unverifiable"):
-            action = self.book.load(container).actions[send.authority_ref]
+            action = self.book.action(container, send.authority_ref)
             request = (send.response or {}).get("request_id", "")
             state = self.orca.request_state(request) if request else "absent"
             if state in ("pending", UNREAD):
@@ -3090,7 +3083,7 @@ class Runner:
     def check(self) -> bool:
         """Read the Run past the persisted cursor, relay any message of the Delivery Orca handed over before that read that holds no relay record, then acknowledge the Delivery; False while no cursor exists, so nothing dispatches before the first read sets one."""
         key, relayed = f"inbox:{self.config.run}", f"relayed:{self.config.run}"
-        facts = self.book.load(RUNNER).facts
+        facts = self.book.facts(RUNNER, [key, relayed])
         cursor = facts.get(key)
         delivery = self.orca.call("orchestration", "check", "--run", self.config.run).get("result") or {}
         unrelayed = {message["id"] for message in delivery.get("messages") or [] if message["type"] != "heartbeat"} - set(facts.get(relayed, []))
@@ -3137,7 +3130,7 @@ class Runner:
         """Keep the newest heartbeat a lane sent on its container, where `overdue` reads it as the lane being alive."""
         container = lane_container(self.orca.lane_of(message["from_handle"]))
         at = message["created_at"]
-        if container in self.book.store.ids() and at > self.book.load(container).facts.get(LANE_HEARTBEAT, ""):
+        if self.book.exists(container) and at > self.book.fact(container, LANE_HEARTBEAT, ''):
             self.book.edit(container, lambda incident: incident.facts.update({LANE_HEARTBEAT: at}))
 
     def message_file(self, msg: str) -> Path:
@@ -3190,7 +3183,7 @@ class Runner:
 
     def relay_named(self, lane: str, text: str) -> str | None:
         container = lane_container(lane)
-        if container not in self.book.store.ids():
+        if not self.book.exists(container):
             return None
         named = set(RUN_REF.findall(text))
         return next(
@@ -3223,27 +3216,27 @@ class Runner:
     def stamp_status(self, lane: str, message: str, name: str) -> None:
         """Keep when a lane's milestone status arrived on its container, where the incident clock reads it beside the lane's cci records."""
         container = lane_container(lane)
-        if container in self.book.store.ids():
+        if self.book.exists(container):
             self.book.edit(container, lambda incident: incident.facts.setdefault(MILESTONE_STATUSES, {}).setdefault(message, {"name": name, "at": self.book.stamp()}))
 
     def acknowledge(self, container: str, key: str, sender: str, verb: str, text: str, message: str) -> None:
         """Apply a lane's started/done reply only from the dispatch that owns the container; a pending dispatch's first ack takes ownership first."""
-        if container not in self.book.store.ids() or key not in self.book.load(container).actions:
+        if not self.book.known(container, key):
             return
-        incident = self.book.load(container)
-        if sender and sender == incident.pending_owner:
+        incident = self.book.header(container)
+        if sender and sender == incident["pending_owner"]:
             self.book.store.ack(container, sender)
         moved = verb == "started" and self.book.as_owner(container, sender, lambda live: live.start(key, self.now(), dispatch_id=sender))
         if verb == "done":
             response = {"text": text[:500], "message": message, "at": self.book.stamp()}
             moved = self.book.as_owner(container, sender, lambda live: finish(live, key, response, sender))
-        if not moved and sender and sender != self.book.load(container).owner:
+        if not moved and sender and sender != self.book.header(container)["owner"]:
             self.stand_down(container, key, sender, message)
 
     def stand_down(self, container: str, key: str, sender: str, message: str) -> None:
-        incident = self.book.load(container)
+        incident = self.book.header(container)
         notice = f"stand-down:{key}:{sender}"
-        text = f"Do not execute {key}: dispatch {incident.owner} owns {container} at generation {incident.owner_generation}."
+        text = f"Do not execute {key}: dispatch {incident['owner']} owns {container} at generation {incident['owner_generation']}."
         action, created = self.book.accept(container, notice, "reply", json.dumps({"text": text, "reply_to": message}), notice, None)
         dispatch = self.orca.show(container.removeprefix(LANE_PREFIX))
         if created and dispatch:
@@ -3251,7 +3244,7 @@ class Runner:
 
     def brief_for(self, lane: str) -> Path | None:
         container = lane_container(lane)
-        launched = [json.loads(action.target)["brief"] for action in self.book.actions(container, kind="launch", status="verified")] if container in self.book.store.ids() else []
+        launched = [json.loads(action.target)["brief"] for action in self.book.actions(container, kind="launch", status="verified")] if self.book.exists(container) else []
         candidates = [Path(path) for path in launched[-1:]] + [self.attachment(f"{lane}.full.md"), self.attachment(f"{lane}.md")]
         return next((path for path in candidates if path and path.is_file()), None)
 
@@ -3370,7 +3363,7 @@ class Runner:
             return "keep", lane, "its last terminal create named no terminal"
         handle = created["handle"]
         container = f"{LANE_PREFIX}{lane}"
-        launches = self.book.actions(container, kind="launch") if container in self.book.store.ids() else []
+        launches = self.book.actions(container, kind="launch") if self.book.exists(container) else []
         if unsettled := next((action.action_id for action in launches if action.status in actions.OPEN), ""):
             return "keep", handle, f"launch {unsettled} of {lane} is {self.book.known(container, unsettled).status}"
         if self.orca.terminal(lane) == handle and (dispatch := self.orca.receipt(lane)):
@@ -3424,7 +3417,7 @@ class Runner:
 
     def overdue(self, container: str, about: str) -> None:
         moment = self.now()
-        for action in self.book.load(container).actions.values():
+        for action in self.book.actions(container, statuses=("accepted", "started")):
             if action.kind not in ("relay", "reply", "launch", "enqueue") or not action.overdue(moment) or action.status not in ("accepted", "started"):
                 continue
             if action.kind in ("relay", "reply") and (action.status == "started" or self.beating(container, action, moment)) or self.lane_moved(about, action) or self.relayed_red(about, action):
@@ -3440,7 +3433,7 @@ class Runner:
 
     def beating(self, container: str, action: actions.Action, moment: datetime) -> bool:
         """Whether the lane's heartbeats cover `action`, since a lane answers its mail only between turns: one arrived after `action` was accepted, or one arrived within `HEARTBEAT_GRACE` before it and `action` is not yet `HEARTBEAT_GRACE` old."""
-        if not (beat := self.book.load(container).facts.get(LANE_HEARTBEAT)):
+        if not (beat := self.book.fact(container, LANE_HEARTBEAT, None)):
             return False
         beat, accepted = actions.parse_stamp(beat), actions.parse_stamp(action.accepted_at)
         return beat > accepted or accepted - beat < HEARTBEAT_GRACE and moment - accepted < HEARTBEAT_GRACE
@@ -3474,9 +3467,8 @@ class Runner:
         """Hold each live incident fix lane the runner launched to its budget from the verified launch: past a threshold without its milestone, launch the Opus fallback and log INCIDENT-CLOCK, once per launch; `ready`, a closing record, or a settled dispatch stops the clock."""
         for container in self.book.containers(LANE_PREFIX):
             lane = container.removeprefix(LANE_PREFIX)
-            incident = self.book.load(container)
-            launch = fix_launch(incident)
-            kept = incident.facts.get(CLOCK) or {}
+            launch = self.fix_launch(container)
+            kept = self.book.fact(container, CLOCK, None) or {}
             current = bool(launch) and kept.get("key") == launch.action_id
             if not launch or (current and kept["ended"]):
                 continue
@@ -3513,7 +3505,7 @@ class Runner:
     def reached(self, container: str, lane: str, launched: datetime) -> dict[str, str]:
         """Each milestone a lane reached since `launched`, at its earliest stamp: the lane's own cci records by kind, and its milestone statuses from the Run. Any milestone a sibling lane on the same incident reached counts as this lane's mechanism, so the PR and ready thresholds stay the lane's own."""
         marks = [(mark, record["at"]) for record in self.lane_records(lane) if (mark := clock_mark(record))]
-        marks += [(status["name"], status["at"]) for status in (self.book.load(container).facts.get(MILESTONE_STATUSES) or {}).values()]
+        marks += [(status["name"], status["at"]) for status in (self.book.fact(container, MILESTONE_STATUSES, None) or {}).values()]
         marks += [("mechanism", at) for at in self.sibling_milestones(lane)]
         reached: dict[str, str] = {}
         for name, at in sorted(marks, key=lambda mark: actions.parse_stamp(mark[1])):
@@ -3540,16 +3532,16 @@ class Runner:
 
     def siblings(self, lane: str) -> set[str]:
         """Every other lane on the incident `lane` works: the fix lanes the runner launched that share one of its `incident_keys`, and the Opus backup an incident executor launched for any of them."""
-        own = fix_launch(self.book.load(lane_container(lane)))
+        own = self.fix_launch(lane_container(lane))
         keys = self.incident_keys(lane, own) if own else {incident_name(lane)}
         family = {lane}
         for container in self.book.containers(LANE_PREFIX):
             other = container.removeprefix(LANE_PREFIX)
-            if other != lane and (launch := fix_launch(self.book.load(container))) and keys & self.incident_keys(other, launch):
+            if other != lane and (launch := self.fix_launch(container)) and keys & self.incident_keys(other, launch):
                 family.add(other)
         store = actions.Store()
-        for incident in map(store.load, store.ids()):
-            if (incident.facts.get("adopted") or {}).get("fix") in family and (backup := latest(incident, "dispatch:backup")):
+        for identity in store.ids():
+            if (store.fact(identity, "adopted", None) or {}).get("fix") in family and (backup := next(reversed(store.action_family(identity, "dispatch:backup")), None)):
                 family.add(backup.target)
         return family - {lane}
 
@@ -3562,13 +3554,13 @@ class Runner:
         posted = cci.records(self.cci_tail, self.config.drive, *(arg for name in sorted(names) for arg in ("--lane", name)))
         stamps = [record["at"] for record in posted if record["drive"] == self.config.drive and record["lane"] in names and clock_mark(record) in CLOCK_MILESTONES]
         for sibling in siblings:
-            if lane_container(sibling) in self.book.store.ids():
-                stamps += [status["at"] for status in (self.book.load(lane_container(sibling)).facts.get(MILESTONE_STATUSES) or {}).values()]
+            if self.book.exists(lane_container(sibling)):
+                stamps += [status["at"] for status in (self.book.fact(lane_container(sibling), MILESTONE_STATUSES, None) or {}).values()]
         return stamps
 
     def live_clocks(self) -> list[str]:
         """The incident fix lanes whose clock is running."""
-        return [container.removeprefix(LANE_PREFIX) for container in self.book.containers(LANE_PREFIX) if (clock := self.book.load(container).facts.get(CLOCK)) and not clock["ended"]]
+        return [container.removeprefix(LANE_PREFIX) for container in self.book.containers(LANE_PREFIX) if (clock := self.book.fact(container, CLOCK, None)) and not clock["ended"]]
 
     def overrun(self, lane: str, launch: actions.Action, launched: datetime, reached: dict[str, str]) -> None:
         """Log each threshold the lane has passed without its milestone or a later one, once per launch; the mechanism and PR thresholds launch the Opus fallback first, and the ready threshold names the gap."""
@@ -3671,7 +3663,7 @@ class Runner:
         """Read the Run's worker list once and log one `LANE-GONE` for each lane with a receipt whose dispatch was live on the last pass Orca answered, or is still listed as dispatched, and that Orca now shows gone, completed or failed, or whose terminal Orca finds missing, unless the runner withdrew it, relayed its `worker_done`, or the lane's newest record ends its work; the dispatch is the evidence, so no `LANE_SILENT` wait applies."""
         try:
             statuses = {row["dispatchId"]: row["dispatchStatus"] for row in self.orca.workers("--include-remote")}
-            facts = self.book.load(RUNNER).facts
+            facts = self.book.facts(RUNNER, [ORCA_LIVE, UNREACHABLE_FACT])
             known, live = facts.get(ORCA_LIVE, {}), {}
             for lane in self.orca.lanes():
                 if not (dispatch := self.orca.receipt(lane)):
@@ -3753,7 +3745,7 @@ class Runner:
 
     def pr_silent_scan(self) -> dict[str, dict]:
         """Read the drive's records since the saved cursor, or the last `PR_SILENT_HORIZON` on a first read, into the incident lanes whose mechanism waits on a PR."""
-        kept = self.book.load(RUNNER).facts.get(PR_SILENT) or {}
+        kept = self.book.fact(RUNNER, PR_SILENT, None) or {}
         pending = {lane: dict(mechanism) for lane, mechanism in (kept.get("lanes") or {}).items()}
         answered = dict(kept.get("answered") or {})
         state = {key: value for key, value in kept.items() if key == "cursor"}
@@ -3794,9 +3786,9 @@ class Runner:
     def pr_silent_lane(self, lane: str) -> bool:
         """Whether a lane is an incident fix lane: one the runner launched as a fix lane, or, launched elsewhere, one named `inc-`, `incident-`, or `outage-` whose name and brief name no evidence, proof, closeout, desk, or audit role."""
         container = lane_container(lane)
-        incident = self.book.load(container) if container in self.book.store.ids() else None
-        if incident and any(action.kind == "launch" and action.status == "verified" for action in incident.actions.values()):
-            return fix_launch(incident) is not None
+        launches = self.book.actions(container, kind="launch", status="verified") if self.book.exists(container) else []
+        if launches:
+            return fix_launch(container, launches) is not None
         return bool(cci.INCIDENT_LANE.match(lane)) and not lanes.owes_no_pr(self.config.desk_inbox.parent.parent, lane)
 
     def pr_silent_posts(self, lane: str, seq: int) -> set[int]:
@@ -3814,7 +3806,7 @@ class Runner:
     def owns_fix(self, lane: str) -> bool:
         """Whether the lane owes a PR without having made a worktree yet: a fix lane the runner launched, or one named as a fix, fallback, or case lane."""
         container = lane_container(lane)
-        return bool(cci.FIX_LANE.search(lane)) or (container in self.book.store.ids() and fix_launch(self.book.load(container)) is not None)
+        return bool(cci.FIX_LANE.search(lane)) or (self.book.exists(container) and self.fix_launch(container) is not None)
 
     def checked(self, argv: list[str]) -> str:
         done = self.shell.run(argv)
@@ -3826,10 +3818,9 @@ class Runner:
         """While a fix lane's clock runs, launch its Opus fallback once more after a failed Orca launch, and after a second failure tell the root to start it in-process."""
         for container in self.book.containers(LANE_PREFIX):
             lane = container.removeprefix(LANE_PREFIX)
-            incident = self.book.load(container)
-            launch, clock = fix_launch(incident), incident.facts.get(CLOCK) or {}
+            launch, clock = self.fix_launch(container), self.book.fact(container, CLOCK, None) or {}
             backup = f"{lane}{CLOCK_FALLBACK}"
-            if not launch or clock.get("key") != launch.action_id or clock["ended"] or lane_container(backup) not in self.book.store.ids():
+            if not launch or clock.get("key") != launch.action_id or clock["ended"] or not self.book.exists(lane_container(backup)):
                 continue
             key = f"{CLOCK}:{launch.dispatch_id}"
             tries = [action for action in self.book.actions(lane_container(backup), kind="launch") if action.action_id in (key, f"{key}{RETRY}")]
@@ -3863,7 +3854,7 @@ class Runner:
     def read_release_records(self) -> None:
         """Track each build a lane's `release --build` record names and each freeze a lane's `hold` record names as `froze <scope> until <time> as freeze <id>`; a build is claimed for its lane the pass it is first read. A first read starts at the newest record."""
         drive = self.config.drive
-        cursor = self.book.load(RUNNER).facts.get(RELEASE_CURSOR)
+        cursor = self.book.fact(RUNNER, RELEASE_CURSOR, None)
         if cursor is None:
             newest = cci.records(self.cci_tail, drive, "--limit", "1")
             self.book.edit(RUNNER, lambda incident: incident.facts.update({RELEASE_CURSOR: max((record["seq"] for record in newest), default=0)}))
@@ -3880,8 +3871,7 @@ class Runner:
                     builds.setdefault(str(build), {"lane": record["lane"], "release": release, "seq": record["seq"], "done": False})
             elif record["kind"] == "hold" and (froze := FROZE.search(record["text"])):
                 freezes.setdefault(froze["id"], {"lane": record["lane"], "scope": froze["scope"], "until": froze["until"], "hold": record["seq"], "asked": []})
-        known = self.book.load(RUNNER).facts.get(RELEASE_BUILDS) or {}
-        fresh = {build: info for build, info in builds.items() if build not in known}
+        fresh = {build: info for build, info in builds.items() if self.book.fact_path(RUNNER, [RELEASE_BUILDS, build], None) is None}
         for build, info in fresh.items():
             self.claim_release(build, info)
 
@@ -3912,7 +3902,7 @@ class Runner:
         applying = self.config.landing.get("applying")
         if not applying:
             return
-        for build, info in (self.book.load(RUNNER).facts.get(RELEASE_BUILDS) or {}).items():
+        for build, info in self.book.fact_entries(RUNNER, RELEASE_BUILDS, "done", [False]).items():
             if info["done"]:
                 continue
             argv = release_build_argv(Path(self.config.landing["checkout"]).expanduser(), applying["build"], build)
@@ -3955,7 +3945,7 @@ class Runner:
 
     def ask_lifts(self) -> None:
         """For each freeze a lane's open `hold` record names, post one `ask` when it ran past its until, to its lane, and one to root when its lane has no live session; a hold that closed drops the freeze."""
-        for freeze, info in list((self.book.load(RUNNER).facts.get(FREEZES) or {}).items()):
+        for freeze, info in list((self.book.fact(RUNNER, FREEZES, None) or {}).items()):
             hold = self.cci_record(info["hold"])
             if hold is None or hold["status"] != "open":
                 self.book.edit(RUNNER, lambda incident, freeze=freeze: incident.facts[FREEZES].pop(freeze))
@@ -3986,13 +3976,13 @@ class Runner:
         """Hold every ordered cut to `deadlines.cut_minutes`: a root `go` or `decision` to a release lane that orders a cut or `release start`, or a landing's release record the landing runner posted with no build yet, opens a clock for the order's `--target` refs or the landing's components, and a `release` record with a build or a `refuse` from that lane stops it, as does anything `cut_closed` names. Past the limit the runner logs one CUT-SILENT with the hand command and launches `manual-release-<component>`; a later `refuse` that says a release already ships the commit or later goes to that lane."""
         try:
             self.open_cut_clocks()
-            for key, clock in (self.book.load(RUNNER).facts.get(CUT_CLOCKS) or {}).items():
+            for key, clock in self.book.fact_entries(RUNNER, CUT_CLOCKS, "ended", ["", "silent"]).items():
                 self.press_cut(key, clock)
         except CciTailFailed as failure:
             self.tail_failed(failure)
 
     def open_cut_clocks(self) -> None:
-        cursor = self.book.load(RUNNER).facts.get(CUT_CURSOR)
+        cursor = self.book.fact(RUNNER, CUT_CURSOR, None)
         if cursor is None:
             newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
             self.book.edit(RUNNER, lambda incident: incident.facts.update({CUT_CURSOR: max((record["seq"] for record in newest), default=0)}))
@@ -4009,9 +3999,9 @@ class Runner:
             clocks[f"go:{record['seq']}"] = {"lane": lanes[0], "components": refs["targets"], "since": record["at"], "trigger": f"GO #{record['seq']}", "commit": commit, "env": ",".join(refs.get("envs") or []) or "<env>", "pr": "", "prs": [str(pr).rsplit("#", 1)[-1] for pr in refs.get("prs", [])], "resolves": record.get("resolves"), "ended": ""}
         if self.config.landing:
             self.book.ensure(LANDING, LANDING)
-            for action in self.book.actions(LANDING, kind="release"):
+            for action in self.book.actions(LANDING, kind="release", status="completed"):
                 landed = json.loads(action.target)
-                if action.status == "completed" and landed["components"]:
+                if landed["components"]:
                     clocks.setdefault(f"release:{landed['pr']}", {"lane": self.config.landing["release_owner"], "components": landed["components"], "since": action.response["at"], "trigger": f"the release record for #{landed['pr']}", "commit": landed["sha"], "env": "<env>", "pr": landed["pr"], "prs": [landed["pr"]], "ended": ""})
 
         def keep(incident: actions.Incident) -> None:
@@ -4071,7 +4061,7 @@ class Runner:
 
     def cut_closed(self, key: str, clock: dict) -> str:
         """What closed a cut clock before its limit: the landing it holds settled, the root posted `--resolves` on the order that opened it, or another lane's `release` or `fix-live` record since it opened names one of its PRs; empty while none did."""
-        if clock["pr"] and self.config.landing and (landing := self.book.load(LANDING).actions.get(f"release:{clock['pr']}")) and landing.status == "verified":
+        if clock["pr"] and self.config.landing and (landing := self.book.known(LANDING, f"release:{clock['pr']}")) and landing.status == "verified":
             return f"#{clock['pr']} settled"
         since, prs = actions.parse_stamp(clock["since"]), set(clock.get("prs", []))
         if key.startswith("go:"):
@@ -4125,9 +4115,10 @@ class Runner:
     def executor_backup(self, lane: str) -> str:
         """The Opus backup an incident executor holds for a fix lane it adopted, while that backup's launch is in flight or its worker is live, or empty."""
         store = actions.Store()
-        for incident in map(store.load, store.ids()):
-            backup = latest(incident, "dispatch:backup")
-            if backup is None or incident.facts["adopted"].get("fix") != lane:
+        for incident_id in store.ids():
+            family = store.action_family(incident_id, "dispatch:backup")
+            backup = family[-1] if family else None
+            if backup is None or store.fact(incident_id, "adopted").get("fix") != lane:
                 continue
             if backup.status in actions.OPEN or (backup.status == "verified" and (shown := self.orca.show(backup.target, backup.dispatch_id)) and shown.status not in INACTIVE):
                 return backup.target
@@ -4176,7 +4167,7 @@ class Runner:
 
     def queue_finders(self, repo: str, rows: dict[str, dict]) -> None:
         """Accept one `finder:<pr>:<head>` action per PR and full head the drive's `head` and `opened` records past the saved sequence name, and per green head of an open ledger row, so a head two records name, or a restack that posted no record, queues once; a first read starts at the newest record."""
-        cursor = self.book.load(FINDER).facts.get(FINDER_CURSOR)
+        cursor = self.book.fact(FINDER, FINDER_CURSOR, None)
         if cursor is None:
             newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
             self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_CURSOR: max((record["seq"] for record in newest), default=0)}))
@@ -4408,12 +4399,12 @@ class Runner:
 
     def watch_finder_desk(self, spec: dict) -> None:
         """Log one `FINDER-DESK-STALLED` per streak while passes wait queued and none has settled for `FINDER_STALLED_AFTER`, naming how many wait and each running pass's age; the streak ends once a pass settles or none waits."""
-        incident = self.book.load(FINDER)
-        passes = [action for action in incident.actions.values() if action.kind == "finder"]
+        passes = self.book.actions(FINDER, kind="finder", statuses=("accepted", "started"))
+        facts = self.book.facts(FINDER, [FINDER_SETTLED, FINDER_STALLED])
         queued = [action for action in passes if action.status == "accepted"]
-        quiet = max(stamp for stamp in (incident.facts.get(FINDER_SETTLED), min((action.accepted_at for action in queued), default="")) if stamp) if queued else ""
+        quiet = max(stamp for stamp in (facts.get(FINDER_SETTLED), min((action.accepted_at for action in queued), default="")) if stamp) if queued else ""
         if not quiet or self.now() - (since := actions.parse_stamp(quiet)) < FINDER_STALLED_AFTER:
-            if FINDER_STALLED in incident.facts:
+            if FINDER_STALLED in facts:
                 self.book.edit(FINDER, lambda incident: incident.facts.pop(FINDER_STALLED, None))
             return
         streak = self.book.edit(FINDER, lambda incident: dict(incident.facts.setdefault(FINDER_STALLED, {"since": actions.stamp(since)})))
@@ -4437,7 +4428,7 @@ class Runner:
 
     def queue_fidelities(self, repo: str, rows: dict[str, dict]) -> None:
         """Accept one `fidelity:<pr>:<head>:<seq>` action per PR, full head and record past the saved sequence, so the next `head` record for a PR queues a pass again after one failed, and one `fidelity:<pr>:<head>:ledger` per green head of an open ledger row, so a restack that posted no record queues once; a first read starts at the newest record."""
-        cursor = self.book.load(FIDELITY).facts.get(FINDER_CURSOR)
+        cursor = self.book.fact(FIDELITY, FINDER_CURSOR, None)
         if cursor is None:
             newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
             self.book.edit(FIDELITY, lambda incident: incident.facts.update({FINDER_CURSOR: max((record["seq"] for record in newest), default=0)}))
@@ -4554,36 +4545,37 @@ class Runner:
             self.book.attempt(FIDELITY, lambda incident: incident.fail(action.action_id, why))
 
     def render(self) -> str:
-        runner = self.book.load(RUNNER)
-        landing = self.book.ensure(LANDING, LANDING)
-        lines = [f"# desk-runner {pacific(self.now())}", self.binding_line(runner.facts.get(BINDING))]
-        if held := runner.facts.get(DEFERRED):
+        runner = self.book.facts(RUNNER, [BINDING, DEFERRED, PR_SILENT])
+        self.book.ensure(LANDING, LANDING)
+        lines = [f"# desk-runner {pacific(self.now())}", self.binding_line(runner.get(BINDING))]
+        if held := runner.get(DEFERRED):
             lines.append(f"deferred during {held['incident']}: {len(held['ids'])}")
-            lines += [f"- {runner.actions[key].target}" for key in held["ids"]]
-        for lane, mechanism in ((runner.facts.get(PR_SILENT) or {}).get("lanes") or {}).items():
+            lines += [f"- {self.book.action(RUNNER, key).target}" for key in held["ids"]]
+        for lane, mechanism in ((runner.get(PR_SILENT) or {}).get("lanes") or {}).items():
             lines.append(f"pr-silent {lane}: {mechanism['mark']} #{mechanism['seq']} {whole_minutes(actions.parse_stamp(mechanism['at']), self.now())} min ago, no OPENED or BLOCKER; code state: `drive.py lane-status {lane}`")
-        if policy := active_policy(landing):
+        if policy := self.landing_policy():
             held = json.loads(policy.target)
             lines.append(f"landing policy: {held['rule']} at {held['revision']} ({policy.authority_ref})")
-        if self.book.store.path(FINDER).is_file():
+        if self.book.store.exists(FINDER):
             for action in self.book.actions(FINDER, kind="finder"):
                 if action.status in ("accepted", "started"):
                     job = json.loads(action.target)
                     lines.append(f"finder #{job['pr']} {job['head'][:12]}: {f'running since {pacific(actions.parse_stamp(action.started_at))}' if action.started_at else 'queued'}")
-        if self.book.store.path(FIDELITY).is_file():
+        if self.book.store.exists(FIDELITY):
             for action in self.book.actions(FIDELITY, kind="fidelity"):
                 if action.status in ("accepted", "started"):
                     job = json.loads(action.target)
                     lines.append(f"fidelity #{job['pr']} {job['head'][:12]}: {f'running since {pacific(actions.parse_stamp(action.started_at))}' if action.started_at else 'queued'}")
         for container in [*self.book.containers(LANE_PREFIX), LANDING]:
-            incident = landing if container == LANDING else self.book.load(container)
-            lines.append(f"## {container} owner {incident.owner} generation {incident.owner_generation}{f' pending {incident.pending_owner}' if incident.pending_owner else ''}")
-            if clock := incident.facts.get(CLOCK):
+            header = self.book.header(container)
+            facts = self.book.facts(container, [CLOCK, MERGE_WAITS])
+            lines.append(f"## {container} owner {header['owner']} generation {header['owner_generation']}{f' pending {header["pending_owner"]}' if header['pending_owner'] else ''}")
+            if clock := facts.get(CLOCK):
                 lines.append(self.clock_line(clock))
-            for pr, wait in (incident.facts.get(MERGE_WAITS) or {}).items():
+            for pr, wait in (facts.get(MERGE_WAITS) or {}).items():
                 authorize = f", and the owner's tap authorizing {', '.join(wait['rows'])} through `rulings.py authorize`" if wait["rows"] else ""
                 lines.append(f"- #{pr} waits on `{wait['key']}`: a root go naming #{pr} at {wait['key'].rsplit(':', 1)[1]}{authorize}")
-            for action in sorted(incident.actions.values(), key=lambda action: action.accepted_at):
+            for action in sorted(self.book.actions(container), key=lambda action: action.accepted_at):
                 if action.kind in ("send", "policy"):
                     continue
                 at = [f"accepted {pacific(actions.parse_stamp(action.accepted_at))}"]
@@ -5144,9 +5136,9 @@ class Landing:
 
     def pull_ordered(self, rows: dict[str, dict]) -> set[str]:
         """Take out of the queue each PR a root record on this drive orders out, one that opens with `dequeue #<n>` or says `landing-desk: dequeue #<n>` outside quotes and code, or a `withdraw` of a root `go` naming a PR this desk enqueued at that go's head, so no order waits on a lane reading the bus (root #146459). It runs before any enqueue of the pass. Each order is kept in the desk store until it settles, its progress saved one order at a time, and says `DEQUEUED` only from a status read: one taken after the dequeue that finds the PR out of the queue, when the PR's lane and every drive naming it hear it stopped, or one that finds it already out. Either way the PR's head is latched out until `mq.py requeue`. A read that still finds it queued or landed, a refused dequeue, or no open ledger row says `DEQUEUE-FAILED`. Returns the PRs this pass keeps out of every check and enqueue: each with an open order, and each whose ledger head is latched out."""
-        if DEQUEUE_READ not in self.book.load(LANDING).facts:
+        if DEQUEUE_READ not in self.book.facts(LANDING, [DEQUEUE_READ]):
             self.book.edit(LANDING, lambda incident: incident.facts.setdefault(DEQUEUE_READ, self.started))
-        facts = self.book.load(LANDING).facts
+        facts = self.book.facts(LANDING, [DEQUEUE_READ])
         statuses = self.pr_statuses()
         if statuses is not None:
             found, read = self.dequeue_orders(facts[DEQUEUE_READ])
@@ -5156,9 +5148,9 @@ class Landing:
                 incident.facts[DEQUEUE_READ] = read
 
             self.book.edit(LANDING, remember)
-            for key, order in self.book.load(LANDING).facts.get(DEQUEUE_ORDERS, {}).items():
+            for key, order in self.book.fact(LANDING, DEQUEUE_ORDERS, {}).items():
                 self.settle_order(key, order, rows, statuses)
-        facts = self.book.load(LANDING).facts
+        facts = self.book.facts(LANDING, [PULLED_HEADS, DEQUEUE_ORDERS])
         latched = facts.get(PULLED_HEADS, {})
         return {order["pr"] for order in facts.get(DEQUEUE_ORDERS, {}).values()} | {pr for pr, head in latched.items() if rows.get(pr, {}).get("head", "").startswith(head)}
 
@@ -5620,7 +5612,7 @@ class Landing:
             streak = self.book.edit(LANDING, lambda incident: dict(incident.facts.setdefault(TRUNK_UNREAD_FACT, {"since": self.book.stamp(), "error": why})))
             self.runner.escalate(f"trunk-read:{streak['since']}", "TRUNK-READ-FAILED", "landing", f"{TRUNK}'s {check} statuses did not read: {why}; until they read, each pass gates and enqueues nothing and reads again the next")
             return False
-        if TRUNK_UNREAD_FACT in self.book.load(LANDING).facts and (streak := self.book.edit(LANDING, lambda incident: incident.facts.pop(TRUNK_UNREAD_FACT, None))):
+        if TRUNK_UNREAD_FACT in self.book.facts(LANDING, [TRUNK_UNREAD_FACT]) and (streak := self.book.edit(LANDING, lambda incident: incident.facts.pop(TRUNK_UNREAD_FACT, None))):
             since = actions.parse_stamp(streak["since"])
             self.runner.escalate(f"trunk-read-recovered:{streak['since']}", "TRUNK-READ-RECOVERED", "landing", f"{TRUNK}'s {check} statuses read again; from {pacific(since)} for {whole_minutes(since, self.runner.now())} min no pass gated ({streak['error']})")
         self.compare_trunk_builds(target["history"]["nodes"], check, rows)
@@ -5657,7 +5649,7 @@ class Landing:
             return
         finished = [(index, url) for index, commit in enumerate(history) for context in (commit["status"] or {"contexts": []})["contexts"] if context["context"] == check and context["state"] in FINISHED_STATES and "buildkite.com/" in (url := context["targetUrl"] or "") and BUILD_URL.search(url)]
         urls = [url for _, url in finished]
-        compared = self.book.load(LANDING).facts.get(TRUNK_JOBS_FACT)
+        compared = self.book.fact(LANDING, TRUNK_JOBS_FACT, None)
         for position in reversed(range(min(urls.index(compared) if compared in urls else 1, len(finished) - 1))):
             if not self.compare_builds(history, finished[position], finished[position + 1], rows):
                 return
@@ -6437,7 +6429,7 @@ class Landing:
         def merged(kept: dict) -> dict:
             return {pr: wait for pr, wait in kept.items() if pr not in heads} | fresh
 
-        kept = self.book.load(LANDING).facts.get(MERGE_WAITS) or {}
+        kept = self.book.fact(LANDING, MERGE_WAITS, None) or {}
         if merged(kept) != kept:
             self.book.edit(LANDING, lambda incident: incident.facts.update({MERGE_WAITS: merged(incident.facts.get(MERGE_WAITS) or {})}))
 
@@ -6610,7 +6602,7 @@ class Landing:
     def merge_card(self, pr: str, head: str, detail: str) -> str | None:
         """Ask the merge question for `pr` at `head` as a `board-write` record whose `op=ask` the root board's watch puts on the board and in the root's Slack status thread like every other card, waiting on `merge:<pr>:<short sha>` with Merge recommended and Hold; asking again under the same id edits the card in place. Where the ask stands, `cci #<seq>`, or None when it did not post, which logs one `MERGE-CARD-FAILED` per error and tries again next pass."""
         waits = f"merge:{pr}:{head[:7]}"
-        posted = self.book.load(LANDING).facts.get(MERGE_CARDS, {}).get(waits)
+        posted = self.book.fact_path(LANDING, [MERGE_CARDS, waits], None)
         if posted and posted["question"] == detail:
             return posted["ts"]
         snapshot = board_rows.snapshot_of_records(self.runner.board_records())
@@ -7241,7 +7233,7 @@ class Landing:
         """When Graphite went down, as the newest queue draft before it, while the landing desk reads it down."""
         if self.adapter.kind != merge_queue.GraphiteStackEnqueue.kind:
             return None
-        since = self.book.load(LANDING).facts.get(GRAPHITE_DOWN)
+        since = self.book.fact(LANDING, GRAPHITE_DOWN, None)
         return actions.parse_stamp(since) if since else None
 
     def watch_graphite(self) -> None:
@@ -7372,7 +7364,7 @@ class Landing:
 
     def announce_landings(self, rows: dict[str, dict]) -> None:
         """Post one `landed` record for each ledger row that reads landed with no landing record of its own: none from the runner, a verified enqueue or a squash, and no `landed` record on the bus naming it, as a lane posts for a merge it made. That is a PR queued by hand, landed in a batch the runner did not enqueue, or merged outside the queue, so its lane and the desks hear it the pass the ledger settles it. A PR of an admitted enqueue the runner has not verified waits for `verify`. A desk's first pass records every landed row as history, so a restart never announces an old landing; a post that fails runs again on the next pass."""
-        read = self.book.load(LANDING).facts.get(LANDED_READ)
+        read = self.book.fact(LANDING, LANDED_READ, None)
         landed = {pr for pr, row in rows.items() if row.get("state") == "landed"}
         if read is None:
             self.book.edit(LANDING, lambda incident: incident.facts.update({LANDED_READ: sorted(landed, key=int)}))
@@ -7399,7 +7391,7 @@ class Landing:
     def remove_landed_worktrees(self, rows: dict[str, dict]) -> None:
         """In a pass whose ledger reads a PR landed that no earlier pass tidied, read the checkout's worktrees once and remove each one whose branch is a landed PR's head branch and no open PR's through `ccx vcs worktree rm --path`, which refuses a dirty tree or one a live process works in; a refusal logs `WORKTREE-KEPT` once per tree, is never forced, and is tried again in the next pass that reads a new landing."""
         landed = {pr for pr, row in rows.items() if row.get("state") == "landed"}
-        if landed <= set(self.book.load(LANDING).facts.get(LANDED_TIDIED, [])):
+        if landed <= set(self.book.fact(LANDING, LANDED_TIDIED, [])):
             return
         live = {row["branch"] for row in rows.values() if row.get("state", "open") == "open" and row.get("branch")}
         branches = {f"refs/heads/{rows[pr]['branch']}": pr for pr in landed if rows[pr].get("branch") and rows[pr]["branch"] not in live}
@@ -7421,7 +7413,13 @@ class Landing:
         """Whether a ledger row is an incident fix's: its lane is an `incident-` or `outage-` lane or a fix lane the runner launched on the incident clock, or an open incident in the executor's store names the PR as its repair, and no root go, hold, lift, decide or release naming it took it off the incident path."""
         lane = row.get("lane", "")
         store = actions.Store()
-        tagged = INCIDENT_NAME.match(lane) or (lane_container(lane) in self.book.store.ids() and fix_launch(self.book.load(lane_container(lane)))) or any(str(incident.facts.get("repair_pr")) == pr for incident in map(store.load, store.ids()) if "adopted" in incident.facts and incident.status not in EXECUTOR_SETTLED and not incident.facts.get("not_ours"))
+        tagged = INCIDENT_NAME.match(lane) or (self.book.exists(lane_container(lane)) and self.fix_launch(lane_container(lane)))
+        if not tagged:
+            for incident_id in store.ids():
+                facts = store.facts(incident_id, ["repair_pr", "adopted", "not_ours"])
+                if "adopted" in facts and store.header(incident_id)["status"] not in EXECUTOR_SETTLED and not facts.get("not_ours") and str(facts.get("repair_pr")) == pr:
+                    tagged = True
+                    break
         return bool(tagged) and not self.incident_cleared(pr)
 
     def incident_cleared(self, pr: str) -> bool:
@@ -7580,8 +7578,7 @@ class Landing:
         """Post the pass's one `state` record to root on topic `landing-state`, which cci delivers newest-only, so root never asks what the runner is doing (owner 9524276): the open rows the queue holds, the green ones a root go names at their heads that are out of it and neither held nor refused, with the oldest stack step in flight, the held, the refused at their heads, the stack workers running, the overflow's enqueues this hour, and the pass's seconds. It logs `OVERFLOW-STALLED` once an hour while the overflow thread has finished no run in `OVERFLOW_STALLED`."""
         open_rows = {pr: row for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"}
         statuses, gos, held = self.statuses or {}, self.gos or [], set(self.held_now)
-        landing = self.book.load(LANDING)
-        refused = set(refused_members(landing.of_kind("bus"), set(open_rows), open_rows)) if open_rows else set()
+        refused = set(refused_members(self.book.actions(LANDING, kind="bus"), set(open_rows), open_rows)) if open_rows else set()
         queued = {pr for pr in open_rows if statuses.get(pr, {}).get("queue") == QUEUED_STATE}
         waiting = [pr for pr, row in open_rows.items() if pr not in queued | held | refused and row.get("test_state") == "success" and row.get("head") and gone_at(gos, pr, row["head"])]
         now = self.runner.now()
@@ -7589,7 +7586,7 @@ class Landing:
             oldest = min(self.steps.values(), key=lambda entry: entry["since"], default=None)
             running = sum(1 for _, future in self.inflight.values() if not future.done())
         hour = now - timedelta(hours=1)
-        overflowed = sum(1 for action in landing.of_kind("enqueue") if f"#{OVERFLOW}-" in action.action_id and actions.parse_stamp(action.accepted_at) >= hour)
+        overflowed = sum(1 for action in self.book.actions(LANDING, kind="enqueue") if f"#{OVERFLOW}-" in action.action_id and actions.parse_stamp(action.accepted_at) >= hour)
         step = f" (oldest #{oldest['root']} {oldest['step']} {whole_minutes(actions.parse_stamp(oldest['since']), now)}m)" if oldest else ""
         text = f"LANDING queued {len(queued)}, waiting {len(waiting)}{step}, held {len(held)}, refused {len(refused)}, in flight {running}, overflowed {overflowed} this hour; pass {took:.0f}s"
         self.runner.cci_post("state", text, ROOT, "landing-state", f"landing-state:{self.book.stamp()}")
@@ -7628,7 +7625,7 @@ class Landing:
 
     def overflow_landable(self, open_rows: dict[str, dict], held: list[str], queue: dict[str, str]) -> set[str]:
         covered = under_hold(open_rows, [*held, *self.incident_rows(open_rows)])
-        facts = self.book.load(LANDING).facts
+        facts = self.book.facts(LANDING, [PULLED_HEADS, DEQUEUE_ORDERS])
         pulled = {order["pr"] for order in facts.get(DEQUEUE_ORDERS, {}).values()} | {pr for pr, head in facts.get(PULLED_HEADS, {}).items() if open_rows.get(pr, {}).get("head", "").startswith(head)}
         gos = self.root_gos()
         ready = {
@@ -7715,7 +7712,7 @@ class Landing:
 
     def releases(self, rows: dict[str, dict]) -> None:
         """A PR that lands carrying the merge-fast label and a `Release-With:` line sends the release owner and the root one `release` record in the pass that reads the landing, then one `blocker` each `deadlines.release_start_minutes` until a `release` record names the landing or the root replies. Each landing is judged once, by the first pass that reads it, and the landings read persist across restarts: a desk's first pass records every landing it reads as history, so a restart or an upgrade never judges an old landing again."""
-        read = self.book.load(LANDING).facts.get(RELEASE_READ)
+        read = self.book.fact(LANDING, RELEASE_READ, None)
         landed = {pr for pr, row in rows.items() if row.get("state") == "landed" and row.get("landed_at")}
         if read is None:
             self.book.edit(LANDING, lambda incident: incident.facts.update({RELEASE_READ: sorted(landed, key=int)}))
@@ -7974,7 +7971,7 @@ class Landing:
         """Let `mq requeue` put `pr` back at its current head: a pulled, ejected, or go-awaiting head becomes retryable once the adapter releases whatever latch it keeps on that head, so the next pass enqueues it once every check passes."""
         rows = self.rows() or {}
         head = rows.get(pr, {}).get("head", "")
-        latched = pr in self.book.load(LANDING).facts.get(PULLED_HEADS, {})
+        latched = pr in self.book.fact(LANDING, PULLED_HEADS, {})
         if latched:
             self.book.edit(LANDING, lambda incident: incident.facts[PULLED_HEADS].pop(pr))
         cleared = []
@@ -8269,7 +8266,7 @@ class Landing:
 
     def routed(self, key: str, lane: str) -> bool:
         container = lane_container(lane)
-        return key in self.book.load(LANDING).actions or (container in self.book.store.ids() and key in self.book.load(container).actions)
+        return self.book.known(LANDING, key) is not None or self.book.known(container, key) is not None
 
     def route(self, key: str, lane: str, text: str, pr: str, cause: str = "") -> None:
         if self.routed(key, lane):
@@ -8656,10 +8653,12 @@ def build_parser() -> argparse.ArgumentParser:
     rebind = verbs.add_parser("rebind")
     handoff = verbs.add_parser("handoff")
     handoff.add_argument("--desk", choices=DESKS, required=True)
+    quiesce = verbs.add_parser("quiesce")
+    quiesce.add_argument("--desk", choices=DESKS, required=True)
     show = verbs.add_parser("show")
     gc = verbs.add_parser("gc")
     gc.add_argument("--dry-run", action="store_true")
-    for sub in (relay, launch, policy, loop, rebind, handoff, show, gc):
+    for sub in (relay, launch, policy, loop, rebind, handoff, quiesce, show, gc):
         sub.add_argument("--config", type=Path, required=True)
     return parser
 
@@ -8667,7 +8666,16 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     args = build_parser().parse_args(argv)
     config = Config.load(args.config)
-    runner = Runner(shell or Shell(), config, actions.Store(config.store))
+    shell = shell or Shell()
+    if args.verb == "quiesce":
+        try:
+            with DeskControl(config.source, shell).quiesced(args.desk, HANDOFF_WAIT, WAKE_SECONDS):
+                print(f"desk-runner quiesce: no live {args.desk} runner; no successor started")
+        except QuiesceFailed as error:
+            print(f"desk-runner quiesce: {error}", file=sys.stderr)
+            return 1
+        return 0
+    runner = Runner(shell, config, actions.Store(config.store))
     if args.verb == "run":
         deadline = runner.now() + HANDOFF_WAIT
         while True:
