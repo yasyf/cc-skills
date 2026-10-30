@@ -497,7 +497,7 @@ retarget it to the trunk BEFORE adding the label, or branch deletion closes it.
 Never wait for the top to go green. After the prefix lands, route a restack of the
 first PR above it to its owning lane; Orca routes use
 `desk-runner.py relay --config C --key R<n> --lane L --text T`. The
-lane restacks the remaining PRs with `ccx vcs stack submit`.
+lane restacks the remaining PRs on a Sprite with `remote-restack.py`.
 
 Retargeting alone does not rebase a child; it still carries its
 parent's commits until it is rebased, so check the file count before labelling.

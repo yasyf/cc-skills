@@ -1443,7 +1443,7 @@ under Mechanics, and there is no desk.
 
 **D1. The landing desk is the only enqueuer; lanes report; the root owns holds and priority PRs.** A lane never runs `stack-enqueue` (outside `--check` and `--status`), `gt merge`, `gh pr merge`, or `ledger.py label`, and never adds a `merge` or `merge-fast` label. The pack's `lane_landing` hook refuses those commands against the drive's repo, read from the drive registry, from every lane except the desks (`landing-desk`, its shards, priority desks), `desk-runner`, `merge-train` lanes, and incident lanes, named `incident-` or `outage-` or briefed with a `ccx: incident=<id>` line other than `none`, or named `<x>-fix` and briefed with its own `Register slice: lane=<x>-fix step=incident` line, which it refuses only `stack-enqueue` and `gh pr merge --admin` and lets run `gh pr merge <n> --squash`: incident fixes land by plain squash the pass they are approved and green (ef905a6), and the landing runner merges them. The same pack refuses `mq.py dequeue`, `requeue`, `priority`, `recover`, `hold`, and `lift` from every lane, desks included: only the root steers the queue. A tooling lane merges its own PRs in other repos. The merge queue enqueues every bottom prefix its check registry passes under D3, through its adapter in every repository. A hold is an open cci `hold` record, which `ledger.py held --drive <drive>` prints, or GitHub's `hold` label. Only the queue's `hold` check reads holds: no adapter takes a hold flag or reads one. A lane's `cci post --kind hold --pr <n>` holds that PR until a `lift --resolves <seq>` closes the record. The queue re-reads every hold just before each enqueue call, never a cached set.
 
-The lane's part is the report. The moment a PR is green, it reports `READY` with `ledger.py report --drive <drive>`, then keeps `ccx vcs pr watch` on the stack. On ejection or conflict it rebases at once and reports the new head; the runner re-enqueues it. It is not finished until its squash `(#N)` is on the base branch. After the prefix lands, it restacks the PRs above it with `ccx vcs stack submit`. No ruling is needed.
+The lane's part is the report. The moment a PR is green, it reports `READY` with `ledger.py report --drive <drive>`, then keeps `ccx vcs pr watch` on the stack. On ejection or conflict it restacks at once with `remote-restack.py --config <runner config> --lane <lane> <top PR>`, which replays the stack on a Sprite, pushes, and posts each new head, and it resolves by hand only a conflict that tool reports; the runner re-enqueues it. It is not finished until its squash `(#N)` is on the base branch. After the prefix lands, it restacks the PRs above it the same way. No ruling is needed.
 
 A ready stack is enqueued as one batch from any of its PRs: the adapter lands the largest green bottom prefix in one call, never the first PR alone and the rest later, and never through the `merge` label or `gt merge` on one PR of a stack. On a stalled queue, where a head's draft closed unmerged, the root reads `mq.py --config <runner config> why <head>`, then runs `mq.py recover <head>`.
 
@@ -2171,7 +2171,7 @@ In the same pass, run `route` and send its messages. D3's merge queue handles ev
 
 *Prevents the desk waiting silently while five ready PRs sat unmerged for hours.*
 
-**D16. The green bottom of a stack lands now.** Enqueue the largest contiguous bottom prefix whose PRs are green, approved, and unheld as one batch. Never wait for the top of a stack to go green before landing a green bottom. PRs above the prefix wait on their CI, review, or hold. After a native GitHub stack prefix merges atomically, inspect whether GitHub automatically rebased the remaining stack before routing an explicit restack; when a restack is needed, route the first PR above the landed prefix to its owning lane, which restacks the remaining PRs with `ccx vcs stack submit`.
+**D16. The green bottom of a stack lands now.** Enqueue the largest contiguous bottom prefix whose PRs are green, approved, and unheld as one batch. Never wait for the top of a stack to go green before landing a green bottom. PRs above the prefix wait on their CI, review, or hold. After a native GitHub stack prefix merges atomically, inspect whether GitHub automatically rebased the remaining stack before routing an explicit restack; when a restack is needed, route the first PR above the landed prefix to its owning lane, which restacks the remaining PRs on a Sprite with `remote-restack.py`.
 
 The landing runner sends this route after verifying ledger `landed` rows, by relay for Orca lanes or `cci post --drive <drive> --lane landing-desk --kind blocker --topic <pr> --to <lane> --text "<restack route>"` for others. The landing desk never duplicates it.
 
@@ -3076,8 +3076,10 @@ Standing rules served: <`#<seq>` ids with their answer ids, each with the owner'
 Stack shape, under D19: put each shared-file edit in the smallest additive first PR of
   your stack, in the file's declared order. When a file you change is in another open
   PR, stack on that PR instead of racing it. Open your PR as soon as its parent's PR
-  exists, never once it lands: ship on the parent branch, then restack with
-  `ccx vcs stack submit` after the parent lands. Never commit a generated output; the build
+  exists, never once it lands: ship on the parent branch, then restack after the parent
+  lands with `remote-restack.py --config <runner config> --lane <lane> <top PR>`, which
+  replays the stack on a Sprite, pushes, and posts each new head. No rebase runs here.
+  Resolve by hand only a conflict it reports. Never commit a generated output; the build
   generates it. A stack that still carries a regenerated artifact rebases and
   regenerates it on ejection.
 Holds file: <path>, root-owned. Never enqueue, merge, or add a `merge` or `merge-fast`
@@ -3086,9 +3088,8 @@ Holds file: <path>, root-owned. Never enqueue, merge, or add a `merge` or `merge
   Report READY the moment a PR is green; the landing runner enqueues its largest green,
   approved, unheld bottom prefix against the open cci `hold` records. A held PR
   gets `held` on your tip with the held PR named; release is the root's.
-  Keep `ccx vcs pr watch` on the stack; on ejection or conflict, rebase and report the new
-  head at once. After the prefix lands, restack the PRs above it with
-  `ccx vcs stack submit`.
+  Keep `ccx vcs pr watch` on the stack; on ejection or conflict, restack at once with
+  `remote-restack.py`. After the prefix lands, restack the PRs above it the same way.
 Ledger: <id>. Register your branch prefix when spawned:
   `ledger.py register --ledger <id> --lane <name> --repo <owner/name> --branch-prefix <prefix>`.
 Report every PR open, push, enqueue, and READY yourself, in this one shape:
@@ -3904,7 +3905,7 @@ and the PRs below it `SKIP covered-by #<top>`. Each PR above keeps its `NOT-READ
 prints `ENQUEUED <sha>` without `prefix`.
 
 After the prefix lands, route the first PR above it to its owning lane to restack
-the rest with `ccx vcs stack submit`; Orca routes use
+the rest on a Sprite with `remote-restack.py`; Orca routes use
 `desk-runner.py relay --config C --key R<n> --lane L --text T`. Where the landing
 runner owns D16, it sends this route; the desk never duplicates it.
 A stack that forks never goes in. Every passing PR prints
