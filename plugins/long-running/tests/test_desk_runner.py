@@ -3843,6 +3843,22 @@ def test_a_tap_keeps_only_once_the_finder_is_clear_at_the_fixed_head(shell, conf
     assert [note["text"].split(":")[0] for note in tap_notes(shell)] == ["TAP-KEPT #29020"]
 
 
+def test_a_tap_keeps_over_a_pipeline_missing_a_desk_ok_overrides_at_the_same_head(shell, config, tmp_path):
+    """p8a-step7 #193454: fidelity-desk-3's ok and root's TAP-KEPT go stood at #45286 c8a6014, but fidelity-pipeline's newer missing at that head kept the runner from noting TAP-KEPT, so it refused the head TAP-REQUIRED."""
+    board_surface(config)
+    board_lane(config)
+    raw = json.loads(config.read_text())
+    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-pipeline"]
+    config.write_text(json.dumps(raw))
+    lone_green_pr(shell)
+    tap(shell, "29020", "aaaa111111")
+    grade(shell, "29020", "ok cccc333333 a fixed version of aaaa111111: a review fix without new behavior.")
+    grade(shell, "29020", "missing cccc333333 plan:266 lists every local chat before grouping teams.", lane="fidelity-pipeline")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [note["text"].split(":")[0] for note in tap_notes(shell)] == ["TAP-KEPT #29020"]
+
+
 def test_a_kept_tap_under_a_root_go_lands_the_tap_rule_head_when_the_board_refuses_the_carry(shell, config, tmp_path):
     """Root #192094: the runner noted TAP-KEPT for #44704, root posted the go, and the runner still refused it TAP-REQUIRED because the board named only the old head."""
     board_surface(config)

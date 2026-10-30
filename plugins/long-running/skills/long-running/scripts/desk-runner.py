@@ -6599,11 +6599,12 @@ class Landing:
                 continue
             said = [record for record in reviews if record["kind"] == "head" and about_pr(record, self.repo, pr) and names_head(graded_head(record["text"]), head)]
             adds = [record for record in [*said, *([graded] if graded else [])] if ADDS_BEHAVIOR.search(full_text(record))]
-            kept = not adds and graded and graded["text"].startswith(FIDELITY_OK) and self.finder_clear(pr, head)
+            standing = self.fidelity(pr, head)
+            kept = not adds and standing.ok and standing.record and self.finder_clear(pr, head)
             if kept and not self.book.known(LANDING, key := f"tap-kept:{block}:{pr}:{tapped}:{head}"):
-                self.post_record("note", key, to, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} on board block {block} keeps at {head[:10]}, a review fix with no new behavior per fidelity grade cci #{graded['seq']} (rule 399b5fa); root posts `go #{pr} at {head[:10]}` naming the fix, and the row lists the fix", pr)
+                self.post_record("note", key, to, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} on board block {block} keeps at {head[:10]}, a review fix with no new behavior per fidelity grade cci #{standing.record['seq']} (rule 399b5fa); root posts `go #{pr} at {head[:10]}` naming the fix, and the row lists the fix", pr)
             if kept and (gos := self.head_gos(pr, head)):
-                self.carry_tap(session, block, pr, tapped, head, f"review fix with no new behavior, per fidelity grade cci #{graded['seq']} and root go cci #{gos[-1]['seq']} (rule 399b5fa)", self.landing_audience([pr], rows, to))
+                self.carry_tap(session, block, pr, tapped, head, f"review fix with no new behavior, per fidelity grade cci #{standing.record['seq']} and root go cci #{gos[-1]['seq']} (rule 399b5fa)", self.landing_audience([pr], rows, to))
                 continue
             if self.head_gos(pr, head) or graded and any(seq == graded["seq"] and identical for _, _, identical, seq in moves):
                 continue
