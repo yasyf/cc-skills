@@ -12471,3 +12471,56 @@ def test_book_edit_uses_current_owner_while_explicit_generation_still_refuses(sh
             pytest.fail("stale owner entered")
     assert not book.as_owner("book", "old", lambda incident: incident.facts.update({"old": True}))
     assert store.load("book").facts == {}
+
+
+def test_book_edit_holds_the_incident_lock_through_the_callback(shell, tmp_path):
+    store = actions.Store(tmp_path / "store")
+    store.create(actions.Incident("book", "owner", 3, actions.stamp(shell.now()), {}))
+
+    def change(incident):
+        with open(store.root / ".book.lock", "w") as lock:
+            with pytest.raises(BlockingIOError):
+                actions.fcntl.flock(lock, actions.fcntl.LOCK_EX | actions.fcntl.LOCK_NB)
+        incident.facts["locked"] = True
+
+    runner_module.Book(store, shell).edit("book", change)
+    assert store.load("book").facts == {"locked": True}
+
+
+def test_owned_noop_preserves_bytes_and_nested_mutation_is_persisted(shell, tmp_path):
+    store = actions.Store(tmp_path / "store")
+    store.create(actions.Incident("book", "owner", 3, actions.stamp(shell.now()), {"nested": {"x": [1]}}))
+    path = store.path("book")
+    before, info = path.read_bytes(), path.stat()
+    with store.owned("book", 3) as incident:
+        incident.facts["nested"]["x"] = [1]
+    assert path.read_bytes() == before
+    assert (path.stat().st_ino, path.stat().st_mtime_ns) == (info.st_ino, info.st_mtime_ns)
+    with store.owned("book", 3) as incident:
+        incident.facts["nested"]["x"].append(2)
+    assert store.load("book").facts == {"nested": {"x": [1, 2]}}
+    assert path.stat().st_ino != info.st_ino
+
+
+def test_book_noop_canonicalizes_legacy_format_once(shell, tmp_path):
+    store = actions.Store(tmp_path / "store")
+    store.create(actions.Incident("book", "owner", 3, actions.stamp(shell.now()), {}))
+    path = store.path("book")
+    record = json.loads(path.read_text())
+    path.write_text(json.dumps(record))
+    book = runner_module.Book(store, shell)
+    book.edit("book", lambda incident: None)
+    expected = json.dumps(record, indent=2) + "\n"
+    assert path.read_text() == expected
+    info = path.stat()
+    book.edit("book", lambda incident: None)
+    assert path.read_text() == expected
+    assert (path.stat().st_ino, path.stat().st_mtime_ns) == (info.st_ino, info.st_mtime_ns)
+
+
+def test_inputs_noop_still_advances_input_revision(shell, tmp_path):
+    store = actions.Store(tmp_path / "store")
+    store.create(actions.Incident("book", "owner", 3, actions.stamp(shell.now()), {}))
+    with store.inputs("book"):
+        pass
+    assert store.load("book").input_revision == 2

@@ -207,10 +207,12 @@ class Store:
             fcntl.flock(lock, fcntl.LOCK_EX)
             yield self.path(incident_id)
 
-    def _write(self, path: Path, incident: Incident) -> None:
-        staged = path.with_name(f".{path.name}.{os.getpid()}")
-        staged.write_text(json.dumps(incident.dump(), indent=2) + "\n")
-        staged.replace(path)
+    def _write(self, path: Path, incident: Incident, previous: str | None = None) -> None:
+        content = json.dumps(incident.dump(), indent=2) + "\n"
+        if content != previous:
+            staged = path.with_name(f".{path.name}.{os.getpid()}")
+            staged.write_text(content)
+            staged.replace(path)
 
     def create(self, incident: Incident) -> Incident:
         with self._locked(incident.incident_id) as path:
@@ -229,13 +231,25 @@ class Store:
         return sorted(path.stem for path in self.root.glob("*.json")) if self.root.exists() else []
 
     @contextmanager
+    def edit(self, incident_id: str) -> Iterator[Incident]:
+        """Edit the current owner's incident while holding its exclusive lock."""
+        with self._locked(incident_id) as path:
+            if not path.exists():
+                raise SystemExit(f"no incident {incident_id} in {self.root}")
+            previous = path.read_text()
+            incident = Incident.load(json.loads(previous))
+            yield incident
+            self._write(path, incident, previous)
+
+    @contextmanager
     def owned(self, incident_id: str, generation: int) -> Iterator[Incident]:
         with self._locked(incident_id) as path:
-            incident = Incident.load(json.loads(path.read_text()))
+            previous = path.read_text()
+            incident = Incident.load(json.loads(previous))
             if incident.owner_generation != generation:
                 raise StaleGeneration(f"{incident_id} is at owner generation {incident.owner_generation} ({incident.owner}), not {generation}")
             yield incident
-            self._write(path, incident)
+            self._write(path, incident, previous)
 
     @contextmanager
     def inputs(self, incident_id: str) -> Iterator[Incident]:

@@ -1475,9 +1475,8 @@ class Book:
 
     def edit(self, container: str, change: Callable[[actions.Incident], object]) -> object:
         while True:
-            generation = self.store.load(container).owner_generation
             try:
-                with self.store.owned(container, generation) as incident:
+                with self.store.edit(container) as incident:
                     return change(incident)
             except actions.StaleGeneration:
                 continue
