@@ -17,8 +17,10 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 
 import ghread
@@ -45,6 +47,9 @@ DEQUEUE_RELEASED = (0, 1)
 TRANSIENT_FAILURE = re.compile(
     r"handshake operation timed out|urlopen error|Connection reset|reset by peer|Remote end closed|Temporary failure in name resolution|nodename nor servname|Name or service not known|HTTP(?: Error)? 5\d\d|Operation timed out|Failed to connect to .* port 443|Recv failure|Could not resolve host"
 )
+TRUNK_CALLS = 2
+TRUNK_LIMITED = re.compile(r"HTTP 429\b")
+TRUNK_BACKOFF_SECONDS = (30, 60, 120)
 TRANSIENT_ATTEMPTS = 3
 TRANSIENT_PAUSE_SECONDS = 20
 COMPUTING = re.compile(r"^#(\d+) BLOCKED \S+ GitHub still computing mergeability", re.MULTILINE)
@@ -148,6 +153,8 @@ class GraphiteStackEnqueue:
         self.shell = shell
         self.script = str(checkout / config["script"])
         self.repo = repo
+        self.trunk_slots = threading.BoundedSemaphore(TRUNK_CALLS)
+        self.resume_at = None
 
     def run(self, argv: list[str]):
         """Run the script, and while it reports GitHub still computing a PR's mergeability, read that PR once over REST, which starts GitHub's lazy computation that a GraphQL read alone never does, then run it again every `COMPUTE_POLL_SECONDS` for `COMPUTE_ROUNDS` rounds, so no refusal rests on a mergeability GitHub had not been asked to compute (root #192866, #45291)."""
@@ -168,9 +175,21 @@ class GraphiteStackEnqueue:
         for attempt in range(TRANSIENT_ATTEMPTS):
             if attempt:
                 self.shell.sleep(TRANSIENT_PAUSE_SECONDS)
-            done = self.shell.run(argv)
+            done = self.limited(argv)
             if done.code != ENQUEUE_FAILED or VERDICT_LINE.search(done.out) or not TRANSIENT_FAILURE.search(done.err + done.out):
                 break
+        return done
+
+    def limited(self, argv: list[str]):
+        """Run one call that reaches Trunk with at most `TRUNK_CALLS` in flight across the pass's workers; a call Trunk answers with HTTP 429 and no verdict holds every caller for the next `TRUNK_BACKOFF_SECONDS` pause, then runs again."""
+        for pause in (*TRUNK_BACKOFF_SECONDS, None):
+            with self.trunk_slots:
+                if self.resume_at and (wait := (self.resume_at - self.shell.now()).total_seconds()) > 0:
+                    self.shell.sleep(wait)
+                done = self.shell.run(argv)
+            if pause is None or VERDICT_LINE.search(done.out) or not TRUNK_LIMITED.search(done.err + done.out):
+                return done
+            self.resume_at = max(filter(None, (self.resume_at, self.shell.now() + timedelta(seconds=pause))))
         return done
 
     def check(self, tips: list[str], whole: bool, heads: dict[str, str], partial: bool) -> Gate:
@@ -188,18 +207,18 @@ class GraphiteStackEnqueue:
         return outcome, done.out[-1500:], last[-1] if last else f"exit {done.code}"
 
     def queued(self, prs: list[str]) -> dict[str, bool] | None:
-        done = self.shell.run([self.script, *prs, "--status"])
+        done = self.limited([self.script, *prs, "--status"])
         statuses = {match["pr"]: match["status"] for match in STATUS_LINE.finditer(done.out)}
         if done.code != 0 or set(statuses) != set(prs):
             return None
         return {pr: statuses[pr] in GRAPHITE_QUEUED for pr in prs}
 
     def dequeue(self, pr: str) -> tuple[bool, str]:
-        done = self.shell.run([self.script, pr, "--dequeue"])
+        done = self.limited([self.script, pr, "--dequeue"])
         return done.code in DEQUEUE_RELEASED, ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
 
     def recover(self, prs: list[str]) -> tuple[int, str]:
-        done = self.shell.run([self.script, *prs, "--recover"])
+        done = self.limited([self.script, *prs, "--recover"])
         return done.code, (done.out + done.err).strip()
 
     def release(self, pr: str, head: str) -> tuple[bool, str]:
@@ -262,7 +281,7 @@ class TrunkStackEnqueue(GraphiteStackEnqueue):
         self.ci = str(checkout / "tools/ci")
 
     def run_settled(self, argv: list[str]):
-        return self.shell.run(argv)
+        return self.limited(argv)
 
     def check(self, tips: list[str], whole: bool, heads: dict[str, str], partial: bool) -> Gate:
         done = self.run([self.script, *tips, "--check", *(["--whole"] if whole else [])])
@@ -279,7 +298,7 @@ class TrunkStackEnqueue(GraphiteStackEnqueue):
         return outcome, done.out[-1500:], last[-1] if last else f"exit {done.code}"
 
     def queued(self, prs: list[str]) -> dict[str, bool] | None:
-        done = self.shell.run([self.ci, "trunk", "status", *prs])
+        done = self.limited([self.ci, "trunk", "status", *prs])
         if done.code != 0:
             return None
         statuses = json.loads(done.out)
@@ -288,7 +307,7 @@ class TrunkStackEnqueue(GraphiteStackEnqueue):
         return {pr: bool(statuses[pr] and statuses[pr]["isCurrentlySubmittedToQueue"]) for pr in prs}
 
     def dequeue(self, pr: str) -> tuple[bool, str]:
-        done = self.shell.run([self.script, pr, "--dequeue"])
+        done = self.limited([self.script, pr, "--dequeue"])
         released = done.code == 0 or (done.code == 1 and done.out.strip() == f"#{pr} NOT_QUEUED")
         return released, ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
 
