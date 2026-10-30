@@ -196,10 +196,11 @@ def test_a_green_head_with_no_fidelity_grade_for_ten_minutes_alarms_the_graders_
 
     watch(shell, config)
 
-    assert shell.topics() == stalls
+    assert [topic for topic in shell.topics() if not topic.startswith("ungraded:")] == stalls
     for topic in stalls:
-        assert shell.post(topic)["to"].split(",")[0] == "root" and "fidelity-desk@d1" in shell.post(topic)["to"]
+        assert shell.post(topic)["to"] == "fidelity-desk@d1"
         assert shell.post(topic)["text"].startswith(f"STALL ungraded #101 at abc1234, {green} min: its build has read green since")
+        assert shell.post(f"ungraded:{actions.stamp(NOW)}") == {"to": "root", "kind": "urgent", "text": "STALL ungraded, 1 green head past 10 min with no grade: #101 at abc1234 has no fidelity grade, green since 12:49 PM, owner fidelity-desk | each owner heard its own line"}
 
 
 @pytest.mark.parametrize(("named", "stalls"), [(5, []), (40, ["finder:101:abc1234"])])
@@ -216,7 +217,7 @@ def test_a_new_head_counts_from_the_first_record_naming_it_never_from_an_older_r
 
 
 def test_a_source_that_does_not_read_keeps_its_stall_open_so_nothing_posts_twice(config):
-    shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35)], [row("101")])
+    shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35)], [row("101", test_state="pending")])
 
     watch(shell, config)
     shell.ledger_code = 1
@@ -258,7 +259,8 @@ def test_a_go_whose_green_head_the_review_bot_holds_or_waits_to_see_restacked_go
 
 
 def test_gos_stacked_on_one_parent_post_once_naming_the_parent_and_a_held_parent_draws_none(config, tmp_path):
-    records = [record(1, "root", "go", f"go #202 at {OTHER[:7]}", 12), record(2, "root", "go", f"go #203 at {OLD[:7]}", 11), record(3, "root", "go", f"go #302 at {OTHER[:7]}", 12), hold(900, "hold #301 waits on the schema release", "301")]
+    merge_mode(config, "ask")
+    records = [record(1, "root", "go", f"go #202 at {OTHER[:7]}", 12), record(2, "root", "go", f"go #203 at {OLD[:7]}", 11), record(3, "root", "go", f"go #302 at {OTHER[:7]}", 12), head(10, "201", HEAD, 40), finder(11, "201", HEAD, 39), fidelity(12, "201", HEAD, 39), hold(900, "hold #301 waits on the schema release", "301")]
     rows = [row("201"), row("202", OTHER, base="b201"), row("203", OLD, base="b202"), row("301"), row("302", OTHER, base="b301")]
     shell = FakeShell(records, rows)
 
@@ -290,6 +292,53 @@ def test_a_pr_below_a_go_that_waits_only_on_the_owners_tap_is_no_go_stall(config
     watch(shell, config)
 
     assert not [topic for topic in shell.topics() if topic.startswith("go:")]
+
+
+@pytest.mark.parametrize(
+    ("mode", "reviewed", "stalls"),
+    [("every", True, []), ("ask", False, []), ("ask", True, ["go:201:abc1234"])],
+    ids=["tap-row-under-merge-mode-every", "no-finder-review", "graded-and-waits-on-root"],
+)
+def test_a_pr_below_a_go_draws_a_go_stall_only_when_its_next_step_is_roots_go(config, mode, reviewed, stalls):
+    """Root #220563: a stack bottom with no grades waits on its grades, not on root; #224791 and #224880 raised go stalls to root for a bottom whose next step was its re-ask on the owner's board."""
+    merge_mode(config, mode)
+    below = [head(10, "201", HEAD, 40), record(11, "fidelity-desk", "review", f"fidelity: ok {HEAD[:7]} new-tree fix, stays a tap row", 39, "201"), *([finder(12, "201", HEAD, 39)] if reviewed else [])]
+    shell = FakeShell([*below, record(1, "root", "go", f"go #202 at {OTHER[:7]}", 30)], [row("201"), row("202", OTHER, base="b201")])
+
+    watch(shell, config)
+
+    assert [topic for topic in shell.topics() if topic.startswith("go:")] == stalls
+
+
+@pytest.mark.parametrize(
+    "note",
+    [
+        f"TAP-NOT-CARRIED #101: the owner's tap at {OLD[:10]} (1:14 PM Oct 30 Pacific) on board block merge-prs does not carry to {HEAD[:10]}, since cci #2 says that head adds new behavior",
+        f"TAP-KEPT #101: the owner's tap at {OLD[:10]} on board block merge-prs keeps at {HEAD[:10]}, a review fix with no new behavior per fidelity grade cci #3 (rule 399b5fa)",
+        f"TAP-CARRIED #101: the owner's tap at {OLD[:10]} on board block merge-prs now stands at {HEAD[:10]}, a patch-identical restack, per cci #2",
+    ],
+    ids=["not-carried", "kept", "carried"],
+)
+def test_a_carry_the_desk_runners_tap_note_settles_at_the_head_draws_no_carry_stall_and_asks_sonnet_nothing(config, note):
+    """#224789, #224790 and #224879 raised carry stalls to root on heads whose desk runner TAP-NOT-CARRIED or TAP-KEPT note already settled the carry (root #224826)."""
+    fixed = f"HEAD #101 {HEAD} (was {OLD}): one added commit, NEW BEHAVIOR: the startup pass runs as its own task"
+    shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 40, fixed), record(3, "desk-runner", "note", note, 30, "101", to=["root", "board-refresher-2"])], [row("101")])
+    shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": OLD[:7], "at": stamp(60)}}}
+
+    watch(shell, config)
+
+    assert not [topic for topic in shell.topics() if topic.startswith("carry:")] and shell.prompts == []
+
+
+def test_a_desk_runner_tap_note_about_another_head_leaves_the_carry_stall_standing(config):
+    fixed = f"HEAD #101 {HEAD} (was {OLD}): answers the reviewer bot's finding with a nil check and its test"
+    note = f"TAP-NOT-CARRIED #101: the owner's tap at {OLD[:10]} (1:14 PM Oct 30 Pacific) on board block merge-prs does not carry to {OTHER[:10]}, since cci #2 says that head adds new behavior"
+    shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 40, fixed), record(3, "desk-runner", "note", note, 30, "101")], [row("101")])
+    shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": OLD[:7], "at": stamp(60)}}}
+
+    watch(shell, config)
+
+    assert shell.post("carry:101:abc1234")["to"] == "root"
 
 
 def test_a_go_the_runner_answered_with_a_merge_ask_is_no_go_stall(config):
@@ -1057,7 +1106,7 @@ def test_a_stall_only_desks_own_goes_to_those_desks_and_not_to_root(config, desk
 
 def test_a_stall_that_clears_and_comes_back_posts_again_only_thirty_minutes_after_its_last_post(config):
     review = finder(3, "101", HEAD, 1)
-    shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35)], [row("101")])
+    shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35)], [row("101", test_state="pending")])
 
     watch(shell, config)
     shell.records.append(review)
@@ -1170,6 +1219,28 @@ def test_a_head_in_the_finder_queue_draws_no_finder_stall_until_its_pass_runs_pa
     assert [topic for topic in shell.topics() if topic.startswith("finder:")] == stalls
     for topic in stalls:
         assert shell.post(topic)["to"] == "landing-desk-3@d1"
+
+
+def test_green_heads_the_finder_desk_holds_queued_go_to_the_landing_desk_and_root_hears_them_in_one_line(config, tmp_path):
+    """#224787, #224882 and #224883 sent root one line per green head the finder desk's queue held."""
+    desk_lane(config, "landing-desk-3")
+    store = actions.Store(tmp_path / "store")
+    store.create(actions.Incident("desk-finder", "desk-finder", 0, stamp(60), {}))
+    with store.transaction("desk-finder", generation=0) as incident:
+        for pr, sha in (("101", HEAD), ("102", OTHER)):
+            incident.accept(f"finder:{pr}:{sha}", "finder", json.dumps({"pr": pr, "head": sha, "lane": "api-lane", "seq": 1, "full": False}), "cci#1", NOW - timedelta(minutes=60))
+    shell = FakeShell([head(1, "101", HEAD, 30), fidelity(2, "101", HEAD, 25), head(3, "102", OTHER, 30), fidelity(4, "102", OTHER, 25)], [row("101", green_at=stamp(13)), row("102", OTHER, green_at=stamp(11))])
+
+    watch(shell, config)
+    watch(shell, config)
+
+    assert [topic for topic in shell.topics() if topic.startswith("finder:")] == ["finder:101:abc1234", "finder:102:fedcba9"]
+    for topic in ("finder:101:abc1234", "finder:102:fedcba9"):
+        assert shell.post(topic)["to"] == "landing-desk-3@d1"
+        assert "queued since 12:00 PM" in shell.post(topic)["text"]
+    digests = [topic for topic in shell.topics() if topic.startswith("ungraded:")]
+    assert len(digests) == 1 and shell.post(digests[0])["to"] == "root"
+    assert shell.post(digests[0])["text"].startswith("STALL ungraded, 2 green heads past 10 min with no grade: #101 at abc1234 has no finder grade, green since 12:47 PM, owner desk-runner; #102 at fedcba9")
 
 
 @pytest.mark.parametrize(("started", "stalls"), [(None, []), (30, ["fidelity:101:abc1234"])])

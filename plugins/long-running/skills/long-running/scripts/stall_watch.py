@@ -27,8 +27,11 @@ its ledger row names, it finds:
               `stall.minutes.silent` (default 15), to the root and the landing desk as the runner's own
               defect, since an admitted head no record names was skipped silently (root #208560),
               and every go in one stack shares one stall naming the stack's bottom and that blocker;
-              a PR below a go whose merge row waits only on the owner's tap, and a head whose newest
-              blocker is the runner's MERGE-ASK, draw none, since the row's own tap wait reports it;
+              a PR below a go with no go of its own draws none unless its next step is root's go: one
+              ungraded at its head, or one that waits on the owner's tap (merge mode `every`, a merge row
+              up, or his tap at its head) waits on its own row's grade, board, carry or tap stall, never
+              on root (root #220563); a head whose newest blocker is the runner's MERGE-ASK draws none,
+              since the row's own tap wait reports it;
               a head whose blocker is FINDER-PENDING while the finder desk holds a pass on it queued
               or running draws none, since the desk's own FINDER-DESK-STALLED covers a stalled
               queue; a go a fidelity carry moved to a new head counts from the carry grade, not the go
@@ -69,7 +72,9 @@ its ledger row names, it finds:
     ungraded  a `head` record names the head, its build has read green for `stall.minutes.ungraded`, counted
               from its ledger row's `green_at`, and no finder review or no fidelity grade names it, whatever
               the desks hold queued; it is the finder or fidelity stall of a green head, posted to the
-              graders and always to root, as an unassigned failure is
+              graders, or the landing desk when the finder desk holds the pass, naming how long it has
+              waited there; root hears every head a pass newly finds ungraded in one urgent line per pass,
+              as it hears an unassigned failure, and never one line per head
     finder    a `head` record names the head, and no finder review does, and the finder desk holds
               no queued pass on the head, nor a running one younger than `stall.minutes.running`;
               a pass past that is the desk runner's to stop and requeue
@@ -93,7 +98,9 @@ its ledger row names, it finds:
     carry     the owner's board tap or a root go names an earlier head, no go or carry names this
               one, and the board holds no row for it at this head; a head that adds no new behavior,
               such as a review, CI or conflict fix, keeps his tap (rule 399b5fa) and waits on root's
-              go, and only new behavior, or records that do not say, re-asks
+              go, and only new behavior, or records that do not say, re-asks; a head the desk runner's
+              TAP-KEPT, TAP-CARRIED or TAP-NOT-CARRIED note names draws none, since that note already
+              settles the carry and names the lane that acts on it (root #224826)
 
 and, across the drive:
 
@@ -205,7 +212,7 @@ MODEL = "claude-sonnet-5-5"
 WINDOW_HOURS = 24
 MINUTES = {"go": 10, "silent": 15, "refusal": 10, "successor": 20, "red": 2, "unclassed": 20, "unfixed": 60, "sweep": 20, "order": 3, "tap": 10, "ungraded": 10, "finder": 10, "fidelity": 10, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "lane": 10, "ask": 15, "gate": 10, "stale": 120, "desk": 10, "shape": 10}
 DESK_KINDS = frozenset({"finder", "fidelity"})
-ROOT_KINDS = frozenset({"ungraded", "missing", "unclassed", "unfixed"})
+ROOT_KINDS = frozenset({"missing", "unclassed", "unfixed"})
 REPOSTED = frozenset({"red"})
 POST_KINDS = {"red": "blocker", "unclassed": "blocker", "unfixed": "blocker", "sweep": "blocker", "probe": "report"}
 RED_CLASSES = ("inherited", "flake", "real", "stale")
@@ -291,6 +298,7 @@ STACKS_FILE = "landing-stacks.json"
 GATE_REPEAT = timedelta(hours=1)
 WAITS_ON = re.compile(r"\b(?:waits?\s+(?:only\s+)?on|blocked\s+on)\s+#(\d+)|\bwhen\s+#(\d+)\s+lands\b", re.IGNORECASE)
 LANDED = re.compile(r"^LANDED\s+#(\d+)\b")
+TAP_NOTE = re.compile(r"^TAP-(?:KEPT|NOT-CARRIED|CARRIED(?:-BY-PATCH)?) #(\d+): .*?\b(?:keeps at|does not carry to|now stands at) ([0-9a-f]{7,40})\b")
 LANE_NUMBER = re.compile(r"-\d+$")
 SCHEMA = json.dumps(
     {
@@ -654,6 +662,7 @@ class Pass:
         kept = {key: entry for key, entry in saved["open"].items() if key not in standing and entry["kind"] in self.unread}
         last = {key: stamp for key, stamp in saved.get("last", {}).items() if self.now - actions.parse_stamp(stamp) < REPEAT}
         failed = 0
+        alarms: list[Stall] = []
         for stall in sorted(standing.values(), key=lambda stall: stall.since):
             if stall.id in saved["open"] and (stall.kind not in REPOSTED or stall.owner == (ROOT,) or stall.id in last):
                 kept[stall.id] = saved["open"][stall.id]
@@ -671,9 +680,17 @@ class Pass:
                 print(f"cci post exited {done.code} for {stall.id}: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
                 continue
             kept[stall.id] = {"kind": stall.kind, "since": actions.stamp(stall.since), "posted": done.out.strip()[:200]}
+            if stall.kind == "ungraded" and stall.id not in saved["open"] and not stall.to(self.watch.drive, self.watch.desk_lanes, self.live_lane).startswith(ROOT):
+                alarms.append(stall)
             if stall.kind == "probe":
                 self.probe_day = stall.id.split(":", 1)[1]
             last[stall.id] = actions.stamp(self.now)
+        if alarms:
+            listed = "; ".join(f"{stall.subject} has no {stall.id.split(':', 1)[0]} grade, green since {pacific(stall.since)}, owner {', '.join(stall.owner)}" for stall in alarms)
+            done = self.shell.run(["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", "urgent", "--to", ROOT, "--topic", f"ungraded:{actions.stamp(self.now)}", *(arg for pr in dict.fromkeys(stall.pr for stall in alarms) for arg in ("--pr", f"{self.watch.landing['repo']}#{pr}")), "--text", f"STALL ungraded, {len(alarms)} green head{'' if len(alarms) == 1 else 's'} past {self.watch.minutes['ungraded']} min with no grade: {listed} | each owner heard its own line"])
+            if done.code:
+                failed += 1
+                print(f"cci post exited {done.code} for the ungraded digest: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
         heads = None if self.stack is None else {f"{found['pr']}:{short(found['head'])}" for found in self.stack}
         told = {key: stamp for key, stamp in saved.get("told", {}).items() if heads is None or key in heads}
         fresh = {key: wait for key, wait in (self.tap_waits or {}).items() if key not in told}
@@ -860,6 +877,7 @@ class Pass:
         boards: dict[str, list[Stall]] = {}
         probes: list[Stall] = []
         reassigned = self.reassignments(records)
+        carried = {(found[1], found[2]) for record in records if record["lane"] == RUNNER and (found := TAP_NOTE.match(record["text"]))}
         classes = [record for record in records if record["kind"] == "red"]
 
         def holding(pr: str) -> bool:
@@ -867,6 +885,14 @@ class Pass:
 
         def awaits_tap(pr: str, head: str) -> bool:
             return waits.get(pr) == f"merge:{pr}:{short(head)}" or board is not None and board.shows(pr, head) and not board_rows.at_head(board.taps.get(pr), "rejected", head)
+
+        def own_row(pr: str, head: str) -> bool:
+            if awaits_tap(pr, head) or pr in self.tapped or landing.get("merge_mode") == "every":
+                return True
+            about = [record for record in reviews if grades.about_pr(record, repo, pr)]
+            standing = grades.standing(grades.fidelity_grades_in(about, drive_name, fidelity_lanes, repo, pr), fidelity_lanes, head)
+            finders = [record for record in grades.finder_records(grades.finder_reviews_in(about, drive_name, repo, pr)) if grades.names_head(record["head"], head)]
+            return not finders or bool(fidelity_lanes) and not (standing and all(grade["text"].startswith(grades.FIDELITY_OK) for grade in standing))
 
         for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
             head = row.get("head", "")
@@ -895,7 +921,7 @@ class Pass:
                 below = downstack(rows, row)
                 ready = min(max(at(go), actions.parse_stamp(go.get("graded_at") or go["at"])) for go in going)
                 since = max(ready, head_at) if head_at else ready
-                if not any(holding(parent) for parent in below) and (waits_on := self.unqueued(pr, row, rows, below, gos, since, queued, lane, records, awaits_tap)):
+                if not any(holding(parent) for parent in below) and (waits_on := self.unqueued(pr, row, rows, below, gos, since, queued, lane, records, own_row)):
                     waiting.setdefault(below[-1] if below else pr, []).append((pr, since, len(below), waits_on))
                 continue
             state = grades.go_state(gos, pr, head)
@@ -915,7 +941,9 @@ class Pass:
             green = actions.parse_stamp(row["green_at"]) if row.get("green_at") else None
             ungraded = green is not None and self.now - green >= self.watch.age("ungraded")
             if not finders and ungraded:
-                stalls.append(Stall(f"finder:{pr}:{short(head)}", "ungraded", green, subject, f"its build has read green since {pacific(green)}, and no finder review names this head", (RUNNER if self.desk_runs(FINDER_DESK) else lane,), f"ask finder-desk for `finder: whole` on {subject}", pr))
+                job = self.queued(FINDER_DESK, pr, head)
+                step = f"run the finder desk's pass on {subject}, {'running' if job.status == 'started' else 'queued'} since {pacific(actions.parse_stamp(job.started_at or job.accepted_at))}, or say in `desk-runner.py show` why the queue holds it" if job else f"ask finder-desk for `finder: whole` on {subject}"
+                stalls.append(Stall(f"finder:{pr}:{short(head)}", "ungraded", green, subject, f"its build has read green since {pacific(green)}, and no finder review names this head", (RUNNER if self.desk_runs(FINDER_DESK) else lane,), step, pr))
             elif not finders and self.now - head_at >= self.watch.age("finder"):
                 if started := self.overran(FINDER_DESK, pr, head):
                     stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", started, subject, f"the finder desk's pass on this head has run since {pacific(started)}", (RUNNER,), f"read `desk-runner.py show`, then stop and requeue the finder pass on {subject}", pr))
@@ -943,7 +971,7 @@ class Pass:
             if tapped:
                 taps.append((tapped, "his board tap"))
             if taps:
-                if not board.shows(pr, head) and self.now - head_at >= self.watch.age("carry"):
+                if not board.shows(pr, head) and self.now - head_at >= self.watch.age("carry") and not any(named == pr and grades.names_head(sha, head) for named, sha in carried):
                     questions.append(self.carry(pr, head, head_at, taps[-1], about, announced[-1], fidelity_lanes))
                 continue
             if not row.get("green_at") or not (landing.get("merge_mode") == "every" or waits.get(pr) == f"merge:{pr}:{short(head)}"):
@@ -1140,8 +1168,8 @@ class Pass:
             return set() if below in seen else self.waits_on_owner(below, found_by_pr, seen | {below})
         return None
 
-    def unqueued(self, pr: str, row: dict, rows: dict[str, dict], below: list[str], gos: list[dict], since: datetime, queued: set[tuple[str, str]], lane: str, records: list[dict], awaits_tap: Callable[[str, str], bool]) -> tuple[str, tuple[str, ...], str] | None:
-        """What holds a go'd `pr` out of the queue, with the lanes that own the step, or None when nothing is stuck: a PR below with no go that waits only on the owner's tap, or a runner MERGE-ASK, is a tap wait its own row reports, never a stall."""
+    def unqueued(self, pr: str, row: dict, rows: dict[str, dict], below: list[str], gos: list[dict], since: datetime, queued: set[tuple[str, str]], lane: str, records: list[dict], own_row: Callable[[str, str], bool]) -> tuple[str, tuple[str, ...], str] | None:
+        """What holds a go'd `pr` out of the queue, with the lanes that own the step, or None when nothing is stuck: a PR below with no go whose next step is its own row's, a grade or the owner's tap, or a runner MERGE-ASK, is a wait its own row reports, never a stall."""
         if any(named == pr and grades.names_head(sha, row["head"]) for named, sha in queued) or self.now - since < self.watch.age("go"):
             return None
         for member in [*reversed(below), pr]:
@@ -1149,7 +1177,7 @@ class Pass:
             named = f"#{member} at {short(other['head'])}"
             owns = lane if member == pr else other.get("lane") or ROOT
             if member != pr and not grades.gone_at(gos, member, other["head"]):
-                return None if awaits_tap(member, other["head"]) else (member, (ROOT,), f"{named}: {grades.go_state(gos, member, other['head']).said()}, and a stack enqueues from the bottom")
+                return None if own_row(member, other["head"]) else (member, (ROOT,), f"{named}: {grades.go_state(gos, member, other['head']).said()}, and a stack enqueues from the bottom")
             if other.get("test_state") == "failure":
                 return member, (owns,), f"fix the red build of {named}; the go waits on it"
             if other.get("mergeable_state") == "dirty":
