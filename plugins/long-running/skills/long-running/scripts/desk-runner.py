@@ -1035,7 +1035,7 @@ class Shell:
     fills, and a child still running after COMMAND_TIMEOUT_SECONDS is killed and fails its pass.
     Output that is not UTF-8, such as a diff of a binary file, reads with each bad byte replaced.
     A GitHub, cci or ccx read gets QUICK_SECONDS, a `--check` GATE_CHECK_SECONDS, `rulings.py check-pr` CHECK_PR_SECONDS, any other
-    `stack-enqueue` ENQUEUE_SECONDS, `ledger.py` LEDGER_SECONDS and `git fetch` FETCH_SECONDS; one that times out is logged and
+    `stack-enqueue` and `ccx vcs ship` ENQUEUE_SECONDS, `ledger.py` LEDGER_SECONDS and `git fetch` FETCH_SECONDS; one that times out is logged and
     reads as a failed command, never a fatal one. A read `rereadable` names runs once more when it timed out or failed on a transient
     network error. `in_progress` holds each thread's command in flight
     and when it started, for the heartbeat.
@@ -5312,14 +5312,16 @@ class Landing:
             self.dispatch(f"{GRAPHITE_BASE}{pr}@{rows[pr]['head']}", {pr}, lambda: self.resubmit(pr, rows[pr]))
 
     def resubmit(self, pr: str, row: dict) -> None:
-        """Ship `pr`'s branch as it stands from the landing checkout with `ccx vcs ship --branch <branch> --tip-only --no-commit`, which moves it off its `graphite-base/` base, and post the outcome to the desk lane as a cci note. A ship killed at its bound runs `ccx vcs stack abort`, so no stopped rebase blocks the next stack write (#192681)."""
+        """Ship `pr`'s branch as it stands from the landing checkout with `ccx vcs ship --branch <branch> --tip-only --no-commit`, which moves it off its `graphite-base/` base, and post the outcome to the desk lane as a cci note. A ship that fails or is killed at its bound runs `ccx vcs stack abort --stack <branch>`, so its stopped rebase never blocks the next stack write, and the note carries the abort's outcome (#192681); a ship refused because another run already holds the branch leaves that run alone."""
         argv = ["ccx", "vcs", "ship", "--branch", row["branch"], "--tip-only", "--no-commit", "--no-watch"]
         done = self.shell.run(argv, cwd=str(self.checkout))
-        if done.code == TIMED_OUT:
-            self.shell.run(["ccx", "vcs", "stack", "abort"], cwd=str(self.checkout))
         last = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1][:300]
         outcome = "resubmitted" if done.code == 0 else f"resubmit failed with exit {done.code}"
         text = f"#{pr} {row['head'][:10]} sat on {row['base']} after its parent landed; {outcome} with {shlex.join(argv)}: {last}"
+        if done.code and "already in progress" not in done.err + done.out:
+            abort = ["ccx", "vcs", "stack", "abort", "--stack", row["branch"]]
+            dropped = self.shell.run(abort, cwd=str(self.checkout))
+            text += f"; {shlex.join(abort)} exited {dropped.code}: {((dropped.err or dropped.out).strip().splitlines() or ['no output'])[-1][:300]}"
         self.post_record("note", f"{GRAPHITE_BASE}{pr}@{row['head']}", ",".join(self.runner.landing_lanes("desk_lane")) or ROOT, text, pr)
 
     def dispatch(self, key: str, members: set[str], work: Callable[[], None]) -> Future | None:
