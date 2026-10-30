@@ -75,6 +75,8 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from long_running.roster_service import mailbox_of
+
 PACIFIC = ZoneInfo("America/Los_Angeles")
 DISPLAY_CHARS = 400
 DIGEST_CHARS = 200
@@ -85,7 +87,6 @@ MAILBOX_SOURCE = "mailbox:"
 WAIT_SOURCE = re.compile(r"cci:(?P<drive>[^:=]+):(?P<lane>[^:=]+)|(?P<file>[^=]+)=(?P<cursor>.+)", re.DOTALL)
 WAIT_SLICE = 2.0
 MAILBOX_POLL = 0.2
-UNSAFE_NAME = re.compile(r"[^a-zA-Z0-9_-]")
 CHILD_GRACE = 5.0
 
 
@@ -350,17 +351,6 @@ def wait(argv: list[str]) -> int:
 def source_path(file: str) -> Path | None:
     lane = file.removeprefix(MAILBOX_SOURCE)
     return mailbox_of(lane) if lane != file else Path(file)
-
-
-def mailbox_of(lane: str) -> Path | None:
-    teams = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "teams"
-    joined = [
-        (member["joinedAt"], config.parent)
-        for config in teams.glob("*/config.json")
-        for member in json.loads(config.read_text())["members"]
-        if member["name"] == lane
-    ]
-    return max(joined)[1] / "inboxes" / f"{UNSAFE_NAME.sub('-', lane)}.json" if joined else None
 
 
 def main(argv: list[str] | None = None) -> int:
