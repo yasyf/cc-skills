@@ -79,8 +79,9 @@ REGISTER = json.dumps({"rows": {
 }})
 RULED_CARD = {"card": {"title": "Should every chat run its own local replica, or is everything a client of one local replica?", "options": ["One per chat", "One shared"]}}
 OWNER_TAGS = frozenset({"from:owner", "scope:durable", "owner-ruling"})
-PICK = re.compile(r"^Pick:\s*(?:option \w+, )?(.+?)\.?$", re.MULTILINE)
+PICK = re.compile(r"^(?:Pick:|Owner picked:\n)\s*(?:option \w+[,:] )?(.+?)\.?$", re.MULTILINE | re.IGNORECASE)
 QUOTED = re.compile(r'"([^"]+)"')
+PICKED_QUOTE = re.compile(r'\bpicked:?\s+"([^"]+)"', re.IGNORECASE)
 BOARD_QUESTION = re.compile(r"^Board question:\s*(?:\d+\.\s*)?(.+)$", re.MULTILINE)
 PICKED = "you picked"
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -101,6 +102,7 @@ class Pick:
     question: str
     chosen: str
     on: str
+    about: str
 
     @property
     def line(self) -> str:
@@ -182,7 +184,7 @@ def plan_decisions(plan_path: str | None) -> list[Settled]:
 
 def owner_answers(cwd: str) -> list[dict]:
     listed = ccn(cwd, "answer", "list", "--include-superseded", "--full", "--limit", "0", "--json")
-    return [answer for answer in json.loads(listed.stdout or "[]") if OWNER_TAGS & set(answer["tags"])] if listed.returncode == 0 else []
+    return [answer for answer in json.loads(listed.stdout or "[]") if OWNER_TAGS & set(answer.get("tags", ()))] if listed.returncode == 0 else []
 
 
 def durable_answers(answers: list[dict]) -> list[Settled]:
@@ -193,13 +195,16 @@ def owner_picks(answers: list[dict]) -> list[Pick]:
     picks = []
     for answer in answers:
         body = answer.get("body") or ""
+        lead = next((line.strip() for line in body.splitlines() if line.strip()), "")
         if found := PICK.search(body):
             chosen = (quoted := QUOTED.search(found[1])) and quoted[1] or found[1]
+        elif found := PICKED_QUOTE.search(body):
+            chosen = found[1]
         else:
-            chosen = next((line.strip() for line in body.splitlines() if line.strip()), "")
+            chosen = lead
         asked_then = (question := BOARD_QUESTION.search(body)) and question[1] or answer["title"]
         on = datetime.fromisoformat(answer["created_at"].replace("Z", "+00:00")).astimezone(PACIFIC).strftime("%b %-d")
-        picks.append(Pick(asked_then.strip(), chosen.strip()[:QUOTE], on))
+        picks.append(Pick(asked_then.strip(), chosen.strip()[:QUOTE], on, f"{answer['title']} {lead} {chosen}"))
     return picks
 
 
@@ -261,7 +266,7 @@ def matches(questions: list[str], settled: list[Settled]) -> list[tuple[str, Set
 
 
 def unshown_picks(asking: list[tuple[str, str]], picks: list[Pick]) -> list[tuple[str, list[Pick]]]:
-    indexed = [(pick, words(pick.question)) for pick in picks]
+    indexed = [(pick, words(f"{pick.question} {pick.about}")) for pick in picks]
     found = []
     for question, shown in asking:
         said = words(question)
