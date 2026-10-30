@@ -1761,6 +1761,7 @@ class Runner:
         self.finding = threading.Lock()
         self.taps: tuple[datetime, set[str]] = (datetime.min.replace(tzinfo=timezone.utc), set())
         self.cci_tail = cci.Tail(self.cci_read)
+        self.read_failed_at = float("-inf")
         self.book.ensure(RUNNER, RUNNER)
 
     def now(self) -> datetime:
@@ -2200,6 +2201,7 @@ class Runner:
     def cci_read(self, argv: list[str]) -> str:
         done = self.shell.run(argv)
         if done.code != 0:
+            self.read_failed_at = time.monotonic()
             raise CciTailFailed(f"cci tail exited {done.code}: {(done.err or done.out).strip()[:300]}")
         return done.out
 
@@ -4951,6 +4953,7 @@ class Landing:
         self.steps: dict[str, dict] = {}
         self.stacks_file = runner.config.source.with_name(f"{runner.config.source.stem}.{STACKS_FILE}")
         self.gate_deadline = time.monotonic()
+        self.pass_began = self.trusted_from = time.monotonic()
         self.side = ThreadPoolExecutor(1)
         self.side_work: Future | None = None
         self.bodies: dict[str, tuple[datetime, str]] = {}
@@ -5714,8 +5717,12 @@ class Landing:
         return standing(grades, self.fidelity_lanes, sha)
 
     def fidelity(self, pr: str, sha: str) -> Grade:
+        """Whether `pr` at `sha` counts as graded ok, read again with every grade posted since the pass scanned reviews before it says no, so a grade that lands while a long pass runs counts (#190787)."""
+        grade = self.fidelity_in(self.grades(pr), pr, sha)
+        return grade if grade.ok else self.fidelity_in(fidelity_grades_in(self.rescanned_reviews(), self.runner.config.drive, self.fidelity_lanes, self.repo, pr), pr, sha)
+
+    def fidelity_in(self, grades: list[dict], pr: str, sha: str) -> Grade:
         """Whether `pr` at `sha` counts as graded ok. Each fidelity lane's newest grade naming the head stands for that lane, so one lane's `missing` blocks until that lane grades the head ok or a root record resolves that `missing`, which accepts it, whatever another lane posts, except that a fidelity desk's ok at the head stands over a `fidelity-pipeline` missing (root #177596, #176536); an ok counts as posted (4236611, root #144646). With no grade naming the head, the ok of an older head whose lanes all stand at ok carries when the PR's own commits at both heads have one patch (root #131054)."""
-        grades = self.grades(pr)
         newest = self.standing(grades, sha)
         desk_ok = any(grade["lane"] != fidelity.LANE and grade["text"].startswith(FIDELITY_OK) for grade in newest)
         misses = [grade for grade in newest if grade["text"].startswith(FIDELITY_MISSING) and not (desk_ok and grade["lane"] == fidelity.LANE)]
@@ -6035,10 +6042,9 @@ class Landing:
 
     def rescanned_reviews(self) -> list[dict]:
         """The pass's scanned reviews plus every `review` and `head` record posted since that scan, so a grade that lands while a long pass runs is read before the pass warns that it is missing."""
-        scanned = self.scanned_reviews()
-        self.cci_tail.forget()
         with self.scanning:
-            reviews = self.reviews = [*scanned, *cci.records(self.cci_tail, self.runner.config.drive, "--kind=review", "--kind=head", since=max((record["seq"] for record in scanned), default=0))]
+            scanned = self.reviews if self.reviews is not None else cci.records(self.cci_tail, self.runner.config.drive, "--kind=review", "--kind=head")
+            reviews = self.reviews = [*scanned, *cci.records(self.cci_tail.run, self.runner.config.drive, "--kind=review", "--kind=head", since=max((record["seq"] for record in scanned), default=0))]
         return reviews
 
     def finder_reviews(self, pr: str) -> list[dict]:
@@ -7746,6 +7752,7 @@ class Landing:
     def route(self, key: str, lane: str, text: str, pr: str, cause: str = "") -> None:
         if self.routed(key, lane):
             return
+        self.trust_reads()
         if not lane:
             self.runner.escalate(key, "UNOWNED", f"#{pr}", text)
         elif self.lane_dead(lane):
@@ -7758,7 +7765,13 @@ class Landing:
             self.post_blocker(key, ",".join(self.reach(lane)), text, pr, cause)
 
     def post_blocker(self, key: str, to: str, text: str, pr: str, cause: str = "") -> None:
+        self.trust_reads()
         self.post_record("blocker", key, to, text, pr, cause=cause)
+
+    def trust_reads(self) -> None:
+        """Raise, so the stack worker stops and the pass logs `CCI-TAIL-FAILED`, while a cci read failed since the previous pass began: a refusal decided on what a failed or stalled read left out is never posted, and the next clean pass decides again (root, Oct 29 4:43 PM)."""
+        if self.runner.read_failed_at >= self.trusted_from:
+            raise CciTailFailed("a cci read failed since the previous landing pass began, so this runner refuses nothing until a pass reads cleanly")
 
     def post_record(self, kind: str, key: str, to: str, text: str, pr: str, cause: str = "", re_seq: str = "") -> None:
         self.book.accept(LANDING, key, "bus", json.dumps({"lane": to, "pr": pr, "text": text, "kind": kind} | ({"cause": cause} if cause else {})), key, None)
@@ -7882,6 +7895,7 @@ class Landing:
         self.sessions, self.live, self.dead, self.designed_red, self.full_runs_read, self.said_preconditions = {}, None, {}, {}, {}, {}
         self.grading, self.grade_tried = True, set()
         self.gate_deadline = time.monotonic() + GATE_BUDGET.total_seconds()
+        self.trusted_from, self.pass_began = self.pass_began, time.monotonic()
         self.surface()
         self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why, self.cleared = None, False, None, None, None, set(), {}, {}
         if self.quota_low():
