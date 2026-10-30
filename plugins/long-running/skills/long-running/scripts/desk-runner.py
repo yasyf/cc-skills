@@ -527,11 +527,13 @@ its ledger head, moves to that head through `cc-present verdict carry` once `hea
 call each move between the two patch-identical, with one `TAP-CARRIED` note naming both heads to root and each lane `landing.board_lane`
 names, one lane or a list, and, when no go names the new head, one `go` record of the runner's own for it, which `go_lane` counts. A new head a record names with no such chain, a fixed version, is never carried. A record saying it adds new
 behavior draws one `TAP-NOT-CARRIED` note to the same lanes saying the board needs a new row; a fidelity ok grade naming none draws one
-`TAP-KEPT` note saying his tap keeps over that review fix and root posts its go naming the fix (rule 399b5fa), and once that go
+`TAP-KEPT` note saying his tap keeps over that review fix, which then lands with no go like an exempt change (rule 399b5fa, root #194387), and once a go
 names the head the runner carries the tap there itself, citing the grade and the go; a root `go` or a
 patch-identical fidelity carry grade naming that head otherwise draws neither. A board that does not read, or a carry cc-present refuses for any cause but an absent merge block, which leaves nothing to carry, logs `TAP-CARRY-FAILED` once per
-cause and tries again next pass. Under `every` the runner
-then bars each open PR no root `go` names at its head like a held one: no check or enqueue call names it or sweeps it in, and a PR
+cause and tries again next pass. An exempt change, a head the runner noted `TAP-KEPT` at or one whose fidelity grade and whole diff
+make it a pure port, test-only or CI-only (`EXEMPT-ADMITTED`), needs no go and no tap in any mode: its tree gates with the go'd ones, it asks no
+merge question, and it goes straight to Graphite's queue once the hold, fidelity, finder, build and CI checks pass (root #194387). Under `every` the runner
+then bars each other open PR no root `go` names at its head like a held one: no check or enqueue call names it or sweeps it in, and a PR
 stacked on it waits. The pass's one `ccx vcs pr status` read routes it instead: a conflict, red CI, or requested changes is that head's
 blocker, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK`. `landing.checks_wait_for_go`, a cci sequence number, pauses the gate until a root `go` record comes after it:
 no `stack-enqueue --check`, `MERGE-ASK`, or enqueue runs meanwhile, one `GATE-PAUSED` says so, and the rest of the pass goes on,
@@ -4942,6 +4944,7 @@ class Landing:
         self.patch_ids: dict[tuple[int, str], str] = {}
         self.commit_counts: dict[tuple[str, str], int] = {}
         self.files: dict[tuple[str, str], list[str]] = {}
+        self.exempts: dict[tuple[str, str], tuple[str, str]] = {}
         self.annotated: dict[str, dict[str, str]] = {}
         self.imported: dict[tuple[str, str, frozenset[str]], bool] = {}
         self.bases: dict[str, str] = {}
@@ -5155,10 +5158,10 @@ class Landing:
         self.gate_trees(rows, held, [tree for tree in self.stack_trees(rows, held) if not holds_any(open_rows, tree, gone)])
 
     def land_gone(self, rows: dict[str, dict], held: list[str]) -> set[str]:
-        """Gate every tree holding a PR the root's `go` names at its ledger head, `GATE_WORKERS` checks at a time, and enqueue what they accept, before the ledger-wide head read and the gate over every other tree: only those PRs can land, so they reach the queue first. Returns those PRs."""
+        """Gate every tree holding a PR the root's `go` names at its ledger head, or whose change at that head is exempt, `GATE_WORKERS` checks at a time, and enqueue what they accept, before the ledger-wide head read and the gate over every other tree: only those PRs can land, so they reach the queue first. Returns those PRs."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         gos = self.root_gos()
-        gone = {pr for pr, row in open_rows.items() if row.get("ours") and row.get("head") and gone_at(gos, pr, row["head"])}
+        gone = {pr for pr, row in open_rows.items() if row.get("ours") and self.free_to_land(gos, pr, row.get("head", ""))}
         if trees := [tree for tree in self.stack_trees(rows, held) if holds_any(open_rows, tree, gone)]:
             self.gate_trees(rows, held, trees)
         return gone
@@ -5245,11 +5248,15 @@ class Landing:
                 self.book.attempt(LANDING, lambda incident, key=action.action_id: pull_action(incident, key, pr, why, self.book.stamp()))
 
     def unpassed(self, rows: dict[str, dict]) -> set[str]:
-        """The open rows no root `go` names at their ledger head, when merge mode `every` leaves every ask to the root's board: the pass bars each like a held PR from every `--check` and enqueue call, never a top and never swept in (root #131119, #131287), and `tell_unpassed` routes them from the status read instead. Empty in every other mode, where the gate's check is what asks the owner."""
+        """The open rows no root `go` names at their ledger head and whose change there is not exempt, when merge mode `every` leaves every ask to the root's board: the pass bars each like a held PR from every `--check` and enqueue call, never a top and never swept in (root #131119, #131287), and `tell_unpassed` routes them from the status read instead. Empty in every other mode, where the gate's check is what asks the owner."""
         if self.merge_mode != "every" or self.landing_config.get("merge_ask_surface", "slack") != "board" or self.lands_green:
             return set()
         gos = self.root_gos()
-        return {pr for pr, row in rows.items() if row.get("state", "open") == "open" and not gone_at(gos, pr, row.get("head", ""))}
+        return {pr for pr, row in rows.items() if row.get("state", "open") == "open" and not self.free_to_land(gos, pr, row.get("head", ""))}
+
+    def free_to_land(self, gos: list[dict], pr: str, head: str) -> bool:
+        """Whether a go of `gos` names `pr` at `head`, or its change there is exempt and goes straight to Graphite's queue with no go or tap (root #194387)."""
+        return bool(head) and bool(gone_at(gos, pr, head) or self.exempt_admitted(pr, head)[0])
 
     def refuse_ungone_parents(self, rows: dict[str, dict], held: list[str]) -> None:
         """Post one note to the root per lowest such parent, naming the rows a root `go` names at their heads above a parent nothing can land past, and saying the stack below it lands without them (root #152548): one `unpassed` keeps out, one a hold covers, one red on CI, or one that conflicts with its base. It posts again only when that stack's set of such parents changes, never for a head that moves: the whole stack waits, `unqueued_gos` never reads it as an unqueued go, and the root hears which parents need the owner's tap, which wait on a hold, and which need their lane. A stack whose every such parent is held reads `BELOW-HELD` (root #142036, #142931, #145011)."""
@@ -6330,25 +6337,32 @@ class Landing:
         return waits, unread, exempt
 
     def tap_kept(self, pr: str, head: str) -> bool:
-        """Whether this runner noted `TAP-KEPT` for `pr` at `head` and a root `go` names that head: the owner's tap then carries without a board row at the new head (root #192094)."""
-        return bool(self.head_gos(pr, head)) and any(
+        """Whether this runner noted `TAP-KEPT` for `pr` at `head`: the owner's tap then carries without a board row or a go at the new head (root #192094, #194387)."""
+        return any(
             (parts := action.action_id.split(":"))[0] == "tap-kept" and parts[2] == pr and names_head(parts[-1], head) for action in self.book.actions(LANDING, kind="bus")
         )
 
     def exempt_admitted(self, pr: str, sha: str) -> tuple[str, str]:
-        """The `EXEMPT-ADMITTED` note for `pr` at `sha` when it lands on a go with no board tap, and why its whole diff breaks the class its grade claims (06288326, owner Oct 28 8:45 PM): the head grades ok by `fidelity`'s rule, `exempt_class` finds one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first) in its grades, and any root or `landing.go_lanes` go names the head, whatever its words (root #181182). Both classes are checked against every file the PR changes against its base, never the grade's words alone (root #182391): a test-only or CI-only class fails on a file outside the test, CI, skill-script and docs set, and a port class on a file outside `PORT_PREFIXES` unless a `Rulings` comment clears its interaction."""
-        if not (go := next(iter(self.head_gos(pr, sha)), None)) or not self.fidelity(pr, sha).ok:
-            return "", ""
-        if not (found := self.exempt_class(pr, sha, ())):
+        """The `EXEMPT-ADMITTED` note for `pr` at `sha` when its change is exempt and goes straight to Graphite's queue with no go and no board tap, and why its whole diff breaks the class its grade claims, read once per pass (root #194387, 06288326, owner Oct 28 8:45 PM). A head the runner noted `TAP-KEPT` at is exempt. Otherwise the head grades ok by `fidelity`'s rule and `exempt_class` finds one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first) in its grades. Both classes are checked against every file the PR changes against its base, never the grade's words alone (root #182391): a test-only or CI-only class fails on a file outside the test, CI, skill-script and docs set, and a port class on a file outside `PORT_PREFIXES` unless a `Rulings` comment clears its interaction; changed files that do not read admit nothing that pass."""
+        if (pr, sha) not in self.exempts:
+            self.exempts[(pr, sha)] = self.exemption(pr, sha)
+        return self.exempts[(pr, sha)]
+
+    def exemption(self, pr: str, sha: str) -> tuple[str, str]:
+        if self.tap_kept(pr, sha):
+            return f"EXEMPT-ADMITTED #{pr} at {sha[:10]}: the runner noted TAP-KEPT at this head, so it goes straight to the merge queue with no go or board tap (root #194387)", ""
+        if not (found := self.exempt_class(pr, sha, ())) or not self.fidelity(pr, sha).ok:
             return "", ""
         grade, said = found
         files, _ = self.changed_files(pr, sha)
+        if files is None:
+            return "", ""
         if TEST_ONLY_CLAIM.search(said):
             if offender := next((name for name in files if not is_test_or_ci_file(name)), ""):
                 return "", f"TEST-ONLY-MISMATCH {offender} is neither a test nor CI configuration, so the test-only claim does not hold; "
         elif (offender := next((name for name in files if not name.startswith(PORT_PREFIXES)), "")) and not self.interaction_cleared(pr):
             return "", f"PORT-MISMATCH {offender} is outside {','.join(PORT_PREFIXES)} and no Rulings comment clears its interaction, so the port claim does not hold; "
-        return f"EXEMPT-ADMITTED #{pr} at {sha[:10]}: fidelity grade cci #{grade['seq']} says \"{said}\" and go #{go['seq']} names it, so it lands with no board tap (06288326)", ""
+        return f"EXEMPT-ADMITTED #{pr} at {sha[:10]}: fidelity grade cci #{grade['seq']} says \"{said}\", so it goes straight to the merge queue with no go or board tap (root #194387)", ""
 
     def interaction_cleared(self, pr: str) -> bool:
         """Whether a comment on `pr` under a `Rulings` heading has a line that names the change's interaction and cites the owner's answer as `# owner: <answer id>`."""
@@ -6518,8 +6532,8 @@ class Landing:
         return gone_at(self.root_gos(), pr, head)
 
     def merged_by_owner(self, heads: dict[str, str], prs: list[str]) -> set[str]:
-        """The PRs of `prs` with an owner Merge answer at their head, a root `go` record on this drive that names the PR and its head by a short sha."""
-        return {pr for pr in prs if self.head_gos(pr, heads[pr])}
+        """The PRs of `prs` with an owner Merge answer at their head, a root `go` record on this drive that names the PR and its head by a short sha, or whose change at their head is exempt and needs none (root #194387)."""
+        return {pr for pr in prs if self.free_to_land(self.root_gos(), pr, heads[pr])}
 
     def waiting_on_owner(self, heads: dict[str, str], prs: list[str]) -> list[str]:
         """The PRs of `prs` with no Merge answer at their head yet, or touching a reserved row no `authorizes:<key>` answer covers: only the owner's captured tap on the card quoting the row authorizes it, through `rulings.py authorize`, and a `go` never does (C224)."""
@@ -6616,7 +6630,7 @@ class Landing:
             standing = self.fidelity(pr, head)
             kept = not adds and standing.ok and standing.record and self.finder_clear(pr, head)
             if kept and not self.book.known(LANDING, key := f"tap-kept:{block}:{pr}:{tapped}:{head}"):
-                self.post_record("note", key, to, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} on board block {block} keeps at {head[:10]}, a review fix with no new behavior per fidelity grade cci #{standing.record['seq']} (rule 399b5fa); root posts `go #{pr} at {head[:10]}` naming the fix, and the row lists the fix", pr)
+                self.post_record("note", key, to, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} on board block {block} keeps at {head[:10]}, a review fix with no new behavior per fidelity grade cci #{standing.record['seq']} (rule 399b5fa), so it goes straight to the merge queue with no go (root #194387), and the row lists the fix", pr)
             if kept and (gos := self.head_gos(pr, head)):
                 self.carry_tap(session, block, pr, tapped, head, f"review fix with no new behavior, per fidelity grade cci #{standing.record['seq']} and root go cci #{gos[-1]['seq']} (rule 399b5fa)", self.landing_audience([pr], rows, to))
                 continue
@@ -6696,7 +6710,7 @@ class Landing:
             )
 
     def askable(self, heads: dict[str, str], asking: list[str], rows: dict[str, dict]) -> list[str]:
-        """The PRs of `asking` the owner can tap now: a fidelity ok stands at the head, the finder is clear there, and the root's board holds a row at that head or the runner noted `TAP-KEPT` there under a root go (root #191653). A graded head with no row is told to the board lanes once, so the row goes up in their next pass; an ungraded head already has its grade blocker."""
+        """The PRs of `asking` the owner can tap now: a fidelity ok stands at the head, the finder is clear there, and the root's board holds a row at that head or the runner noted `TAP-KEPT` there (root #191653). A graded head with no row is told to the board lanes once, so the row goes up in their next pass; an ungraded head already has its grade blocker."""
         graded = [pr for pr in asking if self.fidelity(pr, heads[pr]).ok and self.finder_clear(pr, heads[pr])]
         if not graded or (board := self.board_heads()) is None:
             return []
@@ -6822,7 +6836,9 @@ class Landing:
         return ", ".join(f"#{pr} at {sha[:10]} ({self.go_named(pr, sha)})" for pr, sha in heads.items())
 
     def go_named(self, pr: str, head: str) -> str:
-        return f"go #{gos[0]['seq']}" if (gos := self.head_gos(pr, head)) else "no go at this head"
+        if gos := self.head_gos(pr, head):
+            return f"go #{gos[0]['seq']}"
+        return "exempt, no go needed" if self.exempt_admitted(pr, head)[0] else "no go at this head"
 
     def queue_audience(self, prefix: list[str], rows: dict[str, dict]) -> str:
         return ",".join(dict.fromkeys([ROOT, *filter(None, (rows.get(pr, {}).get("lane") for pr in prefix))]))
@@ -7973,7 +7989,7 @@ class Landing:
         self.gate_deadline = time.monotonic() + GATE_BUDGET.total_seconds()
         self.trusted_from, self.pass_began = self.pass_began, time.monotonic()
         self.surface()
-        self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why, self.cleared = None, False, None, None, None, set(), {}, {}
+        self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why, self.cleared, self.exempts = None, False, None, None, None, set(), {}, {}, {}
         if self.quota_low():
             return
         with ThreadPoolExecutor(1) as pool:

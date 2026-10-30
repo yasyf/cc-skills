@@ -1629,13 +1629,14 @@ change is one edit plus an `answer supersede`, with no restart.
 `{"rule/82317b0": ["go/sand/next/*", "infra/ci/src/pipelines/test/sand.ts"]}`. In every
 merge mode, a head whose changed files a row's globs name waits, while `rulings.py rows`
 lists that row in force, until an approval on the root's board names that head. A root
-`go` never stands in for that tap, except for a pure port (06288326) and a test-only or
-CI-only PR (owner, Oct 28 8:45 PM): a head whose newest fidelity grade says one of
-`landing.exempt_grades` (default `pure port, no interaction` and
-`test-only or CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the
-first) and whose root go reads `go port|test-only|ci-only #<n> at <sha>` or says pure port,
-test-only or CI-only lands on that go, with one `EXEMPT-ADMITTED` note to the root and each
-`landing.board_lane` naming the grade and the go. A grade saying the port touches rebuild
+`go` never stands in for that tap. A pure port (06288326), a test-only or CI-only PR
+(owner, Oct 28 8:45 PM), and a head the runner noted `TAP-KEPT` at are exempt: a head
+whose newest fidelity grade says one of `landing.exempt_grades` (default
+`pure port, no interaction` and `test-only or CI-only, no non-test code`; the legacy
+`landing.port_phrase` replaces the first) needs no tap and no go in any merge mode and
+goes straight to Graphite's queue once the hold, fidelity, finder, build and CI checks
+pass (owner 7:00 PM Oct 29, root #194387), with one `EXEMPT-ADMITTED` note to the root and
+each `landing.board_lane` naming the grade when a tap rule names its files. A grade saying the port touches rebuild
 code keeps the tap. Either class is also checked against every file the PR changes
 against its base, never the grade's words alone (root #182391). A test-only or CI-only
 claim keeps the tap on a file that is not a test file by `testfiles.py`, under
