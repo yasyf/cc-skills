@@ -6039,23 +6039,24 @@ class Landing:
         self.post_record("note", key, ",".join(self.reach(owner) if owner else [ROOT]), f"{self.dead_note(owner)}#{pr} {graded.heads[pr]}: WARNING {why}", pr)
 
     def check_rulings(self, graded: Graded) -> dict[str, merge_queue.State]:
-        """No head fails here (4236611): each cause `rulings.py check-pr` prints for a head is a warning, one `note` record to its lane per head and set of causes. A head warns again only for a cause none of its earlier warnings named, and never once an `answer` replies to or resolves one of them (cci #182230). A reserved touch is merge mode's to settle: it sends the card whose tap authorizes it, and holds the head until then."""
+        """No head fails here (4236611): each cause `rulings.py check-pr` prints for a head is a warning, one `note` record to its lane per head and set of causes. A head warns again only for a cause none of its earlier warnings named, naming that cause alone, and never once an `answer` replies to or resolves one of them (cci #182230). A reserved touch is merge mode's to settle: it sends the card whose tap authorizes it, and holds the head until then."""
         if graded.act:
             self.read_reports(graded.heads)
             for pr, sha in graded.heads.items():
-                if (warnings := [line for line in self.rulings_report(pr, sha) if cause(line) != RESERVED_TOUCH]) and not self.rulings_settled(pr, sha, warnings):
-                    text = f"`rulings.py check-pr` warns at {sha[:10]}, and the head is not held for it: {'; '.join(warnings)}"
+                if fresh := self.unwarned(pr, sha, [line for line in self.rulings_report(pr, sha) if cause(line) != RESERVED_TOUCH]):
+                    text = f"`rulings.py check-pr` warns at {sha[:10]}, and the head is not held for it: {'; '.join(fresh)}"
                     self.warn_head(f"rulings:{pr}:{sha[:7]}:{hashlib.sha1(text.encode()).hexdigest()[:8]}", pr, graded, text)
         return {}
 
-    def rulings_settled(self, pr: str, sha: str, warnings: list[str]) -> bool:
-        """Whether the warnings `check_rulings` posted for `pr` at `sha` already name every line of `warnings`, or an `answer` replies to or resolves one of them."""
+    def unwarned(self, pr: str, sha: str, warnings: list[str]) -> list[str]:
+        """The lines of `warnings` no warning `check_rulings` posted for `pr` at `sha` named yet, or none once an `answer` replies to or resolves one of those warnings."""
         posted = [action for action in self.book.actions(LANDING, kind="bus") if action.action_id.startswith(f"rulings:{pr}:{sha[:7]}:")]
         named = {line for action in posted for line in json.loads(action.target)["text"].partition("the head is not held for it: ")[2].split("; ")}
-        if set("; ".join(warnings).split("; ")) <= named:
-            return True
+        fresh = [line for line in "; ".join(warnings).split("; ") if line and line not in named]
         seqs = {int(seq[1]) for action in posted if (seq := POSTED.search((action.response or {}).get("posted", "")))}
-        return bool(seqs) and any(seqs & {record.get("re"), record.get("resolves")} for record in cci.records(self.cci_tail, self.runner.config.drive, "--kind=answer", since=min(seqs)))
+        if not fresh or seqs and any(seqs & {record.get("re"), record.get("resolves")} for record in cci.records(self.cci_tail, self.runner.config.drive, "--kind=answer", since=min(seqs))):
+            return []
+        return fresh
 
     def scanned_reviews(self) -> list[dict]:
         """The drive's `review` and `head` records, scanned once a pass, so a review whose text names the PR but whose refs do not still counts."""
