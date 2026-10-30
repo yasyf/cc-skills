@@ -7413,7 +7413,7 @@ class Landing:
     def holding(self, prefix: list[str], rows: dict[str, dict], accepted_at: datetime) -> dict[str, str]:
         """Why each PR of `prefix` may not be in the queue right now, read fresh: an open cci `incident` record that names it, whose lane squash-merges the fix directly (ef905a6), the `hold` label on GitHub, an open cci `hold` record, a `hold` record posted after this enqueue was accepted, or a `hold` record newer than the PR's newest `ready` record. A label read GitHub refuses holds the PR too."""
         drive = self.runner.config.drive
-        incidents = [record for record in cci.records(self.cci_tail.run, drive, "--kind=incident") if (record["kind"], record["drive"], record["status"]) == ("incident", drive, "open")]
+        incidents = [record for record in cci.records(self.cci_tail.run, drive, "--kind=incident") if (record["kind"], record["drive"], record.get("status")) == ("incident", drive, "open")]
         why = {}
         for pr in prefix:
             if named := [record for record in incidents if names_pr({**record, "text": full_text(record)}, pr)]:

@@ -155,6 +155,7 @@ class FakeShell(runner_module.Shell):
         self.alive: list[str] = []
         self.beats: list[dict] = []
         self.records: list[dict] = []
+        self.peer_mail: list[dict] = []
         self.trunk: list[dict] = []
         self.trunk_error = ""
         self.tail_error = ""
@@ -685,6 +686,7 @@ class FakeShell(runner_module.Shell):
             and (not topics or record.get("topic") in topics)
             and (drive == "d1" or record.get("drive") == drive)
         ]
+        found += self.peer_mail if kinds else []
         if "--limit" in argv:
             found = found[-int(argv[argv.index("--limit") + 1]) :]
         return runner_module.Done(0, "".join(f"{json.dumps(record)}\n" for record in found), "")
@@ -6326,6 +6328,14 @@ def test_mq_why_names_the_adapters_approval_and_ci_verdicts(shell, config, tmp_p
     assert mq(shell, config, "why", "29020") == 0
     lines = capsys.readouterr().out.splitlines()
     assert "approvals pending not approved by forge-pr-reviewer[bot]" in lines and "required-ci fail graphite FAILING_REQUIRED" in lines
+
+
+def test_mq_why_reads_past_peer_mail_that_cci_returns_with_no_status(shell, config, capsys):
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    shell.peer_mail.append({"seq": 212655, "drive": "pasted-content", "lane": "other-session", "kind": "note", "to": ["peer:sole-51"], "text": "peer mail"})
+    assert mq(shell, config, "why", "29020") == 0
+    assert capsys.readouterr().out.splitlines() == ["#29020 cccc333333 graphite-stack-enqueue: GREEN graphite READY", *QUIET_WHY]
 
 
 def test_mq_gos_lists_each_standing_go_the_queue_does_not_hold_from_one_status_read(shell, config, capsys):
