@@ -13263,7 +13263,8 @@ def test_a_failed_fidelity_pass_settles_when_a_reader_lane_in_runner_json_has_no
     assert len(shell.fidelity_jobs) == 2
 
 
-def test_a_failed_pass_whose_notice_does_not_post_stays_started_and_tells_the_desks_on_the_next_pass(shell, config):
+def test_a_failed_pass_whose_notice_does_not_post_still_fails_and_frees_its_slot(shell, config):
+    """Root #219303: a refused notice left eight failed passes started for twelve hours, holding every fidelity slot."""
     fidelity_config(config)
     orca_pass(shell, config)
     head_record(shell, "43439", FINDER_HEAD)
@@ -13272,10 +13273,17 @@ def test_a_failed_pass_whose_notice_does_not_post_stays_started_and_tells_the_de
     (failed / "result.json").write_text(json.dumps({"error": "codex-ask exited 1: quota exhausted"}))
     shell.post_error = "cci: daemon restarting"
     orca_pass(shell, config)
-    assert not fidelity_failures(shell) and [action.status for action in incident(config.parent, "desk-fidelity").actions.values()] == ["started"]
-    shell.post_error = ""
-    orca_pass(shell, config)
-    assert len(fidelity_failures(shell)) == 1 and [action.status for action in incident(config.parent, "desk-fidelity").actions.values()] == ["failed"]
+    assert not fidelity_failures(shell) and [action.status for action in incident(config.parent, "desk-fidelity").actions.values()] == ["failed"]
+
+
+def test_more_than_ten_refused_notices_in_a_minute_raise_one_defect_to_root(shell, config, tmp_path):
+    """Root #219303: 16,836 refused runner posts went to orca-runner.log and nowhere else."""
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    shell.post_error = "cci: --to fidelity-desk-14: no live session or registered lane on drive d1 is named fidelity-desk-14"
+    for n in range(runner_module.REFUSALS_PER_MINUTE + 3):
+        runner.escalate(f"fidelity:{n}", "FIDELITY-FAILED", "p8a-step9", "the fidelity pass failed", to="fidelity-desk-4")
+    raised = [action.target for action in runner.book.actions(runner_module.RUNNER, kind="escalation") if action.target.startswith("POSTS-REFUSED ")]
+    assert len(raised) == 1 and "the newest to fidelity-desk-4: cci: --to fidelity-desk-14" in raised[0]
 
 
 def test_a_fidelity_head_bound_to_a_cci_seq_or_a_closed_or_moved_pr_settles_skipped_and_fails_nothing(shell, config):

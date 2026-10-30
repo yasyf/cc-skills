@@ -678,6 +678,7 @@ FINDER_SETTLED = "settled_at"
 FINDER_SKIPS = {"CLOSED": "#{pr} is closed", "NOT_FOUND": "#{pr} is no pull request in {repo}"}
 FINDER_STALLED = "stalled"
 FIDELITY = "desk-fidelity"
+REFUSALS_PER_MINUTE = 10
 FIDELITY_CONCURRENT = 8
 FIDELITY_MINUTES = 60
 FINDER_EVERY = timedelta(seconds=15)
@@ -1797,6 +1798,7 @@ class Runner:
         self.passes: Counter[str] = Counter()
         self.raised: dict[str, tuple[str, int]] = {}
         self.alive_posted: dict[str, datetime] = {}
+        self.refused: list[datetime] = []
         self.stall_pass: subprocess.Popen | None = None
         self.stall_started = datetime.min.replace(tzinfo=timezone.utc)
         self.finding = threading.Lock()
@@ -1821,6 +1823,9 @@ class Runner:
         done = self.post_escalation(line, to, action_id)
         if done.code != 0:
             print(f"escalation {key} to {to} left for the next pass; cci post exited {done.code}: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
+            self.refused = [at for at in [*self.refused, self.now()] if self.now() - at < timedelta(minutes=1)]
+            if len(self.refused) > REFUSALS_PER_MINUTE:
+                self.escalate(f"refused:{to}", "POSTS-REFUSED", RUNNER, f"{len(self.refused)} cci posts refused in the last minute, the newest to {to}: {(done.err or done.out).strip()[:200]}")
             return
         self.record(action_id, line)
         self.book.attempt(RUNNER, lambda incident: (incident.start(action_id, self.now()), incident.complete(action_id, {"at": self.book.stamp(), "posted": done.out.strip(), "to": to})))
@@ -4629,14 +4634,13 @@ class Runner:
         self.book.attempt(container, settled)
 
     def fidelity_failed(self, action: actions.Action, why: str) -> None:
-        """Tell the human fidelity desks, then fail the pass; a post that fails leaves the pass started, so the next orca pass tells them again."""
+        """Tell the human fidelity desks and fail the pass whether or not the notice posts, so a refused notice never holds a slot (root #219303)."""
         job = json.loads(action.target)
         key = f"fidelity:{job['pr']}:{job['head']}:{job['seq']}"
         readers = [lane for lane in self.landing_lanes("fidelity_lane") if lane != fidelity.LANE]
         log = Path(action.dispatch_id) / fidelity.LOG
         self.escalate(key, "FIDELITY-FAILED", job["lane"], f"#{job['pr']} {job['head'][:12]}: the fidelity pass failed: {why}; its log is {log}; a fidelity desk grades it by hand, and the next head record for #{job['pr']} queues the pass again", to=",".join(readers))
-        if self.book.known(RUNNER, f"escalation:{key}"):
-            self.book.attempt(FIDELITY, lambda incident: incident.fail(action.action_id, why))
+        self.book.attempt(FIDELITY, lambda incident: incident.fail(action.action_id, why))
 
     def render(self) -> str:
         runner = self.book.facts(RUNNER, [BINDING, DEFERRED, PR_SILENT])
