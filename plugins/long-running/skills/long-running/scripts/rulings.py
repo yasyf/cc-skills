@@ -349,6 +349,10 @@ def mirror(answers: list[dict], directory: Path) -> None:
             write_atomic(path, text)
 
 
+def kept_copy(kept: Path, repo: str, tips: str) -> dict | None:
+    return cached if kept.is_file() and (cached := json.loads(kept.read_text()))["repo"] == repo and cached["tips"] == tips else None
+
+
 def write_atomic(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     staged = path.with_name(f".{path.name}.{os.getpid()}")
@@ -496,18 +500,21 @@ class Register:
 
     @classmethod
     def load(cls, args: argparse.Namespace, shell: ledger.Shell, repo: str | None = None) -> Register:
-        """The register, read from the copy kept in the drive's state while no ledger ref has moved since, so a read never waits on `ccn` scanning every cc-notes ref behind a concurrent write (cci #200150)."""
+        """The register, read from the copy kept in the drive's state while no ledger ref has moved since, so a read never waits on `ccn` scanning every cc-notes ref behind a concurrent write (cci #200150). One reader at a time rebuilds a stale copy and the rest wait for it, since each `ccn` scan holds most of a gigabyte and eight at once exhausted a Sprite (cci #214457)."""
         program = program_of(args)
         repo = repo or register_repo(args)
         state = state_dir(args)
         tips = shell.run(["git", "-C", repo, "for-each-ref", "--format=%(refname) %(objectname)", LEDGER_REFS])
         kept = state / f"register-{program}.json"
-        if kept.is_file() and (cached := json.loads(kept.read_text()))["repo"] == repo and cached["tips"] == tips:
+        if cached := kept_copy(kept, repo, tips):
             return cls(shell, repo, program, state, cached["ledger"], cached["rows"])
-        identity = ledger_of(shell, repo, program)
-        shown = ccn(shell, repo, "ledger", "show", identity)
-        rows = {row["key"]: row["fields"] | {"updated_at": row["updated_at"]} for row in shown["rows"]}
-        write_atomic(kept, json.dumps({"repo": repo, "tips": tips, "ledger": identity, "rows": rows}, ensure_ascii=False))
+        with ledger.locked(kept.with_suffix(".lock")):
+            if cached := kept_copy(kept, repo, tips):
+                return cls(shell, repo, program, state, cached["ledger"], cached["rows"])
+            identity = ledger_of(shell, repo, program)
+            shown = ccn(shell, repo, "ledger", "show", identity)
+            rows = {row["key"]: row["fields"] | {"updated_at": row["updated_at"]} for row in shown["rows"]}
+            write_atomic(kept, json.dumps({"repo": repo, "tips": tips, "ledger": identity, "rows": rows}, ensure_ascii=False))
         return cls(shell, repo, program, state, identity, rows)
 
     def write(self, key: str, **fields: object) -> None:

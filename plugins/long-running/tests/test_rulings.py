@@ -5,6 +5,8 @@ import io
 import json
 import re
 import subprocess
+import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -512,6 +514,35 @@ def test_rows_reads_the_ledger_once_until_a_ledger_ref_moves(home: Path, package
     shell.rows["rule/aaaaaaa"]["words"] = "Relay code lives in relay-journal."
     code, out = ran(capsys, shell, "rows", "--json")
     assert code == 0 and json.loads(out)["rows"]["rule/aaaaaaa"]["words"] == "Relay code lives in relay-journal."
+
+
+class SlowShowShell(RegisterShell):
+    def __init__(self, rows: dict[str, dict[str, str]]) -> None:
+        super().__init__(rows)
+        self.showing = threading.Event()
+        self.release = threading.Event()
+
+    def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
+        if argv[3:5] == ["ledger", "show"]:
+            self.showing.set()
+            self.release.wait(10)
+        return super().run(argv, stdin, cwd)
+
+
+def test_concurrent_readers_of_a_stale_register_copy_scan_the_ledger_once(home: Path, package: Path, state: Path) -> None:
+    """cci #214457: eight finder passes on one Sprite each ran an 830 MB `ccn` scan of the same moved ledger at once and exhausted its memory."""
+    shell = SlowShowShell(seeded(package))
+    readers = [threading.Thread(target=rulings.main, args=(["rows", "--json", "--program", "brook", "--repo", REPO], shell)) for _ in range(3)]
+    readers[0].start()
+    assert shell.showing.wait(10)
+    for reader in readers[1:]:
+        reader.start()
+    time.sleep(0.5)
+    shell.release.set()
+    for reader in readers:
+        reader.join(10)
+
+    assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"]] == [["ledger", "list"], ["ledger", "show"]]
 
 
 def test_classify_refuses_a_scope_row_without_three_implications_or_any_names(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
