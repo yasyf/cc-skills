@@ -1199,12 +1199,12 @@ def test_no_successor_is_asked_for_while_the_lanes_handoff_already_posts(config)
     ("landed_ago", "after", "topics"),
     [
         (31, [], ["gate:p8a-step7-2:43736:0"]),
-        (29, [], []),
+        (9, [], []),
         (91, [], ["gate:p8a-step7-2:43736:1"]),
         (31, [record(4, "p8a-step7-3", "opened", "OPENED #45100 head 1234abc: parts 2 and 3", 5, "45100")], []),
         (31, [record(4, "p8a-step7-2", "head", "HEAD #44000 1234abc", 40, "44000")], ["gate:p8a-step7-2:43736:0"]),
     ],
-    ids=["landed-31-min-ago", "inside-30-min", "an-hour-later", "successor-opened", "head-before-the-landing"],
+    ids=["landed-31-min-ago", "inside-10-min", "an-hour-later", "successor-opened", "head-before-the-landing"],
 )
 def test_unopened_work_that_waits_on_a_landed_pr_stalls_to_its_live_lane_hourly(config, landed_ago, after, topics):
     said = record(1, "p8a-step7-2", "state", "p8a-step7-2: parts 2 and 3 wait only on #43736; I open both when #43736 lands", 120)
@@ -1348,3 +1348,22 @@ def test_reds_with_no_live_red_sweep_lane_post_one_blocker_to_root_until_a_red_s
     shell.records.append(record(1, "red-sweep-2", "state", "red-sweep-2 started", 0))
     watch(shell, config)
     assert "sweep:red-sweep" not in opened(config) and len(shell.posts) == 2
+
+
+@pytest.mark.parametrize(("minutes", "stalls"), [(9, False), (11, True)], ids=["inside-10-min", "past-10-min"])
+def test_a_finder_fidelity_lane_or_gate_stall_posts_ten_minutes_on(config, tmp_path, minutes, stalls):
+    """Owner, prompt/1026-190849: "if we've truly been stuck for 10 mins then go debug why" (narrow-reading-sweep-1 #211573); finder, fidelity, lane and gate stalls waited 30."""
+    watch(finderless := FakeShell([head(1, "101", HEAD, minutes), fidelity(2, "101", HEAD, minutes - 1)], [row("101", test_state="pending")]), config)
+    watch(ungraded := FakeShell([head(1, "102", OTHER, minutes), finder(2, "102", OTHER, minutes - 1)], [row("102", OTHER, test_state="pending")]), config)
+    landed = FakeShell([record(1, "p8a-step7-2", "state", "p8a-step7-2: parts 2 and 3 wait only on #43736; I open both when #43736 lands", 120), record(2, "desk-runner", "landed", "LANDED #43736 as 70ad7da45d: merged into dev", minutes, "43736")], [])
+    watch(landed, config)
+    merge_mode(config, "ask")
+    task(tmp_path, 1, "api-lane", minutes_ago=200)
+    quiet = FakeShell([*graded(1, "103", HEAD, 150), record(4, "root", "decide", "api-lane: rebase #103 on dev", minutes, to=["api-lane@d1"])], [row("103")])
+    quiet.doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": 103, "head": HEAD[:7]}]}]}]}
+    quiet.answer = lambda question: {"explained": False}
+    watch(quiet, config)
+    assert ("finder:101:abc1234" in finderless.topics()) is stalls
+    assert ("fidelity:102:fedcba9" in ungraded.topics()) is stalls
+    assert ("gate:p8a-step7-2:43736:0" in landed.topics()) is stalls
+    assert ("lane:api-lane" in quiet.topics()) is stalls
