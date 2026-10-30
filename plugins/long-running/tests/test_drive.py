@@ -392,10 +392,10 @@ def test_release_records_the_builds_owner_on_the_drive_its_cci_drive_names(repo,
     assert "no registered drive posts to cci drive other-drive; build 1 not recorded" in capsys.readouterr().err
 
 
-def heartbeat(shell: FakeShell, desk: str, pid: int, version: str, ago: timedelta = timedelta()) -> str:
+def heartbeat(shell: FakeShell, desk: str, pid: int, version: str, ago: timedelta = timedelta(), flight: str | None = None) -> str:
     restart = f"nohup desk-runner.py run --config /drive/runner.json --desk {desk} > /drive/{desk}-runner.log 2>&1 < /dev/null &"
     at = (datetime.now(timezone.utc) - ago).isoformat()
-    attrs = {"pid": str(pid), "version": version, "config": "/drive/runner.json", "terminal": "term_root", "restart": restart}
+    attrs = {"pid": str(pid), "version": version, "config": "/drive/runner.json", "terminal": "term_root", "restart": restart} | ({} if flight is None else {"flight": flight})
     shell.cci.append({"seq": len(shell.cci) + 1, "drive": DRIVE, "lane": "desk-runner", "kind": "state", "topic": desk, "to": [f"drive-watchdog@{DRIVE}"], "at": at, "text": f"{desk} alive 9:26 PM pass 3", "fields": {"attrs": attrs}})
     return at
 
@@ -418,6 +418,7 @@ def test_digest_names_each_desk_runner_behind_the_installed_plugin_with_the_hand
     assert capsys.readouterr().out.splitlines() == [
         f"orca: pid 73091 runs 0.7.186, installed 0.7.186, last alive {orca}: current",
         f"landing: pid 49612 runs 0.7.185, installed 0.7.186, last alive {landing}: stale; rotate it with `desk-runner.py handoff --config /drive/runner.json --desk landing`, which starts the next one",
+        "quiet point: no, orca runs a version whose alive record names no flight; landing runs a version whose alive record names no flight",
     ]
     heartbeat(shell, "landing", 50113, "0.7.186")
     assert drive.main(["digest"], shell) == 0
@@ -449,6 +450,24 @@ def test_digest_reads_a_desk_runner_on_another_machine_from_its_alive_record_and
     lines = capsys.readouterr().out.splitlines()
     assert lines[0].endswith(": current")
     assert lines[1] == f"landing: pid 49612 runs 0.7.186, installed unknown, last alive {landing}: down; restart it with `nohup desk-runner.py run --config /drive/runner.json --desk landing > /drive/landing-runner.log 2>&1 < /dev/null &`"
+
+
+def test_digest_quiet_point_holds_while_a_desk_runs_a_pass_or_a_merge_and_passes_once_every_desk_rests(repo, capsys):
+    """4:31 to 4:40 PM Oct 29 every cci call hung about nine minutes after the cci 0.39.0 cask installed under running desks (root #190549)."""
+    started(repo, "--cci-drive", DRIVE)
+    shell = FakeShell()
+    heartbeat(shell, "orca", 73091, "0.7.186", flight="")
+    held = [("stack-enqueue", "quiet point: no, landing runs `stack-enqueue`"), ("landing pass", "quiet point: no, landing runs `landing pass`"), ("", "quiet point: yes, no pass or merge in flight")]
+    for flight, line in held:
+        heartbeat(shell, "landing", 49612, "0.7.186", flight=flight)
+        capsys.readouterr()
+        assert drive.main(["digest", "--quiet-point"], shell) == (0 if not flight else 1)
+        assert capsys.readouterr().out.splitlines()[-1] == line
+
+    heartbeat(shell, "orca", 73091, "0.7.186", flight="", ago=timedelta(minutes=3))
+    capsys.readouterr()
+    assert drive.main(["digest", "--quiet-point"], shell) == 1
+    assert capsys.readouterr().out.splitlines()[-1] == "quiet point: no, orca posted no alive record in the last 2 min"
 
 
 def installed(*versions: str, manifest: str | None = None) -> Path:
@@ -513,7 +532,7 @@ def test_digest_prints_the_stack_ledger_the_stall_watch_wrote_and_marks_each_sta
 
     drive.main(["digest"], shell)
 
-    assert capsys.readouterr().out.splitlines()[2:] == [
+    assert capsys.readouterr().out.splitlines()[2:-1] == [
         "stack at 2026-10-27T20:00:00Z: 2 open PRs, 1 stale",
         "STALE #201 abc1234 on dev: conflicts with its base | owner gone-lane, not live | since 2026-10-27T17:00:00Z | next: restack #201 at abc1234 and post HEAD",
         "#202 fedcba9 on #201: in the merge queue | owner api-lane | since 2026-10-27T19:30:00Z | next: the landing desk reads why the merge queue still holds #202 at fedcba9",

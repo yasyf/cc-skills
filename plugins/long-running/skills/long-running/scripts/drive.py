@@ -15,7 +15,7 @@
     drive.py landed  --session ID [--drive ID] --pr N...
     drive.py lane-status LANE|DISPATCH [--drive ID] [--run ID]
     drive.py pr-owed LANE [--drive ID]
-    drive.py digest  [--drive ID]
+    drive.py digest  [--drive ID] [--quiet-point]
     drive.py worktree --lane NAME --path DIR [--session ID] [--drive ID]
     drive.py release --cci-drive NAME --owner LANE@DRIVE --build BUILD [--release ID]
     drive.py overview [--drive ID] [--steps PATH] [--json] [--step ID] [--since TIME]    (alias plan-status)
@@ -78,6 +78,9 @@ record is five minutes old reads down with the restart command it posted; the co
 down, or has posted no record. It then prints the stack ledger the stall watch wrote
 to ``<state dir>/inbox/stack.json`` on its last pass: one line per open PR with its head, the PR or branch it sits on,
 its state, its owning lane, since when, and its next step, marked ``STALE`` once that state has stood two hours.
+Its last line says whether the drive sits at a quiet point: every desk's newest alive record is under two minutes old and
+names no command or landing pass in flight. A tooling lane installs a cci or long-running release only there, so no
+pass or merge runs through the swap; ``--quiet-point`` exits 0 at a quiet point and 1 otherwise.
 
 ``worktree`` is the pack's entry point the first time a lane runs a command in a worktree: it posts one
 ``state`` record ``WORKTREE <lane> <path> <branch>`` with a ``worktree`` attr, keyed
@@ -135,6 +138,7 @@ DESKS = ("orca", "landing")
 DESK_RUNNER = "desk-runner"
 WATCHDOG = "drive-watchdog"
 BEAT_STALE = timedelta(minutes=5)
+QUIET_BEAT = timedelta(minutes=2)
 STACK = "stack.json"
 VERSION_PART = re.compile(r"\d+")
 NUMBERED = re.compile(r"(?<![\w&])#\d+\b")
@@ -519,13 +523,27 @@ def cmd_pr_owed(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
+def busy(beats: dict[str, dict | None], now: datetime) -> list[str]:
+    """What keeps the drive from a quiet point: each desk whose newest alive record is over `QUIET_BEAT` old, predates the `flight` attr, or names a command or pass in flight."""
+    found = []
+    for desk, beat in beats.items():
+        if beat is None or now - datetime.fromisoformat(beat["at"]) >= QUIET_BEAT:
+            found.append(f"{desk} posted no alive record in the last {int(QUIET_BEAT.total_seconds()) // 60} min")
+        elif "flight" not in beat:
+            found.append(f"{desk} runs a version whose alive record names no flight")
+        elif beat["flight"]:
+            found.append(f"{desk} runs `{beat['flight']}`")
+    return found
+
+
 def cmd_digest(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if (entry := resolve(args)) is None:
         return 1
     installed = installed_version()
     current = True
-    for desk in DESKS:
-        if (beat := heartbeat(shell.run, cci_drive(entry), desk)) is None:
+    beats = {desk: heartbeat(shell.run, cci_drive(entry), desk) for desk in DESKS}
+    for desk, beat in beats.items():
+        if beat is None:
             current = False
             print(f"{desk}: no {desk} alive record on cci drive {cci_drive(entry)}, so no {desk} runner has run there")
             continue
@@ -549,6 +567,10 @@ def cmd_digest(args: argparse.Namespace, shell: ledger.Shell) -> int:
             sits = f"#{row['below']}" if row["below"] else row["base"]
             owner = row["owner"] if row["live"] else f"{row['owner']}, not live"
             print(f"{'STALE ' if row['stale'] else ''}#{row['pr']} {row['head'][:7]} on {sits}: {row['state']} | owner {owner} | since {row['since']} | next: {row['next']}")
+    held = busy(beats, datetime.now(timezone.utc))
+    print(f"quiet point: no, {'; '.join(held)}" if held else "quiet point: yes, no pass or merge in flight")
+    if args.quiet_point:
+        return 1 if held else 0
     return 0 if current else 1
 
 
@@ -687,6 +709,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     digest = subparsers.add_parser("digest", help="each desk runner's running version beside the installed one; exit 1 when one is behind or has no heartbeat")
     digest.add_argument("--drive")
+    digest.add_argument("--quiet-point", action="store_true", help="exit 0 only at a quiet point, where no desk runs a pass or a merge, the one time a tooling lane installs a cci or long-running release")
     digest.set_defaults(handler=cmd_digest)
 
     worktree = subparsers.add_parser("worktree", help="post the WORKTREE record that maps a lane to a worktree it works in")
