@@ -606,7 +606,7 @@ import prompt_watch
 import stall_watch
 import testfiles
 from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, heads_since, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
-from grades import carry_of, delegated, succeeds
+from grades import carry_of, delegated, keeps_tap, succeeds
 from grades import carries as carry_grade
 from grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
 from grades import WITHDRAWN as WITHDRAWN_OPENING
@@ -1219,6 +1219,11 @@ def lane_aliases(lane: str) -> tuple[str, str]:
 def successors(lane: str) -> re.Pattern[str]:
     """The names a lane and its numbered successors take after rotations: `fidelity-desk`, `fidelity-desk-3`, `register-seed-5-5`."""
     return re.compile(rf"{re.escape(SUCCESSOR_NUMBER.sub('', lane))}(?:-\d{{1,2}})*")
+
+
+def names_resolved(sentence: str, resolved: set[int]) -> bool:
+    """Whether a precondition sentence names a record root has resolved, such as the hold it waits on."""
+    return any(int(seq) in resolved for seq in cci.NAMED_PR.findall(sentence))
 
 
 def pr_family(lane: str) -> str:
@@ -4987,6 +4992,7 @@ class Landing:
         self.designed_red: dict[str, bool] = {}
         self.body_preconditions: dict[tuple[str, str], list[str]] = {}
         self.said_preconditions: dict[str, list[tuple[str, str]]] = {}
+        self.resolved_preconditions: dict[str, set[int]] = {}
         self.gos: list[dict] | None = None
         self.cleared: dict[str, int] = {}
         self.going = threading.Lock()
@@ -5776,7 +5782,8 @@ class Landing:
         if missing := max((grade for grade in misses if grade["seq"] not in accepted), key=lambda record: record["seq"], default=None):
             return Grade(False, missing, f"{missing['lane']} graded this head on cci #{missing['seq']}: {missing['text']}")
         if newest:
-            return Grade(True, max(newest, key=lambda record: record["seq"]), "")
+            oks = [grade for grade in newest if grade["text"].startswith(FIDELITY_OK)] or newest
+            return Grade(True, max(oks, key=lambda record: record["seq"]), "")
         none = Grade(False, None, f"no review from {self.fidelity_names} starting `{FIDELITY_OK}` names this head")
         if not (sha and any(grade["text"].startswith(FIDELITY_OK) for grade in grades)):
             return none
@@ -6161,11 +6168,13 @@ class Landing:
         return self.finder_carried(pr, sha)
 
     def root_answered(self, pr: str, sha: str, verdict: dict) -> bool:
-        """Whether root settled `verdict`, a failing finder record at `sha`: a root `go` naming `pr` at `sha` posted after it, or a root `decision` replying to it directly or along a chain of `--re` replies, since root refutes an edge-case finding in one line (rule 2cc5a1f3, root #152572)."""
+        """Whether root settled `verdict`, a failing finder record at `sha`: a root `go` naming `pr` at `sha` posted after it, a root `decide` or `decision` that resolves it, or a root `decision` replying to it directly or along a chain of `--re` replies, since root refutes an edge-case finding in one line (rule 2cc5a1f3, root #152572, #194669)."""
         if any(go["seq"] > verdict["seq"] for go in self.head_gos(pr, sha)):
             return True
         answered = {verdict["seq"]}
         for record in cci.records(self.cci_tail, self.runner.config.drive, since=verdict["seq"]):
+            if record["lane"] == ROOT and record["kind"] in cci.ROOT_RULINGS and verdict["seq"] in closes(record):
+                return True
             if record.get("re") not in answered:
                 continue
             if record["lane"] == ROOT and record["kind"] == "decision":
@@ -6337,10 +6346,12 @@ class Landing:
         return waits, unread, exempt
 
     def tap_kept(self, pr: str, head: str) -> bool:
-        """Whether this runner noted `TAP-KEPT` for `pr` at `head`: the owner's tap then carries without a board row or a go at the new head (root #192094, #194387)."""
-        return any(
-            (parts := action.action_id.split(":"))[0] == "tap-kept" and parts[2] == pr and names_head(parts[-1], head) for action in self.book.actions(LANDING, kind="bus")
-        )
+        """Whether this runner noted `TAP-KEPT` for `pr` at `head` and the standing fidelity grade there still says no new behavior since that tap: the owner's tap then carries without a board row or a go at the new head (root #192094, #194387, #195066)."""
+        tapped = [parts[-2] for action in self.book.actions(LANDING, kind="bus") if (parts := action.action_id.split(":"))[0] == "tap-kept" and parts[2] == pr and names_head(parts[-1], head)]
+        if not tapped:
+            return False
+        standing = self.fidelity(pr, head)
+        return bool(standing.ok and standing.record) and any(keeps_tap(full_text(standing.record), sha) for sha in tapped)
 
     def exempt_admitted(self, pr: str, sha: str) -> tuple[str, str]:
         """The `EXEMPT-ADMITTED` note for `pr` at `sha` when its change is exempt and goes straight to Graphite's queue with no go and no board tap, and why its whole diff breaks the class its grade claims, read once per pass (root #194387, 06288326, owner Oct 28 8:45 PM). A head the runner noted `TAP-KEPT` at is exempt. Otherwise the head grades ok by `fidelity`'s rule and `exempt_class` finds one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first) in its grades. Both classes are checked against every file the PR changes against its base, never the grade's words alone (root #182391): a test-only or CI-only class fails on a file outside the test, CI, skill-script and docs set, and a port class on a file outside `PORT_PREFIXES` unless a `Rulings` comment clears its interaction; changed files that do not read admit nothing that pass."""
@@ -6400,14 +6411,23 @@ class Landing:
         return {}
 
     def preconditions(self, pr: str, sha: str) -> list[tuple[str, str]]:
-        """Every landing precondition sentence about `pr`, each with where it was said: the PR body, read once per head and read again next pass when GitHub refuses it, then each cci record about the PR that a lane other than the runner posted, read once per pass."""
+        """Every landing precondition sentence about `pr`, each with where it was said: the PR body, read once per head and read again next pass when GitHub refuses it, then each cci record about the PR that a lane other than the runner posted, read once per pass; a record a root record about the PR resolves, and a sentence naming one, is no longer a precondition (root #194669)."""
         if (pr, sha) not in self.body_preconditions and (body := self.body(pr, timedelta(0))) is not None:
             self.body_preconditions[(pr, sha)] = precondition_sentences(body)
         if pr not in self.said_preconditions:
             drive = self.runner.config.drive
-            records = cci.records(self.cci_tail, drive, "--pr", f"{self.repo}#{pr}")
-            self.said_preconditions[pr] = [(f"cci #{record['seq']}", sentence) for record in records if record["drive"] == drive and record["lane"] != RUNNER and about_pr(record, self.repo, pr) for sentence in precondition_sentences(full_text(record))]
-        return [("the PR body", sentence) for sentence in self.body_preconditions.get((pr, sha), [])] + self.said_preconditions[pr]
+            records = [record for record in cci.records(self.cci_tail, drive, "--pr", f"{self.repo}#{pr}") if record["drive"] == drive]
+            resolved = {seq for record in records if record["lane"] == ROOT for seq in closes(record)}
+            self.resolved_preconditions[pr] = resolved
+            self.said_preconditions[pr] = [
+                (f"cci #{record['seq']}", sentence)
+                for record in records
+                if record["lane"] != RUNNER and record["seq"] not in resolved and about_pr(record, self.repo, pr)
+                for sentence in precondition_sentences(full_text(record))
+                if not names_resolved(sentence, resolved)
+            ]
+        resolved = self.resolved_preconditions[pr]
+        return [("the PR body", sentence) for sentence in self.body_preconditions.get((pr, sha), []) if not names_resolved(sentence, resolved)] + self.said_preconditions[pr]
 
     @property
     def merge_mode(self) -> str:
@@ -6628,7 +6648,9 @@ class Landing:
             said = [record for record in reviews if record["kind"] == "head" and about_pr(record, self.repo, pr) and names_head(graded_head(record["text"]), head)]
             adds = [record for record in [*said, *([graded] if graded else [])] if ADDS_BEHAVIOR.search(full_text(record))]
             standing = self.fidelity(pr, head)
-            kept = not adds and standing.ok and standing.record and self.finder_clear(pr, head)
+            graded_ok = bool(standing.ok and standing.record)
+            says_kept = graded_ok and keeps_tap(full_text(standing.record), tapped)
+            kept = not adds and says_kept and self.finder_clear(pr, head)
             if kept and not self.book.known(LANDING, key := f"tap-kept:{block}:{pr}:{tapped}:{head}"):
                 self.post_record("note", key, to, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} on board block {block} keeps at {head[:10]}, a review fix with no new behavior per fidelity grade cci #{standing.record['seq']} (rule 399b5fa), so it goes straight to the merge queue with no go (root #194387), and the row lists the fix", pr)
             if kept and (gos := self.head_gos(pr, head)):
@@ -6636,12 +6658,13 @@ class Landing:
                 continue
             if self.head_gos(pr, head) or graded and any(seq == graded["seq"] and identical for _, _, identical, seq in moves):
                 continue
-            if adds and not self.book.known(LANDING, key := f"tap-new-row:{block}:{pr}:{tapped}:{head}"):
-                text = full_text(adds[-1])
-                said = board_rows.sentence_at(text, ADDS_BEHAVIOR.search(text).start()).strip()
+            if (adds or graded_ok and not says_kept) and not self.book.known(LANDING, key := f"tap-new-row:{block}:{pr}:{tapped}:{head}"):
+                record = adds[-1] if adds else standing.record
+                text = full_text(record)
+                why = f"says that head adds new behavior: \"{board_rows.sentence_at(text, ADDS_BEHAVIOR.search(text).start()).strip()}\"" if adds else f"grades it ok without saying no new behavior since the tap at {tapped[:10]}"
                 when = board_rows.tapped_at(entry)
                 since = " -> ".join(sha[:10] for sha in heads_since(moves, head, entry["head"]))
-                self.post_record("note", key, to, f"TAP-NOT-CARRIED #{pr}: the owner's tap at {tapped[:10]} ({when} Pacific) on board block {block} does not carry to {head[:10]}, since cci #{adds[-1]['seq']} says that head adds new behavior: \"{said}\". Heads since his tap: {since}. The board needs a new row for #{pr} at {head[:10]} opening 'You approved this at {when}. Since then: <what changed>. Shown again because: <the new behavior>.'", pr)
+                self.post_record("note", key, to, f"TAP-NOT-CARRIED #{pr}: the owner's tap at {tapped[:10]} ({when} Pacific) on board block {block} does not carry to {head[:10]}, since cci #{record['seq']} {why}. Heads since his tap: {since}. The board needs a new row for #{pr} at {head[:10]} opening 'You approved this at {when}. Since then: <what changed>. Shown again because: <the new behavior>.'", pr)
 
     def question_tap_claims(self, heads: dict[str, str], verdicts: dict[str, dict[str, dict]], rows: dict[str, dict]) -> None:
         """One `GO-TAP-MISSING` to root per root `go` and PR when the go says the owner tapped or approved an open PR at its ledger head, claims no port, test-only or CI-only exemption, and no approval on the root's board names that head or a head the go names, saying what the board holds for the PR instead: a go rests on a board verdict, never on a lane's line that says tapped (rule/82317b0, root #172682)."""
@@ -7991,7 +8014,7 @@ class Landing:
         self.cci_tail.forget()
 
     def gate_pass(self) -> None:
-        self.sessions, self.live, self.dead, self.designed_red, self.full_runs_read, self.said_preconditions = {}, None, {}, {}, {}, {}
+        self.sessions, self.live, self.dead, self.designed_red, self.full_runs_read, self.said_preconditions, self.resolved_preconditions = {}, None, {}, {}, {}, {}, {}
         self.grading, self.grade_tried = True, set()
         self.gate_deadline = time.monotonic() + GATE_BUDGET.total_seconds()
         self.trusted_from, self.pass_began = self.pass_began, time.monotonic()
