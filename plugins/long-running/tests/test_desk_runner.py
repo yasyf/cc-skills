@@ -7205,13 +7205,14 @@ def test_an_admitted_head_no_record_accounts_for_draws_one_admitted_skipped_nami
 
 def test_a_pr_the_runner_merged_directly_draws_no_admitted_skipped_while_its_ledger_row_stays_open(shell, config, tmp_path):
     """Root #211747: the runner merged #45389 and #45523 directly at 6:44 AM Oct 30 and posted MERGED for each, then raised ADMITTED-SKIPPED on both at 6:50, since their ledger rows stayed open until the next refresh."""
-    merge_mode(config, "every")
-    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
-    shell.queue["33001"] = "not queued"
+    lone_green_pr(shell)
+    shell.rows[0] |= {"test_state": "success", "green_at": actions.stamp(shell.clock)}
+    shell.queue["29020"] = "not queued"
+    grade(shell, "29020", "ok F307 at cccc333.")
     queue_drafts(shell, (40, True), (50, True))
-    shell.merge_commits["33001"] = "9999aaaa0000"
+    shell.merge_commits["29020"] = "9999aaaa0000"
     landing_pass(shell, config)
-    assert [record.split(" as ")[0] for record in merged_records(shell)] == ["MERGED #33001 at aaaa111111 direct"]
+    assert merged_records(shell) == ["MERGED #29020 at cccc333333 direct as 9999aaaa00, Graphite down, b530f5d: gh pr merge --squash"]
     shell.sleep(11 * 60)
     landing_pass(shell, config)
     landing_pass(shell, config)
