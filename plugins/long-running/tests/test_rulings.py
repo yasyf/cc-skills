@@ -2309,3 +2309,29 @@ def test_a_row_whose_symbol_only_a_doc_and_a_test_name_is_untouched() -> None:
     diff = rulings.parse_diff(SYMBOL_DIFF)
     assert not rulings.touched({"symbols": '["retire"]', "paths": '["rust/crates/server/src/admin.rs:3931 @ 19dd3ce34ce"]'}, diff)
     assert rulings.touched({"symbols": '["retire"]'}, rulings.parse_diff(SYMBOL_DIFF.replace("func (d *Driver) Retire(", "func retire(")))
+
+
+@pytest.mark.parametrize("count", [2, 32])
+def test_classify_reads_each_unchanged_document_once_for_all_rows(home: Path, package: Path, state: Path, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch, count: int) -> None:
+    prompts = [capture(f"{number:x}", f"no parked worker here {number}") for number in range(1, count + 1)]
+    for number, prompt in enumerate(prompts):
+        prompt["digest"] = f"{number:016x}"
+    captured(state, *prompts)
+    shell = RegisterShell(seeded(package))
+    files = rulings.default_files(rulings.Register(shell, REPO, "brook", state, REGISTER_LEDGER, seeded(package)), package / "plan" / "plan.md")
+    read = Path.read_bytes
+    reads: list[Path] = []
+
+    def counted(path: Path) -> bytes:
+        if path in files:
+            reads.append(path)
+        return read(path)
+
+    monkeypatch.setattr(Path, "read_bytes", counted)
+    code, out = classify(tmp_path, capsys, shell, *({"digest": prompt["digest"], "extends": "rule/aaaaaaa", "words": prompt["text"]} for prompt in prompts))
+
+    print(json.dumps({"rows": count, "corpus_bytes": sum(path.stat().st_size for path in files), "logical_read_bytes": sum(path.stat().st_size for path in reads), "document_reads": len(reads), "legacy_document_reads": count * len(files)}))
+    assert code == 0
+    assert len(out.splitlines()) == count
+    assert reads == files
+
