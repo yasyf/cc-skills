@@ -4069,6 +4069,7 @@ def test_on_a_board_surface_a_root_go_naming_a_parent_in_passing_never_sweeps_it
 def test_the_parent_tap_blocker_posts_once_per_set_of_parents_without_a_go_whatever_their_heads(shell, config, tmp_path):
     board_surface(config)
     two_pr_stack(shell)
+    shell.board_rows = [("29020", "cccc333333"), ("29020", "eeee555555"), ("29031", "dddd444444")]
     merge_go(shell, "29031", "merge #29031 at dddd444")
     landing_pass(shell, config)
     shell.rows[0] = dict(shell.rows[0], head="eeee555555", reported_head="eeee555555")
@@ -6564,6 +6565,7 @@ def test_a_go_named_head_that_waits_on_a_reserved_row_tap_draws_no_go_unqueued(s
 def test_a_go_named_green_head_above_a_parent_no_go_names_draws_one_below_blocked_note_and_no_go_unqueued(shell, config, tmp_path):
     board_surface(config)
     two_pr_stack(shell)
+    shell.board_rows = [("29020", "cccc333333"), ("29031", "dddd444444")]
     shell.rows[1] = dict(shell.rows[1], test_state="success")
     shell.queue["29031"] = "not queued"
     merge_go(shell, "29031", "merge #29031 at dddd444")
@@ -12268,6 +12270,7 @@ def test_with_a_desk_lane_a_merge_ask_skips_root(shell, config, tmp_path):
     board_surface(config)
     desk_lane(config)
     lone_green_pr(shell)
+    shell.board_rows = [("29020", "cccc333333")]
     shell.queue["29020"] = "not queued"
     shell.pr_status["29020"] = {"verdict": "landable"}
     grade(shell, "29020", "ok F307 at cccc333.")
