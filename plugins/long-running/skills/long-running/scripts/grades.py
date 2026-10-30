@@ -206,6 +206,21 @@ def patch_chain(moves: list[tuple[str, str, bool, int]], head: str, tapped: str)
     return []
 
 
+def heads_since(moves: list[tuple[str, str, bool, int]], head: str, tapped: str) -> list[str]:
+    """The heads the moves of `moves`, patch-identical or not, pass through from `tapped` to `head`, oldest first and ending at `head`; only `head` when no chain of moves joins them."""
+    frontier, seen = [(head, [head])], set()
+    while frontier:
+        at, path = frontier.pop()
+        for new, old, _, _ in moves:
+            if not names_head(new, at) or old in seen:
+                continue
+            if names_head(old, tapped):
+                return path[::-1]
+            seen.add(old)
+            frontier.append((old, [*path, old]))
+    return [head]
+
+
 def reached(gone: dict[tuple[str, str], dict], pr: str, sha: str) -> dict | None:
     return next((go for (named, head), go in gone.items() if named == pr and names_head(head, sha)), None)
 

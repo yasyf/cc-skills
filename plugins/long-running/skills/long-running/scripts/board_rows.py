@@ -34,6 +34,9 @@ fails, with one line `<row-id> <pr> <head> <reasons>`, when:
     re-ask    the board records his approval at another head, and no root go, decide or decision record
               names the PR at this head saying it re-asks or is new content (root #138721): until root
               rules replay or new content the row sits in Being fixed or checked
+    since     the board records his approval at another head that its `carried` list does not name,
+              and the `pr-groups` row's `since` lacks `changed`, what changed since his tap in plain
+              words, or `because`, the behavior change it is shown again for (root #194315)
     rejected  the board records his reject for the row at its head, so the row asks again what he
               refused; it returns only at a new head
     landed    its blocker, the `blocker` field or the `Gate` fact, names a PR GitHub shows merged
@@ -72,7 +75,9 @@ root; a flag fails nothing. A GitHub, cci, or cc-present read that fails prints 
 fails no row on the checks it would have read. The verdicts are read with `cc-present outcomes`
 for `--session`, else the push command's `--session`, else cc-present's default session. A last
 line counts rows, failing rows, ungraded rows, and flags. Any failing row exits 1, and `--check` exits 0
-otherwise. The push form runs its command with a copy of the block, `textAt` removed and each failing
+otherwise. The push form opens each re-asked `pr-groups` row's `change` with `You approved this at <his
+tap's Pacific time>. Since then: <changed>. Shown again because: <because>.` and drops every row's
+`since`. It runs its command with a copy of the block, `textAt` removed and each failing
 row left out (its triage item, its `pr-groups` entry, or its `- #<pr>:` line, and a triage or `pr-groups` block
 left empty), as its last argument, so one refused row never holds the rest of the board, and exits 1 when it left a
 row out, else with the command's status. When every row fails it pushes nothing. A one-tap claim that fails marks
@@ -93,6 +98,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import cci
 import ghread
@@ -125,6 +131,8 @@ SENTENCE_WORDS = 5
 SAME_PREFIX = 60
 SAME_JACCARD = 0.8
 OPEN = "OPEN"
+PACIFIC = ZoneInfo("America/Los_Angeles")
+SINCE = "since"
 
 
 @dataclass(frozen=True)
@@ -172,6 +180,8 @@ class Row:
     group: str = ""
     carried: tuple[str, ...] = ()
     required: tuple[str, ...] = FIELDS
+    since: dict[str, str] = field(default_factory=dict)
+    opener: str = ""
     reasons: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -223,7 +233,7 @@ def rows_of(block: dict) -> list[Row]:
     for block_id, group, pr in pr_group_rows(block):
         facts = {name: str(pr.get(name, "")).strip() for name in PR_FIELDS}
         words = "\n".join([pr.get("title", ""), pr.get("md", ""), *facts.values()])
-        rows.append(Row(str(pr["number"]), block_id, str(pr["number"]), pr.get("head", ""), pr.get(TEXT_AT, ""), pr.get("title", ""), first_sentence(facts["change"], facts["change"]), facts, words, group, tuple(pr.get("carried") or ()), PR_FIELDS))
+        rows.append(Row(str(pr["number"]), block_id, str(pr["number"]), pr.get("head", ""), pr.get(TEXT_AT, ""), pr.get("title", ""), first_sentence(facts["change"], facts["change"]), facts, words, group, tuple(pr.get("carried") or ()), PR_FIELDS, pr.get(SINCE) or {}))
     return rows
 
 
@@ -405,8 +415,25 @@ def tap_reasons(row: Row, entry: dict | None, gos: list[dict], rulings: list[dic
     carried = entry is not None and entry.get("verdict") == "approved" and bool(entry.get("head")) and any(grades.names_head(sha, entry["head"]) for sha in row.carried)
     if gos and not at_head(entry, "approved", row.head) and not carried:
         return [f"approved: root go cci #{gos[-1]['seq']} names it at {row.head[:7]}, and neither a board approval there nor his approved head in its carried list backs it; add {entry['head'] if entry and entry.get('verdict') == 'approved' and entry.get('head') else 'his approved head'} to carried, import the verdict, or drop the row"]
-    if entry is not None and entry.get("verdict") == "approved" and not at_head(entry, "approved", row.head) and not carried and not reasked(rulings, row):
+    if moved_tap(row, entry) and not reasked(rulings, row):
         return [f"re-ask: he approved it at {entry['head']}, and no root record rules {row.head[:7]} replay or new content; it waits in Being fixed or checked"]
+    return []
+
+
+def moved_tap(row: Row, entry: dict | None) -> bool:
+    return entry is not None and entry.get("verdict") == "approved" and bool(entry.get("head")) and not at_head(entry, "approved", row.head) and not any(grades.names_head(sha, entry["head"]) for sha in row.carried)
+
+
+def tapped_at(entry: dict) -> str:
+    return datetime.fromisoformat(entry["at"]).astimezone(PACIFIC).strftime("%-I:%M %p %b %-d") if entry.get("at") else f"head {entry['head'][:7]}"
+
+
+def since_reasons(row: Row, entry: dict) -> list[str]:
+    changed, because = (str(row.since.get(name, "")).strip().rstrip(".") for name in ("changed", "because"))
+    when = tapped_at(entry)
+    if not (changed and because):
+        return [f"since: he approved it at {entry['head'][:7]}, so the row opens 'You approved this at {when}. Since then: <what changed, in plain words>. Shown again because: <the behavior change>.'; give its `since` both `changed` and `because`"]
+    row.opener = f"You approved this at {when}. Since then: {changed}. Shown again because: {because}."
     return []
 
 
@@ -545,7 +572,10 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
         if rulings is not None and (ruling := closing_ruling(rulings, row.pr, row.head)):
             row.reasons.append(f"not open: root ruled it superseded or closed on cci #{ruling['seq']}")
         if verdicts is not None:
-            row.reasons += tap_reasons(row, verdicts.get(row.block, {}).get(row.id), standing_gos(rulings, withdrawn, row.pr, row.head) if rulings is not None else [], rulings or [])
+            entry = verdicts.get(row.block, {}).get(row.id)
+            row.reasons += tap_reasons(row, entry, standing_gos(rulings, withdrawn, row.pr, row.head) if rulings is not None else [], rulings or [])
+            if moved_tap(row, entry):
+                row.reasons += since_reasons(row, entry)
         if reviews is not None:
             gaps = graded_warnings(reviews, reviews + (rulings or []), saved, drive, lanes, repo, row)
             row.reasons += [gap for gap in gaps if "fidelity" in gap]
@@ -593,6 +623,23 @@ def bannered(node: object, banner: str) -> object:
     if isinstance(node, list):
         return [bannered(value, banner) for value in node]
     return node
+
+
+def opened(node: object, rows: list[Row]) -> object:
+    """`node` with each re-asked `pr-groups` row's `change` opening with what changed since his tap, and no row's `since`."""
+    if isinstance(node, list):
+        return [opened(value, rows) for value in node]
+    if not isinstance(node, dict):
+        return node
+    if node.get("type") != PR_GROUPS:
+        return {key: opened(value, rows) for key, value in node.items()}
+    openers = {row.pr: row.opener for row in rows if row.block == node["id"] and row.opener}
+    return dict(node, groups=[dict(group, prs=[opened_row(pr, openers.get(str(pr["number"]))) for pr in group.get("prs", [])]) for group in node.get("groups", [])])
+
+
+def opened_row(pr: dict, opener: str | None) -> dict:
+    kept = {key: value for key, value in pr.items() if key != SINCE}
+    return kept | {"change": f"{opener} {pr.get('change', '')}"} if opener else kept
 
 
 def approval_gaps(head: str, pr: str, entry: dict | None, rulings: list[dict], withdrawn: set[int], reviews: list[dict], drive: str, lanes: list[str], repo: str) -> list[str]:
@@ -686,7 +733,7 @@ def main(argv: list[str], shell: Shell | None = None) -> int:
     if failing and len(failing) == len(rows):
         return 1
     with tempfile.NamedTemporaryFile("w", prefix=f"{args.block.stem}.", suffix=".json") as copy:
-        json.dump(stripped(withheld(bannered(block, banner) if banner else block, failing)), copy, indent=1)
+        json.dump(stripped(withheld(opened(bannered(block, banner) if banner else block, rows), failing)), copy, indent=1)
         copy.flush()
         pushed = shell.push([*command, copy.name])
     return 1 if failing else pushed

@@ -605,7 +605,7 @@ import prompt_screen
 import prompt_watch
 import stall_watch
 import testfiles
-from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
+from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, heads_since, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
 from grades import carry_of, delegated, succeeds
 from grades import carries as carry_grade
 from grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
@@ -6592,7 +6592,7 @@ class Landing:
         return ",".join(dict.fromkeys(map(self.successor, [*desks, *self.board_lanes, *owners])))
 
     def carry_taps(self, rows: dict[str, dict]) -> None:
-        """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head when a chain of `head` records reading `<new> (was <old>)` and fidelity carries calls each move patch-identical: `cc-present verdict carry` records it, so the row shows his tap and asks nothing, and one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads. A tap whose new head a record names with no such chain, a fixed version, is never carried: a record saying the head adds new behavior draws one `TAP-NOT-CARRIED` note to the same lanes saying the board needs a new row, and a fidelity ok grade of the head that names none draws one `TAP-KEPT` note saying his tap keeps over that review fix, so root posts the go naming the fix and the row lists it (rule 399b5fa, root #151306). Once root posts that go, the runner carries the tap to the fix itself the same way, citing the grade and the go. A head a root `go` or a patch-identical fidelity carry grade already names is otherwise settled and gets no such note, and a carry onto a merge block the board no longer holds has nothing to carry, so it logs no `TAP-CARRY-FAILED` (root #151003, #151839)."""
+        """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head when a chain of `head` records reading `<new> (was <old>)` and fidelity carries calls each move patch-identical: `cc-present verdict carry` records it, so the row shows his tap and asks nothing, and one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads. A tap whose new head a record names with no such chain, a fixed version, is never carried: a record saying the head adds new behavior draws one `TAP-NOT-CARRIED` note to the same lanes saying the board needs a new row, with the three facts its row opens with: his tap's Pacific time, the heads since it, and that record's sentence naming the new behavior (root #194315), and a fidelity ok grade of the head that names none draws one `TAP-KEPT` note saying his tap keeps over that review fix, so root posts the go naming the fix and the row lists it (rule 399b5fa, root #151306). Once root posts that go, the runner carries the tap to the fix itself the same way, citing the grade and the go. A head a root `go` or a patch-identical fidelity carry grade already names is otherwise settled and gets no such note, and a carry onto a merge block the board no longer holds has nothing to carry, so it logs no `TAP-CARRY-FAILED` (root #151003, #151839)."""
         if self.landing_config.get("merge_ask_surface", "slack") != "board":
             return
         if not (session := self.runner.root_session()):
@@ -6637,7 +6637,11 @@ class Landing:
             if self.head_gos(pr, head) or graded and any(seq == graded["seq"] and identical for _, _, identical, seq in moves):
                 continue
             if adds and not self.book.known(LANDING, key := f"tap-new-row:{block}:{pr}:{tapped}:{head}"):
-                self.post_record("note", key, to, f"TAP-NOT-CARRIED #{pr}: the owner's tap at {tapped[:10]} on board block {block} does not carry to {head[:10]}, since cci #{adds[-1]['seq']} says that head adds new behavior; the board needs a new row for #{pr} at {head[:10]}", pr)
+                text = full_text(adds[-1])
+                said = board_rows.sentence_at(text, ADDS_BEHAVIOR.search(text).start()).strip()
+                when = board_rows.tapped_at(entry)
+                since = " -> ".join(sha[:10] for sha in heads_since(moves, head, entry["head"]))
+                self.post_record("note", key, to, f"TAP-NOT-CARRIED #{pr}: the owner's tap at {tapped[:10]} ({when} Pacific) on board block {block} does not carry to {head[:10]}, since cci #{adds[-1]['seq']} says that head adds new behavior: \"{said}\". Heads since his tap: {since}. The board needs a new row for #{pr} at {head[:10]} opening 'You approved this at {when}. Since then: <what changed>. Shown again because: <the new behavior>.'", pr)
 
     def question_tap_claims(self, heads: dict[str, str], verdicts: dict[str, dict[str, dict]], rows: dict[str, dict]) -> None:
         """One `GO-TAP-MISSING` to root per root `go` and PR when the go says the owner tapped or approved an open PR at its ledger head, claims no port, test-only or CI-only exemption, and no approval on the root's board names that head or a head the go names, saying what the board holds for the PR instead: a go rests on a board verdict, never on a lane's line that says tapped (rule/82317b0, root #172682)."""

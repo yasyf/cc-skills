@@ -543,14 +543,50 @@ def test_rows_in_different_groups_whose_titles_read_alike_fail(tmp_path: Path, s
     assert gate(tmp_path, shell, block, "--check") == failing
 
 
+SINCE = {"changed": "the upload now retries twice", "because": "a failed upload retries instead of failing the turn"}
+
+
 def test_a_row_at_a_head_he_did_not_approve_waits_until_root_rules_it_new_content(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
     shell.verdicts = {"merge-prs": {"42590": approved("42590", NEW_HEAD)}}
 
-    assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 1
+    assert gate(tmp_path, shell, groups(pr_row("42590") | {"since": SINCE}), "--check") == 1
     assert lines(capsys)[0] == f"42590 42590 {HEAD[:7]} re-ask: he approved it at {NEW_HEAD[:7]}, and no root record rules {HEAD[:7]} replay or new content; it waits in Being fixed or checked"
 
     shell.post("decide", "root", f"#42590 {HEAD[:7]} adds a retry he has not seen: the row re-asks his tap", "42590")
-    assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 0
+    assert gate(tmp_path, shell, groups(pr_row("42590") | {"since": SINCE}), "--check") == 0
+
+
+@pytest.mark.parametrize("since", [None, {"changed": "the upload now retries twice"}, {"changed": " ", "because": "a failed upload retries"}])
+def test_a_re_asked_row_without_what_changed_since_his_tap_fails(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], since: dict | None) -> None:
+    """Owner 6:59 PM Oct 29 (root #194315): 'if ur asking for a PR tap that Ive alrady apporiove dyou ned to tell me whats changed / why ur showing it gain'."""
+    shell.verdicts = {"merge-prs": {"42590": approved("42590", NEW_HEAD)}}
+    shell.post("decide", "root", f"#42590 {HEAD[:7]} adds a retry he has not seen: the row re-asks his tap", "42590")
+
+    assert gate(tmp_path, shell, groups(pr_row("42590") | ({"since": since} if since else {})), "--", "cc-present", "update-block") == 1
+
+    assert lines(capsys)[0] == f"42590 42590 {HEAD[:7]} since: he approved it at {NEW_HEAD[:7]}, so the row opens 'You approved this at 1:00 PM Oct 26. Since then: <what changed, in plain words>. Shown again because: <the behavior change>.'; give its `since` both `changed` and `because`"
+    assert shell.pushed == []
+
+
+def test_a_re_asked_row_opens_with_his_tap_time_what_changed_and_why_it_is_shown_again(tmp_path: Path, shell: FakeShell) -> None:
+    shell.verdicts = {"merge-prs": {"42590": approved("42590", NEW_HEAD, at="2026-10-30T01:59:00Z")}}
+    shell.post("decide", "root", f"#42590 {HEAD[:7]} adds a retry he has not seen: the row re-asks his tap", "42590")
+
+    assert gate(tmp_path, shell, groups(pr_row("42590") | {"since": SINCE | {"because": "a failed upload retries instead of failing the turn."}}), "--", "cc-present", "update-block") == 0
+
+    [(_, pushed)] = shell.pushed
+    [*_, row] = next(board_rows.pr_group_rows(pushed))
+    assert row == pr_row("42590", text_at=None, change="You approved this at 6:59 PM Oct 29. Since then: the upload now retries twice. Shown again because: a failed upload retries instead of failing the turn. change in plain words")
+
+
+@pytest.mark.parametrize("verdicts", [{}, {"merge-prs": {"42590": approved("42590")}}, {"merge-prs": {"42590": approved("42590", NEW_HEAD)}}], ids=["untapped", "tapped-here", "carried"])
+def test_a_row_he_is_not_asked_again_needs_no_since_and_pushes_without_it(tmp_path: Path, shell: FakeShell, verdicts: dict) -> None:
+    shell.verdicts = verdicts
+
+    assert gate(tmp_path, shell, groups(pr_row("42590") | {"carried": [NEW_HEAD[:7]], "since": SINCE}), "--", "cc-present", "update-block") == 0
+
+    [(_, pushed)] = shell.pushed
+    assert pushed == groups(pr_row("42590", text_at=None) | {"carried": [NEW_HEAD[:7]]})
 
 
 @pytest.mark.parametrize(("carried", "failing"), [([], 1), ([NEW_HEAD[:7]], 0)])
