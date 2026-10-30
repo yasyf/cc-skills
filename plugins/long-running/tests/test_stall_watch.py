@@ -173,7 +173,7 @@ def test_a_green_head_with_no_fidelity_grade_for_ten_minutes_alarms_the_graders_
 def test_a_new_head_counts_from_the_first_record_naming_it_never_from_an_older_record_with_no_sha(config, named, stalls):
     bulk = record(1, "api-lane", "head", "HEAD api-lane: #101 conflict fix, then the stack above restacked onto it. Published 9:00 AM.", 600, "101")
     ready = record(2, "api-lane", "report", f"[101] clean READY #101 at {HEAD[:10]}", named, "101")
-    shell = FakeShell([bulk, ready, fidelity(3, "101", HEAD, 1)], [row("101")])
+    shell = FakeShell([bulk, ready, fidelity(3, "101", HEAD, 1)], [row("101", test_state="pending")])
 
     watch(shell, config)
 
@@ -363,7 +363,7 @@ def test_a_go_from_a_numbered_successor_of_a_go_lane_settles_the_tap(config):
 
 def test_a_tap_at_an_earlier_head_asks_sonnet_once_whether_the_new_head_replays_it(config):
     restack = f"HEAD #101 {HEAD} (was {OLD}): restack, range-diff patch-identical (3 commits)"
-    shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 20, restack)], [row("101")])
+    shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 20, restack)], [row("101", test_state="pending")])
     shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": OLD[:7], "at": stamp(60)}}}
     shell.answer = lambda question: {"restack": True}
 
@@ -868,7 +868,7 @@ def test_a_stall_only_desks_own_goes_to_those_desks_and_not_to_root(config, desk
     records += [head(3, "201", HEAD, 30), finder(4, "201", HEAD, 25), fidelity(5, "201", HEAD, 25), record(6, "root", "go", f"go #201 at {HEAD[:7]}", 12)]
     step = {"root": "201", "lane": "api-lane", "members": {"201": HEAD}, "step": "check", "since": stamp(8), "budget": 180}
     config.with_name(f"{config.stem}.landing-stacks.json").write_text(json.dumps({"at": stamp(0), "stacks": {"201": step}}))
-    shell = FakeShell(records, [row("101"), row("201")])
+    shell = FakeShell(records, [row("101", test_state="pending"), row("201")])
 
     watch(shell, config)
 
