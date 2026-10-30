@@ -114,7 +114,9 @@ and, across the drive:
     gate      a lane's `state` or `report` record says work waits on PR N (`waits on #N`, `waits only
               on #N`, `blocked on #N`, `when #N lands`), the desk runner or a landing desk lane posted
               N landed or QUEUED, and neither that lane nor a numbered successor of it has posted an
-              `opened` or `head` record since the later of the two; it posts again every hour it stands
+              `opened` or `head` record since the later of the two, a later `state` or `report` that no
+              longer waits on N, or any record resolving the line; a grader desk's line opens none, since
+              a desk opens no work; it posts again every hour it stands (root #218445)
     stale     an open PR, held or not, has kept one head and one state for `stall.minutes.stale`: in the
               merge queue, held, on a drifted graphite-base, conflicting, red, waiting on the PR below it, building,
               held or not yet reviewed by the reviewer bot, green with a go, or green with none; no
@@ -1330,16 +1332,17 @@ class Pass:
                 landed.setdefault(gate[1], record)
         waiting: dict[tuple[str, str], dict] = {}
         for record in records:
-            if record["kind"] in ("state", "report") and record["lane"] not in NOT_LANES:
+            if record["kind"] in ("state", "report") and record["lane"] not in NOT_LANES and not DESK.fullmatch(record["lane"]):
                 for found in WAITS_ON.finditer(record["text"]):
                     waiting[(record["lane"], found[1] or found[2])] = record
+        resolved = {seq for record in records for seq in cci.resolved(record)}
         stalls = []
         for (lane, pr), said in waiting.items():
-            if not (gate := landed.get(pr)):
+            if not (gate := landed.get(pr)) or said["seq"] in resolved:
                 continue
             since = max(at(said), at(gate))
             family = re.compile(rf"{re.escape(LANE_NUMBER.sub('', lane))}(?:-\d+)?")
-            if self.now - since < self.watch.age("gate") or any(record["kind"] in ("opened", "head") and family.fullmatch(record["lane"]) and at(record) >= since for record in records):
+            if self.now - since < self.watch.age("gate") or any(family.fullmatch(record["lane"]) and record["seq"] > said["seq"] and (record["kind"] in ("opened", "head") and at(record) >= since or record["kind"] in ("state", "report") and pr not in {found[1] or found[2] for found in WAITS_ON.finditer(record["text"])}) for record in records):
                 continue
             hour = (self.now - since - self.watch.age("gate")) // GATE_REPEAT
             stalls.append(Stall(
