@@ -102,3 +102,25 @@ def test_suggested_queue_kind_follows_explicit_repo_queue_selection(tmp_path, mo
     assert merge_queue.suggested_adapter(tmp_path)["kind"] == "trunk-stack-enqueue"
     monkeypatch.setattr(merge_queue.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout="", stderr=""))
     assert merge_queue.suggested_adapter(tmp_path)["kind"] == "graphite-stack-enqueue"
+
+
+def test_native_dequeue_refuses_stale_head_instead_of_accepting_legacy_exit_one():
+    shell = Shell(done("#20 BLOCKED Trunk indexed aaaa111111 instead of GitHub head bbbb222222\n", code=1))
+    released, reason = adapter(shell).dequeue("20")
+    assert released is False
+    assert "BLOCKED" in reason
+    assert shell.calls == [["/repo/stack-enqueue", "20", "--dequeue"]]
+
+
+def test_native_dequeue_accepts_only_its_exact_already_absent_receipt_on_exit_one():
+    shell = Shell(done("#20 NOT_QUEUED\n", code=1), done("#21 NOT_QUEUED\n", code=1), done("#20 DEQUEUED abcdef1234\n", code=0))
+    queue = adapter(shell)
+    assert queue.dequeue("20")[0] is True
+    assert queue.dequeue("20")[0] is False
+    assert queue.dequeue("20")[0] is True
+
+
+def test_legacy_dequeue_retains_its_existing_exit_one_contract():
+    shell = Shell(done("Graphite released its queue entry\n", code=1))
+    queue = merge_queue.GraphiteStackEnqueue(shell, Path("/repo"), {"script": "stack-enqueue"}, None, "o/r")
+    assert queue.dequeue("20")[0] is True

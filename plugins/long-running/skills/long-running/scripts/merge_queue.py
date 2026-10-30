@@ -281,6 +281,11 @@ class TrunkStackEnqueue(GraphiteStackEnqueue):
             return None
         return {pr: bool(statuses[pr] and statuses[pr]["isCurrentlySubmittedToQueue"]) for pr in prs}
 
+    def dequeue(self, pr: str) -> tuple[bool, str]:
+        done = self.shell.run([self.script, pr, "--dequeue"])
+        released = done.code == 0 or (done.code == 1 and done.out.strip() == f"#{pr} NOT_QUEUED")
+        return released, ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
+
     def recover(self, prs: list[str]) -> tuple[int, str]:
         return 1, "Trunk recovery requires inspecting its verification run; use mq dequeue or the repository's explicit retry gate"
 
