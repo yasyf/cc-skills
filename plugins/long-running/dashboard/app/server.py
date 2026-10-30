@@ -623,7 +623,7 @@ def ask_need(ask):
 def picked_words(child, answer):
     if child["type"] == "choice":
         labels = {option["id"]: option["label"] for option in child.get("options", [])}
-        return ", ".join([*(labels[option] for option in answer["optionIds"]), *([answer["other"]] if answer.get("other") else [])])
+        return ", ".join([*(labels.get(option, option) for option in answer["optionIds"]), *([answer["other"]] if answer.get("other") else [])])
     return answer["verdict"] if child["type"] == "approval" else answer["text"]
 
 
