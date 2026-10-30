@@ -5,6 +5,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 SCRIPT = Path(__file__).resolve().parents[1] / "skills/long-running/scripts/sprite-job.sh"
 
 SPRITE = """#!/usr/bin/env python3
@@ -31,15 +33,17 @@ def executable(path: Path, text: str) -> None:
     path.chmod(0o755)
 
 
-def test_a_job_keeps_its_own_job_and_pid_files_and_drops_the_empty_refs_a_sprite_restart_left(tmp_path: Path) -> None:
-    """Root #220372, #220831: a Sprite restart emptied its copies of a job's files and three loose refs, the copy back emptied job.json and pid here, and every fetch on the Sprite read the zero object."""
+@pytest.mark.parametrize("relay", ["#!/bin/sh\n", "#!/bin/sh\necho 'cci: database is locked (5) (SQLITE_BUSY)' >&2\nexit 1\n"], ids=["relay-pushes", "relay-locked"])
+def test_a_job_keeps_its_own_job_and_pid_files_and_drops_the_empty_refs_a_sprite_restart_left(tmp_path: Path, relay: str) -> None:
+    """Root #220372, #220831: a Sprite restart emptied its copies of a job's files and three loose refs, the copy back emptied job.json and pid here, and every fetch on the Sprite read the zero object. Root #222905: a relay push that failed on SQLITE_BUSY exited before result.json came back, so the runner never settled the pass."""
     mac, sprite = tmp_path / "mac", tmp_path / "sprite"
     checkout, directory, config = mac / "checkout", mac / "finder-desk" / "45682-c051a2816b25", mac / "config"
     script = mac / "plugin" / "skills" / "long-running" / "scripts" / "finder.py"
     executable(script, RESTARTED_JOB)
     executable(script.parent / "rulings.py", "")
     executable(mac / "bin" / "sprite", SPRITE)
-    executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    executable(mac / "bin" / "cci", relay)
+    executable(mac / "bin" / "sleep", "#!/bin/sh\n")
     directory.mkdir(parents=True)
     job = json.dumps({"drive": "d1", "checkout": str(checkout)})
     (directory / "job.json").write_text(job)
