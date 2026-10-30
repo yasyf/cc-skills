@@ -10,7 +10,10 @@ says to run `rulings.py grade` or post a line, answer in the schema instead; the
 the lines.
 
 Read the head pinned by sha, never the PR's moving tip:
-`git fetch --no-write-fetch-head -q origin {fetch}`, then the PR's own change, {whole}.
+`git fetch --no-write-fetch-head -q origin {fetch}`. {scope}
+When this pass reads only what changed since an earlier head, every fidelity lane stands at ok
+there, or at a `missing` root settled, so the code the range-diff leaves unchanged holds: grade the changed hunks against every
+row, still list every row key in `checked`, and use `reader` only for what those hunks cannot settle.
 Read the code around every changed symbol at that sha, its callers and callees included,
 and their base versions when the head deletes or moves behavior. These are the hunks the
 PR's own commits add or change, as new-file line ranges:

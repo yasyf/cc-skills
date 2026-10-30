@@ -20,6 +20,7 @@ OLD = "a269784e49009c5aa92b2341e08d6945f7ff8e95"
 BASE = "d011466aa1b2c3d4e5f60718293a4b5c6d7e8f90"
 OWN = "e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4"
 MOVED = "8a6c4e2f0b9d7a5c3e1f8b6d4a2c0e9f7b5d3a1c"
+OLD_OWN = "f0e1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d"
 KEYS = ["rule/949e6be", "prompt/1026-105052"]
 ROWS = "".join(f"### {key} | scope | in-force | said 1 | 2026-10-22\n> the owner's words\n\n" for key in KEYS) + "slice-hash: 0123456789ab\n"
 DIFF = "diff --git a/go/sand/next/replica/follow.go b/go/sand/next/replica/follow.go\n--- a/go/sand/next/replica/follow.go\n+++ b/go/sand/next/replica/follow.go\n@@ -40,0 +41,3 @@\n+resubscribe()\n"
@@ -39,6 +40,8 @@ class Fake:
         self.state = state
         self.heads = list(heads)
         self.calls: list[list[str]] = []
+        self.range_diff = f"1:  {OLD_OWN[:7]} = 1:  {OWN[:7]} resubscribe\n"
+        self.shows: dict[str, str] = {}
         self.posted: list[dict] = []
 
     def run(self, argv: list[str], cwd: Path | None = None, timeout: int = finder.READ_SECONDS) -> str:
@@ -69,8 +72,12 @@ class Fake:
         if argv[0] in ("fetch", "merge-base"):
             return ""
         if argv[0] == "rev-list":
-            assert argv[-1] == f"{BASE}...{HEAD}"
-            return f"{OWN}\n"
+            assert argv[-1] in (f"{BASE}...{HEAD}", f"{BASE}...{OLD}")
+            return f"{OWN}\n" if argv[-1].endswith(HEAD) else f"{OLD_OWN}\n"
+        if argv[0] == "range-diff":
+            return self.range_diff
+        if argv[0] == "show":
+            return self.shows.get(argv[-1], "")
         if argv[0] == "rev-parse":
             named = argv[-1].removesuffix("^{commit}")
             if (full := next((sha for sha in self.known if named in (sha, sha[:7])), None)) is None:
@@ -240,6 +247,19 @@ def test_a_head_that_matches_no_head_every_lane_graded_ok_is_read_by_codex(tmp_p
     fidelity.main([str(directory)], shell)
     [ask] = shell.asks()
     assert ask[:6] == ["codex-ask", "-m", "sol", "--incident", "--schema", str(fidelity.SCHEMA)]
+    assert shell.texts()[0].startswith(f"fidelity: ok {HEAD} Resubscribes")
+
+
+def test_a_head_past_one_every_lane_graded_ok_is_graded_on_its_range_diff_delta_alone(tmp_path):
+    """p8a-step7 #196587: #44103's later heads carried 17 files and 2,371 lines, and a whole-PR pass answered reader instead of grading."""
+    directory = job(tmp_path)
+    shell = Fake(tmp_path, [reply()], patches={})
+    shell.range_diff = f"1:  {OLD_OWN[:7]} ! 1:  {OWN[:7]} resubscribe\n"
+    shell.shows = {OLD_OWN[:7]: "diff --git a/f.go b/f.go\n+old\n", OWN[:7]: "diff --git a/f.go b/f.go\n+new\n"}
+    fidelity.main([str(directory)], shell)
+    question = (directory / "question-1.md").read_text()
+    assert f"An earlier head, {OLD}, was reviewed. `git range-diff {OLD_OWN}^..{OLD} {OWN}^..{HEAD}`" in question
+    assert f"only the hunks the range-diff shows for its pair ({OWN[:7]})" in question
     assert shell.texts()[0].startswith(f"fidelity: ok {HEAD} Resubscribes")
 
 

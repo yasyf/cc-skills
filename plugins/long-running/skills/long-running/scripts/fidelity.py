@@ -16,7 +16,8 @@ of which is ok, or a `missing` the job's `settled` map names, it posts `fidelity
 `old-app:` line and no model call. The carry repeats no exempt phrase when a root `class wrong`
 decision answers the carried grade or a grade it was carried from, else each one the newest
 fidelity-desk ok grade on the PR says, else each one the carried grade says. Otherwise it fills
-`reference/fidelity-job-brief.md` with the head's own hunks, its required register rows
+`reference/fidelity-job-brief.md` with the head's own hunks, the change to read (the whole PR, or, past the newest
+earlier head every lane stands ok at, only what `git range-diff` shows changed since it), its required register rows
 (`rulings.py slice --required`), the plan, the lane's newest contract and the PR body, and runs
 `codex-ask -m <model> --schema fidelity.schema.json`, with `--incident` when the job is `fast`, in the drive's checkout. A reply that leaves
 a row ungraded, keys a `missing` line on anything but a plan line or an owner row, or gives no
@@ -116,7 +117,7 @@ def carried_lines(job: dict, found: dict) -> list[tuple[str, list[str]]]:
     return lines
 
 
-def prompt(job: dict, view: dict, base: str, own: list[str], rows: Path, plan: str, touched: dict[str, list[tuple[int, int]]]) -> str:
+def prompt(job: dict, view: dict, base: str, rows: Path, plan: str, touched: dict[str, list[tuple[int, int]]], scope: str) -> str:
     return TEMPLATE.read_text().format(
         repo=job["repo"],
         pr=job["pr"],
@@ -126,7 +127,7 @@ def prompt(job: dict, view: dict, base: str, own: list[str], rows: Path, plan: s
         checkout=job["checkout"],
         rubric=RUBRIC,
         fetch=f"{job['head']} {base}",
-        whole=f"`git diff {own[0]}^ {job['head']}`",
+        scope=scope,
         hunks=finder.hunk_lines(touched),
         rows=rows,
         port=job["exempt"]["port"],
@@ -234,12 +235,16 @@ def run(directory: Path, shell: finder.Shell) -> dict:
         lines = carried_lines(job, found)
         body.write_text("\n".join(text for text, _ in lines) + f"\n\npatch-id {found['patch']} at both heads.\n\n#{found['grade']['seq']}: {found['grade']['text']}\n")
         return {"verdict": "carried", "from": found["head"], "posted": post(shell, job, lines, body)}
+    last = finder.fetched(shell, job, heads[0][0]) if heads else ""
+    earlier = finder.beyond(shell, job, (base, trunk), last) if last else []
+    last = last if earlier else ""
+    pairs, changed = finder.range_pairs(shell, job, base, last, earlier, own) if last else ("", [])
     rows = directory / "rows.md"
     rows.write_text((slicing or pool.submit(finder.slice_rows, shell, job, pr, head, view["baseRefName"])).result())
     keys = finder.ROW_KEY.findall(rows.read_text())
     touched = finder.hunks(finder.git(shell, job, "diff", "--unified=0", "--no-color", "--no-ext-diff", f"{own[0]}^", head))
     question = directory / "question-1.md"
-    question.write_text(prompt(job, view, base, own, rows, plan.result().strip(), touched))
+    question.write_text(prompt(job, view, base, rows, plan.result().strip(), touched, finder.scope(job, own, last, pairs, changed)))
     reply = ask(shell, job, directory, question, 1)
     if short := shortfalls(keys, reply):
         retry = directory / "question-2.md"
