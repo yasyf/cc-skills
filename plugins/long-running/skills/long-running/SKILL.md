@@ -2723,7 +2723,8 @@ Durable owner rulings, decisions, runbooks, and design docs stay in cc-notes.
 The orca desk reads its launch, relay, and hold lines only from cci records addressed
 to `orca-desk`, in the `R<n>` form the owner's CLAUDE.md
 Incident Turn names. The root posts each one with `desk-launch.py`, which mints the
-`R<n>` and the clock.
+`R<n>` and the clock; by hand, an incident fix lane is
+`cci post --drive <drive> --lane root --kind go --to orca-desk --text 'R<n> (<h:mm AM|PM>) orca-desk: launch <name>-fix NOW incident xhigh role=fix brief=<absolute path>'`.
 The root never `SendMessage`s a desk.
 
 **I1. A desk's inbox is the set of cci records addressed to it.** The root posts each ruling

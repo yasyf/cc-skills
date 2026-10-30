@@ -64,7 +64,7 @@ For each named lane with a live dispatch, the runner does what `relay --key R<n>
 does. When the dispatch's newest question to the Run has no answer on its terminal,
 the relay is a reply to that question, which releases a worker blocked in
 `orca orchestration ask`; otherwise, it is a plain relay that wakes the terminal.
-A line without `R<n>` takes the key `inbox@<byte offset>`. Each lane logs once to the
+A record without `R<n>` takes the key `inbox@cci#<seq>`. Each lane logs once to the
 cci drive as `RELAYED <key> <lane>` or `RELAY-FAILED <key> <lane>: <reason>`,
 addressed to root.
 A dead or missing dispatch, a key that already holds different text, and a line that
@@ -78,20 +78,20 @@ without reading any dispatch as gone or failing any relay, logs `ORCA-UNREACHABL
 for the streak, backs off up to two minutes between passes, and logs `ORCA-BACK` on the
 first pass Orca answers.
 
-A launch can also be one line in the same inbox, in this form only, one launch per
-line, with nothing after the brief path:
+A launch is one cci record addressed to `orca-desk`, in this form only, one launch per
+record, with nothing after the brief path. `desk-launch.py` posts it; by hand it is:
 
-```text
-R<n> (<time>) orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>
+```sh
+cci post --drive <drive> --lane root --kind go --to orca-desk --text 'R<n> (<h:mm AM|PM>) orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>'
 ```
 
 The runner does what `launch --key R<n>` does with the same model, effort, and
 brief; `NOW` is `--owner-directed`, so under load the launch fails at once instead of
 waiting out the hold, and `role=<role>` is `--role`, the launch's role for the incident
 clock. An incident
-fix lane is `R<n> (<time>) orca-desk: launch <lane> NOW incident xhigh brief=<path>`;
-only `incident` runs on the fast tier, and plain `sol` is the standard tier. A line without `R<n>` takes the key
-`inbox@<byte offset>`. A verified launch logs `LAUNCHED <key> <lane>: dispatch
+fix lane is `R<n> (<time>) orca-desk: launch <name>-fix NOW incident xhigh role=fix brief=<path>`;
+only `incident` runs on the fast tier, and plain `sol` is the standard tier. A record without `R<n>` takes the key
+`inbox@cci#<seq>`. A verified launch logs `LAUNCHED <key> <lane>: dispatch
 <ctx> terminal <handle>`. The runner logs `LAUNCH-FAILED <key> <lane>: <reason>`
 and launches nothing for a lane with a live dispatch or a launch still in flight,
 a key that already holds an action, a model or effort `launch` refuses, a brief
