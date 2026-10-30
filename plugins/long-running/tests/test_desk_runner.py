@@ -13179,6 +13179,18 @@ def test_a_pass_whose_process_exited_with_no_result_fails_that_pass_and_its_slot
     assert not finder_failures(shell)
 
 
+def test_a_pass_whose_pid_file_is_empty_settles_as_exited(shell, config, tmp_path):
+    """root #220372: a Sprite restart left a pass's pid file empty, and every orca pass raised reading it."""
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    [emptied] = shell.finder_jobs
+    (emptied / "pid").write_text("")
+    orca_pass(shell, config)
+    assert incident(tmp_path, "desk-finder").actions[f"finder:43439:{FINDER_HEAD}"].reason == "finder.py exited 0 min after it started and wrote no result"
+
+
 def finder_desk_stalls(shell: FakeShell) -> list[str]:
     return [line for line in escalations(shell) if line.startswith("FINDER-DESK-STALLED")]
 
