@@ -12,7 +12,6 @@ import pytest
 import drive
 from long_running import actions
 from long_running.book import Book
-from long_running.migration import initialize
 
 
 class Clock:
@@ -22,7 +21,6 @@ class Clock:
 
 def history(tmp_path: Path, count: int) -> actions.Store:
     root = tmp_path / "store"
-    initialize(root)
     store = actions.Store(root)
     incident = actions.Incident("runner", "root", 0, "2026-10-30T00:00:00Z", {})
     for index in range(count):
@@ -41,8 +39,10 @@ def test_cold_book_queries_construct_only_selected_actions(tmp_path, monkeypatch
 
     def decode(*args, **kwargs):
         nonlocal loads
+        record = load_json(*args, **kwargs)
+        assert "action_id" in record
         loads += 1
-        return load_json(*args, **kwargs)
+        return record
 
     def construct(cls, record):
         nonlocal builds

@@ -7413,7 +7413,7 @@ class Landing:
         """Whether a ledger row is an incident fix's: its lane is an `incident-` or `outage-` lane or a fix lane the runner launched on the incident clock, or an open incident in the executor's store names the PR as its repair, and no root go, hold, lift, decide or release naming it took it off the incident path."""
         lane = row.get("lane", "")
         store = actions.Store()
-        tagged = INCIDENT_NAME.match(lane) or (self.book.exists(lane_container(lane)) and self.fix_launch(lane_container(lane)))
+        tagged = INCIDENT_NAME.match(lane) or (self.book.exists(lane_container(lane)) and self.runner.fix_launch(lane_container(lane)))
         if not tagged:
             for incident_id in store.ids():
                 facts = store.facts(incident_id, ["repair_pr", "adopted", "not_ours"])

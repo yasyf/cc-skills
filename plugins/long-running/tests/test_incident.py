@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from long_running import actions, migration
+from long_running import actions
 import incident
 import pytest
 from long_running.actions import Incident, StaleGeneration, Store, parse_stamp, stamp
@@ -234,7 +234,6 @@ def fake(clock) -> Replay:
 
 @pytest.fixture
 def store(tmp_path) -> Store:
-    migration.initialize(tmp_path / "incidents")
     return Store(tmp_path / "incidents")
 
 

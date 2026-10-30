@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-from long_running import actions, migration, sqlite_store
+from long_running import actions, sqlite_store
 import mq as mq_module
 import pytest
 from conftest import gateway
@@ -891,13 +891,11 @@ class FakeShell(runner_module.Shell):
 def shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeShell:
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
-    migration.initialize(actions.incidents_dir())
     return FakeShell(tmp_path)
 
 
 @pytest.fixture
 def config(tmp_path: Path, shell: FakeShell) -> Path:
-    migration.initialize(tmp_path / "store")
     briefs = tmp_path / "lfs"
     briefs.mkdir()
     (briefs / "f85c00ba").write_text("Lane brief: rebase onto dev when asked; never touch production.\n")
@@ -8308,11 +8306,15 @@ def test_without_a_gc_the_line_names_the_r195_bar(shell, config, tmp_path):
 
 
 @pytest.mark.parametrize(("flag", "value"), [("--model", "gemini"), ("--effort", "extreme")])
-def test_a_launch_the_script_cannot_start_is_refused_when_submitted(shell, config, tmp_path, flag, value):
+def test_a_launch_the_script_cannot_start_is_refused_when_submitted(shell, config, tmp_path, monkeypatch, flag, value):
     argv = {"--model": "astra", "--effort": "xhigh"} | {flag: value}
+
+    def unexpected_store(*args, **kwargs):
+        pytest.fail("invalid launch arguments constructed a store")
+
+    monkeypatch.setattr(actions, "Store", unexpected_store)
     with pytest.raises(SystemExit):
         cli(shell, config, "launch", "--key", "R1", "--lane", LANE, "--model", argv["--model"], "--effort", argv["--effort"], "--brief", str(tmp_path / "brief.md"))
-    assert not (tmp_path / "store").exists()
 
 
 @pytest.mark.parametrize("model", ["astra", "codex", "sol", "incident", "opus", "claude-opus-5-5", "gpt-6.1-sol"])
@@ -12977,7 +12979,6 @@ def test_with_a_desk_lane_a_fork_deferred_batch_skips_root(shell, config, tmp_pa
 
 
 def test_book_edit_decodes_current_incident_once(shell, tmp_path, monkeypatch):
-    migration.initialize(tmp_path / "store")
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident("book", "owner", 3, actions.stamp(shell.now()), {"cursor": 7}))
     book = runner_module.Book(store, shell)
@@ -12996,7 +12997,6 @@ def test_book_edit_decodes_current_incident_once(shell, tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("edit", ["pop", "setdefault", "update", "nested"])
 def test_book_noop_preserves_incident_file(shell, tmp_path, monkeypatch, edit):
-    migration.initialize(tmp_path / "store")
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident("book", "owner", 3, actions.stamp(shell.now()), {"cursor": 7, "nested": {"x": [1]}}))
     path = store.path("book")
@@ -13024,7 +13024,6 @@ def test_book_noop_preserves_incident_file(shell, tmp_path, monkeypatch, edit):
 
 
 def test_book_edit_retries_callback_stale_generation_without_persisting_partial_change(shell, tmp_path):
-    migration.initialize(tmp_path / "store")
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident("book", "owner", 3, actions.stamp(shell.now()), {"cursor": 7}))
     attempts = []
@@ -13042,7 +13041,6 @@ def test_book_edit_retries_callback_stale_generation_without_persisting_partial_
 
 
 def test_book_edit_failure_preserves_bytes_and_missing_diagnostic(shell, tmp_path):
-    migration.initialize(tmp_path / "store")
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident("book", "owner", 3, actions.stamp(shell.now()), {"cursor": 7}))
     path = store.path("book")
@@ -13062,7 +13060,6 @@ def test_book_edit_failure_preserves_bytes_and_missing_diagnostic(shell, tmp_pat
 
 
 def test_book_edit_uses_current_owner_while_explicit_generation_still_refuses(shell, tmp_path):
-    migration.initialize(tmp_path / "store")
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident("book", "old", 3, actions.stamp(shell.now()), {}))
     store.transfer("book", 3, "new")
@@ -13077,12 +13074,11 @@ def test_book_edit_uses_current_owner_while_explicit_generation_still_refuses(sh
 
 
 def test_book_edit_holds_the_incident_lock_through_the_callback(shell, tmp_path):
-    migration.initialize(tmp_path / "store")
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident("book", "owner", 3, actions.stamp(shell.now()), {}))
 
     def change(incident):
-        with open(store.data_root / ".book.lock", "w") as lock:
+        with open(store.root / ".book.lock", "w") as lock:
             with pytest.raises(BlockingIOError):
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         incident.facts["locked"] = True
@@ -13092,7 +13088,6 @@ def test_book_edit_holds_the_incident_lock_through_the_callback(shell, tmp_path)
 
 
 def test_owned_noop_preserves_bytes_and_nested_mutation_is_persisted(shell, tmp_path):
-    migration.initialize(tmp_path / "store")
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident("book", "owner", 3, actions.stamp(shell.now()), {"nested": {"x": [1]}}))
     path = store.path("book")
@@ -13108,7 +13103,6 @@ def test_owned_noop_preserves_bytes_and_nested_mutation_is_persisted(shell, tmp_
 
 
 def test_inputs_noop_still_advances_input_revision(shell, tmp_path):
-    migration.initialize(tmp_path / "store")
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident("book", "owner", 3, actions.stamp(shell.now()), {}))
     with store.transaction("book", inputs=True):

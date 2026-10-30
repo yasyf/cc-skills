@@ -18,12 +18,9 @@ from long_running import actions
 
 if args.format == "sqlite":
     from long_running import sqlite_store
-    from long_running.migration import initialize
 
 
 def measure(root, nested):
-    if args.format == "sqlite":
-        initialize(root)
     store = actions.Store(root)
     initial = {"a": 1, "b": 2, "drop": 3}
     store.create(actions.Incident("ordered", "owner", 0, "2026-10-30T00:00:00Z", {"m": initial} if nested else initial))

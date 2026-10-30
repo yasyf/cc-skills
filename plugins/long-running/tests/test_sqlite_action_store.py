@@ -11,14 +11,41 @@ import pytest
 
 from long_running import actions
 from long_running import sqlite_store
-from long_running.migration import initialize
 
 NOW = datetime(2026, 10, 30, tzinfo=timezone.utc)
 
 
+def test_sql_store_discovery_is_read_only_and_creation_keeps_brief_roots_writable(tmp_path, monkeypatch):
+    def unexpected_chmod(*args, **kwargs):
+        pytest.fail("SQL store changed filesystem permissions")
+
+    monkeypatch.setattr(os, "chmod", unexpected_chmod)
+    root = tmp_path / "absent" / "store"
+    store = sqlite_store.Store(root)
+    assert store.ids() == []
+    assert not store.exists("runner")
+    assert not root.exists()
+    incident = actions.Incident("runner", "owner", 3, actions.stamp(NOW), {})
+    incident.accept("effect", "send", "target", "owner", NOW)
+    incident.start("effect", NOW)
+    store.create(incident)
+    assert store.ids() == ["runner"]
+    assert store.exists("runner")
+    assert store.path("runner").read_bytes().startswith(b"SQLite format 3\x00")
+    restored = sqlite_store.Store(root).load("runner")
+    assert restored.dump() == incident.dump()
+    assert restored.owner_generation == 3
+    assert restored.action("effect").status == "started"
+    briefs = root / "new-id"
+    briefs.mkdir()
+    brief = briefs / "fix.full.md"
+    brief.write_text("future incident brief")
+    assert brief.read_text() == "future incident brief"
+    assert not list(root.rglob("*.json"))
+
+
 def history(root, count=8, name="runner"):
     root = root / "store"
-    initialize(root)
     store = sqlite_store.Store(root)
     incident = actions.Incident(name, "root", 0, actions.stamp(NOW), {"nested": {"items": [1]}})
     for index in range(count):
@@ -37,8 +64,10 @@ def test_cold_selected_reads_and_single_transition_are_history_bounded(tmp_path,
     connect, flush = sqlite_store.Store._connect, sqlite_store.Transaction.flush
 
     def load(value, *args, **kwargs):
+        record = decode(value, *args, **kwargs)
+        assert "action_id" in record
         costs["loads"] += 1
-        return decode(value, *args, **kwargs)
+        return record
 
     def build(cls, record):
         costs["builds"] += 1
@@ -272,7 +301,6 @@ def test_cli_json_contract_and_schema_durability(tmp_path, capsys):
 
 @pytest.mark.parametrize("name", ["", "../escape", "nested/id", "nul\x00id"])
 def test_incident_paths_do_not_expand_store_authority(tmp_path, name):
-    initialize(tmp_path / "store")
     with pytest.raises(ValueError):
         sqlite_store.Store(tmp_path / "store").path(name)
 

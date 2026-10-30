@@ -8,7 +8,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from long_running import actions, sqlite_store
-from long_running.migration import initialize
 
 NOW = datetime(2026, 10, 30, tzinfo=timezone.utc)
 
@@ -50,7 +49,6 @@ def counted():
 def measure(count: int) -> dict:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory) / "store"
-        initialize(root)
         store = sqlite_store.Store(root)
         state = actions.Incident("runner", "root", 0, actions.stamp(NOW), {"history": {str(index): {"value": index} for index in range(count)}})
         for index in range(count):
