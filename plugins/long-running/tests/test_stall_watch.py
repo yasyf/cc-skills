@@ -196,10 +196,11 @@ def test_a_green_head_with_no_fidelity_grade_for_ten_minutes_alarms_the_graders_
 
     watch(shell, config)
 
-    assert shell.topics() == stalls
+    assert [topic for topic in shell.topics() if not topic.startswith("ungraded:")] == stalls
     for topic in stalls:
-        assert shell.post(topic)["to"].split(",")[0] == "root" and "fidelity-desk@d1" in shell.post(topic)["to"]
+        assert shell.post(topic)["to"] == "fidelity-desk@d1"
         assert shell.post(topic)["text"].startswith(f"STALL ungraded #101 at abc1234, {green} min: its build has read green since")
+        assert shell.post(f"ungraded:{actions.stamp(NOW)}") == {"to": "root", "kind": "urgent", "text": "STALL ungraded, 1 green head past 10 min with no grade: #101 at abc1234 has no fidelity grade, green since 12:49 PM, owner fidelity-desk | each owner heard its own line"}
 
 
 @pytest.mark.parametrize(("named", "stalls"), [(5, []), (40, ["finder:101:abc1234"])])
@@ -259,7 +260,7 @@ def test_a_go_whose_green_head_the_review_bot_holds_or_waits_to_see_restacked_go
 
 def test_gos_stacked_on_one_parent_post_once_naming_the_parent_and_a_held_parent_draws_none(config, tmp_path):
     merge_mode(config, "ask")
-    records = [head(10, "201", HEAD, 40), finder(11, "201", HEAD, 39), fidelity(12, "201", HEAD, 39), record(1, "root", "go", f"go #202 at {OTHER[:7]}", 12), record(2, "root", "go", f"go #203 at {OLD[:7]}", 11), record(3, "root", "go", f"go #302 at {OTHER[:7]}", 12), hold(900, "hold #301 waits on the schema release", "301")]
+    records = [record(1, "root", "go", f"go #202 at {OTHER[:7]}", 12), record(2, "root", "go", f"go #203 at {OLD[:7]}", 11), record(3, "root", "go", f"go #302 at {OTHER[:7]}", 12), head(10, "201", HEAD, 40), finder(11, "201", HEAD, 39), fidelity(12, "201", HEAD, 39), hold(900, "hold #301 waits on the schema release", "301")]
     rows = [row("201"), row("202", OTHER, base="b201"), row("203", OLD, base="b202"), row("301"), row("302", OTHER, base="b301")]
     shell = FakeShell(records, rows)
 

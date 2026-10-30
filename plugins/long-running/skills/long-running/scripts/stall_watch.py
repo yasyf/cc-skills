@@ -941,8 +941,8 @@ class Pass:
             green = actions.parse_stamp(row["green_at"]) if row.get("green_at") else None
             ungraded = green is not None and self.now - green >= self.watch.age("ungraded")
             if not finders and ungraded:
-                held = self.queued(FINDER_DESK, pr, head)
-                step = f"run the finder desk's pass on {subject}, {'running' if held.status == 'started' else 'queued'} since {pacific(actions.parse_stamp(held.started_at or held.accepted_at))}, or say in `desk-runner.py show` why the queue holds it" if held else f"ask finder-desk for `finder: whole` on {subject}"
+                job = self.queued(FINDER_DESK, pr, head)
+                step = f"run the finder desk's pass on {subject}, {'running' if job.status == 'started' else 'queued'} since {pacific(actions.parse_stamp(job.started_at or job.accepted_at))}, or say in `desk-runner.py show` why the queue holds it" if job else f"ask finder-desk for `finder: whole` on {subject}"
                 stalls.append(Stall(f"finder:{pr}:{short(head)}", "ungraded", green, subject, f"its build has read green since {pacific(green)}, and no finder review names this head", (RUNNER if self.desk_runs(FINDER_DESK) else lane,), step, pr))
             elif not finders and self.now - head_at >= self.watch.age("finder"):
                 if started := self.overran(FINDER_DESK, pr, head):
