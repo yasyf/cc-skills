@@ -284,11 +284,13 @@ and unrefused for five minutes, posting a QUEUED report that names the overflow 
 draft from its app has opened in 15 minutes while the queue read holds a PR, or its two newest drafts are both still open 30 minutes after
 opening, which is how its batches time out; a draft read that fails changes nothing. The pass that sees it posts one `GRAPHITE-DOWN since
 <time>` state record to root and each `landing.desk_lane`, and one `GRAPHITE-UP` once a draft opens after that time. While down, the
-overflow stops and each accepted enqueue merges its prefix straight into the trunk instead (owner b530f5d): chain by chain, bottom first,
-only once each chain sits on the latest trunk, its bottom behind none of it and each PR behind none of the PR below (owner e7170fa), a
-lone PR by `gh pr merge --squash --match-head-commit` and a longer chain by `gh stack link` and one all-or-nothing `gh stack merge --squash`
-of its top, posting one `MERGED #N at <head> direct as <squash>, Graphite down, b530f5d` state record per PR once its squash reads, one merge in flight at a time, an incident squash included (owner 9:00 PM Oct 29). A chain behind its base gets one
-blocker per head asking the restack lanes and its lane to rebase it, and the chains above it wait. Every enqueue first settles its PRs
+overflow stops and each accepted enqueue merges its prefix straight into the trunk instead (owner b530f5d), one merge in flight at a time, an incident
+squash included (owner 9:00 PM Oct 29): chain by chain, bottom first, a chain behind the latest trunk is first replayed onto its tip in the landing
+checkout with `git replay`, each PR kept only when its own patch is unchanged, pushed in one atomic push leased on the admitted heads, and merged once
+GitHub reads each PR approved again, read every minute for ten minutes, since the push dismisses the approval (root #197237, #197434); a lone PR
+merges by `gh pr merge --squash --match-head-commit` and a longer chain by `gh stack link` and one all-or-nothing `gh stack merge --squash` of its
+top; the run waits for each squash and posts one `MERGED #N at <head> direct as <squash>, Graphite down, b530f5d` state record per PR. A conflict,
+a changed patch or an approval that does not come back gets one blocker per head to the PR's lane and the restack lanes, and the chains above it wait. Every enqueue first settles its PRs
 through `ledger.py landed`, so a PR another lane merged directly is never enqueued. The queue read is one `ccx vcs pr status` call over every open row a pass,
 allowed 300 s, which the gate, the requeue and the landed check share. A PR body is read at most once per five minutes, a head's
 `check-pr` that waits on an owner answer runs again at most once per five minutes, and the trunk's statuses are read only when
@@ -709,6 +711,9 @@ DIRECT_RULING = "b530f5d"
 REBASE_RULING = "e7170fa"
 SQUASH_POLL_SECONDS = 5
 SQUASH_POLLS = 12
+APPROVAL_POLL_SECONDS = 60
+APPROVAL_POLLS = 10
+REVIEW_BOT = "forge-pr-reviewer[bot]"
 DIRECT_MERGING = threading.Lock()
 UNGRADED_READ = "ungraded_read"
 DIFF_MEDIA = "Accept: application/vnd.github.diff"
@@ -6948,16 +6953,16 @@ class Landing:
         for top in tops:
             chain = sorted((pr for pr in downstack(open_rows, top) if pr in heads), key=lambda pr: len(downstack(open_rows, pr)))
             with DIRECT_MERGING:
-                behind = self.unrebased(chain, heads)
-                done = None if behind else self.merge_chain(chain, heads)
+                landing, refused = self.rebased(chain, heads, open_rows)
+                done = None if refused else self.merge_chain(chain, landing)
                 squashes = self.squashes(chain) if done and not done.code else {}
-            if behind:
-                pr, base = behind
-                last = f"#{pr} at {heads[pr][:10]} is behind {base}, so {numbered(chain)} waits for a rebase onto the latest {TRUNK}"
+            if refused:
+                pr, why = refused
+                last = f"{numbered(chain)} did not rebase onto the latest {TRUNK}: {why}"
                 if not self.book.known(LANDING, ask := f"rebase-direct:{pr}@{heads[pr]}"):
                     owner = self.owner(pr, open_rows[pr])
-                    to = ",".join(dict.fromkeys([*self.restack_lanes(), *(self.reach(owner) if owner else [])]))
-                    self.post_blocker(ask, to, f"#{pr} {heads[pr][:10]}: Graphite is down, so the landing runner merges directly, and a direct merge needs its stack rebased onto the latest {TRUNK} first (owner {REBASE_RULING}); it is behind {base}. Rebase {numbered(chain)} onto {TRUNK} and push; it merges once green at the new heads.", pr)
+                    to = ",".join(dict.fromkeys([*(self.reach(owner) if owner else []), *self.restack_lanes()]))
+                    self.post_blocker(ask, to, f"#{pr} {heads[pr][:10]}: Graphite is down, so the landing runner rebases each admitted stack onto the latest {TRUNK} and merges it directly (owner {REBASE_RULING}), and {why}. Clear that for {numbered(chain)}, a conflict or a changed patch by your own rebase onto {TRUNK}; it merges once admitted at its heads.", pr)
                 return (MERGED if outcome == MERGED else "blocked"), "".join(outs)[-1500:], last
             outs.append(done.out + done.err)
             last = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
@@ -6967,7 +6972,8 @@ class Landing:
             how = f"gh stack merge of {numbered(chain)}" if len(chain) > 1 else "gh pr merge --squash"
             for pr in chain:
                 landed = f"as {squashes[pr][:10]}" if squashes.get(pr) else "with its squash unread"
-                self.post_record("state", f"merged-direct:{pr}@{heads[pr]}", self.landing_audience([pr], rows, self.queue_audience([pr], rows)), f"MERGED #{pr} at {heads[pr][:10]} direct {landed}, Graphite down, {DIRECT_RULING}: {how}", pr)
+                moved = "" if landing[pr].startswith(heads[pr]) else f", rebased to {landing[pr][:10]},"
+                self.post_record("state", f"merged-direct:{pr}@{heads[pr]}", self.landing_audience([pr], rows, self.queue_audience([pr], rows)), f"MERGED #{pr} at {heads[pr][:10]}{moved} direct {landed}, Graphite down, {DIRECT_RULING}: {how}", pr)
         return outcome, "".join(outs)[-1500:], last
 
     def squashes(self, chain: list[str]) -> dict[str, str]:
@@ -6982,6 +6988,66 @@ class Landing:
             if all(squashes.values()):
                 break
         return squashes
+
+    def rebased(self, chain: list[str], heads: dict[str, str], open_rows: dict[str, dict]) -> tuple[dict[str, str], tuple[str, str] | None]:
+        """The heads `chain` merges at, rebased onto the trunk's tip first when it is behind (root #197237): each PR replayed in the landing checkout onto the new head below it, the bottom onto the tip, kept only when its own patch is identical to the admitted head's, then every branch pushed in one atomic push leased on its admitted head, and the run waits for GitHub to read each new head and for each PR's approval again. A chain on the tip merges at its admitted heads. Otherwise the first PR that does not replay cleanly, whose patch changes, or whose approval does not come back, with why; nothing is pushed for the first two."""
+        heads = {pr: open_rows[pr]["head"] if open_rows[pr].get("head", "").startswith(sha) else sha for pr, sha in heads.items()}
+        if not self.unrebased(chain, heads):
+            return heads, None
+        git = ["git", "-C", str(self.checkout)]
+        listed = self.shell.run([*git, "ls-remote", "origin", f"refs/heads/{TRUNK}"])
+        if listed.code or not listed.out.strip():
+            return heads, (chain[0], f"the trunk tip did not read: {(listed.err or listed.out).strip()[:200] or 'empty'}")
+        tip = listed.out.split()[0]
+        fetched = self.shell.run([*git, "fetch", "-q", "--no-tags", "origin", tip, *heads.values()])
+        if fetched.code:
+            return heads, (chain[0], f"the trunk tip or the heads did not fetch: {(fetched.err or fetched.out).strip()[:200]}")
+        base = self.shell.run([*git, "merge-base", tip, heads[chain[0]]]).out.strip()
+        landing: dict[str, str] = {}
+        onto = tip
+        for pr in chain:
+            replayed = self.shell.run([*git, "replay", "--onto", onto, "--ref", f"refs/heads/{open_rows[pr]['branch']}", "--ref-action=print", f"{base}..{heads[pr]}"])
+            update = replayed.out.split()
+            if replayed.code or len(update) != 4:
+                return heads, (pr, f"#{pr} does not replay cleanly onto {onto[:10]}: {(replayed.err or replayed.out).strip()[:200]}")
+            if self.own_patch(base, heads[pr]) != self.own_patch(onto, update[2]):
+                return heads, (pr, f"#{pr}'s own patch changes when replayed onto {onto[:10]}")
+            landing[pr], onto, base = update[2], update[2], heads[pr]
+        pushed = self.shell.run([*git, "push", "--atomic", "--no-verify", *(f"--force-with-lease=refs/heads/{open_rows[pr]['branch']}:{heads[pr]}" for pr in chain), "origin", *(f"{landing[pr]}:refs/heads/{open_rows[pr]['branch']}" for pr in chain)])
+        if pushed.code:
+            return heads, (chain[0], f"the rebased heads did not push: {(pushed.err or pushed.out).strip()[:200]}")
+        for pr in chain:
+            for poll in range(SQUASH_POLLS):
+                if poll:
+                    self.shell.sleep(SQUASH_POLL_SECONDS)
+                read = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "headRefOid", "--jq", ".headRefOid", max_age=ghread.FRESH))
+                if read.out.strip() == landing[pr]:
+                    break
+        for pr in chain:
+            self.post_record("head", f"rebased-direct:{pr}@{landing[pr]}", ",".join(dict.fromkeys([ROOT, *map(self.successor, self.fidelity_lanes)])), f"HEAD #{pr} {landing[pr]} (was {heads[pr]}): the landing runner rebased it onto {TRUNK} {tip[:10]} for its direct merge, patch-identical to {heads[pr][:10]} by patch-id, so its go and grades carry (root #197571)", pr)
+        for pr in chain:
+            if waiting := self.carried_again(pr, heads[pr], landing[pr]):
+                return landing, (pr, f"{waiting} at {landing[pr][:10]} in {APPROVAL_POLLS} minutes since the rebase push")
+        return landing, None
+
+    def carried_again(self, pr: str, admitted: str, rebased: str) -> str:
+        """What `pr` at `rebased` still lacks after `APPROVAL_POLLS` reads `APPROVAL_POLL_SECONDS` apart, empty once GitHub reads it approved and, when a root go admitted it at `admitted`, a root go names `rebased`: the rebase push dismisses the approval, the review bot approves a patch-identical head again within minutes, and the go sweep carries the go (root #197434, #197584)."""
+        needs_go = bool(self.head_gos(pr, admitted))
+        for poll in range(APPROVAL_POLLS):
+            if poll:
+                self.shell.sleep(APPROVAL_POLL_SECONDS)
+                self.reread()
+            read = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "reviewDecision", "--jq", ".reviewDecision", max_age=ghread.FRESH))
+            approved = read.out.strip() == "APPROVED"
+            gone = not needs_go or bool(self.head_gos(pr, rebased))
+            if approved and gone:
+                return ""
+        return " and ".join(filter(None, [f"{REVIEW_BOT} has not approved #{pr} again" if not approved else "", f"no root go names #{pr}" if not gone else ""]))
+
+    def own_patch(self, base: str, head: str) -> str:
+        """The stable patch id of `head`'s change on `base`, empty for no change."""
+        diff = self.shell.run(["git", "-C", str(self.checkout), "diff", base, head])
+        return self.shell.run(["git", "patch-id", "--stable"], stdin=diff.out).out.split(" ")[0] if diff.code == 0 else f"unread:{head}"
 
     def unrebased(self, chain: list[str], heads: dict[str, str]) -> tuple[str, str] | None:
         """The first PR of `chain`, bottom first, whose head is behind its base, the latest trunk for the bottom and the head of the PR below for the rest, with that base; a compare GitHub refuses reads as behind."""
@@ -7235,14 +7301,15 @@ class Landing:
             return
         self.check_precondition(Graded({pr: view["headRefOid"]}, {pr: row}, self.runner.now(), act=True))
         with DIRECT_MERGING:
-            if self.unrebased([pr], {pr: view["headRefOid"]}):
+            landing, refused = self.rebased([pr], {pr: view["headRefOid"]}, {pr: row})
+            if refused:
                 if not self.book.known(LANDING, ask := f"rebase-direct:{pr}@{view['headRefOid']}"):
                     owner = self.owner(pr, row)
-                    self.post_blocker(ask, ",".join(dict.fromkeys([*(self.reach(owner) if owner else []), ROOT])), f"#{pr} {view['headRefOid'][:10]}: the approved, green incident fix is behind the latest {TRUNK}, and a merge outside the queue needs its head rebased onto the latest {TRUNK} first (owner {REBASE_RULING}, 9:00 PM Oct 29). Rebase it onto {TRUNK} and push; it merges once green at the new head.", pr)
+                    self.post_blocker(ask, ",".join(dict.fromkeys([*(self.reach(owner) if owner else []), ROOT])), f"#{pr} {view['headRefOid'][:10]}: the approved, green incident fix is behind the latest {TRUNK}, a merge outside the queue lands only rebased onto it (owner {REBASE_RULING}, 9:00 PM Oct 29), and {refused[1]}. Clear that, a conflict or a changed patch by your own rebase onto {TRUNK}; it merges once approved and green at its head.", pr)
                 return
             self.book.accept(LANDING, key, "squash", json.dumps({"pr": pr, "head": view["headRefOid"]}), f"#{pr} incident", None)
             self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
-            merged = self.shell.run(["gh", "pr", "merge", pr, "--repo", self.repo, "--squash", "--match-head-commit", view["headRefOid"]])
+            merged = self.shell.run(["gh", "pr", "merge", pr, "--repo", self.repo, "--squash", "--match-head-commit", landing[pr]])
             commit = self.squashes([pr])[pr] if merged.code == 0 else ""
         if merged.code != 0:
             why = (merged.err or merged.out).strip()[:300] or f"exit {merged.code}"
@@ -7272,7 +7339,9 @@ class Landing:
             self.book.attempt(LANDING, lambda incident, key=action.action_id: incident.action(key).response.update({UNGRADED_READ: self.book.stamp()}))
 
     def unqueued_gos(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Escalate `GO-UNQUEUED` once per head and stack for the lowest open, green, unheld PR of each stack a root `go` names at its ledger head that the pass's queue read still finds out of the queue five minutes after that go, and whose newest enqueue since the go does not show it QUEUED at that head (#185418), or after the fidelity grade that carried it to that head, naming the stack's bottom and the gone PRs above that wait on it (root #151213), whoever enqueued it, unless the adapter's own queue status reads it queued, such as Graphite's `WAITING_TO_MERGE` on a child whose base is still `graphite-base/<n>` (#194272), naming what the review bot's newest `ai-review` run on that head says when it holds the PR or waits for a restack push (root #154137), else the reserved rows below or at it that this runner's check-pr reads still wait on his tap, else the outcome of the newest enqueue at that head accepted since the go, so an attempt that ran before the go never reads as the reason. A head stacked on a parent no go names, one a hold covers, or one red on CI or conflicting with its base, is left to `refuse_ungone_parents`' one `BELOW-BLOCKED` or `BELOW-HELD` note per stack (root #142036, #142931, #145011)."""
+        """While Graphite is down nothing enters its queue, so nothing is logged (root #197652). Otherwise, escalate `GO-UNQUEUED` once per head and stack for the lowest open, green, unheld PR of each stack a root `go` names at its ledger head that the pass's queue read still finds out of the queue five minutes after that go, and whose newest enqueue since the go does not show it QUEUED at that head (#185418), or after the fidelity grade that carried it to that head, naming the stack's bottom and the gone PRs above that wait on it (root #151213), whoever enqueued it, unless the adapter's own queue status reads it queued, such as Graphite's `WAITING_TO_MERGE` on a child whose base is still `graphite-base/<n>` (#194272), naming what the review bot's newest `ai-review` run on that head says when it holds the PR or waits for a restack push (root #154137), else the reserved rows below or at it that this runner's check-pr reads still wait on his tap, else the outcome of the newest enqueue at that head accepted since the go, so an attempt that ran before the go never reads as the reason. A head stacked on a parent no go names, one a hold covers, or one red on CI or conflicting with its base, is left to `refuse_ungone_parents`' one `BELOW-BLOCKED` or `BELOW-HELD` note per stack (root #142036, #142931, #145011)."""
+        if self.down_since():
+            return
         queued = {pr for prs in self.believed_queued(rows).values() for pr in prs}
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         now = self.runner.now()
@@ -7324,7 +7393,9 @@ class Landing:
             while True:
                 started = time.monotonic()
                 try:
-                    if not self.down_since():
+                    if self.down_since():
+                        mine.overflowed_at = time.monotonic()
+                    else:
                         mine.overflow()
                 except Exception:
                     traceback.print_exc()
@@ -7892,7 +7963,7 @@ class Landing:
             if record["drive"] == drive and record["kind"] in OWNER_KINDS and (record["kind"] != "report" or cci.lane_report(record)) and not root_claim(record) and pr in dict(repo_prs(record, self.repo))
         ]
         claims += [record for record in self.claims() if record["drive"] == drive and record["kind"] == "claim" and not root_claim(record) and pr in claimed_prs(record, self.repo)]
-        newest = max((record for record in claims if not delegated(record["lane"], desks)), key=lambda record: record["seq"], default=None)
+        newest = max((record for record in claims if record["lane"] != RUNNER and not delegated(record["lane"], desks)), key=lambda record: record["seq"], default=None)
         lane = newest["lane"] if newest else row.get("lane", "")
         return self.successor(lane) if lane else lane
 

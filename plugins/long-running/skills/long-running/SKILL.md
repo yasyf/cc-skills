@@ -1703,16 +1703,19 @@ until it reads.
 **Graphite down, merge directly.** Graphite reads down when no batch has started in 15
 minutes while PRs are queued, or its two newest batches both timed out. The runner then
 posts `GRAPHITE-DOWN since <time>` to root and the landing desks. It squash-merges each
-stack it would have enqueued, once it is green, approved, and unheld (owner b530f5d). A stack merges only rebased
-onto the latest `dev`, its bottom behind none of `dev` and each PR behind none of the one
-below; one behind gets one blocker per head asking the restack lanes for the rebase (owner
-e7170fa). A lone PR merges by `gh pr merge --squash --match-head-commit`, a longer chain by
-`gh stack link` and one all-or-nothing `gh stack merge --squash`, and each PR posts `MERGED
-#N at <head> direct as <squash>, Graphite down, b530f5d`. One merge is in flight at a time:
-the next reads `dev` only after the last squash reads on it, so it waits for a rebase onto
-that squash (owner, 9:00 PM Oct 29). An incident fix's plain squash takes the same turn and
-needs the same rebase. The overflow stops meanwhile, and
-`GRAPHITE-UP` follows the first batch Graphite starts after that time.
+stack it would have enqueued, once it is green, approved, and unheld (owner b530f5d). It
+is the only merger, and one merge is in flight at a time (owner, 9:00 PM Oct 29). A stack
+behind the latest `dev` is rebased by the runner itself (root #197237): each PR replayed
+onto the tip with `git replay`, kept only when its own patch is unchanged, pushed in one
+atomic push leased on the admitted heads. The rebase push dismisses the approval, so the
+runner waits up to ten minutes for the review bot's approval again. A conflict, a changed
+patch, or no approval gets one blocker per head to the PR's lane and the restack lanes.
+A lone PR merges by `gh pr merge --squash --match-head-commit`, a longer chain by `gh
+stack link` and one all-or-nothing `gh stack merge --squash`. The runner waits for each
+squash, and each PR posts `MERGED #N at <head> direct as <squash>, Graphite down,
+b530f5d`. An incident fix's plain squash takes the same turn and the same rebase. The
+overflow stops meanwhile, and `GRAPHITE-UP` follows the first batch Graphite starts after
+that time.
 
 **Five minutes from go to queue.** A green PR a root `go` names at its head is in the
 merge queue within five minutes of that go. A stack the passes leave out that long, unheld and
