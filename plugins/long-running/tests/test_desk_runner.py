@@ -13386,6 +13386,7 @@ def test_while_graphite_is_down_a_child_of_a_squashed_pr_is_replayed_onto_the_sq
     """#45428, Oct 30: once #45377 squash-merged, #45428's branch still carried #45377's commits, and stack-enqueue read it conflicted with dev."""
     two_pr_stack(shell)
     shell.gates["29031"] = [gate("#29020 GREEN cccc333333 graphite READY", "#29031 BLOCKED dddd444444 graphite RUNNING", would="#29020")]
+    shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
     queue_drafts(shell, (40, True), (50, True))
     shell.current_heads |= {"29020": "cccc333333", "29031": "dddd444444"}
     shell.merge_commits["29020"] = "1111aaaa0000"
