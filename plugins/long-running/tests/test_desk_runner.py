@@ -4058,16 +4058,18 @@ def test_a_fixed_head_a_root_go_names_asks_the_board_for_no_new_row(shell, confi
 @pytest.mark.parametrize(
     ("said", "board", "holds"),
     [
-        ("go #29020 at cccc333333: his tap on the board (watchdog #172407).", None, "no verdict for #29020"),
-        ("go #29020 at cccc333333: his tap on the board.", "aaaa111111", "approved at aaaa111111 on block merge-rows"),
-        ("go #29020 at cccc333333: tapped, the watchdog says.", "aaaa111111", "approved at aaaa111111 on block merge-rows"),
-        ("go #29020 at cccc333333: his board tap on merge-rows verdict 29020 head cccc333.", "cccc333333", ""),
+        ("go #29020 at cccc333333: owner tapped cccc333333 on the board (watchdog #172407).", None, "no verdict for #29020"),
+        ("go #29020 at cccc333333: TAP-CARRIED from the board.", "aaaa111111", "approved at aaaa111111 on block merge-rows"),
+        ("go #29020 at cccc333333: tapped, the watchdog says.", "aaaa111111", ""),
+        ("go #29020 at cccc333333: owner tapped cccc333 on merge-rows.", "cccc333333", ""),
         ("go #29020 at cccc333333: TAP-KEPT from his tap at aaaa111 (#178242).", "aaaa111111", ""),
         ("go port #29020 at cccc333333: pure port, no tap needed.", None, ""),
         ("go #29020 at cccc333333: finder ok, fidelity ok, green.", None, ""),
         ("go #29020 at cccc333333: lands without his approval, a CI fix.", None, ""),
+        ("go #29020 at cccc333333 (tap row; lands on the owner's tap)", None, ""),
+        ("go #29020 at cccc333333: tap row, go on grades per root #203509; fidelity #203204 ok, finder ok #203234. Lands only on his board tap.", None, ""),
     ],
-    ids=["no-verdict", "verdict-at-another-head", "tapped", "verdict-at-head", "kept-tap-names-its-head", "pure-port", "no-tap-claimed", "negated-approval"],
+    ids=["no-verdict", "verdict-at-another-head", "bare-tapped-claims-nothing", "verdict-at-head", "kept-tap-names-its-head", "pure-port", "no-tap-claimed", "negated-approval", "root-tap-row-204186", "sweep-tap-row-203548"],
 )
 def test_a_root_go_claiming_a_tap_the_board_does_not_hold_draws_one_go_tap_missing_naming_what_it_holds(shell, config, tmp_path, said, board, holds):
     board_surface(config)
@@ -4090,7 +4092,7 @@ def test_go_tap_missing_goes_to_the_go_lanes_the_desk_and_the_owning_lane_not_ro
     raw["landing"]["go_lanes"] = ["go-sweep"]
     config.write_text(json.dumps(raw))
     lone_green_pr(shell)
-    merge_go(shell, "29020", "go #29020 at cccc333333: his tap on the board.")
+    merge_go(shell, "29020", "go #29020 at cccc333333: owner tapped cccc333333 on the board.")
     landing_pass(shell, config)
     assert heard(shell, "GO-TAP-MISSING") == [f"go-sweep,{DESK},{LANE}"]
 
