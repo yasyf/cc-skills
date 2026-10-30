@@ -5718,8 +5718,12 @@ class Landing:
 
     def fidelity(self, pr: str, sha: str) -> Grade:
         """Whether `pr` at `sha` counts as graded ok, read again with every grade posted since the pass scanned reviews before it says no, so a grade that lands while a long pass runs counts (#190787)."""
-        grade = self.fidelity_in(self.grades(pr), pr, sha)
-        return grade if grade.ok else self.fidelity_in(fidelity_grades_in(self.rescanned_reviews(), self.runner.config.drive, self.fidelity_lanes, self.repo, pr), pr, sha)
+        grades = self.grades(pr)
+        grade = self.fidelity_in(grades, pr, sha)
+        if grade.ok:
+            return grade
+        fresh = fidelity_grades_in(self.rescanned_reviews(), self.runner.config.drive, self.fidelity_lanes, self.repo, pr)
+        return grade if len(fresh) == len(grades) else self.fidelity_in(fresh, pr, sha)
 
     def fidelity_in(self, grades: list[dict], pr: str, sha: str) -> Grade:
         """Whether `pr` at `sha` counts as graded ok. Each fidelity lane's newest grade naming the head stands for that lane, so one lane's `missing` blocks until that lane grades the head ok or a root record resolves that `missing`, which accepts it, whatever another lane posts, except that a fidelity desk's ok at the head stands over a `fidelity-pipeline` missing (root #177596, #176536); an ok counts as posted (4236611, root #144646). With no grade naming the head, the ok of an older head whose lanes all stand at ok carries when the PR's own commits at both heads have one patch (root #131054)."""

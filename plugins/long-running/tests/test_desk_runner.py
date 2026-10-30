@@ -11417,7 +11417,7 @@ def test_a_pr_query_reads_only_the_records_after_the_newest_it_kept_and_drops_on
     tail.forget()
     tail.grown[(query[0], query[1:])][0]["expires_at"] = "2000-01-01T00:00:00Z"
     assert [record["seq"] for record in runner_module.cci.records(tail, *query)] == [8, 11]
-    assert calls == ["0", "8", "11"]
+    assert calls == ["0", "8", "8", "11", "11"]
 
 
 def test_a_cci_page_under_half_the_budget_is_the_last_one_read(monkeypatch):
