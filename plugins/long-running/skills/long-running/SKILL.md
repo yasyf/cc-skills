@@ -2661,6 +2661,22 @@ slowing the critical path. It feeds no dashboard (owner instruction of 2026-10-1
 track from the original plan, what distractions are happening, what excuses are
 being made, and to rectify/course correct those things in real time."*
 
+**W3. No sweep finding or owner pick is lost.** A sweep or audit lane posts each finding
+with `bin/findings.py post --sweep <lane> --owner <lane> --verdict <word> [--pr N]
+[--line path:line] <text>`, a cci `defect` that opens `[finding:<lane>]`, addressed to the
+lane that owns the fix. `findings.py sync` keeps every finding, and every pick or
+write-in the owner gives on a board card, as a row of the drive's findings ledger
+(`findings.json` in the state dir names it). A row is open until a later `head` or
+`landed` record names its PR or seq, or a pick's card, which makes it fixed; an answer
+makes it routed and a resolve without a fix makes it closed. `findings.py open` prints
+the open and routed rows by sweep, `track <seq>` adds an older record, and `close --why`
+settles a one-shot pick nothing will build. A lane that builds a pick names the pick's
+seq or card in its `HEAD` record. The fidelity pipeline grades a head `missing` with no
+model call while its PR has an open finding, the drive watchdog raises a finding open
+two hours with no fix head to root, and the dashboard's What failed section lists the
+open rows per sweep. *The owner, Oct 30 3:06 AM: "and probably add some tooling for
+these weeps were doing so their findings font get lost" (root #205185).*
+
 ## The stall watch
 
 `scripts/stall_watch.py` finds work that stopped moving. Add a `stall` object to

@@ -45,6 +45,8 @@ from pathlib import Path
 
 import drive
 import finder
+import findings
+import ledger
 from grades import FIDELITY_MISSING, FIDELITY_OK, graded_head, names_head, newest_finder, standing
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -57,6 +59,7 @@ JOB = "job.json"
 RESULT = "result.json"
 LOG = "job.log"
 READER = "fidelity: reader"
+FINDING_CHARS = 160
 OLD_APP_LINE = re.compile(r"^old-app:\s*(unchanged|bug fix|changes)\b:?\s*(?:[0-9a-f]{7,40}\b)?\s*(.*)$", re.IGNORECASE)
 CODEX_SECONDS = 3600
 PLAN_LINE = re.compile(r"plan:(?:[\w./-]+\.md:)?\d+(?:-\d+)?")
@@ -208,6 +211,13 @@ def graded_lines(job: dict, reply: dict) -> list[tuple[str, list[str]]]:
     return [*lines, (f"old-app: {grade} {head[:7]} baseline {baseline(job)}; {' '.join(reply['old_app']['why'].split())}", [])]
 
 
+def open_findings(job: dict) -> list[dict[str, str]]:
+    entry = next((entry for entry in drive.drives() if drive.cci_drive(entry) == job["drive"]), None)
+    if not entry or not (Path(entry["state_dir"]) / findings.STATE_FILE).is_file():
+        return []
+    return findings.live(findings.Findings(entry, ledger.Shell()).sync(), None, str(job["pr"]))
+
+
 def ask(shell: finder.Shell, job: dict, directory: Path, question: Path, attempt: int) -> dict:
     out = shell.run(["codex-ask", "-m", job["model"], *(["--incident"] if job["fast"] else []), "--schema", str(SCHEMA), "-s", str(directory / f"codex-{attempt}"), str(question)], cwd=Path(job["checkout"]), timeout=CODEX_SECONDS)
     return json.loads(Path(finder.REPLY_FILE.search(out)[1]).read_text())
@@ -235,12 +245,18 @@ def run(directory: Path, shell: finder.Shell) -> dict:
     if not view["headRefOid"].startswith(head):
         return {"skipped": f"{pr} moved to {view['headRefOid'][:12]}"}
     job["head"] = head = view["headRefOid"]
+    body = directory / "record.md"
+    if found := open_findings(job):
+        keys = ",".join(f"finding/{row['seq']}" for row in found)
+        said = "; ".join(f"open finding {row['seq']} from {row['sweep']}, owner {row['owner']}: {' '.join(row['text'].split())[:FINDING_CHARS]}" for row in found)
+        lines = [(f"{FIDELITY_MISSING} {head} {keys} {said}", [])]
+        body.write_text(f"{lines[0][0]}\n")
+        return {"verdict": "missing", "posted": post(shell, job, lines, body)}
     heads = candidates(job)
     slicing = None if heads else pool.submit(finder.slice_rows, shell, job, pr, head, view["baseRefName"])
     base, trunk = finder.checked_out(shell, job, view)
     if not (own := finder.beyond(shell, job, (base, trunk), head)):
         return {"skipped": f"{pr} at {head[:12]} carries no commit {view['baseRefName']} lacks"}
-    body = directory / "record.md"
     if heads and (found := carry(shell, job, own, heads)):
         return carried(shell, job, found, "git patch-id", f"patch-id {found['patch']} at both heads.", body)
     last = finder.fetched(shell, job, heads[0][0]) if heads else ""
