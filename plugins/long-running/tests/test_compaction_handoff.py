@@ -896,7 +896,7 @@ def test_the_roots_first_context_after_a_compaction_carries_every_scope_row_verb
 
 
 def test_a_script_a_hook_runs_dies_at_the_hooks_deadline_and_reads_as_a_timeout():
-    waits = f"import sys, time; sys.path.insert(0, {str(Path(drive.__file__).parent)!r}); import drive; drive.end_commands_with_script(); time.sleep(60)"
+    waits = f"import sys, time; sys.path.insert(0, {str(Path(drive.__file__).parent.parent)!r}); from long_running import drive; drive.end_commands_with_script(); time.sleep(60)"
 
     with pytest.raises(subprocess.TimeoutExpired) as expired:
         handoff.run_script([sys.executable, "-c", waits], 3)
