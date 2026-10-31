@@ -181,7 +181,7 @@ def main(argv: list[str] | None = None, shell: ledger.Shell | None = None) -> in
     found = Findings(entry_of(args.drive), shell)
     if args.verb == "post":
         text = f"[finding:{args.sweep}] {'#' + args.pr.lstrip('#') if args.pr else '-'} {args.line or '-'} {args.verdict} owner {args.owner}: {args.text}"
-        print(shell.run(["cci", "post", "--drive", found.cci, "--lane", args.sweep, "--kind", "defect", "--to", args.owner, "--force", *(["--pr", args.pr.lstrip("#")] if args.pr else []), "--text", text]).strip())
+        print(shell.run(["cci", "post", "--drive", found.cci, "--lane", args.sweep, "--kind", "defect", "--to", args.owner, *(["--pr", args.pr.lstrip("#")] if args.pr else []), "--text", text]).strip())
     elif args.verb == "sync":
         found.sync(args.since)
     elif args.verb == "open":

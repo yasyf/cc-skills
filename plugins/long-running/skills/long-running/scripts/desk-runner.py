@@ -1940,7 +1940,7 @@ class Runner:
     def post_escalation(self, line: str, to: str, action_id: str) -> cci.PostResult:
         label, topic = line.split()[:2]
         message = self.message_file(topic)
-        return self.cci_post(ESCALATION_KINDS.get(label, "defect" if label.endswith("-FAILED") else "report"), line, to, topic, action_id, message.read_text() if message.is_file() else "", flags=["--force"])
+        return self.cci_post(ESCALATION_KINDS.get(label, "defect" if label.endswith("-FAILED") else "report"), line, to, topic, action_id, message.read_text() if message.is_file() else "")
 
     def record(self, action_id: str, line: str) -> None:
         self.book.accept(RUNNER, action_id, "escalation", line, "runner", None)
@@ -4886,9 +4886,9 @@ class Runner:
                 oldest = min((started for _, started in passes), default=None)
                 age = f"oldest {whole_minutes(oldest, now)} min" if oldest else "none running"
                 if oldest and oldest <= window and not any(self.pass_sprite(action) == sprite for action in settled):
-                    done = self.cci_post("defect", f"SPRITE-STALLED {sprite}: {len(passes)} passes running, {age}, and none it ran settled in the last {int(SPRITE_STALLED_AFTER.total_seconds()) // 60} min; check the Sprite and each pass's job.log", ROOT, f"sprite:{sprite}", f"sprite-stalled:{sprite}", flags=["--force"])
+                    done = self.cci_post("defect", f"SPRITE-STALLED {sprite}: {len(passes)} passes running, {age}, and none it ran settled in the last {int(SPRITE_STALLED_AFTER.total_seconds()) // 60} min; check the Sprite and each pass's job.log", ROOT, f"sprite:{sprite}", f"sprite-stalled:{sprite}")
                 else:
-                    done = self.cci_post("state", f"sprite {sprite}: {counts[FINDER]} finder and {counts[FIDELITY]} fidelity passes, {age}", f"{ROOT},{self.watchdog}", f"sprite:{sprite}", f"sprite-beat:{sprite}", flags=["--force"])
+                    done = self.cci_post("state", f"sprite {sprite}: {counts[FINDER]} finder and {counts[FIDELITY]} fidelity passes, {age}", f"{ROOT},{self.watchdog}", f"sprite:{sprite}", f"sprite-beat:{sprite}")
                 if done.code:
                     print(f"sprite {sprite} heartbeat left for the next pass; cci post exited {done.code}: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
                     continue

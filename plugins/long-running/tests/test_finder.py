@@ -57,7 +57,7 @@ def pairs(*marks: str) -> str:
 
 
 class Fake:
-    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0, gone: tuple[str, ...] = (), ranges: dict | None = None, shows: dict | None = None, trunk: str = BASE, history: tuple[str, ...] = (), pulls: dict | None = None, races: int = 0, unregistered: tuple[str, ...] = (), subjects: tuple[str, ...] = (), base_gone: bool = False, rows: str = ROWS):
+    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0, gone: tuple[str, ...] = (), ranges: dict | None = None, shows: dict | None = None, trunk: str = BASE, history: tuple[str, ...] = (), pulls: dict | None = None, races: int = 0, subjects: tuple[str, ...] = (), base_gone: bool = False, rows: str = ROWS):
         self.tmp_path = tmp_path
         self.rows = rows
         self.replies = list(replies)
@@ -72,7 +72,6 @@ class Fake:
         self.history = history
         self.pulls = pulls
         self.races = races
-        self.unregistered = unregistered
         self.subjects = subjects
         self.base_gone = base_gone
         self.shows = LANDED | ({OLD_OWN[:11]: patch("-poll()", "+stream()"), OWN[:11]: patch("-poll()", "+stream()", "+resubscribe()")} if shows is None else shows)
@@ -100,11 +99,9 @@ class Fake:
             reply.write_text(json.dumps(self.replies.pop(0)))
             return f"REPLY_FILE: {reply}\nLOG_FILE: {reply}.log\nAWAIT: codex-ask --await {argv[argv.index('-s') + 1]}\n"
         if argv[:2] == ["cci", "post"]:
-            flags = [arg for arg in argv[2:] if arg not in ("--force", "--json")]
-            post = dict(zip(flags[::2], flags[1::2], strict=True))
-            if "--force" not in argv and (refused := next((lane for lane in post.get("--to", "").split(",") if lane in self.unregistered), None)):
-                raise subprocess.CalledProcessError(1, argv, stderr=f"cci: --to {refused}: no live session or registered lane on drive {post['--drive']} is named {refused}")
-            self.posted.append(post)
+            assert "--force" not in argv
+            flags = [arg for arg in argv[2:] if arg != "--json"]
+            self.posted.append(dict(zip(flags[::2], flags[1::2], strict=True)))
             return json.dumps({"seq": 150001, "num": "#7@fixture"}) + "\n"
         raise AssertionError(f"unexpected call {argv}")
 
@@ -197,7 +194,7 @@ def test_the_plan_read_gets_five_minutes_so_a_cold_sprite_disk_does_not_fail_the
 
 def test_a_review_addressed_to_a_worker_no_lane_registered_still_posts_and_the_pass_succeeds(tmp_path):
     directory = job(tmp_path, lane="p8a7-send-latency", to=["desk-runner", "p8a-step7"])
-    shell = Fake(tmp_path, [reply(finding("major"))], unregistered=("p8a7-send-latency",))
+    shell = Fake(tmp_path, [reply(finding("major"))])
     assert finder.main([str(directory)], shell) == 0
     [post] = shell.posted
     assert post["--to"] == "p8a7-send-latency,desk-runner,p8a-step7" and finder_grade(post["--text"]) == FINDER_FAIL

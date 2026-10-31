@@ -234,7 +234,7 @@ def post(shell: finder.Shell, job: dict, lines: list[tuple[str, list[str]]], bod
         to = ",".join(dict.fromkeys(filter(None, [job["lane"], *job["to"], *also])))
         clipped = text if len(text) <= finder.CCI_TEXT else text[: finder.CCI_TEXT - 1] + "…"
         argv = ["cci", "post", "--drive", job["drive"], "--lane", LANE, "--kind", "review", "--pr", pr, "--id", f"fidelity:{pr}:{job['head']}:{index}", "--path", str(body)]
-        posted.append(cci.posted(shell.run(finder.logged(body.parent, [*argv, *(["--to", to, "--force"] if to else []), "--text", clipped, "--json"])))[0])
+        posted.append(cci.posted(shell.run(finder.logged(body.parent, [*argv, *(["--to", to] if to else []), "--text", clipped, "--json"])))[0])
     return posted
 
 
