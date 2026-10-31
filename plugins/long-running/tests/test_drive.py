@@ -520,7 +520,7 @@ def test_a_script_behind_the_installed_plugin_reexecutes_the_installed_copy_unle
     else:
         monkeypatch.delenv(drive.CALLER_VERSION_ENV, raising=False)
     execs: list[list[str]] = []
-    monkeypatch.setattr(drive.os, "execv", lambda path, argv: execs.append(argv))
+    monkeypatch.setattr(drive, "reexec", execs.append)
     monkeypatch.setattr(drive.sys, "argv", ["holds.py", "add", "#1"])
 
     drive.run_installed("/plugins/cache/skills/long-running/0.7.99/skills/long-running/scripts/holds.py")
@@ -533,7 +533,7 @@ def test_an_installed_copy_whose_own_manifest_is_no_newer_runs_in_place_instead_
     installed("0.7.320", manifest="0.7.99")
     monkeypatch.delenv(drive.CALLER_VERSION_ENV, raising=False)
     execs: list[list[str]] = []
-    monkeypatch.setattr(drive.os, "execv", lambda path, argv: execs.append(argv))
+    monkeypatch.setattr(drive, "reexec", execs.append)
 
     drive.run_installed("holds.py")
 
