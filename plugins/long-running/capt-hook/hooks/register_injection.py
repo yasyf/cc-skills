@@ -10,7 +10,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from captain_hook import Allow, Annotated, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, Rewrite, TaskCall, Tool, Warn, WorkflowState, on
+from captain_hook import Allow, Annotated, BaseHookEvent, Event, FromSubagent, HookResult, Input, Rewrite, TaskCall, Tool, Warn, WorkflowState, on
 from cc_transcript import UserEvent
 from captain_hook.util import reqenv
 
@@ -48,6 +48,7 @@ SLICE = f"{sys.executable} {script('rulings.py')} slice"
 FRESH_SLICE = {SLICE: "fresh /tmp/brief.md slice-hash 0123456789ab\n"}
 STALE = {SLICE: "refreshed /tmp/brief.md slice-hash 0123456789ab -> 89abcdef0123\n"}
 SLICED = "Lane lane-a: build the relay.\nScale: chats on one Mac, up to 1,000.\nRegister slice: lane=lane-a step=1.9\nslice-hash: 0123456789ab\n"
+UNSCALED = SLICED.replace("Scale: chats on one Mac, up to 1,000.\n", "")
 REGISTER = {"id": "c" * 40, "body": "# Register\n\n1. Pulumi state is the only truth.\n"}
 FOUND = {f"{sys.executable} {script('rulings.py')} register": json.dumps(REGISTER)}
 NONE_FOUND = {f"{sys.executable} {script('rulings.py')} register": "null"}
@@ -146,10 +147,7 @@ def spawn(name: str, prompt: str, agent_type: str = "long-running:lane", **extra
     tests={
         spawn("lane-a", "Lane lane-a: build the relay."): Warn(pattern=r"has no `Register slice: lane=<name> step=<n>` line"),
         spawn("lane-a", SLICED, commands=FRESH_SLICE): Allow(),
-        spawn("lane-a", SLICED.replace("Scale: chats on one Mac, up to 1,000.\n", "")): Block(pattern=r"has no `Scale:` line, so this new lane's spawn is refused\. Add one line to it: `Scale: no N`"),
-        spawn("lane-a-handoff", SLICED.replace("Scale: chats on one Mac, up to 1,000.\n", ""), commands=FRESH_SLICE): Allow(),
-        spawn("lane-a-2", SLICED.replace("Scale: chats on one Mac, up to 1,000.\n", ""), commands=FRESH_SLICE): Allow(),
-        spawn("lane-b", "Replaces: lane-a\n" + SLICED.replace("Scale: chats on one Mac, up to 1,000.\n", ""), commands=FRESH_SLICE): Allow(),
+        spawn("lane-a", UNSCALED, commands=FRESH_SLICE): Allow(),
         spawn("lane-a", SLICED, commands=STALE): Warn(pattern=r"stale or empty\. Run `rulings\.py slice --refresh <brief>`"),
         spawn("lane-a", f"Your brief is {BRIEFS / 'sliced.md'}; read it.", commands=FRESH_SLICE): Allow(),
         spawn("lane-a", f"Your brief is {BRIEFS / 'unsliced.md'}; read it."): Warn(pattern=r"--refresh \S*unsliced\.md"),
@@ -183,8 +181,6 @@ def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
         return None
     if not found.incident and not SLICE_HEADER.search(found.text):
         return evt.context(NO_SLICE.format(brief=found.shown)) if once_per_hour(evt, [NO_SLICE]) else None
-    if not found.incident and found.owes_scale():
-        return evt.block(lane_brief.no_scale(found.shown))
     try:
         said, fresh = refreshed(evt, which, found)
         if found.incident and not found.inline:
@@ -199,12 +195,39 @@ def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
+    only_if=[Tool("Agent", "Bash")],
+    skip_if=[Annotated("raw")],
+    tests={
+        spawn("lane-a", UNSCALED): Warn(pattern=r"^Warning, nothing was blocked: brief <brief> has no `Scale:` line; add one line to it: `Scale: no N`"),
+        spawn("lane-a", SLICED): Allow(),
+        spawn("lane-a-handoff", UNSCALED): Allow(),
+        spawn("lane-a-2", UNSCALED): Allow(),
+        spawn("lane-b", f"Replaces: lane-a\n{UNSCALED}"): Allow(),
+        spawn("lane-a", "Lane lane-a: build the relay."): Allow(),
+        spawn("incident-api-fix", "Fix the api outage."): Allow(),
+        Input(command=f"orca-launch.sh lane-a sol xhigh {BRIEFS / 'sliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG): Allow(),
+    },
+)
+def warn_unscaled_spawn(evt: BaseHookEvent) -> HookResult | None:
+    if not drive_args(evt):
+        return None
+    try:
+        found = agent_spawn(evt.as_input(TaskCall)) if evt.tool_name == "Agent" else launch_spawn(evt)
+    except UNREAD:
+        return None
+    if not found or found.incident or not SLICE_HEADER.search(found.text) or not found.owes_scale():
+        return None
+    return evt.context(f"Warning, nothing was blocked: {lane_brief.no_scale(found.shown)}")
+
+
+@on(
+    Event.PreToolUse,
     only_if=[Tool("Agent")],
     skip_if=[Annotated("raw")],
     tests={
         spawn("lane-a", SLICED, commands={SPAWNED: ""}): Allow(),
         spawn("lane-a", "Lane lane-a: build the relay.", agent_type="general-purpose"): Allow(),
-        spawn("lane-a", SLICED.replace("Scale: chats on one Mac, up to 1,000.\n", "")): Allow(),
+        spawn("lane-a", UNSCALED, commands={SPAWNED: ""}): Allow(),
         spawn("lane-a", "Find every caller of drain.", agent_type="Explore"): Allow(),
         Input(tool="Agent", tool_input={"name": "lane-a", "prompt": SLICED}): Allow(),
     },
@@ -218,8 +241,6 @@ def record_spawn(evt: BaseHookEvent) -> HookResult | None:
     except UNREAD:
         return None
     if not found or not (found.incident or SLICE_HEADER.search(found.text) or call.agent_type in LANE_AGENTS):
-        return None
-    if not found.incident and found.owes_scale():
         return None
     argv = [sys.executable, str(script("drive.py")), "spawned", "--lane", found.lane, "--brief", str(found.brief or INLINE_BRIEF), "--by", drive_lane(evt) or "root", "--session", evt.session_id]
     argv += ["--drive", drive] if (drive := reqenv.getenv(DRIVE_ENV)) else []

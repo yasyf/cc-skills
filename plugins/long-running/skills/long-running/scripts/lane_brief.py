@@ -1,4 +1,4 @@
-"""Which lane briefs owe a `Scale:` line, read the same way by the Agent spawn hook and the orca desk runner.
+"""Which lane briefs owe a `Scale:` line, read the same way by the Agent spawn hook and the orca desk runner, which each warn and never refuse.
 
 A new lane brief carries one; a handoff writer (`<lane>-handoff`), a successor (`<lane>-<n>` with n >= 2, or a brief
 with a `Replaces: <lane>` line), and a brief file last written before the rule existed never owe it, since each
@@ -16,10 +16,7 @@ REPLACES = re.compile(r"^Replaces: `?[\w.-]+`?\s*$", re.MULTILINE)
 SUCCESSOR = re.compile(r".+-(\d+)")
 HANDOFF = "-handoff"
 SCALE_RULE = datetime(2026, 10, 30, 13, 11, 35, tzinfo=timezone.utc)
-NO_SCALE = (
-    "brief {brief} has no `Scale:` line, so this new lane's spawn is refused. Add one line to it: `Scale: no N`, "
-    "or the N its paths run at, such as `Scale: chats on one Mac, up to 1,000`"
-)
+NO_SCALE = "brief {brief} has no `Scale:` line; add one line to it: `Scale: no N`, or the N its paths run at, such as `Scale: chats on one Mac, up to 1,000`"
 
 
 def owes_scale(lane: str, text: str, brief: Path | None) -> bool:

@@ -9599,24 +9599,20 @@ def test_a_launch_line_whose_brief_has_no_slice_line_is_refused_unless_it_is_an_
     assert not [line for line in escalations(shell) if "R41" in line and "LAUNCH-FAILED" in line]
 
 
-def test_a_launch_line_whose_brief_has_no_scale_line_is_refused_unless_it_is_an_incident_fix(shell, config, tmp_path):
+def test_a_launch_line_whose_new_brief_has_no_scale_line_launches_with_one_scale_missing_warning(shell, config, tmp_path):
     brief = tmp_path / "fix-brief.md"
-    brief.write_text(f"brief\n\nRegister slice: lane={LANE} step=1.9\n")
+    brief.write_text(f"ccx: place=local\nbrief\n\nRegister slice: lane={LANE} step=1.9\n")
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     orca_pass(shell, config)
     desk_orders(shell, f"R43 orca-desk: launch {LANE} sol xhigh brief={brief}")
     orca_pass(shell, config)
-
-    assert launches(shell) == [] and shell.refreshes == []
-    assert escalations(shell) == [
-        f"LAUNCH-FAILED R43 {LANE}: brief {brief} has no `Scale:` line, so this new lane's spawn is refused. Add one line to it: `Scale: no N`, or the N its paths run at, such as `Scale: chats on one Mac, up to 1,000`; nothing was launched"
-    ]
-
-    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
-    desk_orders(shell, f"R44 orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
-    orca_pass(shell, config)
     orca_pass(shell, config)
 
-    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)]]
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "sol", "xhigh", str(brief)]]
+    assert (
+        f"SCALE-MISSING scale:R43 {LANE}: brief {brief} has no `Scale:` line; add one line to it: `Scale: no N`, or the N its paths run at, "
+        f"such as `Scale: chats on one Mac, up to 1,000`; {LANE} launches anyway"
+    ) in escalations(shell)
 
 
 def test_a_successor_launched_on_its_predecessors_brief_owes_no_scale_line(shell, config, tmp_path):
@@ -9629,6 +9625,7 @@ def test_a_successor_launched_on_its_predecessors_brief_owes_no_scale_line(shell
     orca_pass(shell, config)
 
     assert launches(shell) == [[str(runner_module.LAUNCHER), f"{LANE}-2", "sol", "xhigh", str(brief)]]
+    assert not [line for line in escalations(shell) if line.startswith("SCALE-MISSING")]
 
 
 def test_a_launch_refreshes_its_slice_first_and_a_slice_that_does_not_read_blocks_nothing(shell, config, tmp_path):
