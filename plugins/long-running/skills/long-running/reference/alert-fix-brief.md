@@ -54,7 +54,10 @@ Do:
      Add every hop your fix creates: each new caller-to-service call, such as a pod
      reaching another fleet or a token a new audience must accept, with the live
      network policy, allowlist entry, or grant that admits it. A hop nothing admits
-     is part of the fix and ships in the same release. Attach it with `--path` to
+     is part of the fix and ships in the same release. The moment a candidate
+     exists, start one fresh instance of the failing component against it, such
+     as a new pod on a smoke team, and read the next gate it stops at; a gate the
+     first one hid is part of this fix. Attach it with `--path` to
      your `MECHANISM` record. A fix to one stage of a path you have not mapped is
      not the fix.
   2. Before you name a mechanism, read the last 24 hours of the
