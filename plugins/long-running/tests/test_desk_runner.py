@@ -676,7 +676,7 @@ class FakeShell(runner_module.Shell):
         if "--lane" in argv and argv[argv.index("--lane") + 1] == "board-watch":
             if self.board_error:
                 return runner_module.Done(1, "", self.board_error)
-            since = argv[argv.index("--since") + 1]
+            since = argv[argv.index("--since-seq" if "--since-seq" in argv else "--since") + 1]
             return runner_module.Done(0, "".join(f"{json.dumps(record)}\n" for record in self.board_records() if not since.isdigit() or record["seq"] > int(since)), "")
         if self.tail_failures:
             self.tail_failures -= 1
@@ -688,7 +688,7 @@ class FakeShell(runner_module.Shell):
         if "--to" in argv and argv[argv.index("--to") + 1] == f"{runner_module.WATCHDOG}@{drive}":
             topic = next(arg.partition("=")[2] for arg in argv if arg.startswith("--topic="))
             return runner_module.Done(0, "".join(f"{json.dumps(beat)}\n" for beat in [beat for beat in self.beats if beat["drive"] == drive and beat["topic"] == topic][-1:]), "")
-        since = argv[argv.index("--since") + 1]
+        since = argv[argv.index("--since-seq" if "--since-seq" in argv else "--since") + 1]
         kinds = [arg.partition("=")[2] for arg in argv if arg.startswith("--kind=")]
         topics = [arg.partition("=")[2] for arg in argv if arg.startswith("--topic=")]
         lanes = [argv[index + 1] for index, arg in enumerate(argv) if arg == "--lane"]
@@ -2629,8 +2629,8 @@ def test_a_check_with_no_verdict_on_a_tip_that_landed_since_the_pass_read_the_le
     shell.gates["29020"] = [failure]
     real = shell.run
 
-    def run(argv, stdin=None, env=None):
-        done = real(argv, stdin, env)
+    def run(argv, stdin=None, env=None, cwd=None):
+        done = real(argv, stdin, env, cwd)
         if len(argv) > 4 and Path(argv[1]).name == "ledger.py" and argv[4] == "landed":
             assert "--pr=29020" in argv
             shell.rows[0] |= {"state": "landed", "landed_sha": "f00d000003"}
@@ -6440,10 +6440,10 @@ def test_mq_gos_lists_each_standing_go_the_queue_does_not_hold_from_one_status_r
 def pushed_while_enqueued(shell: FakeShell, monkeypatch: pytest.MonkeyPatch, pr: str, head: str) -> None:
     run = shell.run
 
-    def pushing(argv, stdin=None, env=None):
+    def pushing(argv, stdin=None, env=None, cwd=None):
         if Path(argv[0]).name == "stack-enqueue" and not {"--check", "--status"} & set(argv):
             shell.current_heads[pr] = head
-        return run(argv, stdin, env)
+        return run(argv, stdin, env, cwd)
 
     monkeypatch.setattr(shell, "run", pushing)
 
@@ -12481,7 +12481,7 @@ def test_a_pr_query_reads_only_the_records_after_the_newest_it_kept_and_drops_on
     calls: list[str] = []
 
     def run(argv: list[str]) -> str:
-        since = int(argv[argv.index("--since") + 1])
+        since = int(argv[argv.index("--since-seq" if "--since-seq" in argv else "--since") + 1])
         calls.append(str(since))
         return "".join(json.dumps(record) + "\n" for record in posted if record["seq"] > since)
 
@@ -12508,7 +12508,7 @@ def test_a_cci_page_under_half_the_budget_is_the_last_one_read(monkeypatch):
         return "".join(json.dumps(record) + "\n" for record in pages[len(calls) - 1])
 
     assert [record["seq"] for record in runner_module.cci.records(run, "d1", "--kind=go")] == [1, 2, 3]
-    assert [call[call.index("--since") + 1] for call in calls] == ["0", "2"]
+    assert [call[call.index("--since-seq") + 1] for call in calls] == ["0", "2"]
 
 
 def test_a_full_page_of_cci_rows_is_never_the_last_one_read_however_small(monkeypatch):
@@ -12521,7 +12521,7 @@ def test_a_full_page_of_cci_rows_is_never_the_last_one_read_however_small(monkey
         return "".join(json.dumps(record) + "\n" for record in pages[len(calls) - 1])
 
     assert [record["seq"] for record in runner_module.cci.records(run, "d1", "--kind=go")] == [1, 2, 3]
-    assert [call[call.index("--since") + 1] for call in calls] == ["0", "2"]
+    assert [call[call.index("--since-seq") + 1] for call in calls] == ["0", "2"]
 
 
 def script_build(*steps: str, failed: str = "") -> dict:
@@ -14598,7 +14598,7 @@ def test_empty_rulings_report_does_not_decode_bus_history(shell, config, tmp_pat
     assert not shell.calls
 
 
-@pytest.mark.parametrize("tail_args", [["--drive", "d1", "--since", "0"], ["--drive=d1", "--since=0"]])
+@pytest.mark.parametrize("tail_args", [["--drive", "d1", "--since", "0"], ["--drive=d1", "--since=0"], ["--drive", "d1", "--since-seq", "17"], ["--drive=d1", "--since-seq=17"]])
 def test_an_explicit_since_tail_reads_natively_without_a_process_or_temporary_feed(monkeypatch, tail_args):
     calls = []
 

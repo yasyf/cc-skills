@@ -45,7 +45,7 @@ def native_cci(request, tmp_path, monkeypatch):
             return HTTPConnection(host, port, timeout=timeout)
 
         monkeypatch.setattr(runner_module.cci.http.client, "HTTPConnection", connect)
-        yield SimpleNamespace(population=request.param, home=home, port=port, counts=lambda: fixture_call(port, "counts"), change=lambda operation: fixture_call(port, operation, "POST"))
+        yield SimpleNamespace(population=request.param, home=home, port=port, info=info, counts=lambda: fixture_call(port, "counts"), change=lambda operation: fixture_call(port, operation, "POST"))
     finally:
         process.stdin.close()
         code = process.wait(timeout=30)
@@ -145,3 +145,27 @@ def test_generic_shell_keeps_a_since_spelling_used_as_a_topic_value(native_cci):
     print(json.dumps({"history": native_cci.population, "generic_cursor_mode_returncode": result.code, "native_requests": native_cci.counts()["native_requests"]}))
     assert result.code == 0, result
     assert native_cci.counts()["native_requests"] == 0
+
+
+def test_internal_machine_cursor_pages_mixed_origin_numbers(config, tmp_path, monkeypatch, native_cci):
+    settings = runner_module.Config.load(config)
+    runner = runner_module.Runner(runner_module.Shell(), settings, runner_module.actions.Store(tmp_path / "machine-book"))
+    try:
+        mixed = native_cci.info["mixed"]
+        assert len(mixed) == 3
+        assert mixed[0]["num"] == "#7" and mixed[2]["num"] == "#100@bbbbbbbb"
+        assert "@" in mixed[1]["num"]
+        assert all(row["seq"] != row.get("origin_seq") for row in (mixed[0], mixed[2]))
+        assert native_cci.info["hold_number"] == "#2" and native_cci.info["hold"] != 2
+        monkeypatch.setattr(runner_module.cci, "PAGE_ROWS", 2)
+        rows = runner_module.cci.records(runner.cci_tail, "mixed")
+        assert [row["seq"] for row in rows] == [row["seq"] for row in mixed]
+        remaining = runner_module.cci.records(runner.cci_tail, "mixed", since=str(mixed[0]["seq"]))
+        assert [row["seq"] for row in remaining] == [row["seq"] for row in mixed[1:]]
+        held = runner.cci_record(native_cci.info["hold"])
+        assert held["seq"] == native_cci.info["hold"] and held["num"] == "#2"
+        human = runner.shell.run(["cci", "tail", "--drive", "mixed", "--since", str(mixed[0]["seq"]), "--json"])
+        assert human.code == 1 and "no record has this number" in human.err
+        print(json.dumps({"history": native_cci.population, "machine_cursor_rows": [row["seq"] for row in rows], "display_numbers": [row["num"] for row in rows], "persisted_string_cursor": mixed[0]["seq"], "single_record_internal_seq": held["seq"], "human_number_error": human.code, "provider_source": os.environ["CCI_NATIVE_PROVIDER_SOURCE"]}))
+    finally:
+        runner.cci_tail.stop()

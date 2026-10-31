@@ -32,7 +32,7 @@ class LaneShell(ledger.Shell):
     def run(self, argv: list[str], stdin: str | None = None) -> str:
         argv = gateway(argv)
         if argv[:2] == ["cci", "tail"]:
-            since = argv[argv.index("--since") + 1]
+            since = argv[argv.index("--since-seq" if "--since-seq" in argv else "--since") + 1]
             kinds = {arg.removeprefix("--kind=") for arg in argv if arg.startswith("--kind=")}
             lanes = {argv[index + 1] for index, arg in enumerate(argv) if arg == "--lane"}
             return "".join(

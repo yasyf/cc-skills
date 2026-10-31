@@ -304,7 +304,7 @@ class BoardShell(RecordedShell):
         if argv[0] == "tail":
             lane = argv[argv.index("--lane") + 1]
             found = [record for record in self.records if record["lane"] == lane and all(record.get(name) == value for arg in argv if arg.startswith("--") and "=" in arg for name, value in [arg[2:].split("=", 1)])]
-            return subprocess.CompletedProcess(argv, 0, "".join(json.dumps(record) + "\n" for record in found if record["seq"] > int(argv[argv.index("--since") + 1])), "")
+            return subprocess.CompletedProcess(argv, 0, "".join(json.dumps(record) + "\n" for record in found if record["seq"] > int(argv[argv.index("--since-seq" if "--since-seq" in argv else "--since") + 1])), "")
         self.posts.append(argv)
         if self.stored and argv[0] == "post":
             flags = flags_of(argv)

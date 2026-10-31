@@ -17,6 +17,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/internal/cli"
 	"github.com/yasyf/cc-inbox/internal/kinds"
+	"github.com/yasyf/cc-inbox/internal/relay"
 	"github.com/yasyf/cc-inbox/internal/store"
 )
 
@@ -52,7 +53,28 @@ func main() {
 	if inserted != population {
 		panic(fmt.Errorf("seeded %d historical records, want %d", inserted, population))
 	}
-	hold, _, err := st.Post(ctx, store.Record{ID: "fixture-hold-29020", Drive: "d1", Lane: "root", Kind: kinds.Hold, Text: "hold #29020"}, 0)
+	st.SetOwner(false)
+	must(relay.SaveConfig(home, relay.Config{Mesh: "native", URL: "https://relay.invalid", Tier: "service"}))
+	db, err := sql.Open("sqlite", filepath.Join(home, store.DBFile))
+	must(err)
+	_, err = db.ExecContext(ctx, `INSERT INTO members(node,public_key,tier,via,"by",at) VALUES('aaaaaaaaaaaaaaaa',X'','owner','relay','fixture',1)`)
+	must(err)
+	must(db.Close())
+	_, err = st.Apply(ctx, []store.Row{{Origin: "aaaaaaaaaaaaaaaa", OriginSeq: 2, ID: "fixture-hold-29020", Drive: "d1", Lane: "root", Kind: kinds.Hold, At: time.Now().UTC(), Text: "hold #29020", Refs: store.Refs{PRs: []store.PR{{Number: 29020}}}, Source: "post"}}, nil)
+	must(err)
+	holds, err := st.Query(ctx, store.Filter{Drive: "d1", Kinds: []kinds.Kind{kinds.Hold}})
+	must(err)
+	if len(holds) != 1 {
+		panic(fmt.Errorf("seeded %d holds, want 1", len(holds)))
+	}
+	hold := holds[0]
+	_, err = st.Apply(ctx, []store.Row{{Origin: "aaaaaaaaaaaaaaaa", OriginSeq: 7, Drive: "mixed", Lane: "root", Kind: kinds.Note, At: time.Now().UTC(), Text: "owner record", Source: "post"}}, nil)
+	must(err)
+	_, _, err = st.Post(ctx, store.Record{Drive: "mixed", Lane: "root", Kind: kinds.Note, Text: "local record"}, 0)
+	must(err)
+	_, err = st.Apply(ctx, []store.Row{{Origin: "bbbbbbbbbbbbbbbb", OriginSeq: 100, Drive: "mixed", Lane: "root", Kind: kinds.Note, At: time.Now().UTC(), Text: "remote record", Source: "post"}}, nil)
+	must(err)
+	mixed, err := st.Query(ctx, store.Filter{Drive: "mixed"})
 	must(err)
 	tail, err := cli.TailHandler(st, home)
 	must(err)
@@ -66,7 +88,7 @@ func main() {
 		respond(w, map[string]any{"native_requests": requests.Load()})
 	})
 	mux.HandleFunc("POST /fixture/append", func(w http.ResponseWriter, r *http.Request) {
-		posted, _, err := st.Post(r.Context(), store.Record{ID: "fixture-hold-29021", Drive: "d1", Lane: "root", Kind: kinds.Hold, Text: "hold #29021"}, 0)
+		posted, _, err := st.Post(r.Context(), store.Record{ID: "fixture-hold-29021", Drive: "d1", Lane: "root", Kind: kinds.Hold, Text: "hold #29021", Refs: store.Refs{PRs: []store.PR{{Number: 29021}}}}, 0)
 		must(err)
 		respond(w, map[string]any{"seq": posted.Seq})
 	})
@@ -88,7 +110,7 @@ func main() {
 	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
-	must(json.NewEncoder(os.Stdout).Encode(map[string]any{"url": "http://" + listener.Addr().String(), "home": home, "hold": hold.Seq, "population": inserted}))
+	must(json.NewEncoder(os.Stdout).Encode(map[string]any{"url": "http://" + listener.Addr().String(), "home": home, "hold": hold.Seq, "population": inserted, "hold_number": hold.Num, "mixed": mixed}))
 	_, err = io.Copy(io.Discard, os.Stdin)
 	must(err)
 	must(server.Close())

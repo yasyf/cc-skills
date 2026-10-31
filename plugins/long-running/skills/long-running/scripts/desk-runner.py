@@ -2246,7 +2246,7 @@ class Runner:
         self.escalate(f"cci-tail:{actions.stamp(self.now())[:15]}", "CCI-TAIL-FAILED", "runner", str(failure))
 
     def cci_record(self, seq: int) -> dict | None:
-        out = self.cci_tail(["cci", "tail", "--drive", self.config.drive, "--since", str(seq - 1), "--json", "--budget", str(cci.PAGE_BYTES)])
+        out = self.cci_tail(["cci", "tail", "--drive", self.config.drive, "--since-seq", str(seq - 1), "--json", "--budget", str(cci.PAGE_BYTES)])
         return next((record for line in out.splitlines() if line.strip() and (record := json.loads(line))["seq"] == seq), None)
 
     def root_reply(self, record: dict, closed: dict | None) -> None:

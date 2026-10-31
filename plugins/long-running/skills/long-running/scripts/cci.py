@@ -123,6 +123,14 @@ def _tail_output(encoded: str) -> str:
         return output.read()
 
 
+def since_args(since: int | str) -> list[str]:
+    """Select an internal sequence bound or the CLI's time-bound syntax."""
+    value = str(since)
+    if re.fullmatch(r"#?[+-]?[0-9]+", value):
+        return ["--since-seq", str(int(value.removeprefix("#")))]
+    return ["--since", value]
+
+
 def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: int | str = 0) -> list[dict]:
     """Every record on `drive` after `since`, a sequence or any `cci tail --since` time, that matches the `cci tail` filters, paged by sequence; a page is the last when it holds fewer than the `PAGE_ROWS` records cci prints per call and fills under half the byte budget, since cci caps a record far below that; touches no cursor. A `Tail` answers a query it read since its last `forget` without running cci."""
     key = (drive, filters, str(since))
@@ -134,7 +142,7 @@ def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: i
     found = [record for record in (grown or {}).get((drive, filters), []) if not expired(record, now)]
     since = found[-1]["seq"] if found else since
     while True:
-        out = run(["cci", "tail", "--drive", drive, "--since", str(since), "--json", "--budget", str(PAGE_BYTES), *filters])
+        out = run(["cci", "tail", "--drive", drive, *since_args(since), "--json", "--budget", str(PAGE_BYTES), *filters])
         page = [json.loads(line) for line in out.splitlines() if line.strip()]
         found += page
         if len(page) < PAGE_ROWS and len(out.encode()) < PAGE_BYTES // 2:
