@@ -81,6 +81,7 @@ class FakeShell(runner_module.Shell):
     def __init__(self, root: Path):
         self.root = root
         self.receipts = root / ".claude/scratch/orca-launch/run_1"
+        self.keychain_items: dict[str, str] = {}
         self.clock = datetime(2026, 10, 1, 18, 0, tzinfo=timezone.utc)
         self.calls: list[list[str]] = []
         self.dispatches: dict[str, dict] = {}
@@ -268,6 +269,9 @@ class FakeShell(runner_module.Shell):
 
     def adopt(self, values):
         self.environ.update(values)
+
+    def keychain(self, service):
+        return self.keychain_items.get(service, "")
 
     def reexec(self, argv):
         self.reexeced.append(list(argv))
@@ -5162,6 +5166,29 @@ def test_preflight_names_the_missing_trunk_key_without_starting_or_posting(shell
     out = capsys.readouterr().out
     assert json.loads(out)["ok"] is True and "trunk-secret" not in out
     assert escalations(shell) == []
+
+
+@pytest.mark.parametrize("stored", [True, False], ids=["in-keychain", "not-in-keychain"])
+def test_a_desk_reads_a_key_its_env_lacks_from_the_keychain_item_its_config_names(shell, config, tmp_path, monkeypatch, capsys, stored):
+    """Root #233126: a handoff from a shell without TRUNK_MERGE_API_KEY left the landing runner refusing to start."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["adapter"] = {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}
+    raw["landing"]["keychain"] = {"TRUNK_MERGE_API_KEY": "trunk-merge-api-key"}
+    config.write_text(json.dumps(raw))
+    monkeypatch.delenv("TRUNK_MERGE_API_KEY", raising=False)
+    if stored:
+        shell.keychain_items["trunk-merge-api-key"] = "trunk-secret"
+    assert cli(shell, config, "preflight", "--json") == (0 if stored else 3)
+    out = capsys.readouterr().out
+    assert "trunk-secret" not in out
+    if not stored:
+        assert "TRUNK_MERGE_API_KEY is unset, and the Keychain item trunk-merge-api-key holds nothing" in json.loads(out)["why"]
+        return
+    lone_green_pr(shell)
+    cli(shell, config, "run", "--desk", "landing", "--once")
+    assert shell.environ["TRUNK_MERGE_API_KEY"] == "trunk-secret"
+    assert not [line for line in escalations(shell) if line.startswith("PREFLIGHT-FAILED")]
+    assert not [post for post in shell.posts if "trunk-secret" in json.dumps(post)]
 
 
 def test_a_config_without_a_release_cli_is_refused_with_every_missing_member_in_one_line(shell, config, tmp_path):
