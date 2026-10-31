@@ -246,7 +246,7 @@ class Store:
 
     def want_lane(self, name: str, brief: str, model: str, effort: str, role: str, state: str, at: datetime, **fields) -> bool:
         columns = {"name": name, "brief": brief, "model": model, "effort": effort, "role": role, "state": state, "since": stamp(at)} | {key: json.dumps(list(value)) if key == "prs" else value for key, value in fields.items()}
-        cursor = self.db.execute(f"INSERT OR IGNORE INTO lanes ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))})", tuple(columns.values()))
+        cursor = self.db.execute(f"INSERT INTO lanes ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))}) ON CONFLICT (name) DO NOTHING", tuple(columns.values()))
         return cursor.rowcount == 1
 
     def lane(self, name: str) -> Lane | None:
