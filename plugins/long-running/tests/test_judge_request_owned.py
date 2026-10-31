@@ -70,12 +70,12 @@ def test_default_cli_transport_and_explicit_capability_keep_the_same_cards_verdi
     def cli(argv, **kwargs):
         cli_calls.append((argv, kwargs.get("input"), kwargs["timeout"]))
         assert kwargs["capture_output"] and kwargs["text"] and kwargs["check"]
-        assert kwargs["env"] is None
+        assert kwargs["env"] == (selected | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(tmp_path / "config" / "long-running" / "judge-plugins")} if argv[0] == "claude" else None)
         return subprocess.CompletedProcess(argv, 0, response(argv), "ignored diagnostic")
 
     def owned(argv, *, input=None, timeout, env=None):
         owned_calls.append((argv, input, timeout))
-        assert env == selected
+        assert env == (selected | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(tmp_path / "config" / "long-running" / "judge-plugins")} if argv[0] == "claude" else selected)
         return response(argv)
 
     monkeypatch.setattr(judge.subprocess, "run", cli)
@@ -113,7 +113,7 @@ def test_check_pr_reaches_real_cold_and_warm_board_and_model_paths_with_request_
     calls = []
 
     def run(argv, *, input=None, timeout, env=None):
-        assert env == selected
+        assert env == (selected | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(Path(selected["CLAUDE_CONFIG_DIR"]) / "long-running" / "judge-plugins")} if argv[0] == "claude" else selected)
         calls.append((argv, input, timeout))
         return response(argv, f"request {branch} card")
 
@@ -149,7 +149,7 @@ def test_concurrent_judgments_keep_cards_backends_environment_and_record_roots_l
         calls = []
 
         def run(argv, *, input=None, timeout, env=None):
-            assert env == selected
+            assert env == (selected | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(Path(selected["CLAUDE_CONFIG_DIR"]) / "long-running" / "judge-plugins")} if argv[0] == "claude" else selected)
             calls.append(argv[0])
             if argv[0] == "cc-present":
                 barrier.wait(timeout=5)
