@@ -1,6 +1,8 @@
 #!/bin/bash
 # Every bin/<tool> is a symlink to this script, so a session that started on an
-# older plugin version still runs the newest installed one after an update.
+# older plugin version still runs the newest installed one after an update,
+# except under LONG_RUNNING_PIN naming this copy's version, which a pinned desk
+# runner sets so it and its children keep the version runner.json pins.
 set -eu
 
 case "$0" in */*) d=${0%/*} ;; *) d=. ;; esac
@@ -22,7 +24,7 @@ version_gt() {
   return 1
 }
 
-if is_version "${ROOT##*/}"; then
+if is_version "${ROOT##*/}" && [ "${LONG_RUNNING_PIN:-}" != "${ROOT##*/}" ]; then
   newest=$ROOT whole=$ROOT
   for sibling in "${ROOT%/*}"/*/; do
     sibling=${sibling%/}

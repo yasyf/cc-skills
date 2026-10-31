@@ -9588,14 +9588,78 @@ def test_a_runner_behind_the_installed_plugin_posts_nothing_about_it(shell, conf
     assert shell.reexeced == []
 
 
+def pin(config: Path, version: str) -> None:
+    config.write_text(json.dumps(json.loads(config.read_text()) | {"version": version}))
+
+
+def pinned(config: Path) -> str | None:
+    return json.loads(config.read_text()).get("version")
+
+
+def loop_twice(runner: runner_module.Runner, desk: str, monkeypatch) -> int:
+    """Run `desk`'s loop for two passes: the wait after the first returns, the wait after the second asks the runner to stop."""
+    waits = []
+
+    def wait(seconds):
+        waits.append(seconds)
+        if len(waits) == 2:
+            runner.stop_marker().write_text(f"{os.getpid()}\n")
+        return runner.stop_requested()
+
+    monkeypatch.setattr(runner, "idle" if desk == "orca" else "rest", wait)
+    return (runner_module.run_orca if desk == "orca" else runner_module.run_landing)(runner, False)
+
+
 @pytest.mark.parametrize("desk", ["orca", "landing"])
-def test_a_runner_behind_the_installed_plugin_re_executes_into_it_at_the_end_of_its_pass(shell, config, tmp_path, desk):
-    installed(tmp_path, newer(runner_module.RUNNING_VERSION))
+def test_a_runner_on_its_pinned_version_stays_on_it_when_a_newer_version_installs(shell, config, tmp_path, monkeypatch, desk):
+    """Oct 30: every autobump re-executed the live runner into the newest install, so a fix patched into one installed copy was gone minutes later and a half-written install could take the desk; only a handoff moves a runner now."""
+    pin(config, runner_module.RUNNING_VERSION)
+    installed(tmp_path, runner_module.RUNNING_VERSION, newer(runner_module.RUNNING_VERSION))
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    assert loop_twice(runner, desk, monkeypatch) == 0
+    assert shell.reexeced == []
+
+
+@pytest.mark.parametrize("desk", ["orca", "landing"])
+def test_a_pin_moved_under_a_running_desk_re_executes_it_at_the_end_of_its_pass(shell, config, tmp_path, monkeypatch, desk):
+    pin(config, runner_module.RUNNING_VERSION)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    pin(config, newer(runner_module.RUNNING_VERSION))
     with pytest.raises(Reexeced):
-        (runner_module.run_orca if desk == "orca" else runner_module.run_landing)(runner, False)
+        loop_twice(runner, desk, monkeypatch)
     assert shell.reexeced == [[str(runner_module.RUNNER_BIN), "run", "--config", str(config.resolve()), "--desk", desk]]
     assert heartbeat(shell, desk)["pid"] == str(os.getpid())
+
+
+def test_the_first_run_of_a_drive_pins_the_version_it_runs(shell, config):
+    assert pinned(config) is None
+    orca_pass(shell, config)
+    assert pinned(config) == runner_module.RUNNING_VERSION
+    assert shell.environ[runner_module.drive.PIN_ENV] == runner_module.RUNNING_VERSION
+
+
+@pytest.mark.parametrize("desk", ["orca", "landing"])
+def test_run_re_executes_into_the_pinned_versions_own_copy_before_it_takes_the_desk(shell, config, tmp_path, monkeypatch, desk):
+    version = newer(runner_module.RUNNING_VERSION)
+    monkeypatch.setattr(runner_module.drive, "installs", lambda: tmp_path / "installs")
+    copy = tmp_path / "installs" / version / "bin" / "desk-runner.py"
+    copy.parent.mkdir(parents=True)
+    copy.write_text("")
+    pin(config, version)
+    with pytest.raises(Reexeced):
+        cli(shell, config, "run", "--desk", desk, "--once")
+    assert shell.reexeced == [[str(copy), "run", "--config", str(config.resolve()), "--desk", desk, "--once"]]
+    assert shell.environ[runner_module.drive.PIN_ENV] == version
+    assert heartbeat(shell, desk) is None
+
+
+def test_run_on_a_pin_with_no_install_refuses_and_tells_root(shell, config, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(runner_module.drive, "installs", lambda: tmp_path / "installs")
+    pin(config, "9.9.9")
+    assert cli(shell, config, "run", "--desk", "orca", "--once") == 3
+    assert "pins long-running 9.9.9, which has no install at" in capsys.readouterr().err
+    assert [line for line in escalations(shell) if line.startswith("PINNED-VERSION-MISSING ")]
+    assert shell.reexeced == [] and heartbeat(shell, "orca") is None
 
 
 def test_the_orca_loop_exits_on_its_stop_marker_at_the_first_step(shell, config, tmp_path):
@@ -9798,29 +9862,70 @@ def test_the_landing_loop_exits_on_its_stop_marker_within_one_interval_and_its_s
     assert [post["kind"] for post in shell.posts] == ["release", "blocker"]
 
 
-def test_handoff_to_an_install_missing_a_brief_stops_no_runner_and_starts_no_successor(shell, config, tmp_path, monkeypatch):
+def test_handoff_to_a_version_whose_install_is_not_its_release_stops_no_runner_and_keeps_the_pin(shell, config, tmp_path, monkeypatch, capsys):
+    """Oct 30: two installs were cut short (0.7.656, 0.7.701) and one copy was hand-patched (0.7.682); a handoff onto either would have run code no release holds."""
+    version = newer(runner_module.RUNNING_VERSION)
+    pin(config, runner_module.RUNNING_VERSION)
+    checked = []
+    monkeypatch.setattr(runner_module.drive, "release_faults", lambda target: checked.append(target) or ["skills/long-running/scripts/desk-runner.py differs from the release", "reference/orca-lane-brief.md is missing"])
     runner, held = live_runner(shell, config, tmp_path, "orca")
-    monkeypatch.setattr(runner_module, "BRIEF_FILES", (tmp_path / "install" / "reference" / "finder-desk-brief.md",))
-    assert cli(shell, config, "handoff", "--desk", "orca") == 1
-    assert not runner.stop_marker().exists()
-    assert shell.successors == []
-    held.close()
+    with held:
+        assert cli(shell, config, "handoff", "--desk", "orca", "--version", version) == 1
+    assert checked == [version]
+    assert f"the {version} install is not its release: skills/long-running/scripts/desk-runner.py differs from the release; reference/orca-lane-brief.md is missing" in capsys.readouterr().err
+    assert not runner.stop_marker().exists() and shell.successors == []
+    assert pinned(config) == runner_module.RUNNING_VERSION
 
 
-def test_handoff_to_an_install_missing_a_file_its_marketplace_copy_holds_stops_no_runner(shell, config, tmp_path, monkeypatch, capsys):
-    install, source = tmp_path / "cache/long-running/0.7.503/skill", tmp_path / "marketplaces/skills/skill"
-    for root, names in ((install, ["reference/finder-desk-brief.md", "scripts/desk-runner.py"]), (source, ["reference/finder-desk-brief.md", "reference/orca-lane-brief.md", "scripts/desk-runner.py", "scripts/lanes.py", "scripts/__pycache__/lanes.cpython-313.pyc"])):
-        for name in names:
-            (root / name).parent.mkdir(parents=True, exist_ok=True)
-            (root / name).write_text("")
-    monkeypatch.setattr(runner_module, "SCRIPTS", install / "scripts")
-    monkeypatch.setattr(runner_module.drive, "marketplace_copy", lambda path: source)
+def test_handoff_to_a_version_whose_own_preflight_refuses_stops_no_runner_and_keeps_the_pin(shell, config, tmp_path, monkeypatch, capsys):
+    version = newer(runner_module.RUNNING_VERSION)
+    pin(config, runner_module.RUNNING_VERSION)
+    monkeypatch.setattr(runner_module.drive, "release_faults", lambda target: [])
+    run = shell.run
+    preflights = []
+
+    def refuses(argv, stdin=None, env=None, cwd=None):
+        if argv[1:2] == ["preflight"]:
+            preflights.append((list(argv), env))
+            return runner_module.Done(3, json.dumps({"ok": False, "label": "PREFLIGHT-FAILED", "why": "the runner refused to start: TRUNK_MERGE_API_KEY is unset"}), "")
+        return run(argv, stdin, env, cwd)
+
+    monkeypatch.setattr(shell, "run", refuses)
+    runner, held = live_runner(shell, config, tmp_path, "landing")
+    with held:
+        assert cli(shell, config, "handoff", "--desk", "landing", "--version", version) == 3
+    assert preflights == [([str(runner_module.drive.install_bin(version, "desk-runner.py")), "preflight", "--config", str(config.resolve()), "--desk", "landing", "--json"], {runner_module.drive.PIN_ENV: version})]
+    assert f"its successor on {version} would refuse: the runner refused to start: TRUNK_MERGE_API_KEY is unset" in capsys.readouterr().err
+    assert not runner.stop_marker().exists() and shell.successors == []
+    assert pinned(config) == runner_module.RUNNING_VERSION
+
+
+def test_handoff_to_a_released_version_whose_preflight_passes_pins_it_and_starts_the_successor(shell, config, tmp_path, monkeypatch):
+    version = newer(runner_module.RUNNING_VERSION)
+    pin(config, runner_module.RUNNING_VERSION)
+    monkeypatch.setattr(runner_module.drive, "release_faults", lambda target: [])
+    run = shell.run
+    preflights = []
+
+    def passes(argv, stdin=None, env=None, cwd=None):
+        if argv[1:2] == ["preflight"]:
+            preflights.append(list(argv))
+            return runner_module.Done(0, json.dumps({"ok": True, "label": None, "why": None}), "")
+        return run(argv, stdin, env, cwd)
+
+    monkeypatch.setattr(shell, "run", passes)
     runner, held = live_runner(shell, config, tmp_path, "orca")
-    assert cli(shell, config, "handoff", "--desk", "orca") == 1
-    assert "this install lacks reference/orca-lane-brief.md, scripts/lanes.py, so no runner was stopped" in capsys.readouterr().err
-    assert not runner.stop_marker().exists()
-    assert shell.successors == []
-    held.close()
+
+    def exits(seconds):
+        assert pinned(config) == version
+        runner.stop_marker().unlink()
+        held.close()
+
+    monkeypatch.setattr(shell, "sleep", exits)
+    assert cli(shell, config, "handoff", "--desk", "orca", "--version", version) == 0
+    assert pinned(config) == version
+    assert shell.successors == [successor(config, tmp_path, "orca")]
+    assert preflights == [[str(runner_module.drive.install_bin(version, "desk-runner.py")), "preflight", "--config", str(config.resolve()), "--desk", "orca", "--json"]]
 
 
 @pytest.mark.parametrize("desk", ["orca", "landing"])

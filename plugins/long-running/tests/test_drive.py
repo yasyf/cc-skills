@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -410,35 +411,37 @@ def test_release_records_the_builds_owner_on_the_drive_its_cci_drive_names(repo,
     assert "no registered drive posts to cci drive other-drive; build 1 not recorded" in capsys.readouterr().err
 
 
-def heartbeat(shell: FakeShell, desk: str, pid: int, version: str, ago: timedelta = timedelta(), flight: str | None = None) -> str:
-    restart = f"nohup desk-runner.py run --config /drive/runner.json --desk {desk} > /drive/{desk}-runner.log 2>&1 < /dev/null &"
+def heartbeat(shell: FakeShell, desk: str, pid: int, version: str, ago: timedelta = timedelta(), flight: str | None = None, config: str = "/drive/runner.json") -> str:
+    restart = f"nohup desk-runner.py run --config {config} --desk {desk} > /drive/{desk}-runner.log 2>&1 < /dev/null &"
     at = (datetime.now(timezone.utc) - ago).isoformat()
-    attrs = {"pid": str(pid), "version": version, "config": "/drive/runner.json", "terminal": "term_root", "restart": restart} | ({} if flight is None else {"flight": flight})
+    attrs = {"pid": str(pid), "version": version, "config": config, "terminal": "term_root", "restart": restart} | ({} if flight is None else {"flight": flight})
     shell.cci.append({"seq": len(shell.cci) + 1, "drive": DRIVE, "lane": "desk-runner", "kind": "state", "topic": desk, "to": [f"drive-watchdog@{DRIVE}"], "at": at, "text": f"{desk} alive 9:26 PM pass 3", "fields": {"attrs": attrs}})
     return at
 
 
-def test_digest_names_each_desk_runner_behind_the_installed_plugin_with_the_handoff_that_rotates_it(repo, capsys):
-    """#535 shipped as 0.7.186 at 5:07 PM on Oct 20 and the live runner stayed on 0.7.185 until 9:26 PM (#107539)."""
+def test_digest_reads_a_runner_off_its_pin_as_stale_and_a_newer_install_alone_as_current(repo, tmp_path, capsys):
+    """Oct 30: every autobump moved the live runner onto the newest install, so a fix patched into one copy was gone at the next bump; a runner now runs the version runner.json pins, and only a handoff moves the pin."""
     started(repo, "--cci-drive", DRIVE)
     shell = FakeShell()
     plugins = drive.drives_dir().parents[1] / "plugins"
     plugins.mkdir(parents=True)
     (plugins / "installed_plugins.json").write_text(
-        json.dumps({"version": 2, "plugins": {"long-running@skills": [{"version": "0.7.185"}, {"version": "0.7.186"}], "long-running-extras@skills": [{"version": "9.0.0"}]}})
+        json.dumps({"version": 2, "plugins": {"long-running@skills": [{"version": "0.7.186"}, {"version": "0.7.187"}], "long-running-extras@skills": [{"version": "9.0.0"}]}})
     )
-    orca = heartbeat(shell, "orca", 73091, "0.7.186")
-    landing = heartbeat(shell, "landing", 49612, "0.7.185")
+    config = tmp_path / "runner.json"
+    config.write_text(json.dumps({"version": "0.7.186"}))
+    orca = heartbeat(shell, "orca", 73091, "0.7.186", config=str(config))
+    landing = heartbeat(shell, "landing", 49612, "0.7.185", config=str(config))
     capsys.readouterr()
 
     assert drive.main(["digest"], shell) == 1
 
     assert capsys.readouterr().out.splitlines() == [
-        f"orca: pid 73091 runs 0.7.186, installed 0.7.186, last alive {orca}: current",
-        f"landing: pid 49612 runs 0.7.185, installed 0.7.186, last alive {landing}: stale; rotate it with `desk-runner.py handoff --config /drive/runner.json --desk landing`, which starts the next one",
+        f"orca: pid 73091 runs 0.7.186, pinned 0.7.186, installed 0.7.187, last alive {orca}: current; `desk-runner.py handoff --config {config} --desk orca --version 0.7.187` moves it to the installed version once that version's preflight passes",
+        f"landing: pid 49612 runs 0.7.185, pinned 0.7.186, installed 0.7.187, last alive {landing}: off its pin; `desk-runner.py handoff --config {config} --desk landing` moves it onto 0.7.186",
         "quiet point: no, orca runs a version whose alive record names no flight; landing runs a version whose alive record names no flight",
     ]
-    heartbeat(shell, "landing", 50113, "0.7.186")
+    heartbeat(shell, "landing", 50113, "0.7.186", config=str(config))
     assert drive.main(["digest"], shell) == 0
 
 
@@ -451,7 +454,7 @@ def test_digest_names_a_desk_with_no_alive_record_and_exits_one(repo, capsys):
     assert drive.main(["digest"], shell) == 1
 
     lines = capsys.readouterr().out.splitlines()
-    assert lines[0].startswith("orca: pid 73091 runs 0.7.186, installed unknown") and lines[0].endswith(": current")
+    assert lines[0].startswith("orca: pid 73091 runs 0.7.186, pinned nothing, installed unknown") and lines[0].endswith(": current")
     assert lines[1] == f"landing: no landing alive record on cci drive {DRIVE}, so no landing runner has run there"
 
 
@@ -467,7 +470,7 @@ def test_digest_reads_a_desk_runner_on_another_machine_from_its_alive_record_and
 
     lines = capsys.readouterr().out.splitlines()
     assert lines[0].endswith(": current")
-    assert lines[1] == f"landing: pid 49612 runs 0.7.186, installed unknown, last alive {landing}: down; restart it with `nohup desk-runner.py run --config /drive/runner.json --desk landing > /drive/landing-runner.log 2>&1 < /dev/null &`"
+    assert lines[1] == f"landing: pid 49612 runs 0.7.186, pinned nothing, installed unknown, last alive {landing}: down; restart it with `nohup desk-runner.py run --config /drive/runner.json --desk landing > /drive/landing-runner.log 2>&1 < /dev/null &`"
 
 
 def test_digest_quiet_point_holds_while_a_desk_runs_a_pass_or_a_merge_and_passes_once_every_desk_rests(repo, capsys):
@@ -578,3 +581,38 @@ def test_marketplace_copy_maps_a_cache_install_path_into_the_marketplace_checkou
     checkout = tmp_path / "cc-skills/plugins/long-running"
     monkeypatch.setattr(drive, "PLUGIN", checkout)
     assert drive.marketplace_copy(checkout / "skills/long-running") is None
+
+
+def test_tree_faults_names_each_release_file_an_install_lacks_or_holds_edited_and_ignores_its_caches(tmp_path):
+    """Oct 30: 0.7.656 and 0.7.701 installed without skills/, and 0.7.682's desk-runner.py and merge_queue.py were patched in place; each read as a whole install."""
+    origin = tmp_path / "origin"
+    plugin = origin / "plugins" / "long-running"
+    (plugin / "scripts").mkdir(parents=True)
+    (plugin / "bin").mkdir()
+    (plugin / "scripts" / "desk-runner.py").write_text("print('released')\n")
+    (plugin / "scripts" / "merge_queue.py").write_text("QUEUE = 1\n")
+    (plugin / "reference.md").write_text("brief\n")
+    (plugin / "bin" / "desk-runner.py").symlink_to("../scripts/desk-runner.py")
+    (origin / "README.md").write_text("outside the plugin\n")
+    git = ["git", "-C", str(origin), "-c", "user.name=t", "-c", "user.email=t@example.com"]
+    subprocess.run(["git", "init", "-q", str(origin)], check=True)
+    subprocess.run([*git, "add", "-A"], check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "release"], check=True)
+    subprocess.run([*git, "tag", "long-running--v1.2.3"], check=True)
+    copy = tmp_path / "cache" / "1.2.3"
+    shutil.copytree(plugin, copy, symlinks=True)
+    (copy / "scripts" / "__pycache__").mkdir()
+    (copy / "scripts" / "__pycache__" / "merge_queue.cpython-313.pyc").write_bytes(b"\0")
+    releases = tmp_path / "releases.git"
+
+    assert drive.tree_faults(copy, str(origin), "long-running--v1.2.3", "plugins/long-running", releases) == []
+
+    (copy / "scripts" / "merge_queue.py").write_text("QUEUE = 2\n")
+    (copy / "reference.md").unlink()
+    (copy / "bin" / "desk-runner.py").unlink()
+    assert drive.tree_faults(copy, str(origin), "long-running--v1.2.3", "plugins/long-running", releases) == [
+        "bin/desk-runner.py is missing",
+        "reference.md is missing",
+        "scripts/merge_queue.py differs from the release",
+    ]
+    assert drive.tree_faults(copy, str(origin), "long-running--v9.9.9", "plugins/long-running", releases)[0].startswith("the release tag long-running--v9.9.9 did not fetch from")
