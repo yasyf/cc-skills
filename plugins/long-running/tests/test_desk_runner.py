@@ -5498,6 +5498,70 @@ def test_a_head_with_no_finder_record_is_refused_finder_pending_once(shell, conf
     assert blocker["text"] == "#29020 cccc333333: nothing in #29020 was enqueued; FINDER-PENDING #29020: no `finder:` record from finder-desk names this head, and a lane's own finder record never grades it"
 
 
+@pytest.mark.parametrize("history", [32, 10_000])
+def test_stale_blocker_cleanup_has_history_bounded_noop_work(shell, config, tmp_path, monkeypatch, history):
+    import sqlite3
+
+    landing = landing_of(shell, config, tmp_path)
+    store = landing.book.store
+    target = json.dumps({"kind": "note", "lane": "archive", "pr": "99999", "text": "unrelated completed bus history"})
+    with store.transaction(runner_module.LANDING) as state:
+        for index in range(history):
+            key = f"archive:{index}"
+            state.accept(key, "bus", target, None, shell.now())
+            state.start(key, shell.now())
+            state.complete(key, {"posted": f"#{index + 1000}"})
+    owner = threading.get_ident()
+    uri = store.path(runner_module.LANDING).absolute().as_uri() + "?mode=ro"
+    counts = {"action_dtos": 0, "target_decodes": 0, "target_bytes": 0, "read_opens": 0, "read_closes": 0, "sql_vm": 0, "sql_changes": 0}
+    connect, load, loads = sqlite3.connect, actions.Action.load, json.loads
+
+    class Observed(sqlite3.Connection):
+        def close(self):
+            if self.counted:
+                counts["read_closes"] += 1
+                counts["sql_changes"] += self.total_changes
+            super().close()
+
+    def progress():
+        counts["sql_vm"] += 1
+        return 0
+
+    def connected(*args, **kwargs):
+        connection = connect(*args, **kwargs, factory=Observed)
+        connection.counted = threading.get_ident() == owner and str(args[0]) == uri
+        if connection.counted:
+            counts["read_opens"] += 1
+            connection.set_progress_handler(progress, 1)
+        return connection
+
+    def decoded(record):
+        if threading.get_ident() == owner:
+            counts["action_dtos"] += 1
+        return load(record)
+
+    def parsed(record, *args, **kwargs):
+        if threading.get_ident() == owner and record == target:
+            counts["target_decodes"] += 1
+            counts["target_bytes"] += len(target.encode())
+        return loads(record, *args, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", connected)
+    monkeypatch.setattr(actions.Action, "load", staticmethod(decoded))
+    monkeypatch.setattr(json, "loads", parsed)
+    calls = len(shell.raw)
+    with store.reading():
+        landing.resolve_stale_blockers({})
+        first = counts.copy()
+        landing.resolve_stale_blockers({})
+    print(json.dumps({"history": history, "first_noop": first, "two_noops": counts, "scope": "actual same-Landing cleanup/Book/Store; caller-thread DTO/target/VM counts, not file-exclusive or physical IO"}))
+    assert first["action_dtos"] == 0, f"stale cleanup decoded {first['action_dtos']} historical actions"
+    assert first["target_decodes"] == counts["action_dtos"] == counts["target_decodes"] == counts["target_bytes"] == 0
+    assert 0 < first["sql_vm"] < 256 and first["sql_vm"] < counts["sql_vm"] < 512
+    assert counts["read_opens"] == counts["read_closes"] == 1 and counts["sql_changes"] == 0
+    assert len(shell.raw) == calls
+
+
 @pytest.mark.parametrize("display_number", ["#7", "#100@bbbbbbbb"], ids=["owner", "remote"])
 def test_stale_blocker_uses_internal_reference_for_mixed_origin_receipt(shell, config, tmp_path, display_number):
     landing = landing_of(shell, config, tmp_path)

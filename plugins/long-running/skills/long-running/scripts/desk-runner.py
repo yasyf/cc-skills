@@ -9372,7 +9372,7 @@ class Landing:
     def resolve_stale_blockers(self, rows: dict[str, dict]) -> None:
         """Resolve, with one note a pass, every blocker this runner posted about a PR that has since landed, closed, or moved past the head the blocker names, so the bus holds no blocker the runner itself has outlived (root #253512)."""
         stale: dict[str, tuple[int, str]] = {}
-        for action in self.book.actions(LANDING, kind="bus", status="completed"):
+        for action in self.book.blocker_candidates(LANDING):
             target = json.loads(action.target)
             if target.get("kind") != "blocker" or not (seq := cci.receipt_seq(action.response.get("posted", ""))) or not (row := rows.get(target["pr"])):
                 continue
