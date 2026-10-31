@@ -32,7 +32,7 @@ ROWS = (
     "### prompt/1026-105052 | reserved | in-force | said 1 | 2026-10-26\n> no credential on disk\nslice-hash: 0123456789ab\n"
 )
 REASONS = "The resubscribe hunks keep the fetched position across a cut, and every caller passes it through unchanged. "
-SWEPT = REASONS + "rows met: rule/949e6be; n/a: prompt/1026-105052; pending: "
+SWEPT = REASONS + "rows checked: 2"
 PARENT = "0b0e1f2a3c4d5e6f708192a3b4c5d6e7f8091a2b"
 EARLIER = (f"{OLD_OWN}^..{OLD}", f"{OWN}^..{HEAD}")
 
@@ -57,8 +57,9 @@ def pairs(*marks: str) -> str:
 
 
 class Fake:
-    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0, gone: tuple[str, ...] = (), ranges: dict | None = None, shows: dict | None = None, trunk: str = BASE, history: tuple[str, ...] = (), pulls: dict | None = None, races: int = 0, unregistered: tuple[str, ...] = (), subjects: tuple[str, ...] = (), base_gone: bool = False):
+    def __init__(self, tmp_path: Path, replies: list[dict], state: str = "OPEN", heads: tuple[str, ...] = (HEAD,), own: dict | None = None, resolve: dict | None = None, failures: int = 0, gone: tuple[str, ...] = (), ranges: dict | None = None, shows: dict | None = None, trunk: str = BASE, history: tuple[str, ...] = (), pulls: dict | None = None, races: int = 0, unregistered: tuple[str, ...] = (), subjects: tuple[str, ...] = (), base_gone: bool = False, rows: str = ROWS):
         self.tmp_path = tmp_path
+        self.rows = rows
         self.replies = list(replies)
         self.state = state
         self.heads = list(heads)
@@ -93,7 +94,7 @@ class Fake:
             return self.git(argv[1:])
         if argv[:2] == [sys.executable, str(finder.SCRIPTS / "rulings.py")]:
             self.timeouts[argv[2]] = timeout
-            return ROWS if argv[2] == "slice" else "/plans/durable/plan/plan.md\n"
+            return self.rows if argv[2] == "slice" else "/plans/durable/plan/plan.md\n"
         if argv[0] == "codex-ask":
             reply = self.tmp_path / f"reply-{len(self.calls)}.json"
             reply.write_text(json.dumps(self.replies.pop(0)))
@@ -363,36 +364,44 @@ def test_a_pass_after_an_earlier_finder_reads_since_that_head_and_checks_its_maj
     assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over delta {OLD[:7]}..{HEAD[:7]}: no majors"
 
 
-def test_a_reply_that_drops_a_row_key_is_asked_once_more_and_two_such_replies_post_nothing(tmp_path):
-    dropped = reply(swept=REASONS + "rows met: rule/949e6be")
+def test_a_reply_that_miscounts_the_rows_is_asked_once_more_and_two_such_replies_post_nothing(tmp_path):
+    """Root #238844: the reply names a row only in a missing finding and ends `swept` with one count, so a big slice never exhausts the model's output; a count that is not the slice's row count is asked again."""
+    miscounted = reply(swept=REASONS + "rows checked: 1")
     directory = job(tmp_path)
-    shell = Fake(tmp_path, [dropped, reply()])
+    shell = Fake(tmp_path, [miscounted, reply()])
     finder.main([str(directory)], shell)
     assert [ask[-1] for ask, _ in shell.asks()] == [str(directory / "question-1.md"), str(directory / "question-2.md")]
-    assert "no verdict for prompt/1026-105052" in (directory / "question-2.md").read_text()
+    assert "`rows checked: 1` where the rows file holds 2 rows" in (directory / "question-2.md").read_text()
+    assert "end `swept` with `rows checked: 2`" in (directory / "question-2.md").read_text()
     assert len(shell.posted) == 1
 
     again = job(tmp_path / "again")
-    shell = Fake(tmp_path, [dropped, dropped, dropped])
+    shell = Fake(tmp_path, [miscounted, miscounted])
     with pytest.raises(finder.JobFailed):
         finder.main([str(again)], shell)
     assert not shell.posted
-    assert result(again) == {"error": "JobFailed: three replies gave no verdict for prompt/1026-105052"}
+    assert result(again) == {"error": "JobFailed: two replies gave `rows checked: 1` where the rows file holds 2 rows"}
 
 
-def test_a_second_reply_still_missing_rows_is_asked_for_those_rows_alone_and_posts_the_merged_verdict(tmp_path):
-    """Root #233472: the finder on #45799 failed all three attempts because two replies left five rows without a verdict; it now asks for only those rows."""
-    dropped = reply(swept=REASONS + "rows met: rule/949e6be")
-    directory = job(tmp_path)
-    shell = Fake(tmp_path, [dropped, dropped, reply(swept="n/a: prompt/1026-105052, the change touches no prompt path")])
+def test_a_slice_over_the_big_slice_bound_runs_on_sol_whatever_model_the_job_names(tmp_path):
+    """Root #238844: luna ran out of output tokens on #46111's 290-row slice; slices over 150 rows route to sol, and luna keeps the rest."""
+    rows = "".join(f"### rule/{index:07x} | scope | in-force | said 1 | 2026-10-22\n> row {index}\n\n" for index in range(finder.BIG_SLICE + 1))
+    directory = job(tmp_path, model="luna")
+    shell = Fake(tmp_path, [reply(swept=REASONS + f"rows checked: {finder.BIG_SLICE + 1}")], rows=rows)
     finder.main([str(directory)], shell)
-    assert [ask[-1] for ask, _ in shell.asks()] == [str(directory / f"question-{n}.md") for n in (1, 2, 3)]
-    assert "Answer only those rows" in (directory / "question-3.md").read_text() and "prompt/1026-105052" in (directory / "question-3.md").read_text()
-    assert len(shell.posted) == 1 and "prompt/1026-105052" in (directory / "record.md").read_text()
+    [(ask, _)] = shell.asks()
+    assert ask[:3] == ["codex-ask", "-m", "sol"]
+    assert len(shell.posted) == 1
+
+    small = job(tmp_path / "small", model="luna")
+    shell = Fake(tmp_path, [reply()])
+    finder.main([str(small)], shell)
+    [(ask, _)] = shell.asks()
+    assert ask[:3] == ["codex-ask", "-m", "luna"]
 
 
 def test_a_reply_with_no_reasoning_is_asked_once_more_and_two_such_replies_post_nothing(tmp_path):
-    bare = reply(swept="ok; rows met: rule/949e6be; n/a: prompt/1026-105052; pending: ; tests: " + "; ".join(f"t{index} <- plan.md:{index}" for index in range(8)))
+    bare = reply(swept="ok; rows checked: 2; tests: " + "; ".join(f"t{index} <- plan.md:{index}" for index in range(8)))
     directory = job(tmp_path)
     shell = Fake(tmp_path, [bare, reply()])
     finder.main([str(directory)], shell)

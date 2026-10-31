@@ -30,9 +30,10 @@ is not raised again. A whole pass writes the head's
 required register rows to `DIR/rows.md` with `rulings.py slice --required`. A `full` job, which only a root `ask` to the finder desk saying `finder: whole` queues, reads the PR's
 whole own change at its live head whatever earlier records graded. It fills
 `reference/finder-desk-brief.md` and runs `codex-ask -m <model> --schema findings`, with `--incident` when the job is `fast`, in the drive's
-checkout. A reply that names no verdict for a row key the slice printed, or gives no reasoning in
-`swept`, is asked once more. A second reply with no reasoning fails the job; one that still leaves rows
-without a verdict is asked a third time for those rows alone, and the job fails only when that reply leaves one out too. A head that moved while codex read
+checkout, on sol whatever the job names when the slice holds more than `BIG_SLICE` rows. The reply names a
+row only in a `row <key> missing:` finding and ends `swept` with `rows checked: <n>`, so no slice size
+exhausts the model's output. A reply whose count is not the slice's row count, or that gives no reasoning
+in `swept`, is asked once more, and a second such reply fails the job. A head that moved while codex read
 it posts nothing. The verdict is posted under lane `finder-desk` as `finder: ok <head> …` or
 `finder: major <head> <n> open over <range>: …`, naming `whole <first own>^..<head>` or `delta <graded>..<head>`, kind
 `review`, with `--pr <repo>#<n>`, `--id finder:<repo>#<n>:<head>` and `:whole` for a `full` job, and the whole reply on `--path`, to the lane that posted the head
@@ -94,9 +95,12 @@ CENSUS = "census:"
 RULINGS_HEADING = re.compile(r"^#{1,6}\s*Rulings\b", re.IGNORECASE | re.MULTILINE)
 BODY_COMMENT = re.compile(r"^(?:#{1,6}\s*|\*\*)?(?:Rulings|Body addendum)\b", re.IGNORECASE | re.MULTILINE)
 ROW_KEY = re.compile(r"^### (\S+) \|", re.MULTILINE)
+COUNTED = re.compile(r"\brows checked:\s*(\d+)")
+BIG_SLICE = 150
+BIG_SLICE_MODEL = "sol"
 REPLY_FILE = re.compile(r"^REPLY_FILE: (\S+)$", re.MULTILINE)
 MAJORS = frozenset({"blocker", "major"})
-LISTS = re.compile(r"\b(rows met|n/a|pending|tests):")
+LISTS = re.compile(r"\b(rows met|rows checked|n/a|pending|tests):")
 REASON_WORDS = 12
 REASONLESS = "no reasoning in `swept`, which gives one sentence per group of related hunks saying what it changes and why it holds or fails"
 CCI_TEXT = 400
@@ -254,18 +258,15 @@ def ask(shell: Shell, job: dict, directory: Path, question: Path, attempt: int) 
     return Path(REPLY_FILE.search(out)[1]).read_text()
 
 
-def unanswered(keys: list[str], reply: str) -> list[str]:
-    return [key for key in keys if key not in reply]
-
-
 def reasoned(reply: str) -> bool:
     swept = json.loads(reply)["swept"]
     return len(swept[: (lists.start() if (lists := LISTS.search(swept)) else len(swept))].split()) >= REASON_WORDS
 
 
 def shortfalls(keys: list[str], reply: str) -> list[str]:
-    missing = unanswered(keys, reply)
-    return ([f"no verdict for {', '.join(missing)}"] if missing else []) + ([] if reasoned(reply) else [REASONLESS])
+    counted = COUNTED.findall(json.loads(reply)["swept"])
+    miscounted = [f"`rows checked: {counted[-1] if counted else '<none>'}` where the rows file holds {len(keys)} rows"] if keys and (not counted or int(counted[-1]) != len(keys)) else []
+    return miscounted + ([] if reasoned(reply) else [REASONLESS])
 
 
 def retried[T](attempt: Callable[[], T], transient: Callable[[subprocess.CalledProcessError], bool] = lambda error: True) -> T:
@@ -462,6 +463,8 @@ def run(directory: Path, shell: Shell) -> dict:
     if rows:
         rows.write_text((slicing or pool.submit(slice_rows, shell, job, pr, head, view["baseRefName"])).result())
         keys = ROW_KEY.findall(rows.read_text())
+    if len(keys) > BIG_SLICE:
+        job = job | {"model": BIG_SLICE_MODEL}
     question = directory / "question-1.md"
     question.write_text(prompt(job, view, base, own, last, pairs, changed, rows, plan.result().strip(), touched))
     if (cancelled := directory / CANCELLED).is_file():
@@ -469,19 +472,11 @@ def run(directory: Path, shell: Shell) -> dict:
     reply = ask(shell, job, directory, question, 1)
     if short := shortfalls(keys, reply):
         retry = directory / "question-2.md"
-        rule = " Every key in the rows file appears exactly once, as met, n/a, pending, or a missing finding." if keys else ""
+        rule = f" Give every row in the rows file a verdict and end `swept` with `rows checked: {len(keys)}`." if keys else ""
         retry.write_text(f"{question.read_text()}\nYour last reply gave {'; and '.join(short)}.{rule}\n")
         reply = ask(shell, job, directory, retry, 2)
-        if (short := shortfalls(keys, reply)) and not reasoned(reply):
+        if short := shortfalls(keys, reply):
             raise JobFailed(f"two replies gave {'; and '.join(short)}")
-        if missing := unanswered(keys, reply):
-            rest = directory / "question-3.md"
-            rest.write_text(f"{question.read_text()}\nYour last two replies gave no verdict for {', '.join(missing)}. Answer only those rows: put each of their keys in `swept` once, as met, n/a, pending, or a missing finding, and any finding one raises in `findings`.\n")
-            extra = json.loads(ask(shell, job, directory, rest, 3))
-            merged = json.loads(reply)
-            reply = json.dumps(merged | {"findings": [*merged["findings"], *extra["findings"]], "swept": f"{merged['swept']} {extra['swept']}"})
-            if missing := unanswered(keys, reply):
-                raise JobFailed(f"three replies gave no verdict for {', '.join(missing)}")
     if (now := view_pr(shell, job)["headRefOid"]) != head:
         return {"skipped": f"{pr} moved to {now[:12]} while codex read {head[:12]}"}
     findings, census = triage(json.loads(reply)["findings"], touched)
