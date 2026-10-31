@@ -8553,16 +8553,17 @@ class Landing:
         mine = self.overflower = Landing(self.runner, self.runner.config.landing, cci.Tail(self.runner.cci_read))
 
         def loop() -> None:
-            while True:
-                started = time.monotonic()
-                try:
-                    if self.down_since():
-                        mine.overflowed_at = time.monotonic()
-                    else:
-                        mine.overflow(self)
-                except Exception:
-                    traceback.print_exc()
-                time.sleep(max(0.0, OVERFLOW_EVERY.total_seconds() - (time.monotonic() - started)))
+            with self.book.store.reading():
+                while True:
+                    started = time.monotonic()
+                    try:
+                        if self.down_since():
+                            mine.overflowed_at = time.monotonic()
+                        else:
+                            mine.overflow(self)
+                    except Exception:
+                        traceback.print_exc()
+                    time.sleep(max(0.0, OVERFLOW_EVERY.total_seconds() - (time.monotonic() - started)))
 
         self.overflowing = threading.Thread(target=loop, name="landing-overflow", daemon=True)
         self.overflowing.start()
@@ -8652,7 +8653,10 @@ class Landing:
     def last_refusal(self, members: set[str], open_rows: dict[str, dict], since: datetime) -> tuple[str, str] | None:
         """The newest refusal any PR of `members` stands under, with the lane that owns that PR: a blocker this runner routed for its current head or base, a refusal it escalated since `since`, or a `blocker` record a `landing.desk_lane` lane posted naming it since then (root, Oct 29 2:37 AM)."""
         found: list[tuple[datetime, str, str]] = []
-        routes = [action for action in self.book.actions(LANDING, kind="bus")] + [action for name in self.book.containers(LANE_PREFIX) for action in self.book.actions(name, kind="relay")]
+        keys = {key for member in members for key in (f"blocker:{member}:{open_rows[member].get('head', '')[:10]}", f"bot-held:{member}:{open_rows[member].get('head', '')[:10]}", f"conflict:{member}:{open_rows[member].get('base', '')}")}
+        containers = [(LANDING, "bus"), *((name, "relay") for name in self.book.containers(LANE_PREFIX))]
+        with self.book.store.reading():
+            routes = [action for container, kind in containers for key in keys if (action := self.book.store.find_action(container, key)) is not None and action.kind == kind]
         for member in members:
             row = open_rows[member]
             current = (f"blocker:{member}:{row.get('head', '')[:10]}", f"bot-held:{member}:{row.get('head', '')[:10]}", f"conflict:{member}:{row.get('base', '')}")
