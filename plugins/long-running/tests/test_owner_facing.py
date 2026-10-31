@@ -15,7 +15,7 @@ from captain_hook.testing.helpers import StubbedContext, build_context, disk_fix
 from fire import fire
 from hooks import nudges, owner_facing
 from hooks.compaction_handoff import CompactionState
-from hooks.tests.board_fixtures import ANSWERS, GLOSSARY, ROWS
+from hooks.tests.board_fixtures import ANSWERS, GLOSSARY, JUDGE, ROWS, judged
 from hooks.tests.incident_fixtures import OUTAGE_TWO, opened
 from long_running import actions
 
@@ -89,12 +89,12 @@ class Root:
             pending, state.pending = state.pending, []
         return pending
 
-    def plain_reply(self, text: str, terms: list[str] | None = None) -> list[str]:
+    def plain_reply(self, text: str, phrase: str = "") -> list[str]:
         self.transcript.write_text(json.dumps(entry("user", "status?")) + "\n" + json.dumps(entry("assistant", text)) + "\n")
         payload = {"session_id": "0123456789abcdef", "transcript_path": str(self.transcript), "cwd": str(self.transcript.parent)}
         context = build_context(transcript=Session.from_path(self.transcript), session_dir=self.session_dir)
-        evt = StopEvent(_raw=payload, ctx=StubbedContext.wrapping(context, llm={"terms": terms} if terms else None))
-        with stubbed_commands(PLAIN_READS):
+        evt = StopEvent(_raw=payload, ctx=StubbedContext.wrapping(context))
+        with stubbed_commands(PLAIN_READS | judged(phrase)):
             assert owner_facing.plain_words_on_reply(evt) is None
         with nudges.NudgeState.mutate(evt) as state:
             pending, state.pending = state.pending, []
@@ -286,7 +286,7 @@ def test_lane_probes_and_root_routing_pass(root: Root, incidents: Path, command:
     assert root.tool("Bash", {"command": command}, **raw) == []
 
 
-PLAIN_READS = {f"{owner_facing.RULINGS} rows": ROWS, f"{owner_facing.RULINGS} glossary": GLOSSARY, "ccn -R": ANSWERS}
+PLAIN_READS = {f"{owner_facing.RULINGS} rows": ROWS, f"{owner_facing.RULINGS} glossary": GLOSSARY, "ccn -R": ANSWERS, **judged()}
 
 
 @pytest.fixture
@@ -303,64 +303,84 @@ def drive_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Root:
     return root
 
 
-def test_a_status_card_in_drive_words_is_warned_and_its_pr_options_pass(drive_root: Root) -> None:
-    card = {"status": "needs_you", "title": "Merge the slice?", "body": "The desk graded it.", "options": ["Merge #42301", "Hold"]}
-    payload = {"session_id": "0123456789abcdef", "cwd": str(drive_root.transcript.parent), "tool_name": owner_facing.SLACK_CARD, "tool_input": {"card": card}}
-    evt = PreToolUseEvent(_raw=payload, ctx=StubbedContext.wrapping(build_context(session_dir=drive_root.session_dir)))
+def judge_prompts(monkeypatch: pytest.MonkeyPatch, phrase: str = "") -> list[str]:
+    prompts: list[str] = []
+    run = subprocess.run
 
-    with stubbed_commands(PLAIN_READS):
-        message = owner_facing.plain_words_in_owner_questions(evt).message
+    def judged_run(args, **kwargs):
+        if list(args[:2]) != ["claude", "-p"]:
+            return run(args, **kwargs)
+        prompts.append(kwargs["input"])
+        return subprocess.CompletedProcess(args, 0, stdout=judged(phrase)[JUDGE], stderr="")
+
+    monkeypatch.setattr(subprocess, "run", judged_run)
+    return prompts
+
+
+def card_event(drive_root: Root, card: dict) -> PreToolUseEvent:
+    payload = {"session_id": "0123456789abcdef", "cwd": str(drive_root.transcript.parent), "tool_name": owner_facing.SLACK_CARD, "tool_input": {"card": card}}
+    return PreToolUseEvent(_raw=payload, ctx=StubbedContext.wrapping(build_context(session_dir=drive_root.session_dir)))
+
+
+def test_a_status_card_the_judge_flags_is_warned_with_its_sentence(drive_root: Root) -> None:
+    card = {"status": "needs_you", "title": "Merge the slice?", "body": "The desk graded it.", "options": ["Merge #42301", "Hold"]}
+
+    with stubbed_commands(PLAIN_READS | judged("slice", "Say which change you mean.")):
+        message = owner_facing.plain_words_in_owner_questions(card_event(drive_root, card)).message
 
     assert message.startswith(owner_facing.PLAIN_WORDS)
-    assert 'card title has a drive word, "slice"' in message
-    assert 'card body has a drive word, "desk"' in message
-    assert "#42301" not in message
+    assert 'plain words, "slice": Say which change you mean.' in message
 
 
-def test_the_root_reply_in_drive_words_is_nudged_never_blocked(drive_root: Root) -> None:
-    [nudge] = drive_root.plain_reply("The slice for lane p1a is done.")
+def test_the_judge_reads_the_card_with_the_ids_a_pattern_picked_and_the_ruled_names_it_uses(drive_root: Root, monkeypatch: pytest.MonkeyPatch) -> None:
+    prompts = judge_prompts(monkeypatch)
+    card = {"status": "needs_you", "title": "Drop the held copy?", "body": "Nothing reads it since G304 (answer 5f0c2e1).", "options": ["Drop", "Hold"]}
+
+    with stubbed_commands({key: value for key, value in PLAIN_READS.items() if key != JUDGE}):
+        assert owner_facing.plain_words_in_owner_questions(card_event(drive_root, card)) is None
+
+    [prompt] = prompts
+    assert 'possible ids: "G304", "answer 5f0c2e1", "5f0c2e1"' in prompt
+    assert "- held copy, night copier: a note started on the phone" in prompt
+    assert "Drop the held copy?" in prompt
+    assert "download the update in the background" not in prompt
+
+
+def test_the_root_reply_the_judge_flags_is_nudged_never_blocked(drive_root: Root) -> None:
+    [nudge] = drive_root.plain_reply("The slice for lane p1a is done.", "slice")
 
     assert nudge.startswith(owner_facing.REPLY_IN_PLAIN_WORDS)
-    assert 'your reply has a drive word, "slice"' in nudge
+    assert 'plain words, "slice"' in nudge
 
 
 def test_a_term_already_flagged_this_hour_is_not_nudged_again(drive_root: Root) -> None:
-    assert len(drive_root.plain_reply("The slice for lane p1a is done.")) == 1
-    assert drive_root.plain_reply("The slice for lane p1a is done.") == []
+    assert len(drive_root.plain_reply("The slice for lane p1a is done.", "slice")) == 1
+    assert drive_root.plain_reply("The slice for lane p1a is done.", "slice") == []
 
 
-def test_the_root_reply_is_not_nudged_for_terms_the_reader_names_that_the_reply_does_not_contain(drive_root: Root) -> None:
-    [nudge] = drive_root.plain_reply("The chat-list fix is live for every team.", ["REPLY_IN_PLAIN_WORDS", "claude-haiku-5-5", "chat-list"])
-
-    assert 'the owner would need "chat-list" defined' in nudge
-    assert "REPLY_IN_PLAIN_WORDS" not in nudge and "claude-haiku" not in nudge
+def test_a_reply_the_judge_clears_is_not_nudged(drive_root: Root) -> None:
+    assert drive_root.plain_reply("The chat-list fix is live for every team.") == []
 
 
-def test_the_root_reply_is_nudged_for_a_lane_name_and_never_for_engineering_words(drive_root: Root) -> None:
-    reply = "Break-glass is granted on the stack; the drift preview and the pre-release check passed, and p1a-land is merged."
-    terms = ["Break-glass", "stack", "drift preview", "pre-release check", "p1a-land"]
-
-    [nudge] = drive_root.plain_reply(reply, terms)
-
-    assert 'the owner would need "p1a-land" defined' in nudge
-    assert [term for term in terms[:-1] if f'"{term}"' in nudge] == []
-
-
-def test_a_ruling_card_quoting_the_owner_verbatim_passes_and_an_invented_quote_is_warned(drive_root: Root, tmp_path: Path) -> None:
+def test_a_ruling_card_quoting_the_owner_verbatim_hides_the_quote_from_the_judge_and_an_invented_quote_does_not(drive_root: Root, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     state = tmp_path / "scratch"
     state.mkdir()
     capture = {"digest": "a" * 16, "at": "2026-01-02T03:04:05Z", "session": "s-owner", "source": "prompt", "text": "keep the desk copy on the laptop. never on the phone"}
     (state / "owner-prompts.jsonl").write_text(json.dumps(capture) + "\n")
-    reads = PLAIN_READS | {f"{owner_facing.RULINGS} rows": json.dumps(json.loads(ROWS) | {"state_dir": str(state)})}
+    reads = {key: value for key, value in PLAIN_READS.items() if key != JUDGE} | {f"{owner_facing.RULINGS} rows": json.dumps(json.loads(ROWS) | {"state_dir": str(state)})}
+    prompts = judge_prompts(monkeypatch)
 
-    def card(title: str):
+    def card(title: str) -> None:
         card = {"status": "needs_you", "title": title, "body": "This also means:\n1. Nothing copies a note back to the phone.", "options": ["Right", "Some wrong", "Open board"]}
-        payload = {"session_id": "0123456789abcdef", "cwd": str(drive_root.transcript.parent), "tool_name": owner_facing.SLACK_CARD, "tool_input": {"card": card}}
         with stubbed_commands(reads):
-            return owner_facing.plain_words_in_owner_questions(PreToolUseEvent(_raw=payload, ctx=StubbedContext.wrapping(build_context(session_dir=drive_root.session_dir))))
+            owner_facing.plain_words_in_owner_questions(card_event(drive_root, card))
 
-    assert card("“keep the desk copy on the laptop.”") is None
-    assert 'card title has a drive word, "desk"' in card("“keep the desk copy on the phone.”").message
+    card("“keep the desk copy on the laptop.”")
+    card("“keep the desk copy on the phone.”")
+
+    verbatim, invented = prompts
+    assert "keep the desk copy on the laptop" not in verbatim
+    assert "keep the desk copy on the phone" in invented
 
 
 def test_the_closeout_grep_passes_its_dash_led_pattern_after_a_double_dash():

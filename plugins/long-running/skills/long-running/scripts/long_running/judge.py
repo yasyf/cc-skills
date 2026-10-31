@@ -36,6 +36,20 @@ CARD_SECONDS = 10
 CARD_CHARS = 4000
 BOARD_PROOF = re.compile(r"proof:board:([0-9a-f]{16})\b")
 
+ENGINEERING = frozenset(
+    """
+    access account admin agent alert api app approval approve auth aws backup batch bot branch break-glass browser bucket
+    bug build cache call canary census change channel check ci claude cli cloud cluster code codex commit config container
+    cookie cpu crash credential cron data database datadog db deploy deployment dev device diff disk dns docker domain
+    download drift email endpoint env environment error fix flag flake fork git github grant graphite hook hotfix http iam
+    image incident install issue job json key kubernetes latency limit linear lint linter log login logout mac machine
+    memory merge metric migration model monitor namespace node oauth okta outage page password patch permission pipeline
+    plugin pod post pr pre-release preview prod production pull push quality queue quota rate rebase release repo repository
+    request restore retire retired retry revert review reviewer role rollback rollout run schema script secret sentry server
+    service session shell sign-in slack sprint sso stack staging storage table tag test timeout token trace tracker
+    typecheck ui update upgrade upload url version vm webhook worktree
+    """.split()
+)
 SYSTEM = (
     "You review one artifact a coding agent wrote, for an owner who is a terse engineer and types fast."
     " Read his words for what he means, the way a careful colleague would."
@@ -65,12 +79,29 @@ SCHEMA = json.dumps(
     }
 )
 
-MISREAD = """Does the artifact misread his words? It misreads in one of two ways.
-- Narrower: it commits to less than he said, such as a partition his words lack ("per X", "grouped by X", "same X"), an exception, a smaller count, or an invariant that holds in the case built but not in every case his words cover.
-- Literal: it applies his words word for word to cases his purpose does not cover, so it adds the very cost his words were removing, such as making work wait that never needed to.
-When his later words correct how his earlier words were read, apply the reason behind the correction, not just the item he named: the same reason may cover things he did not list.
+READINGS = """- Narrower: it commits to less than he said, such as a partition his words lack ("per X", "grouped by X", "same X"), an exception, a smaller count, or an invariant that holds in the case built but not in every case his words cover.
+- Literal: it applies his words word for word to cases his purpose does not cover, so it adds the very cost his words were removing, such as making work wait that never needed to."""
+CORRECTED = "When his later words correct how his earlier words were read, apply the reason behind the correction, not just the item he named: the same reason may cover things he did not list."
+MISREAD = f"""Does the artifact misread his words? It misreads in one of two ways.
+{READINGS}
+{CORRECTED}
 Ask what someone building only from the artifact would build, and whether he would recognise it as what he meant, given what his words were answering. Agent-written text, such as a card's option body, never changes his words. Wording, detail, mechanism choices and scope his words leave open are not misreadings.
 Answer "yes" when the artifact misreads him, and say in your sentence whether it reads him narrower or too literally."""
+
+RULED = f"""Does the card ask him what he already ruled, or offer him a reading of his words that misreads him? Either one is a yes.
+- Already ruled: his words or a settled decision above already answer what the card asks, so answering it makes him say it again. A card that asks only what they leave open, or that reads his words back to him verbatim to confirm them, is not this.
+- Misread: the option the card recommends, or the frame every option shares, misreads him in one of three ways.
+{READINGS}
+- Rebuilt: his words name a mechanism or primitive to use, such as a table kind, a reader, a layer or a write path, and the card builds its own version of it instead: a new process, call, store or path beside the one he named.
+{CORRECTED}
+Ask what someone building only from the recommended option would build, and whether he would recognise it as what he meant, given what his words were answering. Agent-written text, such as a card's option body or the title of a decision, never changes his words, and a card that says it carries his ruling can still misread it. Wording, detail, and choices his words leave open are not misreadings, and neither is one alternative he can simply turn down, nor an option to hold or to do nothing.
+Answer "yes" when the card fails either way, and say in your sentence which: already ruled, narrower, too literal, or rebuilt."""
+PLAIN = """Would he stumble reading this text? Either of two things is a yes.
+- A word he would need defined: a worker's, desk's or record's name, a record, answer or plan-row id, a codename or a bare capital letter standing for a piece of work, a file, hook or function name, an acronym, a number with no words saying what it counts, or a name from his rulings the text never explains in plain words.
+- A name made of ordinary words: list to yourself each name the text gives one specific check, job, step, store, process or part of this system, such as "the nightly gate", "a cache repair" or "the merge picker". For each, ask whether someone who has never seen this project could say what that thing is from the text alone; saying what it costs, how often it fails or what it blocks is not saying what it is. Unless he has used that name himself in the same sense, each one the text never explains is a yes.
+- Fields, not sentences: it reads as label-and-value lines, clipped notes or bare lists of names where he needs whole sentences to act, or its title does not say in plain words what follows. Short labels on options, facts and table columns are fine.
+Plain English, everyday engineering words, the product's nouns, his own words used as he used them, a pull request number with words beside it saying what it is, a link, and a file path cited to say where a change goes all pass. A question that carries a reply or post drafted for Slack or for someone else, instead of asking him about facts, is a yes too.
+Answer "yes" when he would stumble, quote the first term or line he would stumble on, and say in your sentence what to write instead."""
 
 KINDS: dict[str, tuple[str, str]] = {
     "contract": ("a lane's contract: what it promises to build from his words", MISREAD),
@@ -100,6 +131,8 @@ Answer "yes" when the line misstates his words, and say in your sentence which o
 Sharing a word, a system or a topic is not enough: when the action does not make the decision his answer settled, answer "no".
 When it does, answer "yes" if it drops, narrows or contradicts any part of his answer, and "no" if it carries all of it.""",
     ),
+    "ruled": ("a card, or a question, that asks the owner to decide, with every option it offers", RULED),
+    "plain": ("text the owner reads: a card, a board block, a question, a plan or a reply", PLAIN),
 }
 
 
@@ -190,6 +223,26 @@ def owner_words(key: str, said: list[dict]) -> str:
             lines.append(f"  That was a tap on this card, agent-written apart from what he picked or typed:\n{card}")
     return f"His words on ruling {key}, verbatim, oldest first:\n" + "\n".join(lines)
 
+
+
+def settled(rulings: list[str], decisions: list[str]) -> str:
+    """The evidence for a question about what he already ruled: his words on each ruling from `owner_words`, then the decisions already settled, verbatim."""
+    listed = ["Decisions already settled, verbatim:\n" + "\n".join(f"- {decision}" for decision in decisions)] if decisions else []
+    return "\n\n".join([*rulings, *listed])
+
+
+def reader(known: list[str], scopes: list[tuple[list[str], str]], plain_for: Mapping[str, str], ids: list[str]) -> str:
+    """The evidence for a plain-words question: the words he knows, the names he ruled on with his words, the drive's own words with what to say instead, and the ids a pattern picked out of the text."""
+    lines = [
+        f"He knows plain English, everyday engineering words such as {', '.join(sorted(ENGINEERING))}, and these names in the text, which he has used himself or which name the product: {', '.join(known) or 'none'}.",
+        "He ruled on these things; each line gives a thing's names, then his words:",
+        *([f"- {', '.join(names)}: {words}" for names, words in scopes] or ["none"]),
+        "The drive's own words, each with what to say instead:",
+        *(f"- {word}: {plain}" for word, plain in plain_for.items()),
+    ]
+    if ids:
+        lines.append("A pattern picked these out of the text as possible ids: " + ", ".join(f'"{hit}"' for hit in ids))
+    return "\n".join(lines)
 
 def backend_from(env: Mapping[str, str]) -> Backend:
     chosen = env.get(BACKEND_ENV) or DEFAULT_BACKEND

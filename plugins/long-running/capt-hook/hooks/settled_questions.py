@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import json
 import re
@@ -7,9 +8,11 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Iterator
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
+from types import ModuleType
 from zoneinfo import ZoneInfo
 
 from captain_hook import (
@@ -26,11 +29,15 @@ from captain_hook import (
     workflow_state,
 )
 
-from .compaction_handoff import CompactionState, ccn, rulings, script
-from .owner_facing import CCI_POST, SLACK_CARD, posted_text
+from captain_hook.util import reqenv
+
+from .compaction_handoff import CompactionState, ccn, rulings, script, script_module
+from .owner_facing import CCI_POST, SLACK_CARD, posted_text, shown
 from .register_gates import fenced
 from .register_injection import drive_args
-from .tests.register_fixtures import CWD, DRIVE_CONFIG
+from .ruling_misread import MATCH, candidate_rows
+from .tests.board_fixtures import JUDGE, judged
+from .tests.register_fixtures import CWD, DRIVE_CONFIG, STATES
 
 DECISIONS = re.compile(r"^(#{2,3}) [^\n]*\bdecisions?\b[^\n]*$", re.IGNORECASE)
 BOARD_VERBS = frozenset({"push", "update-block"})
@@ -42,8 +49,8 @@ STOPWORDS = frozenset(
     "more most much need needs only over should some still such than that their them then there these they this those "
     "under were what when where whether which while will with would your".split()
 )
-SHARED_WORDS = 4
-OVERLAP = 0.6
+SHARED_WORDS = 3
+DECISIONS_PER_CARD = 6
 FEEDBACK = re.compile(r"^\s*type:\s*feedback\s*$", re.MULTILINE)
 DESCRIPTION = re.compile(r"^description:\s*(.+)$", re.MULTILINE)
 PLAN = (
@@ -70,47 +77,35 @@ SLACK_CHANNEL = re.compile(r"\bC[A-Z0-9]{8,}\b")
 SLACK_VERB = re.compile(r"\b(?:post|reply|send)", re.IGNORECASE)
 ORDERS_CARD = re.compile(r"\bcards?\b|\bthe owner's board\b|\bon (?:the|his) board\b|\bask (?:the owner|him)\b", re.IGNORECASE)
 SENTENCE = re.compile(r"(?<=[.;!?])\s+|\n+")
-NOT_RULINGS = ("corpus/", "no/")
 QUOTE = 200
+IN_FORCE = "in-force"
+NOT_RULINGS = ("corpus/", "no/")
 ROWS = f"{sys.executable} {script('rulings.py')} rows"
-REGISTER = json.dumps({"rows": {
-    "rule/4ac9243": {"kind": "order", "status": "in-force", "words": "there is only one local replica along side one local primary and everything is a client of it"},
+REPLICA = "4ac9243" + "0" * 33
+REGISTER = json.dumps({"state_dir": str(STATES / "quiet"), "rows": {
+    "rule/4ac9243": {"kind": "order", "status": "in-force", "answer": json.dumps([REPLICA]), "words": "there is only one local replica along side one local primary and everything is a client of it"},
     "corpus/b-tests": {"kind": "corpus", "words": ""},
 }})
+MATCHED = "- 4ac9243 How many local replicas run?\n  > there is only one local replica along side one local primary\n"
 RULED_CARD = {"card": {"title": "Should every chat run its own local replica, or is everything a client of one local replica?", "options": ["One per chat", "One shared"]}}
 OWNER_TAGS = frozenset({"from:owner", "scope:durable", "owner-ruling"})
 PICK = re.compile(r"^(?:Pick:|Owner picked:\n)\s*(?:option \w+[,:] )?(.+?)\.?$", re.MULTILINE | re.IGNORECASE)
 QUOTED = re.compile(r'"([^"]+)"')
 PICKED_QUOTE = re.compile(r'\bpicked:?\s+"([^"]+)"', re.IGNORECASE)
 BOARD_QUESTION = re.compile(r"^Board question:\s*(?:\d+\.\s*)?(.+)$", re.MULTILINE)
-PICKED = "you picked"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
 @workflow_state("long_running_settled_questions")
 class SettledState(WorkflowState):
-    warned: list[str] = []
+    judged: list[str] = []
 
 
 @dataclass(frozen=True)
 class Settled:
     text: str
-
-
-@dataclass(frozen=True)
-class Pick:
-    question: str
-    chosen: str
-    on: str
-    about: str
-
-    @property
-    def line(self) -> str:
-        return f'You picked "{self.chosen}" on {self.on}, asked "{" ".join(self.question.split())[:QUOTE]}"'
-
-    def shown_in(self, text: str) -> bool:
-        flat = " ".join(text.lower().split())
-        return PICKED in flat and " ".join(self.chosen.lower().split()) in flat
+    about: str = ""
+    key: str = ""
 
 
 def strings(value: object) -> Iterator[str]:
@@ -125,13 +120,30 @@ def strings(value: object) -> Iterator[str]:
                 yield from strings(item)
 
 
+def cards(value: object) -> Iterator[dict]:
+    match value:
+        case dict() if value.get("type") == "card":
+            yield value
+        case dict():
+            for item in value.values():
+                yield from cards(item)
+        case list():
+            for item in value:
+                yield from cards(item)
+
+
 def board_questions(args: list[str], cwd: str) -> list[tuple[str, str]]:
     found = []
     for arg in args:
         path = Path(cwd, Path(arg.split("=")[-1]).expanduser())
         if path.suffix == ".json" and path.is_file():
-            texts = list(strings(json.loads(path.read_text())))
-            found += [(text, "\n".join(texts)) for text in texts if text.rstrip().endswith("?")]
+            doc = json.loads(path.read_text())
+            for card in list(cards(doc)) or [doc]:
+                if str(card.get("id", "")).startswith(CONFIRMS):
+                    continue
+                texts = [text for _, text in shown(card)]
+                if question := next((text for text in texts if text.rstrip().endswith("?")), None):
+                    found.append((question, "\n".join(texts)))
     return found
 
 
@@ -187,11 +199,7 @@ def owner_answers(cwd: str) -> list[dict]:
     return [answer for answer in json.loads(listed.stdout or "[]") if OWNER_TAGS & set(answer.get("tags", ()))] if listed.returncode == 0 else []
 
 
-def durable_answers(answers: list[dict]) -> list[Settled]:
-    return [Settled(f"answer {answer['id'][:7]}: {answer['title']}") for answer in answers if "scope:durable" in answer["tags"] and not answer.get("superseded_by")]
-
-
-def owner_picks(answers: list[dict]) -> list[Pick]:
+def owner_picks(answers: list[dict]) -> list[Settled]:
     picks = []
     for answer in answers:
         body = answer.get("body") or ""
@@ -204,7 +212,9 @@ def owner_picks(answers: list[dict]) -> list[Pick]:
             chosen = lead
         asked_then = (question := BOARD_QUESTION.search(body)) and question[1] or answer["title"]
         on = datetime.fromisoformat(answer["created_at"].replace("Z", "+00:00")).astimezone(PACIFIC).strftime("%b %-d")
-        picks.append(Pick(asked_then.strip(), chosen.strip()[:QUOTE], on, f"{answer['title']} {lead} {chosen}"))
+        replaced = "; a later answer of his replaced it" if answer.get("superseded_by") else ""
+        line = f'He picked "{chosen.strip()[:QUOTE]}" on {on}, asked "{" ".join(asked_then.split())[:QUOTE]}"{replaced}'
+        picks.append(Settled(line, f"{answer['title']} {lead} {chosen}"))
     return picks
 
 
@@ -228,14 +238,14 @@ def feedback_memories(evt: BaseHookEvent) -> list[Settled]:
     return settled
 
 
-def register_rulings(evt: BaseHookEvent) -> list[Settled]:
-    if not (flags := drive_args(evt)):
+def register_rulings(evt: BaseHookEvent, flags: list[str] | None) -> list[Settled]:
+    if not flags:
         return []
     rows = json.loads(rulings(str(evt.cwd), "rows", *flags))["rows"]
     return [
-        Settled(f'{key}, the owner\'s words: "{" ".join(fields["words"].split())[:QUOTE]}"')
+        Settled(f'His words on {key}: "{" ".join(fields["words"].split())[:QUOTE]}"', fields["words"], key)
         for key, fields in rows.items()
-        if not key.startswith(NOT_RULINGS) and fields.get("status") == "in-force" and fields.get("words")
+        if not key.startswith(NOT_RULINGS) and fields.get("status") == IN_FORCE and fields.get("words")
     ]
 
 
@@ -250,30 +260,29 @@ def words(text: str) -> set[str]:
     return {stem(word) for word in WORD.findall(text.lower()) if len(word) > 3 and word not in STOPWORDS}
 
 
-def overlaps(asking: set[str], known: set[str]) -> int:
-    shared = len(asking & known)
-    return shared if shared >= SHARED_WORDS and shared >= OVERLAP * min(len(asking), len(known)) else 0
+def candidates(settled: list[Settled], card: str) -> list[Settled]:
+    asking = words(card)
+    scored = [(len(asking & known) / len(known), item) for item in settled if len(asking & (known := words(item.about or item.text))) >= SHARED_WORDS]
+    return [item for _, item in sorted(scored, key=lambda hit: -hit[0])[:DECISIONS_PER_CARD]]
 
 
-def matches(questions: list[str], settled: list[Settled]) -> list[tuple[str, Settled]]:
-    indexed = [(item, words(item.text)) for item in settled]
-    found = []
-    for question in questions:
-        asking = words(question)
-        if hits := [(shared, item) for item, known in indexed if (shared := overlaps(asking, known))]:
-            found.append((question, max(hits, key=lambda hit: hit[0])[1]))
-    return found
-
-
-def unshown_picks(asking: list[tuple[str, str]], picks: list[Pick]) -> list[tuple[str, list[Pick]]]:
-    indexed = [(pick, words(f"{pick.question} {pick.about}")) for pick in picks]
-    found = []
-    for question, shown in asking:
-        said = words(question)
-        missing = list(dict.fromkeys(pick for pick, known in indexed if overlaps(said, known) and not pick.shown_in(shown)))
-        if missing:
-            found.append((question, missing))
-    return found
+def ruled(evt: BaseHookEvent, judge: ModuleType, flags: list[str] | None, settled: list[Settled], card: str) -> dict | None:
+    state, matched = candidate_rows(evt, flags, card) if flags else (None, {})
+    rows = {key: row for key, row in matched.items() if row.get("status") == IN_FORCE}
+    decisions = candidates([item for item in settled if item.key not in rows], card)
+    if not rows and not decisions:
+        return None
+    env = reqenv.env_map()
+    verdict = judge.judge(
+        "ruled",
+        judge.settled([judge.owner_words(key, judge.said(row, state, env)) for key, row in rows.items()], [item.text for item in decisions]),
+        card,
+        backend=judge.backend_from(env),
+        drive=flags[1] if flags else None,
+        timeout=reqenv.clamp_timeout(judge.JUDGE_SECONDS),
+        env=env,
+    )
+    return None if verdict is None else asdict(verdict)
 
 
 def digest(question: str) -> str:
@@ -281,111 +290,77 @@ def digest(question: str) -> str:
 
 
 GATE_MESSAGE = (
-    "Warning, nothing was blocked: This asks the owner what a plan decision, register row, owner answer, or feedback memory already settles."
-    " Apply the answer below and drop the question; the same question re-issued passes."
+    "Warning, nothing was blocked: A judge reads this as asking the owner what he already ruled, or as offering an option that misreads his words."
+    " Fix it, or ask it again unchanged if the judge is wrong; the same question re-issued passes."
 )
-PICKS_MESSAGE = (
-    "Warning, nothing was blocked: This card touches something the owner picked before and does not show him those picks."
-    " Put each line below on the card, picks that point the other way included; the same question re-issued passes."
-)
+FINDING = '{question}\n  {sentence}\n  Asked: "{artifact_phrase}"\n  His words: "{evidence_phrase}"'
+PLAN_ASK = {"tool": "AskUserQuestion", "file": FileFixture(home=True, name="brook.md", content=PLAN), "state": [CompactionState(active=True, plan_path="~/brook.md")]}
+RULED = judged("Should every chat run its own local replica", "He already ruled one local replica that everything is a client of.")
+DRIVEN = {"cwd": CWD, "env": DRIVE_CONFIG, "state": [CompactionState(active=True)]}
 
 
 @on(
     Event.PreToolUse,
     only_if=[Tool("AskUserQuestion", "Bash", SLACK_CARD)],
     tests={
-        Input(
-            tool="AskUserQuestion",
-            tool_input=SETTLED_ASK,
-            file=FileFixture(home=True, name="brook.md", content=PLAN),
-            state=[CompactionState(active=True, plan_path="~/brook.md")],
-        ): Warn(pattern=r"plan decision"),
-        Input(
-            tool="AskUserQuestion",
-            tool_input=OPEN_ASK,
-            file=FileFixture(home=True, name="brook.md", content=PLAN),
-            state=[CompactionState(active=True, plan_path="~/brook.md")],
-        ): Allow(),
+        Input(tool_input=SETTLED_ASK, commands=judged("are some dropped", "His plan says nothing is dropped."), **PLAN_ASK): Warn(
+            pattern=r"^Warning, nothing was blocked: A judge reads this as asking the owner what he already ruled[\s\S]*His plan says nothing is dropped\."
+        ),
+        Input(tool_input=SETTLED_ASK, commands=judged(), **PLAN_ASK): Allow(),
+        Input(tool_input=SETTLED_ASK, commands={JUDGE: (1, "claude: overloaded")}, **PLAN_ASK): Allow(),
+        Input(tool_input=OPEN_ASK, commands=judged("Which GitHub App"), **PLAN_ASK): Allow(),
         Input(
             tool="Bash",
             tool_input={"command": "cc-present start --session s --doc ~/owner-board.json --new"},
-            file=FileFixture(home=True, name="owner-board.json", content=json.dumps({"blocks": [{"title": SETTLED_ASK["questions"][0]["question"]}]})),
+            file=FileFixture(home=True, name="owner-board.json", content=json.dumps({"blocks": [{"id": "c1", "type": "card", "title": SETTLED_ASK["questions"][0]["question"]}]})),
             state=[CompactionState(active=True)],
+            commands=judged("are some dropped"),
         ): Allow(),
         Input(
-            tool="AskUserQuestion",
             tool_input=SETTLED_ASK,
-            file=FileFixture(home=True, name="brook.md", content=PLAN),
-            state=[CompactionState(active=True, plan_path="~/brook.md"), SettledState(warned=[digest(SETTLED_ASK["questions"][0]["question"])])],
+            commands=judged("are some dropped"),
+            **{**PLAN_ASK, "state": [*PLAN_ASK["state"], SettledState(judged=[digest(SETTLED_ASK["questions"][0]["question"])])]},
         ): Allow(),
-        Input(tool=SLACK_CARD, tool_input=RULED_CARD, cwd=CWD, env=DRIVE_CONFIG, state=[CompactionState(active=True)], commands={ROWS: REGISTER}): Warn(
-            pattern=r"already settles[\s\S]*rule/4ac9243, the owner's words: \"there is only one local replica"
-        ),
-        Input(
-            command="cci post --lane board-refresher-2 --kind note --text 'board ready'",
-            agent_id="a1b2c3",
-            cwd=CWD,
-            env=DRIVE_CONFIG,
-            state=[CompactionState(active=True)],
-            commands={ROWS: REGISTER},
-        ): Allow(),
+        Input(tool=SLACK_CARD, tool_input=RULED_CARD, commands={ROWS: REGISTER, MATCH: MATCHED, **RULED}, **DRIVEN): Warn(pattern=r"He already ruled one local replica"),
+        Input(tool=SLACK_CARD, tool_input=RULED_CARD, commands={ROWS: REGISTER, MATCH: MATCHED, **judged()}, **DRIVEN): Allow(),
+        Input(command="cci post --lane board-refresher-2 --kind note --text 'board ready'", agent_id="a1b2c3", commands={ROWS: REGISTER, MATCH: MATCHED, **RULED}, **DRIVEN): Allow(),
         Input(
             command="cci post --lane root --kind decide --to board-refresher-2 --text 'board-refresher-2: card whether everything is a client of one local replica.'",
-            cwd=CWD,
-            env=DRIVE_CONFIG,
-            state=[CompactionState(active=True)],
-            commands={ROWS: REGISTER},
-        ): Warn(pattern=r"rule/4ac9243"),
+            commands={ROWS: REGISTER, MATCH: MATCHED, **RULED},
+            **DRIVEN,
+        ): Warn(pattern=r"He already ruled one local replica"),
         Input(
             command="cci post --lane root --kind decide --to lane-a --text 'lane-a: every chat keeps its own local replica cache.'",
-            cwd=CWD,
-            env=DRIVE_CONFIG,
-            state=[CompactionState(active=True)],
-            commands={ROWS: REGISTER},
+            commands={ROWS: REGISTER, MATCH: MATCHED, **RULED},
+            **DRIVEN,
         ): Allow(),
-        Input(
-            tool="AskUserQuestion",
-            tool_input=SLACK_ASK,
-            file=FileFixture(home=True, name="brook.md", content=PLAN),
-            state=[CompactionState(active=True, plan_path="~/brook.md")],
-        ): Allow(),
-        Input(
-            tool="AskUserQuestion",
-            tool_input=SLACK_MENTION_ASK,
-            file=FileFixture(home=True, name="brook.md", content=PLAN),
-            state=[CompactionState(active=True, plan_path="~/brook.md")],
-        ): Warn(pattern=r"plan decision"),
-        Input(tool="AskUserQuestion", tool_input=SETTLED_ASK): Allow(),
-        Input(
-            tool="Bash",
-            tool_input={"command": "cc-present remove-block o1-card --session s"},
-            state=[CompactionState(active=True)],
-        ): Allow(),
-        Input(
-            tool="AskUserQuestion",
-            tool_input=SETTLED_ASK,
-            agent_id="a1b2c3",
-            file=FileFixture(home=True, name="brook.md", content=PLAN),
-            state=[CompactionState(active=True, plan_path="~/brook.md")],
-        ): Allow(),
+        Input(tool_input=SLACK_ASK, commands=judged("Post this"), **PLAN_ASK): Allow(),
+        Input(tool_input=SLACK_MENTION_ASK, commands=judged("are some dropped"), **PLAN_ASK): Warn(pattern=r"already ruled"),
+        Input(tool="AskUserQuestion", tool_input=SETTLED_ASK, commands=judged("are some dropped")): Allow(),
+        Input(tool="Bash", tool_input={"command": "cc-present remove-block o1-card --session s"}, state=[CompactionState(active=True)]): Allow(),
+        Input(tool_input=SETTLED_ASK, agent_id="a1b2c3", commands=judged("are some dropped"), **PLAN_ASK): Allow(),
     },
 )
 def check_settled_before_asking(evt: BaseHookEvent) -> HookResult | None:
-    """Warn an asking call whose question a ruling already settles, or whose card leaves out the owner's earlier picks on the same thing (root #211144)."""
+    """Warn an asking call a judge reads as asking the owner what he already ruled, or as offering an option that misreads his words (root #211144)."""
     if not (asking := asked(evt)):
         return None
     drive = CompactionState.load(evt)
-    settled = register_rulings(evt)
     answers = owner_answers(str(evt.cwd)) if drive.active and shutil.which("ccn") else []
+    seen = SettledState.load(evt).judged
+    fresh = list(dict.fromkeys((question, shown) for question, shown in asking if digest(shown) not in seen))
+    if not fresh:
+        return None
+    flags, judge = drive_args(evt), script_module("long_running/judge")
+    settled = register_rulings(evt, flags)
     if drive.active:
-        settled += plan_decisions(drive.plan_path) + durable_answers(answers) + feedback_memories(evt)
+        settled += [*plan_decisions(drive.plan_path), *owner_picks(answers), *feedback_memories(evt)]
+    contexts = [contextvars.copy_context() for _ in fresh]
+    with ThreadPoolExecutor(len(fresh)) as pool:
+        verdicts = list(pool.map(lambda context, pair: context.run(ruled, evt, judge, flags, settled, pair[1]), contexts, fresh))
+    judged = [(question, shown, verdict) for (question, shown), verdict in zip(fresh, verdicts) if verdict is not None]
     with SettledState.mutate(evt) as state:
-        fresh = [(question, shown) for question, shown in asking if digest(question) not in state.warned]
-        found = matches([question for question, _ in fresh], settled)
-        unshown = unshown_picks(fresh, owner_picks(answers))
-        if not found and not unshown:
-            return None
-        state.warned = [*state.warned, *(digest(question) for question, _ in [*found, *unshown])]
-    if found:
-        return evt.context("\n".join([GATE_MESSAGE, fenced("\n".join(f"{question}\n  {item.text}" for question, item in found))]))
-    return evt.context("\n".join([PICKS_MESSAGE, fenced("\n".join(f"{question}\n" + "\n".join(f"  {pick.line}" for pick in picks) for question, picks in unshown))]))
+        state.judged = [*state.judged, *(digest(shown) for _, shown, _ in judged)]
+    if not (found := [FINDING.format(question=question, **verdict) for question, _, verdict in judged if verdict["verdict"] == "yes"]):
+        return None
+    return evt.context("\n".join([GATE_MESSAGE, fenced("\n\n".join(found))]))
