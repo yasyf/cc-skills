@@ -97,3 +97,13 @@ def test_skips_a_newer_sibling_whose_install_has_its_bin_but_not_yet_its_scripts
         (cache / "0.7.519" / "skills" / "long-running" / "scripts" / tool).unlink()
     assert run(cache, "0.7.518") == "0.7.518 py a b c"
     assert run(cache, "0.7.518", "tool.sh") == "0.7.518 sh a b c"
+
+
+def test_runs_the_newest_whole_orphaned_copy_while_the_newest_install_is_half_written(tmp_path: Path):
+    """go-sweep-7 #234218: 0.7.701 was mid-install and 0.7.699 and 0.7.700 were orphaned, so a lane's 0.7.512 shim ran its own 0.7.512 scripts, which misread the newer mailbox cursor."""
+    cache = plugin_cache(tmp_path, {"0.7.512": True, "0.7.699": True, "0.7.700": True, "0.7.701": False})
+    for tool in ("tool.py", "tool.sh"):
+        (cache / "0.7.701" / "skills" / "long-running" / "scripts" / tool).unlink()
+    assert run(cache, "0.7.512") == "0.7.700 py a b c"
+    assert run(cache, "0.7.512", "tool.sh") == "0.7.700 sh a b c"
+
