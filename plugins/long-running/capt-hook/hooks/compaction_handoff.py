@@ -10,7 +10,6 @@ import shutil
 import subprocess
 import sys
 import time
-import traceback
 from contextlib import contextmanager
 from collections.abc import Iterator
 from datetime import datetime
@@ -388,10 +387,6 @@ class RegisterRead:
             yield
         except SystemExit as error:
             raise subprocess.CalledProcessError(1, self.argv, stderr=f"{error}\n") from error
-        except Exception as error:
-            if isinstance(error, subprocess.SubprocessError):
-                raise
-            raise subprocess.CalledProcessError(1, self.argv, stderr=traceback.format_exc()) from error
 
     def register(self) -> dict | None:
         with self.errors():

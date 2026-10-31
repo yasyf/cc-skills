@@ -84,6 +84,26 @@ def test_register_query_timeout_leaves_no_child(tmp_path: Path, monkeypatch: pyt
                 stop_owned_query(int(pid_path.read_text()), query)
 
 
+def test_register_read_expected_exit_is_command_failure() -> None:
+    reader = handoff.RegisterRead(SimpleNamespace(), {"drive": "b7"})
+    failure = SystemExit("missing register ledger")
+    with pytest.raises(subprocess.CalledProcessError) as caught:
+        with reader.errors():
+            raise failure
+    assert caught.value.__cause__ is failure
+    assert caught.value.returncode == 1
+    assert caught.value.stderr == "missing register ledger\n"
+
+
+@pytest.mark.parametrize("failure", [RuntimeError("unexpected register fault"), subprocess.CalledProcessError(7, ["ccn"]), subprocess.TimeoutExpired(["ccn"], 20)])
+def test_register_read_fault_propagates_unchanged(failure: Exception) -> None:
+    reader = handoff.RegisterRead(SimpleNamespace(), {"drive": "b7"})
+    with pytest.raises(type(failure)) as caught:
+        with reader.errors():
+            raise failure
+    assert caught.value is failure
+
+
 def test_register_read_uses_one_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     clock = [10.0]
     timeouts = []
