@@ -728,7 +728,7 @@ MODELS = re.compile(r"opus|sonnet|fable|astra|codex|sol|incident|claude-[\w.-]+|
 INCIDENT_MODEL = "incident"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 GO_UNQUEUED_OUTCOMES = frozenset({"blocked", "failed", "stranded", "unsettled"})
-RETRYABLE = frozenset({"blocked", "superseded", "foreign", "dropped", "refused", "dequeued"})
+RETRYABLE = frozenset({"blocked", "superseded", "foreign", "dropped", "refused", "dequeued", merge_queue.RATE_LIMITED})
 FAILED_RETRY = timedelta(minutes=10)
 DIRECT_DEADLINE = timedelta(minutes=60)
 HANDING_OFF = "the runner is handing off, so its successor takes this chain up on its first pass"
@@ -751,7 +751,7 @@ OVERFLOW_AFTER = timedelta(minutes=5)
 OVERFLOW_EVERY = timedelta(minutes=1)
 OVERFLOW_SEEN = "overflow-seen"
 OVERFLOW_STALLED = timedelta(minutes=5)
-OVERFLOW_RETRIES = frozenset({"superseded", "failed", "dropped"})
+OVERFLOW_RETRIES = frozenset({"superseded", "failed", "dropped", merge_queue.RATE_LIMITED})
 GRAPHITE_DOWN = "graphite-down"
 GRAPHITE_APP = "app/graphite-app"
 GRAPHITE_QUIET = timedelta(minutes=15)
@@ -907,6 +907,7 @@ TRUNK_REREAD = timedelta(minutes=5)
 QUEUED_STATE = "queued"
 TRUNK_QUEUED_LABELS = frozenset({"trunk-queued", "trunk-not-ready", "trunk-testing", "trunk-tests-passed", "trunk-queued (bisection)", "trunk-testing (bisection)", "trunk-tests-passed (bisection)"})
 TRUNK_MERGED_LABEL = "trunk-merged"
+TRUNK_FELL_LABELS = ("trunk-failed", "trunk-cancelled")
 QUEUED_VERDICT = "QUEUED"
 WAITING_VERDICT = "WAITING"
 BELOW_BLOCKED = re.compile(r"\bbelow BLOCKED #(\d+)\b")
@@ -1197,7 +1198,7 @@ class Shell:
                 feed.write(stdin or "")
                 feed.seek(0)
                 try:
-                    proc = subprocess.run(argv, stdin=feed, capture_output=True, text=True, errors="replace", env={**os.environ, **(env or {}), DEADLINE_ENV: str(time.time() + timeout)}, cwd=cwd, timeout=timeout)
+                    proc = cci.installed(argv, lambda: subprocess.run(argv, stdin=feed, capture_output=True, text=True, errors="replace", env={**os.environ, **(env or {}), DEADLINE_ENV: str(time.time() + timeout)}, cwd=cwd, timeout=timeout))
                 except subprocess.TimeoutExpired:
                     print(f"TIMED-OUT after {timeout}s, skipped: {command_name(argv)}", file=sys.stderr, flush=True)
                     return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {timeout}s and was killed")
@@ -1237,7 +1238,7 @@ class Shell:
     def spawn(self, argv: list[str], out: Path, env: dict[str, str], append: bool = False) -> subprocess.Popen:
         out.parent.mkdir(parents=True, exist_ok=True)
         with out.open("a" if append else "w") as sink:
-            return subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=sink, stderr=subprocess.STDOUT, env={**os.environ, **env}, start_new_session=True)
+            return cci.installed(argv, lambda: subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=sink, stderr=subprocess.STDOUT, env={**os.environ, **env}, start_new_session=True))
 
     def pid_alive(self, pid: int) -> bool:
         """Whether a process with id `pid` exists; a child that exited is reaped at the next spawn."""
@@ -4900,6 +4901,8 @@ def trunk_labelled(entry: dict, row: dict) -> dict:
         return entry | {"queue": "landed", "verdict": "landed"}
     if entry["queue"] == "unknown" and labels & TRUNK_QUEUED_LABELS:
         return entry | {"queue": QUEUED_STATE, "verdict": QUEUED_STATE}
+    if entry["queue"] == "unknown" and (fell := next((label for label in TRUNK_FELL_LABELS if label in labels), None)):
+        return entry | {"queue": "evicted", "evicted": f"Trunk labelled it {fell}"}
     return entry
 
 
@@ -8750,8 +8753,8 @@ class Landing:
         current = self.checked(tips).verdicts.get(pr)
         if not current or current["verdict"] != "BLOCKED" or self.adapter.blocker(current, stack, gated_red) != blocker:
             return
-        if self.adapter.evicted_only(current):
-            status = (self.pr_statuses() or {}).get(pr, {})
+        status = (self.pr_statuses() or {}).get(pr, {})
+        if self.adapter.evicted_only(current) or self.adapter.kind == merge_queue.TrunkStackEnqueue.kind and status.get("queue") == "evicted":
             self.post_blocker(key, ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])), f"#{pr} {sha}: {blocker.text}; the queue dropped it at {status.get('evicted_at') or 'an unstamped time'}: {status.get('evicted') or 'no reason given'}", pr)
         elif parked:
             self.runner.escalate(f"{PARKED}:{pr}", "PARKED", f"#{pr}", f"{sha}: {owner} has no live dispatch or cci session, so its conflict routes to no one until the lane is back: {blocker.text}")

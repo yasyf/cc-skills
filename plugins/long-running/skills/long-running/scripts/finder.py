@@ -31,7 +31,8 @@ required register rows to `DIR/rows.md` with `rulings.py slice --required`. A `f
 whole own change at its live head whatever earlier records graded. It fills
 `reference/finder-desk-brief.md` and runs `codex-ask -m <model> --schema findings`, with `--incident` when the job is `fast`, in the drive's
 checkout. A reply that names no verdict for a row key the slice printed, or gives no reasoning in
-`swept`, is asked once more; a second such reply fails the job. A head that moved while codex read
+`swept`, is asked once more. A second reply with no reasoning fails the job; one that still leaves rows
+without a verdict is asked a third time for those rows alone, and the job fails only when that reply leaves one out too. A head that moved while codex read
 it posts nothing. The verdict is posted under lane `finder-desk` as `finder: ok <head> …` or
 `finder: major <head> <n> open over <range>: …`, naming `whole <first own>^..<head>` or `delta <graded>..<head>`, kind
 `review`, with `--pr <repo>#<n>`, `--id finder:<repo>#<n>:<head>` and `:whole` for a `full` job, and the whole reply on `--path`, to the lane that posted the head
@@ -112,7 +113,7 @@ class JobFailed(RuntimeError):
 
 class Shell:
     def run(self, argv: list[str], cwd: Path | None = None, timeout: int = READ_SECONDS) -> str:
-        return subprocess.run(argv, cwd=cwd, capture_output=True, text=True, errors="replace", check=True, timeout=timeout).stdout
+        return cci.installed(argv, lambda: subprocess.run(argv, cwd=cwd, capture_output=True, text=True, errors="replace", check=True, timeout=timeout)).stdout
 
 
 def heads(record: dict, repo: str) -> list[tuple[str, str]]:
@@ -460,8 +461,16 @@ def run(directory: Path, shell: Shell) -> dict:
         rule = " Every key in the rows file appears exactly once, as met, n/a, pending, or a missing finding." if keys else ""
         retry.write_text(f"{question.read_text()}\nYour last reply gave {'; and '.join(short)}.{rule}\n")
         reply = ask(shell, job, directory, retry, 2)
-        if short := shortfalls(keys, reply):
+        if (short := shortfalls(keys, reply)) and not reasoned(reply):
             raise JobFailed(f"two replies gave {'; and '.join(short)}")
+        if missing := unanswered(keys, reply):
+            rest = directory / "question-3.md"
+            rest.write_text(f"{question.read_text()}\nYour last two replies gave no verdict for {', '.join(missing)}. Answer only those rows: put each of their keys in `swept` once, as met, n/a, pending, or a missing finding, and any finding one raises in `findings`.\n")
+            extra = json.loads(ask(shell, job, directory, rest, 3))
+            merged = json.loads(reply)
+            reply = json.dumps(merged | {"findings": [*merged["findings"], *extra["findings"]], "swept": f"{merged['swept']} {extra['swept']}"})
+            if missing := unanswered(keys, reply):
+                raise JobFailed(f"three replies gave no verdict for {', '.join(missing)}")
     if (now := view_pr(shell, job)["headRefOid"]) != head:
         return {"skipped": f"{pr} moved to {now[:12]} while codex read {head[:12]}"}
     findings, census = triage(json.loads(reply)["findings"], touched)

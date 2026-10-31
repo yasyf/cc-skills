@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import io
+import json
+from pathlib import Path
+
 import grades
 import pytest
 
@@ -165,3 +169,49 @@ def test_full_text_reads_a_spilled_body_and_keeps_the_record_text_when_the_path_
     tarball.write_bytes(b"\x1f\x8b\x08\x00binary")
     assert grades.full_text({"text": "short", "refs": {"path": str(body)}}) == "the whole body"
     assert grades.full_text({"text": "short", "refs": {"path": str(tarball)}}) == "short"
+
+
+def test_full_text_keeps_multibyte_text_and_translates_newlines_across_decoder_buffers(tmp_path):
+    body = tmp_path / "body.txt"
+    body.write_bytes(b"a" * 8191 + "é\r\n".encode() + b"b" * 65535 + "🧪\rfinal".encode())
+    expected = "a" * 8191 + "é\n" + "b" * 65535 + "🧪\nfinal"
+    assert grades.full_text({"text": "short", "refs": {"path": str(body)}}) == expected
+
+
+@pytest.mark.parametrize("suffix", [b"\xff", b"\xc3", b"\xc3x"])
+def test_full_text_discards_a_valid_prefix_when_a_later_chunk_has_an_actual_decode_error(tmp_path, suffix):
+    body = tmp_path / "body.txt"
+    body.write_bytes(b"valid\r\n" * 32768 + suffix)
+    assert grades.full_text({"text": "original record", "refs": {"path": str(body)}}) == "original record"
+
+
+@pytest.mark.parametrize("line", ["aa", "a\n"])
+def test_full_text_keeps_decoded_piece_count_bounded_for_dense_valid_text(tmp_path, monkeypatch, line):
+    body = tmp_path / "body.txt"
+    text = line * (128 * 1024)
+    body.write_text(text)
+    pieces = 0
+    original_open = Path.open
+
+    class Counted(io.TextIOWrapper):
+        def read(self, size=-1):
+            nonlocal pieces
+            result = super().read(size)
+            pieces += bool(result)
+            return result
+
+        def __next__(self):
+            nonlocal pieces
+            result = super().__next__()
+            pieces += 1
+            return result
+
+    def opened(path, *args, **kwargs):
+        if path == body:
+            return Counted(io.FileIO(path, "r"), encoding="utf-8")
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", opened)
+    assert grades.full_text({"text": "short", "refs": {"path": str(body)}}) == text
+    print(json.dumps({"text_bytes": len(text.encode()), "newlines": text.count("\n"), "decoded_pieces": pieces}))
+    assert 0 < pieces <= 8
