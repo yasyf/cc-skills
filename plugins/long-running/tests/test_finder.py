@@ -219,7 +219,7 @@ def test_a_head_whose_parent_was_restacked_reads_only_its_own_commits_against_th
     shell = Fake(tmp_path, [reply()], own={(BASE, HEAD): [OWN, NEWER]})
     finder.main([str(directory)], shell)
     [rev_list] = [argv for argv, _ in shell.calls if argv[:2] == ["git", "rev-list"]]
-    assert rev_list[:8] == ["git", "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{BASE}...{HEAD}"]
+    assert rev_list[:7] == ["git", "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{BASE}...{HEAD}"]
     question = (directory / "question-1.md").read_text()
     assert f"`git diff {OWN}^ {HEAD}`" in question and f"{BASE}...{HEAD}" not in question and f"{STALE_BASE}...{HEAD}" not in question
 

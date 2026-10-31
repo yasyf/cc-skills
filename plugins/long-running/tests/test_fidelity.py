@@ -72,9 +72,11 @@ class Fake:
             return "".join(f"{BASE}\t{ref}\n" for ref in argv[2:])
         if argv[0] in ("fetch", "merge-base"):
             return ""
+        if argv[0] == "log":
+            return "signal/stream.go\n"
         if argv[0] == "rev-list":
-            assert argv[-1] in (f"{BASE}...{HEAD}", f"{BASE}...{OLD}")
-            return f"{OWN}\n" if argv[-1].endswith(HEAD) else f"{OLD_OWN}\n"
+            assert argv[-3:] in ([f"{BASE}...{HEAD}", "--", "signal/stream.go"], [f"{BASE}...{OLD}", "--", "signal/stream.go"])
+            return f"{OWN}\n" if argv[-3].endswith(HEAD) else f"{OLD_OWN}\n"
         if argv[0] == "range-diff":
             return self.range_diff
         if argv[0] == "show":
