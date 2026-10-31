@@ -67,6 +67,7 @@ class FakeShell(stall_watch.Shell):
         self.review_titles: dict[str, str] = {}
         self.comments: dict[str, list[dict]] = {}
         self.shapes: list[dict] = []
+        self.peers: list[dict] = []
         self.clock = NOW
 
     def run(self, argv, stdin=None, env=None, timeout=stall_watch.COMMAND_SECONDS):
@@ -78,6 +79,9 @@ class FakeShell(stall_watch.Shell):
             pool = [*self.records, *self.board_records()] if lane else self.records
             page = [found for found in pool if (not since.isdigit() or found["seq"] > int(since)) and (not kinds or found["kind"] in kinds) and (not topics or found.get("topic") in topics) and (lane is None or found["lane"] == lane)]
             return stall_watch.Done(0, "".join(json.dumps(found) + "\n" for found in page), "")
+        if argv[:2] == ["cci", "who"]:
+            assert argv[2:] == ["--drive", DRIVE, "--all", "--json"]
+            return stall_watch.Done(0, "".join(json.dumps(peer) + "\n" for peer in self.peers), "")
         if argv[:2] == ["cci", "post"]:
             self.posts.append(argv)
             return stall_watch.Done(0, f"posted #{9000 + len(self.posts)}", "")
@@ -600,6 +604,26 @@ def test_a_desk_runner_whose_alive_record_went_silent_stalls_to_root_with_its_re
     shell.records.append(alive(4, "landing", 0))
     watch(shell, config)
     assert "desk:landing" not in opened(config)
+
+
+def spawn(seq: int, lane: str, minutes_ago: float, brief: str = "/briefs/lane.md") -> dict:
+    return record(seq, "root", "state", f"SPAWNED {lane} {brief}", minutes_ago, topic=f"spawn:{lane}")
+
+
+def test_a_spawned_lane_that_neither_posts_nor_binds_within_three_minutes_stalls_to_root_naming_its_brief(config):
+    """A spawned lane that never registered with cci sat unnoticed until the root looked; the spawn record and cci who name it at three minutes."""
+    shell = FakeShell([spawn(1, "lane-quiet", 5, "/briefs/quiet.md"), spawn(2, "lane-posted", 5), record(3, "lane-posted", "state", "started", 4), spawn(4, "lane-bound", 5), spawn(5, "lane-fresh", 2)], [])
+    shell.peers = [{"lane": "lane-bound", "seen_at": stamp(1)}, {"lane": "lane-quiet", "seen_at": stamp(60)}, {"session": "s-other"}]
+
+    watch(shell, config)
+
+    assert shell.topics() == ["unregistered:lane-quiet"]
+    assert shell.post("unregistered:lane-quiet")["to"] == "root"
+    assert shell.post("unregistered:lane-quiet")["text"].startswith("STALL unregistered lane-quiet, 5 min: spawned ")
+    assert "from /briefs/quiet.md, and has neither posted a cci record nor been bound as lane-quiet since" in shell.post("unregistered:lane-quiet")["text"]
+    shell.records.append(record(6, "lane-quiet", "state", "started", 0))
+    watch(shell, config)
+    assert "unregistered:lane-quiet" not in opened(config)
 
 
 def test_untested_shape_rulings_stall_to_root_once_they_are_half_an_hour_old(config):

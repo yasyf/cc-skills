@@ -155,6 +155,7 @@ class FakeShell(runner_module.Shell):
         self.unregistered: set[str] = set()
         self.checkout_edits = ""
         self.posts: list[dict] = []
+        self.registrations: list[dict] = []
         self.states: list[dict] = []
         self.alive: list[str] = []
         self.beats: list[dict] = []
@@ -583,9 +584,12 @@ class FakeShell(runner_module.Shell):
             flags = dict(zip(argv[2::2], argv[3::2], strict=True))
             if not forced and (unstarted := [lane for lane in flags.get("--to", "").split(",") if lane in self.unstarted]):
                 return runner_module.Done(1, "", f"cci: --to {unstarted[0]}: no live session or registered lane on drive {flags['--drive']} is named {unstarted[0]}")
-            assert flags["--drive"] in self.drives and flags["--lane"] in ("desk-runner", "root", "finder-desk", "fidelity-desk") and len(flags["--text"]) <= 400
+            assert flags["--drive"] in self.drives and flags["--lane"] in ("desk-runner", "root", "finder-desk", "fidelity-desk", "orca-desk") and len(flags["--text"]) <= 400
             if self.post_error:
                 return runner_module.Done(1, "", self.post_error)
+            if flags["--lane"] == runner_module.ORCA_DESK:
+                self.registrations.append({key.lstrip("-"): value for key, value in flags.items()})
+                return runner_module.Done(0, "#0\n", "")
             if (flags["--kind"], flags["--to"]) == ("state", f"{runner_module.WATCHDOG}@{flags['--drive']}"):
                 self.alive.append(flags["--text"])
                 attrs = dict(value.split("=", 1) for flag, value in zip(argv[2::2], argv[3::2], strict=True) if flag == "--attr")
@@ -2590,6 +2594,16 @@ def test_a_check_refused_for_a_missing_native_stack_links_the_chain_and_enqueues
     assert shell.enqueues() != []
     assert not [line for line in escalations(shell) if "GATE-FAILED" in line]
     assert [post["text"].split(":", 1)[0] for post in shell.posts if post["text"].startswith("STACK-LINK ")] == ["STACK-LINK #29016 #29020"]
+
+
+def test_a_trunk_label_reads_as_queued_or_landed_where_the_status_read_says_unknown():
+    """Oct 30: ccx read every Trunk-queued head as queue unknown, so the landing state read queued 0 while Trunk tested seven PRs."""
+    unknown = {"number": 45651, "queue": "unknown", "verdict": "blocked:queue-unknown"}
+    assert runner_module.trunk_labelled(unknown, {"labels": "trunk-not-ready"})["queue"] == "queued"
+    assert runner_module.trunk_labelled(unknown, {"labels": "externally-merged,trunk-merged"})["verdict"] == "landed"
+    assert runner_module.trunk_labelled(unknown, {"labels": "trunk-failed"}) == unknown
+    evicted = {"number": 45651, "queue": "not queued", "verdict": "landable"}
+    assert runner_module.trunk_labelled(evicted, {"labels": "trunk-testing"}) == evicted
 
 
 def test_a_check_with_no_verdict_on_a_pr_github_reads_merged_escalates_nothing(shell, config, tmp_path):
@@ -6038,11 +6052,26 @@ def test_a_read_that_fails_on_a_transient_network_error_runs_once_more_and_a_wri
     cci.write_text(f"#!/bin/sh\necho x >> {tries}\nif [ $(wc -l < {tries}) -lt 2 ]; then echo 'Connection reset by peer' >&2; exit 1; fi\necho ok\n")
     cci.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    monkeypatch.setattr(runner_module, "REREAD_PAUSES", (0, 0))
     read = runner_module.Shell().run(["cci", "tail", "--drive", "d1"])
     assert (read.code, read.out, tries.read_text().count("x")) == (0, "ok\n", 2)
     tries.unlink()
     write = runner_module.Shell().run(["cci", "post", "--drive", "d1", "--text", "hi"])
     assert (write.code, tries.read_text().count("x")) == (1, 1)
+
+
+def test_a_read_that_keeps_timing_out_on_tls_runs_three_times_and_logs_each_retry(tmp_path, monkeypatch, capsys):
+    """Root #222205: the GitHub quota read and Trunk calls failed on TLS handshake timeouts at load 31-43, each a bare failure."""
+    bin_dir, tries = tmp_path / "bin", tmp_path / "tries"
+    bin_dir.mkdir()
+    ccx = bin_dir / "ccx"
+    ccx.write_text(f"#!/bin/sh\necho x >> {tries}\nif [ $(wc -l < {tries}) -lt 3 ]; then echo 'net/http: TLS handshake timeout' >&2; exit 1; fi\necho '[]'\n")
+    ccx.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    monkeypatch.setattr(runner_module, "REREAD_PAUSES", (0, 0))
+    read = runner_module.Shell().run(["ccx", "vcs", "auth", "status", "Forge-AI/monorepo", "--json"])
+    assert (read.code, read.out, tries.read_text().count("x")) == (0, "[]\n", 3)
+    assert [line.split(" after: ")[0] for line in capsys.readouterr().err.splitlines() if line.startswith("RETRIED")] == ["RETRIED ccx vcs auth status Forge-AI/monorepo --json in 0s"] * 2
 
 
 def test_heads_no_go_names_are_told_new_heads_first_within_the_pass_budget(shell, config, tmp_path, monkeypatch):
@@ -6312,7 +6341,7 @@ def test_a_drop_blaming_a_pr_outside_the_stack_re_enqueues_the_same_head_on_the_
     assert len(shell.enqueues()) == 1
     root_go(shell, "GO #29020 at cccc3333 standard; a head change is not required", shell.now())
     landing_pass(shell, config)
-    assert len(shell.enqueues()) == 2 and blockers(shell) == [] and len(escalations(shell)) == 1
+    assert len(shell.enqueues()) == 2 and blockers(shell) == [] and [line.split(" ", 1)[0] for line in escalations(shell)] == ["AWAITS-GO", "GO-UNROWED"]
 
 
 def test_a_gate_ejection_blaming_a_pr_outside_the_stack_is_never_routed(shell, config, tmp_path):
@@ -6472,6 +6501,19 @@ def test_mq_why_names_the_refusal_of_a_check_that_read_no_verdict(shell, config,
     shell.gates["29020"] = [(5, "", "stack-enqueue failed: ci trunk: runs with no TRUNK_MERGE_API_KEY\n")]
     assert mq(shell, config, "why", "29020") == 0
     assert capsys.readouterr().out.splitlines()[0] == "#29020 cccc333333 graphite-stack-enqueue: no verdict, the check exited 5: stack-enqueue failed: ci trunk: runs with no TRUNK_MERGE_API_KEY"
+
+
+def test_mq_why_in_a_shell_without_the_trunk_key_says_so_instead_of_reporting_the_runner(shell, config, capsys, monkeypatch):
+    """Root #223262: a lane's unkeyed mq.py why read as the runner lacking TRUNK_MERGE_API_KEY while the runner held it."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["adapter"] = {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}
+    config.write_text(json.dumps(raw))
+    monkeypatch.delenv("TRUNK_MERGE_API_KEY", raising=False)
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    assert mq(shell, config, "why", "29020") == 0
+    assert capsys.readouterr().out.splitlines()[0].startswith("#29020 cccc333333 trunk-stack-enqueue: not checked: this shell sets no TRUNK_MERGE_API_KEY")
+    assert not [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
 
 
 def test_mq_why_reads_past_peer_mail_that_cci_returns_with_no_status(shell, config, capsys):
@@ -6675,6 +6717,46 @@ def test_a_root_withdraw_of_a_go_the_runner_already_enqueued_takes_the_pr_out_an
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1 and stopped(shell) == [("d1", LANE)]
     assert dequeue_lines(shell) == [f"DEQUEUED dequeue:40000:29020 #29020: #29020 at cccc333333, root #40000 withdrew go #{go}: the status read after the dequeue finds it not queued; its head stays out until mq.py requeue"]
+
+
+@pytest.mark.parametrize(
+    "voiding",
+    [
+        lambda go: {"kind": "correction", "re": go, "text": f"5:46 PM root: withdrawing go #{go} on #29020 (838530f was a graded head, never his tap)"},
+        lambda go: {"kind": "correction", "text": f"5:46 PM root: withdrawing go #{go} on #29020; #29020 is not admitted"},
+    ],
+    ids=["correction-re", "correction-names-it"],
+)
+def test_a_root_correction_withdrawing_a_queued_go_takes_the_pr_out_and_never_enqueues_it_again(shell, config, voiding):
+    """p8a-step7 #232081, root #232136: the runner queued #45911 on go #229223 after root withdrew it in correction #229326, because it read only withdraw records."""
+    merge_mode(config, "every")
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    go = shell.records[-1]["seq"]
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    shell.records.append({"seq": 40000, "drive": "d1", "lane": "root", "to": ["landing-desk"], "refs": {}, "at": actions.stamp(shell.clock)} | voiding(go))
+    landing_pass(shell, config)
+    assert dequeues(shell) == [["29020", "--dequeue"]]
+    shell.clock += runner_module.STATUS_MAX_AGE + timedelta(seconds=1)
+    shell.queue["29020"] = "not queued"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+
+
+def test_a_withdrawn_go_leaves_a_pr_queued_that_another_standing_go_admits_at_that_head(shell, config):
+    merge_mode(config, "every")
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    first = shell.records[-1]["seq"]
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    shell.records.append({"seq": 40000, "drive": "d1", "lane": "root", "kind": "correction", "re": first, "to": ["landing-desk"], "refs": {}, "text": f"withdrawing go #{first}; the newer go stands", "at": actions.stamp(shell.clock)})
+    landing_pass(shell, config)
+    assert dequeues(shell) == []
 
 
 def test_mq_dequeue_refuses_another_drives_pr_and_names_its_root(shell, config, tmp_path, capsys):
@@ -7293,6 +7375,7 @@ def test_a_go_named_green_head_above_a_red_or_conflicting_parent_with_its_own_go
     two_pr_stack(shell)
     shell.rows[0] = dict(shell.rows[0], **broken)
     shell.rows[1] = dict(shell.rows[1], test_state="success")
+    shell.gates["29031"] = [gate("#29020 BLOCKED cccc333333 required check buildkite/test is FAILURE", "#29031 WAITING dddd444444 below BLOCKED #29020")]
     shell.queue["29031"] = "not queued"
     merge_go(shell, "29020", "merge #29020 at cccc333")
     merge_go(shell, "29031", "merge #29031 at dddd444")
@@ -7384,44 +7467,144 @@ def test_a_go_named_head_the_queue_evicted_before_any_enqueue_gets_one_blocker_t
     assert shell.enqueues() == []
 
 
-def skipped(shell: FakeShell) -> list[str]:
-    return [line for line in said(shell) if line.startswith("ADMITTED-SKIPPED")]
+def settled(shell: FakeShell, label: str) -> list[str]:
+    return [line for line in said(shell) if line.startswith(f"{label} ")]
 
 
-def test_an_admitted_head_no_record_accounts_for_draws_one_admitted_skipped_naming_the_branch_ten_minutes_on(shell, config, tmp_path):
-    """Owner 5:16 AM Oct 30 on #45286, admitted and unqueued for two hours with no record: "make a durable fix for this not jsut a done-off" (root #208560). The gate reads a verdict no rule routes, so the pass leaves it out silently."""
+def admitted_heads(config: Path) -> dict[str, dict]:
+    return json.loads((Path(json.loads(config.read_text())["orca"]["desk_inbox"]).expanduser().parent / runner_module.drive.ADMITTED).read_text())["heads"]
+
+
+def go_of(shell: FakeShell, pr: str) -> int:
+    return [record for record in shell.records if record["kind"] == "go" and runner_module.go_heads(record).get(pr)][-1]["seq"]
+
+
+def two_gone_green(shell: FakeShell) -> None:
+    shell.rows = [
+        {"pr": "33001", "lane": LANE, "branch": "g/1", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111", "test_state": "success"},
+        {"pr": "33002", "lane": LANE, "branch": "g/2", "base": "dev", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222", "test_state": "success"},
+    ]
+    for pr, head in (("33001", "aaaa111"), ("33002", "bbbb222")):
+        shell.gates[pr] = [gate(f"#{pr} GREEN {head}111 graphite READY", would=f"#{pr}")]
+        shell.enqueue_out[pr] = (0, f"enqueue #{pr}: {{}}\n")
+        shell.queue[pr] = "not queued"
+        grade(shell, pr, f"ok F307 at {head}.")
+        merge_go(shell, pr, f"merge #{pr} at {head}")
+
+
+def test_an_admitted_head_the_gate_refuses_posts_one_refused_naming_the_gate_line_in_that_pass_and_none_while_it_stands(shell, config, tmp_path):
+    """Root #221701: seven admitted heads drew ADMITTED-SKIPPED fifteen minutes after their gos, with no record in between saying why each sat out."""
     merge_mode(config, "every")
     gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
     shell.queue["33001"] = "not queued"
-    shell.sleep(9 * 60)
     landing_pass(shell, config)
-    assert skipped(shell) == []
-    admitted = Path(json.loads(config.read_text())["orca"]["desk_inbox"]).expanduser().parent / runner_module.drive.ADMITTED
-    assert json.loads(admitted.read_text())["heads"]["33001"]["state"] == "merging"
-    shell.sleep(2 * 60)
+    assert settled(shell, "REFUSED") == [f"REFUSED #33001 at aaaa111111 (go #{go_of(shell, '33001')}): the gate read aaaa111111 BLOCKED: merge conflict (graphite CONFLICT)"]
+    assert admitted_heads(config)["33001"] | {"since": ""} == {"head": "aaaa111111", "since": "", "state": "doing", "why": "the gate read aaaa111111 BLOCKED: merge conflict (graphite CONFLICT)"}
     landing_pass(shell, config)
     landing_pass(shell, config)
-    [line] = skipped(shell)
-    assert json.loads(admitted.read_text())["heads"]["33001"]["state"] == "defect"
-    assert line.startswith("ADMITTED-SKIPPED admitted-skipped:33001 #33001: #33001 is green at aaaa111111 and root go #")
-    assert "yet no record says it is queued, merging or refused: the gate read aaaa111111 BLOCKED: merge conflict (graphite CONFLICT); owner lane api-fix" in line
-    assert "root" in heard(shell, "ADMITTED-SKIPPED")[0].split(",")
+    assert len(settled(shell, "REFUSED")) == 1
 
 
-def test_an_admitted_head_whose_check_keeps_timing_out_draws_admitted_skipped_naming_the_timeout(shell, config, tmp_path):
+def test_an_admitted_head_posts_one_record_per_change_of_its_outcome(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
+    shell.queue["33001"] = "not queued"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    shell.gates["33001"] = [gate("#33001 GREEN aaaa111111 graphite READY", would="#33001")]
+    landing_pass(shell, config)
+    shell.queue["33001"] = "queued"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [line.split(" ", 1)[0] for line in said(shell) if line.startswith(("QUEUED ", "REFUSED ", "BELOW-BLOCKED "))] == ["REFUSED", "QUEUED"]
+    assert admitted_heads(config)["33001"]["state"] == "merging"
+
+
+def test_an_admitted_head_whose_check_keeps_timing_out_is_refused_for_the_timeout_in_that_pass(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
     shell.gates["33001"] = [(runner_module.TIMED_OUT, "", "stack-enqueue 33001 --check timed out after 60s and was killed")]
     shell.queue["33001"] = "not queued"
-    shell.sleep(11 * 60)
     landing_pass(shell, config)
-    landing_pass(shell, config)
-    [line] = skipped(shell)
-    assert f"yet no record says it is queued, merging or refused: GATE-TIMEOUT its graphite-stack-enqueue check ran past {runner_module.GATE_CHECK_SECONDS}s on both tries and was killed, so the next pass checks it again; owner lane api-fix" in line
+    [line] = settled(shell, "REFUSED")
+    assert line.endswith(f": GATE-TIMEOUT its graphite-stack-enqueue check ran past {runner_module.GATE_CHECK_SECONDS}s on both tries and was killed, so the next pass checks it again")
 
 
-def test_a_pr_the_runner_merged_directly_draws_no_admitted_skipped_while_its_ledger_row_stays_open(shell, config, tmp_path):
-    """Root #211747: the runner merged #45389 and #45523 directly at 6:44 AM Oct 30 and posted MERGED for each, then raised ADMITTED-SKIPPED on both at 6:50, since their ledger rows stayed open until the next refresh."""
+def test_an_admitted_head_no_branch_settles_is_refused_unsettled_to_the_root_naming_the_last_branch_that_saw_it(shell, config, tmp_path):
+    """Oct 30 7:52 AM to 12:10 PM: every GREEN gate enqueued nothing and posted nothing, since a GREEN verdict with no prefix was no outcome anyone recorded."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.gates["33001"] = [gate("#33001 GREEN aaaa111111 graphite READY")]
+    shell.queue["33001"] = "not queued"
+    landing_pass(shell, config)
+    [post] = [post for post in shell.posts if post_body(post).startswith("REFUSED ")]
+    assert post["kind"] == "defect" and "root" in post["to"].split(",")
+    assert post_body(post) == f"REFUSED #33001 at aaaa111111 (go #{go_of(shell, '33001')}): unsettled: the stack worker's settle step"
+    assert admitted_heads(config)["33001"]["state"] == "defect"
+
+
+def test_a_stacked_head_on_a_base_the_pass_did_not_admit_reads_below_blocked_never_gate_failed(shell, config, tmp_path):
+    shell.rows = [
+        {"pr": "33000", "lane": LANE, "branch": "g/0", "base": "dev", "head": "aaaa000000", "state": "open", "reported_head": "aaaa000000"},
+        {"pr": "33001", "lane": LANE, "branch": "g/1", "base": "g/0", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111", "test_state": "success"},
+    ]
+    shell.gates["33001"] = [(1, "", "stack-enqueue: error: #33001's native stack contains an unavailable pull request\n")]
+    shell.queue |= {"33000": "not queued", "33001": "not queued"}
+    grade(shell, "33001", "ok F307 at aaaa111.")
+    merge_go(shell, "33001", "merge #33001 at aaaa111")
+    landing_pass(shell, config)
+    assert not [line for line in said(shell) if line.startswith("GATE-FAILED")]
+    [line] = settled(shell, "BELOW-BLOCKED")
+    assert line.startswith(f"BELOW-BLOCKED above #33000: root gos name #33001 at aaaa111111 (go #{go_of(shell, '33001')} by root at ")
+    assert line.endswith("stacked on #33000, which the pass did not admit, so its graphite-stack-enqueue check read no verdict: stack-enqueue: error: #33001's native stack contains an unavailable pull request")
+
+
+def test_a_pass_that_gates_nothing_refuses_every_admitted_head_in_one_record_naming_why(shell, config, tmp_path):
+    two_gone_green(shell)
+    pool(shell, "reads", "core")["remaining"] = runner_module.QUOTA_FLOOR - 1
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert settled(shell, "REFUSED") == [f"REFUSED #33001 at aaaa111111 (go #{go_of(shell, '33001')}), #33002 at bbbb222222 (go #{go_of(shell, '33002')}): gating off: {runner_module.QUOTA_OFF}"]
+    assert shell.enqueues() == []
+
+
+def test_a_head_record_naming_a_pr_with_no_ledger_row_registers_it_the_next_pass_and_a_go_naming_none_says_why(shell, config, tmp_path):
+    """Root #221244: #45756 at 0bdd539 had root gos and no ledger row, so the queue never gated its stack."""
+    lone_green_pr(shell)
+    landing_pass(shell, config)
+    head = "0bdd539" + "a" * 33
+    shell.records.append({"seq": 34990, "drive": "d1", "lane": "p8a-step7", "kind": "head", "to": ["root"], "refs": {"prs": ["Forge-AI/monorepo#45756"]}, "fields": {"commit": head}, "text": f"#45756 {head}", "at": actions.stamp(shell.clock)})
+    merge_go(shell, "45757", "merge #45757 at 1234abc")
+    landing_pass(shell, config)
+    assert registrations(shell) == [["register", "--ledger", "abc", "--repo", "Forge-AI/monorepo", "--lane", "p8a-step7", "--pr", "45756"]]
+    [line] = [line for line in escalations(shell) if line.startswith("GO-UNROWED")]
+    assert f"root go #{go_of(shell, '45757')} names #45757 at 1234abc, which has no ledger row" in line
+    landing_pass(shell, config)
+    assert len(registrations(shell)) == 1 and len([line for line in escalations(shell) if line.startswith("GO-UNROWED")]) == 1
+
+
+def test_a_trunk_merge_the_ledger_reads_closed_posts_landed_in_the_pass_that_reads_it(shell, config, tmp_path):
+    """#220775: GitHub read #45814 merged at 12:22 PM, the ledger read it closed with no squash, and its LANDED came about twenty minutes later."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.queue["33001"] = "not queued"
+    landing_pass(shell, config)
+    shell.rows[0] |= {"state": "closed", "labels": "trunk-merged"}
+    real = shell.run
+
+    def run(argv, *args, **kwargs):
+        if len(argv) > 4 and Path(argv[1]).name == "ledger.py" and argv[4] == "landed" and "--pr=33001" in argv:
+            shell.rows[0] |= {"state": "landed", "landed_sha": "dddd444444"}
+        return real(argv, *args, **kwargs)
+
+    shell.run = run
+    landing_pass(shell, config)
+    [landed] = [post for post in shell.posts if post["text"].startswith("LANDED")]
+    assert landed["text"].startswith("LANDED #33001 as dddd444444: through the merge queue")
+
+
+def test_a_pr_the_runner_merged_directly_is_refused_nothing_while_its_ledger_row_stays_open(shell, config, tmp_path):
+    """Root #211747: the runner merged #45389 and #45523 directly at 6:44 AM Oct 30 and posted MERGED for each, then raised a skip on both at 6:50, since their ledger rows stayed open until the next refresh."""
     lone_green_pr(shell)
     shell.rows[0] |= {"test_state": "success", "green_at": actions.stamp(shell.clock)}
     shell.queue["29020"] = "not queued"
@@ -7433,7 +7616,7 @@ def test_a_pr_the_runner_merged_directly_draws_no_admitted_skipped_while_its_led
     shell.sleep(11 * 60)
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert skipped(shell) == []
+    assert settled(shell, "REFUSED") == []
 
 
 def test_mq_refuses_a_state_file_beside_runner_json_naming_the_block_it_lacks(shell, tmp_path, capsys):
@@ -7444,7 +7627,7 @@ def test_mq_refuses_a_state_file_beside_runner_json_naming_the_block_it_lacks(sh
     assert capsys.readouterr().err == f"mq.py: {builds} is no desk-runner config, since it has no drive or orca or landing block; pass the drive's runner.json\n"
 
 
-def test_while_graphite_is_down_an_admitted_chain_waiting_in_the_serial_merge_queue_draws_no_admitted_skipped(shell, config, tmp_path):
+def test_while_graphite_is_down_an_admitted_chain_waiting_in_the_serial_merge_queue_is_never_unsettled(shell, config, tmp_path):
     """Root #210100: a chain the runner lists in its `QUEUE` record, waiting on its checks to merge directly, is merging with a record, never a silent skip."""
     lone_green_pr(shell)
     shell.rows[0] |= {"test_state": "success", "green_at": actions.stamp(shell.clock)}
@@ -7459,7 +7642,7 @@ def test_while_graphite_is_down_an_admitted_chain_waiting_in_the_serial_merge_qu
     landing_pass(shell, config)
     assert direct_merges(shell) == []
     assert [post for post in shell.posts if post["kind"] == "state" and post["text"].startswith("QUEUE ")]
-    assert skipped(shell) == []
+    assert not [line for line in settled(shell, "REFUSED") if ": unsettled: " in line]
 
 
 def gone_on(shell: FakeShell, *, parent_graded: bool) -> None:
@@ -7481,8 +7664,8 @@ def gone_on(shell: FakeShell, *, parent_graded: bool) -> None:
     ["finder-major", "fidelity-missing", "on-a-fidelity-refused-parent", "on-a-held-parent"],
     ids=["45199-45590-finder-major", "45404-fidelity-missing", "45407-on-45404", "45491-45496-on-held-45488"],
 )
-def test_a_head_a_gate_refuses_or_that_sits_on_one_draws_no_admitted_skipped(shell, config, tmp_path, shape):
-    """Root #210691: the first ADMITTED-SKIPPED pass flagged six heads a finder or fidelity refusal, or a refused or held PR below them, already kept out; each refusal is its own record."""
+def test_a_head_a_gate_refuses_or_that_sits_on_one_is_never_unsettled(shell, config, tmp_path, shape):
+    """Root #210691: the first skip audit flagged six heads a finder or fidelity refusal, or a refused or held PR below them, already kept out; each is settled by the branch that refused it."""
     merge_mode(config, "every")
     if shape == "finder-major":
         gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
@@ -7496,14 +7679,13 @@ def test_a_head_a_gate_refuses_or_that_sits_on_one_draws_no_admitted_skipped(she
         if shape == "on-a-held-parent":
             root_hold(shell, 33000, text="hold #33000 the old-tree memory chain waits on its release")
     shell.queue |= {"33000": "not queued", "33001": "not queued"}
-    shell.sleep(11 * 60)
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert skipped(shell) == []
+    assert not [line for line in said(shell) if ": unsettled: " in line]
 
 
-def test_an_admitted_head_a_check_still_refuses_draws_no_admitted_skipped_and_names_that_check(shell, config, tmp_path):
-    """Root #218731: ADMITTED-SKIPPED on #45814, #45799 and #45427 said no branch recorded why, while `mq.py why` read finder fail FINDER-PENDING."""
+def test_an_admitted_head_a_check_still_refuses_is_refused_naming_that_check(shell, config, tmp_path):
+    """Root #218731: three admitted heads drew a skip saying no branch recorded why, while `mq.py why` read finder fail FINDER-PENDING."""
     merge_mode(config, "every")
     lone_green_pr(shell)
     shell.rows[0] |= {"test_state": "success", "green_at": actions.stamp(shell.clock)}
@@ -7511,22 +7693,20 @@ def test_an_admitted_head_a_check_still_refuses_draws_no_admitted_skipped_and_na
     grade(shell, "29020", "ok cccc333", finder=False)
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
-    shell.sleep(11 * 60)
     landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.enqueues() == [] and skipped(shell) == []
-    landing = landing_of(shell, config, tmp_path)
-    assert landing.unpassed_check("29020", "cccc333333", landing.rows()).startswith("finder fail FINDER-PENDING #29020")
+    assert shell.enqueues() == []
+    [line] = settled(shell, "REFUSED")
+    assert ": the finder check reads " in line and "FINDER-PENDING #29020" in line
 
 
-def test_an_admitted_head_its_lane_was_told_about_draws_no_admitted_skipped(shell, config, tmp_path):
+def test_an_admitted_head_its_lane_was_told_about_is_refused_once_and_never_unsettled(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, EVICTED_GATE)
     shell.queue["33001"] = "evicted"
-    shell.sleep(11 * 60)
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert len(blockers(shell)) == 1 and skipped(shell) == []
+    assert len(blockers(shell)) == 1 and len(settled(shell, "REFUSED")) == 1
+    assert not [line for line in said(shell) if ": unsettled: " in line]
 
 
 def test_a_go_whose_newest_enqueue_shows_it_queued_draws_no_go_unqueued(shell, config, tmp_path):
@@ -9462,24 +9642,20 @@ def test_a_launch_line_whose_brief_has_no_slice_line_is_refused_unless_it_is_an_
     assert not [line for line in escalations(shell) if "R41" in line and "LAUNCH-FAILED" in line]
 
 
-def test_a_launch_line_whose_brief_has_no_scale_line_is_refused_unless_it_is_an_incident_fix(shell, config, tmp_path):
+def test_a_launch_line_whose_new_brief_has_no_scale_line_launches_with_one_scale_missing_warning(shell, config, tmp_path):
     brief = tmp_path / "fix-brief.md"
-    brief.write_text(f"brief\n\nRegister slice: lane={LANE} step=1.9\n")
+    brief.write_text(f"ccx: place=local\nbrief\n\nRegister slice: lane={LANE} step=1.9\n")
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     orca_pass(shell, config)
     desk_orders(shell, f"R43 orca-desk: launch {LANE} sol xhigh brief={brief}")
     orca_pass(shell, config)
-
-    assert launches(shell) == [] and shell.refreshes == []
-    assert escalations(shell) == [
-        f"LAUNCH-FAILED R43 {LANE}: brief {brief} has no `Scale:` line, so this new lane's spawn is refused. Add one line to it: `Scale: no N`, or the N its paths run at, such as `Scale: chats on one Mac, up to 1,000`; nothing was launched"
-    ]
-
-    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
-    desk_orders(shell, f"R44 orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
-    orca_pass(shell, config)
     orca_pass(shell, config)
 
-    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)]]
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "sol", "xhigh", str(brief)]]
+    assert (
+        f"SCALE-MISSING scale:R43 {LANE}: brief {brief} has no `Scale:` line; add one line to it: `Scale: no N`, or the N its paths run at, "
+        f"such as `Scale: chats on one Mac, up to 1,000`; {LANE} launches anyway"
+    ) in escalations(shell)
 
 
 def test_a_successor_launched_on_its_predecessors_brief_owes_no_scale_line(shell, config, tmp_path):
@@ -9492,6 +9668,7 @@ def test_a_successor_launched_on_its_predecessors_brief_owes_no_scale_line(shell
     orca_pass(shell, config)
 
     assert launches(shell) == [[str(runner_module.LAUNCHER), f"{LANE}-2", "sol", "xhigh", str(brief)]]
+    assert not [line for line in escalations(shell) if line.startswith("SCALE-MISSING")]
 
 
 def test_a_launch_refreshes_its_slice_first_and_a_slice_that_does_not_read_blocks_nothing(shell, config, tmp_path):
@@ -13071,6 +13248,12 @@ def test_a_head_record_spelling_a_short_sha_queues_the_full_head_its_pr_is_at(sh
     assert [(job["pr"], job["head"]) for job in finder_jobs(shell)] == [("43439", FINDER_HEAD)]
 
 
+def test_the_orca_desk_posts_as_orca_desk_at_start_so_an_order_addressed_to_it_is_not_refused(shell, config):
+    """Root #226844: cci refused a launch order `--to orca-desk` because no session reads that lane and nothing on the drive had posted as it, so an incident lane launched inline."""
+    orca_pass(shell, config)
+    assert [(post["kind"], post["to"]) for post in shell.registrations] == [("note", f"{runner_module.WATCHDOG}@d1")]
+
+
 def test_a_finder_job_asks_at_the_fast_tier_unless_runner_json_turns_it_off(shell, config):
     finder_config(config, fast=False)
     orca_pass(shell, config)
@@ -13247,6 +13430,8 @@ def test_a_finder_that_fails_or_writes_nothing_by_its_deadline_runs_again_and_es
         shell.clock += timedelta(minutes=2)
         orca_pass(shell, config)
         assert len(finder_failures(shell)) == (2 if attempt == 2 else 0)
+        shell.clock += runner_module.GRADER_RETRY_AFTER
+        orca_pass(shell, config)
     orca_pass(shell, config)
     first, second = shell.finder_jobs[:2]
     assert shell.finder_jobs == [first, second, first.with_name(f"{first.name}-2"), second.with_name(f"{second.name}-2"), first.with_name(f"{first.name}-3"), second.with_name(f"{second.name}-3")]
@@ -13256,7 +13441,7 @@ def test_a_finder_that_fails_or_writes_nothing_by_its_deadline_runs_again_and_es
     ]
 
 
-def test_a_pass_whose_process_exited_with_no_result_fails_that_pass_and_its_slot_starts_the_retry(shell, config, tmp_path):
+def test_a_pass_whose_process_exited_with_no_result_frees_its_slot_and_retries_after_the_fix_window(shell, config, tmp_path):
     finder_config(config, concurrent=1)
     orca_pass(shell, config)
     head_record(shell, "43439", FINDER_HEAD)
@@ -13265,10 +13450,15 @@ def test_a_pass_whose_process_exited_with_no_result_fails_that_pass_and_its_slot
     [crashed] = shell.finder_jobs
     shell.exited.add(int((crashed / "pid").read_text()))
     orca_pass(shell, config)
-    assert shell.finder_jobs == [crashed, crashed.with_name(f"{crashed.name}-2")]
     passes = incident(tmp_path, "desk-finder").actions
     assert passes[f"finder:43439:{FINDER_HEAD}"].reason == "finder.py exited 0 min after it started and wrote no result"
-    assert passes[f"finder:43439:{FINDER_HEAD}#2"].status == "started" and passes[f"finder:43299:{FINDER_OLD}"].status == "accepted"
+    assert passes[f"finder:43439:{FINDER_HEAD}#2"].status == "accepted" and passes[f"finder:43299:{FINDER_OLD}"].status == "started"
+    [_, other] = shell.finder_jobs
+    shell.exited.add(int((other / "pid").read_text()))
+    shell.clock += runner_module.GRADER_RETRY_AFTER
+    orca_pass(shell, config)
+    assert shell.finder_jobs[-1] == crashed.with_name(f"{crashed.name}-2")
+    assert incident(tmp_path, "desk-finder").actions[f"finder:43439:{FINDER_HEAD}#2"].status == "started"
     assert not finder_failures(shell)
 
 
@@ -13440,22 +13630,28 @@ def test_a_green_ledger_head_no_record_named_starts_one_fidelity_pass(shell, con
     assert [(job["pr"], job["head"], job["lane"]) for job in fidelity_jobs(shell)] == [("44614", FINDER_HEAD, "p8c-conversion-ship-6")]
 
 
-def test_a_failed_fidelity_pass_fails_at_once_to_the_human_desks_and_the_next_head_record_queues_it_again(shell, config):
+def test_a_failed_fidelity_pass_retries_and_tells_the_human_desks_only_on_its_third_failure(shell, config):
+    """Root #226668: seven passes that died on one tooling error each posted FIDELITY-FAILED to the lanes; a tooling failure now tells the tooling lane once per cause and retries after the fix window."""
     fidelity_config(config, timeout_minutes=1)
+    config.write_text(json.dumps(json.loads(config.read_text()) | {"tooling_lane": "root"}))
     orca_pass(shell, config)
     first = head_record(shell, "43439", FINDER_HEAD)
     silent = head_record(shell, "43299", FINDER_OLD)
     orca_pass(shell, config)
-    failed, quiet = shell.fidelity_jobs
-    (failed / "result.json").write_text(json.dumps({"error": "codex-ask -m sol --schema fidelity.schema.json exited 1: quota exhausted"}))
-    orca_pass(shell, config)
-    shell.clock += timedelta(minutes=2)
-    orca_pass(shell, config)
-    orca_pass(shell, config)
+    for attempt in range(3):
+        failed, quiet = shell.fidelity_jobs[-2:]
+        (failed / "result.json").write_text(json.dumps({"error": "codex-ask -m sol --schema fidelity.schema.json exited 1: quota exhausted"}))
+        shell.clock += timedelta(minutes=2)
+        orca_pass(shell, config)
+        assert len(fidelity_failures(shell)) == (2 if attempt == 2 else 0)
+        shell.clock += runner_module.GRADER_RETRY_AFTER
+        orca_pass(shell, config)
     assert fidelity_failures(shell) == [
-        ("fidelity-desk-4", f"FIDELITY-FAILED fidelity:43439:{FINDER_HEAD}:{first} p8a-step9: #43439 {FINDER_HEAD[:12]}: the fidelity pass failed: codex-ask -m sol --schema fidelity.schema.json exited 1: quota exhausted; its log is {failed / 'job.log'}; a fidelity desk grades it by hand, and the next head record for #43439 queues the pass again"),
-        ("fidelity-desk-4", f"FIDELITY-FAILED fidelity:43299:{FINDER_OLD}:{silent} p8a-step9: #43299 {FINDER_OLD[:12]}: the fidelity pass failed: no result 2 min after it started; its log is {quiet / 'job.log'}; a fidelity desk grades it by hand, and the next head record for #43299 queues the pass again"),
+        ("fidelity-desk-4", f"FIDELITY-FAILED fidelity:43439:{FINDER_HEAD}:{first} p8a-step9: #43439 {FINDER_HEAD[:12]}: the fidelity pass failed on the last of its 3 attempts: codex-ask -m sol --schema fidelity.schema.json exited 1: quota exhausted; its log is {failed / 'job.log'}; a fidelity desk grades it by hand, and the next head record for #43439 queues the pass again"),
+        ("fidelity-desk-4", f"FIDELITY-FAILED fidelity:43299:{FINDER_OLD}:{silent} p8a-step9: #43299 {FINDER_OLD[:12]}: the fidelity pass failed on the last of its 3 attempts: no result 2 min after it started; its log is {quiet / 'job.log'}; a fidelity desk grades it by hand, and the next head record for #43299 queues the pass again"),
     ]
+    tooling = [post for post in shell.posts if post["text"].startswith("GRADER-TOOLING")]
+    assert {post["to"] for post in tooling} == {"root"} and 0 < len(tooling) < 6
     again = head_record(shell, "43439", FINDER_HEAD)
     orca_pass(shell, config)
     assert shell.fidelity_jobs[-1] == config.resolve().parent / "fidelity-pipeline" / f"43439-{FINDER_HEAD[:12]}-{again}"
@@ -13472,7 +13668,7 @@ def test_a_pass_whose_job_directory_is_gone_fails_without_raising(shell, config,
         shutil.rmtree(directory)
     orca_pass(shell, config)
     assert incident(tmp_path, "desk-finder").actions[f"finder:43439:{FINDER_HEAD}"].reason == f"its job directory {shell.finder_jobs[0]} is gone"
-    assert [text for _, text in fidelity_failures(shell)] == [f"FIDELITY-FAILED fidelity:43439:{FINDER_HEAD}:{seq} p8a-step9: #43439 {FINDER_HEAD[:12]}: the fidelity pass failed: its job directory {shell.fidelity_jobs[0]} is gone; its log is {shell.fidelity_jobs[0] / 'job.log'}; a fidelity desk grades it by hand, and the next head record for #43439 queues the pass again"]
+    assert incident(tmp_path, "desk-fidelity").actions[f"fidelity:43439:{FINDER_HEAD}:{seq}"].reason == f"its job directory {shell.fidelity_jobs[0]} is gone"
 
 
 def test_a_failed_fidelity_pass_settles_when_a_reader_lane_in_runner_json_has_not_started(shell, config):
@@ -13485,13 +13681,15 @@ def test_a_failed_fidelity_pass_settles_when_a_reader_lane_in_runner_json_has_no
     orca_pass(shell, config)
     head_record(shell, "43439", FINDER_HEAD)
     orca_pass(shell, config)
-    [failed] = shell.fidelity_jobs
-    (failed / "result.json").write_text(json.dumps({"error": "codex-ask -m sol --schema fidelity.schema.json exited 1: quota exhausted"}))
-    orca_pass(shell, config)
+    for _ in range(3):
+        (shell.fidelity_jobs[-1] / "result.json").write_text(json.dumps({"error": "codex-ask -m sol --schema fidelity.schema.json exited 1: quota exhausted"}))
+        orca_pass(shell, config)
+        shell.clock += runner_module.GRADER_RETRY_AFTER
+        orca_pass(shell, config)
     assert [to for to, _ in fidelity_failures(shell)] == ["fidelity-desk-4,fidelity-desk-14"]
     head_record(shell, "43439", FINDER_HEAD)
     orca_pass(shell, config)
-    assert len(shell.fidelity_jobs) == 2
+    assert len(shell.fidelity_jobs) == 4
 
 
 def test_a_failed_pass_whose_notice_does_not_post_still_fails_and_frees_its_slot(shell, config):
@@ -13504,7 +13702,7 @@ def test_a_failed_pass_whose_notice_does_not_post_still_fails_and_frees_its_slot
     (failed / "result.json").write_text(json.dumps({"error": "codex-ask exited 1: quota exhausted"}))
     shell.post_error = "cci: daemon restarting"
     orca_pass(shell, config)
-    assert not fidelity_failures(shell) and [action.status for action in incident(config.parent, "desk-fidelity").actions.values()] == ["failed"]
+    assert not fidelity_failures(shell) and [action.status for action in incident(config.parent, "desk-fidelity").actions.values()] == ["failed", "accepted"]
 
 
 def test_more_than_ten_refused_notices_in_a_minute_raise_one_defect_to_root(shell, config, tmp_path):
@@ -14462,14 +14660,26 @@ def test_release_and_cut_polls_decode_only_active_fact_entries(shell, config, tm
         current.facts[runner_module.CUT_CLOCKS]["active"] = {"ended": ""}
         current.facts[runner_module.CUT_CLOCKS]["silent"] = {"ended": "silent"}
     runner.config.landing["applying"] = {"build": "build", "step": "step", "components": []}
-    decoded, pressed, escalated = [], [], []
+    decoded, excluded, pressed, escalated = [], [], [], []
+    owner_thread = threading.get_ident()
     loads = json.loads
 
     def counted(value, *args, **kwargs):
-        decoded.append(len(value.encode()))
+        encoded = value.encode()
+        if threading.get_ident() == owner_thread:
+            decoded.append(len(encoded))
+        else:
+            excluded.append({"thread": threading.current_thread().name, "ident": threading.get_ident(), "bytes": len(encoded), "sha256": hashlib.sha256(encoded).hexdigest()})
         return loads(value, *args, **kwargs)
 
     monkeypatch.setattr(json, "loads", counted)
+    control = "measured-thread-control" * 16
+    encoded_control = json.dumps(control)
+    assert json.loads(encoded_control) == control
+    assert decoded == [len(encoded_control.encode())]
+    with pytest.raises(AssertionError):
+        assert sum(decoded) < 128
+    decoded.clear()
     monkeypatch.setattr(store, "load", lambda *_: pytest.fail("poll loaded a full incident"))
     monkeypatch.setattr(runner_module, "release_build_argv", lambda *_: None)
     monkeypatch.setattr(runner, "escalate", lambda *args: escalated.append(args))
@@ -14479,9 +14689,9 @@ def test_release_and_cut_polls_decode_only_active_fact_entries(shell, config, tm
     runner.cut_clock()
     assert len(escalated) == 1 and escalated[0][2] == "release"
     assert pressed == [("active", {"ended": ""}), ("silent", {"ended": "silent"})]
+    print(json.dumps({"history": history, "poll_decoded_bytes": sum(decoded), "measured_control_bytes": len(encoded_control.encode()), "excluded_decodes": excluded}))
     assert sum(decoded) < 128
     assert store.fact_path(runner_module.RUNNER, [runner_module.RELEASE_BUILDS, "active", "done"]) is True
-    print(json.dumps({"history": history, "poll_decoded_bytes": sum(decoded)}))
 
 
 @pytest.mark.parametrize("history", [32, 10_000])

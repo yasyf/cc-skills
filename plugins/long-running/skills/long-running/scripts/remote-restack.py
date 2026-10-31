@@ -14,7 +14,7 @@ the chain's commits onto the base with `git replay --contained` under branch nam
 each PR below moves with the top one, and pushes every moved head in one atomic push leased on the head it read, committed as this machine's git user. A chain
 whose bottom already sits on the base's tip moves nothing. Each
 moved PR gets a `head` record from `--lane` naming its new head, so its finder and fidelity passes queue. A conflict
-pushes nothing and exits 1, printing the commit that stopped and the paths in conflict. The GitHub token reaches the
+pushes nothing and exits 1, printing the branch and commit that stopped the replay and the paths and messages of the conflict. The GitHub token reaches the
 Sprite on standard input only.
 """
 
@@ -43,7 +43,7 @@ refspecs="+refs/heads/$base:refs/remotes/origin/$base"
 for branch in "$@"; do refspecs="$refspecs +refs/heads/$branch:refs/remotes/origin/$branch"; done
 (flock 9 && auth fetch --quiet origin $refspecs) 9>"$clone.fetch.lock"
 tag=restack-$$-$(date +%s)
-trap 'git -C "$clone" for-each-ref --format="delete %(refname)" "refs/heads/$tag/" | git -C "$clone" update-ref --stdin' EXIT
+trap 'rm -f "$clone.$tag.log"; git -C "$clone" for-each-ref --format="delete %(refname)" "refs/heads/$tag/" | git -C "$clone" update-ref --stdin' EXIT
 for branch in "$@"; do git -C "$clone" update-ref "refs/heads/$tag/$branch" "refs/remotes/origin/$branch"; done
 eval "top=\${$#}"
 if git -C "$clone" merge-base --is-ancestor "refs/remotes/origin/$base" "refs/heads/$tag/$1"; then
@@ -51,12 +51,21 @@ if git -C "$clone" merge-base --is-ancestor "refs/remotes/origin/$base" "refs/he
   exit 0
 fi
 if ! moves=$(auth replay --contained --onto "refs/remotes/origin/$base" "refs/remotes/origin/$base..refs/heads/$tag/$top" 2>"$clone.$tag.log"); then
-  echo "CONFLICT replaying $top onto $base"
+  tip=$(git -C "$clone" rev-parse "refs/remotes/origin/$base")
+  for commit in $(git -C "$clone" rev-list --reverse --topo-order "refs/remotes/origin/$base..refs/heads/$tag/$top"); do
+    if tree=$(git -C "$clone" merge-tree --write-tree --merge-base "$commit^" "$tip" "$commit" 2>/dev/null); then
+      tip=$(git -C "$clone" -c user.name=remote-restack -c user.email=remote-restack@localhost commit-tree "$tree" -p "$tip" -m "$commit")
+      continue
+    fi
+    for branch in "$@"; do git -C "$clone" merge-base --is-ancestor "$commit" "refs/heads/$tag/$branch" && break; done
+    echo "CONFLICT replaying $branch onto $base at $(git -C "$clone" log -1 --format='%h %s' "$commit")"
+    git -C "$clone" merge-tree --write-tree --name-only --merge-base "$commit^" "$tip" "$commit" | sed '1d; s/^/  /' | tail -20
+    exit 1
+  done
+  echo "REPLAY-FAILED $top onto $base with no conflicting commit"
   sed 's/^/  /' "$clone.$tag.log" | tail -20
-  rm -f "$clone.$tag.log"
   exit 1
 fi
-rm -f "$clone.$tag.log"
 printf '%s\n' "$moves" | grep "^update refs/heads/$tag/" | git -C "$clone" update-ref --stdin
 pushes=""
 for branch in "$@"; do
@@ -104,7 +113,8 @@ def main(argv: list[str] | None = None) -> int:
     done = subprocess.run(["sprite", "exec", "-s", sprite, "--", "sh", "-c", SPRITE_SCRIPT, "sh", clone, base, *(p["headRefName"] for p in pulls)], input="".join(f"{line}\n" for line in (token, *committer)), capture_output=True, text=True)
     print(done.stdout, end="")
     if done.returncode:
-        print(f"remote-restack: #{args.pr.lstrip('#')} on {sprite} pushed nothing: {done.stderr.strip()[-400:] or 'see the lines above'}", file=sys.stderr)
+        detail = done.stderr.strip()[-400:] or ("" if done.stdout.strip() else f"the sprite printed nothing and exited {done.returncode}")
+        print(f"remote-restack: #{args.pr.lstrip('#')} on {sprite} pushed nothing" + (f": {detail}" if detail else ""), file=sys.stderr)
         return 1
     numbers = {p["headRefName"]: p["number"] for p in pulls}
     tip = next(line.split()[2] for line in done.stdout.splitlines() if line.startswith("BASE "))

@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import fcntl
+import hashlib
 import importlib.util
+import os
 import json
 import re
 import shutil
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
+from collections.abc import Iterator
 from datetime import datetime
 from functools import cache
 from pathlib import Path
@@ -72,6 +77,7 @@ HEADROOM_TOKENS = 50_000
 TURN_WINDOW = 256
 ORCA_UNSET = "The handoff is recorded, but the hook cannot type `/compact` here. Run `/compact` now."
 CCN_TIMEOUT_SECONDS = 20
+DEADLINE_ENV = "LONG_RUNNING_DEADLINE"
 COMPACT_RETRY_SECONDS = 33 * 60
 RESTORE_BUDGET = 2000
 SHORT = 7
@@ -112,20 +118,13 @@ def script(name: str) -> Path:
 
 @cache
 def script_module(name: str) -> ModuleType:
-    spec = importlib.util.spec_from_file_location(f"long_running_{name}", script(f"{name}.py"))
+    path = script(f"{name.replace(".", "/")}.py")
+    identity = hashlib.sha256(str(path).encode()).hexdigest()[:16]
+    spec = importlib.util.spec_from_file_location(f"long_running_{identity}_{name.replace(".", "_")}", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
-
-
-NO_REGISTER = {f"{sys.executable} {script('rulings.py')} register": "null", f"{sys.executable} {script('rulings.py')} slice": ""}
-ROOT_SLICE = NO_REGISTER | {
-    f"{sys.executable} {script('rulings.py')} slice": (
-        "scope `1e9a64d`: a Mac never writes to a chat started in the cloud\nslice-hash: 0123456789ab\n"
-    )
-}
-DRIVE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6", "CLAUDE_CONFIG_DIR": str(FIXTURES / "claude-config")}
 
 
 @workflow_state("long_running_compaction")
@@ -318,17 +317,104 @@ def register_context(evt: BaseHookEvent, register: dict) -> HookResult:
     return evt.context(*register_parts(register))
 
 
+def deadline_env(timeout: float) -> dict[str, str]:
+    return {**reqenv.env_map(), DEADLINE_ENV: str(time.time() + timeout)}
+
+
 def rulings(cwd: str, *args: str, stdin: str = "", timeout: int = CCN_TIMEOUT_SECONDS) -> str:
     argv = [sys.executable, str(script("rulings.py")), *args, "--repo", cwd]
-    return subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=timeout, check=True, cwd=cwd, env=dict(reqenv.env_map())).stdout
+    return subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=timeout, check=True, cwd=cwd, env=deadline_env(timeout)).stdout
 
 
 def register_of(cwd: str, *which: str) -> dict | None:
     return json.loads(rulings(cwd, "register", *which))
 
 
-def queue_register(state: CompactionState, evt: BaseHookEvent) -> None:
-    if state.store == "ccn" and (entry := drive_entry(evt)) and (register := register_of(str(evt.cwd), "--drive", entry["drive"])):
+class RegisterRead:
+    def __init__(self, evt: BaseHookEvent, entry: dict) -> None:
+        self.evt = evt
+        self.entry = entry
+        self.deadline = time.monotonic() + CCN_TIMEOUT_SECONDS
+        self.argv = [sys.executable, str(script("rulings.py")), "--drive", entry["drive"]]
+
+    def remaining(self) -> float:
+        reqenv.checkpoint()
+        left = self.deadline - time.monotonic()
+        if left <= 0:
+            raise subprocess.TimeoutExpired(self.argv, CCN_TIMEOUT_SECONDS)
+        return left
+
+    def run(self, argv: list[str]) -> str:
+        remaining = self.remaining()
+        try:
+            out = self.evt.ctx.call_cli(argv, timeout=remaining)
+        except subprocess.TimeoutExpired as expired:
+            raise subprocess.TimeoutExpired(self.argv, CCN_TIMEOUT_SECONDS, output=expired.output, stderr=expired.stderr) from expired
+        self.remaining()
+        return out
+
+    @contextmanager
+    def lock(self, path: Path) -> Iterator[None]:
+        self.remaining()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a+") as handle:
+            while True:
+                remaining = self.remaining()
+                try:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    reqenv.abandon_signal().wait(min(0.2, remaining))
+            handle.truncate(0)
+            handle.write(f"pid {os.getpid()} since {datetime.now().astimezone().isoformat()}\n")
+            handle.flush()
+            try:
+                yield
+            finally:
+                handle.truncate(0)
+                fcntl.flock(handle, fcntl.LOCK_UN)
+
+    @staticmethod
+    def held(path: Path) -> bool:
+        if not path.exists():
+            return False
+        with path.open("a+") as handle:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            fcntl.flock(handle, fcntl.LOCK_UN)
+        return False
+
+    @contextmanager
+    def errors(self) -> Iterator[None]:
+        try:
+            yield
+        except SystemExit as error:
+            raise subprocess.CalledProcessError(1, self.argv, stderr=f"{error}\n") from error
+
+    def register(self) -> dict | None:
+        with self.errors():
+            reads = script_module("long_running.register_reads")
+            self.remaining()
+            result = reads.register(self.run, self.entry.get("checkout") or str(self.evt.cwd), reads.program_of(self.entry))
+            self.remaining()
+            return result
+
+    def root_slice(self) -> str:
+        with self.errors():
+            reads = script_module("long_running.register_reads")
+            self.remaining()
+            repo = self.entry.get("checkout") or str(self.evt.cwd)
+            program = reads.program_of(self.entry)
+            identity, rows = reads.load(self.run, self.lock, self.held, repo, program, Path(self.entry["state_dir"]), last=True)
+            result = reads.root_slice(program, identity, rows)
+            self.remaining()
+            return result
+
+
+def queue_register(state: CompactionState, reader: RegisterRead) -> None:
+    if register := reader.register():
         state.register_doc, state.register_body = register["id"], register["body"]
 
 
@@ -364,11 +450,10 @@ def failure_of(failed: subprocess.CalledProcessError | subprocess.TimeoutExpired
     return next(iter(failed.stderr.strip().splitlines()[-1:]), f"exit {failed.returncode}")
 
 
-def queue_root_slice(state: CompactionState, evt: BaseHookEvent) -> None:
-    if not (state.store == "ccn" and (entry := drive_entry(evt))):
-        return
+def queue_root_slice(state: CompactionState, evt: BaseHookEvent, reader: RegisterRead) -> None:
+    entry = reader.entry
     try:
-        sliced = rulings(str(evt.cwd), "slice", "--root", "--drive", entry["drive"]).rstrip("\n")
+        sliced = reader.root_slice().rstrip("\n")
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as failed:
         if not evt.ctx.s.once(f"root-slice:{entry['drive']}", scope=ROOT_SLICE_BLOCKERS):
             return
@@ -661,7 +746,6 @@ def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
     tests={
         Input(
             source="compact",
-            commands=NO_REGISTER,
             state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", phase="compacting")],
         ): Warn(
             pattern=r"^Read `/p/brook\.md` before anything else, then the progress "
@@ -669,7 +753,6 @@ def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
         ),
         Input(
             source="compact",
-            commands=NO_REGISTER,
             state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", phase="due")],
         ): Warn(
             pattern=r"^Read `/p/brook\.md` .* Your narrative was not written before compaction; "
@@ -677,7 +760,6 @@ def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
         ),
         Input(
             source="compact",
-            commands=NO_REGISTER,
             state=[
                 CompactionState(
                     active=True, plan_path="/p/brook.md", slug="brook", phase="due", prior=["17ec5e6" + "0" * 33], narrative="aea91e3"
@@ -688,33 +770,21 @@ def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
             source="compact", transcript=USAGE_460K, state=[CompactionState(plan_path="/p/brook.md")]
         ): Allow(),
         Input(
-            source="compact", commands=NO_REGISTER,
+            source="compact",
             state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook")]
         ): Warn(pattern=r"^Read `/p/brook\.md` before anything else"),
-        Input(
-            source="compact", commands=ROOT_SLICE, env=DRIVE_ENV, state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook")]
-        ): Warn(pattern=r"^Read `/p/brook\.md` before anything else, then the progress doc: "),
-        Input(
-            source="resume",
-            commands={**ROOT_SLICE, "ccn": "[]"},
-            env=DRIVE_ENV,
-            state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook")],
-        ): Warn(pattern=r"^Read `/p/brook\.md` before anything else, then the progress doc: .*they supersede the conversation so far\.$"),
         Input(source="startup", state=[CompactionState(active=True, plan_path="/p/brook.md")]): Allow(),
         Input(source="resume", state=[CompactionState(plan_path="/p/brook.md", slug="brook")]): Allow(),
         Input(
             source="resume",
-            commands=NO_REGISTER,
             state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", store="folder")],
         ): Warn(pattern=r"^Read `/p/brook\.md` before anything else, then the newest file in `/p/brook-progress/`; "),
         Input(
             source="compact",
-            commands=NO_REGISTER,
             state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", digest="Compacted long-running drive `brook`.")],
         ): Warn(pattern=r"^Compacted long-running drive `brook`\.$"),
         Input(
             source="compact",
-            commands=NO_REGISTER,
             state=[CompactionState(active=True, plan_path="/p/brook.md", slug="brook", failure="ccn: timed out")],
         ): Warn(pattern=r"The generated handoff failed; write the progress record now\.$"),
     },
@@ -725,7 +795,8 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
             state.model = model
         if evt.source == "resume" and state.active and state.plan_path:
             resolve_record(state, evt.cwd)
-            queue_root_slice(state, evt)
+            if state.store == "ccn" and (entry := drive_entry(evt)):
+                queue_root_slice(state, evt, RegisterRead(evt, entry))
             return evt.context(resume_restore(state, evt.cwd))
         if evt.source != "compact":
             return None
@@ -741,8 +812,10 @@ def reground(evt: BaseHookEvent) -> HookResult | None:
         if not (state.active and state.plan_path):
             return None
         resolve_record(state, evt.cwd)
-        queue_register(state, evt)
-        queue_root_slice(state, evt)
+        if state.store == "ccn" and (entry := drive_entry(evt)):
+            reader = RegisterRead(evt, entry)
+            queue_register(state, reader)
+            queue_root_slice(state, evt, reader)
     if digest:
         return evt.context(digest + pending)
     follow_up = (

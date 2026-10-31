@@ -60,7 +60,7 @@ class Orca:
         self.state.mkdir()
         bin_dir = root / "bin"
         bin_dir.mkdir()
-        for tool, body in {"orca": ORCA, "sleep": SLEEP}.items():
+        for tool, body in {"orca": ORCA, "cci": ORCA, "sleep": SLEEP}.items():
             (bin_dir / tool).write_text(body)
             (bin_dir / tool).chmod(0o755)
         self.receipts = root / "receipts"
@@ -175,6 +175,21 @@ def test_a_worker_launched_by_a_sessionless_runner_carries_the_drive_of_its_orca
     assert orca.launch().returncode == 0
     [terminal] = orca.calls("terminal create")
     assert flag(terminal, "--command").startswith("env CLAUDE_LONG_RUNNING_LANE=lane-a CLAUDE_LONG_RUNNING_DRIVE=900424b6 claude ")
+
+
+def test_a_ready_launch_in_a_drive_posts_the_spawned_record_naming_its_lane_and_brief(orca):
+    orca.healthy()
+    orca.reply("post --drive", SENT)
+    drives = orca.root / "home" / ".claude" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    (drives / "900424b6.json").write_text(json.dumps({"drive": "900424b6", "sessions": [], "orca_run": "run_1", "cci_drive": "brook"}))
+    orca.env["CLAUDE_LONG_RUNNING_DRIVE"] = "900424b6"
+    orca.env["CLAUDE_LONG_RUNNING_LANE"] = "orca-desk"
+
+    assert orca.launch().returncode == 0
+    assert orca.calls("post --drive") == [
+        ["post", "--drive", "brook", "--lane", "orca-desk", "--kind", "state", "--topic", "spawn:lane-a", "--lane-ref", "lane-a", "--attr", f"brief={orca.brief}", "--text", f"SPAWNED lane-a {orca.brief}"]
+    ]
 
 
 def bind_drive(orca: Orca, run: str) -> None:

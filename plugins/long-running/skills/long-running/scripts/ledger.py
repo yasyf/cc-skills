@@ -91,6 +91,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -142,6 +143,8 @@ REF_LOCK_ATTEMPTS = 5
 REF_LOCK_BACKOFF_SECONDS = 0.2
 REF_LOCK_RACE = "cannot lock ref"
 COMMAND_TIMEOUT_SECONDS = 600
+DEADLINE_ENV = "LONG_RUNNING_DEADLINE"
+DEADLINE_MARGIN_SECONDS = 2
 LOCK_WAIT_SECONDS = 120
 LOCK_POLL_SECONDS = 0.2
 LANE_PREFIX = "lane/"
@@ -293,7 +296,8 @@ class Shell:
     A `git fetch` that loses a ref lock to a concurrent fetch retries the same way, since a
     forced refspec lands once however many times it runs.
     Input reaches the child from a file, never a pipe this process writes while the child's
-    output fills, and every command dies after COMMAND_TIMEOUT_SECONDS.
+    output fills. Every command runs in its own process group, and the whole group dies after
+    COMMAND_TIMEOUT_SECONDS, or sooner when the caller's DEADLINE_ENV would kill this process first.
     """
 
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
@@ -316,7 +320,23 @@ class Shell:
         with tempfile.TemporaryFile("w+") as feed:
             feed.write(stdin or "")
             feed.seek(0)
-            return subprocess.run(argv, stdin=feed, capture_output=True, text=True, check=True, timeout=COMMAND_TIMEOUT_SECONDS, cwd=cwd).stdout
+            child = subprocess.Popen(argv, stdin=feed, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=cwd, start_new_session=True)
+            try:
+                out, err = child.communicate(timeout=command_timeout())
+            except subprocess.TimeoutExpired:
+                os.killpg(child.pid, signal.SIGKILL)
+                child.communicate()
+                raise
+            if child.returncode:
+                raise subprocess.CalledProcessError(child.returncode, argv, out, err)
+            return out
+
+
+def command_timeout() -> float:
+    deadline = os.environ.get(DEADLINE_ENV)
+    if deadline is None:
+        return COMMAND_TIMEOUT_SECONDS
+    return max(min(COMMAND_TIMEOUT_SECONDS, float(deadline) - time.time() - DEADLINE_MARGIN_SECONDS), 0)
 
 
 class ForgeUnreachable(RuntimeError):

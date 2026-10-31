@@ -144,8 +144,11 @@ completion went to the root session and the lane never woke.*
 **R4. Never re-brief a lane, never answer a duplicate.** `SendMessage` to a finished
 agent resumes it carrying its whole original brief and it re-runs that brief.
 `SendMessage` to a running agent spawns a second copy that restarts the lane while the
-original never sees the message. Reply to nothing you have already acted on, and expect
-2-3 duplicate idle-notifications per real report. Rotation flushes the lane in place;
+original never sees the message. Reply to nothing you have already acted on. An idle
+notification answers only the messages the lane had when that turn began, so one
+that lands seconds after a new order says nothing about it; wait for the lane's
+report on that order. desk-wait marks the mail it prints as read, so the harness
+never hands it to the lane a second time. Rotation flushes the lane in place;
 it keeps working and resumes from its ledger and cursor after its own compaction
 (see Lane rotation). *Prevents lane collisions in a shared worktree
 and the reply tax on notifications that carry no news.*
@@ -1795,10 +1798,12 @@ out only when its own newest enqueue of that head since the go ended blocked, fa
 stranded or unsettled, or went in and the queue then evicted it, never for backlog, naming that
 outcome or the eviction's time and reason. A head the queue evicted before any enqueue gets one
 blocker to the root and its lane naming the eviction, and while Graphite is down it merges
-directly like a head the dead queue still holds. Every head a go or an exemption admits is,
-within ten minutes, queued, merging or refused by a record; one with none gets one
-`ADMITTED-SKIPPED` to the root and its lane naming the branch of the pass that left it out
-(owner, 5:16 AM Oct 30). A go'd head whose queue draft closed unmerged is
+directly like a head the dead queue still holds. Every head a go or an exemption admits
+carries, from the pass that admits it, exactly one `QUEUED`, `REFUSED` (naming the gate line or
+the check) or `BELOW-BLOCKED` record per change of its outcome, and none while it stays the
+same; one no branch of the pass settled posts `REFUSED unsettled:` to the root naming the last
+branch that saw it, and a pass that gates nothing refuses each admitted head with
+`gating off:` and why (owner, 5:16 AM Oct 30). A go'd head whose queue draft closed unmerged is
 dequeued once and enqueued afresh (`ORPHAN-RELEASED`), never `--recover`ed. The root clears that one
 thing in the same turn or spawns the lane that does. When the review bot's newest
 `ai-review` run on that head reads Held, the line says the bot holds it on N blocking
@@ -1815,7 +1820,7 @@ carries its grade, below) is that gate's record there, and nobody re-grades it.
 lane, each `landing.board_lane`, and the PR's owning lane, each read as its live
 successor, and not to root. A ledger row that settles landed with no enqueue or squash of the
 runner's own, queued by hand or landed in a batch it did not enqueue, gets its own `LANDED`
-record the pass the ledger reads its squash. A `GO-UNQUEUED` or `GO-TAP-MISSING` for a PR goes to each
+record the pass the ledger reads its squash. A `GO-UNQUEUED`, `GO-TAP-MISSING` or `REFUSED` for a PR goes to each
 `landing.go_lanes` lane, the desk lanes and the owning lane, and to root only when the owning lane is dead. A `LANE-GONE` for a lane goes to root every time, and to those lanes and
 the gone lane too after the first, since only root relaunches a lane. Without
 `landing.desk_lane` they go to root.
@@ -3069,9 +3074,10 @@ Scale: <the N each path this lane changes runs at: chats, teams, sessions, or ru
   A loop that awaits I/O per item, or a cap, timer, cache, retry, or idle wait standing
   in for a fundamental fix, is a defect the finder grades major; a diff that adds one
   names in the PR body the fix it stands in for and the owner pick that deferred it, or
-  builds the fix. The spawn hook and the orca desk runner refuse a new non-incident
-  lane brief with no `Scale:` line; a `<lane>-handoff` writer, a successor (`<lane>-<n>`
-  or a `Replaces:` line), and a brief written before the rule pass.
+  builds the fix. The spawn hook and the orca desk runner warn on a new non-incident
+  lane brief with no `Scale:` line and never refuse it; a `<lane>-handoff` writer, a
+  successor (`<lane>-<n>` or a `Replaces:` line), and a brief written before the rule pass
+  quietly.
 Standing rules served: <`#<seq>` ids with their answer ids, each with the owner's
   words and confirmed implications (R19b), or "none">. Your task cites
   them; finishing it never retires them, and no report calls them done.
@@ -3081,7 +3087,7 @@ Stack shape, under D19: put each shared-file edit in the smallest additive first
   exists, never once it lands: ship on the parent branch, then restack after the parent
   lands with `remote-restack.py --config <runner config> --lane <lane> <top PR>`, which
   replays the stack on a Sprite, pushes, and posts each new head. No rebase runs here.
-  Resolve by hand only a conflict it reports. Never commit a generated output; the build
+  Resolve by hand only a conflict it reports, on the branch and commit it names. Never commit a generated output; the build
   generates it. A stack that still carries a regenerated artifact rebases and
   regenerates it on ejection.
 Holds file: <path>, root-owned. Never enqueue, merge, or add a `merge` or `merge-fast`
@@ -3111,6 +3117,9 @@ Bus: cci drive <drive>; CLI cci, on PATH by name.
     that acts. Answer with `--kind answer --re <seq>`; use `--kind withdraw --re <seq>`
     before you change or retract a record. Set the topic and recipients on replies.
     A SendMessage carries the entry number, never the body.
+Registration: the pack binds your thread to your lane before your first command runs, with
+  one `<lane>: registered at its first command` state record, and the stall watch tells root
+  about a lane that has neither posted nor bound three minutes after its `SPAWNED` record.
 Peers: put your `cci me` line in every handoff. `cci who --pr <n>` names the session that
   owns a PR and `cci who --drive <drive> --role root` the root; SendMessage the address it prints.
 Codex: call `Skill(codex)` or `codex:codex-wrapper`; a one-off question goes to `codex-ask`.
@@ -4514,13 +4523,17 @@ Each firing replaces that lane's previous queued `ROOT-ACTION` line instead of
 adding another. The root acts on it in the turn it arrives. A reply starting
 `flushed` cancels the rotation.
 
-A `SendMessage` to a rotated lane resumes it on its stale brief. The pack blocks the
-first one to each rotated name, from any sender and a stand-down included, and names
-`TaskStop` and the successor; each later one passes with a warning. Spawning
-`<lane>-N+1` beside `<lane>-handoff`, or any successor whose brief carries
-`Replaces: <lane>`, rotates the old name. A `TaskStop`, by name, `<name>@<team>`, or
-agent id, or a root `STAND-DOWN` retires a lane with no successor, and a lane writing
-to it is sent to `main`. Respawning under the name clears both.
+A `SendMessage` to a rotated or stood-down lane resumes it on its stale brief. The pack
+rewrites every such message, from any sender, to the end of the lane's successor chain,
+which it reads from this session's rotations and from cci's stand-down records
+(`cci post --lane root --kind stand-down --to <old> --successor <new>`, read back with
+`cci who --successor-of <lane>`), and reminds the root to `TaskStop` the old lane; a
+message that mentions a stand-down is never forwarded, only warned. Spawning `<lane>-N+1`
+beside `<lane>-handoff`, or any successor whose brief carries `Replaces: <lane>`, rotates
+the old name. A `TaskStop`, by name, `<name>@<team>`, or agent id, or a root `STAND-DOWN`
+retires a lane with no successor: a lane's or worker's message to it goes to `main`
+instead, and the root's is warned once cci records the stand-down. No case blocks.
+Respawning under the name clears both.
 
 The same swap applies to a lane that died or outgrew its line before any ask. The
 root never reconstructs a handoff inline. It never opens a lane's transcript, its

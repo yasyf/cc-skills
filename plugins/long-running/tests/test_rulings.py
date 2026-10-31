@@ -580,6 +580,32 @@ def test_a_read_takes_the_last_register_copy_while_another_process_rebuilds_it(h
         assert "> Relay code lives in relay-journal. Never in relay-server." in out.splitlines()
 
 
+def test_plan_reads_any_kept_register_copy_without_rebuilding_it(home: Path, package: Path, state: Path, capsys) -> None:
+    """remote-desks-3 #227003: every ledger ref move made each Sprite rebuild its register before a pass could read the plan path, and the cold rebuild ran past the pass's 300 s timeout."""
+    shell = RegisterShell(seeded(package))
+    assert ran(capsys, shell, "rows", "--json")[0] == 0
+    shell.rows["rule/aaaaaaa"]["words"] = "Relay code lives in relay-journal."
+
+    code, out = ran(capsys, shell, "plan")
+
+    assert code == 0 and out.strip().endswith("plan.md")
+    assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"]] == [["ledger", "list"], ["ledger", "show"]]
+
+
+def test_a_sprite_reads_the_shipped_register_snapshot_however_its_ledger_refs_moved(home: Path, package: Path, state: Path, capsys) -> None:
+    """Owner 5:19 PM Oct 30 through root #228532: every Sprite finder pass failed waiting 120 s on a cold register rebuild; sprite-job.sh ships this machine's copy as a snapshot, and no read on the Sprite rebuilds it."""
+    shell = RegisterShell(seeded(package))
+    assert ran(capsys, shell, "rows", "--json")[0] == 0
+    kept = state / "register-brook.json"
+    kept.write_text(json.dumps({**json.loads(kept.read_text()), "snapshot": True}))
+    shell.rows["rule/aaaaaaa"]["words"] = "Relay code lives in relay-journal."
+
+    code, _ = ran(capsys, shell, "slice", "--lane", "lane-a", "--step", "1.9")
+
+    assert code == 0
+    assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"]] == [["ledger", "list"], ["ledger", "show"]]
+
+
 def test_classify_refuses_a_scope_row_without_three_implications_or_any_names(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
     captured(state, capture("1", "keep the uploader in relay-journal and out of the shell"))
     shell = RegisterShell(seeded(package))
@@ -2227,6 +2253,20 @@ def test_pr_block_cites_only_an_authorization_that_names_this_pr(home: Path, pac
 
     assert "- rule/bbbbbbb: authorized by 2222222" in cited.splitlines()
     assert "- rule/bbbbbbb: leaves out Pool.drain" in left.splitlines()
+
+
+def test_pr_block_says_what_a_protecting_row_protects_and_how_the_change_serves_it(home: Path, package: Path, state: Path, capsys) -> None:
+    """port-memory-6 #231684: pr-block printed 'leaves out <name>' for a row with a protects field, and check-pr refused that same line as RULINGS-PLAIN."""
+    diff = DIFF.replace("+    self.drain();", "+    let pool = Pool::new();")
+    rows = seeded(package)
+    rows["rule/bbbbbbb"] |= {"protects": "runs from holding a closed pool's connections"}
+
+    _, met = ran(capsys, RegisterShell(rows, diff=DIFF), "pr-block", "--pr", "12", "--head", "cafef00d", "--lane", "lane-b")
+    _, left = ran(capsys, RegisterShell(rows, diff=diff), "pr-block", "--pr", "12", "--head", "cafef00d", "--base", "main", "--lane", "lane-b")
+
+    assert "- rule/bbbbbbb protects runs from holding a closed pool's connections; this change serves it by meeting it with Pool.drain at src/relay/pool.rs:2" in met.splitlines()
+    assert "- rule/bbbbbbb protects runs from holding a closed pool's connections; this change serves it by leaving Pool.drain alone" in left.splitlines()
+    assert all(rulings.EXPLAINS.search(line) for line in (met + left).splitlines() if line.startswith("- rule/bbbbbbb"))
 
 
 def test_status_anchor_and_supersede_write_their_fields(home: Path, package: Path, state: Path, capsys) -> None:

@@ -773,7 +773,8 @@ def test_a_drive_whose_plan_stem_differs_from_its_program_queues_the_program_reg
     add_register(docs, "# durable-program register\n\n1. Pulumi state is the only truth.\n", program="durable-program")
     queued = handoff.CompactionState(active=True, slug="brook")
 
-    handoff.queue_register(queued, bash(home / "session"))
+    evt = bash(home / "session")
+    handoff.queue_register(queued, handoff.RegisterRead(evt, handoff.drive_entry(evt)))
 
     assert queued.register_doc == REGISTER_ID
 
@@ -857,15 +858,13 @@ def register_drive(home: Path, monkeypatch: pytest.MonkeyPatch, **extra: str) ->
 
 def stub_slice(monkeypatch: pytest.MonkeyPatch, answer) -> list[tuple[str, ...]]:
     asked: list[tuple[str, ...]] = []
-    real = handoff.rulings
 
-    def rulings(cwd: str, *args: str, **kwargs) -> str:
-        if args[:1] != ("slice",):
-            return real(cwd, *args, **kwargs)
+    def root_slice(reader) -> str:
+        args = ("slice", "--root", "--drive", reader.entry["drive"])
         asked.append(args)
         return answer(args)
 
-    monkeypatch.setattr(handoff, "rulings", rulings)
+    monkeypatch.setattr(handoff.RegisterRead, "root_slice", root_slice)
     return asked
 
 
