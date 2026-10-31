@@ -590,10 +590,10 @@ class FakeShell(runner_module.Shell):
                 self.alive.append(flags["--text"])
                 attrs = dict(value.split("=", 1) for flag, value in zip(argv[2::2], argv[3::2], strict=True) if flag == "--attr")
                 self.beats.append({"seq": len(self.beats) + 1, "drive": flags["--drive"], "lane": "desk-runner", "kind": "state", "topic": flags["--topic"], "to": [flags["--to"]], "at": actions.stamp(self.clock), "text": flags["--text"], "source": "post", "fields": {"attrs": attrs}})
-                return runner_module.Done(0, "#0\n", "")
+                return runner_module.Done(0, json.dumps({"seq": 0, "num": "#0"}) + "\n" if as_json else "#0\n", "")
             if (flags["--kind"], flags.get("--topic")) == ("state", "landing-state"):
                 self.states.append({key.lstrip("-"): value for key, value in flags.items()})
-                return runner_module.Done(0, "#0\n", "")
+                return runner_module.Done(0, json.dumps({"seq": 0, "num": "#0"}) + "\n" if as_json else "#0\n", "")
             if flags["--kind"] == "landed" and "--pr" not in flags:
                 return runner_module.Done(1, "", "cci: kind landed requires --pr")
             if flags.get("--topic") == runner_module.board_rows.WRITE_TOPIC:
