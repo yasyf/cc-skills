@@ -16,9 +16,11 @@ is partial.
 SPRITE_JOB_KEYS, a JSON object of environment names to the commands that print
 their values, such as {"GH_TOKEN": ["gh", "auth", "token"]}, is run here at
 start; each value reaches the job's process on the Sprite through its standard
-input and its environment only, never a file or an argument. A GH_TOKEN also
-refreshes git's in-memory credential cache on the Sprite for an hour, so
-long-running processes there read GitHub between passes.
+input and its environment only, never a file or an argument. Every git command
+the job runs authenticates through `gh auth git-credential`, the partial clone's
+on-demand object fetches included. A GH_TOKEN also refreshes git's in-memory
+credential cache on the Sprite for an hour, so long-running processes there read
+GitHub between passes.
 
 The plugin version holding <script> is copied over whenever a file in it was
 added, removed or changed since the Sprite's copy, so a truncated install or a
@@ -107,6 +109,7 @@ for name, argv in json.loads(os.environ.get("SPRITE_JOB_KEYS") or "{}").items():
     print(f"{name}={subprocess.run(argv, capture_output=True, text=True, check=True).stdout.strip()}")
 ' | sprite exec -s "$sprite" -- sh -c '
   while IFS= read -r line; do export "$line"; done
+  export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper "GIT_CONFIG_VALUE_1=!gh auth git-credential"
   [ -z "${GH_TOKEN:-}" ] || printf "protocol=https\nhost=github.com\nusername=x-access-token\npassword=%s\n\n" "$GH_TOKEN" |
     git credential-cache --timeout=3900 store
   find "$(git -C "$3" rev-parse --path-format=absolute --git-common-dir)/refs" -type f -empty ! -name "*.lock" -delete
@@ -115,7 +118,7 @@ for name, argv in json.loads(os.environ.get("SPRITE_JOB_KEYS") or "{}").items():
   flock 9
   if [ "$(cat "$3.fetched" 2>/dev/null || echo 0)" -lt "$asked" ]; then
     began=$(date +%s%N)
-    git -C "$3" -c credential.helper= -c "credential.helper=!gh auth git-credential" fetch --quiet --all
+    git -C "$3" fetch --quiet --all
     git -C "$3" repack --geometric=2 -d -q
     printf %s "$began" >"$3.fetched"
   fi
