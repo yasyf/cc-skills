@@ -254,6 +254,7 @@ class FakeShell(runner_module.Shell):
         self.missing_prs: set[str] = set()
         self.launchd: dict[str, int] = {}
         self.launchctl_calls: list[list[str]] = []
+        self.keychain: set[str] = set()
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -350,6 +351,8 @@ class FakeShell(runner_module.Shell):
         argv = gateway(argv)
         self.calls.append(argv)
         name = Path(argv[0]).name
+        if argv[:3] == ["security", "find-generic-password", "-s"]:
+            return runner_module.Done(0 if argv[3] in self.keychain else 44, "", "")
         if argv[:2] == ["codex-ask", "--cancel"]:
             return runner_module.Done(0, "", "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == runner_module.MERGE_CARD_FIELDS:
@@ -9759,6 +9762,72 @@ def test_a_supervised_runner_may_open_as_many_files_as_a_shell_started_one_so_a_
     agent = plistlib.loads((tmp_path / "Library/LaunchAgents" / f"{agent_label('landing')}.plist").read_bytes())
     assert agent["SoftResourceLimits"]["NumberOfFiles"] >= 65536
     restarted[0].close()
+
+
+def unregistered_fidelity_desk(shell: FakeShell, config: Path) -> None:
+    raw = json.loads(config.read_text())
+    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-desk-14", "fidelity-pipeline"]
+    config.write_text(json.dumps(raw))
+    shell.unregistered = {"fidelity-desk-14"}
+
+
+def test_a_handoff_whose_landing_successor_would_refuse_preflight_stops_no_runner(shell, config, tmp_path, capsys):
+    """Oct 30 9:47 PM: a supervise install stopped landing runner 45623, then launchd's first two starts refused preflight on runner.json's unregistered fidelity desks, so landing was down three minutes."""
+    unregistered_fidelity_desk(shell, config)
+    runner, held = live_runner(shell, config, tmp_path, "landing")
+    with held:
+        assert cli(shell, config, "handoff", "--desk", "landing") == 3
+    assert not runner.stop_marker().exists() and shell.successors == []
+    err = capsys.readouterr().err
+    assert "no runner was stopped" in err and "fidelity-desk-14, which never registered" in err
+
+
+@pytest.mark.parametrize("refusal", ["unregistered", "keychain"])
+def test_supervise_install_whose_runner_would_refuse_preflight_boots_out_nothing_and_bootstraps_nothing(shell, config, tmp_path, monkeypatch, capsys, refusal):
+    keyed(config, key_item="trunk-merge-api-key")
+    monkeypatch.delenv("TRUNK_MERGE_API_KEY", raising=False)
+    shell.launchd[agent_label("landing")] = os.getpid()
+    if refusal == "unregistered":
+        shell.keychain.add("trunk-merge-api-key")
+        unregistered_fidelity_desk(shell, config)
+    assert cli(shell, config, "supervise", "install", "--desk", "landing") == 3
+    assert shell.launchctl_calls == [] and not (tmp_path / "Library/LaunchAgents").exists()
+    err = capsys.readouterr().err
+    assert "no runner was stopped" in err and ("never registered" if refusal == "unregistered" else "no Keychain item trunk-merge-api-key holds TRUNK_MERGE_API_KEY") in err
+
+
+def test_a_supervised_handoff_from_a_shell_without_the_landing_key_reads_it_from_its_keychain_item(shell, config, tmp_path, monkeypatch, capsys):
+    keyed(config, key_item="trunk-merge-api-key")
+    monkeypatch.delenv("TRUNK_MERGE_API_KEY", raising=False)
+    shell.keychain.add("trunk-merge-api-key")
+    shell.launchd[agent_label("landing")] = os.getpid()
+    runner, held = live_runner(shell, config, tmp_path, "landing")
+    restarted = []
+
+    def exits(seconds):
+        runner.stop_marker().unlink()
+        held.close()
+        restarted.append(launchd_restarts(shell, config, tmp_path, "landing"))
+
+    monkeypatch.setattr(shell, "sleep", exits)
+    assert cli(shell, config, "handoff", "--desk", "landing") == 0
+    assert ["security", "find-generic-password", "-s", "trunk-merge-api-key"] in shell.calls
+    restarted[0].close()
+
+
+def test_a_landing_runner_passes_preflight_before_it_holds_the_desk_so_a_refusing_start_never_reads_as_started(shell, config, tmp_path, monkeypatch):
+    """A supervised handoff counts a desk as started once a new pid holds its lock, so a runner that took the lock and then refused preflight read as a successful start."""
+    unregistered_fidelity_desk(shell, config)
+    holders = []
+    checked = runner_module.startup_fault
+
+    def holding(runner, keychain=False):
+        holders.append(runner.desk_holder("landing"))
+        return checked(runner, keychain)
+
+    monkeypatch.setattr(runner_module, "startup_fault", holding)
+    assert cli(shell, config, "run", "--desk", "landing", "--once") == 3
+    assert holders == [None]
 
 
 def test_supervise_install_refuses_a_landing_adapter_whose_key_no_keychain_item_names(shell, config, tmp_path, monkeypatch, capsys):

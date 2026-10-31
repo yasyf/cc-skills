@@ -2183,12 +2183,15 @@ class Runner:
             return holder
 
     def handoff(self, desk: str) -> int:
-        """Stop the runner holding `desk`'s lock at its next step boundary, wait until it has exited, then start its successor, or under launchd supervision wait for launchd's restart instead, so a handoff killed mid-wait never leaves the desk empty (Oct 30 7:46 PM); a runner whose newest alive record, posted after the stop was asked, shows it re-executed into this version under the same pid has handed over in place, so its stop is withdrawn and no successor starts (root, Oct 29 11:46 AM), unless it already ran this version when the stop was asked, since only a restart then reloads runner.json (cci #215987); refuse, naming its pid, when neither happens within HANDOFF_WAIT (#140225). Refuse before stopping anything when the install lacks a brief the runner, finder, or incident job reads, or any reference or script file the marketplace copy it was installed from holds."""
+        """Stop the runner holding `desk`'s lock at its next step boundary, wait until it has exited, then start its successor, or under launchd supervision wait for launchd's restart instead, so a handoff killed mid-wait never leaves the desk empty (Oct 30 7:46 PM); a runner whose newest alive record, posted after the stop was asked, shows it re-executed into this version under the same pid has handed over in place, so its stop is withdrawn and no successor starts (root, Oct 29 11:46 AM), unless it already ran this version when the stop was asked, since only a restart then reloads runner.json (cci #215987); refuse, naming its pid, when neither happens within HANDOFF_WAIT (#140225). Refuse before stopping anything when the landing desk's successor would fail its preflight (Oct 30 9:47 PM), or when the install lacks a brief the runner, finder, or incident job reads, or any reference or script file the marketplace copy it was installed from holds."""
         if missing := list(dict.fromkeys([*(f"{path.parent.name}/{path.name}" for path in BRIEF_FILES if not path.exists()), *install_gaps()])):
             print(f"desk-runner handoff: this install lacks {', '.join(missing)}, so no runner was stopped; reinstall the plugin and hand off again", file=sys.stderr)
             return 1
-        pid = self.desk_holder(desk)
         supervised = self.supervised(desk)
+        if desk == "landing" and (fault := startup_fault(self, keychain=supervised)):
+            print(f"desk-runner handoff: no runner was stopped, since its successor would refuse: {fault[2]}", file=sys.stderr)
+            return 3
+        pid = self.desk_holder(desk)
         if pid is not None:
             current = self.on_this_version(desk, pid, datetime.min.replace(tzinfo=timezone.utc))
             marker = self.stop_marker(pid)
@@ -2265,6 +2268,9 @@ class Runner:
         needed = [name for name in merge_queue.ADAPTERS[adapter["kind"]].required_env if name not in self.config.desk_env[desk]] if adapter else []
         if needed and not adapter.get("key_item"):
             print(f"desk-runner supervise: the {adapter['kind']} adapter needs {', '.join(needed)}, and no landing.adapter.key_item names the Keychain item launchd reads it from, so {label} was not installed", file=sys.stderr)
+            return 3
+        if desk == "landing" and (fault := startup_fault(self, keychain=True)):
+            print(f"desk-runner supervise: {label} was not installed and no runner was stopped, since launchd's runner would refuse: {fault[2]}", file=sys.stderr)
             return 3
         exports = "".join(f'export {name}="$(security find-generic-password -s {shlex.quote(adapter["key_item"])} -w)"; ' for name in needed)
         log = str(self.runner_log(desk))
@@ -9460,7 +9466,7 @@ def mq_config_fault(landing: dict) -> str:
     return f"{'; '.join(faults)}; add to the \"landing\" object of runner.json, replacing any member of the same name: {', '.join(members)}"
 
 
-def startup_fault(runner: Runner) -> tuple[str, str, str] | None:
+def startup_fault(runner: Runner, keychain: bool = False) -> tuple[str, str, str] | None:
     source, landing = runner.config.source, runner.config.landing
     if "fidelity_lane" not in landing:
         return "FIDELITY-LANE-UNSET", f"fidelity-lane-unset:{source}", f"{source} names no landing.fidelity_lane, so no fidelity grade would count; the runner refused to start"
@@ -9469,17 +9475,21 @@ def startup_fault(runner: Runner) -> tuple[str, str, str] | None:
     if fault := mq_config_fault(landing):
         why = f"the runner refused to start: {source} {fault}"
         return "MQ-CONFIG-INVALID", f"mq-config:{source}:{hashlib.sha1(why.encode()).hexdigest()[:8]}", why
-    if faults := preflight_faults(runner):
+    if faults := preflight_faults(runner, keychain):
         why = f"the runner refused to start: {'; '.join(faults)}"
         return "PREFLIGHT-FAILED", f"preflight:{source}:{hashlib.sha1(why.encode()).hexdigest()[:8]}", why
     return None
 
 
-def preflight_faults(runner: Runner) -> list[str]:
+def preflight_faults(runner: Runner, keychain: bool = False) -> list[str]:
     landing, drive = runner.config.landing, runner.config.drive
     kind = landing["adapter"]["kind"]
     env = os.environ | runner.config.desk_env["landing"]
-    faults = [f"{name} is unset, and the {kind} adapter cannot reach its queue without it" for name in merge_queue.ADAPTERS[kind].required_env if not env.get(name)]
+    unset = [name for name in merge_queue.ADAPTERS[kind].required_env if not env.get(name)]
+    if unset and keychain and (item := landing["adapter"].get("key_item")):
+        faults = [] if runner.shell.run(["security", "find-generic-password", "-s", item]).code == 0 else [f"no Keychain item {item} holds {', '.join(unset)}, and the {kind} adapter cannot reach its queue without it"]
+    else:
+        faults = [f"{name} is unset, and the {kind} adapter cannot reach its queue without it" for name in unset]
     named = dict.fromkeys(lane for key in LANE_KEYS for lane in ([landing[key]] if isinstance(landing.get(key), str) else landing.get(key, [])) if lane not in RUNNER_LANES)
     if unregistered := [lane for lane in named if not runner.shell.run(["cci", "who", "--drive", drive, "--lane", lane, "--all", "--json"]).out.strip()]:
         faults.append(f"{runner.config.source} names {', '.join(unregistered)}, which never registered on drive {drive}; start each lane or remove it from runner.json")
@@ -9491,12 +9501,6 @@ def preflight_faults(runner: Runner) -> list[str]:
 
 
 def run_landing(runner: Runner, once: bool) -> int:
-    if fault := startup_fault(runner):
-        label, key, why = fault
-        runner.escalate(key, label, "runner", why)
-        runner.flush()
-        print(why, file=sys.stderr)
-        return 3
     seed_policy(runner)
     landing = Landing(runner, runner.config.landing)
     if not once:
@@ -9608,6 +9612,12 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
         return 0
     runner = Runner(shell, config, actions.Store(config.store))
     if args.verb == "run":
+        if args.desk == "landing" and (fault := startup_fault(runner)):
+            label, key, why = fault
+            runner.escalate(key, label, "runner", why)
+            runner.flush()
+            print(why, file=sys.stderr)
+            return 3
         deadline = runner.now() + HANDOFF_WAIT
         while True:
             with runner.desk_lock(args.desk) as holder:
