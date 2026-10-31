@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -77,6 +78,40 @@ def test_a_failed_call_fails_open_and_is_logged_as_an_error(tmp_path, monkeypatc
     [row] = judge.calls(tmp_path, datetime.now(timezone.utc) - timedelta(minutes=1))
     assert (row["kind"], row["verdict"], row["asks"]) == ("contract", "error", 0)
     assert row["error"].startswith("CalledProcessError")
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+@pytest.mark.parametrize("custom_config", [False, True])
+def test_stateless_claude_reuses_private_plugin_state_without_changing_auth_or_caller_environment(tmp_path, monkeypatch, explicit, custom_config):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "auth-sentinel")
+    monkeypatch.setenv("CLAUDE_CODE_PLUGIN_CACHE_DIR", str(tmp_path / "ordinary-plugins"))
+    if custom_config:
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "profile"))
+    else:
+        monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    inherited = dict(os.environ)
+    selected = dict(inherited) if explicit else None
+    config = tmp_path / "profile" if custom_config else tmp_path / "home" / ".claude"
+    plugins = config / "long-running" / "judge-plugins"
+    plugins.mkdir(parents=True)
+    kept = plugins / "kept"
+    kept.write_text("persistent helper state")
+    calls = []
+
+    def transport(argv, **kwargs):
+        calls.append(argv)
+        assert kwargs["env"] == inherited | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(plugins)}
+        assert kwargs["input"] == "prompt" and kwargs["timeout"] == 7
+        assert kept.read_text() == "persistent helper state"
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"structured_output": {"verdict": "no"}}), "")
+
+    monkeypatch.setattr(judge.subprocess, "run", transport)
+    for _ in range(2):
+        assert judge.claude("prompt", "system", "schema", 7, selected)[0] == {"verdict": "no"}
+    assert len(calls) == 2 and calls[0] == calls[1]
+    assert dict(os.environ) == inherited and (selected is None or selected == inherited)
+    assert kept.read_text() == "persistent helper state"
 
 
 def test_a_sonnet_yes_is_asked_twice_and_both_calls_are_counted(tmp_path, monkeypatch):

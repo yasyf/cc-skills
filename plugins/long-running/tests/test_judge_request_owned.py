@@ -70,12 +70,12 @@ def test_default_cli_transport_and_explicit_capability_keep_the_same_cards_verdi
     def cli(argv, **kwargs):
         cli_calls.append((argv, kwargs.get("input"), kwargs["timeout"]))
         assert kwargs["capture_output"] and kwargs["text"] and kwargs["check"]
-        assert kwargs["env"] is None
+        assert kwargs["env"] == (selected | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(tmp_path / "config" / "long-running" / "judge-plugins")} if argv[0] == "claude" else None)
         return subprocess.CompletedProcess(argv, 0, response(argv), "ignored diagnostic")
 
     def owned(argv, *, input=None, timeout, env=None):
         owned_calls.append((argv, input, timeout))
-        assert env == selected
+        assert env == (selected | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(tmp_path / "config" / "long-running" / "judge-plugins")} if argv[0] == "claude" else selected)
         return response(argv)
 
     monkeypatch.setattr(judge.subprocess, "run", cli)

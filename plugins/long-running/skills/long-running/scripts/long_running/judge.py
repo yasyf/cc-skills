@@ -423,6 +423,10 @@ def batch(kind: str, prompt: str, schema: str, *, drive: str | None = None, time
 def claude(prompt: str, system: str, schema: str, timeout: float, env: Mapping[str, str] | None, *, run: Run | None = None, checkpoint: Callable[[], None] = lambda: None) -> tuple[dict, float, float, int]:
     began = time.monotonic()
     checkpoint()
+    child_env = dict(os.environ if env is None else env)
+    home = Path(child_env.get("HOME") or Path.home())
+    config = Path(child_env.get("CLAUDE_CONFIG_DIR") or home / ".claude")
+    child_env["CLAUDE_CODE_PLUGIN_CACHE_DIR"] = str(config / "long-running" / "judge-plugins")
     done = (command if run is None else run)(
         [
             "claude", "-p", "--model", SONNET, "--effort", "low", "--system-prompt", system,
@@ -432,7 +436,7 @@ def claude(prompt: str, system: str, schema: str, timeout: float, env: Mapping[s
         ],
         input=prompt,
         timeout=timeout,
-        env=env,
+        env=child_env,
     )
     checkpoint()
     payload = json.loads(done)
