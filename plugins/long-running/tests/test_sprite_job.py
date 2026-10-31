@@ -207,3 +207,26 @@ def test_every_git_command_a_job_runs_authenticates_through_gh(tmp_path: Path) -
     subprocess.run(["sh", str(SCRIPT), "vet4", str(script), str(directory)], env=env, check=True, capture_output=True, timeout=60)
 
     assert json.loads((directory / "result.json").read_text())["helpers"] == ["", "!gh auth git-credential"]
+
+
+def test_a_key_command_that_prints_nothing_stops_the_job_before_the_sprite(tmp_path: Path) -> None:
+    """desk-runner GRADER-TOOLING #240605: the GH_TOKEN command printed nothing, the job ran with an empty token, and the finder died later on "no oauth token found"; the job now stops at launch with an error result naming the key."""
+    mac, sprite = tmp_path / "mac", tmp_path / "sprite"
+    checkout, directory, config = mac / "checkout", mac / "finder-desk" / "45784-0ee9abb91343", mac / "config"
+    script = mac / "plugin" / "skills" / "long-running" / "scripts" / "finder.py"
+    executable(script, HELPER_JOB)
+    executable(script.parent / "rulings.py", "")
+    executable(mac / "bin" / "sprite", SPRITE)
+    executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    directory.mkdir(parents=True)
+    (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
+    (config / "long-running" / "drives").mkdir(parents=True)
+    (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
+    subprocess.run(["git", "init", "-q", f"{sprite}{checkout}"], check=True)
+
+    env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config), "SPRITE_JOB_KEYS": json.dumps({"GH_TOKEN": ["true"]})}
+    done = subprocess.run(["sh", str(SCRIPT), "vet4", str(script), str(directory)], env=env, capture_output=True, text=True, timeout=60, check=False)
+
+    assert done.returncode == 1
+    assert json.loads((directory / "result.json").read_text()) == {"error": "the GH_TOKEN command printed nothing, so the job would run without GH_TOKEN"}
+    assert not Path(f"{sprite}{directory}/result.json").exists()

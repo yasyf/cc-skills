@@ -16,7 +16,8 @@ is partial.
 SPRITE_JOB_KEYS, a JSON object of environment names to the commands that print
 their values, such as {"GH_TOKEN": ["gh", "auth", "token"]}, is run here at
 start; each value reaches the job's process on the Sprite through its standard
-input and its environment only, never a file or an argument. Every git command
+input and its environment only, never a file or an argument; a command that prints
+nothing stops the job before it reaches the Sprite, with that error as its result. Every git command
 the job runs authenticates through `gh auth git-credential`, the partial clone's
 on-demand object fetches included. A GH_TOKEN also refreshes git's in-memory
 credential cache on the Sprite for an hour, so long-running processes there read
@@ -103,11 +104,17 @@ if [ -n "$plan" ]; then
   ship "$(dirname "$(dirname "$plan")")"
 fi
 
-python3 -c '
-import json, os, subprocess
+keys=$(python3 -c '
+import json, os, subprocess, sys
+from pathlib import Path
 for name, argv in json.loads(os.environ.get("SPRITE_JOB_KEYS") or "{}").items():
-    print(f"{name}={subprocess.run(argv, capture_output=True, text=True, check=True).stdout.strip()}")
-' | sprite exec -s "$sprite" -- sh -c '
+    if not (value := subprocess.run(argv, capture_output=True, text=True, check=True).stdout.strip()):
+        error = f"the {name} command printed nothing, so the job would run without {name}"
+        (Path(sys.argv[1]) / "result.json").write_text(json.dumps({"error": error}) + "\n")
+        sys.exit(f"sprite-job: {error}")
+    print(f"{name}={value}")
+' "$dir") || exit 1
+{ [ -z "$keys" ] || printf "%s\n" "$keys"; } | sprite exec -s "$sprite" -- sh -c '
   while IFS= read -r line; do export "$line"; done
   export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper "GIT_CONFIG_VALUE_1=!gh auth git-credential"
   [ -z "${GH_TOKEN:-}" ] || printf "protocol=https\nhost=github.com\nusername=x-access-token\npassword=%s\n\n" "$GH_TOKEN" |
