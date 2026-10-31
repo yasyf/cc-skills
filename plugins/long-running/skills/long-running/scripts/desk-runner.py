@@ -291,6 +291,10 @@ did not read, `checks_wait_for_go` waits or GitHub's quota is low, refuses every
 Each admitted head's state goes to `landing-admitted.json` for the dashboard. A `head` or `opened` record naming a PR with no ledger
 row registers it under that record's lane the next pass, logging `UNROWED` when the register fails and `GO-UNROWED` for a root go
 naming a PR no row or such record holds.
+Under `trunk-stack-enqueue`, each pass folds the `queue` records the Trunk webhook writes on the `trunk` cci drive, one per
+merge-queue state change, from after the newest it folded: a PR whose status read says unknown reads as its newest record says,
+queued, landed or evicted, and only a PR no record names falls back to Trunk's labels. A `failed` or `canceled` record posts one
+blocker to its PR's lane and the root that pass, naming Trunk's reason, the failing checks and Trunk's details link.
 Every text that says a PR has, lacks or lost a go, `GO-UNQUEUED`, `BELOW-BLOCKED` and `MERGE-ASK`, says it through
 `grades.go_state`, citing the newest go at the head, a carried one included, by seq, lane and time, or the newest go at
 an older head when none names it; `go --config PATH PR...` prints the same for any PR, and `drive.py go` runs it.
@@ -595,7 +599,14 @@ boundary between the steps of its pass, or between the PRs and stacks a landing 
 that holder and waits up to 20 minutes, as long as a slow pass takes, for it to exit, or for its newest alive record to show it
 re-executed into the handoff's own version under the same pid, which withdraws the stop and starts nothing; past that it
 starts nothing and logs `HANDOFF-STALLED` to root with the pid. `handoff` stops nothing while the install lacks a runtime brief or any file of
-`reference/` or `scripts/` that the marketplace copy it was installed from holds. `drive.py digest`
+`reference/` or `scripts/` that the marketplace copy it was installed from holds. `supervise install --desk <d>` writes
+`~/Library/LaunchAgents/com.long-running.<drive>.<desk>.plist` and bootstraps that one label in the `gui/<uid>` domain, touching no
+other job: launchd runs `run` through `/bin/zsh -c`, exporting each key the landing adapter needs from the Keychain item
+`landing.adapter.key_item` names, so no file holds its value, restarts it after any exit at most once a minute, with the installing shell's PATH,
+logging to `<desk>-runner.log`, and the install then hands the desk over to it; `supervise uninstall` boots that label out and
+removes its plist, and `supervise status` exits 0 while launchd has it loaded. Under supervision `handoff` starts no successor:
+it waits up to 3 minutes after the runner exits for launchd's restart to hold the lock, so a handoff killed mid-wait still
+leaves launchd's runner and two runners never race for the lock. `drive.py digest`
 prints each desk's running and installed versions. Before the landing desk takes its lock it refuses to start, exiting 3 with one
 `PREFLIGHT-FAILED` to root, when an environment variable its adapter needs is unset (`TRUNK_MERGE_API_KEY` for
 `trunk-stack-enqueue`), a lane `fidelity_lane`, `go_lanes`, `desk_lane`, `board_lane` or `restack_lane` names never
@@ -615,6 +626,7 @@ import html
 import itertools
 import json
 import os
+import plistlib
 import re
 import shlex
 import subprocess
@@ -653,7 +665,7 @@ import prompt_screen
 import prompt_watch
 import stall_watch
 from long_running import testfiles
-from long_running.grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, heads_since, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
+from long_running.grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, head_of, head_says, heads_since, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
 from long_running.grades import carry_of, delegated, keeps_tap, succeeds, with_successors
 from long_running.grades import carries as carry_grade
 from long_running.grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
@@ -682,7 +694,6 @@ TOOLING_GLOBS = (".agents/skills/*/scripts/*", ".agents/skills/*/tests/*")
 PORT_PREFIXES = ("go/sand/next/",)
 OWNER_CITE = re.compile(r"#\s*owner:\s*[0-9a-f]{7,40}\b")
 MERGE_CARD_FIELDS = "title,author,additions,deletions,reviewDecision"
-CCI_SEQ = re.compile(r"^#(\d+)\b", re.MULTILINE)
 RULING_ROUNDS = "cards/rounds"
 RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
@@ -768,6 +779,7 @@ ASYNC_POLLS = 60
 ASYNC_RESULT_POLLS = 120
 ASYNC_STATE = '.state + " " + .headRefOid'
 STACK_PARTIAL = "Include all existing PRs"
+FINDER_CLEARED = re.compile(r"(?<!not )(?<!never )\bclear(?:s|ed)?\b|\brebuttal accepted\b|\bland it\b", re.IGNORECASE)
 UNLINKED_STACK = "without a native GitHub stack"
 STACK_MEMBER = "part of a stack"
 SQUASH_POLLS = 12
@@ -853,7 +865,6 @@ MANUAL_RELEASE = "manual-release-"
 MANUAL_TEMPLATE = SCRIPTS.parent / "reference" / "manual-release-brief.md"
 DEFERRABLE = frozenset({"DEADLINE", "UNACKED", "LIVENESS", "STALE-MAIL", "RECLAIM"})
 DEFERRED = "deferred-escalations"
-POSTED = re.compile(r"#(\d+)")
 SWEEP_EVERY = timedelta(minutes=5)
 PASS_SECONDS = 10
 TRUNK_DEPTH = 50
@@ -901,7 +912,6 @@ REFRESH_EVERY = timedelta(minutes=2)
 GATE_STATUSES = frozenset({"release-pr-check", "emergency-head"})
 RED_STATES = frozenset({"failure", "error"})
 RUN_NUMBERS = re.compile(r"\d+")
-POSTED_SEQ = re.compile(r"#(\d+)")
 HEAD_FLOOR = timedelta(seconds=60)
 BODY_MAX_AGE = timedelta(minutes=5)
 CHECK_PR_REREAD = timedelta(minutes=5)
@@ -911,6 +921,9 @@ QUEUED_STATE = "queued"
 TRUNK_QUEUED_LABELS = frozenset({"trunk-queued", "trunk-not-ready", "trunk-testing", "trunk-tests-passed", "trunk-queued (bisection)", "trunk-testing (bisection)", "trunk-tests-passed (bisection)"})
 TRUNK_MERGED_LABEL = "trunk-merged"
 TRUNK_FELL_LABELS = ("trunk-failed", "trunk-cancelled")
+TRUNK_QUEUE_DRIVE = "trunk"
+TRUNK_QUEUE_FACT = "trunk-queue"
+TRUNK_FELL = frozenset({"failed", "canceled"})
 QUEUED_VERDICT = "QUEUED"
 WAITING_VERDICT = "WAITING"
 BELOW_BLOCKED = re.compile(r"\bbelow BLOCKED #(\d+)\b")
@@ -962,6 +975,9 @@ LANE_SPAWN_GRACE = timedelta(minutes=10)
 LANE_GONE_REPORT = re.compile(r"\bLANE-GONE lane-gone:([^:\s]+)[:\s]")
 LANE_ENDED_KINDS = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
 HANDOFF_WAIT = timedelta(minutes=20)
+LAUNCHD_THROTTLE_SECONDS = 60
+LAUNCHD_START = timedelta(minutes=3)
+AGENT_PID = re.compile(r"^\s*pid = (\d+)$", re.MULTILINE)
 RELAY_REF = re.compile(r"(?:^|cci#)(R?\d+)$")
 RUN_REF = re.compile(r"R\d+|\d+")
 ACK = re.compile(r"^(?P<verb>started|done)\b[: ]*(?P<rest>.*)$", re.DOTALL)
@@ -1237,6 +1253,14 @@ class Shell:
         sys.stdout.flush()
         sys.stderr.flush()
         os.execv(argv[0], argv)
+
+    def launchctl(self, *args: str) -> Done:
+        """`launchctl` run once within QUICK_SECONDS; a host without it, such as a Linux box, reads as unsupervised at once instead of waiting out the install window a missing binary gets."""
+        try:
+            done = subprocess.run(["launchctl", *args], capture_output=True, text=True, timeout=QUICK_SECONDS)
+        except FileNotFoundError:
+            return Done(MISSING_BINARY, "", "launchctl is not on PATH")
+        return Done(done.returncode, done.stdout, done.stderr)
 
     def spawn(self, argv: list[str], out: Path, env: dict[str, str], append: bool = False) -> subprocess.Popen:
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -1892,7 +1916,7 @@ class Runner:
                 self.escalate(f"refused:{to}", "POSTS-REFUSED", RUNNER, f"{len(self.refused)} cci posts refused in the last minute, the newest to {to}: {(done.err or done.out).strip()[:200]}")
             return
         self.record(action_id, line)
-        self.book.attempt(RUNNER, lambda incident: (incident.start(action_id, self.now()), incident.complete(action_id, {"at": self.book.stamp(), "posted": done.out.strip(), "to": to})))
+        self.book.attempt(RUNNER, lambda incident: (incident.start(action_id, self.now()), incident.complete(action_id, {"at": self.book.stamp(), "posted": cci.receipt(done.records[0].seq), "to": to})))
 
     def raised_before(self, key: str, subject: str) -> bool:
         """Whether an escalation under another key already named `subject`."""
@@ -1903,7 +1927,7 @@ class Runner:
         configured = json.loads(self.config.source.read_text()).get("landing", {}).get(member, [])
         return [configured] if isinstance(configured, str) else list(configured)
 
-    def post_escalation(self, line: str, to: str, action_id: str) -> Done:
+    def post_escalation(self, line: str, to: str, action_id: str) -> cci.PostResult:
         label, topic = line.split()[:2]
         message = self.message_file(topic)
         return self.cci_post(ESCALATION_KINDS.get(label, "defect" if label.endswith("-FAILED") else "report"), line, to, topic, action_id, message.read_text() if message.is_file() else "", flags=["--force"])
@@ -1931,7 +1955,7 @@ class Runner:
     def pass_wait(self) -> float:
         return min(PASS_SECONDS * 2**self.unreachable_passes, UNREACHABLE_WAIT.total_seconds())
 
-    def cci_post(self, kind: str, text: str, to: str, topic: str, key: str, message: str = "", pr: str = "", record_id: str = "", flags: list[str] | None = None, drive: str = "", lane: str = RUNNER) -> Done:
+    def cci_post(self, kind: str, text: str, to: str, topic: str, key: str, message: str = "", pr: str = "", record_id: str = "", flags: list[str] | None = None, drive: str = "", lane: str = RUNNER) -> cci.PostResult:
         """Post one cci record, on this drive unless `drive` names another; a body over cci's text limit, or the whole Orca message it relays, goes to a receipts file named by `key` and rides as its path. With `record_id`, cci stores the record once and a repost returns the stored one."""
         argv = ["cci", "post", "--drive", drive or self.config.drive, "--lane", lane, "--kind", kind, "--to", to, "--topic", topic, *(flags or [])]
         if pr:
@@ -1948,11 +1972,11 @@ class Runner:
         self.cci_tail.forget()
         done = self.shell.run([*argv, "--text", text, "--json"])
         if done.code:
-            return done
+            return cci.PostResult(done.code, done.out, done.err, ())
         try:
-            return Done(0, cci.posted(done.out), done.err)
+            return cci.PostResult(0, done.out, done.err, cci.posted(done.out))
         except (json.JSONDecodeError, KeyError) as error:
-            return Done(1, "", f"cci: invalid post receipt: {error}: {done.out.strip()}")
+            return cci.PostResult(1, done.out, f"{done.err}\ncci: invalid post receipt: {error}: {done.out.strip()}", ())
 
     def flush(self) -> bool:
         """Post each accepted escalation to root. While an incident clock runs, a DEADLINE, UNACKED, LIVENESS, STALE-MAIL, or RECLAIM about anything outside the incident waits in the view, and the pass after the last clock ends posts them as one DEFERRED record."""
@@ -1972,7 +1996,7 @@ class Runner:
             if done.code != 0:
                 failures.append(f"cci post exited {done.code}: {(done.err or done.out).strip()[:300]}")
                 continue
-            self.book.attempt(RUNNER, lambda incident, key=action.action_id: (incident.start(key, self.now()), incident.complete(key, {"at": self.book.stamp(), "posted": done.out.strip()})))
+            self.book.attempt(RUNNER, lambda incident, key=action.action_id: (incident.start(key, self.now()), incident.complete(key, {"at": self.book.stamp(), "posted": cci.receipt(done.records[0].seq)})))
         if failures:
             print(f"{len(failures)} escalation(s) left for the next pass; {failures[0]}", file=sys.stderr)
         return not failures
@@ -2139,11 +2163,12 @@ class Runner:
             return holder
 
     def handoff(self, desk: str) -> int:
-        """Stop the runner holding `desk`'s lock at its next step boundary, wait until it has exited, then start its successor; a runner whose newest alive record, posted after the stop was asked, shows it re-executed into this version under the same pid has handed over in place, so its stop is withdrawn and no successor starts (root, Oct 29 11:46 AM), unless it already ran this version when the stop was asked, since only a restart then reloads runner.json (cci #215987); refuse, naming its pid, when neither happens within HANDOFF_WAIT (#140225). Refuse before stopping anything when the install lacks a brief the runner, finder, or incident job reads, or any reference or script file the marketplace copy it was installed from holds."""
+        """Stop the runner holding `desk`'s lock at its next step boundary, wait until it has exited, then start its successor, or under launchd supervision wait for launchd's restart instead, so a handoff killed mid-wait never leaves the desk empty (Oct 30 7:46 PM); a runner whose newest alive record, posted after the stop was asked, shows it re-executed into this version under the same pid has handed over in place, so its stop is withdrawn and no successor starts (root, Oct 29 11:46 AM), unless it already ran this version when the stop was asked, since only a restart then reloads runner.json (cci #215987); refuse, naming its pid, when neither happens within HANDOFF_WAIT (#140225). Refuse before stopping anything when the install lacks a brief the runner, finder, or incident job reads, or any reference or script file the marketplace copy it was installed from holds."""
         if missing := list(dict.fromkeys([*(f"{path.parent.name}/{path.name}" for path in BRIEF_FILES if not path.exists()), *install_gaps()])):
             print(f"desk-runner handoff: this install lacks {', '.join(missing)}, so no runner was stopped; reinstall the plugin and hand off again", file=sys.stderr)
             return 1
         pid = self.desk_holder(desk)
+        supervised = self.supervised(desk)
         if pid is not None:
             current = self.on_this_version(desk, pid, datetime.min.replace(tzinfo=timezone.utc))
             marker = self.stop_marker(pid)
@@ -2159,15 +2184,100 @@ class Runner:
                         return 0
                     break
                 if self.now() >= deadline:
-                    why = f"runner {pid} still runs the {desk} desk after {HANDOFF_WAIT}, so no successor started; {marker} stays, the runner exits at the end of its pass, and the next `desk-runner.py handoff --desk {desk}` starts the successor"
+                    then = f"launchd's {self.agent_label(desk)} starts its successor" if supervised else f"the next `desk-runner.py handoff --desk {desk}` starts the successor"
+                    why = f"runner {pid} still runs the {desk} desk after {HANDOFF_WAIT}, so no successor started; {marker} stays, the runner exits at the end of its pass, and {then}"
                     self.escalate(f"handoff:{desk}:{pid}", "HANDOFF-STALLED", "runner", why)
                     self.flush()
                     print(f"desk-runner handoff: {why}", file=sys.stderr)
                     return 1
                 self.shell.sleep(WAKE_SECONDS)
+        if supervised:
+            return self.await_launchd(desk, pid)
         started = self.shell.spawn([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk], self.runner_log(desk), self.config.desk_env[desk], append=True)
         print(f"desk-runner handoff: {f'runner {pid} exited' if pid is not None else f'no live {desk} runner'}; started runner {started.pid}, logging to {self.runner_log(desk)}")
         return 0
+
+    def await_launchd(self, desk: str, pid: int | None) -> int:
+        """Wait up to LAUNCHD_START for the runner launchd restarts to hold `desk`'s lock under a pid other than `pid`'s."""
+        deadline = self.now() + LAUNCHD_START
+        while not (holder := self.desk_holder(desk)) or holder == pid:
+            if self.now() >= deadline:
+                why = f"launchd's {self.agent_label(desk)} started no {desk} runner within {LAUNCHD_START} of {f'runner {pid} exiting' if pid is not None else 'the handoff'}; it starts one again every {LAUNCHD_THROTTLE_SECONDS} s, and {self.runner_log(desk)} says why each start ended"
+                self.escalate(f"handoff:{desk}:launchd:{pid}", "HANDOFF-STALLED", "runner", why)
+                self.flush()
+                print(f"desk-runner handoff: {why}", file=sys.stderr)
+                return 1
+            self.shell.sleep(WAKE_SECONDS)
+        print(f"desk-runner handoff: {f'runner {pid} exited' if pid is not None else f'no live {desk} runner'}; launchd started runner {holder} as {self.agent_label(desk)}, logging to {self.runner_log(desk)}")
+        return 0
+
+    def agent_label(self, desk: str) -> str:
+        return f"com.long-running.{self.config.drive}.{desk}"
+
+    def agent_target(self, desk: str) -> str:
+        return f"gui/{os.getuid()}/{self.agent_label(desk)}"
+
+    def agent_plist(self, desk: str) -> Path:
+        return Path.home() / "Library/LaunchAgents" / f"{self.agent_label(desk)}.plist"
+
+    def supervised(self, desk: str) -> bool:
+        return self.shell.launchctl("print", self.agent_target(desk)).code == 0
+
+    def supervise(self, action: str, desk: str) -> int:
+        """Install, uninstall, or report the launchd user agent that keeps `desk`'s runner alive; only its own label is bootstrapped or booted out."""
+        label, plist, target = self.agent_label(desk), self.agent_plist(desk), self.agent_target(desk)
+        if action == "status":
+            shown = self.shell.launchctl("print", target)
+            if shown.code:
+                print(f"desk-runner supervise: launchd does not supervise the {desk} desk; `desk-runner.py supervise install --config {self.config.source} --desk {desk}` installs {label}")
+                return 1
+            pid = AGENT_PID.search(shown.out)
+            print(f"desk-runner supervise: launchd supervises the {desk} desk as {label} from {plist}, {f'runner pid {pid[1]}' if pid else 'with no runner running'}, logging to {self.runner_log(desk)}")
+            return 0
+        if action == "uninstall":
+            loaded = self.supervised(desk)
+            if loaded and not self.boot_out(target):
+                return 1
+            plist.unlink(missing_ok=True)
+            print(f"desk-runner supervise: {label} {'booted out' if loaded else 'was not loaded'} and {plist} removed; no runner keeps the {desk} desk until `run` or `supervise install` starts one")
+            return 0
+        adapter = self.config.landing["adapter"] if desk == "landing" else {}
+        needed = [name for name in merge_queue.ADAPTERS[adapter["kind"]].required_env if name not in self.config.desk_env[desk]] if adapter else []
+        if needed and not adapter.get("key_item"):
+            print(f"desk-runner supervise: the {adapter['kind']} adapter needs {', '.join(needed)}, and no landing.adapter.key_item names the Keychain item launchd reads it from, so {label} was not installed", file=sys.stderr)
+            return 3
+        exports = "".join(f'export {name}="$(security find-generic-password -s {shlex.quote(adapter["key_item"])} -w)"; ' for name in needed)
+        log = str(self.runner_log(desk))
+        agent = plistlib.dumps(
+            {
+                "Label": label,
+                "ProgramArguments": ["/bin/zsh", "-c", f"{exports}exec {shlex.quote(str(RUNNER_BIN))} run --config {shlex.quote(str(self.config.source))} --desk {desk}"],
+                "EnvironmentVariables": {"PATH": self.shell.env("PATH")},
+                "KeepAlive": True,
+                "ThrottleInterval": LAUNCHD_THROTTLE_SECONDS,
+                "StandardOutPath": log,
+                "StandardErrorPath": log,
+            }
+        )
+        loaded = self.supervised(desk)
+        if loaded and plist.is_file() and plist.read_bytes() == agent:
+            print(f"desk-runner supervise: launchd already supervises the {desk} desk as {label} from {plist}")
+            return 0
+        if loaded and not self.boot_out(target):
+            return 1
+        plist.parent.mkdir(parents=True, exist_ok=True)
+        plist.write_bytes(agent)
+        if (booted := self.shell.launchctl("bootstrap", f"gui/{os.getuid()}", str(plist))).code:
+            print(f"desk-runner supervise: launchctl bootstrap {plist} failed: {(booted.err or booted.out).strip()}", file=sys.stderr)
+            return 1
+        print(f"desk-runner supervise: launchd supervises the {desk} desk as {label} from {plist}")
+        return self.handoff(desk)
+
+    def boot_out(self, target: str) -> bool:
+        if (out := self.shell.launchctl("bootout", target)).code:
+            print(f"desk-runner supervise: launchctl bootout {target} failed: {(out.err or out.out).strip()}", file=sys.stderr)
+            return False
+        return True
 
     def on_this_version(self, desk: str, pid: int, since: datetime) -> bool:
         beat = drive.heartbeat(self.cci_tail, self.config.drive, desk)
@@ -2917,8 +3027,7 @@ class Runner:
 
     def cut_withdrawn(self, key: str, clock: dict, silent: actions.Action) -> str:
         """Why a silent cut's manual release must not launch: the root resolved its CUT-SILENT, or the order was answered or closed since; empty while none did."""
-        if posted := POSTED.search(silent.response.get("posted", "")):
-            seq = int(posted[1])
+        if (seq := cci.receipt_seq(silent.response.get("posted", ""))) is not None:
             replies = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, since=seq)
             if resolved := next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, self.config.drive) and seq in cci.resolved(record)), None):
                 return f"#{resolved['seq']} resolves CUT-SILENT #{seq}"
@@ -3953,7 +4062,7 @@ class Runner:
     def pr_silent_posts(self, lane: str, seq: int) -> set[int]:
         """The cci seqs of every PR-SILENT the runner posted for this mechanism."""
         prefix = f"escalation:{PR_SILENT}:{lane}:{seq}:"
-        return {int(found[1]) for action in self.book.actions(RUNNER, kind="escalation") if action.action_id.startswith(prefix) and (found := POSTED.search((action.response or {}).get("posted", "")))}
+        return {seq for action in self.book.actions(RUNNER, kind="escalation") if action.action_id.startswith(prefix) and (seq := cci.receipt_seq((action.response or {}).get("posted", ""))) is not None}
 
     def lane_worktrees(self, lane: str) -> list[lanes.Worktree]:
         """What code the lane holds, by `lanes.lane_status` over the runner's launch receipts, the lane's cci records of the last day, and the worktrees of every repository in the pool, never the landing checkout itself."""
@@ -4097,7 +4206,7 @@ class Runner:
         stack = f"{component}/{env}"
         text = f"applying {stack} {commit[:8] or 'at an unread commit'} ({info['release'] or f'build {build}'})"
         posted = self.cci_post("release", text, to, stack, key, record_id=key, flags=["--stack", stack, "--build", build])
-        if posted.code == 0 and POSTED.match(posted.out):
+        if posted.code == 0 and posted.records:
             self.book.accept(RUNNER, key, "applying", json.dumps({"build": build, "stack": stack, "to": to}), info["lane"], None)
         else:
             self.escalate(key, "APPLYING-FAILED", info["lane"], f"{text} was not posted: {' '.join((posted.err or posted.out).split())[:200]}; it is posted again on the next poll that reads the job running")
@@ -4109,7 +4218,7 @@ class Runner:
             if hold is None or hold["status"] != "open":
                 self.book.edit(RUNNER, lambda incident, freeze=freeze: incident.facts[FREEZES].pop(freeze))
                 continue
-            close = f"close hold #{info['hold']} with `cci post --kind lift --resolves {info['hold']}`"
+            close = f"close hold {hold['num']} with `cci post --kind lift --resolves {shlex.quote(hold['num'])}`"
             asks = []
             if (until := parse_until(info["until"])) and self.now() >= until:
                 asks.append(("lapsed", info["lane"], f"lift freeze {freeze} on {info['scope']}: it ran to its until, {info['until']}; {close}, or freeze again to extend it"))
@@ -4120,7 +4229,7 @@ class Runner:
                     continue
                 key = f"lift-ask:{freeze}:{cause}"
                 posted = self.cci_post("ask", text, to, freeze, key, record_id=key, flags=["--target", info["scope"].split("/")[0]])
-                if posted.code == 0 and POSTED.match(posted.out):
+                if posted.code == 0 and posted.records:
                     self.book.edit(RUNNER, lambda incident, freeze=freeze, cause=cause: incident.facts[FREEZES][freeze]["asked"].append(cause))
                 else:
                     self.escalate(key, "LIFT-ASK-FAILED", info["lane"], f"{text} was not posted: {' '.join((posted.err or posted.out).split())[:200]}; it is posted again next pass")
@@ -4485,7 +4594,7 @@ class Runner:
         if answered:
             self.finder_settled(action.action_id, {"answered": f"cci #{answered['seq']} from {answered['lane']}"})
             return False
-        last, prior = ("", None) if full else finder.since(reviews, records, job["head"])
+        last, prior = ("", None) if full else finder.since(reviews, records, job["head"], repo)
         attempt = action.action_id.partition("#")[2]
         directory = self.config.source.parent / finder.LANE / ((f"{job['pr']}-whole-{job['seq']}" if full else f"{job['pr']}-{job['head'][:12]}") + (f"-{attempt}" if attempt else ""))
         directory.mkdir(parents=True, exist_ok=True)
@@ -4500,7 +4609,7 @@ class Runner:
                 "head": job["head"],
                 "since": last,
                 "prior": prior,
-                "previous": finder.previous(next((record for record in records if record["seq"] == job["seq"]), None)) if named and not full else "",
+                "previous": finder.previous(next((record for record in records if record["seq"] == job["seq"]), None), repo, job["pr"]) if named and not full else "",
                 "history": [{"seq": record["seq"], "lane": record["lane"], "text": record["text"], "path": (record.get("refs") or {}).get("path", "")} for record in named],
                 "settled": self.root_settled(repo, job["pr"], named),
                 "lane": job["lane"],
@@ -4897,6 +5006,17 @@ def queue_state(action: actions.Action) -> str:
         if marker in why:
             return f"{state}: {why}"
     return f"blocked: {why}"
+
+
+def trunk_recorded(entry: dict, state: dict | None) -> dict:
+    """`entry` as the newest `queue` record the Trunk webhook wrote for its PR says, where the status read says unknown; the labels read only when no record names the PR."""
+    if entry["queue"] != "unknown" or not state:
+        return entry
+    if state["outcome"] == "merged":
+        return entry | {"queue": "landed", "verdict": "landed"}
+    if state["outcome"] in TRUNK_FELL:
+        return entry | {"queue": "evicted", "evicted": state["text"], "evicted_at": state["at"]}
+    return entry | {"queue": QUEUED_STATE, "verdict": QUEUED_STATE}
 
 
 def trunk_labelled(entry: dict, row: dict) -> dict:
@@ -5309,6 +5429,7 @@ class Landing:
         self.side_work: Future | None = None
         self.bodies: dict[str, tuple[datetime, str]] = {}
         self.trunk_read: tuple[str, datetime, bool, dict] | None = None
+        self.trunk_states: dict[str, dict] = {}
         self.unchecked: set[str] = set()
         self.settlement = Settlement({}, {})
         self.unproven_why: dict[str, str] = {}
@@ -5950,11 +6071,32 @@ class Landing:
         linked = True
         for tip in tips:
             chain = sorted(downstack(open_rows, tip), key=lambda pr: len(downstack(open_rows, pr)))
-            done = self.shell.run(["gh", "stack", "link", *chain], env={"GH_REPO": self.repo}, cwd=str(self.checkout))
+            done = self.link(chain)
             said = "linked them as one native GitHub stack and checks again" if done.code == 0 else f"gh stack link exited {done.code}: {((done.err or done.out).strip().splitlines() or ['no output'])[-1][:300]}"
             self.post_record("note", f"stack-link:{','.join(chain)}@{open_rows[tip].get('head', '')}", self.routine_audience(chain, self.ledger_rows), f"STACK-LINK {numbered(chain)}: the {self.adapter.kind} check refused them as no native GitHub stack; the landing runner {said}", tip)
             linked = linked and done.code == 0
         return linked
+
+    def link(self, chain: list[str]) -> Done:
+        """`gh stack link` of `chain`, bottom first, and once more naming every open PR of the native stack a member of `chain` already belongs to, in its order, when GitHub refuses a link that names only part of that stack (cci #227794)."""
+        done = self.shell.run(["gh", "stack", "link", *chain], env={"GH_REPO": self.repo}, cwd=str(self.checkout))
+        if done.code == 0 or STACK_PARTIAL not in done.out + done.err:
+            return done
+        members = self.native_stack(chain)
+        shared = [pr for pr in chain if pr in members]
+        if not shared:
+            return done
+        below, above = chain[: chain.index(shared[0])], [pr for pr in chain[chain.index(shared[-1]) + 1 :] if pr not in members]
+        return self.shell.run(["gh", "stack", "link", *below, *members, *above], env={"GH_REPO": self.repo}, cwd=str(self.checkout))
+
+    def native_stack(self, chain: list[str]) -> list[str]:
+        """The open PRs, bottom first, of the native GitHub stack the first stacked PR of `chain` belongs to."""
+        for pr in chain:
+            read = self.shell.run(ghread.read("api", f"repos/{self.repo}/pulls/{pr}", "--jq", ".stack.number // empty", max_age=ghread.FRESH))
+            if read.code == 0 and (number := read.out.strip()):
+                listed = self.shell.run(ghread.read("api", f"repos/{self.repo}/stacks/{number}", "--jq", '[.pull_requests[] | select(.state == "open") | .number | tostring]', max_age=ghread.FRESH))
+                return json.loads(listed.out) if listed.code == 0 else []
+        return []
 
     def left(self, prefix: list[str], refused: Iterable[str], rows: dict[str, dict]) -> str:
         return cut_at(prefix, refused, self.whole(), {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"})
@@ -6618,7 +6760,7 @@ class Landing:
         posted = [action for action in self.book.actions(LANDING, kind="bus") if action.action_id.startswith(f"rulings:{pr}:{sha[:7]}:")]
         named = {line for action in posted for line in json.loads(action.target)["text"].partition("the head is not held for it: ")[2].split("; ")}
         fresh = [line for line in "; ".join(warnings).split("; ") if line and line not in named]
-        seqs = {int(seq[1]) for action in posted if (seq := POSTED.search((action.response or {}).get("posted", "")))}
+        seqs = {seq for action in posted if (seq := cci.receipt_seq((action.response or {}).get("posted", ""))) is not None}
         if not fresh or seqs and any(seqs & ({record.get("re")} | cci.resolved(record)) for record in cci.records(self.cci_tail, self.runner.config.drive, "--kind=answer", since=min(seqs))):
             return []
         return fresh
@@ -6697,7 +6839,7 @@ class Landing:
         return self.finder_carried(pr, sha)
 
     def root_answered(self, pr: str, sha: str, verdict: dict) -> bool:
-        """Whether root settled `verdict`, a failing finder record at `sha`: a root `go` naming `pr` at `sha` posted after it, a root `decide` or `decision` that resolves it, or a root `decision` replying to it directly or along a chain of `--re` replies, since root refutes an edge-case finding in one line (rule 2cc5a1f3, root #152572, #194669)."""
+        """Whether root settled `verdict`, a failing finder record at `sha`: a root `go` naming `pr` at `sha` posted after it, a root `decide` or `decision` that resolves it, or a root `decision`, or a `decide` that clears it, replying to it directly or along a chain of `--re` replies, since root refutes an edge-case finding in one line (rule 2cc5a1f3, root #152572, #194669, p8a-step7 #234604)."""
         if any(go["seq"] > verdict["seq"] for go in self.head_gos(pr, sha)):
             return True
         answered = {verdict["seq"]}
@@ -6706,7 +6848,7 @@ class Landing:
                 return True
             if record.get("re") not in answered:
                 continue
-            if record["lane"] == ROOT and record["kind"] == "decision":
+            if record["lane"] == ROOT and (record["kind"] == "decision" or record["kind"] == "decide" and FINDER_CLEARED.search(record["text"])):
                 return True
             answered.add(record["seq"])
         return False
@@ -7110,13 +7252,13 @@ class Landing:
             return None
         view = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", MERGE_CARD_FIELDS))
         card = "" if view.code else json.dumps(merge_card_block(self.repo, pr, waits, detail, json.loads(view.out)))
-        done = view if view.code else self.runner.cci_post("note", f"board write: ask the merge card {waits}", ",".join(self.board_lanes) or ROOT, board_rows.WRITE_TOPIC, f"board-ask:{waits}:{hashlib.sha1(detail.encode()).hexdigest()[:8]}", pr=pr, flags=board_attrs({"op": "ask", "session": session, "waits": waits, "card": card}))
-        if done.code or not (seq := CCI_SEQ.search(done.out)):
+        done = cci.PostResult(view.code, view.out, view.err, ()) if view.code else self.runner.cci_post("note", f"board write: ask the merge card {waits}", ",".join(self.board_lanes) or ROOT, board_rows.WRITE_TOPIC, f"board-ask:{waits}:{hashlib.sha1(detail.encode()).hexdigest()[:8]}", pr=pr, flags=board_attrs({"op": "ask", "session": session, "waits": waits, "card": card}))
+        if done.code or not done.records:
             why = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
             cause = VOLATILE.sub("", why)
             self.runner.escalate(f"merge-card:{pr}:{head[:7]}:{hashlib.sha1(cause.encode()).hexdigest()[:8]}", "MERGE-CARD-FAILED", f"#{pr}", f"the merge card for #{pr} at {head[:7]} did not post: {why}; the next pass tries again")
             return None
-        ts = f"cci #{seq[1]}"
+        ts = f"cci {done.records[0].num}"
         self.book.edit(LANDING, lambda incident: incident.facts.setdefault(MERGE_CARDS, {}).update({waits: {"ts": ts, "question": detail}}))
         return ts
 
@@ -7173,8 +7315,8 @@ class Landing:
                 if self.carry_tap(session, block, pr, tapped, head, why, self.landing_audience([pr], rows, to), label):
                     self.go_carried_tap(pr, head, tapped, rows, to)
                 continue
-            said = [record for record in reviews if record["kind"] == "head" and about_pr(record, self.repo, pr) and names_head(graded_head(record["text"]), head)]
-            adds = [record for record in [*said, *([graded] if graded else [])] if ADDS_BEHAVIOR.search(full_text(record))]
+            said = [record for record in reviews if record["kind"] == "head" and about_pr(record, self.repo, pr) and names_head(head_of(record, self.repo, pr), head)]
+            adds = [record for record in [*said, *([graded] if graded else [])] if ADDS_BEHAVIOR.search(head_says(record, self.repo, pr))]
             standing = self.fidelity(pr, head)
             graded_ok = bool(standing.ok and standing.record)
             keeper = self.keeper(reviews, pr, head, tapped)
@@ -7200,7 +7342,7 @@ class Landing:
                 continue
             if (adds or graded_ok and not says_kept) and not self.book.known(LANDING, key := f"tap-new-row:{block}:{pr}:{tapped}:{head}"):
                 record = adds[-1] if adds else standing.record
-                text = full_text(record)
+                text = head_says(record, self.repo, pr)
                 why = f"says that head adds new behavior: \"{board_rows.sentence_at(text, ADDS_BEHAVIOR.search(text).start()).strip()}\"" if adds else f"grades it ok without saying no new behavior since the tap at {tapped[:10]}"
                 when = board_rows.tapped_at(entry)
                 since = " -> ".join(sha[:10] for sha in heads_since(moves, head, entry["head"]))
@@ -8358,8 +8500,8 @@ class Landing:
         """Post `landed` for a squash the runner made, under its key so a repost returns the stored record; a post that fails runs again on the next pass."""
         text = f"#{pr} {LANDED_BY_SQUASH} as {commit[:10] or 'an unread squash'}: an incident fix, approved and green at {head[:10]}, merged by the landing runner (ef905a6); its release is owed now"
         done = self.runner.cci_post("landed", text, ",".join(dict.fromkeys([self.owner(pr, row) or ROOT, ROOT])), pr, key, pr=pr, record_id=key)
-        if done.code == 0 and (seq := POSTED.match(done.out)):
-            self.book.attempt(LANDING, lambda incident: incident.action(key).response.update({"posted": int(seq[1])}))
+        if done.code == 0 and done.records:
+            self.book.attempt(LANDING, lambda incident: incident.action(key).response.update({"posted": done.records[0].seq}))
 
     def releases(self, rows: dict[str, dict]) -> None:
         """A PR that lands carrying the merge-fast label and a `Release-With:` line sends the release owner and the root one `release` record in the pass that reads the landing, then one `blocker` each `deadlines.release_start_minutes` until a `release` record names the landing or the root replies. Each landing is judged once, by the first pass that reads it, and the landings read persist across restarts: a desk's first pass records every landing it reads as history, so a restart or an upgrade never judges an old landing again."""
@@ -8482,16 +8624,15 @@ class Landing:
         key = f"release:{landed['pr']}:live"
         flags = [arg for component in components for arg in ("--target", component)] + ["--build", build]
         done = self.runner.cci_post("fix-live", f"RELEASED {versions} ({build})", ROOT, landed["pr"], key, pr=landed["pr"], record_id=key, flags=flags)
-        if done.code == 0 and POSTED.match(done.out):
-            self.book.attempt(LANDING, lambda incident: incident.action(action.action_id).verification_receipt.update({"live": int(POSTED.match(done.out)[1])}))
+        if done.code == 0 and done.records:
+            self.book.attempt(LANDING, lambda incident: incident.action(action.action_id).verification_receipt.update({"live": done.records[0].seq}))
 
     def post_release(self, key: str, kind: str, pr: str, text: str) -> int | None:
         """Post one record about a landing's release to the release owner and the root, with `key` as its cci id so a repost returns the stored record, and return its sequence. A record cci refuses, or a post that prints no sequence, is escalated to root once per `key`, and the next pass posts it again."""
         to = f"{self.release_owner},{ROOT}"
         done = self.runner.cci_post(kind, text, to, pr, key, pr=pr, record_id=key)
-        seq = POSTED.match(done.out)
-        if done.code == 0 and seq:
-            return int(seq[1])
+        if done.code == 0 and done.records:
+            return done.records[0].seq
         why = "refused" if done.code else "printed no sequence for"
         self.runner.escalate(key, "RELEASE-FAILED", f"#{pr}", f"cci {why} the {kind} record to {to}: {(done.err or done.out).strip()[:200]}; {text}")
         return None
@@ -8530,7 +8671,7 @@ class Landing:
     def held_lines(self, pr: str) -> set[int]:
         """The sequences of the RELEASE-HELD-AFTER-LANDING lines the runner posted for `pr`."""
         prefix = f"escalation:release-held:{pr}:"
-        return {int(seq[1]) for action in self.book.actions(RUNNER, kind="escalation") if action.action_id.startswith(prefix) and (seq := POSTED.search((action.response or {}).get("posted", "")))}
+        return {seq for action in self.book.actions(RUNNER, kind="escalation") if action.action_id.startswith(prefix) and (seq := cci.receipt_seq((action.response or {}).get("posted", ""))) is not None}
 
     def believed_queued(self, rows: dict[str, dict]) -> dict[str, list[str]]:
         return {
@@ -8743,6 +8884,28 @@ class Landing:
             text = f"#{landed_pr} landed as {landed.get('landed_sha', '')[:10]}; #{pr} at {row.get('head', '')[:10]} sits on its deleted branch. Restack now: `ccx vcs stack submit` from your worktree."
             self.route(f"restack:{pr}:{landed_pr}", self.owner(pr, row), text, pr)
 
+    def trunk_queue(self, rows: dict[str, dict]) -> None:
+        """Fold the `queue` records the Trunk webhook writes on the `trunk` drive, one per merge-queue state change, into each open row's Trunk state, reading only the records after the newest one folded, and post one blocker per `failed` or `canceled` record to its PR's lane and the root in the pass it arrives (owner pick e2c0820)."""
+        if self.adapter.kind != merge_queue.TrunkStackEnqueue.kind:
+            return
+        folded = self.book.fact(LANDING, TRUNK_QUEUE_FACT, {"seq": 0, "prs": {}})
+        states = {pr: state for pr, state in folded["prs"].items() if pr in rows}
+        seq = folded["seq"]
+        for record in cci.records(self.cci_tail, TRUNK_QUEUE_DRIVE, since=seq):
+            seq = max(seq, record["seq"])
+            if record["kind"] != "queue":
+                continue
+            outcome = record.get("fields", {}).get("outcome", "")
+            for pr in [pr for pr, explicit in repo_prs(record, self.repo) if explicit and pr in rows]:
+                states[pr] = {"outcome": outcome, "text": record["text"], "at": record["at"]}
+                key = f"trunk-queue:{record.get('id') or record['seq']}"
+                owner = self.owner(pr, rows[pr])
+                if outcome in TRUNK_FELL and not self.routed(key, owner):
+                    url = record.get("refs", {}).get("url", "")
+                    self.post_blocker(key, ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])), f"#{pr} {rows[pr].get('head', '')[:10]}: {record['text']}" + (f"; {url}" if url else ""), pr)
+        self.book.edit(LANDING, lambda incident: incident.facts.update({TRUNK_QUEUE_FACT: {"seq": seq, "prs": states}}))
+        self.trunk_states = states
+
     def route_blocker(self, pr: str, sha: str, blocker: merge_queue.Blocker, row: dict, tips: list[str], stack: set[str], gated_red: bool, failing: bool) -> None:
         """Tell the lane once per head, re-reading the gate just before the send so an approval or fix that already arrived is never asked for. A failing required check posts one blocker per PR, refusal, red job and cause: a later head failing the same way adds one line under that blocker, and a changed cause or a new red job opens a new one. A conflict whose lane has no live dispatch and no live cci session routes nothing: the root gets one `PARKED` line per PR, and the head routes once the lane is back."""
         key = blocker_key(pr, sha)
@@ -8763,9 +8926,9 @@ class Landing:
             self.post_blocker(key, ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])), f"#{pr} {sha}: {blocker.text}; the queue dropped it at {status.get('evicted_at') or 'an unstamped time'}: {status.get('evicted') or 'no reason given'}", pr)
         elif parked:
             self.runner.escalate(f"{PARKED}:{pr}", "PARKED", f"#{pr}", f"{sha}: {owner} has no live dispatch or cci session, so its conflict routes to no one until the lane is back: {blocker.text}")
-        elif earlier and (seq := POSTED_SEQ.match(earlier.response["posted"])):
+        elif earlier and (seq := cci.receipt_seq(earlier.response["posted"])) is not None:
             to = ",".join(self.reach(owner)) if owner else json.loads(earlier.target)["lane"]
-            self.post_record("note", key, to, f"{self.dead_note(owner)}#{pr} {sha}: the same failure again: {red}", pr, re_seq=seq[1])
+            self.post_record("note", key, to, f"{self.dead_note(owner)}#{pr} {sha}: the same failure again: {red}", pr, re_seq=str(seq))
         else:
             self.route(key, owner, f"#{pr} {sha}: {blocker.text}", pr, cause)
 
@@ -8868,7 +9031,7 @@ class Landing:
             with ThreadPoolExecutor(max(1, len(pages))) as pool:
                 reads = list(pool.map(lambda page: self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", "--max-age", f"{int(STATUS_MAX_AGE.total_seconds())}s", *page]), pages))
             done = next((read for read in reads if read.code != 0), Done(0, "", ""))
-            statuses = self.statuses = None if done.code else {str(entry["number"]): trunk_labelled(entry, self.ledger_rows.get(str(entry["number"]), {})) if self.adapter.kind == merge_queue.TrunkStackEnqueue.kind else entry for read in reads for entry in json.loads(read.out)}
+            statuses = self.statuses = None if done.code else {str(entry["number"]): trunk_labelled(trunk_recorded(entry, self.trunk_states.get(str(entry["number"]))), self.ledger_rows.get(str(entry["number"]), {})) if self.adapter.kind == merge_queue.TrunkStackEnqueue.kind else entry for read in reads for entry in json.loads(read.out)}
             self.queues_read = True
             if statuses is None:
                 last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
@@ -8956,7 +9119,7 @@ class Landing:
         self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
         done = self.runner.cci_post(kind, text, to, pr, key, pr=pr, flags=["--re-seq", re_seq] if re_seq else None)
         if done.code == 0:
-            self.book.attempt(LANDING, lambda incident: incident.complete(key, {"posted": done.out.strip()[:200], "at": self.book.stamp()}))
+            self.book.attempt(LANDING, lambda incident: incident.complete(key, {"posted": cci.receipt(done.records[0].seq), "at": self.book.stamp()}))
         else:
             self.book.attempt(LANDING, lambda incident: incident.fail(key, (done.err or done.out).strip()[:300]))
         return done.code == 0
@@ -9099,6 +9262,7 @@ class Landing:
         if not rows:
             return
         self.row_records(rows)
+        self.trunk_queue(rows)
         self.carry_taps(rows)
         holds = self.held(rows)
         held = holds if advanced and read else None
@@ -9366,6 +9530,9 @@ def build_parser() -> argparse.ArgumentParser:
     rebind = verbs.add_parser("rebind")
     handoff = verbs.add_parser("handoff")
     handoff.add_argument("--desk", choices=DESKS, required=True)
+    supervise = verbs.add_parser("supervise", help="install, uninstall, or report the launchd user agent com.long-running.<drive>.<desk> that keeps the desk's runner alive; status exits 0 while launchd has it loaded")
+    supervise.add_argument("action", choices=("install", "uninstall", "status"))
+    supervise.add_argument("--desk", choices=DESKS, required=True)
     preflight = verbs.add_parser("preflight", help="check the landing desk's config and machine without starting it; exit 0 when it would start, 3 when it would refuse")
     preflight.add_argument("--json", action="store_true")
     quiesce = verbs.add_parser("quiesce")
@@ -9375,7 +9542,7 @@ def build_parser() -> argparse.ArgumentParser:
     gc.add_argument("--dry-run", action="store_true")
     go = verbs.add_parser("go", help="each PR's ledger head and the newest go naming it, else the newest go at an older head, read as the landing runner reads them")
     go.add_argument("prs", nargs="+")
-    for sub in (relay, launch, policy, loop, rebind, handoff, preflight, quiesce, show, gc, go):
+    for sub in (relay, launch, policy, loop, rebind, handoff, supervise, preflight, quiesce, show, gc, go):
         sub.add_argument("--config", type=Path, required=True)
     return parser
 
@@ -9422,6 +9589,8 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
         return runner.rebind()
     if args.verb == "handoff":
         return runner.handoff(args.desk)
+    if args.verb == "supervise":
+        return runner.supervise(args.action, args.desk)
     if args.verb == "preflight":
         fault = startup_fault(runner)
         print(json.dumps({"ok": fault is None, "label": fault and fault[0], "why": fault and fault[2]}) if args.json else fault[2] if fault else f"desk-runner preflight: the landing desk on {config.source} would start")

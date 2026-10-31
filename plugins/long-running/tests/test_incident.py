@@ -605,7 +605,7 @@ def test_activation_refuses_an_unreadable_dry_run():
 
 def test_comms_posts_to_the_lane_and_reads_its_posted_ts():
     answers = [{"seq": 9, "re": 7, "from": "incident-comms", "text": "posted ts=1790877617.443359"}]
-    shell = Shell({("post",): "#7 ask incident:x incident-x -> incident-comms\n", ("read",): json.dumps(answers)})
+    shell = Shell({("post",): json.dumps({"seq": 7, "num": "#100@remote"}), ("read",): json.dumps(answers)})
     comms = incident.Comms(shell, "bus1", Path("/m"), "incident-x", "incident-comms", "release-v3", "incident:x")
 
     assert comms.event("ack", {"reaction": "eyes"}, "g-thread") == 7

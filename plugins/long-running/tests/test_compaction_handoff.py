@@ -1098,6 +1098,17 @@ def test_a_subagent_compaction_generates_nothing(tmp_path: Path) -> None:
     assert not matches_conditions(entry.spec, precompact(tmp_path, agent_id="a1b2c3"))
 
 
+def test_a_hook_runs_the_newest_whole_orphaned_release_while_the_new_install_is_half_written(tmp_path: Path) -> None:
+    """Root #234076: 0.7.701 was written without its scripts while every older copy was marked orphaned, newest() found no live copy, and every pack hook was unloadable for ten minutes."""
+    cache = tmp_path / "long-running"
+    for version in ("0.7.699", "0.7.700"):
+        (cache / version / handoff.SCRIPTS).mkdir(parents=True)
+        (cache / version / handoff.ORPHANED).touch()
+    (cache / "0.7.701" / "bin").mkdir(parents=True)
+
+    assert handoff.newest(cache / "0.7.699") == cache / "0.7.700"
+
+
 def test_an_installed_hook_runs_the_newest_live_release_of_its_scripts(tmp_path: Path) -> None:
     cache = tmp_path / "long-running"
     for version in ("0.7.9", "0.7.46", "0.7.48", "0.7.50"):

@@ -24,6 +24,10 @@ on:
       - "plugins/repo-bootstrap/tests/test_plugin_autobump.py"
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

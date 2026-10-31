@@ -27,7 +27,7 @@ from test_rulings import REPO, RegisterShell, home, registered, state
 HOOKS = Path(handoff.__file__).parent
 CALLERS = (
     "board_text_gate", "narrowed_contracts", "owner_facing", "register_capture",
-    "register_gates", "register_injection", "ruling_judge", "settled_questions",
+    "register_gates", "register_injection", "ruling_judge", "settled_questions", "ruling_misread",
 )
 
 
@@ -38,12 +38,12 @@ def caller_expressions():
         for node in ast.walk(ast.parse(path.read_text())):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in {"rulings", "register_of"}:
                 result.append(pytest.param(module, node, id=f"{module}:{node.lineno}"))
-    assert len(result) == 12
+    assert len(result) == 14
     return result
 
 
 @pytest.mark.parametrize("module,node", caller_expressions())
-def test_all_twelve_call_expressions_reach_real_dispatch_without_a_python_intermediary(module, node, home: Path, registered: Path, state: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]):
+def test_all_current_hook_call_expressions_reach_real_dispatch_without_a_python_intermediary(module, node, home: Path, registered: Path, state: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]):
     traces = []
     backend = RegisterShell({}, records=[{"seq": 8, "kind": "state", "text": "not a contract"}])
 
@@ -65,11 +65,12 @@ def test_all_twelve_call_expressions_reach_real_dispatch_without_a_python_interm
         "register_of": lambda cwd, *args, **kwargs: (cwd, ("register", *args), kwargs),
         "evt": evt, "reads": reads, "self": reads, "which": which,
         "flags": [] if module == "board_text_gate" else which,
-        "drive": which if module == "narrowed_contracts" else "brook-drive",
+        "drive": which if module in {"narrowed_contracts", "ruling_misread"} else "brook-drive",
         "seq": "8", "text": "owner words", "key": "owner words",
         "lane": "lane-a", "copy": brief, "worker": "brook-drive",
         "CANDIDATES": 3, "CANDIDATE_BYTES": 1024, "excluded": [],
         "MOMENT_CHARS": 1024, "MATCH_TIMEOUT_SECONDS": 2, "reqenv": reqenv,
+        "ROWS_PER_ARTIFACT": 2, "MATCH_BYTES": 6000, "MATCH_CHARS": 2000,
     }
     expression = compile(ast.Expression(copy.deepcopy(node)), str(HOOKS / f"{module}.py"), "eval")
     cwd, args, kwargs = eval(expression, scope)

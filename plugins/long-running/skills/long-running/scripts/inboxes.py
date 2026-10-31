@@ -335,12 +335,14 @@ def tail_cci(drive: str, lane: str) -> str | None:
 
 
 def seen_count(cursor: Path) -> int:
-    text = cursor.read_text().strip() if cursor.is_file() else ""
-    return int(text) if text else 0
+    """The line count a file cursor holds on its first line; the mailbox keys an older desk-wait.sh wrote under it are not counts (cci #233982)."""
+    tokens = cursor.read_text().split() if cursor.is_file() else []
+    return int(tokens[0]) if tokens and tokens[0].isdigit() else 0
 
 
 def seen_keys(cursor: Path) -> list[str]:
-    return cursor.read_text().split() if cursor.is_file() else []
+    """The mailbox keys a cursor lists, without the line count an older desk-wait.sh wrote first."""
+    return [token for token in cursor.read_text().split() if not token.isdigit()] if cursor.is_file() else []
 
 
 def wait(argv: list[str]) -> int:

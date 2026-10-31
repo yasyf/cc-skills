@@ -13,7 +13,7 @@ from hooks.tests.rulings_consumers import MIGRATED
 
 MODULES = tuple(importlib.import_module(f"hooks.{name}") for name in (
     "board_text_gate", "narrowed_contracts", "owner_facing", "register_capture",
-    "register_gates", "register_injection", "ruling_judge", "settled_questions",
+    "register_gates", "register_injection", "ruling_judge", "settled_questions", "ruling_misread",
 ))
 
 

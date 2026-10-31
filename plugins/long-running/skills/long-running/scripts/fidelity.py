@@ -24,7 +24,8 @@ earlier head every lane stands ok at, only what `git range-diff` shows changed s
 (`rulings.py slice --required`), the plan, the lane's newest contract and the PR body, and runs
 `codex-ask -m <model> --schema fidelity.schema.json`, with `--incident` when the job is `fast`, in the drive's checkout. A reply that leaves
 a row ungraded, keys a `missing` line on anything but a plan line or an owner row, or gives no
-reasoning in `swept` is asked once more; a second such reply fails the job. A head that moved while
+reasoning in `swept` is asked once more; a second such reply fails the job. A reply with any `missing` entry grades
+`missing` whatever verdict it names, and posts its `reader` reason to the human fidelity desks as well. A head that moved while
 codex read it posts nothing. The question lists every point of a `missing` grade root settled, and a
 reply's `missing` entry that repeats one word for word is dropped; a reply left with none posts ok citing
 the settling decide. Each line is posted under lane `fidelity-pipeline`, kind `review`, to the
@@ -187,8 +188,8 @@ def shortfalls(keys: list[str], reply: dict) -> list[str]:
         short.append(f"no grade for {', '.join(unchecked)}")
     if ungrounded := [entry["key"] for entry in reply["missing"] if not grounded(keys, entry["key"])]:
         short.append(f"`missing` keys that are neither a plan line `plan:<n>`, a package doc line `plan:<path>:<n>`, nor a non-design row of the rows file: {', '.join(ungrounded)}")
-    if (reply["verdict"] == "missing") != bool(reply["missing"]):
-        short.append(f"verdict {reply['verdict']} with {len(reply['missing'])} `missing` entries")
+    if reply["verdict"] == "missing" and not reply["missing"]:
+        short.append("verdict missing with no `missing` entries")
     if reply["verdict"] == "reader" and not reply["reader"].strip():
         short.append("verdict reader with no reason in `reader`")
     if len(reply["swept"].split()) < finder.REASON_WORDS:
@@ -205,6 +206,7 @@ def graded_lines(job: dict, reply: dict) -> list[tuple[str, list[str]]]:
     elif reply["verdict"] == "missing":
         keys = ",".join(dict.fromkeys(entry["key"] for entry in reply["missing"]))
         lines = [(f"{FIDELITY_MISSING} {head} {keys} {'; '.join(' '.join(entry['line'].split()) for entry in reply['missing'])}", [])]
+        lines += [(f"{READER} {head} {' '.join(reply['reader'].split())}", job["readers"])] if reply["reader"].strip() else []
     else:
         lines = [(f"{READER} {head} {' '.join(reply['reader'].split())}", job["readers"])]
     lines += [(f"touches {key}", []) for key in reply["touches"]]
@@ -221,17 +223,18 @@ def open_findings(job: dict) -> list[dict[str, str]]:
 
 def ask(shell: finder.Shell, job: dict, directory: Path, question: Path, attempt: int) -> dict:
     out = shell.run(["codex-ask", "-m", job["model"], *(["--incident"] if job["fast"] else []), "--schema", str(SCHEMA), "-s", str(directory / f"codex-{attempt}"), str(question)], cwd=Path(job["checkout"]), timeout=CODEX_SECONDS)
-    return json.loads(Path(finder.REPLY_FILE.search(out)[1]).read_text())
+    reply = json.loads(Path(finder.REPLY_FILE.search(out)[1]).read_text())
+    return reply | {"verdict": "missing"} if reply["missing"] else reply
 
 
-def post(shell: finder.Shell, job: dict, lines: list[tuple[str, list[str]]], body: Path) -> list[str]:
+def post(shell: finder.Shell, job: dict, lines: list[tuple[str, list[str]]], body: Path) -> list[cci.Posted]:
     pr = f"{job['repo']}#{job['pr']}"
     posted = []
     for index, (text, also) in enumerate(lines):
         to = ",".join(dict.fromkeys(filter(None, [job["lane"], *job["to"], *also])))
         clipped = text if len(text) <= finder.CCI_TEXT else text[: finder.CCI_TEXT - 1] + "…"
         argv = ["cci", "post", "--drive", job["drive"], "--lane", LANE, "--kind", "review", "--pr", pr, "--id", f"fidelity:{pr}:{job['head']}:{index}", "--path", str(body)]
-        posted.append(cci.posted(shell.run(finder.logged(body.parent, [*argv, *(["--to", to, "--force"] if to else []), "--text", clipped, "--json"]))).strip())
+        posted.append(cci.posted(shell.run(finder.logged(body.parent, [*argv, *(["--to", to, "--force"] if to else []), "--text", clipped, "--json"])))[0])
     return posted
 
 

@@ -45,7 +45,8 @@ def test_relocated_paths_still_name_the_original_plugin_and_entrypoints():
 
 def test_actual_hook_registration_resolves_relocated_script_dependencies(tmp_path):
     hooks = SCRIPTS.parents[2] / "capt-hook" / "hooks"
-    code = """
+    code = r"""
+import ast
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -57,12 +58,22 @@ root = Path(sys.argv[1]).resolve()
 discover_pack("long-running-packaging", root)
 assert not _state.load_errors, _state.load_errors
 registered = {Path(str(hook.source_file)).name for hook in _state.hooks}
-assert {"lane_landing.py", "owner_facing.py", "refusal_kinds_need_owner_answer.py"} <= registered
+assert {"lane_landing.py", "owner_facing.py", "refusal_kinds_need_owner_answer.py", "ruling_misread.py"} <= registered
 modules = {Path(module.__file__).stem: module for module in list(sys.modules.values()) if getattr(module, "__file__", None) and Path(module.__file__).resolve().parent == root}
 assert modules["owner_facing"].PLAIN_FOR
 assert modules["refusal_kinds_need_owner_answer"].EXEMPT.search("notes.md")
 with patch.object(modules["lane_landing"].subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="")):
     assert modules["lane_landing"].trunk_clause({"cci_drive": "packaging-test"}) == ""
+replies = [SimpleNamespace(stdout="abc123\n"), SimpleNamespace(stdout="tests/test_refusal.py\n"), SimpleNamespace(stdout="+ assert refusal\n")]
+call = SimpleNamespace(name="ccx", args=["vcs", "ship"])
+evt = SimpleNamespace(cwd=root, command=SimpleNamespace(calls=lambda: [call]))
+with patch.object(modules["ruling_misread"].subprocess, "run", side_effect=replies):
+    assert modules["ruling_misread"].shipped_tests(evt) == [("test", "+ assert refusal\n")]
+scripts = root.parents[1] / "skills" / "long-running" / "scripts"
+for path in root.glob("*.py"):
+    for node in ast.walk(ast.parse(path.read_text())):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "script_module" and node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+            assert (scripts / (node.args[0].value.replace(".", "/") + ".py")).is_file(), (path, node.lineno, node.args[0].value)
 """
     result = subprocess.run(
         [sys.executable, "-c", code, str(hooks)],

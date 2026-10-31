@@ -443,7 +443,7 @@ def uncited_inbox_rules(handoff: Handoff, live: set[str]) -> list[str]:
     return [
         f"{handoff.sources[rid]}: standing rule {rid} requires owner approval but cites no live answer id: "
         f"{clip(text, RULING_CHARS)}; post a replacement rule with `cci post --drive {handoff.program} --lane root --kind correction "
-        f"--re {rid.lstrip('#')} --topic standing --ccn <answer id> --text \"<rule>\"`"
+        f"--re-seq {rid.lstrip('#')} --topic standing --ccn <answer id> --text \"<rule>\"`"
         for rid, text in handoff.standing.items()
         if standing.gated(text, live)
     ]
