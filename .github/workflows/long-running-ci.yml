@@ -115,7 +115,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: yasyf/cc-inbox
-          ref: 77b840f36e0092818024aa4c9167dc73c0068704
+          ref: 2343fc6a5f208ba975fbaf2f960253b8d9352000
           path: .ci-native-cci
           persist-credentials: false
       - uses: actions/checkout@v7
