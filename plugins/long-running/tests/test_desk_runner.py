@@ -4905,6 +4905,22 @@ def test_a_head_whose_own_build_failed_is_unproven_whatever_build_covers_it(shel
     assert any("#29020 cccc333333: unproven: its own build https://buildkite.com/forge/test/builds/78299 failed at cccc333333" in body for body in bodies)
 
 
+def test_a_head_is_proven_at_the_head_its_check_read_from_github_never_at_a_ledger_head_it_superseded(shell, config, tmp_path):
+    """Root #230508: #45756's check read ddb2d0a from GitHub while the ledger row still held 0c806e9, and the runner refused it on 0c806e9's failed build."""
+    with_ci_build(config)
+    shell.launch(LANE, "ctx_a")
+    lone_green_pr(shell)
+    shell.rows[0] |= {"head": "bbbb222222", "reported_head": "bbbb222222"}
+    grade_gated_heads_ok(shell)
+    shell.commit_statuses["bbbb222222"] = [status("test", "78299", "failure")]
+    shell.builds["78299"] = finished(FULL_BUILD, "bbbb222222", "failed")
+    shell.commit_statuses["cccc333333"] = [status("test", "78301")]
+    shell.builds["78301"] = finished(FULL_BUILD, "cccc333333")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    assert not [call for call in shell.calls if "repos/Forge-AI/monorepo/commits/bbbb222222/status" in call]
+
+
 def test_only_a_full_build_of_the_skipped_pipeline_on_the_stacks_tip_covers_the_heads_below_it(shell, config, tmp_path):
     with_ci_build(config)
     shell.launch(LANE, "ctx_a")
