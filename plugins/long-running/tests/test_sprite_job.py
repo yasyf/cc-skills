@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -94,3 +95,31 @@ def test_the_sprite_reads_the_register_from_the_jobs_checkout_never_the_launchin
 
     assert json.loads(Path(f"{sprite}{registry}").read_text()) == {"checkout": str(checkout), "state_dir": str(mac / "state")}
     assert json.loads(registry.read_text())["checkout"] == str(mac / "workspaces" / "root-checkout")
+
+
+@pytest.mark.parametrize("served", [False, True], ids=["fetches-and-repacks", "a-newer-fetch-served-it"])
+def test_a_job_fetches_only_when_no_fetch_began_after_it_asked_and_repacks_what_on_demand_fetches_left(tmp_path: Path, served: bool) -> None:
+    """remote-desks-4, 6:20 PM Oct 30: 14 jobs on vet4 waited in line to fetch every remote one after another, and on-demand blob fetches had left 1,186 packs on vet4 and 2,538 on dar-fleet-3, so a git diff timed out at 600 s."""
+    mac, sprite = tmp_path / "mac", tmp_path / "sprite"
+    checkout, directory, config = mac / "checkout", mac / "finder-desk" / "46095-c2cf0bfb3661", mac / "config"
+    script = mac / "plugin" / "skills" / "long-running" / "scripts" / "finder.py"
+    executable(script, RESTARTED_JOB)
+    executable(script.parent / "rulings.py", "")
+    executable(mac / "bin" / "sprite", SPRITE)
+    executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    log = tmp_path / "git.log"
+    executable(mac / "bin" / "git", f"#!/bin/sh\necho \"$*\" >> {log}\nexec {shutil.which('git')} \"$@\"\n")
+    directory.mkdir(parents=True)
+    (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
+    (config / "long-running" / "drives").mkdir(parents=True)
+    (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
+    subprocess.run([shutil.which("git"), "init", "-q", f"{sprite}{checkout}"], check=True)
+    if served:
+        Path(f"{sprite}{checkout}.fetched").write_text("99999999999999999999")
+
+    env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config)}
+    subprocess.run(["sh", str(SCRIPT), "vet4", str(script), str(directory)], env=env, check=True, capture_output=True, timeout=60)
+
+    ran = ["fetch" if " fetch " in line else "repack" for line in log.read_text().splitlines() if " fetch " in line or " repack " in line]
+    assert ran == ([] if served else ["fetch", "repack"])
+    assert json.loads((directory / "result.json").read_text()) == {"verdict": "ok"}
