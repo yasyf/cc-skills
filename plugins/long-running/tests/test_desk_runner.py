@@ -13296,6 +13296,63 @@ def test_a_pr_query_reads_only_the_records_after_the_newest_it_kept_and_drops_on
     assert [(argv[argv.index("--since") + 1], "--pr" in argv) for argv in calls] == [("0", False), ("0", True), ("8", False), ("12", False)]
 
 
+@pytest.mark.parametrize("history_first", [False, True])
+def test_current_annotations_do_not_reuse_an_immutable_history_projection(history_first):
+    posted = [{"seq": 4, "kind": "hold", "drive": "d1", "text": "hold #29020", "refs": {}, "status": "open"}]
+    calls = []
+    tail = runner_module.cci.Tail(fake_cci(posted, calls))
+    tail.remember()
+    assert runner_module.cci.records(tail, "d1", "--kind=hold")[0]["seq"] == 4
+    posted[0]["status"] = "closed"
+    tail.forget()
+    before = len(calls)
+    if history_first:
+        assert runner_module.cci.records(tail, "d1", "--kind=hold")[0]["seq"] == 4
+    assert runner_module.cci.current_records(tail, "d1", "--kind=hold")[0]["status"] == "closed"
+    if not history_first:
+        assert runner_module.cci.records(tail, "d1", "--kind=hold")[0]["seq"] == 4
+    assert runner_module.cci.current_records(tail, "d1", "--kind=hold")[0]["status"] == "closed"
+    assert len(calls) - before == 2
+
+
+def test_open_holds_refreshes_annotations_once_per_barrier_without_a_new_matching_seq():
+    posted = [{"seq": 4, "kind": "hold", "drive": "d1", "text": "hold #29020", "refs": {}, "status": "open"}]
+    calls = []
+    tail = runner_module.cci.Tail(fake_cci(posted, calls))
+    tail.remember()
+    assert runner_module.cci.held_prs(tail, "d1") == {"29020": 4}
+    posted[0]["status"] = "closed"
+    assert runner_module.cci.held_prs(tail, "d1") == {"29020": 4}
+    assert len(calls) == 1
+    tail.forget()
+    assert runner_module.cci.held_prs(tail, "d1") == {}
+    assert runner_module.cci.held_prs(tail, "d1") == {}
+    assert len(calls) == 2
+    tail.stop()
+    posted[0]["status"] = "open"
+    assert runner_module.cci.held_prs(tail, "d1") == {"29020": 4}
+    assert len(calls) == 3
+
+
+def test_release_hold_checks_do_not_reuse_closed_annotations(shell, config, tmp_path, monkeypatch):
+    landing = landing_of(shell, config, tmp_path)
+    hold = {"seq": 4, "kind": "hold", "drive": "d1", "lane": "root", "text": "hold #29020", "to": ["root"], "refs": {}, "status": "open", "at": actions.stamp(shell.now())}
+    shell.records.append(hold)
+    posted = []
+    monkeypatch.setattr(landing.runner, "record", lambda *args: posted.append(args))
+    landed = {"pr": "29020", "sha": "a" * 40, "landed_at": actions.stamp(shell.now() - timedelta(hours=1))}
+    try:
+        landing.cci_tail.remember()
+        landing.held_after_landing(landed)
+        assert len(posted) == 1
+        hold["status"] = "closed"
+        landing.cci_tail.forget()
+        landing.held_after_landing(landed)
+        assert len(posted) == 1
+    finally:
+        landing.close()
+
+
 def test_pr_queries_share_one_cci_read_a_pass_so_calls_stay_flat_from_10_to_1000_prs():
     """Root #234903: a landing pass ran about 1,562 cci tail calls in 439 s, one paged read per PR and filter shape, each from the start of the drive."""
 

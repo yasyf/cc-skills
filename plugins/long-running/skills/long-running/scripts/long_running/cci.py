@@ -60,7 +60,7 @@ class Tail:
 
     def __init__(self, run: Callable[[list[str]], str]):
         self.run = run
-        self.read: dict[tuple[str, tuple[str, ...], str], list[dict]] | None = None
+        self.read: dict[tuple[str, tuple[str, ...], str, bool], list[dict]] | None = None
         self.kept: dict[tuple[str, tuple[str, ...], str], Kept] = {}
         self.marks: dict[tuple[str, tuple[str, ...]], int] = {}
         self.topped: set[tuple[str, tuple[str, ...]]] = set()
@@ -159,12 +159,21 @@ def receipt_seq(value: str) -> int | None:
 
 
 def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: int | str = 0) -> list[dict]:
-    """Every record on `drive` after `since`, a sequence or any `cci tail --since` time, that matches the `cci tail` filters; touches no cursor. A `Tail` answers a query it read since its last `forget` without running cci, and follows a query from a sequence as `Tail.follow` says."""
-    key = (drive, filters, str(since))
+    """Record history on `drive` after `since`, matching the CLI filters without touching a cursor. A `Tail` follows sequence queries as `Tail.follow` says; use `current_records` for current native annotations."""
+    return _read_records(run, drive, filters, since, history=True)
+
+
+def current_records(run: Callable[[list[str]], str], drive: str, *filters: str, since: int | str = 0) -> list[dict]:
+    """Records with current native annotations, read once between a `Tail`'s freshness barriers."""
+    return _read_records(run, drive, filters, since, history=False)
+
+
+def _read_records(run: Callable[[list[str]], str], drive: str, filters: tuple[str, ...], since: int | str, *, history: bool) -> list[dict]:
+    key = (drive, filters, str(since), history)
     read = run.read if isinstance(run, Tail) else None
     if read is not None and (kept := read.get(key)) is not None:
         return list(kept)
-    found = run.follow(drive, filters, int(since)) if isinstance(run, Tail) and str(since).isdigit() and "--limit" not in filters else paged(run, drive, filters, since)
+    found = run.follow(drive, filters, int(since)) if history and isinstance(run, Tail) and str(since).isdigit() and "--limit" not in filters else paged(run, drive, filters, since)
     if read is not None:
         read[key] = found
     return list(found)
@@ -196,7 +205,7 @@ def open_holds(run: Callable[[list[str]], str], drive: str) -> list[dict]:
     """Every open `hold` record on `drive`, the only place a hold lives; a record that resolves one closes it.
 
     `cci tail --kind=hold` also returns the caller's peer mail of any kind and drive, which carries no status, so only the drive's hold records count."""
-    return [record for record in records(run, drive, "--kind=hold") if (record["kind"], record["drive"], record.get("status")) == ("hold", drive, "open")]
+    return [record for record in current_records(run, drive, "--kind=hold") if (record["kind"], record["drive"], record.get("status")) == ("hold", drive, "open")]
 
 
 def held_prs(run: Callable[[list[str]], str], drive: str) -> dict[str, int]:

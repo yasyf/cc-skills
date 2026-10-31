@@ -8723,7 +8723,7 @@ class Landing:
         """Answer each open root `hold` posted after an incident fix landed that names its PR or is addressed to the release owner with one RELEASE-HELD-AFTER-LANDING line: its cut is owed now. Only a `hold` record is a hold, and the root's `--resolves` on it ends it."""
         drive, pr, since = self.runner.config.drive, landed["pr"], actions.parse_stamp(landed["landed_at"])
         owner = self.release_owner.removeprefix("peer:")
-        for record in cci.records(self.cci_tail, drive, "--lane", ROOT, "--kind=hold"):
+        for record in cci.current_records(self.cci_tail, drive, "--lane", ROOT, "--kind=hold"):
             if (record["lane"], record["drive"], record["kind"]) != (ROOT, drive, "hold") or record["status"] != "open" or actions.parse_stamp(record["at"]) < since:
                 continue
             if names_pr(record, pr) or any(owner in lane for lane in record.get("to") or []):
