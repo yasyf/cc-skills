@@ -4,6 +4,7 @@ import fcntl
 import json
 import os
 import subprocess
+import time
 
 import ledger
 import pytest
@@ -26,6 +27,34 @@ def test_a_command_past_the_timeout_is_killed(monkeypatch):
 
     with pytest.raises(subprocess.TimeoutExpired):
         ledger.Shell.once(["sleep", "5"], None)
+
+
+def test_a_timed_out_command_takes_its_whole_process_group_down(tmp_path, monkeypatch):
+    monkeypatch.setattr(ledger, "COMMAND_TIMEOUT_SECONDS", 0.5)
+    pidfile = tmp_path / "grandchild"
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        ledger.Shell.once(["sh", "-c", f"sleep 30 & echo $! > {pidfile}; wait"], None)
+
+    grandchild = int(pidfile.read_text())
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            os.kill(grandchild, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.05)
+    pytest.fail(f"grandchild {grandchild} outlived its timed-out parent")
+
+
+def test_a_command_dies_before_the_callers_deadline(monkeypatch):
+    monkeypatch.setenv(ledger.DEADLINE_ENV, str(time.time() + ledger.DEADLINE_MARGIN_SECONDS + 0.5))
+    started = time.monotonic()
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        ledger.Shell.once(["sleep", "30"], None)
+
+    assert time.monotonic() - started < ledger.DEADLINE_MARGIN_SECONDS
 
 
 def test_a_timed_out_command_fails_the_verb_and_names_the_command(capsys):

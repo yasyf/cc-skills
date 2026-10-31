@@ -72,6 +72,7 @@ HEADROOM_TOKENS = 50_000
 TURN_WINDOW = 256
 ORCA_UNSET = "The handoff is recorded, but the hook cannot type `/compact` here. Run `/compact` now."
 CCN_TIMEOUT_SECONDS = 20
+DEADLINE_ENV = "LONG_RUNNING_DEADLINE"
 COMPACT_RETRY_SECONDS = 33 * 60
 RESTORE_BUDGET = 2000
 SHORT = 7
@@ -318,9 +319,13 @@ def register_context(evt: BaseHookEvent, register: dict) -> HookResult:
     return evt.context(*register_parts(register))
 
 
+def deadline_env(timeout: float) -> dict[str, str]:
+    return {**reqenv.env_map(), DEADLINE_ENV: str(time.time() + timeout)}
+
+
 def rulings(cwd: str, *args: str, stdin: str = "", timeout: int = CCN_TIMEOUT_SECONDS) -> str:
     argv = [sys.executable, str(script("rulings.py")), *args, "--repo", cwd]
-    return subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=timeout, check=True, cwd=cwd, env=dict(reqenv.env_map())).stdout
+    return subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=timeout, check=True, cwd=cwd, env=deadline_env(timeout)).stdout
 
 
 def register_of(cwd: str, *which: str) -> dict | None:
