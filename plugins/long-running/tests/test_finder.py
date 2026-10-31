@@ -22,6 +22,7 @@ STALE_BASE = "c3a3afc0307096aabf6d24513b2436d1bb23bbe8"
 OWN = "e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4"
 OLD_OWN = "f0e1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d"
 NEWER = "5be7c0de5be7c0de5be7c0de5be7c0de5be7c0de"
+OWN_PATHS = ("signal/stream.go", "signal/stream_test.go")
 TRUNK = "9d1e2f3a4b5c6d7e8f9011a2b3c4d5e6f7a8b9c0"
 LANDED_ON_TRUNK = "4d2ea9dfbad0c1e2f3a4b5c6d7e8f9011a2b3c4d"
 PARENT_TIP = "3c5e7a9b1d2f4a6c8e0b1d3f5a7c9e1b2d4f6a8c"
@@ -120,6 +121,8 @@ class Fake:
             if any(sha in self.gone for sha in argv):
                 raise subprocess.CalledProcessError(128, argv, stderr="fatal: remote error: upload-pack: not our ref")
             return ""
+        if argv[:5] == ["log", "--no-merges", "--no-renames", "--format=", "--name-only"]:
+            return "".join(f"{path}\n\n" for path in OWN_PATHS) if self.own.get(tuple(argv[5].split(".."))) else ""
         if argv[0] == "log":
             assert argv[1:4] == ["--format=%s", "-n", str(finder.BASE_SUBJECTS)]
             return "".join(f"{subject}\n" for subject in self.subjects)
@@ -143,7 +146,7 @@ class Fake:
             assert argv[2:] == [HEAD, f"^{self.trunk}"]
             return "".join(f"{sha}\n" for sha in self.history)
         if argv[0] == "rev-list":
-            return "".join(f"{sha}\n" for sha in self.own.get(tuple(argv[-1].split("...")), []))
+            return "".join(f"{sha}\n" for sha in self.own.get(tuple(argv[argv.index("--") - 1].split("...")), []))
         raise AssertionError(f"unexpected git {argv}")
 
     def asks(self) -> list[tuple[list[str], Path | None]]:
@@ -216,9 +219,18 @@ def test_a_head_whose_parent_was_restacked_reads_only_its_own_commits_against_th
     shell = Fake(tmp_path, [reply()], own={(BASE, HEAD): [OWN, NEWER]})
     finder.main([str(directory)], shell)
     [rev_list] = [argv for argv, _ in shell.calls if argv[:2] == ["git", "rev-list"]]
-    assert rev_list == ["git", "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{BASE}...{HEAD}"]
+    assert rev_list[:7] == ["git", "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{BASE}...{HEAD}"]
     question = (directory / "question-1.md").read_text()
     assert f"`git diff {OWN}^ {HEAD}`" in question and f"{BASE}...{HEAD}" not in question and f"{STALE_BASE}...{HEAD}" not in question
+
+
+def test_the_patch_match_against_the_trunk_reads_only_the_paths_the_heads_own_commits_touch(tmp_path):
+    """remote-desks-5 #259406: in a partial clone, `rev-list --cherry-pick` over every trunk commit since the merge-base fetched blobs one at a time for 12 minutes; limiting it to the head's own paths bounds that fetch by the PR's files."""
+    directory = job(tmp_path)
+    shell = Fake(tmp_path, [reply()])
+    finder.main([str(directory)], shell)
+    [rev_list] = [argv for argv, _ in shell.calls if argv[:3] == ["git", "rev-list", "--cherry-pick"]]
+    assert rev_list[7:] == ["--", *OWN_PATHS]
 
 
 def test_a_head_rebased_past_its_stale_base_branch_onto_the_trunk_reads_and_scopes_only_its_own_commits(tmp_path):
