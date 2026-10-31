@@ -122,7 +122,6 @@ class FakeShell(runner_module.Shell):
         self.statuses = ""
         self.combined_statuses: dict[str, list[dict]] = {}
         self.review_runs: dict[str, list[str]] = {}
-        self.committed_dates: dict[str, str] = {}
         self.status_read_error = ""
         self.advance_error = ""
         self.mirror: str | None = "1a2b3c4"
@@ -694,10 +693,9 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, json.dumps({"data": {"repository": {f"c{pr}": {"commits": {"nodes": [{"commit": {"oid": oid}} for oid in self.pr_commits.get(pr, [])]}} for pr in carried}}}), "")
         if self.trunk and f'object(expression: "{self.trunk[0]["oid"]}") {{ ... on Commit {{ history(' in query:
             return runner_module.Done(0, json.dumps({"data": {"repository": {"object": {"history": {"nodes": self.trunk}}}}}), "")
-        heads = re.findall(r'(h\d+): object\(expression: "([0-9a-f]+)"\) \{ \.\.\. on Commit \{ committedDate status \{ contexts \{ context state description targetUrl \} \} checkSuites\(last: 10, filterBy: \{checkName: "ai-review"\}\) \{ nodes \{ checkRuns\(last: 1, filterBy: \{checkName: "ai-review"\}\) \{ nodes \{ title startedAt \} \} \} \} \} \}', query)
+        heads = re.findall(r'(h\d+): object\(expression: "([0-9a-f]+)"\) \{ \.\.\. on Commit \{ status \{ contexts \{ context state description targetUrl \} \} checkSuites\(last: 10, filterBy: \{checkName: "ai-review"\}\) \{ nodes \{ checkRuns\(last: 1, filterBy: \{checkName: "ai-review"\}\) \{ nodes \{ title startedAt \} \} \} \} \} \}', query)
         commits = {
             alias: {
-                "committedDate": self.committed_dates.get(sha, "2026-09-01T00:00:00Z"),
                 "status": {"contexts": [{"description": None, "targetUrl": status.get("target_url")} | {key: value for key, value in status.items() if key != "target_url"} | {"state": status["state"].upper()} for status in statuses]} if (statuses := self.combined_statuses.get(sha, self.commit_statuses.get(sha))) is not None else None,
                 "checkSuites": {"nodes": [{"checkRuns": {"nodes": [{"title": title, "startedAt": f"2026-10-27T19:0{index}:00Z"}]}} for index, title in enumerate(self.review_runs.get(sha, []))]},
             }
@@ -13098,13 +13096,12 @@ def trunk_watch(shell: FakeShell, config: Path, tmp_path: Path) -> runner_module
     return landing_of(shell, config, tmp_path)
 
 
-def test_a_head_pushed_under_ten_minutes_ago_enqueues_only_once_its_own_test_build_passes(shell, config, tmp_path):
-    """Root #254954: a PR whose head moved in the last 10 minutes is not re-enqueued until its own buildkite/test is green on that head."""
+def test_a_head_enqueues_only_once_its_own_test_build_passes_on_that_exact_head(shell, config, tmp_path):
+    """Root #255451: no re-enqueue of any PR until buildkite/test is green on that exact head (#254954)."""
     trunk_watch(shell, config, tmp_path)
     shell.trunk = [trunk_commit("b", "SUCCESS", "29019", "2026-10-01T17:50:00Z")]
     lone_green_pr(shell)
     grade_gated_heads_ok(shell)
-    shell.committed_dates["cccc333333"] = actions.stamp(shell.clock - timedelta(minutes=3))
     shell.combined_statuses["cccc333333"] = [{"context": TRUNK_CHECK, "state": "pending"}]
     landing_pass(shell, config)
     assert shell.enqueues() == []
@@ -13178,6 +13175,7 @@ def test_a_trunk_that_does_not_read_gates_nothing_and_posts_once_per_streak(shel
     grade(shell, "29020", "ok F307 at cccc333.")
     trunk_watch(shell, config, tmp_path)
     shell.trunk = [trunk_commit("b", "SUCCESS", "29019", "2026-10-01T17:50:00Z")]
+    shell.combined_statuses["cccc333333"] = [{"context": TRUNK_CHECK, "state": "success"}]
     shell.trunk_error = "fatal: expected flush after ref listing"
     landing_pass(shell, config)
     shell.clock += timedelta(hours=2)
