@@ -2269,6 +2269,19 @@ def test_pr_block_says_what_a_protecting_row_protects_and_how_the_change_serves_
     assert all(rulings.EXPLAINS.search(line) for line in (met + left).splitlines() if line.startswith("- rule/bbbbbbb"))
 
 
+def test_pr_block_names_a_deletion_of_a_protected_symbol_and_never_calls_it_left_alone(home: Path, package: Path, state: Path, capsys) -> None:
+    """plan-group-b-1 #238453, root #238470: pr-block wrote 'serves it by leaving SessionThreadFollower alone' for a diff that deleted SessionThreadFollower."""
+    diff = DIFF.replace("-    retry_forever(relay-server);\n+    self.drain();", "-    self.drain();\n+    retry_forever(relay-server);")
+    rows = seeded(package)
+    rows["rule/bbbbbbb"] |= {"protects": "runs from holding a closed pool's connections"}
+
+    _, out = ran(capsys, RegisterShell(rows, diff=diff), "pr-block", "--pr", "12", "--head", "cafef00d", "--base", "main", "--lane", "lane-b")
+
+    assert "- rule/bbbbbbb protects runs from holding a closed pool's connections; this change deletes Pool.drain at src/relay/pool.rs:2, and no answer of yours authorizes that" in out.splitlines()
+    assert "- On Oct 20 you said “Drain the pool when a run closes.”; this change deletes Pool.drain, and none of your answers authorizes that." in out.splitlines()
+    assert not any("alone" in line for line in out.splitlines() if "bbbbbbb" in line or "Drain the pool" in line)
+
+
 def test_status_anchor_and_supersede_write_their_fields(home: Path, package: Path, state: Path, capsys) -> None:
     shell = RegisterShell(seeded(package))
 
