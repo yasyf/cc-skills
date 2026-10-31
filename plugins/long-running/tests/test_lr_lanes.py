@@ -43,7 +43,7 @@ class Fake:
             checkout=CHECKOUT,
             briefs=tmp / "lanes",
             records=lambda since: [r for r in self.feed if r["seq"] > since],
-            who=lambda: self.peers,
+            who=lambda names: self.peers,
             tokens=lambda row: self.token_counts.get(row["lane"]),
             transcript=lambda row: Path(f"/projects/x/{row['session']}/subagents/agent-{row['agent']}.jsonl"),
             cci=self.cci,
@@ -303,3 +303,16 @@ def test_the_registry_refuses_an_unknown_state():
     store = Store.memory()
     with pytest.raises(Exception, match="CHECK"):
         store.want_lane("l-3", "/b.md", "opus", "xhigh", "lane", "zombie", T0)
+
+
+def test_a_tick_whose_liveness_source_does_not_answer_acts_on_nothing(tmp_path, brief):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+
+    def unread(names):
+        raise lanes.Unread("orca: connection refused")
+
+    gone = lanes.Deps(**{**fake.deps.__dict__, "who": unread})
+    out = lanes.tick(store, gone, T0 + timedelta(hours=1))
+
+    assert out == lanes.Outcome() and fake.posts == [] and store.lane("conflicts-2").state == "desired"
