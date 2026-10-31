@@ -34,7 +34,9 @@ object, and fetches every remote unless a fetch that began after this job asked 
 did, then merges its packs into a geometric progression, so the packs fetches and on-demand blob reads leave stay few, and the job runs there. <dir> is then copied
 back, result.json included and job.json and pid left as this machine wrote
 them, so the runner settles the pass from this process and its files as it does
-a local one. The Sprite then pushes the records the job posted to the drive's
+a local one; a job that ends with no result, as when the Sprite restarts
+mid-pass, leaves one naming the error, so the runner fails and requeues the
+pass at once instead of waiting out its deadline. The Sprite then pushes the records the job posted to the drive's
 cci relay, retried five times over about 40 seconds; a push that still fails
 loses nothing, since the runner reposts the job's records when it settles the
 pass. A `cancelled` mark
@@ -130,7 +132,8 @@ while kill -0 "$job" 2>/dev/null; do
 done
 status=0
 wait "$job" || status=$?
-sprite exec -s "$sprite" --no-stdin -- sh -c 'cd "$1" && find . -mindepth 1 ! -path ./job.json ! -path ./pid | tar -cz --no-recursion -T -' sh "$dir" | tar -xz -m -C "$dir"
+sprite exec -s "$sprite" --no-stdin -- sh -c 'cd "$1" && find . -mindepth 1 ! -path ./job.json ! -path ./pid | tar -cz --no-recursion -T -' sh "$dir" | tar -xz -m -C "$dir" || true
+[ -e "$dir/result.json" ] || printf '{"error": "the job on Sprite %s ended with status %s and no result, as when the Sprite restarts mid-pass"}\n' "$sprite" "$status" >"$dir/result.json"
 for pause in 2 5 10 20 ""; do
   if sprite exec -s "$sprite" --no-stdin -- cci relay push >/dev/null; then
     break

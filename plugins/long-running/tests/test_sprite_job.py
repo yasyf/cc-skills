@@ -155,3 +155,26 @@ def test_a_sprite_whose_plugin_copy_is_missing_files_gets_the_whole_copy_again(t
     (mac / "plugin" / ".in_use" / "4343").write_text("")
     subprocess.run(["sh", str(SCRIPT), "vet4", str(script), str(directory)], env=env, check=True, capture_output=True, timeout=60)
     assert Path(f"{sprite}{mac}/plugin.digest").read_text() == shipped and not Path(f"{sprite}{mac}/plugin/.in_use").exists()
+
+
+def test_a_job_that_dies_with_its_sprite_leaves_an_error_result_so_the_runner_fails_it_at_once(tmp_path: Path) -> None:
+    """remote-desks-5, 9:41 PM Oct 30: dar-fleet-4 restarted at about 9:20 PM mid-pass, sprite-job.sh exited with no result, and the runner counted fidelity #46330 801543b as running for 24 minutes, since a fidelity pass fails only on an error result or its 60-minute deadline."""
+    mac, sprite = tmp_path / "mac", tmp_path / "sprite"
+    checkout, directory, config = mac / "checkout", mac / "fidelity-pipeline" / "46330-801543be814f-236200", mac / "config"
+    script = mac / "plugin" / "skills" / "long-running" / "scripts" / "fidelity.py"
+    executable(script, "import shutil, sys\nshutil.rmtree(sys.argv[1])\nsys.exit(137)\n")
+    executable(script.parent / "rulings.py", "")
+    executable(mac / "bin" / "sprite", SPRITE)
+    executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", "#!/bin/sh\n")
+    directory.mkdir(parents=True)
+    (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
+    (config / "long-running" / "drives").mkdir(parents=True)
+    (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
+    subprocess.run(["git", "init", "-q", f"{sprite}{checkout}"], check=True)
+
+    env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config)}
+    done = subprocess.run(["sh", str(SCRIPT), "dar-fleet-4", str(script), str(directory)], env=env, capture_output=True, timeout=60)
+
+    assert done.returncode == 137
+    assert json.loads((directory / "result.json").read_text()) == {"error": "the job on Sprite dar-fleet-4 ended with status 137 and no result, as when the Sprite restarts mid-pass"}
