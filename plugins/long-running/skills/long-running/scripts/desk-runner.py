@@ -5891,7 +5891,7 @@ class Landing:
             if any(not future.done() and members & others for others, future in self.inflight.values()):
                 return None
             def read():
-                with self.build_cache.book.store.reading():
+                with self.book.store.reading(), self.build_cache.book.store.reading():
                     work()
 
             future = self.workers.submit(read)
@@ -9442,7 +9442,7 @@ class Landing:
         self.runner.steps(lambda: self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}), self.reconcile, lambda: self.requeue(rows))
         if not self.side_work:
             def side_steps():
-                with self.build_cache.book.store.reading():
+                with self.book.store.reading(), self.build_cache.book.store.reading():
                     self.runner.steps(lambda: self.verify(rows), lambda: self.announce_landings(rows), lambda: self.releases(rows), self.ungraded_after, lambda: self.verify_restacks(rows), lambda: self.resolve_stale_blockers(rows))
 
             self.side_work = self.side.submit(side_steps)
