@@ -430,6 +430,20 @@ def test_a_go_the_runner_refused_names_its_newest_open_blocker_for_that_head_and
     assert post["text"].endswith(f"| owner api-lane, board-refresher | GO-UNQUEUED: the runner's newest blocker for #101 at abc1234, cci #7: #101 {HEAD[:10]}: nothing in #101 was enqueued; GO-UNQUEUED #101: the merge queue refused it at this head")
 
 
+@pytest.mark.parametrize(("tapped", "stalls"), [(False, []), (True, ["go:101:abc1234"])], ids=["untapped", "tapped"])
+def test_a_tap_required_go_is_no_go_stall_until_the_owner_taps(config, tapped, stalls):
+    """Root #267724: go #267444 for #45724 was TAP-REQUIRED first-ask, and stall-watch raised a go stall 13 minutes later, before the owner's tap."""
+    records = [*gone("101", HEAD)[:3], record(4, "root", "go", f"go #101 at {HEAD[:7]} on green [TAP-REQUIRED first-ask]", 12)]
+    records.append(record(5, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; GO-UNQUEUED #101: the merge queue refused it at this head", 9, to=["api-lane"], topic="101", status="open"))
+    shell = FakeShell(records, [row("101")])
+    if tapped:
+        shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": HEAD[:7], "at": stamp(10)}}}
+
+    watch(shell, config)
+
+    assert [topic for topic in shell.topics() if topic.startswith("go:")] == stalls
+
+
 @pytest.mark.parametrize("withdrawn", [False, True])
 def test_a_root_correction_withdrawing_a_go_ends_its_go_stall(config, withdrawn):
     """#243593: root withdrew go #237906 on #46228 with a correction, not a withdraw, and the stall watch still counted the go."""
