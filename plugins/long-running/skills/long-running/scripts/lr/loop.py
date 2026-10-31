@@ -1,0 +1,66 @@
+"""The supervisor's loop: one leased process per drive, one pass per tick, exit when the lease moves.
+
+Every tick renews the lease under the generation it was started with, beats as a worker,
+reads the facts, runs the pass, hands the pass's actions to the landing mover and its grade
+items to the grading mover, and sleeps. A renewal that finds a newer generation ends the
+loop on that tick, so two supervisors never act at once and an install that starts the
+successor is all it takes to retire the predecessor.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+
+from lr import supervisor
+from lr.machine import Facts
+from lr.movers import grading, landing
+from lr.store import StaleGeneration, Store
+
+TICK = timedelta(seconds=30)
+SELF = "supervisor"
+
+
+@dataclass(frozen=True)
+class Deps:
+    snapshot: Callable[[], Iterable[Facts]]
+    post: Callable[..., object]
+    queue: landing.Queue
+    restacker: landing.Restacker
+    pool: grading.Pool
+    clock: Callable[[], datetime]
+    sleep: Callable[[float], None]
+
+
+@dataclass
+class Tick:
+    at: datetime
+    prs: int
+    enqueued: int
+    dispatched: int
+    escalated: int
+
+
+def tick(store: Store, drive: str, generation: int, deps: Deps) -> Tick:
+    now = deps.clock()
+    store.renew_lease(drive, generation, now)
+    store.heartbeat(SELF, generation, now)
+    snapshot = list(deps.snapshot())
+    out = supervisor.run_pass(store, snapshot, now, deps.post)
+    landed = landing.act(store, deps.queue, deps.restacker, out.acts, now)
+    graded = grading.act(store, deps.pool, store.open_items(), {f.number: f for f in snapshot}, now, generation)
+    return Tick(now, len(snapshot), len(landed.enqueued) + len(landed.resubmitted), len(graded.dispatched), len(out.escalated))
+
+
+def run(store: Store, drive: str, version: str, pid: int, deps: Deps, ticks: int | None = None) -> list[Tick]:
+    """Hold the lease and tick until a newer generation takes it, or for `ticks` ticks in a test."""
+    lease = store.acquire_lease(drive, version, pid, deps.clock())
+    done: list[Tick] = []
+    while ticks is None or len(done) < ticks:
+        try:
+            done.append(tick(store, drive, lease.generation, deps))
+        except StaleGeneration:
+            break
+        deps.sleep(TICK.total_seconds())
+    return done
