@@ -7782,11 +7782,11 @@ def test_an_admitted_pr_on_trunk_whose_branch_carries_another_open_prs_head_is_r
     shell.gates["33002"] = [gate("#33002 BLOCKED bbbb222222 CI running")]
     shell.pr_commits["33001"] = ["bbbb222222" + "0" * 30, "aaaa111111" + "0" * 30]
     landing_pass(shell, config)
+    assert len([call for call in graphql_reads(shell) if "commits(last: 100)" in call[4]]) == 1
     landing_pass(shell, config)
     assert shell.enqueues() == []
     [line] = settled(shell, "REFUSED")
     assert "#33001" in line and "its branch carries #33002, which a squash would land with it; restack it onto dev" in line
-    assert len([call for call in graphql_reads(shell) if "commits(last: 100)" in call[4]]) == 1
 
 
 def test_an_admitted_head_posts_one_record_per_change_of_its_outcome(shell, config, tmp_path):
