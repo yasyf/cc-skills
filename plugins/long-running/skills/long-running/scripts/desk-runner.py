@@ -9379,7 +9379,7 @@ class Landing:
             return
         seqs = sorted(seq for seq, _ in stale.values())
         to = ",".join(dict.fromkeys(lane for _, lanes in stale.values() for lane in lanes.split(",") if lane))
-        done = self.runner.cci_post("note", f"RESOLVED {len(seqs)} landing-runner blockers whose PR has since landed, closed or moved past the head each names", to, "landing-hygiene", f"resolved:{seqs[0]}:{seqs[-1]}:{len(seqs)}", flags=["--resolves", ",".join(map(str, seqs))])
+        done = self.runner.cci_post("note", f"RESOLVED {len(seqs)} landing-runner blockers whose PR has since landed, closed or moved past the head each names", to, "landing-hygiene", f"resolved:{seqs[0]}:{seqs[-1]}:{len(seqs)}", flags=["--resolves-seq", ",".join(map(str, seqs))])
         if done.code == 0:
             for key in stale:
                 self.book.attempt(LANDING, lambda incident, key=key: incident.verify(key, {"resolved": cci.receipt(done.records[0].seq), "at": self.book.stamp()}))
