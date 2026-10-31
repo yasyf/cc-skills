@@ -288,7 +288,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: yasyf/cc-inbox
-          ref: 51514a5bd09735bb4bdfeb918571719b12b8ecfa
+          ref: 67a9ba0415a718dd7ed61773695da93a8061e7ef
           path: .ci-incident-index
           persist-credentials: false
       - uses: actions/setup-go@v6
@@ -298,14 +298,14 @@ jobs:
       - uses: astral-sh/setup-uv@v8.2.0
       - name: Build actual indexed incident handler fixture
         run: |
-          test "$(git -C .ci-incident-index rev-parse HEAD)" = 51514a5bd09735bb4bdfeb918571719b12b8ecfa
+          test "$(git -C .ci-incident-index rev-parse HEAD)" = 67a9ba0415a718dd7ed61773695da93a8061e7ef
           mkdir -p .ci-incident-index/cmd/landing-incident-fixture
           cp plugins/long-running/tests/fixtures/incident_index/main.go .ci-incident-index/cmd/landing-incident-fixture/main.go
           go -C .ci-incident-index build -p 2 -o "$RUNNER_TEMP/incident-index-fixture" ./cmd/landing-incident-fixture
       - name: Actual Landing indexed incident selection and mutable-file freshness
         env:
           CCI_INCIDENT_FIXTURE: ${{ runner.temp }}/incident-index-fixture
-          CCI_INCIDENT_PROVIDER_SOURCE: 51514a5bd09735bb4bdfeb918571719b12b8ecfa
+          CCI_INCIDENT_PROVIDER_SOURCE: 67a9ba0415a718dd7ed61773695da93a8061e7ef
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/incident_index_integration.py -q -s --junitxml="$RUNNER_TEMP/incident-index.xml"
       - uses: actions/upload-artifact@v7
         if: ${{ always() }}
