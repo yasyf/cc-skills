@@ -40,7 +40,7 @@ def lanes_never_spawn(evt: BaseHookEvent) -> HookResult | None:
 
 LIVE_WINDOW = timedelta(minutes=10)
 ALREADY_LIVE = (
-    "Warning, nothing was blocked: `{name}` already runs in the session at {where}, seen {ago} min ago, last saying \"{said}\". "
+    "Warning, nothing was blocked: `{name}` already runs in the session at {where}, seen {ago} min ago, last saying `{said}`. "
     "A second copy repeats its work; message it or wait for its report unless it stopped."
 )
 COPY_LIMIT = 300
@@ -69,7 +69,7 @@ def run(argv: list[str]) -> str | None:
     only_if=[Tool("Agent"), DriveActive()],
     tests={
         Input(tool="Agent", tool_input=FAULTRUN, state=ACTIVE, commands={WHO: peer("p8a7-eviction-faultrun-2", 3), "cci tail": LAST}): Warn(
-            pattern=r'^Warning, nothing was blocked: `p8a7-eviction-faultrun-2` already runs in the session at amberjack, seen 3 min ago, last saying "fault run 2 of 3'
+            pattern=r'^Warning, nothing was blocked: `p8a7-eviction-faultrun-2` already runs in the session at amberjack, seen 3 min ago, last saying `fault run 2 of 3'
         ),
         Input(tool="Agent", tool_input=FAULTRUN, state=ACTIVE, commands={WHO: peer("p8a7-eviction-faultrun-2", 25), "cci tail": LAST}): Allow(),
         Input(tool="Agent", tool_input=FAULTRUN, state=ACTIVE, commands={WHO: peer("p8a7-eviction-faultrun-2", 3, stood_down=True), "cci tail": LAST}): Allow(),
@@ -89,7 +89,7 @@ def spawn_names_a_live_lane(evt: BaseHookEvent) -> HookResult | None:
         if found.get("lane") != name or not found.get("live") or found.get("stood_down") or now - seen > LIVE_WINDOW:
             continue
         tail = run(["cci", "tail", "--drive", found["drive"], "--lane", name, "--since", "0", "--limit", "1", "--json"])
-        said = " ".join(json.loads(tail.splitlines()[-1])["text"].split()) if tail and tail.strip() else "nothing readable"
+        said = " ".join(json.loads(tail.splitlines()[-1])["text"].replace("`", "'").split()) if tail and tail.strip() else "nothing readable"
         where = Path(found["worktree"]).name if found.get("worktree") else "another worktree"
         fields = {"name": name, "where": where, "ago": int((now - seen).total_seconds() // 60)}
         room = COPY_LIMIT - len(ALREADY_LIVE.format(said="", **fields))
