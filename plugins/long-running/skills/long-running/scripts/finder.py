@@ -55,9 +55,9 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-import drive
-import ghread
-from grades import FINDER_DESK, FINDER_PASS, finder_grade, names_head, repo_prs
+from long_running import drive
+from long_running import ghread
+from long_running.grades import FINDER_DESK, FINDER_PASS, finder_grade, names_head, repo_prs
 
 SCRIPTS = Path(__file__).resolve().parent
 TEMPLATE = SCRIPTS.parent / "reference" / "finder-desk-brief.md"

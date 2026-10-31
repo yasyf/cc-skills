@@ -43,11 +43,11 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-import drive
+from long_running import drive
 import finder
 import findings
-import ledger
-from grades import FIDELITY_MISSING, FIDELITY_OK, graded_head, names_head, newest_finder, standing
+from long_running import ledger
+from long_running.grades import FIDELITY_MISSING, FIDELITY_OK, graded_head, names_head, newest_finder, standing
 
 SCRIPTS = Path(__file__).resolve().parent
 TEMPLATE = SCRIPTS.parent / "reference" / "fidelity-job-brief.md"

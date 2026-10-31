@@ -8,9 +8,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from long_running import actions
-import board_rows
-import drive
-import grades
+from long_running import board_rows
+from long_running import drive
+from long_running import grades
 import pytest
 import stall_watch
 

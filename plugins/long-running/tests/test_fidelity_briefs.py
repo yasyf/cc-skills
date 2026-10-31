@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import grades
+from long_running import grades
 import pytest
 
 SKILL = Path(__file__).resolve().parents[1] / "skills/long-running"

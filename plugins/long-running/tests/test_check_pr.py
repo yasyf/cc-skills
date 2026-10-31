@@ -9,10 +9,10 @@ import json
 import subprocess
 from pathlib import Path
 
-import ghread
-import ledger
+from long_running import ghread
+from long_running import ledger
 import pytest
-import rulings
+from long_running import rulings
 from conftest import gateway
 from test_rulings import DIFF, REPO, RegisterShell, home, package, ran, registered, seeded, state
 

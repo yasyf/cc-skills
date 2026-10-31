@@ -66,7 +66,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import ghread
+from long_running import ghread
 from long_running.actions import OPEN, Action, Incident, StaleGeneration, Store, parse_stamp, stamp
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -1163,7 +1163,7 @@ def main(argv: list[str] | None = None, store: Store | None = None, shell: Shell
 
 
 if __name__ == "__main__":
-    import drive
+    from long_running import drive
 
     drive.run_installed(__file__)
     raise SystemExit(main())

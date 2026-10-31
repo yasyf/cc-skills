@@ -5,7 +5,7 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import drive
+from long_running import drive
 import pytest
 from conftest import DRIVE, LEDGER, FakeShell
 
@@ -495,7 +495,7 @@ def test_go_reads_the_go_state_through_the_landing_runner_on_the_runner_json_bes
 
     drive.main(["go", "45001", "#45002"])
 
-    assert execs == [[drive.sys.executable, str(Path(drive.__file__).resolve().with_name("desk-runner.py")), "go", "--config", str(Path(entry["state_dir"]) / "runner.json"), "45001", "#45002"]]
+    assert execs == [[drive.sys.executable, str(Path(__file__).resolve().parents[1] / "skills" / "long-running" / "scripts" / "desk-runner.py"), "go", "--config", str(Path(entry["state_dir"]) / "runner.json"), "45001", "#45002"]]
 
 
 def installed(*versions: str, manifest: str | None = None) -> Path:

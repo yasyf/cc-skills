@@ -125,7 +125,7 @@ PLAIN_ENGLISH = frozenset(
     version vm webhook worktree
     """.split()
 )
-PLAIN_FOR = script_module("overview").PLAIN_FOR
+PLAIN_FOR = script_module("long_running.overview").PLAIN_FOR
 UNREADABLE = (
     *IDS,
     (

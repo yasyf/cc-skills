@@ -4,7 +4,7 @@
 # ///
 import sys
 
-import drive
+from long_running import drive
 import inboxes
 
 drive.run_installed(__file__)

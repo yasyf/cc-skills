@@ -637,29 +637,29 @@ from zoneinfo import ZoneInfo
 from long_running import actions
 from long_running.book import Book
 from long_running.desk_control import DeskControl, QuiesceFailed
-import board_rows
-import cci
-import drive
+from long_running import board_rows
+from long_running import cci
+from long_running import drive
 import fidelity
 import finder
-import ghread
+from long_running import ghread
 import incident
 import inboxes
 import lane_brief
-import lanes
+from long_running import lanes
 import merge_queue
 import owner_waits
 import prompt_screen
 import prompt_watch
 import stall_watch
-import testfiles
-from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, heads_since, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
-from grades import carry_of, delegated, keeps_tap, succeeds, with_successors
-from grades import carries as carry_grade
-from grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
-from grades import WITHDRAWN as WITHDRAWN_OPENING
-from grades import go_state, owes
-from grades import REVIEW_BOT_CHECK, REVIEW_BOT_HELD, review_bot_wait, withdrawn
+from long_running import testfiles
+from long_running.grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, heads_since, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
+from long_running.grades import carry_of, delegated, keeps_tap, succeeds, with_successors
+from long_running.grades import carries as carry_grade
+from long_running.grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
+from long_running.grades import WITHDRAWN as WITHDRAWN_OPENING
+from long_running.grades import go_state, owes
+from long_running.grades import REVIEW_BOT_CHECK, REVIEW_BOT_HELD, review_bot_wait, withdrawn
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
 SCRIPTS = Path(__file__).resolve().parent

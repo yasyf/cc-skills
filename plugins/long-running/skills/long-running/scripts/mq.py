@@ -47,7 +47,7 @@ import sys
 from pathlib import Path
 
 from long_running import actions
-import cci
+from long_running import cci
 
 SCRIPTS = Path(__file__).resolve().parent
 CONFIG_KEYS = ("drive", "orca", "landing")
@@ -160,7 +160,7 @@ def hold_or_lift(runner_module, runner, landing, args: argparse.Namespace) -> in
 
 
 if __name__ == "__main__":
-    import drive
+    from long_running import drive
 
     drive.run_installed(__file__)
     sys.exit(main())

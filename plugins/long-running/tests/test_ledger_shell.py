@@ -6,7 +6,7 @@ import os
 import subprocess
 import time
 
-import ledger
+from long_running import ledger
 import pytest
 
 

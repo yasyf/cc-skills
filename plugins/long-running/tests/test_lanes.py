@@ -8,9 +8,9 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-import drive
-import lanes
-import ledger
+from long_running import drive
+from long_running import lanes
+from long_running import ledger
 import pytest
 from conftest import LEDGER, gateway
 
