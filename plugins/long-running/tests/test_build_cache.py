@@ -28,6 +28,145 @@ def lean(build):
     return {key: build[key] for key in ("state", "commit", "finished_at")} | {"jobs": [{key: value for key, value in job.items() if key != "id"} for job in build["jobs"]]}
 
 
+@pytest.fixture
+def readonly_connections(monkeypatch):
+    connections = []
+    connect = sqlite3.connect
+
+    class ObservedConnection(sqlite3.Connection):
+        def close(self):
+            assert self.owner == threading.get_ident()
+            self.closed = True
+            super().close()
+
+    def observed(database, *args, **kwargs):
+        if not str(database).endswith("?mode=ro"):
+            return connect(database, *args, **kwargs)
+        connection = connect(database, *args, **kwargs, factory=ObservedConnection)
+        connection.owner = threading.get_ident()
+        connection.closed = False
+        connection.database = str(database)
+        connections.append(connection)
+        return connection
+
+    monkeypatch.setattr(sqlite3, "connect", observed)
+    return connections
+
+
+def test_nested_reader_lease_survives_inner_error_and_observes_writes(cache, readonly_connections):
+    cache.put({"one": passed()}, NOW - timedelta(days=3))
+    with cache.book.store.reading():
+        assert cache.get("one") == lean(passed())
+        connection = readonly_connections[0]
+        with pytest.raises(ValueError, match="inner"):
+            with cache.book.store.reading():
+                assert cache.get("one") == lean(passed())
+                raise ValueError("inner")
+        assert len(readonly_connections) == 1 and not connection.closed and not connection.in_transaction
+        updated = passed() | {"commit": "b" * 40}
+        cache.put({"one": updated}, NOW - timedelta(days=3))
+        writer = sqlite3.connect(cache.book.store.path(cache.container))
+        try:
+            assert writer.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0] == 0
+        finally:
+            writer.close()
+        assert cache.get("one") == lean(updated)
+        assert len(readonly_connections) == 1 and not connection.in_transaction
+    assert connection.closed
+
+
+def test_outer_reader_error_closes_only_its_owned_connection(cache, readonly_connections):
+    cache.put({"one": passed()}, NOW - timedelta(days=3))
+    with pytest.raises(ValueError, match="outer"):
+        with cache.book.store.reading():
+            with cache.book.store.reading():
+                assert cache.get("one") == lean(passed())
+            raise ValueError("outer")
+    assert len(readonly_connections) == 1 and readonly_connections[0].closed
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        readonly_connections[0].execute("SELECT 1")
+
+
+def test_reader_leases_are_isolated_by_thread_and_store(cache, tmp_path, readonly_connections):
+    cache.put({"one": passed()}, NOW - timedelta(days=3))
+    other = BuildCache(tmp_path / "other.json", cache.book.shell, "landing")
+    updated = passed() | {"commit": "c" * 40}
+    other.put({"one": updated}, NOW - timedelta(days=3))
+    together = threading.Barrier(2, timeout=10)
+
+    def read(index):
+        selected = cache if index == 0 else other
+        with selected.book.store.reading():
+            with selected.book.store.reading():
+                assert selected.get("one") == lean(passed() if index == 0 else updated)
+                together.wait()
+            assert selected.get("one") == lean(passed() if index == 0 else updated)
+        return threading.get_ident()
+
+    with cache.book.store.reading():
+        assert cache.get("one") == lean(passed())
+        main = readonly_connections[0]
+        with ThreadPoolExecutor(2) as pool:
+            owners = list(pool.map(read, range(2)))
+        assert len(set(owners)) == 2 and threading.get_ident() not in owners
+        assert not main.closed and not main.in_transaction
+        assert len(readonly_connections) == 3
+        assert all(connection.closed for connection in readonly_connections[1:])
+        assert {connection.database for connection in readonly_connections} == {cache.book.store.path(cache.container).absolute().as_uri() + "?mode=ro", other.book.store.path(other.container).absolute().as_uri() + "?mode=ro"}
+    assert all(connection.closed for connection in readonly_connections)
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_actual_stack_task_owns_and_closes_its_cache_reader(shell, config, tmp_path, readonly_connections, failed):
+    landing = landing_of(shell, config, tmp_path)
+    cache = landing.build_cache
+    cache.put({"one": passed(shell.now())}, shell.now() - timedelta(days=3))
+    database = cache.book.store.path(cache.container).absolute().as_uri() + "?mode=ro"
+
+    def work():
+        assert cache.get("one") == lean(passed(shell.now()))
+        assert cache.get("one") == lean(passed(shell.now()))
+        if failed:
+            raise ValueError("stack task")
+
+    try:
+        future = landing.dispatch("stack", {"1"}, work)
+        assert future is not None
+        if failed:
+            with pytest.raises(ValueError, match="stack task"):
+                future.result(timeout=10)
+        else:
+            assert future.result(timeout=10) is None
+        readers = [connection for connection in readonly_connections if connection.database == database]
+        assert len(readers) == 1 and readers[0].closed
+        assert readers[0].owner != threading.get_ident()
+    finally:
+        landing.close()
+
+
+def test_actual_landing_pass_closes_cache_reader_after_failure(shell, config, tmp_path, readonly_connections, monkeypatch):
+    landing = landing_of(shell, config, tmp_path)
+    cache = landing.build_cache
+    cache.put({"one": passed(shell.now())}, shell.now() - timedelta(days=3))
+    database = cache.book.store.path(cache.container).absolute().as_uri() + "?mode=ro"
+
+    def gate():
+        assert cache.get("one") == lean(passed(shell.now()))
+        with cache.book.store.reading():
+            assert cache.get("one") == lean(passed(shell.now()))
+        raise ValueError("gate pass")
+
+    monkeypatch.setattr(landing, "gate_pass", gate)
+    try:
+        with pytest.raises(ValueError, match="gate pass"):
+            landing.run()
+        readers = [connection for connection in readonly_connections if connection.database == database]
+        assert len(readers) == 1 and readers[0].closed
+        assert readers[0].owner == threading.get_ident()
+    finally:
+        landing.close()
+
+
 def test_exact_url_and_configuration_survive_new_reader(cache, tmp_path):
     url = "https://buildkite.com/forge/test/builds/1"
     build = passed()
@@ -215,7 +354,7 @@ def test_actual_landing_selected_cached_build_read_connections(shell, config, tm
     try:
         assert landing.landing_steps("test", rows) == {"test"}
         first = dict(costs)
-        assert first["connections"] == first["closes"] == 32
+        assert first["connections"] == first["closes"] == 1, f"selected cached builds reopened {first['connections']} readers"
         assert first["vm_steps"] < 40_000
         assert landing.landing_steps("test", rows) == {"test"}
         assert costs == first

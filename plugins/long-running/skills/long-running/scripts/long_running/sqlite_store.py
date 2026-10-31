@@ -541,7 +541,9 @@ class Store:
     @contextmanager
     def reading(self) -> Iterator[None]:
         """Reuse at most 64 read-only connections on this thread, with a fresh transaction for every read."""
-        assert self._readers.connections is None
+        if self._readers.connections is not None:
+            yield
+            return
         connections = OrderedDict()
         self._readers.connections = connections
         try:

@@ -61,6 +61,22 @@ jobs:
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py -q -s -k test_orca_historical_lane_read_connection_cost
       - name: indexed build cache actual caller costs
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_build_cache.py -q -s
+      - uses: actions/checkout@v7
+        with:
+          ref: 2be0655efb61b8c4d65ecdea9d42b6660c092626
+          path: .ci-build-reader-baseline
+      - name: Immutable selected build reader baseline and negative control
+        run: |
+          test "$(git -C .ci-build-reader-baseline rev-parse HEAD)" = 2be0655efb61b8c4d65ecdea9d42b6660c092626
+          uv run --locked --project plugins/long-running pytest -c .ci-build-reader-baseline/plugins/long-running/pyproject.toml .ci-build-reader-baseline/plugins/long-running/tests/test_build_cache.py -q -s -k test_actual_landing_selected_cached_build_read_connections
+          cp plugins/long-running/tests/test_build_cache.py .ci-build-reader-baseline/plugins/long-running/tests/test_build_cache.py
+          if uv run --locked --project plugins/long-running pytest -c .ci-build-reader-baseline/plugins/long-running/pyproject.toml .ci-build-reader-baseline/plugins/long-running/tests/test_build_cache.py -q -s -k test_actual_landing_selected_cached_build_read_connections > "$RUNNER_TEMP/build-reader-negative.log" 2>&1; then
+            cat "$RUNNER_TEMP/build-reader-negative.log"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/build-reader-negative.log"
+          grep -F 'selected cached builds reopened 32 readers' "$RUNNER_TEMP/build-reader-negative.log"
+          grep -F '2 failed' "$RUNNER_TEMP/build-reader-negative.log"
       - name: capt-hook pack test
         run: uvx --isolated 'capt-hook>=12.107.13' pack test plugins/long-running
       - name: installed state package
