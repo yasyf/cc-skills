@@ -88,7 +88,7 @@ def test_the_sprite_reads_the_register_from_the_jobs_checkout_never_the_launchin
     env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config)}
     subprocess.run(["sh", str(SCRIPT), "fleet2", str(script), str(directory)], env=env, check=True, capture_output=True, timeout=60)
 
-    assert json.loads(Path(f"{sprite}{mac}/state/register-state.json").read_text()) == {**kept, "repo": str(checkout), "snapshot": True}
+    assert json.loads(Path(f"{sprite}{mac}/state/register-state.json").read_text()) == {**kept, "snapshot": True}
     assert json.loads((mac / "state" / "register-state.json").read_text()) == kept
     assert not Path(f"{sprite}{mac}/state/register-seed.answers.json").exists()
 

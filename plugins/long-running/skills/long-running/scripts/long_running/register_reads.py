@@ -40,26 +40,26 @@ def ledger_of(run: Run, repo: str, program: str) -> str:
 
 
 def active_register(run: Run, repo: str, kept: Path) -> dict | None:
-    if not kept.is_file() or (cached := json.loads(kept.read_text()))["repo"] != repo:
+    if not kept.is_file():
         return None
-    shown = ccn(run, repo, "ledger", "show", cached["ledger"])
+    shown = ccn(run, repo, "ledger", "show", json.loads(kept.read_text())["ledger"])
     return shown if shown["status"] == "active" else None
 
 
 def load(run: Run, lock: Lock, held: Callable[[Path], bool], repo: str, program: str, state: Path, last: bool = False, kept_any: bool = False) -> tuple[str, dict]:
     tips = run(["git", "-C", repo, "for-each-ref", "--format=%(refname) %(objectname)", LEDGER_REFS])
     kept = state / f"register-{program}.json"
-    if cached := kept_copy(kept, repo, None if kept_any else tips):
+    if cached := kept_copy(kept, None if kept_any else tips):
         return cached["ledger"], cached["rows"]
-    if last and held(kept.with_suffix(".lock")) and (cached := kept_copy(kept, repo, None)):
+    if last and held(kept.with_suffix(".lock")) and (cached := kept_copy(kept, None)):
         return cached["ledger"], cached["rows"]
     with lock(kept.with_suffix(".lock")):
-        if cached := kept_copy(kept, repo, tips):
+        if cached := kept_copy(kept, tips):
             return cached["ledger"], cached["rows"]
         shown = active_register(run, repo, kept) or ccn(run, repo, "ledger", "show", ledger_of(run, repo, program))
         identity = shown["id"]
         rows = {row["key"]: row["fields"] | {"updated_at": row["updated_at"]} for row in shown["rows"]}
-        write_atomic(kept, json.dumps({"repo": repo, "tips": tips, "ledger": identity, "rows": rows}, ensure_ascii=False))
+        write_atomic(kept, json.dumps({"tips": tips, "ledger": identity, "rows": rows}, ensure_ascii=False))
     return identity, rows
 
 
@@ -73,9 +73,9 @@ def root_slice(program: str, ledger: str, source_rows: dict[str, dict[str, str]]
     return hashed(lines + section("Scope rows and rows naming the root", rows.items()))
 
 
-def kept_copy(kept: Path, repo: str, tips: str | None) -> dict | None:
-    """The register copy kept at `kept` for `repo`, when it was read at `tips` or `tips` is None, or when sprite-job.sh shipped it as the launching machine's snapshot, which a Sprite reads whatever its own ledger refs say, so no pass there rebuilds the register cold (cci #228532)."""
-    return cached if kept.is_file() and (cached := json.loads(kept.read_text()))["repo"] == repo and (tips in (None, cached["tips"]) or cached.get("snapshot")) else None
+def kept_copy(kept: Path, tips: str | None) -> dict | None:
+    """The register copy kept at `kept`, when it was read at `tips` or `tips` is None, or when sprite-job.sh shipped it as the launching machine's snapshot, which a Sprite reads whatever its own ledger refs say, so no pass there rebuilds the register cold (cci #228532). The checkout that kept it never matters, since a copy goes stale only when its ledger refs move."""
+    return cached if kept.is_file() and (tips in (None, (cached := json.loads(kept.read_text()))["tips"]) or cached.get("snapshot")) else None
 
 def write_atomic(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)

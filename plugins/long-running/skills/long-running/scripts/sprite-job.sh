@@ -23,7 +23,7 @@ long-running processes there read GitHub between passes.
 The plugin version holding <script> is copied over once, when the Sprite lacks
 it, the drive's registry file on every run with its `checkout` set to the job's
 checkout, since the Sprite holds that clone and not this machine's, the register
-copy kept in the drive's state as a snapshot for that checkout, which rulings.py
+copy kept in the drive's state as a snapshot, which rulings.py
 on the Sprite reads instead of rebuilding the register cold with ccn, and the plan package the drive's
 register names, the directory holding plan/plan.md, whenever a file in it was
 added, removed or changed since the Sprite's copy. The job's checkout drops the
@@ -62,7 +62,7 @@ python3 -c '
 import json, sys
 from pathlib import Path
 kept = Path(sys.argv[1])
-print(json.dumps({kept.name: {**json.loads(kept.read_text()), "repo": sys.argv[2], "snapshot": True}} if kept.is_file() else {}))' "$state/register-$program.json" "$checkout" |
+print(json.dumps({kept.name: {**json.loads(kept.read_text()), "snapshot": True}} if kept.is_file() else {}))' "$state/register-$program.json" |
   sprite exec -s "$sprite" -- python3 -c '
 import json, os, sys
 from pathlib import Path

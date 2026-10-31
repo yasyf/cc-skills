@@ -533,6 +533,21 @@ def test_a_stale_register_copy_rebuilds_from_its_own_ledger_until_that_ledger_is
     assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"]][3:] == [["ledger", "show"], ["ledger", "list"], ["ledger", "show"]]
 
 
+def test_a_register_copy_kept_under_another_checkout_of_the_repo_is_read_without_listing_ledgers(home: Path, package: Path, state: Path, capsys) -> None:
+    """remote-desks-4, 5:15 PM Oct 30: cc-skills#1284 pointed Sprite jobs at their own checkout, every Sprite's copy still named the Mac's, and each pass fell back to a `ccn ledger list` that ran 18 minutes while the rest timed out on its lock."""
+    shell = RegisterShell(seeded(package))
+    assert ran(capsys, shell, "rows", "--json")[0] == 0
+    kept = state / "register-brook.json"
+    kept.write_text(json.dumps(json.loads(kept.read_text()) | {"repo": "/Users/someone/mac-checkout"}))
+
+    assert ran(capsys, shell, "rows", "--json")[0] == 0
+    shell.rows["rule/aaaaaaa"]["words"] = "Relay code lives in relay-journal."
+    code, out = ran(capsys, shell, "rows", "--json")
+
+    assert code == 0 and json.loads(out)["rows"]["rule/aaaaaaa"]["words"] == "Relay code lives in relay-journal."
+    assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"]] == [["ledger", "list"], ["ledger", "show"], ["ledger", "show"]]
+
+
 class SlowShowShell(RegisterShell):
     def __init__(self, rows: dict[str, dict[str, str]]) -> None:
         super().__init__(rows)
