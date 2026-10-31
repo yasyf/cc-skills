@@ -33,6 +33,27 @@ jobs:
       - uses: astral-sh/setup-uv@v8.2.0
       - uses: actions/checkout@v7
         with:
+          ref: 9d930510a7643fedb6d756055bfc2872979e2c9c
+          path: .ci-worker-book-baseline
+          persist-credentials: false
+      - name: Immutable Runner Book worker reader negative controls
+        run: |
+          baseline=.ci-worker-book-baseline/plugins/long-running
+          cp plugins/long-running/tests/test_landing_book_readers.py "$baseline/tests/test_landing_book_readers.py"
+          for route in dispatch side; do
+            negative="$RUNNER_TEMP/worker-book-$route-negative.log"
+            if uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_landing_book_readers.py" -k "$route and 32 and error" -q -s >"$negative" 2>&1; then
+              cat "$negative"
+              exit 1
+            fi
+            cat "$negative"
+            grep -F "$route reopened 32 Runner Book readers" "$negative"
+            grep -F '1 failed' "$negative"
+          done
+      - name: Actual Runner Book worker reader lifetime and freshness
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_landing_book_readers.py -q -s
+      - uses: actions/checkout@v7
+        with:
           ref: 0beb1c60553e7992068845a822ec42921baf05fe
           path: .ci-restack-history-baseline
           persist-credentials: false
