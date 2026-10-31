@@ -287,7 +287,6 @@ CAUSE_COMMANDS = {
 MERGE_ASK = "MERGE-ASK"
 SILENT_STEP = "root routes the tooling lane: "
 HEAD_BLOCKERS = ("GO-UNQUEUED", "REFUSED", "BELOW-BLOCKED", "BELOW-HELD", MERGE_ASK, "AWAITS-GO")
-GO_KINDS = frozenset({"go", "decide", "decision"})
 BLOCKER_LABEL = re.compile(r"\b[A-Z]+(?:-[A-Z]+)+\b")
 MERGE_WAITS = "merge_waits"
 MERGE_CARDS = "merge_asks"
@@ -905,7 +904,7 @@ class Pass:
         go_lanes = [ROOT, *landing.get("go_lanes", [])]
         exempt = landing.get("exempt_grades", [landing.get("port_phrase", grades.PORT_PHRASE), *grades.TEST_ONLY_PHRASES])
         closed = {seq for record in records if record["lane"] in ROOT_NAMES for seq in grades.closes(record) | grades.voids(record)}
-        gos = [record | {"voided": set()} for record in records if record["kind"] in GO_KINDS and (record["lane"] == RUNNER or grades.delegated(record["lane"], go_lanes)) and record["seq"] not in closed and grades.go_heads(record)]
+        gos = [record | {"voided": set()} for record in records if record["kind"] in grades.GO_KINDS and (record["lane"] == RUNNER or grades.delegated(record["lane"], go_lanes)) and record["seq"] not in closed and grades.go_heads(record)]
         reviews = [record for record in records if record["kind"] in ("review", "head")]
         fidelity = [record for record in reviews if record["kind"] == "review" and record["lane"] in fidelity_lanes and record["text"].startswith(grades.FIDELITY_GRADES)]
         gos += grades.carried_gos(gos, fidelity, repo, lambda pr, head: True)

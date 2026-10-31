@@ -46,6 +46,8 @@ GO_PAIR = r"#\d+\s+at\s+[0-9a-f]{7,40}\b"
 GO_CLAUSE = re.compile(rf"(?:^\s*(?:\d{{1,2}}:\d{{2}}\s*[AP]M\s+)?|[.:;!?]\s+)(?:go(?:\s+(?:port|test-only|ci-only))?|merge)\s+({GO_PAIR}(?:(?:\s*,\s*|\s*,?\s+and\s+){GO_PAIR})*)(?:\s+with\s+(#\d+(?:(?:\s*,\s*|\s*,?\s+and\s+|\s+)#\d+)*))?", re.IGNORECASE)
 GO_EXEMPT = re.compile(r"\bgo\s+(port|test-only|ci-only)\b|\bpure (port)\b|\b((?:test|ci)-only)\b", re.IGNORECASE)
 GO_HEAD = re.compile(r"#(\d+)\s+at\s+([0-9a-f]{7,40})\b", re.IGNORECASE)
+GO_KINDS = frozenset({"go", "decide", "decision"})
+GO_KIND_FLAGS = tuple(f"--kind={kind}" for kind in sorted(GO_KINDS))
 PRECONDITION = re.compile(r"\b(?:lands?|merges?) only after\b|\bbefore it (?:lands|merges)\b|\bdo not (?:land|merge) until\b|\bnot for landing\b", re.IGNORECASE)
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
 QUOTED_BLOCK = re.compile(r"```.*?(?:```|\Z)|^[ \t]*>[^\n]*", re.DOTALL | re.MULTILINE)
@@ -159,6 +161,11 @@ def go_heads(record: dict) -> dict[str, str]:
         return {}
     clause = GO_CLAUSE.search(record["text"])
     return {pr: sha.lower() for pr, sha in GO_HEAD.findall(clause[1])} if clause else {}
+
+
+def is_go(record: dict) -> bool:
+    """Whether `record` is a go, as every reader of the bus counts one: a `go` record, or a `decide` or `decision` whose text carries a go clause (root #243333)."""
+    return record["kind"] == "go" or record["kind"] in GO_KINDS and bool(go_heads(record))
 
 
 def go_batch(record: dict) -> set[str]:
