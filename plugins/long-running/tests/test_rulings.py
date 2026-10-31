@@ -596,7 +596,7 @@ def test_a_read_takes_the_last_register_copy_while_another_process_rebuilds_it(h
         code, out = ran(capsys, shell, *verb)
 
     assert code == 0 and time.monotonic() - started < 1
-    assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"]] == [["ledger", "list"], ["ledger", "show"]]
+    assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"] and argv[3] == "ledger"] == [["ledger", "list"], ["ledger", "show"]]
     if verb[0] == "slice":
         assert "> Relay code lives in relay-journal. Never in relay-server." in out.splitlines()
 
@@ -624,7 +624,7 @@ def test_a_sprite_reads_the_shipped_register_snapshot_however_its_ledger_refs_mo
     code, _ = ran(capsys, shell, "slice", "--lane", "lane-a", "--step", "1.9")
 
     assert code == 0
-    assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"]] == [["ledger", "list"], ["ledger", "show"]]
+    assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"] and argv[3] == "ledger"] == [["ledger", "list"], ["ledger", "show"]]
 
 
 def test_classify_refuses_a_scope_row_without_three_implications_or_any_names(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
@@ -1515,7 +1515,7 @@ def test_confirm_takes_an_owner_chat_capture_classified_onto_the_row_and_refuses
     assert (struck["proof"], struck["words"]) == ("1" * 16, OWNER_CORRECTION)
 
 
-def test_a_lane_slice_carries_every_global_row_and_every_matched_row_verbatim(home: Path, package: Path, state: Path, capsys) -> None:
+def test_a_lane_slice_carries_the_rows_its_step_names_or_mentions_verbatim_and_points_at_the_register_for_the_rest(home: Path, package: Path, state: Path, capsys) -> None:
     code, out = ran(capsys, RegisterShell(seeded(package)), "slice", "--lane", "lane-a", "--step", "1.9")
 
     assert code == 0
@@ -1531,8 +1531,6 @@ def test_a_lane_slice_carries_every_global_row_and_every_matched_row_verbatim(ho
         "Names: relay-server, parked worker",
         "Surfaces: relay-server, relay-journal",
         "Tests: C01",
-        "### exception/E1 | exception | pending-owner | said 1 | ",
-        "### rule/eeeeeee | gate | at-risk | said 1 | Oct 18 9:03 PM PT",
         "### rule/ccccccc | pick | in-force | said 1 | Oct 22 1:00 PM PT",
         "> Cards quote the words they ask about.",
         "9. **Register**: cards quote the words; a parked worker is never kept.",
@@ -1541,8 +1539,36 @@ def test_a_lane_slice_carries_every_global_row_and_every_matched_row_verbatim(ho
     ):
         assert line in lines
     assert "10. Next item." not in lines
-    assert "rule/bbbbbbb" not in out
-    assert "rule/ddddddd" not in out
+    for left_out in ("rule/bbbbbbb", "rule/ddddddd", "rule/eeeeeee", "exception/E1"):
+        assert left_out not in out
+    assert f"The register's other 4 rows match nothing of this lane or pass the 40 KB cap; read them with `ccn ledger show {REGISTER_LEDGER[:12]}`." in lines
+
+
+class StandingShell(RegisterShell):
+    def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
+        if argv[3:5] == ["doc", "list"]:
+            return json.dumps([{"id": "c3230a2" + "0" * 33, "body": "The standing rules.", "updated_at": STAMP}])
+        return super().run(argv, stdin, cwd)
+
+
+def test_a_lane_slice_of_a_register_larger_than_the_cap_stays_under_it_with_every_matching_row_and_a_pointer_at_the_standing_rules(home: Path, package: Path, state: Path, capsys) -> None:
+    """Root #256265: `slice --refresh` appended every global row, about 800 KB, to each brief, so a lane spent about 200k tokens reading its own brief."""
+    filler = {"kind": "scope", "status": "in-force", "global": "yes", "words": "Every lane keeps this rule. " * 40, "steps": '["all"]', "lanes": '["all"]', "paths": "none", "names": '["unrelated surface"]'}
+    rows = seeded(package) | {f"rule/{index:07x}": dict(filler) for index in range(400)}
+
+    _, out = ran(capsys, StandingShell(rows), "slice", "--lane", "lane-a", "--step", "1.9")
+
+    assert len(out.encode()) < rulings.SLICE_CAP
+    assert hashed_correctly(out)
+    assert set(required(out)) == {"rule/aaaaaaa", "rule/ccccccc"}
+    assert f"The register's other {len(rulings.register_reads.live_rows(rows)) - 2} rows match nothing of this lane or pass the 40 KB cap; read them with `ccn doc show c3230a2`." in out.splitlines()
+
+    named = seeded(package) | {f"rule/{index:07x}": filler | {"lanes": '["lane-a"]'} for index in range(400)}
+    _, out = ran(capsys, StandingShell(named), "slice", "--lane", "lane-a", "--step", "1.9")
+
+    assert len(out.encode()) < rulings.SLICE_CAP
+    assert "## Plan step 1.9" not in out
+    assert f"Plan step 1.9 passes the cap; read it at {package / 'plan' / 'plan.md'}:5-7." in out.splitlines()
 
 
 def test_a_slice_row_says_what_it_protects_and_when_it_does_not_apply(home: Path, package: Path, state: Path, capsys) -> None:
@@ -1583,7 +1609,7 @@ def test_the_root_slice_carries_every_scope_row(home: Path, package: Path, state
     assert "rule/ccccccc" not in out
 
 
-def test_an_incident_slice_carries_every_global_row_and_the_unclassified_captures(home: Path, package: Path, state: Path, capsys) -> None:
+def test_an_incident_slice_carries_the_unclassified_captures_and_points_at_the_register_for_its_rows(home: Path, package: Path, state: Path, capsys) -> None:
     captured(state, capture("9", "the shell never uploads"), capture("0", "chatter"))
     shell = RegisterShell(seeded(package) | {"no/" + "0" * 16: {"no": "chatter", "at": AT}})
 
@@ -1591,7 +1617,8 @@ def test_an_incident_slice_carries_every_global_row_and_the_unclassified_capture
 
     lines = out.splitlines()
     assert lines[0] == "Register slice: lane=fix-relay step=incident"
-    assert "### rule/aaaaaaa | scope | in-force | said 1 | Oct 21 9:15 PM PT" in lines
+    assert "rule/aaaaaaa" not in out
+    assert f"The register's other 6 rows match nothing of this lane or pass the 40 KB cap; read them with `ccn ledger show {REGISTER_LEDGER[:12]}`." in lines
     assert "## Owner captures not yet classified (1)" in lines
     assert "> the shell never uploads" in lines
     assert "rule/ccccccc" not in out
@@ -1852,12 +1879,12 @@ def test_readback_accepts_a_line_per_slice_row_and_a_verdict_per_hit(home: Path,
     header = ["Register slice: lane=lane-a step=1.9", f"slice-hash: {current}"]
     assert ran(capsys, read_back(*header, *rows, *marked), "readback", "--lane", "lane-a", "--contract", "500") == (
         0,
-        f"readback request lane-a {current}: 4 rows, contract #500 at {tmp_path / 'readback.md'}; a fidelity desk grades it against each row's words and implications\n",
+        f"readback request lane-a {current}: 2 rows, contract #500 at {tmp_path / 'readback.md'}; a fidelity desk grades it against each row's words and implications\n",
     )
-    request = f"readback request lane-a {current}: 4 rows, contract #500 at {tmp_path / 'readback.md'}; a fidelity desk grades it against each row's words and implications\n"
-    code, out = ran(capsys, read_back(*header, *rows[:2], *hits), "readback", "--lane", "lane-a", "--contract", "500")
+    request = f"readback request lane-a {current}: 2 rows, contract #500 at {tmp_path / 'readback.md'}; a fidelity desk grades it against each row's words and implications\n"
+    code, out = ran(capsys, read_back(*header, *rows[:1], *hits), "readback", "--lane", "lane-a", "--contract", "500")
     assert code == 0 and out.endswith(request)
-    assert "WARNING READBACK-ROW-MISSING rule/eeeeeee: no read-back line names it" in out.splitlines()
+    assert "WARNING READBACK-ROW-MISSING rule/ccccccc: no read-back line names it" in out.splitlines()
     assert f"WARNING READBACK-HIT-UNMARKED {hits[0]}" in out.splitlines()
     assert ran(capsys, read_back("Register slice: lane=lane-a step=1.9", "slice-hash: 000000000000", *rows, *marked), "readback", "--lane", "lane-a", "--contract", "500") == (0, request)
     assert ran(capsys, read_back("Register slice: lane=lane-a step=1.9", *rows, *marked), "readback", "--lane", "lane-a", "--contract", "500") == (0, request)
@@ -1896,7 +1923,7 @@ def test_a_read_back_with_no_slice_line_names_the_roots_command_then_takes_the_s
     brief = state / "briefs" / "lane-a.md"
     brief.parent.mkdir()
     brief.write_text("# lane-a\n\nBuild the pass.\n")
-    request = f"readback request lane-a {current}: 4 rows, contract #500 at {body}; a fidelity desk grades it against each row's words and implications"
+    request = f"readback request lane-a {current}: 2 rows, contract #500 at {body}; a fidelity desk grades it against each row's words and implications"
 
     assert ran(capsys, RegisterShell(seeded(package), records=records), "readback", "--lane", "lane-a", "--contract", "500") == (
         1,
@@ -1963,7 +1990,7 @@ def test_a_read_back_whose_slice_gained_a_row_still_goes_to_the_desk_with_the_ro
     assert code == 0
     assert out.splitlines() == [
         "WARNING READBACK-ROW-MISSING rule/fffffff: no read-back line names it",
-        f"readback request lane-a {rulings.SLICE_HASH.search(grown)['hash']}: 5 rows, contract #500 at {body}; a fidelity desk grades it against each row's words and implications",
+        f"readback request lane-a {rulings.SLICE_HASH.search(grown)['hash']}: 3 rows, contract #500 at {body}; a fidelity desk grades it against each row's words and implications",
     ]
 
 

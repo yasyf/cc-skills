@@ -174,6 +174,8 @@ UNCONFIRMED_AFTER = timedelta(hours=4)
 SLICE_HEADER = re.compile(r"^Register slice: lane=(?P<lane>\S+) step=(?P<step>\S+)(?: paths=(?P<paths>\S+))?(?P<codex> codex=yes)?[ \t]*$", re.MULTILINE)
 SLICE_HASH = re.compile(r"^slice-hash: (?P<hash>[0-9a-f]{12})$", re.MULTILINE)
 INCIDENT_STEP = "incident"
+SLICE_CAP = 40_000
+SLICE_TAIL = 1_000
 REPEAT_MARKERS = re.compile(
     r"\bi\b\W+(?:\w+\W+){0,2}?t[oi]ld you\b|\bi have said this\b|\bhow many times\b|\bwhy are you ignoring\b|\bwe already said\b",
     re.IGNORECASE,
@@ -808,7 +810,22 @@ class Want:
     def matches(self, fields: dict[str, str]) -> bool:
         if self.lane in listed(fields.get("lanes")) or steps_match(listed(fields.get("steps")), self.step):
             return True
+        return self.anchored(fields)
+
+    def anchored(self, fields: dict[str, str]) -> bool:
         return any(fnmatch.fnmatch(anchor, pattern) or fnmatch.fnmatch(pattern, anchor) for anchor in anchors(fields) for pattern in self.paths)
+
+    def rank(self, fields: dict[str, str], step_text: str) -> int | None:
+        """How closely a row is this lane's: 0 when it names the lane, 1 its plan step, 2 one of its paths, 3 when its plan step mentions one of the row's Names or Surfaces, None otherwise; a row for every step names none of them."""
+        if self.lane in listed(fields.get("lanes")):
+            return 0
+        if steps_match([value for value in listed(fields.get("steps")) if value != "all"], self.step):
+            return 1
+        if self.anchored(fields):
+            return 2
+        if step_text and any(named(step_text, term) for term in row_terms(fields)):
+            return 3
+        return None
 
     @classmethod
     def parse(cls, header: re.Match[str]) -> Want:
@@ -820,32 +837,69 @@ def write_in_first(item: tuple[str, dict[str, str]]) -> tuple[bool, str]:
     return "write-in" not in " ".join((fields.get("proof") or "", fields.get("evidence") or "", fields.get("note") or "")).lower(), key
 
 
+def row_terms(fields: dict[str, str]) -> list[str]:
+    surfaces = [part.strip() for surface in listed(fields.get("surfaces")) for part in re.split(r"[()]", str(surface)) if part.strip()]
+    return [term for term in (*names_of(fields), *surfaces) if term not in UNANCHORED]
+
+
+def weight(lines: list[str]) -> int:
+    return sum(len(line.encode()) + 1 for line in lines)
+
+
+@dataclass
+class Capped:
+    """A slice's lines, kept under `SLICE_CAP` bytes with `SLICE_TAIL` left for the lines that point past it."""
+
+    lines: list[str]
+    size: int = 0
+
+    def __post_init__(self) -> None:
+        self.size = weight(self.lines)
+
+    def add(self, block: list[str]) -> bool:
+        if self.size + (more := weight(block)) > SLICE_CAP - SLICE_TAIL:
+            return False
+        self.lines += block
+        self.size += more
+        return True
+
+
 def lane_slice(loaded: Register, want: Want, plan: Path | None) -> str:
     rulings = loaded.rulings()
-    lines = [want.header(), f"Program {loaded.program}, register ledger {loaded.ledger[:12]}. Every row is the owner's words, verbatim."]
-    if want.codex and (doc := register(loaded.shell, loaded.repo, loaded.program)):
-        lines += ["", "## Standing rules", doc["body"].rstrip()]
-    global_rows = {key: fields for key, fields in rulings.items() if is_global(fields)}
-    lines += section("Every global row", global_rows.items())
+    doc = register(loaded.shell, loaded.repo, loaded.program)
+    plan_lines = plan.read_text().splitlines() if plan and plan.is_file() else []
+    bounds = None if want.step == INCIDENT_STEP else step_bounds(plan_lines, want.step)
+    step_text = "\n".join(plan_lines[bounds[0] : bounds[1]]) if bounds else ""
+    ranks = {key: rank for key, fields in rulings.items() if (rank := want.rank(fields, step_text)) is not None}
+    out = Capped([
+        want.header(),
+        f"Program {loaded.program}, register ledger {loaded.ledger[:12]}. Every row is the owner's words, verbatim: the rows naming this lane, its step or its paths, then those whose Names or Surfaces its plan step mentions, up to {SLICE_CAP // 1000} KB.",
+    ])
+    if want.codex and doc:
+        out.add(["", "## Standing rules", doc["body"].rstrip()])
+    picks = sorted((key for key in ranks if rulings[key].get("kind") == "pick"), key=lambda key: write_in_first((key, rulings[key])))
+    rows = sorted((key for key in ranks if rulings[key].get("kind") != "pick"), key=ranks.__getitem__)
+    carried = 0
+    for title, keys in ((f"Rows matched for lane {want.lane} and step {want.step}", rows), (f"Board answers for step {want.step}, write-ins first", picks)):
+        out.add(["", f"## {title}"])
+        carried += sum(out.add(["", *rendered_row(key, rulings[key])]) for key in keys)
+    where = f"`ccn doc show {doc['id'][:7]}`" if doc else f"`ccn ledger show {loaded.ledger[:12]}`"
+    tail = [f"The register's other {len(rulings) - carried} rows match nothing of this lane or pass the {SLICE_CAP // 1000} KB cap; read them with {where}."]
     if want.step == INCIDENT_STEP:
         done = set(loaded.classified())
         pending = [capture for item, capture in judge.captures(loaded.state).items() if item not in done]
-        lines += ["", f"## Owner captures not yet classified ({len(pending)})"]
-        for capture in pending:
-            lines += ["", f"### {capture['digest']} | {capture.get('source', '')} | {capture.get('at', '')}", *(f"> {line}" for line in capture["text"].splitlines())]
-        return hashed(lines)
-    matched = {key: fields for key, fields in rulings.items() if key not in global_rows and want.matches(fields)}
-    lines += section(f"Rows matched for lane {want.lane} and step {want.step}", ((key, fields) for key, fields in matched.items() if fields.get("kind") != "pick"))
-    lines += section(f"Board answers for step {want.step}, write-ins first", sorted(((key, fields) for key, fields in matched.items() if fields.get("kind") == "pick"), key=write_in_first))
-    text = plan.read_text() if plan and plan.is_file() else ""
-    plan_lines = text.splitlines()
-    bounds = step_bounds(plan_lines, want.step)
-    lines += ["", f"## Sweep hits in plan step {want.step}"]
+        out.add(["", f"## Owner captures not yet classified ({len(pending)})"])
+        if left := sum(not out.add(["", f"### {capture['digest']} | {capture.get('source', '')} | {capture.get('at', '')}", *(f"> {line}" for line in capture["text"].splitlines())]) for capture in pending):
+            tail.append(f"{left} more unclassified owner captures pass the cap; `rulings.py classify` with no files lists them.")
+        return hashed([*out.lines, "", *tail])
+    out.add(["", f"## Sweep hits in plan step {want.step}"])
     if bounds:
         start, end = bounds
-        lines += [str(hit) for hit in Sweeper(loaded, loaded.scope()).lines(str(plan), ((number, plan_lines[number - 1]) for number in range(start + 1, end + 1)))]
-        lines += ["", f"## Plan step {want.step}", *plan_lines[start:end]]
-    return hashed(lines)
+        if left := sum(not out.add([str(hit)]) for hit in Sweeper(loaded, loaded.scope()).lines(str(plan), ((number, plan_lines[number - 1]) for number in range(start + 1, end + 1)))):
+            tail.append(f"{left} more sweep hits in plan step {want.step} pass the cap.")
+        if not out.add(["", f"## Plan step {want.step}", *plan_lines[start:end]]):
+            tail.append(f"Plan step {want.step} passes the cap; read it at {plan}:{start + 1}-{end}.")
+    return hashed([*out.lines, "", *tail])
 
 
 def root_slice(loaded: Register) -> str:
