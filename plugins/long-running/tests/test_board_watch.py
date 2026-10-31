@@ -25,6 +25,8 @@ class RecordedShell(board_watch.Shell):
         self.doc = doc or json.loads((FIXTURES / "outcomes.json").read_text())["doc"]
         self.refused = refused
         self.posts: list[list[str]] = []
+        self.tasks: list[tuple[str, list[str]]] = []
+        self.root = SESSION
 
     def watch(self, session: str):
         assert session == SESSION
@@ -45,8 +47,18 @@ class RecordedShell(board_watch.Shell):
     def now(self) -> datetime:
         return ARRIVED
 
-    def posted(self, name: str) -> list[str]:
-        return [post[post.index(name) + 1] for post in self.posts if name in post]
+    def root_session(self, drive_name: str) -> str | None:
+        return self.root
+
+    def entry(self, drive_name: str) -> dict | None:
+        return {"drive": drive_name, "program": drive_name, "checkout": "/checkouts/brook", "sessions": [SESSION]}
+
+    def ccn(self, checkout: str, argv: list[str]) -> subprocess.CompletedProcess:
+        self.tasks.append((checkout, argv))
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"id": f"task{len(self.tasks)}abcdef", "title": argv[2]}), "")
+
+    def posted(self, name: str, kind: str = "owner") -> list[str]:
+        return [post[post.index(name) + 1] for post in self.posts if name in post and post[post.index("--kind") + 1] == kind]
 
 
 def run(state: Path, shell: board_watch.Shell | None = None) -> list[dict]:
@@ -209,8 +221,8 @@ class MergeShell(RecordedShell):
 MERGE_DOC = {"blocks": [{"id": "card-merge", "type": "card", "title": "Merge these?", "children": [{"id": "merge-triage", "type": "triage", "items": [{"id": "merge-row-101", "hint": "commit abc1234, built on dev"}]}]}]}
 
 
-def ask(seq: int, text: str, kind: str = "ask", status: str = "open", drive: str = "brook") -> dict:
-    return {"seq": seq, "kind": kind, "status": status, "drive": drive, "text": text}
+def ask(seq: int, text: str, kind: str = "ask", status: str = "open", drive: str = "brook", lane: str = "root") -> dict:
+    return {"seq": seq, "lane": lane, "kind": kind, "status": status, "drive": drive, "text": text}
 
 
 def test_a_merge_tap_names_the_head_and_resolves_only_open_asks_on_that_row(tmp_path: Path) -> None:
@@ -239,6 +251,40 @@ def test_a_tap_resolves_open_asks_naming_its_block_or_card_but_not_a_longer_id(t
     run(tmp_path, shell)
 
     assert shell.posted("--resolves-seq") == ["21,22"] * 4
+
+
+def test_each_pick_and_write_in_on_the_roots_board_asks_root_for_a_lane_and_files_a_task(tmp_path: Path) -> None:
+    """Root #225532: three owner picks sat two hours with no lane, so each pick and write-in asks root for one the moment it lands."""
+    shell = RecordedShell()
+    run(tmp_path, shell)
+
+    assert shell.posted("--topic", "ask") == ["needs-lane:share-open-pick", "needs-lane:share-open-pick", "needs-lane:board-notes", "needs-lane:share-open-pick"]
+    assert shell.posted("--to", "ask") == ["root"] * 4
+    assert shell.posted("--id", "ask") == [f"needs-lane:{key}" for key in shell.posted("--id") if key.split(":")[2] in ("2", "3", "4", "8")]
+    assert shell.posted("--text", "ask")[0] == "NEEDS-LANE Should a shared note open in the browser? (share-open-pick) on board board-1: the owner wrote \u201conly for the team, and only read-only\u201d. Spawn a lane whose brief names share-open-pick, or have a lane post a claim naming it; task task1ab"
+    assert shell.posted("--text", "ask")[2].startswith("NEEDS-LANE board-notes on board board-1: the owner wrote \u201calso check the share menu\u201d.")
+    assert [attrs(post) for post in shell.posts if post[post.index("--kind") + 1] == "ask"][1] == {"session": SESSION, "block": "share-open-pick", "task": "task2abcdef"}
+    checkout, argv = shell.tasks[0]
+    assert (checkout, argv[:3]) == ("/checkouts/brook", ["task", "add", "Give the owner's pick on Should a shared note open in the browser? (share-open-pick) a lane"])
+    assert (argv[3], argv[5:]) == ("--body", ["--backlog", "--label", "program:brook", "--label", "needs-lane", "--json"])
+    assert len(shell.tasks) == 4
+
+
+@pytest.mark.parametrize(
+    ("bus", "root", "topics"),
+    [
+        ([ask(21, "parked on share-open-pick", lane="api-lane")], SESSION, ["needs-lane:board-notes"]),
+        ([ask(21, "share-open-pick needs a lane", lane="root")], SESSION, ["needs-lane:share-open-pick", "needs-lane:share-open-pick", "needs-lane:board-notes", "needs-lane:share-open-pick"]),
+        ([], "lane-board", []),
+    ],
+)
+def test_a_pick_that_answers_a_lanes_own_ask_or_lands_on_a_lanes_board_already_has_its_lane(tmp_path: Path, bus: list[dict], root: str, topics: list[str]) -> None:
+    shell = RecordedShell(bus)
+    shell.root = root
+    run(tmp_path, shell)
+
+    assert shell.posted("--topic", "ask") == topics
+    assert len(shell.tasks) == len(topics)
 
 
 def test_a_refused_post_is_reported_and_the_watch_keeps_recording(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
