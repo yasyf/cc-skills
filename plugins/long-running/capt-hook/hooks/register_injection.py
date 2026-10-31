@@ -53,9 +53,8 @@ ALERT_WORDS = re.compile(r"\b(?:alerts?|incidents?|outages?|sentry)\b|(?-i:\bmon
 TENANT_EDGE_403 = re.compile(r"\b403s?\b")
 STAND_DOWN = re.compile(r"\bstand[- ]?down\b", re.IGNORECASE)
 NO_403_STAND_DOWN = (
-    "Warning, nothing was blocked: this alert or incident brief has no step that stands down on tenant-edge 403s."
-    " Start it from `root/incident-template-fix.md` in the drive's scratch directory, whose step 2 posts STAND-DOWN on that class,"
-    " and launch it with `desk-launch.py incident <name> <brief>`. A brief that is no incident says `ccx: incident=none`."
+    "Warning, nothing was blocked: an alert or incident brief needs a step that stands down on tenant-edge 403s."
+    " Start it from the drive's `root/incident-template-fix.md` and launch it with `desk-launch.py incident <name> <brief>`, or mark a non-incident brief `ccx: incident=none`."
 )
 ALERT_BRIEF = "Datadog monitor 100000001 fired on POST /api/sessions.\n1. Classify the failing requests.\n2. Fix it.\n"
 STANDS_DOWN = ALERT_BRIEF.replace("2. Fix it.", "2. If they are tenant-edge 403s, post STAND-DOWN and stop.\n3. Fix it.")
@@ -266,14 +265,14 @@ def warn_unscaled_spawn(evt: BaseHookEvent) -> HookResult | None:
     only_if=[Tool("Agent")],
     skip_if=[Annotated("raw"), Annotated("incident", "none")],
     tests={
-        spawn("api-sessions-fix", ALERT_BRIEF): Warn(pattern=r"^Warning, nothing was blocked: this alert or incident brief has no step that stands down on tenant-edge 403s[\s\S]*desk-launch\.py incident <name> <brief>"),
+        spawn("api-sessions-fix", ALERT_BRIEF): Warn(pattern=r"^Warning, nothing was blocked: an alert or incident brief needs a step that stands down on tenant-edge 403s[\s\S]*desk-launch\.py incident <name> <brief>"),
         spawn("api-sessions-fix", STANDS_DOWN): Allow(),
         spawn("lane-a", SLICED): Allow(),
         spawn("incident-api-fix", "Fix it."): Warn(),
         spawn("api-fix", "Owner link: <https://x.slack.com/archives/C0|#alerts-api>. Fix it."): Warn(),
         spawn("api-fix", "Sentry issue API-1N80 spiked. Fix it."): Warn(),
         spawn("lane-a", "Lane lane-a: build the relay. Arm a Monitor on the PR."): Allow(),
-        spawn("lane-a", f"Your brief is {BRIEFS / 'quoted-incident.md'}; read it."): Allow(),
+        spawn("lane-a", f"Your brief is {BRIEFS / 'quoted-rulings.md'}; read it."): Allow(),
         spawn("api-sessions-fix", f"Your brief is {BRIEFS / 'alert.md'}; read it."): Warn(pattern=r"incident-template-fix\.md"),
         spawn("api-sessions-fix", f"ccx: incident=none\n{ALERT_BRIEF}"): Allow(),
         Input(tool="Agent", tool_input={"name": "incident-api-fix", "prompt": "Fix it."}): Allow(),
