@@ -3116,6 +3116,9 @@ Bus: cci drive <drive>; CLI cci, on PATH by name.
     that acts. Answer with `--kind answer --re <seq>`; use `--kind withdraw --re <seq>`
     before you change or retract a record. Set the topic and recipients on replies.
     A SendMessage carries the entry number, never the body.
+Registration: the pack binds your thread to your lane before your first command runs, with
+  one `<lane>: registered at its first command` state record, and the stall watch tells root
+  about a lane that has neither posted nor bound three minutes after its `SPAWNED` record.
 Peers: put your `cci me` line in every handoff. `cci who --pr <n>` names the session that
   owns a PR and `cci who --drive <drive> --role root` the root; SendMessage the address it prints.
 Codex: call `Skill(codex)` or `codex:codex-wrapper`; a one-off question goes to `codex-ask`.
