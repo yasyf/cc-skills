@@ -2715,7 +2715,7 @@ def test_a_stack_link_lists_every_open_pr_stacked_above_the_tip_so_gh_never_exit
     ]
     unlinked = (5, "", "stack-enqueue failed: #29020 targets a/2 without a native GitHub stack; link it with gh stack link\n")
     shell.gates["29020"] = [unlinked, gate("#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#29016 #29020")]
-    shell.gates["29031"] = [gate("#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", "#29031 BLOCKED dddd444444 CI running")]
+    root_hold(shell, 29031, text="hold #29031 until its review lands")
     shell.enqueue_out["29020"] = (0, "enqueue #29016 #29020: {}\n")
     grade(shell, "29016", "ok F307 at bbbb222.")
     grade(shell, "29020", "ok F307 at cccc333.")
