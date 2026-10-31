@@ -4552,7 +4552,7 @@ class Runner:
         return stop
 
     def queue_finders(self, repo: str, rows: dict[str, dict]) -> None:
-        """Accept one `finder:<pr>:<head>` action per PR and full head the drive's `head` and `opened` records past the saved sequence name, and per green head of an open ledger row, so a head two records name, or a restack that posted no record, queues once; a first read starts at the newest record."""
+        """Accept one `finder:<pr>:<head>` action per PR and full head the drive's `head` and `opened` records past the saved sequence name, and per green head of an open ledger row, so a head two records name, or a restack that posted no record, queues once; a first read starts at the newest record. A `head` record that names no PR, or a PR and no sha, sends its lane one `HEAD-UNQUEUED`, since no pass of either grader would ever name it (root #225521)."""
         cursor = self.book.fact(FINDER, FINDER_CURSOR, None)
         if cursor is None:
             newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
@@ -4565,6 +4565,9 @@ class Runner:
                     self.book.accept(FINDER, f"finder:{pr}:whole:{record['seq']}", "finder", json.dumps({"pr": pr, "head": "", "lane": record["lane"], "seq": record["seq"], "full": True}), f"cci#{record['seq']}", None)
         for record, pr, head in self.named_heads(repo, read):
             self.book.accept(FINDER, f"finder:{pr}:{head}", "finder", json.dumps({"pr": pr, "head": head, "lane": record["lane"], "seq": record["seq"], "full": False}), f"cci#{record['seq']}", None)
+        for record in read:
+            if (record["drive"], record["kind"]) == (self.config.drive, "head") and (gap := finder.head_gap(record, repo)):
+                self.escalate(f"head-unqueued:{record['seq']}", "HEAD-UNQUEUED", record["lane"], f"head record cci #{record['seq']} {gap}, so no finder or fidelity pass grades it; post it again as `cci post --kind head --pr <n> --head <n>=<sha>`", f"cci#{record['seq']}", record["lane"])
         if read:
             cursor = read[-1]["seq"]
             self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_CURSOR: cursor}))
@@ -5965,7 +5968,11 @@ class Landing:
         with self.dispatching:
             if any(not future.done() and members & others for others, future in self.inflight.values()):
                 return None
-            future = self.workers.submit(work)
+            def read():
+                with self.build_cache.book.store.reading():
+                    work()
+
+            future = self.workers.submit(read)
             self.inflight[key] = (members, future)
             return future
 
@@ -6487,11 +6494,13 @@ class Landing:
         heads = [row["head"] for row in rows.values() if row.get("state", "open") == "open" and row.get("head")]
         with ThreadPoolExecutor(GATE_WORKERS) as pool:
             urls = [url for found in pool.map(self.ci_builds, heads) for url, state, skip in found or [] if skip is False and state in ("success", "failure") and BUILD_URL.search(url)["pipeline"] == pipeline]
+            with self.build_cache.book.store.reading():
+                for url in urls:
+                    self.kept_build(url)
             builds = [build for build in pool.map(self.build, urls) if build]
         return {job.get("step_key") or job["name"] for build in builds for job in build.get("jobs", []) if job.get("type") == "script"} if builds else None
 
-    def build(self, url: str, *, refresh: bool = False) -> dict | None:
-        """The Buildkite build at `url`, read through `landing.ci_build` and kept once it has finished."""
+    def kept_build(self, url: str, *, refresh: bool = False) -> dict | None:
         with self.building:
             if refresh:
                 self.builds.pop(url, None)
@@ -6504,6 +6513,12 @@ class Landing:
                 if (kept := self.build_cache.get(url)) is not None:
                     self.builds[url] = kept
                     return kept
+        return None
+
+    def build(self, url: str, *, refresh: bool = False) -> dict | None:
+        """The Buildkite build at `url`, read through `landing.ci_build` and kept once it has finished."""
+        if (kept := self.kept_build(url, refresh=refresh)) is not None:
+            return kept
         done = self.shell.run(release_build_argv(self.checkout, self.landing_config["ci_build"], url))
         if done.code != 0:
             return None
@@ -6987,10 +7002,11 @@ class Landing:
         return False
 
     def check_finder(self, graded: Graded) -> dict[str, merge_queue.State]:
-        """Each head with no finder record, or whose newest names an open major that root has not settled, fails `FINDER-PENDING`, with one blocker to its lane and `finder-desk` per head and failing record (E4.1); a head with no finder record queues a finder pass when none waits or runs on it."""
+        """Each head with no finder record, or whose newest names an open major that root has not settled, fails `FINDER-PENDING`, with one blocker to its lane and `finder-desk` per head and failing record (E4.1); a head with no finder record queues a finder pass when none waits or runs on it. A PR the owner tapped at any head passes, since he merges it as it is and its findings are answered, never block (owner 2:48 AM Oct 31)."""
         states, failed = {}, {}
+        tapped = self.owner_tapped()
         for pr, sha in graded.heads.items():
-            if self.finder_clear(pr, sha):
+            if pr in tapped or self.finder_clear(pr, sha):
                 continue
             verdict = self.finder(pr, sha)
             why = f"{verdict['lane']} posted on cci #{verdict['seq']}: {verdict['text']}" if verdict else f"no `finder:` record from {finder.LANE} names this head, and a lane's own finder record never grades it"
@@ -7128,10 +7144,19 @@ class Landing:
         return self.imported[key]
 
     def check_fidelity(self, graded: Graded) -> dict[str, merge_queue.State]:
-        ungraded = self.ungraded(graded.heads)
+        """Each head the fidelity lane has not graded ok fails with why, and one blocker per grade; a PR the owner tapped at any head passes, since he merges it as it is (owner 2:48 AM Oct 31)."""
+        tapped = self.owner_tapped()
+        ungraded = self.ungraded({pr: sha for pr, sha in graded.heads.items() if pr not in tapped})
         if graded.act and ungraded:
             self.refuse_ungraded(graded.heads, ungraded, graded.rows)
         return {pr: merge_queue.State(merge_queue.FAIL, grade.why) for pr, grade in ungraded.items()}
+
+    def owner_tapped(self) -> set[str]:
+        """The PRs an approval on the root's board names at any head, from its records; none when they do not read, so every grade gate holds that pass."""
+        try:
+            return approved_prs(board_rows.verdicts_of_records(self.runner.board_records()))
+        except CciTailFailed:
+            return set()
 
     def check_merge_mode(self, graded: Graded) -> dict[str, merge_queue.State]:
         if (asks := self.owner_asks(graded.heads)) is None:
@@ -7549,10 +7574,7 @@ class Landing:
 
     def askable(self, heads: dict[str, str], asking: list[str], rows: dict[str, dict]) -> list[str]:
         """The PRs of `asking` the owner can tap now: he has approved no head of the PR, since a PR he tapped never returns to his board (owner 2:48 AM Oct 31), a fidelity ok stands at the head, the finder is clear there, and the root's board holds a row at that head (root #191653). A graded head with no row is told to the board lanes once, so the row goes up in their next pass; an ungraded head already has its grade blocker."""
-        try:
-            tapped = approved_prs(board_rows.verdicts_of_records(self.runner.board_records()))
-        except CciTailFailed:
-            return []
+        tapped = self.owner_tapped()
         graded = [pr for pr in asking if pr not in tapped and self.fidelity(pr, heads[pr]).ok and self.finder_clear(pr, heads[pr])]
         if not graded or (board := self.board_heads()) is None:
             return []
@@ -9367,14 +9389,15 @@ class Landing:
         return done
 
     def run(self) -> None:
-        self.ask_rulings()
-        self.cci_tail.remember()
-        try:
-            self.gate_pass()
-        finally:
-            self.cci_tail.stop()
-            self.report_unread()
-            self.keep_builds()
+        with self.build_cache.book.store.reading():
+            self.ask_rulings()
+            self.cci_tail.remember()
+            try:
+                self.gate_pass()
+            finally:
+                self.cci_tail.stop()
+                self.report_unread()
+                self.keep_builds()
 
     def ask_rulings(self) -> None:
         """Log one `RULING-ASK` per board round while ruling cards `rulings.py classify` wrote queue under the drive's `cards/`; the root puts the round on the cc-present board with `rulings.py round`, never one card per ruling."""
@@ -9449,7 +9472,11 @@ class Landing:
         gone = self.land_gone(rows, barred) if gating else set()
         self.runner.steps(lambda: self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}), self.reconcile, lambda: self.requeue(rows))
         if not self.side_work:
-            self.side_work = self.side.submit(self.runner.steps, lambda: self.verify(rows), lambda: self.announce_landings(rows), lambda: self.releases(rows), self.ungraded_after, lambda: self.verify_restacks(rows))
+            def side_steps():
+                with self.build_cache.book.store.reading():
+                    self.runner.steps(lambda: self.verify(rows), lambda: self.announce_landings(rows), lambda: self.releases(rows), self.ungraded_after, lambda: self.verify_restacks(rows))
+
+            self.side_work = self.side.submit(side_steps)
         if not self.tidy_work:
             self.tidy_work = self.tidying.submit(self.remove_landed_worktrees, rows)
         self.runner.steps(lambda: self.resubmit_graphite_base(rows))

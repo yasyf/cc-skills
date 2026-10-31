@@ -73,3 +73,7 @@ def test_landable_reads_every_gate():
     assert LANDABLE.landable
     for broken in (dict(ci="pending"), dict(mergeable="conflict"), dict(finder=None), dict(fidelity="fail"), dict(tap=None), dict(hold="owner"), dict(carries=(1,))):
         assert not facts(**broken).landable, broken
+
+
+def test_a_conditional_tap_waits_on_the_owner_like_no_tap():
+    assert classify(facts(tap="conditional", condition="only if covered")) == Verdict(State.AWAITING_TAP, Mover.OWNER, Action.TAP, timedelta(hours=12))

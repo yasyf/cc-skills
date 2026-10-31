@@ -101,6 +101,8 @@ def test_check_pr_reaches_real_cold_and_warm_board_and_model_paths_with_request_
     key = "rule/bbbbbbb" if branch == "shape" else "rule/abcabca"
     if branch == "wait":
         rows[key] = dict(TIMER_ANSWER_ROW)
+    else:
+        rows[key]["words"] = "One pool process drains every run when it closes"
     rows[key]["proof"] = PROOF
     request_state = tmp_path / "request-state"
     owner(request_state)

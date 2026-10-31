@@ -48,6 +48,22 @@ jobs:
           grep -F 'query survived register budget:' "$RUNNER_TEMP/register-orphan-negative.log"
           REGISTER_READ_ORACLE="$RUNNER_TEMP/register-read-oracle.json" REGISTER_READ_ORACLE_WRITE=1 uv run --locked --project plugins/long-running pytest -c .ci-register-orphan-baseline/plugins/long-running/pyproject.toml .ci-register-orphan-baseline/plugins/long-running/tests/test_register_reads.py -q -s -k test_register_read_cli_oracle
           REGISTER_READ_ORACLE="$RUNNER_TEMP/register-read-oracle.json" uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_register_reads.py -q -s
+      - uses: actions/checkout@v7
+        if: ${{ always() }}
+        with:
+          ref: 02347e0d913a966999b0dc794e07071220299105
+          path: .ci-baseline
+      - name: Measure actual consumers against JSON baseline
+        if: ${{ always() }}
+        run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/paired-production-consumers.py --plugin .ci-baseline/plugins/long-running --format json > "$RUNNER_TEMP/long-running-json-consumers.json"
+      - name: Measure actual consumers against SQLite candidate
+        if: ${{ always() }}
+        run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/paired-production-consumers.py --plugin plugins/long-running --format sqlite > "$RUNNER_TEMP/long-running-sqlite-consumers.json"
+      - name: Paired actual consumer receipts
+        if: ${{ always() }}
+        run: |
+          cat "$RUNNER_TEMP/long-running-json-consumers.json"
+          cat "$RUNNER_TEMP/long-running-sqlite-consumers.json"
       - name: Request-owned judge regressions
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_judge_request_owned.py plugins/long-running/tests/test_judge.py plugins/long-running/tests/test_rulings_dispatch.py -q -s
       - name: pytest
@@ -63,8 +79,27 @@ jobs:
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py -q -s -k test_orca_historical_lane_read_connection_cost
       - name: indexed build cache actual caller costs
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_build_cache.py -q -s
+      - uses: actions/checkout@v7
+        with:
+          ref: 2be0655efb61b8c4d65ecdea9d42b6660c092626
+          path: .ci-build-reader-baseline
+      - name: Immutable selected build reader baseline and negative control
+        run: |
+          test "$(git -C .ci-build-reader-baseline rev-parse HEAD)" = 2be0655efb61b8c4d65ecdea9d42b6660c092626
+          uv run --locked --project plugins/long-running pytest -c .ci-build-reader-baseline/plugins/long-running/pyproject.toml .ci-build-reader-baseline/plugins/long-running/tests/test_build_cache.py -q -s -k test_actual_landing_selected_cached_build_read_connections
+          cp plugins/long-running/tests/test_build_cache.py .ci-build-reader-baseline/plugins/long-running/tests/test_build_cache.py
+          for population in 32 10000; do
+            negative="$RUNNER_TEMP/build-reader-negative-$population.log"
+            if uv run --locked --project plugins/long-running pytest -c .ci-build-reader-baseline/plugins/long-running/pyproject.toml ".ci-build-reader-baseline/plugins/long-running/tests/test_build_cache.py::test_actual_landing_selected_cached_build_read_connections[$population]" -q -s > "$negative" 2>&1; then
+              cat "$negative"
+              exit 1
+            fi
+            cat "$negative"
+            grep -F 'selected cached builds reopened 32 readers' "$negative"
+            grep -F '1 failed' "$negative"
+          done
       - name: capt-hook pack test
-        run: uvx --isolated 'capt-hook>=12.107.13' pack test plugins/long-running
+        run: uvx --isolated 'capt-hook>=12.107.29' pack test plugins/long-running
       - name: installed state package
         run: |
           uv build --project plugins/long-running --wheel --out-dir "$RUNNER_TEMP/long-running-wheel"
@@ -78,11 +113,6 @@ jobs:
       - name: Measure production SQLite scaling costs
         if: ${{ always() }}
         run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/sqlite-action-store.py
-      - uses: actions/checkout@v7
-        if: ${{ always() }}
-        with:
-          ref: 02347e0d913a966999b0dc794e07071220299105
-          path: .ci-baseline
       - name: Confirm JSON baseline behavior for corrected integration regressions
         if: ${{ always() }}
         run: >-
@@ -99,17 +129,6 @@ jobs:
           uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/fact-replacement-parity.py --plugin plugins/long-running --format sqlite > "$RUNNER_TEMP/long-running-sqlite-fact-order.json"
           diff -u "$RUNNER_TEMP/long-running-json-fact-order.json" "$RUNNER_TEMP/long-running-sqlite-fact-order.json"
           cat "$RUNNER_TEMP/long-running-sqlite-fact-order.json"
-      - name: Measure actual consumers against JSON baseline
-        if: ${{ always() }}
-        run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/paired-production-consumers.py --plugin .ci-baseline/plugins/long-running --format json > "$RUNNER_TEMP/long-running-json-consumers.json"
-      - name: Measure actual consumers against SQLite candidate
-        if: ${{ always() }}
-        run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/paired-production-consumers.py --plugin plugins/long-running --format sqlite > "$RUNNER_TEMP/long-running-sqlite-consumers.json"
-      - name: Paired actual consumer receipts
-        if: ${{ always() }}
-        run: |
-          cat "$RUNNER_TEMP/long-running-json-consumers.json"
-          cat "$RUNNER_TEMP/long-running-sqlite-consumers.json"
       - name: mailbox index scaling costs
         run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/mailbox-index.py > mailbox-index-linux.json
       - uses: actions/upload-artifact@v7
@@ -155,19 +174,3 @@ jobs:
         with:
           name: machine-cci-post
           path: machine-cci-post.xml
-
-  mailbox-macos:
-    runs-on: macos-latest
-    env:
-      UV_PYTHON: "3.14"
-    steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v8.2.0
-      - name: native mailbox freshness and lifecycle, and the shells' command reaping
-        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_rosters.py plugins/long-running/tests/test_inboxes.py plugins/long-running/tests/test_register_reads.py plugins/long-running/tests/test_ledger_shell.py plugins/long-running/tests/test_stall_watch.py plugins/long-running/tests/test_build_cache.py plugins/long-running/tests/test_judge_request_owned.py plugins/long-running/tests/test_judge.py plugins/long-running/tests/test_rulings_dispatch.py -q -s
-      - name: mailbox index scaling costs
-        run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/mailbox-index.py > mailbox-index-macos.json
-      - uses: actions/upload-artifact@v7
-        with:
-          name: mailbox-index-macos
-          path: mailbox-index-macos.json

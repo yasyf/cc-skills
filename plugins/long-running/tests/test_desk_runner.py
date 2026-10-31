@@ -4111,6 +4111,20 @@ def tap_notes(shell: FakeShell) -> list[dict]:
     return [post for post in shell.posts if post["kind"] in ("note", "ask") and post["text"].startswith("TAP-")]
 
 
+def test_a_pr_the_owner_tapped_lands_on_its_go_with_no_fidelity_grade_and_an_open_finder_major(shell, config, tmp_path):
+    """Owner 2:48 AM Oct 31: a tapped PR merges as it is, and its finder and fidelity findings are answered, never block (root #248666)."""
+    board_surface(config)
+    lone_green_pr(shell)
+    finder_verdict(shell, "29020", "major cccc333 1 open: go/a.go:12 the retry drops the sealed read")
+    merge_go(shell, "29020", "go #29020 at cccc333")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    tap(shell, "29020", "aaaa111111")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
 def test_a_snapshot_from_an_older_board_watch_with_no_blocks_carries_no_tap_and_the_pass_goes_on(shell, config, tmp_path):
     board_surface(config)
     board_lane(config)
@@ -13795,6 +13809,23 @@ def test_a_head_record_spelling_a_short_sha_queues_the_full_head_its_pr_is_at(sh
     head_record(shell, "43299", FINDER_OLD[:11], fields={})
     orca_pass(shell, config)
     assert [(job["pr"], job["head"]) for job in finder_jobs(shell)] == [("43439", FINDER_HEAD)]
+
+
+def test_a_head_record_that_queues_no_grader_pass_tells_its_lane_once_why(shell, config):
+    """Root #225521: two HEAD records queued no grader pass and nothing said so for 45 minutes."""
+    finder_config(config)
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    no_sha = head_record(shell, "43440", "", fields={}, text="HEAD #43440 restacked onto dev")
+    no_pr = head_record(shell, "", "", lane="p8a-step6b-creds-6", refs={}, fields={}, text=f"HEAD {FINDER_HEAD[:3]} pushed")
+    head_record(shell, "", "", refs={"prs": ["yasyf/cc-skills#836"]}, fields={}, text="HEAD cc-skills tip pushed")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [(job["pr"], job["head"]) for job in finder_jobs(shell)] == [("43439", FINDER_HEAD)]
+    assert [(post["to"], line.split(":")[0]) for post, line in zip(shell.posts, said(shell)) if line.startswith("HEAD-UNQUEUED")] == [
+        ("p8a-step9", f"HEAD-UNQUEUED cci#{no_sha} p8a-step9"),
+        ("p8a-step6b-creds-6", f"HEAD-UNQUEUED cci#{no_pr} p8a-step6b-creds-6"),
+    ]
 
 
 def test_the_orca_desk_posts_as_orca_desk_at_start_so_an_order_addressed_to_it_is_not_refused(shell, config):
