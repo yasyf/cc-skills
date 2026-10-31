@@ -8037,7 +8037,7 @@ class Landing:
         why = {}
         for pr in prefix:
             if named := [record for record in incidents if names_pr({**record, "text": full_text(record)}, pr)]:
-                why[pr] = f"open INCIDENT #{named[-1]['seq']}, whose lane squash-merges it directly, never through the queue"
+                why[pr] = f"open INCIDENT {named[-1]['num']}, whose lane squash-merges it directly, never through the queue"
             elif reason := self.label_hold(pr) or self.record_hold(pr, accepted_at):
                 why[pr] = reason
         return why

@@ -3070,14 +3070,16 @@ def test_a_hold_that_appears_after_the_gate_refuses_the_enqueue_with_one_line_na
     assert shell.enqueues() == []
 
 
-def test_an_open_incident_naming_the_pr_refuses_its_enqueue_naming_the_incident(shell, config, tmp_path):
+@pytest.mark.parametrize("number", ["#42", "#7", "#100@bbbbbbbb"])
+def test_an_open_incident_naming_the_pr_refuses_its_enqueue_naming_the_incident(shell, config, tmp_path, number):
     lone_green_pr(shell)
     grade_gated_heads_ok(shell)
-    incident = {"seq": 42, "drive": "d1", "lane": "incident-api-1", "kind": "incident", "status": "open", "to": ["root"], "refs": {}, "text": "INCIDENT api 5xx; the fix is #29020", "source": "post", "at": "2026-10-01T17:59:00Z"}
+    incident = {"seq": 42, "num": number, "drive": "d1", "lane": "incident-api-1", "kind": "incident", "status": "open", "to": ["root"], "refs": {}, "text": "INCIDENT api 5xx; the fix is #29020", "source": "post", "at": "2026-10-01T17:59:00Z"}
     after_call(shell, is_check, lambda: incident in shell.records or {**incident, "status": "closed"} in shell.records or shell.records.append(incident))
     landing_pass(shell, config)
     refused = [line for line in escalations(shell) if line.startswith("REFUSED refused:")]
-    assert len(refused) == 1 and "#29020 is held by open INCIDENT #42, whose lane squash-merges it directly" in refused[0]
+    assert len(refused) == 1
+    assert f"#29020 is held by open INCIDENT {number}, whose lane squash-merges it directly" in refused[0], f"origin-qualified incident citation expected {number}: {refused[0]}"
     assert shell.enqueues() == []
     shell.records[shell.records.index(incident)] = {**incident, "status": "closed"}
     landing_pass(shell, config)
