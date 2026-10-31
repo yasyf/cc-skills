@@ -7,7 +7,7 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import cci
+from long_running import cci
 import pytest
 
 
