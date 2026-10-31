@@ -5,8 +5,9 @@ once which lanes `cci who` lists live, and acts on each desired lane: one that s
 went silent past `STALE_AFTER`, is stood down by one record naming its successor and the
 PRs it takes over, and the successor launches from the lane's brief and newest handoff; one
 past its context line is asked to rotate, and rotated the same way when no handoff answers
-within the interval. A fresh store adopts only the lanes live at that moment. It signals no
-process: a live lane leaves only through the record that stands it down.
+within the interval. A fresh store adopts only the lanes live at that moment, and a tick whose
+sources do not all answer acts on nothing. It signals no process: a live lane leaves only
+through the record that stands it down.
 """
 
 from __future__ import annotations
@@ -34,6 +35,10 @@ PACIFIC = ZoneInfo("America/Los_Angeles")
 HANDOFF_BRIEF = Path(__file__).parents[3] / "reference" / "handoff-subagent-brief.md"
 
 
+class Unread(RuntimeError):
+    """A liveness source or the bus did not answer; the tick acts on nothing rather than on half a picture."""
+
+
 @dataclass(frozen=True)
 class Peer:
     lane: str
@@ -48,7 +53,7 @@ class Deps:
     checkout: str
     briefs: Path
     records: Callable[[int], list[dict]]
-    who: Callable[[], list[dict]]
+    who: Callable[[set[str] | None], list[dict]]
     tokens: Callable[[dict], int | None]
     transcript: Callable[[dict], Path | None]
     cci: Callable[[list[str]], str]
@@ -214,9 +219,13 @@ def classify_lane(lane: Lane, peer: Peer | None, now: datetime, tokens: int | No
     return Verdict("ok")
 
 
+def post(deps: Deps, kind: str, to: str, text: str, *flags: str) -> None:
+    deps.cci(["post", "--drive", deps.drive, "--lane", SELF, "--kind", kind, "--to", to, *flags, "--text", text])
+
+
 def escalate(store: Store, deps: Deps, subject: str, cause: str, now: datetime) -> None:
     if store.escalate(subject, cause, ROOT, now):
-        deps.cci(["post", "--drive", deps.drive, "--lane", SELF, "--kind", "blocker", "--to", ROOT, "--lane-ref", subject, "--text", f"{pacific(now)} {subject}: {cause}"])
+        post(deps, "blocker", ROOT, f"{pacific(now)} {subject}: {cause}", "--lane-ref", subject.removeprefix("lane:"))
 
 
 def relaunch(store: Store, deps: Deps, old: Lane, peer: Peer | None, why: str, taken: set[str], now: datetime, out: Outcome) -> None:
@@ -232,12 +241,12 @@ def relaunch(store: Store, deps: Deps, old: Lane, peer: Peer | None, why: str, t
     brief = deps.briefs / f"{new}.brief.md"
     brief.parent.mkdir(parents=True, exist_ok=True)
     brief.write_text(successor_brief(old, new, why, deps, deps.transcript(peer.row) if peer else None))
-    deps.cci(["post", "--drive", deps.drive, "--lane", SELF, "--kind", "stand-down", "--to", old.name, "--successor", new, *[arg for n in old.prs for arg in ("--pr", str(n))], "--text", f"{pacific(now)} {old.name} stood down for {new}: it {why}."])
+    post(deps, "stand-down", old.name, f"{pacific(now)} {old.name} stood down for {new}: it {why}.", "--successor", new, *[arg for n in old.prs for arg in ("--pr", str(n))])
     store.set_lane(old.name, state="retired", retired_by=new, since=now)
     store.want_lane(new, old.brief, old.model, old.effort, old.role, "launching", now, handoff=old.handoff, prs=old.prs, predecessor=old.name, reason=why, strikes=strikes)
     deps.launch(new, old.model, old.effort, brief)
     owned = " ".join(f"#{n}" for n in old.prs)
-    deps.cci(["post", "--drive", deps.drive, "--lane", SELF, "--kind", "report", "--to", ROOT, "--lane-ref", new, "--text", f"{pacific(now)} RELAUNCHED {old.name} as {new}: it {why}; handoff {old.handoff or 'none, the successor writes it'}; PRs {owned or 'none'}; brief {brief}"])
+    post(deps, "report", ROOT, f"{pacific(now)} RELAUNCHED {old.name} as {new}: it {why}; handoff {old.handoff or 'none, the successor writes it'}; PRs {owned or 'none'}; brief {brief}", "--lane-ref", new)
     out.relaunched.append((old.name, new, why))
 
 
@@ -252,15 +261,18 @@ def hourly(store: Store, deps: Deps, now: datetime) -> None:
     if not restarted:
         return
     words = "; ".join(f"{lane.predecessor} {lane.reason}, so {lane.name} took over" for lane in restarted)
-    deps.cci(["post", "--drive", deps.drive, "--lane", SELF, "--kind", "report", "--to", ROOT, "--attr", "audience=owner", "--text", f"Between {pacific(start)} and {pacific(start + timedelta(hours=1))} the lane supervisor restarted {len(restarted)} lane{'s' if len(restarted) > 1 else ''} with no root action: {words}."])
+    post(deps, "report", ROOT, f"Between {pacific(start)} and {pacific(start + timedelta(hours=1))} the lane supervisor restarted {len(restarted)} lane{'s' if len(restarted) > 1 else ''} with no root action: {words}.", "--attr", "audience=owner")
 
 
 def tick(store: Store, deps: Deps, now: datetime) -> Outcome:
     out = Outcome()
     now = parse(stamp(now))
     fresh = store.cursor(CURSOR) == 0
-    found = peers(deps.who())
-    records = deps.records(store.cursor(CURSOR))
+    try:
+        found = peers(deps.who(None if fresh else {lane.name for lane in store.lanes(*LIVE)}))
+        records = deps.records(store.cursor(CURSOR))
+    except Unread:
+        return out
     out.adopted = fold(store, records, {lane for lane, peer in found.items() if peer.live} if fresh else None)
     if records:
         store.advance(CURSOR, max(record["seq"] for record in records))
@@ -278,7 +290,7 @@ def tick(store: Store, deps: Deps, now: datetime) -> Outcome:
         elif verdict.kind in ("dead", "rotating"):
             relaunch(store, deps, lane, peer, verdict.why, taken, now, out)
         elif verdict.kind == "ask-rotate":
-            deps.cci(["post", "--drive", deps.drive, "--lane", SELF, "--kind", "ask", "--to", lane.name, "--text", f"ROTATE: {lane.name} is at {verdict.why}. Write anything not yet in the ledger or cc-notes to a cc-notes doc, post `cci post --lane {lane.name} --kind handoff --ccn <doc id> --re <this record>`, then keep working."])
+            post(deps, "ask", lane.name, f"ROTATE: {lane.name} is at {verdict.why}. Write anything not yet in the ledger or cc-notes to a cc-notes doc, post `cci post --lane {lane.name} --kind handoff --ccn <doc id> --re <this record>`, then keep working.")
             store.set_lane(lane.name, asked=now)
             out.asked.append(lane.name)
     hourly(store, deps, now)
