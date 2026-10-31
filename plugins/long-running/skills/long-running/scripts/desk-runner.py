@@ -8750,7 +8750,7 @@ class Landing:
         if not current or current["verdict"] != "BLOCKED" or self.adapter.blocker(current, stack, gated_red) != blocker:
             return
         status = (self.pr_statuses() or {}).get(pr, {})
-        if self.adapter.evicted_only(current) or status.get("queue") == "evicted":
+        if self.adapter.evicted_only(current) or self.adapter.kind == merge_queue.TrunkStackEnqueue.kind and status.get("queue") == "evicted":
             self.post_blocker(key, ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])), f"#{pr} {sha}: {blocker.text}; the queue dropped it at {status.get('evicted_at') or 'an unstamped time'}: {status.get('evicted') or 'no reason given'}", pr)
         elif parked:
             self.runner.escalate(f"{PARKED}:{pr}", "PARKED", f"#{pr}", f"{sha}: {owner} has no live dispatch or cci session, so its conflict routes to no one until the lane is back: {blocker.text}")
