@@ -4509,8 +4509,9 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   state record that `drive.py spawned` posts at each Orca launch and drive-lane spawn,
   with its brief, model, effort and role. Helper roles and `<lane>-handoff` writers stay
   out. A lane's `head` and `opened` records move their PRs to it, `landed` records drop
-  them, a root `decide ... owner=<lane>` moves them, `done` retires the lane, and a root
-  `stand-down` retires it or hands it to the successor it names. A lane is also retired
+  them, a root `decide ... owner=<lane>` moves them, the lane's own `done`, `stopped`, or
+  `<lane> STAND-DOWN` record retires it, and a root `stand-down` retires it or hands it
+  to the successor it names. A lane is also retired
   by the `SPAWNED` record of a numbered successor (`desk-4` for `desk-3`), by a root
   `<new> replaces <old>`, and, while it has never come up, by another lane's records
   taking its last PR. A `<lane>-handoff` writer's `handoff <lane>: doc <id>` is the

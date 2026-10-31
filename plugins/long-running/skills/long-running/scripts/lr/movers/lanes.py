@@ -41,6 +41,7 @@ HANDED_OFF = re.compile(r"\bhandoff (?P<lane>[\w.-]+): doc (?P<doc>[0-9a-f]{7,40
 CARRIES = ("head", "opened")
 WAITS = frozenset({"ask", "blocked", "blocker"})
 SLICE_STEP = re.compile(r"^Register slice: lane=\S+ step=(\S+)", re.MULTILINE)
+STOOD_DOWN = r"^(?:\d{{1,2}}:\d{{2}} [AP]M )?{}:? (?:STAND-DOWN|stood down|standing down)\b"
 OWNER = re.compile(r"\bowner=([\w.-]+)")
 PACIFIC = ZoneInfo("America/Los_Angeles")
 HANDOFF_BRIEF = Path(__file__).parents[3] / "reference" / "handoff-subagent-brief.md"
@@ -188,6 +189,8 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
                         store.lane_prs(owner.name, [n for n in owner.prs if n != number])
         elif kind == "done" and row and row.state != "retired":
             retire(store, lane, "done", at)
+        elif row and row.state != "retired" and (kind == "stopped" or re.match(STOOD_DOWN.format(re.escape(lane)), text, re.IGNORECASE)):
+            retire(store, lane, "stand-down", at)
         elif kind == "stand-down" and lane == ROOT:
             for old in record.get("to") or []:
                 if (gone := store.lane(old)) and gone.state != "retired":
