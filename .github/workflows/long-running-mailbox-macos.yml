@@ -61,6 +61,7 @@ jobs:
       - name: Indexed blocker candidate semantics and old writer
         run: |
           uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_blocker_candidates.py -q -s
+          uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_cci_selected_records.py plugins/long-running/tests/test_desk_runner.py -k 'stale_blocker or selected_records' -q
           LR_BLOCKER_OLD_SCRIPTS="$GITHUB_WORKSPACE/.ci-stale-blocker-baseline/plugins/long-running/skills/long-running/scripts" uv run --locked --project plugins/long-running pytest plugins/long-running/tests/blocker_index_old_writer_integration.py -q -s
       - name: Stale-blocker internal references
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py::test_stale_blocker_uses_internal_reference_for_mixed_origin_receipt -q
