@@ -31,12 +31,14 @@ wait advances line-count cursors over the same stream and prints new nonblank
 lines clipped to 400 characters, ending clipped lines with an ellipsis. It returns
 when lines arrive or prints QUIET with the Pacific time at the deadline. Display
 clipping never cuts lines stored in the inbox. A .json file in an inboxes directory
-is a team mailbox whose cursor counts seen entries, starting at 0 if missing or
-if the mailbox shrinks below it. An entry past the cursor with read=false ends
-the call with MAILBOX <n> unread (n counts all read=false entries), followed by
-each such entry as a `== <from> <timestamp>` header and its full text. Claude Code
-delivers an in-process teammate's mail only once its turn ends, so a busy lane reads
-the message here, not from the harness. The stat check runs every
+is a team mailbox whose cursor lists the keys of entries already printed: the
+entry's msg_id, or a hash of its sender, timestamp, and text when it has none. A
+read=false entry whose key is not in the cursor ends the call with MAILBOX <n>
+unread (n counts those entries), followed by each as a `== <from> <timestamp>`
+header and its full text. Claude Code delivers an in-process teammate's mail only
+once its turn ends, so a busy lane reads the message here. After printing, wait
+marks those entries read=true under the harness's own `<mailbox>.lock` directory
+lock, so Claude Code never delivers them a second time at turn end. The stat check runs every
 0.2 s, so a wake lands within about 2 s; read=true entries and a missing mailbox
 never wake it. A mailbox:<lane> source watches the team mailbox `mailbox` resolves
 for <lane>, and the call exits 1 when no roster lists it. A <file> source must be an
@@ -63,6 +65,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -89,6 +92,9 @@ MAILBOX_SOURCE = "mailbox:"
 WAIT_SOURCE = re.compile(r"cci:(?P<drive>[^:=]+):(?P<lane>[^:=]+)|(?P<file>[^=]+)=(?P<cursor>.+)", re.DOTALL)
 WAIT_SLICE = 2.0
 MAILBOX_POLL = 0.2
+MAILBOX_LOCK_POLL = 0.01
+HARNESS_LOCK_STALE = 10.0
+SEEN_KEYS = 1000
 CHILD_GRACE = 5.0
 CCI_GRACE = 30.0
 CCI_MISSING = 127
@@ -197,16 +203,51 @@ class Mailbox:
             return None
         return stat.st_mtime_ns, stat.st_size
 
-    def poll(self, seen: int) -> tuple[int, int, list[dict]] | None:
+    def poll(self, seen: set[str]) -> list[dict] | None:
         try:
             entries = json.loads(self.path.read_text())
         except FileNotFoundError:
-            return 0, 0, []
+            return []
         except ValueError:
             return None
-        fresh = [entry for entry in (entries[seen:] if seen <= len(entries) else entries) if not entry["read"]]
-        unread = sum(not entry["read"] for entry in entries)
-        return len(entries), unread if fresh else 0, fresh
+        return [entry for entry in entries if not entry["read"] and message_key(entry) not in seen]
+
+    @contextmanager
+    def harness_lock(self) -> Iterator[None]:
+        lock = self.path.with_name(f"{self.path.name}.lock")
+        while True:
+            try:
+                lock.mkdir()
+                break
+            except FileExistsError:
+                try:
+                    if time.time() - lock.stat().st_mtime > HARNESS_LOCK_STALE:
+                        lock.rmdir()
+                        continue
+                except FileNotFoundError:
+                    continue
+                time.sleep(MAILBOX_LOCK_POLL)
+        try:
+            yield
+        finally:
+            lock.rmdir()
+
+    def mark_read(self, keys: set[str]) -> None:
+        with self.harness_lock():
+            try:
+                entries = json.loads(self.path.read_text())
+            except FileNotFoundError:
+                return
+            for entry in entries:
+                if message_key(entry) in keys:
+                    entry["read"] = True
+            staged = self.path.with_name(f"{self.path.name}.desk-wait.{os.getpid()}")
+            staged.write_text(json.dumps(entries, indent=2))
+            os.replace(staged, self.path)
+
+
+def message_key(entry: dict) -> str:
+    return entry.get("msg_id") or hashlib.sha256(f"{entry['from']}|{entry['timestamp']}|{entry['text']}".encode()).hexdigest()[:32]
 
 
 def pause(seconds: float, mailboxes: list[Mailbox], child: subprocess.Popen | None) -> None:
@@ -298,6 +339,10 @@ def seen_count(cursor: Path) -> int:
     return int(text) if text else 0
 
 
+def seen_keys(cursor: Path) -> list[str]:
+    return cursor.read_text().split() if cursor.is_file() else []
+
+
 def wait(argv: list[str]) -> int:
     guarded = "--" in argv
     split = argv.index("--") if guarded else len(argv)
@@ -332,16 +377,17 @@ def wait(argv: list[str]) -> int:
                 print(clip(line), flush=True)
                 changed = True
         for mailbox, cursor in mailboxes:
-            polled = mailbox.poll(seen_count(cursor))
-            if polled is None:
+            seen = seen_keys(cursor)
+            fresh = mailbox.poll(set(seen))
+            if not fresh:
                 continue
-            count, unread, fresh = polled
-            cursor.write_text(f"{count}\n")
-            if unread:
-                print(f"MAILBOX {unread} unread", flush=True)
-                for entry in fresh:
-                    print(f"== {entry['from']} {entry['timestamp']}\n{entry['text']}", flush=True)
-                changed = True
+            print(f"MAILBOX {len(fresh)} unread", flush=True)
+            for entry in fresh:
+                print(f"== {entry['from']} {entry['timestamp']}\n{entry['text']}", flush=True)
+            keys = [message_key(entry) for entry in fresh]
+            cursor.write_text("".join(f"{key}\n" for key in [*seen, *keys][-SEEN_KEYS:]))
+            mailbox.mark_read(set(keys))
+            changed = True
         for watched, cursor in files:
             seen = seen_count(cursor)
             lines = Inbox(watched).lines() if watched.is_file() else []

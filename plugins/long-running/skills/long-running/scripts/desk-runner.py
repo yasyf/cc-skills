@@ -77,7 +77,7 @@ per lane, a reply to the lane's latest open question no other reply claims, logg
 `RELAYED` or `RELAY-FAILED`. Each new `orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>`
 line is the `launch` command under its key, `NOW` meaning `--owner-directed` and `role=` meaning `--role`, refused as
 `LAUNCH-FAILED` while the lane has a live dispatch or a launch in flight, or while its brief has no `Register slice:`
-line or no `Scale:` line and the launch is not an incident lane's. Before any launch the runner refreshes the register slice under that
+line or, for a new lane's brief (`lane_brief.owes_scale`), no `Scale:` line, and the launch is not an incident lane's. Before any launch the runner refreshes the register slice under that
 line with `rulings.py slice --refresh`, first writing `Register slice: lane=<lane> step=incident` into an incident
 brief that has none, and writes the slice into every brief it attaches itself; a slice that does not read logs
 `SLICE-UNREAD` and the launch goes ahead. Every verified
@@ -635,6 +635,7 @@ import finder
 import ghread
 import incident
 import inboxes
+import lane_brief
 import lanes
 import merge_queue
 import owner_waits
@@ -849,6 +850,7 @@ CARD_STEPS = 1000
 CARD_NAME = 80
 CARD_LABEL = 75
 COMMAND_TIMEOUT_SECONDS = 1800
+DEADLINE_ENV = "LONG_RUNNING_DEADLINE"
 ENQUEUE_SECONDS = 300
 LEDGER_SECONDS = 300
 FETCH_SECONDS = 120
@@ -965,7 +967,6 @@ INSTALL_PARTS = ("reference", "scripts")
 BRIEF_FILES = (MANUAL_TEMPLATE, ALERT_TEMPLATE, UNFIXED_TEMPLATE, finder.TEMPLATE, finder.ROWS_STEP, fidelity.TEMPLATE, fidelity.RUBRIC, incident.TEMPLATE)
 SLICE_LINE = "Register slice:"
 SLICE_HEADER = re.compile(rf"^{SLICE_LINE}", re.MULTILINE)
-SCALE_HEADER = re.compile(r"^[ \t>*_-]*Scale:", re.MULTILINE)
 INCIDENT_STEP = "incident"
 UNFIXED = re.compile(r"^[ \t>*-]*(?P<tick>`?)UNFIXED (?P<lane>[\w.-]+):[ \t]*(?P<case>\S.*?)(?P=tick)[ \t]*$", re.MULTILINE)
 UNFIXED_CASES = "unfixed-cases"
@@ -1160,7 +1161,7 @@ class Shell:
                 feed.write(stdin or "")
                 feed.seek(0)
                 try:
-                    proc = subprocess.run(argv, stdin=feed, capture_output=True, text=True, errors="replace", env={**os.environ, **env} if env else None, cwd=cwd, timeout=timeout)
+                    proc = subprocess.run(argv, stdin=feed, capture_output=True, text=True, errors="replace", env={**os.environ, **(env or {}), DEADLINE_ENV: str(time.time() + timeout)}, cwd=cwd, timeout=timeout)
                 except subprocess.TimeoutExpired:
                     print(f"TIMED-OUT after {timeout}s, skipped: {command_name(argv)}", file=sys.stderr, flush=True)
                     return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {timeout}s and was killed")
@@ -1890,9 +1891,9 @@ class Runner:
     def pass_wait(self) -> float:
         return min(PASS_SECONDS * 2**self.unreachable_passes, UNREACHABLE_WAIT.total_seconds())
 
-    def cci_post(self, kind: str, text: str, to: str, topic: str, key: str, message: str = "", pr: str = "", record_id: str = "", flags: list[str] | None = None, drive: str = "") -> Done:
+    def cci_post(self, kind: str, text: str, to: str, topic: str, key: str, message: str = "", pr: str = "", record_id: str = "", flags: list[str] | None = None, drive: str = "", lane: str = RUNNER) -> Done:
         """Post one cci record, on this drive unless `drive` names another; a body over cci's text limit, or the whole Orca message it relays, goes to a receipts file named by `key` and rides as its path. With `record_id`, cci stores the record once and a repost returns the stored one."""
-        argv = ["cci", "post", "--drive", drive or self.config.drive, "--lane", RUNNER, "--kind", kind, "--to", to, "--topic", topic, *(flags or [])]
+        argv = ["cci", "post", "--drive", drive or self.config.drive, "--lane", lane, "--kind", kind, "--to", to, "--topic", topic, *(flags or [])]
         if pr:
             argv += ["--pr", pr]
         if record_id:
@@ -1987,6 +1988,10 @@ class Runner:
         beat = {"pid": os.getpid(), "version": RUNNING_VERSION, "config": str(self.config.source), "terminal": self.shell.env("ORCA_TERMINAL_HANDLE"), "restart": self.restart_command(desk), "flight": flight[0] if flight else f"{desk} pass" if desk in self.passing else ""}
         attrs = [arg for name, value in beat.items() for arg in ("--attr", f"{name}={value}")]
         self.cci_post("state", f"{desk} alive {self.now().astimezone(PACIFIC).strftime('%-I:%M %p')} pass {doing}", self.watchdog, desk, f"alive:{desk}", flags=attrs)
+
+    def register_lane(self, lane: str) -> None:
+        """Post one record as `lane` at start, so cci addresses a record `--to <lane>` on this drive although no session reads that lane (root #226844)."""
+        self.cci_post("note", f"{lane} reads its orders through desk-runner pid {os.getpid()} on {RUNNING_VERSION}", self.watchdog, f"alive:{lane}", f"register:{lane}", lane=lane)
 
     def stall_watch(self) -> None:
         stall = json.loads(self.config.source.read_text()).get("stall")
@@ -2691,8 +2696,8 @@ class Runner:
         text = brief.read_text()
         if not SLICE_HEADER.search(text) and not (model == INCIDENT_MODEL or incident_fix(lane, model, brief, role)):
             return f"brief {brief} has no `{SLICE_LINE} lane=<name> step=<n>` line; add one and run `rulings.py slice --refresh {brief}`"
-        if not SCALE_HEADER.search(text) and INCIDENT_MODEL not in (model, role) and not incident_fix(lane, model, brief, role):
-            return f"brief {brief} has no `Scale:` line; add the one the lane brief template gives: the N each path runs at, or `no N`"
+        if lane_brief.owes_scale(lane, text, brief) and INCIDENT_MODEL not in (model, role) and not incident_fix(lane, model, brief, role):
+            return lane_brief.no_scale(brief)
         container = lane_container(lane)
         if self.book.exists(container):
             if held := self.book.known(container, key):
@@ -8829,6 +8834,7 @@ def run_orca(runner: Runner, once: bool) -> int:
         runner.escalate(f"briefs-log:{runner.config.briefs_log or 'unset'}", "BRIEFS-LOG-FAILED", "runner", f"the briefs log did not resolve at start: {failure}; each brief attach retries it")
     swept = rotated = datetime.min.replace(tzinfo=timezone.utc)
     runner.keep_alive("orca")
+    runner.register_lane(ORCA_DESK)
     if not once:
         runner.keep_finding()
         runner.keep_probing()

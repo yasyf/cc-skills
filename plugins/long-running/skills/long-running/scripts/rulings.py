@@ -464,12 +464,12 @@ class Register:
         return briefs(self.state)
 
     @classmethod
-    def load(cls, args: argparse.Namespace, shell: ledger.Shell, repo: str | None = None, last: bool = False) -> Register:
-        """The register, read from the copy kept in the drive's state while no ledger ref has moved since, so a read never waits on `ccn` scanning every cc-notes ref behind a concurrent write (cci #200150). One reader at a time rebuilds a stale copy and the rest wait for it, since each `ccn` scan holds most of a gigabyte and eight at once exhausted a Sprite (cci #214457). With `last`, a reader that finds another process rebuilding takes the copy as last kept instead of waiting (cci #220219)."""
+    def load(cls, args: argparse.Namespace, shell: ledger.Shell, repo: str | None = None, last: bool = False, kept_any: bool = False) -> Register:
+        """The register, read from the copy kept in the drive's state while no ledger ref has moved since, so a read never waits on `ccn` scanning every cc-notes ref behind a concurrent write (cci #200150). One reader at a time rebuilds a stale copy and the rest wait for it, since each `ccn` scan holds most of a gigabyte and eight at once exhausted a Sprite (cci #214457). With `last`, a reader that finds another process rebuilding takes the copy as last kept instead of waiting (cci #220219); with `kept_any`, a reader takes any kept copy at all, for a read such as the plan path that a moved ledger ref never changes (cci #227003)."""
         program = program_of(args)
         repo = repo or register_repo(args)
         state = state_dir(args)
-        identity, rows = register_reads.load(shell.run, ledger.locked, ledger.held, repo, program, state, last)
+        identity, rows = register_reads.load(shell.run, ledger.locked, ledger.held, repo, program, state, last, kept_any)
         return cls(shell, repo, program, state, identity, rows)
 
     def write(self, key: str, **fields: object) -> None:
@@ -1505,7 +1505,7 @@ def cmd_slice(args: argparse.Namespace, shell: ledger.Shell) -> int:
 
 
 def cmd_plan(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    if plan := Register.load(args, shell, last=True).plan(None):
+    if plan := Register.load(args, shell, last=True, kept_any=True).plan(None):
         print(plan)
     return 0
 

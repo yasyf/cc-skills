@@ -155,6 +155,7 @@ class FakeShell(runner_module.Shell):
         self.unregistered: set[str] = set()
         self.checkout_edits = ""
         self.posts: list[dict] = []
+        self.registrations: list[dict] = []
         self.states: list[dict] = []
         self.alive: list[str] = []
         self.beats: list[dict] = []
@@ -582,9 +583,12 @@ class FakeShell(runner_module.Shell):
             flags = dict(zip(argv[2::2], argv[3::2], strict=True))
             if not forced and (unstarted := [lane for lane in flags.get("--to", "").split(",") if lane in self.unstarted]):
                 return runner_module.Done(1, "", f"cci: --to {unstarted[0]}: no live session or registered lane on drive {flags['--drive']} is named {unstarted[0]}")
-            assert flags["--drive"] in self.drives and flags["--lane"] in ("desk-runner", "root", "finder-desk", "fidelity-desk") and len(flags["--text"]) <= 400
+            assert flags["--drive"] in self.drives and flags["--lane"] in ("desk-runner", "root", "finder-desk", "fidelity-desk", "orca-desk") and len(flags["--text"]) <= 400
             if self.post_error:
                 return runner_module.Done(1, "", self.post_error)
+            if flags["--lane"] == runner_module.ORCA_DESK:
+                self.registrations.append({key.lstrip("-"): value for key, value in flags.items()})
+                return runner_module.Done(0, "#0\n", "")
             if (flags["--kind"], flags["--to"]) == ("state", f"{runner_module.WATCHDOG}@{flags['--drive']}"):
                 self.alive.append(flags["--text"])
                 attrs = dict(value.split("=", 1) for flag, value in zip(argv[2::2], argv[3::2], strict=True) if flag == "--attr")
@@ -9467,7 +9471,9 @@ def test_a_launch_line_whose_brief_has_no_scale_line_is_refused_unless_it_is_an_
     orca_pass(shell, config)
 
     assert launches(shell) == [] and shell.refreshes == []
-    assert escalations(shell) == [f"LAUNCH-FAILED R43 {LANE}: brief {brief} has no `Scale:` line; add the one the lane brief template gives: the N each path runs at, or `no N`; nothing was launched"]
+    assert escalations(shell) == [
+        f"LAUNCH-FAILED R43 {LANE}: brief {brief} has no `Scale:` line, so this new lane's spawn is refused. Add one line to it: `Scale: no N`, or the N its paths run at, such as `Scale: chats on one Mac, up to 1,000`; nothing was launched"
+    ]
 
     shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
     desk_orders(shell, f"R44 orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
@@ -9475,6 +9481,18 @@ def test_a_launch_line_whose_brief_has_no_scale_line_is_refused_unless_it_is_an_
     orca_pass(shell, config)
 
     assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)]]
+
+
+def test_a_successor_launched_on_its_predecessors_brief_owes_no_scale_line(shell, config, tmp_path):
+    brief = tmp_path / "fix-brief.md"
+    brief.write_text(f"ccx: place=local\nbrief\n\nRegister slice: lane={LANE} step=1.9\n")
+    shell.launch_line = f"{LANE}-2 ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    orca_pass(shell, config)
+    desk_orders(shell, f"R43 orca-desk: launch {LANE}-2 sol xhigh brief={brief}")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+
+    assert launches(shell) == [[str(runner_module.LAUNCHER), f"{LANE}-2", "sol", "xhigh", str(brief)]]
 
 
 def test_a_launch_refreshes_its_slice_first_and_a_slice_that_does_not_read_blocks_nothing(shell, config, tmp_path):
@@ -13052,6 +13070,12 @@ def test_a_head_record_spelling_a_short_sha_queues_the_full_head_its_pr_is_at(sh
     assert [(job["pr"], job["head"]) for job in finder_jobs(shell)] == [("43439", FINDER_HEAD)]
 
 
+def test_the_orca_desk_posts_as_orca_desk_at_start_so_an_order_addressed_to_it_is_not_refused(shell, config):
+    """Root #226844: cci refused a launch order `--to orca-desk` because no session reads that lane and nothing on the drive had posted as it, so an incident lane launched inline."""
+    orca_pass(shell, config)
+    assert [(post["kind"], post["to"]) for post in shell.registrations] == [("note", f"{runner_module.WATCHDOG}@d1")]
+
+
 def test_a_finder_job_asks_at_the_fast_tier_unless_runner_json_turns_it_off(shell, config):
     finder_config(config, fast=False)
     orca_pass(shell, config)
@@ -14443,14 +14467,26 @@ def test_release_and_cut_polls_decode_only_active_fact_entries(shell, config, tm
         current.facts[runner_module.CUT_CLOCKS]["active"] = {"ended": ""}
         current.facts[runner_module.CUT_CLOCKS]["silent"] = {"ended": "silent"}
     runner.config.landing["applying"] = {"build": "build", "step": "step", "components": []}
-    decoded, pressed, escalated = [], [], []
+    decoded, excluded, pressed, escalated = [], [], [], []
+    owner_thread = threading.get_ident()
     loads = json.loads
 
     def counted(value, *args, **kwargs):
-        decoded.append(len(value.encode()))
+        encoded = value.encode()
+        if threading.get_ident() == owner_thread:
+            decoded.append(len(encoded))
+        else:
+            excluded.append({"thread": threading.current_thread().name, "ident": threading.get_ident(), "bytes": len(encoded), "sha256": hashlib.sha256(encoded).hexdigest()})
         return loads(value, *args, **kwargs)
 
     monkeypatch.setattr(json, "loads", counted)
+    control = "measured-thread-control" * 16
+    encoded_control = json.dumps(control)
+    assert json.loads(encoded_control) == control
+    assert decoded == [len(encoded_control.encode())]
+    with pytest.raises(AssertionError):
+        assert sum(decoded) < 128
+    decoded.clear()
     monkeypatch.setattr(store, "load", lambda *_: pytest.fail("poll loaded a full incident"))
     monkeypatch.setattr(runner_module, "release_build_argv", lambda *_: None)
     monkeypatch.setattr(runner, "escalate", lambda *args: escalated.append(args))
@@ -14460,9 +14496,9 @@ def test_release_and_cut_polls_decode_only_active_fact_entries(shell, config, tm
     runner.cut_clock()
     assert len(escalated) == 1 and escalated[0][2] == "release"
     assert pressed == [("active", {"ended": ""}), ("silent", {"ended": "silent"})]
+    print(json.dumps({"history": history, "poll_decoded_bytes": sum(decoded), "measured_control_bytes": len(encoded_control.encode()), "excluded_decodes": excluded}))
     assert sum(decoded) < 128
     assert store.fact_path(runner_module.RUNNER, [runner_module.RELEASE_BUILDS, "active", "done"]) is True
-    print(json.dumps({"history": history, "poll_decoded_bytes": sum(decoded)}))
 
 
 @pytest.mark.parametrize("history", [32, 10_000])

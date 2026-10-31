@@ -46,10 +46,10 @@ def active_register(run: Run, repo: str, kept: Path) -> dict | None:
     return shown if shown["status"] == "active" else None
 
 
-def load(run: Run, lock: Lock, held: Callable[[Path], bool], repo: str, program: str, state: Path, last: bool = False) -> tuple[str, dict]:
+def load(run: Run, lock: Lock, held: Callable[[Path], bool], repo: str, program: str, state: Path, last: bool = False, kept_any: bool = False) -> tuple[str, dict]:
     tips = run(["git", "-C", repo, "for-each-ref", "--format=%(refname) %(objectname)", LEDGER_REFS])
     kept = state / f"register-{program}.json"
-    if cached := kept_copy(kept, repo, tips):
+    if cached := kept_copy(kept, repo, None if kept_any else tips):
         return cached["ledger"], cached["rows"]
     if last and held(kept.with_suffix(".lock")) and (cached := kept_copy(kept, repo, None)):
         return cached["ledger"], cached["rows"]

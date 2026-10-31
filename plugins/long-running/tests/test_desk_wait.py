@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 from datetime import datetime
@@ -143,7 +144,7 @@ def test_an_unread_message_appended_during_a_wait_returns_within_two_seconds(tmp
 
     assert stdout == "MAILBOX 1 unread\n" + PRINTED
     assert elapsed < 2
-    assert (tmp_path / "mailbox.cursor").read_text() == "2\n"
+    assert [entry["read"] for entry in json.loads(mailbox.read_text())] == [True, True]
 
 
 def test_a_read_message_does_not_wake_the_wait(tmp_path):
@@ -185,15 +186,80 @@ def test_mailbox_prints_each_new_unread_entry_in_full(tmp_path):
     cursor = tmp_path / "mailbox.cursor"
     body = "The owner chose A.\n" + "x" * 2600
     mailbox.write_text(
-        json.dumps([message(read=False, text="seen before"), message(read=True, text="delivered"), message(read=False, sender="oncall-core-comms-wire", text=body)])
+        json.dumps(
+            [
+                {**message(read=False, text="seen before"), "msg_id": "m-1"},
+                message(read=True, text="delivered"),
+                {**message(read=False, sender="oncall-core-comms-wire", text=body), "msg_id": "m-2"},
+            ]
+        )
     )
-    cursor.write_text("2\n")
+    cursor.write_text("m-1\n")
 
     result = subprocess.run([str(SCRIPT), "1", f"{mailbox}={cursor}"], capture_output=True, text=True, timeout=5)
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout == f"MAILBOX 2 unread\n== oncall-core-comms-wire 2026-10-12T04:38:49.293Z\n{body}\n"
-    assert cursor.read_text() == "3\n"
+    assert result.stdout == f"MAILBOX 1 unread\n== oncall-core-comms-wire 2026-10-12T04:38:49.293Z\n{body}\n"
+    assert cursor.read_text() == "m-1\nm-2\n"
+
+
+def test_a_printed_message_is_marked_read_so_the_harness_never_redelivers_it(tmp_path):
+    mailbox = mailbox_in(tmp_path)
+    cursor = tmp_path / "mailbox.cursor"
+    mailbox.write_text(json.dumps([{**message(read=False), "msg_id": "m-1"}]))
+
+    first = subprocess.run([str(SCRIPT), "1", f"{mailbox}={cursor}"], capture_output=True, text=True, timeout=5)
+    mailbox.write_text(json.dumps([*json.loads(mailbox.read_text()), {**message(read=False), "msg_id": "m-2"}]))
+    second = subprocess.run([str(SCRIPT), "1", f"{mailbox}={cursor}"], capture_output=True, text=True, timeout=5)
+
+    assert first.stdout == "MAILBOX 1 unread\n" + PRINTED
+    assert second.stdout == "MAILBOX 1 unread\n" + PRINTED
+    assert [entry["read"] for entry in json.loads(mailbox.read_text())] == [True, True]
+    assert not mailbox.with_name("lane.json.lock").exists()
+
+
+def test_a_new_order_after_the_harness_pruned_delivered_entries_still_wakes_the_wait(tmp_path):
+    mailbox = mailbox_in(tmp_path)
+    cursor = tmp_path / "mailbox.cursor"
+    mailbox.write_text(json.dumps([{**message(read=False, text="old order"), "msg_id": "m-1"}]))
+    subprocess.run([str(SCRIPT), "1", f"{mailbox}={cursor}"], capture_output=True, text=True, timeout=5)
+    mailbox.write_text(json.dumps([{**message(read=False), "msg_id": "m-2"}]))
+
+    result = subprocess.run([str(SCRIPT), "1", f"{mailbox}={cursor}"], capture_output=True, text=True, timeout=5)
+
+    assert result.stdout == "MAILBOX 1 unread\n" + PRINTED
+
+
+def test_marking_read_waits_for_the_harness_lock_and_keeps_entries_written_meanwhile(tmp_path):
+    mailbox = mailbox_in(tmp_path)
+    cursor = tmp_path / "mailbox.cursor"
+    lock = mailbox.with_name("lane.json.lock")
+    mailbox.write_text(json.dumps([{**message(read=False), "msg_id": "m-1"}]))
+    lock.mkdir()
+    with subprocess.Popen([str(SCRIPT), "1", f"{mailbox}={cursor}"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
+        time.sleep(0.5)
+        mailbox.write_text(json.dumps([*json.loads(mailbox.read_text()), {**message(read=False, text="arrived under lock"), "msg_id": "m-2"}]))
+        lock.rmdir()
+        stdout, stderr = process.communicate(timeout=5)
+
+    assert process.returncode == 0, stderr
+    assert stdout == "MAILBOX 1 unread\n" + PRINTED
+    assert [(entry["msg_id"], entry["read"]) for entry in json.loads(mailbox.read_text())] == [("m-1", True), ("m-2", False)]
+
+
+def test_a_stale_harness_lock_is_broken(tmp_path):
+    mailbox = mailbox_in(tmp_path)
+    lock = mailbox.with_name("lane.json.lock")
+    mailbox.write_text(json.dumps([message(read=False)]))
+    lock.mkdir()
+    old = time.time() - 60
+    os.utime(lock, (old, old))
+
+    result = subprocess.run([str(SCRIPT), "1", f"{mailbox}={tmp_path / 'mailbox.cursor'}"], capture_output=True, text=True, timeout=5)
+
+    assert result.stdout == "MAILBOX 1 unread\n" + PRINTED
+    assert json.loads(mailbox.read_text())[0]["read"] is True
+    assert not lock.exists()
 
 
 @pytest.mark.parametrize("args", [[], ["1"], ["bad", "inbox=cursor"], ["-1", "inbox=cursor"], ["1.5", "inbox=cursor"], ["1", "inbox"], ["1", "=cursor"], ["1", "inbox="], ["1", "--"], ["1", "inbox=cursor", "--"]])
@@ -221,7 +287,7 @@ def test_a_mailbox_source_wakes_on_the_lanes_roster_mailbox(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == "MAILBOX 1 unread\n" + PRINTED
-    assert cursor.read_text() == "1\n"
+    assert json.loads(mailbox.read_text())[0]["read"] is True
 
 
 def test_a_mailbox_source_no_roster_lists_exits_one(tmp_path):

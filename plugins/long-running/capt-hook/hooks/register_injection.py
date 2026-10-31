@@ -12,17 +12,21 @@ from pathlib import Path
 from captain_hook import Allow, Annotated, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, TaskCall, Tool, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState, drive_entry, failure_of, post_blocker, register_context, register_of, rulings, script
+from .compaction_handoff import CompactionState, drive_entry, failure_of, post_blocker, register_context, register_of, rulings, script, script_module
 from .nudges import once_per_hour
+from .session_tree import drive_lane
 from .tests.register_fixtures import DRIVE_CONFIG
 
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 HELPER_AGENTS = frozenset({"Explore", "Plan", "claude-code-guide", "statusline-setup", "output-style-setup", "ship-pr"})
 HELPER_PLUGINS = ("cc-context:", "cc-review:", "cc-slack:", "cc-present:", "codex:", "open-pr:")
+LANE_AGENTS = frozenset({"long-running:lane", "long-running:lane-ship"})
+SPAWNED = f"{sys.executable} {script('drive.py')} spawned"
+SPAWNED_TIMEOUT_SECONDS = 20
+INLINE_BRIEF = "inline-prompt"
 INCIDENT_NAME = re.compile(r"^(?:incident|outage)-")
 INCIDENT_BRIEF = re.compile(r"\b(?:incident|outage)\b", re.IGNORECASE)
-SLICE_HEADER = re.compile(r"^Register slice: lane=\S+ step=\S+", re.MULTILINE)
-SCALE_HEADER = re.compile(r"^[ \t>*_-]*Scale:", re.MULTILINE)
+SLICE_HEADER = re.compile(r"^Register slice: lane=(\S+) step=\S+", re.MULTILINE)
 INCIDENT_SLICE = "Register slice: lane={lane} step=incident"
 BRIEF_FILE = re.compile(r"(?<![\w.~/-])[~/][\w./~-]*\.md\b")
 LANE_FLAGS = ("--lane", "-l")
@@ -31,10 +35,6 @@ UNREAD = (OSError, ValueError, subprocess.CalledProcessError, subprocess.Timeout
 NO_SLICE = (
     "Warning, nothing was blocked: this drive lane's brief has no `Register slice: lane=<name> step=<n>` line."
     " Add one and run `rulings.py slice --refresh {brief}` for the next spawn."
-)
-NO_SCALE = (
-    "This drive lane's brief {brief} has no `Scale:` line, so the spawn is refused."
-    " Add the line the lane brief template gives: the N each path runs at, such as chats on one Mac, or `no N`."
 )
 STALE_SLICE = "Warning, nothing was blocked: this spawn's register slice is stale or empty. Run `rulings.py slice --refresh {brief}` for the next spawn."
 INCIDENT_NOTE = "The incident spawn's prompt now carries its register slice and the unclassified owner captures."
@@ -47,6 +47,7 @@ REGISTER = {"id": "c" * 40, "body": "# Register\n\n1. Pulumi state is the only t
 FOUND = {f"{sys.executable} {script('rulings.py')} register": json.dumps(REGISTER)}
 NONE_FOUND = {f"{sys.executable} {script('rulings.py')} register": "null"}
 ACTIVE = CompactionState(active=True, slug="brook")
+lane_brief = script_module("lane_brief")
 
 
 def drive_args(evt: BaseHookEvent) -> list[str] | None:
@@ -77,22 +78,29 @@ class Spawn:
     text: str
     brief: Path | None
     inline: bool
+    prompt: str = ""
 
     @property
     def shown(self) -> str:
         return str(self.brief) if self.brief else "<brief>"
+
+    def owes_scale(self) -> bool:
+        return lane_brief.owes_scale(self.lane, f"{self.prompt}\n{self.text}", None if self.inline else self.brief)
 
 
 def agent_spawn(call: TaskCall) -> Spawn | None:
     if helper(call.agent_type):
         return None
     prompt = call.raw.get("prompt") or ""
-    lane, incident = call.agent_name or "lane", incident_spawn(call, prose(call)[:1])
+    incident = incident_spawn(call, prose(call)[:1])
     named = [path for found in BRIEF_FILE.findall(prompt) if os.path.isfile(path := Path(found).expanduser())]
     holder = next((path for path in named if SLICE_HEADER.search(path.read_text())), None)
     if SLICE_HEADER.search(prompt) or not holder:
-        return Spawn(lane, incident, prompt, holder or next(iter(named), None), inline=True)
-    return Spawn(lane, incident, holder.read_text(), holder, inline=False)
+        text, brief, inline = prompt, holder or next(iter(named), None), True
+    else:
+        text, brief, inline = holder.read_text(), holder, False
+    sliced = SLICE_HEADER.search(text)
+    return Spawn(call.agent_name or (sliced[1] if sliced else "lane"), incident, text, brief, inline, prompt)
 
 
 def launch_spawn(evt: BaseHookEvent) -> Spawn | None:
@@ -131,7 +139,10 @@ def spawn(name: str, prompt: str, agent_type: str = "long-running:lane", **extra
     tests={
         spawn("lane-a", "Lane lane-a: build the relay."): Warn(pattern=r"has no `Register slice: lane=<name> step=<n>` line"),
         spawn("lane-a", SLICED, commands=FRESH_SLICE): Allow(),
-        spawn("lane-a", SLICED.replace("Scale: chats on one Mac, up to 1,000.\n", "")): Block(pattern=r"has no `Scale:` line, so the spawn is refused\."),
+        spawn("lane-a", SLICED.replace("Scale: chats on one Mac, up to 1,000.\n", "")): Block(pattern=r"has no `Scale:` line, so this new lane's spawn is refused\. Add one line to it: `Scale: no N`"),
+        spawn("lane-a-handoff", SLICED.replace("Scale: chats on one Mac, up to 1,000.\n", ""), commands=FRESH_SLICE): Allow(),
+        spawn("lane-a-2", SLICED.replace("Scale: chats on one Mac, up to 1,000.\n", ""), commands=FRESH_SLICE): Allow(),
+        spawn("lane-b", "Replaces: lane-a\n" + SLICED.replace("Scale: chats on one Mac, up to 1,000.\n", ""), commands=FRESH_SLICE): Allow(),
         spawn("lane-a", SLICED, commands=STALE): Warn(pattern=r"stale or empty\. Run `rulings\.py slice --refresh <brief>`"),
         spawn("lane-a", f"Your brief is {BRIEFS / 'sliced.md'}; read it.", commands=FRESH_SLICE): Allow(),
         spawn("lane-a", f"Your brief is {BRIEFS / 'unsliced.md'}; read it."): Warn(pattern=r"--refresh \S*unsliced\.md"),
@@ -165,8 +176,8 @@ def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
         return None
     if not found.incident and not SLICE_HEADER.search(found.text):
         return evt.context(NO_SLICE.format(brief=found.shown)) if once_per_hour(evt, [NO_SLICE]) else None
-    if not found.incident and not SCALE_HEADER.search(found.text):
-        return evt.block(NO_SCALE.format(brief=found.shown))
+    if not found.incident and found.owes_scale():
+        return evt.block(lane_brief.no_scale(found.shown))
     try:
         said, fresh = refreshed(evt, which, found)
         if found.incident and not found.inline:
@@ -177,6 +188,36 @@ def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
     if not found.incident:
         return None if said.startswith(FRESH) or not once_per_hour(evt, [STALE_SLICE]) else evt.context(STALE_SLICE.format(brief=found.shown))
     return evt.rewrite(evt._tool_input | {"prompt": fresh}, note=INCIDENT_NOTE) if found.inline else None
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Agent")],
+    skip_if=[Annotated("raw")],
+    tests={
+        spawn("lane-a", SLICED, commands={SPAWNED: ""}): Allow(),
+        spawn("lane-a", "Lane lane-a: build the relay.", agent_type="general-purpose"): Allow(),
+        spawn("lane-a", SLICED.replace("Scale: chats on one Mac, up to 1,000.\n", "")): Allow(),
+        spawn("lane-a", "Find every caller of drain.", agent_type="Explore"): Allow(),
+        Input(tool="Agent", tool_input={"name": "lane-a", "prompt": SLICED}): Allow(),
+    },
+)
+def record_spawn(evt: BaseHookEvent) -> HookResult | None:
+    if not drive_args(evt):
+        return None
+    call = evt.as_input(TaskCall)
+    try:
+        found = agent_spawn(call)
+    except UNREAD:
+        return None
+    if not found or not (found.incident or SLICE_HEADER.search(found.text) or call.agent_type in LANE_AGENTS):
+        return None
+    if not found.incident and found.owes_scale():
+        return None
+    argv = [sys.executable, str(script("drive.py")), "spawned", "--lane", found.lane, "--brief", str(found.brief or INLINE_BRIEF), "--by", drive_lane(evt) or "root", "--session", evt.session_id]
+    argv += ["--drive", drive] if (drive := reqenv.getenv(DRIVE_ENV)) else []
+    subprocess.run(argv, capture_output=True, text=True, timeout=SPAWNED_TIMEOUT_SECONDS)
+    return None
 
 
 @on(

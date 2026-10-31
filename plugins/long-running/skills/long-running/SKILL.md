@@ -144,8 +144,11 @@ completion went to the root session and the lane never woke.*
 **R4. Never re-brief a lane, never answer a duplicate.** `SendMessage` to a finished
 agent resumes it carrying its whole original brief and it re-runs that brief.
 `SendMessage` to a running agent spawns a second copy that restarts the lane while the
-original never sees the message. Reply to nothing you have already acted on, and expect
-2-3 duplicate idle-notifications per real report. Rotation flushes the lane in place;
+original never sees the message. Reply to nothing you have already acted on. An idle
+notification answers only the messages the lane had when that turn began, so one
+that lands seconds after a new order says nothing about it; wait for the lane's
+report on that order. desk-wait marks the mail it prints as read, so the harness
+never hands it to the lane a second time. Rotation flushes the lane in place;
 it keeps working and resumes from its ledger and cursor after its own compaction
 (see Lane rotation). *Prevents lane collisions in a shared worktree
 and the reply tax on notifications that carry no news.*
@@ -3069,8 +3072,9 @@ Scale: <the N each path this lane changes runs at: chats, teams, sessions, or ru
   A loop that awaits I/O per item, or a cap, timer, cache, retry, or idle wait standing
   in for a fundamental fix, is a defect the finder grades major; a diff that adds one
   names in the PR body the fix it stands in for and the owner pick that deferred it, or
-  builds the fix. The spawn hook and the orca desk runner refuse a non-incident brief
-  with no `Scale:` line.
+  builds the fix. The spawn hook and the orca desk runner refuse a new non-incident
+  lane brief with no `Scale:` line; a `<lane>-handoff` writer, a successor (`<lane>-<n>`
+  or a `Replaces:` line), and a brief written before the rule pass.
 Standing rules served: <`#<seq>` ids with their answer ids, each with the owner's
   words and confirmed implications (R19b), or "none">. Your task cites
   them; finishing it never retires them, and no report calls them done.
@@ -3172,6 +3176,13 @@ a hand-rolled `sprite exec`. Each lane builds into its own `target-<lane>`, so t
 lanes never clobber each other's build-script output, and every call removes the
 targets and source trees idle for more than six hours, so idle lanes do not fill
 the Sprite's disk.
+
+A lane checks its change before it pushes with
+`remote-vet.py --config <runner config> --lane <lane> [<worktree>]`, never a local
+`go build`, `go vet` or `cargo check`. It ships everything the worktree changed since
+its merge base, uncommitted and untracked files included, to the lane's own worktree
+on a Sprite, runs the config's `vet.prepare` code generation, then builds and vets
+only the Go packages and Rust crates the change touches, and exits 1 on any `FAIL`.
 
 For in-process subagents, use one of this plugin's two lane types with the
 routing table's `model`. Both definitions default to Opus; set a different
