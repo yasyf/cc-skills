@@ -18,8 +18,6 @@ Drive facts:
 Standing orders, fixed in this template:
   - Reported {reported} PT. The bar is fixed and live within 20 minutes of the
     report, by {due} PT; the desk's limits below run from your launch, inside it.
-  - When an on-call bot post, a peer session, or the alert already names the
-    mechanism, confirm it with one query and build on it; never derive it again.
   - "stop asking people for things you can collect yourself": never ask a reporter
     or anyone else for evidence; read telemetry and Sentry yourself (owner answer 8ff2abf).
   - Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
@@ -27,6 +25,8 @@ Standing orders, fixed in this template:
     this Mac.
   - A tooling failure gets a same-turn tooling lane plus the hand path; it never
     stops the fix.
+  - When an on-call bot post, a peer session, or the alert already names the
+    mechanism, confirm it with one query and build on it; never derive it again.
 
 Telemetry, never the reporter. Read what the platform already records about their
   case, and put each answer in the evidence:
@@ -95,9 +95,9 @@ Do:
      after the push; the body stays as opened. A fix that changes a credential,
      token, or wire format keeps what running clients already renew and read.
      Once GitHub's required checks are green and the bots approved, post READY
-     with the exact head; a red check the branch rules do not require is read for
-     its content and never waited on. The landing desk owns enqueue. Never run
-     stack-enqueue, rebase, or push a queued branch.
+     with the exact head; the landing desk owns enqueue. Never run stack-enqueue,
+     rebase, or push a queued branch. A red check the branch rules do not require
+     is read for its content and never waited on.
   4. Before READY, reproduce the reporter's own case, the exact thread, run,
      request, or monitor query the report named. Show it failing before the fix
      and passing on the build that carries the fix, and quote both results in the
