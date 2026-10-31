@@ -275,7 +275,7 @@ def classify_lane(lane: Lane, peer: Peer | None, now: datetime, tokens: int | No
             return Verdict("came-up")
         return Verdict("no-show", f"not live {STALE_AFTER.seconds // 60} minutes after its launch") if now - lane.since >= STALE_AFTER else Verdict("ok")
     if not alive_now:
-        if lane.waiting is not None:
+        if lane.waiting is not None and peer is not None:
             return Verdict("ok")
         if heard is None:
             return Verdict("dead", "never registered")
