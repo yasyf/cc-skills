@@ -532,8 +532,9 @@ def test_the_lane_of_the_head_needs_a_desks_newest_grade_ok_for_its_current_slic
         ("readback: ok lane-a", (0, [])),
         ("readback: ok 7bed615 lane-b all three items match", (1, ["CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back"])),
         ("readback: missing 7bed615 lane-a", (1, ["CONTRACT-MISSING lane-a: the newest grade, #9, is missing: no reason given"])),
+        ("readback ok lane-a: row prompt/1030-212507 now says all search lives in the new tree. Every other row carries #235609.", (0, [])),
     ],
-    ids=["head-then-lane", "lane-without-stamp", "head-then-another-lane", "missing-without-reason"],
+    ids=["head-then-lane", "lane-without-stamp", "head-then-another-lane", "missing-without-reason", "no-colon-after-readback"],
 )
 def test_a_desks_grade_names_the_lane_after_an_optional_head_and_before_an_optional_stamp(package: Path, state: Path, registered: Path, capsys, text: str, expected: tuple[int, list[str]]) -> None:
     rows = pinned(package)
@@ -576,6 +577,15 @@ def test_accepted_names_a_lane_only_once_a_desk_graded_its_current_slice_ok(pack
 
     assert ran(capsys, CheckShell(rows), "accepted", "--lane", "lane-a") == (0, "accepted lane-a\n")
     assert ran(capsys, CheckShell(rows, reviews=[]), "accepted", "--lane", "lane-a") == (1, "CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n")
+
+
+def test_a_numbered_successor_keeps_the_read_back_a_desk_accepted_for_the_lane_it_replaced(package: Path, state: Path, registered: Path, capsys) -> None:
+    """Root #241130: fidelity-desk-11 graded fuzzy-match-4's read-back ok as "readback ok fuzzy-match-4: ...", which no grade form read, and fuzzy-match-4 was rotating to fuzzy-match-5."""
+    rows = pinned(package)
+    grade = dict(graded(current_stamp(rows, None)), text="readback ok lane-a: every row carries the graded contract")
+
+    assert ran(capsys, CheckShell(rows, reviews=[grade]), "accepted", "--lane", "lane-a-2") == (0, "accepted lane-a-2\n")
+    assert ran(capsys, CheckShell(rows, reviews=[grade]), "accepted", "--lane", "lane-b-2") == (1, "CONTRACT-MISSING lane-b-2: no fidelity desk has graded a read-back\n")
 
 
 def test_a_pr_citing_a_shape_ruling_adds_a_test_naming_it_or_the_row_records_one(package: Path, state: Path, registered: Path, capsys) -> None:
