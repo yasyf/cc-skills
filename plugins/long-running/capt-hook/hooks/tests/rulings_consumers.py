@@ -10,8 +10,8 @@ def rulings_prefix(command: str) -> bool:
     return len(argv) > 1 and Path(argv[1]).name == "rulings.py"
 
 
-def separate(name: str, cases: dict) -> dict:
-    migrated = {inp: expected for inp, expected in cases.items() if any(rulings_prefix(command) for command in (getattr(inp, "commands", None) or {}))}
+def separate(name: str, cases: dict, *, all_cases: bool = False) -> dict:
+    migrated = {inp: expected for inp, expected in cases.items() if all_cases or any(rulings_prefix(command) for command in (getattr(inp, "commands", None) or {}))}
     if migrated:
         assert name not in MIGRATED
         MIGRATED[name] = migrated
