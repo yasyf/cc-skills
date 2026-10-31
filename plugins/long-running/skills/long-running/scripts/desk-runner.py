@@ -984,6 +984,7 @@ LANE_ENDED_KINDS = frozenset({"done", "handoff", "stand-down", "stopped", "not-o
 HANDOFF_WAIT = timedelta(minutes=20)
 LAUNCHD_THROTTLE_SECONDS = 60
 RUNNER_OPEN_FILES = 65536
+CCI_SHIM = Path(".claude/plugins/marketplaces/cc-inbox/plugin/bin")
 LAUNCHD_START = timedelta(minutes=3)
 AGENT_PID = re.compile(r"^\s*pid = (\d+)$", re.MULTILINE)
 RELAY_REF = re.compile(r"(?:^|cci#)(R?\d+)$")
@@ -2283,7 +2284,7 @@ class Runner:
             {
                 "Label": label,
                 "ProgramArguments": ["/bin/zsh", "-c", f"{exports}exec {shlex.quote(str(RUNNER_BIN))} run --config {shlex.quote(str(self.config.source))} --desk {desk}"],
-                "EnvironmentVariables": {"PATH": self.shell.env("PATH")},
+                "EnvironmentVariables": {"PATH": f"{self.shell.env('PATH')}:{Path.home() / CCI_SHIM}"},
                 "KeepAlive": True,
                 "ThrottleInterval": LAUNCHD_THROTTLE_SECONDS,
                 "SoftResourceLimits": {"NumberOfFiles": RUNNER_OPEN_FILES},
