@@ -5,8 +5,12 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
+import os
+import signal
 import subprocess
+import sys
 import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -27,6 +31,9 @@ class RecordedShell(board_watch.Shell):
         self.posts: list[list[str]] = []
         self.tasks: list[tuple[str, list[str]]] = []
         self.root = SESSION
+
+    def end_inherited_children(self) -> None:
+        pass
 
     def watch(self, session: str):
         assert session == SESSION
@@ -399,6 +406,33 @@ def test_a_watch_older_than_the_installed_plugin_reexecutes_before_it_posts_a_sn
         board_watch.keep_snapshot(shell, board_watch.Bus("brook", 0), SESSION, stop)
 
     assert shell.posts == []
+
+
+LEAKING_IMAGE = """
+import os, subprocess, sys
+print(subprocess.Popen(["sleep", "600"]).pid, flush=True)
+os.execv(sys.executable, [sys.executable, "-c", "import board_watch; board_watch.Shell().end_inherited_children()"])
+"""
+
+
+def test_a_reexecuted_watch_ends_the_streams_its_older_image_started() -> None:
+    """Root #251779: each in-place reexec kept the PID and left the older image's `cc-present watch` running unread, thirty of them under two runners by 5 AM Oct 31."""
+    env = os.environ | {"PYTHONPATH": str(Path(board_watch.__file__).parent)}
+    leaked = int(subprocess.run([sys.executable, "-c", LEAKING_IMAGE], env=env, capture_output=True, text=True, check=True).stdout)
+    try:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            try:
+                os.kill(leaked, 0)
+            except ProcessLookupError:
+                return
+            time.sleep(0.1)
+        pytest.fail(f"the stream the older image started, pid {leaked}, outlived the reexec")
+    finally:
+        try:
+            os.kill(leaked, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
 
 def test_a_board_that_is_not_the_roots_newest_posts_no_snapshot(tmp_path: Path) -> None:
