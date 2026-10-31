@@ -166,6 +166,8 @@ fidelity 30, running 25, board 15, carry 20 (one fidelity pass), lane 30, ask 15
 PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record. A board
 stall counts from the latest of its finder ok, its fidelity ok, and its ledger row's `green_at`, the refresh that
 first read the head's build green, since the board refresher puts a row up only once the build is green.
+A quiet lane whose last record names an owner card still open and unanswered on the board waits on the
+owner, not on itself, and stalls only once the card is answered or leaves the board.
 Three questions need judgment, and one call per pass through the drive's judge library,
 `long_running.judge.batch`, Sonnet at low effort, answers all of them: whether a PR's new head is
 a patch-identical restack of the tapped one or adds no new behavior, read from its lane's `head` records, and whether a quiet
@@ -209,7 +211,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from functools import cached_property
+from functools import cache, cached_property
 
 from long_running import actions, judge
 from long_running import board_rows
@@ -1306,6 +1308,7 @@ class Pass:
             newest[record["lane"]] = record
         stalls: list[Stall] = []
         questions: list[Question] = []
+        board = cache(self.board)
         for lane, tasks in sorted(task_owners(session).items()):
             if lane in NOT_LANES:
                 continue
@@ -1335,6 +1338,8 @@ class Pass:
                 if self.now - given >= self.watch.age("lane"):
                     stalls.append(Stall(f"lane:{lane}", "lane", given, lane, f"it owns task {owned} in progress, given it by {pacific(given)}, and has posted nothing since", (ROOT,), f"close task {owned} or relaunch {lane}"))
             elif last["kind"] not in ENDED and self.now - at(last) >= PROMISE_FLOOR:
+                if (shown := board()) and shown.open_asks("", grades.full_text(last)):
+                    continue
                 questions.append(self.silence(lane, last, owned))
         return stalls, questions
 

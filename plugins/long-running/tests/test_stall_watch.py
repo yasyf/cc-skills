@@ -1045,6 +1045,20 @@ def test_a_quiet_lane_with_no_open_pr_is_idle_after_a_ready_record_unless_it_owe
         assert text in shell.post("lane:api-lane")["text"]
 
 
+@pytest.mark.parametrize(("picked", "stalls"), [(None, []), ({"optionIds": ["deploy-go"]}, ["lane:api-lane"])], ids=["card-open", "card-answered"])
+def test_a_lane_blocked_on_an_open_owner_card_waits_on_the_owner_and_does_not_stall(config, tmp_path, picked, stalls):
+    """Root #256060: a lane parked on the owner's pick on card trunk-webhooks-deploy was paged every 32 minutes while the card stayed open."""
+    task(tmp_path, 1, "api-lane", minutes_ago=90)
+    shell = FakeShell([record(1, "api-lane", "blocked", "still blocked on the owner's pick on card trunk-webhooks-deploy", 60)], [])
+    shell.answer = lambda question: {"explained": False}
+    shell.doc = {"blocks": [{"id": "trunk-webhooks-deploy", "type": "card", "children": [{"id": "trunk-webhooks-deploy-choice", "type": "choice", "options": [{"id": "deploy-go"}]}]}]}
+    shell.choices = {"trunk-webhooks-deploy-choice": picked}
+
+    watch(shell, config)
+
+    assert shell.topics() == stalls
+
+
 @pytest.mark.parametrize(("text", "stalls"), [("Owners for the reds: #101 stays with api-lane, READY", []), ("api-lane: rebase #101 on dev", ["lane:api-lane"])], ids=["listed-as-recipient", "given-an-order"])
 def test_a_lane_owes_a_root_decide_only_when_it_gives_the_lane_an_order(config, tmp_path, text, stalls):
     task(tmp_path, 1, "api-lane", minutes_ago=90)
