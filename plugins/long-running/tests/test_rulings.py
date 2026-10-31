@@ -363,7 +363,9 @@ class RegisterShell(ledger.Shell):
         board: dict | None = None,
         present: frozenset[str] = frozenset(),
         blocks: dict[str, str] | None = None,
+        pulls: dict[str, dict[str, str]] | None = None,
     ) -> None:
+        self.pulls = pulls or {}
         self.board = board or {}
         self.blocks = blocks or {}
         self.rows = {key: dict(fields) for key, fields in rows.items()}
@@ -387,6 +389,8 @@ class RegisterShell(ledger.Shell):
                 return json.dumps([{"id": REGISTER_LEDGER, "updated_at": STAMP}] if label == "program:brook" else [])
             case ["ccn", "-R", "/repo", "ledger", "show", identity, "--json"] if identity == REGISTER_LEDGER:
                 return json.dumps({"id": REGISTER_LEDGER, "status": self.status, "rows": [{"key": key, "fields": fields, "updated_at": STAMP} for key, fields in self.rows.items()]})
+            case ["ccn", "-R", "/repo", "ledger", "show", identity, "--json"] if identity == DRIVE_LEDGER:
+                return json.dumps({"id": DRIVE_LEDGER, "rows": [{"key": key, "fields": fields} for key, fields in self.pulls.items()]})
             case ["ccn", "-R", "/repo", "ledger", "row", "set", identity, "--key", key, *flags] if identity == REGISTER_LEDGER:
                 for flag, value in zip(flags[::2], flags[1::2], strict=True):
                     assert flag == "--field"
@@ -1588,6 +1592,35 @@ def test_a_lane_slice_matches_anchored_rows_by_the_lanes_paths(home: Path, packa
 
     assert out.startswith("Register slice: lane=lane-b step=2 paths=src/relay/*\n")
     assert "### rule/bbbbbbb | pick | in-force | said 1 | Oct 20 3:00 PM PT" in out.splitlines()
+
+
+def test_a_lane_slice_carries_the_rows_naming_a_pr_its_lane_or_a_lane_it_succeeds_owns(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
+    """Root #261029: a row naming a PR reached no lane, since a lane's PRs were not in its slice header."""
+    rows = seeded(package) | {
+        "rule/4635800": {"kind": "order", "status": "in-force", "words": "Keep #46358 to the follower restart.", "steps": '["all"]', "lanes": '["all"]', "paths": "none"},
+        "rule/4636000": {"kind": "order", "status": "in-force", "words": "Land #46360 last.", "steps": '["all"]', "lanes": '["all"]', "paths": "none"},
+        "rule/4635900": {"kind": "order", "status": "in-force", "words": "Close acme/app#46359 unmerged.", "steps": '["all"]', "lanes": '["all"]', "paths": "none"},
+    }
+    pulls = {"46358": {"lane": "lane-c", "state": "open"}, "46359": {"lane": "lane-c", "state": "closed-without-squash"}, "46360": {"lane": "lane-d", "state": "open"}}
+
+    for lane in ("lane-c", "lane-c-2"):
+        _, out = ran(capsys, RegisterShell(rows, pulls=pulls), "slice", "--lane", lane, "--step", "2")
+
+        assert out.startswith(f"Register slice: lane={lane} step=2 prs=46358\n")
+        assert required(out) == ["rule/4635800"]
+
+    _, out = ran(capsys, RegisterShell(rows, pulls=pulls), "slice", "--lane", "lane-c", "--step", "2", "--prs", "acme/app#46359")
+
+    assert out.startswith("Register slice: lane=lane-c step=2 prs=46358,acme/app#46359\n")
+    assert required(out) == ["rule/4635800", "rule/4635900"]
+
+    brief = state / "briefs" / "lane-c.md"
+    brief.parent.mkdir()
+    brief.write_text("Register slice: lane=lane-c step=2\n")
+    ran(capsys, RegisterShell(rows, pulls=pulls), "slice", "--refresh", str(brief))
+
+    assert brief.read_text().startswith("Register slice: lane=lane-c step=2 prs=46358\n")
+    assert "> Keep #46358 to the follower restart." in brief.read_text().splitlines()
 
 
 def test_a_lane_slice_matches_a_row_anchored_by_glob_to_a_lanes_concrete_path(home: Path, package: Path, state: Path, capsys) -> None:

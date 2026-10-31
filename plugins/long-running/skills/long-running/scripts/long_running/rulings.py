@@ -12,7 +12,7 @@
     rulings.py confirm      [--program SLUG | --drive ID] KEY --capture DIGEST [--tick N,...|all] [--strike N,...] [--implication TEXT]
     rulings.py amend        [--program SLUG | --drive ID] KEY [--answer ID ...] [--implication N [--text TEXT] [--direction DIR]]
     rulings.py round        [--program SLUG | --drive ID]
-    rulings.py slice        [--program SLUG | --drive ID] (--lane NAME --step N [--paths GLOB]... [--codex] | --root | --refresh BRIEF) [--plan PATH]
+    rulings.py slice        [--program SLUG | --drive ID] (--lane NAME --step N [--paths GLOB]... [--prs [OWNER/NAME#]N]... [--codex] | --root | --refresh BRIEF) [--plan PATH]
     rulings.py slice        [--program SLUG | --drive ID] --required --pr [OWNER/NAME#]N --head SHA [--base REF] [--words]
     rulings.py plan         [--program SLUG | --drive ID]
     rulings.py sweep        [--program SLUG | --drive ID] [KEY] [--artifact PATH]... [--paths GLOB]... [--root DIR] [--diff FILE] [--plan PATH]
@@ -171,7 +171,8 @@ PROOF_SOURCE = re.compile(r"^proof:([\w-]+):")
 CONFIRMS_OPTIONS = ["Yes", "No"]
 PRODUCT_NOUNS = ("chat", "Mac", "cloud", "share link", "pod", "API", "SandSQL", "journal", "attachment", "update", "team", "project")
 UNCONFIRMED_AFTER = timedelta(hours=4)
-SLICE_HEADER = re.compile(r"^Register slice: lane=(?P<lane>\S+) step=(?P<step>\S+)(?: paths=(?P<paths>\S+))?(?P<codex> codex=yes)?[ \t]*$", re.MULTILINE)
+SLICE_HEADER = re.compile(r"^Register slice: lane=(?P<lane>\S+) step=(?P<step>\S+)(?: paths=(?P<paths>\S+))?(?: prs=(?P<prs>\S+))?(?P<codex> codex=yes)?[ \t]*$", re.MULTILINE)
+PR_FIELDS = ("words", "repeats", "names", "implications", "protects", "not_when", "evidence", "shape_tests")
 SLICE_HASH = re.compile(r"^slice-hash: (?P<hash>[0-9a-f]{12})$", re.MULTILINE)
 INCIDENT_STEP = "incident"
 SLICE_CAP = 40_000
@@ -478,10 +479,18 @@ class Register:
     state: Path
     ledger: str
     rows: dict[str, dict[str, str]]
+    drive_ledger: str = ""
 
     @cached_property
     def brief_paths(self) -> list[Path]:
         return briefs(self.state)
+
+    def lane_prs(self, lane: str) -> list[str]:
+        """The open PRs the drive's ledger gives `lane` or a lane it succeeds, under their ledger keys."""
+        if not self.drive_ledger:
+            return []
+        rows = {row["key"]: row["fields"] for row in ccn(self.shell, self.repo, "ledger", "show", self.drive_ledger)["rows"]}
+        return sorted((key for key, fields in ledger.pull_rows(rows).items() if fields.get("state") == "open" and (fields.get("lane") == lane or grades.succeeds(lane, fields.get("lane") or ""))), key=ledger.pr_order)
 
     @classmethod
     def load(cls, args: argparse.Namespace, shell: ledger.Shell, repo: str | None = None, last: bool = False, kept_any: bool = False) -> Register:
@@ -490,7 +499,7 @@ class Register:
         repo = repo or register_repo(args)
         state = state_dir(args, args.runtime.drives, args.runtime.scratch)
         identity, rows = register_reads.load(shell.run, args.runtime.lock, args.runtime.held, repo, program, state, last, kept_any)
-        return cls(shell, repo, program, state, identity, rows)
+        return cls(shell, repo, program, state, identity, rows, (entry_of(args) or {}).get("ledger", ""))
 
     def write(self, key: str, **fields: object) -> None:
         values = {name: stored(value) for name, value in fields.items()}
@@ -795,36 +804,45 @@ class Want:
     step: str
     paths: list[str]
     codex: bool
+    prs: list[str] = field(default_factory=list)
 
     def header(self) -> str:
         line = f"{SLICE_LINE} lane={self.lane} step={self.step}"
         if self.paths:
             line += f" paths={','.join(self.paths)}"
+        if self.prs:
+            line += f" prs={','.join(self.prs)}"
         return line + (" codex=yes" if self.codex else "")
 
     def matches(self, fields: dict[str, str]) -> bool:
         if self.lane in listed(fields.get("lanes")) or steps_match(listed(fields.get("steps")), self.step):
             return True
-        return self.anchored(fields)
+        return self.names_pr(fields) or self.anchored(fields)
+
+    def names_pr(self, fields: dict[str, str]) -> bool:
+        text = "\n".join(fields.get(name) or "" for name in PR_FIELDS)
+        return any(re.search(rf"#{ledger.PR_KEY.fullmatch(key)['pr']}(?!\d)", text) for key in self.prs)
 
     def anchored(self, fields: dict[str, str]) -> bool:
         return any(fnmatch.fnmatch(anchor, pattern) or fnmatch.fnmatch(pattern, anchor) for anchor in anchors(fields) for pattern in self.paths)
 
     def rank(self, fields: dict[str, str], step_text: str) -> int | None:
-        """How closely a row is this lane's: 0 when it names the lane, 1 its plan step, 2 one of its paths, 3 when its plan step mentions one of the row's Names or Surfaces, None otherwise; a row for every step names none of them."""
+        """How closely a row is this lane's: 0 when it names the lane, 1 one of its PRs, 2 its plan step, 3 one of its paths, 4 when its plan step mentions one of the row's Names or Surfaces, None otherwise; a row for every step names none of them."""
         if self.lane in listed(fields.get("lanes")):
             return 0
-        if steps_match([value for value in listed(fields.get("steps")) if value != "all"], self.step):
+        if self.names_pr(fields):
             return 1
-        if self.anchored(fields):
+        if steps_match([value for value in listed(fields.get("steps")) if value != "all"], self.step):
             return 2
-        if step_text and any(named(step_text, term) for term in row_terms(fields)):
+        if self.anchored(fields):
             return 3
+        if step_text and any(named(step_text, term) for term in row_terms(fields)):
+            return 4
         return None
 
     @classmethod
     def parse(cls, header: re.Match[str]) -> Want:
-        return cls(header["lane"], header["step"], [pattern for pattern in (header["paths"] or "").split(",") if pattern], bool(header["codex"]))
+        return cls(header["lane"], header["step"], [pattern for pattern in (header["paths"] or "").split(",") if pattern], bool(header["codex"]), [key for key in (header["prs"] or "").split(",") if key])
 
 
 def write_in_first(item: tuple[str, dict[str, str]]) -> tuple[bool, str]:
@@ -860,6 +878,7 @@ class Capped:
 
 
 def lane_slice(loaded: Register, want: Want, plan: Path | None) -> str:
+    want = Want(want.lane, want.step, want.paths, want.codex, sorted({*want.prs, *loaded.lane_prs(want.lane)}, key=ledger.pr_order))
     rulings = loaded.rulings()
     doc = register(loaded.shell, loaded.repo, loaded.program)
     plan_lines = plan.read_text().splitlines() if plan and plan.is_file() else []
@@ -1308,7 +1327,7 @@ def in_slice(want: Want, fields: dict[str, str]) -> bool:
 
 
 def announce(loaded: Register, cci: str, live: list[str], touched: dict[str, str], before: dict[str, dict[str, str]]) -> None:
-    """Post the touched rows to each live lane whose slice they change: a row its slice carries before or after the classify, so a lane with no slice line, or whose step, lanes and paths the rows miss, hears nothing."""
+    """Post the touched rows to each live lane whose slice they change: a row its slice carries before or after the classify, so a lane with no slice line, or whose step, lanes, PRs and paths the rows miss, hears nothing."""
     wants = slice_wants(loaded)
     lanes = {lane for lane in live if (want := wants.get(lane)) and any(in_slice(want, fields) for key in touched for fields in (before.get(key), loaded.rows[key]) if fields)}
     rows: list[str] = []
@@ -1631,7 +1650,7 @@ def cmd_slice(args: argparse.Namespace, shell: ledger.Shell) -> int:
     else:
         if not (args.lane and args.step):
             raise SystemExit("slice needs --lane and --step, --root, --refresh BRIEF, or --required")
-        args.stdout.write(lane_slice(loaded, Want(args.lane, args.step, args.paths, args.codex), plan_path(args, loaded)))
+        args.stdout.write(lane_slice(loaded, Want(args.lane, args.step, args.paths, args.codex, args.prs), plan_path(args, loaded)))
     return 0
 
 
@@ -2797,6 +2816,7 @@ def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser
     sliced.add_argument("--lane")
     sliced.add_argument("--step")
     sliced.add_argument("--paths", action="append", default=[], metavar="GLOB")
+    sliced.add_argument("--prs", action="append", default=[], metavar="[OWNER/NAME#]N", help="a PR the lane owns beyond the open ones the drive's ledger gives it; rows naming it join the slice")
     sliced.add_argument("--codex", action="store_true")
     sliced.add_argument("--root", action="store_true")
     sliced.add_argument("--refresh", metavar="BRIEF")
