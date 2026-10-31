@@ -270,7 +270,7 @@ Each prefix passes the check registry, `landing.checks` in order, every built-in
 `(priority, root PR)` order, a tree's priority the lowest ledger `priority` among its PRs, and accepted enqueues run one parallel
 wave per priority, lower first. A check that reads no verdict first settles its tips through `ledger.py landed`, which
 reads each tip's squash on the freshly fetched trunk, and drops every tip whose row then reads landed; only the tips left
-log `GATE-FAILED`. A check killed at its 60-second cap on both tries has no verdict yet, runs again next pass, and refuses its heads for `GATE-TIMEOUT` meanwhile. `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
+log `GATE-FAILED`. A check killed at its cap, the enqueue's 300 seconds since both run the merge preflight, on both tries has no verdict yet, runs again next pass, and refuses its heads for `GATE-TIMEOUT` meanwhile. `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
 adapter call runs the trunk's script; a checkout its repository no longer lists as a worktree, or one on a branch with no commit, is rebuilt at the fetched trunk head with a clean tree,
 re-registered through `git worktree add --no-checkout` and `git worktree repair` when git lost it, logs `MIRROR-REBUILT` to root, and the pass goes on;
 a checkout that still cannot fast-forward logs `CHECKOUT-STALE` to root and gates nothing that pass.
@@ -283,7 +283,7 @@ stack waits on another stack's checks or enqueue. The workers outlive the pass: 
 them at most 120 s, skips a tree whose worker still runs or waits, and its releases, announcements and restack checks run
 on a side worker, never ahead of the gate, and its worktree removal on a worker of its own, so a slow removal holds back neither. Each worker writes its step and when it began to `<config>.landing-stacks.json`, which
 stall_watch reads to name a stack stuck past its step's budget. Every pass posts one `state` record to root on topic `landing-state`
-counting the queued, waiting, held and refused PRs, the workers running and the overflow's enqueues, with the pass's seconds.
+counting the queued, waiting, held and refused PRs and the workers running, with the pass's seconds.
 Each gate step admits every open drive PR green at its ledger head, under no hold, that a root `go` or an exemption names there, and
 every branch of the pass that acts on or drops one settles it: queued, refused with the gate line or the check that refused it,
 below-blocked on the unlanded or unadmitted PR it sits on (never `GATE-FAILED` for that), or in flight on a stack worker. The pass
@@ -302,9 +302,9 @@ Every text that says a PR has, lacks or lost a go, `GO-UNQUEUED`, `BELOW-BLOCKED
 `grades.go_state`, citing the newest go at the head, a carried one included, by seq, lane and time, or the newest go at
 an older head when none names it; `go --config PATH PR...` prints the same for any PR, and `drive.py go` runs it.
 `GO-UNQUEUED` is raised only when the newest enqueue of a go'd head since its go ended blocked, failed, stranded or unsettled, or went in and the queue's merge activity then evicted it, naming that eviction's time and reason, never for
-backlog, and `OVERFLOW-STALLED` when the overflow thread finished no run in five minutes. A go'd head whose queue draft closed unmerged is taken out with the adapter's dequeue once per head, posting `ORPHAN-RELEASED`, and enqueued afresh, never `--recover`ed. Beside the passes, an overflow thread reads afresh every minute and puts straight
-into the queue, with none of the runner's checks, each stack that has stayed green, named at its heads by a root go, unheld, unqueued
-and unrefused for five minutes, posting a QUEUED report that names the overflow (owner 9524276). Under `graphite-stack-enqueue` only (never `trunk-stack-enqueue`, where Trunk failures stay blocked or `UNKNOWN`), Graphite reads down when no queue
+backlog, and `OVERFLOW-STALLED` when the overflow thread finished no run in five minutes. A go'd head whose queue draft closed unmerged is taken out with the adapter's dequeue once per head, posting `ORPHAN-RELEASED`, and enqueued afresh, never `--recover`ed. Beside the passes, an overflow thread reads afresh every minute and hands
+to a stack worker each stack that has stayed green, named at its heads by a root go, unheld, unqueued and unrefused for five minutes,
+so it runs the same check, admission and merge-mode gates a pass runs, never a bare enqueue (owner 9524276, root #245808). Under `graphite-stack-enqueue` only (never `trunk-stack-enqueue`, where Trunk failures stay blocked or `UNKNOWN`), Graphite reads down when no queue
 draft from its app has opened in 15 minutes while the queue read holds a PR, or its two newest drafts are both still open 30 minutes after
 opening, which is how its batches time out; a draft read that fails changes nothing. The pass that sees it posts one `GRAPHITE-DOWN since
 <time>` state record to root and each `landing.desk_lane`, and one `GRAPHITE-UP` once a draft opens after that time. While down, the
@@ -891,7 +891,7 @@ FETCH_SECONDS = 120
 GRAPHITE_BASE = "graphite-base/"
 QUICK_SECONDS = 60
 CHECK_PR_SECONDS = 180
-GATE_CHECK_SECONDS = 60
+GATE_CHECK_SECONDS = ENQUEUE_SECONDS
 QUEUE_STATUS_SECONDS = 300
 LANDABLE = "landable"
 CHECK_PR_TIMEOUT = "CHECK-PR-TIMEOUT"
@@ -913,7 +913,7 @@ LOG_LINES = 40
 FAILURE_LINE = re.compile(r"^\s*(?:error(?:\[\w+\])?:|--- FAIL|FAIL\b|test \S+ \.\.\. FAILED|thread .* panicked|Error:|✗|×)", re.MULTILINE)
 RED_JOBS = 3
 GATE_BUDGET = timedelta(seconds=120)
-STEP_BUDGETS = {"fetch": FETCH_SECONDS, "check": 180, "settle": 300, "enqueue": 300}
+STEP_BUDGETS = {"fetch": FETCH_SECONDS, "check": 2 * GATE_CHECK_SECONDS + 60, "settle": 300, "enqueue": 300}
 STACKS_FILE = "landing-stacks.json"
 BUILDS_KEPT = timedelta(days=3)
 CHECK_PR_WORKERS = 8
@@ -8573,7 +8573,7 @@ class Landing:
                     if self.down_since():
                         mine.overflowed_at = time.monotonic()
                     else:
-                        mine.overflow()
+                        mine.overflow(self)
                 except Exception:
                     traceback.print_exc()
                 time.sleep(max(0.0, OVERFLOW_EVERY.total_seconds() - (time.monotonic() - started)))
@@ -8582,7 +8582,7 @@ class Landing:
         self.overflowing.start()
 
     def post_state(self, took: float) -> None:
-        """Post the pass's one `state` record to root on topic `landing-state`, which cci delivers newest-only, so root never asks what the runner is doing (owner 9524276): the open rows the queue holds, the green ones a root go names at their heads that are out of it and neither held nor refused, with the oldest stack step in flight, the held, the refused at their heads, the stack workers running, the overflow's enqueues this hour, and the pass's seconds. It logs `OVERFLOW-STALLED` once an hour while the overflow thread has finished no run in `OVERFLOW_STALLED`."""
+        """Post the pass's one `state` record to root on topic `landing-state`, which cci delivers newest-only, so root never asks what the runner is doing (owner 9524276): the open rows the queue holds, the green ones a root go names at their heads that are out of it and neither held nor refused, with the oldest stack step in flight, the held, the refused at their heads, the stack workers running, and the pass's seconds. It logs `OVERFLOW-STALLED` once an hour while the overflow thread has finished no run in `OVERFLOW_STALLED`."""
         open_rows = {pr: row for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"}
         statuses, gos, held = self.statuses or {}, self.gos or [], set(self.held_now)
         refused = set(refused_members(self.book.actions(LANDING, kind="bus"), set(open_rows), open_rows)) if open_rows else set()
@@ -8592,17 +8592,15 @@ class Landing:
         with self.dispatching:
             oldest = min(self.steps.values(), key=lambda entry: entry["since"], default=None)
             running = sum(1 for _, future in self.inflight.values() if not future.done())
-        hour = now - timedelta(hours=1)
-        overflowed = sum(1 for action in self.book.actions(LANDING, kind="enqueue") if f"#{OVERFLOW}-" in action.action_id and actions.parse_stamp(action.accepted_at) >= hour)
         step = f" (oldest #{oldest['root']} {oldest['step']} {whole_minutes(actions.parse_stamp(oldest['since']), now)}m)" if oldest else ""
-        text = f"LANDING queued {len(queued)}, waiting {len(waiting)}{step}, held {len(held)}, refused {len(refused)}, in flight {running}, overflowed {overflowed} this hour; pass {took:.0f}s"
+        text = f"LANDING queued {len(queued)}, waiting {len(waiting)}{step}, held {len(held)}, refused {len(refused)}, in flight {running}; pass {took:.0f}s"
         self.runner.cci_post("state", text, ROOT, "landing-state", f"landing-state:{self.book.stamp()}")
         if self.overflower and (quiet := time.monotonic() - self.overflower.overflowed_at) > OVERFLOW_STALLED.total_seconds():
             alive = self.overflowing is not None and self.overflowing.is_alive()
             self.runner.escalate(f"overflow-stalled:{now:%Y%m%d%H}", "OVERFLOW-STALLED", "landing", f"the overflow thread has finished no run in {int(quiet // 60)} minutes{'' if alive else ' and is dead'}, so a stack the passes leave out waits on them alone; `desk-runner.py handoff` restarts the runner")
 
-    def overflow(self) -> None:
-        """Enqueue straight into the merge queue, through the adapter and with none of the runner's own checks, each stack that has stayed landable for `OVERFLOW_AFTER` since an overflow first found it so: every unqueued PR of it green at its ledger head, named at that head by a root go, under no hold, pull, or incident fix, with no enqueue of it running and nothing the runner decided against it at that head, which is a refusal `last_refusal` finds since the go, an enqueue outcome outside `OVERFLOW_RETRIES` other than a `blocked` one five minutes old, a drop still waiting on a go, or a reserved row no answer authorizes (C224). A stack is due once any PR of it is, so a restack that restarted an upper PR's clock never sends the bottom in alone for Graphite to hold the rest on. Each goes in as its stack's top, recorded as an enqueue and posted as a QUEUED report that names the overflow."""
+    def overflow(self, gate: "Landing") -> None:
+        """Hand to a stack worker of `gate`, the passes' Landing, each stack that has stayed landable for `OVERFLOW_AFTER` since an overflow first found it so: every unqueued PR of it green at its ledger head, named at that head by a root go, under no hold, pull, or incident fix, with no enqueue of it running and nothing the runner decided against it at that head, which is a refusal `last_refusal` finds since the go, an enqueue outcome outside `OVERFLOW_RETRIES` other than a `blocked` one five minutes old, a drop still waiting on a go, or a reserved row no answer authorizes (C224). A stack is due once any PR of it is, so a restack that restarted an upper PR's clock never sends the bottom in alone for Graphite to hold the rest on. Each goes to `land_tree` as its stack's top, so the overflow runs every check, admission and merge-mode gate a pass runs and refuses a batch carrying a PR the drive did not admit (root #245808)."""
         self.cci_tail.remember()
         try:
             self.statuses, self.queues_read, self.gos, self.cleared = None, False, None, {}
@@ -8623,9 +8621,8 @@ class Landing:
             with ThreadPoolExecutor(max(1, len(due))) as pool:
                 touched = dict(zip(due, pool.map(lambda pr: bool(self.reserved_touches(pr, open_rows[pr]["head"])), due)))
             due = {pr for pr in due if not any(touched.get(member, False) for member in downstack(open_rows, pr) & due)}
-            tops = [pr for pr in due if not any(pr in downstack(open_rows, other) for other in due - {pr})]
-            with ThreadPoolExecutor(max(1, len(tops))) as pool:
-                list(pool.map(lambda top: self.overflow_one(top, open_rows, queue, min(actions.parse_stamp(since[member][1]) for member in downstack(open_rows, top) & landable)), tops))
+            for top in (pr for pr in due if not any(pr in downstack(open_rows, other) for other in due - {pr})):
+                gate.dispatch(f"{OVERFLOW}:{top}", downstack(open_rows, top), lambda top=top: gate.land_tree(rows, held, [top]))
         finally:
             self.cci_tail.stop()
             self.overflowed_at = time.monotonic()
@@ -8661,26 +8658,6 @@ class Landing:
             return True
         since = min(max(actions.parse_stamp(go["at"]), actions.parse_stamp(go.get("graded_at") or go["at"])) for pr in members for go in gone_at(gos, pr, heads[pr]))
         return self.last_refusal(members, open_rows, since) is not None
-
-    def overflow_one(self, top: str, open_rows: dict[str, dict], queue: dict[str, str], since: datetime) -> None:
-        prefix = sorted((pr for pr in downstack(open_rows, top) if queue.get(pr) not in STATUS_SETTLED), key=lambda pr: len(downstack(open_rows, pr)))
-        heads = {pr: open_rows[pr]["head"] for pr in prefix}
-        base = "enqueue:" + ",".join(f"{pr}@{heads[pr][:10]}" for pr in prefix)
-        key = f"{base}#{OVERFLOW}-{len([action for action in self.book.actions(LANDING, kind='enqueue') if action.action_id.split('#')[0] == base]) + 1}"
-        deadline = self.runner.now() + timedelta(minutes=self.runner.config.enqueue_minutes)
-        self.book.accept(LANDING, key, "enqueue", ",".join(prefix), OVERFLOW, deadline)
-        if not self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now(), deadline=deadline)):
-            return
-        if landed := self.landed_now(prefix):
-            self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "landed", "out": f"{numbered(sorted(landed, key=int))} already landed on {TRUNK}", "at": self.book.stamp(), OVERFLOW: True}))
-            return
-        outcome, out, last = self.adapter.enqueue([top], self.whole(), heads)
-        self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": out, "drive": self.runner.config.drive, "at": self.book.stamp(), OVERFLOW: True}))
-        if outcome in BELIEVED_QUEUED:
-            waited = whole_minutes(since, self.runner.now())
-            self.post_settled(enqueued_heads(key), Queued(f"the landing runner's overflow put it straight in the merge queue at {pacific(self.runner.now())}, {waited} minutes after it found it landable and unqueued, without its own checks (owner 9524276)"))
-        elif outcome in ("stranded", "failed", "unsettled"):
-            self.runner.escalate(key, f"ENQUEUE-{outcome.upper()}", numbered([top]), f"the overflow enqueue of {numbered(prefix)} ended {outcome}: {last}")
 
     def refused_at_head(self, members: set[str], open_rows: dict[str, dict]) -> bool:
         """Whether this runner posted a `blocker` for a PR of `members` at its current head: that refusal is the record, so no `GO-UNQUEUED` repeats it (root, Oct 29 10:35 AM)."""
