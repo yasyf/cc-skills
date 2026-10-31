@@ -5464,6 +5464,20 @@ def test_a_head_with_no_finder_record_is_refused_finder_pending_once(shell, conf
     assert blocker["text"] == "#29020 cccc333333: nothing in #29020 was enqueued; FINDER-PENDING #29020: no `finder:` record from finder-desk names this head, and a lane's own finder record never grades it"
 
 
+def test_a_blocker_the_runner_posted_is_resolved_once_its_pr_moves_past_that_head(shell, config, tmp_path):
+    """Root #253512: 1,139 open blockers sat on the bus at 6:26 AM Oct 31, most of them the runner's own for heads long gone."""
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333", finder=False)
+    landing_pass(shell, config)
+    [blocker] = blockers(shell)
+    shell.rows = [dict(row, head="eeee555555", reported_head="eeee555555") for row in shell.rows]
+    landing_pass(shell, config)
+    [resolved] = [post for post in shell.posts if post.get("resolves")]
+    assert resolved["text"] == "RESOLVED 1 landing-runner blockers whose PR has since landed, closed or moved past the head each names" and resolved["to"] == blocker["to"]
+    landing_pass(shell, config)
+    assert len([post for post in shell.posts if post.get("resolves")]) == 1
+
+
 def test_a_finder_pending_head_with_no_pass_waiting_queues_one_and_again_once_a_pass_skipped_it_while_closed(shell, config, tmp_path):
     finder_config(config)
     lone_green_pr(shell)
