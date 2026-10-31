@@ -13,7 +13,7 @@
     rulings.py amend        [--program SLUG | --drive ID] KEY [--answer ID ...] [--implication N [--text TEXT] [--direction DIR]]
     rulings.py round        [--program SLUG | --drive ID]
     rulings.py slice        [--program SLUG | --drive ID] (--lane NAME --step N [--paths GLOB]... [--codex] | --root | --refresh BRIEF) [--plan PATH]
-    rulings.py slice        [--program SLUG | --drive ID] --required --pr [OWNER/NAME#]N --head SHA [--base REF]
+    rulings.py slice        [--program SLUG | --drive ID] --required --pr [OWNER/NAME#]N --head SHA [--base REF] [--words]
     rulings.py plan         [--program SLUG | --drive ID]
     rulings.py sweep        [--program SLUG | --drive ID] [KEY] [--artifact PATH]... [--paths GLOB]... [--root DIR] [--diff FILE] [--plan PATH]
     rulings.py readback     [--program SLUG | --drive ID] --lane NAME --contract SEQ [--step N] [--root DIR]
@@ -75,6 +75,9 @@ through the registry entry and uses ``--repo`` for the PR's own checkout. ``slic
 ``check-pr`` diff the PR with git in that checkout when its origin is the PR's repository, and
 through the GitHub compare API otherwise. ``--paths`` globs
 resolve under ``--root``, which defaults to ``--repo``; an absolute glob stands alone.
+``slice --required --words`` prints each row as fidelity.py's grader reads it: the owner's words and repeats verbatim,
+oldest first, each board tap with the card it answered as ``cc-present block show`` prints it, a design row's or
+exception's plan text labelled as the root's, and none of the register's implications or summaries.
 ``check-pr`` and ``sweep --diff`` print one ``MECHANISM-BANNED`` line for the added lines, in code and tests alike, that
 start a timer or wait inside a loop when the drive's judge reads them as named by neither the owner's words nor the plan,
 and one per added line that writes a credential to a file or runs a build or test on this machine, naming the shape,
@@ -115,7 +118,7 @@ from zoneinfo import ZoneInfo
 
 from . import judge
 from . import register_reads
-from .register_reads import BINDING_DIRECTIONS, LEDGER_REFS, NOT_RULINGS, SLICE_LINE, UNANCHORED, binding, digest, hashed, kept_copy, listed, rendered_row, section, write_atomic
+from .register_reads import BINDING_DIRECTIONS, LEDGER_REFS, NOT_RULINGS, SLICE_LINE, UNANCHORED, binding, digest, hashed, kept_copy, listed, rendered_row, row_anchors, row_heading, section, write_atomic
 from .ruling_documents import DocumentIndex
 
 from . import board_rows
@@ -137,6 +140,8 @@ CITED = re.compile(r"\b[0-9a-f]{7,40}\b")
 PACIFIC = ZoneInfo("America/Los_Angeles")
 KINDS = ("order", "pick", "design", "exception", "scope", "reserved", "gate")
 GLOBAL_KINDS = frozenset({"reserved", "scope", "design", "exception"})
+PLAN_KINDS = frozenset({"design", "exception"})
+CARD_READERS = 4
 ANCHORED_LATER = frozenset({"order", "pick", "gate"})
 STATES = ("in-force", "pending-owner", "at-risk", "broken", "superseded", "owed", "met")
 STANDING = {"in-force": "in force", "pending-owner": "waiting for you", "at-risk": "at risk", "broken": "broken", "owed": "owed", "met": "met"}
@@ -527,6 +532,17 @@ class Register:
                 for answer in repeat_answers(repeat):
                     words.setdefault(answer[:SHORT], []).append((repeat.get("words") or "", banned))
         return words
+
+
+def worded_row(key: str, fields: dict[str, str], state: Path) -> list[str]:
+    """A row as a grader of his words reads it: his words and repeats verbatim, each tap with the card it answered, and the plan's text of a design row or exception labelled as the root's; never the register's implications or summaries."""
+    if fields.get("kind") in PLAN_KINDS:
+        lines = [row_heading(key, fields), "The plan's text for this row, the root's words his answers approve, not his own:", *(f"> {line}" for line in (fields.get("words") or "").splitlines())]
+    else:
+        lines = [row_heading(key, fields), judge.owner_words(key, judge.said(fields, state))]
+    if anchors := row_anchors(fields):
+        lines += ["The root's reading of where this row bears, not his words:", *anchors]
+    return lines
 
 
 @dataclass(frozen=True)
@@ -924,6 +940,21 @@ def required_slice(loaded: Register, diff: Diff, pr: str, head: str) -> str:
     rows = required_rows(loaded, diff)
     lines = [f"Required rows for {pr} at {head}", f"Program {loaded.program}, register ledger {loaded.ledger[:12]}. Every row is the owner's words, verbatim."]
     return hashed(lines + section("Every global, pending and touched row", rows))
+
+
+def worded_slice(loaded: Register, diff: Diff, pr: str, head: str) -> str:
+    rows = required_rows(loaded, diff)
+    with ThreadPoolExecutor(CARD_READERS) as pool:
+        worded = list(pool.map(lambda item: worded_row(*item, loaded.state), rows))
+    lines = [
+        f"Required rows for {pr} at {head}",
+        f"Program {loaded.program}, register ledger {loaded.ledger[:12]}. Each row is the owner's words verbatim, oldest first, with the board card each tap answered; the register's implications and summaries are left out.",
+        "",
+        f"## Every global, pending and touched row ({len(rows)})",
+    ]
+    for row in worded:
+        lines += ["", *row]
+    return hashed(lines)
 
 
 def refresh(loaded: Register, brief: Path, plan: Path | None) -> str:
@@ -1541,7 +1572,7 @@ def cmd_slice(args: argparse.Namespace, shell: ledger.Shell) -> int:
             raise SystemExit("slice --required needs --pr and --head")
         repo, number = pull(args, shell)
         base = args.base or json.loads(shell.run(ghread.read("pr", "view", number, "--repo", repo, "--json", "baseRefName")))["baseRefName"]
-        args.stdout.write(required_slice(loaded, pr_diff(args, shell, repo, base, args.head), f"{repo}#{number}", args.head))
+        args.stdout.write((worded_slice if args.words else required_slice)(loaded, pr_diff(args, shell, repo, base, args.head), f"{repo}#{number}", args.head))
     elif args.root:
         args.stdout.write(root_slice(loaded))
     elif args.refresh:
@@ -2707,6 +2738,7 @@ def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser
     sliced.add_argument("--root", action="store_true")
     sliced.add_argument("--refresh", metavar="BRIEF")
     sliced.add_argument("--required", action="store_true")
+    sliced.add_argument("--words", action="store_true", help="with --required, each row as his words and the cards his taps answered, without implications")
     sliced.add_argument("--pr", metavar="[OWNER/NAME#]N")
     sliced.add_argument("--head", metavar="SHA")
     sliced.add_argument("--base", metavar="REF")
