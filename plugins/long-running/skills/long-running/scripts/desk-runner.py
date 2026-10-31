@@ -5750,7 +5750,7 @@ class Landing:
         return bool(head) and bool(gone_at(gos, pr, head) or self.exempt_admitted(pr, head)[0])
 
     def refuse_ungone_parents(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Settle each admitted row a root `go` names at its head above a parent nothing can land past as `BelowBlocked` on the lowest such parent, saying the stack below it lands without them (root #152548): one `unpassed` keeps out, one a hold covers, one red on CI, or one that conflicts with its base. The rows the pass did not admit, those a hold covers among them, get one note per lowest parent instead, posted again only when that stack's set of such parents changes, never for a head that moves: the whole stack waits, `unqueued_gos` never reads it as an unqueued go, and the root hears, in the words `cci owner-waits` prints, what each parent with no go really waits on, which wait on a hold, and which need their lane; it never says a parent waits on the owner's tap unless a board row at its head does (root #207532). A stack whose every such parent is held reads `BELOW-HELD` (root #142036, #142931, #145011)."""
+        """Settle each admitted row, by a root `go` at its head or an exemption, red or conflicting itself or not, above a parent nothing can land past as `BelowBlocked` on the lowest such parent, saying the stack below it lands without them (root #152548): one `unpassed` keeps out, one a hold covers, one red on CI, or one that conflicts with its base. The rows the pass did not admit, those a hold covers among them, get one note per lowest parent instead, posted again only when that stack's set of such parents changes, never for a head that moves: the whole stack waits, `unqueued_gos` never reads it as an unqueued go, and the root hears, in the words `cci owner-waits` prints, what each parent with no go really waits on, which wait on a hold, and which need their lane; it never says a parent waits on the owner's tap unless a board row at its head does (root #207532). A stack whose every such parent is held reads `BELOW-HELD` (root #142036, #142931, #145011)."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}
         red = {pr for pr, row in open_rows.items() if row.get("test_state") == "failure" or row.get("mergeable_state") == "dirty"}
         holding = set(held)
@@ -5758,7 +5758,7 @@ class Landing:
         gos = self.root_gos()
         stacks: dict[str, tuple[list[str], set[str]]] = {}
         for pr in sorted(open_rows, key=int):
-            if pr in self.below_blocking or not gone_at(gos, pr, open_rows[pr]["head"]) or not (parents := downstack(open_rows, pr) & self.below_blocking):
+            if pr not in self.settlement.heads and (pr in self.below_blocking or not gone_at(gos, pr, open_rows[pr]["head"])) or not (parents := (downstack(open_rows, pr) - {pr}) & self.below_blocking):
                 continue
             lowest = min(parents, key=lambda below: (len(downstack(open_rows, below)), int(below)))
             gone, waiting = stacks.setdefault(lowest, ([], set()))
