@@ -918,6 +918,8 @@ TRUNK_FELL_LABELS = ("trunk-failed", "trunk-cancelled")
 TRUNK_QUEUE_DRIVE = "trunk"
 TRUNK_QUEUE_FACT = "trunk-queue"
 TRUNK_FELL = frozenset({"failed", "canceled"})
+CARRIED_FROM = re.compile(r"\bcarried from #(\d+)")
+ROOT_FINDER_CLEAR = r"(?:^|[.;]\s+)(?:\d{{1,2}}:\d\d [AP]M\s+)?(?:root:\s+)?clear(?:ed|s)?\b[^.;]*\bfinder\b[^.;]*#{pr}\s+{sha}"
 QUEUED_VERDICT = "QUEUED"
 WAITING_VERDICT = "WAITING"
 BELOW_BLOCKED = re.compile(r"\bbelow BLOCKED #(\d+)\b")
@@ -6716,12 +6718,15 @@ class Landing:
         return self.finder_carried(pr, sha)
 
     def root_answered(self, pr: str, sha: str, verdict: dict) -> bool:
-        """Whether root settled `verdict`, a failing finder record at `sha`: a root `go` naming `pr` at `sha` posted after it, a root `decide` or `decision` that resolves it, or a root `decision` replying to it directly or along a chain of `--re` replies, since root refutes an edge-case finding in one line (rule 2cc5a1f3, root #152572, #194669)."""
+        """Whether root settled `verdict`, a failing finder record at `sha`: a root `go` naming `pr` at `sha` posted after it, a root `decide` or `decision` that resolves it or opens a sentence clearing the finder on `#<pr> <sha>`, a root `decision` replying to it directly or along a chain of `--re` replies, since root refutes an edge-case finding in one line, or root settling the record a carried major says it was carried from (rule 2cc5a1f3, root #152572, #194669, #231127)."""
         if any(go["seq"] > verdict["seq"] for go in self.head_gos(pr, sha)):
             return True
+        if (source := CARRIED_FROM.search(verdict["text"])) and (carried := next((record for record in self.finder_records(pr) if record["seq"] == int(source[1])), None)) and self.root_answered(pr, carried["head"], carried):
+            return True
+        clear = re.compile(ROOT_FINDER_CLEAR.format(pr=pr, sha=sha[:7]), re.IGNORECASE | re.MULTILINE)
         answered = {verdict["seq"]}
         for record in cci.records(self.cci_tail, self.runner.config.drive, since=verdict["seq"]):
-            if record["lane"] == ROOT and record["kind"] in cci.ROOT_RULINGS and verdict["seq"] in closes(record):
+            if record["lane"] == ROOT and record["kind"] in cci.ROOT_RULINGS and (verdict["seq"] in closes(record) or clear.search(full_text(record))):
                 return True
             if record.get("re") not in answered:
                 continue
