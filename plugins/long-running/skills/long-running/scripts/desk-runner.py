@@ -692,6 +692,7 @@ RULING_CARDS = "cards"
 MERGE_CARDS = "merge_asks"
 MERGE_WAITS = "merge_waits"
 MERGE_ASK_SURFACES = ("slack", "board")
+EXEMPT_BRACKET = re.compile(r"\[exempt:[^\]]*\]", re.IGNORECASE)
 EXEMPT_GO = re.compile(r"\bgo\s+(?:port|test-only|ci-only)\s+#\d+|\bpure port\b|\b(?:test|ci)-only\b", re.IGNORECASE)
 CLASS_WRONG = re.compile(r"(?:re #\d+:\s*)?class wrong\b", re.IGNORECASE)
 TEST_ONLY_CLAIM = re.compile(r"\b(?:test|ci)-only\b", re.IGNORECASE)
@@ -7248,6 +7249,8 @@ class Landing:
         return self.exempts[(pr, sha)]
 
     def exemption(self, pr: str, sha: str) -> tuple[str, str]:
+        if marked := next(((go, bracket[0]) for go in self.head_gos(pr, sha) if (bracket := EXEMPT_BRACKET.search(full_text(go)))), None):
+            return f"EXEMPT-ADMITTED #{pr} at {sha[:10]}: go cci #{marked[0]['seq']} marks it {marked[1]}, so no board row or tap holds it (root #253923)", ""
         if not (found := self.exempt_class(pr, sha)) or (standing := self.fidelity(pr, sha)).record and not standing.ok:
             return "", ""
         grade, said = found

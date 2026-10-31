@@ -3644,6 +3644,18 @@ def tap_ruled_pr(shell, config, files, **landing):
     shell.files["29020"] = files
 
 
+def test_a_go_marked_exempt_admits_a_tap_ruled_head_whose_stale_board_row_waits(shell, config, tmp_path):
+    """Root #253923: #46703's go said `[exempt: dev-red fix, ...]`, and the runner still refused it TAP-REQUIRED on a board row drawn before the exemption."""
+    tap_ruled_pr(shell, config, ["go/sand/next/vm/run.go"])
+    grade(shell, "29020", "ok F307 at cccc333.")
+    shell.board_rows = [("29020", "cccc333333")]
+    merge_go(shell, "29020", "go #29020 at cccc333 on green [exempt: dev-red fix, a new-tree regression we caused]")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    assert not [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+
+
 @pytest.mark.parametrize(
     "go",
     ["go test-only #29020 at cccc333", "go ci-only #29020 at cccc333", "go #29020 at cccc333, test-only", "go #29020 at cccc333, CI-only", "go port #29020 at cccc333"],
