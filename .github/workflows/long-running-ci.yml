@@ -137,7 +137,7 @@ jobs:
         env:
           CCI_NATIVE_FIXTURE: ${{ runner.temp }}/native-cci-fixture
           CCI_NATIVE_BINARY_DIR: ${{ runner.temp }}/native-cci-bin
-          CCI_NATIVE_PROVIDER_SOURCE: 77b840f36e0092818024aa4c9167dc73c0068704
+          CCI_NATIVE_PROVIDER_SOURCE: 2343fc6a5f208ba975fbaf2f960253b8d9352000
           CCI_LEGACY_DESK_RUNNER: ${{ github.workspace }}/.ci-cci-legacy/plugins/long-running/skills/long-running/scripts/desk-runner.py
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/native_cci_integration.py -q -s --junitxml="$RUNNER_TEMP/native-cci.xml"
       - uses: actions/upload-artifact@v7
