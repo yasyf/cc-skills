@@ -18,11 +18,25 @@ from captain_hook.util import reqenv
 from hooks import compaction_handoff as handoff, lane_landing
 from test_check_pr import GRANT_TICKER, HEAD, TIMER_ANSWER_ROW, CheckShell, citing, pinned
 from test_judge_request_owned import PROOF, SHAPE, child_identity, environment, logged, owner, response
-from test_rulings import DIFF, REPO, home, package, registered, state
+from test_rulings import DIFF, REPO, gateway, home, package, registered, state
 from test_rulings_owned_hooks import CALLERS, HOOKS
 
 
+class RequestCheckShell(CheckShell):
+    def __init__(self, request_cwd: Path, rows: dict[str, dict[str, str]], **kwargs) -> None:
+        self.request_cwd = str(request_cwd)
+        super().__init__(rows, **kwargs)
+
+    def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
+        normalized = list(gateway(argv))
+        if normalized[:2] in (["ccn", "-R"], ["git", "-C"]) and normalized[2] == self.request_cwd:
+            normalized[2] = REPO
+        return super().run(normalized, stdin, cwd)
+
+
 def request(tmp_path: Path, package: Path, branch: str, backend: str, monkeypatch: pytest.MonkeyPatch):
+    request_cwd = tmp_path / "checkout"
+    request_cwd.mkdir()
     rows = pinned(package)
     key = "rule/bbbbbbb" if branch == "shape" else "rule/abcabca"
     if branch == "wait":
@@ -32,13 +46,13 @@ def request(tmp_path: Path, package: Path, branch: str, backend: str, monkeypatc
     rows[key]["proof"] = PROOF
     kept = tmp_path / "request-state"
     owner(kept)
-    selected = environment(tmp_path / "request-home", kept, backend) | {"CLAUDE_LONG_RUNNING_DRIVE": "brook-drive"}
+    selected = environment(tmp_path / "request-home", kept, backend) | {"CLAUDE_LONG_RUNNING_DRIVE": "brook-drive", "PWD": str(request_cwd)}
     selected.pop("CLAUDE_LONG_RUNNING_LANE", None)
     registry = Path(selected["CLAUDE_CONFIG_DIR"]) / "long-running" / "drives" / "brook-drive.json"
-    registry.write_text(json.dumps(json.loads(registry.read_text()) | {"repo": "acme/app"}))
-    shell = CheckShell(rows, diff=SHAPE if branch == "shape" else DIFF + GRANT_TICKER, body=citing(f"- {key}: the pull request carries this ruling."))
+    registry.write_text(json.dumps(json.loads(registry.read_text()) | {"repo": "acme/app", "checkout": str(request_cwd)}))
+    shell = RequestCheckShell(request_cwd, rows, diff=SHAPE if branch == "shape" else DIFF + GRANT_TICKER, body=citing(f"- {key}: the pull request carries this ruling."))
     context = build_context(session_dir=tmp_path / "session")
-    event = PreToolUseEvent(_raw={"session_id": "s-root", "cwd": REPO, "tool_name": "Bash", "tool_input": {"command": f"gh pr merge 12 -R acme/app --squash --match-head-commit {HEAD}"}}, ctx=context)
+    event = PreToolUseEvent(_raw={"session_id": "s-root", "cwd": str(request_cwd), "tool_name": "Bash", "tool_input": {"command": f"gh pr merge 12 -R acme/app --squash --match-head-commit {HEAD}"}}, ctx=context)
     module = handoff.rulings_module(handoff.script("long_running/__init__.py"))
 
     def unowned(*args, **kwargs):
@@ -49,11 +63,11 @@ def request(tmp_path: Path, package: Path, branch: str, backend: str, monkeypatc
 
 
 def overrides(selected):
-    return reqenv.RequestOverrides(env=selected, cwd=REPO, client_ppid=os.getpid(), session_id="s-root")
+    return reqenv.RequestOverrides(env=selected, cwd=selected["PWD"], client_ppid=os.getpid(), session_id="s-root")
 
 
 def receipt(argv, cwd, env, timeout, selected, budget):
-    assert cwd == REPO and 0 < timeout <= budget
+    assert cwd == selected["PWD"] and Path(cwd).is_dir() and 0 < timeout <= budget
     for name in ("HOME", "CLAUDE_CONFIG_DIR", "LONG_RUNNING_JUDGE", "CLAUDE_LONG_RUNNING_DRIVE"):
         assert env[name] == selected[name]
     parent, deadline = env[handoff.DEADLINE_ENV].split(":")
@@ -149,7 +163,7 @@ def test_real_owned_check_pr_chain_reaps_actual_card_and_model_children_and_pres
         with reqenv.use_request(overrides(selected)), reqenv.abandonable(flag):
             if entrypoint == "lane":
                 return lane_landing.rulings_at_merge(event)
-            return handoff.rulings(REPO, "check-pr", "--drive", "brook-drive", "--pr", "acme/app#12", "--head", HEAD, evt=event, timeout=2)
+            return handoff.rulings(selected["PWD"], "check-pr", "--drive", "brook-drive", "--pr", "acme/app#12", "--head", HEAD, evt=event, timeout=2)
 
     with ThreadPoolExecutor(max_workers=1) as pool:
         pending = pool.submit(invoke)
@@ -160,7 +174,12 @@ def test_real_owned_check_pr_chain_reaps_actual_card_and_model_children_and_pres
             written = ""
             while not (pid_path.exists() and (written := pid_path.read_text().strip())):
                 if pending.done():
-                    pending.result()
+                    failure = pending.exception()
+                    records = logged(kept) if (kept / "judge" / "calls.jsonl").is_file() else []
+                    diagnostic = {"returned": pending.result() if failure is None else repr(failure), "records": records, "commands": calls}
+                    if isinstance(failure, subprocess.CalledProcessError):
+                        diagnostic |= {"stdout": failure.stdout, "stderr": failure.stderr}
+                    pytest.fail(repr(diagnostic))
                 assert time.monotonic() < until
                 time.sleep(0.01)
             pid = int(written)
