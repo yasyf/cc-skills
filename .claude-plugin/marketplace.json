@@ -141,12 +141,12 @@
       "name": "long-running",
       "source": {
         "source": "git-subdir",
-        "url": "https://github.com/yasyf/cc-skills",
+        "url": "https://github.com/yasyf/cc-skills.git",
         "path": "plugins/long-running",
-        "ref": "long-running--v0.7.747"
+        "ref": "long-running--v0.7.748"
       },
       "description": "Context discipline for orchestrating multi-lane work past one context window — ground truth arrives only as a lane's verdict, anything with a body is a lane, every wait folds into the lane that acts, no lane parks and no lane is re-briefed, and state lives in cc-notes and the task list; ships the lane brief, scoped resume, sequencer lane, polling loop, and handoff plan as templates, plus an open-PR ledger CLI that grades, routes, and holds every open PR over cc-notes.",
-      "version": "0.7.747"
+      "version": "0.7.748"
     },
     {
       "name": "live-dashboard",
