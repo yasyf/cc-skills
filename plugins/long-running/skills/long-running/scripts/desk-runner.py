@@ -593,7 +593,7 @@ newest record under 15 seconds; two misses in a row write `BUS-DOWN` with the fi
 after it posts one `BUS-RECOVERED` to root with how long the bus was down. A runner behind the version `installed_plugins.json` lists posts nothing and re-executes into the installed version after
 that pass's wait, keeping its pid, config, and desk; `--once` never re-executes. An `env` object under a desk's config
 object, such as `"landing": {"env": {"AWS_PROFILE": "release-operator"}}`, is merged into that desk's process environment
-each time `run` starts, a re-execution included, and is carried by its restart command and its `handoff` successor. `handoff` stops the live runner at the next
+each time `run` starts, a re-execution included, and is carried by its restart command and its `handoff` successor. A `keychain` object beside it, such as `"landing": {"keychain": {"QUEUE_API_KEY": "queue-api-key"}}`, maps an environment name to a macOS Keychain item: when neither the environment nor `env` sets the name, `run` and `preflight` read it from that item, so a handoff from an unkeyed shell still starts a keyed runner, and the value is never logged or written. `handoff` stops the live runner at the next
 boundary between the steps of its pass, or between the PRs and stacks a landing step works through, and starts the next one with the same config and desk, appending to `<desk>-runner.log`. Each `run` holds
 `<config>.<desk>.lock` for its life and refuses to start, naming the holder's pid, while another runner holds it; `handoff` stops
 that holder and waits up to 20 minutes, as long as a slow pass takes, for it to exit, or for its newest alive record to show it
@@ -1242,6 +1242,11 @@ class Shell:
     def adopt(self, values: dict[str, str]) -> None:
         os.environ.update(values)
 
+    def keychain(self, service: str) -> str:
+        """The secret the macOS Keychain holds under `service`, empty when it holds none; never logged."""
+        done = subprocess.run(["security", "find-generic-password", "-s", service, "-w"], capture_output=True, text=True)
+        return done.stdout.strip() if done.returncode == 0 else ""
+
     def reexec(self, argv: list[str]) -> None:
         sys.stdout.flush()
         sys.stderr.flush()
@@ -1584,6 +1589,7 @@ class Config:
     landing: dict | None
     alert_facts: Path | None
     desk_env: dict[str, dict[str, str]]
+    desk_keychain: dict[str, dict[str, str]]
 
     @classmethod
     def load(cls, path: Path) -> Config:
@@ -1620,6 +1626,7 @@ class Config:
             landing=raw.get("landing"),
             alert_facts=Path(alert["facts"]).expanduser() if alert.get("facts") else None,
             desk_env={desk: (raw.get(desk) or {}).get("env", {}) for desk in DESKS},
+            desk_keychain={desk: (raw.get(desk) or {}).get("keychain", {}) for desk in DESKS},
         )
 
 
@@ -9314,11 +9321,18 @@ def startup_fault(runner: Runner) -> tuple[str, str, str] | None:
     return None
 
 
+def keyed_env(shell: Shell, config: Config, desk: str) -> dict[str, str]:
+    """Each name the desk's `keychain` maps to a Keychain item that neither the environment nor the desk's `env` sets, read from that item, so a handoff from a shell without the key still starts a keyed runner (root #233126); a name whose item holds nothing is left unset for preflight to name."""
+    unset = {name: service for name, service in config.desk_keychain[desk].items() if not os.environ.get(name) and not config.desk_env[desk].get(name)}
+    return {name: value for name, service in unset.items() if (value := shell.keychain(service))}
+
+
 def preflight_faults(runner: Runner) -> list[str]:
     landing, drive = runner.config.landing, runner.config.drive
     kind = landing["adapter"]["kind"]
-    env = os.environ | runner.config.desk_env["landing"]
-    faults = [f"{name} is unset, and the {kind} adapter cannot reach its queue without it" for name in merge_queue.ADAPTERS[kind].required_env if not env.get(name)]
+    env = os.environ | runner.config.desk_env["landing"] | keyed_env(runner.shell, runner.config, "landing")
+    keychain = runner.config.desk_keychain["landing"]
+    faults = [f"{name} is unset, and the Keychain item {keychain[name]} holds nothing" if name in keychain else f"{name} is unset, and the {kind} adapter cannot reach its queue without it" for name in merge_queue.ADAPTERS[kind].required_env if not env.get(name)]
     named = dict.fromkeys(lane for key in LANE_KEYS for lane in ([landing[key]] if isinstance(landing.get(key), str) else landing.get(key, [])) if lane not in RUNNER_LANES)
     if unregistered := [lane for lane in named if not runner.shell.run(["cci", "who", "--drive", drive, "--lane", lane, "--all", "--json"]).out.strip()]:
         faults.append(f"{runner.config.source} names {', '.join(unregistered)}, which never registered on drive {drive}; start each lane or remove it from runner.json")
@@ -9448,7 +9462,7 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
         while True:
             with runner.desk_lock(args.desk) as holder:
                 if holder is None:
-                    runner.shell.adopt(dict.fromkeys(LANE_IDENTITY, "") | config.desk_env[args.desk])
+                    runner.shell.adopt(dict.fromkeys(LANE_IDENTITY, "") | config.desk_env[args.desk] | keyed_env(runner.shell, config, args.desk))
                     with runner.book.store.reading():
                         return (run_orca if args.desk == "orca" else run_landing)(runner, args.once)
             if not runner.stop_marker(holder).exists() or runner.now() >= deadline:
