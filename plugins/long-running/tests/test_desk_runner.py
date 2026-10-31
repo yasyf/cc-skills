@@ -2599,9 +2599,90 @@ def test_a_trunk_label_reads_as_queued_or_landed_where_the_status_read_says_unkn
     unknown = {"number": 45651, "queue": "unknown", "verdict": "blocked:queue-unknown"}
     assert runner_module.trunk_labelled(unknown, {"labels": "trunk-not-ready"})["queue"] == "queued"
     assert runner_module.trunk_labelled(unknown, {"labels": "externally-merged,trunk-merged"})["verdict"] == "landed"
-    assert runner_module.trunk_labelled(unknown, {"labels": "trunk-failed"}) == unknown
+    assert runner_module.trunk_labelled(unknown, {"labels": "trunk-failed,trunk-queued"})["queue"] == "queued"
     evicted = {"number": 45651, "queue": "not queued", "verdict": "landable"}
     assert runner_module.trunk_labelled(evicted, {"labels": "trunk-testing"}) == evicted
+
+
+def test_a_trunk_failed_or_cancelled_label_reads_as_evicted_where_the_status_read_says_unknown():
+    """Root #228786: ccx read a head Trunk failed as queue unknown, so the runner believed it queued and nothing said it fell out."""
+    unknown = {"number": 45722, "queue": "unknown", "verdict": "blocked:queue-unknown"}
+    assert runner_module.trunk_labelled(unknown, {"labels": "externally-merged,trunk-failed"}) == unknown | {"queue": "evicted", "evicted": "Trunk labelled it trunk-failed"}
+    assert runner_module.trunk_labelled(unknown, {"labels": "trunk-cancelled"})["evicted"] == "Trunk labelled it trunk-cancelled"
+
+
+TRUNK_FAILED_GATE = "#33001 BLOCKED aaaa111111 Trunk attempt 2026-10-30T23:10:00Z failed: TEST_RUN_REQUIRED_STATUS_FAILED (verification v1); inspect its verification and push a fix or explicitly name this PR with --flake"
+
+
+def test_a_head_trunk_failed_posts_one_red_to_its_lane_and_root_and_leaves_the_queue_believed_empty(shell, config, tmp_path, monkeypatch):
+    """Root #228786: Trunk failed #45722, #45922 and #45199 in the preload window and the runner posted nothing, believing each still queued."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["adapter"] = {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}
+    config.write_text(json.dumps(raw))
+    monkeypatch.setenv("TRUNK_MERGE_API_KEY", "trunk-secret")
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 Trunk notSubmitted")
+    shell.gates["33001"] = ["#33001 GREEN aaaa111111 Trunk notSubmitted\nwould enqueue native stack through #33001: #33001\n"]
+    shell.enqueue_out["33001"] = (0, "#33001 QUEUED aaaa111111 native stack covers #33001\n")
+    shell.queue["33001"] = "unknown"
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+    shell.rows[0] |= {"labels": "externally-merged,trunk-failed"}
+    shell.gates["33001"] = [gate(TRUNK_FAILED_GATE)]
+    shell.clock += runner_module.STATUS_MAX_AGE + timedelta(minutes=1)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [post] = blockers(shell)
+    assert "root" in post["to"].split(",") and LANE in post["to"].split(",")
+    assert post_body(post).startswith("#33001 aaaa111111: Trunk attempt 2026-10-30T23:10:00Z failed: TEST_RUN_REQUIRED_STATUS_FAILED (verification v1); inspect its verification and push a fix or explicitly name this PR with --flake; the queue dropped it at ")
+    assert post_body(post).endswith(": Trunk labelled it trunk-failed")
+    assert len(shell.enqueues()) == 1
+
+
+def test_a_trunk_enqueue_answered_http_429_is_retried_next_pass_and_fails_nothing(shell, config, tmp_path, monkeypatch):
+    """Root #230939: Trunk answered the overflow enqueue's confirmation read with HTTP 429 and the runner failed the batch with ENQUEUE-FAILED (#230906)."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["adapter"] = {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}
+    config.write_text(json.dumps(raw))
+    monkeypatch.setenv("TRUNK_MERGE_API_KEY", "trunk-secret")
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 Trunk notSubmitted")
+    shell.gates["33001"] = ["#33001 GREEN aaaa111111 Trunk notSubmitted\nwould enqueue native stack through #33001: #33001\n"]
+    shell.enqueue_out["33001"] = (5, "submission not confirmed: ci trunk: Trunk GET /v2/pull-requests?limit=100&number=33001 answered HTTP 429 (): ; request; inspect Trunk before retrying\n")
+    shell.queue["33001"] = "unknown"
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+    assert not [line for line in escalations(shell) if line.startswith("ENQUEUE-")]
+    shell.enqueue_out["33001"] = (0, "#33001 QUEUED aaaa111111 native stack covers #33001\n")
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 2
+
+
+def test_a_stack_link_lists_every_open_pr_stacked_above_the_tip_so_gh_never_exits_5(shell, config, tmp_path):
+    """Root #228185: the runner linked #45579 #45796 alone while #45744, #45818 and #45921 sat above them in the native stack, and gh stack link exited 5 twice."""
+    shell.rows = [
+        {"pr": "29016", "lane": LANE, "branch": "a/2", "base": "dev", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222", "ours": True},
+        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "a/2", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": True},
+        {"pr": "29031", "lane": LANE, "branch": "a/4", "base": "a/3", "head": "dddd444444", "state": "open", "reported_head": "dddd444444", "ours": True},
+    ]
+    unlinked = (5, "", "stack-enqueue failed: #29020 targets a/2 without a native GitHub stack; link it with gh stack link\n")
+    shell.gates["29020"] = [unlinked, gate("#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#29016 #29020")]
+    shell.gates["29031"] = [gate("#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", "#29031 BLOCKED dddd444444 CI running")]
+    shell.enqueue_out["29020"] = (0, "enqueue #29016 #29020: {}\n")
+    grade(shell, "29016", "ok F307 at bbbb222.")
+    grade(shell, "29020", "ok F307 at cccc333.")
+    real = shell.run
+
+    def run(argv, *args, **kwargs):
+        if argv[:3] == ["gh", "stack", "link"]:
+            shell.calls.append(argv)
+            return runner_module.Done(0 if argv[3:] == ["29016", "29020", "29031"] else 5, "", "")
+        return real(argv, *args, **kwargs)
+
+    shell.run = run
+    landing_pass(shell, config)
+    assert [call for call in shell.calls if call[:3] == ["gh", "stack", "link"]] == [["gh", "stack", "link", "29016", "29020", "29031"]]
+    assert shell.enqueues() != []
 
 
 def test_a_check_with_no_verdict_on_a_pr_github_reads_merged_escalates_nothing(shell, config, tmp_path):
@@ -4803,6 +4884,22 @@ def test_a_head_whose_own_build_failed_is_unproven_whatever_build_covers_it(shel
     assert any("#29020 cccc333333: unproven: its own build https://buildkite.com/forge/test/builds/78299 failed at cccc333333" in body for body in bodies)
 
 
+def test_a_head_is_proven_at_the_head_its_check_read_from_github_never_at_a_ledger_head_it_superseded(shell, config, tmp_path):
+    """Root #230508: #45756's check read ddb2d0a from GitHub while the ledger row still held 0c806e9, and the runner refused it on 0c806e9's failed build."""
+    with_ci_build(config)
+    shell.launch(LANE, "ctx_a")
+    lone_green_pr(shell)
+    shell.rows[0] |= {"head": "bbbb222222", "reported_head": "bbbb222222"}
+    grade_gated_heads_ok(shell)
+    shell.commit_statuses["bbbb222222"] = [status("test", "78299", "failure")]
+    shell.builds["78299"] = finished(FULL_BUILD, "bbbb222222", "failed")
+    shell.commit_statuses["cccc333333"] = [status("test", "78301")]
+    shell.builds["78301"] = finished(FULL_BUILD, "cccc333333")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    assert not [call for call in shell.calls if "repos/Forge-AI/monorepo/commits/bbbb222222/status" in call]
+
+
 def test_only_a_full_build_of_the_skipped_pipeline_on_the_stacks_tip_covers_the_heads_below_it(shell, config, tmp_path):
     with_ci_build(config)
     shell.launch(LANE, "ctx_a")
@@ -5605,6 +5702,33 @@ def test_a_root_decision_answering_a_finder_major_or_a_later_root_go_lets_the_he
         merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
+@pytest.mark.parametrize("cleared", ["names-head", "source-settled"])
+def test_a_root_clear_of_a_carried_finder_major_lets_the_head_enqueue(shell, config, tmp_path, cleared):
+    """Root #231127: root cleared carried majors on #45199, #46081 and #45821 in a DECIDE answering the lane's ask, and the runner kept each FINDER-PENDING."""
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333", finder=False)
+    source = finder_verdict(shell, "29020", "major bbbb222 1 open over whole bbbb222^..bbbb222: go/a.go:12 the unused import breaks the build")
+    if cleared == "source-settled":
+        shell.records.append({"seq": source + 1, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {}, "resolves": [source], "text": "refuted: the import is still used"})
+    carried = finder_verdict(shell, "29020", f"major cccc333 carried from #{source}")
+    landing_pass(shell, config)
+    if cleared == "names-head":
+        assert shell.enqueues() == []
+        shell.records.append({"seq": carried + 1, "drive": "d1", "lane": LANE, "kind": "ask", "to": ["root"], "refs": {"prs": [29020]}, "text": "the carried major is refuted; clear it"})
+        shell.records.append({"seq": carried + 2, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "resolves": [carried + 1], "text": "6:49 PM Clear finder on #29020 cccc333: the carried major (unused import) is refuted."})
+        landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
+def test_a_root_clear_naming_another_head_or_a_negated_clear_settles_nothing(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333", finder=False)
+    seq = finder_verdict(shell, "29020", "major cccc333 1 open: go/a.go:12 the retry drops the sealed read")
+    shell.records.append({"seq": seq + 1, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {}, "text": "Clear finder on #29020 bbbb222. Do not clear the finder on #29020 cccc333 yet."})
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
 
 
 def test_a_finder_major_after_a_missing_finder_record_posts_its_own_blocker(shell, config, tmp_path):
@@ -7515,6 +7639,26 @@ def test_a_stacked_head_on_a_base_the_pass_did_not_admit_reads_below_blocked_nev
     [line] = settled(shell, "BELOW-BLOCKED")
     assert line.startswith(f"BELOW-BLOCKED above #33000: root gos name #33001 at aaaa111111 (go #{go_of(shell, '33001')} by root at ")
     assert line.endswith("stacked on #33000, which the pass did not admit, so its graphite-stack-enqueue check read no verdict: stack-enqueue: error: #33001's native stack contains an unavailable pull request")
+
+
+@pytest.mark.parametrize("admitted_by", ["exemption", "go-while-conflicting"])
+def test_an_admitted_head_on_a_parent_no_go_names_settles_below_blocked_never_unsettled(shell, config, tmp_path, admitted_by):
+    """Oct 30 7:18 PM: #45719, #45802 and #45893, admitted as exempt ports or test-only changes, and #45400, go'd while conflicting, each sat on a parent no go named and settled `unsettled: the admission read`."""
+    board_surface(config)
+    two_pr_stack(shell)
+    shell.rows[0] = dict(shell.rows[0], test_state="success")
+    shell.rows[1] = dict(shell.rows[1], test_state="success")
+    if admitted_by == "exemption":
+        shell.files["29031"] = ["go/sand/next/vm/run.go"]
+        grade(shell, "29031", "ok dddd444 pure port, no interaction: it only ports old-tree #43020.")
+    else:
+        shell.rows[1] |= {"mergeable_state": "dirty"}
+        merge_go(shell, "29031", "merge #29031 at dddd444")
+    landing_pass(shell, config)
+    assert not [line for line in said(shell) if "unsettled" in line]
+    assert admitted_heads(config)["29031"]["state"] != "defect"
+    assert admitted_heads(config)["29031"]["why"].startswith("stacked on #29020 at cccc333333")
+    assert shell.enqueues() == []
 
 
 def test_a_pass_that_gates_nothing_refuses_every_admitted_head_in_one_record_naming_why(shell, config, tmp_path):
