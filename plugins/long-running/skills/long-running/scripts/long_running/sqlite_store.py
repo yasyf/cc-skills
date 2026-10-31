@@ -29,7 +29,11 @@ CREATE TRIGGER escalation_added AFTER INSERT ON action WHEN NEW.kind = 'escalati
     WHERE part.key > 0 AND part.value GLOB '[0-9]*';
 END;
 CREATE TRIGGER escalation_changed AFTER UPDATE OF kind, record ON action
-WHEN OLD.kind IS NOT NEW.kind OR json_extract(OLD.record, '$.target') IS NOT json_extract(NEW.record, '$.target') BEGIN
+WHEN CASE
+    WHEN OLD.kind != 'escalation' AND NEW.kind != 'escalation' THEN 0
+    WHEN OLD.kind IS NOT NEW.kind THEN 1
+    ELSE json_extract(OLD.record, '$.target') IS NOT json_extract(NEW.record, '$.target')
+END BEGIN
     DELETE FROM escalation_pr WHERE action_ordinal = OLD.ordinal;
     INSERT INTO escalation_pr(pr, action_ordinal)
     SELECT DISTINCT substr(part.value, 1, length(part.value) - length(ltrim(part.value, '0123456789'))), NEW.ordinal
