@@ -39,6 +39,7 @@ class Fake:
         self.posts: list[list[str]] = []
         self.launches: list[tuple[str, str, str, Path]] = []
         self.withdrawals: list[str] = []
+        self.wakes: list[str] = []
         self.deps = lanes.Deps(
             drive=DRIVE,
             checkout=CHECKOUT,
@@ -50,6 +51,7 @@ class Fake:
             cci=self.cci,
             launch=lambda name, model, effort, brief: self.launches.append((name, model, effort, brief)),
             withdraw=self.withdrawals.append,
+            wake=lambda name, row: self.wakes.append(name) is None,
             rotate_at=600_000,
         )
 
@@ -184,6 +186,23 @@ def test_an_idle_lane_past_its_line_is_never_asked_to_rotate(tmp_path, brief):
     out = lanes.tick(store, fake.deps, T0, 1)
 
     assert out.asked == [] and fake.posts == [] and store.lane("conflicts-2").asked is None
+
+
+@pytest.mark.parametrize(
+    ("roster", "seen", "waiting", "woken"),
+    [(True, timedelta(hours=2), False, ["conflicts-2"]), (True, timedelta(minutes=5), False, []), (False, timedelta(hours=2), False, []), (True, timedelta(hours=2), True, [])],
+    ids=["silent-roster", "active-roster", "not-on-roster", "waiting-on-root"],
+)
+def test_only_a_silent_roster_lane_not_waiting_on_root_is_woken(tmp_path, brief, roster, seen, waiting, woken):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    if waiting:
+        fake.feed.append(record(2, "conflicts-2", "ask", T0 - seen, "pick A or B?", ("root",)))
+    fake.peers = [who("conflicts-2", True, T0 - seen, **({"roster": "/teams/session-d50e80e8"} if roster else {}))]
+
+    out = lanes.tick(store, fake.deps, T0, 1)
+
+    assert fake.wakes == woken and out.woken == woken and out.relaunched == [] and fake.launches == []
 
 
 def test_a_live_lane_that_ignores_rotate_is_left_working(tmp_path, brief):

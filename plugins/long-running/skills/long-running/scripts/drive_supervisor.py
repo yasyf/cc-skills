@@ -21,9 +21,12 @@ import argparse
 import json
 import os
 import plistlib
+import re
 import subprocess
 import sys
 import time
+import uuid
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -37,6 +40,12 @@ BIN = SCRIPTS.parents[2] / "bin" / "drive_supervisor.py"
 DESK_LAUNCH = SCRIPTS / "desk-launch.py"
 PROJECTS = Path.home() / ".claude" / "projects"
 TEAMS = Path.home() / ".claude" / "teams"
+TASKS = Path.home() / ".claude" / "tasks"
+UNSAFE_NAME = re.compile(r"[^a-zA-Z0-9_-]")
+SENDER = "long-running"
+LOCK_TRIES = 20
+LOCK_WAIT_SECONDS = 0.05
+LOCK_STALE_SECONDS = 10
 RECEIPTS = Path.home() / ".claude" / "scratch" / "orca-launch"
 SETTINGS = Path.home() / ".claude" / "settings.json"
 TIMEOUT = 60
@@ -110,7 +119,60 @@ def rostered(rows: list[dict], teams: Path) -> list[dict]:
     """`cci who` rows with each in-process teammate of a live lead session read as live, since SendMessage resumes it however long it has been idle."""
     leads = {row["session"] for row in rows if row.get("live") and row.get("session") and not row.get("agent")}
     members = {session: {member["name"] for member in json.loads(path.read_text())["members"]} for session in leads if (path := teams / f"session-{session[:8]}" / "config.json").is_file()}
-    return [row | {"live": True} if row.get("agent") and row.get("lane") in members.get(row.get("session"), ()) else row for row in rows]
+    return [row | {"live": True, "roster": str(teams / f"session-{row['session'][:8]}")} if row.get("agent") and not row.get("live") and row.get("lane") in members.get(row.get("session"), ()) else row for row in rows]
+
+
+def task_open(tasks: Path, lane: str) -> bool:
+    """Whether the root's task list holds an in-progress task the lane owns or whose subject opens with its name."""
+    rows = [json.loads(path.read_text()) for path in tasks.glob("*.json")] if tasks.is_dir() else []
+    return any(row.get("status") == "in_progress" and (row.get("owner") == lane or row.get("subject", "").startswith(f"{lane}:")) for row in rows)
+
+
+def append_inbox(inbox: Path, message: dict) -> bool:
+    """Append one message to a teammate inbox under the `<inbox>.lock` directory lock Claude Code takes, so its own writes never interleave."""
+    inbox.parent.mkdir(parents=True, exist_ok=True)
+    lock = inbox.with_name(f"{inbox.name}.lock")
+    for _ in range(LOCK_TRIES):
+        try:
+            lock.mkdir()
+            break
+        except FileExistsError:
+            with suppress(FileNotFoundError):
+                if time.time() - lock.stat().st_mtime > LOCK_STALE_SECONDS:
+                    lock.rmdir()
+                    continue
+            time.sleep(LOCK_WAIT_SECONDS)
+    else:
+        return False
+    try:
+        text = inbox.read_text() if inbox.is_file() else ""
+        staged = inbox.with_name(f"{inbox.name}.tmp.{uuid.uuid4().hex[:8]}")
+        staged.write_text(json.dumps([*(json.loads(text) if text.strip() else []), message], indent=2, ensure_ascii=False))
+        staged.replace(inbox)
+    finally:
+        lock.rmdir()
+    return True
+
+
+class Waker:
+    """Wakes an idle roster lane once per interval by teammate-inbox mail, and only while the root's task for it is in progress; a lane whose task is done is idle on purpose."""
+
+    def __init__(self, drive: str, clock, tasks: Path = TASKS):
+        self.drive, self.clock, self.tasks = drive, clock, tasks
+        self.woken: dict[str, datetime] = {}
+
+    def __call__(self, lane: str, row: dict) -> bool:
+        now = self.clock()
+        if (last := self.woken.get(lane)) and now - last < lanes.STALE_AFTER:
+            return False
+        if not task_open(self.tasks / f"session-{row['session'][:8]}", lane):
+            return False
+        text = f"WAKE {lane}: the lane supervisor has seen no record from you in {lanes.STALE_AFTER.seconds // 60} minutes while your root task is in progress. Read your mail with `cci tail --drive {self.drive} --reader {lane} --to {lane}`, then continue the work in hand from your ledger; do not restart your brief."
+        message = {"from": SENDER, "text": text, "summary": f"WAKE {lane}: continue the work in hand", "timestamp": now.isoformat(timespec="milliseconds").replace("+00:00", "Z"), "msgV": 1, "msg_id": str(uuid.uuid4()), "type": "message", "read": False}
+        if not append_inbox(Path(row["roster"]) / "inboxes" / f"{UNSAFE_NAME.sub('-', lane)}.json", message):
+            return False
+        self.woken[lane] = now
+        return True
 
 
 def transcript(row: dict) -> Path | None:
@@ -187,6 +249,7 @@ def lanes_deps(config: lr_config.Config, state: Path) -> lanes.Deps:
         cci=lambda argv: run(["cci", *argv]),
         launch=lambda name, model, effort, brief: desk_launch(briefs, name, "lane", name, model, effort, str(brief), "--drive", config.drive, "--lane", lanes.SELF),
         withdraw=lambda name: desk_launch(briefs, name, "withdraw", name, "--drive", config.drive, "--lane", lanes.SELF),
+        wake=Waker(config.drive, clock),
         rotate_at=rotate_at(),
     )
 

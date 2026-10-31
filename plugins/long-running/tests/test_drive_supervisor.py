@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import drive_supervisor as supervisor
@@ -39,7 +39,30 @@ def test_an_idle_teammate_of_a_live_lead_session_reads_live(tmp_path: Path):
         {"lane": "orphan", "session": "0badc0de-1111", "agent": "aorphan-01", "live": False},
     ]
 
-    assert [row["live"] for row in supervisor.rostered(rows, tmp_path)] == [True, True, False, False]
+    out = supervisor.rostered(rows, tmp_path)
+
+    assert [row["live"] for row in out] == [True, True, False, False]
+    assert [row.get("roster") for row in out] == [None, str(tmp_path / "session-d50e80e8"), None, None]
+
+
+def test_a_wake_mails_an_idle_lane_once_and_only_while_its_root_task_is_in_progress(tmp_path: Path):
+    tasks = tmp_path / "tasks" / "session-d50e80e8"
+    tasks.mkdir(parents=True)
+    (tasks / "1688.json").write_text(json.dumps({"id": "1688", "subject": "flock-race-1: fix the lane-flock race", "status": "in_progress", "owner": "flock-race-1"}))
+    (tasks / "1690.json").write_text(json.dumps({"id": "1690", "subject": "done-lane: ship it", "status": "completed", "owner": "done-lane"}))
+    roster = tmp_path / "teams" / "session-d50e80e8"
+    clock = [NOW]
+    waker = supervisor.Waker("d1", lambda: clock[0], tmp_path / "tasks")
+    row = {"session": "d50e80e8-7ba3", "roster": str(roster)}
+
+    assert waker("flock-race-1", row) and not waker("flock-race-1", row) and not waker("done-lane", row)
+    clock[0] = NOW + timedelta(minutes=16)
+    assert waker("flock-race-1", row)
+
+    inbox = json.loads((roster / "inboxes" / "flock-race-1.json").read_text())
+    assert [message["from"] for message in inbox] == ["long-running", "long-running"]
+    assert inbox[0]["text"].startswith("WAKE flock-race-1: ") and "do not restart your brief" in inbox[0]["text"]
+    assert not (roster / "inboxes" / "done-lane.json").exists() and not (roster / "inboxes" / "flock-race-1.json.lock").exists()
 
 
 def test_only_active_orca_dispatches_count_as_live(tmp_path: Path, monkeypatch):

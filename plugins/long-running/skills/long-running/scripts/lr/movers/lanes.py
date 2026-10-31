@@ -74,6 +74,7 @@ class Deps:
     cci: Callable[[list[str]], str]
     launch: Callable[[str, str, str, Path], None]
     withdraw: Callable[[str], None]
+    wake: Callable[[str, dict], bool]
     rotate_at: int
 
 
@@ -84,6 +85,7 @@ class Outcome:
     held: list[str] = field(default_factory=list)
     adopted: list[str] = field(default_factory=list)
     withdrawn: list[str] = field(default_factory=list)
+    woken: list[str] = field(default_factory=list)
 
 
 def pacific(at: datetime) -> str:
@@ -365,6 +367,8 @@ def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
         verdict = classify_lane(lane, peer, now, deps.tokens(peer.row) if wants_tokens else None, deps.rotate_at)
         if peer and (verdict.kind == "came-up" or (lane.state == "desired" and verdict.kind in ("ok", "ask-rotate"))):
             store.heartbeat(lane.name, generation, max(peer.seen, lane.heard or peer.seen))
+        if verdict.kind == "ok" and lane.state == "desired" and lane.waiting is None and peer and peer.row.get("roster") and now - max(peer.seen, lane.heard or peer.seen) >= STALE_AFTER and deps.wake(lane.name, peer.row):
+            out.woken.append(lane.name)
         if verdict.kind == "came-up":
             store.lane_state(lane.name, "desired", now)
             if lane.predecessor and lane.reason and (old := store.lane(lane.predecessor)) and old.retired_by == lane.name:
