@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 
-import grades
+from long_running import grades
 import pytest
 from test_desk_runner import config, lone_green_pr, mq, runner_module, shell
 

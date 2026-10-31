@@ -455,7 +455,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    import drive
+    from long_running import drive
 
     drive.run_installed(__file__)
     sys.exit(main())

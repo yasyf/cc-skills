@@ -514,7 +514,7 @@ def green_except(call: Call) -> str | None:
 
 def trunk_clause(entry: dict) -> str:
     """The sentence naming dev's red build and its fix while the landing runner's newest `dev-red` record bars landing; empty when it does not, or the records do not read."""
-    cci = script_module("cci")
+    cci = script_module("long_running.cci")
 
     def tail(argv: list[str]) -> str:
         try:

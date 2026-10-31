@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 import contextlib
 import hashlib
 import io
@@ -7,10 +9,10 @@ import json
 import subprocess
 from pathlib import Path
 
-import ghread
-import ledger
+from long_running import ghread
+from long_running import ledger
 import pytest
-import rulings
+from long_running import rulings
 from conftest import gateway
 from long_running import judge
 from test_rulings import DIFF, REPO, Judge, RegisterShell, home, judged, package, ran, registered, seeded, state
@@ -113,7 +115,7 @@ def pinned(package: Path, corpus: str = CORPUS, pin: str | None = None) -> dict[
 def current_stamp(rows: dict[str, dict[str, str]], plan: Path | None) -> str:
     printed = io.StringIO()
     with contextlib.redirect_stdout(printed):
-        assert rulings.main(["slice", "--program", "brook", "--repo", REPO, "--lane", "lane-a", "--step", STEP, *(["--plan", str(plan)] if plan else [])], RegisterShell(rows)) == 0
+        assert rulings.main(["slice", "--program", "brook", "--repo", REPO, "--lane", "lane-a", "--step", STEP, *(["--plan", str(plan)] if plan else [])], RegisterShell(rows), stdin=sys.stdin, stdout=sys.stdout) == 0
     return printed.getvalue().rstrip("\n").rpartition("slice-hash: ")[2]
 
 

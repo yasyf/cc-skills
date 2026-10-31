@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 import fcntl
 import hashlib
 import io
@@ -11,9 +13,9 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-import ledger
+from long_running import ledger
 import pytest
-import rulings
+from long_running import rulings
 from conftest import gateway
 
 REPO = "/repo"
@@ -118,7 +120,7 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def match(shell: FakeShell, brief: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], *extra: str) -> str:
     monkeypatch.setattr("sys.stdin", io.StringIO(brief))
-    assert rulings.main(["match", "--program", "brook", "--repo", REPO, *extra], shell) == 0
+    assert rulings.main(["match", "--program", "brook", "--repo", REPO, *extra], shell, stdin=sys.stdin, stdout=sys.stdout) == 0
     return capsys.readouterr().out
 
 
@@ -126,10 +128,10 @@ def test_register_prints_the_newest_register_doc_or_null(home: Path, capsys: pyt
     older = {"id": "1" * 40, "updated_at": "2026-10-04T00:00:00Z", "body": "# Older register\n"}
     newest = {"id": REGISTER_ID, "updated_at": "2026-10-05T00:00:00Z", "body": REGISTER_BODY}
 
-    assert rulings.main(["register", "--program", "brook", "--repo", REPO], FakeShell([], [newest, older])) == 0
+    assert rulings.main(["register", "--program", "brook", "--repo", REPO], FakeShell([], [newest, older]), stdin=sys.stdin, stdout=sys.stdout) == 0
     assert json.loads(capsys.readouterr().out) == {"id": REGISTER_ID, "body": REGISTER_BODY}
 
-    assert rulings.main(["register", "--program", "brook", "--repo", REPO], FakeShell([], [])) == 0
+    assert rulings.main(["register", "--program", "brook", "--repo", REPO], FakeShell([], []), stdin=sys.stdin, stdout=sys.stdout) == 0
     assert json.loads(capsys.readouterr().out) is None
 
 
@@ -184,7 +186,7 @@ def test_a_drive_worker_resolves_its_program_from_the_registry(
     shell = FakeShell(["1984bf6"], [])
 
     monkeypatch.setattr("sys.stdin", io.StringIO("brief"))
-    assert rulings.main(["match", "--drive", "d1", "--repo", REPO], shell) == 0
+    assert rulings.main(["match", "--drive", "d1", "--repo", REPO], shell, stdin=sys.stdin, stdout=sys.stdout) == 0
 
     assert capsys.readouterr().out.startswith("- 1984bf6 ")
     assert shell.queries == [("brief", str(state / "rulings"))]
@@ -200,7 +202,7 @@ def test_a_registry_entry_without_a_program_resolves_it_from_its_state_dir(
     shell = FakeShell(["1984bf6"], [])
 
     monkeypatch.setattr("sys.stdin", io.StringIO("brief"))
-    assert rulings.main(["match", "--drive", "d1", "--repo", REPO], shell) == 0
+    assert rulings.main(["match", "--drive", "d1", "--repo", REPO], shell, stdin=sys.stdin, stdout=sys.stdout) == 0
 
     assert capsys.readouterr().out.startswith("- 1984bf6 ")
     assert shell.queries == [("brief", str(state / "rulings"))]
@@ -222,7 +224,7 @@ def test_a_verb_without_program_or_drive_uses_the_sessions_drive_and_refuses_wit
             monkeypatch.setenv(key, value)
         monkeypatch.setattr("sys.stdin", io.StringIO("brief"))
         shell = FakeShell(["1984bf6"], [])
-        assert rulings.main(["match", "--repo", REPO, *flags], shell) == 0
+        assert rulings.main(["match", "--repo", REPO, *flags], shell, stdin=sys.stdin, stdout=sys.stdout) == 0
         return shell.queries
 
     assert queried({"CLAUDE_LONG_RUNNING_DRIVE": "d1", "CLAUDE_CODE_SESSION_ID": "s-root"}) == [("brief", str(named / "rulings"))]
@@ -500,7 +502,7 @@ def capture(item: str, text: str, source: str = "prompt", block: str | None = No
 
 
 def ran(capsys: pytest.CaptureFixture[str], shell: ledger.Shell, verb: str, *argv: str) -> tuple[int, str]:
-    code = rulings.main([verb, "--program", "brook", "--repo", REPO, *argv], shell)
+    code = rulings.main([verb, "--program", "brook", "--repo", REPO, *argv], shell, stdin=sys.stdin, stdout=sys.stdout)
     return code, capsys.readouterr().out
 
 
@@ -568,7 +570,7 @@ class SlowShowShell(RegisterShell):
 def test_concurrent_readers_of_a_stale_register_copy_scan_the_ledger_once(home: Path, package: Path, state: Path) -> None:
     """cci #214457: eight finder passes on one Sprite each ran an 830 MB `ccn` scan of the same moved ledger at once and exhausted its memory."""
     shell = SlowShowShell(seeded(package))
-    readers = [threading.Thread(target=rulings.main, args=(["rows", "--json", "--program", "brook", "--repo", REPO], shell)) for _ in range(3)]
+    readers = [threading.Thread(target=rulings.main, args=(["rows", "--json", "--program", "brook", "--repo", REPO], shell), kwargs={"stdin": sys.stdin, "stdout": sys.stdout}) for _ in range(3)]
     readers[0].start()
     assert shell.showing.wait(10)
     for reader in readers[1:]:
@@ -945,7 +947,7 @@ def test_classify_warns_of_each_new_implication_the_judge_reads_as_misstating_hi
     path = tmp_path / "classified.json"
     path.write_text(json.dumps([{"digest": "4" * 16, "kind": "scope", "words": "uploads stay out of the desktop shell.", "implications": three, "names": ["desktop shell"], "surfaces": ["desktop app"]}]))
 
-    assert rulings.main(["classify", "--program", "brook", "--repo", REPO, str(path)], shell) == 0
+    assert rulings.main(["classify", "--program", "brook", "--repo", REPO, str(path)], shell, stdin=sys.stdin, stdout=sys.stdout) == 0
 
     assert sorted(artifact for _, _, artifact, _ in judged.asked) == sorted(f"{item['text']} ({item['direction']})" for item in three)
     assert {(kind, evidence, kwargs["drive"]) for kind, evidence, _, kwargs in judged.asked} == {
@@ -1200,7 +1202,7 @@ def test_a_repeat_whose_sweep_post_cci_refuses_warns_and_finishes_the_classify(
     classified = tmp_path / "classified.json"
     classified.write_text(json.dumps([entry]))
 
-    code = rulings.main(["classify", "--program", "brook", "--repo", REPO, str(classified)], shell)
+    code = rulings.main(["classify", "--program", "brook", "--repo", REPO, str(classified)], shell, stdin=sys.stdin, stdout=sys.stdout)
 
     said = capsys.readouterr()
     assert code == 0, said.out
@@ -2376,7 +2378,7 @@ def test_classify_answer_takes_only_words_in_an_owner_answer_body(home: Path, pa
     unlabelled = {key: value for key, value in ROUND_TWO.items() if key != "tags"}
     for written in (dict(ROUND_TWO, tags=["program:brook", "scope:durable"]), unlabelled):
         with pytest.raises(SystemExit, match=r"^NOT-OWNER 5eed0c0: "):
-            rulings.main(["classify", "--program", "brook", "--repo", REPO, "--answer", "5eed0c0", str(answer_sourced(tmp_path))], RegisterShell(rows, answers=[written]))
+            rulings.main(["classify", "--program", "brook", "--repo", REPO, "--answer", "5eed0c0", str(answer_sourced(tmp_path))], RegisterShell(rows, answers=[written]), stdin=sys.stdin, stdout=sys.stdout)
 
 
 def answer_onto(tmp_path: Path, key: str) -> Path:

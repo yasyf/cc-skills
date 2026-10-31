@@ -39,9 +39,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import cci
-import ledger
-import rulings
+from long_running import cci
+from long_running import ledger
+from long_running import rulings
 
 ID = r"(?:[A-Z]{1,2}\d+(?:\.\d+)?|#\d+)"
 SECTION = re.compile(r"^##\s+standing owner rules\b.*$", re.IGNORECASE | re.MULTILINE)
@@ -408,7 +408,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    import drive
+    from long_running import drive
 
     drive.run_installed(__file__)
     sys.exit(main())

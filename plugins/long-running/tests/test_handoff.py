@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import handoff
-import ledger
+from long_running import ledger
 import plans
 import progress
 import pytest

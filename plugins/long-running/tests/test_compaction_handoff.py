@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import compact_job
-import drive
+from long_running import drive
 import pytest
 import standing
 from cc_transcript import Session

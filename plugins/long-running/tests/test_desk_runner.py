@@ -5981,9 +5981,10 @@ def test_kept_rulings_checks_outlive_a_release_that_changes_only_the_plumbing_ru
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     runner_module.Landing(runner, runner.config.landing).rulings_report("29020", "cccc333333")
     plumbing = tmp_path / "scripts"
-    plumbing.mkdir()
-    for path in runner_module.SCRIPTS.glob("*.py"):
-        (plumbing / path.name).write_bytes(path.read_bytes() + (b"\n" if path.stem in ("ledger", "grades", "cci", "drive", "ghread") else b""))
+    package = plumbing / "long_running"
+    package.mkdir(parents=True)
+    for path in (runner_module.SCRIPTS / "long_running").glob("*.py"):
+        (package / path.name).write_bytes(path.read_bytes() + (b"\n" if path.stem in ("ledger", "grades", "cci", "drive", "ghread") else b""))
     monkeypatch.setattr(runner_module, "SCRIPTS", plumbing)
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     runner_module.Landing(runner, runner.config.landing).rulings_report("29020", "cccc333333")

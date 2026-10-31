@@ -7,7 +7,7 @@ import sys
 from long_running.actions import main
 
 if __name__ == "__main__":
-    import drive
+    from long_running import drive
 
     drive.run_installed(__file__)
     sys.exit(main())

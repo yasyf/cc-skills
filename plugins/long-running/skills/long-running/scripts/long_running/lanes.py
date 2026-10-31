@@ -28,8 +28,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TypeVar
 
-import cci
-import ghread
+from . import cci
+from . import ghread
 
 Run = Callable[[list[str]], str]
 Item = TypeVar("Item")

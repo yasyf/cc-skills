@@ -10,15 +10,15 @@ import threading
 import time
 from pathlib import Path
 
-import cci
-import drive
-import ledger
+from long_running import cci
+from long_running import drive
+from long_running import ledger
 import pytest
 
 HUNG = "import os, signal, sys, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); open(sys.argv[1], 'w').write(str(os.getpid())); time.sleep(60)"
 SCRIPT = """import subprocess, sys
 sys.path.insert(0, {scripts!r})
-import drive, ledger
+from long_running import drive, ledger
 drive.end_commands_with_script()
 if len(sys.argv) > 3:
     open(sys.argv[3], "w").write(str(subprocess.Popen(["sleep", "60"], start_new_session=True).pid))
@@ -30,7 +30,7 @@ ledger.Shell().run([sys.executable, __file__, sys.argv[1], str(depth - 1)] if de
 def nesting_script(tmp_path: Path) -> Path:
     """A plugin script that runs itself through `ledger.Shell` `depth` times, then a command that swallows SIGTERM and hangs, as a `ccn` stuck on cc-notes does, writing its pid to the first argument."""
     path = tmp_path / "nesting.py"
-    path.write_text(SCRIPT.format(scripts=str(Path(ledger.__file__).parent), hung=HUNG))
+    path.write_text(SCRIPT.format(scripts=str(Path(ledger.__file__).parent.parent), hung=HUNG))
     return path
 
 
@@ -130,7 +130,7 @@ def test_a_script_command_past_the_timeout_kills_its_own_commands_first_and_read
 def test_a_deadline_another_process_set_is_left_alone(tmp_path, monkeypatch):
     monkeypatch.setenv(drive.DEADLINE_ENV, f"{os.getpid()}:{time.time() - 60:.3f}")
     script = tmp_path / "quiet.py"
-    script.write_text(f"import sys, time\nsys.path.insert(0, {str(Path(drive.__file__).parent)!r})\nimport drive\ndrive.end_commands_with_script()\ntime.sleep(1)\nprint('done')\n")
+    script.write_text(f"import sys, time\nsys.path.insert(0, {str(Path(drive.__file__).parent.parent)!r})\nfrom long_running import drive\ndrive.end_commands_with_script()\ntime.sleep(1)\nprint('done')\n")
 
     done = subprocess.run(["sh", "-c", f"{sys.executable} {script}; exit $?"], capture_output=True, text=True, timeout=30)
 

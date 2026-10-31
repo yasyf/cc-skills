@@ -28,7 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import ledger
+from long_running import ledger
 
 COLUMNS = ["Step", "What it delivers", "State", "What blocks it", "What we are doing to unblock it", "What went wrong or slowed it so far"]
 STATE, RETRO = 2, 5
@@ -144,7 +144,7 @@ def main(argv: list[str] | None = None, shell: ledger.Shell | None = None, now: 
 
 
 if __name__ == "__main__":
-    import drive
+    from long_running import drive
 
     drive.run_installed(__file__)
     raise SystemExit(main())

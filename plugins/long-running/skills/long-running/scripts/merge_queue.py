@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 
-import ghread
+from long_running import ghread
 
 PASS = "pass"
 PENDING = "pending"
