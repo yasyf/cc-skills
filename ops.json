@@ -1,1 +1,1 @@
-{"v":1,"lamport":9,"ops":[{"kind":"remove_criterion","id":"05306abc27cc27c5906095fe03db01fa"}]}
+{"v":1,"lamport":10,"ops":[{"kind":"add_criterion","id":"1875f815c81f32fefc76a5fbcd0c2fe2","text":"Preserve daemon/session behavior and0payload retention reads for nonfork CLI; actual detach may hash and records cold/warm measured cost in CI, without hidden retention work in initSelf.","script":""}]}
