@@ -76,7 +76,7 @@ def run(argv: list[str]) -> str | None:
     },
 )
 def spawn_names_a_live_lane(evt: BaseHookEvent) -> HookResult | None:
-    if not (name := (evt.tool_input or {}).get("name")) or (who := run(WHO.split())) is None:
+    if not (name := evt.input.raw.get("name")) or (who := run(WHO.split())) is None:
         return None
     now = datetime.now(UTC)
     for line in who.splitlines():
