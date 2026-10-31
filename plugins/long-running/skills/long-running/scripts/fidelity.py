@@ -157,6 +157,7 @@ def prompt(job: dict, view: dict, base: str, rows: Path, plan: str, touched: dic
         body=view["body"].strip() or "(empty)",
         rulings=finder.rulings_comments(view),
         settled="".join(f"- {point} (root #{root})\n" for point, root in settled_points(job).items()) or "(none)",
+        root_rulings="".join(f"- root #{ruling['seq']}: {' '.join(ruling['text'].split())}\n" for ruling in job["rulings"]) or "(none)",
     )
 
 
@@ -166,14 +167,16 @@ def settled_points(job: dict) -> dict[str, int]:
 
 
 def unsettled(job: dict, reply: dict) -> dict:
-    """`reply` less each `missing` entry that repeats a settled point word for word, read as ok citing the settling decides when none is left."""
-    if reply["verdict"] != "missing" or not (points := settled_points(job)):
+    """`reply` less each `missing` entry that repeats a settled point word for word or that the reply marks `settled` by a root record the job carries (root #265931), read as ok citing the settling records when none is left."""
+    points = settled_points(job)
+    roots = set(points.values()) | {ruling["seq"] for ruling in job["rulings"]}
+    if reply["verdict"] != "missing":
         return reply
-    kept = [entry for entry in reply["missing"] if " ".join(entry["line"].split()) not in points]
-    if kept:
+    settling = {id(entry): points.get(" ".join(entry["line"].split())) or (entry["settled"] if entry["settled"] in roots else None) for entry in reply["missing"]}
+    if kept := [entry for entry in reply["missing"] if settling[id(entry)] is None]:
         return reply | {"missing": kept}
-    roots = ", ".join(f"#{root}" for root in sorted({points[" ".join(entry["line"].split())] for entry in reply["missing"]}))
-    return reply | {"verdict": "ok", "missing": [], "summary": f"{reply['summary']} Every missing point is one root settled at {roots}."}
+    cited = ", ".join(f"#{root}" for root in sorted(set(settling.values())))
+    return reply | {"verdict": "ok", "missing": [], "summary": f"{reply['summary']} Every missing point is one root settled at {cited}."}
 
 
 def baseline(job: dict) -> str:

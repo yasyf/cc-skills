@@ -12,9 +12,10 @@
         "type": "object",
         "properties": {
           "key": {"type": "string"},
-          "line": {"type": "string"}
+          "line": {"type": "string"},
+          "settled": {"type": "integer"}
         },
-        "required": ["key", "line"],
+        "required": ["key", "line", "settled"],
         "additionalProperties": false
       }
     },

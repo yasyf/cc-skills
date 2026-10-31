@@ -4872,6 +4872,7 @@ class Runner:
                 "grades": [{key: grade[key] for key in ("seq", "lane", "text")} for grade in grades],
                 "old_apps": [{"seq": grade["seq"], "lane": grade["lane"], "head": grade["head"], "line": OLD_APP_LINE.search(full_text(grade))[0]} for grade in old_app_grades_in(records, drive_id, lanes, repo, job["pr"])],
                 "settled": self.root_settled(repo, job["pr"], grades),
+                "rulings": [{"seq": record["seq"], "text": full_text(record)} for record in cci.records(self.cci_tail, drive_id, "--kind=decide", "--kind=answer", "--lane", ROOT, "--pr", f"{repo}#{job['pr']}") if record["kind"] in ("decide", "answer") and record["lane"] == ROOT],
                 "corrected": [record["re"] for record in cci.records(self.cci_tail, drive_id, "--kind=decide", "--lane", ROOT, "--pr", f"{repo}#{job['pr']}") if (record["kind"], record["lane"]) == ("decide", ROOT) and record.get("re") and CLASS_WRONG.match(record["text"])],
                 "contract": full_text(contract) if contract else "",
                 "exempt": {"port": landing.get("port_phrase", PORT_PHRASE), "test-only": TEST_ONLY_PHRASE},

@@ -110,3 +110,10 @@ as part of it:
 Missing points root settled on this PR. Do not raise one again, in these words or others, unless
 this head changes the code it cites:
 {settled}
+
+Root's decides and answers about this PR. A point one of them settles stays settled for every later
+head, in any wording:
+{root_rulings}
+
+Each `missing` entry's `settled` is the number of the root record above that already settles the
+same point, in these words or others, and 0 when none does.

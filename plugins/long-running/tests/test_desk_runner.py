@@ -14357,6 +14357,7 @@ def test_each_head_starts_one_fidelity_pass_carrying_the_prs_grades_old_app_line
         "old_apps": [{"seq": graded + 1, "lane": "fidelity-desk-4", "head": FINDER_OLD[:7], "line": f"old-app: unchanged {FINDER_OLD[:7]} baseline {BASELINE}; go/sand/next only"}],
         "corrected": [graded],
         "settled": {str(graded): 149901},
+        "rulings": [{"seq": 149901, "text": f"re #{graded}: class wrong, not a pure port."}, {"seq": 149902, "text": f"re #{graded}: go after the restack."}],
         "contract": "contract: builds the resubscribe; deletes nothing",
         "exempt": {"port": runner_module.PORT_PHRASE, "test-only": runner_module.TEST_ONLY_PHRASE},
         "exempt_grades": [runner_module.PORT_PHRASE, runner_module.TEST_ONLY_PHRASE],
