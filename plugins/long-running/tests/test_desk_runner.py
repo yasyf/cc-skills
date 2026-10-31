@@ -2642,6 +2642,33 @@ def test_a_trunk_failed_or_cancelled_label_reads_as_evicted_where_the_status_rea
     assert runner_module.trunk_labelled(unknown, {"labels": "trunk-cancelled"})["evicted"] == "Trunk labelled it trunk-cancelled"
 
 
+def test_a_trunk_drop_reads_as_evicted_where_the_status_read_says_not_queued():
+    """Owner 10:44 PM Oct 30: ccx read #45599, which Trunk's queue run had failed, as not queued, and only an unknown status took Trunk's label, so nothing read it as dropped."""
+    out = {"number": 45599, "queue": "not queued", "verdict": "blocked:ci-red"}
+    failed = {"outcome": "failed", "text": "failed in Trunk's merge queue", "at": "2026-10-31T05:34:00Z"}
+    assert runner_module.trunk_labelled(out, {"labels": "externally-merged,trunk-failed"}) == out | {"queue": "evicted", "evicted": "Trunk labelled it trunk-failed"}
+    assert runner_module.trunk_recorded(out, failed) == out | {"queue": "evicted", "evicted": failed["text"], "evicted_at": failed["at"]}
+    assert runner_module.trunk_recorded(out, failed | {"outcome": "merged"}) == out
+    assert runner_module.trunk_recorded(out, failed | {"outcome": "testing"}) == out
+    assert runner_module.trunk_labelled(out, {"labels": "trunk-queued"}) == out
+
+
+def test_a_red_head_trunk_dropped_posts_one_red_to_its_lane_and_root_though_no_check_reads_it(shell, config, monkeypatch):
+    """Owner 10:44 PM Oct 30: #45599 fell out of the Trunk merge queue when its queue run failed, its status read red, so no check read it, and the runner told nobody."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["adapter"] = {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}
+    config.write_text(json.dumps(raw))
+    monkeypatch.setenv("TRUNK_MERGE_API_KEY", "trunk-secret")
+    shell.rows = [ONE_ROW | {"labels": "externally-merged,trunk-failed"}]
+    shell.queue["29020"] = "not queued"
+    shell.pr_status["29020"] = {"verdict": "blocked:ci-red", "ci": {"state": "red", "failing": ["Trunk Merge Queue (dev)"]}}
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [post] = blockers(shell)
+    assert set(post["to"].split(",")) == {"root", LANE}
+    assert post_body(post) == f"#29020 {ONE_ROW['head']}: CI is red: Trunk Merge Queue (dev); the queue dropped it at an unstamped time: Trunk labelled it trunk-failed"
+
+
 TRUNK_FAILED_GATE = "#33001 BLOCKED aaaa111111 Trunk attempt 2026-10-30T23:10:00Z failed: TEST_RUN_REQUIRED_STATUS_FAILED (verification v1); inspect its verification and push a fix or explicitly name this PR with --flake"
 
 
