@@ -2341,10 +2341,13 @@ def test_a_failing_required_check_posts_one_blocker_per_job_and_cause_and_a_line
     head("dddd444444", ssm_miss | {"description": "Build #8851 canceled"}, {"context": "buildkite/test", "state": "failure", "description": "Build #8852 failed"})
 
     first = next(seq for seq, post in enumerate(shell.posts, 1) if post["kind"] == "blocker")
+    resolved = ("note", None, "RESOLVED 1 landing-runner blockers whose PR has since landed, closed or moved past the head each names")
     assert [(post["kind"], post.get("re"), post["text"]) for post in shell.posts if post["kind"] in ("blocker", "note")] == [
         ("blocker", None, "#39050 aaaa111111: graphite FAILING_REQUIRED"),
+        resolved,
         ("note", str(first), "#39050 bbbb222222: the same failure again: buildkite/sand-mac-harness-release: Build ## failed (# minutes)"),
         ("blocker", None, "#39050 cccc333333: graphite FAILING_REQUIRED"),
+        resolved,
         ("blocker", None, "#39050 dddd444444: graphite FAILING_REQUIRED"),
     ]
 
