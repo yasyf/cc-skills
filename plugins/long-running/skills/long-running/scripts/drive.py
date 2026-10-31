@@ -670,9 +670,9 @@ def cmd_ask_owner(args: argparse.Namespace, shell: ledger.Shell) -> int:
     recommended = args.option[args.recommend - 1]
     posted = shell.run(
         ["cci", "post", "--drive", cci_drive(entry), "--lane", args.lane, "--kind", "ask", "--to", ",".join(args.waiting or ["root"]), "--force", "--id", f"ask-owner:{block['id']}",
-         "--text", f"Owner card {block['id']} is on his board: {args.title} Recommended: {recommended}"]
+         "--text", f"Owner card {block['id']} is on his board: {args.title} Recommended: {recommended}", "--json"]
     )
-    print(f"card {block['id']} is on the owner's board; ask {NUMBERED.search(posted)[0]} stays open until his tap")
+    print(f"card {block['id']} is on the owner's board; ask {json.loads(posted)["num"]} stays open until his tap")
     return 0
 
 

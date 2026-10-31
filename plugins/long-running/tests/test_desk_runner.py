@@ -578,7 +578,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, "" if argv[5] in self.gone else json.dumps({"lane": argv[5], "live": True} | ({"seen_at": self.seen[argv[5]]} if argv[5] in self.seen else {})) + "\n", "")
         if argv[:2] == ["cci", "post"]:
             forced = "--force" in argv
-            argv = [arg for arg in argv if arg != "--force"]
+            as_json = "--json" in argv
+            argv = [arg for arg in argv if arg not in ("--force", "--json")]
             flags = dict(zip(argv[2::2], argv[3::2], strict=True))
             if not forced and (unstarted := [lane for lane in flags.get("--to", "").split(",") if lane in self.unstarted]):
                 return runner_module.Done(1, "", f"cci: --to {unstarted[0]}: no live session or registered lane on drive {flags['--drive']} is named {unstarted[0]}")
@@ -596,13 +597,13 @@ class FakeShell(runner_module.Shell):
             if flags["--kind"] == "landed" and "--pr" not in flags:
                 return runner_module.Done(1, "", "cci: kind landed requires --pr")
             if flags.get("--topic") == runner_module.board_rows.WRITE_TOPIC:
-                return self.board_write(dict(value.split("=", 1) for flag, value in zip(argv[2::2], argv[3::2], strict=True) if flag == "--attr"))
+                return self.board_write(dict(value.split("=", 1) for flag, value in zip(argv[2::2], argv[3::2], strict=True) if flag == "--attr"), as_json)
             if stored := self.post_ids.get(flags.get("--id", "")):
-                return runner_module.Done(0, f"#{stored} (duplicate)\n", "")
-            self.posts.append({key.lstrip("-"): value for key, value in flags.items()})
+                return runner_module.Done(0, json.dumps({"seq": stored, "num": "#7@fixture"}) + "\n" if as_json else f"#{stored} (duplicate)\n", "")
+            self.posts.append({{"--re-seq": "re", "--resolves-seq": "resolves"}.get(key, key.lstrip("-")): value for key, value in flags.items()})
             if "--id" in flags:
                 self.post_ids[flags["--id"]] = len(self.posts)
-            return runner_module.Done(0, self.post_out or f"#{len(self.posts)}\n", "")
+            return runner_module.Done(0, self.post_out or (json.dumps({"seq": len(self.posts), "num": "#7@fixture"}) + "\n" if as_json else f"#{len(self.posts)}\n"), "")
         if argv[:2] == ["gh", "api"] and argv[2].startswith("repos/Forge-AI/monorepo/pulls/") and argv[3:] == ["--jq", ".mergeable"]:
             self.mergeable_reads.append(argv[2].rsplit("/", 1)[1])
             return runner_module.Done(0, "MERGEABLE\n", "")
@@ -651,12 +652,12 @@ class FakeShell(runner_module.Shell):
         }
         return runner_module.Done(0, json.dumps({"data": {"repository": commits}}), "")
 
-    def board_write(self, write: dict[str, str]) -> runner_module.Done:
+    def board_write(self, write: dict[str, str], as_json=False) -> runner_module.Done:
         if write["op"] == "ask":
             self.pr_cards.append({"card": json.loads(write["card"]), "session": write["session"]})
             if self.pr_card_error:
                 return runner_module.Done(1, "", self.pr_card_error)
-            return runner_module.Done(0, f"#{self.board_seq + len(self.pr_cards)}\n", "")
+            return runner_module.Done(0, json.dumps({"seq": self.board_seq + len(self.pr_cards), "num": "#7@fixture"}) + "\n" if as_json else f"#{self.board_seq + len(self.pr_cards)}\n", "")
         carry = {"--session": write["session"], "--block": write["block"], "--row": write["row"], "--head": write["head"], "--note": write["note"]}
         if carry not in self.carries:
             self.carries.append(carry)
@@ -8204,7 +8205,8 @@ def test_a_post_that_prints_no_sequence_is_escalated_and_settled_by_the_repost(s
     landing_pass(shell, config)
     assert [post["kind"] for post in shell.posts] == ["release", "defect"] and release_action(tmp_path).response["posted"] == {"0": 1}
     [line] = escalations(shell)
-    assert line.startswith("RELEASE-FAILED release:36642:0 #36642: cci printed no sequence for the release record to peer:sole-51,root: cci: stored; #36642 landed as 5e11a9d0c2 ")
+    assert line.startswith("RELEASE-FAILED release:36642:0 #36642: cci refused the release record to peer:sole-51,root: cci: invalid post receipt:")
+    assert "cci: stored; #36642 landed as 5e11a9d0c2 " in line
 
 
 def test_a_release_record_cci_refuses_is_escalated_to_root_each_step_and_posted_once_cci_takes_it(shell, config, tmp_path):
@@ -14670,3 +14672,14 @@ def test_empty_rulings_report_does_not_decode_bus_history(shell, config, tmp_pat
     print(json.dumps({"history": history, "first_empty_report": first, "two_empty_reports": costs}))
     assert costs == {"decoded_bytes": 0, "action_dtos": 0, "read_connections": 0, "sql_opcodes": 0}
     assert not shell.calls
+
+
+def test_cci_post_retains_each_internal_json_sequence_and_invalidates_the_tail(shell, config, tmp_path):
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "post-book"))
+    runner.cci_tail.remember()
+    runner.cci_tail.read[("d1", (), "0")] = [{"seq": 1}]
+    shell.post_out = '{"seq":41,"num":"#7"}\n{"seq":52,"num":"#100@remote"}\n'
+    done = runner.cci_post("note", "posted", "root", "machine-ci", "machine-ci")
+    assert done == runner_module.Done(0, "#41\n#52\n", "")
+    assert runner.cci_tail.read == {}
+    assert shell.raw[-1][-1] == "--json"

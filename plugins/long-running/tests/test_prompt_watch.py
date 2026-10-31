@@ -443,7 +443,7 @@ def test_an_answered_prompt_reads_stale_and_resolves_what_it_raised(home, shell,
 
     assert rows[ROOT]["state"] == "stale" and rows[ROOT]["alerts"] == {}
     raised, cleared = shell.posts
-    assert cleared["--kind"] == "unblock" and cleared["--resolves"] == str(raised["seq"]) and "--to" not in cleared
+    assert cleared["--kind"] == "unblock" and cleared["--resolves-seq"] == str(raised["seq"]) and "--to" not in cleared
     assert cleared["--text"] == f"CLEARED coordinator (coordinator) terminal={ROOT}: the prompt left the screen"
     assert shown(shell, capsys)[1:] == [f"PROMPT-STALE coordinator coordinator 1m terminal={ROOT}: agentWait via hook is set and the input box is back"]
 
@@ -993,7 +993,7 @@ def test_a_worker_that_settles_while_at_a_prompt_has_its_record_resolved(home, s
     rows = poll(shell)
 
     assert f"dispatch:{LOCAL}" not in rows
-    assert [(post["--kind"], post.get("--resolves")) for post in shell.posts] == [("blocker", None), ("unblock", str(shell.posts[0]["seq"]))]
+    assert [(post["--kind"], post.get("--resolves-seq")) for post in shell.posts] == [("blocker", None), ("unblock", str(shell.posts[0]["seq"]))]
     assert shell.posts[1]["--text"] == f"CLEARED bake (worker) terminal={LOCAL_TERMINAL}: the terminal left the watch"
 
 

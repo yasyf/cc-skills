@@ -141,12 +141,13 @@ class FakeShell(ledger.Shell):
                 "at": "2026-10-05T09:00:00Z",
                 "text": one["--text"],
                 "topic": one.get("--topic", ""),
-                "re": int(one["--re"]) if "--re" in one else None,
+                "re": int(one["--re-seq"]) if "--re-seq" in one else None,
+                "num": f"#{len(self.cci) + 1}@fixture",
                 "fields": {"commit": one["--commit"]} if "--commit" in one else {},
             }
             assert len(record["text"]) <= 400
             self.cci.append(record)
-            return f"#{record['seq']}\n"
+            return json.dumps(record) + "\n" if "--json" in one else f"#{record['seq']}\n"
         assert argv[1] == "tail", argv
         if "--since" in one:
             after = int(one["--since"])

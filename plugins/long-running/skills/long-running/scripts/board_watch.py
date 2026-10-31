@@ -324,7 +324,7 @@ def post_owner(shell: Shell, bus: Bus, key: str, text: str, block: str, names: l
         *(["--topic", block] if block else []),
         *(f"--pr={pr}" for pr in prs),
         *attr_args(fields),
-        *(["--resolves", ",".join(map(str, resolves))] if resolves else []),
+        *(["--resolves-seq", ",".join(map(str, resolves))] if resolves else []),
     ]
     done = shell.cci(argv)
     if done.returncode:
@@ -396,7 +396,7 @@ def apply_writes(shell: Shell, bus: Bus, session: str) -> None:
         failed = done.returncode != 0 and not gone
         what = f"{write['op']} on block {write.get('block') or write.get('waits', '')}" + (f" row {write['row']} to {write['head'][:10]}" if write["op"] == "carry" else "")
         text = f"board write #{record['seq']} ({what}) " + (f"failed: {said}" if failed else "had no block to carry on; nothing to do" if gone else f"applied: {said}")
-        argv = ["post", "--drive", bus.drive, "--lane", BUS_LANE, "--kind", "defect" if failed else "applied", "--to", f"{RUNNER},root" if failed else RUNNER, "--re", str(record["seq"]), "--id", f"applied:{record['seq']}", "--text", text[:400]]
+        argv = ["post", "--drive", bus.drive, "--lane", BUS_LANE, "--kind", "defect" if failed else "applied", "--to", f"{RUNNER},root" if failed else RUNNER, "--re-seq", str(record["seq"]), "--id", f"applied:{record['seq']}", "--text", text[:400]]
         if (posted := shell.cci(argv)).returncode:
             print(f"board-watch {session}: the answer to board write #{record['seq']} did not post: {posted.stderr.strip()}", flush=True)
 
