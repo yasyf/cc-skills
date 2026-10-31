@@ -12,7 +12,7 @@ from itertools import pairwise
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import cci
+from . import cci
 
 
 LANE_NUMBER = re.compile(r"(.+?)(?:-(\d+))?")

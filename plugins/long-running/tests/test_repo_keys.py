@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-import ledger
+from long_running import ledger
 from conftest import DIRTY_HEAD, DRIVE, LEDGER, MOVED_HEAD, FakeShell
 
 HOME = "Forge-AI/monorepo"

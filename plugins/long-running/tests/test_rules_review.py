@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-import ledger
+from long_running import ledger
 import pytest
 from conftest import gateway
 

@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-import drive
+from long_running import drive
 from long_running import actions
 from long_running.book import Book
 

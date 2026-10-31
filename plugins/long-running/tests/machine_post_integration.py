@@ -10,7 +10,7 @@ import pytest
 from test_bus import bus
 from test_desk_runner import config, runner_module, shell
 
-import ledger
+from long_running import ledger
 
 
 @pytest.fixture

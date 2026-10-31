@@ -7,8 +7,8 @@ import subprocess
 import threading
 import time
 
-import cci
-import ledger
+from long_running import cci
+from long_running import ledger
 import pytest
 
 

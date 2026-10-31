@@ -4,7 +4,7 @@ import io
 import json
 from pathlib import Path
 
-import grades
+from long_running import grades
 import pytest
 
 

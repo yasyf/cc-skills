@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-import ledger
+from long_running import ledger
 import pytest
 from conftest import LEDGER, FakeShell
 

@@ -6,7 +6,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-import ledger
+from long_running import ledger
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills" / "long-running" / "scripts" / "plan-table.py"

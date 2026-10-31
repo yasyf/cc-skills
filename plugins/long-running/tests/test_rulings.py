@@ -13,9 +13,9 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-import ledger
+from long_running import ledger
 import pytest
-import rulings
+from long_running import rulings
 from conftest import gateway
 
 REPO = "/repo"

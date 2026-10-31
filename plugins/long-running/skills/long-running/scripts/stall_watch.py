@@ -197,11 +197,11 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from long_running import actions
-import board_rows
-import cci
-import drive
-import ghread
-import grades
+from long_running import board_rows
+from long_running import cci
+from long_running import drive
+from long_running import ghread
+from long_running import grades
 import owner_waits
 
 SCRIPTS = Path(__file__).resolve().parent

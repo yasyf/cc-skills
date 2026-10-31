@@ -12,7 +12,7 @@ import fidelity
 import finder
 import pytest
 from conftest import gateway
-from grades import OLD_APP, PORT_PHRASE, TEST_ONLY_PHRASE, carries, graded_head, owner_grounded
+from long_running.grades import OLD_APP, PORT_PHRASE, TEST_ONLY_PHRASE, carries, graded_head, owner_grounded
 
 REPO = "Forge-AI/monorepo"
 HEAD = "7414944e30bfec89dee45328414dbc1016e35afa"

@@ -6,7 +6,7 @@ import threading
 import time
 from datetime import timedelta
 
-import ledger
+from long_running import ledger
 import pytest
 from conftest import DIRTY_HEAD, LEDGER, LISTED_HEAD, MOVED_HEAD, FakeShell
 
