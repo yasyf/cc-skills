@@ -9,6 +9,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 CARRIED = ("PATH", "HOME", "LANG", "CEREBRAS_API_KEY")
+CCI_SHIM = Path(".claude/plugins/marketplaces/cc-inbox/plugin/bin")
 
 
 def label(config):
@@ -21,7 +22,7 @@ def job(config_path, config, env):
         "Label": label(config),
         "ProgramArguments": [sys.executable, str(HERE / "app" / "server.py"), "--config", str(config_path)],
         "WorkingDirectory": str(config_path.parent),
-        "EnvironmentVariables": {name: env[name] for name in CARRIED if name in env},
+        "EnvironmentVariables": {name: env[name] for name in CARRIED if name in env} | {"PATH": f"{env['PATH']}:{Path(env['HOME']) / CCI_SHIM}"},
         "StandardOutPath": log,
         "StandardErrorPath": log,
         "RunAtLoad": True,
