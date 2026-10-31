@@ -6,7 +6,7 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from lr.store import StaleGeneration, Store
+from lr.store import StaleGeneration, Store, stamp
 
 T0 = datetime(2026, 10, 30, 21, 0, tzinfo=UTC)
 HEAD = "e718a7434fa01ee9835f992a9a647a825350732c"
@@ -158,3 +158,32 @@ def test_the_store_opens_a_file_in_wal_mode(tmp_path):
     assert store.db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     store.open_item("enqueue", REPO, 1, HEAD, "supervisor", T0, timedelta(minutes=10))
     assert Store.open(tmp_path / "drive.sqlite").open_items(REPO, 1)[0].kind == "enqueue"
+
+
+OLD_LANES = """CREATE TABLE lanes (
+  name TEXT PRIMARY KEY, brief TEXT NOT NULL, model TEXT NOT NULL, effort TEXT NOT NULL, role TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('launching', 'desired', 'held', 'retired')),
+  since TEXT NOT NULL, heard TEXT, handoff TEXT, prs TEXT NOT NULL DEFAULT '[]',
+  predecessor TEXT, reason TEXT, strikes INTEGER NOT NULL DEFAULT 0, asked TEXT, flushed TEXT, retired_by TEXT
+)"""
+
+
+def test_a_store_file_from_an_older_schema_gains_the_columns_it_lacks(tmp_path):
+    path = tmp_path / "lr.sqlite"
+    old = sqlite3.connect(path)
+    old.execute(OLD_LANES)
+    old.execute("INSERT INTO lanes (name, brief, model, effort, role, state, since) VALUES ('l-1', '/b.md', 'opus', 'xhigh', 'lane', 'desired', ?)", (stamp(T0),))
+    old.commit()
+    old.close()
+
+    store = Store.open(path)
+
+    assert store.lane("l-1").waiting is None and store.lane("l-1").answered is None
+    assert {"waiting", "answered"} <= {row["name"] for row in store.db.execute("PRAGMA table_info(lanes)")}
+
+
+def test_opening_a_current_store_again_changes_nothing(tmp_path):
+    path = tmp_path / "lr.sqlite"
+    Store.open(path).want_lane("l-1", "/b.md", "opus", "xhigh", "lane", "desired", T0)
+
+    assert Store.open(path).lane("l-1").name == "l-1"
