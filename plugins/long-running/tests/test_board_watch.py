@@ -229,7 +229,7 @@ def test_a_merge_tap_names_the_head_and_resolves_only_open_asks_on_that_row(tmp_
         "Owner on board board-1, Merge these? (merge-triage): merge-row-101 approved at abc1234, at {at}",
         "Owner on board board-1, merge-prs: 202 rejected at 413b38e noted \u201csplit it\u201d, at {at}",
     ]
-    assert shell.posted("--resolves") == ["11", "12"]
+    assert shell.posted("--resolves-seq") == ["11", "12"]
     assert [[arg for arg in post if arg.startswith("--pr=")] for post in shell.posts] == [["--pr=101"], ["--pr=202"]]
 
 
@@ -238,7 +238,7 @@ def test_a_tap_resolves_open_asks_naming_its_block_or_card_but_not_a_longer_id(t
     shell = RecordedShell(bus)
     run(tmp_path, shell)
 
-    assert shell.posted("--resolves") == ["21,22"] * 4
+    assert shell.posted("--resolves-seq") == ["21,22"] * 4
 
 
 def test_a_refused_post_is_reported_and_the_watch_keeps_recording(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -374,7 +374,7 @@ def test_the_applier_carries_a_tap_reopening_a_closed_round_and_answers_each_wri
     carry_argv = ["cc-present", "verdict", "carry", "--session", SESSION, "--block", "merge-prs", "--row", "202", "--head", "5555555aaa", "--note", "patch-identical restack"]
     assert [argv for argv, _ in shell.presented] == [carry_argv, ["cc-present", "update-block", "-", "--round", "current", "--session", SESSION], carry_argv, ["cc-present", "ask", "-", "--session", SESSION]]
     assert json.loads(shell.presented[1][1])["id"] == "merge-prs" and shell.presented[3][1] == '{"id": "merge:303:abcdef1"}'
-    assert [(post[post.index("--kind") + 1], post[post.index("--re") + 1], post[post.index("--id") + 1]) for post in shell.posts] == [("applied", "7", "applied:7"), ("applied", "9", "applied:9")]
+    assert [(post[post.index("--kind") + 1], post[post.index("--re-seq") + 1], post[post.index("--id") + 1]) for post in shell.posts] == [("applied", "7", "applied:7"), ("applied", "9", "applied:9")]
 
 
 def test_a_carry_cc_present_refuses_is_answered_as_a_defect_to_the_runner_and_root(tmp_path: Path) -> None:

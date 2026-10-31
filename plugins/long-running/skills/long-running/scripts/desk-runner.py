@@ -1945,7 +1945,13 @@ class Runner:
         if len(text) > CCI_TEXT:
             text = text[: CCI_TEXT - 1] + "…"
         self.cci_tail.forget()
-        return self.shell.run([*argv, "--text", text])
+        done = self.shell.run([*argv, "--text", text, "--json"])
+        if done.code:
+            return done
+        try:
+            return Done(0, cci.posted(done.out), done.err)
+        except (json.JSONDecodeError, KeyError) as error:
+            return Done(1, "", f"cci: invalid post receipt: {error}: {done.out.strip()}")
 
     def flush(self) -> bool:
         """Post each accepted escalation to root. While an incident clock runs, a DEADLINE, UNACKED, LIVENESS, STALE-MAIL, or RECLAIM about anything outside the incident waits in the view, and the pass after the last clock ends posts them as one DEFERRED record."""
@@ -8945,7 +8951,7 @@ class Landing:
     def post_record(self, kind: str, key: str, to: str, text: str, pr: str, cause: str = "", re_seq: str = "") -> bool:
         self.book.accept(LANDING, key, "bus", json.dumps({"lane": to, "pr": pr, "text": text, "kind": kind} | ({"cause": cause} if cause else {})), key, None)
         self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
-        done = self.runner.cci_post(kind, text, to, pr, key, pr=pr, flags=["--re", re_seq] if re_seq else None)
+        done = self.runner.cci_post(kind, text, to, pr, key, pr=pr, flags=["--re-seq", re_seq] if re_seq else None)
         if done.code == 0:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"posted": done.out.strip()[:200], "at": self.book.stamp()}))
         else:

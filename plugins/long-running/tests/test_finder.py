@@ -99,12 +99,12 @@ class Fake:
             reply.write_text(json.dumps(self.replies.pop(0)))
             return f"REPLY_FILE: {reply}\nLOG_FILE: {reply}.log\nAWAIT: codex-ask --await {argv[argv.index('-s') + 1]}\n"
         if argv[:2] == ["cci", "post"]:
-            flags = [arg for arg in argv[2:] if arg != "--force"]
+            flags = [arg for arg in argv[2:] if arg not in ("--force", "--json")]
             post = dict(zip(flags[::2], flags[1::2], strict=True))
             if "--force" not in argv and (refused := next((lane for lane in post.get("--to", "").split(",") if lane in self.unregistered), None)):
                 raise subprocess.CalledProcessError(1, argv, stderr=f"cci: --to {refused}: no live session or registered lane on drive {post['--drive']} is named {refused}")
             self.posted.append(post)
-            return "#150001\n"
+            return json.dumps({"seq": 150001, "num": "#7@fixture"}) + "\n"
         raise AssertionError(f"unexpected call {argv}")
 
     def git(self, argv: list[str]) -> str:
