@@ -1,8 +1,9 @@
 """The grading mover: every ungraded head gets its finder and fidelity jobs, once, on the pool.
 
-A grade item with no worker, or one past its deadline, has its missing graders dispatched
-through the pool adapter; each job beats as a worker holding the item, so a job that dies
-goes stale and its item comes back. Grades land as `grade` records on the bus and close the
+A grade item with no worker, one whose executor the pool reports gone, or one past its
+deadline has its missing graders dispatched through the pool adapter; each job beats as a
+worker holding the item, so a job that dies goes stale and its item comes back, and one whose
+box went down comes back in the same pass. Grades land as `grade` records on the bus and close the
 item through the facts; the mover never reads results. A rebase to a patch-identical head
 carries the grades and the verdict, so the new head is not graded twice.
 """
@@ -25,6 +26,10 @@ class Pool(Protocol):
         """Start one grading job; return its worker name."""
         ...
 
+    def alive(self, worker: str) -> bool:
+        """Whether the executor running `worker` is still up."""
+        ...
+
 
 @dataclass
 class Done:
@@ -38,7 +43,12 @@ def missing(facts: Facts) -> list[str]:
 def act(store: Store, pool: Pool, items: list[Item], snapshot: dict[int, Facts], now: datetime, generation: int) -> Done:
     done = Done()
     for item in items:
-        if item.kind != "grade" or item.number not in snapshot or not (item.worker is None or item.deadline <= now):
+        if item.kind != "grade" or item.number not in snapshot:
+            continue
+        gone = [row["name"] for row in store.workers() if row["item"] == item.id and not pool.alive(row["name"])]
+        for name in gone:
+            store.release_worker(name)
+        if not (gone or item.worker is None or item.deadline <= now):
             continue
         facts = snapshot[item.number]
         if facts.head != item.head:
