@@ -4522,7 +4522,10 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   by that rule. A roster lane is woken, never relaunched: once per interval, a lane with no
   record in the window, not waiting on root, whose root task is still `in_progress`, gets one
   `WAKE` message in its teammate inbox telling it to read its mail and continue. A lane whose
-  task is completed, or that posted `done`, is idle on purpose and never woken. A lane whose newest record is an
+  task is completed, or that posted `done`, is idle on purpose and never woken. A `blocker`
+  addressed to a lane about one of its open PRs, arriving after its last record, also wakes it,
+  once per blocker `topic` and with the blocker's text, whatever its task says. If the lane posts
+  nothing within 30 minutes of that wake, the supervisor asks root once to reassign the PR. A lane whose newest record is an
   `ask`, `blocked` or `blocker` to root is waiting, not dead, until 15 minutes after a
   record answers it with `--re` or `--resolves`. A live lane beats in the workers table
   each tick.
