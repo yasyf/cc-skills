@@ -227,3 +227,46 @@ def test_a_drive_lane_spawn_posts_one_spawned_record_naming_the_lane_its_slice_n
     injection.record_spawn(spawned(session, "Agent", {"prompt": "Lane lane-b: build the relay.", "subagent_type": "general-purpose"}))
 
     assert [argv[2:] for argv in calls] == [["spawned", "--lane", "lane-a", "--brief", str(brief), "--by", "root", "--session", SESSION]]
+
+
+def subagent(session: Path, agent_id: str, prompt: str, **meta: str) -> Path:
+    main = session.parent / "main.jsonl"
+    main.write_text("")
+    agents = session.parent / "main" / "subagents"
+    agents.mkdir(parents=True, exist_ok=True)
+    (agents / f"agent-{agent_id}.meta.json").write_text(json.dumps({"agentType": "general-purpose"} | meta))
+    line = {"type": "user", "isSidechain": True, "parentUuid": None, "uuid": f"u-{agent_id}", "timestamp": "2026-10-30T22:00:00.000Z", "sessionId": SESSION, "message": {"role": "user", "content": prompt}}
+    (agents / f"agent-{agent_id}.jsonl").write_text(json.dumps(line) + "\n")
+    return main
+
+
+def bash(session: Path, main: Path, agent_id: str, command: str, event=PreToolUseEvent):
+    fields = raw(tool_name="Bash", tool_input={"command": command}, agent_id=agent_id, transcript_path=str(main))
+    hook = injection.register_lane_at_first_command if event is PreToolUseEvent else injection.settle_lane_registration
+    return hook(event(_raw=fields, ctx=ctx(session)))
+
+
+def test_an_unnamed_lane_registers_as_its_brief_lane_once_and_a_worker_on_its_parents_brief_never_does(tools: Path) -> None:
+    session = activated(tools / "session")
+    brief = tools / "lane-a.md"
+    brief.write_text("Lane lane-a.\nScale: no N\nRegister slice: lane=lane-a step=1.9\n")
+    main = subagent(session, "a1", f"You are lane lane-a. Your brief is {brief}.")
+    subagent(session, "aparent", "Lead the rebuild.", name="lane-a")
+    subagent(session, "a2", f"Read {brief} and list its files.", parentAgentId="aparent")
+
+    first = bash(session, main, "a1", "cd /repo && cci me")
+    assert first.action == "rewrite"
+    assert first.updated_input["command"] == "cci post --lane lane-a --kind state --stamp 'lane-a: registered at its first command' >/dev/null\ncd /repo && cci me"
+    bash(session, main, "a1", first.updated_input["command"], PostToolUseEvent)
+    assert bash(session, main, "a1", "git status") is None
+    assert bash(session, main, "a2", "ls") is None
+
+
+def test_a_registration_another_hooks_rewrite_dropped_is_retried_at_the_next_command(tools: Path) -> None:
+    session = activated(tools / "session")
+    main = subagent(session, "a1", "Lane lane-b.\nScale: no N\nRegister slice: lane=lane-b step=1.9\n")
+
+    assert bash(session, main, "a1", "git status").action == "rewrite"
+    bash(session, main, "a1", "git status", PostToolUseEvent)
+
+    assert bash(session, main, "a1", "git log").updated_input["command"].startswith("cci post --lane lane-b ")
