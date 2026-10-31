@@ -976,6 +976,7 @@ LANE_GONE_REPORT = re.compile(r"\bLANE-GONE lane-gone:([^:\s]+)[:\s]")
 LANE_ENDED_KINDS = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
 HANDOFF_WAIT = timedelta(minutes=20)
 LAUNCHD_THROTTLE_SECONDS = 60
+RUNNER_OPEN_FILES = 65536
 LAUNCHD_START = timedelta(minutes=3)
 AGENT_PID = re.compile(r"^\s*pid = (\d+)$", re.MULTILINE)
 RELAY_REF = re.compile(r"(?:^|cci#)(R?\d+)$")
@@ -2255,6 +2256,7 @@ class Runner:
                 "EnvironmentVariables": {"PATH": self.shell.env("PATH")},
                 "KeepAlive": True,
                 "ThrottleInterval": LAUNCHD_THROTTLE_SECONDS,
+                "SoftResourceLimits": {"NumberOfFiles": RUNNER_OPEN_FILES},
                 "StandardOutPath": log,
                 "StandardErrorPath": log,
             }

@@ -9693,6 +9693,7 @@ def test_supervise_install_bootstraps_only_its_own_label_with_the_key_read_from_
         "EnvironmentVariables": {"PATH": "/opt/homebrew/bin:/usr/bin:/bin"},
         "KeepAlive": True,
         "ThrottleInterval": 60,
+        "SoftResourceLimits": {"NumberOfFiles": 65536},
         "StandardOutPath": log,
         "StandardErrorPath": log,
     }
@@ -9704,6 +9705,16 @@ def test_supervise_install_bootstraps_only_its_own_label_with_the_key_read_from_
     assert shell.launchctl_calls[-1] == ["bootout", agent_target("landing")] and not plist.exists()
     assert cli(shell, config, "supervise", "status", "--desk", "landing") == 1
     assert {arg for call in shell.launchctl_calls for arg in call[1:]} == {agent_target("landing"), f"gui/{os.getuid()}", str(plist)}
+    restarted[0].close()
+
+
+def test_a_supervised_runner_may_open_as_many_files_as_a_shell_started_one_so_a_full_pass_never_hits_launchds_256(shell, config, tmp_path):
+    """Oct 30 10:00 PM: landing runner 76641 under launchd ended pass 1 with Errno 24, Too many open files, at launchd's 256-file default, where a shell-started runner had 1,048,576."""
+    restarted = []
+    shell.on_sleep.append(lambda: restarted.append(launchd_restarts(shell, config, tmp_path, "landing")))
+    assert cli(shell, config, "supervise", "install", "--desk", "landing") == 0
+    agent = plistlib.loads((tmp_path / "Library/LaunchAgents" / f"{agent_label('landing')}.plist").read_bytes())
+    assert agent["SoftResourceLimits"]["NumberOfFiles"] >= 65536
     restarted[0].close()
 
 
