@@ -592,6 +592,20 @@ def test_plan_reads_any_kept_register_copy_without_rebuilding_it(home: Path, pac
     assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"]] == [["ledger", "list"], ["ledger", "show"]]
 
 
+def test_a_sprite_reads_the_shipped_register_snapshot_however_its_ledger_refs_moved(home: Path, package: Path, state: Path, capsys) -> None:
+    """Owner 5:19 PM Oct 30 through root #228532: every Sprite finder pass failed waiting 120 s on a cold register rebuild; sprite-job.sh ships this machine's copy as a snapshot, and no read on the Sprite rebuilds it."""
+    shell = RegisterShell(seeded(package))
+    assert ran(capsys, shell, "rows", "--json")[0] == 0
+    kept = state / "register-brook.json"
+    kept.write_text(json.dumps({**json.loads(kept.read_text()), "snapshot": True}))
+    shell.rows["rule/aaaaaaa"]["words"] = "Relay code lives in relay-journal."
+
+    code, _ = ran(capsys, shell, "slice", "--lane", "lane-a", "--step", "1.9")
+
+    assert code == 0
+    assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"]] == [["ledger", "list"], ["ledger", "show"]]
+
+
 def test_classify_refuses_a_scope_row_without_three_implications_or_any_names(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
     captured(state, capture("1", "keep the uploader in relay-journal and out of the shell"))
     shell = RegisterShell(seeded(package))

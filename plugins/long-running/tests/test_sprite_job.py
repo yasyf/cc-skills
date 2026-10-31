@@ -49,7 +49,7 @@ def test_a_job_keeps_its_own_job_and_pid_files_and_drops_the_empty_refs_a_sprite
     (directory / "job.json").write_text(job)
     (directory / "pid").write_text("4242\n")
     (config / "long-running" / "drives").mkdir(parents=True)
-    (config / "long-running" / "drives" / "d1.json").write_text("{}")
+    (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
     remote = Path(f"{sprite}{checkout}")
     subprocess.run(["git", "init", "-q", str(remote)], check=True)
     emptied = remote / ".git" / "refs" / "remotes" / "origin" / "resume-first-turn-1"
@@ -66,7 +66,7 @@ def test_a_job_keeps_its_own_job_and_pid_files_and_drops_the_empty_refs_a_sprite
 
 
 def test_the_sprite_reads_the_register_from_the_jobs_checkout_never_the_launching_machines(tmp_path: Path) -> None:
-    """Root #226668: fleet sprites failed every rulings slice for three minutes because the registry they were sent named this machine's checkout, a path no Sprite holds."""
+    """Root #226668: fleet sprites failed every rulings slice for three minutes because the registry they were sent named this machine's checkout, a path no Sprite holds. Owner 5:19 PM Oct 30 through root #228532: the register itself ships with the job as a snapshot for that checkout, so no Sprite rebuilds it cold."""
     mac, sprite = tmp_path / "mac", tmp_path / "sprite"
     checkout, directory, config = mac / "checkout", mac / "fidelity-pipeline" / "46097-48963ab63767-226305", mac / "config"
     script = mac / "plugin" / "skills" / "long-running" / "scripts" / "fidelity.py"
@@ -80,9 +80,17 @@ def test_the_sprite_reads_the_register_from_the_jobs_checkout_never_the_launchin
     registry.parent.mkdir(parents=True)
     registry.write_text(json.dumps({"checkout": str(mac / "workspaces" / "root-checkout"), "state_dir": str(mac / "state")}))
     subprocess.run(["git", "init", "-q", f"{sprite}{checkout}"], check=True)
+    kept = {"repo": str(mac / "workspaces" / "root-checkout"), "tips": "refs/cc-notes/ledgers/r 1111", "ledger": "r", "rows": {"rule/a": {"words": "Relay code lives in relay-journal."}}}
+    (mac / "state").mkdir()
+    (mac / "state" / "register-state.json").write_text(json.dumps(kept))
+    (mac / "state" / "register-seed.answers.json").write_text("[]")
 
     env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config)}
     subprocess.run(["sh", str(SCRIPT), "fleet2", str(script), str(directory)], env=env, check=True, capture_output=True, timeout=60)
+
+    assert json.loads(Path(f"{sprite}{mac}/state/register-state.json").read_text()) == {**kept, "repo": str(checkout), "snapshot": True}
+    assert json.loads((mac / "state" / "register-state.json").read_text()) == kept
+    assert not Path(f"{sprite}{mac}/state/register-seed.answers.json").exists()
 
     assert json.loads(Path(f"{sprite}{registry}").read_text()) == {"checkout": str(checkout), "state_dir": str(mac / "state")}
     assert json.loads(registry.read_text())["checkout"] == str(mac / "workspaces" / "root-checkout")
