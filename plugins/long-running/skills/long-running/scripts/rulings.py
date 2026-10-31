@@ -268,7 +268,7 @@ TEST_DEFINITION = re.compile(
     r"|(?:pub\s+)?(?:async\s+)?fn\s+(?P<rs>\w+)\s*\(|(?:it|test)\s*\(\s*(?P<quote>[\"'`])(?P<ts>.+?)(?P=quote))"
 )
 FINDER = re.compile(r"^finder: (?P<verdict>\S+) (?P<head>[0-9a-f]{7,40})\b")
-READBACK_GRADE = re.compile(r"^readback: (?P<verdict>ok|missing) (?:[0-9a-f]{7,40} )?(?P<lane>[^\s.,;:]+)[.,;:]?(?: (?P<rest>.*))?$", re.DOTALL)
+READBACK_GRADE = re.compile(r"^readback:? (?P<verdict>ok|missing) (?:[0-9a-f]{7,40} )?(?P<lane>[^\s.,;:]+)[.,;:]?(?: (?P<rest>.*))?$", re.DOTALL)
 READBACK_SAID = re.compile(r"^(?:contract )?read-back (?:#\d+ \()?(?P<lane>[^\s:,()]+)[^:\n]*: (?P<verdict>ok|missing)\b[.:,;]?(?:\s+(?P<rest>.*))?$", re.DOTALL)
 READBACK_KINDS = ("review", "answer")
 READBACK_FLAGS = ("--kind", "review", "--kind", "answer")
@@ -1652,7 +1652,7 @@ def unaccepted(loaded: Register, lane: str, reviews: list[dict]) -> str | None:
     graded = [
         (record, found)
         for record in reviews
-        if record.get("kind") in READBACK_KINDS and record.get("lane") in desks and (found := READBACK_GRADE.match(text := record.get("text") or "") or READBACK_SAID.match(text)) and found["lane"] == lane
+        if record.get("kind") in READBACK_KINDS and record.get("lane") in desks and (found := READBACK_GRADE.match(text := record.get("text") or "") or READBACK_SAID.match(text)) and (found["lane"] == lane or grades.succeeds(lane, found["lane"]))
     ]
     if not graded:
         return "no fidelity desk has graded a read-back"
