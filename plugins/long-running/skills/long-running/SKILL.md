@@ -974,26 +974,27 @@ place the earlier narrowing survived, fixes them all that turn, and tells the ow
 was missed and why.
 The root never settles a plan gap by DECIDE. A new column, table, route, field, state,
 timer, or metric that neither the plan nor an owner row names goes on the owner's board
-as a card, and the lane that met the gap stops on it. A root `cci post --kind decide`
-that adds a mechanism the plan file does not name, with no owner row id or plan line
-cited in the same sentence, draws a warning from `root_decide_gate`. The root also reads what
+as a card, and the lane that met the gap stops on it. The root also reads what
 each lane reports it did against the plan before relaying it; "a worker did X" is the
 root's to check, not to pass on.
-A contract, read-back, or DECIDE is never narrower than the owner row it cites. A
-partition (`per key`, `per destination`, `per chat`) or an exception (`only`,
-`except`, `unless`) his words lack is graded missing against his words:
-`rulings.py readback` prints it as `READBACK-NARROWED`, `rulings.py accepted` refuses
-an ok grade that leaves a narrowed key unnamed, and the `narrowed_contracts` hook warns
-the grade or root post that accepts such a contract.
-Those word checks catch only the shapes they name. The `ruling_misread` hook asks the
-drive's judge whether each posted contract, root relay, card request, and the tests a
-pull request ships misread the owner's verbatim words on the rows they cite or match,
-either narrower than he said or applied literally past his purpose. A yes comes back to
-the writer as a warning with his words, the phrase that misreads, and one plain
-sentence; it never blocks. The writer fixes the artifact or answers on its record with
-the ruling that carries it.
+A contract, read-back, or DECIDE is never narrower than the owner row it cites, and
+never applies his words past their purpose. `judge_watch.py`, a pass the orca runner
+starts every minute, asks the drive's judge after the post, so no writer waits, whether
+each lane's contract and each root relay misreads his verbatim words on the rows it
+cites, or for a contract the two `rulings.py match` finds; a relay is also asked whether
+it adds a mechanism neither his words nor the plan lines it shares words with name. A yes
+posts one `review` record, `JUDGE <kind> #<seq> <key>: <sentence>`, in reply to the
+artifact, to its writer and root. The writer fixes the artifact or answers on the flag
+with the owner words that carry it; an answer puts one owner card on the board,
+`judge-dispute-<flag>`, with his words and both readings, and his pick becomes an eval
+case under `judge/owner/`. When `rulings.py classify` extends a row with new words, the
+pass judges the ten newest contracts and relays of the last day citing that row again
+under all his words; a yes there that the judge had read as carried before is a miss,
+said so in the flag and written under `judge/misses/` as an eval case. The
+`ruling_misread` hook judges the tests a pull request ships the same way at ship.
 Every small-model question in the pack goes through one library,
-`scripts/long_running/judge.py`. A judge reads the owner's words verbatim and what they
+`scripts/long_running/judge.py`; a caller with many questions of its own shape in one pass,
+the stall watch, asks them in one `batch` call on the same command line. A judge reads the owner's words verbatim and what they
 answered, never the register's summaries. A yes is asked a second time, and a split is
 unsure, which never warns. A failed call returns nothing, so the caller keeps the
 behavior it had without a judge. `LONG_RUNNING_JUDGE` picks the model: `sonnet+jev`, the
@@ -1006,10 +1007,13 @@ files kept in the drive's state folder, because they carry the owner's words; it
 models, so it runs by hand before a judge ships or a prompt changes, never in CI.
 A ruling about system shape (one process, one primary and one replica, everything a
 client, N things sharing one X) gets a CI test that fails on today's code in the same
-turn as the build. `rulings.py shapes` lists the in-force shape rows; `check-pr` refuses
-a PR citing one as `SHAPE-UNTESTED` until the PR adds a test naming the row or
-`rulings.py shape <key> --test <repo>#<pr> <path>::<test>` records one; the stall watch
-posts every shape row still untested 30 minutes after it was written to root.
+turn as the build. `rulings.py shapes` lists the in-force shape rows; `check-pr` warns
+of a PR citing one as `SHAPE-UNTESTED` until the PR adds a test naming the row or
+`rulings.py shape <key> --test <repo>#<pr> <path>::<test>` records one. A test that names
+the row is not enough: the drive's judge reads it beside his words, and a test it reads as
+asserting a different invariant, one that passes while his fails, is `SHAPE-UNTESTED` too,
+with the judge's sentence. The stall watch posts every shape row still untested 30 minutes
+after it was written to root.
 
 *Prevents the release-v3 repeats of 2026-10-22. The owner said for the fifth time that
 starting a session in the cloud and then writing on the Mac is out of scope, and again
@@ -2815,14 +2819,15 @@ stalls in one stack post as one record, on the stack's lowest PR.
 | `order` | a root `decide` record relays an owner order, Sonnet reads it as naming a change that ships as a new PR, and no lane it names, or a numbered successor, posts a record citing a PR after it, such as `opened`, `done`, or a `state` with a PR reference; it stops at two hours or when a root record closes it | 3 | root, as `urgent` |
 
 **S2. Python checks the facts, and one Sonnet call answers the judgment.** Sonnet judges
-whether a new head replays the tapped one unchanged, and whether a quiet lane's last
-record explains its silence or promises a time. One `claude -p` call per pass,
-on `claude-sonnet-5-5` at low effort, answers every open question. A verdict is kept
-against the records it read, so no question is asked twice. When the call fails, each
-question takes its mechanical answer.
+whether a new head replays the tapped one unchanged, whether a quiet lane's last
+record explains its silence or promises a time, and whether a relayed owner order ships
+as a new PR. One call per pass through the judge library's `batch`, Sonnet at low effort
+with Claude Code's own system prompt replaced, answers every open question and lands in
+`judge/calls.jsonl` as kind `stall`. A verdict is kept against the records it read, so no
+question is asked twice. When the call fails, each question takes its mechanical answer.
 
-`stall.minutes` overrides any row's minutes, `stall.window_hours` (default 24) bounds the
-records a pass reads, and `stall.model` names the judge. `stall_watch.py --config
+`stall.minutes` overrides any row's minutes, and `stall.window_hours` (default 24) bounds the
+records a pass reads. `stall_watch.py --config
 <runner.json> --dry-run` prints the stalls a pass finds, and posts and saves nothing.
 
 *Prevents approvals that never reached the owner's board, finder reviews nobody

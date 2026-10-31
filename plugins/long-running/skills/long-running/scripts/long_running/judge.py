@@ -2,13 +2,16 @@
 
 Every caller, hook or script, asks through `judge`. A judge warns and never blocks: `None` means the call
 failed, and the caller keeps the behavior it had without a judge. A yes is asked twice, by a second
-Sonnet call or by Sonnet after Jev, and a split is unsure, which never warns.
+Sonnet call or by Sonnet after Jev, and a split is unsure, which never warns. A caller with many questions
+of its own shape in one pass, such as the stall watch, asks them through `batch`: one Sonnet call on the
+same command line, logged like every other call.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -29,12 +32,16 @@ JEV_SECONDS = 20
 JEV_YES = 0.5
 ARTIFACT_CHARS = 12000
 CALLS = Path("judge") / "calls.jsonl"
+CARD_SECONDS = 10
+CARD_CHARS = 4000
+BOARD_PROOF = re.compile(r"proof:board:([0-9a-f]{16})\b")
 
 SYSTEM = (
     "You review one artifact a coding agent wrote, for an owner who is a terse engineer and types fast."
     " Read his words for what he means, the way a careful colleague would."
     " You answer one bounded question, only through the JSON the schema asks for."
 )
+BATCH_SYSTEM = "You answer every question you are given, each by its id, only through the JSON the schema asks for."
 PROMPT = """{evidence}
 
 The artifact is {artifact}:
@@ -67,13 +74,32 @@ Answer "yes" when the artifact misreads him, and say in your sentence whether it
 
 KINDS: dict[str, tuple[str, str]] = {
     "contract": ("a lane's contract: what it promises to build from his words", MISREAD),
-    "relay": ("the root's relay of his words or pick to the lanes that build it", MISREAD),
+    "relay": (
+        "the root's relay of his words or pick to the lanes that build it",
+        f"{MISREAD}\nA relay also misreads him when it adds a mechanism, state, field, timer or route that neither his words nor the plan lines shown name, unless it cites a ruling that names it.",
+    ),
     "card": ("a card, or a lane's request for one, that asks the owner to decide", MISREAD),
     "test": (
         "the tests a pull request adds or changes to lock in his ruling",
         f"{MISREAD}\nFor tests, ask whether they assert his invariant, or a different one that still passes while his invariant fails.",
     ),
     "pr": ("a pull request's summary of what its diff changes", MISREAD),
+    "implication": (
+        "one line an agent wrote into the register as what his words imply, marked removes, requires or permits; removes and requires bind every lane at once, permits waits for his tick",
+        """Does this line misstate his words? It misstates them in one of three ways.
+- It says other than his words: more, less or something else, such as a partition, exception, count or case his words lack, or a reading so literal it adds the very cost his words were removing.
+- It binds what his words only permit: it is marked removes or requires while his words allow it but do not demand it.
+- It leaves unbound what his words demand: it is marked permits while his words require it or rule it out.
+When his later words correct how his earlier words were read, apply the reason behind the correction, not just the item he named.
+Wording, and consequences that plainly follow from what he said, are not misstatements. Agent-written text, such as a card's option body, never changes his words.
+Answer "yes" when the line misstates his words, and say in your sentence which of the three it does.""",
+    ),
+    "answer": (
+        "an action an agent is about to take: a lane brief, a pull request, a plan step, or a GO, HOLD or DECIDE line",
+        """Does the action make the very decision his answer settled, or contradict it, without carrying his answer in full?
+Sharing a word, a system or a topic is not enough: when the action does not make the decision his answer settled, answer "no".
+When it does, answer "yes" if it drops, narrows or contradicts any part of his answer, and "no" if it carries all of it.""",
+    ),
 }
 
 
@@ -119,13 +145,50 @@ class Call:
         }
 
 
-def owner_words(key: str, said: list[tuple[str, str]], answered: str | None = None) -> str:
-    """The evidence for a question about the owner's words: his words on one ruling verbatim, oldest first, and what they answered."""
-    lines = "\n".join(f'- {at}: "{words}"' for at, words in said if words)
-    evidence = f"His words on ruling {key}, verbatim, oldest first:\n{lines}"
-    if answered:
-        evidence += f"\n\nWhat his words answered, agent-written apart from his own words:\n{answered}"
-    return evidence
+def captures(state: Path) -> dict[str, dict]:
+    """The owner's captured prompts and board taps in the drive's state folder, by digest, without the ones a later capture supersedes."""
+    path = state / "owner-prompts.jsonl"
+    if not path.exists():
+        return {}
+    entries = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    gone = {digest for entry in entries for digest in entry.get("supersedes", [])}
+    return {entry["digest"]: entry for entry in entries if entry["digest"] not in gone}
+
+
+def said(row: dict, state: Path, env: Mapping[str, str] | None = None) -> list[dict]:
+    """Every time the owner said a register row, oldest first, as `{at, words, answered}`: `answered` is the board card a tap answered, as the board shows it, else None."""
+    owner = captures(state)
+    items = [{"at": row.get("at", ""), "words": row["words"], "proof": row.get("proof", "")}, *json.loads(row.get("repeats") or "[]")]
+    return [{"at": item.get("at", ""), "words": item["words"], "answered": answered_card(owner, item.get("proof", ""), env)} for item in items if item["words"]]
+
+
+def answered_card(owner: dict[str, dict], proof: str, env: Mapping[str, str] | None) -> str | None:
+    capture = next((owner[digest] for digest in BOARD_PROOF.findall(proof) if digest in owner), None)
+    if capture is None or capture.get("source") != "board" or not capture.get("block"):
+        return None
+    try:
+        shown = subprocess.run(
+            ["cc-present", "block", "show", capture["block"], "--session", capture["session"]],
+            capture_output=True,
+            text=True,
+            timeout=CARD_SECONDS,
+            check=True,
+            env=dict(env) if env is not None else None,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    return shown.stdout.strip()[:CARD_CHARS]
+
+
+def owner_words(key: str, said: list[dict]) -> str:
+    """The evidence for a question about the owner's words: his words on one ruling verbatim, oldest first, each tap with the card it answered, from `said`."""
+    lines = []
+    for item in said:
+        lines.append(f'- {item["at"]}: "{item["words"]}"')
+        if item.get("answered"):
+            card = "\n".join(f"    {line}" for line in item["answered"].splitlines())
+            lines.append(f"  That was a tap on this card, agent-written apart from what he picked or typed:\n{card}")
+    return f"His words on ruling {key}, verbatim, oldest first:\n" + "\n".join(lines)
 
 
 def backend_from(env: Mapping[str, str]) -> Backend:
@@ -144,11 +207,12 @@ def judge(
     drive: str | None = None,
     timeout: float = JUDGE_SECONDS,
     env: Mapping[str, str] | None = None,
+    subject: str = "",
 ) -> Verdict | None:
-    """Ask `kind`'s question of `artifact` under `evidence`; `None` when the model call failed, so the caller fails open."""
+    """Ask `kind`'s question of `artifact` under `evidence`; `None` when the model call failed, so the caller fails open. `subject` names the artifact in the calls log, so a later judgment of it can find this one."""
     call = ask(kind, evidence, artifact, backend=backend, timeout=timeout, env=env)
     if drive:
-        record(drive, kind, backend, call)
+        record(drive, kind, backend, call.verdict.verdict if call.verdict else "error", call.summary(), subject)
     return call.verdict
 
 
@@ -190,13 +254,27 @@ def confirmed(second: Verdict, first: Verdict) -> Verdict:
     return Verdict("unsure", first.artifact_phrase, first.evidence_phrase, second.sentence)
 
 
-def sonnet(prompt: str, timeout: float, env: Mapping[str, str] | None) -> Answer:
+def batch(kind: str, prompt: str, schema: str, *, drive: str | None = None, timeout: float = JUDGE_SECONDS, env: Mapping[str, str] | None = None) -> dict | None:
+    """Ask Sonnet one prompt carrying many questions, answered through `schema`; `None` when the call failed, so every question keeps the answer it had without a judge.
+
+    A batch has no yes to ask twice and no unsure for Jev to settle, so it always asks Sonnet once, whatever `LONG_RUNNING_JUDGE` names."""
+    try:
+        answer, seconds, cost, tokens = claude(prompt, BATCH_SYSTEM, schema, timeout, env)
+        summary = {"seconds": round(seconds, 1), "cost_usd": round(cost, 4), "tokens": tokens, "asks": 1, "p_yes": None, "error": ""}
+    except (subprocess.SubprocessError, OSError, ValueError, KeyError) as exc:
+        answer, summary = None, {"seconds": 0.0, "cost_usd": 0.0, "tokens": 0, "asks": 0, "p_yes": None, "error": f"{type(exc).__name__}: {exc}"[:300]}
+    if drive:
+        record(drive, kind, "sonnet", "answered" if answer is not None else "error", summary)
+    return answer
+
+
+def claude(prompt: str, system: str, schema: str, timeout: float, env: Mapping[str, str] | None) -> tuple[dict, float, float, int]:
     began = time.monotonic()
     done = subprocess.run(
         [
-            "claude", "-p", "--model", SONNET, "--effort", "low", "--system-prompt", SYSTEM,
+            "claude", "-p", "--model", SONNET, "--effort", "low", "--system-prompt", system,
             "--tools", "", "--strict-mcp-config", "--setting-sources", "", "--disable-slash-commands",
-            "--no-session-persistence", "--output-format", "json", "--json-schema", SCHEMA,
+            "--no-session-persistence", "--output-format", "json", "--json-schema", schema,
         ],
         input=prompt,
         capture_output=True,
@@ -208,13 +286,13 @@ def sonnet(prompt: str, timeout: float, env: Mapping[str, str] | None) -> Answer
     payload = json.loads(done.stdout)
     payload = payload[-1] if isinstance(payload, list) else payload
     usage = payload.get("usage") or {}
-    answer = payload["structured_output"]
-    return Answer(
-        Verdict(answer["verdict"], answer["artifact_phrase"], answer["evidence_phrase"], answer["sentence"]),
-        time.monotonic() - began,
-        payload.get("total_cost_usd") or 0.0,
-        sum(usage.get(name) or 0 for name in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")),
-    )
+    tokens = sum(usage.get(name) or 0 for name in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens"))
+    return payload["structured_output"], time.monotonic() - began, payload.get("total_cost_usd") or 0.0, tokens
+
+
+def sonnet(prompt: str, timeout: float, env: Mapping[str, str] | None) -> Answer:
+    answer, seconds, cost, tokens = claude(prompt, SYSTEM, SCHEMA, timeout, env)
+    return Answer(Verdict(answer["verdict"], answer["artifact_phrase"], answer["evidence_phrase"], answer["sentence"]), seconds, cost, tokens)
 
 
 def jev(state: str, question: str, timeout: float, env: Mapping[str, str] | None) -> Answer:
@@ -256,16 +334,10 @@ def state_dir(drive: str) -> Path:
     return Path.home() / ".claude" / "scratch" / drive
 
 
-def record(drive: str, kind: str, backend: Backend, call: Call) -> None:
+def record(drive: str, kind: str, backend: Backend, verdict: str, summary: dict, subject: str = "") -> None:
     path = state_dir(drive) / CALLS
     path.parent.mkdir(parents=True, exist_ok=True)
-    row = {
-        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "kind": kind,
-        "backend": backend,
-        "verdict": call.verdict.verdict if call.verdict else "error",
-        **call.summary(),
-    }
+    row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "kind": kind, "subject": subject, "backend": backend, "verdict": verdict, **summary}
     with path.open("a") as log:
         log.write(json.dumps(row) + "\n")
 
@@ -279,15 +351,16 @@ def calls(state: Path, since: datetime) -> list[dict]:
 
 
 def digest(rows: list[dict]) -> list[str]:
-    """One line per judge kind: its verdict counts, its errors, and its median and slowest seconds."""
+    """One line per judge kind: its verdict counts, or its answered batches, its errors, and its median and slowest seconds."""
     lines = []
     for kind in sorted({row["kind"] for row in rows}):
         mine = [row for row in rows if row["kind"] == kind]
-        counts = {verdict: sum(row["verdict"] == verdict for row in mine) for verdict in ("yes", "no", "unsure", "error")}
+        counts = {verdict: sum(row["verdict"] == verdict for row in mine) for verdict in ("yes", "no", "unsure", "answered", "error")}
+        shown = ("answered",) if counts["answered"] else ("yes", "no", "unsure")
         seconds = sorted(row["seconds"] for row in mine)
         cost = sum(row.get("cost_usd") or 0 for row in mine)
         lines.append(
-            f"judge {kind}: {len(mine)} calls, {counts['yes']} yes, {counts['no']} no, {counts['unsure']} unsure, {counts['error']} errors;"
+            f"judge {kind}: {len(mine)} calls, {', '.join(f'{counts[verdict]} {verdict}' for verdict in shown)}, {counts['error']} errors;"
             f" median {seconds[len(seconds) // 2]:g} s, slowest {seconds[-1]:g} s; ${cost:.2f}"
         )
     return lines

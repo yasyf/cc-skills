@@ -161,10 +161,12 @@ fidelity 30, running 25, board 15, carry 20 (one fidelity pass), lane 30, ask 15
 PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record. A board
 stall counts from the latest of its finder ok, its fidelity ok, and its ledger row's `green_at`, the refresh that
 first read the head's build green, since the board refresher puts a row up only once the build is green.
-Two questions need judgment, and one headless Claude call per pass
-(`stall.model`, default claude-sonnet-5-5, at low effort) answers all of them: whether a PR's new head is
+Three questions need judgment, and one call per pass through the drive's judge library,
+`long_running.judge.batch`, Sonnet at low effort, answers all of them: whether a PR's new head is
 a patch-identical restack of the tapped one or adds no new behavior, read from its lane's `head` records, and whether a quiet
-lane's last record explains its silence and by when it promised its next state. A verdict is kept
+lane's last record explains its silence and by when it promised its next state, and whether a relayed owner
+order names a change that ships as a new PR. The call is logged as judge kind `stall` in the drive's
+`judge/calls.jsonl`, so `drive.py digest` counts it. A verdict is kept
 against the records it read, so no question is asked twice; a call that fails leaves each question to
 its mechanical answer.
 
@@ -201,7 +203,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from long_running import actions
+from functools import cached_property
+
+from long_running import actions, judge
 import board_rows
 import cci
 import drive
@@ -217,7 +221,6 @@ LANDING_DESK = "landing-desk"
 ROOT_NAMES = frozenset({ROOT, "main"})
 NOT_LANES = frozenset({*ROOT_NAMES, "team-lead", LANE, RUNNER})
 PACIFIC = ZoneInfo("America/Los_Angeles")
-MODEL = "claude-sonnet-5-5"
 WINDOW_HOURS = 24
 MINUTES = {"go": 10, "silent": 15, "refusal": 10, "successor": 20, "red": 2, "unclassed": 20, "unfixed": 60, "sweep": 20, "order": 3, "tap": 10, "ungraded": 10, "finder": 10, "fidelity": 10, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "lane": 10, "ask": 15, "gate": 10, "stale": 120, "desk": 10, "shape": 10, "unregistered": 3}
 DESK_KINDS = frozenset({"finder", "fidelity"})
@@ -244,6 +247,7 @@ QUOTE = 160
 RECORD_CHARS = 1200
 COMMAND_SECONDS = 120
 JUDGE_SECONDS = 300
+JUDGE_KIND = "stall"
 LANDING = "desk-landing"
 FINDER_DESK = "desk-finder"
 FIDELITY_DESK = "desk-fidelity"
@@ -382,7 +386,6 @@ class Watch:
     landing: dict | None
     minutes: dict[str, int]
     window: timedelta
-    model: str
     board_lane: str
     quiet_lanes: list[str]
     stacks: Path
@@ -399,7 +402,6 @@ class Watch:
             landing=raw.get("landing"),
             minutes=MINUTES | stall.get("minutes", {}),
             window=timedelta(hours=stall.get("window_hours", WINDOW_HOURS)),
-            model=stall.get("model", MODEL),
             board_lane=stall.get("board_lane") or next(iter(lanes_of(landing.get("board_lane", []))), ROOT),
             quiet_lanes=stall.get("quiet_lanes", [*landing.get("go_lanes", []), *lanes_of(landing.get("board_lane", []))]),
             stacks=path.with_name(f"{path.stem}.{STACKS_FILE}"),
@@ -754,17 +756,16 @@ class Pass:
     def judge(self, questions: list[dict]) -> dict[str, dict]:
         if not questions:
             return {}
-        prompt = PROMPT.format(now=actions.stamp(self.now), pacific=pacific(self.now), questions=json.dumps(questions, indent=1))
-        done = self.shell.run(["claude", "-p", "--model", self.watch.model, "--effort", "low", "--no-session-persistence", "--strict-mcp-config", "--tools", "", "--output-format", "json", "--json-schema", SCHEMA], stdin=prompt, timeout=JUDGE_SECONDS)
-        try:
-            payload = json.loads(done.out) if done.code == 0 else None
-        except ValueError:
-            payload = None
-        if payload is None:
-            print(f"WARN claude -p exited {done.code}: {(done.err or done.out).strip()[-300:]}; {len(questions)} question(s) take their mechanical answer", file=sys.stderr)
+        prompt = PROMPT.format(now=actions.stamp(self.now), pacific=f"{self.now.astimezone(PACIFIC):%b %-d %-I:%M %p}", questions=json.dumps(questions, indent=1))
+        answered = judge.batch(JUDGE_KIND, prompt, SCHEMA, drive=self.entry["drive"] if self.entry else None, timeout=JUDGE_SECONDS)
+        if answered is None:
+            print(f"WARN the judge call failed; {len(questions)} question(s) take their mechanical answer", file=sys.stderr)
             return {}
-        result = (payload[-1] if isinstance(payload, list) else payload).get("structured_output") or {}
-        return {verdict["id"]: verdict for verdict in result.get("verdicts", [])}
+        return {verdict["id"]: verdict for verdict in answered.get("verdicts", [])}
+
+    @cached_property
+    def entry(self) -> dict | None:
+        return next((entry for entry in drive.drives() if drive.cci_drive(entry) == self.watch.drive), None)
 
     def board(self) -> Board | None:
         """What the board shows and what the owner decided on it, from board-watch's records and the runner's board writes, so the watch reads it on any machine."""
@@ -1444,9 +1445,9 @@ class Pass:
         return stalls
 
     def shapes(self) -> list[Stall]:
-        if not (entry := next((entry for entry in drive.drives() if drive.cci_drive(entry) == self.watch.drive), None)):
+        if not self.entry:
             return []
-        done = self.shell.run([sys.executable, str(SCRIPTS / "rulings.py"), "shapes", "--untested", "--json", "--drive", entry["drive"]])
+        done = self.shell.run([sys.executable, str(SCRIPTS / "rulings.py"), "shapes", "--untested", "--json", "--drive", self.entry["drive"]])
         if done.code:
             self.warn({"shape"}, f"rulings.py shapes exited {done.code}: {(done.err or done.out).strip()[:300]}")
             return []

@@ -6,8 +6,9 @@
 
     judge-eval.py FIXTURES [--runs N] [--out FILE] [--answers FILE]
 
-A fixture is one JSON file: `kind`, `expect` (`yes`, `no`, `not-yes` or `any`), `ruling`, `words` (a list of
-`{at, words}`, oldest first), `answered` (what his words answered, or null) and `artifact`. Fixtures carry the
+A fixture is one JSON file: `kind`, `expect` (`yes`, `no`, `not-yes` or `any`), `artifact`, and either `ruling`
+with `words` (`judge.said`'s list of `{at, words, answered}`, oldest first) or, for a kind that reads no owner
+words, `evidence`, the text the judge reads beside the artifact. Fixtures carry the
 owner's words, so they live in the drive's state folder, never in this repository. Each run asks Sonnet twice
 and Jev once per case, and every backend's verdict is replayed from those answers through `judge.decide`, so
 the backends are compared on identical answers. It calls models, so it never runs in CI; `--answers` writes
@@ -39,7 +40,7 @@ def passed(expect: str, verdict: str) -> bool:
 
 def answers(case: Path) -> dict:
     fixture = json.loads(case.read_text())
-    evidence = judge.owner_words(fixture["ruling"], [(said["at"], said["words"]) for said in fixture["words"]], fixture["answered"])
+    evidence = fixture.get("evidence") or judge.owner_words(fixture["ruling"], fixture["words"])
     what, question = judge.KINDS[fixture["kind"]]
     text = fixture["artifact"][: judge.ARTIFACT_CHARS]
     prompt = judge.PROMPT.format(evidence=evidence, artifact=what, text=text, question=question)
