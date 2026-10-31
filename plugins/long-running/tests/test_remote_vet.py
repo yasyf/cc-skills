@@ -94,7 +94,7 @@ def lane_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str, p
 def test_a_remote_vet_builds_the_lanes_uncommitted_change_on_the_sprite_for_only_the_packages_and_crates_it_touches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str) -> None:
     """Root #221365, under the owner's 11:52 AM Oct 30 order to move grading load off this machine: a lane ships its diff to a Sprite, which runs go build, go vet and cargo check on the touched packages and returns the result.
 
-    Root #235301, from team-credential-4's #235284: no Sprite has sccache, so cargo runs with RUSTC_WRAPPER cleared, and with --tests so a test-only change compiles. Root #235223: the partial clone's lazy fetches authenticate, so every git command on the Sprite carries the credential helper."""
+    Root #235301, from team-credential-4's #235284: no Sprite has sccache, so cargo runs with RUSTC_WRAPPER cleared, and with --tests so a test-only change compiles. Root #235223: the partial clone's lazy fetches authenticate, so every git command on the Sprite carries the credential helper. remote-desks-5, 10:50 PM Oct 30: dar-vet-1 and dar-fleet-14 to 16, 8 GB with no swap, restarted mid-build under go's default parallelism, so builds run at most three compile jobs."""
     mac, sprite, work, config, log, env = lane_change(tmp_path, monkeypatch, failing, "echo generated > prepared.txt && git config --get-all credential.helper > helper.txt || true")
 
     done = subprocess.run([sys.executable, str(SCRIPT), "--config", str(config), "--lane", "l1", str(work)], env=env, capture_output=True, text=True)
@@ -106,7 +106,7 @@ def test_a_remote_vet_builds_the_lanes_uncommitted_change_on_the_sprite_for_only
     assert (vetted / "rust/c/src/lib.rs").read_text() == "pub fn c() -> u8 { 1 }\n"
     assert (vetted / "prepared.txt").read_text() == "generated\n"
     assert (vetted / "helper.txt").read_text().splitlines()[-1] == '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
-    assert log.read_text().splitlines() == [f"{vetted}/go/m wrapper=sccache build ./a", f"{vetted}/go/m wrapper=sccache vet ./a", f"{vetted}/rust wrapper= check --quiet --tests -p cee"]
+    assert log.read_text().splitlines() == [f"{vetted}/go/m wrapper=sccache build -p 3 ./a", f"{vetted}/go/m wrapper=sccache vet -p 3 ./a", f"{vetted}/rust wrapper= check --quiet --tests -j 3 -p cee"]
     assert [line for line in done.stdout.splitlines() if line.startswith("START ")][:5] == ["START lock", "START fetch", "START checkout", "START apply", "START prepare"]
     assert ("FAIL cd go/m" in done.stdout) == bool(failing)
     assert "PASS cd rust" in done.stdout

@@ -16,7 +16,8 @@ worktree `<root>/vet-<lane>` beside the clone, kept between runs so later checko
 merge base, takes the change as one binary patch, runs `vet.prepare` from the config when it names one (the
 repository's code generation), then runs `go build` and `go vet` on each Go package the change touches, from its
 module's root, and `cargo check` on each Rust crate it touches, from its workspace's root, with the lane's own
-`target-vet-<lane>`, with no `RUSTC_WRAPPER` and with `--tests`, so a test-only change compiles. Every command runs
+`target-vet-<lane>`, with no `RUSTC_WRAPPER` and with `--tests`, so a test-only change compiles, and at most three
+compile jobs at once, since a Sprite has 8 GB and no swap and restarts when a wider build runs it out of memory. Every command runs
 even after one fails; each prints a `PASS` or `FAIL` line with its seconds, and the script exits 1 when any failed.
 Each stage prints a `START` line as it begins, streamed as it happens, and a run with no result after `--timeout`
 seconds (default 1800) stops and names the stage it was in. One run per lane holds the worktree at a time. The GitHub
@@ -154,14 +155,15 @@ def commands(worktree: Path, tree: str, changed: list[str], lane: str, root: str
     lines = []
     for module, names in sorted(packages.items()):
         listed = " ".join(sorted(names))
-        lines.append(f"cd {shlex.quote(str(module))} && go build {listed} && go vet {listed}")
+        lines.append(f"cd {shlex.quote(str(module))} && go build -p {JOBS} {listed} && go vet -p {JOBS} {listed}")
     for space, names in sorted(crates.items()):
         listed = " ".join(f"-p {shlex.quote(name)}" for name in sorted(names))
-        lines.append(f"cd {shlex.quote(str(space))} && RUSTC_WRAPPER= CARGO_TARGET_DIR={shlex.quote(f'{root}/target-vet-{lane}')} cargo check --quiet --tests {listed}")
+        lines.append(f"cd {shlex.quote(str(space))} && RUSTC_WRAPPER= CARGO_TARGET_DIR={shlex.quote(f'{root}/target-vet-{lane}')} cargo check --quiet --tests -j {JOBS} {listed}")
     return lines
 
 
 MAX_LOAD = 16.0
+JOBS = 3
 
 
 def parent(worktree: Path) -> str | None:
