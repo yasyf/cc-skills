@@ -682,8 +682,9 @@ class Store:
 
     def actions(self, incident_id: str, kind: str | None = None, status: str | None = None, *, statuses=None) -> list[Action]:
         where, parameters = _selected(kind, status, statuses)
+        index = " INDEXED BY action_kind_status" if kind is not None and statuses is not None else ""
         with self._read(incident_id) as connection:
-            return [Action.load(json.loads(row[0])) for row in connection.execute("SELECT record FROM action" + where + " ORDER BY ordinal", parameters)]
+            return [Action.load(json.loads(row[0])) for row in connection.execute("SELECT record FROM action" + index + where + " ORDER BY ordinal", parameters)]
 
     def ownership(self, incident_id: str) -> tuple[str, int]:
         with self._read(incident_id) as connection:

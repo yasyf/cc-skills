@@ -55,6 +55,7 @@ def test_restack_verification_avoids_terminal_history(shell, config, tmp_path, m
     assert costs["action_dtos"] == 8
     assert first["sql_opcodes"] < 3000 and costs["sql_opcodes"] < 6000
     assert costs["read_connections"] == 2 and costs["write_connections"] == 0
+    assert any("INDEXED BY action_kind_status" in statement for statement in statements)
     assert not any(statement.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE", "REPLACE")) for statement in statements)
     assert not shell.calls
 
