@@ -327,10 +327,10 @@ def program_of(args: argparse.Namespace) -> str:
     return args.program or drive.program_of(drive.load(args.runtime.drives / f"{args.drive}.json"))
 
 
-def state_dir(args: argparse.Namespace) -> Path:
+def state_dir(args: argparse.Namespace, drives: Path, scratch: Path) -> Path:
     if args.drive:
-        return Path(drive.load(args.runtime.drives / f"{args.drive}.json")["state_dir"])
-    return args.runtime.scratch / args.program
+        return Path(drive.load(drives / f"{args.drive}.json")["state_dir"])
+    return scratch / args.program
 
 
 def register(shell: ledger.Shell, repo: str, program: str) -> dict | None:
@@ -488,7 +488,7 @@ class Register:
         """The register, read from the copy kept in the drive's state while no ledger ref has moved since, so a read never waits on `ccn` scanning every cc-notes ref behind a concurrent write (cci #200150). One reader at a time rebuilds a stale copy and the rest wait for it, since each `ccn` scan holds most of a gigabyte and eight at once exhausted a Sprite (cci #214457). With `last`, a reader that finds another process rebuilding takes the copy as last kept instead of waiting (cci #220219); with `kept_any`, a reader takes any kept copy at all, for a read such as the plan path that a moved ledger ref never changes (cci #227003)."""
         program = program_of(args)
         repo = repo or register_repo(args)
-        state = state_dir(args)
+        state = state_dir(args, args.runtime.drives, args.runtime.scratch)
         identity, rows = register_reads.load(shell.run, args.runtime.lock, args.runtime.held, repo, program, state, last, kept_any)
         return cls(shell, repo, program, state, identity, rows)
 
@@ -857,7 +857,7 @@ def pr_diff(args: argparse.Namespace, shell: ledger.Shell, repo: str, base: str,
     tip = base if FULL_SHA.fullmatch(base) else shell.run([*git, "ls-remote", "--exit-code", "origin", base if base.startswith("refs/") else f"refs/heads/{base}"]).split()[0]
     if absent := missing_commits(shell, git, (tip, head)):
         shell.run([*git, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", *absent])
-    kept = state_dir(args) / "check-pr" / f"{shell.run([*git, 'merge-base', tip, head]).strip()}-{head}.diff"
+    kept = state_dir(args, args.runtime.drives, args.runtime.scratch) / "check-pr" / f"{shell.run([*git, 'merge-base', tip, head]).strip()}-{head}.diff"
     if not kept.is_file():
         kept.parent.mkdir(parents=True, exist_ok=True)
         staged = kept.with_suffix(f".{os.getpid()}")
@@ -947,7 +947,7 @@ def cmd_register(args: argparse.Namespace, shell: ledger.Shell) -> int:
 def cmd_match(args: argparse.Namespace, shell: ledger.Shell) -> int:
     program = program_of(args)
     durable = drive_answers(shell, args.repo, program)
-    directory = state_dir(args) / "rulings"
+    directory = state_dir(args, args.runtime.drives, args.runtime.scratch) / "rulings"
     mirror(durable, directory)
     cited = {token[:SHORT] for token in CITED.findall((register(shell, args.repo, program) or {}).get("body", ""))}
     answers = {key: answer for answer in durable if (key := answer["id"][:SHORT]) not in cited and key not in args.exclude}

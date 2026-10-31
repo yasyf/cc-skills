@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import io
 import json
 import threading
@@ -87,3 +88,14 @@ def test_authorization_transcripts_use_the_explicit_request_projects_root(tmp_pa
     (unrelated / "same-session.jsonl").write_text(json.dumps({"message": "unrelated request"}) + "\n")
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "other"))
     assert rulings.transcript_entries({"sessions": ["same-session"]}, requested.parent) == [expected]
+
+
+@pytest.mark.parametrize("name", [None, "same"])
+def test_state_directory_helper_accepts_explicit_roots_without_dispatch_namespace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str | None) -> None:
+    request = runtime(tmp_path / "selected")
+    request.drives.mkdir(parents=True)
+    expected = tmp_path / "selected-state"
+    (request.drives / "same.json").write_text(json.dumps({"state_dir": str(expected)}))
+    monkeypatch.setenv("HOME", str(tmp_path / "decoy"))
+    args = argparse.Namespace(drive=name, program="brook")
+    assert rulings.state_dir(args, request.drives, request.scratch) == (expected if name else request.scratch / "brook")

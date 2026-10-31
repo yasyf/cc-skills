@@ -52,7 +52,7 @@ class FakeShell:
 @pytest.fixture
 def entry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
     found = {"drive": "brook", "cci_drive": DRIVE, "state_dir": str(tmp_path), "checkout": str(tmp_path), "sessions": ["s"]}
-    monkeypatch.setattr(findings.drive, "find", lambda name, session: found)
+    monkeypatch.setattr(findings.drive, "find", lambda name, session, root=None: found)
     return found
 
 
