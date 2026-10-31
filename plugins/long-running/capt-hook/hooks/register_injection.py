@@ -50,6 +50,15 @@ MISSCALED_STALE = (
     " Fix the line and run `rulings.py slice --refresh` on the brief for the next spawn."
 )
 INCIDENT_NOTE = "The incident spawn's prompt now carries its register slice and the unclassified owner captures."
+ALERT_WORDS = re.compile(r"\b(?:alerts?|incidents?|outages?|sentry)\b|(?-i:\bmonitors?\b)", re.IGNORECASE)
+TENANT_EDGE_403 = re.compile(r"\b403s?\b")
+STAND_DOWN = re.compile(r"\bstand[- ]?down\b", re.IGNORECASE)
+NO_403_STAND_DOWN = (
+    "Warning, nothing was blocked: an alert or incident brief needs a step that stands down on tenant-edge 403s."
+    " Start it from the drive's `root/incident-template-fix.md` and launch it with `desk-launch.py incident <name> <brief>`, or mark a non-incident brief `ccx: incident=none`."
+)
+ALERT_BRIEF = "Datadog monitor 100000001 fired on POST /api/sessions.\n1. Classify the failing requests.\n2. Fix it.\n"
+STANDS_DOWN = ALERT_BRIEF.replace("2. Fix it.", "2. If they are tenant-edge 403s, post STAND-DOWN and stop.\n3. Fix it.")
 BRIEFS = Path(__file__).parent / "tests" / "fixtures" / "briefs"
 SLICE = f"{sys.executable} {script('rulings.py')} slice"
 FRESH_SLICE = {SLICE: "fresh /tmp/brief.md slice-hash 0123456789ab\n"}
@@ -250,6 +259,40 @@ def warn_unscaled_spawn(evt: BaseHookEvent) -> HookResult | None:
     if not found or found.incident or not SLICE_HEADER.search(found.text) or not found.owes_scale():
         return None
     return evt.context(f"Warning, nothing was blocked: {lane_brief.no_scale(found.shown)}")
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Agent")],
+    skip_if=[Annotated("raw"), Annotated("incident", "none")],
+    tests={
+        spawn("api-sessions-fix", ALERT_BRIEF): Warn(pattern=r"^Warning, nothing was blocked: an alert or incident brief needs a step that stands down on tenant-edge 403s[\s\S]*desk-launch\.py incident <name> <brief>"),
+        spawn("api-sessions-fix", STANDS_DOWN): Allow(),
+        spawn("lane-a", SLICED): Allow(),
+        spawn("incident-api-fix", "Fix it."): Warn(),
+        spawn("api-fix", "Owner link: <https://x.slack.com/archives/C0|#alerts-api>. Fix it."): Warn(),
+        spawn("api-fix", "Sentry issue API-1N80 spiked. Fix it."): Warn(),
+        spawn("lane-a", "Lane lane-a: build the relay. Arm a Monitor on the PR."): Allow(),
+        spawn("lane-a", f"Your brief is {BRIEFS / 'quoted-rulings.md'}; read it."): Allow(),
+        spawn("api-sessions-fix", f"Your brief is {BRIEFS / 'alert.md'}; read it."): Warn(pattern=r"incident-template-fix\.md"),
+        spawn("api-sessions-fix", f"ccx: incident=none\n{ALERT_BRIEF}"): Allow(),
+        Input(tool="Agent", tool_input={"name": "incident-api-fix", "prompt": "Fix it."}): Allow(),
+    },
+)
+def warn_incident_brief_without_403_stand_down(evt: BaseHookEvent) -> HookResult | None:
+    if not drive_args(evt):
+        return None
+    try:
+        found = agent_spawn(evt.as_input(TaskCall))
+        texts = [found.prompt, found.brief.read_text() if found.brief else ""] if found else []
+    except UNREAD:
+        return None
+    if not found:
+        return None
+    brief = "\n".join(SLICE_HEADER.split(text, maxsplit=1)[0] for text in texts)
+    if not ALERT_WORDS.search(f"{found.lane}\n{found.brief.name if found.brief else ''}\n{brief}"):
+        return None
+    return None if TENANT_EDGE_403.search(brief) and STAND_DOWN.search(brief) else evt.context(NO_403_STAND_DOWN)
 
 
 @on(
