@@ -6,11 +6,13 @@ fact rows keyed by PR, head and kind: posting one twice changes nothing, a later
 supersedes an earlier one. An escalation is unique per subject and cause. Workers live in
 the store from their first heartbeat and go stale after fifteen silent minutes. One lease
 row per drive carries the generation a supervisor runs under; a stale generation is told
-so on its next renewal.
+so on its next renewal. The lanes table is the registry of lanes the drive needs alive, with each
+lane's brief, model, newest handoff and owned PRs; only the lanes mover writes it.
 """
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -54,6 +56,12 @@ CREATE TABLE IF NOT EXISTS rules (
   CHECK ((check_kind IS NULL) = (check_ref IS NULL))
 );
 CREATE TABLE IF NOT EXISTS cursors (source TEXT PRIMARY KEY, position INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS lanes (
+  name TEXT PRIMARY KEY, brief TEXT NOT NULL, model TEXT NOT NULL, effort TEXT NOT NULL, role TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('launching', 'desired', 'held', 'retired')),
+  since TEXT NOT NULL, heard TEXT, handoff TEXT, prs TEXT NOT NULL DEFAULT '[]',
+  predecessor TEXT, reason TEXT, strikes INTEGER NOT NULL DEFAULT 0, asked TEXT, flushed TEXT, retired_by TEXT
+);
 """
 
 
@@ -81,6 +89,31 @@ class Item:
     @classmethod
     def row(cls, row: sqlite3.Row) -> Item:
         return cls(row["id"], row["kind"], row["repo"], row["number"], row["head"], row["mover"], row["worker"], parse(row["created"]), parse(row["deadline"]), parse(row["closed"]) if row["closed"] else None)
+
+
+@dataclass(frozen=True)
+class Lane:
+    name: str
+    brief: str
+    model: str
+    effort: str
+    role: str
+    state: str
+    since: datetime
+    heard: datetime | None
+    handoff: str | None
+    prs: tuple[int, ...]
+    predecessor: str | None
+    reason: str | None
+    strikes: int
+    asked: datetime | None
+    flushed: datetime | None
+    retired_by: str | None
+
+    @classmethod
+    def row(cls, row: sqlite3.Row) -> Lane:
+        when = {name: parse(row[name]) if row[name] else None for name in ("heard", "asked", "flushed")}
+        return cls(row["name"], row["brief"], row["model"], row["effort"], row["role"], row["state"], parse(row["since"]), when["heard"], row["handoff"], tuple(json.loads(row["prs"])), row["predecessor"], row["reason"], row["strikes"], when["asked"], when["flushed"], row["retired_by"])
 
 
 @dataclass(frozen=True)
@@ -210,6 +243,26 @@ class Store:
     def cursor(self, source: str) -> int:
         row = self.db.execute("SELECT position FROM cursors WHERE source = ?", (source,)).fetchone()
         return row["position"] if row else 0
+
+    def want_lane(self, name: str, brief: str, model: str, effort: str, role: str, state: str, at: datetime, **fields) -> bool:
+        columns = {"name": name, "brief": brief, "model": model, "effort": effort, "role": role, "state": state, "since": stamp(at)} | {key: json.dumps(list(value)) if key == "prs" else value for key, value in fields.items()}
+        cursor = self.db.execute(f"INSERT INTO lanes ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))}) ON CONFLICT (name) DO NOTHING", tuple(columns.values()))
+        return cursor.rowcount == 1
+
+    def lane(self, name: str) -> Lane | None:
+        row = self.db.execute("SELECT * FROM lanes WHERE name = ?", (name,)).fetchone()
+        return Lane.row(row) if row else None
+
+    def lanes(self, *states: str) -> list[Lane]:
+        rows = self.db.execute(f"SELECT * FROM lanes WHERE state IN ({', '.join('?' * len(states))}) ORDER BY name", states).fetchall()
+        return [Lane.row(row) for row in rows]
+
+    def all_lanes(self) -> list[Lane]:
+        return [Lane.row(row) for row in self.db.execute("SELECT * FROM lanes ORDER BY name").fetchall()]
+
+    def set_lane(self, name: str, **fields) -> None:
+        values = {key: stamp(value) if isinstance(value, datetime) else json.dumps(list(value)) if key == "prs" else value for key, value in fields.items()}
+        self.db.execute(f"UPDATE lanes SET {', '.join(f'{key} = ?' for key in values)} WHERE name = ?", (*values.values(), name))
 
     def advance(self, source: str, position: int) -> None:
         self.db.execute("INSERT INTO cursors (source, position) VALUES (?, ?) ON CONFLICT (source) DO UPDATE SET position = max(cursors.position, excluded.position)", (source, position))
