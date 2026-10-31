@@ -39,7 +39,12 @@ instead. A send with a receipt is never resent,
 and a send to a dispatch that is no longer the lane's live one logs `UNVERIFIABLE`
 and is never resent. An accepted relay to a lane with no live dispatch and no
 launch in flight fails at once as `RELAY-FAILED`, unless a send already delivered it;
-a delivered relay is never failed or reported again. A relay about a PR at a newer head,
+a delivered relay is never failed or reported again. A dispatch that refused a send as not
+active is no live dispatch, so no relay is sent to it twice. A line the landing desk routes
+about a PR, a blocker, a bot-held review or a conflict, reaches a lane with no live dispatch as
+a cci `blocker` record addressed to the lane instead (root #267150). A lane the root stood down,
+with a `stand-down` or `stopped` addressed to it since its latest launch, is relayed nothing
+and none of its release builds is claimed (root #267130). A relay about a PR at a newer head,
 while the lane has not answered the one it was sent about an earlier head, folds into
 that one and sends nothing. A lane answers its mail only between turns, so a heartbeat
 it sends after a relay counts as its acknowledgement, and a lane that sent one within
@@ -70,7 +75,9 @@ while that poll is over two minutes old. It also reads the drive's cci records a
 its only source of orders, and turns each new `orca-desk: relay to <lane>[, <lane>…][ and <lane>]: <text>` line into one relay
 per lane, a reply to the lane's latest open question no other reply claims, logged once as
 `RELAYED` or `RELAY-FAILED`. Each new `orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>`
-line is the `launch` command under its key, `NOW` meaning `--owner-directed` and `role=` meaning `--role`, refused as
+line is the `launch` command under its key, `NOW` meaning `--owner-directed` and `role=` meaning `--role`, valid for
+fifteen minutes from its record's time: a `launch` or `incident` line read later launches nothing and logs `LAUNCH-EXPIRED`,
+so a backlog replayed after an outage starts no stale lane (root #267159). A fresh launch is refused as
 `LAUNCH-FAILED` while the lane has a live dispatch or a launch in flight, or while its brief has no `Register slice:`
 line and the launch is not an incident lane's; a new lane's brief (`lane_brief.owes_scale`) with no `Scale:` line logs `SCALE-MISSING` and launches; a non-incident launch whose `Scale:` line a judge reads as missing
 the N its brief's paths run at goes ahead with one `SCALE-MISSED` to the root. Before any launch the runner refreshes the register slice under that
@@ -504,7 +511,8 @@ the full line and then the whole message, subject and body, kept under
 sent through cci use `--kind blocker --to <lane> --topic <pr>` and the same text limit.
 Each orca pass also couples the drive to its releases. A lane's `release` record that names a build has the build's owner,
 `<lane>@<drive>`, recorded with `drive.py release` and the build claimed for the lane with
-`cci claim --for <lane>@<drive> --build <build> --rel started`, logging `RELEASE-CLAIM-FAILED` once when either fails.
+`cci claim --for <lane>@<drive> --build <build> --rel started`, logging `RELEASE-CLAIM-FAILED` once when either fails;
+a stood-down lane's build is neither recorded nor claimed.
 With `landing.applying` set, every 15 seconds the runner reads each tracked build until it finishes and posts one
 `applying <component>/<env> <commit> (<release>)` release record, keyed `applying:<job>`, to the root of every live
 drive `cci who --role root` lists, the first time a job of a watched component reads running. A lane's `hold`
@@ -965,6 +973,7 @@ RESEND_LIMIT = 2
 RESEND = ":resend"
 RETRY = ":retry"
 SEND_ATTEMPTS = 3
+LAUNCH_VALID = timedelta(minutes=15)
 INBOX_PAGE_SIZE = 100
 UNPARSEABLE = "unparseable"
 UNREAD = "unread"
@@ -1008,6 +1017,7 @@ LANE_LIST = re.compile(r", (?:and )?| and ")
 LAUNCH_SPEC = re.compile(r"^ (?P<lane>[\w.-]+)(?P<now> NOW)? (?P<model>\S+) (?P<effort>\S+)(?: role=(?P<role>[\w-]+))? brief=(?P<brief>/\S+)$")
 ALERT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) (?P<link>\S+) :: (?P<what>\S.*)$")
 INCIDENT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9_.-]*) (?P<link>\S+) reported=(?P<reported>(?:[01]?\d|2[0-3]):[0-5]\d|(?:1[0-2]|0?[1-9]):[0-5]\d [AP]M) :: (?P<what>\S.*)$")
+EXPIRING = {"launch": LAUNCH_SPEC, "incident": INCIDENT_SPEC}
 INCIDENT_BAR = timedelta(minutes=20)
 ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
 UNFIXED_TEMPLATE = SCRIPTS.parent / "reference" / "unfixed-case-brief.md"
@@ -2473,8 +2483,8 @@ class Runner:
         self.book.ensure(container, self.orca.receipt(lane) or UNLAUNCHED)
         return container
 
-    def accept_relay(self, key: str, lane: str, text: str, reply_to: str, minutes: int) -> tuple[actions.Action, bool]:
-        target = json.dumps({"text": text, "reply_to": reply_to})
+    def accept_relay(self, key: str, lane: str, text: str, reply_to: str, minutes: int, pr: str = "") -> tuple[actions.Action, bool]:
+        target = json.dumps({"text": text, "reply_to": reply_to} | ({"pr": pr} if pr else {}))
         return self.book.accept(self.lane(lane), key, "reply" if reply_to else "relay", target, key, self.now() + timedelta(minutes=minutes))
 
     def read_cci(self) -> None:
@@ -2564,6 +2574,10 @@ class Runner:
         seq, line = record["seq"], record["text"].strip()
         directive = INBOX_DIRECTIVE.match(line)
         if directive and directive["verb"] == "relay" and not (line := self.whole_text(f"cci#{seq}", directive["key"] or f"inbox@cci#{seq}", "inbox", record)):
+            return
+        if directive and directive["verb"] in EXPIRING and (spec := EXPIRING[directive["verb"]].match(directive["rest"])) and (age := self.now() - actions.parse_stamp(record["at"])) > LAUNCH_VALID:
+            lane = spec["lane"] if directive["verb"] == "launch" else f"{spec['slug']}-fix"
+            self.record(f"escalation:launch:cci#{seq}", f"LAUNCH-EXPIRED {directive['key'] or f'inbox@cci#{seq}'} {lane}: cci #{seq} was posted at {pacific(actions.parse_stamp(record['at']))}, {int(age.total_seconds() // 60)} minutes before this read, and a launch line is valid for {int(LAUNCH_VALID.total_seconds() // 60)}; nothing was launched")
             return
         if not self.inbox_line(f"cci#{seq}", line):
             self.record(f"escalation:cci:{seq}", f"DIRECTIVE-FAILED cci#{seq} inbox: a record addressed to {ORCA_DESK} is one `orca-desk: <relay|launch|alert|incident|hold|unhold|withdraw> …` line, or a reply with --re; nothing was done")
@@ -3170,24 +3184,60 @@ class Runner:
         return self.cut_closed(key, clock) or self.cut_answer(clock)
 
     def deliver_relays(self, container: str, lane: str, relays: list[actions.Action]) -> None:
-        """Send each accepted relay to the lane's live dispatch; with none and no launch in flight to bring one, fail each relay no send delivered as RELAY-FAILED now."""
-        dispatch = self.orca.show(lane)
-        if dispatch and dispatch.status not in INACTIVE:
+        """Send each accepted relay to the lane's live dispatch. With none and no launch in flight to bring one, each relay no send delivered goes out as a cci `blocker` to the lane when it is a line about a PR, else fails as RELAY-FAILED now; a stood-down lane's relays fail quietly."""
+        try:
+            stood_down = self.lane_stood_down(lane)
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+            return
+        if not stood_down and (dispatch := self.relayable(lane)):
             for action in relays:
                 if unread := self.unread_relay(container, action):
                     response = {"text": f"folded into {unread}, which the lane has not answered yet", "at": self.book.stamp()}
                     self.book.attempt(container, lambda incident, key=action.action_id: finish(incident, key, response, dispatch.id))
                     continue
                 self.send(container, dispatch, action)
+            if not self.refused(lane, dispatch):
+                return
+        if not stood_down and any(action.status in ("accepted", "started") for action in self.book.actions(container, kind="launch")):
             return
-        if any(action.status in ("accepted", "started") for action in self.book.actions(container, kind="launch")):
-            return
-        reason = f"no live dispatch{f' ({dispatch.id} is {dispatch.status})' if dispatch else ''}"
+        reason = f"stood down by {stood_down}" if stood_down else self.no_live_dispatch(lane)
         for action in relays:
             if self.delivered(container, action):
                 continue
-            if self.book.attempt(container, lambda incident, key=action.action_id: incident.fail(key, reason)):
+            spec = json.loads(action.target)
+            if stood_down:
+                self.book.attempt(container, lambda incident, key=action.action_id: incident.fail(key, reason))
+            elif spec.get("pr"):
+                self.post_relay(container, lane, action, spec)
+            elif self.book.attempt(container, lambda incident, key=action.action_id: incident.fail(key, reason)):
                 self.record(f"escalation:relay:{container}/{action.action_id}", f"RELAY-FAILED {action.action_id} {lane}: {reason}; nothing was relayed")
+
+    def relayable(self, lane: str) -> Dispatch | None:
+        """The lane's dispatch while it takes relays: Orca shows it active and it refused no send as not active."""
+        dispatch = self.orca.show(lane)
+        return dispatch if dispatch and dispatch.status not in INACTIVE and not self.refused(lane, dispatch) else None
+
+    def refused(self, lane: str, dispatch: Dispatch) -> bool:
+        return any(send.target == dispatch.id and send.status == "failed" and FENCED in (send.reason or "") for send in self.book.actions(lane_container(lane), kind="send"))
+
+    def no_live_dispatch(self, lane: str) -> str:
+        dispatch = self.orca.show(lane)
+        if dispatch and dispatch.status not in INACTIVE:
+            return f"no live dispatch ({dispatch.id} is not active)"
+        return f"no live dispatch{f' ({dispatch.id} is {dispatch.status})' if dispatch else ''}"
+
+    def post_relay(self, container: str, lane: str, action: actions.Action, spec: dict) -> None:
+        done = self.cci_post("blocker", spec["text"], lane, spec["pr"], f"relay:{container}/{action.action_id}", pr=spec["pr"])
+        if done.code == 0:
+            receipt = {"posted": cci.receipt(done.records[0].seq), "at": self.book.stamp()}
+            self.book.attempt(container, lambda incident, key=action.action_id: (incident.start(key, self.now()), incident.complete(key, receipt)))
+
+    def lane_stood_down(self, lane: str) -> str:
+        """The root's `stand-down` or `stopped` addressed to the lane since its latest verified launch, as `#<seq>`, or empty."""
+        container = lane_container(lane)
+        launches = self.book.actions(container, kind="launch", status="verified") if self.book.exists(container) else []
+        return self.stood_down(lane, max((actions.parse_stamp(launch.verification_receipt["at"]) for launch in launches), default=datetime.min.replace(tzinfo=timezone.utc)))
 
     def unread_relay(self, container: str, action: actions.Action) -> str:
         """The relay about the same PR at an earlier head that the lane was sent and has not answered, which a relay not yet sent folds into instead of queuing a second message; empty when there is none."""
@@ -4200,6 +4250,8 @@ class Runner:
 
     def claim_release(self, build: str, info: dict) -> None:
         """Record the build's owner, `<lane>@<drive>`, in the drive registry and claim the build for that lane with `cci claim --for`; a step that fails escalates RELEASE-CLAIM-FAILED once."""
+        if self.lane_stood_down(info["lane"]):
+            return
         owner = f"{info['lane']}@{self.config.drive}"
         registry = [sys.executable, str(SCRIPTS / "drive.py"), "release", "--cci-drive", self.config.drive, "--owner", owner, "--build", build, *(["--release", info["release"]] if info["release"] else [])]
         failures = [
@@ -9257,9 +9309,9 @@ class Landing:
         self.trust_reads()
         if not lane:
             self.runner.escalate(key, "UNOWNED", f"#{pr}", text)
-        elif self.runner.orca.receipt(lane):
-            relay, _ = self.runner.accept_relay(key, lane, text, "", self.runner.config.start_minutes)
-            if (dispatch := self.runner.orca.show(lane)) and dispatch.status not in INACTIVE:
+        elif self.runner.orca.receipt(lane) and not self.runner.lane_stood_down(lane):
+            relay, _ = self.runner.accept_relay(key, lane, text, "", self.runner.config.start_minutes, pr)
+            if dispatch := self.runner.relayable(lane):
                 self.runner.send(lane_container(lane), dispatch, relay)
         else:
             self.post_blocker(key, ",".join(self.reach(lane)), text, pr, cause)

@@ -23,7 +23,7 @@ in the last five minutes posts nothing: the command refuses in one line, naming 
 for a launch. Each line is one
 `cci post --kind go --to orca-desk` record in the runner's grammar, so nothing is posted
 unaddressed or in another form. A launch then reads the runner's records on the drive
-until each key settles as `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-HELD`, `UNVERIFIABLE`, or
+until each key settles as `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-EXPIRED`, `LAUNCH-HELD`, `UNVERIFIABLE`, or
 `SPRITE-UNVERIFIABLE`, and prints one line per lane: its key, the runner's line, and so the
 dispatch and terminal of a launched lane. It exits 0 when every lane launched, 1 when any
 settled otherwise, and 2 when one has not settled within `--timeout-seconds`; a withdrawal
@@ -55,7 +55,7 @@ DESK = "orca-desk"
 RUNNER = "desk-runner"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 KEY = re.compile(r"^(?:-\s+)?R(\d+)\b")
-VERDICT = re.compile(r"^(?P<label>LAUNCHED|LAUNCH-FAILED|LAUNCH-HELD|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?(?P<key>R\d+) (?P<lane>[\w.-]+): ")
+VERDICT = re.compile(r"^(?P<label>LAUNCHED|LAUNCH-FAILED|LAUNCH-EXPIRED|LAUNCH-HELD|UNVERIFIABLE|SPRITE-UNVERIFIABLE) (?:desk-lane-[\w.-]+/)?(?P<key>R\d+) (?P<lane>[\w.-]+): ")
 LOAD_HIGH = "LOAD-HIGH "
 LOAD_REFUSAL = re.compile(r"^LAUNCH-FAILED .*: R\d+ refused on load ")
 REFUSAL_WINDOW = "30m"
@@ -133,7 +133,7 @@ def launches(args: argparse.Namespace) -> list[tuple[str, str, str, bool, str, P
 
 
 def refusal(drive: str, lane: str) -> str:
-    posted = records(cci(drive, "grep", "LOAD-HIGH|LAUNCHED|LAUNCH-FAILED|LAUNCH-HELD|UNVERIFIABLE", "--lane", RUNNER, "--since", REFUSAL_WINDOW, "--json", "--budget", BUDGET))
+    posted = records(cci(drive, "grep", "LOAD-HIGH|LAUNCHED|LAUNCH-FAILED|LAUNCH-EXPIRED|LAUNCH-HELD|UNVERIFIABLE", "--lane", RUNNER, "--since", REFUSAL_WINDOW, "--json", "--budget", BUDGET))
     newest = sorted(posted, key=lambda record: record["seq"], reverse=True)
     names = {lane, f"{lane}{FIX_ALIAS}"}
     verdicts = [record["text"] for record in newest if (verdict := VERDICT.match(record["text"])) and verdict["lane"] in names]

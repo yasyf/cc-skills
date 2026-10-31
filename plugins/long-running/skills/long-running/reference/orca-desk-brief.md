@@ -103,13 +103,15 @@ slice under that line with `rulings.py slice --refresh <brief>`, writing
 it writes the slice into every alert, case, fallback and manual release brief it
 attaches. A slice that does not read logs `SLICE-UNREAD` and the launch goes ahead.
 A line that says `orca-desk: launch` outside the form logs
-`LAUNCH-FAILED <key> inbox`.
+`LAUNCH-FAILED <key> inbox`. A `launch` or `incident` line is valid for 15 minutes from
+its record's time: one read later, such as a backlog replayed after an outage, launches
+nothing and logs `LAUNCH-EXPIRED <key> <lane>` to the root, so post a fresh line to launch it.
 
 `desk-launch.py incident <name> <fix-brief> [<evidence-brief>]` and
 `desk-launch.py lane <lane> <model> <effort> <brief> [--now]` post these lines for the
 root; `incident` posts `role=fix` and `role=evidence` on its two lines. Each takes the next `R<n>`
 past every key on an `orca-desk` cci record, posts
-with `--to orca-desk`, waits for `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-HELD`, or
+with `--to orca-desk`, waits for `LAUNCHED`, `LAUNCH-FAILED`, `LAUNCH-EXPIRED`, `LAUNCH-HELD`, or
 `UNVERIFIABLE`, and prints the runner's line with the dispatch and terminal.
 
 A launch or a lane is withdrawn with one line naming its launch key, `R<m>` or a case
@@ -917,6 +919,7 @@ identify the cause; `DECIDE` uses a question id or `hold:<slug>`.
 | `RELAYED` | None; an inbox relay line was accepted for that lane and is delivered in the same pass. |
 | `RELAY-FAILED` | Fix the named relay's lane, key, or form, or launch the lane, and send a corrected relay under a new key. When the line names a file that is not readable, post the relay again on the runner's machine. |
 | `LAUNCHED` | None; the launch is verified and the line names its dispatch and terminal. |
+| `LAUNCH-EXPIRED` | Decide whether the lane is still wanted; if it is, post a fresh launch line under a new key. The line was read over 15 minutes after it was posted, so nothing launched. |
 | `DEADLINE` | Resolve the named action's missing delivery, start, launch, or enqueue proof. A lane that posted a `head` or `review` record for the relayed PR since the relay, or sent a heartbeat after it, counts as started and draws none; a lane that heartbeat within thirty minutes before the relay draws none for thirty minutes. |
 | `UNACKED` | Read the lane's Run messages first; if it never acted, deliver the relay text at the record's path by hand. The send and two resends lost their response, the lane never named the relay, and the runner sends nothing more. |
 | `UNVERIFIABLE` | Reconcile the missing external receipt; never repeat the mutation blindly. |
