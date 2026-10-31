@@ -318,6 +318,7 @@ def record_spawn(evt: BaseHookEvent) -> HookResult | None:
     if not found or not (found.incident or SLICE_HEADER.search(found.text) or call.agent_type in LANE_AGENTS):
         return None
     argv = [sys.executable, str(script("drive.py")), "spawned", "--lane", found.lane, "--brief", str(found.brief or INLINE_BRIEF), "--by", drive_lane(evt) or "root", "--session", evt.session_id]
+    argv += ["--model", model] if (model := call.raw.get("model")) else []
     argv += ["--drive", drive] if (drive := reqenv.getenv(DRIVE_ENV)) else []
     subprocess.run(argv, capture_output=True, text=True, timeout=SPAWNED_TIMEOUT_SECONDS)
     return None

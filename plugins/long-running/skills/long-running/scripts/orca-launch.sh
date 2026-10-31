@@ -26,7 +26,7 @@ needs a server names it there. Claude runs under
 CLAUDE_LONG_RUNNING_LANE=<lane> and, when drive.py places this session in a drive,
 CLAUDE_LONG_RUNNING_DRIVE=<drive>, so the pack's PR hook records every PR the worker
 opens in the drive's ledger under the lane's name, and a ready launch posts the drive's
-SPAWNED record (drive.py spawned) the stall watch reads. The spec is a
+SPAWNED record (drive.py spawned) that adds the lane to the supervisor's registry. The spec is a
 pointer to <brief-file>, because Orca truncates a pasted spec near 3 KB. It names
 the brief as the authority over Orca's preamble, which forbids GitHub posts, and
 over any standing leave-uncommitted default. A brief whose ccx: header line
@@ -530,6 +530,6 @@ until [ "$AGENT" != claude ] || orca terminal read --terminal "$TERMINAL" --scre
   pause "terminal $TERMINAL does not show bypass permissions on yet"
 done
 
-[ -z "$DRIVE" ] || python3 "$(dirname "$0")/drive.py" spawned --drive "$DRIVE" --lane "$LANE" --brief "$BRIEF" --by "${CLAUDE_LONG_RUNNING_LANE:-root}" >&2 ||
-  echo "$LANE: the SPAWNED record did not post, so the stall watch cannot raise this lane if it never registers" >&2
+[ -z "$DRIVE" ] || python3 "$(dirname "$0")/drive.py" spawned --drive "$DRIVE" --lane "$LANE" --brief "$BRIEF" --model "$MODEL" --effort "$EFFORT" --by "${CLAUDE_LONG_RUNNING_LANE:-root}" >&2 ||
+  echo "$LANE: the SPAWNED record did not post, so the lane supervisor will not keep this lane alive" >&2
 echo "$LANE ready task=$(jq -r '.result.taskId' "$RECEIPT") dispatch=$(jq -r '.result.dispatchId' "$RECEIPT") terminal=$TERMINAL worktree=$WT"
