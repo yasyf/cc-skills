@@ -1,7 +1,7 @@
 {
   "head": {"fields": {"pr": "int", "head": "sha", "lane": "str"}, "identity": ["pr", "head"], "audience": ["supervisor"]},
   "grade": {"fields": {"pr": "int", "head": "sha", "grader": ["finder", "fidelity"], "verdict": ["clear", "ask", "pass", "fail"]}, "identity": ["pr", "head", "grader"], "audience": ["supervisor"]},
-  "tap": {"fields": {"pr": "int", "head": "sha", "by": ["owner", "rule"], "value": ["tapped", "withdrawn"]}, "optional": {"rule": "str"}, "identity": ["pr", "head", "value"], "audience": ["supervisor"]},
+  "tap": {"fields": {"pr": "int", "head": "sha", "by": ["owner", "rule"], "value": ["tapped", "withdrawn"]}, "optional": {"rule": "str", "condition": "str"}, "identity": ["pr", "head", "value"], "audience": ["supervisor"]},
   "verdict": {"fields": {"pr": "int", "head": "sha", "verdict": ["fix", "accept"]}, "identity": ["pr", "head"], "audience": ["supervisor"]},
   "item": {"fields": {"item": "int", "action": "str", "pr": "int", "head": "sha", "mover": "str", "deadline": "time"}, "identity": ["item"], "audience": ["lane", "pool", "owner"]},
   "done": {"fields": {"item": "int"}, "identity": ["item"], "audience": ["supervisor"]},

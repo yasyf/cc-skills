@@ -60,7 +60,10 @@ def ingest(store: Store, repo: str, records: list[Record]) -> None:
         if record.kind == "grade":
             store.put_fact(repo, record.pr, record.head, record.grader, record.verdict, record.at)
         elif record.kind == "tap":
-            store.put_fact(repo, record.pr, record.head, "tap", record.value, record.at)
+            condition = record.body.get("condition")
+            store.put_fact(repo, record.pr, record.head, "tap", "conditional" if condition else record.value, record.at)
+            if condition:
+                store.put_fact(repo, record.pr, record.head, "condition", condition, record.at)
             if record.by == "rule":
                 store.put_fact(repo, record.pr, record.head, "exempt", record.rule, record.at)
         elif record.kind == "verdict":
@@ -95,6 +98,7 @@ def assemble(store: Store, repo: str, rows: list[dict], carries: dict[int, tuple
                 exempt="exempt" in facts,
                 hold=held.get(row["number"]),
                 carries=carries.get(row["number"], ()),
+                condition=facts.get("condition"),
             )
         )
     return out
