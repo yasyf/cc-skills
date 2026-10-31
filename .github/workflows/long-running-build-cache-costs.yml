@@ -2,6 +2,7 @@ name: Long-running build cache costs
 
 on:
   push:
+    branches: [main]
     paths:
       - ".github/fixtures/long_running_build_cache_costs.py"
       - ".github/workflows/long-running-build-cache-costs.yml"
