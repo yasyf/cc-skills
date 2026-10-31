@@ -64,7 +64,7 @@ def test_a_split_keeps_the_first_answers_phrases_so_a_dispute_can_quote_them():
 
 
 def test_a_failed_call_fails_open_and_is_logged_as_an_error(tmp_path, monkeypatch):
-    monkeypatch.setattr(judge, "state_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(judge, "state_dir", lambda drive, env=None: tmp_path)
 
     def broken(*args, **kwargs):
         raise subprocess.CalledProcessError(1, "claude")
@@ -80,7 +80,7 @@ def test_a_failed_call_fails_open_and_is_logged_as_an_error(tmp_path, monkeypatc
 
 
 def test_a_sonnet_yes_is_asked_twice_and_both_calls_are_counted(tmp_path, monkeypatch):
-    monkeypatch.setattr(judge, "state_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(judge, "state_dir", lambda drive, env=None: tmp_path)
     answer = {"structured_output": {"verdict": "yes", "artifact_phrase": "a", "evidence_phrase": "b", "sentence": "c"}, "total_cost_usd": 0.01, "usage": {"input_tokens": 900, "output_tokens": 60}}
     argv = []
 
@@ -113,7 +113,7 @@ def test_the_digest_counts_each_kinds_verdicts_errors_and_latency():
 
 
 def test_a_batch_asks_sonnet_once_under_its_own_system_prompt_and_logs_an_answered_call(tmp_path, monkeypatch):
-    monkeypatch.setattr(judge, "state_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(judge, "state_dir", lambda drive, env=None: tmp_path)
     argv = []
 
     def claude(args, **kwargs):
@@ -129,7 +129,7 @@ def test_a_batch_asks_sonnet_once_under_its_own_system_prompt_and_logs_an_answer
 
 
 def test_a_failed_batch_returns_none_and_the_digest_counts_it_beside_the_answered_ones(tmp_path, monkeypatch):
-    monkeypatch.setattr(judge, "state_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(judge, "state_dir", lambda drive, env=None: tmp_path)
 
     def broken(*args, **kwargs):
         raise subprocess.TimeoutExpired("claude", 300)
