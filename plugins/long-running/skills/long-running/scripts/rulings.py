@@ -1775,14 +1775,16 @@ def cmd_pr_block(args: argparse.Namespace, shell: ledger.Shell) -> int:
         sentence = f"On {date_of(fields)} you said “{first_sentence(fields.get('words') or '')}”"
         if found := symbol_lines(fields, diff, at_home=True):
             symbol, file, line = found[0]
-            rulings.append(f"- {key}: met by {symbol} at {file}:{line}")
+            cited, how = f"met by {symbol} at {file}:{line}", f"meeting it with {symbol} at {file}:{line}"
             words.append(f"- {sentence}; this change does it.")
         elif number and (answer := authorizing(loaded, key, number)):
-            rulings.append(f"- {key}: authorized by {answer}")
+            cited, how = f"authorized by {answer}", f"deleting under your answer {answer}"
             words.append(f"- {sentence}; this change deletes under it, on your answer {answer}.")
         else:
-            rulings.append(f"- {key}: leaves out {(names_of(fields) or symbols(fields) or anchors(fields))[0]}")
+            left = (names_of(fields) or symbols(fields) or anchors(fields))[0]
+            cited, how = f"leaves out {left}", f"leaving {left} alone"
             words.append(f"- {sentence}; this change leaves it alone.")
+        rulings.append(f"- {key} protects {protects}; this change serves it by {how}" if (protects := fields.get("protects")) else f"- {key}: {cited}")
     if not matched:
         rulings.append("- No anchored ruling matches this change.")
         words.append("- None of your rulings names the code this change touches.")
