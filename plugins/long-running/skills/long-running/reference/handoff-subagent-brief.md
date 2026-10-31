@@ -10,7 +10,7 @@ paste the brief.
 First stop the old lane: `TaskStop` with its name as `task_id`, or, for an Orca lane,
 the desk's `orca-desk: withdraw <lane>` line. Never `SendMessage` it afterwards, a
 stand-down included: any message resumes a stopped lane on its stale brief, and the pack
-blocks the first one once the successor exists.
+sends each one to the successor once it exists.
 
 Pass the drive checkout and previous handoff's doc id, or `none`, before spawning. Read
 nothing of the old lane yourself, neither its transcript, receipts, cci deliveries, nor

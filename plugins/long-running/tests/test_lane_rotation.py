@@ -1684,37 +1684,36 @@ def rotate(tree: Tree, old: str, successor: str) -> None:
     spawn(tree, successor)
 
 
-def test_the_first_send_to_a_rotated_lane_is_blocked_and_names_task_stop(tree: Tree) -> None:
+def redirected(tree: Tree, to: str, sender: str | None) -> tuple[dict, str]:
+    [result] = tool_use(tree, PreToolUseEvent, "SendMessage", {"to": to, "message": "status?"}, sender)
+    assert result.action == "rewrite"
+    return result.updated_input, result.note
+
+
+def test_a_roots_send_to_a_rotated_lane_goes_to_its_successor_and_names_task_stop(tree: Tree) -> None:
     rotate(tree, "oncall-connect", "oncall-connect-2")
 
-    assert send(tree, "oncall-connect", sender=None) == (
-        "block",
-        "`oncall-connect` rotated to `oncall-connect-2`, which owns its work now, so this `SendMessage` is blocked: any message to "
-        "`oncall-connect`, a stand-down included, resumes it on its stale brief. Stand it down with `TaskStop` `oncall-connect`, "
-        "and send its work to `oncall-connect-2`.",
+    assert redirected(tree, "oncall-connect", None) == (
+        {"to": "oncall-connect-2", "message": "status?"},
+        "`oncall-connect` is stood down, so this message went to its successor `oncall-connect-2`, which owns its work. "
+        "`TaskStop` `oncall-connect` if it still runs.",
     )
-    assert send(tree, "oncall-connect", sender=None) == (
-        "warn",
-        "Warning, nothing was blocked: `oncall-connect` rotated to `oncall-connect-2`, which owns its work now, and this message "
-        "resumes the old lane on its stale brief. Stand it down with `TaskStop` `oncall-connect`, and send the next one to `oncall-connect-2`.",
-    )
-    assert send(tree, "oncall-connect-2") is None
+    assert send(tree, "oncall-connect-2", sender=None) is None
 
 
-def test_a_lanes_send_to_a_rotated_lane_is_blocked_without_naming_task_stop(tree: Tree) -> None:
+def test_a_lanes_send_to_a_rotated_lane_goes_to_its_successor_without_naming_task_stop(tree: Tree) -> None:
     rotate(tree, "oncall-connect", "oncall-connect-2")
 
-    action, message = send(tree, "oncall-connect") or ("", "")
+    updated, note = redirected(tree, "oncall-connect", "aoncall-dedupe-fix-2")
 
-    assert (action, "TaskStop" in message, message.endswith("Send its work to `oncall-connect-2`.")) == ("block", False, True)
-    assert verdict(tree, "oncall-connect") == "warn"
+    assert (updated["to"], "TaskStop" in note) == ("oncall-connect-2", False)
 
 
 @pytest.mark.parametrize("message", ["rulings-hygiene-2 reported; stand down and send nothing further.", "STAND-DOWN: rulings-hygiene-2 owns it."])
-def test_a_stand_down_to_a_rotated_lane_is_blocked_like_any_send(tree: Tree, message: str) -> None:
+def test_a_stand_down_to_a_rotated_lane_is_warned_and_never_forwarded_to_its_successor(tree: Tree, message: str) -> None:
     rotate(tree, "rulings-hygiene", "rulings-hygiene-2")
 
-    assert verdict(tree, "rulings-hygiene", message, sender=None) == "block"
+    assert verdict(tree, "rulings-hygiene", message, sender=None) == "warn"
 
 
 def test_a_successor_brief_naming_its_predecessor_rotates_it_without_a_handoff(tree: Tree) -> None:
@@ -1724,18 +1723,18 @@ def test_a_successor_brief_naming_its_predecessor_rotates_it_without_a_handoff(t
     assert tool_use(tree, PostToolUseEvent, "Agent", {"name": "creds-6", "prompt": prompt}) == []
 
     assert lane_rotation.RotationState.load(Stop(tree, []).evt()).retired == {"creds-5": "creds-6"}
-    assert verdict(tree, "creds-5", sender=None) == "block"
+    assert redirected(tree, "creds-5", None)[0]["to"] == "creds-6"
 
 
-def test_a_respawn_under_a_rotated_name_clears_its_block(tree: Tree) -> None:
+def test_a_respawn_under_a_rotated_name_clears_its_redirect(tree: Tree) -> None:
     rotate(tree, "desk-3", "desk-4")
-    assert verdict(tree, "desk-3", sender=None) == "block"
+    assert verdict(tree, "desk-3", sender=None) == "rewrite"
     spawn(tree, "desk-3")
     assert send(tree, "desk-3", sender=None) is None
 
     spawn(tree, "desk-4")
 
-    assert verdict(tree, "desk-3", sender=None) == "block"
+    assert verdict(tree, "desk-3", sender=None) == "rewrite"
 
 
 def test_second_rotation_redirects_to_the_newest_successor(tree: Tree) -> None:
@@ -1745,14 +1744,17 @@ def test_second_rotation_redirects_to_the_newest_successor(tree: Tree) -> None:
     tree.lane("desk-4-handoff", 80_000, team=None, status=None)
     spawn(tree, "desk-5")
 
-    assert (send(tree, "desk-3") or ("", ""))[1].endswith("Send its work to `desk-5`.")
+    assert redirected(tree, "desk-3", "aoncall-dedupe-fix-2")[0]["to"] == "desk-5"
 
 
-def test_stopped_lane_without_a_successor_redirects_lanes_to_main(tree: Tree) -> None:
+def test_a_workers_report_to_a_lane_stopped_with_no_successor_goes_to_main_and_the_roots_resume_passes(tree: Tree) -> None:
     reviewer = tree.lane("reviewer", 120_000, team=None)
     assert tool_use(tree, PostToolUseEvent, "TaskStop", {"task_id": reviewer["id"]}) == []
 
-    assert "Send the next one to `main`." in (send(tree, "reviewer") or ("", ""))[1]
+    assert redirected(tree, "reviewer", "aoncall-dedupe-fix-2") == (
+        {"to": "main", "message": "status?"},
+        "`reviewer` is stood down with no successor, so this message went to `main` instead of resuming it on its stale brief.",
+    )
     assert send(tree, "reviewer", sender=None) is None
 
 
@@ -1760,7 +1762,7 @@ def test_stand_down_without_a_handoff_retires_the_lane(tree: Tree) -> None:
     tree.lane("alerts-watch", 450_000)
     assert tool_use(tree, PostToolUseEvent, "SendMessage", {"to": "alerts-watch", "message": "STAND-DOWN: done."}) == []
 
-    assert "Send the next one to `main`." in (send(tree, "alerts-watch") or ("", ""))[1]
+    assert redirected(tree, "alerts-watch", "aoncall-dedupe-fix-2")[0]["to"] == "main"
 
 
 def test_numbered_sibling_without_a_handoff_retires_nothing(tree: Tree) -> None:
