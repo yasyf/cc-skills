@@ -71,9 +71,11 @@ and no PR, ready, fix-live, or root go from any lane answers it by ``--re``, top
 Otherwise it prints ``not owed: <why>`` and exits 1, as it does for an evidence, proof, closeout, desk, or audit lane.
 
 ``digest`` prints one line per desk runner from its newest ``<desk> alive`` cci record on the drive: its pid, the plugin
-version it runs, the version ``installed_plugins.json`` lists, and when it posted. A runner behind the installed version, or
-one whose record names no version, reads stale with the ``desk-runner.py handoff`` command that rotates it, and one whose
-record is five minutes old reads down with the restart command it posted; the command exits 1 while any desk is stale,
+version it runs, the version its ``runner.json`` pins, the version ``installed_plugins.json`` lists, and when it posted. A runner
+off its pin, or one whose record names no version, reads off its pin with the ``desk-runner.py handoff`` command that moves it
+onto the pin; a newer install alone never makes a runner stale, and the line names the ``handoff --version`` that would move
+the pin after that version's preflight. One whose
+record is five minutes old reads down with the restart command it posted; the command exits 1 while any desk is off its pin,
 down, or has posted no record. It then prints the stack ledger the stall watch wrote
 to ``<state dir>/inbox/stack.json`` on its last pass: one line per open PR with its head, the PR or branch it sits on,
 its state, its owning lane, since when, and its next step, marked ``STALE`` once that state has stood two hours.
@@ -143,6 +145,7 @@ DRIVE_ENV = ledger.DRIVE_ENV
 ORCA_RUN_ENV = "ORCA_LAUNCH_RUN"
 TERMINAL_ENV = "ORCA_TERMINAL_HANDLE"
 CALLER_VERSION_ENV = "LONG_RUNNING_CALLER_VERSION"
+PIN_ENV = "LONG_RUNNING_PIN"
 DEADLINE_ENV = "LONG_RUNNING_DEADLINE"
 REAP_SECONDS = 5
 DRIVE_ID_LENGTH = 8
@@ -203,6 +206,49 @@ def installed_version() -> str:
     return (newest_install() or {}).get("version", "")
 
 
+def installs() -> Path:
+    """The directory Claude Code installs each version of this plugin under, one subdirectory per version."""
+    return PLUGIN.parent
+
+
+def install_bin(version: str, tool: str) -> Path:
+    return installs() / version / "bin" / tool
+
+
+def release_faults(version: str) -> list[str]:
+    """Each file of the release tagged for `version` that its install lacks or holds with other bytes, read against that tag fetched from the remote of the marketplace checkout Claude Code installed from, so an install cut short or edited in place reads here before anything runs it; none when this plugin runs from no cache install."""
+    if PLUGIN.parents[2].name != "cache":
+        return []
+    copy = installs() / version
+    if not (copy / ".claude-plugin" / "plugin.json").is_file():
+        return [f"{copy} holds no install of {version}"]
+    source = marketplace_copy(PLUGIN)
+    url, prefix = (subprocess.run(["git", "-C", str(source), *argv], capture_output=True, text=True, check=True).stdout.strip() for argv in (["remote", "get-url", "origin"], ["rev-parse", "--show-prefix"]))
+    return tree_faults(copy, url, f"{PLUGIN.parent.name}--v{version}", prefix.rstrip("/"), config_dir() / "long-running" / "releases.git")
+
+
+def tree_faults(copy: Path, url: str, tag: str, source: str, releases: Path) -> list[str]:
+    """Each file under `source` in `tag` of the repository at `url` that `copy` lacks or holds with other bytes; the tag is fetched into the bare repository `releases`, created on first use. Files the copy holds beyond the release, such as caches, are not faults."""
+    if not releases.is_dir():
+        subprocess.run(["git", "init", "-q", "--bare", str(releases)], check=True)
+    fetched = subprocess.run(["git", "-C", str(releases), "fetch", "-q", "--depth", "1", url, f"+refs/tags/{tag}:refs/tags/{tag}"], capture_output=True, text=True)
+    if fetched.returncode:
+        return [f"the release tag {tag} did not fetch from {url}: {(fetched.stderr.strip().splitlines() or ['no output'])[-1]}"]
+    listed = subprocess.run(["git", "-C", str(releases), "ls-tree", "-r", "-z", tag, "--", f"{source}/"], capture_output=True, text=True, check=True).stdout
+    missing, blobs = [], []
+    for row in filter(None, listed.split("\0")):
+        meta, path = row.split("\t", 1)
+        mode, _, sha = meta.split()
+        relative = path.removeprefix(f"{source}/")
+        target = copy / relative
+        if not (target.is_symlink() if mode == "120000" else target.is_file()):
+            missing.append(relative)
+        elif mode != "120000":
+            blobs.append((relative, sha))
+    hashed = subprocess.run(["git", "-C", str(releases), "hash-object", "--stdin-paths"], input="\n".join(str(copy / relative) for relative, _ in blobs), capture_output=True, text=True, check=True).stdout.split()
+    return [*(f"{relative} is missing" for relative in missing), *(f"{relative} differs from the release" for (relative, sha), got in zip(blobs, hashed, strict=True) if got != sha)]
+
+
 def version_key(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in VERSION_PART.findall(version.partition("-")[0]))
 
@@ -213,10 +259,10 @@ def behind(running: str, installed: str) -> bool:
 
 
 def run_installed(script: str) -> None:
-    """Re-execute `script` from the installed plugin version, as the `bin/` shim does, when it is a copy of an older version, the installed copy's own manifest is newer, and no process of its own version started it, so a path that names an old version still runs current code and never writes a line the current runner cannot read; a process that passes marks its children with its version, so a runner started before an update keeps its own scripts until it re-executes. Every GitHub read the script makes through ccx is charged to the script's name, and every command it starts ends with it (`end_commands_with_script`)."""
+    """Re-execute `script` from the installed plugin version, as the `bin/` shim does, when it is a copy of an older version, the installed copy's own manifest is newer, no process of its own version started it, and `LONG_RUNNING_PIN` does not pin its version, so a path that names an old version still runs current code and never writes a line the current runner cannot read; a process that passes marks its children with its version, so a runner started before an update keeps its own scripts until it re-executes, and a runner on its pinned version keeps them for its life. Every GitHub read the script makes through ccx is charged to the script's name, and every command it starts ends with it (`end_commands_with_script`)."""
     os.environ["CCX_CALLER"] = Path(script).stem
     running = plugin_manifest()["version"]
-    if os.environ.get(CALLER_VERSION_ENV) != running and (install := newest_install()) and behind(running, install["version"]):
+    if running not in (os.environ.get(CALLER_VERSION_ENV), os.environ.get(PIN_ENV)) and (install := newest_install()) and behind(running, install["version"]):
         manifest = Path(install["installPath"]) / ".claude-plugin" / "plugin.json"
         if manifest.is_file() and behind(running, load(manifest)["version"]):
             fresh = manifest.parents[1] / Path(__file__).resolve().parents[1].relative_to(PLUGIN) / Path(script).resolve().name
@@ -621,18 +667,21 @@ def cmd_digest(args: argparse.Namespace, shell: ledger.Shell) -> int:
             current = False
             print(f"{desk}: no {desk} alive record on cci drive {cci_drive(entry)}, so no {desk} runner has run there")
             continue
-        running = beat.get("version", "")
-        late = behind(running, installed)
+        running, config = beat.get("version", ""), beat.get("config", "<runner.json>")
+        pinned = load(Path(config)).get("version", "") if Path(config).is_file() else ""
+        late = not running or bool(pinned) and running != pinned
         down = not beating(beat, datetime.now(timezone.utc))
         current &= not late and not down
         if down:
             state = f"down; restart it with `{beat.get('restart', f'desk-runner.py run --desk {desk}')}`"
         elif late:
-            state = f"stale; rotate it with `desk-runner.py handoff --config {beat.get('config', '<runner.json>')} --desk {desk}`, which starts the next one"
+            state = f"off its pin; `desk-runner.py handoff --config {config} --desk {desk}` moves it onto {pinned or 'the version it runs'}"
+        elif behind(pinned, installed):
+            state = f"current; `desk-runner.py handoff --config {config} --desk {desk} --version {installed}` moves it to the installed version once that version's preflight passes"
         else:
             state = "current"
         pid = f"pid {beat['pid']} " if "pid" in beat else ""
-        print(f"{desk}: {pid}runs {running or 'a version it does not report'}, installed {installed or 'unknown'}, last alive {beat['at']}: {state}")
+        print(f"{desk}: {pid}runs {running or 'a version it does not report'}, pinned {pinned or 'nothing'}, installed {installed or 'unknown'}, last alive {beat['at']}: {state}")
     if (stack := Path(entry["state_dir"]) / "inbox" / STACK).is_file():
         written = load(stack)
         prs = written["prs"]
@@ -875,5 +924,3 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None, shell: ledger.Shell | None = None) -> int:
     args = build_parser().parse_args(argv)
     return args.handler(args, shell or ledger.Shell())
-
-

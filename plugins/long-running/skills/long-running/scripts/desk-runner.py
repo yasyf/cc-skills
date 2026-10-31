@@ -595,16 +595,20 @@ runs, or empty, which `drive.py digest --quiet-point` reads; every reader reads 
 machine, and `desk-runner.py show` renders its state from the store. Every minute the orca runner also reads the bus's
 newest record under 15 seconds; two misses in a row write `BUS-DOWN` with the first miss's time to `bus-down.json` beside
 `runner.json`, the drive dashboard's alarm, since the bus cannot carry news of its own outage, and the first good read
-after it posts one `BUS-RECOVERED` to root with how long the bus was down. A runner behind the version `installed_plugins.json` lists posts nothing and re-executes into the installed version after
-that pass's wait, keeping its pid, config, and desk; `--once` never re-executes. An `env` object under a desk's config
+after it posts one `BUS-RECOVERED` to root with how long the bus was down. A runner runs the version `runner.json` pins in
+its top-level `version`: an installed update never moves it, `run` re-executes into the pinned version's own copy before it
+takes its lock, the first `run` of a drive with no pin pins the version it runs, and a pin `handoff --version` moved re-executes
+each desk into the new copy after that pass's wait, keeping its pid, config, and desk; `--once` never re-executes. An `env` object under a desk's config
 object, such as `"landing": {"env": {"AWS_PROFILE": "release-operator"}}`, is merged into that desk's process environment
 each time `run` starts, a re-execution included, and is carried by its restart command and its `handoff` successor. `handoff` stops the live runner at the next
 boundary between the steps of its pass, or between the PRs and stacks a landing step works through, and starts the next one with the same config and desk, appending to `<desk>-runner.log`. Each `run` holds
 `<config>.<desk>.lock` for its life and refuses to start, naming the holder's pid, while another runner holds it; `handoff` stops
 that holder and waits up to 20 minutes, as long as a slow pass takes, for it to exit, or for its newest alive record to show it
 re-executed into the handoff's own version under the same pid, which withdraws the stop and starts nothing; past that it
-starts nothing and logs `HANDOFF-STALLED` to root with the pid. `handoff` stops nothing while the install lacks a runtime brief or any file of
-`reference/` or `scripts/` that the marketplace copy it was installed from holds. `supervise install --desk <d>` writes
+starts nothing and logs `HANDOFF-STALLED` to root with the pid. `handoff --version <v>` moves the pin: it stops nothing while
+version `<v>`'s install lacks a file of its release tag or holds one with other bytes, an install cut short or edited in place
+read against the tag fetched from the plugin's remote, or while `<v>`'s own `preflight` for the desk refuses, and only then
+writes the pin and hands the desk over; without `--version` it hands over onto the pinned version. `supervise install --desk <d>` writes
 `~/Library/LaunchAgents/com.long-running.<drive>.<desk>.plist` and bootstraps that one label in the `gui/<uid>` domain, touching no
 other job: launchd runs `run` through `/bin/zsh -c`, exporting each key the landing adapter needs from the Keychain item
 `landing.adapter.key_item` names, so no file holds its value, restarts it after any exit at most once a minute, with the installing shell's PATH,
@@ -989,6 +993,7 @@ LANE_SPAWN_GRACE = timedelta(minutes=10)
 LANE_GONE_REPORT = re.compile(r"\bLANE-GONE lane-gone:([^:\s]+)[:\s]")
 LANE_ENDED_KINDS = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
 HANDOFF_WAIT = timedelta(minutes=20)
+HANDOFF_FAULTS = 12
 LAUNCHD_THROTTLE_SECONDS = 60
 RUNNER_OPEN_FILES = 65536
 CCI_SHIM = Path(".claude/plugins/marketplaces/cc-inbox/plugin/bin")
@@ -1018,8 +1023,6 @@ INCIDENT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9_.-]*) (?P<link>\S+) repo
 INCIDENT_BAR = timedelta(minutes=20)
 ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
 UNFIXED_TEMPLATE = SCRIPTS.parent / "reference" / "unfixed-case-brief.md"
-INSTALL_PARTS = ("reference", "scripts")
-BRIEF_FILES = (MANUAL_TEMPLATE, ALERT_TEMPLATE, UNFIXED_TEMPLATE, finder.TEMPLATE, finder.ROWS_STEP, fidelity.TEMPLATE, fidelity.RUBRIC, incident.TEMPLATE)
 SLICE_LINE = "Register slice:"
 SLICE_HEADER = re.compile(rf"^{SLICE_LINE}", re.MULTILINE)
 SCALE_LINES = re.compile(r"^[ \t>*_-]*Scale:.*$", re.MULTILINE)
@@ -1839,13 +1842,6 @@ class Orca:
         return "" if closed.get("ok") else closed["error"]["code"]
 
 
-def install_gaps() -> list[str]:
-    """Each file under `reference/` or `scripts/` of the marketplace copy this install came from that the install lacks; none when the runner runs from no cache install."""
-    if not (source := drive.marketplace_copy(SCRIPTS.parent)):
-        return []
-    return sorted(str(path.relative_to(source)) for part in INSTALL_PARTS for path in (source / part).rglob("*") if path.is_file() and "__pycache__" not in path.parts and not (SCRIPTS.parent / path.relative_to(source)).exists())
-
-
 def drop_receipt(receipt: Path, read: str) -> None:
     """Delete the receipt gc read, unless a launch has since written another in its place."""
     if receipt.read_text() == read:
@@ -2198,9 +2194,21 @@ class Runner:
         self.passes[desk] += 1
         self.post_alive(desk)
 
-    def stale(self) -> bool:
-        """Whether a newer plugin version is installed than this runner runs; the loop re-executes into it at the end of the pass."""
-        return drive.behind(RUNNING_VERSION, drive.installed_version())
+    def pinned(self) -> str:
+        """The version `runner.json` pins, read fresh, so a pin `handoff --version` moves reaches a runner without a restart; empty while it pins none."""
+        return json.loads(self.config.source.read_text()).get("version", "")
+
+    def pin(self, version: str) -> None:
+        raw = json.loads(self.config.source.read_text())
+        if raw.get("version") == version:
+            return
+        staged = self.config.source.with_name(f".{self.config.source.name}.pin")
+        staged.write_text(json.dumps(raw | {"version": version}, indent=2) + "\n")
+        staged.replace(self.config.source)
+
+    def moved(self) -> bool:
+        """Whether `runner.json` pins a version other than the one this runner runs; the loop re-executes into the pinned copy at the end of the pass."""
+        return self.pinned() not in ("", RUNNING_VERSION)
 
     def reexec(self, desk: str) -> None:
         self.shell.reexec([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk])
@@ -2238,28 +2246,31 @@ class Runner:
         with self.desk_lock(desk) as holder:
             return holder
 
-    def handoff(self, desk: str) -> int:
-        """Stop the runner holding `desk`'s lock at its next step boundary, wait until it has exited, then start its successor, or under launchd supervision wait for launchd's restart instead, so a handoff killed mid-wait never leaves the desk empty (Oct 30 7:46 PM); a runner whose newest alive record, posted after the stop was asked, shows it re-executed into this version under the same pid has handed over in place, so its stop is withdrawn and no successor starts (root, Oct 29 11:46 AM), unless it already ran this version when the stop was asked, since only a restart then reloads runner.json (cci #215987); refuse, naming its pid, when neither happens within HANDOFF_WAIT (#140225). Refuse before stopping anything when the landing desk's successor would fail its preflight (Oct 30 9:47 PM), or when the install lacks a brief the runner, finder, or incident job reads, or any reference or script file the marketplace copy it was installed from holds."""
-        if missing := list(dict.fromkeys([*(f"{path.parent.name}/{path.name}" for path in BRIEF_FILES if not path.exists()), *install_gaps()])):
-            print(f"desk-runner handoff: this install lacks {', '.join(missing)}, so no runner was stopped; reinstall the plugin and hand off again", file=sys.stderr)
+    def handoff(self, desk: str, version: str = "") -> int:
+        """Move `desk` onto `version`, or onto the pinned version without one. Refuse before stopping anything when that version's install is not its release (`drive.release_faults`: a file missing or edited in place) or that version's own preflight for the desk refuses (Oct 30 9:47 PM); then pin it, stop the runner holding `desk`'s lock at its next step boundary, wait until it has exited, then start its successor, or under launchd supervision wait for launchd's restart instead, so a handoff killed mid-wait never leaves the desk empty (Oct 30 7:46 PM). A runner whose newest alive record, posted after the stop was asked, shows it re-executed into the pinned version under the same pid has handed over in place, so its stop is withdrawn and no successor starts (root, Oct 29 11:46 AM), unless it already ran that version when the stop was asked, since only a restart then reloads runner.json (cci #215987); refuse, naming its pid, when neither happens within HANDOFF_WAIT (#140225)."""
+        target = version or self.pinned() or RUNNING_VERSION
+        if faults := drive.release_faults(target):
+            shown = "; ".join(faults[:HANDOFF_FAULTS]) + (f"; and {len(faults) - HANDOFF_FAULTS} more" if len(faults) > HANDOFF_FAULTS else "")
+            print(f"desk-runner handoff: no runner was stopped, since the {target} install is not its release: {shown}; reinstall it with `claude plugin update long-running@skills` and hand off again", file=sys.stderr)
             return 1
         supervised = self.supervised(desk)
-        if desk == "landing" and (fault := startup_fault(self, keychain=supervised)):
-            print(f"desk-runner handoff: no runner was stopped, since its successor would refuse: {fault[2]}", file=sys.stderr)
+        if fault := self.successor_fault(desk, target, supervised):
+            print(f"desk-runner handoff: no runner was stopped, since its successor on {target} would refuse: {fault}", file=sys.stderr)
             return 3
+        self.pin(target)
         pid = self.desk_holder(desk)
         if pid is not None:
-            current = self.on_this_version(desk, pid, datetime.min.replace(tzinfo=timezone.utc))
+            current = self.on_version(desk, pid, datetime.min.replace(tzinfo=timezone.utc), target)
             marker = self.stop_marker(pid)
             marker.write_text(f"{pid}\n")
             asked = self.now()
             deadline = asked + HANDOFF_WAIT
             while self.desk_holder(desk) == pid:
-                if not current and self.on_this_version(desk, pid, asked):
+                if not current and self.on_version(desk, pid, asked, target):
                     marker.unlink(missing_ok=True)
                     self.shell.sleep(WAKE_SECONDS)
                     if self.desk_holder(desk) == pid:
-                        print(f"desk-runner handoff: runner {pid} re-executed into {RUNNING_VERSION} in place, so no successor started")
+                        print(f"desk-runner handoff: runner {pid} re-executed into {target} in place, so no successor started")
                         return 0
                     break
                 if self.now() >= deadline:
@@ -2362,9 +2373,20 @@ class Runner:
             return False
         return True
 
-    def on_this_version(self, desk: str, pid: int, since: datetime) -> bool:
+    def on_version(self, desk: str, pid: int, since: datetime, version: str) -> bool:
         beat = drive.heartbeat(self.cci_tail, self.config.drive, desk)
-        return beat is not None and beat.get("pid") == str(pid) and beat.get("version") == RUNNING_VERSION and actions.parse_stamp(beat["at"]) >= since
+        return beat is not None and beat.get("pid") == str(pid) and beat.get("version") == version and actions.parse_stamp(beat["at"]) >= since
+
+    def successor_fault(self, desk: str, version: str, keychain: bool) -> str:
+        """Why `desk`'s runner on `version` would refuse to start, as that version's own `preflight` reads it, or this runner's own checks when it runs that version; empty when it would start."""
+        if version == RUNNING_VERSION:
+            return fault[2] if desk == "landing" and (fault := startup_fault(self, keychain=keychain)) else ""
+        done = self.shell.run([str(drive.install_bin(version, "desk-runner.py")), "preflight", "--config", str(self.config.source), "--desk", desk, "--json", *(["--keychain"] if keychain else [])], env={drive.PIN_ENV: version})
+        if done.code == 0:
+            return ""
+        if done.code == 3:
+            return json.loads(done.out)["why"]
+        return f"its preflight exited {done.code}: {((done.err or done.out).strip().splitlines() or ['no output'])[-1][:300]}"
 
     def binding(self, via: str = "") -> dict:
         """Ask Orca whether the Run's coordinator is a live terminal that coordinates it, and record the answer, with how it was obtained, in the runner's state."""
@@ -9602,7 +9624,7 @@ def run_orca(runner: Runner, once: bool) -> int:
         runner.stalled_launches()
         runner.stall_watch()
         runner.judge_watch()
-        behind = runner.stale()
+        behind = runner.moved()
         runner.flush()
         runner.beat("orca")
         if once:
@@ -9716,7 +9738,7 @@ def run_landing(runner: Runner, once: bool) -> int:
                 runner.shell.sleep(RAISED_BACKOFF.total_seconds())
                 runner.reexec("landing")
         runner.passing.discard("landing")
-        behind = runner.stale()
+        behind = runner.moved()
         took = (runner.now() - started).total_seconds()
         landing.post_state(took)
         runner.flush()
@@ -9768,10 +9790,13 @@ def build_parser() -> argparse.ArgumentParser:
     rebind = verbs.add_parser("rebind")
     handoff = verbs.add_parser("handoff")
     handoff.add_argument("--desk", choices=DESKS, required=True)
+    handoff.add_argument("--version", default="", help="the installed plugin version to pin and move the desk onto, after its release check and its own preflight pass; the pinned version when omitted")
     supervise = verbs.add_parser("supervise", help="install, uninstall, or report the launchd user agent com.long-running.<drive>.<desk> that keeps the desk's runner alive; status exits 0 while launchd has it loaded")
     supervise.add_argument("action", choices=("install", "uninstall", "status"))
     supervise.add_argument("--desk", choices=DESKS, required=True)
-    preflight = verbs.add_parser("preflight", help="check the landing desk's config and machine without starting it; exit 0 when it would start, 3 when it would refuse")
+    preflight = verbs.add_parser("preflight", help="check a desk's config and machine without starting it; exit 0 when it would start, 3 when it would refuse")
+    preflight.add_argument("--desk", choices=DESKS, default="landing")
+    preflight.add_argument("--keychain", action="store_true", help="read the landing adapter's key from its Keychain item, as a launchd-supervised runner does")
     preflight.add_argument("--json", action="store_true")
     quiesce = verbs.add_parser("quiesce")
     quiesce.add_argument("--desk", choices=DESKS, required=True)
@@ -9799,6 +9824,18 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
         return 0
     runner = Runner(shell, config, actions.Store(config.store))
     if args.verb == "run":
+        if not (pin := runner.pinned()):
+            runner.pin(pin := RUNNING_VERSION)
+        if pin != RUNNING_VERSION:
+            if not (pinned := drive.install_bin(pin, "desk-runner.py")).exists():
+                why = f"{config.source} pins long-running {pin}, which has no install at {pinned.parents[1]}, so the {args.desk} runner refused to start; install it, or move the pin with `desk-runner.py handoff --config {config.source} --desk {args.desk} --version <an installed version>`"
+                runner.escalate(f"pin-missing:{config.source}:{pin}", "PINNED-VERSION-MISSING", "runner", why)
+                runner.flush()
+                print(why, file=sys.stderr)
+                return 3
+            runner.shell.adopt({drive.PIN_ENV: pin})
+            runner.shell.reexec([str(pinned), "run", "--config", str(config.source), "--desk", args.desk, *(["--once"] if args.once else [])])
+        runner.shell.adopt({drive.PIN_ENV: pin})
         if args.desk == "landing" and (fault := startup_fault(runner)):
             label, key, why = fault
             runner.escalate(key, label, "runner", why)
@@ -9832,12 +9869,12 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     if args.verb == "rebind":
         return runner.rebind()
     if args.verb == "handoff":
-        return runner.handoff(args.desk)
+        return runner.handoff(args.desk, args.version)
     if args.verb == "supervise":
         return runner.supervise(args.action, args.desk)
     if args.verb == "preflight":
-        fault = startup_fault(runner)
-        print(json.dumps({"ok": fault is None, "label": fault and fault[0], "why": fault and fault[2]}) if args.json else fault[2] if fault else f"desk-runner preflight: the landing desk on {config.source} would start")
+        fault = startup_fault(runner, keychain=args.keychain) if args.desk == "landing" else None
+        print(json.dumps({"ok": fault is None, "label": fault and fault[0], "why": fault and fault[2]}) if args.json else fault[2] if fault else f"desk-runner preflight: the {args.desk} desk on {config.source} would start")
         return 3 if fault else 0
     if args.verb == "gc":
         try:
