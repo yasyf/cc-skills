@@ -2827,8 +2827,7 @@ def test_a_check_that_hits_a_transient_network_failure_is_retried_and_reads_the_
     assert shell.clock - started >= timedelta(seconds=runner_module.merge_queue.TRANSIENT_PAUSE_SECONDS)
 
 
-def test_a_check_killed_at_its_sixty_second_cap_logs_nothing_and_the_next_pass_enqueues_on_its_verdict(shell, config, tmp_path):
-    assert runner_module.GATE_CHECK_SECONDS == 60
+def test_a_check_killed_at_its_cap_logs_nothing_and_the_next_pass_enqueues_on_its_verdict(shell, config, tmp_path):
     shell.rows = single_row()
     killed = f"stack-enqueue 29020 --check timed out after {runner_module.GATE_CHECK_SECONDS}s and was killed"
     shell.gates["29020"] = [(runner_module.TIMED_OUT, "", killed), gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]

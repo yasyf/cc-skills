@@ -268,7 +268,7 @@ Each prefix passes the check registry, `landing.checks` in order, every built-in
 `(priority, root PR)` order, a tree's priority the lowest ledger `priority` among its PRs, and accepted enqueues run one parallel
 wave per priority, lower first. A check that reads no verdict first settles its tips through `ledger.py landed`, which
 reads each tip's squash on the freshly fetched trunk, and drops every tip whose row then reads landed; only the tips left
-log `GATE-FAILED`. A check killed at its 60-second cap on both tries has no verdict yet, runs again next pass, and refuses its heads for `GATE-TIMEOUT` meanwhile. `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
+log `GATE-FAILED`. A check killed at its cap, the enqueue's 300 seconds since both run the merge preflight, on both tries has no verdict yet, runs again next pass, and refuses its heads for `GATE-TIMEOUT` meanwhile. `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
 adapter call runs the trunk's script; a checkout its repository no longer lists as a worktree, or one on a branch with no commit, is rebuilt at the fetched trunk head with a clean tree,
 re-registered through `git worktree add --no-checkout` and `git worktree repair` when git lost it, logs `MIRROR-REBUILT` to root, and the pass goes on;
 a checkout that still cannot fast-forward logs `CHECKOUT-STALE` to root and gates nothing that pass.
@@ -890,7 +890,7 @@ FETCH_SECONDS = 120
 GRAPHITE_BASE = "graphite-base/"
 QUICK_SECONDS = 60
 CHECK_PR_SECONDS = 180
-GATE_CHECK_SECONDS = 60
+GATE_CHECK_SECONDS = ENQUEUE_SECONDS
 QUEUE_STATUS_SECONDS = 300
 LANDABLE = "landable"
 CHECK_PR_TIMEOUT = "CHECK-PR-TIMEOUT"
@@ -906,7 +906,7 @@ STOP_POLL_SECONDS = 2
 SHOW_WORKERS = 8
 GATE_WORKERS = 16
 GATE_BUDGET = timedelta(seconds=120)
-STEP_BUDGETS = {"fetch": FETCH_SECONDS, "check": 180, "settle": 300, "enqueue": 300}
+STEP_BUDGETS = {"fetch": FETCH_SECONDS, "check": 2 * GATE_CHECK_SECONDS + 60, "settle": 300, "enqueue": 300}
 STACKS_FILE = "landing-stacks.json"
 BUILDS_KEPT = timedelta(days=3)
 CHECK_PR_WORKERS = 8
