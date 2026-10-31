@@ -391,3 +391,15 @@ def test_a_live_update_keeps_the_caret_in_the_open_drawers_note_and_its_draft(pa
     assert page.evaluate("document.activeElement.selectionStart") == len("hold the lock") - 1
     assert note.input_value() == "hold the lock"
     assert page.locator('.mr[data-peek="49001"] [data-change] input').evaluate("(el) => el.closest('[inert]') !== null")
+
+
+def test_a_change_request_the_server_drops_says_not_sent_and_keeps_the_draft_for_a_retry(page):
+    page.goto(page.url.split("#")[0] + "#/review/decided~review/49001")
+    page.route("**/api/change", lambda route: route.abort())
+    note = page.locator(".pr-drawer.front [data-change] input")
+    note.fill("no lock on insert")
+    note.press("Enter")
+    page.wait_for_selector(".pr-drawer.front [data-change] .pill.bad")
+    assert page.locator(".pr-drawer.front [data-change] button").inner_text() == "Send"
+    assert page.locator(".pr-drawer.front [data-change] input").input_value() == "no lock on insert"
+    page.unroute("**/api/change")
