@@ -317,6 +317,11 @@ def register_context(evt: BaseHookEvent, register: dict) -> HookResult:
     return evt.context(*register_parts(register))
 
 
+def rulings(cwd: str, *args: str, stdin: str = "", timeout: int = CCN_TIMEOUT_SECONDS) -> str:
+    argv = [sys.executable, str(script("rulings.py")), *args, "--repo", cwd]
+    return subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=timeout, check=True, cwd=cwd, env=dict(reqenv.env_map())).stdout
+
+
 class RegisterRead:
     def __init__(self, evt: BaseHookEvent, entry: dict) -> None:
         self.evt = evt
