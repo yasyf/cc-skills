@@ -603,7 +603,8 @@ class FakeShell(runner_module.Shell):
             self.posts.append({{"--re-seq": "re", "--resolves-seq": "resolves"}.get(key, key.lstrip("-")): value for key, value in flags.items()})
             if "--id" in flags:
                 self.post_ids[flags["--id"]] = len(self.posts)
-            return runner_module.Done(0, self.post_out or (json.dumps({"seq": len(self.posts), "num": "#7@fixture"}) + "\n" if as_json else f"#{len(self.posts)}\n"), "")
+            output, self.post_out = self.post_out, ""
+            return runner_module.Done(0, output or (json.dumps({"seq": len(self.posts), "num": "#7@fixture"}) + "\n" if as_json else f"#{len(self.posts)}\n"), "")
         if argv[:2] == ["gh", "api"] and argv[2].startswith("repos/Forge-AI/monorepo/pulls/") and argv[3:] == ["--jq", ".mergeable"]:
             self.mergeable_reads.append(argv[2].rsplit("/", 1)[1])
             return runner_module.Done(0, "MERGEABLE\n", "")
@@ -663,7 +664,7 @@ class FakeShell(runner_module.Shell):
             self.carries.append(carry)
             entry = self.board[write["block"]][write["row"]]
             self.board[write["block"]][write["row"]] = entry | {"head": write["head"], "carriedFrom": write["from"]}
-        return runner_module.Done(0, "#1\n", "")
+        return runner_module.Done(0, json.dumps({"seq": 1, "num": "#1"}) + "\n" if as_json else "#1\n", "")
 
     def board_records(self) -> list[dict]:
         blocks = sorted({*(block for block in self.board if block not in self.unknown_blocks), *(["merge-prs"] if self.board_rows else [])})
