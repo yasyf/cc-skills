@@ -8239,11 +8239,12 @@ class Landing:
         store = actions.Store()
         tagged = INCIDENT_NAME.match(lane) or (self.book.exists(lane_container(lane)) and self.runner.fix_launch(lane_container(lane)))
         if not tagged:
-            for incident_id in store.ids():
-                facts = store.facts(incident_id, ["repair_pr", "adopted", "not_ours"])
-                if "adopted" in facts and store.header(incident_id)["status"] not in EXECUTOR_SETTLED and not facts.get("not_ours") and str(facts.get("repair_pr")) == pr:
-                    tagged = True
-                    break
+            with store.reading():
+                for incident_id in store.ids():
+                    facts = store.facts(incident_id, ["repair_pr", "adopted", "not_ours"])
+                    if "adopted" in facts and store.header(incident_id)["status"] not in EXECUTOR_SETTLED and not facts.get("not_ours") and str(facts.get("repair_pr")) == pr:
+                        tagged = True
+                        break
         return bool(tagged) and not self.incident_cleared(pr)
 
     def incident_cleared(self, pr: str) -> bool:
