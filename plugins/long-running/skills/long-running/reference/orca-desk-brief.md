@@ -186,7 +186,7 @@ and its `mechanism:`, `ready:`, and `fix-live:` Run statuses:
 |---|---|---|
 | `deadlines.incident_mechanism_minutes`, default 10 | a `mechanism` record or status, or a record of any kind whose text says mechanism | launches the Opus fallback and logs `INCIDENT-CLOCK <lane> mechanism` |
 | `deadlines.incident_pr_minutes`, default 15 | an `opened` record | launches the fallback unless it already did, and logs `INCIDENT-CLOCK <lane> pr` |
-| `deadlines.incident_ready_minutes`, default 20 | a `ready` record or status, or a `report` or `incident` that starts `READY` | logs `INCIDENT-CLOCK <lane> ready` with the missing milestones and the minutes each phase took |
+| `deadlines.incident_ready_minutes`, default 20 | a `ready` record or status, or a `report` or `incident` that starts `READY` | launches the fallback unless it already did, and logs `INCIDENT-CLOCK <lane> ready` with the missing milestones and the minutes each phase took |
 
 A fallback whose Orca launch fails is launched once more under `<key>:retry`. After a
 second failure, while the lane's clock runs, the runner logs
@@ -196,11 +196,13 @@ with the fallback brief's path, and launches nothing more for it.
 A later milestone counts for the earlier ones, so an opened PR also settles the
 mechanism threshold. Each threshold logs once per launch. The clock stops at `ready`,
 at a `fix-live`, `not-ours`, `stopped`, or `stand-down` record, at a `fix-live:`
-status, at a root `decide` addressed to the lane or naming it, or when the dispatch
-settles. A record posted before the launch does not count.
+status, at a root `hold` addressed to the lane or naming it, or when the dispatch
+settles. A root `decide` steers the lane and leaves its clock running: on Oct 31 the
+root's handoff `decide` stopped the runnerdb fix lane's clock a minute after launch, and
+no fallback launched. A record posted before the launch does not count.
 
 ```text
-INCIDENT-CLOCK <lane> ready: not ready 20 min after its launch at 11:02, limit 20 min; missing PR, ready; launch to mechanism 7 min, mechanism to now 13 min
+INCIDENT-CLOCK <lane> ready: not ready 20 min after its launch at 11:02, limit 20 min; missing PR, ready; launch to mechanism 7 min, mechanism to now 13 min | the Opus fallback <lane>-opus is already launched
 ```
 
 The fallback is `<lane>-opus` on opus xhigh in Claude fast mode, launched on the Mac

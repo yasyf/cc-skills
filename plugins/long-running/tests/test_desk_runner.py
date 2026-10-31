@@ -11344,7 +11344,7 @@ def test_a_silent_incident_lane_gets_one_opus_fallback_and_one_blocker_per_thres
     assert clock_lines(shell) == [
         f"INCIDENT-CLOCK {LANE} mechanism: no mechanism 10 min after its launch at 11:00, limit 10 min; launch to now 10 min | the Opus fallback {backup} is launching on opus xhigh in fast mode, brief {fallback}",
         f"INCIDENT-CLOCK {LANE} pr: no PR 15 min after its launch at 11:00, limit 15 min; launch to now 15 min | the Opus fallback {backup} is already launched",
-        f"INCIDENT-CLOCK {LANE} ready: not ready 20 min after its launch at 11:00, limit 20 min; missing mechanism, PR, ready; launch to now 20 min",
+        f"INCIDENT-CLOCK {LANE} ready: not ready 20 min after its launch at 11:00, limit 20 min; missing mechanism, PR, ready; launch to now 20 min | the Opus fallback {backup} is already launched",
     ]
     assert [(post["kind"], post["topic"]) for post in shell.posts if post["text"].startswith(f"INCIDENT-CLOCK {LANE} ")] == [("blocker", LANE)] * 3
     assert len(launches(shell)) == 2 and len(shell.entries) == 1
@@ -11373,18 +11373,31 @@ def test_a_mechanism_from_the_run_or_from_cci_stops_the_mechanism_threshold(shel
 
 
 @pytest.mark.parametrize("addressed", [True, False])
-def test_a_root_decide_naming_the_lane_stops_its_clock(shell, config, tmp_path, addressed):
+def test_a_root_hold_naming_the_lane_stops_its_clock(shell, config, tmp_path, addressed):
     clocked_lane(shell, config, tmp_path)
     shell.sleep(4 * 60)
     if addressed:
-        cci_record(shell, lane="root", kind="decide", to=[LANE], text="hold the forward edit until the bucket owner answers", at=actions.stamp(shell.clock))
+        cci_record(shell, lane="root", kind="hold", to=[LANE], text="hold the forward edit until the bucket owner answers", at=actions.stamp(shell.clock))
     else:
-        cci_record(shell, lane="root", kind="decide", to=["landing-desk"], text=f"{LANE} owns the release incident; no fallback", at=actions.stamp(shell.clock))
+        cci_record(shell, lane="root", kind="hold", to=["landing-desk"], text=f"{LANE} owns the release incident; no fallback", at=actions.stamp(shell.clock))
     orca_pass(shell, config)
     shell.sleep(16 * 60)
     orca_pass(shell, config)
     orca_pass(shell, config)
     assert clock_lines(shell) == [] and len(launches(shell)) == 1
+
+
+def test_a_root_decide_handing_the_lane_its_mechanism_leaves_the_clock_running(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(60)
+    cci_record(shell, lane="root", kind="decide", to=[LANE], text="Mechanism handed from the peer lane: the api creates run databases on the customer fleet; start from there", at=actions.stamp(shell.clock))
+    orca_pass(shell, config)
+    shell.sleep(14 * 60)
+    lane_record(shell, LANE, "mechanism")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [line.split(":")[0] for line in clock_lines(shell)] == [f"INCIDENT-CLOCK {LANE} pr"]
+    assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-opus"]
 
 
 @pytest.mark.parametrize(
@@ -11765,7 +11778,7 @@ def test_a_ready_record_stops_the_clock(shell, config, tmp_path, capsys, kind, t
     assert "- incident clock [stopped: ready] launched 11:00; mechanism +4 min, PR +12 min, ready +18 min\n" in capsys.readouterr().out
 
 
-def test_the_ready_threshold_names_the_missing_milestone_and_each_phases_minutes(shell, config, tmp_path):
+def test_a_pr_not_ready_at_the_ready_threshold_gets_the_opus_fallback_and_names_each_phases_minutes(shell, config, tmp_path):
     clocked_lane(shell, config, tmp_path)
     shell.sleep(4 * 60)
     lane_record(shell, LANE, "mechanism")
@@ -11774,10 +11787,11 @@ def test_the_ready_threshold_names_the_missing_milestone_and_each_phases_minutes
     shell.sleep(8 * 60)
     orca_pass(shell, config)
     orca_pass(shell, config)
+    fallback = written(tmp_path, f"{LANE}-opus")
     assert clock_lines(shell) == [
-        f"INCIDENT-CLOCK {LANE} ready: not ready 20 min after its launch at 11:00, limit 20 min; missing ready; launch to mechanism 4 min, mechanism to PR 8 min, PR to now 8 min"
+        f"INCIDENT-CLOCK {LANE} ready: not ready 20 min after its launch at 11:00, limit 20 min; missing ready; launch to mechanism 4 min, mechanism to PR 8 min, PR to now 8 min | the Opus fallback {LANE}-opus is launching on opus xhigh in fast mode, brief {fallback}"
     ]
-    assert len(launches(shell)) == 1
+    assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-opus"] and "had posted no ready" in fallback.read_text()
 
 
 def test_an_opus_fallback_lane_is_clocked_and_gets_no_fallback_of_its_own(shell, config, tmp_path):

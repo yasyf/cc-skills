@@ -606,7 +606,7 @@ relays to the live lane. The root ratifies from `INCIDENT` in that turn:
 Every incident fix lane the runner launched is on a 20-minute clock from its
 verified launch, with 10 minutes to a mechanism, 15 to an opened PR, and 20 to
 `ready`. The runner reads the lane's own cci records and its `mechanism:`, `ready:`, and
-`fix-live:` statuses. Past the mechanism or the PR limit it launches `<lane>-opus` itself, on
+`fix-live:` statuses. Past any of the three limits it launches `<lane>-opus` itself, on
 opus xhigh in Claude fast mode, on the lane's own brief under a fallback header.
 Each missed limit posts one blocker to the root:
 
@@ -624,8 +624,9 @@ it once more. When that fails too, it posts `INCIDENT-CLOCK <lane> in-process` n
 both failures and the fallback brief. The root starts `<lane>-opus` that turn in its
 own session, an `Agent` of type `long-running:lane-ship` on opus in fast mode with that
 brief, and never retries Orca a third time.
-`ready`, `fix-live`, `not-ours`, `stopped`, `stand-down`, or a settled dispatch
-stops the clock. Three rules keep the clock to the incident, not the lane:
+`ready`, `fix-live`, `not-ours`, `stopped`, `stand-down`, a root `hold` naming the
+lane, or a settled dispatch stops the clock. A root `decide` steers the lane and never
+stops it, so a handoff record cannot switch off the backup. Three rules keep the clock to the incident, not the lane:
 
 - Milestones count across the incident. A clocked fix lane sharing the lane's
   incident name or `incident=` slug, such as `inc-disk-cred` beside `inc-disk-fix`,

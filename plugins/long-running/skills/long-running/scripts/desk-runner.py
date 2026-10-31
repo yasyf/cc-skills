@@ -107,14 +107,14 @@ record of any kind whose text says mechanism, and its `mechanism:`, `ready:`, an
 `fix-live:` Run statuses. A lane's records
 count under `<name>` and `<name>-fix` alike, since the desk launches `<name>-fix` and its
 lane may post as `<name>`. With no mechanism at
-`deadlines.incident_mechanism_minutes` (default 10), or no PR at
-`deadlines.incident_pr_minutes` (default 15), the runner launches `<lane>-opus` once per
+`deadlines.incident_mechanism_minutes` (default 10), no PR at
+`deadlines.incident_pr_minutes` (default 15), or no `ready` at
+`deadlines.incident_ready_minutes` (default 20), the runner launches `<lane>-opus` once per
 launch, urgent, on opus xhigh in Claude fast mode, from the lane's own brief under a
 fallback header it attaches to the briefs log as `<lane>-opus.full.md` and writes to
 `<state>/briefs/<lane>-opus.full.md`, the path the blocker names, and logs
-`INCIDENT-CLOCK <lane> mechanism` or `INCIDENT-CLOCK <lane> pr`. With no `ready` at
-`deadlines.incident_ready_minutes` (default 20) it logs `INCIDENT-CLOCK <lane> ready`,
-naming the missing milestones and the minutes each phase took. A later milestone counts
+`INCIDENT-CLOCK <lane> mechanism`, `INCIDENT-CLOCK <lane> pr`, or `INCIDENT-CLOCK <lane> ready`,
+the last naming the missing milestones and the minutes each phase took. A later milestone counts
 for the earlier ones, and each threshold logs once per launch. A `-opus` lane is clocked
 and gets no fallback of its own; a lane whose `<lane>-opus` already has a live dispatch or
 a launch in flight gets no second. When the Orca launch of `<lane>-opus` fails, on load or
@@ -124,8 +124,9 @@ the fallback brief, for the root to start `<lane>-opus` in its own session as a
 `long-running:lane-ship` Agent. A fix lane gets one Opus fallback: a lane an incident
 executor adopted gets none from the clock while that executor's own Opus backup is launching
 or live, and `incident.py` launches no backup while the clock's `<lane>-opus` is. The clock
-stops at `ready`, `fix-live`, `not-ours`, `stopped`, or `stand-down`, at a root `decide`
-addressed to the lane or naming it, or when the dispatch settles, and `show` prints each clocked lane's minutes and milestones. Any milestone a sibling lane on the same
+stops at `ready`, `fix-live`, `not-ours`, `stopped`, or `stand-down`, at a root `hold`
+addressed to the lane or naming it, or when the dispatch settles; a root `decide` steers the
+lane and leaves its clock running, and `show` prints each clocked lane's minutes and milestones. Any milestone a sibling lane on the same
 incident reached, a clocked fix lane sharing the lane's incident name, its name less `-opus`, `-case<n>`, and its last
 `-<part>` such as `-fix`, `-fix-2`, or `-cred`, or its `incident=` slug, or the executor's Opus backup
 for one of them, counts as the lane's mechanism, so no mechanism fallback launches; the PR and ready thresholds stay the
@@ -1052,7 +1053,7 @@ STOPPED = "stopped"
 TEXT_MARK = re.compile(r"^(?P<mark>MECHANISM|READY)\b")
 TEXT_MARK_KINDS = ("report", "incident")
 SAYS_MECHANISM = re.compile(r"\bmechanism\b", re.IGNORECASE)
-CLOCK_DECIDE = "decide"
+CLOCK_HOLD = "hold"
 FIX_ALIAS = "-fix"
 CASE = "-case"
 LINEAGE = re.compile(rf"(?:{re.escape(CLOCK_FALLBACK)}|{re.escape(CASE)}\d+)+$")
@@ -3917,15 +3918,15 @@ class Runner:
             else:
                 try:
                     stood_down = self.stood_down(lane, launched)
-                    decided = self.decided(lane, launched)
+                    held = self.held(lane, launched)
                     clock["reached"] = self.reached(container, lane, launched)
                 except CciTailFailed as failure:
                     self.tail_failed(failure)
                     continue
                 if stood_down:
                     clock["ended"] = f"{WITHDRAWN} by {stood_down}"
-                elif decided:
-                    clock["ended"] = f"decided by {decided}"
+                elif held:
+                    clock["ended"] = f"held by {held}"
                 else:
                     clock["ended"] = next((name for name in (*CLOCK_ENDS, "ready") if name in clock["reached"]), "")
                 if not clock["ended"]:
@@ -3950,11 +3951,11 @@ class Runner:
         posted = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, f"--kind={STAND_DOWN}", f"--kind={STOPPED}")
         return next((f"#{record['seq']}" for record in posted if record["drive"] == self.config.drive and record["lane"] == ROOT and names & set(record.get("to") or []) and actions.parse_stamp(record["at"]) >= launched), "")
 
-    def decided(self, lane: str, launched: datetime) -> str:
-        """The root's `decide` since the lane's launch that is addressed to the lane or names it, as `#<seq>`, or empty."""
+    def held(self, lane: str, launched: datetime) -> str:
+        """The root's `hold` since the lane's launch that is addressed to the lane or names it, as `#<seq>`, or empty; a root `decide` steers the lane and leaves its clock running."""
         names = set(lane_aliases(lane))
-        posted = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, f"--kind={CLOCK_DECIDE}")
-        return next((f"#{record['seq']}" for record in posted if record["drive"] == self.config.drive and record["lane"] == ROOT and record["kind"] == CLOCK_DECIDE and names_lane(record, names) and actions.parse_stamp(record["at"]) >= launched), "")
+        posted = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, f"--kind={CLOCK_HOLD}")
+        return next((f"#{record['seq']}" for record in posted if record["drive"] == self.config.drive and record["lane"] == ROOT and record["kind"] == CLOCK_HOLD and names_lane(record, names) and actions.parse_stamp(record["at"]) >= launched), "")
 
     def incident_keys(self, lane: str, launch: actions.Action) -> set[str]:
         """What names the incident a fix lane works: its `incident_name`, the incident slug its launch carries, and its brief's `incident=` annotations."""
@@ -3994,7 +3995,7 @@ class Runner:
         return [container.removeprefix(LANE_PREFIX) for container in self.book.containers(LANE_PREFIX) if (clock := self.book.fact(container, CLOCK, None)) and not clock["ended"]]
 
     def overrun(self, lane: str, launch: actions.Action, launched: datetime, reached: dict[str, str]) -> None:
-        """Log each threshold the lane has passed without its milestone or a later one, once per launch; the mechanism and PR thresholds launch the Opus fallback first, and the ready threshold names the gap."""
+        """Log each threshold the lane has passed without its milestone or a later one, once per launch; each threshold launches the Opus fallback first, so a lane that stalls after its PR opens gets one too."""
         elapsed = whole_minutes(launched, self.now())
         limits = {"mechanism": self.config.incident_mechanism_minutes, "opened": self.config.incident_pr_minutes, "ready": self.config.incident_ready_minutes}
         names = list(CLOCK_MILESTONES)
@@ -4006,7 +4007,7 @@ class Runner:
                 continue
             phases = clock_phases(launched, reached, self.now())
             if name == "ready":
-                text = f"not ready {elapsed} min after its launch at {pacific(launched)}, limit {limits[name]} min; missing {', '.join(CLOCK_MILESTONES[gap] for gap in missing)}; {phases}"
+                text = f"not ready {elapsed} min after its launch at {pacific(launched)}, limit {limits[name]} min; missing {', '.join(CLOCK_MILESTONES[gap] for gap in missing)}; {phases} | {self.fallback(lane, launch, label, elapsed)}"
             else:
                 text = f"no {label} {elapsed} min after its launch at {pacific(launched)}, limit {limits[name]} min; {phases} | {self.fallback(lane, launch, label, elapsed)}"
             self.record(log, f"INCIDENT-CLOCK {lane} {label.lower()}: {text}")
