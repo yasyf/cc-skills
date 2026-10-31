@@ -53,6 +53,7 @@ QUOTED_SPAN = re.compile(r"(`+)[^\n]*?\1|\"[^\"\n]*\"|“[^”]*”")
 WITHDRAWN = re.compile(r"^\s*withdrawn\b", re.IGNORECASE)
 CARRY_SAYS = re.compile(r"(?<!\bnot )\bpatch-identical\b|\btap carries\b|\bno new behaviou?r\b(?! since (?:the |his |the owner['’]s )?tap at)|\btest-only\b|\bpure replay\b", re.IGNORECASE)
 CARRY_FORM = re.compile(rf"\bcarried\b|{CARRY_SAYS.pattern}", re.IGNORECASE)
+HEAD_ATTR = "head:"
 HEAD_MOVE = re.compile(r"\b([0-9a-f]{7,40})\s*\(was ([0-9a-f]{7,40})\)", re.IGNORECASE)
 PATCH_IDENTICAL = re.compile(r"(?<!\bnot )\bpatch-identical\b", re.IGNORECASE)
 TAP_KEPT = re.compile(r"\bno new behaviou?r since (?:the |his |the owner['’]s )?tap at ([0-9a-f]{7,40})\b", re.IGNORECASE)
@@ -130,14 +131,21 @@ def repo_pr(ref: int | str, repo: str) -> tuple[str, bool] | None:
 
 
 def head_entries(record: dict, repo: str) -> dict[str, dict] | None:
-    """Each PR in `repo` a multi-head `head` record's `fields.heads` names, to its entry of `commit` and, when given, `was` and `note`, as one `cci post --head` record carries every head a restack moved; None for a record with no `fields.heads`."""
-    if not (entries := (record.get("fields") or {}).get("heads")):
+    """Each PR in `repo` a multi-head `head` record names, to its `commit`, `was` and `note`: one `cci post --head` record carries every head a restack moved, each as the attribute `head:<pr>` = `[<was>..]<sha>[ <note>]`; None for a record with no such attribute."""
+    named = [(key.removeprefix(HEAD_ATTR), value) for key, value in ((record.get("fields") or {}).get("attrs") or {}).items() if key.startswith(HEAD_ATTR)]
+    if not named:
         return None
-    return {named[0]: entry for entry in entries if (named := repo_pr(entry["pr"], repo))}
+    entries = {}
+    for ref, value in named:
+        moved, _, note = value.partition(" ")
+        was, _, commit = moved.rpartition("..")
+        if found := repo_pr(int(ref) if ref.isdigit() else ref, repo):
+            entries[found[0]] = {"commit": commit.lower(), "was": was.lower(), "note": note}
+    return entries
 
 
 def head_of(record: dict, repo: str, pr: str) -> str:
-    """The head a `head` record names for `pr`: its `fields.heads` entry's commit, else its text's first short sha."""
+    """The head a `head` record names for `pr`: its `head:<pr>` attribute's commit, else its text's first short sha."""
     entries = head_entries(record, repo)
     return graded_head(record["text"]) if entries is None else entries.get(pr, {}).get("commit", "")
 
@@ -214,7 +222,7 @@ def head_moves(found: list[dict], drive: str, lanes: list[str], repo: str, pr: s
         if record["kind"] == "head" and (entries := head_entries(record, repo)) is not None:
             if (entry := entries.get(pr)) and entry.get("was"):
                 said = head_says(record, repo, pr)
-                moves.append((entry["commit"].lower(), entry["was"].lower(), bool(PATCH_IDENTICAL.search(said)) and not ADDS_BEHAVIOR.search(said) or any(names_head(sha, entry["commit"]) for sha in graded), record["seq"]))
+                moves.append((entry["commit"], entry["was"], bool(PATCH_IDENTICAL.search(said)) and not ADDS_BEHAVIOR.search(said) or any(names_head(sha, entry["commit"]) for sha in graded), record["seq"]))
         elif record["kind"] == "head":
             named = list(HEAD_MOVE.finditer(text))
             for move, after in pairwise([*named, None]):

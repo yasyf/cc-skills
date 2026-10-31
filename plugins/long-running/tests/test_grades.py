@@ -219,10 +219,10 @@ def test_a_multi_head_record_moves_each_pr_by_its_own_entry_and_note():
     record = {
         "seq": 1, "drive": "d1", "lane": "p8", "kind": "head",
         "refs": {"prs": ["Forge-AI/monorepo#29020", "Forge-AI/monorepo#29021"]},
-        "fields": {"heads": [
-            {"pr": "Forge-AI/monorepo#29020", "commit": "cccc333333", "was": "bbbb222222", "note": "restack, range-diff patch-identical (3 commits)"},
-            {"pr": "Forge-AI/monorepo#29021", "commit": "eeee555555", "was": "dddd444444", "note": "replay, range-diff 2 identical, 1 changed"},
-        ]},
+        "fields": {"attrs": {
+            "head:Forge-AI/monorepo#29020": "bbbb222222..cccc333333 restack, range-diff patch-identical (3 commits)",
+            "head:Forge-AI/monorepo#29021": "dddd444444..eeee555555 replay, range-diff 2 identical, 1 changed",
+        }},
         "text": "HEAD 2 PRs: #29020 cccc333, #29021 eeee555",
     }
     assert grades.head_moves([record], "d1", [], "Forge-AI/monorepo", "29020") == [("cccc333333", "bbbb222222", True, 1)]

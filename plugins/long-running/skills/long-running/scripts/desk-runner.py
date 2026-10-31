@@ -4492,7 +4492,7 @@ class Runner:
         if answered:
             self.finder_settled(action.action_id, {"answered": f"cci #{answered['seq']} from {answered['lane']}"})
             return False
-        last, prior = ("", None) if full else finder.since(reviews, records, job["head"])
+        last, prior = ("", None) if full else finder.since(reviews, records, job["head"], repo)
         attempt = action.action_id.partition("#")[2]
         directory = self.config.source.parent / finder.LANE / ((f"{job['pr']}-whole-{job['seq']}" if full else f"{job['pr']}-{job['head'][:12]}") + (f"-{attempt}" if attempt else ""))
         directory.mkdir(parents=True, exist_ok=True)

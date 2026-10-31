@@ -778,10 +778,10 @@ def test_a_multi_head_record_carries_only_the_prs_whose_own_note_says_patch_iden
     record = {
         "kind": "head",
         "refs": {"prs": ["Forge-AI/monorepo#45001", "Forge-AI/monorepo#45002"]},
-        "fields": {"heads": [
-            {"pr": "Forge-AI/monorepo#45001", "commit": "a1b2c3d4e5", "was": "0f0f0f0f0f", "note": "restack, range-diff patch-identical (2 commits)"},
-            {"pr": "Forge-AI/monorepo#45002", "commit": "c3b44a3fee", "was": "4423264aaa", "note": "replay, range-diff 1 identical, 1 changed"},
-        ]},
+        "fields": {"attrs": {
+            "head:Forge-AI/monorepo#45001": "0f0f0f0f0f..a1b2c3d4e5 restack, range-diff patch-identical (2 commits)",
+            "head:Forge-AI/monorepo#45002": "4423264aaa..c3b44a3fee replay, range-diff 1 identical, 1 changed",
+        }},
         "text": "HEAD 2 PRs: #45001 a1b2c3d, #45002 c3b44a3: restacked onto dev",
     }
     assert board_rows.carries(record, "Forge-AI/monorepo", "45001", "a1b2c3d4e5")

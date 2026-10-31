@@ -1594,7 +1594,7 @@ The orca desk runner posts that record itself once `runner.json` carries a `find
 object: `{"model": "sol", "concurrent": 2, "checkout": "<repo checkout>", "to": ["<lane>"],
 "timeout_minutes": 60}`, every member optional. On every `head` record it starts one
 codex finder for that PR and head at once, one per PR a multi-head record's
-`fields.heads` names, so a restack posts one record with every head, never one per PR; for a
+`head:<pr>` attributes name, so a restack posts one record with every head, never one per PR; for a
 single head it takes the PR from the record's PR refs or,
 when it has none, from the first `<owner/repo>#<n>` or `#<n>` of its text, beside the fidelity desks, never after them:
 over the head's own commits, those no commit on the base branch's current tip matches by

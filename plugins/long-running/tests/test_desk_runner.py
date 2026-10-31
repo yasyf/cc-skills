@@ -13138,7 +13138,7 @@ def test_one_multi_head_record_starts_a_finder_for_every_pr_its_restack_moved(sh
         "43439",
         heads["43439"],
         refs={"prs": [f"Forge-AI/monorepo#{pr}" for pr in heads]},
-        fields={"heads": [{"pr": f"Forge-AI/monorepo#{pr}", "commit": head, "was": FINDER_OLD} for pr, head in heads.items()]},
+        fields={"attrs": {f"head:Forge-AI/monorepo#{pr}": f"{FINDER_OLD}..{head} restack, range-diff patch-identical (1 commit)" for pr, head in heads.items()}},
         text="HEAD 3 PRs: " + ", ".join(f"#{pr} {head[:7]}" for pr, head in heads.items()),
     )
     orca_pass(shell, config)
