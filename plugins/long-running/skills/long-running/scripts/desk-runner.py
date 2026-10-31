@@ -968,7 +968,8 @@ SEND_ATTEMPTS = 3
 INBOX_PAGE_SIZE = 100
 UNPARSEABLE = "unparseable"
 UNREAD = "unread"
-UNREACHABLE = frozenset({"runtime_unavailable", "remote_runtime_unavailable", "runtime_timeout", "invalid_runtime_response", UNPARSEABLE})
+REMOTE_UNREACHABLE = "remote_runtime_unavailable"
+UNREACHABLE = frozenset({"runtime_unavailable", REMOTE_UNREACHABLE, "runtime_timeout", "invalid_runtime_response", UNPARSEABLE})
 ANSWER_CONFLICT = "answer_conflict"
 UNREACHABLE_FACT = "orca-unreachable"
 TRUNK_UNREAD_FACT = "trunk-unread"
@@ -1755,9 +1756,13 @@ class Orca:
         return next((lane for lane in self.lanes() if handle in (self.terminal(lane), f"dispatch:{self.receipt(lane)}")), handle)
 
     def show(self, lane: str, dispatch: str | None = None) -> Dispatch | None:
-        """The lane's dispatch as Orca shows it, or None when the lane has no receipt or Orca answers that the dispatch is gone; raises OrcaUnreachable when Orca gives no answer."""
+        """The lane's dispatch as Orca shows it, or None when the lane has no receipt or Orca answers that the dispatch is gone; a dispatch whose worker's remote runtime does not answer reads as live, so one unreachable Sprite never stops the pass (root #265048); raises OrcaUnreachable when Orca itself gives no answer."""
         dispatch = dispatch or self.receipt(lane)
-        shown = self.ask("orchestration", "worker-show", "--dispatch", dispatch) if dispatch else {}
+        shown = self.call("orchestration", "worker-show", "--dispatch", dispatch) if dispatch else {}
+        if not shown.get("ok") and shown["error"]["code"] == REMOTE_UNREACHABLE:
+            return Dispatch(lane=lane, id=dispatch, terminal=self.terminal(lane), status=REMOTE_UNREACHABLE, live=True)
+        if not shown.get("ok") and shown["error"]["code"] in UNREACHABLE:
+            raise OrcaUnreachable(": ".join(filter(None, [shown["error"]["code"], shown["error"].get("message")])))
         if not shown.get("ok"):
             return None
         result = shown["result"]
@@ -8288,6 +8293,8 @@ class Landing:
             return
         self.check_precondition(Graded({pr: view["headRefOid"]}, {pr: row}, self.runner.now(), act=True))
         with DIRECT_MERGING:
+            if self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "state", "--jq", ".state", max_age=ghread.FRESH)).out.strip() != "OPEN":
+                return
             landing, refused = self.rebased([pr], {pr: view["headRefOid"]}, {pr: row})
             if refused:
                 if not self.book.known(LANDING, ask := f"rebase-direct:{pr}@{view['headRefOid']}"):
@@ -9459,7 +9466,8 @@ class Landing:
         try:
             self.gate_rows(rows, held, not off)
         finally:
-            self.close_settlement(off)
+            if not self.runner.stop_requested():
+                self.close_settlement(off)
         self.runner.overdue(LANDING, "landing")
 
     def gate_rows(self, rows: dict[str, dict], held: list[str] | None, gating: bool) -> None:

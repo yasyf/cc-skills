@@ -832,6 +832,8 @@ class FakeShell(runner_module.Shell):
             if argv[3] not in self.dispatches:
                 return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "dispatch_not_found", "message": f"no dispatch {argv[3]}"}}), "")
             dispatch = self.dispatches[argv[3]]
+            if dispatch.get("remote_down"):
+                return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "remote_runtime_unavailable", "message": "Could not connect to the remote Orca runtime."}}), "")
             if "settles_in" in dispatch:
                 dispatch["settles_in"] -= 1
                 if not dispatch["settles_in"]:
@@ -7862,6 +7864,24 @@ def test_an_admitted_head_no_branch_settles_is_refused_unsettled_to_the_watchdog
 
 
 
+
+def test_a_pass_a_handoff_stops_mid_gate_posts_no_unsettled_refusal(shell, config, tmp_path):
+    """drive-watchdog-2 #265236: the 0.7.744 landing pass the 1:46 PM Oct 31 handoff stopped mid-gate posted #46657, #46865 and #46882 as unsettled runner defects."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.queue["33001"] = "not queued"
+    marker = landing_of(shell, config, tmp_path).runner.stop_marker()
+    run = shell.run
+
+    def handed_off(argv, *args, **kwargs):
+        if Path(argv[0]).name == "stack-enqueue" and "--check" in argv:
+            marker.write_text(str(os.getpid()))
+        return run(argv, *args, **kwargs)
+
+    shell.run = handed_off
+    landing_pass(shell, config)
+    assert [post for post in shell.posts if post["kind"] == "defect"] == []
+
 def test_a_check_that_reads_no_remote_branch_refuses_the_head_to_its_lane_never_unsettled(shell, config, tmp_path):
     """Root #262354: origin had no refs/heads/pod-volume-slots for #46738, its stack check ended there, and the runner posted the head unsettled as a runner defect."""
     merge_mode(config, "every")
@@ -8865,6 +8885,19 @@ def test_a_delivered_relay_is_never_failed_or_reported_again_when_its_dispatch_e
     assert len(shell.sends()) == 1
     assert [line for line in escalations(shell) if not line.startswith("RECLAIM")] == [f"RELAY-FAILED R440 {LANE}: no live dispatch (ctx_a is completed); nothing was relayed"]
 
+
+
+def test_a_worker_on_an_unreachable_remote_runtime_stops_no_pass_and_other_lanes_still_get_their_relays(shell, config, tmp_path):
+    """Root #265048: from 12:55 PM Oct 31 seven workers' Sprite runtimes gave no answer, worker-show raised for each, every orca pass stopped before it read cci, and the incident launch R84867 got no verdict for 17 minutes."""
+    shell.launch(LANE, "ctx_a")
+    shell.launch("sprite-lane", "ctx_b")
+    shell.dispatches["ctx_b"]["remote_down"] = True
+    orca_pass(shell, config)
+    cli(shell, config, "relay", "--key", "R440", "--lane", LANE, "--text", "post the status")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [call[call.index("--thread-id") + 1] for call in shell.sends()] == [thread("R440")]
+    assert not any(line.startswith("ORCA-UNREACHABLE") for line in escalations(shell))
 
 UNREACHABLE_FAILURES = [
     runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "runtime_unavailable", "message": "Could not connect to the running Orca app. Restart Orca."}}), ""),
@@ -15289,6 +15322,16 @@ def test_an_approved_green_incident_fix_behind_dev_merges_rebased_onto_the_tip_o
     else:
         assert merges(shell) == [["gh", "pr", "merge", "36650", "--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit", shell.replayed[0][2]]] and asked == []
 
+
+
+def test_an_incident_fix_merged_while_its_squash_waited_is_never_rebased_or_pushed(shell, config, tmp_path):
+    """Root #265100: #46888 merged as 299544d3 at 1:34 PM Oct 31 while the runner's squash waited its turn, and the runner then rebased its branch to 9de73e2, pushed it and waited ten minutes for an approval."""
+    incident_pr(shell)
+    shell.trunk = [{"oid": "9999dddd00"}]
+    shell.behind[INCIDENT_HEAD] = 3
+    shell.pr_states["36650"] = "MERGED"
+    landing_pass(shell, config)
+    assert shell.pushes == [] and merges(shell) == [] and [post for post in blockers(shell) if "lands only rebased" in post_body(post)] == []
 
 @pytest.mark.parametrize("approval", ["dismissed", "old-head"])
 def test_while_graphite_is_down_a_rebased_pr_whose_approval_does_not_come_back_in_ten_minutes_never_merges_and_names_the_bot(shell, config, tmp_path, approval):
