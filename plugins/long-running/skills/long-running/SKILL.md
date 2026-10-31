@@ -1657,8 +1657,7 @@ record already names gets no second pass, and the runner holds at most
 exited with no result, frees its slot and runs again, up to three attempts; the third
 failure is one `FINDER-FAILED` to root, and root asks `finder-desk` for `finder: whole` on the PR. A
 `FINDER-PENDING` head with no pass waiting or running queues one again, and passes left
-waiting 15 minutes with none settling are one `FINDER-DESK-STALLED` to root. `finder-desk` posts once per pass, so `LANE-GONE` never counts it
-as a lane.
+waiting 15 minutes with none settling are one `FINDER-DESK-STALLED` to root.
 
 Fidelity grading of heads runs the same way once `runner.json` carries a `fidelity`
 object: `{"model": "sol", "concurrent": 6, "baseline": "<live old-app baseline>", "to":
@@ -1869,15 +1868,13 @@ lane, each `landing.board_lane`, and the PR's owning lane, each read as its live
 successor, and not to root. A ledger row that settles landed with no enqueue or squash of the
 runner's own, queued by hand or landed in a batch it did not enqueue, gets its own `LANDED`
 record the pass the ledger reads its squash. A `GO-UNQUEUED`, `GO-TAP-MISSING` or `REFUSED` for a PR goes to each
-`landing.go_lanes` lane, the desk lanes and the owning lane, and to root only when the owning lane is dead. A `LANE-GONE` for a lane goes to root every time, and to those lanes and
-the gone lane too after the first, since only root relaunches a lane. Without
+`landing.go_lanes` lane, the desk lanes and the owning lane, and to root only when no lane owns the PR. Without
 `landing.desk_lane` they go to root.
 
 *Prevents Oct 26 11:33 PM: a go'd, approved, all-green PR sat out of the queue for 45
 minutes because no desk checked how long a go had waited. Oct 27 7:07 PM: the bot held
 a green PR on 2 blocking findings five minutes after its push, and the runner and root read
-it as no verdict for 19 minutes. Oct 28 12:31 AM: repeat `LANE-GONE` records for two
-lanes went to the desks only, and root, the one lane that relaunches, learned 25 minutes late twice.*
+it as no verdict for 19 minutes.*
 
 **A PR left on a legacy Graphite base is resubmitted.** Each pass, the runner takes the lowest open
 drive PR whose ledger base starts with `graphite-base/`, where a landed parent on a legacy
@@ -3167,8 +3164,8 @@ Bus: cci drive <drive>; CLI cci, on PATH by name.
     before you change or retract a record. Set the topic and recipients on replies.
     A SendMessage carries the entry number, never the body.
 Registration: the pack binds your thread to your lane before your first command runs, with
-  one `<lane>: registered at its first command` state record, and the stall watch tells root
-  about a lane that has neither posted nor bound three minutes after its `SPAWNED` record.
+  one `<lane>: registered at its first command` state record; a codex lane's brief copy makes
+  that post its first command.
 Peers: put your `cci me` line in every handoff. `cci who --pr <n>` names the session that
   owns a PR and `cci who --drive <drive> --role root` the root; SendMessage the address it prints.
 Codex: call `Skill(codex)` or `codex:codex-wrapper`; a one-off question goes to `codex-ask`.
@@ -4485,146 +4482,48 @@ is injected under the same 2,000-byte budget: a line naming `ccn doc show <id7>`
 the plan, then the head of the record's body. Resume keeps the prior context,
 so the hook does not re-inject the register.
 
-### Lane rotation
+### Lane supervisor
 
-Every turn a lane takes re-reads its whole history. A desk at 400k tokens pays about
-that many tokens again per wake to type in a three-line report, while everything it
-needs to continue already sits on its ledger. Rotation flushes a long-lived lane in
-place. Claude Code's own compaction shrinks its context; the same lane resumes from
-its ledger and cursor with its identity intact.
+`scripts/drive_supervisor.py` runs under launchd and keeps every lane the drive needs
+alive, with no root action. Each tick reads the bus once and `cci who` once:
 
-**Threshold.** A lane's context is its last assistant turn's input plus cache tokens.
-A lane is due at 0.7 of its own compaction threshold, computed from its live model the
-way Compaction handoff describes. On a 600k window, that lands around 400k tokens.
-`LONG_RUNNING_LANE_ROTATE_TOKENS` sets the line outright. Once `long-running` is
-invoked, the same capt-hook pack checks the lanes on every main-session `Stop`, and
-never blocks it. The check reads only the root transcript's newest 256 events. Without that
-window a hook reads the newest 4 MiB, and on a long drive that projection exceeds
-capt-hook's snapshot output limit, so capt-hook skips the hook.
+- **Registry.** A lane enters the `lanes` table of the drive store from the `SPAWNED`
+  state record that `drive.py spawned` posts at each Orca launch and drive-lane spawn,
+  with its brief, model, effort and role. Helper roles and `<lane>-handoff` writers stay
+  out. `opened` records add PRs to a lane, `landed` records drop them, a root
+  `decide ... owner=<lane>` moves them, `done` retires the lane, and a root `stand-down`
+  retires it or hands it to the successor it names.
+- **Liveness.** A lane is alive while `cci who` lists it live and it was heard within
+  `STALE_AFTER`, 15 minutes, the one rule the store's `stale_workers` also applies. A live
+  lane beats in the workers table each tick.
+- **Relaunch.** A lane that stopped or went silent gets one `stand-down --successor
+  <lane>-<n+1>` record carrying its PRs, so cci delivers the old name's mail to the
+  successor. The supervisor writes the successor brief: the old brief, the newest
+  handoff doc or the order to spawn `<lane>-handoff` from
+  [reference/handoff-subagent-brief.md](reference/handoff-subagent-brief.md) when there
+  is none, and the `drive.py lane-status` live-process check before any write. It
+  launches the successor with `desk-launch.py lane` and posts one `RELAUNCHED` report.
+- **Rotation.** A live lane past its context line gets one `ROTATE` ask on cci. A
+  `handoff --ccn <doc>` reply, or no reply within the interval, rotates it the same way.
+- **Holds.** A launch not live 15 minutes later, a lane whose successors die within 15
+  minutes twice running, or a lane whose brief is gone is held, with one blocker to root.
+- **Report.** Once an hour, one owner-facing report to root names each lane it restarted
+  and why.
 
-**Liveness.** A lane is live only while it appears as a running teammate or subagent in
-the `Stop` payload's `background_tasks`. A subagent matches by id. Claude Code labels
-an in-process teammate by its prompt's first 50 characters plus `...`, not by the
-`description` in its meta, so a teammate matches on either one. Many lanes share one
-label, so a label match only counts a running task and never names one.
-
-A lane is finished when no `pending` or `in_progress` task in the root's task list
-covers it. Coverage matches the lane name as task owner, `lane <name>` in the
-subject or a name mention in the subject. A finished lane is never asked or
-escalated. If it finishes after an ask, the hook drops the ask and records
-`finished` in the rotation timeline.
-
-A teammate must also still be on its team's roster,
-`~/.claude/teams/<team>/config.json`; membership alone never counts. A live teammate
-always reads its inbox, so a lane whose transcript has not moved in the 10 minutes
-after an inbox ask is gone until it moves again. A lane whose newest turn is more than
-an hour behind the root's is dormant. Its cache is cold, it costs nothing until it
-wakes, and the hook skips it.
-
-**Delivery.** The hook asks the lane itself, appending the request to the lane's
-teammate inbox, `~/.claude/teams/<team>/inboxes/<name>.json`, in Claude Code's own
-message format and under its lock:
-
-`ROTATE: record anything not yet in the ledger or cc-notes, reply "flushed <ids>" to team-lead, then keep working.`
-
-It asks at most three new lanes per 15 minutes, highest token count first. A lane
-already asked is asked again every 30 minutes until it replies with a first line
-starting `flushed`, with no cap. Re-asks do not count toward the limit for new lanes.
-
-A lane with no teammate inbox is asked through the root. The hook queues a
-``ROOT-ACTION `<lane>`: SendMessage it now ...`` line carrying the same `ROTATE` text
-into the root's context on its next tool call or prompt. The root sends the request
-with `SendMessage` to the lane's name in that turn.
-
-**Handoff.** A reply starting `flushed` confirms the lane recorded its state and
-keeps working; it ends the rotation cycle for good. The hook never asks that lane
-again, whatever its context does afterwards. The hook nudges the root once: the lane
-keeps running in place, nothing to do. After its own compaction, the lane reads its ledger
-and saved cursor and continues. Never `TaskStop` or respawn a flushed lane, and
-never spawn a second agent under a live lane's name. An `open-pr:pr-watcher` resumes
-from its state file after its own compaction.
-
-A lane that drops below its line through its own compaction or leaves
-`background_tasks` because it stopped or rotated also ends the cycle. A lane that
-received a `STAND-DOWN` message from `team-lead`, still queued in its teammate inbox
-or already delivered into its transcript, is never asked or escalated, since its
-successor already owns the work. Neither is a lane that has a `<lane>-handoff`
-subagent and a live numbered successor: `alerts-watch` once `alerts-watch-2` runs,
-`desk-3` once `desk-4` runs, nor a lane a successor's brief names on a
-`Replaces: <lane>` line. Numbered siblings with no handoff are still asked.
-
-A live, awake, unfinished lane over its line gets a `ROOT-ACTION` after 10 minutes
-without a reply starting `flushed` to its first ask, subject to the cap below. A later
-main-session `Stop` queues ``ROOT-ACTION `<lane>`: Rotate it by hand: ...``. This line
-and the no-inbox `ROOT-ACTION` ask share a cap of one line per lane per two hours;
-a new ask does not reset it. The escalation has three steps:
-
-0. Stop the old lane with `TaskStop`, its name as `task_id`. Never `SendMessage` it
-   again, a stand-down included: a message resumes a stopped lane on its stale brief.
-1. Spawn `<lane>-handoff` as a subagent from
-   [reference/handoff-subagent-brief.md](reference/handoff-subagent-brief.md) to write
-   a cc-notes doc. Pass the previous handoff's doc id, if any. It returns the new
-   doc id, plus at most three lines on what it could not reconstruct.
-2. Spawn `<lane>-N+1` from that file's successor brief, then the old lane's brief, the
-   doc id, read with `ccn doc show <id>`, and the cursor it names. `alerts-watch`
-   becomes `alerts-watch-2`; `desk-3` becomes `desk-4`. The successor's first act is
-   `drive.py lane-status <lane>` and a check that no process still works in any
-   worktree it lists; with one live, it writes nothing and posts a `blocker` to root.
-
-Each firing replaces that lane's previous queued `ROOT-ACTION` line instead of
-adding another. The root acts on it in the turn it arrives. A reply starting
-`flushed` cancels the rotation.
+A fresh store adopts only the lanes live at that moment, and a tick whose sources do not
+all answer acts on nothing. The supervisor signals no process: a lane leaves only
+through the record that stands it down.
 
 A `SendMessage` to a rotated or stood-down lane resumes it on its stale brief. The pack
 rewrites every such message, from any sender, to the end of the lane's successor chain,
-which it reads from this session's rotations and from cci's stand-down records
-(`cci post --lane root --kind stand-down --to <old> --successor <new>`, read back with
-`cci who --successor-of <lane>`), and reminds the root to `TaskStop` the old lane; a
-message that mentions a stand-down is never forwarded, only warned. Spawning `<lane>-N+1`
-beside `<lane>-handoff`, or any successor whose brief carries `Replaces: <lane>`, rotates
-the old name, and the pack posts that stand-down record itself, so cci also delivers to the
-successor every record a desk, script or lane addresses to the old name. A `TaskStop`, by name, `<name>@<team>`, or agent id, or a root `STAND-DOWN`
-retires a lane with no successor: a lane's or worker's message to it goes to `main`
-instead, and the root's is warned once cci records the stand-down. No case blocks.
-Respawning under the name clears both.
+which it reads from this session's spawns and stops and from cci's stand-down records
+(`cci who --successor-of <lane>`); a message that mentions a stand-down is never forwarded, only warned. A `TaskStop` or a
+root `STAND-DOWN` retires a lane with no successor: a lane's or worker's message to it
+goes to `main` instead. No case blocks. Respawning under the name clears both.
 
-The same swap applies to a lane that died or outgrew its line before any ask. The
-root never reconstructs a handoff inline. It never opens a lane's transcript, its
-receipts, its cursor files, or a runtime listing such as `orca orchestration
-task-list` for a rotation. The handoff subagent reads all of them in its own
-context; the root holds only the doc id it returns.
-
-The session's hook state directory holds `rotation_state.json`. Its `retired` map
-names each retired lane's successor, or null for a lane stopped with none, and
-`blocked` lists the rotated lanes whose first `SendMessage` the pack blocked. Its
-`timeline` list records one entry per `ask`, `flushed`, `compacted`, `finished` or `gone`
-event. An `ask` entry holds `via` as `inbox` or `root`, `tokens`, and `line`. A
-`flushed` entry holds `ids`, the first line's tokens containing a digit. A
-`compacted` entry holds `tokens`. An `escalate` entry holds its first `at`, latest
-`last`, `count`, and `tokens`; consecutive escalations for the same lane update
-that entry.
-
-*Prevents stopping and respawning lanes from ending live sessions during the
-release-v3 drive (2026-09-30).*
-
-*Prevents a rotated lane resuming on its stale brief from the root's stand-down
-`SendMessage`, pushing to its successor's PR and entering the successor's conflict
-worktree until the root ran `TaskStop` by name 25 minutes later (2026-10-27).*
-
-*Prevents alerts-watch sitting over its line from 07:02Z until the owner ordered its
-rotation by hand (release-v3, 2026-10-01).*
-
-*Prevents landing-desk-7 passing 500k tokens with no `ROOT-ACTION`: every rotation
-check was skipped for exceeding the snapshot output limit on a 174 MB root transcript
-(release-v3, 2026-10-02).*
-
-*Prevents a `ROOT-ACTION` for ccx-guard-eperm naming four different task ids
-across four firings, three of which stopped other lanes sharing its label
-(release-v3, 2026-10-01).*
-
-*Prevents the root rebuilding orca-desk's handoff inline, in about 15 tool calls
-over its 44 MB transcript, spawn brief, cursor files, receipts, and Orca task list,
-until the owner said it was polluting its context (release-v3, 2026-10-01).*
+*Prevents five stacks of owner-approved PRs sitting unrebased overnight because their
+lanes had died and nothing restarted them until the root noticed hours later
+(durable-agents-rebuild, 2026-10-31).*
 
 ## Anti-patterns seen
 
@@ -4725,7 +4624,7 @@ until the owner said it was polluting its context (release-v3, 2026-10-01).*
 15. Is a production alert active? This turn, `incident.py open` with the owner's grants and `incident.py run` in the background, before any verdict, depth mandate, or question. After that, answer only the executor's decisions and relay its `opened`, `live`, and `closed` milestones in Pacific time.
 16. Did I just spawn an Agent lane, take an owner ask, or consume its deliverable? → `TaskCreate`/`TaskUpdate` this turn; a lane's word alone completes nothing. Runner actions use their action records under R5, never shadow tasks.
 17. Am I about to ask the owner anything (a question card, a planning-round board, a lane's question list)? → check each question against the plan's decisions, `ccn answer list --label scope:durable`, and memory first; apply what is settled and ask only the rest.
-18. Am I about to swap a lane because it missed `ROTATE`, outgrew its line, or died? `TaskStop` the old lane by name first and never `SendMessage` it again, spawn `<lane>-handoff` from `reference/handoff-subagent-brief.md`, take back only the doc id, then spawn the successor from that file's successor brief with that id; never open the lane's transcript, receipts, or runtime listings myself.
+18. Am I about to swap a lane by hand? The lane supervisor relaunches a dead lane and rotates one past its line; I only move a lane's PRs with `decide ... owner=<lane>` and never open a lane's transcript, receipts, or runtime listings myself.
 19. Before writing a desk brief or handoff with an owner rule, record each standing
     rule as its own cci `go` record with `--topic standing` and `--ccn <answer id>`
     under I6. Never mark it done. Only a later `correction` record with

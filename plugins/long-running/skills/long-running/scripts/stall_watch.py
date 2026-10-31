@@ -47,9 +47,8 @@ its ledger row names, it finds:
               PR's lane) and the command the refusal quotes, and it stands until that lane posts a
               `head` record naming a PR the refusal names or answers it by `--re`, a record closes it,
               a QUEUED record names the PR, or the PR moves off that head or leaves the ledger; at
-              `stall.minutes.refusal` it posts to root and the lane, naming the command, and at
-              `stall.minutes.successor` it posts again, to root alone, as `successor`, asking root to
-              spawn the lane's successor to run it
+              `stall.minutes.refusal` it posts to root and the lane, naming the command; a lane that
+              died is the lane supervisor's to relaunch, never a stall
     red       the head's `landing.trunk_check` check, such as `buildkite/test`, has read failed for
               `stall.minutes.red`, counted from its ledger row's `red_at`, the refresh that first read
               the head's build red, held or not; it names the failed Buildkite job, its first error
@@ -105,14 +104,6 @@ its ledger row names, it finds:
 
 and, across the drive:
 
-    lane      a lane owning an in-progress task on the root's task list posted nothing past the time
-              its last record promised, or for `stall.minutes.lane`, counted for a lane with no
-              record yet from when its task file was last written; a lane owes a reply to an open
-              ask addressed to it since its last record, or to a decide or correction that gives it
-              an order as `<lane>: ...`, and stalls once the oldest is `stall.minutes.lane` old; a lane that owes no
-              reply and whose open PRs are none red, conflicting, needing a restack, or waiting on
-              its answer to the reviewer bot is idle when it has open PRs or its last record is a
-              done or READY one
     ask       a lane's `ask` to root is open, and no root record answers it
     pick      board-watch's `needs-lane:<block>` ask to root for an owner pick or write-in is open, and no
               lane is bound to it: no record resolves it or answers it by `--re`, no `claim`, no record of a
@@ -152,32 +143,24 @@ and, across the drive:
     desk      a desk runner that posted a `<desk> alive` record in the window posted none for
               `stall.minutes.desk`; the record is its heartbeat wherever it runs, and the stall goes
               to root with the restart command the runner's newest record carries
-    unregistered a lane a `SPAWNED <lane> <brief>` state record names, which `drive.py spawned` posts at
-              each drive-lane Agent spawn and Orca launch, has for `stall.minutes.unregistered` neither
-              posted a record nor been bound as that lane in `cci who --drive <drive> --all` since; one
-              stall to root names the lane and its brief
 
-A sub-worker whose name extends a live lane's, such as `mq-health-4-supervise` under `mq-health-4`, is that lane's
-own: its lane and unregistered stalls go to that lane, never to root, and name the step that lane owes, having it post
-one state line as its first act. A numbered successor such as `mq-health-4-2` extends no lane.
+A lane's own liveness, whether it stopped, went silent or outgrew its context, is the lane supervisor's
+(`lr/movers/lanes.py`), which relaunches it with no root action; no stall names a lane for its silence.
 
-Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, successor 20, red 2, unclassed 20, unfixed 60, sweep 20, order 3, tap 10, ungraded 10, finder 30,
-fidelity 30, running 25, board 15, carry 20 (one fidelity pass), lane 30, ask 15, pick 15, gate 30, stale 120, desk 10, shape 30, unregistered 3. A PR's head is as old as the first record about the
+Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, red 2, unclassed 20, unfixed 60, sweep 20, order 3, tap 10, ungraded 10, finder 30,
+fidelity 30, running 25, board 15, carry 20 (one fidelity pass), ask 15, pick 15, gate 30, stale 120, desk 10, shape 30. A PR's head is as old as the first record about the
 PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record. A board
 stall counts from the latest of its finder ok, its fidelity ok, and its ledger row's `green_at`, the refresh that
 first read the head's build green, since the board refresher puts a row up only once the build is green.
-A quiet lane whose last record names an owner card still open and unanswered on the board waits on the
-owner, not on itself, and stalls only once the card is answered or leaves the board.
-Three questions need judgment, and one call per pass through the drive's judge library,
-`long_running.judge.batch`, Sonnet at low effort, answers all of them: whether a PR's new head is
-a patch-identical restack of the tapped one or adds no new behavior, read from its lane's `head` records, and whether a quiet
-lane's last record explains its silence and by when it promised its next state, and whether a relayed owner
+Two questions need judgment, and one call per pass through the drive's judge library,
+`long_running.judge.batch`, Sonnet at low effort, answers both: whether a PR's new head is
+a patch-identical restack of the tapped one or adds no new behavior, read from its lane's `head` records, and whether a relayed owner
 order names a change that ships as a new PR. The call is logged as judge kind `stall` in the drive's
 `judge/calls.jsonl`, so `drive.py digest` counts it. A verdict is kept
 against the records it read, so no question is asked twice; a call that fails leaves each question to
 its mechanical answer.
 
-A stall's id names its kind and subject, such as `finder:43439:abc1234` or `lane:fidelity-desk`, and it
+A stall's id names its kind and subject, such as `finder:43439:abc1234` or `ask:259880`, and it
 posts once while it stands: `cci post --lane stall-watch --kind urgent --to root,<owner>@<drive>` reading
 `STALL <kind> <subject>, <age> min: <what stopped> | owner <lane> | <next step>`, or `STALE <subject>, ...`
 for a stale PR. A stall every owner of which is a desk, a lane named `<x>-desk` or `<x>-desk-<n>`, goes to
@@ -206,12 +189,12 @@ import signal
 import subprocess
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from functools import cache, cached_property
+from functools import cached_property
 
 from long_running import actions, judge
 from long_running import board_rows
@@ -230,7 +213,7 @@ ROOT_NAMES = frozenset({ROOT, "main"})
 NOT_LANES = frozenset({*ROOT_NAMES, "team-lead", LANE, RUNNER})
 PACIFIC = ZoneInfo("America/Los_Angeles")
 WINDOW_HOURS = 24
-MINUTES = {"go": 10, "silent": 15, "refusal": 10, "successor": 20, "red": 2, "unclassed": 20, "unfixed": 60, "sweep": 20, "order": 3, "tap": 10, "ungraded": 10, "finder": 10, "fidelity": 10, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "lane": 10, "ask": 15, "pick": 15, "gate": 10, "stale": 120, "desk": 10, "shape": 10, "unregistered": 3}
+MINUTES = {"go": 10, "silent": 15, "refusal": 10, "red": 2, "unclassed": 20, "unfixed": 60, "sweep": 20, "order": 3, "tap": 10, "ungraded": 10, "finder": 10, "fidelity": 10, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "ask": 15, "pick": 15, "gate": 10, "stale": 120, "desk": 10, "shape": 10}
 DESK_KINDS = frozenset({"finder", "fidelity"})
 ROOT_KINDS = frozenset({"missing", "unclassed", "unfixed"})
 REPOSTED = frozenset({"red"})
@@ -245,11 +228,9 @@ REASSIGNS = re.compile(r"\breassign", re.IGNORECASE)
 CLAUSE = re.compile(r"[;\n]|\.\s")
 REASSIGNED_TO = re.compile(r"\bto\s+([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b")
 QUIET = timedelta(minutes=10)
-PR_KINDS = frozenset({"go", "refusal", "successor", "red", "unclassed", "unfixed", "tap", "ungraded", "finder", "fidelity", "missing", "regrade", "board", "carry", "stale"})
+PR_KINDS = frozenset({"go", "refusal", "red", "unclassed", "unfixed", "tap", "ungraded", "finder", "fidelity", "missing", "regrade", "board", "carry", "stale"})
 BOARD_KINDS = frozenset({"tap", "board", "carry"})
 REVIEW_HELD = frozenset({"neutral", "failure"})
-PROMISE_FLOOR = timedelta(minutes=10)
-EXPLAINED_CEILING = 4
 HEAD_RECORDS = 4
 LISTED = 5
 QUOTE = 160
@@ -304,24 +285,20 @@ CONFLICTS = "conflicts with its base"
 BASE_DRIFT = "base drifted to "
 BOT_HOLDS = "the reviewer bot holds it"
 NO_VERDICT = "no reviewer bot verdict on this head"
-LANE_OWES = (RED, CONFLICTS, BASE_DRIFT, BOT_HOLDS, NO_VERDICT)
 PR_REF = re.compile(r"#(\d+)")
-SETTLED = frozenset({"done", "ready"})
 READY = re.compile(r"\b(?:READY|DONE)\b")
 NO_ROW = re.compile(r"\bno row\b", re.IGNORECASE)
 PULLED = re.compile(r"\bpull(?:s|ed)?\b[^.]*\brows?\b", re.IGNORECASE)
 ASK_WORD = re.compile(r"\b(?:card|pick)\b", re.IGNORECASE)
 BLOCK_WORD = re.compile(r"[\w-]+")
 ENDED = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
-WORKER_KINDS = frozenset({"lane", "unregistered"})
-NUMBERED = re.compile(r"\d{1,2}(?:-\d{1,2})*")
-SPAWNED = re.compile(r"^SPAWNED (?P<lane>[\w.-]+) (?P<brief>\S+)")
 DESK = re.compile(r"(?:.+-)?desk(?:-\d{1,2})?")
 REPEAT = timedelta(minutes=30)
 STACKS_FILE = "landing-stacks.json"
 GATE_REPEAT = timedelta(hours=1)
 WAITS_ON = re.compile(r"\b(?:waits?\s+(?:only\s+)?on|blocked\s+on)\s+#(\d+)|\bwhen\s+#(\d+)\s+lands\b", re.IGNORECASE)
 LANDED = re.compile(r"^LANDED\s+#(\d+)\b")
+SPAWNED = re.compile(r"^SPAWNED (?P<lane>[\w.-]+) (?P<brief>\S+)")
 NEEDS_LANE = "needs-lane:"
 BOARD_WATCH = board_rows.OWNER_LANE
 TAP_NOTE = re.compile(r"^TAP-(?:KEPT|NOT-CARRIED|CARRIED(?:-BY-PATCH)?) #(\d+): .*?\b(?:keeps at|does not carry to|now stands at) ([0-9a-f]{7,40})\b")
@@ -339,8 +316,6 @@ SCHEMA = json.dumps(
                         "restack": {"type": "boolean"},
                         "fix": {"type": "boolean"},
                         "pr": {"type": "boolean"},
-                        "explained": {"type": "boolean"},
-                        "promised": {"type": "string"},
                         "why": {"type": "string"},
                     },
                     "required": ["id", "why"],
@@ -353,8 +328,6 @@ SCHEMA = json.dumps(
 PROMPT = """You read coordination records from a multi-agent software drive and answer each question below. It is {now} UTC ({pacific} Pacific).
 
 A question of kind "restack": the owner approved a pull request at tapped_head, and it now sits at head. The records are the lane's own `head` announcements for that PR, oldest first. Answer restack true only when they say head replays the tapped change unchanged: a rebase or restack onto a newer base that adds no commit, fix, or test of its own. Answer fix true when every commit head adds beyond the tapped change adds no new behavior of its own: a fix for a finding a reviewer, a reviewer bot, the finder, or a red CI build raised, a conflict resolution, or their tests; the owner's rule keeps his approval over any change that adds no new behavior. Answer both false when head adds new behavior, or the records do not say what it adds.
-
-A question of kind "silence": a lane has posted nothing for minutes_silent minutes since last_record. Answer promised with the RFC 3339 UTC time by which that record says the lane's next state or result will come, such as "next state by 1:30 PM", "back in 20 minutes", or "ETA 13:05", reading a time with no zone as Pacific and a relative time from last_at; leave promised empty when it names none. Answer explained true only when the record names something the lane waits on that takes this long, such as a CI build, a release, or a long command it runs; a record that reports finished work, asks a question, or says nothing of what comes next is explained false.
 
 A question of kind "order": root relayed the owner's order in a decide record. Answer pr true only when the order tells a lane to make a change that ships as a new pull request, such as a revert, a fix, a port, or new code. Answer pr false when it orders only a merge, a release, a hold, a reply, a rule, or a question, or names no action.
 
@@ -498,17 +471,6 @@ def short(sha: str) -> str:
 
 def lanes_of(value: str | list[str]) -> list[str]:
     return [value] if isinstance(value, str) else list(value)
-
-
-def task_owners(session: str) -> dict[str, list[tuple[str, datetime]]]:
-    tasks = drive.drives_dir().parents[1] / "tasks"
-    owners: dict[str, list[tuple[str, datetime]]] = {}
-    for directory in (tasks / session, tasks / f"session-{session[:8]}"):
-        for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
-            task = json.loads(path.read_text())
-            if task.get("status") == "in_progress" and task.get("owner"):
-                owners.setdefault(task["owner"], []).append((str(task["id"]), datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)))
-    return owners
 
 
 def carried_heads(head: str, carries: list[tuple[str, str]]) -> set[str]:
@@ -683,33 +645,18 @@ class Pass:
         handoff = self.lane_newest.get(f"{lane}-handoff")
         return named[1] if handoff is not None and (named := HANDED_TO.search(handoff["text"])) else lane
 
-    def parent(self, lane: str) -> str | None:
-        """The live lane whose name `lane` extends, such as `mq-health-4` for `mq-health-4-supervise`; a numbered successor such as `mq-health-4-2` extends no lane."""
-        parents = [name for name, record in self.lane_newest.items() if lane.startswith(f"{name}-") and record["kind"] not in ENDED and not NUMBERED.fullmatch(lane[len(name) + 1 :])]
-        return max(parents, key=len, default=None)
-
-    def to_parent(self, stall: Stall) -> Stall:
-        """A sub-worker's lane and unregistered stalls go to the lane that owns it, never to root, and that lane has it post one state line as its first act (root #235327)."""
-        if stall.kind not in WORKER_KINDS or not (parent := self.parent(stall.subject)):
-            return stall
-        return replace(stall, owner=(parent,), step=f"{parent} has {stall.subject} post one state line as its first act")
-
     def run(self, dry_run: bool) -> int:
         saved = json.loads(self.watch.state.read_text()) if self.watch.state.is_file() else {"open": {}, "verdicts": {}}
         self.probe_day = saved.get("probe_day", "")
         records = [record for record in cci.records(self.tail, self.watch.drive, since=actions.stamp(self.now - self.watch.window)) if record["drive"] == self.watch.drive]
         self.lane_newest = {record["lane"]: record for record in records}
-        if (session := drive.root_session(self.watch.drive)) is None:
-            self.warn({"lane"}, f"no drive registry entry for {self.watch.drive} names a root session, so the task list does not read")
         stalls, questions, entries = self.prs(records)
-        lane_stalls, lane_questions = self.lanes(records, session, entries)
-        stalls += lane_stalls + self.asks(records) + self.picks(records) + self.gates(records) + self.desks(records) + self.unregistered(records) + self.shapes()
-        questions += lane_questions + self.orders(records)
+        stalls += self.asks(records) + self.picks(records) + self.gates(records) + self.desks(records) + self.shapes()
+        questions += self.orders(records)
         cached = saved.get("verdicts", {})
         fresh = self.judge([question.ask | {"id": question.key} for question in questions if question.key not in cached])
         verdicts = {question.key: cached.get(question.key) or fresh.get(question.key) for question in questions}
         stalls += [stall for question in questions if (stall := question.settle(verdicts[question.key]))]
-        stalls = [self.to_parent(stall) for stall in stalls]
         kept = {key.split(":")[1] for key, entry in saved["open"].items() if entry["kind"] in PR_KINDS & self.unread}
         stalls += self.stale(entries, saved.get("states", {}), records, kept | {stall.pr for stall in stalls if stall.pr})
         return self.report({stall.id: stall for stall in stalls}, saved, {key: verdict for key, verdict in verdicts.items() if verdict}, dry_run)
@@ -850,7 +797,7 @@ class Pass:
         return started if started and self.now - started >= self.watch.age("running") else None
 
     def refusals(self, records: list[dict], rows: dict[str, dict], approved: set[str], lanes: dict[str, str], holding: Callable[[str], bool]) -> list[Stall]:
-        """Each standing landing refusal, once per PR, head and cause, from its oldest refusal record no later act answered: a `refusal` stall at `stall.minutes.refusal`, and a `successor` stall to root at `stall.minutes.successor`."""
+        """Each standing landing refusal, once per PR, head and cause, from its oldest refusal record no later act answered: a `refusal` stall at `stall.minutes.refusal`."""
         repo = self.watch.landing["repo"]
         closed = {seq for record in records for seq in grades.closes(record)}
         standing: dict[str, tuple[Refusal, str, str]] = {}
@@ -872,19 +819,12 @@ class Pass:
                     standing[key] = (refusal, owner, row["head"])
         stalls = []
         for key, (refusal, owner, head) in standing.items():
-            since, seq = at(refusal.record), refusal.record["seq"]
+            since = at(refusal.record)
             subject, command = f"#{refusal.pr} at {short(head)}", refusal.command(head)
             what = f"{refusal.record['lane']} refused to queue it at {pacific(since)} in {refusal.record['num']}: {clip(refusal.said)}; {owner} has posted no HEAD and no answer since"
             if self.now - since >= self.watch.age("refusal"):
                 stalls.append(Stall(f"refusal:{key}", "refusal", since, subject, what, (owner,), f"{owner}: {command}, then post HEAD or `cci post --re {shlex.quote(refusal.record['num'])}`", refusal.pr))
-            if self.now - since >= self.watch.age("successor") and owner not in ROOT_NAMES and not self.rotating(records, owner, seq):
-                stalls.append(Stall(f"successor:{key}", "successor", since, subject, what, (ROOT,), f"spawn a successor to {owner}, which has not acted on {refusal.record['num']} in {int((self.now - since).total_seconds() // 60)} min; the successor's first step: {command}", refusal.pr))
         return stalls
-
-    def rotating(self, records: list[dict], owner: str, seq: int) -> bool:
-        """Whether a successor or handoff lane of `owner`'s family, any lane but `owner` itself, posted since record `seq`, so its rotation already runs."""
-        family = re.compile(rf"{re.escape(re.sub(r'-\d{1,2}$', '', owner))}(?:-\d{{1,2}})?(?:-handoff)?")
-        return any(record["seq"] > seq and record["lane"] != owner and family.fullmatch(record["lane"]) for record in records)
 
     def answered(self, records: list[dict], refusal: dict, pr: str, head: str, named: set[str], owner: str) -> bool:
         """Whether a record after `refusal` queued `pr` at `head`, or came from `owner` or any numbered lane of its family answering it by `--re` or as a `head` record naming a PR it names."""
@@ -1305,67 +1245,6 @@ class Pass:
 
         return Question(f"tap-keeps:{pr}:{short(tapped)}:{short(head)}", {"kind": "restack", "pr": pr, "tapped_head": tapped, "head": head, "records": heads}, settle)
 
-    def lanes(self, records: list[dict], session: str | None, entries: list[dict]) -> tuple[list[Stall], list[Question]]:
-        if session is None:
-            return [], []
-        newest: dict[str, dict] = {}
-        for record in records:
-            newest[record["lane"]] = record
-        stalls: list[Stall] = []
-        questions: list[Question] = []
-        board = cache(self.board)
-        for lane, tasks in sorted(task_owners(session).items()):
-            if lane in NOT_LANES:
-                continue
-            named = successor_of(lane)
-            last = max((record for name, record in newest.items() if named.fullmatch(name)), key=lambda record: record["seq"], default=None)
-            prs = [found for found in entries if named.fullmatch(found["owner"])]
-            owed = [
-                record
-                for record in records
-                if record["lane"] != LANE
-                and grades.owes(record, lane)
-                and record.get("status") != "closed"
-                and record["seq"] > (last["seq"] if last else 0)
-                and any(named.fullmatch(to.split("@", 1)[0]) for to in record.get("to") or [])
-            ]
-            owned = ", ".join(f"#{task}" for task, _ in tasks)
-            if owed:
-                if self.now - at(owed[0]) >= self.watch.age("lane"):
-                    listed = ", ".join(f"#{record['seq']} ({record['kind']} from {record['lane']} at {pacific(at(record))})" for record in owed[:LISTED])
-                    stalls.append(Stall(f"lane:{lane}", "lane", at(owed[0]), lane, f"it owes a reply to {listed}; it owns task {owned}", (lane,), f"{lane} answers with `cci post --re <seq>`; root pings it and relaunches it if no answer comes in 10 min"))
-                continue
-            settled = last is not None and (last["kind"] in SETTLED or bool(READY.search(last["text"])))
-            if (prs or settled) and not any(found["state"].startswith(LANE_OWES) for found in prs):
-                continue
-            if last is None:
-                given = max(when for _, when in tasks)
-                if self.now - given >= self.watch.age("lane"):
-                    stalls.append(Stall(f"lane:{lane}", "lane", given, lane, f"it owns task {owned} in progress, given it by {pacific(given)}, and has posted nothing since", (ROOT,), f"close task {owned} or relaunch {lane}"))
-            elif last["kind"] not in ENDED and self.now - at(last) >= PROMISE_FLOOR:
-                if (shown := board()) and shown.open_asks("", grades.full_text(last)):
-                    continue
-                questions.append(self.silence(lane, last, owned))
-        return stalls, questions
-
-    def silence(self, lane: str, last: dict, owned: str) -> Question:
-        quiet = at(last)
-        said = f"its last record, {last['kind']} #{last['seq']} at {pacific(quiet)}"
-
-        def settle(verdict: dict | None) -> Stall | None:
-            promised = actions.parse_stamp(verdict["promised"]) if verdict and verdict.get("promised") else None
-            if promised:
-                stalled, what = self.now >= promised, f"{said}, promised its next state by {pacific(promised)}"
-            elif verdict and verdict.get("explained"):
-                stalled, what = self.now - quiet >= EXPLAINED_CEILING * self.watch.age("lane"), f"{said}, said what it waits on: {clip(verdict['why'])}"
-            else:
-                stalled, what = self.now - quiet >= self.watch.age("lane"), f"{said}, explains no silence"
-            if not stalled:
-                return None
-            return Stall(f"lane:{lane}", "lane", quiet, lane, f"{what}; it owns task {owned}", (lane,), f"{lane} posts its state now; root pings it and relaunches it if no answer comes in 10 min")
-
-        return Question(f"lane:{lane}:{last['seq']}", {"kind": "silence", "lane": lane, "last_at": last["at"], "minutes_silent": int((self.now - quiet).total_seconds() // 60), "last_record": clip(grades.full_text(last), RECORD_CHARS)}, settle)
-
     def orders(self, records: list[dict]) -> list[Question]:
         """A question for each root decide record relaying an owner order, `stall.minutes.order` to `ORDER_WINDOW` old, unclosed, that no lane it names, or a numbered successor, has answered since with a record citing a PR: one Sonnet verdict says whether the order names a change that ships as a new PR, and a yes is root's urgent stall."""
         closed = {seq for record in records if record["lane"] in ROOT_NAMES for seq in grades.closes(record)}
@@ -1436,39 +1315,6 @@ class Pass:
             restart = beats[-1]["fields"].get("attrs", {}).get("restart") or f"desk-runner.py run --config <runner.json> --desk {desk}"
             stalls.append(Stall(f"desk:{desk}", "desk", at(beats[-1]), f"{desk} desk runner", f"the {desk} desk runner has posted no `{desk} alive` record since {pacific(at(beats[-1]))}", (ROOT,), f"restart it from the Run's bound terminal: `{restart}`"))
         return stalls
-
-    def unregistered(self, records: list[dict]) -> list[Stall]:
-        spawns = {spawn["lane"]: (record, spawn["brief"]) for record in records if record["kind"] == "state" and (spawn := SPAWNED.match(record["text"]))}
-        due = {
-            lane: (record, brief)
-            for lane, (record, brief) in spawns.items()
-            if self.now - at(record) >= self.watch.age("unregistered") and not any(other["lane"] == lane and other["seq"] > record["seq"] for other in records)
-        }
-        if not due:
-            return []
-        try:
-            peers = [json.loads(line) for line in self.tail(["cci", "who", "--drive", self.watch.drive, "--all", "--json"]).splitlines() if line.strip()]
-        except ReadFailed as failed:
-            self.warn({"unregistered"}, f"cci who did not read: {failed}")
-            return []
-        seen: dict[str, datetime] = {}
-        for peer in peers:
-            if lane := peer.get("lane"):
-                when = actions.parse_stamp(peer["seen_at"])
-                seen[lane] = max(when, seen.get(lane, when))
-        return [
-            Stall(
-                f"unregistered:{lane}",
-                "unregistered",
-                at(record),
-                lane,
-                f"spawned {pacific(at(record))} from {brief}, and has neither posted a cci record nor been bound as {lane} since",
-                (ROOT,),
-                f"read {lane}'s transcript or terminal; relaunch it from {brief} if it never started",
-            )
-            for lane, (record, brief) in sorted(due.items())
-            if seen.get(lane, at(record)) <= at(record)
-        ]
 
     def gates(self, records: list[dict]) -> list[Stall]:
         landed: dict[str, dict] = {}

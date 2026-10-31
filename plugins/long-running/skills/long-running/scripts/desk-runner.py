@@ -49,14 +49,7 @@ answer, a runtime or connection error, a timeout, or output that is not its JSON
 pass stops there and changes no dispatch's liveness and no relay's state. The first
 such pass logs `ORCA-UNREACHABLE` once for the streak, each failed pass doubles the
 wait before the next, up to two minutes, and the first pass Orca answers again logs
-`ORCA-BACK`. Every pass Orca answers, the first after `ORCA-BACK` included, reads the Run's
-worker list once and logs one `LANE-GONE` for each lane with a receipt whose dispatch was
-live on the last pass Orca answered, or is still listed as dispatched, and that Orca now
-shows gone, completed or failed, or whose terminal Orca finds missing, unless the runner
-withdrew it, relayed its `worker_done`, or the lane's newest record ends its work, or a Sonnet
-judge reading its last records, off the pass, calls it alive, done or waiting, which posts one
-`JUDGE-SILENCED` note to root with its sentence instead; it names
-the dispatch, the lane's last record and its age, and the outage that just ended. `cci post` keeps only the first
+`ORCA-BACK`. `cci post` keeps only the first
 line of a text over its 400-character limit in the record, clipped, and writes the
 whole text to a file the record names by path. The runner reads a relay record's or a
 root reply's text from that file and relays all of it, line breaks kept: a relay's
@@ -131,7 +124,7 @@ incident reached, a clocked fix lane sharing the lane's incident name, its name 
 `-<part>` such as `-fix`, `-fix-2`, or `-cred`, or its `incident=` slug, or the executor's Opus backup
 for one of them, counts as the lane's mechanism, so no mechanism fallback launches; the PR and ready thresholds stay the
 lane's own. A lane the root withdrew, or sent `stand-down` or `stopped`, ends its clock as `withdrawn by <who>` and logs
-nothing. While any clock runs, a DEADLINE, UNACKED, LIVENESS, STALE-MAIL, or RECLAIM about anything outside
+nothing. While any clock runs, a DEADLINE, UNACKED, STALE-MAIL, or RECLAIM about anything outside
 the incident waits in the view, and the pass after the last clock ends posts them as one `DEFERRED <n> escalations held
 during <lanes>` record. A root `go` or `decision` to a release lane that orders a cut or `release start`, or a landing's
 `release` record this runner posted, opens a cut clock only when it names components: the order's `--target` refs, or the
@@ -327,10 +320,8 @@ PR's own stack is the batch's failure: it routes no blocker, logs one `AWAITS-GO
 `go` record naming the PR is posted after the drop, with no new head. A `flaky-check`, a red check that read green on the PR's own head and
 failed only in a queue draft holding nothing but its stack, stays out at that head after its first ejection: one `blocker` naming the failing
 job goes to the live lanes `landing.restack_lane` names, else the root, and the desk enqueues the PR again only at a new head. The lane a PR's blocker or restack goes to is the poster of the newest cci `head`, `opened`, `ready`,
-or `claim` record naming the PR, else the lane that registered its ledger row; a blocker posted on cci also goes to the root
-when `cci who` lists no live session for that lane, and to the live lanes `landing.restack_lane` names instead, else the root
-alone, opening with `owner lane dead`, once that lane has no live dispatch or session and no cci record on the drive in the last 60 minutes. A conflict blocker for a lane with no dispatch Orca
-shows active and no session `cci who` lists, but a record in that hour, routes nothing: the root gets one `PARKED` line per PR, and that head routes once the lane is back. A gate's `BLOCKED` verdict goes to the lane at most once per head, as the blocker its adapter names, and only for red CI,
+or `claim` record naming the PR, else the lane that registered its ledger row; a blocker posted on cci goes to that lane's live
+successor, which the lane supervisor keeps alive. A gate's `BLOCKED` verdict goes to the lane at most once per head, as the blocker its adapter names, and only for red CI,
 a merge conflict, a changes-requested review or fidelity grade, or a queue ejection, never for a pending or running check or a
 missing approval or an ejection blaming a PR outside its stack, and never for a PR that is held, carries GitHub's `hold` label, or is
 stacked above such a PR until that hold lifts. A PR whose base is another open row's branch gets no failing-required-check blocker
@@ -676,11 +667,11 @@ import prompt_watch
 import stall_watch
 from long_running import testfiles
 from long_running.grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, precondition_sentences, repo_prs, standing
-from long_running.grades import carry_of, delegated, succeeds, with_successors
+from long_running.grades import carry_of, delegated, with_successors
 from long_running.grades import carries as carry_grade
 from long_running.grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
 from long_running.grades import WITHDRAWN as WITHDRAWN_OPENING
-from long_running.grades import GO_KIND_FLAGS, GO_KINDS, go_state, is_go, owes
+from long_running.grades import GO_KIND_FLAGS, GO_KINDS, go_state, is_go
 from long_running.grades import REVIEW_BOT_CHECK, REVIEW_BOT_HELD, VOIDING_KINDS, review_bot_wait, voids, withdrawn
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK
 
@@ -736,7 +727,7 @@ SPRITE_STALLED_AFTER = timedelta(minutes=30)
 FINDER_TAPS_EVERY = timedelta(minutes=5)
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker", "GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": "blocker", "GO-TAP-MISSING": "blocker", "JUDGE-SILENCED": "note"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker", "GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": "blocker", "GO-TAP-MISSING": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 TRUNK = "dev"
@@ -761,7 +752,7 @@ MERGED = "merged"
 MERGED_DIRECT = "merged-direct:"
 ADMITTED = BELIEVED_QUEUED | {"dropped", "ejected", MERGED}
 OUT_OF_QUEUE = frozenset({"not queued", "evicted"})
-LANDING_REFUSALS = frozenset({"FOREIGN", "TAP-REQUIRED", "CONTRACT-MISSING", "PARKED", "UNOWNED", "GATE-FAILED", "RULINGS-REFUSED", "ENQUEUE-STRANDED", "ENQUEUE-FAILED", "ENQUEUE-UNSETTLED"})
+LANDING_REFUSALS = frozenset({"FOREIGN", "TAP-REQUIRED", "CONTRACT-MISSING", "UNOWNED", "GATE-FAILED", "RULINGS-REFUSED", "ENQUEUE-STRANDED", "ENQUEUE-FAILED", "ENQUEUE-UNSETTLED"})
 OWNER_KINDS = ("head", "opened", "ready", "claim", "report")
 CHECK_PR_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "SHAPE-UNTESTED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS"})
 INCIDENT_CHECKS = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"})
@@ -847,7 +838,6 @@ RELEASE_LANE = re.compile(r"(?:^|-)release(?:-|$)")
 CUT_ORDER = re.compile(r"\b(?:cut|release start)\b", re.IGNORECASE)
 CUT_KINDS = ("go", "decision")
 SETTLING_KINDS = ("release", "fix-live")
-PARKED = "parked"
 ALREADY_SHIPS = re.compile(r"already ships .* or later")
 CUT_CLOCKS = "cut-clocks"
 CUT_CURSOR = "cut-cursor"
@@ -877,7 +867,7 @@ APPLYING_KEYS = ("build", "step", "components")
 RELEASE_CLI = "tools/ci release"
 MANUAL_RELEASE = "manual-release-"
 MANUAL_TEMPLATE = SCRIPTS.parent / "reference" / "manual-release-brief.md"
-DEFERRABLE = frozenset({"DEADLINE", "UNACKED", "LIVENESS", "STALE-MAIL", "RECLAIM"})
+DEFERRABLE = frozenset({"DEADLINE", "UNACKED", "STALE-MAIL", "RECLAIM"})
 DEFERRED = "deferred-escalations"
 SWEEP_EVERY = timedelta(minutes=5)
 PASS_SECONDS = 10
@@ -914,7 +904,6 @@ STOP_POLL_SECONDS = 2
 SHOW_WORKERS = 8
 GATE_WORKERS = 16
 JUDGE_WORKERS = 2
-SILENCED = "silenced:"
 JUDGED_RECORDS = 12
 LOG_LINES = 40
 FAILURE_LINE = re.compile(r"^\s*(?:error(?:\[\w+\])?:|--- FAIL|FAIL\b|test \S+ \.\.\. FAILED|thread .* panicked|Error:|✗|×)", re.MULTILINE)
@@ -980,7 +969,6 @@ UNREAD = "unread"
 UNREACHABLE = frozenset({"runtime_unavailable", "remote_runtime_unavailable", "runtime_timeout", "invalid_runtime_response", UNPARSEABLE})
 ANSWER_CONFLICT = "answer_conflict"
 UNREACHABLE_FACT = "orca-unreachable"
-ORCA_LIVE = "orca-live"
 TRUNK_UNREAD_FACT = "trunk-unread"
 TRUNK_JOBS_FACT = "trunk-jobs"
 TRUNK_REDS_FACT = "trunk-reds"
@@ -988,13 +976,7 @@ FLAKE_DUE = timedelta(hours=24)
 FAILED_TEST = re.compile(r"--- FAIL: (?P<go>[\w.-]+)|^test (?P<cargo>\S+) \.\.\. FAILED|^\s*FAIL \[\s*[\d.]+s\] \S+ (?P<nextest>\S+)", re.MULTILINE)
 LOG_CONTROL = re.compile(r"\x1b(?:_[^\x07]*\x07|\[[0-9;]*[A-Za-z])|\r")
 UNREACHABLE_WAIT = timedelta(minutes=2)
-DEAD_LANE = timedelta(minutes=60)
 SUCCESSOR_NUMBER = re.compile(r"(?:-\d{1,2})+$")
-LANE_ORDER_WINDOW = timedelta(hours=2)
-LANE_SILENT = timedelta(minutes=15)
-LANE_SPAWN_GRACE = timedelta(minutes=10)
-LANE_GONE_REPORT = re.compile(r"\bLANE-GONE lane-gone:([^:\s]+)[:\s]")
-LANE_ENDED_KINDS = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
 HANDOFF_WAIT = timedelta(minutes=20)
 HANDOFF_FAULTS = 12
 LAUNCHD_THROTTLE_SECONDS = 60
@@ -1616,15 +1598,6 @@ def log_excerpt(log: str) -> str:
     return "\n".join(lines[index] for index in picked if lines[index].strip())
 
 
-def gone_evidence(lane: str, orders: list[dict], own: list[dict], naming: list[dict]) -> str:
-    """What the `LANE-GONE` judge reads beside the alarm: the root's orders `lane` has not answered, its own last records, and the other lanes' records that name it."""
-    parts = [f"The root's orders to {lane} it has not answered, oldest first:\n{judge.bus(orders)}"] if orders else []
-    parts.append(f"{lane}'s own last records, oldest first:\n{judge.bus(own[-JUDGED_RECORDS:])}" if own else f"{lane} has posted no record in that time.")
-    if naming:
-        parts.append(f"Other lanes' records that name {lane}, oldest first:\n{judge.bus(naming[-JUDGED_RECORDS:])}")
-    return "\n\n".join(parts)
-
-
 def lane_container(lane: str) -> str:
     return f"{LANE_PREFIX}{lane}"
 
@@ -1980,22 +1953,6 @@ class Runner:
         self.record(action_id, line)
         self.book.attempt(RUNNER, lambda incident: (incident.start(action_id, self.now()), incident.complete(action_id, {"at": self.book.stamp(), "posted": cci.receipt(done.records[0].seq), "to": to})))
 
-    def front(self, key: str, kind: str, about: str, text: str, subject: str, to: str, evidence: Callable[[], str]) -> bool:
-        """Escalate as `escalate` does unless the judge of `kind`, reading `evidence` beside the alarm, calls it false, and say whether the alarm stands. Nothing posts until the judge answers, a pass or more later; a no posts one `JUDGE-SILENCED` note to root in its place, once per key, with the judge's sentence and the evidence it rests on, while a yes, an unsure answer or a failed model call escalates as before."""
-        if self.book.known(RUNNER, f"escalation:{key}"):
-            return True
-        if self.book.known(RUNNER, f"escalation:{SILENCED}{key}"):
-            return False
-        line = f"{kind} {subject or key} {about}: {' '.join(text.split())}"
-        answered, verdict = self.judgment(key, kind.lower(), lambda: (evidence(), line))
-        if not answered:
-            return False
-        if verdict and verdict.verdict == "no":
-            self.escalate(f"{SILENCED}{key}", "JUDGE-SILENCED", about, f"the {kind} alarm is false, the judge reads: {verdict.sentence} It rests on: \"{verdict.evidence_phrase}\"", f"{SILENCED}{subject or key}", ROOT)
-            return False
-        self.escalate(key, kind, about, text, subject, to)
-        return True
-
     def judgment(self, key: str, kind: str, read: Callable[[], tuple[str, str]]) -> tuple[bool, judge.Verdict | None]:
         """The `kind` judge on `key`, asked once on the runner's judge pool so no pass waits on a model: whether it has answered, and its verdict, None when the model call failed. `read` builds its evidence and artifact on the pool; an error it raises reaches the pass that collects it, and the next pass asks again."""
         with self.judging:
@@ -2068,7 +2025,7 @@ class Runner:
             return cci.PostResult(1, done.out, f"{done.err}\ncci: invalid post receipt: {error}: {done.out.strip()}", ())
 
     def flush(self) -> bool:
-        """Post each accepted escalation to root. While an incident clock runs, a DEADLINE, UNACKED, LIVENESS, STALE-MAIL, or RECLAIM about anything outside the incident waits in the view, and the pass after the last clock ends posts them as one DEFERRED record."""
+        """Post each accepted escalation to root. While an incident clock runs, a DEADLINE, UNACKED, STALE-MAIL, or RECLAIM about anything outside the incident waits in the view, and the pass after the last clock ends posts them as one DEFERRED record."""
         failures = []
         clocks = self.live_clocks()
         incident = {alias for lane in clocks for name in (lane, *self.siblings(lane)) for alias in lane_aliases(name)}
@@ -3756,9 +3713,6 @@ class Runner:
                 continue
             if dispatch.status in INACTIVE:
                 settled.append(dispatch)
-                continue
-            if not dispatch.live:
-                self.escalate(f"liveness:{dispatch.id}:{hour}", "LIVENESS", lane, f"dispatch={dispatch.id} terminal={dispatch.terminal} is not live; resume it in place, never relaunch on this alone")
         if settled:
             self.reclaim(settled)
         watch = json.loads(self.shell.run([sys.executable, str(SCRIPTS / "prompt_watch.py"), "show", "--cci-drive", self.config.drive, "--json"]).out or "{}")
@@ -4041,99 +3995,8 @@ class Runner:
         except CciTailFailed as failure:
             self.tail_failed(failure)
 
-    def lanes_gone(self) -> None:
-        """Log one `LANE-GONE` per lane and newest order for each lane, other than the runner's own lanes and its child passes `stall-watch` and `prompt-watch`, that a root `ask` addressed, or a root `decide` or `correction` gave an order as `<lane>: ...`, in the last `LANE_ORDER_WINDOW`, whose oldest unanswered order is `LANE_SILENT` old, that has posted nothing since, neither it nor a numbered successor (`<lane>-<n>`), that no later root `stand-down` or `stopped` retired, whose newest record does not end its work (`done`, `handoff`, `stand-down`, `stopped`, `not-ours`), whose records are not all `defect` records, as a build script's are (root #152067), whose dispatch the runner did not withdraw and Orca does not show active, with no session `cci who` announced in the last `LANE_SPAWN_GRACE`, and no earlier LANE-GONE of it the root resolved or answered in the window, once its newest record and `cci who`'s last sight of it, by lane or agent name, are both `LANE_SILENT` old, naming the unanswered orders and its last record, so the root pings it and spawns a successor only when the ping goes unanswered (root #147167, drive-watchdog #147921). A judge reads those orders, its last records and the other lanes' records naming it first, off the pass, and its no, a lane alive, done, another lane's worker, or waiting on what its records name, posts `JUDGE-SILENCED` in the alarm's place; a yes, an unsure answer or a failed model call logs it as before."""
-        try:
-            now, drive = self.now(), self.config.drive
-            records = [record for record in cci.records(self.cci_tail, drive, since=actions.stamp(now - LANE_ORDER_WINDOW)) if record["drive"] == drive]
-            orders: dict[str, list[dict]] = {}
-            for record in records:
-                if record["lane"] == ROOT:
-                    for lane in record.get("to") or []:
-                        if lane not in {ROOT, "main", "all", *RUNNER_LANES} and not lane.startswith("peer:") and owes(record, lane):
-                            orders.setdefault(lane, []).append(record)
-            sessions: list[dict] = []
-            if orders:
-                done = self.shell.run(["cci", "who", "--drive", drive, "--json"])
-                if done.code != 0:
-                    raise CciTailFailed(f"cci who exited {done.code}: {(done.err or done.out).strip()[:300]}")
-                sessions = [json.loads(line) for line in done.out.splitlines() if line.strip()]
-            reported = {record["seq"]: match[1] for record in records if record["lane"] == RUNNER and (match := LANE_GONE_REPORT.search(record.get("text") or ""))}
-            settled = {reported[seq] for record in records if record["lane"] == ROOT for seq in closes(record) | {record.get("re")} if seq in reported}
-            for lane, addressed in orders.items():
-                if lane in settled:
-                    continue
-                family = {lane} | {record["lane"] for record in records if succeeds(record["lane"], lane)}
-                retired = max((record["seq"] for record in records if record["lane"] == ROOT and record["kind"] in (STAND_DOWN, STOPPED) and family & set(record.get("to") or [])), default=0)
-                posted = [record for record in records if record["lane"] in family]
-                if posted and all(record["kind"] == "defect" for record in posted):
-                    continue
-                last = max(posted, key=lambda record: record["seq"], default=None)
-                unanswered = [order for order in addressed if order["seq"] > retired and (last is None or order["seq"] > last["seq"])]
-                if not unanswered or now - actions.parse_stamp(unanswered[0]["at"]) < LANE_SILENT or last and (last["kind"] in LANE_ENDED_KINDS or now - actions.parse_stamp(last["at"]) < LANE_SILENT) or self.withdrawn_by(lane) or self.dispatch_active(lane):
-                    continue
-                found = [entry for entry in sessions if {entry.get("lane"), entry.get("agent_name")} & family]
-                if any(entry.get("announced_at") and now - actions.parse_stamp(entry["announced_at"]) < LANE_SPAWN_GRACE for entry in found):
-                    continue
-                sightings = [actions.parse_stamp(entry["seen_at"]) for entry in found if entry.get("seen_at")]
-                seen = max(sightings, default=None)
-                if seen and now - seen < LANE_SILENT:
-                    continue
-                said = f"its last record is #{last['seq']} {last['kind']} at {pacific(actions.parse_stamp(last['at']))}" if last else f"it posted nothing in the last {LANE_ORDER_WINDOW.seconds // 3600} h"
-                sight = f"cci last saw it {whole_minutes(seen, now)} min ago" if seen else "cci lists no session for it"
-                orders_named = ", ".join(f"#{order['seq']}" for order in unanswered)
-                key, subject = f"lane-gone:{lane}:{unanswered[-1]['seq']}", f"lane-gone:{lane}"
-                to = ",".join(dict.fromkeys([ROOT, *desks, *self.landing_lanes("board_lane"), lane])) if self.raised_before(key, subject) and (desks := self.landing_lanes("desk_lane")) else ""
-                naming = [record for record in records if record["lane"] not in family | RUNNER_LANES and record not in addressed and names_lane(record | {"to": []}, {lane})]
-                self.front(key, "LANE-GONE", lane, f"root {orders_named} to {lane} unanswered; {said}, and {sight}; a roster or cci miss is not absence: SendMessage it and spawn a successor only when it has not answered in 5 minutes", subject, to, lambda lane=lane, unanswered=unanswered, posted=posted, naming=naming: gone_evidence(lane, unanswered, posted, naming))
-        except CciTailFailed as failure:
-            self.tail_failed(failure)
-
     def dispatch_active(self, lane: str) -> bool:
         return bool(self.orca.receipt(lane) and (shown := self.orca.show(lane)) and shown.status not in INACTIVE)
-
-    def dispatches_gone(self) -> None:
-        """Read the Run's worker list once and log one `LANE-GONE` for each lane with a receipt whose dispatch was live on the last pass Orca answered, or is still listed as dispatched, and that Orca now shows gone, completed or failed, or whose terminal Orca finds missing, unless the runner withdrew it, relayed its `worker_done`, or the lane's newest record ends its work; the dispatch is the evidence, so no `LANE_SILENT` wait applies, and the judge `lanes_gone` asks reads its last records first."""
-        try:
-            statuses = {row["dispatchId"]: row["dispatchStatus"] for row in self.orca.workers("--include-remote")}
-            facts = self.book.facts(RUNNER, [ORCA_LIVE, UNREACHABLE_FACT])
-            known, live = facts.get(ORCA_LIVE, {}), {}
-            for lane in self.orca.lanes():
-                if not (dispatch := self.orca.receipt(lane)):
-                    continue
-                listed = statuses.get(dispatch)
-                if listed and listed not in INACTIVE:
-                    shown = self.orca.show(lane, dispatch)
-                    if shown and shown.status not in INACTIVE and not shown.missing:
-                        live[lane] = dispatch
-                        continue
-                    state = f"{shown.status} with its terminal {shown.terminal} missing" if shown and shown.status not in INACTIVE else shown.status if shown else "gone"
-                elif known.get(lane) == dispatch:
-                    state = listed or "gone"
-                else:
-                    continue
-                self.lane_vanished(lane, dispatch, state, facts.get(UNREACHABLE_FACT))
-                if f"lane-gone:{lane}:{dispatch}" in self.judgments:
-                    live[lane] = dispatch
-            if live != known:
-                self.book.edit(RUNNER, lambda incident: incident.facts.update({ORCA_LIVE: live}))
-        except CciTailFailed as failure:
-            self.tail_failed(failure)
-
-    def lane_vanished(self, lane: str, dispatch: str, state: str, outage: dict | None) -> None:
-        if self.withdrawn_by(lane) or any(action.target.startswith("OUTCOME ") and f" dispatch={dispatch}:" in action.target for action in self.book.actions(RUNNER, kind="escalation")):
-            return
-        drive = self.config.drive
-        posted = sorted((record for record in cci.records(self.cci_tail, drive, "--lane", lane) if (record["drive"], record["lane"]) == (drive, lane)), key=lambda record: record["seq"])
-        last = posted[-1] if posted else None
-        if last and last["kind"] in LANE_ENDED_KINDS:
-            return
-        said = "it has posted no record"
-        if last:
-            at = actions.parse_stamp(last["at"])
-            said = f"its last record is #{last['seq']} {last['kind']} at {pacific(at)}, {whole_minutes(at, self.now())} min ago"
-        down = f"; Orca gave no answer from {pacific(actions.parse_stamp(outage['since']))} until this pass ({outage['error']})" if outage else ""
-        self.front(f"lane-gone:{lane}:{dispatch}", "LANE-GONE", lane, f"Orca shows its dispatch {dispatch} {state}; {said}{down}; relaunch it from its brief and handoff", f"lane-gone:{lane}", "", lambda: gone_evidence(lane, [], posted, []))
 
     def class_unowned(self) -> None:
         """Log one `CLASS-UNOWNED` for each class record that names an incident key and, `deadlines.pr_silent_minutes` after it, has no later root GO, decide, or decision naming one of its keys."""
@@ -5639,7 +5502,6 @@ class Landing:
         self.untested_why: dict[str, str] = {}
         self.sessions: dict[str, bool] = {}
         self.live: list[dict] | None = None
-        self.dead: dict[str, bool] = {}
         self.statuses: dict[str, dict] | None = None
         self.queues_read = False
         self.statuses_floor = datetime.min.replace(tzinfo=timezone.utc)
@@ -6829,7 +6691,7 @@ class Landing:
             if grade.record and grade.record["text"].startswith(FIDELITY_MISSING) and not owner_grounded(grade.record["text"]):
                 grounds = missing_grounds(grade.record["text"]) or "nothing"
                 why = f"{why} | it rests on `{grounds}`, no plan line and no owner row: the lane answers with a fix or a refutation, the grader re-posts it from `rulings.py grade`, or root puts the gap on the owner's board"
-            self.post_blocker(key, to, f"{self.dead_note(owner)}#{pr} {heads[pr]}: {self.left(list(heads), ungraded, rows)}; {why}", pr)
+            self.post_blocker(key, to, f"#{pr} {heads[pr]}: {self.left(list(heads), ungraded, rows)}; {why}", pr)
 
     def accept(self, tips: list[str], prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict], held: list[str]) -> None:
         """One enqueue per exact set of prefix heads, every one a PR a drive lane opened and the fidelity lane graded ok at that head. An accept check that refuses a PR cuts the prefix below it, and the PRs under the cut are tried again on their own, so they land now."""
@@ -6993,7 +6855,7 @@ class Landing:
         if self.book.known(LANDING, key):
             return
         owner = self.owner(pr, graded.rows.get(pr, {}))
-        self.post_blocker(key, ",".join(dict.fromkeys([*(self.reach(owner) if owner else [ROOT]), *also])), f"{self.dead_note(owner)}#{pr} {graded.heads[pr]}: {self.left(list(graded.heads), refused, graded.rows)}; {why}", pr)
+        self.post_blocker(key, ",".join(dict.fromkeys([*(self.reach(owner) if owner else [ROOT]), *also])), f"#{pr} {graded.heads[pr]}: {self.left(list(graded.heads), refused, graded.rows)}; {why}", pr)
 
     def warn_head(self, key: str, pr: str, graded: Graded, why: str, also: Iterable[str] = ()) -> None:
         """Post one `note` warning per `key` to the lane that owns `pr` and to each lane of `also`. The lanes of `also` act on it, so it skips a dead owner and never reaches the root; with no `also`, the root stands in for an owner lane with no live session, or for none (root #142931)."""
@@ -7001,9 +6863,9 @@ class Landing:
             return
         owner = self.owner(pr, graded.rows.get(pr, {}))
         if also:
-            self.post_record("note", key, ",".join([*([owner] if owner and not self.lane_dead(owner) else []), *also]), f"#{pr} {graded.heads[pr]}: WARNING {why}", pr)
+            self.post_record("note", key, ",".join([*([owner] if owner else []), *also]), f"#{pr} {graded.heads[pr]}: WARNING {why}", pr)
             return
-        self.post_record("note", key, ",".join(self.reach(owner) if owner else [ROOT]), f"{self.dead_note(owner)}#{pr} {graded.heads[pr]}: WARNING {why}", pr)
+        self.post_record("note", key, ",".join(self.reach(owner) if owner else [ROOT]), f"#{pr} {graded.heads[pr]}: WARNING {why}", pr)
 
     def check_rulings(self, graded: Graded) -> dict[str, merge_queue.State]:
         """No head fails here (4236611): each cause `rulings.py check-pr` prints for a head is a warning, one `note` record to its lane per head and set of causes. A head warns again only for a cause none of its earlier warnings named, naming that cause alone, and never once an `answer` replies to or resolves one of them (cci #182230). A reserved touch is merge mode's to settle: it sends the card whose tap authorizes it, and holds the head until then."""
@@ -7548,9 +7410,9 @@ class Landing:
         return ",".join(dict.fromkeys([*map(self.successor, self.landing_config.get("go_lanes", [])), *self.routine_audience(prs, rows).split(",")]))
 
     def routine_audience(self, prs: list[str], rows: dict[str, dict]) -> str:
-        """Who hears a routine landing record: each `landing.desk_lane` and each PR's owning lane as its live successor, and the root only for a PR whose owning lane is dead or unnamed (root, Oct 29 2:10 PM)."""
+        """Who hears a routine landing record: each `landing.desk_lane` and each PR's owning lane as its live successor, and the root only for a PR with no owning lane (root, Oct 29 2:10 PM)."""
         owners = [rows.get(pr, {}).get("lane", "") for pr in prs]
-        return ",".join(dict.fromkeys([*map(self.successor, self.runner.landing_lanes("desk_lane")), *(ROOT if not owner or self.lane_dead(owner) else self.successor(owner) for owner in owners)]))
+        return ",".join(dict.fromkeys([*map(self.successor, self.runner.landing_lanes("desk_lane")), *(self.successor(owner) if owner else ROOT for owner in owners)]))
 
     def landing_audience(self, prs: list[str], rows: dict[str, dict], unstaffed: str) -> str:
         """Who hears a landing record in root's place: each `landing.desk_lane`, each `landing.board_lane`, and each PR's owning lane, as its live successor; `unstaffed` while no desk lane is named."""
@@ -7708,7 +7570,7 @@ class Landing:
         if self.book.known(LANDING, key):
             return
         owner = self.owner(pr, row)
-        self.post_blocker(key, ",".join(self.reach(owner) if owner else [ROOT]), f"{self.dead_note(owner)}#{pr} {head}: the newest fidelity grade, cci #{grade['seq']}, says `{line}`; root posts no go until your title fix (root #137006) posts as an APPLIED record", pr)
+        self.post_blocker(key, ",".join(self.reach(owner) if owner else [ROOT]), f"#{pr} {head}: the newest fidelity grade, cci #{grade['seq']}, says `{line}`; root posts no go until your title fix (root #137006) posts as an APPLIED record", pr)
 
     def admit(self, heads: dict[str, str]) -> set[str]:
         """The PRs in `heads`, a PR to its head, that carry the drive's label on GitHub, each registered under its head branch so the next refresh rows it as ours. GitHub is read once per PR and head in a pass, and again in the next pass for a PR it did not admit; record text never admits a PR."""
@@ -8383,7 +8245,7 @@ class Landing:
             refusal = f"rulings:{pr}:{view['headRefOid']}:{hashlib.sha1(text.encode()).hexdigest()[:8]}"
             if not self.book.known(LANDING, refusal):
                 owner = self.owner(pr, row)
-                self.post_blocker(refusal, ",".join(dict.fromkeys([*(self.reach(owner) if owner else []), ROOT])), self.dead_note(owner) + text, pr)
+                self.post_blocker(refusal, ",".join(dict.fromkeys([*(self.reach(owner) if owner else []), ROOT])), text, pr)
             return
         if pr in cci.held_prs(self.cci_tail.run, self.runner.config.drive):
             return
@@ -9150,7 +9012,7 @@ class Landing:
         self.trunk_states = states
 
     def route_blocker(self, pr: str, sha: str, blocker: merge_queue.Blocker, row: dict, tips: list[str], stack: set[str], gated_red: bool, failing: bool) -> None:
-        """Tell the lane once per head, re-reading the gate just before the send so an approval or fix that already arrived is never asked for. A failing required check posts one blocker per PR, refusal, red job and cause: a later head failing the same way adds one line under that blocker, and a changed cause or a new red job opens a new one, once `red_ours` finds the PR's diff may have caused it. A conflict whose lane has no live dispatch and no live cci session routes nothing: the root gets one `PARKED` line per PR, and the head routes once the lane is back."""
+        """Tell the lane once per head, re-reading the gate just before the send so an approval or fix that already arrived is never asked for. A failing required check posts one blocker per PR, refusal, red job and cause: a later head failing the same way adds one line under that blocker, and a changed cause or a new red job opens a new one, once `red_ours` finds the PR's diff may have caused it."""
         key = blocker_key(pr, sha)
         owner = self.owner(pr, row)
         if self.routed(key, owner) or self.has_landed(pr) or blocker.conflict and self.routed(f"conflict:{pr}:{row.get('base', '')}", owner):
@@ -9158,20 +9020,15 @@ class Landing:
         red = self.red_cause(pr, sha) if failing and not blocker.conflict else ""
         cause = hashlib.sha1(f"{blocker.text}\n{red}".encode()).hexdigest()[:12] if red else ""
         earlier = self.cause_blocker(pr, cause) if cause else None
-        parked = bool(owner and blocker.conflict and not self.lane_dead(owner) and not self.lane_live(owner))
-        if parked and self.book.known(RUNNER, f"escalation:{PARKED}:{pr}"):
-            return
         current = self.checked(tips).verdicts.get(pr)
         if not current or current["verdict"] != "BLOCKED" or self.adapter.blocker(current, stack, gated_red) != blocker:
             return
         status = (self.pr_statuses() or {}).get(pr, {})
         if self.adapter.evicted_only(current) or self.adapter.kind == merge_queue.TrunkStackEnqueue.kind and status.get("queue") == "evicted":
             self.post_blocker(key, ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])), f"#{pr} {sha}: {blocker.text}; the queue dropped it at {status.get('evicted_at') or 'an unstamped time'}: {status.get('evicted') or 'no reason given'}", pr)
-        elif parked:
-            self.runner.escalate(f"{PARKED}:{pr}", "PARKED", f"#{pr}", f"{sha}: {owner} has no live dispatch or cci session, so its conflict routes to no one until the lane is back: {blocker.text}")
         elif earlier and (seq := cci.receipt_seq(earlier.response["posted"])) is not None:
             to = ",".join(self.reach(owner)) if owner else json.loads(earlier.target)["lane"]
-            self.post_record("note", key, to, f"{self.dead_note(owner)}#{pr} {sha}: the same failure again: {red}", pr, re_seq=str(seq))
+            self.post_record("note", key, to, f"#{pr} {sha}: the same failure again: {red}", pr, re_seq=str(seq))
         elif not red or self.red_ours(key, pr, sha, blocker.text, red, row, owner):
             self.route(key, owner, f"#{pr} {sha}: {blocker.text}", pr, cause)
 
@@ -9210,11 +9067,6 @@ class Landing:
             None,
         )
 
-    def lane_live(self, lane: str) -> bool:
-        """The lane has a dispatch Orca shows active, or a session `cci who` lists."""
-        dispatch = self.runner.orca.show(lane) if self.runner.orca.receipt(lane) else None
-        return bool(dispatch and dispatch.status not in INACTIVE) or self.session_live(lane)
-
     def owner(self, pr: str, row: dict) -> str:
         """The lane that owns `pr` now, read as its live `successor`: the poster of the newest `head`, `opened`, `ready`, or `claim` record naming it on this drive, a lane's claim that lists it in its text alone included and the root's and the desks' claims left out, since a fidelity desk claims the heads it grades and never owns them (fidelity-desk-3 #158865), or of a `ledger.py report` on it, else the lane that registered its ledger row."""
         drive = self.runner.config.drive
@@ -9238,31 +9090,12 @@ class Landing:
         return claims
 
     def reach(self, lane: str) -> list[str]:
-        """Who a blocker for `lane` goes to, read as its live `successor`: the lane while `cci who` lists a live session for it, the lane and the root while it is otherwise alive, and the `restack_lanes` once `lane_dead` reads it dead, since nothing reads a dead lane's mail (root #131190)."""
-        lane = self.successor(lane)
-        if self.session_live(lane):
-            return [lane]
-        return self.restack_lanes() if self.lane_dead(lane) else [lane, ROOT]
+        """Who a blocker for `lane` goes to: its live `successor`, which the lane supervisor keeps alive."""
+        return [self.successor(lane)]
 
     def restack_lanes(self) -> list[str]:
-        """The live successors of the lanes `landing.restack_lane` names, which take a dead owner lane's PRs, or the root while none is named or every one named is dead, so a dead restack worker never swallows them."""
-        return [lane for lane in map(self.successor, self.runner.landing_lanes("restack_lane")) if not self.lane_dead(lane)] or [ROOT]
-
-    def lane_dead(self, lane: str) -> bool:
-        """Whether `lane` has no live dispatch or session and posted nothing on this drive under either of its `lane_aliases` in the last `DEAD_LANE`, read once per lane a pass."""
-        dead = self.dead
-        if lane not in dead:
-            dead[lane] = not self.lane_live(lane) and not self.posted_lately(lane)
-        return dead[lane]
-
-    def posted_lately(self, lane: str) -> bool:
-        drive, names = self.runner.config.drive, lane_aliases(lane)
-        posted = cci.records(self.cci_tail, drive, *(arg for name in names for arg in ("--lane", name)), since=actions.stamp(self.runner.now() - DEAD_LANE))
-        return any(record["drive"] == drive and record["lane"] in names for record in posted)
-
-    def dead_note(self, lane: str) -> str:
-        """The words that open a blocker `reach` sends to the root alone because its owner lane is dead."""
-        return f"owner lane dead: {lane} has no live session and no record in {DEAD_LANE.seconds // 60} min, so this comes to {', '.join(self.restack_lanes())}; " if lane and self.lane_dead(lane) else ""
+        """The live successors of the lanes `landing.restack_lane` names, or the root while none is named."""
+        return [*map(self.successor, self.runner.landing_lanes("restack_lane"))] or [ROOT]
 
     def session_live(self, lane: str) -> bool:
         """Whether `cci who` lists a live session for `lane`, read once per lane a pass; a read that times out reads as no session."""
@@ -9375,8 +9208,6 @@ class Landing:
         self.trust_reads()
         if not lane:
             self.runner.escalate(key, "UNOWNED", f"#{pr}", text)
-        elif self.lane_dead(lane):
-            self.post_blocker(key, ",".join(self.restack_lanes()), self.dead_note(lane) + text, pr, cause)
         elif self.runner.orca.receipt(lane):
             relay, _ = self.runner.accept_relay(key, lane, text, "", self.runner.config.start_minutes)
             if (dispatch := self.runner.orca.show(lane)) and dispatch.status not in INACTIVE:
@@ -9534,7 +9365,7 @@ class Landing:
         self.cci_tail.forget()
 
     def gate_pass(self) -> None:
-        self.sessions, self.live, self.dead, self.designed_red, self.full_runs_read, self.said_preconditions, self.resolved_preconditions = {}, None, {}, {}, {}, {}, {}
+        self.sessions, self.live, self.designed_red, self.full_runs_read, self.said_preconditions, self.resolved_preconditions = {}, None, {}, {}, {}, {}
         self.grading, self.grade_tried = True, set()
         self.gate_deadline = time.monotonic() + GATE_BUDGET.total_seconds()
         self.trusted_from, self.pass_began = self.pass_began, time.monotonic()
@@ -9651,7 +9482,7 @@ def run_orca(runner: Runner, once: bool) -> int:
                 if runner.now() - swept >= SWEEP_EVERY:
                     runner.steps(runner.sweep)
                     swept = runner.now()
-            runner.steps(runner.deadlines_orca, runner.incident_clock, runner.pr_silent, runner.lanes_gone, runner.dispatches_gone, runner.class_unowned, runner.in_process, runner.cut_clock, runner.release_coupling, runner.finders, runner.fidelities, runner.sprite_beats)
+            runner.steps(runner.deadlines_orca, runner.incident_clock, runner.pr_silent, runner.class_unowned, runner.in_process, runner.cut_clock, runner.release_coupling, runner.finders, runner.fidelities, runner.sprite_beats)
         except StopRequested:
             runner.flush()
             runner.stop_marker().unlink()

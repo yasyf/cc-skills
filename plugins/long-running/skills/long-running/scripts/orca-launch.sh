@@ -78,7 +78,9 @@ title, body, and commit message, and never asks the root for them. In a drive th
 copy then carries a PR record section: Codex runs no PR hook and its cci posts bind
 no lane, so ship neither registers the PR in the ledger nor posts its opened record,
 and the lane runs drive.py record --opened after each ship that opens a PR, which
-the incident clock and the landing desk read.
+the incident clock and the landing desk read. In a drive the copy also opens with a
+First command section: a codex lane's first command posts its registration record, so
+cci who lists it before any claim for it, as a Claude lane's first-command hook does.
 
 A codex model launches on Orca's codex agent instead: worker-start creates the
 terminal with --agent codex --model --effort, and Orca's codex default args
@@ -296,6 +298,7 @@ LANE_BRIEF=$BRIEF
 if [ "$AGENT" != claude ]; then
   LANE_BRIEF=$STATE/$LANE.brief.md
   {
+    [ -z "$DRIVE" ] || printf '## First command\n\n%s\n\n' "Codex runs no session hook, so \`cci who\` lists you only once you post. Before anything else, run \`cci post --drive '$DRIVE' --lane '$LANE' --kind state --stamp '$LANE: registered at its first command'\`, so a claim made for you and the lane supervisor's launch check both find your session."
     cat "$BRIEF"
     printf '\n\n## PR prose\n\n%s\n' "You run on a model that writes no prose: Claude Opus 5.5 writes every PR title, PR body, and commit message. Once the change is committed, run \`'$BIN/pr-prose.py' --brief '$BRIEF'\` from your worktree, adding \`--notes <file>\` for each findings or evidence file the PR must carry. It prints the paths of the title, body, and commit message it wrote; ship with them verbatim, amending your commit to that message. Never ask the root, another lane, or an Orca question for prose."
     [ -z "$DRIVE" ] || printf '\n\n## PR record\n\n%s\n' "Codex runs no PR hook, so \`ccx vcs ship\` neither registers your PR in the drive's ledger nor posts its \`opened\` record, and the incident clock and the landing desk read both. Right after each ship that opens a PR, run \`'$BIN/drive.py' record --opened --drive '$DRIVE' --session \"\$CODEX_THREAD_ID\" --lane '$LANE' --cwd \"\$PWD\" --pr <number>=<head>\` from your worktree."
