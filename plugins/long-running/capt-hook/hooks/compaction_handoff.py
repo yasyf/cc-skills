@@ -5,8 +5,10 @@ import hashlib
 import importlib.util
 import os
 import json
+import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -78,6 +80,7 @@ TURN_WINDOW = 256
 ORCA_UNSET = "The handoff is recorded, but the hook cannot type `/compact` here. Run `/compact` now."
 CCN_TIMEOUT_SECONDS = 20
 DEADLINE_ENV = "LONG_RUNNING_DEADLINE"
+REAP_SECONDS = 5
 COMPACT_RETRY_SECONDS = 33 * 60
 RESTORE_BUDGET = 2000
 SHORT = 7
@@ -317,13 +320,19 @@ def register_context(evt: BaseHookEvent, register: dict) -> HookResult:
     return evt.context(*register_parts(register))
 
 
-def deadline_env(timeout: float) -> dict[str, str]:
-    return {**reqenv.env_map(), DEADLINE_ENV: str(time.time() + timeout)}
+def run_script(argv: list[str], timeout: float, cwd: str | None = None, stdin: str | None = None) -> subprocess.CompletedProcess[str]:
+    """Run one of the plugin's scripts in the request's environment, telling it this hook gives up on it in `timeout` seconds: at that deadline the script kills every command it started and dies, which reads as a timeout, so a `ccn` hung on cc-notes never outlives it under PID 1 the way 101 did in an hour on 2026-10-30. The hook's own kill, which reaches the script alone, comes REAP_SECONDS later."""
+    env = {**reqenv.env_map(), DEADLINE_ENV: f"{os.getpid()}:{time.time() + timeout:.3f}"}
+    done = subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=timeout + REAP_SECONDS, cwd=cwd, env=env)
+    if done.returncode == -signal.SIGALRM:
+        raise subprocess.TimeoutExpired(argv, timeout, done.stdout, done.stderr)
+    return done
 
 
 def rulings(cwd: str, *args: str, stdin: str = "", timeout: int = CCN_TIMEOUT_SECONDS) -> str:
-    argv = [sys.executable, str(script("rulings.py")), *args, "--repo", cwd]
-    return subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=timeout, check=True, cwd=cwd, env=deadline_env(timeout)).stdout
+    done = run_script([sys.executable, str(script("rulings.py")), *args, "--repo", cwd], timeout, cwd, stdin)
+    done.check_returncode()
+    return done.stdout
 
 
 def register_of(cwd: str, *which: str) -> dict | None:

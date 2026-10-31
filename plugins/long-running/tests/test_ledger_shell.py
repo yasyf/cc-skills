@@ -3,13 +3,55 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import signal
 import subprocess
+import sys
 import threading
 import time
+from pathlib import Path
 
 import cci
+import drive
 import ledger
 import pytest
+
+HUNG = "import os, signal, sys, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); open(sys.argv[1], 'w').write(str(os.getpid())); time.sleep(60)"
+SCRIPT = """import subprocess, sys
+sys.path.insert(0, {scripts!r})
+import drive, ledger
+drive.end_commands_with_script()
+if len(sys.argv) > 3:
+    open(sys.argv[3], "w").write(str(subprocess.Popen(["sleep", "60"], start_new_session=True).pid))
+depth = int(sys.argv[2])
+ledger.Shell().run([sys.executable, __file__, sys.argv[1], str(depth - 1)] if depth else [sys.executable, "-c", {hung!r}, sys.argv[1]])
+"""
+
+
+def nesting_script(tmp_path: Path) -> Path:
+    """A plugin script that runs itself through `ledger.Shell` `depth` times, then a command that swallows SIGTERM and hangs, as a `ccn` stuck on cc-notes does, writing its pid to the first argument."""
+    path = tmp_path / "nesting.py"
+    path.write_text(SCRIPT.format(scripts=str(Path(ledger.__file__).parent), hung=HUNG))
+    return path
+
+
+def written(path: Path) -> int:
+    started = time.monotonic()
+    while not (path.is_file() and path.read_text()):
+        assert time.monotonic() - started < 30, f"{path.name} was never written"
+        time.sleep(0.05)
+    return int(path.read_text())
+
+
+def running(pid: int) -> bool:
+    state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    return bool(state) and not state.startswith("Z")
+
+
+def ended(pid: int) -> bool:
+    started = time.monotonic()
+    while running(pid) and time.monotonic() - started < 10:
+        time.sleep(0.05)
+    return not running(pid)
 
 
 class TimingOutShell(ledger.Shell):
@@ -31,7 +73,7 @@ def test_a_command_past_the_timeout_is_killed(monkeypatch):
         ledger.Shell.once(["sleep", "5"], None)
 
 
-def test_a_timed_out_command_takes_its_whole_process_group_down(tmp_path, monkeypatch):
+def test_a_timed_out_command_takes_everything_under_it_down(tmp_path, monkeypatch):
     monkeypatch.setattr(ledger, "COMMAND_TIMEOUT_SECONDS", 0.5)
     pidfile = tmp_path / "grandchild"
 
@@ -49,14 +91,50 @@ def test_a_timed_out_command_takes_its_whole_process_group_down(tmp_path, monkey
     pytest.fail(f"grandchild {grandchild} outlived its timed-out parent")
 
 
-def test_a_command_dies_before_the_callers_deadline(monkeypatch):
-    monkeypatch.setenv(ledger.DEADLINE_ENV, str(time.time() + ledger.DEADLINE_MARGIN_SECONDS + 0.5))
-    started = time.monotonic()
+def test_a_script_stopped_by_sigterm_kills_every_command_under_it_but_leaves_a_detached_daemon_running(tmp_path):
+    """On 2026-10-30, `ccn` reads hung on cc-notes ran on under PID 1 after `timeout 110 standing.py lint` SIGTERMed the script that started them: a hung `ccn` swallows SIGTERM, and `standing.py` sits two scripts above one of its `ccn` reads."""
+    script, hung, detached = nesting_script(tmp_path), tmp_path / "hung", tmp_path / "detached"
+    top = subprocess.Popen([sys.executable, str(script), str(hung), "1", str(detached)])
+    hung_pid = written(hung)
+
+    top.send_signal(signal.SIGTERM)
+
+    assert top.wait(timeout=30) == -signal.SIGTERM
+    assert ended(hung_pid)
+    assert running(daemon := written(detached))
+    os.kill(daemon, signal.SIGKILL)
+
+
+def test_a_script_past_the_deadline_its_caller_set_kills_its_commands_and_says_so(tmp_path):
+    script, hung = nesting_script(tmp_path), tmp_path / "hung"
+    top = subprocess.Popen([sys.executable, str(script), str(hung), "0"], stderr=subprocess.PIPE, text=True, env=os.environ | drive.deadline_env(5))
+    hung_pid = written(hung)
+
+    _, stderr = top.communicate(timeout=30)
+
+    assert top.returncode == -signal.SIGALRM
+    assert stderr.splitlines()[-1] == "nesting.py reached the deadline its caller set and was killed with every command it started"
+    assert ended(hung_pid)
+
+
+def test_a_script_command_past_the_timeout_kills_its_own_commands_first_and_reads_as_the_timeout(tmp_path, monkeypatch):
+    monkeypatch.setattr(ledger, "COMMAND_TIMEOUT_SECONDS", drive.REAP_SECONDS + 5)
+    script, hung = nesting_script(tmp_path), tmp_path / "hung"
 
     with pytest.raises(subprocess.TimeoutExpired):
-        ledger.Shell.once(["sleep", "30"], None)
+        ledger.Shell.once([sys.executable, str(script), str(hung), "0"], None)
 
-    assert time.monotonic() - started < ledger.DEADLINE_MARGIN_SECONDS
+    assert ended(written(hung))
+
+
+def test_a_deadline_another_process_set_is_left_alone(tmp_path, monkeypatch):
+    monkeypatch.setenv(drive.DEADLINE_ENV, f"{os.getpid()}:{time.time() - 60:.3f}")
+    script = tmp_path / "quiet.py"
+    script.write_text(f"import sys, time\nsys.path.insert(0, {str(Path(drive.__file__).parent)!r})\nimport drive\ndrive.end_commands_with_script()\ntime.sleep(1)\nprint('done')\n")
+
+    done = subprocess.run(["sh", "-c", f"{sys.executable} {script}; exit $?"], capture_output=True, text=True, timeout=30)
+
+    assert (done.returncode, done.stdout) == (0, "done\n")
 
 
 def test_a_timed_out_command_fails_the_verb_and_names_the_command(capsys):

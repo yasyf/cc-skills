@@ -127,9 +127,12 @@ import argparse
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
+import time
 from collections.abc import Callable
+from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -144,6 +147,8 @@ DRIVE_ENV = ledger.DRIVE_ENV
 ORCA_RUN_ENV = "ORCA_LAUNCH_RUN"
 TERMINAL_ENV = "ORCA_TERMINAL_HANDLE"
 CALLER_VERSION_ENV = "LONG_RUNNING_CALLER_VERSION"
+DEADLINE_ENV = "LONG_RUNNING_DEADLINE"
+REAP_SECONDS = 5
 DRIVE_ID_LENGTH = 8
 DASHBOARD_CONTEXT = Path("dashboard") / "context.json"
 PACK = Path(__file__).resolve().parents[3] / "dashboard"
@@ -212,7 +217,7 @@ def behind(running: str, installed: str) -> bool:
 
 
 def run_installed(script: str) -> None:
-    """Re-execute `script` from the installed plugin version, as the `bin/` shim does, when it is a copy of an older version, the installed copy's own manifest is newer, and no process of its own version started it, so a path that names an old version still runs current code and never writes a line the current runner cannot read; a process that passes marks its children with its version, so a runner started before an update keeps its own scripts until it re-executes. Every GitHub read the script makes through ccx is charged to the script's name."""
+    """Re-execute `script` from the installed plugin version, as the `bin/` shim does, when it is a copy of an older version, the installed copy's own manifest is newer, and no process of its own version started it, so a path that names an old version still runs current code and never writes a line the current runner cannot read; a process that passes marks its children with its version, so a runner started before an update keeps its own scripts until it re-executes. Every GitHub read the script makes through ccx is charged to the script's name, and every command it starts ends with it (`end_commands_with_script`)."""
     os.environ["CCX_CALLER"] = Path(script).stem
     running = plugin_manifest()["version"]
     if os.environ.get(CALLER_VERSION_ENV) != running and (install := newest_install()) and behind(running, install["version"]):
@@ -221,6 +226,49 @@ def run_installed(script: str) -> None:
             fresh = manifest.parents[1] / Path(__file__).resolve().parent.relative_to(PLUGIN) / Path(script).resolve().name
             os.execv(sys.executable, [sys.executable, str(fresh), *sys.argv[1:]])
     os.environ[CALLER_VERSION_ENV] = running
+    end_commands_with_script()
+
+
+def deadline_env(seconds: float) -> dict[str, str]:
+    """The environment entry telling a script this process starts that it must be gone, with every command it started, in `seconds`; only the script whose parent is this process reads it, so no other descendant inherits a deadline that was never its own."""
+    return {DEADLINE_ENV: f"{os.getpid()}:{time.time() + seconds:.3f}"}
+
+
+def under(pid: int) -> list[int]:
+    """Every process under `pid` still in this process's group, at any depth, from one `ps` snapshot; one that left the group, as a daemon started in a session of its own does, is not this process's to end."""
+    rows = [tuple(map(int, line.split())) for line in subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid="], capture_output=True, text=True, check=True).stdout.splitlines()]
+    group, found, parents = os.getpgrp(), [], {pid}
+    while parents:
+        parents = {child for child, parent, pgid in rows if parent in parents and pgid == group}
+        found += parents
+    return found
+
+
+def kill(pids: list[int]) -> None:
+    for pid in pids:
+        with suppress(ProcessLookupError):
+            os.kill(pid, signal.SIGKILL)
+
+
+def die_with_commands(signum: int, _frame: object) -> None:
+    """SIGKILL every command in flight, then die of `signum` as if no handler had run: a `ccn` hung on cc-notes swallows SIGTERM, so one left behind runs on under PID 1 (101 orphans in an hour on 2026-10-30)."""
+    signal.signal(signum, signal.SIG_IGN)
+    if signum == signal.SIGALRM:
+        os.write(sys.stderr.fileno(), f"{Path(sys.argv[0]).name} reached the deadline its caller set and was killed with every command it started\n".encode())
+    kill(under(os.getpid()))
+    signal.signal(signum, signal.SIG_DFL)
+    os.kill(os.getpid(), signum)
+
+
+def end_commands_with_script() -> None:
+    """Make SIGTERM and SIGHUP, unless the script was started ignoring them, and the deadline `deadline_env` hands it, kill the script's commands before the script dies, so a caller that kills the script never leaves its commands running."""
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        if signal.getsignal(signum) is signal.SIG_DFL:
+            signal.signal(signum, die_with_commands)
+    caller, _, deadline = os.environ.pop(DEADLINE_ENV, "").partition(":")
+    if caller == str(os.getppid()):
+        signal.signal(signal.SIGALRM, die_with_commands)
+        signal.setitimer(signal.ITIMER_REAL, max(float(deadline) - time.time(), 0.001))
 
 
 def stamp() -> str:

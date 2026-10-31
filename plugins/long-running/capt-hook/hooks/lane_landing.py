@@ -10,7 +10,7 @@ from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, I
 from captain_hook.annotations import dispatch_prompt, header_lines, session_annotations
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, bus_name, deadline_env, drive_entry, script, script_module
+from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, bus_name, drive_entry, run_script, script, script_module
 from .register_injection import INCIDENT_NAME, INCIDENT_SLICE
 from .session_tree import drive_lane
 
@@ -414,7 +414,7 @@ def merged_pr(call: Call, repo: str, cwd: str) -> tuple[str, str] | None:
 
 def run_quietly(argv: list[str], cwd: str) -> subprocess.CompletedProcess[str] | None:
     try:
-        return subprocess.run(argv, capture_output=True, text=True, timeout=CHECK_PR_TIMEOUT_SECONDS, cwd=cwd, env=deadline_env(CHECK_PR_TIMEOUT_SECONDS))
+        return run_script(argv, CHECK_PR_TIMEOUT_SECONDS, cwd)
     except (OSError, subprocess.TimeoutExpired):
         return None
 
