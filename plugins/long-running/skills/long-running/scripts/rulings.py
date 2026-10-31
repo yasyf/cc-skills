@@ -350,7 +350,8 @@ def mirror(answers: list[dict], directory: Path) -> None:
 
 
 def kept_copy(kept: Path, repo: str, tips: str | None) -> dict | None:
-    return cached if kept.is_file() and (cached := json.loads(kept.read_text()))["repo"] == repo and tips in (None, cached["tips"]) else None
+    """The register copy kept at `kept` for `repo`, when it was read at `tips` or `tips` is None, or when sprite-job.sh shipped it as the launching machine's snapshot, which a Sprite reads whatever its own ledger refs say, so no pass there rebuilds the register cold (cci #228532)."""
+    return cached if kept.is_file() and (cached := json.loads(kept.read_text()))["repo"] == repo and (tips in (None, cached["tips"]) or cached.get("snapshot")) else None
 
 
 def active_register(shell: ledger.Shell, repo: str, kept: Path) -> dict | None:

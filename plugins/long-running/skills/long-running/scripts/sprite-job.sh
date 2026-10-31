@@ -22,7 +22,9 @@ long-running processes there read GitHub between passes.
 
 The plugin version holding <script> is copied over once, when the Sprite lacks
 it, the drive's registry file on every run with its `checkout` set to the job's
-checkout, since the Sprite holds that clone and not this machine's, and the plan package the drive's
+checkout, since the Sprite holds that clone and not this machine's, the register
+copy kept in the drive's state as a snapshot for that checkout, which rulings.py
+on the Sprite reads instead of rebuilding the register cold with ccn, and the plan package the drive's
 register names, the directory holding plan/plan.md, whenever a file in it was
 added, removed or changed since the Sprite's copy. The job's checkout drops the
 empty loose refs a Sprite restart leaves, which every fetch reads as the zero
@@ -46,6 +48,8 @@ plugin=$(cd "$(dirname "$script")/../../.." && pwd)
 checkout=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["checkout"])' "$dir/job.json")
 drive=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["drive"])' "$dir/job.json")
 registry=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/long-running/drives/$drive.json
+state=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["state_dir"])' "$registry")
+program=$(python3 -c 'import json, sys; from pathlib import Path; entry = json.load(open(sys.argv[1])); print(entry.get("program") or Path(entry["state_dir"]).name)' "$registry")
 plan=$(python3 "$(dirname "$script")/rulings.py" plan --repo "$checkout" --drive "$drive")
 
 if ! sprite exec -s "$sprite" --no-stdin -- test -d "$plugin"; then
@@ -54,6 +58,20 @@ fi
 tar --no-xattrs -C "$dir" -cz . | sprite exec -s "$sprite" -- sh -c 'mkdir -p "$1" && tar -xz -m -C "$1"' sh "$dir"
 python3 -c 'import json, sys; entry = json.load(open(sys.argv[1])); entry["checkout"] = sys.argv[2]; print(json.dumps(entry))' "$registry" "$checkout" |
   sprite exec -s "$sprite" -- sh -c 'mkdir -p "$(dirname "$1")" && cat >"$1"' sh "$registry"
+python3 -c '
+import json, sys
+from pathlib import Path
+kept = Path(sys.argv[1])
+print(json.dumps({kept.name: {**json.loads(kept.read_text()), "repo": sys.argv[2], "snapshot": True}} if kept.is_file() else {}))' "$state/register-$program.json" "$checkout" |
+  sprite exec -s "$sprite" -- python3 -c '
+import json, os, sys
+from pathlib import Path
+state = Path(sys.argv[1])
+state.mkdir(parents=True, exist_ok=True)
+for name, kept in json.load(sys.stdin).items():
+    staged = state / f".{name}.{os.getpid()}"
+    staged.write_text(json.dumps(kept, ensure_ascii=False))
+    staged.replace(state / name)' "$state"
 if [ -n "$plan" ]; then
   package=$(dirname "$(dirname "$plan")")
   digest=$(python3 -c '
