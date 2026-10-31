@@ -290,7 +290,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: yasyf/cc-inbox
-          ref: 5e61c5bc11d417c601889cac1393b346d17a44cb
+          ref: 6003675b08f9ffb1040a8c7f4486691be12f9976
           path: .ci-native-cci
           persist-credentials: false
       - uses: actions/checkout@v7
@@ -304,6 +304,7 @@ jobs:
       - uses: astral-sh/setup-uv@v8.2.0
       - name: build actual native handler fixture and CLI
         run: |
+          test "$(git -C .ci-native-cci rev-parse HEAD)" = 6003675b08f9ffb1040a8c7f4486691be12f9976
           mkdir -p .ci-native-cci/cmd/landing-native-fixture "$RUNNER_TEMP/native-cci-bin"
           cp plugins/long-running/tests/fixtures/native_cci/main.go .ci-native-cci/cmd/landing-native-fixture/main.go
           go -C .ci-native-cci build -p 2 -o "$RUNNER_TEMP/native-cci-fixture" ./cmd/landing-native-fixture
@@ -312,9 +313,9 @@ jobs:
         env:
           CCI_NATIVE_FIXTURE: ${{ runner.temp }}/native-cci-fixture
           CCI_NATIVE_BINARY_DIR: ${{ runner.temp }}/native-cci-bin
-          CCI_NATIVE_PROVIDER_SOURCE: 5e61c5bc11d417c601889cac1393b346d17a44cb
+          CCI_NATIVE_PROVIDER_SOURCE: 6003675b08f9ffb1040a8c7f4486691be12f9976
           CCI_LEGACY_DESK_RUNNER: ${{ github.workspace }}/.ci-cci-legacy/plugins/long-running/skills/long-running/scripts/desk-runner.py
-        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/native_cci_integration.py -q -s --junitxml="$RUNNER_TEMP/native-cci.xml"
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/native_cci_integration.py plugins/long-running/tests/stale_blocker_selected_integration.py -q -s --junitxml="$RUNNER_TEMP/native-cci.xml"
       - uses: actions/upload-artifact@v7
         if: ${{ always() }}
         with:
