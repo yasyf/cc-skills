@@ -580,6 +580,18 @@ def test_a_read_takes_the_last_register_copy_while_another_process_rebuilds_it(h
         assert "> Relay code lives in relay-journal. Never in relay-server." in out.splitlines()
 
 
+def test_plan_reads_any_kept_register_copy_without_rebuilding_it(home: Path, package: Path, state: Path, capsys) -> None:
+    """remote-desks-3 #227003: every ledger ref move made each Sprite rebuild its register before a pass could read the plan path, and the cold rebuild ran past the pass's 300 s timeout."""
+    shell = RegisterShell(seeded(package))
+    assert ran(capsys, shell, "rows", "--json")[0] == 0
+    shell.rows["rule/aaaaaaa"]["words"] = "Relay code lives in relay-journal."
+
+    code, out = ran(capsys, shell, "plan")
+
+    assert code == 0 and out.strip().endswith("plan.md")
+    assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"]] == [["ledger", "list"], ["ledger", "show"]]
+
+
 def test_classify_refuses_a_scope_row_without_three_implications_or_any_names(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
     captured(state, capture("1", "keep the uploader in relay-journal and out of the shell"))
     shell = RegisterShell(seeded(package))
