@@ -334,10 +334,19 @@ def checked_out(shell: Shell, job: dict, view: dict) -> tuple[str, str]:
 
 
 def beyond(shell: Shell, job: dict, others: tuple[str, ...], head: str) -> list[str]:
-    """The commits `head` carries, oldest first, that no commit since its merge-base with any of `others` matches by patch."""
+    """The commits `head` carries, oldest first, that no commit since its merge-base with any of `others` matches by patch.
+
+    The patches compare over only the paths the head's own commits touch, so a partial clone fetches the blobs of those
+    paths alone rather than of every trunk commit since the merge-base.
+    """
     with ThreadPoolExecutor() as pool:
-        first, *rest = (commits.split() for commits in pool.map(lambda other: git(shell, job, "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{other}...{head}"), dict.fromkeys(others)))
+        first, *rest = (commits.split() for commits in pool.map(lambda other: own_since(shell, job, other, head), dict.fromkeys(others)))
     return [sha for sha in first if all(sha in commits for commits in rest)]
+
+
+def own_since(shell: Shell, job: dict, other: str, head: str) -> str:
+    paths = dict.fromkeys(git(shell, job, "log", "--no-merges", "--no-renames", "--format=", "--name-only", f"{other}..{head}").split("\n"))
+    return git(shell, job, "rev-list", "--cherry-pick", "--right-only", "--no-merges", "--reverse", f"{other}...{head}", "--", *filter(None, paths))
 
 
 def parent(shell: Shell, job: dict, base: str, trunk: str) -> str:
