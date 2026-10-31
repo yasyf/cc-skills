@@ -2860,6 +2860,16 @@ def test_a_check_with_no_verdict_on_a_pr_github_reads_merged_escalates_nothing(s
     assert not [line for line in escalations(shell) if "GATE-FAILED" in line]
 
 
+def test_a_check_that_exits_clean_with_no_verdict_since_the_stack_merged_settles_landed_never_unsettled(shell, config, tmp_path):
+    """Oct 31 9:22 AM: Trunk merged #45400 and #45729 at 9:20, the next check printed only `every named PR is already merged`, and both read `unsettled: the stack worker's settle step` (root #258341)."""
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.gates["33001"] = [(0, "every named PR is already merged\n", "")]
+    shell.pr_states["33001"] = "MERGED"
+    landing_pass(shell, config)
+    assert not [line for line in said(shell) if "unsettled" in line]
+    assert not [line for line in escalations(shell) if "GATE-FAILED" in line]
+
+
 HANDSHAKE = "stack-enqueue failed: _ssl.c:1064: The handshake operation timed out\n"
 
 

@@ -6132,7 +6132,7 @@ class Landing:
         self.read_reports({pr: sha for _, done in gated if (would := self.direct_would(done)) is not None for pr, sha in enqueued_heads(enqueue_key(would, done.verdicts)).items()})
         for tips, done in gated:
             verdicts = done.verdicts
-            if verdictless(done) or done.unparsed:
+            if not done.verdicts or done.unparsed:
                 if done.code == TIMED_OUT:
                     self.settle({pr: open_rows[pr].get("head", "") for tip in tips for pr in downstack(open_rows, tip)}, Refused(f"GATE-TIMEOUT its {self.adapter.kind} check ran past {GATE_CHECK_SECONDS}s on both tries and was killed, so the next pass checks it again"))
                 else:
