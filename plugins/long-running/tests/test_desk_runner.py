@@ -13253,7 +13253,7 @@ def test_a_finder_that_fails_or_writes_nothing_by_its_deadline_runs_again_and_es
     ]
 
 
-def test_a_pass_whose_process_exited_with_no_result_fails_that_pass_and_its_slot_starts_the_retry(shell, config, tmp_path):
+def test_a_pass_whose_process_exited_with_no_result_frees_its_slot_and_retries_after_the_fix_window(shell, config, tmp_path):
     finder_config(config, concurrent=1)
     orca_pass(shell, config)
     head_record(shell, "43439", FINDER_HEAD)
@@ -13262,10 +13262,15 @@ def test_a_pass_whose_process_exited_with_no_result_fails_that_pass_and_its_slot
     [crashed] = shell.finder_jobs
     shell.exited.add(int((crashed / "pid").read_text()))
     orca_pass(shell, config)
-    assert shell.finder_jobs == [crashed, crashed.with_name(f"{crashed.name}-2")]
     passes = incident(tmp_path, "desk-finder").actions
     assert passes[f"finder:43439:{FINDER_HEAD}"].reason == "finder.py exited 0 min after it started and wrote no result"
-    assert passes[f"finder:43439:{FINDER_HEAD}#2"].status == "started" and passes[f"finder:43299:{FINDER_OLD}"].status == "accepted"
+    assert passes[f"finder:43439:{FINDER_HEAD}#2"].status == "accepted" and passes[f"finder:43299:{FINDER_OLD}"].status == "started"
+    [_, other] = shell.finder_jobs
+    shell.exited.add(int((other / "pid").read_text()))
+    shell.clock += runner_module.GRADER_RETRY_AFTER
+    orca_pass(shell, config)
+    assert shell.finder_jobs[-1] == crashed.with_name(f"{crashed.name}-2")
+    assert incident(tmp_path, "desk-finder").actions[f"finder:43439:{FINDER_HEAD}#2"].status == "started"
     assert not finder_failures(shell)
 
 
