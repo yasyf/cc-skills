@@ -124,6 +124,52 @@ def test_generic_owned_dispatch_timeout_reaps_the_actual_sqlite_reader(tmp_path:
                 stop_owned_query(int(pid_path.read_text()), query)
 
 
+@pytest.mark.parametrize("failure", [RuntimeError("current engine fault"), OSError("current storage fault"), subprocess.CalledProcessError(7, ["ccn", "invalid"], stderr="bad query")])
+def test_owned_dispatch_preserves_outer_failure_status_and_real_traceback(failure, monkeypatch: pytest.MonkeyPatch):
+    module = handoff.rulings_module(handoff.script("long_running/__init__.py"))
+
+    def dispatch_fault(argv, shell, runtime):
+        runtime.stdout.write("partial output\n")
+        runtime.stderr.write("prior diagnostic\n")
+        raise failure
+
+    monkeypatch.setattr(module, "dispatch", dispatch_fault)
+    evt = SimpleNamespace(ctx=SimpleNamespace())
+    with pytest.raises(subprocess.CalledProcessError) as caught:
+        handoff.rulings(REPO, "rows", "--program", "brook", evt=evt)
+    assert caught.value.returncode == 1
+    assert caught.value.cmd == [sys.executable, str(handoff.script("rulings.py")), "rows", "--program", "brook", "--repo", REPO]
+    assert caught.value.stdout == "partial output\n"
+    assert caught.value.stderr.startswith("prior diagnostic\nTraceback (most recent call last):\n")
+    assert "in dispatch_fault" in caught.value.stderr
+    assert str(Path(__file__)) in caught.value.stderr
+    assert caught.value.stderr.endswith(str(failure) + "\n")
+    assert caught.value.__cause__ is failure
+
+
+@pytest.mark.parametrize("failure", [subprocess.TimeoutExpired(["ccn"], 2), reqenv.Abandoned()])
+def test_owned_dispatch_preserves_budget_and_abandonment_unwinds(failure, monkeypatch: pytest.MonkeyPatch):
+    module = handoff.rulings_module(handoff.script("long_running/__init__.py"))
+
+    def dispatch_fault(argv, shell, runtime):
+        raise failure
+
+    monkeypatch.setattr(module, "dispatch", dispatch_fault)
+    with pytest.raises(type(failure)) as caught:
+        handoff.rulings(REPO, "rows", "--program", "brook", evt=SimpleNamespace(ctx=SimpleNamespace()))
+    assert caught.value is failure
+
+
+def test_abandoned_owned_dispatch_does_not_load_a_cold_module(monkeypatch: pytest.MonkeyPatch):
+    flag = reqenv.Cutoff()
+    flag.close()
+    modules = []
+    monkeypatch.setattr(handoff, "rulings_module", lambda path: modules.append(path))
+    with reqenv.abandonable(flag), pytest.raises(reqenv.Abandoned):
+        handoff.rulings(REPO, "rows", "--program", "brook", evt=SimpleNamespace(ctx=SimpleNamespace()))
+    assert modules == []
+
+
 def wait_for_query(path: Path):
     deadline = time.monotonic() + 5
     while not (path.exists() and (value := path.read_text().strip())):

@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import time
+import traceback
 from contextlib import contextmanager
 from collections.abc import Iterator
 from datetime import datetime
@@ -334,27 +335,28 @@ def rulings_module(path: Path) -> ModuleType:
 
 def rulings(cwd: str, *args: str, evt: BaseHookEvent, stdin: str = "", timeout: int = CCN_TIMEOUT_SECONDS) -> str:
     argv = [sys.executable, str(script("rulings.py")), *args, "--repo", cwd]
-    read = HookRead(evt, argv, timeout)
-    module = rulings_module(script("long_running/__init__.py"))
-    env = deadline_env(timeout)
-    home = Path(env["HOME"]) if env.get("HOME") else Path.home()
-    drives = Path(env.get("CLAUDE_CONFIG_DIR") or home / ".claude") / "long-running" / "drives"
     output, errors = io.StringIO(), io.StringIO()
-
-    class Shell(module.ledger.Shell):
-        @staticmethod
-        def once(command: list[str], stdin: str | None, cwd: Path | None = None) -> str:
-            def call() -> str:
-                read.remaining()
-                result = evt.ctx.call_cli(command, input=stdin, cwd=str(cwd or repo), env=env, timeout=read.remaining())
-                read.remaining()
-                return result
-
-            return module.cci.installed(command, call)
-
-    repo = Path(cwd)
-    runtime = module.Runtime(io.StringIO(stdin), output, errors, drives, home / ".claude" / "scratch", lambda: module.drive.current_drive(env, drives), read.lock, read.held, read.remaining)
     try:
+        read = HookRead(evt, argv, timeout)
+        read.remaining()
+        module = rulings_module(script("long_running/__init__.py"))
+        env = deadline_env(timeout)
+        home = Path(env["HOME"]) if env.get("HOME") else Path.home()
+        drives = Path(env.get("CLAUDE_CONFIG_DIR") or home / ".claude") / "long-running" / "drives"
+
+        class Shell(module.ledger.Shell):
+            @staticmethod
+            def once(command: list[str], stdin: str | None, cwd: Path | None = None) -> str:
+                def call() -> str:
+                    read.remaining()
+                    result = evt.ctx.call_cli(command, input=stdin, cwd=str(cwd or repo), env=env, timeout=read.remaining())
+                    read.remaining()
+                    return result
+
+                return module.cci.installed(command, call)
+
+        repo = Path(cwd)
+        runtime = module.Runtime(io.StringIO(stdin), output, errors, drives, home / ".claude" / "scratch", lambda: module.drive.current_drive(env, drives), read.lock, read.held, read.remaining)
         code = module.dispatch([*args, "--repo", cwd], Shell(), runtime)
     except SystemExit as error:
         if isinstance(error.code, str):
@@ -362,6 +364,10 @@ def rulings(cwd: str, *args: str, evt: BaseHookEvent, stdin: str = "", timeout: 
             code = 1
         else:
             code = error.code
+    except subprocess.TimeoutExpired:
+        raise
+    except Exception as error:
+        raise subprocess.CalledProcessError(1, argv, output.getvalue(), errors.getvalue() + traceback.format_exc()) from error
     if code:
         raise subprocess.CalledProcessError(code, argv, output.getvalue(), errors.getvalue())
     return output.getvalue()
