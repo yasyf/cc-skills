@@ -11,6 +11,10 @@ on:
       - ".github/fixtures/long_running_build_cache_costs.py"
       - ".github/workflows/long-running-build-cache-costs.yml"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
