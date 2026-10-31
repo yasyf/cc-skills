@@ -30,6 +30,7 @@ from captain_hook import (
     ast_grep,
     on,
 )
+from captain_hook.annotations import dispatch_pairs
 from captain_hook.cmd import Call
 from captain_hook.util import reqenv
 
@@ -60,6 +61,13 @@ INCIDENT_ROUTE = (
     "Warning, nothing was blocked: Launch an incident fix lane with `desk-launch.py incident <name> <fix-brief>`, or an Agent named `<name>-fix` "
     "once `desk-launch.py refused <name>-fix --session <id>` refuses for load. "
     "Support briefs say `ccx: role=<role>`; a non-incident fix lane, `ccx: incident=none`."
+)
+READER_ROLE = "reader"
+READER_NAME = re.compile(r"^(?:slack|alert)-[\w-]*\b(?:read|reader|look|thread)\b")
+ALERT_TALK = re.compile(r"\b(?:incident|outage|alert)s?\b", re.IGNORECASE)
+FIX_BESIDE_READER = (
+    "Warning, nothing was blocked: a Slack or alert reader lane launches beside the incident fix lane, in the same turn. "
+    "Launch the fix now with `desk-launch.py incident <name> <fix-brief>`."
 )
 REFUSAL = [sys.executable, str(script("desk-launch.py")), "refused"]
 REFUSED = " ".join(REFUSAL)
@@ -240,6 +248,70 @@ def route_incident_fix_lanes_to_sol(evt: BaseHookEvent) -> HookResult | None:
     if call.agent_name and refused_on_load(evt, call.agent_name):
         return None
     return evt.context(INCIDENT_ROUTE)
+
+
+OUTAGE_READ = "ccx: role=reader\nRead the outage thread the owner linked into a file."
+FIX_LAUNCH = "python3 /drive/scripts/desk-launch.py incident api-outage-fix /drive/briefs/api-outage-fix.md"
+ORCA_GO = "cci post --drive d1 --lane root --kind go --to orca-desk --text 'R1 (10:31 AM) orca-desk: launch api-outage-fix NOW incident xhigh role=fix brief=/b.md'"
+
+
+def read_beside(name: str, prompt: str, *siblings: object, earlier: tuple[object, ...] = (), **extra: object) -> Input:
+    turn = [T.user("fix the outage the bot posted"), T.assistant(T.tool("Agent", name=name, prompt=prompt), *siblings)]
+    history = [T.user("start the relay"), T.assistant(*earlier)] if earlier else []
+    return Input(tool="Agent", tool_input={"name": name, "prompt": prompt}, **({"state": ACTIVE, "transcript": [*history, *turn]} | extra))
+
+
+@on(
+    Event.PostToolUse,
+    only_if=[Tool("Agent")],
+    skip_if=[FromSubagent()],
+    tests=separate("owner_facing.launch_the_fix_beside_the_reader", {
+        read_beside("outage-reader", OUTAGE_READ): Warn(pattern=r"same turn\. Launch the fix now with `desk-launch\.py incident <name> <fix-brief>`"),
+        read_beside("slack-read-outage-1", "Read the outage thread."): Warn(),
+        read_beside("outage-reader", OUTAGE_READ, earlier=(T.tool("Bash", command=FIX_LAUNCH),)): Warn(),
+        read_beside("outage-reader", OUTAGE_READ, T.tool("Bash", command=FIX_LAUNCH)): Allow(),
+        read_beside("outage-reader", OUTAGE_READ, T.tool("Bash", command=ORCA_GO)): Allow(),
+        read_beside("outage-reader", OUTAGE_READ, T.tool("Bash", command="orca-launch.sh api-outage-fix incident xhigh /b.md")): Allow(),
+        read_beside("outage-reader", OUTAGE_READ, T.tool("Agent", name="api-outage-fix", prompt="Fix it.")): Allow(),
+        read_beside("outage-reader", OUTAGE_READ, T.tool("Agent", name="api-patch", prompt="ccx: role=fix\nFix it.")): Allow(),
+        read_beside("dm-reader", "ccx: role=reader\nRead the owner's DM about lane names."): Allow(),
+        read_beside("slack-read-1793163121", "Read the thread the owner linked."): Allow(),
+        read_beside("outage-reader", OUTAGE_READ, state=[]): Allow(),
+        read_beside("outage-reader", OUTAGE_READ, agent_id="a1b2c3"): Allow(),
+    }),
+)
+def launch_the_fix_beside_the_reader(evt: BaseHookEvent) -> HookResult | None:
+    call = evt.as_input(TaskCall)
+    if call is None or not CompactionState.load(evt).active or not reads_an_alert(evt, call) or launched_a_fix(evt):
+        return None
+    return evt.context(FIX_BESIDE_READER)
+
+
+def reads_an_alert(evt: BaseHookEvent, call: TaskCall) -> bool:
+    role = evt.annotations.get("role")
+    reader = role == READER_ROLE or (role is None and bool(READER_NAME.match(call.agent_name or "")))
+    return reader and any(ALERT_TALK.search(text) for text in (call.agent_name or "", *prose(call)))
+
+
+def launched_a_fix(evt: BaseHookEvent) -> bool:
+    turn = evt.ctx.turn.tool_calls
+    agents = (use.call for use in turn.named("Agent").items)
+    commands = (cmd.argv for use in turn.named("Bash").items for cmd in use.call.command_line if cmd.argv)
+    return any(fix_agent(call) for call in agents) or any(fix_command(argv) for argv in commands)
+
+
+def fix_agent(call: TaskCall) -> bool:
+    return (call.agent_name or "").endswith("-fix") or dict(dispatch_pairs(call.raw.get("prompt") or "")).get("role") == FIX_ROLE
+
+
+def fix_command(argv: list[str]) -> bool:
+    names = [Path(word).name for word in argv]
+    after = dict(zip(names, argv[1:]))
+    if after.get("desk-launch.py") == "incident" or (names[0] == "codex-ask" and "--incident" in argv):
+        return True
+    if "orca-launch.sh" in names and len(argv) > (at := names.index("orca-launch.sh")) + 2 and argv[at + 2] == "incident":
+        return True
+    return names[0] == "cci" and "post" in argv and any("orca-desk: launch" in word and " incident " in word for word in argv)
 
 
 def read_incident_source(evt: BaseHookEvent, argv: list[str]) -> str:
