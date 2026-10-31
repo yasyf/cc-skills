@@ -780,6 +780,7 @@ ASYNC_POLLS = 60
 ASYNC_RESULT_POLLS = 120
 ASYNC_STATE = '.state + " " + .headRefOid'
 STACK_PARTIAL = "Include all existing PRs"
+FINDER_CLEARED = re.compile(r"(?<!not )(?<!never )\bclear(?:s|ed)?\b|\brebuttal accepted\b|\bland it\b", re.IGNORECASE)
 UNLINKED_STACK = "without a native GitHub stack"
 STACK_MEMBER = "part of a stack"
 SQUASH_POLLS = 12
@@ -6842,7 +6843,7 @@ class Landing:
         return self.finder_carried(pr, sha)
 
     def root_answered(self, pr: str, sha: str, verdict: dict) -> bool:
-        """Whether root settled `verdict`, a failing finder record at `sha`: a root `go` naming `pr` at `sha` posted after it, a root `decide` or `decision` that resolves it, or a root `decision` replying to it directly or along a chain of `--re` replies, since root refutes an edge-case finding in one line (rule 2cc5a1f3, root #152572, #194669)."""
+        """Whether root settled `verdict`, a failing finder record at `sha`: a root `go` naming `pr` at `sha` posted after it, a root `decide` or `decision` that resolves it, or a root `decision`, or a `decide` that clears it, replying to it directly or along a chain of `--re` replies, since root refutes an edge-case finding in one line (rule 2cc5a1f3, root #152572, #194669, p8a-step7 #234604)."""
         if any(go["seq"] > verdict["seq"] for go in self.head_gos(pr, sha)):
             return True
         answered = {verdict["seq"]}
@@ -6851,7 +6852,7 @@ class Landing:
                 return True
             if record.get("re") not in answered:
                 continue
-            if record["lane"] == ROOT and record["kind"] == "decision":
+            if record["lane"] == ROOT and (record["kind"] == "decision" or record["kind"] == "decide" and FINDER_CLEARED.search(record["text"])):
                 return True
             answered.add(record["seq"])
         return False
