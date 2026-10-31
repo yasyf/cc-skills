@@ -45,6 +45,9 @@ class Pool:
         self.jobs.append((grader, number))
         return f"job/{grader}/{number}"
 
+    def alive(self, worker):
+        return True
+
 
 class Restacker:
     def restack(self, number, head, base):
