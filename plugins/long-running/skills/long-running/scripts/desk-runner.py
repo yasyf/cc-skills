@@ -5617,13 +5617,14 @@ class Landing:
         return gone
 
     def pull_ordered(self, rows: dict[str, dict]) -> set[str]:
-        """Take out of the queue each PR a root record on this drive orders out, one that opens with `dequeue #<n>` or says `landing-desk: dequeue #<n>` outside quotes and code, or a `withdraw` of a root `go` naming a PR this desk enqueued at that go's head, so no order waits on a lane reading the bus (root #146459). It runs before any enqueue of the pass. Each order is kept in the desk store until it settles, its progress saved one order at a time, and says `DEQUEUED` only from a status read: one taken after the dequeue that finds the PR out of the queue, when the PR's lane and every drive naming it hear it stopped, or one that finds it already out. Either way the PR's head is latched out until `mq.py requeue`. A read that still finds it queued or landed, a refused dequeue, or no open ledger row says `DEQUEUE-FAILED`. Returns the PRs this pass keeps out of every check and enqueue: each with an open order, and each whose ledger head is latched out."""
+        """Take out of the queue each PR a root record on this drive orders out, one that opens with `dequeue #<n>` or says `landing-desk: dequeue #<n>` outside quotes and code, or a `withdraw` of a root `go` naming a PR this desk enqueued at that go's head, or a queued PR a go names only at other heads, so no order waits on a lane reading the bus (root #146459). It runs before any enqueue of the pass. Each order is kept in the desk store until it settles, its progress saved one order at a time, and says `DEQUEUED` only from a status read: one taken after the dequeue that finds the PR out of the queue, when the PR's lane and every drive naming it hear it stopped, or one that finds it already out. Either way the PR's head is latched out until `mq.py requeue`, except a moved head, which a go at that head enqueues again. A read that still finds it queued or landed, a refused dequeue, or no open ledger row says `DEQUEUE-FAILED`. Returns the PRs this pass keeps out of every check and enqueue: each with an open order, and each whose ledger head is latched out."""
         if DEQUEUE_READ not in self.book.facts(LANDING, [DEQUEUE_READ]):
             self.book.edit(LANDING, lambda incident: incident.facts.setdefault(DEQUEUE_READ, self.started))
         facts = self.book.facts(LANDING, [DEQUEUE_READ])
         statuses = self.pr_statuses()
         if statuses is not None:
             found, read = self.dequeue_orders(facts[DEQUEUE_READ])
+            found |= self.moved_past_go(rows, statuses)
 
             def remember(incident: actions.Incident) -> None:
                 incident.facts.setdefault(DEQUEUE_ORDERS, {}).update({key: order for key, order in found.items() if key not in incident.facts[DEQUEUE_ORDERS]})
@@ -5636,10 +5637,24 @@ class Landing:
         latched = facts.get(PULLED_HEADS, {})
         return {order["pr"] for order in facts.get(DEQUEUE_ORDERS, {}).values()} | {pr for pr, head in latched.items() if rows.get(pr, {}).get("head", "").startswith(head)}
 
+    def moved_past_go(self, rows: dict[str, dict], statuses: dict[str, dict]) -> dict[str, dict]:
+        """An order out for each queued PR a go names only at other heads, never at its current one, so Trunk never merges a head nobody gave a go (root #234005). Its head is not latched: a go at the new head enqueues it again."""
+        gos = self.root_gos()
+        return {
+            f"moved:{pr}@{head[:12]}": {"pr": pr, "why": f"queued at {head[:10]}, but its go names {named[-1][:10]}", "latch": False}
+            for pr, entry in statuses.items()
+            if entry["queue"] == QUEUED_STATE
+            and (head := rows.get(pr, {}).get("head", ""))
+            and (named := [go_heads(go)[pr] for go in gos if pr in go_heads(go)])
+            and not self.free_to_land(gos, pr, head)
+        }
+
     def settle_order(self, key: str, order: dict, rows: dict[str, dict], statuses: dict[str, dict]) -> None:
         pr, why = order["pr"], order["why"]
         row, queue = rows.get(pr, {}), statuses.get(pr, {}).get("queue")
         head = row.get("head", "")
+        latch = order.get("latch", True)
+        stays = "its head stays out until mq.py requeue" if latch else "a go at its new head enqueues it again"
 
         def said(label: str, text: str) -> None:
             self.runner.escalate(f"dequeue:{key}", label, f"#{pr}", f"#{pr} at {head[:10] or 'no open row'}, {why}: {text}")
@@ -5654,19 +5669,21 @@ class Landing:
                 return said("DEQUEUE-FAILED", "the status read after the dequeue still finds it queued")
             if queue in OUT_OF_QUEUE:
                 self.tell_stopped(pr, row, f"{why}: {order['line']}")
-                return said("DEQUEUED", f"the status read after the dequeue finds it {queue}; its head stays out until mq.py requeue")
+                return said("DEQUEUED", f"the status read after the dequeue finds it {queue}; {stays}")
             return None
         if queue is None:
             return said("DEQUEUE-FAILED", "it has no open row in this drive's ledger, so its queue state was not read and nothing was taken out")
         if queue in OUT_OF_QUEUE:
-            self.latch_pulled(pr, head, why)
-            return said("DEQUEUED", f"the status read finds it {queue}, so nothing was taken out; its head stays out until mq.py requeue")
+            if latch:
+                self.latch_pulled(pr, head, why)
+            return said("DEQUEUED", f"the status read finds it {queue}, so nothing was taken out; {stays}")
         if queue != QUEUED_STATE:
             return None
         released, line = self.release_pr(pr, why)
         if not released:
             return said("DEQUEUE-FAILED", line)
-        self.latch_pulled(pr, head, why)
+        if latch:
+            self.latch_pulled(pr, head, why)
         self.book.edit(LANDING, lambda incident: incident.facts[DEQUEUE_ORDERS][key].update({"sent": self.book.stamp(), "line": line}))
         return None
 

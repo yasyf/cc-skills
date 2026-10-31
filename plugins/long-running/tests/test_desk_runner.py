@@ -3420,6 +3420,7 @@ def test_a_stale_title_in_the_newest_grade_warns_root_and_the_lane_and_still_ask
 def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge_answer(shell, config, tmp_path):
     merge_mode(config, "every")
     lone_green_pr(shell)
+    shell.queue["29020"] = "not queued"
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
     landing_pass(shell, config)
@@ -4559,6 +4560,7 @@ def test_on_a_board_surface_no_check_or_enqueue_names_a_pr_without_a_root_go_at_
         merge_go(shell, pr, f"merge #{pr} at {head}")
     merge_go(shell, "29100", "merge #29100 at bbbb222")
     shell.pr_status |= {"29031": {"verdict": "blocked:ci-pending"}, "29100": {"verdict": "blocked:ci-pending"}}
+    shell.queue["29100"] = "not queued"
     landing_pass(shell, config)
     assert stack_named(shell) == {"29020"}
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
@@ -6914,6 +6916,39 @@ def test_a_withdrawn_go_leaves_a_pr_queued_that_another_standing_go_admits_at_th
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
     shell.records.append({"seq": 40000, "drive": "d1", "lane": "root", "kind": "correction", "re": first, "to": ["landing-desk"], "refs": {}, "text": f"withdrawing go #{first}; the newer go stands", "at": actions.stamp(shell.clock)})
+    landing_pass(shell, config)
+    assert dequeues(shell) == []
+
+
+def test_a_queued_pr_whose_head_moved_past_its_go_dequeues_and_enqueues_again_on_a_go_at_the_new_head(shell, config):
+    """Root #234005: Trunk merged #45744 at 23c548f, a head no go named, because the queue entry from go #228814 at e147581 survived the lane's force-push."""
+    merge_mode(config, "every")
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    shell.rows[0] |= {"head": "eeee555555", "reported_head": "eeee555555"}
+    landing_pass(shell, config)
+    assert dequeues(shell) == [["29020", "--dequeue"]]
+    shell.clock += runner_module.STATUS_MAX_AGE + timedelta(seconds=1)
+    shell.queue["29020"] = "not queued"
+    landing_pass(shell, config)
+    assert [line.split(": ", 2)[-1] for line in dequeue_lines(shell)] == ["the status read after the dequeue finds it not queued; a go at its new head enqueues it again"]
+    shell.gates["29020"] = [gate("#29020 GREEN eeee555555 graphite READY", would="#29020")]
+    grade(shell, "29020", "ok F307 at eeee555.")
+    merge_go(shell, "29020", "merge #29020 at eeee555")
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 2
+
+
+def test_a_queued_pr_a_go_names_at_its_current_head_stays_queued(shell, config):
+    merge_mode(config, "every")
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    merge_go(shell, "29020", "merge #29020 at aaaa111")
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
     landing_pass(shell, config)
     assert dequeues(shell) == []
 
