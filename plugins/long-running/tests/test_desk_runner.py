@@ -194,6 +194,7 @@ class FakeShell(runner_module.Shell):
         self.stack_merge_out = ""
         self.on_sleep: list = []
         self.link_out = ""
+        self.native: list[str] = []
         self.pr_states: dict[str, str] = {}
         self.bases: dict[str, str] = {}
         self.stack_members: set[str] = set()
@@ -394,10 +395,16 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == ["gh", "pr", "list"] and "--author" in argv:
             assert argv[3:] == ["--repo", "Forge-AI/monorepo", "--author", "app/graphite-app", "--state", "all", "--limit", "2", "--json", "createdAt,closedAt"]
             return runner_module.Done(1, "", "HTTP 502") if self.queue_drafts is None else runner_module.Done(0, json.dumps(self.queue_drafts), "")
+        if argv[:2] == ["gh", "api"] and argv[3:] == ["--jq", ".stack.number // empty"]:
+            return runner_module.Done(0, "900\n" if argv[2].rsplit("/", 1)[1] in self.native else "", "")
+        if argv[:3] == ["gh", "api", "repos/Forge-AI/monorepo/stacks/900"]:
+            return runner_module.Done(0, json.dumps(self.native), "")
         if argv[:2] == ["gh", "stack"]:
             assert env == {"GH_REPO": "Forge-AI/monorepo"} and cwd == str(self.root / "checkout")
             if argv[2] == "link" and self.link_out:
                 return runner_module.Done(1, "", self.link_out)
+            if argv[2] == "link" and set(argv[3:]) & set(self.native) and not set(self.native) <= set(argv[3:]):
+                return runner_module.Done(5, "", "Include all existing PRs in the command to update the stack\n")
             code = self.stack_code if argv[2] == "merge" else 0
             return runner_module.Done(code, self.stack_merge_out if code else "", "a pull request in the stack is not mergeable" if code and not self.stack_merge_out else "")
         if argv[:4] == ["gh", "api", "-X", "PUT"] and argv[4].endswith("/merge-async"):
@@ -2658,6 +2665,26 @@ def test_a_trunk_enqueue_answered_http_429_is_retried_next_pass_and_fails_nothin
     shell.enqueue_out["33001"] = (0, "#33001 QUEUED aaaa111111 native stack covers #33001\n")
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 2
+
+
+def test_a_link_github_refuses_for_leaving_out_part_of_an_existing_stack_names_every_open_member(shell, config, tmp_path):
+    """p8a-step7 #227794: the runner linked only the two PRs it would enqueue, GitHub refused with 'Include all existing PRs', and the stack above them never linked."""
+    shell.rows = [
+        {"pr": "29016", "lane": LANE, "branch": "a/2", "base": "dev", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222", "ours": True},
+        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "a/2", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": True},
+    ]
+    shell.native = ["29020", "29031", "29044"]
+    shell.gates["29020"] = [
+        (5, "", "stack-enqueue failed: #29020 targets a/2 without a native GitHub stack; link it with gh stack link\n"),
+        gate("#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#29016 #29020"),
+    ]
+    shell.enqueue_out["29020"] = (0, "enqueue #29016 #29020: {}\n")
+    grade(shell, "29016", "ok F307 at bbbb222.")
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    assert [call for call in shell.calls if call[:3] == ["gh", "stack", "link"]] == [["gh", "stack", "link", "29016", "29020"], ["gh", "stack", "link", "29016", "29020", "29031", "29044"]]
+    assert shell.enqueues() != []
+    assert not [line for line in escalations(shell) if "GATE-FAILED" in line]
 
 
 def test_a_check_with_no_verdict_on_a_pr_github_reads_merged_escalates_nothing(shell, config, tmp_path):
