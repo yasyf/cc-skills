@@ -119,7 +119,7 @@ from zoneinfo import ZoneInfo
 from . import judge
 from . import register_reads
 from .register_reads import BINDING_DIRECTIONS, LEDGER_REFS, NOT_RULINGS, SLICE_LINE, UNANCHORED, binding, digest, hashed, kept_copy, listed, rendered_row, row_anchors, row_heading, section, write_atomic
-from .ruling_documents import DocumentIndex
+from .ruling_documents import DocumentIndex, readable
 
 from . import board_rows
 from . import cci
@@ -738,11 +738,6 @@ def sweep_starts(names: Iterable[str]) -> set[str] | None:
 def globbed(root: str, globs: list[str]) -> list[Path]:
     found = (Path(path) for pattern in globs for path in (glob.glob(pattern, recursive=True) if os.path.isabs(pattern) else Path(root).glob(pattern)))
     return sorted(path for path in found if path.is_file())
-
-
-def readable(path: Path) -> str | None:
-    data = path.read_bytes()
-    return None if b"\0" in data[:4096] else data.decode(errors="replace")
 
 
 def default_files(loaded: Register, plan: Path | None) -> list[Path]:

@@ -17,6 +17,14 @@ def _identity(path: Path) -> tuple[int, int, int, int, int]:
     return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
 
 
+def readable(path: Path) -> str | None:
+    with path.open("rb", buffering=4096) as body:
+        prefix = body.read(4096)
+        if b"\0" in prefix:
+            return None
+        return (prefix + body.read()).decode(errors="replace")
+
+
 class DocumentIndex:
     def __init__(self, words: Callable[[str], Iterable[str]], wanted: set[str] | None):
         self.words = words
@@ -30,10 +38,9 @@ class DocumentIndex:
         identity = _identity(path)
         document = self.documents.get(path)
         if document is None or document.identity != identity:
-            data = path.read_bytes()
             lines, words = {}, {}
-            if b"\0" not in data[:4096]:
-                for number, text in enumerate(data.decode(errors="replace").splitlines(), start=1):
+            if (body := readable(path)) is not None:
+                for number, text in enumerate(body.splitlines(), start=1):
                     found = set(self.words(text))
                     selected = found if self.wanted is None else found & self.wanted
                     if self.wanted is None or selected:

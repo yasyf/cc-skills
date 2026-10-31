@@ -14,6 +14,9 @@ on:
       - "plugins/long-running/skills/long-running/scripts/long_running/roster_service.py"
       - "plugins/long-running/skills/long-running/scripts/long_running/rosters.py"
       - "plugins/long-running/skills/long-running/scripts/long_running/register_reads.py"
+      - "plugins/long-running/skills/long-running/scripts/long_running/ruling_documents.py"
+      - "plugins/long-running/skills/long-running/scripts/long_running/rulings.py"
+      - "plugins/long-running/tests/test_ruling_binary_reader.py"
       - "plugins/long-running/skills/long-running/scripts/desk-wait.sh"
       - "plugins/long-running/bin/desk-wait.sh"
       - "plugins/long-running/skills/long-running/scripts/ledger.py"
@@ -49,6 +52,34 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
+      - uses: actions/checkout@v7
+        with:
+          ref: c729f3d928531710b7cdc0b5137c099058a01460
+          path: .ci-ruling-binary-baseline
+          persist-credentials: false
+      - name: Immutable ruling binary prefix negative controls
+        run: |
+          test "$(git -C .ci-ruling-binary-baseline rev-parse HEAD)" = c729f3d928531710b7cdc0b5137c099058a01460
+          baseline=.ci-ruling-binary-baseline/plugins/long-running
+          cp plugins/long-running/tests/test_ruling_binary_reader.py "$baseline/tests/test_ruling_binary_reader.py"
+          for caller in reader index readback classify; do
+            case "$caller" in
+              reader) node=test_ruling_reader_binary_prefix ;;
+              index) node=test_document_index_binary_prefix ;;
+              readback) node=test_readback_sweeper_binary_prefix ;;
+              classify) node=test_classify_sweeper_binary_prefix ;;
+            esac
+            negative="$RUNNER_TEMP/ruling-binary-$caller-negative.log"
+            if uv run --locked --project plugins/long-running pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_ruling_binary_reader.py::$node[large]" -q -s > "$negative" 2>&1; then
+              cat "$negative"
+              exit 1
+            fi
+            cat "$negative"
+            grep -F "binary ruling $caller read" "$negative"
+            grep -F '1 failed' "$negative"
+          done
+      - name: Ruling binary prefix bytes and text parity
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_ruling_binary_reader.py plugins/long-running/tests/test_rulings.py::test_classify_reads_each_unchanged_document_once_for_all_rows -q -s
       - name: native mailbox freshness and lifecycle, and the shells' command reaping
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_rosters.py plugins/long-running/tests/test_inboxes.py plugins/long-running/tests/test_register_reads.py plugins/long-running/tests/test_ledger_shell.py plugins/long-running/tests/test_stall_watch.py plugins/long-running/tests/test_build_cache.py plugins/long-running/tests/overflow_read_integration.py plugins/long-running/tests/test_rulings_dispatch.py plugins/long-running/tests/test_rulings_owned_hooks.py plugins/long-running/tests/test_rulings_consumers.py plugins/long-running/tests/test_lane_landing.py plugins/long-running/tests/test_judge_request_owned.py plugins/long-running/tests/test_judge.py plugins/long-running/tests/test_fifteenth_check_pr_owned.py plugins/long-running/tests/test_owned_reexec.py plugins/long-running/tests/test_board_watch.py::test_a_reexecuted_watch_ends_the_streams_its_older_image_started -q -s
       - name: Stale-blocker internal references
