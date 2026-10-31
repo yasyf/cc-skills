@@ -7796,6 +7796,26 @@ def test_a_stacked_head_on_a_base_the_pass_did_not_admit_reads_below_blocked_nev
     assert line.endswith("stacked on #33000, which the pass did not admit, so its graphite-stack-enqueue check read no verdict: stack-enqueue: error: #33001's native stack contains an unavailable pull request")
 
 
+@pytest.mark.parametrize("admitted_by", ["exemption", "go-while-conflicting"])
+def test_an_admitted_head_on_a_parent_no_go_names_settles_below_blocked_never_unsettled(shell, config, tmp_path, admitted_by):
+    """Oct 30 7:18 PM: #45719, #45802 and #45893, admitted as exempt ports or test-only changes, and #45400, go'd while conflicting, each sat on a parent no go named and settled `unsettled: the admission read`."""
+    board_surface(config)
+    two_pr_stack(shell)
+    shell.rows[0] = dict(shell.rows[0], test_state="success")
+    shell.rows[1] = dict(shell.rows[1], test_state="success")
+    if admitted_by == "exemption":
+        shell.files["29031"] = ["go/sand/next/vm/run.go"]
+        grade(shell, "29031", "ok dddd444 pure port, no interaction: it only ports old-tree #43020.")
+    else:
+        shell.rows[1] |= {"mergeable_state": "dirty"}
+        merge_go(shell, "29031", "merge #29031 at dddd444")
+    landing_pass(shell, config)
+    assert not [line for line in said(shell) if "unsettled" in line]
+    assert admitted_heads(config)["29031"]["state"] != "defect"
+    assert admitted_heads(config)["29031"]["why"].startswith("stacked on #29020 at cccc333333")
+    assert shell.enqueues() == []
+
+
 def test_a_pass_that_gates_nothing_refuses_every_admitted_head_in_one_record_naming_why(shell, config, tmp_path):
     two_gone_green(shell)
     pool(shell, "reads", "core")["remaining"] = runner_module.QUOTA_FLOOR - 1
