@@ -4530,7 +4530,8 @@ which it reads from this session's rotations and from cci's stand-down records
 `cci who --successor-of <lane>`), and reminds the root to `TaskStop` the old lane; a
 message that mentions a stand-down is never forwarded, only warned. Spawning `<lane>-N+1`
 beside `<lane>-handoff`, or any successor whose brief carries `Replaces: <lane>`, rotates
-the old name. A `TaskStop`, by name, `<name>@<team>`, or agent id, or a root `STAND-DOWN`
+the old name, and the pack posts that stand-down record itself, so cci also delivers to the
+successor every record a desk, script or lane addresses to the old name. A `TaskStop`, by name, `<name>@<team>`, or agent id, or a root `STAND-DOWN`
 retires a lane with no successor: a lane's or worker's message to it goes to `main`
 instead, and the root's is warned once cci records the stand-down. No case blocks.
 Respawning under the name clears both.

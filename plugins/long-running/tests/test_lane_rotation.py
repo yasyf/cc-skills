@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import os
+import subprocess
 import threading
 import uuid
 import weakref
@@ -1724,6 +1725,25 @@ def test_a_successor_brief_naming_its_predecessor_rotates_it_without_a_handoff(t
 
     assert lane_rotation.RotationState.load(Stop(tree, []).evt()).retired == {"creds-5": "creds-6"}
     assert redirected(tree, "creds-5", None)[0]["to"] == "creds-6"
+
+
+def test_a_rotation_records_the_successor_in_cci_so_every_senders_records_reach_it(tree: Tree, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Drive watchdog #235092: 62 records from desks and scripts went to board-refresher-2 after it rotated, because only this session's SendMessage calls followed the rotation."""
+    posted: list[list[str]] = []
+
+    def run(argv: list[str], **_: object) -> subprocess.CompletedProcess:
+        posted.extend([argv] if argv[:2] == ["cci", "post"] else [])
+        return subprocess.CompletedProcess(argv, 0, "#9\n", "")
+
+    monkeypatch.setattr(lane_rotation, "drive_entry", lambda evt: {"drive": "d1", "state_dir": "/state/d1"})
+    monkeypatch.setattr(lane_rotation.subprocess, "run", run)
+    tree.lane("creds-5", 450_000)
+    tree.lane("creds-6", 80_000)
+
+    tool_use(tree, PostToolUseEvent, "Agent", {"name": "creds-6", "prompt": "Replaces: creds-5\ngo"})
+
+    assert [argv[argv.index("--to") + 1 : argv.index("--successor") + 2] for argv in posted] == [["creds-5", "--successor", "creds-6"]]
+    assert all(argv[argv.index("--kind") + 1] == "stand-down" and argv[argv.index("--drive") + 1] == "d1" for argv in posted)
 
 
 def test_a_respawn_under_a_rotated_name_clears_its_redirect(tree: Tree) -> None:
