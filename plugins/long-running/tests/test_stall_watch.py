@@ -755,8 +755,8 @@ def test_a_red_head_goes_to_its_live_lane_every_half_hour_to_root_once_when_no_l
 
     shell.clock = NOW + timedelta(minutes=2)
     watch(shell, config)
-    assert sorted(shell.topics()) == ["probe:2026-10-27", "red:101:abc1234", "red:103:0123456:root", "red:105:abc1234", "red:107:fedcba9"]
-    assert shell.post("red:107:fedcba9")["to"] == "old-lane-2@d1"
+    assert sorted(shell.topics()) == ["probe:2026-10-27", "red:101:abc1234", "red:103:0123456:root", "red:105:abc1234", "red:107:fedcba9:root"]
+    assert shell.post("red:107:fedcba9:root")["to"] == "root"
     assert shell.post("red:101:abc1234") == {
         "to": "api-lane@d1",
         "kind": "blocker",
@@ -774,11 +774,24 @@ def test_a_red_head_goes_to_its_live_lane_every_half_hour_to_root_once_when_no_l
 
     shell.clock = NOW + timedelta(minutes=33)
     watch(shell, config)
-    assert sorted(shell.topics()[5:]) == ["red:101:abc1234", "red:105:abc1234", "red:107:fedcba9"]
+    assert sorted(shell.topics()[5:]) == ["red:101:abc1234", "red:105:abc1234"]
 
     shell.rows[0] = row("101")
     watch(shell, config)
     assert "red:101:abc1234" not in opened(config) and "red:103:0123456:root" in opened(config)
+
+
+def test_a_red_head_goes_to_the_lane_of_its_newest_head_record_never_to_a_live_successor_of_its_ledger_lane(config):
+    """Root #259013, fourth repeat: #46062 sat on n-enumeration-11's chain, every HEAD record on it was n-enumeration-11's, and its red still went to conflicts-7, a successor of the conflicts-5 its ledger row named."""
+    red = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/9", "job": "Test (nextest)", "error": "FAILED", "probe": False}
+    raw = json.loads(config.read_text())
+    config.write_text(json.dumps(raw | {"stall": {"minutes": {"unclassed": 600, "sweep": 600}}}))
+    records = [record(1, "enum-lane-11", "head", f"HEAD 2 PRs: #108 {HEAD}, #109 {HEAD}", 5, "108"), record(2, "conf-lane-7", "state", "working", 1), record(3, "enum-lane-11", "state", "replaying", 1)]
+    shell = FakeShell(records, [row("108", lane="conf-lane-5", test_state="failure", red_at=stamp(1), failing_checks=json.dumps([red]))])
+    watch(shell, config)
+    shell.clock = NOW + timedelta(minutes=2)
+    watch(shell, config)
+    assert shell.post("red:108:abc1234")["to"] == "enum-lane-11@d1"
 
 
 @pytest.mark.parametrize(("red_class", "stalls"), [("inherited", []), ("flake", []), ("stale", []), ("real", ["red:101:abc1234"])])

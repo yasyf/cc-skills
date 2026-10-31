@@ -237,6 +237,7 @@ REPOSTED = frozenset({"red"})
 POST_KINDS = {"red": "blocker", "unclassed": "blocker", "unfixed": "blocker", "sweep": "blocker", "probe": "report"}
 RED_CLASSES = ("inherited", "flake", "real", "stale")
 RED_FIELD = re.compile(r"\b(class|head|owner)=(\S+)")
+HANDED_TO = re.compile(r"\bsuccessor ([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b")
 RED_SWEEP = "red-sweep"
 OWNER_ORDER = re.compile(r"\bowner\b.{0,80}\bverbatim\b", re.IGNORECASE | re.DOTALL)
 ORDER_WINDOW = timedelta(hours=2)
@@ -677,11 +678,10 @@ class Pass:
         self.unread |= kinds
         print(f"WARN {why}; the {', '.join(sorted(kinds))} stalls it would clear stay open", file=sys.stderr)
 
-    def successor(self, lane: str) -> str:
-        """`lane`, or once it handed off or ended, the newest numbered successor still posting, so a PR's alarms never go to a stopped lane (cci #234379)."""
-        ended = (last := self.lane_newest.get(lane)) is not None and last["kind"] in ENDED or f"{lane}-handoff" in self.lane_newest
-        later = [record for name, record in self.lane_newest.items() if grades.succeeds(name, lane) and record["kind"] not in ENDED]
-        return max(later, key=lambda record: record["seq"])["lane"] if ended and later else lane
+    def handed_to(self, lane: str) -> str:
+        """The successor `lane`'s own handoff record names, such as `successor api-lane-6`, else `lane`: a PR follows a handoff its lane wrote, never a successor guessed from a lane's name (cci #234379, root #259013)."""
+        handoff = self.lane_newest.get(f"{lane}-handoff")
+        return named[1] if handoff is not None and (named := HANDED_TO.search(handoff["text"])) else lane
 
     def parent(self, lane: str) -> str | None:
         """The live lane whose name `lane` extends, such as `mq-health-4` for `mq-health-4-supervise`; a numbered successor such as `mq-health-4-2` extends no lane."""
@@ -957,7 +957,7 @@ class Pass:
             head_at = at(announced[0]) if announced else None
             going = grades.gone_at(gos, pr, head)
             in_queue = any(named == pr and grades.names_head(sha, head) for named, sha in queued)
-            lane = lanes[pr] = self.successor(reassigned.get(pr) or next((record["lane"] for record in reversed(records) if record["kind"] == "head" and record["lane"] not in NOT_LANES and grades.about_pr(record, repo, pr)), None) or row.get("lane") or ROOT)
+            lane = lanes[pr] = self.handed_to(next((record["lane"] for record in reversed(records) if record["kind"] == "head" and record["lane"] not in NOT_LANES and grades.about_pr(record, repo, pr)), None) or reassigned.get(pr) or row.get("lane") or ROOT)
             tapping = board is not None and board.shows(pr, head) and not board_rows.at_head(board.taps.get(pr), "rejected", head)
             readied = [at(record) for record in announced if record["kind"] == "ready" or READY.search(record["text"])]
             tap_at = min([*readied, *([live] if (live := board.live_at(pr, head)) else [])], default=None) if tapping else None
@@ -1121,7 +1121,7 @@ class Pass:
             return Stall(f"probe:{pr}:{short(row['head'])}", "probe", since, subject, failed["url"], (lane,), "", pr)
         job = f" in job {failed['job']}" if failed.get("job") else ""
         error = f": {clip(failed['error'])}" if failed.get("error") else ""
-        owned = None if lane in ROOT_NAMES else self.live_lane(lane)
+        owned = None if lane in ROOT_NAMES or (last := self.lane_newest.get(lane)) is None or last["kind"] in ENDED else lane
         what = f"{required} has read failed{job} since {pacific(since)}{error} ({failed['url']})" + ("" if owned else f"; {lane} has posted nothing live in {int(self.watch.window.total_seconds() // 3600)} h")
         return Stall(f"red:{pr}:{short(row['head'])}{'' if owned else ':root'}", "red", since, subject, what, (owned,) if owned else (ROOT,), f"fix the red build of {subject} and push" if owned else f"assign the red build of {subject} to a live lane", pr)
 
@@ -1135,10 +1135,15 @@ class Pass:
 
     @staticmethod
     def reassignments(records: list[dict]) -> dict[str, str]:
-        """Each PR a root record reassigns, such as `root reassigns #1 and #2 to lane-a; #3 to lane-b`, to the lane the newest such record names."""
+        """Each PR a root record names an owner for, to the lane the newest such record names: a reassignment such as `root reassigns #1 and #2 to lane-a; #3 to lane-b`, or an `owner=<lane>` field, which names every PR the record cites."""
         owners: dict[str, str] = {}
         for record in records:
-            if record["lane"] not in ROOT_NAMES or not REASSIGNS.search(record["text"]):
+            if record["lane"] not in ROOT_NAMES:
+                continue
+            if owner := dict(RED_FIELD.findall(record["text"])).get("owner"):
+                owners |= dict.fromkeys({*PR_REF.findall(record["text"]), *(str(ref).rsplit("#", 1)[-1] for ref in record.get("refs", {}).get("prs", []))}, owner)
+                continue
+            if not REASSIGNS.search(record["text"]):
                 continue
             for clause in CLAUSE.split(record["text"]):
                 if lane := REASSIGNED_TO.findall(clause):

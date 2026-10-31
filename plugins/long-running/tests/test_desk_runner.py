@@ -2696,6 +2696,13 @@ def test_a_trunk_failed_or_cancelled_label_reads_as_evicted_where_the_status_rea
     assert runner_module.trunk_labelled(unknown, {"labels": "trunk-cancelled"})["evicted"] == "Trunk labelled it trunk-cancelled"
 
 
+def test_a_trunk_failed_label_left_from_an_older_head_reads_nothing_once_the_new_heads_own_ci_is_green():
+    """#259946: Trunk evicted #46618, its trunk-failed label stayed, and the runner read 'the queue dropped it' at 5736e0f, a head Trunk never ran whose own buildkite/test was green."""
+    green = {"number": 46618, "queue": "not queued", "verdict": "landable", "ci": {"state": "green"}}
+    assert runner_module.trunk_labelled(green, {"labels": "trunk-failed"}) == green
+    assert runner_module.trunk_labelled(green | {"ci": {"state": "red", "failing": ["buildkite/test"]}}, {"labels": "trunk-failed"})["queue"] == "evicted"
+
+
 def test_a_trunk_drop_reads_as_evicted_where_the_status_read_says_not_queued():
     """Owner 10:44 PM Oct 30: ccx read #45599, which Trunk's queue run had failed, as not queued, and only an unknown status took Trunk's label, so nothing read it as dropped."""
     out = {"number": 45599, "queue": "not queued", "verdict": "blocked:ci-red"}
@@ -2861,6 +2868,16 @@ def test_a_check_with_no_verdict_on_a_pr_github_reads_merged_escalates_nothing(s
     shell.gates["29020"] = [(5, "", "stack-enqueue failed: git fetch failed with exit 128: fatal: couldn't find remote ref refs/heads/a/3\n")]
     shell.pr_states["29020"] = "MERGED"
     landing_pass(shell, config)
+    assert not [line for line in escalations(shell) if "GATE-FAILED" in line]
+
+
+def test_a_check_that_exits_clean_with_no_verdict_since_the_stack_merged_settles_landed_never_unsettled(shell, config, tmp_path):
+    """Oct 31 9:22 AM: Trunk merged #45400 and #45729 at 9:20, the next check printed only `every named PR is already merged`, and both read `unsettled: the stack worker's settle step` (root #258341)."""
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.gates["33001"] = [(0, "every named PR is already merged\n", "")]
+    shell.pr_states["33001"] = "MERGED"
+    landing_pass(shell, config)
+    assert not [line for line in said(shell) if "unsettled" in line]
     assert not [line for line in escalations(shell) if "GATE-FAILED" in line]
 
 
