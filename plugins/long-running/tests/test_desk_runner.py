@@ -14618,14 +14618,26 @@ def test_release_and_cut_polls_decode_only_active_fact_entries(shell, config, tm
         current.facts[runner_module.CUT_CLOCKS]["active"] = {"ended": ""}
         current.facts[runner_module.CUT_CLOCKS]["silent"] = {"ended": "silent"}
     runner.config.landing["applying"] = {"build": "build", "step": "step", "components": []}
-    decoded, pressed, escalated = [], [], []
+    decoded, excluded, pressed, escalated = [], [], [], []
+    owner_thread = threading.get_ident()
     loads = json.loads
 
     def counted(value, *args, **kwargs):
-        decoded.append(len(value.encode()))
+        encoded = value.encode()
+        if threading.get_ident() == owner_thread:
+            decoded.append(len(encoded))
+        else:
+            excluded.append({"thread": threading.current_thread().name, "ident": threading.get_ident(), "bytes": len(encoded), "sha256": hashlib.sha256(encoded).hexdigest()})
         return loads(value, *args, **kwargs)
 
     monkeypatch.setattr(json, "loads", counted)
+    control = "measured-thread-control" * 16
+    encoded_control = json.dumps(control)
+    assert json.loads(encoded_control) == control
+    assert decoded == [len(encoded_control.encode())]
+    with pytest.raises(AssertionError):
+        assert sum(decoded) < 128
+    decoded.clear()
     monkeypatch.setattr(store, "load", lambda *_: pytest.fail("poll loaded a full incident"))
     monkeypatch.setattr(runner_module, "release_build_argv", lambda *_: None)
     monkeypatch.setattr(runner, "escalate", lambda *args: escalated.append(args))
@@ -14635,9 +14647,9 @@ def test_release_and_cut_polls_decode_only_active_fact_entries(shell, config, tm
     runner.cut_clock()
     assert len(escalated) == 1 and escalated[0][2] == "release"
     assert pressed == [("active", {"ended": ""}), ("silent", {"ended": "silent"})]
+    print(json.dumps({"history": history, "poll_decoded_bytes": sum(decoded), "measured_control_bytes": len(encoded_control.encode()), "excluded_decodes": excluded}))
     assert sum(decoded) < 128
     assert store.fact_path(runner_module.RUNNER, [runner_module.RELEASE_BUILDS, "active", "done"]) is True
-    print(json.dumps({"history": history, "poll_decoded_bytes": sum(decoded)}))
 
 
 @pytest.mark.parametrize("history", [32, 10_000])

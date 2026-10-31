@@ -106,6 +106,8 @@ from pathlib import Path
 
 from zoneinfo import ZoneInfo
 
+from long_running import register_reads
+from long_running.register_reads import BINDING_DIRECTIONS, LEDGER_REFS, NOT_RULINGS, SLICE_LINE, UNANCHORED, binding, digest, hashed, kept_copy, listed, rendered_row, section, write_atomic
 from long_running.ruling_documents import DocumentIndex
 
 import board_rows
@@ -132,12 +134,9 @@ STATES = ("in-force", "pending-owner", "at-risk", "broken", "superseded", "owed"
 STANDING = {"in-force": "in force", "pending-owner": "waiting for you", "at-risk": "at risk", "broken": "broken", "owed": "owed", "met": "met"}
 TROUBLE = frozenset({"at-risk", "broken"})
 KIND_ORDER = {kind: rank for rank, kind in enumerate(("reserved", "scope", "exception", "design", "gate", "order", "pick"))}
-NOT_RULINGS = ("corpus/", "no/")
 CORPUS_KEY = "corpus/b-tests"
-UNANCHORED = frozenset({"pending", "none", "all"})
 IMPLICATION_COUNTS = range(3, 7)
 DIRECTIONS = ("removes", "requires", "permits")
-BINDING_DIRECTIONS = frozenset({"removes", "requires"})
 ANSWER_SOURCE = "answer"
 CONFIRM_SOURCES = frozenset({"slack-action", "slack-reply", "prompt", "board", ANSWER_SOURCE})
 RECOMMENDED_MARK = " (Recommended)"
@@ -148,7 +147,6 @@ LIVE_BUDGET = 10_000_000
 NOT_LANES = frozenset({"root", "main", "desk-runner"})
 FINISHED = re.compile(r"\bFINAL\b|\bverdict: done\b")
 BRIEF_DEPTH = 3
-LEDGER_REFS = "refs/cc-notes/ledgers/"
 SOURCE_TREE = frozenset({".git", ".claude-plugin", "node_modules", "package.json", "go.mod", "pyproject.toml", "Cargo.toml"})
 PATH_TOKEN = re.compile(r"\S*/\S*")
 ASK_QUOTE = 120
@@ -159,7 +157,6 @@ PROOF_SOURCE = re.compile(r"^proof:([\w-]+):")
 CONFIRMS_OPTIONS = ["Yes", "No"]
 PRODUCT_NOUNS = ("chat", "Mac", "cloud", "share link", "pod", "API", "SandSQL", "journal", "attachment", "update", "team", "project")
 UNCONFIRMED_AFTER = timedelta(hours=4)
-SLICE_LINE = "Register slice:"
 SLICE_HEADER = re.compile(r"^Register slice: lane=(?P<lane>\S+) step=(?P<step>\S+)(?: paths=(?P<paths>\S+))?(?P<codex> codex=yes)?[ \t]*$", re.MULTILINE)
 SLICE_HASH = re.compile(r"^slice-hash: (?P<hash>[0-9a-f]{12})$", re.MULTILINE)
 INCIDENT_STEP = "incident"
@@ -293,7 +290,7 @@ UNPLAIN = (
 
 
 def ccn(shell: ledger.Shell, repo: str, *args: str) -> object:
-    return json.loads(shell.run(["ccn", "-R", repo, *args, "--json"]) or "null")
+    return register_reads.ccn(shell.run, repo, *args)
 
 
 def entry_of(args: argparse.Namespace) -> dict | None:
@@ -317,11 +314,7 @@ def state_dir(args: argparse.Namespace) -> Path:
 
 
 def register(shell: ledger.Shell, repo: str, program: str) -> dict | None:
-    docs = ccn(shell, repo, "doc", "list", "--label", f"standing-rules:{program}", "--full") or []
-    if not docs:
-        return None
-    newest = max(docs, key=lambda doc: doc["updated_at"])
-    return {"id": newest["id"], "body": newest["body"]}
+    return register_reads.register(shell.run, repo, program)
 
 
 def branch_of(shell: ledger.Shell, repo: str) -> str:
@@ -349,24 +342,8 @@ def mirror(answers: list[dict], directory: Path) -> None:
             write_atomic(path, text)
 
 
-def kept_copy(kept: Path, repo: str, tips: str | None) -> dict | None:
-    """The register copy kept at `kept` for `repo`, when it was read at `tips` or `tips` is None, or when sprite-job.sh shipped it as the launching machine's snapshot, which a Sprite reads whatever its own ledger refs say, so no pass there rebuilds the register cold (cci #228532)."""
-    return cached if kept.is_file() and (cached := json.loads(kept.read_text()))["repo"] == repo and (tips in (None, cached["tips"]) or cached.get("snapshot")) else None
-
-
 def active_register(shell: ledger.Shell, repo: str, kept: Path) -> dict | None:
-    """The register ledger a stale copy names, read whole while it is still active, so a rebuild reads one ledger instead of `ccn ledger list` folding every ledger's history, which took minutes on a Sprite after each cc-notes fetch (cci #215987)."""
-    if not kept.is_file() or (cached := json.loads(kept.read_text()))["repo"] != repo:
-        return None
-    shown = ccn(shell, repo, "ledger", "show", cached["ledger"])
-    return shown if shown["status"] == "active" else None
-
-
-def write_atomic(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    staged = path.with_name(f".{path.name}.{os.getpid()}")
-    staged.write_text(text)
-    staged.replace(path)
+    return register_reads.active_register(shell.run, repo, kept)
 
 
 def search(shell: ledger.Shell, query: str, directory: Path, k: int) -> list[str]:
@@ -388,12 +365,6 @@ def within(blocks: list[str], budget: int) -> str:
         kept.append(block)
         size += len(block.encode())
     return "".join(kept)
-
-
-def listed(value: str | None) -> list:
-    if not value:
-        return []
-    return json.loads(value) if value.startswith("[") else [value]
 
 
 def stored(value: object) -> str:
@@ -452,18 +423,6 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-def digest(text: str) -> str:
-    return hashlib.sha256(text.encode()).hexdigest()[:12]
-
-
-def binding(implication: dict) -> str:
-    if implication.get("state") == "struck":
-        return "struck"
-    if implication.get("direction") in BINDING_DIRECTIONS or implication.get("state") == "ticked":
-        return "binds now"
-    return "waits for the owner's tick"
-
-
 def repeat_digests(fields: dict[str, str]) -> set[str]:
     return {match for repeat in listed(fields.get("repeats")) for match in DIGEST_PROOF.findall(str(repeat.get("proof") or ""))}
 
@@ -482,10 +441,7 @@ def captures(state: Path) -> dict[str, dict]:
 
 
 def ledger_of(shell: ledger.Shell, repo: str, program: str) -> str:
-    found = ccn(shell, repo, "ledger", "list", "--label", "register", "--label", f"program:{program}") or []
-    if not found:
-        raise SystemExit(f"no register ledger labelled register and program:{program} in {repo}")
-    return max(found, key=lambda entry: entry["updated_at"])["id"]
+    return register_reads.ledger_of(shell.run, repo, program)
 
 
 @contextmanager
@@ -513,19 +469,7 @@ class Register:
         program = program_of(args)
         repo = repo or register_repo(args)
         state = state_dir(args)
-        tips = shell.run(["git", "-C", repo, "for-each-ref", "--format=%(refname) %(objectname)", LEDGER_REFS])
-        kept = state / f"register-{program}.json"
-        if cached := kept_copy(kept, repo, None if kept_any else tips):
-            return cls(shell, repo, program, state, cached["ledger"], cached["rows"])
-        if last and ledger.held(kept.with_suffix(".lock")) and (cached := kept_copy(kept, repo, None)):
-            return cls(shell, repo, program, state, cached["ledger"], cached["rows"])
-        with ledger.locked(kept.with_suffix(".lock")):
-            if cached := kept_copy(kept, repo, tips):
-                return cls(shell, repo, program, state, cached["ledger"], cached["rows"])
-            shown = active_register(shell, repo, kept) or ccn(shell, repo, "ledger", "show", ledger_of(shell, repo, program))
-            identity = shown["id"]
-            rows = {row["key"]: row["fields"] | {"updated_at": row["updated_at"]} for row in shown["rows"]}
-            write_atomic(kept, json.dumps({"repo": repo, "tips": tips, "ledger": identity, "rows": rows}, ensure_ascii=False))
+        identity, rows = register_reads.load(shell.run, ledger.locked, ledger.held, repo, program, state, last, kept_any)
         return cls(shell, repo, program, state, identity, rows)
 
     def write(self, key: str, **fields: object) -> None:
@@ -542,7 +486,7 @@ class Register:
         return self.rows[key]
 
     def rulings(self) -> dict[str, dict[str, str]]:
-        return {key: fields for key, fields in sorted(self.rows.items()) if not key.startswith(NOT_RULINGS) and fields.get("status") != "superseded"}
+        return register_reads.live_rows(self.rows)
 
     def scope(self) -> dict[str, dict[str, str]]:
         return {key: fields for key, fields in self.rulings().items() if fields.get("kind") == "scope"}
@@ -572,20 +516,6 @@ class Register:
                 for answer in repeat_answers(repeat):
                     words.setdefault(answer[:SHORT], []).append((repeat.get("words") or "", banned))
         return words
-
-
-def rendered_row(key: str, fields: dict[str, str]) -> list[str]:
-    lines = [f"### {key} | {fields.get('kind', '')} | {fields.get('status', '')} | said {fields.get('said') or 1} | {fields.get('at', '')}"]
-    lines += [f"> {line}" for line in (fields.get("words") or "").splitlines()]
-    lines += [f"> also, {repeat.get('at', '')}: {repeat.get('words', '')}" for repeat in listed(fields.get("repeats"))]
-    lines += [f"{label}: {fields[name]}" for label, name in (("Protects", "protects"), ("Does not apply when", "not_when")) if fields.get(name)]
-    if implications := listed(fields.get("implications")):
-        lines.append("This also means:")
-        lines += [f"{item['n']}. {item['text']} ({item['direction']}, {item['state']}, {binding(item)})" for item in implications]
-    for label, name in (("Names", "names"), ("Surfaces", "surfaces"), ("Tests", "tests")):
-        if values := [str(value) for value in listed(fields.get(name)) if value not in UNANCHORED]:
-            lines.append(f"{label}: {', '.join(values)}")
-    return lines
 
 
 @dataclass(frozen=True)
@@ -861,19 +791,6 @@ def write_in_first(item: tuple[str, dict[str, str]]) -> tuple[bool, str]:
     return "write-in" not in " ".join((fields.get("proof") or "", fields.get("evidence") or "", fields.get("note") or "")).lower(), key
 
 
-def hashed(lines: list[str]) -> str:
-    body = "\n".join(lines).rstrip() + "\n"
-    return body + f"slice-hash: {digest(body)}\n"
-
-
-def section(title: str, rows: Iterable[tuple[str, dict[str, str]]]) -> list[str]:
-    rows = list(rows)
-    lines = ["", f"## {title} ({len(rows)})"]
-    for key, fields in rows:
-        lines += ["", *rendered_row(key, fields)]
-    return lines
-
-
 def lane_slice(loaded: Register, want: Want, plan: Path | None) -> str:
     rulings = loaded.rulings()
     lines = [want.header(), f"Program {loaded.program}, register ledger {loaded.ledger[:12]}. Every row is the owner's words, verbatim."]
@@ -903,9 +820,7 @@ def lane_slice(loaded: Register, want: Want, plan: Path | None) -> str:
 
 
 def root_slice(loaded: Register) -> str:
-    rows = {key: fields for key, fields in loaded.rulings().items() if fields.get("kind") == "scope" or "root" in listed(fields.get("lanes"))}
-    lines = [f"{SLICE_LINE} lane=root step=all", f"Program {loaded.program}, register ledger {loaded.ledger[:12]}. Every scope row and every row naming the root, verbatim."]
-    return hashed(lines + section("Scope rows and rows naming the root", rows.items()))
+    return register_reads.root_slice(loaded.program, loaded.ledger, loaded.rows)
 
 
 def compare(shell: ledger.Shell, repo: str, base: str, head: str) -> Diff:
