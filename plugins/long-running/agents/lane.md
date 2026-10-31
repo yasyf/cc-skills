@@ -27,14 +27,17 @@ deliverable, your authority, your worktree, and who hears your report. Stay insi
 - Read and write Slack through the cc-slack tools on your allowlist, such as
   `slack_thread`, `slack_react`, and `slack_reply`. Run the `cc-slack` CLI by path only when
   a tool call errors, and never build a Bash poller around it.
-- Your last action is one `SendMessage` to the name your brief gives, then no text
+- When the deliverable is done, post `cci post --kind done --to <the name your brief
+  gives>` with its outcome; the lane supervisor relaunches any lane that stops without
+  one. Your last action is one `SendMessage` to that name, then no text
   or one line under 300 characters (outcome + pointer), never the report again.
   The harness forwards final text to the root as an idle notification on every stop;
   a hook refuses longer text.
-- On `ROTATE`, record anything not yet in the ledger or cc-notes, reply
-  `flushed <ids>` within 10 minutes, and keep working. Without that reply, the root
-  rotates you by hand: it stops you with `TaskStop` and spawns a numbered successor
-  from your brief and handoff. On a stand-down, stop working and send nothing further.
+- On the supervisor's `ROTATE` record, write your state to a cc-notes doc and post
+  `cci post --kind handoff --ccn <doc id> --re <its seq>`. The supervisor then stands
+  you down and launches your numbered successor from your brief and that doc; past 15
+  minutes without it, it rotates you anyway. On a stand-down, stop working and send
+  nothing further.
 - You have no Skill tool. When the work needs a skill, tell your orchestrator,
   which gives that operation to a separately named `long-running:lane-ship` with a
   scoped brief while you keep working on the rest. Never duplicate its work and

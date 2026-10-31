@@ -188,7 +188,7 @@ def test_a_ready_launch_in_a_drive_posts_the_spawned_record_naming_its_lane_and_
 
     assert orca.launch().returncode == 0
     assert orca.calls("post --drive") == [
-        ["post", "--drive", "brook", "--lane", "orca-desk", "--kind", "state", "--topic", "spawn:lane-a", "--lane-ref", "lane-a", "--attr", f"brief={orca.brief}", "--text", f"SPAWNED lane-a {orca.brief}"]
+        ["post", "--drive", "brook", "--lane", "orca-desk", "--kind", "state", "--topic", "spawn:lane-a", "--lane-ref", "lane-a", "--attr", f"brief={orca.brief}", "--attr", "model=opus", "--attr", "effort=high", "--text", f"SPAWNED lane-a {orca.brief}"]
     ]
 
 

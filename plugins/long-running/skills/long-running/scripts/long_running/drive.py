@@ -97,8 +97,9 @@ reading every desk text that says a PR has, lacks, or lost a go comes from.
 ``worktree:<lane>:<path>`` so it posts once. A path outside the drive's repository posts nothing and exits 3.
 
 ``spawned`` is the pack's entry point at each drive-lane spawn, the Agent hook's and ``orca-launch.sh``'s: it posts
-one ``state`` record ``SPAWNED <lane> <brief>`` as ``--by`` (default root), which the stall watch reads to raise a
-lane that has not registered with cci within ``stall.minutes.unregistered``.
+one ``state`` record ``SPAWNED <lane> <brief>`` as ``--by`` (default root), with the brief, ``--model``, ``--effort`` and
+the brief's ``ccx: role=`` as attrs, which the lanes mover reads to add the lane to the drive's registry of lanes it
+keeps alive, and which a relaunched successor inherits.
 
 ``release`` is the desk runner's entry point when a lane's ``release --build`` record names a build: it records
 the build under ``releases`` in the registry entry of the drive whose cci drive is ``--cci-drive``, with its owner
@@ -169,6 +170,7 @@ JUDGE_WINDOW = timedelta(hours=24)
 STACK = "stack.json"
 ADMITTED = "landing-admitted.json"
 VERSION_PART = re.compile(r"\d+")
+ROLE = re.compile(r"^ccx:(?:.* )?role=([\w-]+)", re.MULTILINE)
 NUMBERED = re.compile(r"(?<![\w&])#\d+\b")
 SLUG_WORDS = 6
 INSTALL_MARKERS = frozenset({"__pycache__", ".in_use", ".orphaned_at"})
@@ -765,7 +767,10 @@ def cmd_spawned(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if (entry := find(args.drive or current_drive(), args.session)) is None:
         print("this launch belongs to no drive", file=sys.stderr)
         return 1
-    shell.run(["cci", "post", "--drive", cci_drive(entry), "--lane", args.by, "--kind", "state", "--topic", f"spawn:{args.lane}", "--lane-ref", args.lane, "--attr", f"brief={args.brief}", "--text", f"SPAWNED {args.lane} {args.brief}"])
+    brief = Path(args.brief)
+    role = ROLE.search(brief.read_text()) if brief.is_file() else None
+    attrs = {"brief": args.brief, "model": args.model, "effort": args.effort, "role": role[1] if role else None}
+    shell.run(["cci", "post", "--drive", cci_drive(entry), "--lane", args.by, "--kind", "state", "--topic", f"spawn:{args.lane}", "--lane-ref", args.lane, *[arg for key, value in attrs.items() if value for arg in ("--attr", f"{key}={value}")], "--text", f"SPAWNED {args.lane} {args.brief}"])
     return 0
 
 
@@ -908,10 +913,12 @@ def build_parser() -> argparse.ArgumentParser:
     worktree.add_argument("--drive")
     worktree.set_defaults(handler=cmd_worktree)
 
-    spawned = subparsers.add_parser("spawned", help="post the SPAWNED record the stall watch reads to raise a lane that never registers with cci")
+    spawned = subparsers.add_parser("spawned", help="post the SPAWNED record that adds a lane to the drive's registry of lanes kept alive")
     spawned.add_argument("--lane", required=True)
     spawned.add_argument("--brief", required=True)
     spawned.add_argument("--by", default="root", help="the lane that spawned it")
+    spawned.add_argument("--model", help="the model the lane runs, which its successor inherits")
+    spawned.add_argument("--effort", help="the effort the lane runs at, which its successor inherits")
     spawned.add_argument("--session")
     spawned.add_argument("--drive")
     spawned.set_defaults(handler=cmd_spawned)

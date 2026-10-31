@@ -222,7 +222,8 @@ one CI run where that test failed against the old tree, and a `## Risk profile` 
 states Load and Data in prose. A change that deletes a code path carries its caller
 trace before the root GOs it: every caller of the removed path, each one read, and
 what the path deletes or changes for each.
-Drive to a terminal state, then send the preamble's `worker_done` with
+Drive to a terminal state, post `cci post --kind done --to root` with the outcome, since
+the lane supervisor relaunches a lane that stops without one, then send the preamble's `worker_done` with
 `--outcome succeeded|failed`, `--task-id <taskId>`, and `--dispatch-id <dispatchId>`
 from that preamble. The three-sentence body names what changed, what was
 found, and what is left; the PR numbers, full head shas, and any tool refusal, verbatim,
@@ -231,8 +232,9 @@ root's gc then closes your idle terminal and removes your worktree once it is cl
 and pushed, so push everything and leave no background process running first.
 A standing desk, `role=desk` or `role=watch`, never reaches a terminal state: it
 loops until rotation, through setup and quiet cycles alike, and never ends a turn
-waiting. At rotation it writes its handoff doc, then
-sends `worker_done --outcome succeeded` with the doc id in the body.
+waiting. At rotation, on the supervisor's `ROTATE` record, it writes its handoff doc, posts
+`cci post --kind handoff --ccn <doc id> --re <its seq>`, then sends `worker_done --outcome succeeded`
+with the doc id in the body; the supervisor launches its successor from that doc.
 
 Coordinator ids: <run id>; <cc-notes ruling and answer ids>.
 ```
