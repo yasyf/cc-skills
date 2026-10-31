@@ -43,6 +43,11 @@ jobs:
           REGISTER_READ_ORACLE="$RUNNER_TEMP/register-read-oracle.json" uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_register_reads.py -q -s
       - name: pytest
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q
+      - name: Binary attachment actual mq read costs
+        run: |
+          git fetch --no-tags --depth=1 origin 74d5367232c1636b21615b38946751852f532dfa
+          git show 74d5367232c1636b21615b38946751852f532dfa:plugins/long-running/skills/long-running/scripts/grades.py > "$RUNNER_TEMP/grades-whole-body.py"
+          LR_BINARY_BODY_LEGACY_SOURCE="$RUNNER_TEMP/grades-whole-body.py" uv run --locked --project plugins/long-running pytest plugins/long-running/tests/binary_body_integration.py plugins/long-running/tests/test_grades.py -q -s
       - name: bounded controller operation counts
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py -q -s -k 'test_flake_watch_reads_only_remembered_red_builds or test_release_and_cut_polls_decode_only_active_fact_entries'
       - name: historical lane read costs
