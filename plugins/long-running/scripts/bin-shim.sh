@@ -35,7 +35,7 @@ if is_version "${ROOT##*/}"; then
       whole=$sibling
     fi
   done
-  [ "$newest" != "$ROOT" ] || newest=$whole
+  [ "$newest" != "$ROOT" ] || [ ! -e "$ROOT/.orphaned_at" ] || newest=$whole
   [ "$newest" = "$ROOT" ] || exec "$newest/bin/$TOOL" "$@"
 fi
 
