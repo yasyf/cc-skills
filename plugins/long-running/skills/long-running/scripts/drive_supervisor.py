@@ -155,19 +155,18 @@ def append_inbox(inbox: Path, message: dict) -> bool:
 
 
 class Waker:
-    """Wakes an idle roster lane once per interval by teammate-inbox mail, and only while the root's task for it is in progress; a lane whose task is done is idle on purpose."""
+    """Wakes an idle roster lane by teammate-inbox mail: with the blocker paged to it about one of its PRs, or else once per interval while the root's task for it is in progress; a lane whose task is done is idle on purpose."""
 
     def __init__(self, drive: str, clock, tasks: Path = TASKS):
         self.drive, self.clock, self.tasks = drive, clock, tasks
         self.woken: dict[str, datetime] = {}
 
-    def __call__(self, lane: str, row: dict) -> bool:
+    def __call__(self, lane: str, row: dict, page: dict | None) -> bool:
         now = self.clock()
-        if (last := self.woken.get(lane)) and now - last < lanes.STALE_AFTER:
+        if page is None and ((last := self.woken.get(lane)) and now - last < lanes.STALE_AFTER or not task_open(self.tasks / f"session-{row['session'][:8]}", lane)):
             return False
-        if not task_open(self.tasks / f"session-{row['session'][:8]}", lane):
-            return False
-        text = f"WAKE {lane}: the lane supervisor has seen no record from you in {lanes.STALE_AFTER.seconds // 60} minutes while your root task is in progress. Read your mail with `cci tail --drive {self.drive} --reader {lane} --to {lane}`, then continue the work in hand from your ledger; do not restart your brief."
+        why = f"this blocker on your PR {' '.join(f'#{n}' for n in page['prs'])} arrived after your last record: {page['text']}" if page else f"the lane supervisor has seen no record from you in {lanes.STALE_AFTER.seconds // 60} minutes while your root task is in progress."
+        text = f"WAKE {lane}: {why} Read your mail with `cci tail --drive {self.drive} --reader {lane} --to {lane}`, then continue the work in hand from your ledger; do not restart your brief."
         message = {"from": SENDER, "text": text, "summary": f"WAKE {lane}: continue the work in hand", "timestamp": now.isoformat(timespec="milliseconds").replace("+00:00", "Z"), "msgV": 1, "msg_id": str(uuid.uuid4()), "type": "message", "read": False}
         if not append_inbox(Path(row["roster"]) / "inboxes" / f"{UNSAFE_NAME.sub('-', lane)}.json", message):
             return False
