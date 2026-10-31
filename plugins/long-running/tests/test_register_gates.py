@@ -13,6 +13,7 @@ from captain_hook.testing.helpers import build_context
 
 from fire import fire
 from hooks import register_gates
+from rulings_fixture import rulings_command_fixture
 from hooks.compaction_handoff import CompactionState
 from hooks.tests.register_fixtures import LEDGER, ROWS
 
@@ -23,6 +24,11 @@ CLASSIFIED = "c4936ff0405c2d0f"
 UNCLASSIFIED = "629293ae14388dc9"
 PLUGIN = Path(__file__).parents[1]
 REGISTER_SOURCES = [*sorted((PLUGIN / "capt-hook" / "hooks").glob("register_*.py")), PLUGIN / "skills" / "long-running" / "scripts" / "rulings.py"]
+
+
+@pytest.fixture(autouse=True)
+def rulings_capability(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(register_gates, "rulings", rulings_command_fixture)
 
 
 class Root:

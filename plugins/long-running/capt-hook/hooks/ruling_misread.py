@@ -28,6 +28,7 @@ from .register_gates import fenced
 from .register_injection import drive_args
 from .ruling_judge import MATCH_TIMEOUT_SECONDS
 from .tests.register_fixtures import CWD, DRIVE_CONFIG, ROWS, register
+from .tests.rulings_consumers import separate
 
 ROWS_PER_ARTIFACT = 2
 MATCH_CHARS = 2000
@@ -70,7 +71,7 @@ def posted(command: str, verdict: dict = FLAGGED, commands: dict[str, str] | Non
 
 
 def candidate_rows(evt: BaseHookEvent, drive: list[str], text: str) -> tuple[Path, dict[str, dict]]:
-    registered = json.loads(rulings(str(evt.cwd), "rows", *drive))
+    registered = json.loads(rulings(str(evt.cwd), "rows", *drive, evt=evt))
     state, rows = Path(registered["state_dir"]), registered["rows"]
     keys = [key for key in dict.fromkeys(ROW_KEY.findall(text)) if key in rows]
     if not keys:
@@ -85,6 +86,7 @@ def candidate_rows(evt: BaseHookEvent, drive: list[str], text: str) -> tuple[Pat
                 str(MATCH_BYTES),
                 stdin=text[:MATCH_CHARS],
                 timeout=reqenv.clamp_timeout(MATCH_TIMEOUT_SECONDS),
+                evt=evt,
             )
         except subprocess.TimeoutExpired:
             return state, {}
@@ -137,7 +139,7 @@ def shipped_tests(evt: BaseHookEvent) -> list[tuple[str, str]]:
     Event.PostToolUse,
     only_if=[Tool("Bash"), Or(*(Runs(*argv) for argv in OPENERS))],
     skip_if=[Annotated("raw")],
-    tests={
+    tests=separate("ruling_misread.misread_rulings", {
         Input(
             command="ccx vcs ship -m 'ci: ✨ x'",
             commands={CLAUDE: answer(FLAGGED), "git merge-base HEAD origin/HEAD": "abc123\n", "git diff --name-only abc123": "src/refusal_test.go\n", f"{DIFF} abc123": TESTS_DIFF},
@@ -168,7 +170,7 @@ def shipped_tests(evt: BaseHookEvent) -> list[tuple[str, str]]:
                 "git diff --name-only abc123": "src/refusal.go\n",
             },
         ): Allow(),
-    },
+    }),
 )
 def misread_rulings(evt: BaseHookEvent) -> HookResult | None:
     if not (drive := drive_args(evt)) or not (artifacts := shipped_tests(evt)):

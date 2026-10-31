@@ -870,5 +870,3 @@ def main(argv: list[str], shell: Shell | None = None) -> int:
         copy.flush()
         pushed = shell.push([*command, copy.name])
     return 1 if failing else pushed
-
-

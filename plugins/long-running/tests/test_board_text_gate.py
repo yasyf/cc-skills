@@ -16,11 +16,19 @@ from captain_hook.testing.helpers import StubbedContext, build_context, stubbed_
 
 from hooks import board_text_gate as gate
 from hooks import compaction_handoff
+from hooks import owner_facing
+from rulings_fixture import rulings_command_fixture
 from hooks.compaction_handoff import CompactionState
 from hooks.tests.board_fixtures import GLOSSARY, ROWS, SWEEPS_LOG, board, held_copy_hit, judged, sha12, sweeps
 
 SESSION = "0123456789abcdef"
 RULINGS = gate.RULINGS
+
+
+@pytest.fixture(autouse=True)
+def rulings_capability(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(gate, "rulings", rulings_command_fixture)
+    monkeypatch.setattr(owner_facing, "rulings", rulings_command_fixture)
 
 
 class Root:

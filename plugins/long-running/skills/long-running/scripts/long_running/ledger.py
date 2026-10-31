@@ -2797,5 +2797,3 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     except subprocess.TimeoutExpired as expired:
         print(f"{' '.join(expired.cmd)} timed out after {expired.timeout:.0f}s and was killed", file=sys.stderr)
         return 1
-
-

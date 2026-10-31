@@ -267,4 +267,3 @@ def test_a_missing_working_directory_fails_at_once_rather_than_waiting_out_the_i
     with pytest.raises(FileNotFoundError):
         ledger.Shell().run(["true"], cwd=tmp_path / "gone")
     assert time.monotonic() - started < 1
-

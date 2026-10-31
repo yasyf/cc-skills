@@ -64,6 +64,8 @@ jobs:
         run: |
           cat "$RUNNER_TEMP/long-running-json-consumers.json"
           cat "$RUNNER_TEMP/long-running-sqlite-consumers.json"
+      - name: Owned rulings caller regressions
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_board_text_gate.py plugins/long-running/tests/test_owner_facing.py plugins/long-running/tests/test_register_capture.py plugins/long-running/tests/test_register_gates.py plugins/long-running/tests/test_ruling_judge.py plugins/long-running/tests/test_rulings_consumers.py plugins/long-running/tests/test_rulings_owned_hooks.py plugins/long-running/tests/test_compaction_handoff.py -q -s
       - name: Request-owned judge regressions
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_judge_request_owned.py plugins/long-running/tests/test_judge.py plugins/long-running/tests/test_rulings_dispatch.py -q -s
       - name: pytest

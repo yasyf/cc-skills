@@ -13,6 +13,7 @@ from captain_hook.util import reqenv
 from .compaction_handoff import REGISTER_FENCE, CompactionState, rulings, script, script_module
 from .register_injection import SLICE_HEADER, drive_args
 from .tests.register_fixtures import DRIVE_CONFIG
+from .tests.rulings_consumers import separate
 
 CANDIDATES = 2
 CANDIDATE_BYTES = 6000
@@ -74,7 +75,7 @@ def moment(evt: BaseHookEvent) -> tuple[str, str] | None:
 
 @on(
     Event.PreToolUse,
-    tests={
+    tests=separate("ruling_judge.judge_key_moment", {
         Input(tool="Agent", tool_input={"prompt": "Add a --skip-tenant flag."}, commands=answered(DROPPED), env=DRIVE_CONFIG, state=[ACTIVE]): Warn(
             pattern=r"^Warning, nothing was blocked: this call makes the decision durable owner answer `1984bf6` settled without carrying all of it\.\n~{12}\nHe said a migration never ships"
         ),
@@ -100,7 +101,7 @@ def moment(evt: BaseHookEvent) -> tuple[str, str] | None:
         Input(command="cc-slack reply --url C0B/p1 --text 'Shipping the skip flag'", commands=answered(DROPPED), env=DRIVE_CONFIG, state=[ACTIVE]): Allow(),
         Input(command="ls", commands=answered(DROPPED), env=DRIVE_CONFIG, state=[ACTIVE]): Allow(),
         Input(tool="Agent", tool_input={"prompt": "Add a --skip-tenant flag."}, commands=answered(DROPPED)): Allow(),
-    },
+    }),
 )
 def judge_key_moment(evt: BaseHookEvent) -> HookResult | None:
     if not (found := moment(evt)) or not (which := drive_args(evt)):
@@ -123,6 +124,7 @@ def judge_key_moment(evt: BaseHookEvent) -> HookResult | None:
             *excluded,
             stdin=text,
             timeout=reqenv.clamp_timeout(MATCH_TIMEOUT_SECONDS),
+            evt=evt,
         )
     except subprocess.TimeoutExpired:
         return None
@@ -153,11 +155,11 @@ def judge_key_moment(evt: BaseHookEvent) -> HookResult | None:
 @on(
     Event.SessionStart,
     skip_if=[FromSubagent()],
-    tests={
+    tests=separate("ruling_judge.forget_root_answers_after_compaction", {
         Input(source="compact", state=[JudgedAnswers(injected=["main:1984bf6", "a1b2c3:1984bf6"])]): Allow(),
         Input(source="resume", state=[JudgedAnswers(injected=["main:1984bf6"])]): Allow(),
         Input(source="compact"): Allow(),
-    },
+    }),
 )
 def forget_root_answers_after_compaction(evt: BaseHookEvent) -> HookResult | None:
     if evt.source != "compact":
