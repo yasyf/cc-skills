@@ -361,7 +361,7 @@ def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
     taken = {lane.name for lane in store.all_lanes()} | set(found)
     for lane in store.lanes(*LIVE):
         peer = found.get(lane.name)
-        wants_tokens = lane.state == "desired" and lane.asked is None and peer is not None and peer.live
+        wants_tokens = lane.state == "desired" and lane.asked is None and peer is not None and peer.live and now - max(peer.seen, lane.heard or peer.seen) < STALE_AFTER
         verdict = classify_lane(lane, peer, now, deps.tokens(peer.row) if wants_tokens else None, deps.rotate_at)
         if peer and (verdict.kind == "came-up" or (lane.state == "desired" and verdict.kind in ("ok", "ask-rotate"))):
             store.heartbeat(lane.name, generation, max(peer.seen, lane.heard or peer.seen))
