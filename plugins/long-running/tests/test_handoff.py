@@ -128,7 +128,7 @@ class FakeCcn(ledger.Shell):
         self.calls.append(argv)
         if argv[:2] == ["cci", "tail"]:
             assert argv[3] == "brook"
-            since = argv[argv.index("--since") + 1]
+            since = argv[argv.index("--since-seq" if "--since-seq" in argv else "--since") + 1]
             if "--topic=standing" not in argv:
                 return "".join(json.dumps({"drive": "brook", **record}) + "\n" for record in self.lane_records if (record["seq"] > int(since) if since.isdigit() else record["at"] >= since))
             return "".join(json.dumps({"drive": "brook", "topic": "standing", **record}) + "\n" for record in self.standing if record["seq"] > int(since))

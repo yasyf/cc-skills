@@ -72,7 +72,7 @@ class FakeShell(stall_watch.Shell):
 
     def run(self, argv, stdin=None, env=None, timeout=stall_watch.COMMAND_SECONDS):
         if argv[:2] == ["cci", "tail"]:
-            since = argv[argv.index("--since") + 1]
+            since = argv[argv.index("--since-seq" if "--since-seq" in argv else "--since") + 1]
             kinds = {arg.split("=", 1)[1] for arg in argv if arg.startswith("--kind=")}
             topics = {arg.split("=", 1)[1] for arg in argv if arg.startswith("--topic=")}
             lane = argv[argv.index("--lane") + 1] if "--lane" in argv else None
