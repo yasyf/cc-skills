@@ -629,6 +629,7 @@ import os
 import plistlib
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import tempfile
@@ -878,7 +879,6 @@ CARD_STEPS = 1000
 CARD_NAME = 80
 CARD_LABEL = 75
 COMMAND_TIMEOUT_SECONDS = 1800
-DEADLINE_ENV = "LONG_RUNNING_DEADLINE"
 ENQUEUE_SECONDS = 300
 LEDGER_SECONDS = 300
 FETCH_SECONDS = 120
@@ -1177,7 +1177,8 @@ class Shell:
     """The single side-effect boundary: every subprocess, the clock, and the load average pass through here.
 
     Input reaches a child from a file, never a pipe the runner writes while the child's output
-    fills, and a child still running after COMMAND_TIMEOUT_SECONDS is killed and fails its pass.
+    fills, and a child still running after COMMAND_TIMEOUT_SECONDS is killed and fails its pass; a child that is one of the
+    plugin's scripts gets that bound less `drive.REAP_SECONDS` as its deadline, kills its own commands at it, and fails the same way.
     Output that is not UTF-8, such as a diff of a binary file, reads with each bad byte replaced.
     A GitHub, cci or ccx read gets QUICK_SECONDS, a `--check` GATE_CHECK_SECONDS, `rulings.py check-pr` CHECK_PR_SECONDS, any other
     `stack-enqueue` and `ccx vcs ship` ENQUEUE_SECONDS, `ledger.py` LEDGER_SECONDS and `git fetch` FETCH_SECONDS; one that times out is logged and
@@ -1217,7 +1218,9 @@ class Shell:
                 feed.write(stdin or "")
                 feed.seek(0)
                 try:
-                    proc = cci.installed(argv, lambda: subprocess.run(argv, stdin=feed, capture_output=True, text=True, errors="replace", env={**os.environ, **(env or {}), DEADLINE_ENV: str(time.time() + timeout)}, cwd=cwd, timeout=timeout))
+                    proc = cci.installed(argv, lambda: subprocess.run(argv, stdin=feed, capture_output=True, text=True, errors="replace", env={**os.environ, **(env or {}), **drive.deadline_env(timeout - drive.REAP_SECONDS)}, cwd=cwd, timeout=timeout))
+                    if proc.returncode == -signal.SIGALRM:
+                        raise subprocess.TimeoutExpired(argv, timeout)
                 except subprocess.TimeoutExpired:
                     print(f"TIMED-OUT after {timeout}s, skipped: {command_name(argv)}", file=sys.stderr, flush=True)
                     return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {timeout}s and was killed")

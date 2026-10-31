@@ -193,6 +193,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 from collections.abc import Callable
@@ -365,7 +366,9 @@ class ReadFailed(RuntimeError):
 class Shell:
     def run(self, argv: list[str], stdin: str | None = None, env: dict[str, str] | None = None, timeout: float = COMMAND_SECONDS) -> Done:
         try:
-            done = cci.installed(argv, lambda: subprocess.run(argv, input=stdin, capture_output=True, text=True, errors="replace", env={**os.environ, **env} if env else None, timeout=timeout))
+            done = cci.installed(argv, lambda: subprocess.run(argv, input=stdin, capture_output=True, text=True, errors="replace", env={**os.environ, **(env or {}), **drive.deadline_env(timeout - drive.REAP_SECONDS)}, timeout=timeout))
+            if done.returncode == -signal.SIGALRM:
+                raise subprocess.TimeoutExpired(argv, timeout)
         except subprocess.TimeoutExpired:
             return Done(124, "", f"{argv[0]} ran past {timeout:.0f}s")
         return Done(done.returncode, done.stdout, done.stderr)

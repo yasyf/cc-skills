@@ -143,8 +143,6 @@ REF_LOCK_ATTEMPTS = 5
 REF_LOCK_BACKOFF_SECONDS = 0.2
 REF_LOCK_RACE = "cannot lock ref"
 COMMAND_TIMEOUT_SECONDS = 600
-DEADLINE_ENV = "LONG_RUNNING_DEADLINE"
-DEADLINE_MARGIN_SECONDS = 2
 LOCK_WAIT_SECONDS = 120
 LOCK_POLL_SECONDS = 0.2
 LANE_PREFIX = "lane/"
@@ -296,8 +294,11 @@ class Shell:
     A `git fetch` that loses a ref lock to a concurrent fetch retries the same way, since a
     forced refspec lands once however many times it runs.
     Input reaches the child from a file, never a pipe this process writes while the child's
-    output fills. Every command runs in its own process group, and the whole group dies after
-    COMMAND_TIMEOUT_SECONDS, or sooner when the caller's DEADLINE_ENV would kill this process first.
+    output fills. A command still running after COMMAND_TIMEOUT_SECONDS, or when anything else
+    ends this call, dies with everything under it in this process's group. A command that is
+    itself one of the plugin's scripts is told so through `drive.deadline_env`, and kills its own
+    commands before dying at that deadline, which reads as the same timeout. Commands stay in this
+    process's group, so a signal sent to the group still reaches them.
     """
 
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
@@ -317,26 +318,22 @@ class Shell:
 
     @staticmethod
     def once(argv: list[str], stdin: str | None, cwd: Path | None = None) -> str:
+        import drive
+
         with tempfile.TemporaryFile("w+") as feed:
             feed.write(stdin or "")
             feed.seek(0)
-            child = cci.installed(argv, lambda: subprocess.Popen(argv, stdin=feed, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=cwd, start_new_session=True))
-            try:
-                out, err = child.communicate(timeout=command_timeout())
-            except subprocess.TimeoutExpired:
-                os.killpg(child.pid, signal.SIGKILL)
-                child.communicate()
-                raise
-            if child.returncode:
-                raise subprocess.CalledProcessError(child.returncode, argv, out, err)
-            return out
-
-
-def command_timeout() -> float:
-    deadline = os.environ.get(DEADLINE_ENV)
-    if deadline is None:
-        return COMMAND_TIMEOUT_SECONDS
-    return max(min(COMMAND_TIMEOUT_SECONDS, float(deadline) - time.time() - DEADLINE_MARGIN_SECONDS), 0)
+            with cci.installed(argv, lambda: subprocess.Popen(argv, stdin=feed, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=cwd, env=os.environ | drive.deadline_env(COMMAND_TIMEOUT_SECONDS - drive.REAP_SECONDS))) as child:
+                try:
+                    out, err = child.communicate(timeout=COMMAND_TIMEOUT_SECONDS)
+                except BaseException:
+                    drive.kill([child.pid, *drive.under(child.pid)])
+                    raise
+        if child.returncode == -signal.SIGALRM:
+            raise subprocess.TimeoutExpired(argv, COMMAND_TIMEOUT_SECONDS, out, err)
+        if child.returncode:
+            raise subprocess.CalledProcessError(child.returncode, argv, out, err)
+        return out
 
 
 class ForgeUnreachable(RuntimeError):

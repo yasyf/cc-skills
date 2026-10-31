@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -162,6 +164,16 @@ def opened(config: Path) -> dict:
 
 def watch(shell: FakeShell, config: Path) -> None:
     assert stall_watch.main(["--config", str(config)], shell) == 0
+
+
+def test_a_command_is_handed_a_deadline_before_the_watch_kills_it_so_a_script_ends_its_own_commands_first():
+    before = time.time()
+
+    done = stall_watch.Shell().run([sys.executable, "-c", f"import os; print(os.environ[{drive.DEADLINE_ENV!r}])"], timeout=30)
+
+    caller, _, deadline = done.out.strip().partition(":")
+    assert caller == str(os.getpid())
+    assert round(before + 30 - drive.REAP_SECONDS, 3) <= float(deadline) <= time.time() + 30 - drive.REAP_SECONDS
 
 
 def test_a_stall_reaches_the_live_successor_of_the_lane_that_posted_the_prs_newest_head(config):
