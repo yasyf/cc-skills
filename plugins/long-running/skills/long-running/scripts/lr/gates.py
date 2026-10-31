@@ -42,7 +42,9 @@ def missing(facts) -> list[str]:
         out.append("not graded")
     elif not facts.cleared:
         out.append("a grade needs a verdict")
-    if not facts.tapped:
+    if facts.tap == "conditional":
+        out.append(f"tap given {facts.condition}")
+    elif not facts.tapped:
         out.append("no tap")
     if facts.hold is not None:
         out.append(f"held by {facts.hold}")

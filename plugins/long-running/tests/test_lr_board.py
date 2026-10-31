@@ -106,3 +106,11 @@ def test_a_row_names_every_other_gate_the_head_still_fails(store):
 
 def test_a_stale_item_for_an_older_head_renders_nothing(store):
     assert board.rows(store, REPO, {45583: facts(head=NEW)}) == []
+
+
+def test_a_conditional_tap_keeps_the_row_and_shows_the_condition(store):
+    store.put_fact(REPO, 45583, HEAD, "tap", "conditional", T0)
+    store.put_fact(REPO, 45583, HEAD, "condition", "only if the finding is superseded", T0)
+
+    [row] = board.rows(store, REPO, {45583: facts(tap="conditional", condition="only if the finding is superseded")})
+    assert board.render([row], set())[0]["body"] == "tap given only if the finding is superseded"
