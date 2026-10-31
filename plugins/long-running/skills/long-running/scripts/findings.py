@@ -78,7 +78,7 @@ class Findings:
 
     def later(self, row: dict[str, str]) -> list[dict]:
         names = [f"#{row['seq']}\\b", *([f"#{row['pr']}\\b"] if row.get("pr") else []), *([re.escape(row["card"])] if row.get("card") else [])]
-        out = self.shell.run(["cci", "grep", "|".join(names), "--drive", self.cci, "--since", str(int(row["seq"]) + 1), "--json", "--budget", str(GREP_BUDGET)])
+        out = self.shell.run(["cci", "grep", "|".join(names), "--drive", self.cci, "--since-seq", str(int(row["seq"]) + 1), "--json", "--budget", str(GREP_BUDGET)])
         return sorted((json.loads(line) for line in out.splitlines() if line.strip()), key=lambda record: record["seq"])
 
     def settle(self, row: dict[str, str]) -> dict[str, str] | None:

@@ -355,6 +355,9 @@ class FakeShell(runner_module.Shell):
         self.sequence += 1
         return f"{prefix}_{self.sequence:04d}"
 
+    def cci_query(self, argv, env=None, cwd=None):
+        return self.run(argv, env=env, cwd=cwd)
+
     def run(self, argv, stdin=None, env=None, cwd=None):
         self.raw.append(list(argv))
         argv = gateway(argv)
@@ -727,7 +730,7 @@ class FakeShell(runner_module.Shell):
         if "--lane" in argv and argv[argv.index("--lane") + 1] == "board-watch":
             if self.board_error:
                 return runner_module.Done(1, "", self.board_error)
-            since = argv[argv.index("--since") + 1]
+            since = argv[argv.index("--since-seq" if "--since-seq" in argv else "--since") + 1]
             return runner_module.Done(0, "".join(f"{json.dumps(record)}\n" for record in self.board_records() if not since.isdigit() or record["seq"] > int(since)), "")
         if self.tail_failures:
             self.tail_failures -= 1
@@ -739,7 +742,7 @@ class FakeShell(runner_module.Shell):
         if "--to" in argv and argv[argv.index("--to") + 1] == f"{runner_module.WATCHDOG}@{drive}":
             topic = next(arg.partition("=")[2] for arg in argv if arg.startswith("--topic="))
             return runner_module.Done(0, "".join(f"{json.dumps(beat)}\n" for beat in [beat for beat in self.beats if beat["drive"] == drive and beat["topic"] == topic][-1:]), "")
-        since = argv[argv.index("--since") + 1]
+        since = argv[argv.index("--since-seq" if "--since-seq" in argv else "--since") + 1]
         kinds = [arg.partition("=")[2] for arg in argv if arg.startswith("--kind=")]
         topics = [arg.partition("=")[2] for arg in argv if arg.startswith("--topic=")]
         lanes = [argv[index + 1] for index, arg in enumerate(argv) if arg == "--lane"]
@@ -2857,8 +2860,8 @@ def test_a_check_with_no_verdict_on_a_tip_that_landed_since_the_pass_read_the_le
     shell.gates["29020"] = [failure]
     real = shell.run
 
-    def run(argv, stdin=None, env=None):
-        done = real(argv, stdin, env)
+    def run(argv, stdin=None, env=None, cwd=None):
+        done = real(argv, stdin, env, cwd)
         if len(argv) > 4 and Path(argv[1]).name == "ledger.py" and argv[4] == "landed":
             assert "--pr=29020" in argv
             shell.rows[0] |= {"state": "landed", "landed_sha": "f00d000003"}
@@ -6807,10 +6810,10 @@ def test_mq_gos_lists_each_standing_go_the_queue_does_not_hold_from_one_status_r
 def pushed_while_enqueued(shell: FakeShell, monkeypatch: pytest.MonkeyPatch, pr: str, head: str) -> None:
     run = shell.run
 
-    def pushing(argv, stdin=None, env=None):
+    def pushing(argv, stdin=None, env=None, cwd=None):
         if Path(argv[0]).name == "stack-enqueue" and not {"--check", "--status"} & set(argv):
             shell.current_heads[pr] = head
-        return run(argv, stdin, env)
+        return run(argv, stdin, env, cwd)
 
     monkeypatch.setattr(shell, "run", pushing)
 
@@ -13259,7 +13262,7 @@ def test_the_alive_record_names_the_passs_own_command_over_a_longer_one_a_worker
 def fake_cci(posted: list[dict], calls: list[list[str]]) -> Callable[[list[str]], str]:
     def run(argv: list[str]) -> str:
         calls.append(argv)
-        since = int(argv[argv.index("--since") + 1])
+        since = int(argv[argv.index("--since-seq" if "--since-seq" in argv else "--since") + 1])
         pr = argv[argv.index("--pr") + 1] if "--pr" in argv else ""
         kinds = [arg.partition("=")[2] for arg in argv if arg.startswith("--kind=")]
         found = [record for record in posted if record["seq"] > since and (not pr or runner_module.cci.names_pr(record, pr)) and (not kinds or record["kind"] in kinds)]
@@ -13282,7 +13285,7 @@ def test_a_pr_query_reads_only_the_records_after_the_newest_it_kept_and_drops_on
     posted[0]["expires_at"] = "2000-01-01T00:00:00Z"
     tail.kept[("d1", ("--kind=review",), "Forge-AI/monorepo#29020")].records[0]["expires_at"] = "2000-01-01T00:00:00Z"
     assert [record["seq"] for record in runner_module.cci.records(tail, *query)] == [8, 11]
-    assert [(argv[argv.index("--since") + 1], "--pr" in argv) for argv in calls] == [("0", False), ("0", True), ("8", False), ("12", False)]
+    assert [(argv[argv.index("--since-seq") + 1], "--pr" in argv) for argv in calls] == [("0", False), ("0", True), ("8", False), ("12", False)]
 
 
 def test_pr_queries_share_one_cci_read_a_pass_so_calls_stay_flat_from_10_to_1000_prs():
@@ -13321,7 +13324,7 @@ def test_a_cci_page_under_half_the_budget_is_the_last_one_read(monkeypatch):
         return "".join(json.dumps(record) + "\n" for record in pages[len(calls) - 1])
 
     assert [record["seq"] for record in runner_module.cci.records(run, "d1", "--kind=go")] == [1, 2, 3]
-    assert [call[call.index("--since") + 1] for call in calls] == ["0", "2"]
+    assert [call[call.index("--since-seq") + 1] for call in calls] == ["0", "2"]
 
 
 def test_a_full_page_of_cci_rows_is_never_the_last_one_read_however_small(monkeypatch):
@@ -13334,7 +13337,7 @@ def test_a_full_page_of_cci_rows_is_never_the_last_one_read_however_small(monkey
         return "".join(json.dumps(record) + "\n" for record in pages[len(calls) - 1])
 
     assert [record["seq"] for record in runner_module.cci.records(run, "d1", "--kind=go")] == [1, 2, 3]
-    assert [call[call.index("--since") + 1] for call in calls] == ["0", "2"]
+    assert [call[call.index("--since-seq") + 1] for call in calls] == ["0", "2"]
 
 
 def script_build(*steps: str, failed: str = "") -> dict:
@@ -15502,3 +15505,39 @@ def test_invalid_post_json_keeps_both_raw_diagnostic_streams(config, tmp_path):
     assert done.out == "not-json\n"
     assert done.err.startswith("provider warning\n")
     assert "cci: invalid post receipt:" in done.err
+
+
+@pytest.mark.parametrize("tail_args", [["--drive", "d1", "--since", "0"], ["--drive=d1", "--since=0"], ["--drive", "d1", "--since-seq", "17"], ["--drive=d1", "--since-seq=17"]])
+def test_an_explicit_since_tail_reads_natively_without_a_process_or_temporary_feed(monkeypatch, tail_args):
+    calls = []
+
+    def native(args, timeout, env, cwd):
+        calls.append((args, timeout, env, cwd))
+        return 0, '{"seq":7}\n', ""
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("a native tail read must not launch a process or open a temporary feed")
+
+    monkeypatch.setattr(runner_module.cci, "native_tail", native)
+    monkeypatch.setattr(runner_module.subprocess, "run", forbidden)
+    monkeypatch.setattr(runner_module.tempfile, "TemporaryFile", forbidden)
+    argv = ["cci", "tail", *tail_args, "--json", "--budget", "4000000"]
+    env = {"CCI_AGENT_ID": "lane-child"}
+    assert runner_module.Shell().cci_query(argv, env=env) == runner_module.Done(0, '{"seq":7}\n', "")
+    assert calls == [(argv, runner_module.QUICK_SECONDS, env, None)]
+
+@pytest.mark.parametrize("argv", [runner_module.BUS_PROBE, ["cci", "tail", "--since", "0"], ["cci", "tail", "--drive", "d1", "--topic", "--since"], ["cci", "tail", "--drive", "d1", "--since", "0"]])
+def test_shell_run_keeps_cci_cli_operations(monkeypatch, argv):
+    calls = []
+
+    def process(argv, **kwargs):
+        calls.append(argv)
+        return SimpleNamespace(returncode=0, stdout="probe\n", stderr="")
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("a cursor-owning probe is not a native read-only query")
+
+    monkeypatch.setattr(runner_module.cci, "native_tail", forbidden)
+    monkeypatch.setattr(runner_module.subprocess, "run", process)
+    assert runner_module.Shell().run(argv) == runner_module.Done(0, "probe\n", "")
+    assert calls == [argv]

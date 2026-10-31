@@ -51,7 +51,7 @@ class Drive:
                 self.records.append({"seq": record["seq"] + 1, "lane": "desk-runner", "kind": "report", "text": self.verdicts[key].format(lane=lane)})
             return json.dumps(record)
         assert argv[0] == "tail"
-        since = int(flag(argv, "--since"))
+        since = int(flag(argv, "--since-seq"))
         fields = [arg[2:].split("=", 1) for arg in argv if arg.startswith(("--kind=", "--topic="))]
         found = [
             record

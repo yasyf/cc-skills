@@ -90,7 +90,7 @@ def standing_records(*records: dict):
     def run(argv: list[str]) -> str:
         assert argv[:3] == ["cci", "tail", "--drive"] and argv[3] == "brook"
         assert argv[-3:] == ["--topic=standing", "--kind=go", "--kind=correction"]
-        since = int(argv[argv.index("--since") + 1])
+        since = int(argv[argv.index("--since-seq" if "--since-seq" in argv else "--since") + 1])
         return "".join(json.dumps({"drive": "brook", "topic": "standing", **record}) + "\n" for record in records if record["seq"] > since)
 
     return run

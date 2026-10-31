@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import base64
+import http.client
+import io
 import json
+import os
 import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from time import monotonic
 
 PAGE_BYTES = 4_000_000
 INSTALL_WINDOW_SECONDS = 120
@@ -105,7 +110,7 @@ class Tail:
     def mark(self, drive: str, shape: tuple[str, ...]) -> int:
         """The newest seq `shape` matches, read once with `--limit 1` and kept current by each top-up, so a `--pr` query read from its start never makes the next top-up read again what the shape's other queries already hold; a query naming no PR reads every record of its shape, so its own newest seq is that mark."""
         if (drive, shape) not in self.marks:
-            out = self.run(["cci", "tail", "--drive", drive, "--since", "0", "--json", "--limit", "1", *shape])
+            out = self.run(["cci", "tail", "--drive", drive, "--since-seq", "0", "--json", "--limit", "1", *shape])
             self.marks[(drive, shape)] = max((json.loads(line)["seq"] for line in out.splitlines() if line.strip()), default=0)
         return self.marks[(drive, shape)]
 
@@ -158,6 +163,67 @@ def receipt_seq(value: str) -> int | None:
     return int(found[1])
 
 
+def native_tail(argv: list[str], timeout: float, env: dict[str, str] | None = None, cwd: str | None = None) -> tuple[int, str, str]:
+    """Read a cursor-free tail through the daemon's native CLI handler."""
+    deadline = monotonic() + timeout
+
+    def remaining():
+        seconds = deadline - monotonic()
+        if seconds <= 0:
+            raise TimeoutError("native tail read budget expired")
+        return seconds
+
+    environment = os.environ | (env or {})
+    home = environment.get("CCI_HOME") or os.path.join(environment["HOME"], ".cc-inbox")
+    request = {
+        "argv": argv,
+        "session": environment.get("CLAUDE_CODE_SESSION_ID") or environment.get("CODEX_THREAD_ID", ""),
+        "agent": environment.get("CCI_AGENT_ID", ""),
+        "home": os.path.abspath(os.path.join(cwd or os.getcwd(), home)),
+    }
+    connection = http.client.HTTPConnection("127.0.0.1", 7377, timeout=remaining())
+    try:
+        connection.request("POST", "/v1/tail", json.dumps(request).encode(), {"Content-Type": "application/json"})
+        wire = connection.sock
+        wire.settimeout(remaining())
+        response = connection.getresponse()
+        chunks = []
+        while not response.isclosed():
+            wire.settimeout(remaining())
+            chunk = response.read1(65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        packet = b"".join(chunks)
+        chunks.clear()
+        if response.length:
+            raise http.client.IncompleteRead(packet, response.length)
+        result = json.loads(packet)
+        del packet
+        if response.status != 200:
+            return 1, "", f"cci: {result['error']}\n"
+        return result["returncode"], _tail_output(result["stdout_b64"]), _tail_output(result["stderr_b64"])
+    except TimeoutError:
+        raise
+    except (OSError, http.client.HTTPException) as error:
+        return 1, "", f"cci: native tail: {error}\n"
+    finally:
+        connection.close()
+
+
+def _tail_output(encoded: str) -> str:
+    with io.TextIOWrapper(io.BytesIO(base64.b64decode(encoded, validate=True)), errors="replace") as output:
+        return output.read()
+
+
+def since_args(since: int | str) -> list[str]:
+    """Select an internal sequence bound or the CLI's time-bound syntax."""
+    value = str(since)
+    if re.fullmatch(r"#?[+-]?[0-9]+", value):
+        return ["--since-seq", str(int(value.removeprefix("#")))]
+    return ["--since", value]
+
+
 def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: int | str = 0) -> list[dict]:
     """Every record on `drive` after `since`, a sequence or any `cci tail --since` time, that matches the `cci tail` filters; touches no cursor. A `Tail` answers a query it read since its last `forget` without running cci, and follows a query from a sequence as `Tail.follow` says."""
     key = (drive, filters, str(since))
@@ -174,7 +240,7 @@ def paged(run: Callable[[list[str]], str], drive: str, filters: tuple[str, ...],
     """The records `cci tail` prints for `filters` after `since`, paged by sequence; a page is the last when it holds fewer than the `PAGE_ROWS` records cci prints per call and fills under half the byte budget, since cci caps a record far below that."""
     found: list[dict] = []
     while True:
-        out = run(["cci", "tail", "--drive", drive, "--since", str(since), "--json", "--budget", str(PAGE_BYTES), *filters])
+        out = run(["cci", "tail", "--drive", drive, *since_args(since), "--json", "--budget", str(PAGE_BYTES), *filters])
         page = [json.loads(line) for line in out.splitlines() if line.strip()]
         found += page
         if len(page) < PAGE_ROWS and len(out.encode()) < PAGE_BYTES // 2:
