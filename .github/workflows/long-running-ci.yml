@@ -66,6 +66,37 @@ jobs:
           cat "$RUNNER_TEMP/long-running-sqlite-consumers.json"
       - name: pytest
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q
+      - uses: actions/checkout@v7
+        with:
+          ref: 1af779ed338cf93945678ad33c396f1546d0fda3
+          path: .ci-incident-number-baseline
+      - name: Immutable mixed-origin incident citation negative control
+        run: |
+          test "$(git -C .ci-incident-number-baseline rev-parse HEAD)" = 1af779ed338cf93945678ad33c396f1546d0fda3
+          python - <<'PYCODE'
+          import ast
+          from pathlib import Path
+          name = "test_an_open_incident_naming_the_pr_refuses_its_enqueue_naming_the_incident"
+          current = Path("plugins/long-running/tests/test_desk_runner.py").read_text()
+          baseline = Path(".ci-incident-number-baseline/plugins/long-running/tests/test_desk_runner.py")
+          original = baseline.read_text()
+          selected = next(node for node in ast.parse(current).body if isinstance(node, ast.FunctionDef) and node.name == name)
+          prior = next(node for node in ast.parse(original).body if isinstance(node, ast.FunctionDef) and node.name == name)
+          start = lambda node: min([node.lineno, *(decorator.lineno for decorator in node.decorator_list)]) - 1
+          lines = original.splitlines(keepends=True)
+          lines[start(prior):prior.end_lineno] = current.splitlines(keepends=True)[start(selected):selected.end_lineno]
+          baseline.write_text("".join(lines))
+          PYCODE
+          for number in '#7' '#100@bbbbbbbb'; do
+            negative="$RUNNER_TEMP/incident-number-negative-$number.log"
+            if uv run --locked --project plugins/long-running pytest -c .ci-incident-number-baseline/plugins/long-running/pyproject.toml ".ci-incident-number-baseline/plugins/long-running/tests/test_desk_runner.py::test_an_open_incident_naming_the_pr_refuses_its_enqueue_naming_the_incident[$number]" -q -s > "$negative" 2>&1; then
+              cat "$negative"
+              exit 1
+            fi
+            cat "$negative"
+            grep -F "origin-qualified incident citation expected $number:" "$negative"
+            grep -F '1 failed' "$negative"
+          done
       - name: Binary attachment actual mq read costs
         run: |
           git fetch --no-tags --depth=1 origin 74d5367232c1636b21615b38946751852f532dfa
