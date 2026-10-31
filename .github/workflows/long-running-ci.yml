@@ -155,6 +155,41 @@ jobs:
           name: native-cci-caller
           path: ${{ runner.temp }}/native-cci.xml
 
+  incident-index-caller:
+    runs-on: ubuntu-latest
+    env:
+      UV_PYTHON: "3.14"
+      GOMAXPROCS: "2"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: yasyf/cc-inbox
+          ref: 6dab842f49a6cd41530d739fa6bd15556065e1c9
+          path: .ci-incident-index
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: .ci-incident-index/go.mod
+          cache-dependency-path: .ci-incident-index/go.sum
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: Build actual indexed incident handler fixture
+        run: |
+          test "$(git -C .ci-incident-index rev-parse HEAD)" = 6dab842f49a6cd41530d739fa6bd15556065e1c9
+          mkdir -p .ci-incident-index/cmd/landing-incident-fixture
+          cp plugins/long-running/tests/fixtures/incident_index/main.go .ci-incident-index/cmd/landing-incident-fixture/main.go
+          go -C .ci-incident-index build -p 2 -o "$RUNNER_TEMP/incident-index-fixture" ./cmd/landing-incident-fixture
+      - name: Actual Landing indexed incident selection and mutable-file freshness
+        env:
+          CCI_INCIDENT_FIXTURE: ${{ runner.temp }}/incident-index-fixture
+          CCI_INCIDENT_PROVIDER_SOURCE: 6dab842f49a6cd41530d739fa6bd15556065e1c9
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/incident_index_integration.py -q -s --junitxml="$RUNNER_TEMP/incident-index.xml"
+      - uses: actions/upload-artifact@v7
+        if: ${{ always() }}
+        with:
+          name: incident-index-caller
+          path: ${{ runner.temp }}/incident-index.xml
+
   machine-cci-post:
     runs-on: ubuntu-latest
     env:
