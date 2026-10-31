@@ -96,6 +96,8 @@ def test_generated_human_and_machine_reference_arguments_target_real_mixed_origi
     ask = {**remote, "lane": "api-lane", "kind": "ask", "to": ["root"], "status": "open"}
     waiting = stall_watch.Pass.asks(caller, [ask])[0]
     missing = stall_watch.Pass.missing(caller, "29020", "grade", "root", SimpleNamespace(grade=owner, answered_at=None))
+    assert missing.what.startswith("fidelity grade cci " + owner["num"] + " by ")
+    assert waiting.subject == remote["num"] + " from api-lane"
     state = handoff.Handoff("d1", "plan", now, standing={"#" + str(owner["seq"]): "every release ships on the owner's word only once"}, sources={"#" + str(owner["seq"]): "cci " + owner["num"]})
     findings = handoff.uncited_inbox_rules(state, set())
     cases = [(refusal.command("abcdef1"), "--re", owner["seq"]), (waiting.step, "--re", remote["seq"]), (waiting.step, "--resolves", remote["seq"]), (missing.step, "--re", owner["seq"]), (findings[0], "--re-seq", owner["seq"])]
