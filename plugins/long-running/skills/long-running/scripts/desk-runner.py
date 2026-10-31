@@ -1277,15 +1277,9 @@ class Shell:
         with out.open("a" if append else "w") as sink:
             return cci.installed(argv, lambda: subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=sink, stderr=subprocess.STDOUT, env={**os.environ, **env}, start_new_session=True))
 
-    def pid_alive(self, pid: int) -> bool:
-        """Whether a process with id `pid` exists; a child that exited is reaped at the next spawn."""
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            pass
-        return True
+    def runs_job(self, pid: int, directory: Path) -> bool:
+        """Whether process `pid` still runs the desk job in `directory`: it exists and its command line names that directory, since macOS hands an exited job's pid to another process within minutes; a child that exited is reaped at the next spawn."""
+        return str(directory) in subprocess.run(["ps", "-ww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout
 
     def stat(self, path: Path) -> tuple[int, int] | None:
         try:
@@ -4492,8 +4486,7 @@ class Runner:
                 self.finder_failed(action, f"its job directory {directory} is gone")
                 settled = True
                 continue
-            pid = directory / finder.PID
-            exited = pid.is_file() and not ((said := pid.read_text().strip()).isdigit() and self.shell.pid_alive(int(said)))
+            exited = self.job_gone(directory)
             result = directory / finder.RESULT
             ran = whole_minutes(actions.parse_stamp(action.started_at), self.now())
             if result.is_file():
@@ -4757,15 +4750,23 @@ class Runner:
         for pr, row in self.green_heads(FIDELITY, rows):
             self.book.accept(FIDELITY, f"fidelity:{pr}:{row['head']}:ledger", "fidelity", json.dumps({"pr": pr, "head": row["head"], "lane": row.get("lane") or ROOT, "seq": cursor}), "ledger", None)
 
+    def job_gone(self, directory: Path) -> bool:
+        """Whether the process that ran the desk job in `directory`, named by its pid file, no longer runs it; a job whose pid file is empty is gone too (root #220372)."""
+        pid = directory / finder.PID
+        return pid.is_file() and not ((said := pid.read_text().strip()).isdigit() and self.shell.runs_job(int(said), directory))
+
     def settle_fidelities(self) -> None:
         for action in self.book.actions(FIDELITY, kind="fidelity", status="started"):
             if not Path(action.dispatch_id).is_dir():
                 self.fidelity_failed(action, f"its job directory {action.dispatch_id} is gone")
                 continue
             result = Path(action.dispatch_id) / fidelity.RESULT
+            ran = whole_minutes(actions.parse_stamp(action.started_at), self.now())
             if not result.is_file():
-                if self.now() >= actions.parse_stamp(action.deadline):
-                    self.fidelity_failed(action, f"no result {whole_minutes(actions.parse_stamp(action.started_at), self.now())} min after it started")
+                if self.job_gone(Path(action.dispatch_id)):
+                    self.fidelity_failed(action, f"fidelity.py exited {ran} min after it started and wrote no result")
+                elif self.now() >= actions.parse_stamp(action.deadline):
+                    self.fidelity_failed(action, f"no result {ran} min after it started")
                 continue
             outcome = json.loads(result.read_text())
             if "error" in outcome:
@@ -4850,7 +4851,8 @@ class Runner:
         if not self.book.attempt(FIDELITY, lambda incident: incident.start(action.action_id, self.now(), deadline=deadline, dispatch_id=str(directory))):
             return False
         argv, env = job_command(spec, sprite, "fidelity.py", directory)
-        self.shell.spawn(argv, directory / fidelity.LOG, env)
+        process = self.shell.spawn(argv, directory / fidelity.LOG, env)
+        drive.write_atomic(directory / finder.PID, process.pid)
         return True
 
     def least_busy_sprite(self, spec: dict) -> str | None:

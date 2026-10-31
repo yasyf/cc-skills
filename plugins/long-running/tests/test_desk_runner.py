@@ -178,6 +178,7 @@ class FakeShell(runner_module.Shell):
         self.successors: list[tuple[list[str], Path, bool]] = []
         self.finder_jobs: list[Path] = []
         self.exited: set[int] = set()
+        self.recycled: set[int] = set()
         self.fidelity_jobs: list[Path] = []
         self.sprite_jobs: list[tuple[str, str]] = []
         self.reexeced: list[list[str]] = []
@@ -296,8 +297,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, f"{target} = {{\n\tstate = running\n\tpid = {self.launchd[label]}\n}}\n", "")
         return runner_module.Done(0, "", "")
 
-    def pid_alive(self, pid):
-        return pid not in self.exited
+    def runs_job(self, pid, directory):
+        return pid not in self.exited and pid not in self.recycled
 
     def spawn(self, argv, out, env, append=False):
         self.calls.append(list(argv))
@@ -317,7 +318,9 @@ class FakeShell(runner_module.Shell):
         if argv[1:2] == [str(runner_module.SCRIPTS / "fidelity.py")]:
             assert argv == [sys.executable, str(runner_module.SCRIPTS / "fidelity.py"), str(out.parent)] and not env
             self.fidelity_jobs.append(out.parent)
-            return Process()
+            process = Process()
+            process.pid = 7000 + len(self.fidelity_jobs)
+            return process
         if Path(argv[0]).name == "sprite-job.sh":
             assert argv[2] in (str(runner_module.SCRIPTS / "finder.py"), str(runner_module.SCRIPTS / "fidelity.py")) and argv[3] == str(out.parent)
             (self.finder_jobs if argv[2].endswith("finder.py") else self.fidelity_jobs).append(out.parent)
@@ -14031,6 +14034,20 @@ def test_a_pass_whose_process_exited_with_no_result_frees_its_slot_and_retries_a
     assert not finder_failures(shell)
 
 
+def test_a_pass_whose_pid_now_names_another_process_settles_as_exited(shell, config, tmp_path):
+    """Root #241003, 11:40 PM Oct 30: 17 finder and fidelity passes had no result and no live wrapper for 7 to 139 minutes, and the runner counted them running; macOS had handed a dead wrapper's pid to another process."""
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    [ghost] = shell.finder_jobs
+    shell.recycled.add(int((ghost / "pid").read_text()))
+    orca_pass(shell, config)
+    passes = incident(tmp_path, "desk-finder").actions
+    assert passes[f"finder:43439:{FINDER_HEAD}"].reason == "finder.py exited 0 min after it started and wrote no result"
+    assert passes[f"finder:43439:{FINDER_HEAD}#2"].status == "accepted"
+
+
 def test_a_pass_whose_pid_file_is_empty_settles_as_exited(shell, config, tmp_path):
     """root #220372: a Sprite restart left a pass's pid file empty, and every orca pass raised reading it."""
     finder_config(config, concurrent=1)
@@ -14238,6 +14255,21 @@ def test_a_pass_whose_job_directory_is_gone_fails_without_raising(shell, config,
     orca_pass(shell, config)
     assert incident(tmp_path, "desk-finder").actions[f"finder:43439:{FINDER_HEAD}"].reason == f"its job directory {shell.finder_jobs[0]} is gone"
     assert incident(tmp_path, "desk-fidelity").actions[f"fidelity:43439:{FINDER_HEAD}:{seq}"].reason == f"its job directory {shell.fidelity_jobs[0]} is gone"
+
+
+@pytest.mark.parametrize("gone", ["exited", "recycled"])
+def test_a_fidelity_pass_whose_wrapper_is_gone_with_no_result_fails_at_once_and_requeues(shell, config, tmp_path, gone):
+    """Root #241003, 11:40 PM Oct 30: ten fidelity passes had no result and no live wrapper, and the runner counted each running until its 60-minute deadline, since only a finder pass checked its wrapper."""
+    fidelity_config(config)
+    orca_pass(shell, config)
+    seq = head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    [ghost] = shell.fidelity_jobs
+    getattr(shell, gone).add(int((ghost / "pid").read_text()))
+    orca_pass(shell, config)
+    passes = incident(tmp_path, "desk-fidelity").actions
+    assert passes[f"fidelity:43439:{FINDER_HEAD}:{seq}"].reason == "fidelity.py exited 0 min after it started and wrote no result"
+    assert [action.status for action in passes.values()] == ["failed", "accepted"]
 
 
 def test_a_failed_fidelity_pass_settles_when_a_reader_lane_in_runner_json_has_not_started(shell, config):
