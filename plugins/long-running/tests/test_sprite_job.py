@@ -177,7 +177,7 @@ def test_a_job_that_dies_with_its_sprite_leaves_an_error_result_so_the_runner_fa
     done = subprocess.run(["sh", str(SCRIPT), "dar-fleet-4", str(script), str(directory)], env=env, capture_output=True, timeout=60)
 
     assert done.returncode == 137
-    assert json.loads((directory / "result.json").read_text()) == {"error": "the job on Sprite dar-fleet-4 ended with status 137 and no result, as when the Sprite restarts mid-pass"}
+    assert json.loads((directory / "result.json").read_text()) == {"error": "the job on Sprite dar-fleet-4 ended with status 137 and no result, as when the Sprite restarts mid-pass or cannot be reached"}
 
 
 HELPER_JOB = """import json, pathlib, subprocess, sys
@@ -186,6 +186,26 @@ helpers = subprocess.run(["git", "config", "--get-all", "credential.helper"], ca
 (job / "result.json").write_text(json.dumps({"helpers": helpers}))
 """
 
+
+
+def test_a_job_whose_sprite_refuses_the_copy_leaves_an_error_result(tmp_path: Path) -> None:
+    """remote-desks-5, 2:53 AM Oct 31: fidelity #46590 and #45410 got "failed to connect ... operation timed out" copying their job to dar-fleet-8 and dar-fleet-6, sprite-job.sh exited under set -e before it wrote a result, and the runner counted both passes as running."""
+    mac = tmp_path / "mac"
+    checkout, directory, config = mac / "checkout", mac / "fidelity-pipeline" / "46590-cbd6b2a5115f-247230", mac / "config"
+    script = mac / "plugin" / "skills" / "long-running" / "scripts" / "fidelity.py"
+    executable(script, "")
+    executable(script.parent / "rulings.py", "")
+    executable(mac / "bin" / "sprite", "#!/bin/sh\necho 'Error: failed to start sprite command: failed to connect: read: operation timed out' >&2\nexit 1\n")
+    directory.mkdir(parents=True)
+    (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
+    (config / "long-running" / "drives").mkdir(parents=True)
+    (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
+
+    env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "CLAUDE_CONFIG_DIR": str(config)}
+    done = subprocess.run(["sh", str(SCRIPT), "dar-fleet-8", str(script), str(directory)], env=env, capture_output=True, timeout=60)
+
+    assert done.returncode == 1
+    assert json.loads((directory / "result.json").read_text()) == {"error": "the job on Sprite dar-fleet-8 ended with status 1 and no result, as when the Sprite restarts mid-pass or cannot be reached"}
 
 def test_every_git_command_a_job_runs_authenticates_through_gh(tmp_path: Path) -> None:
     """desk-runner GRADER-TOOLING #238341: a finder's `git rev-list --cherry-pick` lazily fetched a missing object from the partial clone with no credential helper and died on "could not read Username"; the job's own git commands now carry the helper the fetch uses."""

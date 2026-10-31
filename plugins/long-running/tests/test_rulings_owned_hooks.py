@@ -27,6 +27,9 @@ from test_rulings import REPO, RegisterShell, gateway, home, registered, state
 class HookShell(RegisterShell):
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
         argv = gateway(argv)
+        if argv == ["git", "-C", REPO, "rev-parse", "--abbrev-ref", "HEAD"]:
+            self.calls.append(argv)
+            return "HEAD\n"
         if argv == ["ccn", "-R", REPO, "answer", "list", "--label", "scope:durable", "--limit", "0", "--label", "program:brook", "--json"]:
             argv = ["ccn", "-R", REPO, "answer", "list", "--label", "scope:durable", "--label", "program:brook", "--limit", "0", "--json"]
         if argv[:4] == ["cci", "tail", "--drive", "brook-cci"]:

@@ -82,6 +82,7 @@ class Facts:
     exempt: bool = False
     hold: str | None = None
     carries: tuple[int, ...] = ()
+    condition: str | None = None
 
     @property
     def green(self) -> bool:

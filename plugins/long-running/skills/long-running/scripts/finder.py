@@ -129,6 +129,16 @@ def heads(record: dict, repo: str) -> list[tuple[str, str]]:
     return [(pr, head) for pr in prs] if head else []
 
 
+def head_gap(record: dict, repo: str) -> str:
+    """Why a `head` record names no head a grader can queue: it names a PR of `repo` and no commit sha, or no pull request at all; empty when it names a head, or only PRs of other repos."""
+    if heads(record, repo) or head_entries(record, repo) is not None:
+        return ""
+    refs = (record.get("refs") or {}).get("prs")
+    if prs := [pr for pr, _ in repo_prs(record, repo)] if refs else text_pr(record["text"], repo):
+        return f"names #{prs[0]} but no commit sha"
+    return "" if refs or TEXT_PR.search(record["text"]) else "names no pull request"
+
+
 def text_pr(text: str, repo: str) -> list[str]:
     """The first `repo#N` the text names, else its first bare `#N` of four or more digits, as a bare `#5` is an audit or step number (#170072)."""
     return text_prs(text, repo)[:1]
