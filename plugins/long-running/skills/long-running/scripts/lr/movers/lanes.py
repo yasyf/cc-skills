@@ -5,7 +5,8 @@ once which lanes `cci who` lists live, and acts on each desired lane: one that s
 went silent past `STALE_AFTER`, is stood down by one record naming its successor and the
 PRs it takes over, and the successor launches from the lane's brief and newest handoff; one
 past its context line is asked to rotate, and rotated the same way when no handoff answers
-within the interval. A fresh store adopts only the lanes live at that moment, and a tick whose
+within the interval. Each live lane beats in the store's worker table, so `stale_workers` is the
+one liveness rule, and a lane it relaunches, holds or retires leaves that table. A fresh store adopts only the lanes live at that moment, and a tick whose
 sources do not all answer acts on nothing. It signals no process: a live lane leaves only
 through the record that stands it down.
 """
@@ -104,6 +105,16 @@ def successor_name(name: str, taken: set[str]) -> str:
     return f"{family}-{n + 1}"
 
 
+def retire(store: Store, name: str, by: str, at: datetime) -> None:
+    store.lane_state(name, "retired", at, retired_by=by)
+    store.release_worker(name)
+
+
+def hold(store: Store, name: str, why: str, at: datetime) -> None:
+    store.lane_state(name, "held", at, reason=why)
+    store.release_worker(name)
+
+
 def fold(store: Store, records: Iterable[dict], live: set[str] | None) -> list[str]:
     """Apply bus records to the registry; with `live` set, the store is fresh and registers only the spawned lanes in it."""
     adopted = []
@@ -116,35 +127,35 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None) -> list[s
                     adopted.append(name)
             continue
         row = store.lane(lane)
-        if row and row.state in LIVE and (row.heard is None or at > row.heard):
-            store.set_lane(lane, heard=at)
+        if row and row.state in LIVE:
+            store.lane_heard(lane, at)
         kind = record["kind"]
         if lane == SELF:
             continue
         if kind == "handoff" and row and (doc := (record.get("refs") or {}).get("ccn")):
-            store.set_lane(lane, handoff=doc, **({"flushed": at} if row.asked else {}))
+            store.lane_handoff(lane, doc, at if row.asked else None)
         elif kind == "opened" and row:
-            store.set_lane(lane, prs=sorted({*row.prs, *prs_of(record)}))
+            store.lane_prs(lane, {*row.prs, *prs_of(record)})
         elif kind == "landed":
             for number in prs_of(record):
                 for owner in store.all_lanes():
                     if number in owner.prs:
-                        store.set_lane(owner.name, prs=[n for n in owner.prs if n != number])
+                        store.lane_prs(owner.name, [n for n in owner.prs if n != number])
         elif kind == "done" and row and row.state != "retired":
-            store.set_lane(lane, state="retired", retired_by="done", since=at)
+            retire(store, lane, "done", at)
         elif kind == "stand-down" and lane == ROOT:
             for old in record.get("to") or []:
                 if (gone := store.lane(old)) and gone.state != "retired":
                     successor = attrs_of(record).get("successor")
-                    store.set_lane(old, state="retired", retired_by=successor or ROOT, since=at)
+                    retire(store, old, successor or ROOT, at)
                     if successor:
                         store.want_lane(successor, gone.brief, gone.model, gone.effort, gone.role, "launching", at, handoff=gone.handoff, prs=gone.prs, predecessor=old)
         elif kind == "decide" and lane == ROOT and (owner := OWNER.search(record.get("text") or "")) and (taker := store.lane(owner[1])):
             moved = set(prs_of(record))
             for other in store.all_lanes():
                 if moved & set(other.prs) and other.name != taker.name:
-                    store.set_lane(other.name, prs=[n for n in other.prs if n not in moved])
-            store.set_lane(taker.name, prs=sorted({*taker.prs, *moved}))
+                    store.lane_prs(other.name, [n for n in other.prs if n not in moved])
+            store.lane_prs(taker.name, {*taker.prs, *moved})
     return adopted
 
 
@@ -231,7 +242,7 @@ def escalate(store: Store, deps: Deps, subject: str, cause: str, now: datetime) 
 def relaunch(store: Store, deps: Deps, old: Lane, peer: Peer | None, why: str, taken: set[str], now: datetime, out: Outcome) -> None:
     strikes = old.strikes + 1 if old.predecessor and now - old.since < STALE_AFTER else 0
     if strikes >= STRIKES or not Path(old.brief).is_file():
-        store.set_lane(old.name, state="held", reason=why, since=now)
+        hold(store, old.name, why, now)
         cause = f"its successors died within {STALE_AFTER.seconds // 60} minutes of launch {STRIKES} times" if strikes >= STRIKES else f"its brief {old.brief} is gone"
         escalate(store, deps, f"lane:{old.name}", f"held, not relaunched: {cause}; it {why}", now)
         out.held.append(old.name)
@@ -242,7 +253,7 @@ def relaunch(store: Store, deps: Deps, old: Lane, peer: Peer | None, why: str, t
     brief.parent.mkdir(parents=True, exist_ok=True)
     brief.write_text(successor_brief(old, new, why, deps, deps.transcript(peer.row) if peer else None))
     post(deps, "stand-down", old.name, f"{pacific(now)} {old.name} stood down for {new}: it {why}.", "--successor", new, *[arg for n in old.prs for arg in ("--pr", str(n))])
-    store.set_lane(old.name, state="retired", retired_by=new, since=now)
+    retire(store, old.name, new, now)
     store.want_lane(new, old.brief, old.model, old.effort, old.role, "launching", now, handoff=old.handoff, prs=old.prs, predecessor=old.name, reason=why, strikes=strikes)
     deps.launch(new, old.model, old.effort, brief)
     owned = " ".join(f"#{n}" for n in old.prs)
@@ -264,7 +275,7 @@ def hourly(store: Store, deps: Deps, now: datetime) -> None:
     post(deps, "report", ROOT, f"Between {pacific(start)} and {pacific(start + timedelta(hours=1))} the lane supervisor restarted {len(restarted)} lane{'s' if len(restarted) > 1 else ''} with no root action: {words}.", "--attr", "audience=owner")
 
 
-def tick(store: Store, deps: Deps, now: datetime) -> Outcome:
+def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
     out = Outcome()
     now = parse(stamp(now))
     fresh = store.cursor(CURSOR) == 0
@@ -281,17 +292,19 @@ def tick(store: Store, deps: Deps, now: datetime) -> Outcome:
         peer = found.get(lane.name)
         wants_tokens = lane.state == "desired" and lane.asked is None and peer is not None and peer.live
         verdict = classify_lane(lane, peer, now, deps.tokens(peer.row) if wants_tokens else None, deps.rotate_at)
+        if peer and (verdict.kind == "came-up" or (lane.state == "desired" and verdict.kind in ("ok", "ask-rotate"))):
+            store.heartbeat(lane.name, generation, max(peer.seen, lane.heard or peer.seen))
         if verdict.kind == "came-up":
-            store.set_lane(lane.name, state="desired", since=now)
+            store.lane_state(lane.name, "desired", now)
         elif verdict.kind == "no-show":
-            store.set_lane(lane.name, state="held", since=now)
+            hold(store, lane.name, verdict.why, now)
             escalate(store, deps, f"lane:{lane.name}", f"{verdict.why}; brief {deps.briefs / f'{lane.name}.brief.md'}", now)
             out.held.append(lane.name)
         elif verdict.kind in ("dead", "rotating"):
             relaunch(store, deps, lane, peer, verdict.why, taken, now, out)
         elif verdict.kind == "ask-rotate":
             post(deps, "ask", lane.name, f"ROTATE: {lane.name} is at {verdict.why}. Write anything not yet in the ledger or cc-notes to a cc-notes doc, post `cci post --lane {lane.name} --kind handoff --ccn <doc id> --re <this record>`, then keep working.")
-            store.set_lane(lane.name, asked=now)
+            store.lane_asked(lane.name, now)
             out.asked.append(lane.name)
     hourly(store, deps, now)
     return out

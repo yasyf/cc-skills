@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""`supervisor.py`: the drive's supervisor, the v2 loop over the movers `lr.json` names, kept alive by launchd.
+"""`drive_supervisor.py`: the process that runs a drive's supervisor, the v2 loop of `lr/loop.py` over the movers `lr.json` names, kept alive by launchd.
 
-    supervisor.py run --config LR_JSON
-    supervisor.py install --config LR_JSON
-    supervisor.py uninstall --config LR_JSON
-    supervisor.py lanes --config LR_JSON
+    drive_supervisor.py run --config LR_JSON
+    drive_supervisor.py install --config LR_JSON
+    drive_supervisor.py uninstall --config LR_JSON
+    drive_supervisor.py lanes --config LR_JSON
 
 STDLIB ONLY. `lr.json` sits in the drive's state directory beside the store `lr.sqlite`, and the
 lanes mover writes successor briefs and launch logs under `lanes/` there. `run` takes the drive's
@@ -33,7 +33,7 @@ from lr.movers import lanes
 from lr.store import Store
 
 SCRIPTS = Path(__file__).resolve().parent
-BIN = SCRIPTS.parents[2] / "bin" / "supervisor.py"
+BIN = SCRIPTS.parents[2] / "bin" / "drive_supervisor.py"
 DESK_LAUNCH = SCRIPTS / "desk-launch.py"
 PROJECTS = Path.home() / ".claude" / "projects"
 RECEIPTS = Path.home() / ".claude" / "scratch" / "orca-launch"
@@ -194,7 +194,7 @@ def cmd_run(config: lr_config.Config, path: Path) -> int:
     deps = loop.Deps(movers=frozenset(config.movers), clock=clock, sleep=time.sleep, lane_deps=lanes_deps(config, path.parent) if "lanes" in config.movers else None)
     version = SCRIPTS.parents[2].name
     ticks = loop.run(store, config.drive, version, os.getpid(), deps)
-    print(f"supervisor: generation moved after {len(ticks)} ticks; exiting for the newer supervisor", file=sys.stderr)
+    print(f"drive_supervisor: generation moved after {len(ticks)} ticks; exiting for the newer supervisor", file=sys.stderr)
     return 0
 
 
@@ -219,17 +219,17 @@ def cmd_install(config: lr_config.Config, path: Path) -> int:
     target = f"gui/{os.getuid()}/{name}"
     if launchctl("print", target).returncode == 0:
         if plist.is_file() and plist.read_bytes() == agent:
-            print(f"supervisor: launchd already runs {name} from {plist}")
+            print(f"drive_supervisor: launchd already runs {name} from {plist}")
             return 0
         if (out := launchctl("bootout", target)).returncode:
-            print(f"supervisor: launchctl bootout {target} failed: {(out.stderr or out.stdout).strip()}", file=sys.stderr)
+            print(f"drive_supervisor: launchctl bootout {target} failed: {(out.stderr or out.stdout).strip()}", file=sys.stderr)
             return 1
     plist.parent.mkdir(parents=True, exist_ok=True)
     plist.write_bytes(agent)
     if (out := launchctl("bootstrap", f"gui/{os.getuid()}", str(plist))).returncode:
-        print(f"supervisor: launchctl bootstrap {plist} failed: {(out.stderr or out.stdout).strip()}", file=sys.stderr)
+        print(f"drive_supervisor: launchctl bootstrap {plist} failed: {(out.stderr or out.stdout).strip()}", file=sys.stderr)
         return 1
-    print(f"supervisor: launchd runs {name} from {plist}, logging to {log}")
+    print(f"drive_supervisor: launchd runs {name} from {plist}, logging to {log}")
     return 0
 
 
@@ -238,10 +238,10 @@ def cmd_uninstall(config: lr_config.Config, path: Path) -> int:
     plist = Path.home() / "Library" / "LaunchAgents" / f"{name}.plist"
     target = f"gui/{os.getuid()}/{name}"
     if launchctl("print", target).returncode == 0 and (out := launchctl("bootout", target)).returncode:
-        print(f"supervisor: launchctl bootout {target} failed: {(out.stderr or out.stdout).strip()}", file=sys.stderr)
+        print(f"drive_supervisor: launchctl bootout {target} failed: {(out.stderr or out.stdout).strip()}", file=sys.stderr)
         return 1
     plist.unlink(missing_ok=True)
-    print(f"supervisor: {name} booted out and {plist} removed")
+    print(f"drive_supervisor: {name} booted out and {plist} removed")
     return 0
 
 
@@ -260,7 +260,7 @@ def cmd_lanes(config: lr_config.Config, path: Path) -> int:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="supervisor.py")
+    parser = argparse.ArgumentParser(prog="drive_supervisor.py")
     parser.add_argument("verb", choices=("run", "install", "uninstall", "lanes"))
     parser.add_argument("--config", required=True, type=Path)
     args = parser.parse_args(argv)
