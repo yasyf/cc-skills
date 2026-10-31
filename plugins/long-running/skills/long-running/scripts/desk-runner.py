@@ -927,6 +927,7 @@ TRUNK_FELL_LABELS = ("trunk-failed", "trunk-cancelled")
 TRUNK_QUEUE_DRIVE = "trunk"
 TRUNK_QUEUE_FACT = "trunk-queue"
 TRUNK_FELL = frozenset({"failed", "canceled"})
+TRUNK_UNREAD = frozenset({"unknown", "not queued"})
 CARRIED_FROM = re.compile(r"\bcarried from #(\d+)")
 ROOT_FINDER_CLEAR = r"(?:^|[.;]\s+)(?:\d{{1,2}}:\d\d [AP]M\s+)?(?:root:\s+)?clear(?:ed|s)?\b[^.;]*\bfinder\b[^.;]*#{pr}\s+{sha}"
 QUEUED_VERDICT = "QUEUED"
@@ -5041,13 +5042,15 @@ def queue_state(action: actions.Action) -> str:
 
 
 def trunk_recorded(entry: dict, state: dict | None) -> dict:
-    """`entry` as the newest `queue` record the Trunk webhook wrote for its PR says, where the status read says unknown; the labels read only when no record names the PR."""
-    if entry["queue"] != "unknown" or not state:
+    """`entry` as the newest `queue` record the Trunk webhook wrote for its PR says, where the status read says unknown, or says not queued and the record says Trunk dropped it; the labels read only when no record names the PR."""
+    if entry["queue"] not in TRUNK_UNREAD or not state:
+        return entry
+    if state["outcome"] in TRUNK_FELL:
+        return entry | {"queue": "evicted", "evicted": state["text"], "evicted_at": state["at"]}
+    if entry["queue"] != "unknown":
         return entry
     if state["outcome"] == "merged":
         return entry | {"queue": "landed", "verdict": "landed"}
-    if state["outcome"] in TRUNK_FELL:
-        return entry | {"queue": "evicted", "evicted": state["text"], "evicted_at": state["at"]}
     return entry | {"queue": QUEUED_STATE, "verdict": QUEUED_STATE}
 
 
@@ -5057,7 +5060,7 @@ def trunk_labelled(entry: dict, row: dict) -> dict:
         return entry | {"queue": "landed", "verdict": "landed"}
     if entry["queue"] == "unknown" and labels & TRUNK_QUEUED_LABELS:
         return entry | {"queue": QUEUED_STATE, "verdict": QUEUED_STATE}
-    if entry["queue"] == "unknown" and (fell := next((label for label in TRUNK_FELL_LABELS if label in labels), None)):
+    if entry["queue"] in TRUNK_UNREAD and (fell := next((label for label in TRUNK_FELL_LABELS if label in labels), None)):
         return entry | {"queue": "evicted", "evicted": f"Trunk labelled it {fell}"}
     return entry
 
@@ -9101,7 +9104,7 @@ class Landing:
         return None if statuses is None else {pr: entry["queue"] for pr, entry in statuses.items()}
 
     def tell_unpassed(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Tell each PR `unpassed` keeps out of every check, and each PR of a tree `landable_trees` left unchecked, what the pass's one status read says, after the go'd trees enqueue: red CI or requested changes goes to its lane as that head's blocker, a conflict alone once per base, since a restack that keeps its base on purpose stays conflicting at every head, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM), `GATE_WORKERS` heads at a time, heads not yet told at their head first and then the longest untold, starting none once `TELL_BUDGET` has passed, so a later pass tells the rest. It reads the root's gos again first, so a go posted while the pass ran asks nothing (root #143360)."""
+        """Tell each PR `unpassed` keeps out of every check, and each PR of a tree `landable_trees` left unchecked, what the pass's one status read says, after the go'd trees enqueue: red CI or requested changes goes to its lane as that head's blocker, and to root as well when the merge queue dropped it (owner, 10:44 PM Oct 30), a conflict alone once per base, since a restack that keeps its base on purpose stays conflicting at every head, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM), `GATE_WORKERS` heads at a time, heads not yet told at their head first and then the longest untold, starting none once `TELL_BUDGET` has passed, so a later pass tells the rest. It reads the root's gos again first, so a go posted while the pass ran asks nothing (root #143360)."""
         if not (self.no_go or self.unchecked) or (statuses := self.pr_statuses()) is None:
             return
         self.reread()
@@ -9124,9 +9127,13 @@ class Landing:
         for pr, (head, entry) in told.items():
             self.runner.checkpoint()
             self.review_bot(pr, head, open_rows[pr])
-            if why := status_blocker(entry, "ci-red" not in entry["verdict"] or not self.red_by_design(pr)) or self.unproven_why.get(pr, ""):
-                key = f"conflict:{pr}:{open_rows[pr].get('base', '')}" if why == CONFLICT_BLOCKER else blocker_key(pr, head)
-                self.route(key, self.owner(pr, open_rows[pr]), f"#{pr} {head}: {why}", pr)
+            if not (why := status_blocker(entry, "ci-red" not in entry["verdict"] or not self.red_by_design(pr)) or self.unproven_why.get(pr, "")):
+                continue
+            owner = self.owner(pr, open_rows[pr])
+            if entry["queue"] != "evicted":
+                self.route(f"conflict:{pr}:{open_rows[pr].get('base', '')}" if why == CONFLICT_BLOCKER else blocker_key(pr, head), owner, f"#{pr} {head}: {why}", pr)
+            elif not self.routed(key := blocker_key(pr, head), owner):
+                self.post_blocker(key, ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])), f"#{pr} {head}: {why}; the queue dropped it at {entry.get('evicted_at') or 'an unstamped time'}: {entry.get('evicted') or 'no reason given'}", pr)
 
     def review_bot(self, pr: str, head: str, row: dict) -> str:
         """What the review bot's newest `ai-review` run on `head`, from the pass's head read, says `pr` waits on, or empty; a Held verdict tells the owning lane once per head (root #154137)."""
