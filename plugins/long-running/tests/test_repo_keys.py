@@ -22,15 +22,14 @@ def state_call(repo: str, *rest: str) -> list[str]:
     return ["ccx", "vcs", "pr", "state", "--repo", repo, "--max-age", "2m", *rest]
 
 
-def test_scope_maps_pr_and_review_keys_both_ways():
+def test_scope_maps_pr_keys_both_ways():
     other = ledger.Scope(OTHER, HOME)
 
     assert other.store("12") == f"{OTHER}#12"
-    assert other.store(f"review/12@{HEAD}") == f"review/{OTHER}#12@{HEAD}"
     assert other.store("ask/000001") == "ask/000001"
-    stored = {"12": {"lane": "home"}, f"{OTHER}#12": {"lane": "other"}, f"review/{OTHER}#12@{HEAD}": {}, f"review/12@{HEAD}": {}, "ask/000001": {}}
-    assert other.view(stored) == {"12": {"lane": "other"}, f"review/12@{HEAD}": {}, "ask/000001": {}}
-    assert ledger.Scope(HOME, HOME).view(stored) == {"12": {"lane": "home"}, f"review/12@{HEAD}": {}, "ask/000001": {}}
+    stored = {"12": {"lane": "home"}, f"{OTHER}#12": {"lane": "other"}, "ask/000001": {}}
+    assert other.view(stored) == {"12": {"lane": "other"}, "ask/000001": {}}
+    assert ledger.Scope(HOME, HOME).view(stored) == {"12": {"lane": "home"}, "ask/000001": {}}
     assert ledger.Scope("forge-ai/MONOREPO", HOME).store("12") == "12"
 
 

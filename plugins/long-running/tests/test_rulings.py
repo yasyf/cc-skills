@@ -1208,7 +1208,7 @@ def test_a_repeat_whose_sweep_post_cci_refuses_warns_and_finishes_the_classify(
     assert code == 0, said.out
     assert shell.rows["rule/aaaaaaa"]["said"] == "2"
     [swept] = sweep_posts(shell, state)
-    assert "--force" in swept
+    assert "--force" not in swept
     assert "WARN the sweep hits of rule/aaaaaaa did not post to the fidelity desks (cci: no live lane fidelity-desk-15)" in said.err
 
 
@@ -1644,6 +1644,26 @@ def test_the_required_slice_prints_every_global_pending_and_touched_row_with_its
     assert "1. No relay code lands in relay-server. (removes, proposed, binds now)" in lines
     assert "Names: relay-server, parked worker" in lines
     assert "> Log every retry." in lines
+
+
+def test_the_worded_required_slice_carries_his_words_and_the_card_a_tap_answered_and_never_an_implication(home: Path, package: Path, state: Path, capsys, monkeypatch) -> None:
+    card = "card-relay: Where does relay code live?\n  - relay-journal: In relay-journal (recommended)\n  - relay-server: In relay-server"
+    taps = {"Relay code lives in relay-journal. Never in relay-server.": card}
+    monkeypatch.setattr(rulings.judge, "said", lambda row, state, env=None: [{"at": row.get("at", ""), "words": row["words"], "answered": taps.get(row["words"])}])
+
+    code, out = ran(capsys, RegisterShell(seeded(package), diff=DIFF), "slice", "--required", "--words", "--pr", "acme/app#12", "--head", "cafef00d", "--base", "main")
+    lines = out.splitlines()
+
+    assert code == 0
+    assert hashed_correctly(out)
+    assert required(out) == ["exception/E1", "rule/aaaaaaa", "rule/bbbbbbb"]
+    assert '- Oct 21 9:15 PM PT: "Relay code lives in relay-journal. Never in relay-server."' in lines
+    assert "    card-relay: Where does relay code live?" in lines
+    assert '- Oct 20 3:00 PM PT: "Drain the pool when a run closes."' in lines
+    assert lines[lines.index("> The pass hands out work.") - 1] == "The plan's text for this row, the root's words his answers approve, not his own:"
+    assert "Names: relay-server, parked worker" in lines
+    assert "No relay code lands in relay-server" not in out
+    assert "This also means:" not in out
 
 
 class SiblingBase(RegisterShell):

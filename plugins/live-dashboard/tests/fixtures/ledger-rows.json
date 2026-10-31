@@ -51,25 +51,6 @@
   }
  },
  {
-  "key": "review/101@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "fields": {
-   "pr": "101",
-   "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-   "verdict": "error",
-   "error": "the diff is over the review bound",
-   "override": ""
-  }
- },
- {
-  "key": "review/102@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-  "fields": {
-   "pr": "102",
-   "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-   "verdict": "clean",
-   "override": ""
-  }
- },
- {
   "key": "ask/000001",
   "fields": {
    "text": "land the old work",
