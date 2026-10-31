@@ -127,15 +127,20 @@ def heads(record: dict, repo: str) -> list[tuple[str, str]]:
 
 def text_pr(text: str, repo: str) -> list[str]:
     """The first `repo#N` the text names, else its first bare `#N` of four or more digits, as a bare `#5` is an audit or step number (#170072)."""
+    return text_prs(text, repo)[:1]
+
+
+def text_prs(text: str, repo: str) -> list[str]:
+    """Every `repo#N` the text names, else every bare `#N` of four or more digits, in order and once each."""
     named = TEXT_PR.findall(text)
-    return next(([number] for owner, number, _ in named if owner.lower() == repo.lower()), next(([bare] for _, _, bare in named if bare), []))
+    return list(dict.fromkeys([number for owner, number, _ in named if owner.lower() == repo.lower()] or [bare for _, _, bare in named if bare]))
 
 
 def requested(record: dict, repo: str) -> list[str]:
-    """The PRs an `ask` to the finder desk asks a whole pass over by saying `finder: whole`; a `decide` asks none, since root settles findings in one (root #182759)."""
+    """The PRs an `ask` to the finder desk asks a whole pass over by saying `finder: whole`, every one it names; a `decide` asks none, since root settles findings in one (root #182759)."""
     if record["kind"] != "ask" or LANE not in (record.get("to") or []) or WHOLE_ASKED not in record["text"].casefold():
         return []
-    return [pr for pr, _ in repo_prs(record, repo)] if (record.get("refs") or {}).get("prs") else text_pr(record["text"], repo)
+    return [pr for pr, _ in repo_prs(record, repo)] if (record.get("refs") or {}).get("prs") else text_prs(record["text"], repo)
 
 
 def since(reviews: list[dict], records: list[dict], head: str, repo: str) -> tuple[str, dict | None]:

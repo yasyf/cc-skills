@@ -264,6 +264,7 @@ def test_a_requested_full_pass_at_a_head_a_delta_record_graded_reads_the_whole_c
     [
         ("ask", ["finder-desk", "p8b-step10"], "finder-desk: finder: whole on #44114 over its own commits", ["44114"]),
         ("ask", ["finder-desk"], "Finder: whole #44114, please", ["44114"]),
+        ("ask", ["finder-desk"], "finder: whole on #46075 decdc34, #46155 58c7d42, #45799 5066a43, #46075 decdc34", ["46075", "46155", "45799"]),
         ("ask", ["finder-desk"], "finder-desk: run #44114 at 7d13a98 again", []),
         ("ask", ["finder-desk"], "finder-desk: one whole-diff pass on #44114", []),
         ("decide", ["finder-desk"], "re #182756: the carried major on #44764 8b4019d is settled", []),
