@@ -152,6 +152,10 @@ and, across the drive:
               posted a record nor been bound as that lane in `cci who --drive <drive> --all` since; one
               stall to root names the lane and its brief
 
+A sub-worker whose name extends a live lane's, such as `mq-health-4-supervise` under `mq-health-4`, is that lane's
+own: its lane and unregistered stalls go to that lane, never to root, and name the step that lane owes, having it post
+one state line as its first act. A numbered successor such as `mq-health-4-2` extends no lane.
+
 Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, successor 20, red 2, unclassed 20, unfixed 60, sweep 20, order 3, tap 10, ungraded 10, finder 30,
 fidelity 30, running 25, board 15, carry 20 (one fidelity pass), lane 30, ask 15, gate 30, stale 120, desk 10, shape 30, unregistered 3. A PR's head is as old as the first record about the
 PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record. A board
@@ -191,7 +195,7 @@ import re
 import subprocess
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -296,6 +300,8 @@ PULLED = re.compile(r"\bpull(?:s|ed)?\b[^.]*\brows?\b", re.IGNORECASE)
 ASK_WORD = re.compile(r"\b(?:card|pick)\b", re.IGNORECASE)
 BLOCK_WORD = re.compile(r"[\w-]+")
 ENDED = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
+WORKER_KINDS = frozenset({"lane", "unregistered"})
+NUMBERED = re.compile(r"\d{1,2}(?:-\d{1,2})*")
 SPAWNED = re.compile(r"^SPAWNED (?P<lane>[\w.-]+) (?P<brief>\S+)")
 DESK = re.compile(r"(?:.+-)?desk(?:-\d{1,2})?")
 REPEAT = timedelta(minutes=30)
@@ -650,6 +656,17 @@ class Pass:
         later = [record for name, record in self.lane_newest.items() if grades.succeeds(name, lane) and record["kind"] not in ENDED]
         return max(later, key=lambda record: record["seq"])["lane"] if ended and later else lane
 
+    def parent(self, lane: str) -> str | None:
+        """The live lane whose name `lane` extends, such as `mq-health-4` for `mq-health-4-supervise`; a numbered successor such as `mq-health-4-2` extends no lane."""
+        parents = [name for name, record in self.lane_newest.items() if lane.startswith(f"{name}-") and record["kind"] not in ENDED and not NUMBERED.fullmatch(lane[len(name) + 1 :])]
+        return max(parents, key=len, default=None)
+
+    def to_parent(self, stall: Stall) -> Stall:
+        """A sub-worker's lane and unregistered stalls go to the lane that owns it, never to root, and that lane has it post one state line as its first act (root #235327)."""
+        if stall.kind not in WORKER_KINDS or not (parent := self.parent(stall.subject)):
+            return stall
+        return replace(stall, owner=(parent,), step=f"{parent} has {stall.subject} post one state line as its first act")
+
     def run(self, dry_run: bool) -> int:
         saved = json.loads(self.watch.state.read_text()) if self.watch.state.is_file() else {"open": {}, "verdicts": {}}
         self.probe_day = saved.get("probe_day", "")
@@ -665,6 +682,7 @@ class Pass:
         fresh = self.judge([question.ask | {"id": question.key} for question in questions if question.key not in cached])
         verdicts = {question.key: cached.get(question.key) or fresh.get(question.key) for question in questions}
         stalls += [stall for question in questions if (stall := question.settle(verdicts[question.key]))]
+        stalls = [self.to_parent(stall) for stall in stalls]
         kept = {key.split(":")[1] for key, entry in saved["open"].items() if entry["kind"] in PR_KINDS & self.unread}
         stalls += self.stale(entries, saved.get("states", {}), records, kept | {stall.pr for stall in stalls if stall.pr})
         return self.report({stall.id: stall for stall in stalls}, saved, {key: verdict for key, verdict in verdicts.items() if verdict}, dry_run)
