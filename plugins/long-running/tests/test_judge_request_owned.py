@@ -113,7 +113,7 @@ def test_check_pr_reaches_real_cold_and_warm_board_and_model_paths_with_request_
     calls = []
 
     def run(argv, *, input=None, timeout, env=None):
-        assert env == selected
+        assert env == (selected | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(Path(selected["CLAUDE_CONFIG_DIR"]) / "long-running" / "judge-plugins")} if argv[0] == "claude" else selected)
         calls.append((argv, input, timeout))
         return response(argv, f"request {branch} card")
 
@@ -149,7 +149,7 @@ def test_concurrent_judgments_keep_cards_backends_environment_and_record_roots_l
         calls = []
 
         def run(argv, *, input=None, timeout, env=None):
-            assert env == selected
+            assert env == (selected | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(Path(selected["CLAUDE_CONFIG_DIR"]) / "long-running" / "judge-plugins")} if argv[0] == "claude" else selected)
             calls.append(argv[0])
             if argv[0] == "cc-present":
                 barrier.wait(timeout=5)
