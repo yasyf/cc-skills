@@ -3100,6 +3100,16 @@ def test_a_hold_that_appears_after_the_gate_refuses_the_enqueue_with_one_line_na
     assert shell.enqueues() == []
 
 
+
+def test_a_dev_red_incident_naming_a_pr_in_its_prose_holds_nothing(shell, config, tmp_path):
+    """Root #266270: root's dev-red INCIDENT #263114 said the red class fails 'from #45414 up', and #45414, the chat-open stack base and no incident fix, stayed held for two and a half hours."""
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    shell.records.append({"seq": 42, "num": "#42", "drive": "d1", "lane": "root", "kind": "incident", "status": "open", "topic": "dev-red", "to": ["root"], "refs": {"prs": [29019]}, "text": "DEV RED at a420927b, landed by #29019: failing from #29020 up", "source": "post", "at": "2026-10-01T17:59:00Z"})
+    landing_pass(shell, config)
+    assert [line for line in said(shell) if line.startswith("REFUSED refused:")] == []
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
 @pytest.mark.parametrize("number", ["#42", "#7", "#100@bbbbbbbb"])
 def test_an_open_incident_naming_the_pr_refuses_its_enqueue_naming_the_incident(shell, config, tmp_path, number):
     lone_green_pr(shell)

@@ -8086,7 +8086,7 @@ class Landing:
                 incident = named[-1] if named else None
             else:
                 incident = indexed.get(pr)
-            if incident:
+            if incident and incident.get("topic") != cci.TRUNK_TOPIC:
                 why[pr] = f"open INCIDENT {incident['num']}, whose lane squash-merges it directly, never through the queue"
             elif reason := self.label_hold(pr) or self.record_hold(pr, accepted_at):
                 why[pr] = reason
