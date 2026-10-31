@@ -291,7 +291,7 @@ ends, in a `finally`, by posting one `QUEUED`, `REFUSED` or `BELOW-BLOCKED` reco
 its newest record, and nothing for a head that did not change; a head no branch settled posts `REFUSED unsettled:` naming the last
 branch that saw it, to the root as a defect. A pass that gates nothing, because the checkout did not fast-forward, the trunk check
 did not read, `checks_wait_for_go` waits or GitHub's quota is low, refuses every admitted head with `gating off:` and its reason.
-Each admitted head's state goes to `landing-admitted.json` for the dashboard. A `head` or `opened` record naming a PR with no ledger
+Each admitted head's state goes to `landing-admitted.json` for the dashboard. Each pass resolves, with one `RESOLVED` note, every blocker the runner posted about a PR that has since landed, closed or moved past the head the blocker names. A `head` or `opened` record naming a PR with no ledger
 row registers it under that record's lane the next pass, logging `UNROWED` when the register fails and `GO-UNROWED` for a root go
 naming a PR no row or such record holds.
 Under `trunk-stack-enqueue`, each pass folds the `queue` records the Trunk webhook writes on the `trunk` cci drive, one per
@@ -9343,6 +9343,25 @@ class Landing:
             self.book.attempt(LANDING, lambda incident: incident.fail(key, (done.err or done.out).strip()[:300]))
         return done.code == 0
 
+    def resolve_stale_blockers(self, rows: dict[str, dict]) -> None:
+        """Resolve, with one note a pass, every blocker this runner posted about a PR that has since landed, closed, or moved past the head the blocker names, so the bus holds no blocker the runner itself has outlived (root #253512)."""
+        stale: dict[str, tuple[int, str]] = {}
+        for action in self.book.actions(LANDING, kind="bus", status="completed"):
+            target = json.loads(action.target)
+            if target.get("kind") != "blocker" or not (seq := cci.receipt_seq(action.response.get("posted", ""))) or not (row := rows.get(target["pr"])):
+                continue
+            named = re.search(rf"#{target['pr']} ([0-9a-f]{{7,40}})\b", target["text"])
+            if named and (row.get("state", "open") != "open" or not names_head(named[1], row.get("head", ""))):
+                stale[action.action_id] = (seq, target["lane"])
+        if not stale:
+            return
+        seqs = sorted(seq for seq, _ in stale.values())
+        to = ",".join(dict.fromkeys(lane for _, lanes in stale.values() for lane in lanes.split(",") if lane))
+        done = self.runner.cci_post("note", f"RESOLVED {len(seqs)} landing-runner blockers whose PR has since landed, closed or moved past the head each names", to, "landing-hygiene", f"resolved:{seqs[0]}:{seqs[-1]}:{len(seqs)}", flags=["--resolves", ",".join(map(str, seqs))])
+        if done.code == 0:
+            for key in stale:
+                self.book.attempt(LANDING, lambda incident, key=key: incident.verify(key, {"resolved": cci.receipt(done.records[0].seq), "at": self.book.stamp()}))
+
     def verify_restacks(self, rows: dict[str, dict]) -> None:
         """A restack route is verified once its PR's head moves or the PR lands."""
         routes = [(LANDING, action) for action in self.book.actions(LANDING, kind="bus")]
@@ -9508,7 +9527,7 @@ class Landing:
         if not self.side_work:
             def side_steps():
                 with self.build_cache.book.store.reading():
-                    self.runner.steps(lambda: self.verify(rows), lambda: self.announce_landings(rows), lambda: self.releases(rows), self.ungraded_after, lambda: self.verify_restacks(rows))
+                    self.runner.steps(lambda: self.verify(rows), lambda: self.announce_landings(rows), lambda: self.releases(rows), self.ungraded_after, lambda: self.verify_restacks(rows), lambda: self.resolve_stale_blockers(rows))
 
             self.side_work = self.side.submit(side_steps)
         if not self.tidy_work:
