@@ -805,6 +805,7 @@ MERGE_MODES = ("every", "high-risk", "auto")
 ACCEPT_CHECKS = ("precondition", "rulings", "fidelity", "finder", "old-app", "build-failed", "merge-mode")
 HOLD_CHECKS = ("hold",)
 ENQUEUE_CHECKS = ("precondition", "rulings", "fidelity", "finder", "old-app", "build-failed", "merge-mode")
+KNOWN_CHECKS = merge_queue.CHECKS + merge_queue.OPT_IN_CHECKS
 CHECK_STAGES = {"hold": "enqueue", "precondition": "accept, enqueue", "rulings": "accept, enqueue", "fidelity": "accept, enqueue", "finder": "accept, enqueue", "old-app": "accept, enqueue", "build-failed": "accept, enqueue", "merge-mode": "accept, enqueue", "approvals": "adapter check", "required-ci": "adapter check"}
 DEFAULT_PRIORITY = 100
 HIGH_RISK_STARTER = ("*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "*creds*")
@@ -6873,8 +6874,8 @@ class Landing:
 
     @property
     def checks(self) -> list[str]:
-        """The check registry in the order `landing.checks` names it, every built-in when it names none, with the `hold` check first whether it names it or not, so no enqueue path skips an open hold; re-read on every use."""
-        return [*HOLD_CHECKS, *(name for name in self.landing_config.get("checks", merge_queue.CHECKS) if name not in HOLD_CHECKS)]
+        """The check registry in the order `landing.checks` names it, every built-in when it names none, with the `hold` check first whether it names it or not, so no enqueue path skips an open hold; a name the installed release no longer ships is skipped, so a check a release retires never stops the runner; re-read on every use."""
+        return [*HOLD_CHECKS, *(name for name in self.landing_config.get("checks", merge_queue.CHECKS) if name not in HOLD_CHECKS and name in KNOWN_CHECKS)]
 
     def failing(self, stage: tuple[str, ...], graded: Graded) -> tuple[str, dict[str, merge_queue.State]] | None:
         """The first configured check of `stage` that does not pass every head, with each head's state; a refusing check posts its own blocker or ask when `graded.act`. The merge-mode check runs first, so a head's merge card is asked before the slower checks run, and its verdict still counts in its configured place."""
@@ -9596,7 +9597,7 @@ def run_orca(runner: Runner, once: bool) -> int:
 
 
 def mq_config_fault(landing: dict) -> str:
-    """What `landing` lacks for the merge queue to run, or empty: an adapter kind it knows, a script for the stack-enqueue adapter, only built-in checks, the high-risk globs merge mode high-risk reads, and the release command line. Each fault ends with the exact `landing` members that fix it in one edit; none is ever assumed."""
+    """What `landing` lacks for the merge queue to run, or empty: an adapter kind it knows, a script for the stack-enqueue adapter, the high-risk globs merge mode high-risk reads, and the release command line. Each fault ends with the exact `landing` members that fix it in one edit; none is ever assumed."""
     faults, members = [], []
     adapter = landing.get("adapter") or {}
     checkout = Path(landing["checkout"]).expanduser()
@@ -9609,10 +9610,8 @@ def mq_config_fault(landing: dict) -> str:
     elif adapter["kind"] in (merge_queue.TrunkStackEnqueue.kind, merge_queue.GraphiteStackEnqueue.kind) and not adapter.get("script"):
         faults.append("names no landing.adapter.script, the stack-enqueue script relative to landing.checkout")
         members.append(f'"adapter": {json.dumps({**adapter, "script": merge_queue.STACK_ENQUEUE})}')
-    known = merge_queue.CHECKS + merge_queue.OPT_IN_CHECKS
-    if unknown := [name for name in landing.get("checks", merge_queue.CHECKS) if name not in known]:
-        faults.append(f"lists {', '.join(unknown)} under landing.checks, which is no built-in check of {', '.join(known)}")
-        members.append(f'"checks": {json.dumps([name for name in landing["checks"] if name in known])}')
+    if unknown := [name for name in landing.get("checks", merge_queue.CHECKS) if name not in KNOWN_CHECKS]:
+        print(f"WARN runner.json lists {', '.join(unknown)} under landing.checks, which is no built-in check of {', '.join(KNOWN_CHECKS)}, so the runner skips it; drop it from landing.checks", file=sys.stderr)
     if "build-failed" in landing.get("checks", merge_queue.CHECKS) and not (landing.get("build_failures") and landing.get("ci_build")):
         faults.append("runs the build-failed check with no landing.build_failures or no landing.ci_build, so no build at a head could be read")
         members.append('"build_failures": {"tree": "<path prefix>", "context": "<annotation context>", "annotations": "tools/ci bk api /pipelines/{pipeline}/builds/{number}/annotations"}')
