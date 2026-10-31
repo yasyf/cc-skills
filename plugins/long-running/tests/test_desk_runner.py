@@ -13560,7 +13560,7 @@ def test_each_head_starts_one_finder_at_once_however_many_records_name_it(shell,
     orca_pass(shell, config)
     assert shell.finder_jobs == [config.resolve().parent / "finder-desk" / f"43439-{FINDER_HEAD[:12]}"]
     assert finder_jobs(shell) == [
-        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "previous": "", "history": [], "settled": {}, "lane": "p8a-step9", "to": ["desk-runner"], "checkout": str(config.parent / "checkout"), "model": "sol", "fast": True, "full": False, "sprite": ""}
+        {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "previous": "", "history": [], "settled": {}, "ruled": [], "lane": "p8a-step9", "to": ["desk-runner"], "checkout": str(config.parent / "checkout"), "model": "sol", "fast": True, "full": False, "sprite": ""}
     ]
 
 
@@ -13990,6 +13990,18 @@ def test_a_head_after_a_finder_review_carries_the_head_its_head_record_replaced(
     assert [(job["pr"], job["previous"]) for job in finder_jobs(shell)] == [("43299", FINDER_OLD), ("43439", "")]
     [named] = finder_jobs(shell)[0]["history"]
     assert named["lane"] == "p8a-step6b-creds-6" and named["text"].startswith("p8b-step8 finder (gpt-6.1-sol, one pass")
+
+
+def test_a_finder_job_carries_the_roots_rulings_on_its_pr_and_no_other_lanes_decides(shell, config):
+    """Root #262433: three passes on one PR flip-flopped on a point root had ruled, since no pass read the root's decide."""
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    for lane, pr, text in (("root", "43299", "Root ruling: the port keeps its source contract exactly."), ("p8a-step9", "43299", "I think the contract changes."), ("root", "43439", "Another PR's ruling.")):
+        shell.records.append({"seq": 149000 + len(shell.records), "drive": "d1", "lane": lane, "kind": "decide", "to": ["finder-desk"], "refs": {"prs": [f"Forge-AI/monorepo#{pr}"]}, "text": text, "at": actions.stamp(shell.clock)})
+    ruling = shell.records[0]["seq"]
+    head_record(shell, "43299", FINDER_HEAD)
+    orca_pass(shell, config)
+    assert finder_jobs(shell)[0]["ruled"] == [{"seq": ruling, "lane": "root", "text": "Root ruling: the port keeps its source contract exactly.", "path": ""}]
 
 
 def test_a_pass_that_posts_nothing_on_a_replay_of_an_ungraded_head_queues_a_whole_pass_of_its_pr(shell, config):

@@ -190,15 +190,26 @@ def scope(job: dict, own: list[str], last: str, pairs: str, changed: list[tuple[
     )
 
 
+def listed(records: list[dict]) -> str:
+    return "".join(f"- cci #{record['seq']} from {record['lane']}: {record['text']}" + (f" (whole record: {record['path']})" if record["path"] else "") + "\n" for record in records)
+
+
 def prior_text(job: dict) -> str:
-    if not (history := job["history"]):
-        return ""
-    listed = "".join(f"- cci #{record['seq']} from {record['lane']}: {record['text']}" + (f" (whole record: {record['path']})" if record["path"] else "") + "\n" for record in history)
-    return (
-        f"The PR's earlier finder records and the lanes' answers to them, oldest first:\n{listed}"
-        "A finding one of them raised is closed when the head fixes it or an answer rebuts it in a way the code bears "
-        "out; never raise a closed finding again. Raise one only when a hunk this pass reads reintroduces it.\n\n"
-    )
+    text = ""
+    if history := job["history"]:
+        text += (
+            f"The PR's earlier finder records and the lanes' answers to them, oldest first:\n{listed(history)}"
+            "A finding one of them raised is closed when the head fixes it or an answer rebuts it in a way the code bears "
+            "out; never raise a closed finding again. Raise one only when a hunk this pass reads reintroduces it.\n\n"
+        )
+    if ruled := job["ruled"]:
+        text += (
+            f"The root's rulings on this PR, oldest first:\n{listed(ruled)}"
+            "A point a ruling settles is closed: never raise it again, and never grade against the ruling what it decided.\n\n"
+        )
+    if history or ruled:
+        text += "A change the head makes because one of these records asked for it is planned; never grade it as unplanned or raise it as a defect of its own.\n\n"
+    return text
 
 
 def hunks(diff: str) -> dict[str, list[tuple[int, int]]]:

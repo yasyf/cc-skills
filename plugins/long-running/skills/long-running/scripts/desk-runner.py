@@ -4645,6 +4645,7 @@ class Runner:
                 "previous": finder.previous(next((record for record in records if record["seq"] == job["seq"]), None), repo, job["pr"]) if named and not full else "",
                 "history": [{"seq": record["seq"], "lane": record["lane"], "text": record["text"], "path": (record.get("refs") or {}).get("path", "")} for record in named],
                 "settled": self.root_settled(repo, job["pr"], named),
+                "ruled": [{"seq": record["seq"], "lane": record["lane"], "text": record["text"], "path": (record.get("refs") or {}).get("path", "")} for record in cci.records(self.cci_tail, self.config.drive, "--kind=decide", "--lane", ROOT, "--pr", f"{repo}#{job['pr']}") if record["drive"] == self.config.drive],
                 "lane": job["lane"],
                 "to": [RUNNER, *filter(None, [rows.get(job["pr"], {}).get("lane")]), *spec.get("to", [])],
                 "checkout": spec.get("checkout") or landing["checkout"],

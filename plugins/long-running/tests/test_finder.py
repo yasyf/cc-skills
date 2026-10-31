@@ -156,7 +156,7 @@ class Fake:
 def job(tmp_path: Path, **changes) -> Path:
     directory = tmp_path / "finder-desk" / f"43299-{HEAD[:12]}"
     directory.mkdir(parents=True)
-    spec = {"drive": "d1", "repo": REPO, "pr": "43299", "head": HEAD, "since": "", "prior": None, "previous": "", "history": [], "settled": {}, "lane": "p8a-step9", "to": ["desk-runner"], "checkout": str(tmp_path / "checkout"), "model": "sol", "fast": True, "full": False}
+    spec = {"drive": "d1", "repo": REPO, "pr": "43299", "head": HEAD, "since": "", "prior": None, "previous": "", "history": [], "settled": {}, "ruled": [], "lane": "p8a-step9", "to": ["desk-runner"], "checkout": str(tmp_path / "checkout"), "model": "sol", "fast": True, "full": False}
     (directory / finder.JOB).write_text(json.dumps(spec | changes))
     return directory
 
@@ -373,6 +373,17 @@ def test_a_pass_after_an_earlier_finder_reads_since_that_head_and_checks_its_maj
     [(ask, cwd)] = shell.asks()
     assert ask[:6] == ["codex-ask", "-m", "sol", "--incident", "--schema", "findings"] and ask[-1] == str(directory / "question-1.md") and cwd == tmp_path / "checkout"
     assert shell.posted[0]["--text"] == f"finder: ok {HEAD} sol finder over delta {OLD[:7]}..{HEAD[:7]}: no majors"
+
+
+def test_a_pass_reads_the_roots_rulings_on_its_pr_and_never_grades_what_they_settled(tmp_path):
+    """Root #262433: pass one asked for a result, pass two graded that result unplanned, and pass three raised the original point again, which root had ruled."""
+    ruling = {"seq": 262338, "lane": "root", "text": "Root ruling: the port keeps its source contract exactly.", "path": "/notes/ruling.md"}
+    directory = job(tmp_path, ruled=[ruling])
+    finder.main([str(directory)], Fake(tmp_path, [reply()]))
+    question = (directory / "question-1.md").read_text()
+    assert "- cci #262338 from root: Root ruling: the port keeps its source contract exactly. (whole record: /notes/ruling.md)\n" in question
+    assert "never raise it again, and never grade against the ruling what it decided" in question
+    assert "never grade it as unplanned" in question
 
 
 def test_a_reply_that_miscounts_the_rows_is_asked_once_more_and_two_such_replies_post_nothing(tmp_path):
