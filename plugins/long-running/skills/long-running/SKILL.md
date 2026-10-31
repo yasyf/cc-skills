@@ -33,6 +33,7 @@ stands: the root spawns `comms-desk` from `reference/comms-desk-brief.md` once p
 the owner gave word for, and it ends after that post. The orca desk is the
 `desk-runner.py run --desk orca` process, not a subagent. Its landing process, the drive's merge queue, shares the store and runs D3, D14, D16, and D20.
 The root spawns a subagent for every task with a body, including its own routine work.
+A lane never spawns one with `Agent`, since a teammate cannot background the call: it writes the brief to a file, posts `cci post --kind ask --to root --text 'spawn <name> brief=<absolute path> model=<opus or sonnet>'`, and keeps working, and the `lanes_never_spawn` hook refuses the call.
 
 This skill is the context-discipline layer over `~/.claude/CLAUDE.md`. Fan-out shape comes
 from §Parallelize Independent Work, lane behavior from §Delegation, per-lane model and
