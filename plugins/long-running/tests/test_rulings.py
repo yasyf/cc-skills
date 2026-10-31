@@ -1208,7 +1208,7 @@ def test_a_repeat_whose_sweep_post_cci_refuses_warns_and_finishes_the_classify(
     assert code == 0, said.out
     assert shell.rows["rule/aaaaaaa"]["said"] == "2"
     [swept] = sweep_posts(shell, state)
-    assert "--force" in swept
+    assert "--force" not in swept
     assert "WARN the sweep hits of rule/aaaaaaa did not post to the fidelity desks (cci: no live lane fidelity-desk-15)" in said.err
 
 

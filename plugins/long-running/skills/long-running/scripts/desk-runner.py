@@ -984,6 +984,7 @@ LANE_ENDED_KINDS = frozenset({"done", "handoff", "stand-down", "stopped", "not-o
 HANDOFF_WAIT = timedelta(minutes=20)
 LAUNCHD_THROTTLE_SECONDS = 60
 RUNNER_OPEN_FILES = 65536
+CCI_SHIM = Path(".claude/plugins/marketplaces/cc-inbox/plugin/bin")
 LAUNCHD_START = timedelta(minutes=3)
 AGENT_PID = re.compile(r"^\s*pid = (\d+)$", re.MULTILINE)
 RELAY_REF = re.compile(r"(?:^|cci#)(R?\d+)$")
@@ -1298,15 +1299,9 @@ class Shell:
         with out.open("a" if append else "w") as sink:
             return cci.installed(argv, lambda: subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=sink, stderr=subprocess.STDOUT, env={**os.environ, **env}, start_new_session=True))
 
-    def pid_alive(self, pid: int) -> bool:
-        """Whether a process with id `pid` exists; a child that exited is reaped at the next spawn."""
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            pass
-        return True
+    def runs_job(self, pid: int, directory: Path) -> bool:
+        """Whether process `pid` still runs the desk job in `directory`: it exists and its command line names that directory, since macOS hands an exited job's pid to another process within minutes; a child that exited is reaped at the next spawn."""
+        return str(directory) in subprocess.run(["ps", "-ww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout
 
     def stat(self, path: Path) -> tuple[int, int] | None:
         try:
@@ -1963,7 +1958,7 @@ class Runner:
     def post_escalation(self, line: str, to: str, action_id: str) -> cci.PostResult:
         label, topic = line.split()[:2]
         message = self.message_file(topic)
-        return self.cci_post(ESCALATION_KINDS.get(label, "defect" if label.endswith("-FAILED") else "report"), line, to, topic, action_id, message.read_text() if message.is_file() else "", flags=["--force"])
+        return self.cci_post(ESCALATION_KINDS.get(label, "defect" if label.endswith("-FAILED") else "report"), line, to, topic, action_id, message.read_text() if message.is_file() else "")
 
     def record(self, action_id: str, line: str) -> None:
         self.book.accept(RUNNER, action_id, "escalation", line, "runner", None)
@@ -2302,7 +2297,7 @@ class Runner:
             {
                 "Label": label,
                 "ProgramArguments": ["/bin/zsh", "-c", f"{exports}exec {shlex.quote(str(RUNNER_BIN))} run --config {shlex.quote(str(self.config.source))} --desk {desk}"],
-                "EnvironmentVariables": {"PATH": self.shell.env("PATH")},
+                "EnvironmentVariables": {"PATH": f"{self.shell.env('PATH')}:{Path.home() / CCI_SHIM}"},
                 "KeepAlive": True,
                 "ThrottleInterval": LAUNCHD_THROTTLE_SECONDS,
                 "SoftResourceLimits": {"NumberOfFiles": RUNNER_OPEN_FILES},
@@ -4525,8 +4520,7 @@ class Runner:
                 self.finder_failed(action, f"its job directory {directory} is gone")
                 settled = True
                 continue
-            pid = directory / finder.PID
-            exited = pid.is_file() and not ((said := pid.read_text().strip()).isdigit() and self.shell.pid_alive(int(said)))
+            exited = self.job_gone(directory)
             result = directory / finder.RESULT
             ran = whole_minutes(actions.parse_stamp(action.started_at), self.now())
             if result.is_file():
@@ -4540,7 +4534,7 @@ class Runner:
                     job = json.loads(action.target)
                     self.book.accept(FINDER, f"finder:{job['pr']}:whole:{job['head']}", "finder", json.dumps({"pr": job["pr"], "head": "", "lane": job["lane"], "seq": job["seq"], "full": True}), "ungraded", None)
             elif exited:
-                self.finder_failed(action, f"finder.py exited {ran} min after it started and wrote no result")
+                self.finder_failed(action, f"finder.py exited {ran} min after it started and wrote no result", hold=False)
             elif self.now() >= actions.parse_stamp(action.deadline):
                 self.finder_failed(action, f"no result {ran} min after it started")
             else:
@@ -4714,13 +4708,13 @@ class Runner:
 
         self.book.attempt(FINDER, settle)
 
-    def finder_failed(self, action: actions.Action, why: str) -> None:
-        """Fail a pass and queue its job again once the tooling may be fixed, so a job runs at most `FINDER_ATTEMPTS` times; each failure tells the tooling lane once per cause, and only the last logs `FINDER-FAILED` to the lanes (root #226668)."""
+    def finder_failed(self, action: actions.Action, why: str, hold: bool = True) -> None:
+        """Fail a pass and queue its job again once the tooling may be fixed, or at once when `hold` is off because its wrapper died, so a job runs at most `FINDER_ATTEMPTS` times; each failure tells the tooling lane once per cause, and only the last logs `FINDER-FAILED` to the lanes (root #226668)."""
         job = json.loads(action.target)
         if not self.book.attempt(FINDER, lambda incident: incident.fail(action.action_id, why)):
             return
         self.tooling_failed("finder", job, why)
-        if self.requeue_finder(action.action_id.partition("#")[0], self.on_fix(action.target), action.authority_ref):
+        if self.requeue_finder(action.action_id.partition("#")[0], self.on_fix(action.target) if hold else unheld(action.target), action.authority_ref):
             return
         log = Path(action.dispatch_id) / finder.LOG
         self.escalate(f"finder:{job['pr']}:{job['head']}", "FINDER-FAILED", job["lane"], f"#{job['pr']} {job['head'][:12]}: the finder desk's pass failed on the last of its {FINDER_ATTEMPTS} attempts: {why}; its log is {log}; root asks {finder.LANE} `finder: whole` on #{job['pr']} to run it again, since only its records grade a head")
@@ -4790,15 +4784,23 @@ class Runner:
         for pr, row in self.green_heads(FIDELITY, rows):
             self.book.accept(FIDELITY, f"fidelity:{pr}:{row['head']}:ledger", "fidelity", json.dumps({"pr": pr, "head": row["head"], "lane": row.get("lane") or ROOT, "seq": cursor}), "ledger", None)
 
+    def job_gone(self, directory: Path) -> bool:
+        """Whether the process that ran the desk job in `directory`, named by its pid file, no longer runs it; a job whose pid file is empty is gone too (root #220372)."""
+        pid = directory / finder.PID
+        return pid.is_file() and not ((said := pid.read_text().strip()).isdigit() and self.shell.runs_job(int(said), directory))
+
     def settle_fidelities(self) -> None:
         for action in self.book.actions(FIDELITY, kind="fidelity", status="started"):
             if not Path(action.dispatch_id).is_dir():
                 self.fidelity_failed(action, f"its job directory {action.dispatch_id} is gone")
                 continue
             result = Path(action.dispatch_id) / fidelity.RESULT
+            ran = whole_minutes(actions.parse_stamp(action.started_at), self.now())
             if not result.is_file():
-                if self.now() >= actions.parse_stamp(action.deadline):
-                    self.fidelity_failed(action, f"no result {whole_minutes(actions.parse_stamp(action.started_at), self.now())} min after it started")
+                if self.job_gone(Path(action.dispatch_id)):
+                    self.fidelity_failed(action, f"fidelity.py exited {ran} min after it started and wrote no result", hold=False)
+                elif self.now() >= actions.parse_stamp(action.deadline):
+                    self.fidelity_failed(action, f"no result {ran} min after it started")
                 continue
             outcome = json.loads(result.read_text())
             if "error" in outcome:
@@ -4883,7 +4885,8 @@ class Runner:
         if not self.book.attempt(FIDELITY, lambda incident: incident.start(action.action_id, self.now(), deadline=deadline, dispatch_id=str(directory))):
             return False
         argv, env = job_command(spec, sprite, "fidelity.py", directory)
-        self.shell.spawn(argv, directory / fidelity.LOG, env)
+        process = self.shell.spawn(argv, directory / fidelity.LOG, env)
+        drive.write_atomic(directory / finder.PID, process.pid)
         return True
 
     def least_busy_sprite(self, spec: dict) -> str | None:
@@ -4921,9 +4924,9 @@ class Runner:
                 oldest = min((started for _, started in passes), default=None)
                 age = f"oldest {whole_minutes(oldest, now)} min" if oldest else "none running"
                 if oldest and oldest <= window and not any(self.pass_sprite(action) == sprite for action in settled):
-                    done = self.cci_post("defect", f"SPRITE-STALLED {sprite}: {len(passes)} passes running, {age}, and none it ran settled in the last {int(SPRITE_STALLED_AFTER.total_seconds()) // 60} min; check the Sprite and each pass's job.log", ROOT, f"sprite:{sprite}", f"sprite-stalled:{sprite}", flags=["--force"])
+                    done = self.cci_post("defect", f"SPRITE-STALLED {sprite}: {len(passes)} passes running, {age}, and none it ran settled in the last {int(SPRITE_STALLED_AFTER.total_seconds()) // 60} min; check the Sprite and each pass's job.log", ROOT, f"sprite:{sprite}", f"sprite-stalled:{sprite}")
                 else:
-                    done = self.cci_post("state", f"sprite {sprite}: {counts[FINDER]} finder and {counts[FIDELITY]} fidelity passes, {age}", f"{ROOT},{self.watchdog}", f"sprite:{sprite}", f"sprite-beat:{sprite}", flags=["--force"])
+                    done = self.cci_post("state", f"sprite {sprite}: {counts[FINDER]} finder and {counts[FIDELITY]} fidelity passes, {age}", f"{ROOT},{self.watchdog}", f"sprite:{sprite}", f"sprite-beat:{sprite}")
                 if done.code:
                     print(f"sprite {sprite} heartbeat left for the next pass; cci post exited {done.code}: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
                     continue
@@ -4939,15 +4942,15 @@ class Runner:
 
         self.book.attempt(container, settled)
 
-    def fidelity_failed(self, action: actions.Action, why: str) -> None:
-        """Fail the pass whether or not any notice posts, so a refused notice never holds a slot (root #219303), and queue it again once the tooling may be fixed, so a pass runs at most `FINDER_ATTEMPTS` times; each failure tells the tooling lane once per cause, and only the last tells the human fidelity desks (root #226668)."""
+    def fidelity_failed(self, action: actions.Action, why: str, hold: bool = True) -> None:
+        """Fail the pass whether or not any notice posts, so a refused notice never holds a slot (root #219303), and queue it again once the tooling may be fixed, or at once when `hold` is off because its wrapper died, so a pass runs at most `FINDER_ATTEMPTS` times; each failure tells the tooling lane once per cause, and only the last tells the human fidelity desks (root #226668)."""
         job = json.loads(action.target)
         self.book.attempt(FIDELITY, lambda incident: incident.fail(action.action_id, why))
         self.tooling_failed("fidelity", job, why)
         base = action.action_id.partition("#")[0]
         tried = sum(other.action_id.partition("#")[0] == base for other in self.book.actions(FIDELITY, kind="fidelity"))
         if tried < FINDER_ATTEMPTS:
-            self.book.accept(FIDELITY, f"{base}#{tried + 1}", "fidelity", self.on_fix(action.target), action.authority_ref, None)
+            self.book.accept(FIDELITY, f"{base}#{tried + 1}", "fidelity", self.on_fix(action.target) if hold else unheld(action.target), action.authority_ref, None)
             return
         key = f"fidelity:{job['pr']}:{job['head']}:{job['seq']}"
         readers = [lane for lane in self.landing_lanes("fidelity_lane") if lane != fidelity.LANE]
@@ -5233,6 +5236,11 @@ def commits_query(repo: str, prs: list[str]) -> str:
     owner, name = repo.split("/")
     fields = " ".join(f"c{pr}: pullRequest(number: {pr}) {{ commits(last: 100) {{ nodes {{ commit {{ oid }} }} }} }}" for pr in prs)
     return f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'
+
+
+def unheld(target: str) -> str:
+    """`target` with no retry hold, for a pass whose wrapper died rather than a pass the tooling failed."""
+    return json.dumps({key: value for key, value in json.loads(target).items() if key not in ("retry_after", "failed_on")})
 
 
 def heads_query(repo: str, shas: list[str]) -> str:
@@ -8734,7 +8742,7 @@ class Landing:
         """Answer each open root `hold` posted after an incident fix landed that names its PR or is addressed to the release owner with one RELEASE-HELD-AFTER-LANDING line: its cut is owed now. Only a `hold` record is a hold, and the root's `--resolves` on it ends it."""
         drive, pr, since = self.runner.config.drive, landed["pr"], actions.parse_stamp(landed["landed_at"])
         owner = self.release_owner.removeprefix("peer:")
-        for record in cci.records(self.cci_tail, drive, "--lane", ROOT, "--kind=hold"):
+        for record in cci.current_records(self.cci_tail, drive, "--lane", ROOT, "--kind=hold"):
             if (record["lane"], record["drive"], record["kind"]) != (ROOT, drive, "hold") or record["status"] != "open" or actions.parse_stamp(record["at"]) < since:
                 continue
             if names_pr(record, pr) or any(owner in lane for lane in record.get("to") or []):

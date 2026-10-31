@@ -162,7 +162,6 @@ class FakeShell(runner_module.Shell):
         self.sender = ""
         self.generation = 3
         self.run_use_error: dict | None = None
-        self.unstarted: set[str] = set()
         self.unregistered: set[str] = set()
         self.checkout_edits = ""
         self.posts: list[dict] = []
@@ -185,6 +184,7 @@ class FakeShell(runner_module.Shell):
         self.successors: list[tuple[list[str], Path, bool]] = []
         self.finder_jobs: list[Path] = []
         self.exited: set[int] = set()
+        self.recycled: set[int] = set()
         self.fidelity_jobs: list[Path] = []
         self.sprite_jobs: list[tuple[str, str]] = []
         self.reexeced: list[list[str]] = []
@@ -303,8 +303,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, f"{target} = {{\n\tstate = running\n\tpid = {self.launchd[label]}\n}}\n", "")
         return runner_module.Done(0, "", "")
 
-    def pid_alive(self, pid):
-        return pid not in self.exited
+    def runs_job(self, pid, directory):
+        return pid not in self.exited and pid not in self.recycled
 
     def spawn(self, argv, out, env, append=False):
         self.calls.append(list(argv))
@@ -324,7 +324,9 @@ class FakeShell(runner_module.Shell):
         if argv[1:2] == [str(runner_module.SCRIPTS / "fidelity.py")]:
             assert argv == [sys.executable, str(runner_module.SCRIPTS / "fidelity.py"), str(out.parent)] and not env
             self.fidelity_jobs.append(out.parent)
-            return Process()
+            process = Process()
+            process.pid = 7000 + len(self.fidelity_jobs)
+            return process
         if Path(argv[0]).name == "sprite-job.sh":
             assert argv[2] in (str(runner_module.SCRIPTS / "finder.py"), str(runner_module.SCRIPTS / "fidelity.py")) and argv[3] == str(out.parent)
             (self.finder_jobs if argv[2].endswith("finder.py") else self.fidelity_jobs).append(out.parent)
@@ -621,12 +623,10 @@ class FakeShell(runner_module.Shell):
             assert argv[2:4] == ["--drive", "d1"] and argv[4] == "--lane" and argv[6:] == ["--json"]
             return runner_module.Done(0, "" if argv[5] in self.gone else json.dumps({"lane": argv[5], "live": True} | ({"seen_at": self.seen[argv[5]]} if argv[5] in self.seen else {})) + "\n", "")
         if argv[:2] == ["cci", "post"]:
-            forced = "--force" in argv
+            assert "--force" not in argv
             as_json = "--json" in argv
-            argv = [arg for arg in argv if arg not in ("--force", "--json")]
+            argv = [arg for arg in argv if arg != "--json"]
             flags = dict(zip(argv[2::2], argv[3::2], strict=True))
-            if not forced and (unstarted := [lane for lane in flags.get("--to", "").split(",") if lane in self.unstarted]):
-                return runner_module.Done(1, "", f"cci: --to {unstarted[0]}: no live session or registered lane on drive {flags['--drive']} is named {unstarted[0]}")
             assert flags["--drive"] in self.drives and flags["--lane"] in ("desk-runner", "root", "finder-desk", "fidelity-desk", "orca-desk") and len(flags["--text"]) <= 400
             if self.post_error:
                 return runner_module.Done(1, "", self.post_error)
@@ -9829,7 +9829,7 @@ def test_supervise_install_bootstraps_only_its_own_label_with_the_key_read_from_
     assert plistlib.loads(plist.read_bytes()) == {
         "Label": agent_label("landing"),
         "ProgramArguments": ["/bin/zsh", "-c", f'export TRUNK_MERGE_API_KEY="$(security find-generic-password -s trunk-merge-api-key -w)"; exec {shlex.quote(str(runner_module.RUNNER_BIN))} run --config {shlex.quote(str(config.resolve()))} --desk landing'],
-        "EnvironmentVariables": {"PATH": "/opt/homebrew/bin:/usr/bin:/bin"},
+        "EnvironmentVariables": {"PATH": f"/opt/homebrew/bin:/usr/bin:/bin:{tmp_path / '.claude/plugins/marketplaces/cc-inbox/plugin/bin'}"},
         "KeepAlive": True,
         "ThrottleInterval": 60,
         "SoftResourceLimits": {"NumberOfFiles": 65536},
@@ -9844,6 +9844,17 @@ def test_supervise_install_bootstraps_only_its_own_label_with_the_key_read_from_
     assert shell.launchctl_calls[-1] == ["bootout", agent_target("landing")] and not plist.exists()
     assert cli(shell, config, "supervise", "status", "--desk", "landing") == 1
     assert {arg for call in shell.launchctl_calls for arg in call[1:]} == {agent_target("landing"), f"gui/{os.getuid()}", str(plist)}
+    restarted[0].close()
+
+
+def test_a_supervised_runner_still_finds_cci_while_a_cask_upgrade_has_unlinked_brews_cci(shell, config, tmp_path):
+    """Oct 31 1:30 AM: brew unlinked /opt/homebrew/bin/cci for the six minutes the 0.46.3 cask's preflight took, and every process whose PATH had no other cci lost it."""
+    shell.environ |= {"PATH": "/opt/homebrew/bin:/usr/bin:/bin"}
+    restarted = []
+    shell.on_sleep.append(lambda: restarted.append(launchd_restarts(shell, config, tmp_path, "landing")))
+    assert cli(shell, config, "supervise", "install", "--desk", "landing") == 0
+    agent = plistlib.loads((tmp_path / "Library/LaunchAgents" / f"{agent_label('landing')}.plist").read_bytes())
+    assert agent["EnvironmentVariables"]["PATH"].split(":")[-1] == str(tmp_path / ".claude/plugins/marketplaces/cc-inbox/plugin/bin")
     restarted[0].close()
 
 
@@ -13288,6 +13299,63 @@ def test_a_pr_query_reads_only_the_records_after_the_newest_it_kept_and_drops_on
     assert [(argv[argv.index("--since-seq") + 1], "--pr" in argv) for argv in calls] == [("0", False), ("0", True), ("8", False), ("12", False)]
 
 
+@pytest.mark.parametrize("history_first", [False, True])
+def test_current_annotations_do_not_reuse_an_immutable_history_projection(history_first):
+    posted = [{"seq": 4, "kind": "hold", "drive": "d1", "text": "hold #29020", "refs": {}, "status": "open"}]
+    calls = []
+    tail = runner_module.cci.Tail(fake_cci(posted, calls))
+    tail.remember()
+    assert runner_module.cci.records(tail, "d1", "--kind=hold")[0]["seq"] == 4
+    posted[0]["status"] = "closed"
+    tail.forget()
+    before = len(calls)
+    if history_first:
+        assert runner_module.cci.records(tail, "d1", "--kind=hold")[0]["seq"] == 4
+    assert runner_module.cci.current_records(tail, "d1", "--kind=hold")[0]["status"] == "closed"
+    if not history_first:
+        assert runner_module.cci.records(tail, "d1", "--kind=hold")[0]["seq"] == 4
+    assert runner_module.cci.current_records(tail, "d1", "--kind=hold")[0]["status"] == "closed"
+    assert len(calls) - before == 2
+
+
+def test_open_holds_refreshes_annotations_once_per_barrier_without_a_new_matching_seq():
+    posted = [{"seq": 4, "kind": "hold", "drive": "d1", "text": "hold #29020", "refs": {}, "status": "open"}]
+    calls = []
+    tail = runner_module.cci.Tail(fake_cci(posted, calls))
+    tail.remember()
+    assert runner_module.cci.held_prs(tail, "d1") == {"29020": 4}
+    posted[0]["status"] = "closed"
+    assert runner_module.cci.held_prs(tail, "d1") == {"29020": 4}
+    assert len(calls) == 1
+    tail.forget()
+    assert runner_module.cci.held_prs(tail, "d1") == {}
+    assert runner_module.cci.held_prs(tail, "d1") == {}
+    assert len(calls) == 2
+    tail.stop()
+    posted[0]["status"] = "open"
+    assert runner_module.cci.held_prs(tail, "d1") == {"29020": 4}
+    assert len(calls) == 3
+
+
+def test_release_hold_checks_do_not_reuse_closed_annotations(shell, config, tmp_path, monkeypatch):
+    landing = landing_of(shell, config, tmp_path)
+    hold = {"seq": 4, "kind": "hold", "drive": "d1", "lane": "root", "text": "hold #29020", "to": ["root"], "refs": {}, "status": "open", "at": actions.stamp(shell.now())}
+    shell.records.append(hold)
+    posted = []
+    monkeypatch.setattr(landing.runner, "record", lambda *args: posted.append(args))
+    landed = {"pr": "29020", "sha": "a" * 40, "landed_at": actions.stamp(shell.now() - timedelta(hours=1))}
+    try:
+        landing.cci_tail.remember()
+        landing.held_after_landing(landed)
+        assert len(posted) == 1
+        hold["status"] = "closed"
+        landing.cci_tail.forget()
+        landing.held_after_landing(landed)
+        assert len(posted) == 1
+    finally:
+        landing.close()
+
+
 def test_pr_queries_share_one_cci_read_a_pass_so_calls_stay_flat_from_10_to_1000_prs():
     """Root #234903: a landing pass ran about 1,562 cci tail calls in 439 s, one paged read per PR and filter shape, each from the start of the drive."""
 
@@ -14036,25 +14104,33 @@ def test_a_finder_that_fails_or_writes_nothing_by_its_deadline_runs_again_and_es
     ]
 
 
-def test_a_pass_whose_process_exited_with_no_result_frees_its_slot_and_retries_after_the_fix_window(shell, config, tmp_path):
+def test_a_pass_whose_process_exited_with_no_result_frees_its_slot_and_retries_at_once(shell, config, tmp_path):
     finder_config(config, concurrent=1)
     orca_pass(shell, config)
     head_record(shell, "43439", FINDER_HEAD)
-    head_record(shell, "43299", FINDER_OLD)
     orca_pass(shell, config)
     [crashed] = shell.finder_jobs
     shell.exited.add(int((crashed / "pid").read_text()))
     orca_pass(shell, config)
     passes = incident(tmp_path, "desk-finder").actions
     assert passes[f"finder:43439:{FINDER_HEAD}"].reason == "finder.py exited 0 min after it started and wrote no result"
-    assert passes[f"finder:43439:{FINDER_HEAD}#2"].status == "accepted" and passes[f"finder:43299:{FINDER_OLD}"].status == "started"
-    [_, other] = shell.finder_jobs
-    shell.exited.add(int((other / "pid").read_text()))
-    shell.clock += runner_module.GRADER_RETRY_AFTER
-    orca_pass(shell, config)
-    assert shell.finder_jobs[-1] == crashed.with_name(f"{crashed.name}-2")
-    assert incident(tmp_path, "desk-finder").actions[f"finder:43439:{FINDER_HEAD}#2"].status == "started"
+    assert passes[f"finder:43439:{FINDER_HEAD}#2"].status == "started"
+    assert shell.finder_jobs == [crashed, crashed.with_name(f"{crashed.name}-2")]
     assert not finder_failures(shell)
+
+
+def test_a_pass_whose_pid_now_names_another_process_settles_as_exited(shell, config, tmp_path):
+    """Root #241003, 11:40 PM Oct 30: 17 finder and fidelity passes had no result and no live wrapper for 7 to 139 minutes, and the runner counted them running; macOS had handed a dead wrapper's pid to another process."""
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    [ghost] = shell.finder_jobs
+    shell.recycled.add(int((ghost / "pid").read_text()))
+    orca_pass(shell, config)
+    passes = incident(tmp_path, "desk-finder").actions
+    assert passes[f"finder:43439:{FINDER_HEAD}"].reason == "finder.py exited 0 min after it started and wrote no result"
+    assert passes[f"finder:43439:{FINDER_HEAD}#2"].status == "started"
 
 
 def test_a_pass_whose_pid_file_is_empty_settles_as_exited(shell, config, tmp_path):
@@ -14266,13 +14342,27 @@ def test_a_pass_whose_job_directory_is_gone_fails_without_raising(shell, config,
     assert incident(tmp_path, "desk-fidelity").actions[f"fidelity:43439:{FINDER_HEAD}:{seq}"].reason == f"its job directory {shell.fidelity_jobs[0]} is gone"
 
 
+@pytest.mark.parametrize("gone", ["exited", "recycled"])
+def test_a_fidelity_pass_whose_wrapper_is_gone_with_no_result_fails_at_once_and_requeues(shell, config, tmp_path, gone):
+    """Root #241003, 11:40 PM Oct 30: ten fidelity passes had no result and no live wrapper, and the runner counted each running until its 60-minute deadline, since only a finder pass checked its wrapper."""
+    fidelity_config(config)
+    orca_pass(shell, config)
+    seq = head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    [ghost] = shell.fidelity_jobs
+    getattr(shell, gone).add(int((ghost / "pid").read_text()))
+    orca_pass(shell, config)
+    passes = incident(tmp_path, "desk-fidelity").actions
+    assert passes[f"fidelity:43439:{FINDER_HEAD}:{seq}"].reason == "fidelity.py exited 0 min after it started and wrote no result"
+    assert [action.status for action in passes.values()] == ["failed", "started"]
+
+
 def test_a_failed_fidelity_pass_settles_when_a_reader_lane_in_runner_json_has_not_started(shell, config):
     """cci #219230: runner.json named fidelity-desk-14 and -15, which never started, so cci refused every FIDELITY-FAILED post and eight failed passes held every fidelity slot for twelve hours while 168 heads queued."""
     fidelity_config(config, concurrent=1)
     raw = json.loads(config.read_text())
     raw["landing"]["fidelity_lane"] = ["fidelity-desk-4", "fidelity-desk-14", "fidelity-pipeline"]
     config.write_text(json.dumps(raw))
-    shell.unstarted = {"fidelity-desk-14"}
     orca_pass(shell, config)
     head_record(shell, "43439", FINDER_HEAD)
     orca_pass(shell, config)
