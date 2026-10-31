@@ -33,7 +33,7 @@ drive.run_installed(__file__)
 if left := int(sys.argv[2]):
     started = [subprocess.Popen(["sleep", "60"], stdout=subprocess.PIPE), subprocess.Popen(["true"]), subprocess.Popen(["sleep", "1"], start_new_session=True)]
     time.sleep(0.2)
-    for child in started:
+    for child in (started[0], started[2]):
         child.kill()
         child.wait()
     drive.reexec([sys.executable, __file__, sys.argv[1], str(left - 1)])

@@ -31,6 +31,7 @@ if os.environ.get('WATCH_PROBE_PHASE') == 'new':
         assert after == before['protected_identity'], 'inherited protected child was terminated or changed'
         boundary = json.loads((root / 'exec-boundary.json').read_text())
         assert not any(boundary['owned_alive']), 'owned watch was not closed before exec'
+        assert all(boundary['owned_reaped']), 'owned watch was not reaped before exec'
         assert boundary['pid'] == os.getpid(), 'reexec changed the owning PID'
         for owned in boundary['owned_pids']:
             try:
@@ -61,7 +62,15 @@ actual_exec = drive.reexec
 def recorded_exec(argv):
     pids = [int(p.read_text()) for p in (root / 'cc-present.pid', root / 'cci.pid') if p.exists()]
     alive = [str(root) in identity(pid) for pid in pids]
-    (root / 'exec-boundary.json').write_text(json.dumps({'pid': os.getpid(), 'owned_pids': pids, 'owned_alive': alive}))
+    reaped = []
+    for pid in pids:
+        try:
+            os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            reaped.append(True)
+        else:
+            reaped.append(False)
+    (root / 'exec-boundary.json').write_text(json.dumps({'pid': os.getpid(), 'owned_pids': pids, 'owned_alive': alive, 'owned_reaped': reaped}))
     actual_exec(argv)
 
 drive.reexec = recorded_exec
