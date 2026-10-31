@@ -42,8 +42,8 @@ swapped in whole and only when it parses, read a second time after the first
 read wakes the Sprite, since a Sprite that hibernates before a write reaches
 its disk keeps an empty file, so the runner settles the pass from this process and its files as it does
 a local one; a job that ends with no result, as when the Sprite restarts
-mid-pass or a copy to it fails to connect, leaves one naming the error, so the runner fails and requeues the
-pass at once instead of waiting out its deadline. The Sprite then pushes the records the job posted to the drive's
+mid-pass or a copy to it fails to connect, leaves one naming the error and marked `no_result`, so the runner fails and requeues the
+pass at once, without the retry hold a tooling error gets, instead of waiting out its deadline. The Sprite then pushes the records the job posted to the drive's
 cci relay, retried five times over about 40 seconds; a push that still fails
 loses nothing, since the runner reposts the job's records when it settles the
 pass. A `cancelled` mark
@@ -57,7 +57,7 @@ EOF2
 export COPYFILE_DISABLE=1
 sprite=$1 script=$2 dir=$3
 no_result() {
-  [ -e "$dir/result.json" ] || printf '{"error": "the job on Sprite %s ended with status %s and no result, as when the Sprite restarts mid-pass or cannot be reached"}\n' "$sprite" "$1" >"$dir/result.json"
+  [ -e "$dir/result.json" ] || printf '{"error": "the job on Sprite %s ended with status %s and no result, as when the Sprite restarts mid-pass or cannot be reached", "no_result": true}\n' "$sprite" "$1" >"$dir/result.json"
 }
 trap 'no_result $?' EXIT
 plugin=$(cd "$(dirname "$script")/../../.." && pwd)

@@ -177,7 +177,7 @@ def test_a_job_that_dies_with_its_sprite_leaves_an_error_result_so_the_runner_fa
     done = subprocess.run(["sh", str(SCRIPT), "dar-fleet-4", str(script), str(directory)], env=env, capture_output=True, timeout=60)
 
     assert done.returncode == 137
-    assert json.loads((directory / "result.json").read_text()) == {"error": "the job on Sprite dar-fleet-4 ended with status 137 and no result, as when the Sprite restarts mid-pass or cannot be reached"}
+    assert json.loads((directory / "result.json").read_text()) == {"error": "the job on Sprite dar-fleet-4 ended with status 137 and no result, as when the Sprite restarts mid-pass or cannot be reached", "no_result": True}
 
 
 
@@ -203,7 +203,7 @@ def test_a_result_the_sprite_kept_empty_or_cut_leaves_an_error_result_so_the_run
 
     assert done.returncode == 0
     assert (directory / "record.md").read_text() == "graded"
-    assert json.loads((directory / "result.json").read_text()) == {"error": "the job on Sprite dar-fleet-10 ended with status 0 and no result, as when the Sprite restarts mid-pass or cannot be reached"}
+    assert json.loads((directory / "result.json").read_text()) == {"error": "the job on Sprite dar-fleet-10 ended with status 0 and no result, as when the Sprite restarts mid-pass or cannot be reached", "no_result": True}
     assert not (directory / ".result.json").exists()
 
 HELPER_JOB = """import json, pathlib, subprocess, sys
@@ -231,7 +231,7 @@ def test_a_job_whose_sprite_refuses_the_copy_leaves_an_error_result(tmp_path: Pa
     done = subprocess.run(["sh", str(SCRIPT), "dar-fleet-8", str(script), str(directory)], env=env, capture_output=True, timeout=60)
 
     assert done.returncode == 1
-    assert json.loads((directory / "result.json").read_text()) == {"error": "the job on Sprite dar-fleet-8 ended with status 1 and no result, as when the Sprite restarts mid-pass or cannot be reached"}
+    assert json.loads((directory / "result.json").read_text()) == {"error": "the job on Sprite dar-fleet-8 ended with status 1 and no result, as when the Sprite restarts mid-pass or cannot be reached", "no_result": True}
 
 def test_every_git_command_a_job_runs_authenticates_through_gh(tmp_path: Path) -> None:
     """desk-runner GRADER-TOOLING #238341: a finder's `git rev-list --cherry-pick` lazily fetched a missing object from the partial clone with no credential helper and died on "could not read Username"; the job's own git commands now carry the helper the fetch uses."""
