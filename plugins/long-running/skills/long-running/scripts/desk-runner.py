@@ -904,7 +904,7 @@ STOP_POLL_SECONDS = 2
 SHOW_WORKERS = 8
 GATE_WORKERS = 16
 GATE_BUDGET = timedelta(seconds=120)
-STEP_BUDGETS = {"check": 180, "settle": 300, "enqueue": 300}
+STEP_BUDGETS = {"fetch": FETCH_SECONDS, "check": 180, "settle": 300, "enqueue": 300}
 STACKS_FILE = "landing-stacks.json"
 BUILDS_FILE = "landing-builds.json"
 BUILDS_KEPT = timedelta(days=3)
@@ -5900,11 +5900,13 @@ class Landing:
         key = ",".join(tree)
         try:
             self.runner.checkpoint()
+            members = {pr for tip in tree for pr in downstack(open_rows, tip)}
+            self.track(key, tree, open_rows, "fetch")
+            self.fetch_heads([head for pr in sorted(members) if (head := open_rows[pr].get("head"))])
             self.track(key, tree, open_rows, "check")
             gated = self.proven_stacks(tree)
             self.track(key, tree, open_rows, "settle")
             self.settle_tree(rows, held, gated)
-            members = {pr for tip in tree for pr in downstack(open_rows, tip)}
             if accepted := [action for action in self.book.actions(LANDING, kind="enqueue", status="accepted") if set(action.target.split(",")) <= members]:
                 self.reread()
                 self.rescanned_reviews()
@@ -6984,6 +6986,13 @@ class Landing:
                 return ""
             self.bases[sha] = done.out.strip()
         return self.bases[sha]
+
+    def fetch_heads(self, shas: list[str]) -> None:
+        """Fetch into the landing checkout, in one `git fetch` under FETCH_SECONDS, each of `shas` its object store lacks, found by one `--no-lazy-fetch` probe that never pulls an object from the promisor remote. A tree's `stack-enqueue --check` downloads a head the checkout lacks into a scratch store its GATE_CHECK_SECONDS kill deletes, so a head that took longer than that to download timed the check out on every pass; fetched here, the objects stay for every later check. A head that does not fetch is left to the check, which fails on it as before."""
+        git = ["git", "-C", str(self.checkout)]
+        probed = self.shell.run([*git, "--no-lazy-fetch", "cat-file", "--batch-check"], "".join(f"{sha}\n" for sha in shas))
+        if missing := [sha for sha, line in zip(shas, probed.out.splitlines()) if line.endswith(" missing")]:
+            self.shell.run([*git, "fetch", "-q", "--no-tags", "origin", *missing, "--no-write-fetch-head"])
 
     def local_commit(self, sha: str) -> bool:
         """Whether the landing checkout holds `sha`, fetching it when it lacks it."""

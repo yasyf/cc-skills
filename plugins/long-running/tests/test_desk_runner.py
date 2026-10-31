@@ -442,6 +442,8 @@ class FakeShell(runner_module.Shell):
             if self.trunk_error:
                 return runner_module.Done(128, "", self.trunk_error)
             return runner_module.Done(0, f"{self.trunk[0]['oid']}\trefs/heads/dev\n" if self.trunk else "", "")
+        if argv[:6] == ["git", "-C", str(self.root / "checkout"), "--no-lazy-fetch", "cat-file", "--batch-check"]:
+            return runner_module.Done(0, "".join(f"{sha} commit 1\n" if sha in self.local_heads else f"{sha} missing\n" for sha in stdin.split()), "")
         if argv[:5] == ["git", "-C", str(self.root / "checkout"), "cat-file", "-e"]:
             return runner_module.Done(0 if argv[5].removesuffix("^{commit}") in self.local_heads else 128, "", "")
         if argv[:6] == ["git", "-C", str(self.root / "checkout"), "fetch", "-q", "--no-tags"] and argv[6] == "origin" and argv[7:] != ["refs/heads/dev"]:
@@ -5328,13 +5330,28 @@ def test_a_pass_fetches_the_trunk_while_the_ledger_refreshes(shell, config):
     def watched(argv, stdin=None, env=None):
         if len(argv) > 4 and Path(argv[1]).name == "ledger.py" and argv[4] == "refresh":
             refreshing.set()
-        if argv[:2] == ["git", "-C"] and argv[3:4] == ["fetch"]:
+        if argv[:2] == ["git", "-C"] and argv[3:4] == ["fetch"] and argv[-1] == "refs/heads/dev":
             overlapped.append(refreshing.wait(5))
         return run(argv, stdin, env)
 
     shell.run = watched
     landing_pass(shell, config)
     assert overlapped == [True]
+
+
+@pytest.mark.parametrize("heads", [["cccc333333"], ["cccc333333", "dddd444444"]], ids=["one-head", "two-heads"])
+def test_a_tree_fetches_the_heads_the_checkout_lacks_in_one_call_before_its_check(shell, config, heads):
+    if len(heads) == 1:
+        lone_green_pr(shell)
+        grade(shell, "29020", "ok F307 at cccc333.")
+    else:
+        two_pr_stack(shell)
+    landing_pass(shell, config)
+    checkout = str(shell.root / "checkout")
+    fetch = ["git", "-C", checkout, "fetch", "-q", "--no-tags", "origin"]
+    assert [call[len(fetch):] for call in shell.calls if call[:len(fetch)] == fetch] == [[*heads, "--no-write-fetch-head"]]
+    checks = [index for index, call in enumerate(shell.calls) if Path(call[0]).name == "stack-enqueue" and "--check" in call]
+    assert checks and shell.calls.index([*fetch, *heads, "--no-write-fetch-head"]) < checks[0]
 
 
 def test_a_checkout_that_cannot_fast_forward_gates_nothing_until_it_can(shell, config, tmp_path):
