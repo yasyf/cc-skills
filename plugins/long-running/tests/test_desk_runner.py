@@ -693,7 +693,7 @@ class FakeShell(runner_module.Shell):
         if self.tail_error:
             return runner_module.Done(1, "", self.tail_error)
         drive = argv[argv.index("--drive") + 1]
-        assert drive in self.drives and "--json" in argv and "--cursor" not in argv
+        assert drive in [*self.drives, runner_module.TRUNK_QUEUE_DRIVE] and "--json" in argv and "--cursor" not in argv
         if "--to" in argv and argv[argv.index("--to") + 1] == f"{runner_module.WATCHDOG}@{drive}":
             topic = next(arg.partition("=")[2] for arg in argv if arg.startswith("--topic="))
             return runner_module.Done(0, "".join(f"{json.dumps(beat)}\n" for beat in [beat for beat in self.beats if beat["drive"] == drive and beat["topic"] == topic][-1:]), "")

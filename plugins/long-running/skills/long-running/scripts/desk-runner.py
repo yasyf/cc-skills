@@ -8769,8 +8769,10 @@ class Landing:
         folded = self.book.fact(LANDING, TRUNK_QUEUE_FACT, {"seq": 0, "prs": {}})
         states = {pr: state for pr, state in folded["prs"].items() if pr in rows}
         seq = folded["seq"]
-        for record in cci.records(self.cci_tail, TRUNK_QUEUE_DRIVE, "--kind=queue", since=seq):
+        for record in cci.records(self.cci_tail, TRUNK_QUEUE_DRIVE, since=seq):
             seq = max(seq, record["seq"])
+            if record["kind"] != "queue":
+                continue
             outcome = record.get("fields", {}).get("outcome", "")
             for pr in [pr for pr, explicit in repo_prs(record, self.repo) if explicit and pr in rows]:
                 states[pr] = {"outcome": outcome, "text": record["text"], "at": record["at"]}
