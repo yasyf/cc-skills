@@ -14,11 +14,12 @@ import pytest
 from captain_hook.events import PreToolUseEvent
 from captain_hook.testing.helpers import build_context
 from captain_hook.util import reqenv
+from long_running import ghread
 
 from hooks import compaction_handoff as handoff, lane_landing
 from test_check_pr import GRANT_TICKER, HEAD, TIMER_ANSWER_ROW, CheckShell, citing, pinned
 from test_judge_request_owned import PROOF, SHAPE, child_identity, environment, logged, owner, response
-from test_rulings import DIFF, REPO, gateway, home, package, registered, state
+from test_rulings import DIFF, REPO, home, package, registered, state
 from test_rulings_owned_hooks import CALLERS, HOOKS
 
 
@@ -28,10 +29,21 @@ class RequestCheckShell(CheckShell):
         super().__init__(rows, **kwargs)
 
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
-        normalized = list(gateway(argv))
+        normalized = list(argv)
         if normalized[:2] in (["ccn", "-R"], ["git", "-C"]) and normalized[2] == self.request_cwd:
             normalized[2] = REPO
         return super().run(normalized, stdin, cwd)
+
+
+
+def test_request_metadata_wrapper_preserves_gateway_authority(tmp_path: Path):
+    shell = RequestCheckShell(tmp_path, {}, body="selected body")
+    command = ghread.read("pr", "view", "12", "--repo", "acme/app", "--json", "body,baseRefName,comments", max_age=ghread.FRESH)
+    original = list(command)
+    assert json.loads(shell.run(command))["body"] == "selected body"
+    assert command == original
+    with pytest.raises(AssertionError, match="read outside"):
+        shell.run(["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "body,baseRefName,comments"])
 
 
 def request(tmp_path: Path, package: Path, branch: str, backend: str, monkeypatch: pytest.MonkeyPatch):
