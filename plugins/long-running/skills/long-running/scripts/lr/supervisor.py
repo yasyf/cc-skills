@@ -51,7 +51,7 @@ def run_pass(store: Store, snapshot: Iterable[Facts], now: datetime, post: Post)
         if item.created == now:
             out.opened.append(item)
             if verdict.mover is not Mover.SUPERVISOR:
-                post("item", to=[audience(verdict, facts)], item=item.id, kind=str(verdict.action), pr=facts.number, head=facts.head, mover=str(verdict.mover), deadline=stamp(item.deadline))
+                post("item", to=[audience(verdict, facts)], item=item.id, action=str(verdict.action), pr=facts.number, head=facts.head, mover=str(verdict.mover), deadline=stamp(item.deadline))
         if verdict.mover is Mover.SUPERVISOR and verdict.action in SAME_PASS:
             out.acts.append((facts, verdict))
     for item in store.overdue(now):

@@ -44,14 +44,14 @@ def test_a_finding_without_a_verdict_is_posted_to_the_owning_lane_with_its_deadl
     run_pass(store, [facts(number=45470, finder="ask")], T0, posts)
 
     [item] = store.open_items(REPO, 45470)
-    assert posts == [("item", ("lane-7",), dict(item=item.id, kind="verdict", pr=45470, head=HEAD, mover="lane", deadline="2026-10-30T21:20:00Z"))]
+    assert posts == [("item", ("lane-7",), dict(item=item.id, action="verdict", pr=45470, head=HEAD, mover="lane", deadline="2026-10-30T21:20:00Z"))]
 
 
 def test_a_missing_tap_is_the_owners_item(store):
     posts = Posts()
     run_pass(store, [facts(tap=None)], T0, posts)
 
-    assert [(kind, to, body["kind"]) for kind, to, body in posts] == [("item", ("owner",), "tap")]
+    assert [(kind, to, body["action"]) for kind, to, body in posts] == [("item", ("owner",), "tap")]
 
 
 def test_the_same_facts_twice_open_nothing_and_post_nothing(store):
