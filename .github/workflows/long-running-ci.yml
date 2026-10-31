@@ -48,6 +48,22 @@ jobs:
           grep -F 'query survived register budget:' "$RUNNER_TEMP/register-orphan-negative.log"
           REGISTER_READ_ORACLE="$RUNNER_TEMP/register-read-oracle.json" REGISTER_READ_ORACLE_WRITE=1 uv run --locked --project plugins/long-running pytest -c .ci-register-orphan-baseline/plugins/long-running/pyproject.toml .ci-register-orphan-baseline/plugins/long-running/tests/test_register_reads.py -q -s -k test_register_read_cli_oracle
           REGISTER_READ_ORACLE="$RUNNER_TEMP/register-read-oracle.json" uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_register_reads.py -q -s
+      - uses: actions/checkout@v7
+        if: ${{ always() }}
+        with:
+          ref: 02347e0d913a966999b0dc794e07071220299105
+          path: .ci-baseline
+      - name: Measure actual consumers against JSON baseline
+        if: ${{ always() }}
+        run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/paired-production-consumers.py --plugin .ci-baseline/plugins/long-running --format json > "$RUNNER_TEMP/long-running-json-consumers.json"
+      - name: Measure actual consumers against SQLite candidate
+        if: ${{ always() }}
+        run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/paired-production-consumers.py --plugin plugins/long-running --format sqlite > "$RUNNER_TEMP/long-running-sqlite-consumers.json"
+      - name: Paired actual consumer receipts
+        if: ${{ always() }}
+        run: |
+          cat "$RUNNER_TEMP/long-running-json-consumers.json"
+          cat "$RUNNER_TEMP/long-running-sqlite-consumers.json"
       - name: pytest
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q
       - name: Binary attachment actual mq read costs
@@ -76,11 +92,6 @@ jobs:
       - name: Measure production SQLite scaling costs
         if: ${{ always() }}
         run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/sqlite-action-store.py
-      - uses: actions/checkout@v7
-        if: ${{ always() }}
-        with:
-          ref: 02347e0d913a966999b0dc794e07071220299105
-          path: .ci-baseline
       - name: Confirm JSON baseline behavior for corrected integration regressions
         if: ${{ always() }}
         run: >-
@@ -97,17 +108,6 @@ jobs:
           uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/fact-replacement-parity.py --plugin plugins/long-running --format sqlite > "$RUNNER_TEMP/long-running-sqlite-fact-order.json"
           diff -u "$RUNNER_TEMP/long-running-json-fact-order.json" "$RUNNER_TEMP/long-running-sqlite-fact-order.json"
           cat "$RUNNER_TEMP/long-running-sqlite-fact-order.json"
-      - name: Measure actual consumers against JSON baseline
-        if: ${{ always() }}
-        run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/paired-production-consumers.py --plugin .ci-baseline/plugins/long-running --format json > "$RUNNER_TEMP/long-running-json-consumers.json"
-      - name: Measure actual consumers against SQLite candidate
-        if: ${{ always() }}
-        run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/paired-production-consumers.py --plugin plugins/long-running --format sqlite > "$RUNNER_TEMP/long-running-sqlite-consumers.json"
-      - name: Paired actual consumer receipts
-        if: ${{ always() }}
-        run: |
-          cat "$RUNNER_TEMP/long-running-json-consumers.json"
-          cat "$RUNNER_TEMP/long-running-sqlite-consumers.json"
       - name: mailbox index scaling costs
         run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/mailbox-index.py > mailbox-index-linux.json
       - uses: actions/upload-artifact@v7
