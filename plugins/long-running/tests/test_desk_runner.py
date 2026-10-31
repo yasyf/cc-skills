@@ -255,6 +255,7 @@ class FakeShell(runner_module.Shell):
         self.launchd: dict[str, int] = {}
         self.launchctl_calls: list[list[str]] = []
         self.keychain: set[str] = set()
+        self.pr_commits: dict[str, list[str]] = {}
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -674,6 +675,8 @@ class FakeShell(runner_module.Shell):
             errors = [{"type": "NOT_FOUND", "path": ["repository", f"p{pr}"], "message": f"Could not resolve to a PullRequest with the number of {pr}."} for pr in missing]
             data = {"data": {"repository": {f"p{pr}": dict(zip(("state", "headRefOid"), self.pr_heads[pr])) if pr in self.pr_heads else None for pr in pulls}}}
             return runner_module.Done(int(bool(missing)), json.dumps(data | ({"errors": errors} if errors else {})), "".join(f"gh: {error['message']}\n" for error in errors))
+        if carried := re.findall(r"c(\d+): pullRequest\(number: \1\) \{ commits\(last: 100\)", query):
+            return runner_module.Done(0, json.dumps({"data": {"repository": {f"c{pr}": {"commits": {"nodes": [{"commit": {"oid": oid}} for oid in self.pr_commits.get(pr, [])]}} for pr in carried}}}), "")
         if self.trunk and f'object(expression: "{self.trunk[0]["oid"]}") {{ ... on Commit {{ history(' in query:
             return runner_module.Done(0, json.dumps({"data": {"repository": {"object": {"history": {"nodes": self.trunk}}}}}), "")
         heads = re.findall(r'(h\d+): object\(expression: "([0-9a-f]+)"\) \{ \.\.\. on Commit \{ status \{ contexts \{ context state description targetUrl \} \} checkSuites\(last: 10, filterBy: \{checkName: "ai-review"\}\) \{ nodes \{ checkRuns\(last: 1, filterBy: \{checkName: "ai-review"\}\) \{ nodes \{ title startedAt \} \} \} \} \} \}', query)
@@ -7770,6 +7773,20 @@ def test_an_admitted_head_the_gate_refuses_posts_one_refused_naming_the_gate_lin
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert len(settled(shell, "REFUSED")) == 1
+
+
+def test_an_admitted_pr_on_trunk_whose_branch_carries_another_open_prs_head_is_refused_and_never_enqueued(shell, config, tmp_path):
+    """Root #239479: #45799 read base dev, so the runner admitted it on its go, but its branch carried the heads of #45629 and #45759, which waited on the owner's taps, and Trunk's squash landed them all at 11:05 PM Oct 30."""
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.rows.append({"pr": "33002", "lane": LANE, "branch": "g/0", "base": "dev", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222"})
+    shell.gates["33002"] = [gate("#33002 BLOCKED bbbb222222 CI running")]
+    shell.pr_commits["33001"] = ["bbbb222222" + "0" * 30, "aaaa111111" + "0" * 30]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [line] = settled(shell, "REFUSED")
+    assert "#33001" in line and "its branch carries #33002, which a squash would land with it; restack it onto dev" in line
+    assert len([call for call in graphql_reads(shell) if "commits(last: 100)" in call[4]]) == 1
 
 
 def test_an_admitted_head_posts_one_record_per_change_of_its_outcome(shell, config, tmp_path):
