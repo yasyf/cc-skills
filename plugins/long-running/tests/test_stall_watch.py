@@ -799,6 +799,21 @@ def test_a_red_head_classed_inherited_flake_or_stale_draws_no_red_stall_until_th
     assert "red:101:fedcba9" in shell.topics()
 
 
+def test_a_red_head_classed_inherited_waits_on_the_pr_below_it_so_only_the_base_draws_a_stale_stall(config):
+    red = json.dumps([{"name": "buildkite/test"}])
+    raw = json.loads(config.read_text())
+    config.write_text(json.dumps(raw | {"stall": {"minutes": {"unclassed": 600, "sweep": 600}}}))
+    classed = record(7, "api-lane", "red", "class=inherited head=fedcba9 owner=api-lane #201 fails the same jobs", 140, "202")
+    shell = FakeShell([*graded(1, "201", HEAD, 150), *graded(4, "202", OTHER, 150), classed], [row("201", test_state="failure", failing_checks=red), row("202", OTHER, base="b201", test_state="failure", red_at=stamp(150), failing_checks=red)])
+    shell.doc = {"blocks": [{"id": f"merge:201:{HEAD[:7]}", "type": "card", "children": []}, {"id": f"merge:202:{OTHER[:7]}", "type": "card", "children": []}]}
+
+    watch(shell, config)
+
+    assert shell.topics() == ["stale:201:abc1234"]
+    assert shell.post("stale:201:abc1234")["text"] == "STALE #201 at abc1234, 150 min: red on buildkite/test; 1 above wait on it: #202 | owner api-lane | fix the red build of #201 at abc1234"
+    assert stack(config)["202"]["state"] == "red on buildkite/test, inherited from #201 below it"
+
+
 def test_an_owner_order_naming_a_pr_no_named_lane_cites_a_pr_for_three_minutes_posts_one_urgent_record_to_root(config):
     revert = record(1, "root", "decide", "Owner 8:15 PM, verbatim (answer e7170fa): 'back that out, revert the merge'. Binding now: landing-desk reverts 78a4e35.", 4, to=["landing-desk-3", "drive-watchdog-2"])
     merge = record(2, "root", "decide", "Owner 8:16 PM, verbatim: 'merge it now'.", 4, to=["landing-desk-3"])

@@ -139,7 +139,7 @@ and, across the drive:
               answered, post one `state` record to root per head instead, once while the PR stays open
               at that head, and one digest record when several post in one pass; a tap row counts from
               the earlier of its board row's write and the head's READY record; a PR that waits on the PR
-              below it posts nothing itself and is listed on the stale PR its stack waits on, a PR in
+              below it, a red one whose `red` record classes its head inherited included, posts nothing itself and is listed on the stale PR its stack waits on, a PR in
               the merge queue or green with a go goes to the landing desk lanes, whose step it is, and
               any other PR whose owning lane has no live record in the window goes to root; a changed state on
               the same head counts from the pass that saw it change; a held PR whose open `hold` record
@@ -518,7 +518,7 @@ def carried_heads(head: str, carries: list[tuple[str, str]]) -> set[str]:
 downstack = owner_waits.downstack
 
 
-def stack_row(pr: str, row: dict, rows: dict[str, dict], owner: str, held: bool, going: bool, in_queue: bool, tapping: bool) -> dict:
+def stack_row(pr: str, row: dict, rows: dict[str, dict], owner: str, held: bool, going: bool, in_queue: bool, tapping: bool, inherited: bool) -> dict:
     named = f"#{pr} at {short(row['head'])}"
     below = next((other for other, parent in rows.items() if parent.get("branch") and parent["branch"] == row.get("base")), "")
     red = ", ".join(check["name"] for check in json.loads(row.get("failing_checks") or "[]")) or "a required check"
@@ -531,6 +531,8 @@ def stack_row(pr: str, row: dict, rows: dict[str, dict], owner: str, held: bool,
         state, step = f"{BASE_DRIFT}{row['base']}", f"resubmit {named} with `ccx vcs ship --tip-only` and post HEAD"
     elif row.get("mergeable_state") == "dirty":
         state, step = CONFLICTS, f"restack {named} and post HEAD"
+    elif row.get("test_state") == "failure" and inherited and below:
+        state, step, waits = f"{RED}{red}, inherited from #{below} below it", f"fix the red build of #{below} below it", below
     elif row.get("test_state") == "failure":
         state, step = f"{RED}{red}", f"fix the red build of {named}"
     elif below:
@@ -957,8 +959,8 @@ class Pass:
             tapping = board is not None and board.shows(pr, head) and not board_rows.at_head(board.taps.get(pr), "rejected", head)
             readied = [at(record) for record in announced if record["kind"] == "ready" or READY.search(record["text"])]
             tap_at = min([*readied, *([live] if (live := board.live_at(pr, head)) else [])], default=None) if tapping else None
-            entries.append(stack_row(pr, row, rows, lane, holding(pr) or pr in self.hold_gates, bool(going), in_queue, tapping) | {"head_at": head_at, "tap_at": tap_at})
             classed = red_entry(row, lane, [record for record in classes if grades.about_pr(record, repo, pr)]) if row.get("red_at") else None
+            entries.append(stack_row(pr, row, rows, lane, holding(pr) or pr in self.hold_gates, bool(going), in_queue, tapping, bool(classed) and classed["class"] == "inherited") | {"head_at": head_at, "tap_at": tap_at})
             if (classed is None or classed["class"] in ("real", "unclassed")) and (red := self.red(pr, row, lane)):
                 (probes if red.kind == "probe" else stalls).append(red)
             if row.get("test_state") == "failure" and classed:
