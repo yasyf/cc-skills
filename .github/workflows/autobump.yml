@@ -1,10 +1,8 @@
 name: Autobump
 
 on:
-  push:
-    branches: [main]
   schedule:
-    - cron: "23 10 * * 1"
+    - cron: "*/10 * * * *"
   workflow_dispatch:
     inputs:
       dry_run:
