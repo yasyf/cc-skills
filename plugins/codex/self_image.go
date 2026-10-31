@@ -40,7 +40,7 @@ func retainSelfImage(source *os.File) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	if present, err := verifySelfImage(target, info, digest); err != nil || present {
 		return target, err
 	}
@@ -48,13 +48,13 @@ func retainSelfImage(source *os.File) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(stage)
+	defer func() { _ = os.RemoveAll(stage) }()
 	staged := filepath.Join(stage, "codex-ask")
 	writer, err := durable.Create(staged, 0o600)
 	if err != nil {
 		return "", err
 	}
-	defer writer.Close()
+	defer func() { _ = writer.Close() }()
 	if _, err := source.Seek(0, io.SeekStart); err != nil {
 		return "", err
 	}
@@ -68,7 +68,7 @@ func retainSelfImage(source *os.File) (string, error) {
 	if err := writer.Commit(); err != nil {
 		return "", err
 	}
-	file, err := os.OpenFile(staged, os.O_RDWR, 0)
+	file, err := os.OpenFile(staged, os.O_RDWR, 0) //nolint:gosec // staged is the private MkdirTemp executable just published by durable.Create
 	if err != nil {
 		return "", err
 	}
@@ -103,11 +103,11 @@ func verifySelfImage(path string, source os.FileInfo, digest string) (bool, erro
 	if !info.Mode().IsRegular() || info.Mode().Perm() != source.Mode().Perm() || !info.ModTime().Equal(source.ModTime()) {
 		return false, fmt.Errorf("retained self image metadata mismatch: %s", path)
 	}
-	file, err := os.Open(path)
+	file, err := os.Open(path) //nolint:gosec // path is the retained self image; metadata and full content digest are verified
 	if err != nil {
 		return false, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	actual, err := executableDigest(file)
 	if err != nil {
 		return false, err

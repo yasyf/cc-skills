@@ -137,7 +137,7 @@ loop:
 	if sourceErr != nil {
 		die("codex-ask: open self image: "+sourceErr.Error(), 126)
 	}
-	defer source.Close()
+	defer func() { _ = source.Close() }()
 	mcpMounts, mcpServers := mcpMountFlags(mcpServers)
 	// Resolved before the question is read, so a bad name mints nothing.
 	named := ""

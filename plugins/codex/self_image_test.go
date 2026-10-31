@@ -28,7 +28,7 @@ func selfImageFixture(t *testing.T, data []byte, mode os.FileMode, mtime time.Ti
 	if err := os.Chtimes(path, mtime, mtime); err != nil {
 		t.Fatal(err)
 	}
-	file, err := os.Open(path)
+	file, err := os.Open(path) //nolint:gosec // opens the test fixture under its own TempDir
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestRetainSelfImageConcurrentPublication(t *testing.T) {
 				results <- result{err: err}
 				return
 			}
-			defer file.Close()
+			defer func() { _ = file.Close() }()
 			image, err := retainSelfImage(file)
 			if err != nil {
 				results <- result{err: err}
@@ -150,14 +150,14 @@ func TestRetainSelfImageRefusesChangedCache(t *testing.T) {
 			}
 			switch mutation {
 			case "bytes":
-				if err := os.WriteFile(image, []byte("modified executable bytes\n"), 0o755); err != nil {
+				if err := os.WriteFile(image, []byte("modified executable bytes\n"), 0o755); err != nil { //nolint:gosec // preserves executable mode while corrupting fixture bytes
 					t.Fatal(err)
 				}
 				if err := os.Chtimes(image, mtime, mtime); err != nil {
 					t.Fatal(err)
 				}
 			case "mode":
-				if err := os.Chmod(image, 0o655); err != nil {
+				if err := os.Chmod(image, 0o655); err != nil { //nolint:gosec // deliberately corrupts executable fixture mode
 					t.Fatal(err)
 				}
 			case "mtime":
@@ -194,7 +194,7 @@ func TestNonforkCLIDoesNotResolveRetainedImage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer source.Close()
+	defer func() { _ = source.Close() }()
 	image, err := retainSelfImage(source)
 	if err != nil {
 		t.Fatal(err)
@@ -203,7 +203,7 @@ func TestNonforkCLIDoesNotResolveRetainedImage(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, mode := range []string{"--version", "--ps", "--help"} {
-		command := exec.Command(bin, mode)
+		command := exec.Command(bin, mode) //nolint:gosec // drives the built binary under test
 		command.Env = dispatchEnv(home, "", runs, t.TempDir(), canonicalScope(t))
 		output, err := command.CombinedOutput()
 		if err != nil {
@@ -229,7 +229,7 @@ func TestRetainedDispatchKeepsResolvedResourceRootAfterRemoval(t *testing.T) {
 	}
 	source := filepath.Join(pluginRoot, "bin", "codex-ask")
 	mtime := time.Unix(1_700_000_000, 123_456_789)
-	if err := os.WriteFile(source, data, 0o755); err != nil {
+	if err := os.WriteFile(source, data, 0o755); err != nil { //nolint:gosec // test fixture binary must be executable
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(source, mtime, mtime); err != nil {
@@ -255,7 +255,7 @@ func TestRetainedDispatchKeepsResolvedResourceRootAfterRemoval(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	var stdout, stderr bytes.Buffer
-	command := exec.CommandContext(ctx, link, "ping")
+	command := exec.CommandContext(ctx, link, "ping") //nolint:gosec // drives the symlinked binary under test
 	command.Dir = scope
 	command.Env = dispatchEnv(home, "", runs, stubDir, scope)
 	command.Stdout, command.Stderr = &stdout, &stderr
@@ -283,7 +283,7 @@ func TestRetainedDispatchKeepsResolvedResourceRootAfterRemoval(t *testing.T) {
 	if err := os.Remove(link); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(link, []byte("#!/bin/sh\nexit 91\n"), 0o755); err != nil {
+	if err := os.WriteFile(link, []byte("#!/bin/sh\nexit 91\n"), 0o755); err != nil { //nolint:gosec // replacement invocation fixture must be executable
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(home, "mcp-release"), "release\n")
@@ -317,7 +317,7 @@ func TestRetainedDispatchKeepsResolvedResourceRootAfterRemoval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(source, data, 0o755); err != nil {
+	if err := os.WriteFile(source, data, 0o755); err != nil { //nolint:gosec // test fixture binary must be executable
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(source, mtime, mtime); err != nil {
@@ -329,7 +329,7 @@ func TestRetainedDispatchKeepsResolvedResourceRootAfterRemoval(t *testing.T) {
 	if err := os.Symlink(source, link); err != nil {
 		t.Fatal(err)
 	}
-	warm := exec.CommandContext(ctx, link, "ping")
+	warm := exec.CommandContext(ctx, link, "ping") //nolint:gosec // drives the symlinked binary under test
 	warm.Dir = scope
 	warm.Env = command.Env
 	started = time.Now()
