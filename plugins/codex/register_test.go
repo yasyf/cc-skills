@@ -205,7 +205,7 @@ func TestRunWorkerRegistersAfterStatus(t *testing.T) {
 			}
 			writeMeta(t, sdir, `{"session":"s-test"}`)
 
-			worker := exec.Command(bin, "--worker", sdir) //nolint:gosec // test drives the self-built binary from t.TempDir
+			worker := exec.Command(bin, "--worker", sdir, bin, bin) //nolint:gosec // test drives the self-built binary from t.TempDir
 			worker.Env = append(os.Environ(), "PATH="+codexDir+string(os.PathListSeparator)+captDir, "CAPT_HOOK_BIN=", "FAKE_CODEX_RC="+c.rc, "STATUS_FILE="+join(sdir, "status"))
 			if out, err := worker.CombinedOutput(); err != nil {
 				t.Fatalf("--worker failed: %v\n%s", err, out)
