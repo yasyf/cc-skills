@@ -54,7 +54,7 @@ TRUNK_LIMITED = re.compile(r"HTTP 429\b")
 TRUNK_BACKOFF_SECONDS = (30, 60, 120)
 TRANSIENT_ATTEMPTS = 3
 TRANSIENT_PAUSE_SECONDS = 20
-COMPUTING = re.compile(r"^#(\d+) BLOCKED \S+ GitHub still computing mergeability", re.MULTILINE)
+COMPUTING = re.compile(r"^#(\d+) BLOCKED \S+ (?:.*; )?GitHub still computing mergeability", re.MULTILINE)
 COMPUTE_POLL_SECONDS = 10
 COMPUTE_ROUNDS = 12
 CLEAR = frozenset({"GREEN", "QUEUED"})
@@ -176,7 +176,7 @@ class GraphiteStackEnqueue:
         self.resume_at = None
 
     def run(self, argv: list[str]):
-        """Run the script, and while it reports GitHub still computing a PR's mergeability, read that PR once over REST, which starts GitHub's lazy computation that a GraphQL read alone never does, then run it again every `COMPUTE_POLL_SECONDS` for `COMPUTE_ROUNDS` rounds, so no refusal rests on a mergeability GitHub had not been asked to compute (root #192866, #45291)."""
+        """Run the script, and while it reports GitHub still computing a PR's mergeability, alone or among its other blockers, read that PR once over REST, which starts GitHub's lazy computation that a GraphQL read alone never does, then run it again every `COMPUTE_POLL_SECONDS` for `COMPUTE_ROUNDS` rounds, so no refusal rests on a mergeability GitHub had not been asked to compute (root #192866, #45291)."""
         done = self.run_settled(argv)
         if not (computing := COMPUTING.findall(done.out)):
             return done
@@ -300,9 +300,6 @@ class TrunkStackEnqueue(GraphiteStackEnqueue):
     def __init__(self, shell, checkout: Path, config: dict, ledger_py: Callable, repo: str):
         super().__init__(shell, checkout, config, ledger_py, repo)
         self.ci = str(checkout / "tools/ci")
-
-    def run_settled(self, argv: list[str]):
-        return super().run_settled(argv) if "--check" in argv else self.limited(argv)
 
     def check(self, tips: list[str], whole: bool, heads: dict[str, str], partial: bool) -> Gate:
         done = self.run([self.script, *tips, "--check", *(["--whole"] if whole else [])])

@@ -267,7 +267,7 @@ Each prefix passes the check registry, `landing.checks` in order, every built-in
 `(priority, root PR)` order, a tree's priority the lowest ledger `priority` among its PRs, and accepted enqueues run one parallel
 wave per priority, lower first. A check that reads no verdict first settles its tips through `ledger.py landed`, which
 reads each tip's squash on the freshly fetched trunk, and drops every tip whose row then reads landed; only the tips left
-log `GATE-FAILED`. A check killed at its 60-second cap on both tries has no verdict yet, posts nothing, runs again next pass, and gives `ADMITTED-SKIPPED` its `GATE-TIMEOUT` reason. `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
+log `GATE-FAILED`. A check killed at its 60-second cap on both tries has no verdict yet, runs again next pass, and refuses its heads for `GATE-TIMEOUT` meanwhile. `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
 adapter call runs the trunk's script; a checkout its repository no longer lists as a worktree, or one on a branch with no commit, is rebuilt at the fetched trunk head with a clean tree,
 re-registered through `git worktree add --no-checkout` and `git worktree repair` when git lost it, logs `MIRROR-REBUILT` to root, and the pass goes on;
 a checkout that still cannot fast-forward logs `CHECKOUT-STALE` to root and gates nothing that pass.
@@ -281,11 +281,21 @@ them at most 120 s, skips a tree whose worker still runs or waits, and its relea
 on a side worker, never ahead of the gate, and its worktree removal on a worker of its own, so a slow removal holds back neither. Each worker writes its step and when it began to `<config>.landing-stacks.json`, which
 stall_watch reads to name a stack stuck past its step's budget. Every pass posts one `state` record to root on topic `landing-state`
 counting the queued, waiting, held and refused PRs, the workers running and the overflow's enqueues, with the pass's seconds.
+Each gate step admits every open drive PR green at its ledger head, under no hold, that a root `go` or an exemption names there, and
+every branch of the pass that acts on or drops one settles it: queued, refused with the gate line or the check that refused it,
+below-blocked on the unlanded or unadmitted PR it sits on (never `GATE-FAILED` for that), or in flight on a stack worker. The pass
+ends, in a `finally`, by posting one `QUEUED`, `REFUSED` or `BELOW-BLOCKED` record for each set of heads whose outcome changed since
+its newest record, and nothing for a head that did not change; a head no branch settled posts `REFUSED unsettled:` naming the last
+branch that saw it, to the root as a defect. A pass that gates nothing, because the checkout did not fast-forward, the trunk check
+did not read, `checks_wait_for_go` waits or GitHub's quota is low, refuses every admitted head with `gating off:` and its reason.
+Each admitted head's state goes to `landing-admitted.json` for the dashboard. A `head` or `opened` record naming a PR with no ledger
+row registers it under that record's lane the next pass, logging `UNROWED` when the register fails and `GO-UNROWED` for a root go
+naming a PR no row or such record holds.
 Every text that says a PR has, lacks or lost a go, `GO-UNQUEUED`, `BELOW-BLOCKED` and `MERGE-ASK`, says it through
 `grades.go_state`, citing the newest go at the head, a carried one included, by seq, lane and time, or the newest go at
 an older head when none names it; `go --config PATH PR...` prints the same for any PR, and `drive.py go` runs it.
 `GO-UNQUEUED` is raised only when the newest enqueue of a go'd head since its go ended blocked, failed, stranded or unsettled, or went in and the queue's merge activity then evicted it, naming that eviction's time and reason, never for
-backlog, `ADMITTED-SKIPPED` when a head a go or an exemption admits has, ten minutes on, no record saying it is queued, merging or refused, naming the branch of the pass that left it out, and `OVERFLOW-STALLED` when the overflow thread finished no run in five minutes. A go'd head whose queue draft closed unmerged is taken out with the adapter's dequeue once per head, posting `ORPHAN-RELEASED`, and enqueued afresh, never `--recover`ed. Beside the passes, an overflow thread reads afresh every minute and puts straight
+backlog, and `OVERFLOW-STALLED` when the overflow thread finished no run in five minutes. A go'd head whose queue draft closed unmerged is taken out with the adapter's dequeue once per head, posting `ORPHAN-RELEASED`, and enqueued afresh, never `--recover`ed. Beside the passes, an overflow thread reads afresh every minute and puts straight
 into the queue, with none of the runner's checks, each stack that has stayed green, named at its heads by a root go, unheld, unqueued
 and unrefused for five minutes, posting a QUEUED report that names the overflow (owner 9524276). Under `graphite-stack-enqueue` only (never `trunk-stack-enqueue`, where Trunk failures stay blocked or `UNKNOWN`), Graphite reads down when no queue
 draft from its app has opened in 15 minutes while the queue read holds a PR, or its two newest drafts are both still open 30 minutes after
@@ -733,7 +743,6 @@ RESERVED_TOUCH = "RESERVED-NO-ANSWER"
 CHECK_PR_BLOCKER = "BLOCKER"
 UNGRADED_AFTER = timedelta(minutes=30)
 GO_TO_QUEUE = timedelta(minutes=5)
-ADMISSION_AUDIT = timedelta(minutes=10)
 ADAPTER_CHECKS = ("approvals", "required-ci")
 OVERFLOW = "overflow"
 OVERFLOW_AFTER = timedelta(minutes=5)
@@ -787,6 +796,12 @@ LANDED_READ = "landed-read"
 LANDED_TIDIED = "landed-tidied"
 LANDED_KEY = "landed:"
 DEQUEUE_READ = "dequeue-read"
+SETTLED = "settled"
+ROWED_READ = "rowed-read"
+QUOTA_OFF = "GitHub's read quota is under ccx's floor"
+IN_QUEUE_SAID = "the merge queue holds it"
+QUEUE_SAID = "the landing runner put it in the merge queue at {at}"
+UNSETTLED = "unsettled:"
 DEQUEUE_ORDERS = "dequeue-orders"
 PULLED_HEADS = "pulled-heads"
 DEQUEUE_ORDER = re.compile(r"(?:\A\s*|\b(?:landing-desk|desk-runner):\s*)dequeue\s+#(\d+)\b", re.IGNORECASE)
@@ -863,6 +878,7 @@ QUICK_PROGRAMS = frozenset({"gh", "cci", "ccx"})
 TIMED_OUT = 124
 MISSING_BINARY = 127
 MISSING_BACKOFF = (2, 5, 10, 20, 30)
+REREAD_PAUSES = (2, 6)
 RAISED_BACKOFF = timedelta(minutes=1)
 WAKE_SECONDS = 0.25
 STOP_CONFIRM = timedelta(seconds=30)
@@ -891,6 +907,8 @@ QUEUED_STATE = "queued"
 TRUNK_QUEUED_LABELS = frozenset({"trunk-queued", "trunk-not-ready", "trunk-testing", "trunk-tests-passed", "trunk-queued (bisection)", "trunk-testing (bisection)", "trunk-tests-passed (bisection)"})
 TRUNK_MERGED_LABEL = "trunk-merged"
 QUEUED_VERDICT = "QUEUED"
+WAITING_VERDICT = "WAITING"
+BELOW_BLOCKED = re.compile(r"\bbelow BLOCKED #(\d+)\b")
 ORPHANED_HEAD = "queue head orphaned"
 STATUS_SETTLED = frozenset({QUEUED_STATE, "landed"})
 HEADS_PER_QUERY = 100
@@ -1087,9 +1105,22 @@ def time_bound(argv: list[str]) -> float:
     return QUICK_SECONDS if quick(argv) else COMMAND_TIMEOUT_SECONDS
 
 
+def reread_pauses(argv: list[str]) -> tuple[int, ...]:
+    """The pauses after which a `rereadable` read that timed out or failed on a transient network error runs again: one for a `stack-enqueue` read, whose adapter repeats a transient failure itself, and every `REREAD_PAUSES` one for the rest."""
+    if not rereadable(argv):
+        return ()
+    return REREAD_PAUSES[:1] if Path(argv[0]).name == "stack-enqueue" else REREAD_PAUSES
+
+
 def rereadable(argv: list[str]) -> bool:
-    """Whether `argv` only reads, so a run that timed out or failed on a transient network error may run once more."""
-    return (argv[:2] in (["cci", "tail"], ["cci", "who"]) and argv[:4] != BUS_PROBE) or argv[:3] == ghread.GATEWAY or argv[:4] == ["ccx", "vcs", "pr", "status"] or (Path(argv[0]).name == "stack-enqueue" and bool({"--check", "--status"} & set(argv)))
+    """Whether `argv` only reads, so a run that timed out or failed on a transient network error runs again after each pause of `REREAD_PAUSES`, logging `RETRIED` (root #222205)."""
+    return (
+        (argv[:2] in (["cci", "tail"], ["cci", "who"]) and argv[:4] != BUS_PROBE)
+        or argv[:3] == ghread.GATEWAY
+        or argv[:4] in (["ccx", "vcs", "pr", "status"], ["ccx", "vcs", "auth", "status"])
+        or (Path(argv[0]).name == "ci" and argv[1:3] == ["trunk", "status"])
+        or (Path(argv[0]).name == "stack-enqueue" and bool({"--check", "--status"} & set(argv)))
+    )
 
 
 def command_family(argv: list[str]) -> str:
@@ -1130,8 +1161,8 @@ class Shell:
     Output that is not UTF-8, such as a diff of a binary file, reads with each bad byte replaced.
     A GitHub, cci or ccx read gets QUICK_SECONDS, a `--check` GATE_CHECK_SECONDS, `rulings.py check-pr` CHECK_PR_SECONDS, any other
     `stack-enqueue` and `ccx vcs ship` ENQUEUE_SECONDS, `ledger.py` LEDGER_SECONDS and `git fetch` FETCH_SECONDS; one that times out is logged and
-    reads as a failed command, never a fatal one. A read `rereadable` names runs once more when it timed out or failed on a transient
-    network error. A command whose binary is missing, as `cci` is while brew replaces its link, runs again after each wait of
+    reads as a failed command, never a fatal one. A read `rereadable` names runs again after each `REREAD_PAUSES` pause while it times out or fails on a transient
+    network error, logging `RETRIED` each time. A command whose binary is missing, as `cci` is while brew replaces its link, runs again after each wait of
     `MISSING_BACKOFF` and then reads as a failed command, never a crash (root #217937). `in_progress` holds each thread's command in flight
     and when it started, for the heartbeat.
     """
@@ -1149,7 +1180,11 @@ class Shell:
                 break
             self.sleep(wait)
             done = self.run_once(argv, stdin, env, cwd)
-        if rereadable(argv) and done.code and (done.code == TIMED_OUT or merge_queue.TRANSIENT_FAILURE.search(done.err + done.out)):
+        for pause in reread_pauses(argv):
+            if not done.code or not (done.code == TIMED_OUT or merge_queue.TRANSIENT_FAILURE.search(done.err + done.out)):
+                break
+            print(f"RETRIED {command_name(argv)} in {pause}s after: {((done.err or done.out).strip().splitlines() or [f'exit {done.code}'])[-1][:300]}", file=sys.stderr, flush=True)
+            self.sleep(pause)
             done = self.run_once(argv, stdin, env, cwd)
         return done
 
@@ -5072,6 +5107,97 @@ class Graded:
     act: bool
 
 
+@dataclass(frozen=True)
+class Queued:
+    said: str
+    label = "QUEUED"
+    reason = ""
+
+
+@dataclass(frozen=True)
+class Refused:
+    why: str
+    label = "REFUSED"
+
+    @property
+    def reason(self) -> str:
+        return self.why
+
+
+@dataclass(frozen=True)
+class BelowBlocked:
+    base: str
+    why: str
+    label = "BELOW-BLOCKED"
+
+    @property
+    def reason(self) -> str:
+        return self.base
+
+
+@dataclass(frozen=True)
+class InFlight:
+    step: str
+    since: str
+
+
+@dataclass(frozen=True)
+class Landed:
+    pass
+
+
+Outcome = Queued | Refused | BelowBlocked | InFlight | Landed
+Posted = Queued | Refused | BelowBlocked
+
+
+class Settlement:
+    """The heads a landing pass admits, each open, the drive's, green, unheld, and named at its ledger head by a root `go` or an exemption, with the outcome a branch of the pass settled it as and the last branch that saw it; every branch that acts on or drops one settles it, and `Landing.close_settlement` posts what changed."""
+
+    def __init__(self, heads: dict[str, str], since: dict[str, str]):
+        self.heads = heads
+        self.since = since
+        self.outcomes: dict[str, Outcome] = {}
+        self.seen: dict[str, str] = {}
+        self.lock = threading.Lock()
+
+    def settle(self, pr: str, head: str, outcome: Outcome) -> None:
+        """Record `outcome` for `pr` when the pass admits it at `head`, over any earlier one but a below-blocked outcome on the same base, whose first account stands."""
+        with self.lock:
+            if pr not in self.heads or not head or not names_head(head, self.heads[pr]):
+                return
+            if isinstance(outcome, BelowBlocked) and isinstance(earlier := self.outcomes.get(pr), BelowBlocked) and earlier.base == outcome.base:
+                return
+            self.outcomes[pr] = outcome
+
+    def saw(self, prs: Iterable[str], branch: str) -> None:
+        with self.lock:
+            self.seen |= {pr: branch for pr in prs if pr in self.heads}
+
+    def settled(self, pr: str) -> bool:
+        return pr in self.outcomes
+
+
+def admitted_state(outcome: Outcome) -> str:
+    """The dashboard's word for an admitted head's outcome: merging while queued or in flight, landed, a runner defect while unsettled, and being worked on while refused or stacked on a blocked PR."""
+    if isinstance(outcome, Queued | InFlight):
+        return "merging"
+    if isinstance(outcome, Landed):
+        return "landed"
+    return "defect" if outcome.why.startswith(UNSETTLED) else "doing"
+
+
+def attempt_outcome(action: actions.Action) -> Outcome:
+    """What an enqueue attempt that decides its heads settles them as: in flight while it runs, queued or landed by its outcome, else refused with the outcome and its last line."""
+    if action.status != "completed":
+        return InFlight("enqueue", action.started_at or action.accepted_at)
+    outcome = action.response["outcome"]
+    if outcome in BELIEVED_QUEUED:
+        return Queued(IN_QUEUE_SAID)
+    if outcome in (MERGED, "landed"):
+        return Landed()
+    return Refused(f"its enqueue at this head ended {outcome}: {' '.join((action.response.get('why') or action.response.get('out', '')).split())[-300:]}")
+
+
 def release_posted(incident: actions.Incident, key: str, step: str, seq: int, at: datetime) -> None:
     if incident.action(key).status == "accepted":
         incident.start(key, at)
@@ -5137,8 +5263,7 @@ class Landing:
         self.bodies: dict[str, tuple[datetime, str]] = {}
         self.trunk_read: tuple[str, datetime, bool, dict] | None = None
         self.unchecked: set[str] = set()
-        self.skips: dict[str, str] = {}
-        self.check_refused: dict[str, str] = {}
+        self.settlement = Settlement({}, {})
         self.unproven_why: dict[str, str] = {}
         self.sessions: dict[str, bool] = {}
         self.live: list[dict] | None = None
@@ -5411,7 +5536,7 @@ class Landing:
         return bool(head) and bool(gone_at(gos, pr, head) or self.exempt_admitted(pr, head)[0])
 
     def refuse_ungone_parents(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Post one note to the root per lowest such parent, naming the rows a root `go` names at their heads above a parent nothing can land past, and saying the stack below it lands without them (root #152548): one `unpassed` keeps out, one a hold covers, one red on CI, or one that conflicts with its base. It posts again only when that stack's set of such parents changes, never for a head that moves: the whole stack waits, `unqueued_gos` never reads it as an unqueued go, and the root hears, in the words `cci owner-waits` prints, what each parent with no go really waits on, which wait on a hold, and which need their lane; it never says a parent waits on the owner's tap unless a board row at its head does (root #207532). A stack whose every such parent is held reads `BELOW-HELD` (root #142036, #142931, #145011)."""
+        """Settle each admitted row a root `go` names at its head above a parent nothing can land past as `BelowBlocked` on the lowest such parent, saying the stack below it lands without them (root #152548): one `unpassed` keeps out, one a hold covers, one red on CI, or one that conflicts with its base. The rows the pass did not admit, those a hold covers among them, get one note per lowest parent instead, posted again only when that stack's set of such parents changes, never for a head that moves: the whole stack waits, `unqueued_gos` never reads it as an unqueued go, and the root hears, in the words `cci owner-waits` prints, what each parent with no go really waits on, which wait on a hold, and which need their lane; it never says a parent waits on the owner's tap unless a board row at its head does (root #207532). A stack whose every such parent is held reads `BELOW-HELD` (root #142036, #142931, #145011)."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}
         red = {pr for pr, row in open_rows.items() if row.get("test_state") == "failure" or row.get("mergeable_state") == "dirty"}
         holding = set(held)
@@ -5434,30 +5559,38 @@ class Landing:
 
         for lowest, (gone, waiting) in stacks.items():
             parents = sorted(waiting, key=int)
+            admitted = [pr for pr in gone if pr in self.settlement.heads]
             key = f"go-parents:{lowest}:" + ",".join(parents)
-            if self.book.known(LANDING, key):
-                continue
             on_hold = [parent for parent in parents if parent in holding]
             untapped = [parent for parent in parents if parent in self.no_go and parent not in holding]
             broken = [parent for parent in parents if parent not in self.no_go and parent not in holding]
             on = [cited(untapped)] * bool(untapped) + [f"{named(on_hold)}, which a hold covers"] * bool(on_hold) + [f"{named(broken)}, red on CI or conflicting with its base"] * bool(broken)
             board = self.owner_board() if untapped else None
             asks = [f"{' / '.join(self.owner_state(parent, board) for parent in untapped)}; root posts `go #<parent> at <head>` once his tap stands"] * bool(untapped) + ["the stack waits for each hold to lift"] * bool(on_hold) + ["each red or conflicting parent's lane makes it green and mergeable"] * bool(broken)
-            label = "BELOW-HELD" if len(on_hold) == len(parents) else "BELOW-BLOCKED"
-            self.post_record("note", key, ROOT if label == "BELOW-HELD" else self.landing_audience([*parents, *gone], open_rows, ROOT), f"{label} above #{lowest}: root gos name {cited(gone)}, stacked on {' and '.join(on)}, so none of them is enqueued, and the stack below #{lowest} lands without them; {'; '.join(asks)}", lowest)
+            why = f"stacked on {' and '.join(on)}, so none of them is enqueued, and the stack below #{lowest} lands without them; {'; '.join(asks)}"
+            self.settle(admitted, BelowBlocked(f"#{lowest}", why))
+            if (unadmitted := [pr for pr in gone if pr not in admitted]) and not self.book.known(LANDING, key):
+                label = "BELOW-HELD" if len(on_hold) == len(parents) else "BELOW-BLOCKED"
+                self.post_record("note", key, ROOT if label == "BELOW-HELD" else self.landing_audience([*parents, *unadmitted], open_rows, ROOT), f"{label} above #{lowest}: root gos name {cited(unadmitted)}, {why}", lowest)
 
     def stack_trees(self, rows: dict[str, dict], held: list[str]) -> list[list[str]]:
-        """The tips to gate, as `trees` groups them or one tip each under the whole-stack policy, over the rows no hold covers, so no call names a held PR or one stacked above it; every tip at or above an incident fix is left out."""
+        """The tips to gate, as `trees` groups them or one tip each under the whole-stack policy, over the rows no hold covers, so no call names a held PR or one stacked above it; every tip at or above an incident fix is left out, the fix settled in flight to its squash and each row on it below-blocked."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         covered = under_hold(open_rows, held)
         free = {pr: row for pr, row in rows.items() if pr not in covered}
         trees = [[tip] for tree in self.trees(free) for tip in tree] if self.whole() else self.trees(free)
-        waiting = under_hold(open_rows, self.incident_rows(open_rows))
+        fixes = self.incident_rows(open_rows)
+        waiting = under_hold(open_rows, fixes)
+        self.settle(set(fixes), InFlight("incident squash", self.book.stamp()))
+        for pr in waiting - set(fixes):
+            fix = min(downstack(open_rows, pr) & set(fixes), key=lambda member: len(downstack(open_rows, member)))
+            self.settle([pr], BelowBlocked(f"#{fix}", f"stacked on incident fix #{fix}, which lands by plain squash before the queue takes what sits on it"))
         return [kept for tree in trees if (kept := [tip for tip in tree if tip not in waiting])]
 
     def gate_trees(self, rows: dict[str, dict], held: list[str], trees: list[list[str]]) -> None:
         """Hand each tree of `trees` that `landable_trees` keeps to a stack worker that outlives the pass and runs its check, its settling and the enqueue of what it accepts, so no stack's checks or enqueue wait on another's (landing-desk-3 #185922, owner 9524276). A tree whose worker still runs or waits from an earlier pass is skipped, the drive runs `GATE_WORKERS` at once with the lanes taking turns in its queue, and the pass waits for its workers no longer than its `GATE_BUDGET`. One wave per priority value, the lowest first, so a higher-priority stack reaches the queue first. Each enqueue still runs its stack's chains bottom-up."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
+        self.settlement.saw({pr for tree in trees for tip in tree for pr in downstack(open_rows, tip)}, "the gate's status read")
         waves: dict[int, list[list[str]]] = {}
         for tree in self.landable_trees(rows, trees):
             waves.setdefault(min(self.priority(open_rows, pr) for tip in tree for pr in downstack(open_rows, tip)), []).append(tree)
@@ -5557,6 +5690,7 @@ class Landing:
         with self.dispatching:
             if step:
                 members = {pr: open_rows[pr].get("head", "") for tip in tree for pr in downstack(open_rows, tip)}
+                self.settlement.saw(members, f"the stack worker's {step} step")
                 self.steps[key] = {"root": root, "lane": open_rows[root].get("lane", ""), "members": members, "step": step, "since": self.book.stamp(), "budget": STEP_BUDGETS[step], "thread": threading.get_ident()}
             else:
                 self.steps.pop(key, None)
@@ -5567,12 +5701,19 @@ class Landing:
 
     def landable_trees(self, rows: dict[str, dict], trees: list[list[str]]) -> list[list[str]]:
         """The trees of `trees` the pass is about to enqueue from, by its one status read: those holding a landable PR on PRs below it that are landable, queued, or landed. `stack-enqueue --check`, and the `rulings.py check-pr` an accepted prefix runs, run for no other tree (root #146561, #147019). A verdict counts as landable once a `queue-unknown` cause is set aside, since a label queue's state is not Graphite's to read, and once a lone `ci-unproven` cause is set aside for a head `unproven` finds proven, since only the runner reads the full builds that prove a redundant skip; `unproven` also starts the full build a head still needs. While Graphite is down, a PR its dead queue still holds counts as landable, since only the direct merger can land it (root #202044). The PRs of each tree left out join `unchecked`, and `tell_unpassed` routes what each one's status entry asks of its lane. None are kept when the status read failed."""
-        if (statuses := self.pr_statuses()) is None:
-            return []
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
+        if (statuses := self.pr_statuses()) is None:
+            self.settle({pr for tree in trees for tip in tree for pr in downstack(open_rows, tip)}, Refused("the PR status read failed, so the pass checked none of its stack"))
+            return []
         down = self.down_since() is not None
+        read: dict[str, bool] = {}
 
         def landable(pr: str) -> bool:
+            if pr not in read:
+                read[pr] = fit(pr)
+            return read[pr]
+
+        def fit(pr: str) -> bool:
             verdict = statuses.get(pr, {}).get("verdict", "")
             if down and verdict == QUEUED_STATE:
                 return True
@@ -5586,14 +5727,21 @@ class Landing:
         def ready(pr: str) -> bool:
             return landable(pr) and all(landable(below) or statuses.get(below, {}).get("verdict") in STATUS_SETTLED for below in downstack(open_rows, pr) - {pr})
 
+        def said(pr: str) -> str:
+            return f"#{pr} {statuses.get(pr, {}).get('verdict') or 'unread'}" + (f" ({self.unproven_why[pr]})" if pr in self.unproven_why else "")
+
         kept = []
         for tree in trees:
             prs = {pr for tip in tree for pr in downstack(open_rows, tip)}
             if any(ready(pr) for pr in prs):
                 kept.append(tree)
-            else:
-                self.unchecked |= prs
-                self.skips |= {pr: f"the status read kept its stack unchecked: {', '.join(f'#{member} {statuses.get(member, {}).get('verdict') or 'unread'}' for member in sorted(prs, key=int))}" for pr in prs}
+                continue
+            self.unchecked |= prs
+            for pr in prs - {pr for pr in prs if statuses.get(pr, {}).get("verdict") in STATUS_SETTLED}:
+                if not landable(pr):
+                    self.settle([pr], Refused(f"the status read keeps its stack unchecked: {said(pr)}"))
+                elif blocked := sorted((below for below in downstack(open_rows, pr) - {pr} if not landable(below) and statuses.get(below, {}).get("verdict") not in STATUS_SETTLED), key=lambda below: len(downstack(open_rows, below))):
+                    self.settle([pr], BelowBlocked(f"#{blocked[0]}", f"stacked on {said(blocked[0])} in the status read, so the pass checked none of its stack"))
         return kept
 
     def settle_tree(self, rows: dict[str, dict], held: list[str], gated: list[tuple[list[str], merge_queue.Gate]]) -> None:
@@ -5605,15 +5753,20 @@ class Landing:
             verdicts = done.verdicts
             if verdictless(done) or done.unparsed:
                 if done.code == TIMED_OUT:
-                    self.skips |= {pr: f"GATE-TIMEOUT its {self.adapter.kind} check ran past {GATE_CHECK_SECONDS}s on both tries and was killed, so the next pass checks it again" for tip in tips for pr in downstack(open_rows, tip)}
+                    self.settle({pr for tip in tips for pr in downstack(open_rows, tip)}, Refused(f"GATE-TIMEOUT its {self.adapter.kind} check ran past {GATE_CHECK_SECONDS}s on both tries and was killed, so the next pass checks it again"))
                 else:
-                    self.gate_failed(tips, done)
+                    self.gate_failed(tips, done, open_rows)
                 continue
+            for pr, match in verdicts.items():
+                if match["verdict"] == QUEUED_VERDICT:
+                    self.settle([pr], Queued(IN_QUEUE_SAID))
+                elif match["verdict"] == "BLOCKED":
+                    self.settle([pr], Refused(f"the gate read {match['sha']} BLOCKED: {match['detail']}"))
+                elif match["verdict"] == WAITING_VERDICT and (below := BELOW_BLOCKED.search(match["detail"])):
+                    self.settle([pr], BelowBlocked(f"#{below[1]}", f"the gate read {match['sha']} WAITING {match['detail']}"))
             if (would := self.direct_would(done)) is not None:
                 self.accept(tips, would, verdicts, rows, held)
             for pr, match in verdicts.items():
-                if match["verdict"] == "BLOCKED" and pr in rows:
-                    self.skips[pr] = f"the gate read {match['sha']} BLOCKED: {match['detail']}"
                 if match["verdict"] == "BLOCKED" and pr not in rows and self.adapter.rider(match):
                     if pr not in self.admit({pr: match["sha"]}):
                         self.runner.escalate(f"unnamed:{pr}@{match['sha']}", "FOREIGN", numbered(tips), f"#{pr} would ride the batch, and {NOT_ADMITTED}; nothing was enqueued; {ADMIT_HOW.format(pr=pr)}", "", self.routine_audience(tips, rows))
@@ -5668,12 +5821,29 @@ class Landing:
         self.bodies[pr] = (now, json.loads(done.out)["body"] or "")
         return self.bodies[pr][1]
 
-    def gate_failed(self, tips: list[str], done: merge_queue.Gate) -> None:
-        """Escalate `GATE-FAILED` for a check that read no verdict, or printed an enqueue prefix the adapter cannot read, naming only the tips that have not landed since the pass read the ledger and that GitHub does not read merged, since a direct merge deletes the branch the check fetches before the ledger settles its squash (root #200922)."""
+    def gate_failed(self, tips: list[str], done: merge_queue.Gate, open_rows: dict[str, dict]) -> None:
+        """Settle the stack of each tip a check read no verdict for, or printed an enqueue prefix the adapter cannot read for, and escalate `GATE-FAILED` naming only the tips that have not landed since the pass read the ledger and that GitHub does not read merged, since a direct merge deletes the branch the check fetches before the ledger settles its squash (root #200922). An admitted head stacked on an open PR the pass did not admit is below-blocked on it, never a failed gate."""
         landed = self.landed_now(tips)
-        if left := [tip for tip in tips if tip not in landed and self.shell.run(ghread.read("pr", "view", tip, "--repo", self.repo, "--json", "state", "--jq", ".state", max_age=ghread.FRESH)).out.strip() != "MERGED"]:
-            said = f"printed an enqueue prefix the adapter cannot read, so nothing enqueues until the adapter matches the script: {done.unparsed}" if done.unparsed else f"exited {done.code} with no verdict: {done.last}"
-            self.runner.escalate(f"gate:{','.join(left)}:{hashlib.sha1(done.last.encode()).hexdigest()[:8]}", "GATE-FAILED", numbered(left), f"the {self.adapter.kind} check {said}")
+        left = [tip for tip in tips if tip not in landed and self.shell.run(ghread.read("pr", "view", tip, "--repo", self.repo, "--json", "state", "--jq", ".state", max_age=ghread.FRESH)).out.strip() != "MERGED"]
+        said = f"printed an enqueue prefix the adapter cannot read, so nothing enqueues until the adapter matches the script: {done.unparsed}" if done.unparsed else f"exited {done.code} with no verdict: {done.last}"
+        failed = []
+        for tip in left:
+            stack = downstack(open_rows, tip)
+            if (below := self.unadmitted_base(tip, open_rows)) and below[1] & self.settlement.heads.keys():
+                base, above = below
+                self.settle(above, BelowBlocked(base, f"stacked on {base}, which the pass did not admit, so its {self.adapter.kind} check read no verdict: {done.last}"))
+                continue
+            failed.append(tip)
+            self.settle(stack, Refused(f"the {self.adapter.kind} check {said}"))
+        if failed:
+            self.runner.escalate(f"gate:{','.join(failed)}:{hashlib.sha1(done.last.encode()).hexdigest()[:8]}", "GATE-FAILED", numbered(failed), f"the {self.adapter.kind} check {said}")
+
+    def unadmitted_base(self, tip: str, open_rows: dict[str, dict]) -> tuple[str, set[str]] | None:
+        """The lowest open PR below `tip` the pass did not admit, with the PRs of the stack above it, or None."""
+        stack = downstack(open_rows, tip)
+        if not (unadmitted := sorted((member for member in stack - {tip} if member not in self.settlement.heads), key=lambda member: len(downstack(open_rows, member)))):
+            return None
+        return f"#{unadmitted[0]}", {member for member in stack if unadmitted[0] in downstack(open_rows, member) - {member}}
 
     def landed_now(self, tips: list[str]) -> set[str]:
         """The tips whose ledger row reads landed once `ledger.py landed` settles them by their squash on the freshly fetched trunk."""
@@ -6206,6 +6376,7 @@ class Landing:
             admitted = self.admit({pr: rows.get(pr, {}).get("head") or (verdicts[pr]["sha"] if pr in verdicts else "") for pr in foreign if not rows.get(pr, {}).get("unadmitted")})
             if unclaimed := [pr for pr in foreign if pr not in admitted]:
                 self.runner.escalate(f"foreign:{base}", "FOREIGN", numbered(tips), f"the {self.adapter.kind} check would also enqueue {', '.join('#' + pr for pr in unclaimed)}, which the drive did not admit; nothing was enqueued", "", self.routine_audience(tips, rows))
+            self.settle(prefix, Refused(f"the {self.adapter.kind} check would also enqueue {numbered(foreign)}, which the drive did not admit, so nothing was enqueued"))
             return
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         if out := cut_out(prefix, set(held), open_rows):
@@ -6214,14 +6385,20 @@ class Landing:
                 left = f"the enqueue names only {numbered(prefix)}, with `--partial`" if prefix else "nothing in it is enqueued"
                 self.runner.escalate(f"held-out:{base}", "HELD-OUT", numbered(tips), f"a hold covers {self.hold_sources(named, rows)}, so {numbered(out)} stay out of the batch and {left}")
         batched = self.whole_batches(prefix, tips, rows, open_rows)
-        if not batched or self.whole() and batched != prefix:
+        if self.whole() and batched != prefix:
+            self.settle(batched, Refused(f"the whole-stack policy enqueues {numbered(prefix)} only whole"))
             return
         prefix = batched
         if fork := unlanded_fork(prefix, open_rows):
             self.runner.escalate(f"fork:{base}", "FORK-DEFERRED", numbered(tips), f"{numbered(prefix)} fork off #{fork}, which has not landed; Graphite keeps one linear chain per batch, so they enqueue once #{fork} lands", "", self.landing_audience(prefix, rows, ""))
+            self.settle(prefix, BelowBlocked(f"#{fork}", f"they fork off #{fork}, which has not landed, and the queue keeps one linear chain per batch, so they enqueue once #{fork} lands"))
             return
         while prefix and (refused := self.accept_prefix(prefix, verdicts, rows)) and not self.whole():
             out = cut_out(prefix, refused, open_rows)
+            for pr in out:
+                if pr not in refused:
+                    below = min(downstack(open_rows, pr) & refused, key=lambda member: len(downstack(open_rows, member)))
+                    self.settle([pr], BelowBlocked(f"#{below}", f"stacked on #{below}, which a check refused, so the prefix is cut below it"))
             prefix = self.whole_batches([pr for pr in prefix if pr not in out], tips, rows, open_rows)
 
     def whole_batches(self, prefix: list[str], tips: list[str], rows: dict[str, dict], open_rows: dict[str, dict]) -> list[str]:
@@ -6234,26 +6411,36 @@ class Landing:
             kept = [pr for pr in kept if pr not in out]
         if waiting := [pr for pr in prefix if pr not in kept]:
             self.runner.escalate(f"batch-waits:{','.join(waiting)}", "BATCH-WAITS", numbered(tips), f"a root go binds {numbered(waiting)} into a batch the queue cannot take whole in one call yet, so they stay out of this enqueue")
+            self.settle(waiting, Refused(f"a root go binds {numbered(waiting)} into a batch the queue cannot take whole in one call yet"))
         return kept
 
     def accept_prefix(self, prefix: list[str], verdicts: dict[str, re.Match], rows: dict[str, dict]) -> set[str]:
         """Accept one enqueue of `prefix` at its heads unless an earlier attempt, ejection, pull, or awaited `go` already decides it; a fresh attempt only after every earlier one enqueued nothing. Returns the PRs the first refusing accept check holds, empty when nothing refused."""
         base = enqueue_key(prefix, verdicts)
+        heads = enqueued_heads(base)
         enqueues = self.book.actions(LANDING, kind="enqueue")
         ejected = {pr: sha for action in enqueues if action.response for pr, sha in action.response.get("ejected", {}).items()}
-        if any(sha and ejected.get(pr) == sha for pr, sha in enqueued_heads(base).items()):
+        if any(sha and ejected.get(pr) == sha for pr, sha in heads.items()):
+            self.settle(prefix, Refused("the queue ejected it at this head, so it enqueues again at a new head or on `mq.py requeue`"), heads)
             return set()
         pulled = {(action.response["pulled"]["pr"], enqueued_heads(action.action_id).get(action.response["pulled"]["pr"])) for action in enqueues if (action.response or {}).get("outcome") == PULLED}
-        if any((pr, sha) in pulled for pr, sha in enqueued_heads(base).items()):
+        if any((pr, sha) in pulled for pr, sha in heads.items()):
+            self.settle(prefix, Refused("a dequeue pulled it at this head, so it stays out until `mq.py requeue`"), heads)
             return set()
-        if self.awaiting_go(enqueues, enqueued_heads(base)):
+        if self.awaiting_go(enqueues, heads):
+            self.settle(prefix, Refused("the queue dropped it for a failure outside its stack, so it waits for a root go posted after the drop"), heads)
             return set()
         attempts = [action for action in enqueues if action.action_id.split("#")[0] == base]
-        if any(action.status != "completed" or not self.retries(action) for action in attempts):
+        if decided := next((action for action in attempts if action.status != "completed" or not self.retries(action)), None):
+            self.settle(prefix, attempt_outcome(decided), heads)
             return set()
-        if failed := self.failing(ACCEPT_CHECKS, Graded(enqueued_heads(base), rows, self.runner.now(), act=True)):
-            return set(failed[1])
+        if failed := self.failing(ACCEPT_CHECKS, Graded(heads, rows, self.runner.now(), act=True)):
+            name, states = failed
+            for pr, state in states.items():
+                self.settle([pr], Refused(f"the {name} check reads {state.state}: {state.reason}"), heads)
+            return set(states)
         self.book.accept(LANDING, f"{base}#{len(attempts) + 1}", "enqueue", ",".join(prefix), self.authority(), self.runner.now() + (DIRECT_DEADLINE if self.down_since() else timedelta(minutes=self.runner.config.enqueue_minutes)))
+        self.settle(prefix, InFlight("enqueue", self.book.stamp()), heads)
         return set()
 
     def retries(self, attempt: actions.Action) -> bool:
@@ -6281,10 +6468,7 @@ class Landing:
         early = {"merge-mode": self.check("merge-mode", graded)} if "merge-mode" in stage and "merge-mode" in self.checks else {}
         for name in self.checks:
             if name in stage and (states := {pr: state for pr, state in (early[name] if name in early else self.check(name, graded)).items() if state.state != merge_queue.PASS}):
-                self.check_refused |= {pr: graded.heads[pr] for pr in states if pr in graded.heads}
                 return name, states
-        for pr in graded.heads:
-            self.check_refused.pop(pr, None)
         return None
 
     def check(self, name: str, graded: Graded) -> dict[str, merge_queue.State]:
@@ -7155,15 +7339,19 @@ class Landing:
         if not self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now(), deadline=actions.parse_stamp(action.deadline))):
             return
         prefix = action.target.split(",")
+        heads = enqueued_heads(key)
         rows = self.rows() or {}
         if any(not rows.get(pr, {}).get("ours") for pr in prefix):
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "foreign", "out": "", "at": self.book.stamp()}))
+            self.settle(prefix, Refused(f"a PR of {numbered(prefix)} is no longer the drive's, so nothing was enqueued"), heads)
             return
         if landed := self.landed_now(prefix):
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "landed", "out": f"{numbered(sorted(landed, key=int))} already landed on {TRUNK}", "at": self.book.stamp()}))
+            self.settle(landed, Landed(), heads)
+            self.settle(set(prefix) - landed, InFlight("re-gate", self.book.stamp()), heads)
             return
         accepted_at = actions.parse_stamp(action.accepted_at)
-        graded = Graded(enqueued_heads(key), rows, accepted_at, act=True)
+        graded = Graded(heads, rows, accepted_at, act=True)
         if failed := self.failing(HOLD_CHECKS, graded):
             self.refuse(key, prefix, {pr: state.reason for pr, state in failed[1].items()})
             return
@@ -7172,26 +7360,31 @@ class Landing:
         current = enqueue_key(would, fresh.verdicts) if (would := self.direct_would(fresh)) is not None else ""
         if current != key.split("#")[0]:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "superseded", "out": fresh.out[-800:], "at": self.book.stamp()}))
+            self.settle(prefix, Refused(f"its accepted enqueue was superseded, since the check now reads: {fresh.last}"), heads)
             return
         if failed := self.failing(ENQUEUE_CHECKS, graded):
             name, states = failed
             text = f"the {name} check refuses " + "; ".join(f"#{pr}: {state.reason}" for pr, state in states.items())
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": text, "at": self.book.stamp()}))
-            self.skips |= dict.fromkeys(prefix, f"its accepted enqueue ended blocked: {text}")
+            self.settle(prefix, Refused(f"its accepted enqueue ended blocked: {text}"), heads)
             return
         down = self.down_since()
-        outcome, out, last = self.merge_chains(tops, enqueued_heads(key), rows) if down else self.enqueue_chains(tops, enqueued_heads(key), self.whole())
+        outcome, out, last = self.merge_chains(tops, heads, rows) if down else self.enqueue_chains(tops, heads, self.whole())
         if outcome in BELIEVED_QUEUED:
-            self.moved_in_queue(enqueued_heads(key))
+            self.moved_in_queue(heads)
         if outcome in BELIEVED_QUEUED and (late := self.holding(prefix, rows, accepted_at)):
             outcome, out = self.dequeue(key, prefix, rows, late)
         self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": out, "why": last, "drive": self.runner.config.drive, "version": RUNNING_VERSION, "at": self.book.stamp()}))
         if outcome in BELIEVED_QUEUED:
-            self.post_record("report", f"queued:{key}", self.landing_audience(prefix, rows, self.queue_audience(prefix, rows)), f"QUEUED {self.queue_line(enqueued_heads(key))}: the landing runner put it in the merge queue at {pacific(self.runner.now())}", prefix[-1])
+            queued = Queued(QUEUE_SAID.format(at=pacific(self.runner.now())))
+            self.post_settled(heads, queued)
+            self.settle(prefix, queued, heads)
+        elif outcome == MERGED:
+            self.settle(prefix, Landed(), heads)
+        else:
+            self.settle(prefix, Refused(f"its newest {'direct merge' if down else 'enqueue'} ended {outcome}: {last}"), heads)
         if outcome in ("stranded", "failed", "unsettled"):
             self.runner.escalate(key, f"{'DIRECT-MERGE' if down else 'ENQUEUE'}-{outcome.upper()}", numbered(tops), last)
-        if outcome not in BELIEVED_QUEUED and outcome != MERGED:
-            self.skips |= dict.fromkeys(prefix, f"its newest {'direct merge' if down else 'enqueue'} ended {outcome}: {last}")
 
     def queue_line(self, heads: dict[str, str]) -> str:
         """Each PR the runner enqueued, at the head it enqueued, with the root `go` that names that head or `no go at this head`."""
@@ -7587,11 +7780,13 @@ class Landing:
         return ""
 
     def refuse(self, key: str, prefix: list[str], standing: dict[str, str]) -> None:
-        """Complete an enqueue as `refused` and log one `REFUSED` line naming each hold, once per set of heads and holds."""
+        """Complete an enqueue as `refused`, settle its admitted heads as refused naming each hold, and log one `REFUSED` line for a prefix the pass did not admit, once per set of heads and holds."""
         why = "; ".join(f"#{pr} is held by {reason}" for pr, reason in standing.items())
         text = f"enqueue of {numbered(prefix)} refused: {why}; it goes through once nothing holds them and no hold is newer than their ready record"
-        self.runner.escalate(f"refused:{key.split('#')[0]}:{hashlib.sha1(why.encode()).hexdigest()[:8]}", "REFUSED", numbered(prefix), text)
         self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "refused", "out": text, "at": self.book.stamp()}))
+        self.settle(prefix, Refused(text), enqueued_heads(key))
+        if not set(prefix) <= self.settlement.heads.keys():
+            self.runner.escalate(f"refused:{key.split('#')[0]}:{hashlib.sha1(why.encode()).hexdigest()[:8]}", "REFUSED", numbered(prefix), text)
 
     def dequeue(self, key: str, prefix: list[str], rows: dict[str, dict], late: dict[str, str]) -> tuple[str, str]:
         """Take a just-enqueued prefix back out of the queue after a hold appeared during the call: every held PR and every PR stacked above one, top first, through the adapter's dequeue, telling every drive that names each one. Returns the outcome, `dequeued` once the queue let go of all of them and `held-queued` otherwise, and its text."""
@@ -7632,7 +7827,10 @@ class Landing:
                 self.runner.escalate(key, "UNVERIFIABLE", f"#{prefix[-1]}", f"the queue holds {', '.join('#' + pr for pr in queued) or 'none'} of {', '.join('#' + pr for pr in prefix)}; nothing was re-enqueued")
 
     def verify(self, rows: dict[str, dict]) -> None:
-        """Verify each admitted enqueue whose PRs all read landed, and post one `landed` record per PR and landing squash, naming the newest enqueue that carried it, however many queue entries the runner recorded for it (p8a-step7 #202436)."""
+        """Verify each admitted enqueue whose PRs all read landed, and post one `landed` record per PR and landing squash, naming the newest enqueue that carried it, however many queue entries the runner recorded for it (p8a-step7 #202436). A PR of such an enqueue the ledger reads closed under Trunk's merged label, as it reads a Trunk merge before it finds the squash, is settled through `ledger.py landed` first, so its record posts the pass the merge is read (#220775)."""
+        if closed := sorted({pr for action in self.book.actions(LANDING, kind="enqueue", status="completed") if action.response["outcome"] in ADMITTED for pr in action.target.split(",") if rows.get(pr, {}).get("state") == "closed" and TRUNK_MERGED_LABEL in rows[pr].get("labels", "").split(",")}, key=int):
+            self.landed_now(closed)
+            rows = self.rows() or rows
         announced = {landing for action in self.book.actions(LANDING, kind="bus") if action.action_id.startswith(LANDED_KEY) for landing in action.action_id.removeprefix(LANDED_KEY).split(",")}
         for action in sorted(self.book.actions(LANDING, kind="enqueue", status="completed"), key=lambda action: action.accepted_at, reverse=True):
             prefix = action.target.split(",")
@@ -7846,68 +8044,119 @@ class Landing:
             to = self.go_audience([pr], rows)
             self.runner.escalate(key, "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and {go_state(self.root_gos(), pr, head).said()} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}{waits}; owner lane {owner}", subject, to)
 
-    def audit_admitted(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Escalate `ADMITTED-SKIPPED` to the root and the owning lane, once per head, for each open drive PR green at its ledger head that a root `go` or an exemption admits there, `ADMISSION_AUDIT` after it was admitted, that the pass's queue read finds neither queued nor landed (only landed counts while Graphite is down), that no stack worker holds, that no check of the runner refused at that head the last time it ran (a finder or fidelity refusal is its own record, root #210691), whose every PR below is admitted the same way or already queued, that this runner's own `MERGED` record does not name as merged directly, which its ledger row lags until the next refresh settles it (root #211747), and that no refusal of this runner or the desk lane, `GO-UNQUEUED` or failed direct merge names: the escalation says which branch of the pass last left it out, or that none recorded one (owner, 5:16 AM Oct 30; root #208560). It writes every admitted head, as `merging` or, once escalated, `defect`, with the time it was admitted, to `drive.ADMITTED` beside `orca.desk_inbox`, where the dashboard reads it so an admitted head never waits on the owner."""
-        if (statuses := self.pr_statuses()) is None:
-            return
+    def admission(self, rows: dict[str, dict], held: list[str], statuses: dict[str, dict] | None) -> Settlement:
+        """The pass's `Settlement`: each open row of the drive green at its ledger head, under no hold, neither merged directly by this runner nor read landed by the queue, that a root `go` or an exemption names at that head, since it was both green and named, each settled `Queued` when the queue read holds it."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         covered = under_hold(open_rows, held)
-        settled = {"landed"} if self.down_since() else STATUS_SETTLED
-        with self.dispatching:
-            busy = {pr for members, future in self.inflight.values() if not future.done() for pr in members}
-        now, gos = self.runner.now(), self.root_gos()
         merged = {action.action_id.removeprefix(MERGED_DIRECT).split("@")[0] for action in self.book.actions(LANDING, kind="bus") if action.action_id.startswith(MERGED_DIRECT)}
-
-        def cleared(member: str) -> bool:
-            row, head = open_rows[member], open_rows[member].get("head", "")
-            if statuses.get(member, {}).get("queue") in settled:
-                return True
-            return bool(row.get("ours") and head and row.get("test_state") == "success") and member not in covered and self.check_refused.get(member) != head and bool(gone_at(gos, member, head) or self.exempt_admitted(member, head)[0])
-
-        published: dict[str, dict] = {}
-        for pr, row in sorted(open_rows.items(), key=lambda item: int(item[0])):
+        queues = {pr: entry["queue"] for pr, entry in (statuses or {}).items()}
+        gos = self.root_gos()
+        heads, since = {}, {}
+        for pr, row in open_rows.items():
             head = row.get("head", "")
-            stack = downstack(open_rows, pr)
-            if pr in merged or statuses.get(pr, {}).get("queue") == "landed" or not all(map(cleared, stack)):
+            if not row.get("ours") or row.get("test_state") != "success" or pr in covered or pr in merged or queues.get(pr) == "landed" or not self.free_to_land(gos, pr, head):
                 continue
-            gos_at = gone_at(gos, pr, head)
-            since = [min(max(actions.parse_stamp(go["at"]), actions.parse_stamp(go.get("graded_at") or go["at"])) for go in gos_at)] if gos_at else []
-            since += [actions.parse_stamp(row["green_at"])] if row.get("green_at") else []
-            if not since:
-                continue
-            admitted = max(since)
-            published[pr] = {"head": head, "since": actions.stamp(admitted), "state": "merging"}
-            if pr in busy or statuses.get(pr, {}).get("queue") in settled or now - admitted < ADMISSION_AUDIT or self.recorded(stack, open_rows, admitted):
-                continue
-            if self.unpassed_check(pr, head, rows):
-                del published[pr]
-                continue
-            owner = self.owner(pr, row)
-            by = f"root go #{gos_at[0]['seq']}" if gos_at else "its exemption"
-            why = self.skips.get(pr) or "no branch of the landing pass recorded why it left it out"
-            published[pr] |= {"state": "defect", "why": why}
-            self.runner.escalate(f"admitted-skipped:{pr}@{head}", "ADMITTED-SKIPPED", f"#{pr}", f"#{pr} is green at {head[:10]} and {by} admitted it {whole_minutes(admitted, now)} minutes ago, yet no record says it is queued, merging or refused: {why}; owner lane {owner or ROOT}", f"admitted-skipped:{pr}", ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])))
-        drive.write_atomic(self.runner.config.desk_inbox.parent / drive.ADMITTED, {"at": actions.stamp(now), "heads": published})
+            named = [max(actions.parse_stamp(go["at"]), actions.parse_stamp(go.get("graded_at") or go["at"])) for go in gone_at(gos, pr, head)]
+            green = [actions.parse_stamp(row["green_at"])] if row.get("green_at") else []
+            heads[pr], since[pr] = head, actions.stamp(max([*([min(named)] if named else []), *green], default=self.runner.now()))
+        settlement = Settlement(heads, since)
+        if not self.down_since():
+            for pr in heads:
+                if queues.get(pr) == QUEUED_STATE:
+                    settlement.settle(pr, heads[pr], Queued(IN_QUEUE_SAID))
+        settlement.saw(heads, "the admission read")
+        return settlement
 
-    def unpassed_check(self, pr: str, head: str, rows: dict[str, dict]) -> str:
-        """The first configured check `mq.py why` reads as failing or pending on `pr` at `head`, adapter checks aside, which a pass that left the head out waits on, or empty (root #218731)."""
-        graded = Graded({pr: head}, rows, self.runner.now(), act=False)
-        return next((f"{name} {state.state} {state.reason}".rstrip() for name in self.checks if name not in ADAPTER_CHECKS and (state := self.check(name, graded).get(pr)) and state.state != merge_queue.PASS), "")
+    def settle(self, prs: Iterable[str], outcome: Outcome, heads: dict[str, str] | None = None) -> None:
+        """Settle each of `prs` admitted at its head in `heads`, its ledger head when none is given, as `outcome`."""
+        for pr in prs:
+            self.settlement.settle(pr, (heads or self.row_heads).get(pr, ""), outcome)
 
-    def recorded(self, members: set[str], open_rows: dict[str, dict], since: datetime) -> bool:
-        """Whether a record already accounts for a PR of `members` left out of the queue: an enqueue of it at its head still running, or, while Graphite is down, one waiting in the `QUEUE` record's serial line, a refusal `last_refusal` finds, or a `GO-UNQUEUED` or failed direct merge escalated since `since`."""
-        down = self.down_since() is not None
-        for action in self.book.actions(LANDING, kind="enqueue"):
-            named = [pr for pr, sha in enqueued_heads(action.action_id).items() if pr in members and sha and open_rows[pr].get("head", "").startswith(sha)]
-            if named and (action.status != "completed" or down and action.response.get("outcome") in ("blocked", "failed") and action.response.get("why")):
-                return True
-        if self.last_refusal(members, open_rows, since):
-            return True
-        return any(
-            action.target.split()[0] == "GO-UNQUEUED" or action.target.startswith("DIRECT-MERGE-")
-            for action in self.book.actions(RUNNER, kind="escalation")
-            if actions.parse_stamp(action.accepted_at) >= since and any(re.search(rf"#{member}\b|\b{member}@", action.target) for member in members)
-        )
+    def close_settlement(self, off: str) -> None:
+        """Post one record for each set of admitted heads whose outcome changed since its newest record, every head's outcome a refusal naming `off` while gating is off; a head no branch settled is `REFUSED unsettled` to the root as a defect, naming the last branch that saw it, and one a stack worker still holds is in flight and posts nothing. Write every admitted head's state to `drive.ADMITTED`, where the dashboard reads it. A pass after a failed cci read posts nothing, as `trust_reads` refuses."""
+        if self.runner.read_failed_at >= self.trusted_from:
+            return
+        settlement = self.settlement
+        with settlement.lock:
+            settled, seen = dict(settlement.outcomes), dict(settlement.seen)
+        with self.dispatching:
+            steps = {pr: entry for entry in self.steps.values() for pr in entry["members"]}
+            busy = {pr for members, future in self.inflight.values() if not future.done() for pr in members}
+        outcomes: dict[str, Outcome] = {}
+        for pr in settlement.heads:
+            if off:
+                outcomes[pr] = Refused(f"gating off: {off}")
+            elif pr in settled:
+                outcomes[pr] = settled[pr]
+            elif pr in busy:
+                outcomes[pr] = InFlight(steps[pr]["step"], steps[pr]["since"]) if pr in steps else InFlight("waiting for a stack worker", self.book.stamp())
+            else:
+                outcomes[pr] = Refused(f"{UNSETTLED} {seen.get(pr, 'no branch of the pass saw it')}")
+        groups: dict[Posted, dict[str, str]] = {}
+        for pr, outcome in outcomes.items():
+            if isinstance(outcome, Posted):
+                groups.setdefault(outcome, {})[pr] = settlement.heads[pr]
+        for outcome, heads in groups.items():
+            self.post_settled(heads, outcome)
+        self.book.edit(LANDING, lambda incident: incident.facts.update({SETTLED: {pr: kept for pr, kept in incident.facts.get(SETTLED, {}).items() if pr in settlement.heads}}))
+        published = {pr: {"head": settlement.heads[pr], "since": settlement.since[pr], "state": admitted_state(outcome)} | ({"why": outcome.why} if isinstance(outcome, Refused | BelowBlocked) else {}) for pr, outcome in outcomes.items()}
+        drive.write_atomic(self.runner.config.desk_inbox.parent / drive.ADMITTED, {"at": self.book.stamp(), "heads": published})
+
+    def post_settled(self, heads: dict[str, str], outcome: Posted) -> None:
+        """Post one record naming each head of `heads` whose newest posted outcome is not `outcome`, and keep `outcome` as each one's newest once it posts, so every admitted head carries exactly one QUEUED, REFUSED or BELOW-BLOCKED record per change (root #221701)."""
+        signature = f"{outcome.label} {outcome.reason}".rstrip()
+        stored = self.book.fact(LANDING, SETTLED, {})
+        if not (fresh := {pr: head for pr, head in heads.items() if stored.get(pr) != [head[:10], signature]}):
+            return
+        rows, prs = self.ledger_rows, list(fresh)
+        if isinstance(outcome, Queued):
+            kind, to, text = "report", self.landing_audience(prs, rows, self.queue_audience(prs, rows)), f"QUEUED {self.queue_line(fresh)}: {outcome.said}"
+        elif isinstance(outcome, BelowBlocked):
+            gos = self.root_gos()
+            cited = " and ".join(f"#{pr} at {head[:10]} ({go_state(gos, pr, head).said()})" for pr, head in fresh.items())
+            kind, to, text = "note", self.landing_audience([*prs, outcome.base.removeprefix("#")], rows, ROOT), f"BELOW-BLOCKED above {outcome.base}: root gos name {cited}, {outcome.why}"
+        elif outcome.why.startswith(UNSETTLED):
+            kind, to, text = "defect", ",".join(dict.fromkeys([ROOT, *self.go_audience(prs, rows).split(",")])), f"REFUSED {self.queue_line(fresh)}: {outcome.why}"
+        else:
+            kind, to, text = "report", self.go_audience(prs, rows), f"REFUSED {self.queue_line(fresh)}: {outcome.why}"
+        key = f"settled:{','.join(f'{pr}@{head[:10]}' for pr, head in fresh.items())}:{hashlib.sha1(signature.encode()).hexdigest()[:8]}:{self.book.stamp()}"
+        if self.post_record(kind, key, to, text, prs[-1]):
+            self.book.edit(LANDING, lambda incident: incident.facts.setdefault(SETTLED, {}).update({pr: [head[:10], signature] for pr, head in fresh.items()}))
+
+    def refuse_pulled(self, rows: dict[str, dict], pulled: set[str]) -> None:
+        """Settle each admitted head a dequeue order or a pulled head keeps out of the queue, and each stacked on one, which no check of the pass reaches."""
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
+        for pr in under_hold(open_rows, sorted(pulled, key=int)):
+            if pr in pulled:
+                self.settle([pr], Refused("a dequeue keeps it out of the queue until `mq.py requeue`"))
+            elif not self.settlement.settled(pr):
+                below = min(downstack(open_rows, pr) & pulled, key=lambda member: len(downstack(open_rows, member)))
+                self.settle([pr], BelowBlocked(f"#{below}", f"stacked on #{below}, which a dequeue keeps out of the queue until `mq.py requeue`"))
+
+    def row_records(self, rows: dict[str, dict]) -> None:
+        """Register under its lane each PR a `head` or `opened` record of this drive posted since the last pass names that has no ledger row, so the gate finds the row a go names (root #221244); a register that fails logs `UNROWED`, and a root go posted since then naming a PR no row holds and no such record names logs `GO-UNROWED`, once each."""
+        cursor = self.book.fact(LANDING, ROWED_READ, None)
+        if cursor is None:
+            newest = cci.records(self.cci_tail, self.runner.config.drive, "--limit", "1")
+            self.book.edit(LANDING, lambda incident: incident.facts.update({ROWED_READ: max((record["seq"] for record in newest), default=0)}))
+            return
+        read = cci.records(self.cci_tail, self.runner.config.drive, "--kind=head", "--kind=opened", since=cursor)
+        gos = [go for go in self.root_gos() if go["seq"] > cursor]
+        named = set()
+        for record, pr, head in self.runner.named_heads(self.repo, read):
+            if pr in rows or pr in named:
+                continue
+            named.add(pr)
+            done = self.ledger_py("register", "--ledger", self.ledger, "--repo", self.repo, "--lane", record["lane"], "--pr", pr)
+            if done.code:
+                last = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
+                self.runner.escalate(f"unrowed:{pr}", "UNROWED", f"#{pr}", f"{record['lane']}'s {record['kind']} record cci #{record['seq']} names #{pr} at {head[:10]}, which has no ledger row, and ledger.py register refused it: {last}")
+        for go in gos:
+            for pr, sha in go_heads(go).items():
+                if pr not in rows and pr not in named:
+                    self.runner.escalate(f"go-unrowed:{pr}@{sha}", "GO-UNROWED", f"#{pr}", f"root go #{go['seq']} names #{pr} at {sha}, which has no ledger row and no head or opened record names, so the landing runner never gates it; its lane registers it with `ledger.py register --pr {pr}`")
+        if seqs := [record["seq"] for record in read] + [go["seq"] for go in gos]:
+            self.book.edit(LANDING, lambda incident: incident.facts.update({ROWED_READ: max(seqs)}))
 
     def keep_overflowing(self) -> None:
         """Run `overflow` every `OVERFLOW_EVERY` from a daemon thread, on a Landing of its own that reads cci afresh, so no pass, however slow, holds a landable stack out of the queue (owner 9524276). An overflow that raises prints its traceback and the next one runs."""
@@ -8023,10 +8272,9 @@ class Landing:
             return
         outcome, out, last = self.adapter.enqueue([top], self.whole(), heads)
         self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": out, "drive": self.runner.config.drive, "at": self.book.stamp(), OVERFLOW: True}))
-        rows = self.ledger_rows
         if outcome in BELIEVED_QUEUED:
             waited = whole_minutes(since, self.runner.now())
-            self.post_record("report", f"queued:{key}", self.landing_audience(prefix, rows, self.queue_audience(prefix, rows)), f"QUEUED {self.queue_line(enqueued_heads(key))}: the landing runner's overflow put it straight in the merge queue at {pacific(self.runner.now())}, {waited} minutes after it found it landable and unqueued, without its own checks (owner 9524276)", top)
+            self.post_settled(enqueued_heads(key), Queued(f"the landing runner's overflow put it straight in the merge queue at {pacific(self.runner.now())}, {waited} minutes after it found it landable and unqueued, without its own checks (owner 9524276)"))
         elif outcome in ("stranded", "failed", "unsettled"):
             self.runner.escalate(key, f"ENQUEUE-{outcome.upper()}", numbered([top]), f"the overflow enqueue of {numbered(prefix)} ended {outcome}: {last}")
 
@@ -8654,7 +8902,7 @@ class Landing:
         if self.runner.read_failed_at >= self.trusted_from:
             raise CciTailFailed("a cci read failed since the previous landing pass began, so this runner refuses nothing until a pass reads cleanly")
 
-    def post_record(self, kind: str, key: str, to: str, text: str, pr: str, cause: str = "", re_seq: str = "") -> None:
+    def post_record(self, kind: str, key: str, to: str, text: str, pr: str, cause: str = "", re_seq: str = "") -> bool:
         self.book.accept(LANDING, key, "bus", json.dumps({"lane": to, "pr": pr, "text": text, "kind": kind} | ({"cause": cause} if cause else {})), key, None)
         self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
         done = self.runner.cci_post(kind, text, to, pr, key, pr=pr, flags=["--re", re_seq] if re_seq else None)
@@ -8662,6 +8910,7 @@ class Landing:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"posted": done.out.strip()[:200], "at": self.book.stamp()}))
         else:
             self.book.attempt(LANDING, lambda incident: incident.fail(key, (done.err or done.out).strip()[:300]))
+        return done.code == 0
 
     def verify_restacks(self, rows: dict[str, dict]) -> None:
         """A restack route is verified once its PR's head moves or the PR lands."""
@@ -8780,7 +9029,11 @@ class Landing:
         self.trusted_from, self.pass_began = self.pass_began, time.monotonic()
         self.surface()
         self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why, self.cleared, self.exempts = None, False, None, None, None, set(), {}, {}, {}
+        self.settlement = Settlement({}, {})
         if self.quota_low():
+            if rows := self.rows():
+                self.settlement = self.admission(rows, self.held(rows), None)
+                self.close_settlement(QUOTA_OFF)
             return
         with ThreadPoolExecutor(1) as pool:
             advancing = pool.submit(self.advance)
@@ -8796,13 +9049,25 @@ class Landing:
             self.draw_card(rows)
         if not rows:
             return
+        self.row_records(rows)
         self.carry_taps(rows)
-        held = self.held(rows) if advanced and read else None
+        holds = self.held(rows)
+        held = holds if advanced and read else None
         self.held_now = held or []
-        gating = held is not None and not self.checks_paused()
+        off = self.gating_off(advanced, read)
+        self.settlement = self.admission(rows, holds, None if off else self.pr_statuses())
+        try:
+            self.gate_rows(rows, held, not off)
+        finally:
+            self.close_settlement(off)
+        self.runner.overdue(LANDING, "landing")
+
+    def gate_rows(self, rows: dict[str, dict], held: list[str] | None, gating: bool) -> None:
         self.no_go = self.unpassed(rows) if gating else set()
         self.refuse_ungone_parents(rows, held or [])
-        barred = sorted({*(held or []), *self.no_go, *self.pull_ordered(rows)}, key=int)
+        pulled = self.pull_ordered(rows)
+        self.refuse_pulled(rows, pulled)
+        barred = sorted({*(held or []), *self.no_go, *pulled}, key=int)
         gone = self.land_gone(rows, barred) if gating else set()
         self.runner.steps(lambda: self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}), self.reconcile, lambda: self.requeue(rows))
         if not self.side_work:
@@ -8814,8 +9079,17 @@ class Landing:
         if held is not None:
             self.runner.steps(lambda: self.squash_incidents(rows, held))
             if gating:
-                self.runner.steps(lambda: self.gate(rows, barred, gone), self.enqueue, self.post_queue, lambda: self.unqueued_gos(rows, held), lambda: self.tell_unpassed(rows, held), lambda: self.audit_admitted(rows, held))
-        self.runner.overdue(LANDING, "landing")
+                self.runner.steps(lambda: self.gate(rows, barred, gone), self.enqueue, self.post_queue, lambda: self.unqueued_gos(rows, held), lambda: self.tell_unpassed(rows, held))
+
+    def gating_off(self, advanced: bool, read: bool) -> str:
+        """Why the pass gates nothing, or empty: a checkout that did not fast-forward, a trunk check that did not read, or a `checks_paused` wait."""
+        if not advanced:
+            return f"the landing checkout did not fast-forward to origin/{TRUNK}"
+        if not read:
+            return f"{TRUNK}'s trunk check did not read"
+        if self.checks_paused():
+            return "landing.checks_wait_for_go waits for a newer root go"
+        return ""
 
 
 def seed_policy(runner: Runner) -> None:

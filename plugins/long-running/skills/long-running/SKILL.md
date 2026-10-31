@@ -1795,10 +1795,12 @@ out only when its own newest enqueue of that head since the go ended blocked, fa
 stranded or unsettled, or went in and the queue then evicted it, never for backlog, naming that
 outcome or the eviction's time and reason. A head the queue evicted before any enqueue gets one
 blocker to the root and its lane naming the eviction, and while Graphite is down it merges
-directly like a head the dead queue still holds. Every head a go or an exemption admits is,
-within ten minutes, queued, merging or refused by a record; one with none gets one
-`ADMITTED-SKIPPED` to the root and its lane naming the branch of the pass that left it out
-(owner, 5:16 AM Oct 30). A go'd head whose queue draft closed unmerged is
+directly like a head the dead queue still holds. Every head a go or an exemption admits
+carries, from the pass that admits it, exactly one `QUEUED`, `REFUSED` (naming the gate line or
+the check) or `BELOW-BLOCKED` record per change of its outcome, and none while it stays the
+same; one no branch of the pass settled posts `REFUSED unsettled:` to the root naming the last
+branch that saw it, and a pass that gates nothing refuses each admitted head with
+`gating off:` and why (owner, 5:16 AM Oct 30). A go'd head whose queue draft closed unmerged is
 dequeued once and enqueued afresh (`ORPHAN-RELEASED`), never `--recover`ed. The root clears that one
 thing in the same turn or spawns the lane that does. When the review bot's newest
 `ai-review` run on that head reads Held, the line says the bot holds it on N blocking
@@ -1815,7 +1817,7 @@ carries its grade, below) is that gate's record there, and nobody re-grades it.
 lane, each `landing.board_lane`, and the PR's owning lane, each read as its live
 successor, and not to root. A ledger row that settles landed with no enqueue or squash of the
 runner's own, queued by hand or landed in a batch it did not enqueue, gets its own `LANDED`
-record the pass the ledger reads its squash. A `GO-UNQUEUED` or `GO-TAP-MISSING` for a PR goes to each
+record the pass the ledger reads its squash. A `GO-UNQUEUED`, `GO-TAP-MISSING` or `REFUSED` for a PR goes to each
 `landing.go_lanes` lane, the desk lanes and the owning lane, and to root only when the owning lane is dead. A `LANE-GONE` for a lane goes to root every time, and to those lanes and
 the gone lane too after the first, since only root relaunches a lane. Without
 `landing.desk_lane` they go to root.
