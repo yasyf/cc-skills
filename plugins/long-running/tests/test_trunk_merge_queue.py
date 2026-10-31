@@ -83,6 +83,16 @@ def test_failed_verification_is_not_guessed_to_be_a_flake_or_an_own_red():
     assert queue.recover(["20"])[0] != 0
 
 
+def test_a_failed_trunk_attempt_is_a_blocker_that_says_only_the_queue_dropped_the_head():
+    """Root #228786: stack-enqueue prints `Trunk attempt <time> failed: <reason>` for a failed head, and the adapter routed none of it."""
+    queue = adapter(Shell())
+    failed = verdict("Trunk attempt 2026-10-30T23:10:00Z failed: TEST_RUN_REQUIRED_STATUS_FAILED (verification v1); inspect its verification and push a fix or explicitly name this PR with --flake")
+    assert queue.blocker(failed, {"20"}, False) == merge_queue.Blocker(failed["detail"], False)
+    assert queue.evicted_only(failed)
+    assert not queue.evicted_only(verdict(f"{failed['detail']}; required check test is FAILURE"))
+    assert queue.ejection(failed, {"20"}) is None
+
+
 def test_known_native_conflict_routes_as_conflict():
     queue = adapter(Shell())
     failed = verdict("GitHub mergeability CONFLICTING; run ccx vcs stack submit for conflicts")

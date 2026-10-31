@@ -2599,9 +2599,44 @@ def test_a_trunk_label_reads_as_queued_or_landed_where_the_status_read_says_unkn
     unknown = {"number": 45651, "queue": "unknown", "verdict": "blocked:queue-unknown"}
     assert runner_module.trunk_labelled(unknown, {"labels": "trunk-not-ready"})["queue"] == "queued"
     assert runner_module.trunk_labelled(unknown, {"labels": "externally-merged,trunk-merged"})["verdict"] == "landed"
-    assert runner_module.trunk_labelled(unknown, {"labels": "trunk-failed"}) == unknown
+    assert runner_module.trunk_labelled(unknown, {"labels": "trunk-failed,trunk-queued"})["queue"] == "queued"
     evicted = {"number": 45651, "queue": "not queued", "verdict": "landable"}
     assert runner_module.trunk_labelled(evicted, {"labels": "trunk-testing"}) == evicted
+
+
+def test_a_trunk_failed_or_cancelled_label_reads_as_evicted_where_the_status_read_says_unknown():
+    """Root #228786: ccx read a head Trunk failed as queue unknown, so the runner believed it queued and nothing said it fell out."""
+    unknown = {"number": 45722, "queue": "unknown", "verdict": "blocked:queue-unknown"}
+    assert runner_module.trunk_labelled(unknown, {"labels": "externally-merged,trunk-failed"}) == unknown | {"queue": "evicted", "evicted": "Trunk labelled it trunk-failed"}
+    assert runner_module.trunk_labelled(unknown, {"labels": "trunk-cancelled"})["evicted"] == "Trunk labelled it trunk-cancelled"
+
+
+TRUNK_FAILED_GATE = "#33001 BLOCKED aaaa111111 Trunk attempt 2026-10-30T23:10:00Z failed: TEST_RUN_REQUIRED_STATUS_FAILED (verification v1); inspect its verification and push a fix or explicitly name this PR with --flake"
+
+
+def test_a_head_trunk_failed_posts_one_red_to_its_lane_and_root_and_leaves_the_queue_believed_empty(shell, config, tmp_path, monkeypatch):
+    """Root #228786: Trunk failed #45722, #45922 and #45199 in the preload window and the runner posted nothing, believing each still queued."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["adapter"] = {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}
+    config.write_text(json.dumps(raw))
+    monkeypatch.setenv("TRUNK_MERGE_API_KEY", "trunk-secret")
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 Trunk notSubmitted")
+    shell.gates["33001"] = ["#33001 GREEN aaaa111111 Trunk notSubmitted\nwould enqueue native stack through #33001: #33001\n"]
+    shell.enqueue_out["33001"] = (0, "#33001 QUEUED aaaa111111 native stack covers #33001\n")
+    shell.queue["33001"] = "unknown"
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+    shell.rows[0] |= {"labels": "externally-merged,trunk-failed"}
+    shell.gates["33001"] = [gate(TRUNK_FAILED_GATE)]
+    shell.clock += runner_module.STATUS_MAX_AGE + timedelta(minutes=1)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [post] = blockers(shell)
+    assert "root" in post["to"].split(",") and LANE in post["to"].split(",")
+    assert post_body(post).startswith("#33001 aaaa111111: Trunk attempt 2026-10-30T23:10:00Z failed: TEST_RUN_REQUIRED_STATUS_FAILED (verification v1); inspect its verification and push a fix or explicitly name this PR with --flake; the queue dropped it at ")
+    assert post_body(post).endswith(": Trunk labelled it trunk-failed")
+    assert len(shell.enqueues()) == 1
 
 
 def test_a_check_with_no_verdict_on_a_pr_github_reads_merged_escalates_nothing(shell, config, tmp_path):
