@@ -5315,7 +5315,7 @@ def test_a_reserved_touch_found_after_the_enqueue_was_accepted_enqueues_nothing(
     landing.drain()
     assert shell.enqueues() == []
     [action] = enqueues_of(tmp_path).values()
-    assert action.response["outcome"] == "blocked" and action.response["out"].startswith("the merge-mode check refuses #29020: merge mode auto waits for the owner's Merge answer")
+    assert action.response["outcome"] == "blocked" and action.response["out"].startswith("the merge-mode check refuses #29020: reserved row reserved/user-data (User data stays where it is.) waits for the owner's tap on a merge card at cccc333 that quotes it")
 
 
 def test_a_head_regraded_missing_after_its_enqueue_was_accepted_enqueues_nothing(shell, config, tmp_path):

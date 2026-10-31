@@ -7214,7 +7214,13 @@ class Landing:
                 self.refuse_head(f"tap-rule:{pr}:{graded.heads[pr]}", pr, graded, why, untapped, also=[ROOT, *self.board_lanes])
             for pr, why in unread.items():
                 self.warn_head(f"tap-unread:{pr}:{graded.heads[pr]}:{why}", pr, graded, why, also=[ROOT, *self.runner.landing_lanes("desk_lane")])
-        return {pr: merge_queue.State(merge_queue.PENDING, f"merge mode {self.merge_mode} waits for the owner's Merge answer at {graded.heads[pr][:7]}") for pr in waiting} | {pr: merge_queue.State(merge_queue.PENDING, why) for pr, why in (untapped | unread).items()}
+        return {pr: merge_queue.State(merge_queue.PENDING, self.owner_wait(pr, graded.heads[pr])) for pr in waiting} | {pr: merge_queue.State(merge_queue.PENDING, why) for pr, why in (untapped | unread).items()}
+
+    def owner_wait(self, pr: str, sha: str) -> str:
+        """What a PR the merge-mode check holds waits on at `sha`: the owner's tap authorizing each reserved row it touches, which no go or carried tap stands in for (C224), else his Merge answer."""
+        if reserved := self.reserved_touches(pr, sha):
+            return f"reserved row {', '.join(f'{key} ({words})' for key, words in reserved)} waits for the owner's tap on a merge card at {sha[:7]} that quotes it, which no go or carried tap stands in for (C224)"
+        return f"merge mode {self.merge_mode} waits for the owner's Merge answer at {sha[:7]}"
 
     def untapped(self, heads: dict[str, str]) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
         """Each PR of `heads` whose changed files a glob of a `landing.tap_rules` row names, while that row is in the register in force, and no approval on the root's board names any head of the PR, with why it waits, since a root `go` never stands in for the owner's tap (rule/82317b0); each PR whose changed files, register, or board did not read, with what did not, which the runner leaves unqueued for the landing desk rather than guess a merge (4236611); and each such PR the owner's port and test-only rulings admit with no tap, with its `EXEMPT-ADMITTED` note (06288326)."""
