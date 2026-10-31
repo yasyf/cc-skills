@@ -349,12 +349,14 @@ def test_a_codex_lane_reads_a_brief_copy_that_hands_its_pr_prose_to_opus(orca, m
     assert "## PR record" not in text
 
 
-def test_a_codex_lane_in_a_drive_reads_a_brief_copy_that_records_its_pr_and_posts_it_opened(orca):
+def test_a_codex_lane_in_a_drive_reads_a_brief_copy_that_registers_it_first_and_records_its_pr_opened(orca):
     orca.env["CLAUDE_LONG_RUNNING_DRIVE"] = "900424b6"
     orca.healthy(agent="codex")
     orca.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": "ready", "taskId": "task_a", "dispatchId": "ctx_a", "effects": [{"kind": "terminal", "role": "agent", "id": "term_a"}]}}})
     assert orca.launch("lane-a", "incident", "xhigh", str(orca.brief)).returncode == 0
     text = (orca.receipts / "lane-a.brief.md").read_text()
+    register = "`cci post --drive '900424b6' --lane 'lane-a' --kind state --stamp 'lane-a: registered at its first command'`"
+    assert text.startswith("## First command") and text.index(register) < text.index(orca.brief.read_text())
     assert text.index("## PR prose") < text.index("## PR record")
     assert f"`'{BIN}/drive.py' record --opened --drive '900424b6' --session \"$CODEX_THREAD_ID\" --lane 'lane-a' --cwd \"$PWD\" --pr <number>=<head>`" in text
 

@@ -2080,12 +2080,12 @@ def test_red_ci_a_conflict_a_review_ask_or_an_ejection_goes_to_the_lane(shell, c
     [
         ([], set(), "chat-move-r4"),
         ([("chat-move-r4", "opened"), ("chat-move-land-2", "head"), ("one-session-open-restack", "ready")], set(), "one-session-open-restack"),
-        ([("chat-move-r4", "opened"), ("chat-move-land-2", "claim")], {"chat-move-land-2"}, "chat-move-land-2,root"),
+        ([("chat-move-r4", "opened"), ("chat-move-land-2", "claim")], {"chat-move-land-2"}, "chat-move-land-2"),
         ([("a1f2e3d4a5b6c7d8e", "opened"), ("p3-census", "report", "clean READY #29020 green")], set(), "p3-census"),
         ([("chat-move-land-2", "head"), ("root", "report", "CI is still red on #29020")], set(), "chat-move-land-2"),
     ],
 )
-def test_a_blocker_goes_to_the_newest_head_opened_ready_or_claim_poster_and_the_root_when_that_lane_is_gone(shell, config, posted, gone, to):
+def test_a_blocker_goes_to_the_newest_head_opened_ready_or_claim_poster_even_when_that_lane_is_gone(shell, config, posted, gone, to):
     shell.rows = [ONE_ROW | {"lane": "chat-move-r4"}]
     shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED")]
     shell.records = [
@@ -2127,82 +2127,7 @@ def post_body(post: dict) -> str:
     return Path(post["path"]).read_text().removesuffix("\n") if "path" in post else post["text"]
 
 
-@pytest.mark.parametrize(("minutes", "to"), [(59, "p8e-desktop-ship-3,root"), (61, "root")])
-def test_a_blocker_whose_lane_has_no_session_and_no_record_in_an_hour_goes_to_root_alone_as_owner_lane_dead(shell, config, minutes, to):
-    shell.rows = [ONE_ROW | {"lane": "chat-move-r4"}]
-    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED")]
-    shell.records = [{"seq": 34766, "drive": "d1", "lane": "p8e-desktop-ship-3", "kind": "head", "to": ["root"], "refs": {"prs": [29020]}, "text": "#29020 head", "source": "post", "at": actions.stamp(shell.clock - timedelta(minutes=minutes))}]
-    shell.gone = {"p8e-desktop-ship-3"}
-    landing_pass(shell, config)
-    [blocker] = blockers(shell)
-    dead = post_body(blocker).startswith("owner lane dead: p8e-desktop-ship-3 has no live session and no record in 60 min, so this comes to root; #29020 cccc333333: ")
-    assert (blocker["to"], dead) == (to, to == "root")
-
-
-def test_a_dead_owner_lanes_blocker_goes_to_the_restack_lane_the_drive_names_not_root(shell, config):
-    raw = json.loads(config.read_text())
-    raw["landing"]["restack_lane"] = "restack-worker"
-    config.write_text(json.dumps(raw))
-    shell.rows = [ONE_ROW | {"lane": "chat-move-r4"}]
-    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED")]
-    shell.records = [{"seq": 34766, "drive": "d1", "lane": "p8e-desktop-ship-3", "kind": "head", "to": ["root"], "refs": {"prs": [29020]}, "text": "#29020 head", "source": "post", "at": actions.stamp(shell.clock - timedelta(minutes=61))}]
-    shell.gone = {"p8e-desktop-ship-3"}
-    landing_pass(shell, config)
-    [blocker] = blockers(shell)
-    assert blocker["to"] == "restack-worker"
-    assert post_body(blocker).startswith("owner lane dead: p8e-desktop-ship-3 has no live session and no record in 60 min, so this comes to restack-worker; #29020 cccc333333: ")
-
-
-def test_a_dead_owner_lanes_blocker_goes_to_root_when_the_restack_lane_is_dead_too(shell, config):
-    raw = json.loads(config.read_text())
-    raw["landing"]["restack_lane"] = "restack-worker"
-    config.write_text(json.dumps(raw))
-    shell.rows = [ONE_ROW | {"lane": "chat-move-r4"}]
-    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED")]
-    shell.records = [{"seq": 34766, "drive": "d1", "lane": "p8e-desktop-ship-3", "kind": "head", "to": ["root"], "refs": {"prs": [29020]}, "text": "#29020 head", "source": "post", "at": actions.stamp(shell.clock - timedelta(minutes=61))}]
-    shell.gone = {"p8e-desktop-ship-3", "restack-worker"}
-    landing_pass(shell, config)
-    [blocker] = blockers(shell)
-    assert blocker["to"] == "root"
-
-
 CONFLICT = "GitHub reads CONFLICTING (DIRTY) against dev; run ccx vcs stack submit from the branch's worktree: cd /w && ccx vcs stack submit"
-
-
-def parked(shell: FakeShell) -> list[str]:
-    return [line for line in escalations(shell) if line.startswith("PARKED")]
-
-
-def posted_lately(shell: FakeShell, lane: str) -> None:
-    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": lane, "kind": "note", "to": ["root"], "refs": {}, "text": "still working", "source": "post", "at": actions.stamp(shell.clock)})
-
-
-@pytest.mark.parametrize("dispatch", [None, "completed"], ids=["no-dispatch", "settled-dispatch"])
-def test_a_conflict_for_a_lane_with_no_live_dispatch_or_session_is_parked_once(shell, config, tmp_path, dispatch):
-    if dispatch:
-        shell.launch(LANE, "ctx_a", status=dispatch)
-    shell.gone = {LANE}
-    posted_lately(shell, LANE)
-    shell.rows = [ONE_ROW]
-    shell.gates["29020"] = [gate(f"#29020 BLOCKED cccc333333 {CONFLICT}")]
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    shell.rows = [ONE_ROW | {"head": "dddd444444", "reported_head": "dddd444444"}]
-    shell.gates["29020"] = [gate(f"#29020 BLOCKED dddd444444 {CONFLICT}")]
-    landing_pass(shell, config)
-    assert parked(shell) == [f"PARKED parked:29020 #29020: cccc333333: {LANE} has no live dispatch or cci session, so its conflict routes to no one until the lane is back: {CONFLICT}"]
-    assert blockers(shell) == [] and shell.sends() == []
-
-
-def test_a_parked_conflict_routes_once_its_lane_is_back(shell, config, tmp_path):
-    shell.gone = {LANE}
-    posted_lately(shell, LANE)
-    shell.rows = [ONE_ROW]
-    shell.gates["29020"] = [gate(f"#29020 BLOCKED cccc333333 {CONFLICT}")]
-    landing_pass(shell, config)
-    shell.gone = set()
-    landing_pass(shell, config)
-    assert len(parked(shell)) == 1 and [post["text"] for post in blockers(shell)] == [f"#29020 cccc333333: {CONFLICT}"]
 
 
 def test_a_landed_pr_with_an_unpruned_branch_gets_no_blocker(shell, config, tmp_path):
@@ -7252,17 +7177,15 @@ def test_an_old_app_grade_posted_after_the_pass_scanned_its_reviews_draws_no_war
     assert not [note for note in notes(shell) if "OLD-APP-PENDING #29020" in post_body(note)]
 
 
-@pytest.mark.parametrize(("session", "posted", "to"), [(True, False, f"{LANE},fidelity-desk"), (False, True, f"{LANE},fidelity-desk"), (False, False, "fidelity-desk")], ids=["live", "no-session", "dead"])
-def test_an_old_app_warning_reaches_its_living_lane_and_the_fidelity_lanes_and_never_the_root(shell, config, tmp_path, session, posted, to):
+@pytest.mark.parametrize("session", [True, False], ids=["live", "no-session"])
+def test_an_old_app_warning_reaches_its_lane_and_the_fidelity_lanes_and_never_the_root(shell, config, tmp_path, session):
     old_app_checked(config)
     lone_green_pr(shell)
     shell.gone = set() if session else {LANE}
-    if posted:
-        posted_lately(shell, LANE)
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
     [pending] = [note for note in notes(shell) if "OLD-APP-PENDING #29020" in post_body(note)]
-    assert (pending["to"], post_body(pending).startswith("#29020 cccc333333: WARNING")) == (to, True)
+    assert (pending["to"], post_body(pending).startswith("#29020 cccc333333: WARNING")) == (f"{LANE},fidelity-desk", True)
 
 
 def test_an_old_app_warning_for_a_rotated_lane_reaches_its_live_successor_and_the_fidelity_lanes(shell, config, tmp_path):
@@ -8799,7 +8722,7 @@ def test_a_delivered_relay_is_never_failed_or_reported_again_when_its_dispatch_e
     container = incident(tmp_path, f"desk-lane-{LANE}")
     assert (container.actions["R437"].status, container.actions["R440"].status) == ("accepted", "failed")
     assert len(shell.sends()) == 1
-    assert [line for line in escalations(shell) if not line.startswith(("RECLAIM", "LANE-GONE"))] == [f"RELAY-FAILED R440 {LANE}: no live dispatch (ctx_a is completed); nothing was relayed"]
+    assert [line for line in escalations(shell) if not line.startswith("RECLAIM")] == [f"RELAY-FAILED R440 {LANE}: no live dispatch (ctx_a is completed); nothing was relayed"]
 
 
 UNREACHABLE_FAILURES = [
@@ -10560,186 +10483,6 @@ def cci_record(shell: FakeShell, **fields) -> int:
     seq = 34766 + len(shell.records)
     shell.records.append({"seq": seq, "num": f"#{seq}", "drive": "d1", "lane": "root", "kind": "go", "to": [], "source": "post", **fields})
     return seq
-
-
-LANE_GONE_ADVICE = "a roster or cci miss is not absence: SendMessage it and spawn a successor only when it has not answered in 5 minutes"
-
-
-def dispatch_gone_lines(shell: FakeShell) -> list[str]:
-    return [line for line in escalations(shell) if line.startswith("LANE-GONE ")]
-
-
-def test_an_orca_lane_whose_dispatch_failed_in_an_outage_is_lane_gone_on_the_first_pass_orca_answers(shell, config, tmp_path):
-    shell.launch(LANE, "ctx_a")
-    seq = cci_record(shell, lane=LANE, kind="report", text=f"REPORT {LANE}: rebased", at=actions.stamp(shell.clock))
-    orca_pass(shell, config)
-    shell.orca_down = UNREACHABLE_FAILURES[0]
-    shell.sleep(60)
-    orca_pass(shell, config)
-    shell.dispatches["ctx_a"]["status"] = "failed"
-    shell.orca_down = None
-    shell.sleep(60)
-    orca_pass(shell, config)
-    orca_pass(shell, config)
-    assert dispatch_gone_lines(shell) == [
-        f"LANE-GONE lane-gone:{LANE} {LANE}: Orca shows its dispatch ctx_a failed; its last record is #{seq} report at 11:00, 2 min ago;"
-        " Orca gave no answer from 11:01 until this pass (runtime_unavailable: Could not connect to the running Orca app. Restart Orca.); relaunch it from its brief and handoff"
-    ]
-    assert [line.split()[0] for line in escalations(shell) if line.startswith("ORCA-")] == ["ORCA-UNREACHABLE", "ORCA-BACK"]
-
-
-def test_an_orca_lane_whose_terminal_is_missing_is_lane_gone_on_that_pass(shell, config, tmp_path):
-    shell.launch(LANE, "ctx_a")
-    orca_pass(shell, config)
-    shell.dispatches["ctx_a"]["missing"] = True
-    orca_pass(shell, config)
-    orca_pass(shell, config)
-    assert dispatch_gone_lines(shell) == [f"LANE-GONE lane-gone:{LANE} {LANE}: Orca shows its dispatch ctx_a dispatched with its terminal term_ctx_a missing; it has posted no record; relaunch it from its brief and handoff"]
-
-
-@pytest.mark.parametrize("ended", ["done", "worker_done"])
-def test_an_orca_lane_that_ended_its_work_is_never_lane_gone_when_its_dispatch_settles(shell, config, tmp_path, ended):
-    shell.launch(LANE, "ctx_a")
-    orca_pass(shell, config)
-    if ended == "done":
-        lane_record(shell, LANE, "done")
-    else:
-        shell.receive({"type": "worker_done", "subject": "shipped", "payload": json.dumps({"dispatchId": "ctx_a", "outcome": "succeeded"})})
-    shell.dispatches["ctx_a"]["status"] = "completed"
-    orca_pass(shell, config)
-    assert dispatch_gone_lines(shell) == []
-
-
-@pytest.mark.parametrize(("seen_minutes_ago", "gone"), [(20, True), (5, False), (None, True)])
-def test_a_lane_silent_past_a_root_order_logs_one_lane_gone(shell, config, tmp_path, seen_minutes_ago, gone):
-    last = cci_record(shell, lane="p8-lane", kind="head", text="HEAD #29020 cccc333333", at=actions.stamp(shell.clock - timedelta(minutes=40)))
-    order = cci_record(shell, kind="decide", to=["p8-lane", "drive-watchdog"], text="p8-lane: rebase onto the new seed", at=actions.stamp(shell.clock - timedelta(minutes=30)))
-    cci_record(shell, lane="drive-watchdog", kind="note", text="ack", at=actions.stamp(shell.clock - timedelta(minutes=1)))
-    if seen_minutes_ago is None:
-        shell.gone.add("p8-lane")
-    else:
-        shell.seen["p8-lane"] = actions.stamp(shell.clock - timedelta(minutes=seen_minutes_ago))
-    orca_pass(shell, config)
-    orca_pass(shell, config)
-    lines = [line for line in escalations(shell) if line.startswith("LANE-GONE")]
-    assert len(lines) == gone
-    if gone:
-        assert lines[0].startswith(f"LANE-GONE lane-gone:p8-lane p8-lane: root #{order} to p8-lane unanswered; its last record is #{last} head at ")
-        assert lines[0].endswith(("cci last saw it 20 min ago; " + LANE_GONE_ADVICE, "cci lists no session for it; " + LANE_GONE_ADVICE))
-
-
-def test_with_a_desk_lane_a_repeat_lane_gone_still_reaches_root(shell, config, tmp_path):
-    desk_lane(config)
-    cci_record(shell, lane="p8-lane", kind="head", text="HEAD #29020 cccc333333", at=actions.stamp(shell.clock - timedelta(minutes=40)))
-    cci_record(shell, kind="decide", to=["p8-lane"], text="p8-lane: rebase onto the new seed", at=actions.stamp(shell.clock - timedelta(minutes=30)))
-    shell.gone.add("p8-lane")
-    orca_pass(shell, config)
-    orca_pass(shell, config)
-    cci_record(shell, kind="decide", to=["p8-lane"], text="p8-lane: and drop the old shim", at=actions.stamp(shell.clock - timedelta(minutes=1)))
-    orca_pass(shell, config)
-    orca_pass(shell, config)
-    assert heard(shell, "LANE-GONE") == ["root", f"root,{DESK},p8-lane"]
-
-
-@pytest.mark.parametrize("answer", [judge_says("no", "It is a worker of p8-parent, waiting on a build.", "its rebase waits on build 94412"), judge_says("yes", "It went quiet with a rebase owed."), None], ids=["false-alarm", "real", "no-answer"])
-def test_a_lane_gone_the_judge_reads_as_waiting_posts_one_judge_silenced_note_and_no_alarm(shell, config, tmp_path, judges, answer):
-    """Root #217949: p8a7-fast-start was a p8a-step7 worker, not a lane, and its LANE-GONE drew a no-successor answer; the judge reads the orders, the lane's own records and the records naming it first."""
-    last = cci_record(shell, lane="p8-lane", kind="head", text="HEAD #29020 cccc333333", at=actions.stamp(shell.clock - timedelta(minutes=40)))
-    cci_record(shell, kind="decide", to=["p8-lane"], text="p8-lane: rebase onto the new seed", at=actions.stamp(shell.clock - timedelta(minutes=30)))
-    cci_record(shell, lane="p8-parent", kind="note", to=["root"], text="p8-lane is my worker; its rebase waits on build 94412", at=actions.stamp(shell.clock - timedelta(minutes=20)))
-    shell.gone.add("p8-lane")
-    judges.verdicts["lane-gone"] = answer
-    orca_pass(shell, config)
-    orca_pass(shell, config)
-    gone = [line for line in escalations(shell) if line.startswith("LANE-GONE")]
-    silenced = [line for line in escalations(shell) if line.startswith("JUDGE-SILENCED")]
-    if answer and answer.verdict == "no":
-        assert gone == [] and silenced == ['JUDGE-SILENCED silenced:lane-gone:p8-lane p8-lane: the LANE-GONE alarm is false, the judge reads: It is a worker of p8-parent, waiting on a build. It rests on: "its rebase waits on build 94412"']
-    else:
-        assert len(gone) == 1 and silenced == []
-    [(kind, evidence, artifact)] = judges.read
-    orders, own, naming = evidence.split("\n\n")
-    assert orders.startswith("The root's orders to p8-lane it has not answered, oldest first:\n") and orders.endswith("DECIDE root -> p8-lane: p8-lane: rebase onto the new seed")
-    assert own.startswith("p8-lane's own last records, oldest first:\n") and f"#{last} " in own
-    assert naming.startswith("Other lanes' records that name p8-lane, oldest first:\n") and naming.endswith("NOTE p8-parent -> root: p8-lane is my worker; its rebase waits on build 94412")
-    assert artifact.startswith("LANE-GONE lane-gone:p8-lane p8-lane: root #")
-
-
-@pytest.mark.parametrize("answer", [{"lane": "p8-lane-2", "kind": "note", "text": "taking over"}, {"kind": "stand-down", "to": ["p8-lane"], "text": "p8-lane: stand down"}])
-def test_a_successor_record_or_a_root_stand_down_answers_a_lane_order(shell, config, tmp_path, answer):
-    cci_record(shell, lane="p8-lane", kind="head", text="HEAD #29020 cccc333333", at=actions.stamp(shell.clock - timedelta(minutes=40)))
-    cci_record(shell, kind="decide", to=["p8-lane"], text="p8-lane: rebase onto the new seed", at=actions.stamp(shell.clock - timedelta(minutes=30)))
-    cci_record(shell, **answer, at=actions.stamp(shell.clock - timedelta(minutes=20)))
-    shell.gone |= {"p8-lane", "p8-lane-2"}
-    orca_pass(shell, config)
-    assert not [line for line in escalations(shell) if line.startswith("LANE-GONE")]
-
-
-@pytest.mark.parametrize("why", ["fresh order", "fresh spawn", "resolved report", "answered report", "live dispatch"])
-def test_a_fresh_order_a_fresh_spawn_or_a_report_the_root_settled_logs_no_lane_gone(shell, config, tmp_path, why):
-    cci_record(shell, lane="p8-lane", kind="head", text="HEAD #29020 cccc333333", at=actions.stamp(shell.clock - timedelta(minutes=50)))
-    if why.endswith("report"):
-        report = cci_record(shell, lane="desk-runner", kind="report", text="LANE-GONE lane-gone:p8-lane:34700 p8-lane: root #34700 to p8-lane unanswered", at=actions.stamp(shell.clock - timedelta(minutes=45)))
-        cci_record(shell, kind="note", to=["desk-runner"], text="p8-lane is alive", at=actions.stamp(shell.clock - timedelta(minutes=44)), **({"resolves": [report]} if why == "resolved report" else {"re": report}))
-    cci_record(shell, kind="decide", to=["p8-lane"], text="p8-lane: rebase onto the new seed", at=actions.stamp(shell.clock - timedelta(minutes=5 if why == "fresh order" else 30)))
-    if why == "fresh spawn":
-        shell.seen_as["p8-lane"] = ("root", actions.stamp(shell.clock - timedelta(minutes=40)))
-        shell.announced["p8-lane"] = actions.stamp(shell.clock - timedelta(minutes=4))
-    if why == "live dispatch":
-        shell.launch("p8-lane", "ctx_p8")
-    orca_pass(shell, config)
-    assert not [line for line in escalations(shell) if line.startswith("LANE-GONE")]
-
-
-@pytest.mark.parametrize(
-    ("kind", "text", "gone"),
-    [
-        ("decide", "Owners for the reds: team 10 -> drive-watchdog; #29020 stays with p8-lane, READY", False),
-        ("note", "p8-lane: FYI the seed moved", False),
-        ("ask", "which seed did #29020 run on?", True),
-        ("correction", "p8-lane: rebase onto the new seed", True),
-    ],
-    ids=["decide-listing-the-lane", "note", "ask", "correction-ordering-the-lane"],
-)
-def test_a_lane_with_no_session_is_gone_only_when_a_root_record_it_owes_goes_unanswered(shell, config, tmp_path, kind, text, gone):
-    cci_record(shell, lane="p8-lane", kind="head", text="HEAD #29020 cccc333333", at=actions.stamp(shell.clock - timedelta(minutes=40)))
-    cci_record(shell, kind=kind, to=["p8-lane", "drive-watchdog"], text=text, at=actions.stamp(shell.clock - timedelta(minutes=30)))
-    shell.gone.add("p8-lane")
-    orca_pass(shell, config)
-    orca_pass(shell, config)
-    assert len([line for line in escalations(shell) if line.startswith("LANE-GONE lane-gone:p8-lane ")]) == gone
-
-
-@pytest.mark.parametrize("lane", ["stall-watch", "prompt-watch"])
-def test_a_root_order_to_a_runner_child_pass_logs_no_lane_gone(shell, config, tmp_path, lane):
-    cci_record(shell, lane=lane, kind="urgent", to=["root"], text="STALE #29020 at cccc333, 130 min: held", at=actions.stamp(shell.clock - timedelta(minutes=40)))
-    cci_record(shell, kind="decide", to=[lane], text=f"{lane}: close the stale alarms on #29020", at=actions.stamp(shell.clock - timedelta(minutes=30)))
-    shell.gone.add(lane)
-    orca_pass(shell, config)
-    orca_pass(shell, config)
-    assert not [line for line in escalations(shell) if line.startswith("LANE-GONE")]
-
-
-def test_a_lane_cci_lists_under_another_lane_by_its_agent_name_is_not_gone(shell, config, tmp_path):
-    cci_record(shell, lane="p8-lane", kind="head", text="HEAD #29020 cccc333333", at=actions.stamp(shell.clock - timedelta(minutes=40)))
-    cci_record(shell, kind="decide", to=["p8-lane"], text="p8-lane: rebase onto the new seed", at=actions.stamp(shell.clock - timedelta(minutes=30)))
-    shell.seen_as["p8-lane"] = ("root", actions.stamp(shell.clock - timedelta(minutes=2)))
-    orca_pass(shell, config)
-    assert not [line for line in escalations(shell) if line.startswith("LANE-GONE")]
-
-
-@pytest.mark.parametrize(("lane", "kind"), [("p8-lane", "done"), ("p8-lane", "handoff"), ("orca-desk", "head"), ("finder-desk", "review"), ("dashboard-dev", "defect")])
-def test_a_lane_that_ended_its_work_a_desk_pass_or_a_script_posting_only_defects_never_reads_as_gone(shell, config, tmp_path, lane, kind):
-    cci_record(shell, lane=lane, kind=kind, text="delivered", at=actions.stamp(shell.clock - timedelta(minutes=40)))
-    cci_record(shell, kind="decide", to=[lane], text=f"{lane}: one more edit", at=actions.stamp(shell.clock - timedelta(minutes=30)))
-    shell.gone.add(lane)
-    orca_pass(shell, config)
-    assert not [line for line in escalations(shell) if line.startswith("LANE-GONE")]
-
-
-@pytest.mark.parametrize(("name", "lane", "expected"), [("p8-lane-2", "p8-lane", True), ("p8-lane-3", "p8-lane-2", True), ("p8-lane-2", "p8-lane-2", False), ("p8-lane-2", "p8-lane-3", False), ("p8-lane-x", "p8-lane", False), ("p8-lanes-2", "p8-lane", False)])
-def test_succeeds_reads_a_numbered_successor_only(name, lane, expected):
-    assert runner_module.succeeds(name, lane) is expected
 
 
 def test_a_withdraw_line_stops_a_held_launch_before_it_starts(shell, config, tmp_path):

@@ -568,37 +568,6 @@ def test_a_failed_sonnet_call_leaves_the_carry_to_both_owners_and_asks_again_nex
     assert "if it is a patch-identical restack; if it adds no new behavior, his tap keeps (rule 399b5fa) and root posts `go #101 at abc1234` naming the fix once fidelity grades it, and the row lists the fix; else root re-asks the owner at abc1234" in shell.post("carry:101:abc1234")["text"]
 
 
-def test_one_sonnet_call_judges_every_quiet_lane_and_only_a_kept_promise_or_a_named_wait_holds_off_its_stall(config, tmp_path):
-    for number, lane in enumerate(["lane-a", "lane-b", "lane-c", "lane-d", "lane-e"], start=1):
-        task(tmp_path, number, lane, minutes_ago=45)
-    task(tmp_path, 6, "lane-f", status="completed")
-    task(tmp_path, 7, "lane-g", minutes_ago=5)
-    records = [
-        record(1, "lane-a", "state", "pushed the fix", 40),
-        record(2, "lane-b", "state", "waiting on CI build 123, about an hour", 35),
-        record(3, "lane-c", "state", "next state by 12:50 PM", 20),
-        record(4, "lane-e-2", "state", "rebasing now", 2),
-        record(5, "lane-f", "state", "done earlier", 300),
-    ]
-    shell = FakeShell(records, [])
-    verdicts = {"lane-a": {"explained": False}, "lane-b": {"explained": True}, "lane-c": {"promised": stamp(10)}}
-    shell.answer = lambda question: verdicts[question["lane"]]
-
-    watch(shell, config)
-
-    assert len(shell.prompts) == 1
-    assert sorted(json.loads(shell.prompts[0].split("Questions:\n", 1)[1]), key=lambda question: question["lane"]) == [
-        {"kind": "silence", "lane": "lane-a", "last_at": stamp(40), "minutes_silent": 40, "last_record": "pushed the fix", "id": "lane:lane-a:1"},
-        {"kind": "silence", "lane": "lane-b", "last_at": stamp(35), "minutes_silent": 35, "last_record": "waiting on CI build 123, about an hour", "id": "lane:lane-b:2"},
-        {"kind": "silence", "lane": "lane-c", "last_at": stamp(20), "minutes_silent": 20, "last_record": "next state by 12:50 PM", "id": "lane:lane-c:3"},
-    ]
-    assert sorted(shell.topics()) == ["lane:lane-a", "lane:lane-c", "lane:lane-d"]
-    assert shell.post("lane:lane-a")["to"] == "lane-a@d1"
-    assert "promised its next state by 12:50 PM" in shell.post("lane:lane-c")["text"]
-    assert shell.post("lane:lane-d")["to"] == "root"
-    assert "it owns task #4 in progress, given it by 12:15 PM, and has posted nothing since" in shell.post("lane:lane-d")["text"]
-
-
 def test_an_open_ask_to_root_stalls_until_root_answers_it(config):
     records = [
         record(1, "api-lane", "ask", "which head do I rebase on?", 20, status="open"),
@@ -676,35 +645,6 @@ def test_a_desk_runner_whose_alive_record_went_silent_stalls_to_root_with_its_re
 
 def spawn(seq: int, lane: str, minutes_ago: float, brief: str = "/briefs/lane.md") -> dict:
     return record(seq, "root", "state", f"SPAWNED {lane} {brief}", minutes_ago, topic=f"spawn:{lane}")
-
-
-def test_a_spawned_lane_that_neither_posts_nor_binds_within_three_minutes_stalls_to_root_naming_its_brief(config):
-    """A spawned lane that never registered with cci sat unnoticed until the root looked; the spawn record and cci who name it at three minutes."""
-    shell = FakeShell([spawn(1, "lane-quiet", 5, "/briefs/quiet.md"), spawn(2, "lane-posted", 5), record(3, "lane-posted", "state", "started", 4), spawn(4, "lane-bound", 5), spawn(5, "lane-fresh", 2)], [])
-    shell.peers = [{"lane": "lane-bound", "seen_at": stamp(1)}, {"lane": "lane-quiet", "seen_at": stamp(60)}, {"session": "s-other"}]
-
-    watch(shell, config)
-
-    assert shell.topics() == ["unregistered:lane-quiet"]
-    assert shell.post("unregistered:lane-quiet")["to"] == "root"
-    assert shell.post("unregistered:lane-quiet")["text"].startswith("STALL unregistered lane-quiet, 5 min: spawned ")
-    assert "from /briefs/quiet.md, and has neither posted a cci record nor been bound as lane-quiet since" in shell.post("unregistered:lane-quiet")["text"]
-    shell.records.append(record(6, "lane-quiet", "state", "started", 0))
-    watch(shell, config)
-    assert "unregistered:lane-quiet" not in opened(config)
-
-
-def test_a_sub_worker_of_a_live_lane_stalls_to_that_lane_never_to_root(config):
-    """Root #235327: a sub-worker whose name starts with a live lane's name is that lane's own, so its unregistered stall goes to the parent lane, which has it post one state line first; a numbered successor and a lane whose parent ended still go to root."""
-    shell = FakeShell([record(1, "mq-health-4", "state", "supervising", 6), spawn(2, "mq-health-4-supervise", 5), record(3, "mq-health-4", "state", "still supervising", 1), spawn(4, "mq-health-4-2", 5), record(5, "gone-1", "done", "finished", 6), spawn(6, "gone-1-helper", 5)], [])
-    shell.peers = []
-
-    watch(shell, config)
-
-    assert shell.post("unregistered:mq-health-4-supervise")["to"] == "mq-health-4@d1"
-    assert shell.post("unregistered:mq-health-4-supervise")["text"].endswith("| owner mq-health-4 | mq-health-4 has mq-health-4-supervise post one state line as its first act")
-    assert shell.post("unregistered:mq-health-4-2")["to"] == "root"
-    assert shell.post("unregistered:gone-1-helper")["to"] == "root"
 
 
 def test_untested_shape_rulings_stall_to_root_once_they_are_half_an_hour_old(config):
@@ -961,26 +901,6 @@ def test_a_green_head_with_no_go_waits_on_a_live_tap_row_with_one_state_record_a
 
 
 @pytest.mark.parametrize(
-    ("board", "fields", "owed", "stalls"),
-    [(True, {}, False, []), (False, {}, False, []), (True, {}, True, ["lane:api-lane"]), (True, {"test_state": "failure"}, False, ["lane:api-lane"])],
-    ids=["pr-on-the-tap-list", "pr-waits-on-root", "owes-a-record", "owes-a-red-build"],
-)
-def test_a_quiet_lane_with_open_prs_stalls_only_when_it_owes_a_record_or_a_fix(config, tmp_path, board, fields, owed, stalls):
-    merge_mode(config, "ask")
-    task(tmp_path, 1, "api-lane", minutes_ago=200)
-    shell = FakeShell(graded(1, "101", HEAD, 150), [row("101", **fields)])
-    if board:
-        shell.doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": 101, "head": HEAD[:7]}]}]}]}
-    if owed:
-        shell.records.append(record(4, "root", "decide", "api-lane: rebase #101 on dev", 60, to=["api-lane@d1"]))
-    shell.answer = lambda question: {"explained": False}
-
-    watch(shell, config)
-
-    assert [topic for topic in shell.topics() if topic.startswith("lane:")] == stalls
-
-
-@pytest.mark.parametrize(
     ("gate", "stales"),
     [({}, []), ({"test_state": "failure"}, ["stale:303:abc1234"])],
     ids=["gates-on-the-tap-list", "a-gate-is-red"],
@@ -1035,51 +955,6 @@ def test_a_hold_on_an_owner_card_waits_while_the_card_is_unanswered_and_stales_o
     assert shell.topics() == [topic]
     if topic.startswith("tap-wait:"):
         assert shell.post(topic)["text"] == "#401 at abc1234 is held on eviction-route-choice, each waiting on the owner's tap, his board answer, or the merge queue, since 10:30 AM"
-
-
-@pytest.mark.parametrize(
-    ("records", "text"),
-    [
-        ([record(1, "api-lane", "report", f"READY #101 at {HEAD[:7]}", 60, "101")], None),
-        ([record(1, "api-lane", "state", "pushed the fix", 60)], "its last record, state #1 at 12:00 PM, explains no silence"),
-        ([record(1, "api-lane", "report", f"READY #101 at {HEAD[:7]}", 60, "101"), record(2, "board-refresher", "ask", "which tests does #101 run?", 45, status="open", to=["api-lane"])], "it owes a reply to #2 (ask from board-refresher at 12:15 PM)"),
-    ],
-    ids=["last-record-ready", "last-record-explains-nothing", "owes-an-ask"],
-)
-def test_a_quiet_lane_with_no_open_pr_is_idle_after_a_ready_record_unless_it_owes_a_reply(config, tmp_path, records, text):
-    task(tmp_path, 1, "api-lane", minutes_ago=90)
-    shell = FakeShell(records, [])
-    shell.answer = lambda question: {"explained": False}
-
-    watch(shell, config)
-
-    assert shell.topics() == (["lane:api-lane"] if text else [])
-    if text:
-        assert text in shell.post("lane:api-lane")["text"]
-
-
-@pytest.mark.parametrize(("picked", "stalls"), [(None, []), ({"optionIds": ["deploy-go"]}, ["lane:api-lane"])], ids=["card-open", "card-answered"])
-def test_a_lane_blocked_on_an_open_owner_card_waits_on_the_owner_and_does_not_stall(config, tmp_path, picked, stalls):
-    """Root #256060: a lane parked on the owner's pick on card trunk-webhooks-deploy was paged every 32 minutes while the card stayed open."""
-    task(tmp_path, 1, "api-lane", minutes_ago=90)
-    shell = FakeShell([record(1, "api-lane", "blocked", "still blocked on the owner's pick on card trunk-webhooks-deploy", 60)], [])
-    shell.answer = lambda question: {"explained": False}
-    shell.doc = {"blocks": [{"id": "trunk-webhooks-deploy", "type": "card", "children": [{"id": "trunk-webhooks-deploy-choice", "type": "choice", "options": [{"id": "deploy-go"}]}]}]}
-    shell.choices = {"trunk-webhooks-deploy-choice": picked}
-
-    watch(shell, config)
-
-    assert shell.topics() == stalls
-
-
-@pytest.mark.parametrize(("text", "stalls"), [("Owners for the reds: #101 stays with api-lane, READY", []), ("api-lane: rebase #101 on dev", ["lane:api-lane"])], ids=["listed-as-recipient", "given-an-order"])
-def test_a_lane_owes_a_root_decide_only_when_it_gives_the_lane_an_order(config, tmp_path, text, stalls):
-    task(tmp_path, 1, "api-lane", minutes_ago=90)
-    shell = FakeShell([record(1, "api-lane", "report", f"READY #101 at {HEAD[:7]}", 60, "101"), record(2, "root", "decide", text, 45, to=["api-lane@d1", "fidelity-desk@d1"])], [])
-
-    watch(shell, config)
-
-    assert shell.topics() == stalls
 
 
 @pytest.mark.parametrize(("ready", "stalls"), [(False, []), (True, ["board:101:abc1234"])], ids=["row-pulled", "row-due-after-ready"])
@@ -1311,10 +1186,10 @@ def tonight(config: Path) -> FakeShell:
 
 
 def refusal_topics(shell: FakeShell) -> list[str]:
-    return [topic for topic in shell.topics() if topic.startswith(("refusal:", "successor:"))]
+    return [topic for topic in shell.topics() if topic.startswith("refusal:")]
 
 
-def test_a_landing_refusal_no_lane_answers_escalates_to_root_and_its_lane_at_10_minutes_and_asks_root_for_a_successor_at_20(config):
+def test_a_landing_refusal_no_lane_answers_escalates_to_root_and_its_lane_at_10_minutes_and_never_pages_for_a_successor(config):
     shell = tonight(config)
     shell.clock = NOW + timedelta(minutes=9)
     watch(shell, config)
@@ -1332,12 +1207,9 @@ def test_a_landing_refusal_no_lane_answers_escalates_to_root_and_its_lane_at_10_
     watch(shell, config)
     assert refusal_topics(shell) == ["refusal:44141:09c1863:parent"]
 
-    shell.clock = NOW + timedelta(minutes=20)
+    shell.clock = NOW + timedelta(minutes=60)
     watch(shell, config)
-    assert refusal_topics(shell) == ["refusal:44141:09c1863:parent", "successor:44141:09c1863:parent"]
-    successor = shell.post("successor:44141:09c1863:parent")
-    assert successor["to"] == "root"
-    assert "| owner root | spawn a successor to p8a-step7, which has not acted on #173678 in 20 min; the successor's first step: run ccx vcs stack submit from #44141's worktree" in successor["text"]
+    assert refusal_topics(shell) == ["refusal:44141:09c1863:parent"]
 
 
 def test_a_head_record_from_the_refused_lane_clears_its_refusal(config):
@@ -1434,14 +1306,6 @@ def test_a_runner_warning_that_holds_nothing_is_no_refusal(config):
     shell = FakeShell([*gone("101", HEAD), record(5, "desk-runner", "note", warning, 30, to=["api-lane", "root"])], [row("101")])
     watch(shell, config)
     assert not [topic for topic in shell.topics() if topic.startswith(("refusal:", "successor:"))]
-
-
-def test_no_successor_is_asked_for_while_the_lanes_handoff_already_posts(config):
-    shell = tonight(config)
-    shell.records.append(record(173700, "p8a-step7-handoff", "state", "handoff of p8a-step7 under way", -5))
-    shell.clock = NOW + timedelta(minutes=20)
-    watch(shell, config)
-    assert refusal_topics(shell) == ["refusal:44141:09c1863:parent"]
 
 
 def test_a_grader_desks_waiting_line_opens_no_gate(config):
@@ -1624,19 +1488,12 @@ def test_reds_with_no_live_red_sweep_lane_post_one_blocker_to_root_until_a_red_s
 
 
 @pytest.mark.parametrize(("minutes", "stalls"), [(9, False), (11, True)], ids=["inside-10-min", "past-10-min"])
-def test_a_finder_fidelity_lane_or_gate_stall_posts_ten_minutes_on(config, tmp_path, minutes, stalls):
-    """Owner, prompt/1026-190849: "if we've truly been stuck for 10 mins then go debug why" (narrow-reading-sweep-1 #211573); finder, fidelity, lane and gate stalls waited 30."""
+def test_a_finder_fidelity_or_gate_stall_posts_ten_minutes_on(config, tmp_path, minutes, stalls):
+    """Owner, prompt/1026-190849: "if we've truly been stuck for 10 mins then go debug why" (narrow-reading-sweep-1 #211573); finder, fidelity and gate stalls waited 30."""
     watch(finderless := FakeShell([head(1, "101", HEAD, minutes), fidelity(2, "101", HEAD, minutes - 1)], [row("101", test_state="pending")]), config)
     watch(ungraded := FakeShell([head(1, "102", OTHER, minutes), finder(2, "102", OTHER, minutes - 1)], [row("102", OTHER, test_state="pending")]), config)
     landed = FakeShell([record(1, "p8a-step7-2", "state", "p8a-step7-2: parts 2 and 3 wait only on #43736; I open both when #43736 lands", 120), record(2, "desk-runner", "landed", "LANDED #43736 as 70ad7da45d: merged into dev", minutes, "43736")], [])
     watch(landed, config)
-    merge_mode(config, "ask")
-    task(tmp_path, 1, "api-lane", minutes_ago=200)
-    quiet = FakeShell([*graded(1, "103", HEAD, 150), record(4, "root", "decide", "api-lane: rebase #103 on dev", minutes, to=["api-lane@d1"])], [row("103")])
-    quiet.doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": 103, "head": HEAD[:7]}]}]}]}
-    quiet.answer = lambda question: {"explained": False}
-    watch(quiet, config)
     assert ("finder:101:abc1234" in finderless.topics()) is stalls
     assert ("fidelity:102:fedcba9" in ungraded.topics()) is stalls
     assert ("gate:p8a-step7-2:43736:0" in landed.topics()) is stalls
-    assert ("lane:api-lane" in quiet.topics()) is stalls

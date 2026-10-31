@@ -18,12 +18,7 @@ from captain_hook import (
 
 from . import session_tree
 
-ROOT_ACTION = "ROOT-ACTION"
 NAG_SECONDS = 60 * 60
-
-
-def root_action_key(lane: str) -> str:
-    return f"{ROOT_ACTION} `{lane}`"
 
 
 def stopped_lane(evt: BaseHookEvent) -> str | None:
@@ -57,12 +52,6 @@ def queue_nudge(evt: BaseHookEvent, text: str) -> None:
         state.pending.append(text)
 
 
-def cancel_root_action(evt: BaseHookEvent, lane: str) -> None:
-    key = root_action_key(lane)
-    with NudgeState.mutate(evt) as state:
-        state.pending = [line for line in state.pending if not line.startswith(key)]
-
-
 @on(
     Event.UserPromptSubmit | Event.PostToolUse,
     skip_if=[FromSubagent()],
@@ -73,16 +62,6 @@ def cancel_root_action(evt: BaseHookEvent, lane: str) -> None:
         ),
         Input(prompt="continue", state=[NudgeState()]): Allow(),
         Input(
-            tool="TaskStop",
-            tool_input={"task_id": "desk@session-root"},
-            state=[NudgeState(pending=["ROOT-ACTION `desk`: Rotate it by hand.", "ROOT-ACTION `desk-2`: Rotate it by hand."])],
-        ): Warn(pattern=r"^ROOT-ACTION `desk-2`: Rotate it by hand\.$"),
-        Input(
-            tool="TaskStop",
-            tool_input={"task_id": "desk@session-root"},
-            state=[NudgeState(pending=["ROOT-ACTION `desk`: Rotate it by hand."])],
-        ): Allow(),
-        Input(
             tool="Bash", tool_input={"command": "ls"}, agent_id="a1b2c3", state=[NudgeState(pending=["only"])]
         ): Allow(),
     },
@@ -90,6 +69,4 @@ def cancel_root_action(evt: BaseHookEvent, lane: str) -> None:
 def deliver_nudge(evt: BaseHookEvent) -> HookResult | None:
     with NudgeState.mutate(evt) as state:
         pending, state.pending = state.pending, []
-    if lane := stopped_lane(evt):
-        pending = [line for line in pending if not line.startswith(root_action_key(lane))]
     return evt.context("\n\n".join(pending)) if pending else None

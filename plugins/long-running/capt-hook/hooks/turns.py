@@ -22,7 +22,6 @@ WINDOW_CEILING = 1_000_000
 DEFAULT_WINDOW = 200_000
 OUTPUT_RESERVE = 20_000
 AUTOCOMPACT_BUFFER = 13_000
-ROTATE_PERCENT = 70
 
 
 @dataclass(frozen=True)
@@ -87,10 +86,3 @@ def threshold(model: str, hint: str | None, project: Path | None) -> int:
     if pct := pct_override():
         limit = min(int((window - OUTPUT_RESERVE) * pct / 100), limit)
     return limit
-
-
-def rotation_line(model: str, hint: str | None, project: Path | None) -> int:
-    if tokens := reqenv.getenv("LONG_RUNNING_LANE_ROTATE_TOKENS"):
-        return int(tokens)
-    one_m = model + ONE_M_SUFFIX if hint and hint.endswith(ONE_M_SUFFIX) else None
-    return threshold(model, one_m, project) * ROTATE_PERCENT // 100
