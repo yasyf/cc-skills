@@ -9280,8 +9280,8 @@ class Landing:
 
     def verify_restacks(self, rows: dict[str, dict]) -> None:
         """A restack route is verified once its PR's head moves or the PR lands."""
-        routes = [(LANDING, action) for action in self.book.actions(LANDING, kind="bus")]
-        routes += [(name, action) for name in self.book.containers(LANE_PREFIX) for action in self.book.actions(name, kind="relay")]
+        routes = [(LANDING, action) for action in self.book.actions(LANDING, kind="bus", statuses=actions.OPEN)]
+        routes += [(name, action) for name in self.book.containers(LANE_PREFIX) for action in self.book.actions(name, kind="relay", statuses=actions.OPEN)]
         for container, action in routes:
             if not action.action_id.startswith("restack:") or action.status in ("verified", "failed"):
                 continue
