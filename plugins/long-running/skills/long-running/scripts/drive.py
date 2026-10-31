@@ -637,7 +637,8 @@ def cmd_worktree(args: argparse.Namespace, shell: ledger.Shell) -> int:
 
 
 def cmd_spawned(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    if (entry := resolve(args)) is None:
+    if (entry := find(args.drive or current_drive(), args.session)) is None:
+        print("this launch belongs to no drive", file=sys.stderr)
         return 1
     shell.run(["cci", "post", "--drive", cci_drive(entry), "--lane", args.by, "--kind", "state", "--topic", f"spawn:{args.lane}", "--lane-ref", args.lane, "--attr", f"brief={args.brief}", "--text", f"SPAWNED {args.lane} {args.brief}"])
     return 0
