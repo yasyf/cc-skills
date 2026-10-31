@@ -7775,8 +7775,8 @@ def test_an_admitted_head_whose_check_keeps_timing_out_is_refused_for_the_timeou
     assert line.endswith(f": GATE-TIMEOUT its graphite-stack-enqueue check ran past {runner_module.GATE_CHECK_SECONDS}s on both tries and was killed, so the next pass checks it again")
 
 
-def test_an_admitted_head_no_branch_settles_is_refused_unsettled_to_the_watchdog_never_the_root_naming_the_last_branch_that_saw_it(shell, config, tmp_path):
-    """Oct 30 7:52 AM to 12:10 PM: every GREEN gate enqueued nothing and posted nothing, since a GREEN verdict with no prefix was no outcome anyone recorded."""
+def test_an_admitted_head_no_branch_settles_is_refused_unsettled_to_the_watchdog_never_the_root_naming_what_the_check_read(shell, config, tmp_path):
+    """Oct 30 7:52 AM to 12:10 PM: every GREEN gate enqueued nothing and posted nothing, since a GREEN verdict with no prefix was no outcome anyone recorded. Root #257204: the refusal names what the check read and that the next pass clears it."""
     merge_mode(config, "every")
     gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
     shell.gates["33001"] = [gate("#33001 GREEN aaaa111111 graphite READY")]
@@ -7784,8 +7784,18 @@ def test_an_admitted_head_no_branch_settles_is_refused_unsettled_to_the_watchdog
     landing_pass(shell, config)
     [post] = [post for post in shell.posts if post_body(post).startswith("REFUSED ")]
     assert post["kind"] == "defect" and "drive-watchdog@d1" in post["to"].split(",") and "root" not in post["to"].split(",")
-    assert post_body(post) == f"REFUSED #33001 at aaaa111111 (go #{go_of(shell, '33001')}): unsettled: the stack worker's settle step"
+    assert post_body(post) == f"REFUSED #33001 at aaaa111111 (go #{go_of(shell, '33001')}): unsettled: the graphite-stack-enqueue check read aaaa111111 GREEN graphite READY and ended `enqueued nothing: the bottom PR is BLOCKED`, and no step of the pass decided it: a runner defect the watchdog hears, its lane owes nothing, and the next pass checks it again"
     assert admitted_heads(config)["33001"]["state"] == "defect"
+
+
+def test_a_green_pr_under_a_queued_native_stack_top_settles_queued_never_unsettled(shell, config, tmp_path):
+    """Oct 31 8:35 AM: #45785, #45791 and #46614 read GREEN under a stack top Trunk already held, the check printed no enqueue line, and they posted `unsettled: the stack worker's settle step` until they landed (root #257204)."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 Trunk not queued")
+    shell.gates["33001"] = ["#33001 GREEN aaaa111111 Trunk not queued\nnothing to enqueue: Trunk already holds the green bottom prefix\n"]
+    landing_pass(shell, config)
+    assert not [line for line in said(shell) if "unsettled" in line]
+    assert settled(shell, "QUEUED") and shell.enqueues() == []
 
 
 @pytest.mark.parametrize(

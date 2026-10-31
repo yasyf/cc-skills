@@ -827,6 +827,7 @@ SETTLED = "settled"
 ROWED_READ = "rowed-read"
 QUOTA_OFF = "GitHub's read quota is under ccx's floor"
 IN_QUEUE_SAID = "the merge queue holds it"
+PREFIX_HELD = re.compile(r"^nothing to enqueue: \w+ already holds the green bottom prefix$", re.MULTILINE)
 QUEUE_SAID = "the landing runner put it in the merge queue at {at}"
 UNSETTLED = "unsettled:"
 DEQUEUE_ORDERS = "dequeue-orders"
@@ -6137,8 +6138,9 @@ class Landing:
                 else:
                     self.gate_failed(tips, done, open_rows)
                 continue
+            held_prefix = PREFIX_HELD.search(done.out) is not None
             for pr, match in verdicts.items():
-                if match["verdict"] == QUEUED_VERDICT:
+                if match["verdict"] == QUEUED_VERDICT or match["verdict"] == "GREEN" and held_prefix:
                     self.settle({pr: match["sha"]}, Queued(IN_QUEUE_SAID))
                 elif match["verdict"] == "BLOCKED":
                     self.settle({pr: match["sha"]}, Refused(f"the gate read {match['sha']} BLOCKED: {match['detail']}"))
@@ -6150,6 +6152,8 @@ class Landing:
                     self.settle({pr: head}, Refused(f"its head moved to {match['sha'][:10]} after the ledger read {head[:10]}, so the next pass gates the new head"))
             if (would := self.direct_would(done)) is not None:
                 self.accept(tips, would, verdicts, rows, held)
+            for pr, match in verdicts.items():
+                self.settlement.saw([pr], f"the {self.adapter.kind} check read {match['sha'][:10]} {match['verdict']} {match['detail']}".rstrip() + f" and ended `{done.last}`")
             for pr, match in verdicts.items():
                 if match["verdict"] == "BLOCKED" and pr not in rows and self.adapter.rider(match):
                     if pr not in self.admit({pr: match["sha"]}):
@@ -8484,7 +8488,7 @@ class Landing:
             elif pr in busy:
                 outcomes[pr] = InFlight(steps[pr]["step"], steps[pr]["since"]) if pr in steps else InFlight("waiting for a stack worker", self.book.stamp())
             else:
-                outcomes[pr] = Refused(f"{UNSETTLED} {seen.get(pr, 'no branch of the pass saw it')}")
+                outcomes[pr] = Refused(f"{UNSETTLED} {seen.get(pr, 'no branch of the pass saw it')}, and no step of the pass decided it: a runner defect the watchdog hears, its lane owes nothing, and the next pass checks it again")
         groups: dict[Posted, dict[str, str]] = {}
         for pr, outcome in outcomes.items():
             if isinstance(outcome, Posted):
