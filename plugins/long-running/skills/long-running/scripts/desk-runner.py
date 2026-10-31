@@ -3201,7 +3201,7 @@ class Runner:
                 elif self.now() - actions.parse_stamp(action.accepted_at) >= timedelta(minutes=self.config.load_hold_minutes):
                     self.expire_launch(container, lane, action, held)
                 return
-            self.escalate(f"{container}/{action.action_id}:load", "LOAD-INCIDENT", lane, f"{action.action_id} launches on {held}: an incident fix lane is never held for load")
+            self.escalate(f"{container}/{action.action_id}:load", "LOAD-INCIDENT", lane, f"{action.action_id} launches on {held}: an incident fix lane is never held for load", to=self.watchdog)
         if not self.book.attempt(container, lambda incident: incident.start(action.action_id, self.now(), deadline=actions.parse_stamp(action.deadline))):
             return
         if refusal is None:
@@ -3243,8 +3243,8 @@ class Runner:
         return f"load {load:.0f} above {cores} cores"
 
     def move_load(self, held: str) -> None:
-        """Tell the root, once per ten minutes, that launches are refused on load and that the load has to move."""
-        self.escalate(f"load:{actions.stamp(self.now())[:15]}", "LOAD-HIGH", "runner", f"{held}: Orca launches are refused while it lasts, because a worktree checkout times out under it. root: move the load off this Mac now; a pass, backfill, dry run, or bulk rewrite runs on in-region compute")
+        """Tell the drive watchdog, once per ten minutes, that launches are refused on load and that the load has to move."""
+        self.escalate(f"load:{actions.stamp(self.now())[:15]}", "LOAD-HIGH", "runner", f"{held}: Orca launches are refused while it lasts, because a worktree checkout times out under it. drive-watchdog: move the load off this Mac now; a pass, backfill, dry run, or bulk rewrite runs on in-region compute", to=self.watchdog)
 
     def refuse_launch(self, container: str, lane: str, action: actions.Action, held: str, remedy: str) -> None:
         key = action.action_id
@@ -4860,7 +4860,7 @@ class Runner:
                 if oldest and oldest <= window and not any(self.pass_sprite(action) == sprite for action in settled):
                     done = self.cci_post("defect", f"SPRITE-STALLED {sprite}: {len(passes)} passes running, {age}, and none it ran settled in the last {int(SPRITE_STALLED_AFTER.total_seconds()) // 60} min; check the Sprite and each pass's job.log", ROOT, f"sprite:{sprite}", f"sprite-stalled:{sprite}", flags=["--force"])
                 else:
-                    done = self.cci_post("state", f"sprite {sprite}: {counts[FINDER]} finder and {counts[FIDELITY]} fidelity passes, {age}", f"{ROOT},{self.watchdog}", f"sprite:{sprite}", f"sprite-beat:{sprite}", flags=["--force"])
+                    done = self.cci_post("state", f"sprite {sprite}: {counts[FINDER]} finder and {counts[FIDELITY]} fidelity passes, {age}", self.watchdog, f"sprite:{sprite}", f"sprite-beat:{sprite}", flags=["--force"])
                 if done.code:
                     print(f"sprite {sprite} heartbeat left for the next pass; cci post exited {done.code}: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
                     continue
@@ -7795,7 +7795,7 @@ class Landing:
                     break
         self.replay_riders(riders, {open_rows[pr]["branch"]: (heads[pr], landing[pr]) for pr in chain}, open_rows, tip)
         for pr in chain:
-            self.post_record("head", f"rebased-direct:{pr}@{landing[pr]}", ",".join(dict.fromkeys([ROOT, *map(self.successor, self.fidelity_lanes)])), f"HEAD #{pr} {landing[pr]} (was {heads[pr]}): the landing runner rebased it onto {TRUNK} {tip[:10]} for its direct merge, patch-identical to {heads[pr][:10]} by patch-id, so its go and grades carry (root #197571)", pr)
+            self.post_record("head", f"rebased-direct:{pr}@{landing[pr]}", ",".join(dict.fromkeys(filter(None, [self.ledger_rows.get(pr, {}).get("lane"), *map(self.successor, self.fidelity_lanes)]))), f"HEAD #{pr} {landing[pr]} (was {heads[pr]}): the landing runner rebased it onto {TRUNK} {tip[:10]} for its direct merge, patch-identical to {heads[pr][:10]} by patch-id, so its go and grades carry (root #197571)", pr)
         for pr in chain:
             if not self.approved_again(pr, landing[pr]):
                 return landing, (pr, f"{REVIEW_BOT} has not approved #{pr} again at {landing[pr][:10]} in {APPROVAL_POLLS} minutes since the rebase push")
@@ -7844,7 +7844,7 @@ class Landing:
                     self.post_blocker(ask, ",".join(dict.fromkeys([*(self.reach(owner) if owner else []), *self.restack_lanes()])), f"#{pr} {row['head'][:10]}: the landing runner moved {row['base']} to {new[:10]} for a direct merge and could not move #{pr} with it: {why}. Restack it onto {row['base']} with ccx vcs stack submit from its worktree", pr)
                 continue
             moved[row["branch"]] = (row["head"], update[2])
-            self.post_record("head", f"rebased-rider:{pr}@{update[2]}", ",".join(dict.fromkeys([ROOT, *map(self.successor, self.fidelity_lanes)])), f"HEAD #{pr} {update[2]} (was {row['head']}): the landing runner replayed it onto {row['base']} {new[:10]}, rebased onto {TRUNK} {tip[:10]} for a direct merge below it, patch-identical to {row['head'][:10]} by patch-id", pr)
+            self.post_record("head", f"rebased-rider:{pr}@{update[2]}", ",".join(dict.fromkeys(filter(None, [self.ledger_rows.get(pr, {}).get("lane"), *map(self.successor, self.fidelity_lanes)]))), f"HEAD #{pr} {update[2]} (was {row['head']}): the landing runner replayed it onto {row['base']} {new[:10]}, rebased onto {TRUNK} {tip[:10]} for a direct merge below it, patch-identical to {row['head'][:10]} by patch-id", pr)
 
     def approved_again(self, pr: str, head: str) -> bool:
         """Whether GitHub reads `pr` approved, by an approving review on `head` itself, within `APPROVAL_POLLS` reads `APPROVAL_POLL_SECONDS` apart: the rebase push dismisses the approval only after GitHub processes it, so an approval read before then names the old head; the review bot approves a patch-identical head again within minutes, and the runner waits for nothing else, no go and no second CI run, since it checked the patch itself (root #197434, #197878, #198367)."""
@@ -7999,7 +7999,7 @@ class Landing:
         self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "refused", "out": text, "at": self.book.stamp()}))
         self.settle(enqueued_heads(key), Refused(text))
         if not set(prefix) <= self.settlement.heads.keys():
-            self.runner.escalate(f"refused:{key.split('#')[0]}:{hashlib.sha1(why.encode()).hexdigest()[:8]}", "REFUSED", numbered(prefix), text)
+            self.runner.escalate(f"refused:{key.split('#')[0]}:{hashlib.sha1(why.encode()).hexdigest()[:8]}", "REFUSED", numbered(prefix), text, to=self.landing_audience(prefix, self.ledger_rows, self.go_audience(prefix, self.ledger_rows)))
 
     def dequeue(self, key: str, prefix: list[str], rows: dict[str, dict], late: dict[str, str]) -> tuple[str, str]:
         """Take a just-enqueued prefix back out of the queue after a hold appeared during the call: every held PR and every PR stacked above one, top first, through the adapter's dequeue, telling every drive that names each one. Returns the outcome, `dequeued` once the queue let go of all of them and `held-queued` otherwise, and its text."""
@@ -8329,7 +8329,7 @@ class Landing:
             cited = " and ".join(f"#{pr} at {head[:10]} ({go_state(gos, pr, head).said()})" for pr, head in fresh.items())
             kind, to, text = "note", self.landing_audience([*prs, outcome.base.removeprefix("#")], rows, ROOT), f"BELOW-BLOCKED above {outcome.base}: root gos name {cited}, {outcome.why}"
         elif outcome.why.startswith(UNSETTLED):
-            kind, to, text = "defect", ",".join(dict.fromkeys([ROOT, *self.go_audience(prs, rows).split(",")])), f"REFUSED {self.queue_line(fresh)}: {outcome.why}"
+            kind, to, text = "defect", ",".join(dict.fromkeys([self.runner.watchdog, *self.go_audience(prs, rows).split(",")])), f"REFUSED {self.queue_line(fresh)}: {outcome.why}"
         else:
             kind, to, text = "report", self.go_audience(prs, rows), f"REFUSED {self.queue_line(fresh)}: {outcome.why}"
         key = f"settled:{','.join(f'{pr}@{head[:10]}' for pr, head in fresh.items())}:{hashlib.sha1(signature.encode()).hexdigest()[:8]}:{self.book.stamp()}"
@@ -8405,7 +8405,7 @@ class Landing:
         overflowed = sum(1 for action in self.book.actions(LANDING, kind="enqueue") if f"#{OVERFLOW}-" in action.action_id and actions.parse_stamp(action.accepted_at) >= hour)
         step = f" (oldest #{oldest['root']} {oldest['step']} {whole_minutes(actions.parse_stamp(oldest['since']), now)}m)" if oldest else ""
         text = f"LANDING queued {len(queued)}, waiting {len(waiting)}{step}, held {len(held)}, refused {len(refused)}, in flight {running}, overflowed {overflowed} this hour; pass {took:.0f}s"
-        self.runner.cci_post("state", text, ROOT, "landing-state", f"landing-state:{self.book.stamp()}")
+        self.runner.cci_post("state", text, self.runner.watchdog, "landing-state", f"landing-state:{self.book.stamp()}")
         if self.overflower and (quiet := time.monotonic() - self.overflower.overflowed_at) > OVERFLOW_STALLED.total_seconds():
             alive = self.overflowing is not None and self.overflowing.is_alive()
             self.runner.escalate(f"overflow-stalled:{now:%Y%m%d%H}", "OVERFLOW-STALLED", "landing", f"the overflow thread has finished no run in {int(quiet // 60)} minutes{'' if alive else ' and is dead'}, so a stack the passes leave out waits on them alone; `desk-runner.py handoff` restarts the runner")
