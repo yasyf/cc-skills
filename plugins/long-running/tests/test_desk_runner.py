@@ -14013,7 +14013,7 @@ def test_a_finder_that_fails_or_writes_nothing_by_its_deadline_runs_again_and_es
     ]
 
 
-def test_a_pass_whose_process_exited_with_no_result_frees_its_slot_and_retries_after_the_fix_window(shell, config, tmp_path):
+def test_a_pass_whose_process_exited_with_no_result_frees_its_slot_and_retries(shell, config, tmp_path):
     finder_config(config, concurrent=1)
     orca_pass(shell, config)
     head_record(shell, "43439", FINDER_HEAD)
@@ -14046,6 +14046,8 @@ def test_a_pass_whose_pid_now_names_another_process_settles_as_exited(shell, con
     passes = incident(tmp_path, "desk-finder").actions
     assert passes[f"finder:43439:{FINDER_HEAD}"].reason == "finder.py exited 0 min after it started and wrote no result"
     assert passes[f"finder:43439:{FINDER_HEAD}#2"].status == "accepted"
+    orca_pass(shell, config)
+    assert incident(tmp_path, "desk-finder").actions[f"finder:43439:{FINDER_HEAD}#2"].status == "started"
 
 
 def test_a_pass_whose_pid_file_is_empty_settles_as_exited(shell, config, tmp_path):
@@ -14270,6 +14272,8 @@ def test_a_fidelity_pass_whose_wrapper_is_gone_with_no_result_fails_at_once_and_
     passes = incident(tmp_path, "desk-fidelity").actions
     assert passes[f"fidelity:43439:{FINDER_HEAD}:{seq}"].reason == "fidelity.py exited 0 min after it started and wrote no result"
     assert [action.status for action in passes.values()] == ["failed", "accepted"]
+    orca_pass(shell, config)
+    assert [action.status for action in incident(tmp_path, "desk-fidelity").actions.values()] == ["failed", "started"]
 
 
 def test_a_failed_fidelity_pass_settles_when_a_reader_lane_in_runner_json_has_not_started(shell, config):

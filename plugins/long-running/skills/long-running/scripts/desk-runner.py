@@ -4500,7 +4500,7 @@ class Runner:
                     job = json.loads(action.target)
                     self.book.accept(FINDER, f"finder:{job['pr']}:whole:{job['head']}", "finder", json.dumps({"pr": job["pr"], "head": "", "lane": job["lane"], "seq": job["seq"], "full": True}), "ungraded", None)
             elif exited:
-                self.finder_failed(action, f"finder.py exited {ran} min after it started and wrote no result")
+                self.finder_failed(action, f"finder.py exited {ran} min after it started and wrote no result", hold=False)
             elif self.now() >= actions.parse_stamp(action.deadline):
                 self.finder_failed(action, f"no result {ran} min after it started")
             else:
@@ -4674,13 +4674,13 @@ class Runner:
 
         self.book.attempt(FINDER, settle)
 
-    def finder_failed(self, action: actions.Action, why: str) -> None:
-        """Fail a pass and queue its job again once the tooling may be fixed, so a job runs at most `FINDER_ATTEMPTS` times; each failure tells the tooling lane once per cause, and only the last logs `FINDER-FAILED` to the lanes (root #226668)."""
+    def finder_failed(self, action: actions.Action, why: str, hold: bool = True) -> None:
+        """Fail a pass and queue its job again once the tooling may be fixed, or at once when `hold` is off because its wrapper died, so a job runs at most `FINDER_ATTEMPTS` times; each failure tells the tooling lane once per cause, and only the last logs `FINDER-FAILED` to the lanes (root #226668)."""
         job = json.loads(action.target)
         if not self.book.attempt(FINDER, lambda incident: incident.fail(action.action_id, why)):
             return
         self.tooling_failed("finder", job, why)
-        if self.requeue_finder(action.action_id.partition("#")[0], self.on_fix(action.target), action.authority_ref):
+        if self.requeue_finder(action.action_id.partition("#")[0], self.on_fix(action.target) if hold else unheld(action.target), action.authority_ref):
             return
         log = Path(action.dispatch_id) / finder.LOG
         self.escalate(f"finder:{job['pr']}:{job['head']}", "FINDER-FAILED", job["lane"], f"#{job['pr']} {job['head'][:12]}: the finder desk's pass failed on the last of its {FINDER_ATTEMPTS} attempts: {why}; its log is {log}; root asks {finder.LANE} `finder: whole` on #{job['pr']} to run it again, since only its records grade a head")
@@ -4764,7 +4764,7 @@ class Runner:
             ran = whole_minutes(actions.parse_stamp(action.started_at), self.now())
             if not result.is_file():
                 if self.job_gone(Path(action.dispatch_id)):
-                    self.fidelity_failed(action, f"fidelity.py exited {ran} min after it started and wrote no result")
+                    self.fidelity_failed(action, f"fidelity.py exited {ran} min after it started and wrote no result", hold=False)
                 elif self.now() >= actions.parse_stamp(action.deadline):
                     self.fidelity_failed(action, f"no result {ran} min after it started")
                 continue
@@ -4908,15 +4908,15 @@ class Runner:
 
         self.book.attempt(container, settled)
 
-    def fidelity_failed(self, action: actions.Action, why: str) -> None:
-        """Fail the pass whether or not any notice posts, so a refused notice never holds a slot (root #219303), and queue it again once the tooling may be fixed, so a pass runs at most `FINDER_ATTEMPTS` times; each failure tells the tooling lane once per cause, and only the last tells the human fidelity desks (root #226668)."""
+    def fidelity_failed(self, action: actions.Action, why: str, hold: bool = True) -> None:
+        """Fail the pass whether or not any notice posts, so a refused notice never holds a slot (root #219303), and queue it again once the tooling may be fixed, or at once when `hold` is off because its wrapper died, so a pass runs at most `FINDER_ATTEMPTS` times; each failure tells the tooling lane once per cause, and only the last tells the human fidelity desks (root #226668)."""
         job = json.loads(action.target)
         self.book.attempt(FIDELITY, lambda incident: incident.fail(action.action_id, why))
         self.tooling_failed("fidelity", job, why)
         base = action.action_id.partition("#")[0]
         tried = sum(other.action_id.partition("#")[0] == base for other in self.book.actions(FIDELITY, kind="fidelity"))
         if tried < FINDER_ATTEMPTS:
-            self.book.accept(FIDELITY, f"{base}#{tried + 1}", "fidelity", self.on_fix(action.target), action.authority_ref, None)
+            self.book.accept(FIDELITY, f"{base}#{tried + 1}", "fidelity", self.on_fix(action.target) if hold else unheld(action.target), action.authority_ref, None)
             return
         key = f"fidelity:{job['pr']}:{job['head']}:{job['seq']}"
         readers = [lane for lane in self.landing_lanes("fidelity_lane") if lane != fidelity.LANE]
@@ -5202,6 +5202,11 @@ def commits_query(repo: str, prs: list[str]) -> str:
     owner, name = repo.split("/")
     fields = " ".join(f"c{pr}: pullRequest(number: {pr}) {{ commits(last: 100) {{ nodes {{ commit {{ oid }} }} }} }}" for pr in prs)
     return f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'
+
+
+def unheld(target: str) -> str:
+    """`target` with no retry hold, for a pass whose wrapper died rather than a pass the tooling failed."""
+    return json.dumps({key: value for key, value in json.loads(target).items() if key not in ("retry_after", "failed_on")})
 
 
 def heads_query(repo: str, shas: list[str]) -> str:
