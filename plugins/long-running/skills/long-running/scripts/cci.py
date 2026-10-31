@@ -84,7 +84,7 @@ class Tail:
         shape, pr = without_pr(filters)
         kept = self.kept.get((drive, shape, pr))
         if kept is None or since < kept.floor:
-            mark = self.mark(drive, shape)
+            mark = self.mark(drive, shape) if pr else since
             found = paged(self, drive, filters, since)
             kept = self.kept[(drive, shape, pr)] = Kept(since, max([since, mark, *(record["seq"] for record in found)]), found)
         elif self.read is None or (drive, shape) not in self.topped:
@@ -103,7 +103,7 @@ class Tail:
         self.topped.add((drive, shape))
 
     def mark(self, drive: str, shape: tuple[str, ...]) -> int:
-        """The newest seq `shape` matches, read once with `--limit 1` and kept current by each top-up, so a query read from its start never makes the next top-up read again what the shape's other queries already hold."""
+        """The newest seq `shape` matches, read once with `--limit 1` and kept current by each top-up, so a `--pr` query read from its start never makes the next top-up read again what the shape's other queries already hold; a query naming no PR reads every record of its shape, so its own newest seq is that mark."""
         if (drive, shape) not in self.marks:
             out = self.run(["cci", "tail", "--drive", drive, "--since", "0", "--json", "--limit", "1", *shape])
             self.marks[(drive, shape)] = max((json.loads(line)["seq"] for line in out.splitlines() if line.strip()), default=0)
