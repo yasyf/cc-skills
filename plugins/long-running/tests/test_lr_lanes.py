@@ -175,6 +175,15 @@ def test_the_registry_survives_a_root_compaction(tmp_path, brief):
     assert rebuilt.lane("conflicts-2") == reopened
 
 
+def test_an_opened_record_naming_its_pr_by_bare_number_or_by_repo_adds_both(tmp_path, brief):
+    store = Store.memory()
+    fake = Fake(tmp_path, [spawned(1, "conflicts-2", brief), record(2, "conflicts-2", "opened", refs={"prs": [46001, "Forge-AI/monorepo#46002"]})], [who("conflicts-2", True, T0)])
+
+    lanes.tick(store, fake.deps, T0, 1)
+
+    assert store.lane("conflicts-2").prs == (46001, 46002)
+
+
 def test_a_fresh_store_adopts_only_the_lanes_live_now(tmp_path, brief):
     store = Store.memory()
     fake = Fake(tmp_path, [spawned(1, "conflicts-2", brief), spawned(2, "placement-build-4", brief), spawned(3, "slack-read-1", brief, role="reader"), spawned(4, "x-handoff", brief)], [who("conflicts-2", True, T0), who("placement-build-4", False, T0 - timedelta(hours=3)), who("slack-read-1", True, T0), who("x-handoff", True, T0)])

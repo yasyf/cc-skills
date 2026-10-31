@@ -79,7 +79,7 @@ def at_of(record: dict) -> datetime:
 
 
 def prs_of(record: dict) -> list[int]:
-    return [int(ref.rsplit("#", 1)[-1]) for ref in (record.get("refs") or {}).get("prs") or []]
+    return [int(str(ref).rsplit("#", 1)[-1]) for ref in (record.get("refs") or {}).get("prs") or []]
 
 
 def attrs_of(record: dict) -> dict:
