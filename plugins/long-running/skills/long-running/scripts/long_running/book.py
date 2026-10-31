@@ -97,3 +97,6 @@ class Book:
     def actions(self, container: str, kind: str | None = None, status: str | None = None, *, statuses=None) -> list[actions.Action]:
         return self.store.actions(container, kind, status, statuses=statuses)
 
+    def blocker_candidates(self, container: str) -> list[actions.Action]:
+        return self.store.blocker_candidates(container)
+

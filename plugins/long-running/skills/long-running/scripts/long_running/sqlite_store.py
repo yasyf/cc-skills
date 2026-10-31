@@ -15,7 +15,23 @@ from pathlib import Path
 
 from .model import Action, ActionState, Incident, StaleGeneration, UnknownAction
 
-_SCHEMA = """
+_COMPACT_RECORD = "replace(replace(replace(replace(record, ' ', ''), char(9), ''), char(10), ''), char(13), '')"
+_COMPACT_TARGET = "replace(replace(replace(replace(json_extract(record, '$.target'), ' ', ''), char(9), ''), char(10), ''), char(13), '')"
+_BLOCKER_CANDIDATES = rf"""
+CASE WHEN kind = 'bus' AND status = 'completed' THEN
+    CASE
+        WHEN NOT json_valid(record) THEN 1
+        WHEN json_type(record, '$.target') IS NOT 'text' THEN 1
+        WHEN NOT json_valid(json_extract(record, '$.target')) THEN 1
+        WHEN json_type(json_extract(record, '$.target')) IS NOT 'object' THEN 1
+        WHEN instr(lower(record), '\u006') OR instr(lower(record), '\u007') THEN 1
+        WHEN length({_COMPACT_RECORD}) - length(replace({_COMPACT_RECORD}, '"target":', '')) > 9 THEN 1
+        WHEN length({_COMPACT_TARGET}) - length(replace({_COMPACT_TARGET}, '"kind":', '')) > 7 THEN 1
+        ELSE json_extract(json_extract(record, '$.target'), '$.kind') = 'blocker'
+    END
+ELSE 0 END
+"""
+_SCHEMA = f"""
 CREATE TABLE incident (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
     incident_id TEXT NOT NULL,
@@ -58,6 +74,7 @@ CREATE TABLE action (
 CREATE INDEX action_kind ON action(kind, ordinal);
 CREATE INDEX action_status ON action(status, ordinal);
 CREATE INDEX action_kind_status ON action(kind, status, ordinal);
+CREATE INDEX action_blocker_candidates ON action(ordinal) WHERE {_BLOCKER_CANDIDATES};
 CREATE TRIGGER action_added AFTER INSERT ON action BEGIN
     UPDATE incident SET action_count = action_count + 1 WHERE singleton = 1;
 END;
@@ -685,6 +702,10 @@ class Store:
         index = " INDEXED BY action_kind_status" if kind is not None and statuses is not None else ""
         with self._read(incident_id) as connection:
             return [Action.load(json.loads(row[0])) for row in connection.execute("SELECT record FROM action" + index + where + " ORDER BY ordinal", parameters)]
+
+    def blocker_candidates(self, incident_id: str) -> list[Action]:
+        with self._read(incident_id) as connection:
+            return [Action.load(json.loads(row[0])) for row in connection.execute("SELECT record FROM action WHERE " + _BLOCKER_CANDIDATES + " ORDER BY ordinal")]
 
     def ownership(self, incident_id: str) -> tuple[str, int]:
         with self._read(incident_id) as connection:

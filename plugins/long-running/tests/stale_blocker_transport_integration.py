@@ -7,7 +7,7 @@ from native_cci_integration import native_cci, observed_commands
 from test_desk_runner import config, runner_module, shell
 
 
-def test_actual_landing_selected_blockers_retire_external_closures_with_legacy_book_traversal(config, tmp_path, monkeypatch, native_cci):
+def test_actual_landing_selected_blockers_retire_external_closures_with_indexed_book_candidates(config, tmp_path, monkeypatch, native_cci):
     settings = runner_module.Config.load(config)
     current = runner_module.Landing(runner_module.Runner(runner_module.Shell(), settings, runner_module.actions.Store(tmp_path / "selected-book")), settings.landing)
     decoded = 0
@@ -47,7 +47,7 @@ def test_actual_landing_selected_blockers_retire_external_closures_with_legacy_b
             return result
 
         first = query()
-        assert first["action_dtos"] == native_cci.population + 5
+        assert first["action_dtos"] == 5
         assert first["native_requests"] == 1
         assert first["commands"] == {"tail_processes": 0, "post_processes": 1, "temporary_feeds": 1}
         external = current.book.action(runner_module.LANDING, "external")
@@ -57,13 +57,13 @@ def test_actual_landing_selected_blockers_retire_external_closures_with_legacy_b
         assert stale.status == "verified" and stale.response == original["stale"] and "resolved" in stale.verification_receipt
         assert current.book.action(runner_module.LANDING, "current").status == "completed"
         second = query()
-        assert second == {"action_dtos": native_cci.population + 1, "commands": {"tail_processes": 0, "post_processes": 0, "temporary_feeds": 0}, "native_requests": 1}
+        assert second == {"action_dtos": 1, "commands": {"tail_processes": 0, "post_processes": 0, "temporary_feeds": 0}, "native_requests": 1}
         resolve("current")
         third = query()
-        assert third["action_dtos"] == native_cci.population + 2 and third["native_requests"] == 1
+        assert third["action_dtos"] == 2 and third["native_requests"] == 1
         assert third["commands"] == {"tail_processes": 0, "post_processes": 0, "temporary_feeds": 0}
         assert current.book.action(runner_module.LANDING, "current").verification_receipt["closed"] == original["current"]["posted"]
-        assert query() == {"action_dtos": native_cci.population, "commands": {"tail_processes": 0, "post_processes": 0, "temporary_feeds": 0}, "native_requests": 0}
-        print(json.dumps({"population": native_cci.population, "provider_source": os.environ["CCI_NATIVE_PROVIDER_SOURCE"], "runner_sha256": hashlib.sha256(Path(runner_module.__file__).read_bytes()).hexdigest(), "native_client_sha256": hashlib.sha256(Path(runner_module.cci.__file__).read_bytes()).hexdigest(), "calls": calls, "original_receipts": original, "scope": "real Landing/Book/Store legacy O(N) local traversal retained; selected native Tail and private official CLI posts/global foreign resolutions; no SQL index or physical IO claim"}))
+        assert query() == {"action_dtos": 0, "commands": {"tail_processes": 0, "post_processes": 0, "temporary_feeds": 0}, "native_requests": 0}
+        print(json.dumps({"population": native_cci.population, "provider_source": os.environ["CCI_NATIVE_PROVIDER_SOURCE"], "runner_sha256": hashlib.sha256(Path(runner_module.__file__).read_bytes()).hexdigest(), "native_client_sha256": hashlib.sha256(Path(runner_module.cci.__file__).read_bytes()).hexdigest(), "calls": calls, "original_receipts": original, "scope": "real Landing/Book/Store indexed local candidates and selected native Tail; private official CLI posts/global foreign resolutions; no physical IO claim"}))
     finally:
         current.close()
