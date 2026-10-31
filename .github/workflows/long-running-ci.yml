@@ -52,6 +52,8 @@ jobs:
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py -q -s -k 'test_flake_watch_reads_only_remembered_red_builds or test_release_and_cut_polls_decode_only_active_fact_entries'
       - name: historical lane read costs
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py -q -s -k test_orca_historical_lane_read_connection_cost
+      - name: indexed build cache actual caller costs
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_build_cache.py -q -s
       - name: capt-hook pack test
         run: uvx --isolated 'capt-hook>=12.107.13' pack test plugins/long-running
       - name: installed state package
@@ -153,7 +155,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
       - name: native mailbox freshness and lifecycle
-        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_rosters.py plugins/long-running/tests/test_inboxes.py plugins/long-running/tests/test_register_reads.py -q
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_rosters.py plugins/long-running/tests/test_inboxes.py plugins/long-running/tests/test_register_reads.py plugins/long-running/tests/test_build_cache.py -q -s
       - name: mailbox index scaling costs
         run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/mailbox-index.py > mailbox-index-macos.json
       - uses: actions/upload-artifact@v7
