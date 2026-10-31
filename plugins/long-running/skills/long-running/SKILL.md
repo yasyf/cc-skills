@@ -2804,8 +2804,9 @@ posts again only after it clears and comes back, and never sooner than 30 minute
 its last post. A `red` stall posts as a `blocker` to the PR's live owning lane alone, and
 again every 30 minutes while it stands; the owner is the lane the newest root record that
 reassigns the PR names, else the ledger row's lane, and a red no live lane owns reaches root
-once per head. Reds whose failed job logged only Buildkite's benign 404 probe fold into one
-`report` line to root a day. A stall whose owners are all desks, lanes named `<x>-desk` or
+once per head. A `red` record classing the head inherited, flake or stale silences its
+`red` stall until the head moves. Reds whose failed job logged only Buildkite's benign 404
+probe fold into one `report` line to root a day. A stall whose owners are all desks, lanes named `<x>-desk` or
 `<x>-desk-<n>`, goes to those desks and not to root. A stall the landing desk owns goes
 to `landing.desk_lane` when `runner.json` names one, else to root. Finder and fidelity
 stalls never reach root. A `stale` or `board` stall spares root while a lane in
