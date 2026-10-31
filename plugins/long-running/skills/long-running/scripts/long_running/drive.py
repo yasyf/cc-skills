@@ -125,7 +125,7 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -233,20 +233,20 @@ def load(path: Path) -> dict:
     return json.loads(path.read_text())
 
 
-def drives() -> list[dict]:
-    return [load(path) for path in sorted(drives_dir().glob("*.json"))]
+def drives(root: Path | None = None) -> list[dict]:
+    return [load(path) for path in sorted((drives_dir() if root is None else root).glob("*.json"))]
 
 
-def find(drive: str | None, session: str | None) -> dict | None:
+def find(drive: str | None, session: str | None, root: Path | None = None) -> dict | None:
     if drive:
         if "/" in drive or "\x00" in drive:
             return None
-        path = drives_dir() / f"{drive}.json"
+        path = (drives_dir() if root is None else root) / f"{drive}.json"
         if not path.is_file():
             return None
         entry = load(path)
         return entry if entry["drive"] == drive else None
-    for entry in drives():
+    for entry in drives(root):
         if session in entry["sessions"]:
             return entry
     return None
@@ -318,10 +318,11 @@ def session_id() -> str:
     return session
 
 
-def current_drive() -> str | None:
-    if drive := os.environ.get(DRIVE_ENV):
+def current_drive(env: Mapping[str, str] | None = None, root: Path | None = None) -> str | None:
+    env = os.environ if env is None else env
+    if drive := env.get(DRIVE_ENV):
         return drive
-    entry = find(None, os.environ.get(SESSION_ENV))
+    entry = find(None, env.get(SESSION_ENV), root)
     return entry["drive"] if entry else None
 
 

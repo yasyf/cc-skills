@@ -97,7 +97,7 @@ from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from functools import cache, cached_property
+from functools import cache, cached_property, partial
 from pathlib import Path
 
 from typing import TextIO
@@ -286,14 +286,37 @@ UNPLAIN = (
 )
 
 
+@dataclass(frozen=True)
+class Runtime:
+    stdin: TextIO
+    stdout: TextIO
+    stderr: TextIO
+    drives: Path
+    scratch: Path
+    current_drive: Callable[[], str | None]
+    lock: register_reads.Lock
+    held: Callable[[Path], bool]
+    checkpoint: Callable[[], None]
+
+
+class RequestParser(argparse.ArgumentParser):
+    def __init__(self, *args, stdout: TextIO, stderr: TextIO, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.stdout, self.stderr = stdout, stderr
+
+    def _print_message(self, message, file=None):
+        if message:
+            (self.stdout if file is sys.stdout else self.stderr).write(message)
+
+
 def ccn(shell: ledger.Shell, repo: str, *args: str) -> object:
     return register_reads.ccn(shell.run, repo, *args)
 
 
 def entry_of(args: argparse.Namespace) -> dict | None:
     if args.drive:
-        return drive.load(drive.drives_dir() / f"{args.drive}.json")
-    return next((entry for entry in drive.drives() if drive.program_of(entry) == args.program), None)
+        return drive.load(args.runtime.drives / f"{args.drive}.json")
+    return next((entry for entry in drive.drives(args.runtime.drives) if drive.program_of(entry) == args.program), None)
 
 
 def register_repo(args: argparse.Namespace) -> str:
@@ -301,13 +324,13 @@ def register_repo(args: argparse.Namespace) -> str:
 
 
 def program_of(args: argparse.Namespace) -> str:
-    return args.program or drive.program_of(drive.load(drive.drives_dir() / f"{args.drive}.json"))
+    return args.program or drive.program_of(drive.load(args.runtime.drives / f"{args.drive}.json"))
 
 
 def state_dir(args: argparse.Namespace) -> Path:
     if args.drive:
-        return Path(drive.load(drive.drives_dir() / f"{args.drive}.json")["state_dir"])
-    return Path.home() / ".claude" / "scratch" / args.program
+        return Path(drive.load(args.runtime.drives / f"{args.drive}.json")["state_dir"])
+    return args.runtime.scratch / args.program
 
 
 def register(shell: ledger.Shell, repo: str, program: str) -> dict | None:
@@ -443,7 +466,7 @@ def ledger_of(shell: ledger.Shell, repo: str, program: str) -> str:
 
 @contextmanager
 def writing(args: argparse.Namespace, shell: ledger.Shell) -> Iterator[Register]:
-    with ledger.locked(ledger.default_lock(ledger_of(shell, register_repo(args), program_of(args)))):
+    with args.runtime.lock(ledger.default_lock(ledger_of(shell, register_repo(args), program_of(args)))):
         yield Register.load(args, shell)
 
 
@@ -466,7 +489,7 @@ class Register:
         program = program_of(args)
         repo = repo or register_repo(args)
         state = state_dir(args)
-        identity, rows = register_reads.load(shell.run, ledger.locked, ledger.held, repo, program, state, last, kept_any)
+        identity, rows = register_reads.load(shell.run, args.runtime.lock, args.runtime.held, repo, program, state, last, kept_any)
         return cls(shell, repo, program, state, identity, rows)
 
     def write(self, key: str, **fields: object) -> None:
@@ -1157,7 +1180,7 @@ def cmd_round(args: argparse.Namespace, shell: ledger.Shell) -> int:
         (rounds / "skipped").mkdir(parents=True, exist_ok=True)
         path.replace(rounds / "skipped" / path.name)
     if skipped:
-        print(f"{len(skipped)} card(s) left the queue unsent: the owner's own tap or reply made the row, or the row is superseded", file=sys.stderr)
+        print(f"{len(skipped)} card(s) left the queue unsent: the owner's own tap or reply made the row, or the row is superseded", file=args.stderr)
     taken = sorted(wanted, key=lambda item: item[:2])[:ROUND_SIZE]
     if not taken:
         print("no ruling card queues", file=args.stdout)
@@ -1218,7 +1241,7 @@ def announce(loaded: Register, cci: str, live: list[str], touched: dict[str, str
     loaded.shell.run(argv)
 
 
-def post_repeat(loaded: Register, cci: str, key: str, hits: list[str]) -> None:
+def post_repeat(loaded: Register, cci: str, key: str, hits: list[str], stderr: TextIO) -> None:
     path = loaded.state / "sweep" / "repeats" / f"{key.replace('/', '-')}.txt"
     write_atomic(path, "\n".join([f"The owner repeated {key}. Each sweep hit of its names stays open until its line is deleted or an owner answer names it.", *hits]) + "\n")
     if not (lanes := fidelity_lanes(loaded)):
@@ -1229,7 +1252,7 @@ def post_repeat(loaded: Register, cci: str, key: str, hits: list[str]) -> None:
     try:
         loaded.shell.run(argv)
     except subprocess.CalledProcessError as failed:
-        print(f"WARN the sweep hits of {key} did not post to the fidelity desks ({(failed.stderr or '').strip() or failed}); they stay at {path}", file=sys.stderr)
+        print(f"WARN the sweep hits of {key} did not post to the fidelity desks ({(failed.stderr or '').strip() or failed}); they stay at {path}", file=stderr)
 
 
 def applied(loaded: Register, captured: dict[str, dict], entry: dict, files: Callable[[], list[Path]], documents: DocumentIndex | None = None) -> dict:
@@ -1363,7 +1386,7 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
             cci = drive.cci_drive(drive_entry)
             announce(loaded, cci, live_lanes(loaded, cci), touched_rows, before)
             for key, hits in repeats.items():
-                post_repeat(loaded, cci, key, hits)
+                post_repeat(loaded, cci, key, hits, args.stderr)
     return 0
 
 
@@ -1857,7 +1880,7 @@ def cmd_glossary(args: argparse.Namespace, shell: ledger.Shell) -> int:
 
 
 def transcript_entries(entry: dict) -> list[dict]:
-    projects = drive.drives_dir().parent.parent / "projects"
+    projects = args.runtime.drives.parent.parent / "projects"
     found = []
     for session in entry["sessions"]:
         for path in projects.glob(f"*/{session}.jsonl"):
@@ -2469,7 +2492,7 @@ def drive_checkout(args: argparse.Namespace) -> str:
 
 def cmd_check_pr(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if not ledger.PR_KEY.fullmatch(args.pr):
-        print(f"--pr {args.pr!r} is neither N nor OWNER/NAME#N", file=sys.stderr)
+        print(f"--pr {args.pr!r} is neither N nor OWNER/NAME#N", file=args.stderr)
         return 2
     findings = Findings([], [])
     repo, number = pull(args, shell)
@@ -2619,9 +2642,9 @@ def cmd_grade(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 1 if misses else 0
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="rulings.py", description=__doc__.splitlines()[0])
-    subparsers = parser.add_subparsers(dest="command", required=True)
+def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser = parser_type(prog="rulings.py", description=__doc__.splitlines()[0])
+    subparsers = parser.add_subparsers(dest="command", required=True, parser_class=parser_type)
     verbs = []
 
     def verb(name: str, handler, summary: str) -> argparse.ArgumentParser:
@@ -2751,11 +2774,21 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None, shell: ledger.Shell | None = None, *, stdin: TextIO, stdout: TextIO) -> int:
-    args = build_parser().parse_args(argv)
-    args.stdin, args.stdout = stdin, stdout
+def dispatch(argv: list[str] | None, shell: ledger.Shell, runtime: Runtime) -> int:
+    runtime.checkpoint()
+    parser_type = partial(RequestParser, stdout=runtime.stdout, stderr=runtime.stderr)
+    args = build_parser(parser_type).parse_args(argv)
+    args.stdin, args.stdout, args.stderr, args.runtime = runtime.stdin, runtime.stdout, runtime.stderr, runtime
     if not (args.program or args.drive):
-        args.drive = drive.current_drive() or args.error("one of the arguments --program --drive is required")
-    return args.handler(args, shell or ledger.Shell())
+        args.drive = runtime.current_drive() or args.error("one of the arguments --program --drive is required")
+    runtime.checkpoint()
+    result = args.handler(args, shell)
+    runtime.checkpoint()
+    return result
+
+
+def main(argv: list[str] | None = None, shell: ledger.Shell | None = None, *, stdin: TextIO, stdout: TextIO) -> int:
+    runtime = Runtime(stdin, stdout, sys.stderr, drive.drives_dir(), Path.home() / ".claude" / "scratch", drive.current_drive, ledger.locked, ledger.held, lambda: None)
+    return dispatch(argv, shell or ledger.Shell(), runtime)
 
 
