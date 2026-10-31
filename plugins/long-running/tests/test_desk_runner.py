@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 from collections import Counter
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -13082,26 +13083,59 @@ def test_the_alive_record_names_the_passs_own_command_over_a_longer_one_a_worker
     assert shell.alive == [f"landing alive {shell.clock.astimezone(runner_module.PACIFIC):%-I:%M %p} pass 1 running `cci tail --drive d1` for 1m05s"]
 
 
-def test_a_pr_query_reads_only_the_records_after_the_newest_it_kept_and_drops_one_that_expired():
-    posted = [{"seq": 4, "text": "a"}, {"seq": 8, "text": "c"}]
-    calls: list[str] = []
-
+def fake_cci(posted: list[dict], calls: list[list[str]]) -> Callable[[list[str]], str]:
     def run(argv: list[str]) -> str:
+        calls.append(argv)
         since = int(argv[argv.index("--since") + 1])
-        calls.append(str(since))
-        return "".join(json.dumps(record) + "\n" for record in posted if record["seq"] > since)
+        pr = argv[argv.index("--pr") + 1] if "--pr" in argv else ""
+        kinds = [arg.partition("=")[2] for arg in argv if arg.startswith("--kind=")]
+        found = [record for record in posted if record["seq"] > since and (not pr or runner_module.cci.names_pr(record, pr)) and (not kinds or record["kind"] in kinds)]
+        return "".join(json.dumps(record) + "\n" for record in (found[-int(argv[argv.index("--limit") + 1]) :] if "--limit" in argv else found))
 
-    tail = runner_module.cci.Tail(run)
+    return run
+
+
+def test_a_pr_query_reads_only_the_records_after_the_newest_it_kept_and_drops_one_that_expired():
+    posted = [{"seq": 4, "kind": "review", "text": "a", "refs": {"prs": ["Forge-AI/monorepo#29020"]}}, {"seq": 8, "kind": "review", "text": "c", "refs": {"prs": [29020]}}]
+    calls: list[list[str]] = []
+    tail = runner_module.cci.Tail(fake_cci(posted, calls))
     tail.remember()
-    query = ("d1", "--pr", "Forge-AI/monorepo#29020")
+    query = ("d1", "--kind=review", "--pr", "Forge-AI/monorepo#29020")
     assert [record["seq"] for record in runner_module.cci.records(tail, *query)] == [4, 8]
     tail.forget()
-    posted.append({"seq": 11, "text": "d"})
+    posted += [{"seq": 11, "kind": "review", "text": "d", "refs": {"prs": ["Forge-AI/monorepo#29020"]}}, {"seq": 12, "kind": "review", "text": "e", "refs": {"prs": ["Forge-AI/monorepo#29031"]}}]
     assert [record["seq"] for record in runner_module.cci.records(tail, *query)] == [4, 8, 11]
     tail.forget()
-    tail.grown[(query[0], query[1:])][0]["expires_at"] = "2000-01-01T00:00:00Z"
+    posted[0]["expires_at"] = "2000-01-01T00:00:00Z"
+    tail.kept[("d1", ("--kind=review",), "Forge-AI/monorepo#29020")].records[0]["expires_at"] = "2000-01-01T00:00:00Z"
     assert [record["seq"] for record in runner_module.cci.records(tail, *query)] == [8, 11]
-    assert calls == ["0", "8", "11"]
+    assert [(argv[argv.index("--since") + 1], "--pr" in argv) for argv in calls] == [("0", False), ("0", True), ("8", False), ("12", False)]
+
+
+def test_pr_queries_share_one_cci_read_a_pass_so_calls_stay_flat_from_10_to_1000_prs():
+    """Root #234903: a landing pass ran about 1,562 cci tail calls in 439 s, one paged read per PR and filter shape, each from the start of the drive."""
+
+    def calls_in_a_later_pass(prs: int) -> int:
+        posted = [{"seq": pr, "kind": "review", "text": "ok", "refs": {"prs": [f"Forge-AI/monorepo#{pr}"]}} for pr in range(1, prs + 1)]
+        calls: list[list[str]] = []
+        tail = runner_module.cci.Tail(fake_cci(posted, calls))
+        tail.remember()
+        for pr in range(1, prs + 1):
+            runner_module.cci.records(tail, "d1", "--kind=review", "--pr", f"Forge-AI/monorepo#{pr}")
+        tail.forget()
+        posted.append({"seq": prs + 1, "kind": "review", "text": "again", "refs": {"prs": ["Forge-AI/monorepo#1"]}})
+        before = len(calls)
+        found = [runner_module.cci.records(tail, "d1", "--kind=review", "--pr", f"Forge-AI/monorepo#{pr}") for pr in range(1, prs + 1)]
+        assert [record["seq"] for record in found[0]] == [1, prs + 1] and [len(records) for records in found[1:]] == [1] * (prs - 1)
+        return len(calls) - before
+
+    assert calls_in_a_later_pass(10) == calls_in_a_later_pass(1000) == 1
+
+
+def test_a_text_pr_ref_matches_only_its_own_repository_and_a_bare_number_matches_any():
+    record = {"refs": {"prs": ["Forge-AI/monorepo#29020", 31000]}}
+    assert runner_module.cci.names_pr(record, "Forge-AI/monorepo#29020") and runner_module.cci.names_pr(record, "yasyf/cc-skills#31000")
+    assert not runner_module.cci.names_pr(record, "yasyf/cc-skills#29020") and runner_module.cci.names_pr(record, "29020")
 
 
 def test_a_cci_page_under_half_the_budget_is_the_last_one_read(monkeypatch):
