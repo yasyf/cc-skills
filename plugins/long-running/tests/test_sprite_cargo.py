@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import subprocess
 import time
@@ -11,7 +12,9 @@ SCRIPT = (
 )
 
 SPRITE = """#!/usr/bin/env python3
-import os, subprocess, sys
+import json, os, subprocess, sys
+with open(os.environ["SPRITE_CALLS"], "a") as calls:
+    calls.write(json.dumps(sys.argv[1:]) + "\\n")
 args = sys.argv[2:]
 cwd, env = None, dict(os.environ)
 while args[0] != "--":
@@ -58,6 +61,7 @@ def run(tmp_path: Path, command: str) -> tuple[subprocess.CompletedProcess[str],
         **os.environ,
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "SPRITE_CARGO_ROOT": str(root),
+        "SPRITE_CALLS": str(tmp_path / "calls.jsonl"),
     }
     result = subprocess.run(
         ["sh", str(SCRIPT), "box", "lane-a", str(repo), "HEAD", command, "rust"],
@@ -105,3 +109,15 @@ def test_idle_targets_and_trees_go_and_recent_or_own_ones_stay(tmp_path: Path) -
     assert [path.exists() for path in stale] == [False, False, False]
     assert all(path.exists() for path in [*kept, busy_deep, building])
     assert f"removing {root / 'target-old'}, idle over 6 h" in result.stderr
+
+
+def test_idle_removal_runs_in_its_own_exec_with_no_stdin_before_the_upload(
+    tmp_path: Path,
+) -> None:
+    """signal-valkey-2 #264389: a large idle-target removal ran inside the upload's exec, outlived its session, and the run died with the exec session lost while stdin was attached."""
+    result, _ = run(tmp_path, "true")
+
+    assert result.returncode == 0, result.stderr
+    cleanup, upload, _ = [json.loads(line) for line in (tmp_path / "calls.jsonl").read_text().splitlines()]
+    assert "--no-stdin" in cleanup and "rm -rf" in cleanup[-3]
+    assert "--no-stdin" not in upload and "rm -rf" not in " ".join(upload)
