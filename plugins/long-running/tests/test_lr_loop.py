@@ -12,6 +12,7 @@ from lr.store import StaleGeneration, Store
 T0 = datetime(2026, 10, 30, 21, 0, tzinfo=UTC)
 REPO = "org/repo"
 HEAD = "e718a7434fa01ee9835f992a9a647a825350732c"
+PR_MOVERS = frozenset({"landing", "grading"})
 
 
 class Clock:
@@ -51,7 +52,7 @@ class Restacker:
 
 
 def deps(clock, snapshot, queue=None, pool=None):
-    return loop.Deps(snapshot=lambda: snapshot, post=lambda *a, **k: None, queue=queue or Queue(), restacker=Restacker(), pool=pool or Pool(), clock=clock, sleep=clock.sleep)
+    return loop.Deps(movers=PR_MOVERS, snapshot=lambda: snapshot, post=lambda *a, **k: None, queue=queue or Queue(), restacker=Restacker(), pool=pool or Pool(), clock=clock, sleep=clock.sleep)
 
 
 def facts(number, **fields):
@@ -103,6 +104,17 @@ def test_run_ends_by_itself_when_its_generation_is_taken():
             store.acquire_lease("d", "0.8.1", 202, clock())
         return []
 
-    ticks = loop.run(store, "d", "0.8.0", 101, loop.Deps(snapshot=snapshot, post=d.post, queue=d.queue, restacker=d.restacker, pool=d.pool, clock=clock, sleep=clock.sleep))
+    ticks = loop.run(store, "d", "0.8.0", 101, loop.Deps(movers=PR_MOVERS, snapshot=snapshot, post=d.post, queue=d.queue, restacker=d.restacker, pool=d.pool, clock=clock, sleep=clock.sleep))
 
     assert len(ticks) == 1
+
+
+def test_a_lanes_only_supervisor_runs_no_pr_pass(monkeypatch):
+    store, clock = Store.memory(), Clock()
+    ticked = []
+    monkeypatch.setattr(loop.lanes, "tick", lambda store, deps, now: ticked.append(now) or loop.lanes.Outcome())
+
+    [tick] = loop.run(store, "d", "0.8.0", 1, loop.Deps(movers=frozenset({"lanes"}), clock=clock, sleep=clock.sleep, lane_deps=object()), ticks=1)
+
+    assert ticked == [T0] and (tick.prs, tick.enqueued, tick.dispatched) == (0, 0, 0)
+    assert store.open_items() == []
