@@ -397,21 +397,21 @@ def drops_carried(shell: Shell, job: dict, base: str, left: str, right: str) -> 
     return True
 
 
-def record_census(shell: Shell, job: dict, directory: Path, census: list[dict]) -> str:
+def record_census(shell: Shell, job: dict, directory: Path, census: list[dict]) -> cci.Posted:
     path = directory.parent / f"census-{time.strftime('%Y-%m-%d')}.md"
     with path.open("a") as file:
         file.writelines(f"- {job['repo']}#{job['pr']} {job['head'][:12]} {' '.join(finding['cite'].split())}: {' '.join(finding['defect'].removeprefix(CENSUS).split())}\n" for finding in census)
     pr = f"{job['repo']}#{job['pr']}"
     text = f"finder census: {len(census)} dev-only findings on #{job['pr']} appended to {path}"
     to = ",".join(dict.fromkeys(filter(None, [job["lane"], *job["to"]])))
-    return cci.posted(shell.run(["cci", "post", "--drive", job["drive"], "--lane", LANE, "--kind", "note", "--to", to, "--force", "--pr", pr, "--id", f"finder-census:{pr}:{job['head']}", "--text", text, "--json"])).strip()
+    return cci.posted(shell.run(["cci", "post", "--drive", job["drive"], "--lane", LANE, "--kind", "note", "--to", to, "--force", "--pr", pr, "--id", f"finder-census:{pr}:{job['head']}", "--text", text, "--json"]))[0]
 
 
-def post(shell: Shell, job: dict, text: str, body: Path) -> str:
+def post(shell: Shell, job: dict, text: str, body: Path) -> cci.Posted:
     to = ",".join(dict.fromkeys(filter(None, [job["lane"], *job["to"]])))
     argv = ["cci", "post", "--drive", job["drive"], "--lane", LANE, "--kind", "review", "--pr", f"{job['repo']}#{job['pr']}", "--id", f"finder:{job['repo']}#{job['pr']}:{job['head']}{':whole' if job['full'] else ''}", "--path", str(body)]
     clipped = text if len(text) <= CCI_TEXT else text[: CCI_TEXT - 1] + "…"
-    return cci.posted(shell.run(logged(body.parent, [*argv, *(["--to", to, "--force"] if to else []), "--text", clipped, "--json"]))).strip()
+    return cci.posted(shell.run(logged(body.parent, [*argv, *(["--to", to, "--force"] if to else []), "--text", clipped, "--json"])))[0]
 
 
 def logged(directory: Path, argv: list[str]) -> list[str]:
@@ -505,7 +505,7 @@ def failure(error: Exception) -> str:
 
 def write_result(directory: Path, outcome: dict) -> None:
     staged = directory / f".{RESULT}"
-    staged.write_text(json.dumps(outcome) + "\n")
+    staged.write_text(json.dumps(outcome, default=lambda posted: cci.receipt(posted.seq)) + "\n")
     staged.replace(directory / RESULT)
 
 

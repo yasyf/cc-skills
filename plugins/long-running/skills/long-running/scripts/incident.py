@@ -307,7 +307,7 @@ class Comms:
 
     def post(self, kind: str, text: str, to: str | None, topic: str | None = None) -> int:
         out = self.bus_cli("post", "--from", self.sender, "--kind", kind, "--topic", topic or self.topic, "--text", text, *(["--to", to] if to else []))
-        return int(out.split()[0].lstrip("#"))
+        return json.loads(out)["seq"]
 
     def event(self, event: str, facts: dict, grant: str) -> int:
         return self.post("ask", json.dumps({"event": event, "grant": grant, **facts}), self.comms_lane)

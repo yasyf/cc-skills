@@ -28,7 +28,7 @@ def stamp(minutes_ago: float) -> str:
 
 
 def record(seq: int, lane: str, kind: str, text: str, minutes_ago: float, pr: str = "", **extra) -> dict:
-    return {"seq": seq, "drive": DRIVE, "lane": lane, "kind": kind, "at": stamp(minutes_ago), "text": text, "to": ["root"], "refs": {"prs": [f"{REPO}#{pr}"]} if pr else {}} | extra
+    return {"seq": seq, "num": f"#{seq}", "drive": DRIVE, "lane": lane, "kind": kind, "at": stamp(minutes_ago), "text": text, "to": ["root"], "refs": {"prs": [f"{REPO}#{pr}"]} if pr else {}} | extra
 
 
 def hold(seq: int, text: str, *prs: str) -> dict:
@@ -583,7 +583,7 @@ def test_an_open_ask_to_root_stalls_until_root_answers_it(config):
     watch(shell, config)
 
     assert shell.topics() == ["ask:1"]
-    assert "answer it with `cci post --re 1`" in shell.post("ask:1")["text"]
+    assert "answer it with `cci post --re '#1'`" in shell.post("ask:1")["text"]
 
 
 def alive(seq: int, desk: str, minutes_ago: float) -> dict:
@@ -1198,7 +1198,7 @@ def test_a_landing_refusal_no_lane_answers_escalates_to_root_and_its_lane_at_10_
     post = shell.post("refusal:44141:09c1863:parent")
     assert (post["kind"], post["to"]) == ("urgent", "root,p8a-step7@d1")
     assert post["text"].startswith("STALL refusal #44141 at 09c1863, 10 min: landing-desk-3 refused to queue it at ")
-    assert "| owner p8a-step7 | p8a-step7: run ccx vcs stack submit from #44141's worktree to put it on #44139, post HEAD, then post HEAD or `cci post --re 173678`" in post["text"]
+    assert "| owner p8a-step7 | p8a-step7: run ccx vcs stack submit from #44141's worktree to put it on #44139, post HEAD, then post HEAD or `cci post --re '#173678'`" in post["text"]
 
     shell.clock = NOW + timedelta(minutes=15)
     watch(shell, config)

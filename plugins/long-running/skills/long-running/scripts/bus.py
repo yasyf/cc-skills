@@ -7,7 +7,7 @@
     bus.py post --bus DRIVE --from LANE --kind decision|head|contract|blocker|ask|answer|withdraw --topic T --text ... [--to LANE]... [--re SEQ]
     bus.py read --bus DRIVE --lane LANE [--kind K]... [--topic T]... --json
 
-STDLIB ONLY. `post` is one `cci post` and prints its `#<seq>`. `read` prints, as one JSON
+STDLIB ONLY. `post` is one `cci post` and prints its JSON `{seq, num}`. `read` prints, as one JSON
 list, every record cci delivers to the lane, oldest first, as `{seq, at, kind, topic,
 from, to, text, re}`; it pages through `cci tail --since` and touches no cursor. Lanes
 use cci directly; this script keeps incident.py's calls working. Every subprocess goes
@@ -17,6 +17,7 @@ through :class:`Shell`, the one seam tests replace.
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 import json
 import subprocess
 import sys
@@ -51,7 +52,7 @@ def cmd_post(args: argparse.Namespace, shell: Shell) -> int:
     argv += ["--topic", args.topic] if args.topic else []
     argv += ["--re-seq", str(args.re)] if args.re is not None else []
     argv += [flag for lane in args.to for flag in ("--to", lane)]
-    print(cci.posted(shell.run([*argv, "--json"])).strip())
+    print(json.dumps(asdict(cci.posted(shell.run([*argv, "--json"]))[0])))
     return 0
 
 

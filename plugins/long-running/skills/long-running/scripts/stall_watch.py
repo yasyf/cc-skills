@@ -192,6 +192,7 @@ import fcntl
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from collections.abc import Callable
@@ -586,7 +587,7 @@ class Refusal:
     def command(self, head: str) -> str:
         if found := REFUSAL_COMMAND.search(self.said):
             return f"`{found[1]}`" if found[1] else f"run {found[2].strip()}"
-        return CAUSE_COMMANDS.get(self.cause or "", "act on cci #{seq}, then post HEAD or `cci post --re {seq}`").format(pr=self.pr, sha=short(head), seq=self.record["seq"])
+        return CAUSE_COMMANDS.get(self.cause or "", "act on cci {num}, then post HEAD or `cci post --re {reference}`").format(pr=self.pr, sha=short(head), num=self.record["num"], reference=shlex.quote(self.record["num"]))
 
 
 def refusals_in(record: dict, repo: str) -> list[Refusal]:
@@ -848,11 +849,11 @@ class Pass:
         for key, (refusal, owner, head) in standing.items():
             since, seq = at(refusal.record), refusal.record["seq"]
             subject, command = f"#{refusal.pr} at {short(head)}", refusal.command(head)
-            what = f"{refusal.record['lane']} refused to queue it at {pacific(since)} in #{seq}: {clip(refusal.said)}; {owner} has posted no HEAD and no answer since"
+            what = f"{refusal.record['lane']} refused to queue it at {pacific(since)} in {refusal.record['num']}: {clip(refusal.said)}; {owner} has posted no HEAD and no answer since"
             if self.now - since >= self.watch.age("refusal"):
-                stalls.append(Stall(f"refusal:{key}", "refusal", since, subject, what, (owner,), f"{owner}: {command}, then post HEAD or `cci post --re {seq}`", refusal.pr))
+                stalls.append(Stall(f"refusal:{key}", "refusal", since, subject, what, (owner,), f"{owner}: {command}, then post HEAD or `cci post --re {shlex.quote(refusal.record['num'])}`", refusal.pr))
             if self.now - since >= self.watch.age("successor") and owner not in ROOT_NAMES and not self.rotating(records, owner, seq):
-                stalls.append(Stall(f"successor:{key}", "successor", since, subject, what, (ROOT,), f"spawn a successor to {owner}, which has not acted on #{seq} in {int((self.now - since).total_seconds() // 60)} min; the successor's first step: {command}", refusal.pr))
+                stalls.append(Stall(f"successor:{key}", "successor", since, subject, what, (ROOT,), f"spawn a successor to {owner}, which has not acted on {refusal.record['num']} in {int((self.now - since).total_seconds() // 60)} min; the successor's first step: {command}", refusal.pr))
         return stalls
 
     def rotating(self, records: list[dict], owner: str, seq: int) -> bool:
@@ -1073,11 +1074,11 @@ class Pass:
         """A `fidelity: missing` grade standing at the head: unanswered for `stall.minutes.missing`, a stall to root and the PR's lane like a red build; answered by a lane record or a PR comment with no grade since for `stall.minutes.regrade`, a stall to the lane that graded it, or the runner's desks for the fidelity pipeline."""
         grade = found.grade
         graded_at = at(grade)
-        said = f"fidelity grade cci #{grade['seq']} by {grade['lane']} reads missing since {pacific(graded_at)}: {clip(grade['text'])}"
+        said = f"fidelity grade cci {grade['num']} by {grade['lane']} reads missing since {pacific(graded_at)}: {clip(grade['text'])}"
         if found.answered_at is None:
             if self.now - graded_at < self.watch.age("missing"):
                 return None
-            return Stall(f"missing:{pr}:{grade['seq']}", "missing", graded_at, subject, f"{said}; nobody has answered it", (lane,), f"answer it: push the fix and post HEAD, or post `cci post --re {grade['seq']}` saying why the plan holds", pr)
+            return Stall(f"missing:{pr}:{grade['seq']}", "missing", graded_at, subject, f"{said}; nobody has answered it", (lane,), f"answer it: push the fix and post HEAD, or post `cci post --re {shlex.quote(grade['num'])}` saying why the plan holds", pr)
         if self.now - found.answered_at < self.watch.age("regrade"):
             return None
         grader = RUNNER if grade["lane"] == owner_waits.PIPELINE else grade["lane"]
@@ -1359,7 +1360,7 @@ class Pass:
     def asks(self, records: list[dict]) -> list[Stall]:
         answered = {record["re"] for record in records if record["lane"] in ROOT_NAMES and record.get("re")}
         return [
-            Stall(f"ask:{record['seq']}", "ask", at(record), f"#{record['seq']} from {record['lane']}", f"open and unanswered: {clip(record['text'])}", (ROOT,), f"answer it with `cci post --re {record['seq']}`, or close it with `--resolves {record['seq']}`")
+            Stall(f"ask:{record['seq']}", "ask", at(record), f"{record['num']} from {record['lane']}", f"open and unanswered: {clip(record['text'])}", (ROOT,), f"answer it with `cci post --re {shlex.quote(record['num'])}`, or close it with `--resolves {shlex.quote(record['num'])}`")
             for record in records
             if record["kind"] == "ask"
             and record.get("status") == "open"
