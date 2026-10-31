@@ -14,6 +14,7 @@ YES = judge.Verdict("yes", "one process per destination and key", "one upload pr
 NO = judge.Verdict("no", "", "", "It carries what he said.")
 UNSURE = judge.Verdict("unsure", "per key", "per Mac", "Cannot tell.")
 ANSWERS = json.loads((Path(__file__).parent / "fixtures" / "judge-answers.json").read_text())
+PLAIN_ANSWERS = json.loads((Path(__file__).parent / "fixtures" / "judge-plain-answers.json").read_text())
 
 
 def scripted(*verdicts: judge.Verdict):
@@ -63,7 +64,7 @@ def test_a_split_keeps_the_first_answers_phrases_so_a_dispute_can_quote_them():
 
 
 def test_a_failed_call_fails_open_and_is_logged_as_an_error(tmp_path, monkeypatch):
-    monkeypatch.setattr(judge, "state_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(judge, "state_dir", lambda drive, env=None: tmp_path)
 
     def broken(*args, **kwargs):
         raise subprocess.CalledProcessError(1, "claude")
@@ -79,7 +80,7 @@ def test_a_failed_call_fails_open_and_is_logged_as_an_error(tmp_path, monkeypatc
 
 
 def test_a_sonnet_yes_is_asked_twice_and_both_calls_are_counted(tmp_path, monkeypatch):
-    monkeypatch.setattr(judge, "state_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(judge, "state_dir", lambda drive, env=None: tmp_path)
     answer = {"structured_output": {"verdict": "yes", "artifact_phrase": "a", "evidence_phrase": "b", "sentence": "c"}, "total_cost_usd": 0.01, "usage": {"input_tokens": 900, "output_tokens": 60}}
     argv = []
 
@@ -112,7 +113,7 @@ def test_the_digest_counts_each_kinds_verdicts_errors_and_latency():
 
 
 def test_a_batch_asks_sonnet_once_under_its_own_system_prompt_and_logs_an_answered_call(tmp_path, monkeypatch):
-    monkeypatch.setattr(judge, "state_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(judge, "state_dir", lambda drive, env=None: tmp_path)
     argv = []
 
     def claude(args, **kwargs):
@@ -128,7 +129,7 @@ def test_a_batch_asks_sonnet_once_under_its_own_system_prompt_and_logs_an_answer
 
 
 def test_a_failed_batch_returns_none_and_the_digest_counts_it_beside_the_answered_ones(tmp_path, monkeypatch):
-    monkeypatch.setattr(judge, "state_dir", lambda drive: tmp_path)
+    monkeypatch.setattr(judge, "state_dir", lambda drive, env=None: tmp_path)
 
     def broken(*args, **kwargs):
         raise subprocess.TimeoutExpired("claude", 300)
@@ -145,9 +146,9 @@ def test_an_unknown_backend_in_the_environment_is_refused():
         judge.backend_from({judge.BACKEND_ENV: "haiku"})
 
 
-def replayed(backend: judge.Backend) -> tuple[int, int, int]:
+def replayed(backend: judge.Backend, answers: dict = ANSWERS) -> tuple[int, int, int]:
     passed = missed = false_flags = 0
-    for case in ANSWERS.values():
+    for case in answers.values():
         for run in case["runs"]:
             sonnet = iter(judge.Verdict(verdict, "", "", "") for verdict in run["sonnet"])
             jev = iter(judge.Verdict("yes" if p_yes >= judge.JEV_YES else "no", "", "", "") for p_yes in run["jev"])
@@ -163,6 +164,16 @@ def test_the_default_backend_scores_best_on_the_recorded_eval_answers():
 
     assert scores[judge.DEFAULT_BACKEND] == (43, 5, 0)
     assert all(scores[judge.DEFAULT_BACKEND][0] > passed for backend, (passed, _, _) in scores.items() if backend != judge.DEFAULT_BACKEND)
+
+
+def test_the_plain_words_judge_flags_under_one_in_ten_clean_texts_on_its_recorded_answers():
+    clean = sum(len(case["runs"]) for case in PLAIN_ANSWERS.values() if case["expect"] in ("no", "not-yes"))
+    jargon = sum(len(case["runs"]) for case in PLAIN_ANSWERS.values() if case["expect"] == "yes")
+
+    _, missed, false_flags = replayed(judge.DEFAULT_BACKEND, PLAIN_ANSWERS)
+
+    assert false_flags * 10 < clean
+    assert missed * 10 < jargon
 
 
 def test_a_tap_carries_the_card_it_answered_and_a_typed_prompt_carries_none(tmp_path, monkeypatch):

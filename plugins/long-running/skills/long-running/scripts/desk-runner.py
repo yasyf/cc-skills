@@ -449,8 +449,8 @@ record is graded with no hand requeue. At most `finder.concurrent`
 passes (default 8) run at once and the rest wait queued; each PR's newest queued head starts, a lower ledger `priority` first, then longest waiting, and an older
 queued head of the same PR settles as superseded, and so does a running pass of it: the runner writes its job's `cancelled`
 mark and runs `codex-ask --cancel` on each codex run the pass started. Before it starts any, one fresh GraphQL read of every
-queued PR settles a head whose PR is closed, or no longer at that head, as skipped. A head a `finder:` record of `finder-desk` already names starts nothing. A root
-`ask` to `finder-desk` that names a PR and says `finder: whole` queues one `full` pass of that PR that
+queued PR settles a head whose PR is closed, or no longer at that head, as skipped. A head a `finder:` record of `finder-desk` already names starts nothing. An
+`ask` from any lane of the drive to `finder-desk` that names a PR and says `finder: whole` queues one `full` pass of that PR that
 starts ahead of the rest and wins over its queued heads: it reads the PR's whole own change at its live head even when a record
 names that head, unless a whole-range finder record about the PR is newer than its newest `head` record. A pass
 writes `<config dir>/finder-desk/<pr>-<head12>/job.json` and starts `finder.py` on that directory detached, which runs
@@ -544,7 +544,8 @@ compared with the one before it: a job name that fails or soft-fails more often 
 `landing.desk_lane` and the lanes of the PRs that landed between the two, so a build green only by soft-fail reads red.
 A trunk commit whose check failed and later passes on a retry of a job or of the build posts one `FLAKE`, a
 `[finding:desk-runner]` defect naming the first failing test in the failed job's log, the lane whose PR last changed
-that test's file as its owner, and a fix due 24 hours out; it blocks nothing and stays open until a HEAD names it.
+that test's file as its owner, and a fix due 24 hours out; it blocks nothing and stays open until a HEAD names it. A test file in the old tree,
+under `go/sand/` outside `go/sand/next/`, posts none, since an old-tree flake gets its one retry and no fix lane (owner row prompt/1030-212507).
 A trunk that does not read gates and enqueues nothing that pass and reads again
 the next; `TRUNK-READ-FAILED` posts once per run of such passes, and `TRUNK-READ-RECOVERED` once a read succeeds.
 `landing.release_cli` is the repo's release command line, such as `tools/ci release`, its first word relative to the landing
@@ -678,7 +679,7 @@ from long_running.grades import carry_of, delegated, succeeds, with_successors
 from long_running.grades import carries as carry_grade
 from long_running.grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
 from long_running.grades import WITHDRAWN as WITHDRAWN_OPENING
-from long_running.grades import go_state, owes
+from long_running.grades import GO_KIND_FLAGS, GO_KINDS, go_state, is_go, owes
 from long_running.grades import REVIEW_BOT_CHECK, REVIEW_BOT_HELD, VOIDING_KINDS, review_bot_wait, voids, withdrawn
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK
 
@@ -700,6 +701,7 @@ TEST_DIRS = frozenset({"__tests__", "testdata", "fixtures", "docs"})
 CI_PREFIXES = (".buildkite/", ".github/", "tools/ci/", "infra/ci/")
 TOOLING_GLOBS = (".agents/skills/*/scripts/*", ".agents/skills/*/tests/*")
 PORT_PREFIXES = ("go/sand/next/",)
+OLD_TREE = "go/sand/"
 OWNER_CITE = re.compile(r"#\s*owner:\s*[0-9a-f]{7,40}\b")
 MERGE_CARD_FIELDS = "title,author,additions,deletions,reviewDecision"
 RULING_ROUNDS = "cards/rounds"
@@ -803,6 +805,7 @@ MERGE_MODES = ("every", "high-risk", "auto")
 ACCEPT_CHECKS = ("precondition", "rulings", "fidelity", "finder", "old-app", "build-failed", "merge-mode")
 HOLD_CHECKS = ("hold",)
 ENQUEUE_CHECKS = ("precondition", "rulings", "fidelity", "finder", "old-app", "build-failed", "merge-mode")
+KNOWN_CHECKS = merge_queue.CHECKS + merge_queue.OPT_IN_CHECKS
 CHECK_STAGES = {"hold": "enqueue", "precondition": "accept, enqueue", "rulings": "accept, enqueue", "fidelity": "accept, enqueue", "finder": "accept, enqueue", "old-app": "accept, enqueue", "build-failed": "accept, enqueue", "merge-mode": "accept, enqueue", "approvals": "adapter check", "required-ci": "adapter check"}
 DEFAULT_PRIORITY = 100
 HIGH_RISK_STARTER = ("*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "*creds*")
@@ -1057,7 +1060,6 @@ PR_SILENT = "pr-silent"
 CLASS_UNOWNED = "class-unowned"
 CLASS_TEXT = re.compile(r"^(?:NEW )?CLASS\b")
 CLASS_HEADER = re.compile(r"^(?:(?:NEW )?CLASS\b[^\n]*|\[[^\]\n]+\])")
-FIX_GO_KINDS = frozenset({"go", "decide", "decision"})
 FIX_GO = re.compile(r"\bfix\b", re.IGNORECASE)
 UNPUSHED = frozenset({"not pushed", "no origin branch"})
 PR_NAMED = re.compile(r"(?<![\w/])#(\d{3,})\b|/pull/(\d+)\b")
@@ -1295,7 +1297,7 @@ class Shell:
     def reexec(self, argv: list[str]) -> None:
         sys.stdout.flush()
         sys.stderr.flush()
-        os.execv(argv[0], argv)
+        drive.reexec(argv)
 
     def launchctl(self, *args: str) -> Done:
         """`launchctl` run once within QUICK_SECONDS; a host without it, such as a Linux box, reads as unsupervised at once instead of waiting out the install window a missing binary gets."""
@@ -3360,7 +3362,7 @@ class Runner:
                 elif self.now() - actions.parse_stamp(action.accepted_at) >= timedelta(minutes=self.config.load_hold_minutes):
                     self.expire_launch(container, lane, action, held)
                 return
-            self.escalate(f"{container}/{action.action_id}:load", "LOAD-INCIDENT", lane, f"{action.action_id} launches on {held}: an incident fix lane is never held for load")
+            self.escalate(f"{container}/{action.action_id}:load", "LOAD-INCIDENT", lane, f"{action.action_id} launches on {held}: an incident fix lane is never held for load", to=self.watchdog)
         if not self.book.attempt(container, lambda incident: incident.start(action.action_id, self.now(), deadline=actions.parse_stamp(action.deadline))):
             return
         if refusal is None:
@@ -3402,8 +3404,8 @@ class Runner:
         return f"load {load:.0f} above {cores} cores"
 
     def move_load(self, held: str) -> None:
-        """Tell the root, once per ten minutes, that launches are refused on load and that the load has to move."""
-        self.escalate(f"load:{actions.stamp(self.now())[:15]}", "LOAD-HIGH", "runner", f"{held}: Orca launches are refused while it lasts, because a worktree checkout times out under it. root: move the load off this Mac now; a pass, backfill, dry run, or bulk rewrite runs on in-region compute")
+        """Tell the drive watchdog, once per ten minutes, that launches are refused on load and that the load has to move."""
+        self.escalate(f"load:{actions.stamp(self.now())[:15]}", "LOAD-HIGH", "runner", f"{held}: Orca launches are refused while it lasts, because a worktree checkout times out under it. drive-watchdog: move the load off this Mac now; a pass, backfill, dry run, or bulk rewrite runs on in-region compute", to=self.watchdog)
 
     def refuse_launch(self, container: str, lane: str, action: actions.Action, held: str, remedy: str) -> None:
         key = action.action_id
@@ -4138,7 +4140,7 @@ class Runner:
             self.tail_failed(failure)
             return
         after = timedelta(minutes=self.config.pr_silent_minutes)
-        gos = [record for record in records if record["lane"] == ROOT and record["kind"] in FIX_GO_KINDS and FIX_GO.search(record.get("text") or "")]
+        gos = [record for record in records if record["lane"] == ROOT and record["kind"] in GO_KINDS and FIX_GO.search(record.get("text") or "")]
         for record in records:
             if record["lane"] in (ROOT, RUNNER) or not (record["kind"] == "incident" or CLASS_TEXT.match(record.get("text") or "")):
                 continue
@@ -4605,7 +4607,7 @@ class Runner:
             return
         read = cci.records(self.cci_tail, self.config.drive, "--kind=head", "--kind=opened", "--kind=ask", since=cursor)
         for record in read:
-            if (record["drive"], record["kind"], record["lane"]) == (self.config.drive, "ask", ROOT):
+            if (record["drive"], record["kind"]) == (self.config.drive, "ask"):
                 for pr in finder.requested(record, repo):
                     self.book.accept(FINDER, f"finder:{pr}:whole:{record['seq']}", "finder", json.dumps({"pr": pr, "head": "", "lane": record["lane"], "seq": record["seq"], "full": True}), f"cci#{record['seq']}", None)
         for record, pr, head in self.named_heads(repo, read):
@@ -4669,7 +4671,7 @@ class Runner:
             if (state := live.get(pr)) and (state["state"] in FINDER_SKIPS or job["head"] and state["headRefOid"] != job["head"]):
                 self.finder_settled(action.action_id, {"skipped": FINDER_SKIPS.get(state["state"], "#{pr} moved to {head}").format(pr=pr, repo=repo, head=state["headRefOid"][:12])})
                 del newest[pr]
-        going = self.tapped() | {pr for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, "--kind=go") if (record["lane"], record["kind"]) == (ROOT, "go") for pr in go_heads(record)}
+        going = self.tapped() | {pr for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, *GO_KIND_FLAGS) if record["lane"] == ROOT and is_go(record) for pr in go_heads(record)}
         history: dict[str, list[actions.Action]] = {}
         for action in sorted(self.book.actions(FINDER, kind="finder"), key=lambda action: action.accepted_at):
             history.setdefault(json.loads(action.target)["pr"], []).append(action)
@@ -5034,7 +5036,7 @@ class Runner:
                 if oldest and oldest <= window and not any(self.pass_sprite(action) == sprite for action in settled):
                     done = self.cci_post("defect", f"SPRITE-STALLED {sprite}: {len(passes)} passes running, {age}, and none it ran settled in the last {int(SPRITE_STALLED_AFTER.total_seconds()) // 60} min; check the Sprite and each pass's job.log", ROOT, f"sprite:{sprite}", f"sprite-stalled:{sprite}")
                 else:
-                    done = self.cci_post("state", f"sprite {sprite}: {counts[FINDER]} finder and {counts[FIDELITY]} fidelity passes, {age}", f"{ROOT},{self.watchdog}", f"sprite:{sprite}", f"sprite-beat:{sprite}")
+                    done = self.cci_post("state", f"sprite {sprite}: {counts[FINDER]} finder and {counts[FIDELITY]} fidelity passes, {age}", self.watchdog, f"sprite:{sprite}", f"sprite-beat:{sprite}")
                 if done.code:
                     print(f"sprite {sprite} heartbeat left for the next pass; cci post exited {done.code}: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
                     continue
@@ -6155,6 +6157,10 @@ class Landing:
                     self.settle({pr: match["sha"]}, Refused(f"the gate read {match['sha']} BLOCKED: {match['detail']}"))
                 elif match["verdict"] == WAITING_VERDICT and (below := BELOW_BLOCKED.search(match["detail"])):
                     self.settle({pr: match["sha"]}, BelowBlocked(f"#{below[1]}", f"the gate read {match['sha']} WAITING {match['detail']}"))
+                elif match["verdict"] == WAITING_VERDICT:
+                    self.settle({pr: match["sha"]}, Refused(f"the gate read {match['sha']} WAITING: {match['detail']}"))
+                if (head := open_rows.get(pr, {}).get("head", "")) and not names_head(match["sha"], head):
+                    self.settle({pr: head}, Refused(f"its head moved to {match['sha'][:10]} after the ledger read {head[:10]}, so the next pass gates the new head"))
             if (would := self.direct_would(done)) is not None:
                 self.accept(tips, would, verdicts, rows, held)
             for pr, match in verdicts.items():
@@ -6464,6 +6470,8 @@ class Landing:
             return True
         test = next(filter(None, (self.failed_test(red, job) for job in jobs)), "")
         path = self.test_file(test) if test else ""
+        if path.startswith(OLD_TREE) and not path.startswith(PORT_PREFIXES):
+            return True
         subject = self.shell.run(["git", "-C", str(self.checkout), "log", "-1", "--format=%s", "--", path]).out.strip() if path else ""
         pr = found[1] if (found := SQUASHED_PR.search(subject)) else ""
         owner = self.successor(lane) if (lane := rows.get(pr, {}).get("lane")) else ROOT
@@ -6891,8 +6899,8 @@ class Landing:
 
     @property
     def checks(self) -> list[str]:
-        """The check registry in the order `landing.checks` names it, every built-in when it names none, with the `hold` check first whether it names it or not, so no enqueue path skips an open hold; re-read on every use."""
-        return [*HOLD_CHECKS, *(name for name in self.landing_config.get("checks", merge_queue.CHECKS) if name not in HOLD_CHECKS)]
+        """The check registry in the order `landing.checks` names it, every built-in when it names none, with the `hold` check first whether it names it or not, so no enqueue path skips an open hold; a name the installed release no longer ships is skipped, so a check a release retires never stops the runner; re-read on every use."""
+        return [*HOLD_CHECKS, *(name for name in self.landing_config.get("checks", merge_queue.CHECKS) if name not in HOLD_CHECKS and name in KNOWN_CHECKS)]
 
     def failing(self, stage: tuple[str, ...], graded: Graded) -> tuple[str, dict[str, merge_queue.State]] | None:
         """The first configured check of `stage` that does not pass every head, with each head's state; a refusing check posts its own blocker or ask when `graded.act`. The merge-mode check runs first, so a head's merge card is asked before the slower checks run, and its verdict still counts in its configured place."""
@@ -7396,7 +7404,7 @@ class Landing:
         if not (after := self.landing_config.get("checks_wait_for_go")):
             return False
         drive = self.runner.config.drive
-        if any((record["kind"], record["lane"], record["drive"]) == ("go", ROOT, drive) for record in cci.records(self.cci_tail, drive, "--lane", ROOT, "--kind=go", since=after)):
+        if any((record["lane"], record["drive"]) == (ROOT, drive) and is_go(record) for record in cci.records(self.cci_tail, drive, "--lane", ROOT, *GO_KIND_FLAGS, since=after)):
             return False
         self.runner.escalate(f"gate-paused:{after}", "GATE-PAUSED", "landing", f"landing.checks_wait_for_go is {after}, so the gate runs no stack-enqueue --check until a root go record comes after cci #{after}; ledger refresh, reconcile, head reads and restack routes go on")
         return True
@@ -7405,10 +7413,10 @@ class Landing:
         return lane in (ROOT, RUNNER) or delegated(lane, self.landing_config.get("go_lanes", []))
 
     def go_records(self) -> list[dict]:
-        """Every `go` record on this drive from the root or a `landing.go_lanes` lane or its numbered successor, read by lane when no lane is delegated."""
+        """Every go on this drive, a `go` record or a `decide` or `decision` carrying a go clause, from the root or a `landing.go_lanes` lane or its numbered successor, read by lane when no lane is delegated."""
         drive = self.runner.config.drive
         lanes = () if self.landing_config.get("go_lanes") else ("--lane", ROOT, "--lane", RUNNER)
-        return [record for record in cci.records(self.cci_tail, drive, *lanes, "--kind=go") if (record["drive"], record["kind"]) == (drive, "go") and self.go_lane(record["lane"])]
+        return [record for record in cci.records(self.cci_tail, drive, *lanes, *GO_KIND_FLAGS) if record["drive"] == drive and is_go(record) and self.go_lane(record["lane"])]
 
     def root_gos(self) -> list[dict]:
         """The `go` records of the root and of each `landing.go_lanes` lane or its numbered successor on this drive, read once per pass and again before each enqueue wave, without any that a later root record resolves, answers with a `withdraw`, or names by `#<seq>` or `--re` with the word "withdrawn", plus the gos a fidelity desk's `ok H carried from G` grade carries from G to H. Each carries `voided`, the PRs of its clause that a later root `withdraw` record, or one opening `WITHDRAWN`, names, which it no longer lets merge nor carries to a later head."""
@@ -7968,7 +7976,7 @@ class Landing:
                     break
         self.replay_riders(riders, {open_rows[pr]["branch"]: (heads[pr], landing[pr]) for pr in chain}, open_rows, tip)
         for pr in chain:
-            self.post_record("head", f"rebased-direct:{pr}@{landing[pr]}", ",".join(dict.fromkeys([ROOT, *map(self.successor, self.fidelity_lanes)])), f"HEAD #{pr} {landing[pr]} (was {heads[pr]}): the landing runner rebased it onto {TRUNK} {tip[:10]} for its direct merge, patch-identical to {heads[pr][:10]} by patch-id, so its go and grades carry (root #197571)", pr)
+            self.post_record("head", f"rebased-direct:{pr}@{landing[pr]}", ",".join(dict.fromkeys(filter(None, [self.ledger_rows.get(pr, {}).get("lane"), *map(self.successor, self.fidelity_lanes)]))), f"HEAD #{pr} {landing[pr]} (was {heads[pr]}): the landing runner rebased it onto {TRUNK} {tip[:10]} for its direct merge, patch-identical to {heads[pr][:10]} by patch-id, so its go and grades carry (root #197571)", pr)
         for pr in chain:
             if not self.approved_again(pr, landing[pr]):
                 return landing, (pr, f"{REVIEW_BOT} has not approved #{pr} again at {landing[pr][:10]} in {APPROVAL_POLLS} minutes since the rebase push")
@@ -8017,7 +8025,7 @@ class Landing:
                     self.post_blocker(ask, ",".join(dict.fromkeys([*(self.reach(owner) if owner else []), *self.restack_lanes()])), f"#{pr} {row['head'][:10]}: the landing runner moved {row['base']} to {new[:10]} for a direct merge and could not move #{pr} with it: {why}. Restack it onto {row['base']} with ccx vcs stack submit from its worktree", pr)
                 continue
             moved[row["branch"]] = (row["head"], update[2])
-            self.post_record("head", f"rebased-rider:{pr}@{update[2]}", ",".join(dict.fromkeys([ROOT, *map(self.successor, self.fidelity_lanes)])), f"HEAD #{pr} {update[2]} (was {row['head']}): the landing runner replayed it onto {row['base']} {new[:10]}, rebased onto {TRUNK} {tip[:10]} for a direct merge below it, patch-identical to {row['head'][:10]} by patch-id", pr)
+            self.post_record("head", f"rebased-rider:{pr}@{update[2]}", ",".join(dict.fromkeys(filter(None, [self.ledger_rows.get(pr, {}).get("lane"), *map(self.successor, self.fidelity_lanes)]))), f"HEAD #{pr} {update[2]} (was {row['head']}): the landing runner replayed it onto {row['base']} {new[:10]}, rebased onto {TRUNK} {tip[:10]} for a direct merge below it, patch-identical to {row['head'][:10]} by patch-id", pr)
 
     def approved_again(self, pr: str, head: str) -> bool:
         """Whether GitHub reads `pr` approved, by an approving review on `head` itself, within `APPROVAL_POLLS` reads `APPROVAL_POLL_SECONDS` apart: the rebase push dismisses the approval only after GitHub processes it, so an approval read before then names the old head; the review bot approves a patch-identical head again within minutes, and the runner waits for nothing else, no go and no second CI run, since it checked the patch itself (root #197434, #197878, #198367)."""
@@ -8142,7 +8150,7 @@ class Landing:
             else:
                 incident = indexed.get(pr)
             if incident:
-                why[pr] = f"open INCIDENT #{incident['seq']}, whose lane squash-merges it directly, never through the queue"
+                why[pr] = f"open INCIDENT {incident['num']}, whose lane squash-merges it directly, never through the queue"
             elif reason := self.label_hold(pr) or self.record_hold(pr, accepted_at):
                 why[pr] = reason
         return why
@@ -8178,7 +8186,7 @@ class Landing:
         self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "refused", "out": text, "at": self.book.stamp()}))
         self.settle(enqueued_heads(key), Refused(text))
         if not set(prefix) <= self.settlement.heads.keys():
-            self.runner.escalate(f"refused:{key.split('#')[0]}:{hashlib.sha1(why.encode()).hexdigest()[:8]}", "REFUSED", numbered(prefix), text)
+            self.runner.escalate(f"refused:{key.split('#')[0]}:{hashlib.sha1(why.encode()).hexdigest()[:8]}", "REFUSED", numbered(prefix), text, to=self.landing_audience(prefix, self.ledger_rows, self.go_audience(prefix, self.ledger_rows)))
 
     def dequeue(self, key: str, prefix: list[str], rows: dict[str, dict], late: dict[str, str]) -> tuple[str, str]:
         """Take a just-enqueued prefix back out of the queue after a hold appeared during the call: every held PR and every PR stacked above one, top first, through the adapter's dequeue, telling every drive that names each one. Returns the outcome, `dequeued` once the queue let go of all of them and `held-queued` otherwise, and its text."""
@@ -8508,7 +8516,7 @@ class Landing:
             cited = " and ".join(f"#{pr} at {head[:10]} ({go_state(gos, pr, head).said()})" for pr, head in fresh.items())
             kind, to, text = "note", self.landing_audience([*prs, outcome.base.removeprefix("#")], rows, ROOT), f"BELOW-BLOCKED above {outcome.base}: root gos name {cited}, {outcome.why}"
         elif outcome.why.startswith(UNSETTLED):
-            kind, to, text = "defect", ",".join(dict.fromkeys([ROOT, *self.go_audience(prs, rows).split(",")])), f"REFUSED {self.queue_line(fresh)}: {outcome.why}"
+            kind, to, text = "defect", ",".join(dict.fromkeys([self.runner.watchdog, *self.go_audience(prs, rows).split(",")])), f"REFUSED {self.queue_line(fresh)}: {outcome.why}"
         else:
             kind, to, text = "report", self.go_audience(prs, rows), f"REFUSED {self.queue_line(fresh)}: {outcome.why}"
         key = f"settled:{','.join(f'{pr}@{head[:10]}' for pr, head in fresh.items())}:{hashlib.sha1(signature.encode()).hexdigest()[:8]}:{self.book.stamp()}"
@@ -8577,16 +8585,17 @@ class Landing:
         mine = self.overflower = Landing(self.runner, self.runner.config.landing, cci.Tail(self.runner.cci_read))
 
         def loop() -> None:
-            while True:
-                started = time.monotonic()
-                try:
-                    if self.down_since():
-                        mine.overflowed_at = time.monotonic()
-                    else:
-                        mine.overflow(self)
-                except Exception:
-                    traceback.print_exc()
-                time.sleep(max(0.0, OVERFLOW_EVERY.total_seconds() - (time.monotonic() - started)))
+            with self.book.store.reading():
+                while True:
+                    started = time.monotonic()
+                    try:
+                        if self.down_since():
+                            mine.overflowed_at = time.monotonic()
+                        else:
+                            mine.overflow(self)
+                    except Exception:
+                        traceback.print_exc()
+                    time.sleep(max(0.0, OVERFLOW_EVERY.total_seconds() - (time.monotonic() - started)))
 
         self.overflowing = threading.Thread(target=loop, name="landing-overflow", daemon=True)
         self.overflowing.start()
@@ -8604,7 +8613,7 @@ class Landing:
             running = sum(1 for _, future in self.inflight.values() if not future.done())
         step = f" (oldest #{oldest['root']} {oldest['step']} {whole_minutes(actions.parse_stamp(oldest['since']), now)}m)" if oldest else ""
         text = f"LANDING queued {len(queued)}, waiting {len(waiting)}{step}, held {len(held)}, refused {len(refused)}, in flight {running}; pass {took:.0f}s"
-        self.runner.cci_post("state", text, ROOT, "landing-state", f"landing-state:{self.book.stamp()}")
+        self.runner.cci_post("state", text, self.runner.watchdog, "landing-state", f"landing-state:{self.book.stamp()}")
         if self.overflower and (quiet := time.monotonic() - self.overflower.overflowed_at) > OVERFLOW_STALLED.total_seconds():
             alive = self.overflowing is not None and self.overflowing.is_alive()
             self.runner.escalate(f"overflow-stalled:{now:%Y%m%d%H}", "OVERFLOW-STALLED", "landing", f"the overflow thread has finished no run in {int(quiet // 60)} minutes{'' if alive else ' and is dead'}, so a stack the passes leave out waits on them alone; `desk-runner.py handoff` restarts the runner")
@@ -8676,7 +8685,10 @@ class Landing:
     def last_refusal(self, members: set[str], open_rows: dict[str, dict], since: datetime) -> tuple[str, str] | None:
         """The newest refusal any PR of `members` stands under, with the lane that owns that PR: a blocker this runner routed for its current head or base, a refusal it escalated since `since`, or a `blocker` record a `landing.desk_lane` lane posted naming it since then (root, Oct 29 2:37 AM)."""
         found: list[tuple[datetime, str, str]] = []
-        routes = [action for action in self.book.actions(LANDING, kind="bus")] + [action for name in self.book.containers(LANE_PREFIX) for action in self.book.actions(name, kind="relay")]
+        keys = {key for member in members for key in (f"blocker:{member}:{open_rows[member].get('head', '')[:10]}", f"bot-held:{member}:{open_rows[member].get('head', '')[:10]}", f"conflict:{member}:{open_rows[member].get('base', '')}")}
+        containers = [(LANDING, "bus"), *((name, "relay") for name in self.book.containers(LANE_PREFIX))]
+        with self.book.store.reading():
+            routes = [action for container, kind in containers for key in keys if (action := self.book.store.find_action(container, key)) is not None and action.kind == kind]
         for member in members:
             row = open_rows[member]
             current = (f"blocker:{member}:{row.get('head', '')[:10]}", f"bot-held:{member}:{row.get('head', '')[:10]}", f"conflict:{member}:{row.get('base', '')}")
@@ -9620,7 +9632,7 @@ def run_orca(runner: Runner, once: bool) -> int:
 
 
 def mq_config_fault(landing: dict) -> str:
-    """What `landing` lacks for the merge queue to run, or empty: an adapter kind it knows, a script for the stack-enqueue adapter, only built-in checks, the high-risk globs merge mode high-risk reads, and the release command line. Each fault ends with the exact `landing` members that fix it in one edit; none is ever assumed."""
+    """What `landing` lacks for the merge queue to run, or empty: an adapter kind it knows, a script for the stack-enqueue adapter, the high-risk globs merge mode high-risk reads, and the release command line. Each fault ends with the exact `landing` members that fix it in one edit; none is ever assumed."""
     faults, members = [], []
     adapter = landing.get("adapter") or {}
     checkout = Path(landing["checkout"]).expanduser()
@@ -9633,10 +9645,8 @@ def mq_config_fault(landing: dict) -> str:
     elif adapter["kind"] in (merge_queue.TrunkStackEnqueue.kind, merge_queue.GraphiteStackEnqueue.kind) and not adapter.get("script"):
         faults.append("names no landing.adapter.script, the stack-enqueue script relative to landing.checkout")
         members.append(f'"adapter": {json.dumps({**adapter, "script": merge_queue.STACK_ENQUEUE})}')
-    known = merge_queue.CHECKS + merge_queue.OPT_IN_CHECKS
-    if unknown := [name for name in landing.get("checks", merge_queue.CHECKS) if name not in known]:
-        faults.append(f"lists {', '.join(unknown)} under landing.checks, which is no built-in check of {', '.join(known)}")
-        members.append(f'"checks": {json.dumps([name for name in landing["checks"] if name in known])}')
+    if unknown := [name for name in landing.get("checks", merge_queue.CHECKS) if name not in KNOWN_CHECKS]:
+        print(f"WARN runner.json lists {', '.join(unknown)} under landing.checks, which is no built-in check of {', '.join(KNOWN_CHECKS)}, so the runner skips it; drop it from landing.checks", file=sys.stderr)
     if "build-failed" in landing.get("checks", merge_queue.CHECKS) and not (landing.get("build_failures") and landing.get("ci_build")):
         faults.append("runs the build-failed check with no landing.build_failures or no landing.ci_build, so no build at a head could be read")
         members.append('"build_failures": {"tree": "<path prefix>", "context": "<annotation context>", "annotations": "tools/ci bk api /pipelines/{pipeline}/builds/{number}/annotations"}')

@@ -105,7 +105,7 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Mapping, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
@@ -302,6 +302,8 @@ class Runtime:
     lock: register_reads.Lock
     held: Callable[[Path], bool]
     checkpoint: Callable[[], None]
+    run: judge.Run | None = None
+    env: Mapping[str, str] | None = None
 
 
 class RequestParser(argparse.ArgumentParser):
@@ -1599,7 +1601,7 @@ def cmd_sweep(args: argparse.Namespace, shell: ledger.Shell) -> int:
         diff = parse_diff(Path(args.diff).read_text()) if args.diff else None
         banned = banned_mechanisms(diff) if diff else []
         hits += [*sweeper.diff(diff), *of_shapes(banned, waits=False)] if diff else []
-        hits += unnamed_waits(loaded, Head("", "", "", "", diff), of_shapes(banned, waits=True), plan_path(args, loaded), (entry_of(args) or {}).get("drive")) if diff else []
+        hits += unnamed_waits(loaded, Head("", "", "", "", diff), of_shapes(banned, waits=True), plan_path(args, loaded), (entry_of(args) or {}).get("drive"), runtime=args.runtime) if diff else []
     else:
         hits = sweeper.files(default_files(loaded, plan_path(args, loaded)))
     for hit in hits:
@@ -1762,21 +1764,31 @@ def shape_untested(loaded: Register, args: argparse.Namespace, head: Head) -> li
 
 def judged_test(loaded: Register, args: argparse.Namespace, key: str, fields: dict[str, str], tests: str) -> dict | None:
     """The judge's verdict on `tests` against the owner's words on `key`, kept per evidence and test text so a head is judged once, not once a pass; `None` when the call failed, so nothing is added."""
-    evidence = judge.owner_words(key, judge.said(fields, loaded.state))
+    runtime = args.runtime
+    env = runtime.env
+    runtime.checkpoint()
+    evidence = judge.owner_words(key, judge.said(fields, loaded.state, env, run=runtime.run, checkpoint=runtime.checkpoint))
     kept = loaded.state / "check-pr" / "judged" / f"{hashlib.sha256(json.dumps([evidence, tests]).encode()).hexdigest()[:24]}.json"
     if kept.is_file():
-        return json.loads(kept.read_text())
+        verdict = json.loads(kept.read_text())
+        runtime.checkpoint()
+        return verdict
     entry = entry_of(args)
     verdict = judge.judge(
         "test",
         evidence,
         tests,
-        backend=judge.backend_from(os.environ),
+        backend=judge.backend_from(os.environ if env is None else env),
         drive=entry["drive"] if entry else None,
+        env=env,
+        run=runtime.run,
+        checkpoint=runtime.checkpoint,
     )
     if verdict is None:
         return None
+    runtime.checkpoint()
     write_atomic(kept, json.dumps(asdict(verdict)))
+    runtime.checkpoint()
     return asdict(verdict)
 
 
@@ -2397,7 +2409,7 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
     authorizers, scope = loaded.answer_words(), loaded.scope()
     hits = banned_mechanisms(head.diff)
     findings.refusals += [str(hit) for hit in uncleared(of_shapes(hits, waits=False), head, authorizers)]
-    findings.refusals += unnamed_waits(loaded, head, of_shapes(hits, waits=True), loaded.plan(args.plan), entry_of(args)["drive"])
+    findings.refusals += unnamed_waits(loaded, head, of_shapes(hits, waits=True), loaded.plan(args.plan), entry_of(args)["drive"], runtime=args.runtime)
     for hit in Sweeper(loaded, scope).statuses(facts["named"]):
         if hit.status == "open" and not acknowledged(head, hit.key, scope[hit.key]) and not any(hit.name.lower() not in banned and named(words, hit.name) for cited in head.cited for words, banned in authorizers.get(cited, [])):
             findings.refusals.append(f"NAME-HIT {hit.key} {hit.file}:{hit.line} {hit.name}")
@@ -2508,19 +2520,21 @@ def of_shapes(hits: list[BannedHit], *, waits: bool) -> list[BannedHit]:
     return [hit for hit in kept if hit.banned]
 
 
-def unnamed_waits(loaded: Register, head: Head, hits: list[BannedHit], plan: Path | None, drive_name: str | None) -> list[str]:
+def unnamed_waits(loaded: Register, head: Head, hits: list[BannedHit], plan: Path | None, drive_name: str | None, *, runtime: Runtime) -> list[str]:
     """One `MECHANISM-BANNED` line for the timers and loop waits `head` adds when a judge reads them as named by neither the owner's words nor the plan; none when it reads them as named or its call fails."""
+    runtime.checkpoint()
+    env = runtime.env
     if not hits:
         return []
     cited = [key for key, fields in loaded.rulings().items() if cites(head, key, fields)]
     keys = [key for key in dict.fromkeys([*cited, *(row for hit in hits for banned in hit.banned for row in banned.rows)]) if (loaded.rows.get(key) or {}).get("words")]
-    said = "\n\n".join(judge.owner_words(key, judge.said(loaded.rows[key], loaded.state)) for key in keys[:JUDGED_ROWS]) or NO_RULINGS
+    said = "\n\n".join(judge.owner_words(key, judge.said(loaded.rows[key], loaded.state, env, run=runtime.run, checkpoint=runtime.checkpoint)) for key in keys[:JUDGED_ROWS]) or NO_RULINGS
     names = {Path(hit.file).name for hit in hits}
     lines = enumerate(plan.read_text(errors="replace").splitlines(), start=1) if plan and plan.is_file() else ()
     named = [f"{number}: {line.strip()[:CCI_TEXT]}" for number, line in lines if any(name in line for name in names)][:PLAN_LINES]
     evidence = said + ("\n\nThe plan's lines that name these mechanisms, verbatim:\n" + "\n".join(named) if named else "")
     added = "\n".join(f"{hit.file}:{hit.line} {' and '.join(banned.shape for banned in hit.banned)}: {hit.text}" for hit in hits)
-    found = judge.judge("mechanism", evidence, f"The lines it adds:\n{added}\n\nIts body:\n{head.body}", backend=judge.backend_from(os.environ), drive=drive_name)
+    found = judge.judge("mechanism", evidence, f"The lines it adds:\n{added}\n\nIts body:\n{head.body}", backend=judge.backend_from(os.environ if env is None else env), drive=drive_name, env=env, run=runtime.run, checkpoint=runtime.checkpoint)
     if found is None or not found.flagged:
         return []
     shapes = " and ".join(dict.fromkeys(banned.shape for hit in hits for banned in hit.banned))
@@ -2840,5 +2854,3 @@ def dispatch(argv: list[str] | None, shell: ledger.Shell, runtime: Runtime) -> i
 def main(argv: list[str] | None = None, shell: ledger.Shell | None = None, *, stdin: TextIO, stdout: TextIO) -> int:
     runtime = Runtime(stdin, stdout, sys.stderr, drive.drives_dir(), Path.home() / ".claude" / "scratch", drive.current_drive, ledger.locked, ledger.held, lambda: None)
     return dispatch(argv, shell or ledger.Shell(), runtime)
-
-

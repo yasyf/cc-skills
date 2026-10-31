@@ -20,7 +20,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
 from zoneinfo import ZoneInfo
 
 Backend = Literal["sonnet", "jev", "jev+sonnet", "sonnet+jev"]
@@ -102,11 +102,12 @@ RULED = f"""Does the card ask him what he already ruled, or offer him a reading 
 {CORRECTED}
 Ask what someone building only from the recommended option would build, and whether he would recognise it as what he meant, given what his words were answering. Agent-written text, such as a card's option body or the title of a decision, never changes his words, and a card that says it carries his ruling can still misread it. Wording, detail, and choices his words leave open are not misreadings, and neither is one alternative he can simply turn down, nor an option to hold or to do nothing.
 Answer "yes" when the card fails either way, and say in your sentence which: already ruled, narrower, too literal, or rebuilt."""
-PLAIN = """Would he stumble reading this text? Either of two things is a yes.
-- A word he would need defined: a worker's, desk's or record's name, a record, answer or plan-row id, a codename or a bare capital letter standing for a piece of work, a file, hook or function name, an acronym, a number with no words saying what it counts, or a name from his rulings the text never explains in plain words.
-- A name made of ordinary words: list to yourself each name the text gives one specific check, job, step, store, process or part of this system, such as "the nightly gate", "a cache repair" or "the merge picker". For each, ask whether someone who has never seen this project could say what that thing is from the text alone; saying what it costs, how often it fails or what it blocks is not saying what it is. Unless he has used that name himself in the same sense, each one the text never explains is a yes.
+PLAIN = """Would he stumble reading this text? Any of three things is a yes.
+- An id or code word: a record, answer or plan-row id, a pull request number with no words beside it saying what it is, a worker's or record's own name, a codename or a bare capital letter standing for a piece of work, a file, hook or function name, an acronym that is not everyday engineering, or a number with no words saying what it counts.
+- A coined label: a name the text gives one specific check, job, store or step whose own words do not tell a newcomer what it does, such as "the fault cell", "the queue bridge" or "the group-M checker", when the text never explains it and he has not used it himself. A name whose own words say what the thing is passes, such as "the old-chat fix", "the worker making chat loads cheaper", "the merge worker" or "the background merge script".
 - Fields, not sentences: it reads as label-and-value lines, clipped notes or bare lists of names where he needs whole sentences to act, or its title does not say in plain words what follows. Short labels on options, facts and table columns are fine.
-Plain English, everyday engineering words, the product's nouns, his own words used as he used them, a pull request number with words beside it saying what it is, a link, and a file path cited to say where a change goes all pass. A question that carries a reply or post drafted for Slack or for someone else, instead of asking him about facts, is a yes too.
+Plain English, everyday engineering words, the product's nouns, the plain words given below for the drive's own words, his own words used as he used them, a pull request number with words beside it saying what it is, a link, and a file path cited to say where a change goes all pass, and so does a term the same text explains. A question that carries a reply or post drafted for Slack or for someone else, instead of asking him about facts, is a yes too.
+He follows these updates closely, so a plain-words reference back to something an earlier update or his board already showed him, such as "that card" or "the other three items", is not a stumble, and a pull request number passes when the same sentence says what the change does. A card, row or record named only by its number or id is still an id.
 Answer "yes" when he would stumble, quote the first term or line he would stumble on, and say in your sentence what to write instead."""
 
 KINDS: dict[str, tuple[str, str]] = {
@@ -192,6 +193,14 @@ When it does, answer "yes" if it drops, narrows or contradicts any part of his a
 }
 
 
+class Run(Protocol):
+    def __call__(self, argv: list[str], *, input: str | None = None, timeout: float, env: Mapping[str, str] | None = None) -> str: ...
+
+
+def command(argv: list[str], *, input: str | None = None, timeout: float, env: Mapping[str, str] | None = None) -> str:
+    return subprocess.run(argv, input=input, capture_output=True, text=True, timeout=timeout, check=True, env=dict(env) if env is not None else None).stdout
+
+
 @dataclass(frozen=True)
 class Verdict:
     verdict: Literal["yes", "no", "unsure"]
@@ -244,40 +253,46 @@ def captures(state: Path) -> dict[str, dict]:
     return {entry["digest"]: entry for entry in entries if entry["digest"] not in gone}
 
 
-def said(row: dict, state: Path, env: Mapping[str, str] | None = None) -> list[dict]:
+def said(row: dict, state: Path, env: Mapping[str, str] | None = None, *, run: Run | None = None, checkpoint: Callable[[], None] = lambda: None) -> list[dict]:
     """Every time the owner said a register row, oldest first, as `{at, words, answered}`: `answered` is the board card a tap answered, as the board first showed it after the tap, up to `CARD_CHARS` characters, else None.
 
     Each tap's card is read from the board once and kept under the state folder's `judge/cards/`, so a grade over hundreds of rows reads only the taps no judge has read before.
     """
+    checkpoint()
     owner = captures(state)
+    checkpoint()
     items = [{"at": row.get("at", ""), "words": row["words"], "proof": row.get("proof", "")}, *json.loads(row.get("repeats") or "[]")]
-    return [{"at": item.get("at", ""), "words": item["words"], "answered": answered_card(state, owner, item.get("proof", ""), env)} for item in items if item["words"]]
+    return [{"at": item.get("at", ""), "words": item["words"], "answered": answered_card(state, owner, item.get("proof", ""), env, run=run, checkpoint=checkpoint)} for item in items if item["words"]]
 
 
-def answered_card(state: Path, owner: dict[str, dict], proof: str, env: Mapping[str, str] | None) -> str | None:
+def answered_card(state: Path, owner: dict[str, dict], proof: str, env: Mapping[str, str] | None, *, run: Run | None = None, checkpoint: Callable[[], None] = lambda: None) -> str | None:
+    checkpoint()
     capture = next((owner[digest] for digest in BOARD_PROOF.findall(proof) if digest in owner), None)
     if capture is None or capture.get("source") != "board" or not capture.get("block"):
         return None
     kept = state / CARDS / f"{capture['digest']}.txt"
     if kept.is_file():
-        return kept.read_text()
+        card = kept.read_text()
+        checkpoint()
+        return card
     try:
-        shown = subprocess.run(
+        checkpoint()
+        shown = (command if run is None else run)(
             ["cc-present", "block", "show", capture["block"], "--session", capture["session"]],
-            capture_output=True,
-            text=True,
             timeout=CARD_SECONDS,
-            check=True,
-            env=dict(env) if env is not None else None,
+            env=env,
         )
     except (subprocess.SubprocessError, OSError):
+        checkpoint()
         return None
-    card = shown.stdout.strip()
+    checkpoint()
+    card = shown.strip()
     card = card if len(card) <= CARD_CHARS else f"{card[:CARD_CHARS]}\n… the rest of the card left out"
     kept.parent.mkdir(parents=True, exist_ok=True)
     staged = kept.with_name(f"{kept.name}.{os.getpid()}.{threading.get_ident()}")
     staged.write_text(card)
     staged.replace(kept)
+    checkpoint()
     return card
 
 
@@ -340,15 +355,19 @@ def judge(
     timeout: float = JUDGE_SECONDS,
     env: Mapping[str, str] | None = None,
     subject: str = "",
+    run: Run | None = None,
+    checkpoint: Callable[[], None] = lambda: None,
 ) -> Verdict | None:
     """Ask `kind`'s question of `artifact` under `evidence`; `None` when the model call failed, so the caller fails open. `subject` names the artifact in the calls log, so a later judgment of it can find this one."""
-    call = ask(kind, evidence, artifact, backend=backend, timeout=timeout, env=env)
+    checkpoint()
+    call = ask(kind, evidence, artifact, backend=backend, timeout=timeout, env=env, run=run, checkpoint=checkpoint)
+    checkpoint()
     if drive:
-        record(drive, kind, backend, call.verdict.verdict if call.verdict else "error", call.summary(), subject)
+        record(drive, kind, backend, call.verdict.verdict if call.verdict else "error", call.summary(), subject, env=env, checkpoint=checkpoint)
     return call.verdict
 
 
-def ask(kind: str, evidence: str, artifact: str, *, backend: Backend, timeout: float, env: Mapping[str, str] | None) -> Call:
+def ask(kind: str, evidence: str, artifact: str, *, backend: Backend, timeout: float, env: Mapping[str, str] | None, run: Run | None = None, checkpoint: Callable[[], None] = lambda: None) -> Call:
     what, question = KINDS[kind]
     prompt = PROMPT.format(evidence=evidence, artifact=what, text=artifact[:ARTIFACT_CHARS], question=question)
     state = f"{evidence}\n\nThe artifact is {what}:\n~~~~~~~~\n{artifact[:ARTIFACT_CHARS]}\n~~~~~~~~"
@@ -359,8 +378,9 @@ def ask(kind: str, evidence: str, artifact: str, *, backend: Backend, timeout: f
         return answer.verdict
 
     try:
-        call.verdict = decide(backend, lambda: asked(sonnet(prompt, timeout, env)), lambda: asked(jev(state, question, timeout, env)))
+        call.verdict = decide(backend, lambda: asked(sonnet(prompt, timeout, env, run=run, checkpoint=checkpoint)), lambda: asked(jev(state, question, timeout, env, run=run, checkpoint=checkpoint)))
     except (subprocess.SubprocessError, OSError, ValueError, KeyError) as exc:
+        checkpoint()
         call.error = f"{type(exc).__name__}: {exc}"[:300]
     return call
 
@@ -400,45 +420,43 @@ def batch(kind: str, prompt: str, schema: str, *, drive: str | None = None, time
     return answer
 
 
-def claude(prompt: str, system: str, schema: str, timeout: float, env: Mapping[str, str] | None) -> tuple[dict, float, float, int]:
+def claude(prompt: str, system: str, schema: str, timeout: float, env: Mapping[str, str] | None, *, run: Run | None = None, checkpoint: Callable[[], None] = lambda: None) -> tuple[dict, float, float, int]:
     began = time.monotonic()
-    done = subprocess.run(
+    checkpoint()
+    done = (command if run is None else run)(
         [
             "claude", "-p", "--model", SONNET, "--effort", "low", "--system-prompt", system,
             "--tools", "", "--strict-mcp-config", "--setting-sources", "", "--disable-slash-commands",
             "--no-session-persistence", "--output-format", "json", "--json-schema", schema,
         ],
         input=prompt,
-        capture_output=True,
-        text=True,
         timeout=timeout,
-        check=True,
-        env=dict(env) if env is not None else None,
+        env=env,
     )
-    payload = json.loads(done.stdout)
+    checkpoint()
+    payload = json.loads(done)
     payload = payload[-1] if isinstance(payload, list) else payload
     usage = payload.get("usage") or {}
     tokens = sum(usage.get(name) or 0 for name in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens"))
     return payload["structured_output"], time.monotonic() - began, payload.get("total_cost_usd") or 0.0, tokens
 
 
-def sonnet(prompt: str, timeout: float, env: Mapping[str, str] | None) -> Answer:
-    answer, seconds, cost, tokens = claude(prompt, SYSTEM, SCHEMA, timeout, env)
+def sonnet(prompt: str, timeout: float, env: Mapping[str, str] | None, *, run: Run | None = None, checkpoint: Callable[[], None] = lambda: None) -> Answer:
+    answer, seconds, cost, tokens = claude(prompt, SYSTEM, SCHEMA, timeout, env, run=run, checkpoint=checkpoint)
     return Answer(Verdict(answer["verdict"], answer["artifact_phrase"], answer["evidence_phrase"], answer["sentence"]), seconds, cost, tokens)
 
 
-def jev(state: str, question: str, timeout: float, env: Mapping[str, str] | None) -> Answer:
+def jev(state: str, question: str, timeout: float, env: Mapping[str, str] | None, *, run: Run | None = None, checkpoint: Callable[[], None] = lambda: None) -> Answer:
     began = time.monotonic()
-    done = subprocess.run(
+    checkpoint()
+    done = (command if run is None else run)(
         ["uv", "run", "--no-project", "--quiet", "--with", SPAWNLLM, "python", "-I", __file__, "jev"],
         input=json.dumps({"state": state, "question": question, "timeout": min(timeout, JEV_SECONDS)}),
-        capture_output=True,
-        text=True,
         timeout=timeout,
-        check=True,
-        env=dict(env) if env is not None else None,
+        env=env,
     )
-    answer = json.loads(done.stdout)
+    checkpoint()
+    answer = json.loads(done)
     verdict = "yes" if answer["p_yes"] >= JEV_YES else "no"
     sentence = f"A fast classifier puts the chance this fails the check at {answer['p_yes']:.0%}."
     return Answer(Verdict(verdict, "", "", sentence), time.monotonic() - began, 0.0, answer["tokens"], answer["p_yes"])
@@ -457,21 +475,26 @@ def jev_main() -> None:
     print(json.dumps({"p_yes": decision.answers["verdict"].p_yes, "tokens": decision.input_tokens, "ms": decision.latency_ms}))
 
 
-def state_dir(drive: str) -> Path:
-    drives = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "long-running" / "drives"
+def state_dir(drive: str, env: Mapping[str, str] | None = None) -> Path:
+    selected = os.environ if env is None else env
+    home = Path.home if env is None else lambda: Path(env["HOME"]) if env.get("HOME") else Path.home()
+    drives = Path(selected.get("CLAUDE_CONFIG_DIR") or home() / ".claude") / "long-running" / "drives"
     for path in sorted(drives.glob("*.json")):
         entry = json.loads(path.read_text())
         if entry.get("drive") == drive and entry.get("state_dir"):
             return Path(entry["state_dir"])
-    return Path.home() / ".claude" / "scratch" / drive
+    return home() / ".claude" / "scratch" / drive
 
 
-def record(drive: str, kind: str, backend: Backend, verdict: str, summary: dict, subject: str = "") -> None:
-    path = state_dir(drive) / CALLS
+def record(drive: str, kind: str, backend: Backend, verdict: str, summary: dict, subject: str = "", *, env: Mapping[str, str] | None = None, checkpoint: Callable[[], None] = lambda: None) -> None:
+    checkpoint()
+    path = state_dir(drive, env) / CALLS
+    checkpoint()
     path.parent.mkdir(parents=True, exist_ok=True)
     row = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "kind": kind, "subject": subject, "backend": backend, "verdict": verdict, **summary}
     with path.open("a") as log:
         log.write(json.dumps(row) + "\n")
+    checkpoint()
 
 
 def calls(state: Path, since: datetime) -> list[dict]:

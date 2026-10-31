@@ -38,6 +38,14 @@ text: `event`, `session` and `block`; a decision's `verdict`; a pick's `picked` 
 `other` for a write-in; and a triage.decided posts one record per row, with that row's `row`,
 `verdict` and `head`, keyed by the row as well.
 
+Each pick and write-in on the drive root's newest board, a choice.selected with option ids or
+`other` and an input.submitted with text, also asks root for a lane at once, unless it answers an
+open ask a lane other than root posted, since that lane already waits on it: one `ccn task add`
+on the backlog of the drive's checkout, labelled `program:<program>` and `needs-lane`, and one
+`cci post --kind ask --to root` from `board-watch` on topic `needs-lane:<block>`, keyed by the
+owner record's key, naming the card, the block, the owner's words and the task. The stall watch
+raises such an ask no spawn or claim names at 15 minutes.
+
 While the board is open, the watch of the drive root's newest session, read from the drive
 registry, posts the board's document as one `note` record from `board-watch` on topic
 `board-rows`, attribute `board`: each PR row's PR, head and write time, each merge card's PR and
@@ -102,6 +110,10 @@ SNAPSHOT_FRESH = timedelta(hours=6)
 CLOSED_ROUND = re.compile(r"belongs to closed round")
 UNKNOWN_BLOCK = re.compile(r'\bunknown block "')
 WATCH_BYTES = 10_000_000
+LANE_TOPIC = "needs-lane"
+ROOT_LANES = frozenset({"root", "main", BUS_LANE, RUNNER})
+WORDS_CHARS = 300
+CCN_SECONDS = 60
 
 
 @dataclass
@@ -113,16 +125,45 @@ class Bus:
 class Shell:
     """The single side-effect boundary: the board's event stream, its document and outcomes, cc-present writes, cci, the drive registry, threads, and the clock."""
 
+    def __init__(self) -> None:
+        self._watch_lock = threading.Lock()
+        self._watches: list[subprocess.Popen] = []
+        self._closing = False
+
     def stale(self) -> bool:
         return drive.behind(drive.plugin_manifest()["version"], drive.installed_version())
 
     def reexec(self) -> None:
         os.environ.pop(drive.CALLER_VERSION_ENV, None)
-        drive.run_installed(__file__)
+        with self._watch_lock:
+            drive.run_installed(__file__, before_exec=self._end_watches_locked)
+
+    def _end_watch_locked(self, child: subprocess.Popen) -> None:
+        child.kill()
+        child.wait(timeout=drive.REAP_SECONDS)
+        self._watches.remove(child)
+
+    def _end_watches_locked(self) -> None:
+        self._closing = True
+        for child in list(self._watches):
+            self._end_watch_locked(child)
+
+    def _watch(self, argv: list[str]) -> Iterator[str]:
+        with self._watch_lock:
+            if self._closing:
+                return
+            child = subprocess.Popen(argv, stdout=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True)
+            self._watches.append(child)
+        try:
+            yield from child.stdout
+        finally:
+            with self._watch_lock:
+                if child in self._watches:
+                    self._end_watch_locked(child)
+            child.stdout.close()
 
     def watch(self, session: str) -> Iterator[str]:
-        with subprocess.Popen(["cc-present", "watch", "--session", session], stdout=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True) as child:
-            yield from child.stdout
+        yield from self._watch(["cc-present", "watch", "--session", session])
 
     def document(self, session: str, block: str) -> dict | None:
         argv = ["cc-present", "outcomes", "--session", session, "--block", block]
@@ -139,8 +180,7 @@ class Shell:
 
     def writes(self, drive_name: str, cursor: str) -> Iterator[str]:
         argv = ["cci", "watch", "--drive", drive_name, "--cursor", cursor, "--lane", RUNNER, "--topic", board_rows.WRITE_TOPIC, "--json", "--budget", str(WATCH_BYTES)]
-        with subprocess.Popen(argv, stdout=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True) as child:
-            yield from child.stdout
+        yield from self._watch(argv)
 
     def spawn(self, target, *args) -> None:
         threading.Thread(target=target, args=args, name=target.__name__, daemon=True).start()
@@ -148,6 +188,15 @@ class Shell:
     def root_session(self, drive_name: str) -> str | None:
         entry = next((entry for entry in drive.drives() if drive.cci_drive(entry) == drive_name and entry["sessions"]), None)
         return entry["sessions"][-1] if entry else None
+
+    def entry(self, drive_name: str) -> dict | None:
+        return next((entry for entry in drive.drives() if drive.cci_drive(entry) == drive_name), None)
+
+    def ccn(self, checkout: str, argv: list[str]) -> subprocess.CompletedProcess:
+        try:
+            return subprocess.run(["ccn", "-R", checkout, *argv], capture_output=True, text=True, timeout=CCN_SECONDS)
+        except subprocess.TimeoutExpired:
+            return subprocess.CompletedProcess(argv, 124, "", f"ccn ran past {CCN_SECONDS}s")
 
     def cci(self, argv: list[str]) -> subprocess.CompletedProcess:
         return subprocess.run(["cci", *argv], capture_output=True, text=True)
@@ -266,11 +315,13 @@ def told(event: dict, doc: dict | None) -> str:
     return " ".join(words)
 
 
-def announced(event: dict, session: str, doc: dict | None) -> str:
-    block = event.get("blockId", "")
+def place(doc: dict | None, block: str) -> str:
     title = (card_of(doc, block) or {}).get("title")
-    where = f"{title} ({block})" if title else block or "the board"
-    return CREDENTIAL.sub(REDACTED, f"Owner on board {session[:8]}, {where}: {told(event, doc)}, at {{at}}")
+    return f"{title} ({block})" if title else block or "the board"
+
+
+def announced(event: dict, session: str, doc: dict | None) -> str:
+    return CREDENTIAL.sub(REDACTED, f"Owner on board {session[:8]}, {place(doc, event.get('blockId', ''))}: {told(event, doc)}, at {{at}}")
 
 
 def row_names(row: str) -> list[str]:
@@ -285,14 +336,14 @@ def named(event: dict, doc: dict | None) -> list[str]:
     return list(dict.fromkeys(name for name in (block, (card_of(doc, block) or {}).get("id")) if name))
 
 
-def open_asks(shell: Shell, bus: Bus, names: list[str]) -> list[int]:
-    seqs: set[int] = set()
+def open_asks(shell: Shell, bus: Bus, names: list[str]) -> list[dict]:
+    asks: dict[int, dict] = {}
     for name in names:
         pattern = re.compile(rf"(?<![\w-]){re.escape(name)}(?![\w-])", re.IGNORECASE)
         done = shell.cci(["grep", name, "--fixed-strings", "--drive", bus.drive, "--json", "--budget", str(GREP_BYTES), *(f"--kind={kind}" for kind in OPEN_KINDS)])
         found = [json.loads(line) for line in done.stdout.splitlines() if line.strip()]
-        seqs |= {record["seq"] for record in found if record["kind"] in OPEN_KINDS and record["drive"] == bus.drive and record.get("status") == "open" and pattern.search(record["text"])}
-    return sorted(seqs)
+        asks |= {record["seq"]: record for record in found if record["kind"] in OPEN_KINDS and record["drive"] == bus.drive and record.get("status") == "open" and pattern.search(record["text"])}
+    return [asks[seq] for seq in sorted(asks)]
 
 
 def announce(event: dict, line: str, session: str, doc: dict | None, shell: Shell, bus: Bus) -> None:
@@ -310,25 +361,60 @@ def announce(event: dict, line: str, session: str, doc: dict | None, shell: Shel
         fields["verdict"] = event.get("verdict", "")
     if event["type"] == "choice.selected":
         fields |= {"picked": ",".join(event.get("optionIds") or []), "other": "1" if event.get("other") else ""}
-    post_owner(shell, bus, key, announced(event, session, doc), block, named(event, doc), [], fields)
+    answered = post_owner(shell, bus, key, announced(event, session, doc), block, named(event, doc), [], fields)
+    if wants_lane(event) and shell.root_session(bus.drive) in (None, session) and all(record["lane"] in ROOT_LANES for record in answered):
+        ask_lane(event, key, session, doc, shell, bus)
+
+
+def wants_lane(event: dict) -> bool:
+    match event:
+        case {"type": "choice.selected"}:
+            return bool(event.get("optionIds") or event.get("other"))
+        case {"type": "input.submitted"}:
+            return bool(event.get("text"))
+    return False
+
+
+def ask_lane(event: dict, key: str, session: str, doc: dict | None, shell: Shell, bus: Bus) -> None:
+    block = event.get("blockId", "")
+    where = place(doc, block)
+    words = told(event, doc)
+    clipped = words if len(words) <= WORDS_CHARS else f"{words[: WORDS_CHARS - 1]}\u2026"
+    task = add_task(shell, bus.drive, f"Give the owner's pick on {where} a lane", f"The owner {words} on {where}, board {session}. Spawn a lane whose brief names {block}, or have a lane post a `claim` naming it.")
+    text = f"NEEDS-LANE {where} on board {session[:8]}: the owner {clipped}. Spawn a lane whose brief names {block}, or have a lane post a claim naming it" + (f"; task {task[:7]}" if task else "")
+    argv = ["post", "--drive", bus.drive, "--lane", BUS_LANE, "--kind", "ask", "--to", "root", "--id", f"{LANE_TOPIC}:{key}", "--topic", f"{LANE_TOPIC}:{block}", *attr_args({"session": session, "block": block, "task": task or ""}), "--text", CREDENTIAL.sub(REDACTED, text)]
+    if (done := shell.cci(argv)).returncode:
+        print(f"board-watch {session}: the needs-lane ask for {block} did not post: {done.stderr.strip()}", flush=True)
+
+
+def add_task(shell: Shell, drive_name: str, title: str, body: str) -> str | None:
+    if (entry := shell.entry(drive_name)) is None:
+        print(f"board-watch: no drive registry entry names {drive_name}, so the pick gets no task", flush=True)
+        return None
+    done = shell.ccn(entry["checkout"], ["task", "add", title, "--body", CREDENTIAL.sub(REDACTED, body), "--backlog", "--label", f"program:{drive.program_of(entry)}", "--label", LANE_TOPIC, "--json"])
+    if done.returncode:
+        print(f"board-watch: ccn task add for {title} did not run: {done.stderr.strip()}", flush=True)
+        return None
+    return json.loads(done.stdout)["id"]
 
 
 def attr_args(fields: dict[str, str]) -> list[str]:
     return [arg for name, value in fields.items() if value for arg in ("--attr", f"{name}={value}")]
 
 
-def post_owner(shell: Shell, bus: Bus, key: str, text: str, block: str, names: list[str], prs: list[str], fields: dict[str, str]) -> None:
+def post_owner(shell: Shell, bus: Bus, key: str, text: str, block: str, names: list[str], prs: list[str], fields: dict[str, str]) -> list[dict]:
     resolves = open_asks(shell, bus, names)
     argv = [
         "post", "--drive", bus.drive, "--lane", BUS_LANE, "--kind", "owner", "--to", "all", "--id", key, "--text", text,
         *(["--topic", block] if block else []),
         *(f"--pr={pr}" for pr in prs),
         *attr_args(fields),
-        *(["--resolves-seq", ",".join(map(str, resolves))] if resolves else []),
+        *(["--resolves-seq", ",".join(str(record["seq"]) for record in resolves)] if resolves else []),
     ]
     done = shell.cci(argv)
     if done.returncode:
         print(f"board-watch {fields['session']}: cci post {key} failed: {done.stderr.strip()}", flush=True)
+    return resolves
 
 
 def board_records(shell: Shell, drive_name: str) -> list[dict]:

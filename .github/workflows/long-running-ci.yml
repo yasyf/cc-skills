@@ -64,8 +64,114 @@ jobs:
         run: |
           cat "$RUNNER_TEMP/long-running-json-consumers.json"
           cat "$RUNNER_TEMP/long-running-sqlite-consumers.json"
+      - uses: actions/checkout@v7
+        with:
+          ref: 35fa995a3f249a26137b9876a42052b7fd86fde7
+          path: .ci-unsafe-reexec-baseline
+          persist-credentials: false
+      - name: Immutable inherited-child termination negative controls
+        run: |
+          baseline=.ci-unsafe-reexec-baseline/plugins/long-running
+          cp plugins/long-running/tests/test_board_watch.py "$baseline/tests/test_board_watch.py"
+          cp plugins/long-running/tests/test_owned_reexec.py "$baseline/tests/test_owned_reexec.py"
+          i=0
+          for node in "$baseline/tests/test_board_watch.py::test_a_reexecuted_watch_ends_the_streams_its_older_image_started" "$baseline/tests/test_owned_reexec.py::test_reexec_does_not_signal_unregistered_inherited_children"; do
+            i=$((i + 1))
+            negative="$RUNNER_TEMP/unsafe-inherited-reexec-$i.log"
+            if uv run --locked --project "$baseline" pytest "$node" -q >"$negative" 2>&1; then
+              cat "$negative"
+              echo "unsafe inherited-child implementation unexpectedly passed"
+              exit 1
+            fi
+            cat "$negative"
+            grep -F 'inherited protected child was terminated or changed' "$negative"
+            grep -F '1 failed' "$negative"
+          done
+      - name: Owned watch cleanup and protected-child survival
+        run: |
+          git rev-parse HEAD > "$RUNNER_TEMP/owned-reexec-source.txt"
+          sha256sum plugins/long-running/skills/long-running/scripts/board_watch.py plugins/long-running/skills/long-running/scripts/long_running/drive.py >> "$RUNNER_TEMP/owned-reexec-source.txt"
+          uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_owned_reexec.py plugins/long-running/tests/test_board_watch.py plugins/long-running/tests/test_drive.py plugins/long-running/tests/test_ledger_shell.py -q -s --junitxml="$RUNNER_TEMP/owned-reexec.xml"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: owned-reexec-acceptance
+          path: |
+            ${{ runner.temp }}/owned-reexec-source.txt
+            ${{ runner.temp }}/owned-reexec.xml
+            ${{ runner.temp }}/unsafe-inherited-reexec-*.log
+      - name: Owned rulings caller regressions
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_board_text_gate.py plugins/long-running/tests/test_owner_facing.py plugins/long-running/tests/test_register_capture.py plugins/long-running/tests/test_register_gates.py plugins/long-running/tests/test_ruling_judge.py plugins/long-running/tests/test_rulings_consumers.py plugins/long-running/tests/test_rulings_owned_hooks.py plugins/long-running/tests/test_compaction_handoff.py -q -s
+      - name: Request-owned judge regressions
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_judge_request_owned.py plugins/long-running/tests/test_judge.py plugins/long-running/tests/test_rulings_dispatch.py -q -s
+      - name: Owned fifteenth check-pr regressions
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_fifteenth_check_pr_owned.py plugins/long-running/tests/test_lane_landing.py -q -s
+      - name: capt-hook pack test
+        run: uvx --isolated --from 'capt-hook @ git+https://github.com/yasyf/captain-hook.git@76aaa2d5da2282d724dad5fe4b379cd76c95a416' capt-hook pack test plugins/long-running
+      - uses: actions/checkout@v7
+        with:
+          ref: f37dde3a53da2f13404a3417cbfb611d963f9531
+          path: .ci-overflow-route-baseline
+      - name: Immutable overflow history and reader-lifetime negative controls
+        run: |
+          test "$(git -C .ci-overflow-route-baseline rev-parse HEAD)" = f37dde3a53da2f13404a3417cbfb611d963f9531
+          uv run --locked --project plugins/long-running pytest -c .ci-overflow-route-baseline/plugins/long-running/pyproject.toml .ci-overflow-route-baseline/plugins/long-running/tests/overflow_read_integration.py -q -s
+          cp plugins/long-running/tests/overflow_read_integration.py .ci-overflow-route-baseline/plugins/long-running/tests/overflow_read_integration.py
+          for history in 32 10000; do
+            negative="$RUNNER_TEMP/overflow-route-negative-$history.log"
+            if uv run --locked --project plugins/long-running pytest -c .ci-overflow-route-baseline/plugins/long-running/pyproject.toml ".ci-overflow-route-baseline/plugins/long-running/tests/overflow_read_integration.py::test_actual_overflow_refusal_historical_read_cost[$history]" -q -s > "$negative" 2>&1; then
+              cat "$negative"
+              exit 1
+            fi
+            cat "$negative"
+            grep -F 'overflow route history decoded' "$negative"
+            grep -F '1 failed' "$negative"
+          done
+          negative="$RUNNER_TEMP/overflow-reader-negative.log"
+          if uv run --locked --project plugins/long-running pytest -c .ci-overflow-route-baseline/plugins/long-running/pyproject.toml .ci-overflow-route-baseline/plugins/long-running/tests/overflow_read_integration.py::test_overflow_thread_reuses_readers_sees_writes_and_closes_on_exit -q -s > "$negative" 2>&1; then
+            cat "$negative"
+            exit 1
+          fi
+          cat "$negative"
+          grep -F 'overflow thread opened' "$negative"
+          grep -F '1 failed' "$negative"
+      - name: Actual overflow refusal historical read costs
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/overflow_read_integration.py -q -s
       - name: pytest
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q
+      - uses: actions/checkout@v7
+        with:
+          ref: 1af779ed338cf93945678ad33c396f1546d0fda3
+          path: .ci-incident-number-baseline
+      - name: Immutable mixed-origin incident citation negative control
+        run: |
+          test "$(git -C .ci-incident-number-baseline rev-parse HEAD)" = 1af779ed338cf93945678ad33c396f1546d0fda3
+          python - <<'PYCODE'
+          import ast
+          from pathlib import Path
+          name = "test_an_open_incident_naming_the_pr_refuses_its_enqueue_naming_the_incident"
+          current = Path("plugins/long-running/tests/test_desk_runner.py").read_text()
+          baseline = Path(".ci-incident-number-baseline/plugins/long-running/tests/test_desk_runner.py")
+          original = baseline.read_text()
+          selected = next(node for node in ast.parse(current).body if isinstance(node, ast.FunctionDef) and node.name == name)
+          prior = next(node for node in ast.parse(original).body if isinstance(node, ast.FunctionDef) and node.name == name)
+          start = lambda node: min([node.lineno, *(decorator.lineno for decorator in node.decorator_list)]) - 1
+          lines = original.splitlines(keepends=True)
+          for node in ast.walk(selected):
+              if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "said":
+                  node.func.id = "escalations"
+          lines[start(prior):prior.end_lineno] = [ast.unparse(selected) + "\n"]
+          baseline.write_text("".join(lines))
+          PYCODE
+          for number in '#7' '#100@bbbbbbbb'; do
+            negative="$RUNNER_TEMP/incident-number-negative-$number.log"
+            if uv run --locked --project plugins/long-running pytest -c .ci-incident-number-baseline/plugins/long-running/pyproject.toml ".ci-incident-number-baseline/plugins/long-running/tests/test_desk_runner.py::test_an_open_incident_naming_the_pr_refuses_its_enqueue_naming_the_incident[$number]" -q -s > "$negative" 2>&1; then
+              cat "$negative"
+              exit 1
+            fi
+            cat "$negative"
+            grep -F "origin-qualified incident citation expected $number:" "$negative"
+            grep -F '1 failed' "$negative"
+          done
       - name: Binary attachment actual mq read costs
         run: |
           git fetch --no-tags --depth=1 origin 74d5367232c1636b21615b38946751852f532dfa
@@ -96,8 +202,6 @@ jobs:
             grep -F 'selected cached builds reopened 32 readers' "$negative"
             grep -F '1 failed' "$negative"
           done
-      - name: capt-hook pack test
-        run: uvx --isolated 'capt-hook>=12.107.13' pack test plugins/long-running
       - name: installed state package
         run: |
           uv build --project plugins/long-running --wheel --out-dir "$RUNNER_TEMP/long-running-wheel"
@@ -184,7 +288,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: yasyf/cc-inbox
-          ref: c1424b2adc6119c5455ab66a05044f4aea1e275f
+          ref: 51514a5bd09735bb4bdfeb918571719b12b8ecfa
           path: .ci-incident-index
           persist-credentials: false
       - uses: actions/setup-go@v6
@@ -194,14 +298,14 @@ jobs:
       - uses: astral-sh/setup-uv@v8.2.0
       - name: Build actual indexed incident handler fixture
         run: |
-          test "$(git -C .ci-incident-index rev-parse HEAD)" = c1424b2adc6119c5455ab66a05044f4aea1e275f
+          test "$(git -C .ci-incident-index rev-parse HEAD)" = 51514a5bd09735bb4bdfeb918571719b12b8ecfa
           mkdir -p .ci-incident-index/cmd/landing-incident-fixture
           cp plugins/long-running/tests/fixtures/incident_index/main.go .ci-incident-index/cmd/landing-incident-fixture/main.go
           go -C .ci-incident-index build -p 2 -o "$RUNNER_TEMP/incident-index-fixture" ./cmd/landing-incident-fixture
       - name: Actual Landing indexed incident selection and mutable-file freshness
         env:
           CCI_INCIDENT_FIXTURE: ${{ runner.temp }}/incident-index-fixture
-          CCI_INCIDENT_PROVIDER_SOURCE: c1424b2adc6119c5455ab66a05044f4aea1e275f
+          CCI_INCIDENT_PROVIDER_SOURCE: 51514a5bd09735bb4bdfeb918571719b12b8ecfa
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/incident_index_integration.py -q -s --junitxml="$RUNNER_TEMP/incident-index.xml"
       - uses: actions/upload-artifact@v7
         if: ${{ always() }}

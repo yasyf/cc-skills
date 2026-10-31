@@ -250,3 +250,47 @@ def test_a_key_command_that_prints_nothing_stops_the_job_before_the_sprite(tmp_p
     assert done.returncode == 1
     assert json.loads((directory / "result.json").read_text()) == {"error": "the GH_TOKEN command printed nothing, so the job would run without GH_TOKEN"}
     assert not Path(f"{sprite}{directory}/result.json").exists()
+
+
+DROPPING_SPRITE = """#!/usr/bin/env python3
+import os, subprocess, sys
+args = sys.argv[4:]
+stdin, attached = None, True
+if args[0] == "--no-stdin":
+    args, stdin, attached = args[1:], subprocess.DEVNULL, False
+mac, sprite = os.environ["MAC_ROOT"], os.environ["SPRITE_ROOT"]
+child = subprocess.Popen([sprite + arg if arg.startswith(mac) else arg for arg in args[1:]], stdin=stdin)
+try:
+    sys.exit(child.wait(timeout=2 if attached else None))
+except subprocess.TimeoutExpired:
+    child.kill()
+    sys.stderr.write("Error: connection to exec session was lost while stdin was attached; refusing unsafe automatic reconnect because input delivery is uncertain\\n")
+    sys.exit(1)
+"""
+
+KEYED_JOB = """import json, os, pathlib, sys, time
+time.sleep(3)
+(pathlib.Path(sys.argv[1]) / "result.json").write_text(json.dumps({"key": os.environ.get("OPENAI_API_KEY")}))
+"""
+
+
+def test_a_job_outlives_a_dropped_connection_since_only_the_short_key_exec_forwards_stdin(tmp_path: Path) -> None:
+    """desk-runner GRADER-TOOLING #251279: finder #45029 died a minute in on "connection to exec session 12580 was lost while stdin was attached; refusing unsafe automatic reconnect", since the exec that ran the whole job also carried the keys on stdin."""
+    mac, sprite = tmp_path / "mac", tmp_path / "sprite"
+    checkout, directory, config = mac / "checkout", mac / "finder-desk" / "45029-08cb4928b659", mac / "config"
+    script = mac / "plugin" / "skills" / "long-running" / "scripts" / "finder.py"
+    executable(script, KEYED_JOB)
+    executable(script.parent / "rulings.py", "")
+    executable(mac / "bin" / "sprite", DROPPING_SPRITE)
+    executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    directory.mkdir(parents=True)
+    (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
+    (config / "long-running" / "drives").mkdir(parents=True)
+    (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
+    subprocess.run(["git", "init", "-q", f"{sprite}{checkout}"], check=True)
+
+    env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config), "SPRITE_JOB_KEYS": json.dumps({"OPENAI_API_KEY": ["echo", "sk-test"]})}
+    subprocess.run(["sh", str(SCRIPT), "dar-fleet-11", str(script), str(directory)], env=env, check=True, capture_output=True, timeout=60)
+
+    assert json.loads((directory / "result.json").read_text()) == {"key": "sk-test"}
+    assert not Path(f"{sprite}{directory}.keys").exists()

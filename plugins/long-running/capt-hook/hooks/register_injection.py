@@ -18,6 +18,7 @@ from .compaction_handoff import CompactionState, drive_entry, failure_of, judged
 from .nudges import once_per_hour
 from .session_tree import Subagent, drive_lane
 from .tests.register_fixtures import DRIVE_CONFIG
+from .tests.rulings_consumers import separate
 
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 HELPER_AGENTS = frozenset({"Explore", "Plan", "claude-code-guide", "statusline-setup", "output-style-setup", "ship-pr"})
@@ -49,6 +50,15 @@ MISSCALED_STALE = (
     " Fix the line and run `rulings.py slice --refresh` on the brief for the next spawn."
 )
 INCIDENT_NOTE = "The incident spawn's prompt now carries its register slice and the unclassified owner captures."
+ALERT_WORDS = re.compile(r"\b(?:alerts?|incidents?|outages?|sentry)\b|(?-i:\bmonitors?\b)", re.IGNORECASE)
+TENANT_EDGE_403 = re.compile(r"\b403s?\b")
+STAND_DOWN = re.compile(r"\bstand[- ]?down\b", re.IGNORECASE)
+NO_403_STAND_DOWN = (
+    "Warning, nothing was blocked: an alert or incident brief needs a step that stands down on tenant-edge 403s."
+    " Start it from the drive's `root/incident-template-fix.md` and launch it with `desk-launch.py incident <name> <brief>`, or mark a non-incident brief `ccx: incident=none`."
+)
+ALERT_BRIEF = "Datadog monitor 100000001 fired on POST /api/sessions.\n1. Classify the failing requests.\n2. Fix it.\n"
+STANDS_DOWN = ALERT_BRIEF.replace("2. Fix it.", "2. If they are tenant-edge 403s, post STAND-DOWN and stop.\n3. Fix it.")
 BRIEFS = Path(__file__).parent / "tests" / "fixtures" / "briefs"
 SLICE = f"{sys.executable} {script('rulings.py')} slice"
 FRESH_SLICE = {SLICE: "fresh /tmp/brief.md slice-hash 0123456789ab\n"}
@@ -147,7 +157,7 @@ def refreshed(evt: BaseHookEvent, which: list[str], spawn: Spawn) -> tuple[str, 
     with tempfile.TemporaryDirectory() as staging:
         copy = Path(staging) / "brief.md"
         copy.write_text(text)
-        said = rulings(str(evt.cwd), "slice", "--refresh", str(copy), *which)
+        said = rulings(str(evt.cwd), "slice", "--refresh", str(copy), *which, evt=evt)
         return said, copy.read_text()
 
 
@@ -164,7 +174,7 @@ def judge_answer(verdict: dict) -> str:
     Event.PreToolUse,
     only_if=[Tool("Agent", "Bash")],
     skip_if=[Annotated("raw")],
-    tests={
+    tests=separate("register_injection.slice_on_spawn", {
         spawn("lane-a", "Lane lane-a: build the relay."): Warn(pattern=r"has no `Register slice: lane=<name> step=<n>` line"),
         spawn("lane-a", SLICED, commands=FRESH_SLICE): Allow(),
         spawn("lane-a", UNSCALED, commands=FRESH_SLICE): Allow(),
@@ -195,7 +205,7 @@ def judge_answer(verdict: dict) -> str:
         Input(command=f"codex-ask -s /tmp/finder {BRIEFS / 'unsliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG): Allow(),
         Input(command=f"codex-ask --dispatch --lane lane-a '{'inline brief ' * 40}'", state=[ACTIVE], env=DRIVE_CONFIG): Allow(),
         spawn("lane-a", f"Lane lane-a: read /{'x' * 300}.md. {SLICED}", commands=FRESH_SLICE): Allow(),
-    },
+    }),
 )
 def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
     if not (which := drive_args(evt)):
@@ -228,7 +238,7 @@ def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
     Event.PreToolUse,
     only_if=[Tool("Agent", "Bash")],
     skip_if=[Annotated("raw")],
-    tests={
+    tests=separate("register_injection.warn_unscaled_spawn", {
         spawn("lane-a", UNSCALED): Warn(pattern=r"^Warning, nothing was blocked: brief <brief> has no `Scale:` line; add one line to it: `Scale: no N`"),
         spawn("lane-a", SLICED): Allow(),
         spawn("lane-a-handoff", UNSCALED): Allow(),
@@ -237,7 +247,7 @@ def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
         spawn("lane-a", "Lane lane-a: build the relay."): Allow(),
         spawn("incident-api-fix", "Fix the api outage."): Allow(),
         Input(command=f"orca-launch.sh lane-a sol xhigh {BRIEFS / 'sliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG): Allow(),
-    },
+    }),
 )
 def warn_unscaled_spawn(evt: BaseHookEvent) -> HookResult | None:
     if not drive_args(evt):
@@ -254,14 +264,48 @@ def warn_unscaled_spawn(evt: BaseHookEvent) -> HookResult | None:
 @on(
     Event.PreToolUse,
     only_if=[Tool("Agent")],
-    skip_if=[Annotated("raw")],
+    skip_if=[Annotated("raw"), Annotated("incident", "none")],
     tests={
+        spawn("api-sessions-fix", ALERT_BRIEF): Warn(pattern=r"^Warning, nothing was blocked: an alert or incident brief needs a step that stands down on tenant-edge 403s[\s\S]*desk-launch\.py incident <name> <brief>"),
+        spawn("api-sessions-fix", STANDS_DOWN): Allow(),
+        spawn("lane-a", SLICED): Allow(),
+        spawn("incident-api-fix", "Fix it."): Warn(),
+        spawn("api-fix", "Owner link: <https://x.slack.com/archives/C0|#alerts-api>. Fix it."): Warn(),
+        spawn("api-fix", "Sentry issue API-1N80 spiked. Fix it."): Warn(),
+        spawn("lane-a", "Lane lane-a: build the relay. Arm a Monitor on the PR."): Allow(),
+        spawn("lane-a", f"Your brief is {BRIEFS / 'quoted-rulings.md'}; read it."): Allow(),
+        spawn("api-sessions-fix", f"Your brief is {BRIEFS / 'alert.md'}; read it."): Warn(pattern=r"incident-template-fix\.md"),
+        spawn("api-sessions-fix", f"ccx: incident=none\n{ALERT_BRIEF}"): Allow(),
+        Input(tool="Agent", tool_input={"name": "incident-api-fix", "prompt": "Fix it."}): Allow(),
+    },
+)
+def warn_incident_brief_without_403_stand_down(evt: BaseHookEvent) -> HookResult | None:
+    if not drive_args(evt):
+        return None
+    try:
+        found = agent_spawn(evt.as_input(TaskCall))
+        texts = [found.prompt, found.brief.read_text() if found.brief else ""] if found else []
+    except UNREAD:
+        return None
+    if not found:
+        return None
+    brief = "\n".join(SLICE_HEADER.split(text, maxsplit=1)[0] for text in texts)
+    if not ALERT_WORDS.search(f"{found.lane}\n{found.brief.name if found.brief else ''}\n{brief}"):
+        return None
+    return None if TENANT_EDGE_403.search(brief) and STAND_DOWN.search(brief) else evt.context(NO_403_STAND_DOWN)
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Agent")],
+    skip_if=[Annotated("raw")],
+    tests=separate("register_injection.record_spawn", {
         spawn("lane-a", SLICED, commands={SPAWNED: ""}): Allow(),
         spawn("lane-a", "Lane lane-a: build the relay.", agent_type="general-purpose"): Allow(),
         spawn("lane-a", UNSCALED, commands={SPAWNED: ""}): Allow(),
         spawn("lane-a", "Find every caller of drain.", agent_type="Explore"): Allow(),
         Input(tool="Agent", tool_input={"name": "lane-a", "prompt": SLICED}): Allow(),
-    },
+    }),
 )
 def record_spawn(evt: BaseHookEvent) -> HookResult | None:
     if not drive_args(evt):
@@ -312,13 +356,13 @@ ORCA_LANE = {DRIVE_ENV: "brook-drive", LANE_ENV: "lane-a"}
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     skip_if=[Annotated("raw")],
-    tests={
+    tests=separate("register_injection.register_lane_at_first_command", {
         Input(command="git status", env=ORCA_LANE): Rewrite("cci post --lane lane-a --kind state --stamp 'lane-a: registered at its first command' >/dev/null\ngit status"),
         Input(command="cci post --lane lane-a --kind state 'lane-a: started'", env=ORCA_LANE): Allow(),
         Input(command="git status", env=ORCA_LANE, state=[LaneRegistrations(threads=[ROOT_THREAD])]): Allow(),
         Input(command="git status", env={DRIVE_ENV: "brook-drive"}): Allow(),
         Input(command="git status", env={LANE_ENV: "lane-a"}): Allow(),
-    },
+    }),
 )
 def register_lane_at_first_command(evt: BaseHookEvent) -> HookResult | None:
     thread = evt.agent_id or ROOT_THREAD
@@ -342,10 +386,10 @@ def register_lane_at_first_command(evt: BaseHookEvent) -> HookResult | None:
 @on(
     Event.PostToolUse,
     only_if=[Tool("Bash")],
-    tests={
+    tests=separate("register_injection.settle_lane_registration", {
         Input(command=f"{registration('lane-a')}\ngit status", env=ORCA_LANE, state=[LaneRegistrations(pending={ROOT_THREAD: "lane-a"})]): Allow(),
         Input(command="git status", env=ORCA_LANE): Allow(),
-    },
+    }),
 )
 def settle_lane_registration(evt: BaseHookEvent) -> HookResult | None:
     thread = evt.agent_id or ROOT_THREAD
@@ -359,7 +403,7 @@ def settle_lane_registration(evt: BaseHookEvent) -> HookResult | None:
 @on(
     Event.SubagentStart,
     skip_planning_agents=False,
-    tests={
+    tests=separate("register_injection.brief_subagent", {
         Input(agent_type="general-purpose", agent_id="a1b2c3", commands=FOUND, env=DRIVE_CONFIG, state=[ACTIVE]): Warn(
             pattern=r"^Standing rules register `ccccccc`, verbatim; it binds this session and every lane brief, and outranks any summary\.\n"
             r"~{12}\n# Register\n\n1\. Pulumi state is the only truth\.\n~{12}$"
@@ -370,27 +414,27 @@ def settle_lane_registration(evt: BaseHookEvent) -> HookResult | None:
         Input(agent_type="Explore", agent_id="a1b2c3", commands=NONE_FOUND, env=DRIVE_CONFIG, state=[ACTIVE]): Allow(),
         Input(agent_type="long-running:lane", agent_id="a1b2c3", commands=FOUND, env=DRIVE_CONFIG, state=[ACTIVE]): Warn(pattern=r"^Standing rules register `ccccccc`"),
         Input(agent_type="general-purpose", agent_id="a1b2c3"): Allow(),
-    },
+    }),
 )
 def brief_subagent(evt: BaseHookEvent) -> HookResult | None:
     if not (which := drive_args(evt)):
         return None
-    register = register_of(str(evt.cwd), *which)
+    register = register_of(str(evt.cwd), *which, evt=evt)
     return register_context(evt, register) if register else None
 
 
 @on(
     Event.SessionStart,
     skip_if=[FromSubagent()],
-    tests={
+    tests=separate("register_injection.brief_drive_worker", {
         Input(source="startup", env={DRIVE_ENV: "900424b6"}, commands=FOUND): Warn(pattern=r"^Standing rules register `ccccccc`"),
         Input(source="startup", env={DRIVE_ENV: "900424b6"}, commands=NONE_FOUND): Allow(),
         Input(source="startup"): Allow(),
         Input(source="compact", env={DRIVE_ENV: "900424b6"}, commands=FOUND, state=[ACTIVE]): Allow(),
-    },
+    }),
 )
 def brief_drive_worker(evt: BaseHookEvent) -> HookResult | None:
     if CompactionState.load(evt).active or not (worker := reqenv.getenv(DRIVE_ENV)):
         return None
-    register = register_of(str(evt.cwd), "--drive", worker)
+    register = register_of(str(evt.cwd), "--drive", worker, evt=evt)
     return register_context(evt, register) if register else None

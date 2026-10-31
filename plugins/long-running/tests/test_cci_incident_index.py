@@ -40,10 +40,10 @@ def test_native_holding_queries_selected_records_fresh_without_python_body_reads
 
     monkeypatch.setattr(runner_module, "full_text", unwanted)
     monkeypatch.setattr(cci, "records", unwanted)
-    replies.extend([(200, {}), (200, {"29020": {"seq": 41}}), (200, {"29020": {"seq": 42}})])
+    replies.extend([(200, {}), (200, {"29020": {"seq": 41, "num": "#7"}}), (200, {"29020": {"seq": 42, "num": "#100@bbbbbbbb"}})])
     called = shell.called["cci incident-holds"]
-    for seq in (41, 42):
-        assert landing.holding(["29020"], {}, shell.now()) == {"29020": f"open INCIDENT #{seq}, whose lane squash-merges it directly, never through the queue"}
+    for number in ("#7", "#100@bbbbbbbb"):
+        assert landing.holding(["29020"], {}, shell.now()) == {"29020": f"open INCIDENT {number}, whose lane squash-merges it directly, never through the queue"}
     assert [request[2]["prs"] for request in requests] == [[], ["29020"], ["29020"]]
     assert shell.called["cci incident-holds"] - called == 3
     assert not shell.in_progress

@@ -11,6 +11,7 @@ from .compaction_handoff import CompactionState, judged
 from .lane_landing import DRIVE_ENV, drive_entry, lane_name
 from .owner_facing import incident_sources, open_incidents
 from .tests.incident_fixtures import BARE_INCIDENT, CLOSED_0820, EARLIER_CLOSEOUT, INCIDENT_CLOSED, SAND_NOT_MIGRATED
+from .tests.rulings_consumers import separate
 
 ACTIVE = [CompactionState(active=True)]
 BUILD_CAUSE = '{"seq": 500210, "kind": "mechanism", "text": "build 4120 carries the delete; cancel it"}'
@@ -168,7 +169,7 @@ def cancel(command: str, *stored: dict, **extra: object) -> Input:
 @on(
     Event.PreToolUse,
     only_if=[Tool("Bash")],
-    tests={
+    tests=separate("incident_commands.release_undo_cites_its_cause", {
         cancel("tools/ci release cancel 2026-01-05/7", commands={"cci grep": ""}): Warn(pattern=r"^Warning, nothing was blocked: A release cancel or rollback needs a lane `MECHANISM` record"),
         cancel("./tools/ci release rollback sand --to 905", commands={"cci grep": ""}): Block(),
         cancel("tools/ci release cancel 4120  # MECHANISM #500210", commands={"cci grep": BUILD_CAUSE}): Allow(),
@@ -217,7 +218,7 @@ def cancel(command: str, *stored: dict, **extra: object) -> Input:
         ): Allow(),
         cancel("tools/ci release status 2026-01-05/7"): Allow(),
         Input(command="tools/ci release cancel 2026-01-05/7", commands={"cci grep": ""}): Allow(),
-    },
+    }, all_cases=True),
 )
 def release_undo_cites_its_cause(evt: BaseHookEvent) -> HookResult | None:
     if not (calls := undos(evt)) or not drive_session(evt):
