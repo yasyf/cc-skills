@@ -42,9 +42,13 @@ Do:
      cloud run is served by the cloud, never by their machine. Record it failing
      now, before you change anything.
   2. Fix it. Stack on the branch of `{parent}` when the fix belongs with its change;
-     otherwise, start from a fresh trunk. Ship it through submit-pr. Once CI is
-     green and the bots approved, post READY with the exact head; the landing desk
-     owns enqueue. Never run stack-enqueue, rebase, or push a queued branch.
+     otherwise, start from a fresh trunk. Ship it through submit-pr, pushing and
+     opening the PR within 10 minutes of the candidate; the PR text never gates the
+     push, and a scope change on a later push goes in one PR comment. Once GitHub's
+     required checks are green and the bots approved, post READY with the exact
+     head; the landing desk owns enqueue. Never run stack-enqueue, rebase, or push
+     a queued branch. A red check the branch rules do not require is read for its
+     content and never waited on.
   3. The orca desk's clock runs from your launch. It reads the cci records you
      post as `{lane}`. Post each line with `cci post --drive <drive>
      --lane {lane} --kind <kind> --to <deploy lane> --topic {parent} --text "<line>"`,

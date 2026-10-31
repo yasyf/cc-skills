@@ -25,6 +25,8 @@ Standing orders, fixed in this template:
     this Mac.
   - A tooling failure gets a same-turn tooling lane plus the hand path; it never
     stops the fix.
+  - When an on-call bot post, a peer session, or the alert already names the
+    mechanism, confirm it with one query and build on it; never derive it again.
 
 Telemetry, never the reporter. Read what the platform already records about their
   case, and put each answer in the evidence:
@@ -49,8 +51,15 @@ Do:
      Never wait for a diagnosis verdict. Your first deliverable, before any fix, is
      the whole failing path: every stage from the user's action to the error that
      can fail, one line each with the telemetry that shows whether it failed.
-     Attach it with `--path` to your `MECHANISM` record. A fix to one stage of a
-     path you have not mapped is not the fix.
+     Add every hop your fix creates: each new caller-to-service call, such as a pod
+     reaching another fleet or a token a new audience must accept, with the live
+     network policy, allowlist entry, or grant that admits it. A hop nothing admits
+     is part of the fix and ships in the same release. The moment a candidate
+     exists, start one fresh instance of the failing component against it, such
+     as a new pod on a smoke team, and read the next gate it stops at; a gate the
+     first one hid is part of this fix. Attach it with `--path` to
+     your `MECHANISM` record. A fix to one stage of a path you have not mapped is
+     not the fix.
   2. Before you name a mechanism, read the last 24 hours of the
      production-operations log:
      `ccn -R {repo} log show "$(ccn -R {repo} log list --label prod-ops | cut -f1)"`
@@ -78,9 +87,20 @@ Do:
        stops the clock.
      Each limit you pass without its record sends a blocker to the root, who tells
      the owner.
-  3. Build the durable fix and ship it via submit-pr. Once CI is green and the
-     bots approved, post READY with the exact head; the landing desk owns enqueue.
-     Never run stack-enqueue, rebase, or push a queued branch.
+  3. Build the durable fix and ship it via submit-pr. Push first: post
+     `CANDIDATE {lane}: <files> <sha>`, kind `state`, the moment the candidate is
+     committed, and push the branch and open the PR within 10 minutes of it. The PR
+     text never gates the push. Open with the prose writer's files if they are
+     back, else with a short body you write yourself in plain words: what broke,
+     what the change does, the test that proves it, the risk. Never wait for a
+     writer, a red-baseline build, or the root. The failing-first CI link, a scope
+     change on a later push, and anything the body missed go in one PR comment
+     after the push; the body stays as opened. A fix that changes a credential,
+     token, or wire format keeps what running clients already renew and read.
+     Once GitHub's required checks are green and the bots approved, post READY
+     with the exact head; the landing desk owns enqueue. Never run stack-enqueue,
+     rebase, or push a queued branch. A red check the branch rules do not require
+     is read for its content and never waited on.
   4. Before READY, reproduce the reporter's own case, the exact thread, run,
      request, or monitor query the report named. Show it failing before the fix
      and passing on the build that carries the fix, and quote both results in the

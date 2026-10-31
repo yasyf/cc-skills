@@ -335,18 +335,27 @@ def test_a_codex_lane_starts_sol_on_the_codex_agent_without_a_custom_terminal(or
     assert (orca.receipts / "lane-a.terminal").read_text().strip() == "term_codex"
 
 
-@pytest.mark.parametrize("model", ["sol", "incident"])
-def test_a_codex_lane_reads_a_brief_copy_that_hands_its_pr_prose_to_opus(orca, model):
-    orca.healthy(agent="codex" if model == "incident" else "claude")
+def test_a_codex_lane_reads_a_brief_copy_that_hands_its_pr_prose_to_opus(orca):
+    orca.healthy(agent="claude")
     orca.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": "ready", "taskId": "task_a", "dispatchId": "ctx_a", "effects": [{"kind": "terminal", "role": "agent", "id": "term_a"}]}}})
-    assert orca.launch("lane-a", model, "xhigh", str(orca.brief)).returncode == 0
+    assert orca.launch("lane-a", "sol", "xhigh", str(orca.brief)).returncode == 0
     copy = orca.receipts / "lane-a.brief.md"
     spec = flag(orca.calls("orchestration worker-start")[0], "--spec")
     assert Path(spec.split("read ")[1].split(" in full")[0]).resolve() == copy.resolve()
     text = copy.read_text()
     assert text.startswith(orca.brief.read_text())
-    assert "## PR prose" in text and f"`'{BIN}/pr-prose.py' --brief '{orca.brief}'`" in text and "Never ask the root" in text
+    assert "## PR prose" in text and f"`'{BIN}/pr-prose.py' --brief '{orca.brief}'`" in text and "ship with them verbatim" in text and "Never ask the root" in text
     assert "## PR record" not in text
+
+
+def test_an_incident_lane_pushes_its_candidate_without_waiting_for_its_pr_prose(orca):
+    orca.healthy(agent="codex")
+    orca.reply("orchestration worker-start", {"rc": 0, "out": {"ok": True, "result": {"state": "ready", "taskId": "task_a", "dispatchId": "ctx_a", "effects": [{"kind": "terminal", "role": "agent", "id": "term_a"}]}}})
+    assert orca.launch("lane-a", "incident", "xhigh", str(orca.brief)).returncode == 0
+    text = (orca.receipts / "lane-a.brief.md").read_text()
+    assert f"start `'{BIN}/pr-prose.py' --brief '{orca.brief}'` in the background" in text
+    assert "open the PR within 10 minutes of the candidate" in text and "Never wait for the writer" in text
+    assert "ship with them verbatim" not in text
 
 
 def test_a_codex_lane_in_a_drive_reads_a_brief_copy_that_registers_it_first_and_records_its_pr_opened(orca):
