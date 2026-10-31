@@ -1,0 +1,1267 @@
+{
+ "plain-agentic-stack-clean": {
+  "expect": "any",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.82
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.79
+    ]
+   }
+  ]
+ },
+ "plain-blob-outbox-clean": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.67
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.7
+    ]
+   }
+  ]
+ },
+ "plain-credential-file": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.92
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.92
+    ]
+   }
+  ]
+ },
+ "plain-credential-file-rewrite-ids": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.89
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.9
+    ]
+   }
+  ]
+ },
+ "plain-dashboard-check": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.75
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.75
+    ]
+   }
+  ]
+ },
+ "plain-judge-model-clean": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.72
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.74
+    ]
+   }
+  ]
+ },
+ "plain-mac-persistent-agents": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.75
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.74
+    ]
+   }
+  ]
+ },
+ "plain-memory-repair": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.46
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.41
+    ]
+   }
+  ]
+ },
+ "plain-memory-sharper": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "no"
+    ],
+    "jev": [
+     0.75
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "no"
+    ],
+    "jev": [
+     0.79
+    ]
+   }
+  ]
+ },
+ "plain-n-batch-sweep": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.84
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.84
+    ]
+   }
+  ]
+ },
+ "plain-reply-centrally": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.57
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.61
+    ]
+   }
+  ]
+ },
+ "plain-reply-dream": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.87
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.87
+    ]
+   }
+  ]
+ },
+ "plain-stream-text": {
+  "expect": "any",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.77
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.76
+    ]
+   }
+  ]
+ },
+ "plain-team-credential-pr": {
+  "expect": "any",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "no"
+    ],
+    "jev": [
+     0.82
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "no"
+    ],
+    "jev": [
+     0.81
+    ]
+   }
+  ]
+ },
+ "plain-tester-history-clean": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.77
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.78
+    ]
+   }
+  ]
+ },
+ "reply-00": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.88
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.86
+    ]
+   }
+  ]
+ },
+ "reply-01": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.23
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.24
+    ]
+   }
+  ]
+ },
+ "reply-02": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.52
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.51
+    ]
+   }
+  ]
+ },
+ "reply-03": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.44
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.46
+    ]
+   }
+  ]
+ },
+ "reply-04": {
+  "expect": "any",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.45
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.48
+    ]
+   }
+  ]
+ },
+ "reply-05": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.81
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.8
+    ]
+   }
+  ]
+ },
+ "reply-06": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.35
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.35
+    ]
+   }
+  ]
+ },
+ "reply-07": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.66
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.58
+    ]
+   }
+  ]
+ },
+ "reply-08": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.28
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.27
+    ]
+   }
+  ]
+ },
+ "reply-09": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.38
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.39
+    ]
+   }
+  ]
+ },
+ "reply-10": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.45
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.45
+    ]
+   }
+  ]
+ },
+ "reply-11": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.66
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.66
+    ]
+   }
+  ]
+ },
+ "reply-12": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "no"
+    ],
+    "jev": [
+     0.72
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "no"
+    ],
+    "jev": [
+     0.71
+    ]
+   }
+  ]
+ },
+ "reply-13": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.39
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.38
+    ]
+   }
+  ]
+ },
+ "reply-14": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.53
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.58
+    ]
+   }
+  ]
+ },
+ "reply-15": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.17
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.17
+    ]
+   }
+  ]
+ },
+ "reply-16": {
+  "expect": "any",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.86
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.85
+    ]
+   }
+  ]
+ },
+ "reply-17": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.8
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.78
+    ]
+   }
+  ]
+ },
+ "reply-18": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.8
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.8
+    ]
+   }
+  ]
+ },
+ "reply-19": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.92
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.92
+    ]
+   }
+  ]
+ },
+ "reply-20": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.61
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.6
+    ]
+   }
+  ]
+ },
+ "reply-21": {
+  "expect": "any",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.68
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.67
+    ]
+   }
+  ]
+ },
+ "reply-22": {
+  "expect": "any",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.67
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.62
+    ]
+   }
+  ]
+ },
+ "reply-23": {
+  "expect": "any",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.35
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.35
+    ]
+   }
+  ]
+ },
+ "reply-24": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.59
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.65
+    ]
+   }
+  ]
+ },
+ "reply-25": {
+  "expect": "any",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.41
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.41
+    ]
+   }
+  ]
+ },
+ "reply-26": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.78
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.78
+    ]
+   }
+  ]
+ },
+ "reply-27": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.51
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.52
+    ]
+   }
+  ]
+ },
+ "reply-28": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "no"
+    ],
+    "jev": [
+     0.68
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.67
+    ]
+   }
+  ]
+ },
+ "reply-29": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.37
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.38
+    ]
+   }
+  ]
+ },
+ "reply-30": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.82
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.82
+    ]
+   }
+  ]
+ },
+ "reply-31": {
+  "expect": "any",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.46
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.5
+    ]
+   }
+  ]
+ },
+ "reply-32": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.38
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.41
+    ]
+   }
+  ]
+ },
+ "reply-33": {
+  "expect": "any",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.35
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.42
+    ]
+   }
+  ]
+ },
+ "reply-34": {
+  "expect": "any",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.51
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.51
+    ]
+   }
+  ]
+ },
+ "reply-35": {
+  "expect": "any",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.53
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.57
+    ]
+   }
+  ]
+ },
+ "reply-36": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.41
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.41
+    ]
+   }
+  ]
+ },
+ "reply-37": {
+  "expect": "any",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.6
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.59
+    ]
+   }
+  ]
+ },
+ "reply-38": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.38
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.4
+    ]
+   }
+  ]
+ },
+ "reply-39": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.4
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.41
+    ]
+   }
+  ]
+ }
+}
