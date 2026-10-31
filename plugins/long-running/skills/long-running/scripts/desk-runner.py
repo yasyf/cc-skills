@@ -6074,11 +6074,32 @@ class Landing:
         linked = True
         for tip in tips:
             chain = sorted(downstack(open_rows, tip), key=lambda pr: len(downstack(open_rows, pr)))
-            done = self.shell.run(["gh", "stack", "link", *chain], env={"GH_REPO": self.repo}, cwd=str(self.checkout))
+            done = self.link(chain)
             said = "linked them as one native GitHub stack and checks again" if done.code == 0 else f"gh stack link exited {done.code}: {((done.err or done.out).strip().splitlines() or ['no output'])[-1][:300]}"
             self.post_record("note", f"stack-link:{','.join(chain)}@{open_rows[tip].get('head', '')}", self.routine_audience(chain, self.ledger_rows), f"STACK-LINK {numbered(chain)}: the {self.adapter.kind} check refused them as no native GitHub stack; the landing runner {said}", tip)
             linked = linked and done.code == 0
         return linked
+
+    def link(self, chain: list[str]) -> Done:
+        """`gh stack link` of `chain`, bottom first, and once more naming every open PR of the native stack a member of `chain` already belongs to, in its order, when GitHub refuses a link that names only part of that stack (cci #227794)."""
+        done = self.shell.run(["gh", "stack", "link", *chain], env={"GH_REPO": self.repo}, cwd=str(self.checkout))
+        if done.code == 0 or STACK_PARTIAL not in done.out + done.err:
+            return done
+        members = self.native_stack(chain)
+        shared = [pr for pr in chain if pr in members]
+        if not shared:
+            return done
+        below, above = chain[: chain.index(shared[0])], [pr for pr in chain[chain.index(shared[-1]) + 1 :] if pr not in members]
+        return self.shell.run(["gh", "stack", "link", *below, *members, *above], env={"GH_REPO": self.repo}, cwd=str(self.checkout))
+
+    def native_stack(self, chain: list[str]) -> list[str]:
+        """The open PRs, bottom first, of the native GitHub stack the first stacked PR of `chain` belongs to."""
+        for pr in chain:
+            read = self.shell.run(ghread.read("api", f"repos/{self.repo}/pulls/{pr}", "--jq", ".stack.number // empty", max_age=ghread.FRESH))
+            if read.code == 0 and (number := read.out.strip()):
+                listed = self.shell.run(ghread.read("api", f"repos/{self.repo}/stacks/{number}", "--jq", '[.pull_requests[] | select(.state == "open") | .number | tostring]', max_age=ghread.FRESH))
+                return json.loads(listed.out) if listed.code == 0 else []
+        return []
 
     def left(self, prefix: list[str], refused: Iterable[str], rows: dict[str, dict]) -> str:
         return cut_at(prefix, refused, self.whole(), {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"})
