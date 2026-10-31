@@ -1455,6 +1455,18 @@ def test_a_red_no_record_classes_alarms_root_once_at_twenty_minutes_a_real_class
     ]
 
 
+def test_a_red_of_a_lane_that_handed_off_goes_to_its_successor(config):
+    """Drive watchdog #234379: #45894 read red after its lane handed off to a successor, and the alarm still named the stopped lane."""
+    handed = record(2, "api-lane-5-handoff", "handoff", "7:13 PM handoff api-lane-5: doc 364b0df; successor api-lane-6", 40)
+    working = record(3, "api-lane-6", "note", "picked up the chain", 30)
+    shell = FakeShell([handed, working], [row("201", lane="api-lane-5", test_state="failure", red_at=stamp(25), failing_checks=json.dumps([{"name": "buildkite/lint", "url": "u"}]))])
+
+    watch(shell, config)
+
+    assert shell.post("unclassed:201:abc1234")["to"] == "root,api-lane-6@d1"
+    assert "| owner api-lane-6 |" in shell.post("unclassed:201:abc1234")["text"]
+
+
 def test_reds_with_no_live_red_sweep_lane_post_one_blocker_to_root_until_a_red_sweep_lane_posts(config):
     shell = FakeShell([], [row("201", test_state="failure", red_at=stamp(25), failing_checks=json.dumps([{"name": "buildkite/lint", "url": "u"}]))])
 
