@@ -133,6 +133,11 @@ loop:
 	if scratch != "" && laneName != "" {
 		die("codex-ask: -l and -s are mutually exclusive", 2)
 	}
+	source, sourceErr := os.Open(selfPath)
+	if sourceErr != nil {
+		die("codex-ask: open self image: "+sourceErr.Error(), 126)
+	}
+	defer source.Close()
 	mcpMounts, mcpServers := mcpMountFlags(mcpServers)
 	// Resolved before the question is read, so a bad name mints nothing.
 	named := ""
@@ -313,6 +318,16 @@ loop:
 	fmt.Printf("LOG_FILE: %s\n", logf)
 	fmt.Printf("AWAIT: %s --await %s\n", shlexQuote(invokePath), shlexQuote(sdir))
 
+	image, imageErr := retainSelfImage(source)
+	if imageErr != nil {
+		_ = atomicWrite(join(sdir, "status"), "126\n")
+		die("codex-ask: retain self image: "+imageErr.Error(), 126)
+	}
+	selfPath = image
+	if closeErr := source.Close(); closeErr != nil {
+		_ = atomicWrite(join(sdir, "status"), "126\n")
+		die("codex-ask: close self image: "+closeErr.Error(), 126)
+	}
 	detachWorker(sdir)
 	// Async: the printed REPLY_FILE/LOG_FILE/AWAIT lines are the owner's recovery
 	// contract, and the worker wakes the owner on completion — return at once
@@ -349,10 +364,8 @@ func pluginRoots() []string {
 	if root := os.Getenv("BINRUN_PLUGIN_ROOT"); root != "" {
 		roots = append(roots, root)
 	}
-	if exe, err := invocationPath(); err == nil {
-		roots = append(roots, filepath.Dir(filepath.Dir(exe)))
-	}
-	roots = append(roots, filepath.Dir(filepath.Dir(selfPath)))
+	roots = append(roots, filepath.Dir(filepath.Dir(invokePath)))
+	roots = append(roots, filepath.Dir(filepath.Dir(resourcePath)))
 	return slices.DeleteFunc(roots, func(root string) bool {
 		return !isRegularFile(filepath.Join(root, ".claude-plugin", "plugin.json"))
 	})

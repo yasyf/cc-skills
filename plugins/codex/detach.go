@@ -30,7 +30,7 @@ func detachWorker(sdir string) {
 		_ = atomicWrite(join(sdir, "status"), "126\n")
 		return
 	}
-	proc, err := os.StartProcess(selfPath, []string{selfPath, "--detach-middle", sdir}, &os.ProcAttr{ //nolint:gosec // re-exec of this binary's own resolved path, not user input
+	proc, err := os.StartProcess(selfPath, []string{selfPath, "--detach-middle", sdir, invokePath, resourcePath}, &os.ProcAttr{ //nolint:gosec // re-exec of this binary's own resolved path, not user input
 		Files: []*os.File{devnull, devnull, devnull, w},
 		Sys:   &syscall.SysProcAttr{Setsid: true},
 	})
@@ -64,7 +64,7 @@ func detachMiddle(sdir string) {
 	if err != nil {
 		os.Exit(127)
 	}
-	proc, err := os.StartProcess(selfPath, []string{selfPath, "--worker", sdir}, &os.ProcAttr{ //nolint:gosec // re-exec of this binary's own resolved path, not user input
+	proc, err := os.StartProcess(selfPath, []string{selfPath, "--worker", sdir, invokePath, resourcePath}, &os.ProcAttr{ //nolint:gosec // re-exec of this binary's own resolved path, not user input
 		Files: []*os.File{devnull, devnull, devnull},
 	})
 	_ = devnull.Close()
