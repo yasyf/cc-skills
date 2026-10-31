@@ -45,6 +45,7 @@ SLICE_STEP = re.compile(r"^Register slice: lane=\S+ step=(\S+)", re.MULTILINE)
 STOOD_DOWN = r"^(?:\d{{1,2}}:\d{{2}} [AP]M )?{}:? (?:STAND-DOWN|stood down|standing down)\b"
 TOLD_TO_STAND_DOWN = r"\b{}\b[^.\n]{{0,60}}\bstand[ -]?down\b"
 STRIKE_WINDOW = 2 * STALE_AFTER
+PAGE_ANSWER = 2 * STALE_AFTER
 OWNER = re.compile(r"\bowner=([\w.-]+)")
 PACIFIC = ZoneInfo("America/Los_Angeles")
 HANDOFF_BRIEF = Path(__file__).parents[3] / "reference" / "handoff-subagent-brief.md"
@@ -74,6 +75,7 @@ class Deps:
     cci: Callable[[list[str]], str]
     launch: Callable[[str, str, str, Path], None]
     withdraw: Callable[[str], None]
+    wake: Callable[[str, dict, dict | None], bool]
     rotate_at: int
 
 
@@ -84,6 +86,8 @@ class Outcome:
     held: list[str] = field(default_factory=list)
     adopted: list[str] = field(default_factory=list)
     withdrawn: list[str] = field(default_factory=list)
+    woken: list[str] = field(default_factory=list)
+    reassign: list[str] = field(default_factory=list)
 
 
 def pacific(at: datetime) -> str:
@@ -96,6 +100,10 @@ def at_of(record: dict) -> datetime:
 
 def prs_of(record: dict) -> list[int]:
     return [int(str(ref).rsplit("#", 1)[-1]) for ref in (record.get("refs") or {}).get("prs") or []]
+
+
+def addressed(record: dict) -> set[str]:
+    return {to.split("@", 1)[0].rstrip(":") for to in record.get("to") or []}
 
 
 def attrs_of(record: dict) -> dict:
@@ -168,6 +176,11 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
         if row and row.state in LIVE:
             store.lane_heard(lane, at)
             store.lane_waiting(lane, record["seq"] if kind in WAITS and ROOT in (record.get("to") or []) else None)
+            store.lane_page(lane, None)
+        if kind == "blocker":
+            for name in addressed(record) - {lane}:
+                if (paged := store.lane(name)) and paged.state in LIVE and (prs := sorted(set(prs_of(record)) & set(paged.prs))) and (topic := record.get("topic") or str(record["seq"])) != (paged.page or {}).get("topic"):
+                    store.lane_page(name, {"topic": topic, "text": text, "prs": prs})
         if answers := {record.get("re"), record.get("resolves")} - {None}:
             for waiter in store.lanes(*LIVE):
                 if waiter.waiting in answers:
@@ -329,6 +342,22 @@ def relaunch(store: Store, deps: Deps, old: Lane, peers: dict[str, Peer], why: s
     out.relaunched.append((old.name, new, why))
 
 
+def wake(store: Store, deps: Deps, lane: Lane, peer: Peer, now: datetime, out: Outcome) -> None:
+    page = lane.page
+    if page is None or "woke" not in page:
+        if deps.wake(lane.name, peer.row, page):
+            out.woken.append(lane.name)
+            if page:
+                store.lane_page(lane.name, page | {"woke": stamp(now)})
+        return
+    if "asked" in page or now - parse(page["woke"]) < PAGE_ANSWER:
+        return
+    owned = " ".join(f"#{n}" for n in page["prs"])
+    post(deps, "ask", ROOT, f"{pacific(now)} reassign {owned}: {lane.name} has posted nothing since it was woken at {pacific(parse(page['woke']))} for the blocker \"{page['text'][:200]}\". Post `<lane> replaces {lane.name}` or a decide naming owner=<lane>; it is not woken again for that blocker.", "--lane-ref", lane.name, *[arg for n in page["prs"] for arg in ("--pr", str(n))])
+    store.lane_page(lane.name, page | {"asked": stamp(now)})
+    out.reassign.append(lane.name)
+
+
 def hourly(store: Store, deps: Deps, now: datetime) -> None:
     hour = int(now.timestamp()) // 3600
     last = store.cursor(HOUR)
@@ -365,6 +394,8 @@ def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
         verdict = classify_lane(lane, peer, now, deps.tokens(peer.row) if wants_tokens else None, deps.rotate_at)
         if peer and (verdict.kind == "came-up" or (lane.state == "desired" and verdict.kind in ("ok", "ask-rotate"))):
             store.heartbeat(lane.name, generation, max(peer.seen, lane.heard or peer.seen))
+        if verdict.kind == "ok" and lane.state == "desired" and lane.waiting is None and peer and peer.row.get("roster") and now - max(peer.seen, lane.heard or peer.seen) >= STALE_AFTER:
+            wake(store, deps, lane, peer, now, out)
         if verdict.kind == "came-up":
             store.lane_state(lane.name, "desired", now)
             if lane.predecessor and lane.reason and (old := store.lane(lane.predecessor)) and old.retired_by == lane.name:

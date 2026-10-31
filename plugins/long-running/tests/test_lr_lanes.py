@@ -39,6 +39,8 @@ class Fake:
         self.posts: list[list[str]] = []
         self.launches: list[tuple[str, str, str, Path]] = []
         self.withdrawals: list[str] = []
+        self.wakes: list[str] = []
+        self.pages: list[dict | None] = []
         self.deps = lanes.Deps(
             drive=DRIVE,
             checkout=CHECKOUT,
@@ -50,6 +52,7 @@ class Fake:
             cci=self.cci,
             launch=lambda name, model, effort, brief: self.launches.append((name, model, effort, brief)),
             withdraw=self.withdrawals.append,
+            wake=lambda name, row, page: self.wakes.append(name) is None and self.pages.append(page) is None,
             rotate_at=600_000,
         )
 
@@ -184,6 +187,58 @@ def test_an_idle_lane_past_its_line_is_never_asked_to_rotate(tmp_path, brief):
     out = lanes.tick(store, fake.deps, T0, 1)
 
     assert out.asked == [] and fake.posts == [] and store.lane("conflicts-2").asked is None
+
+
+@pytest.mark.parametrize(
+    ("roster", "seen", "waiting", "woken"),
+    [(True, timedelta(hours=2), False, ["conflicts-2"]), (True, timedelta(minutes=5), False, []), (False, timedelta(hours=2), False, []), (True, timedelta(hours=2), True, [])],
+    ids=["silent-roster", "active-roster", "not-on-roster", "waiting-on-root"],
+)
+def test_only_a_silent_roster_lane_not_waiting_on_root_is_woken(tmp_path, brief, roster, seen, waiting, woken):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    if waiting:
+        fake.feed.append(record(2, "conflicts-2", "ask", T0 - seen, "pick A or B?", ("root",)))
+    fake.peers = [who("conflicts-2", True, T0 - seen, **({"roster": "/teams/session-d50e80e8"} if roster else {}))]
+
+    out = lanes.tick(store, fake.deps, T0, 1)
+
+    assert fake.wakes == woken and out.woken == woken and out.relaunched == [] and fake.launches == []
+
+
+def test_a_blocker_on_an_idle_roster_lanes_pr_wakes_it_once_then_asks_root_to_reassign(tmp_path, brief):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store, prs=(46475,))
+    page = {"topic": "red:46475:89f46c3", "to": ["conflicts-2@d1"], "refs": {"prs": ["Forge-AI/monorepo#46475"]}}
+    fake.feed += [
+        record(2, "stall-watch", "blocker", T0 - timedelta(minutes=30), "STALL red #46475 at 89f46c3, 659 min") | page,
+        record(3, "stall-watch", "blocker", T0 - timedelta(minutes=20), "STALL red #999 at abc, 5 min", ("conflicts-2@d1",), {"prs": ["Forge-AI/monorepo#999"]}) | {"topic": "red:999:abc"},
+    ]
+    fake.peers = [who("conflicts-2", True, T0 - timedelta(hours=2), roster="/teams/session-d50e80e8")]
+
+    woken = lanes.tick(store, fake.deps, T0, 1)
+    fake.feed.append(record(4, "stall-watch", "blocker", T0 + timedelta(minutes=5), "STALL red #46475 at 89f46c3, 689 min") | page)
+    quiet = lanes.tick(store, fake.deps, T0 + timedelta(minutes=10), 1)
+    asked = lanes.tick(store, fake.deps, T0 + lanes.PAGE_ANSWER, 1)
+    again = lanes.tick(store, fake.deps, T0 + 2 * lanes.PAGE_ANSWER, 1)
+
+    assert woken.woken == ["conflicts-2"] and [p["text"] for p in fake.pages] == ["STALL red #46475 at 89f46c3, 659 min"]
+    assert quiet.woken == [] and asked.woken == [] and again.woken == [] and fake.wakes == ["conflicts-2"]
+    assert asked.reassign == ["conflicts-2"] and again.reassign == [] and fake.kinds() == [("ask", "root")]
+    assert "reassign #46475: conflicts-2 has posted nothing since it was woken" in fake.posts[0][-1] and fake.launches == []
+
+
+def test_a_lane_that_answers_its_page_is_never_asked_about(tmp_path, brief):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store, prs=(46475,))
+    fake.feed.append(record(2, "stall-watch", "blocker", T0 - timedelta(minutes=30), "STALL red #46475", ("conflicts-2@d1",), {"prs": ["Forge-AI/monorepo#46475"]}) | {"topic": "red:46475:89f46c3"})
+    fake.peers = [who("conflicts-2", True, T0 - timedelta(hours=2), roster="/teams/session-d50e80e8")]
+    lanes.tick(store, fake.deps, T0, 1)
+    fake.feed.append(record(3, "conflicts-2", "state", T0 + timedelta(minutes=5), "fixing the red build of #46475"))
+
+    out = lanes.tick(store, fake.deps, T0 + lanes.PAGE_ANSWER, 1)
+
+    assert store.lane("conflicts-2").page is None and out.reassign == [] and fake.posts == []
 
 
 def test_a_live_lane_that_ignores_rotate_is_left_working(tmp_path, brief):
