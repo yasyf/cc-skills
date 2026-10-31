@@ -2,6 +2,7 @@ name: open-pr CI
 
 on:
   push:
+    branches: [main]
     paths:
       - "plugins/open-pr/**"
       - ".github/workflows/open-pr-ci.yml"
@@ -10,6 +11,10 @@ on:
       - "plugins/open-pr/**"
       - ".github/workflows/open-pr-ci.yml"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

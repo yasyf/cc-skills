@@ -2,6 +2,7 @@ name: live-dashboard CI
 
 on:
   push:
+    branches: [main]
     paths:
       - "plugins/live-dashboard/**"
       - "plugins/long-running/dashboard/**"
@@ -12,6 +13,10 @@ on:
       - "plugins/long-running/dashboard/**"
       - ".github/workflows/live-dashboard-ci.yml"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
