@@ -5965,7 +5965,11 @@ class Landing:
         with self.dispatching:
             if any(not future.done() and members & others for others, future in self.inflight.values()):
                 return None
-            future = self.workers.submit(work)
+            def read():
+                with self.build_cache.book.store.reading():
+                    work()
+
+            future = self.workers.submit(read)
             self.inflight[key] = (members, future)
             return future
 
@@ -6487,11 +6491,13 @@ class Landing:
         heads = [row["head"] for row in rows.values() if row.get("state", "open") == "open" and row.get("head")]
         with ThreadPoolExecutor(GATE_WORKERS) as pool:
             urls = [url for found in pool.map(self.ci_builds, heads) for url, state, skip in found or [] if skip is False and state in ("success", "failure") and BUILD_URL.search(url)["pipeline"] == pipeline]
+            with self.build_cache.book.store.reading():
+                for url in urls:
+                    self.kept_build(url)
             builds = [build for build in pool.map(self.build, urls) if build]
         return {job.get("step_key") or job["name"] for build in builds for job in build.get("jobs", []) if job.get("type") == "script"} if builds else None
 
-    def build(self, url: str, *, refresh: bool = False) -> dict | None:
-        """The Buildkite build at `url`, read through `landing.ci_build` and kept once it has finished."""
+    def kept_build(self, url: str, *, refresh: bool = False) -> dict | None:
         with self.building:
             if refresh:
                 self.builds.pop(url, None)
@@ -6504,6 +6510,12 @@ class Landing:
                 if (kept := self.build_cache.get(url)) is not None:
                     self.builds[url] = kept
                     return kept
+        return None
+
+    def build(self, url: str, *, refresh: bool = False) -> dict | None:
+        """The Buildkite build at `url`, read through `landing.ci_build` and kept once it has finished."""
+        if (kept := self.kept_build(url, refresh=refresh)) is not None:
+            return kept
         done = self.shell.run(release_build_argv(self.checkout, self.landing_config["ci_build"], url))
         if done.code != 0:
             return None
@@ -9374,14 +9386,15 @@ class Landing:
         return done
 
     def run(self) -> None:
-        self.ask_rulings()
-        self.cci_tail.remember()
-        try:
-            self.gate_pass()
-        finally:
-            self.cci_tail.stop()
-            self.report_unread()
-            self.keep_builds()
+        with self.build_cache.book.store.reading():
+            self.ask_rulings()
+            self.cci_tail.remember()
+            try:
+                self.gate_pass()
+            finally:
+                self.cci_tail.stop()
+                self.report_unread()
+                self.keep_builds()
 
     def ask_rulings(self) -> None:
         """Log one `RULING-ASK` per board round while ruling cards `rulings.py classify` wrote queue under the drive's `cards/`; the root puts the round on the cc-present board with `rulings.py round`, never one card per ruling."""
@@ -9456,7 +9469,11 @@ class Landing:
         gone = self.land_gone(rows, barred) if gating else set()
         self.runner.steps(lambda: self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}), self.reconcile, lambda: self.requeue(rows))
         if not self.side_work:
-            self.side_work = self.side.submit(self.runner.steps, lambda: self.verify(rows), lambda: self.announce_landings(rows), lambda: self.releases(rows), self.ungraded_after, lambda: self.verify_restacks(rows))
+            def side_steps():
+                with self.build_cache.book.store.reading():
+                    self.runner.steps(lambda: self.verify(rows), lambda: self.announce_landings(rows), lambda: self.releases(rows), self.ungraded_after, lambda: self.verify_restacks(rows))
+
+            self.side_work = self.side.submit(side_steps)
         if not self.tidy_work:
             self.tidy_work = self.tidying.submit(self.remove_landed_worktrees, rows)
         self.runner.steps(lambda: self.resubmit_graphite_base(rows))
