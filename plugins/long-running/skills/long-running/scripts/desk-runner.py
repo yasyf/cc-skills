@@ -5179,12 +5179,13 @@ def trunk_recorded(entry: dict, state: dict | None) -> dict:
 
 
 def trunk_labelled(entry: dict, row: dict) -> dict:
+    """`entry` as the PR's Trunk labels say where the status read says unknown or not queued. A `trunk-failed` or `trunk-cancelled` label outlives the head Trunk dropped, so it reads as evicted only while the head's own CI is not green (#46618 at 5736e0f, #259946)."""
     labels = set(row.get("labels", "").split(","))
     if entry["queue"] == "unknown" and TRUNK_MERGED_LABEL in labels:
         return entry | {"queue": "landed", "verdict": "landed"}
     if entry["queue"] == "unknown" and labels & TRUNK_QUEUED_LABELS:
         return entry | {"queue": QUEUED_STATE, "verdict": QUEUED_STATE}
-    if entry["queue"] in TRUNK_UNREAD and (fell := next((label for label in TRUNK_FELL_LABELS if label in labels), None)):
+    if entry["queue"] in TRUNK_UNREAD and (entry.get("ci") or {}).get("state") != "green" and (fell := next((label for label in TRUNK_FELL_LABELS if label in labels), None)):
         return entry | {"queue": "evicted", "evicted": f"Trunk labelled it {fell}"}
     return entry
 
@@ -9292,7 +9293,7 @@ class Landing:
         self.reread()
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         covered = under_hold(open_rows, held)
-        told = {pr: (open_rows[pr]["head"], statuses[pr]) for pr in sorted((self.no_go | self.unchecked) - covered, key=int) if pr in statuses and pr in open_rows and open_rows[pr].get("head")}
+        told = {pr: (open_rows[pr]["head"], statuses[pr]) for pr in sorted((self.no_go | self.unchecked) - covered, key=int) if pr in statuses and pr in open_rows and open_rows[pr].get("head") and names_head(statuses[pr].get("head") or open_rows[pr]["head"], open_rows[pr]["head"])}
         landable = {pr: head for pr, (head, entry) in told.items() if entry["verdict"] == LANDABLE and pr in self.no_go}
         deadline = self.runner.now() + TELL_BUDGET
 
