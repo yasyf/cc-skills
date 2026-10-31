@@ -31,6 +31,7 @@ from .owner_facing import CCI_POST, SLACK_CARD, posted_text
 from .register_gates import fenced
 from .register_injection import drive_args
 from .tests.register_fixtures import CWD, DRIVE_CONFIG
+from .tests.rulings_consumers import separate
 
 DECISIONS = re.compile(r"^(#{2,3}) [^\n]*\bdecisions?\b[^\n]*$", re.IGNORECASE)
 BOARD_VERBS = frozenset({"push", "update-block"})
@@ -231,7 +232,7 @@ def feedback_memories(evt: BaseHookEvent) -> list[Settled]:
 def register_rulings(evt: BaseHookEvent) -> list[Settled]:
     if not (flags := drive_args(evt)):
         return []
-    rows = json.loads(rulings(str(evt.cwd), "rows", *flags))["rows"]
+    rows = json.loads(rulings(str(evt.cwd), "rows", *flags, evt=evt))["rows"]
     return [
         Settled(f'{key}, the owner\'s words: "{" ".join(fields["words"].split())[:QUOTE]}"')
         for key, fields in rows.items()
@@ -293,7 +294,7 @@ PICKS_MESSAGE = (
 @on(
     Event.PreToolUse,
     only_if=[Tool("AskUserQuestion", "Bash", SLACK_CARD)],
-    tests={
+    tests=separate('settled_questions.check_settled_before_asking', {
         Input(
             tool="AskUserQuestion",
             tool_input=SETTLED_ASK,
@@ -368,7 +369,7 @@ PICKS_MESSAGE = (
             file=FileFixture(home=True, name="brook.md", content=PLAN),
             state=[CompactionState(active=True, plan_path="~/brook.md")],
         ): Allow(),
-    },
+    }),
 )
 def check_settled_before_asking(evt: BaseHookEvent) -> HookResult | None:
     """Warn an asking call whose question a ruling already settles, or whose card leaves out the owner's earlier picks on the same thing (root #211144)."""

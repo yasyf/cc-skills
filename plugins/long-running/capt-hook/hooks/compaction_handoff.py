@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import os
 import json
+import io
 import re
 import shutil
 import subprocess
@@ -321,27 +322,67 @@ def deadline_env(timeout: float) -> dict[str, str]:
     return {**reqenv.env_map(), DEADLINE_ENV: str(time.time() + timeout)}
 
 
-def rulings(cwd: str, *args: str, stdin: str = "", timeout: int = CCN_TIMEOUT_SECONDS) -> str:
+@cache
+def rulings_module(path: Path) -> ModuleType:
+    identity = "long_running_" + hashlib.sha256(str(path).encode()).hexdigest()
+    spec = importlib.util.spec_from_file_location(identity, path, submodule_search_locations=[str(path.parent)])
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[identity] = module
+    spec.loader.exec_module(module)
+    return importlib.import_module(f"{identity}.rulings")
+
+
+def rulings(cwd: str, *args: str, evt: BaseHookEvent, stdin: str = "", timeout: int = CCN_TIMEOUT_SECONDS) -> str:
     argv = [sys.executable, str(script("rulings.py")), *args, "--repo", cwd]
-    return subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=timeout, check=True, cwd=cwd, env=deadline_env(timeout)).stdout
+    read = HookRead(evt, argv, timeout)
+    module = rulings_module(script("long_running/__init__.py"))
+    env = deadline_env(timeout)
+    home = Path(env["HOME"]) if env.get("HOME") else Path.home()
+    drives = Path(env.get("CLAUDE_CONFIG_DIR") or home / ".claude") / "long-running" / "drives"
+    output, errors = io.StringIO(), io.StringIO()
+
+    class Shell(module.ledger.Shell):
+        @staticmethod
+        def once(command: list[str], stdin: str | None, cwd: Path | None = None) -> str:
+            def call() -> str:
+                read.remaining()
+                result = evt.ctx.call_cli(command, input=stdin, cwd=str(cwd or repo), env=env, timeout=read.remaining())
+                read.remaining()
+                return result
+
+            return module.cci.installed(command, call)
+
+    repo = Path(cwd)
+    runtime = module.Runtime(io.StringIO(stdin), output, errors, drives, home / ".claude" / "scratch", lambda: module.drive.current_drive(env, drives), read.lock, read.held, read.remaining)
+    try:
+        code = module.dispatch([*args, "--repo", cwd], Shell(), runtime)
+    except SystemExit as error:
+        if isinstance(error.code, str):
+            errors.write(f"{error.code}\n")
+            code = 1
+        else:
+            code = error.code
+    if code:
+        raise subprocess.CalledProcessError(code, argv, output.getvalue(), errors.getvalue())
+    return output.getvalue()
 
 
-def register_of(cwd: str, *which: str) -> dict | None:
-    return json.loads(rulings(cwd, "register", *which))
+def register_of(cwd: str, *which: str, evt: BaseHookEvent) -> dict | None:
+    return json.loads(rulings(cwd, "register", *which, evt=evt))
 
 
-class RegisterRead:
-    def __init__(self, evt: BaseHookEvent, entry: dict) -> None:
+class HookRead:
+    def __init__(self, evt: BaseHookEvent, argv: list[str], timeout: int) -> None:
         self.evt = evt
-        self.entry = entry
-        self.deadline = time.monotonic() + CCN_TIMEOUT_SECONDS
-        self.argv = [sys.executable, str(script("rulings.py")), "--drive", entry["drive"]]
+        self.timeout = timeout
+        self.deadline = time.monotonic() + timeout
+        self.argv = argv
 
     def remaining(self) -> float:
         reqenv.checkpoint()
         left = self.deadline - time.monotonic()
         if left <= 0:
-            raise subprocess.TimeoutExpired(self.argv, CCN_TIMEOUT_SECONDS)
+            raise subprocess.TimeoutExpired(self.argv, self.timeout)
         return left
 
     def run(self, argv: list[str]) -> str:
@@ -349,7 +390,7 @@ class RegisterRead:
         try:
             out = self.evt.ctx.call_cli(argv, timeout=remaining)
         except subprocess.TimeoutExpired as expired:
-            raise subprocess.TimeoutExpired(self.argv, CCN_TIMEOUT_SECONDS, output=expired.output, stderr=expired.stderr) from expired
+            raise subprocess.TimeoutExpired(self.argv, self.timeout, output=expired.output, stderr=expired.stderr) from expired
         self.remaining()
         return out
 
@@ -392,6 +433,11 @@ class RegisterRead:
             yield
         except SystemExit as error:
             raise subprocess.CalledProcessError(1, self.argv, stderr=f"{error}\n") from error
+
+class RegisterRead(HookRead):
+    def __init__(self, evt: BaseHookEvent, entry: dict) -> None:
+        super().__init__(evt, [sys.executable, str(script("rulings.py")), "--drive", entry["drive"]], CCN_TIMEOUT_SECONDS)
+        self.entry = entry
 
     def register(self) -> dict | None:
         with self.errors():

@@ -12,6 +12,7 @@ from .owner_facing import CCI_POST, posted_text
 from .register_gates import fenced
 from .register_injection import drive_args
 from .tests.register_fixtures import CWD, DRIVE_CONFIG
+from .tests.rulings_consumers import separate
 
 ACCEPTS = re.compile(r"^\s*(?:readback: ok\b|read-back \S+: ok\b)")
 ROOT_KINDS = frozenset({"decide", "decision", "answer"})
@@ -35,7 +36,7 @@ def accepting(values: dict[str, tuple], text: str) -> bool:
 
 def unanswered(evt: BaseHookEvent, seq: str, drive: list[str], text: str) -> str:
     try:
-        return rulings(str(evt.cwd), "narrowed", "--contract", seq, *drive, stdin=text).strip()
+        return rulings(str(evt.cwd), "narrowed", "--contract", seq, *drive, stdin=text, evt=evt).strip()
     except subprocess.CalledProcessError as found:
         if found.returncode != 1:
             raise
@@ -46,7 +47,7 @@ def unanswered(evt: BaseHookEvent, seq: str, drive: list[str], text: str) -> str
     Event.PreToolUse,
     only_if=[DriveActive(), Tool("Bash")],
     skip_if=[Annotated("raw")],
-    tests={
+    tests=separate('narrowed_contracts.narrowed_acceptance', {
         post("cci post --lane fidelity-desk --kind review --re 8 --text 'readback: ok lane-a 0123456789ab'"): Warn(
             pattern=r"^Warning, nothing was blocked: This post accepts contract #8, which scopes[\s\S]*NARROWED rule/0f31b56: says \"per destination\""
         ),
@@ -56,7 +57,7 @@ def unanswered(evt: BaseHookEvent, seq: str, drive: list[str], text: str) -> str
         post("cci post --lane lane-a --kind state --re 8 --text 'Accepted; building.'"): Allow(),
         post("cci post --lane root --kind decide --text 'Accepted; build it.'"): Allow(),
         post("cci post --lane root --kind decide --re 8 --text 'Accepted; build it.'  # ccx:raw"): Allow(),
-    },
+    }),
 )
 def narrowed_acceptance(evt: BaseHookEvent) -> HookResult | None:
     if not (drive := drive_args(evt)):

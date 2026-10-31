@@ -18,6 +18,7 @@ from .compaction_handoff import CompactionState, drive_entry, failure_of, post_b
 from .nudges import once_per_hour
 from .session_tree import Subagent, drive_lane
 from .tests.register_fixtures import DRIVE_CONFIG
+from .tests.rulings_consumers import separate
 
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 HELPER_AGENTS = frozenset({"Explore", "Plan", "claude-code-guide", "statusline-setup", "output-style-setup", "ship-pr"})
@@ -132,7 +133,7 @@ def refreshed(evt: BaseHookEvent, which: list[str], spawn: Spawn) -> tuple[str, 
     with tempfile.TemporaryDirectory() as staging:
         copy = Path(staging) / "brief.md"
         copy.write_text(text)
-        said = rulings(str(evt.cwd), "slice", "--refresh", str(copy), *which)
+        said = rulings(str(evt.cwd), "slice", "--refresh", str(copy), *which, evt=evt)
         return said, copy.read_text()
 
 
@@ -144,7 +145,7 @@ def spawn(name: str, prompt: str, agent_type: str = "long-running:lane", **extra
     Event.PreToolUse,
     only_if=[Tool("Agent", "Bash")],
     skip_if=[Annotated("raw")],
-    tests={
+    tests=separate('register_injection.slice_on_spawn', {
         spawn("lane-a", "Lane lane-a: build the relay."): Warn(pattern=r"has no `Register slice: lane=<name> step=<n>` line"),
         spawn("lane-a", SLICED, commands=FRESH_SLICE): Allow(),
         spawn("lane-a", UNSCALED, commands=FRESH_SLICE): Allow(),
@@ -167,7 +168,7 @@ def spawn(name: str, prompt: str, agent_type: str = "long-running:lane", **extra
         Input(command=f"codex-ask -s /tmp/finder {BRIEFS / 'unsliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG): Allow(),
         Input(command=f"codex-ask --dispatch --lane lane-a '{'inline brief ' * 40}'", state=[ACTIVE], env=DRIVE_CONFIG): Allow(),
         spawn("lane-a", f"Lane lane-a: read /{'x' * 300}.md. {SLICED}", commands=FRESH_SLICE): Allow(),
-    },
+    }),
 )
 def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
     if not (which := drive_args(evt)):
@@ -197,7 +198,7 @@ def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
     Event.PreToolUse,
     only_if=[Tool("Agent", "Bash")],
     skip_if=[Annotated("raw")],
-    tests={
+    tests=separate('register_injection.warn_unscaled_spawn', {
         spawn("lane-a", UNSCALED): Warn(pattern=r"^Warning, nothing was blocked: brief <brief> has no `Scale:` line; add one line to it: `Scale: no N`"),
         spawn("lane-a", SLICED): Allow(),
         spawn("lane-a-handoff", UNSCALED): Allow(),
@@ -206,7 +207,7 @@ def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
         spawn("lane-a", "Lane lane-a: build the relay."): Allow(),
         spawn("incident-api-fix", "Fix the api outage."): Allow(),
         Input(command=f"orca-launch.sh lane-a sol xhigh {BRIEFS / 'sliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG): Allow(),
-    },
+    }),
 )
 def warn_unscaled_spawn(evt: BaseHookEvent) -> HookResult | None:
     if not drive_args(evt):
@@ -224,13 +225,13 @@ def warn_unscaled_spawn(evt: BaseHookEvent) -> HookResult | None:
     Event.PreToolUse,
     only_if=[Tool("Agent")],
     skip_if=[Annotated("raw")],
-    tests={
+    tests=separate('register_injection.record_spawn', {
         spawn("lane-a", SLICED, commands={SPAWNED: ""}): Allow(),
         spawn("lane-a", "Lane lane-a: build the relay.", agent_type="general-purpose"): Allow(),
         spawn("lane-a", UNSCALED, commands={SPAWNED: ""}): Allow(),
         spawn("lane-a", "Find every caller of drain.", agent_type="Explore"): Allow(),
         Input(tool="Agent", tool_input={"name": "lane-a", "prompt": SLICED}): Allow(),
-    },
+    }),
 )
 def record_spawn(evt: BaseHookEvent) -> HookResult | None:
     if not drive_args(evt):
@@ -281,13 +282,13 @@ ORCA_LANE = {DRIVE_ENV: "brook-drive", LANE_ENV: "lane-a"}
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     skip_if=[Annotated("raw")],
-    tests={
+    tests=separate('register_injection.register_lane_at_first_command', {
         Input(command="git status", env=ORCA_LANE): Rewrite("cci post --lane lane-a --kind state --stamp 'lane-a: registered at its first command' >/dev/null\ngit status"),
         Input(command="cci post --lane lane-a --kind state 'lane-a: started'", env=ORCA_LANE): Allow(),
         Input(command="git status", env=ORCA_LANE, state=[LaneRegistrations(threads=[ROOT_THREAD])]): Allow(),
         Input(command="git status", env={DRIVE_ENV: "brook-drive"}): Allow(),
         Input(command="git status", env={LANE_ENV: "lane-a"}): Allow(),
-    },
+    }),
 )
 def register_lane_at_first_command(evt: BaseHookEvent) -> HookResult | None:
     thread = evt.agent_id or ROOT_THREAD
@@ -311,10 +312,10 @@ def register_lane_at_first_command(evt: BaseHookEvent) -> HookResult | None:
 @on(
     Event.PostToolUse,
     only_if=[Tool("Bash")],
-    tests={
+    tests=separate('register_injection.settle_lane_registration', {
         Input(command=f"{registration('lane-a')}\ngit status", env=ORCA_LANE, state=[LaneRegistrations(pending={ROOT_THREAD: "lane-a"})]): Allow(),
         Input(command="git status", env=ORCA_LANE): Allow(),
-    },
+    }),
 )
 def settle_lane_registration(evt: BaseHookEvent) -> HookResult | None:
     thread = evt.agent_id or ROOT_THREAD
@@ -328,7 +329,7 @@ def settle_lane_registration(evt: BaseHookEvent) -> HookResult | None:
 @on(
     Event.SubagentStart,
     skip_planning_agents=False,
-    tests={
+    tests=separate('register_injection.brief_subagent', {
         Input(agent_type="general-purpose", agent_id="a1b2c3", commands=FOUND, env=DRIVE_CONFIG, state=[ACTIVE]): Warn(
             pattern=r"^Standing rules register `ccccccc`, verbatim; it binds this session and every lane brief, and outranks any summary\.\n"
             r"~{12}\n# Register\n\n1\. Pulumi state is the only truth\.\n~{12}$"
@@ -339,27 +340,27 @@ def settle_lane_registration(evt: BaseHookEvent) -> HookResult | None:
         Input(agent_type="Explore", agent_id="a1b2c3", commands=NONE_FOUND, env=DRIVE_CONFIG, state=[ACTIVE]): Allow(),
         Input(agent_type="long-running:lane", agent_id="a1b2c3", commands=FOUND, env=DRIVE_CONFIG, state=[ACTIVE]): Warn(pattern=r"^Standing rules register `ccccccc`"),
         Input(agent_type="general-purpose", agent_id="a1b2c3"): Allow(),
-    },
+    }),
 )
 def brief_subagent(evt: BaseHookEvent) -> HookResult | None:
     if not (which := drive_args(evt)):
         return None
-    register = register_of(str(evt.cwd), *which)
+    register = register_of(str(evt.cwd), *which, evt=evt)
     return register_context(evt, register) if register else None
 
 
 @on(
     Event.SessionStart,
     skip_if=[FromSubagent()],
-    tests={
+    tests=separate('register_injection.brief_drive_worker', {
         Input(source="startup", env={DRIVE_ENV: "900424b6"}, commands=FOUND): Warn(pattern=r"^Standing rules register `ccccccc`"),
         Input(source="startup", env={DRIVE_ENV: "900424b6"}, commands=NONE_FOUND): Allow(),
         Input(source="startup"): Allow(),
         Input(source="compact", env={DRIVE_ENV: "900424b6"}, commands=FOUND, state=[ACTIVE]): Allow(),
-    },
+    }),
 )
 def brief_drive_worker(evt: BaseHookEvent) -> HookResult | None:
     if CompactionState.load(evt).active or not (worker := reqenv.getenv(DRIVE_ENV)):
         return None
-    register = register_of(str(evt.cwd), "--drive", worker)
+    register = register_of(str(evt.cwd), "--drive", worker, evt=evt)
     return register_context(evt, register) if register else None

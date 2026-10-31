@@ -38,6 +38,7 @@ from .tests.board_fixtures import (
     sha12,
     sweeps,
 )
+from .tests.rulings_consumers import separate
 
 GATED = ("push", "update-block", "reply")
 WATCHED = ("start", "push")
@@ -244,7 +245,7 @@ def titles(found: list[tuple[dict, dict | None]]) -> list[str]:
 
 def sweep(reads: Reads, *artifacts: Path) -> list[re.Match[str]] | None:
     flags = [arg for artifact in artifacts for arg in ("--artifact", str(artifact))]
-    lines = reads.read(f"rulings.py sweep {' '.join(map(str, artifacts)) or 'default'}", lambda: rulings(reads.repo, "sweep", *reads.which, *flags))
+    lines = reads.read(f"rulings.py sweep {' '.join(map(str, artifacts)) or 'default'}", lambda: rulings(reads.repo, "sweep", *reads.which, *flags, evt=reads.evt))
     return None if lines is None else [hit for line in lines.splitlines() if (hit := SWEEP_LINE.match(line.strip())) and hit["state"] == "open"]
 
 
@@ -401,7 +402,7 @@ def exits(name: str, **extra: object) -> Input:
 @on(
     Event.PreToolUse,
     only_if=[Tool("Bash", "ExitPlanMode")],
-    tests={
+    tests=separate('board_text_gate.board_text_gate', {
         **{update(name, sweep_out=HELD.get(name, "")): Warn(pattern=BREACHES[name]) for name in FAILING},
         **{update(redraft(name)): Allow() for name in FAILING},
         reply("reply-4ae100d5.md", sweep_out=f"open - rule/5c0e9a1 {board('reply-4ae100d5.md')}:1 held copy\n"): Warn(
@@ -453,7 +454,7 @@ def exits(name: str, **extra: object) -> Input:
         exits("plan-only-these.md", reviewed=(sha12("plan-only-these.md"),), sweep_out=held_copy_hit("plan-only-these.md")): Warn(
             pattern=r"decision text outside a choice or approval, \"Also recommended\"[\s\S]*says these changes only"
         ),
-    },
+    }),
 )
 def board_text_gate(evt: BaseHookEvent) -> HookResult | None:
     if not (which := drive_args(evt)):
@@ -471,12 +472,12 @@ def board_text_gate(evt: BaseHookEvent) -> HookResult | None:
 @on(
     Event.PostToolUse,
     only_if=[Tool("Bash")],
-    tests={
+    tests=separate('board_text_gate.start_board_watch', {
         Input(command="cc-present push board.json --session s1", state=[*PROGRAM_ACTIVE, BoardWatches(sessions=["s1"])]): Allow(),
         Input(command="cc-present push board.json --session s1 --dry-run", state=PROGRAM_ACTIVE): Allow(),
         Input(command="cc-present push board.json --session s1"): Allow(),
         Input(command="cc-present update-block card.json --session s1", state=PROGRAM_ACTIVE): Allow(),
-    },
+    }),
 )
 def start_board_watch(evt: BaseHookEvent) -> HookResult | None:
     if not (which := drive_args(evt)):

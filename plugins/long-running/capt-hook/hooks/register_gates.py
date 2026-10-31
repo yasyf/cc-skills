@@ -53,6 +53,7 @@ from .tests.register_fixtures import (
     reply,
     shown,
 )
+from .tests.rulings_consumers import separate
 
 SHORT = 7
 ANSWER_ID = re.compile(r"\b[0-9a-f]{7,40}\b")
@@ -155,7 +156,7 @@ ROSTER = "Lane lane-x: drop the roster refresh timer."
 
 
 def read_register(evt: BaseHookEvent, which: list[str]) -> dict:
-    return json.loads(rulings(str(evt.cwd), "rows", *which, "--json"))
+    return json.loads(rulings(str(evt.cwd), "rows", *which, "--json", evt=evt))
 
 
 def cause(error: Exception) -> str:
@@ -314,7 +315,7 @@ def spawn(name: str, prompt: str, state: str = "quiet", **extra: object) -> Inpu
     Event.PreToolUse,
     only_if=[DriveActive(), Tool("Bash", "Agent", "Edit", "Write")],
     skip_if=[FromSubagent(), Annotated("raw")],
-    tests={
+    tests=separate('register_gates.register_gate', {
         register_case(go(f"cut web under {ROWED[:7]}"), "quiet", (ROWED[:7], shown(ROWED))): Allow(),
         register_case(go(f"cut web under {UNROWED[:7]}"), "quiet", (UNROWED[:7], shown(UNROWED))): Warn(
             pattern=r"^Warning, nothing was blocked: this GO or DECIDE cites `1dfd09d`, and register `brook` has no row for it\."
@@ -344,7 +345,7 @@ def spawn(name: str, prompt: str, state: str = "quiet", **extra: object) -> Inpu
         Input(command=go("cut web"), state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands={ROWS: (1, "ccn: no ledger"), "cci post": "#1"}): Allow(),
         Input(command=go("cut web"), cwd=CWD, commands=readings("repeat")): Allow(),
         register_case(go("cut web"), "repeat", agent_id="a1b2c3"): Allow(),
-    },
+    }),
 )
 def register_gate(evt: BaseHookEvent) -> HookResult | None:
     citing = citing_lines(evt)
@@ -423,7 +424,7 @@ def asks(name: str, prompt: str, state: str, **extra: object) -> Input:
     Event.PreToolUse,
     only_if=[DriveActive(), Tool("Bash", "Agent")],
     skip_if=[Annotated("raw")],
-    tests={
+    tests=separate('register_gates.owner_question_gate', {
         asks("reply-lookup", fixture("brief-158585"), "question-lookup"): Allow(),
         asks("timers-writer", TIMERS, "question-timers"): Allow(),
         question(reply("c7-timers", fixture("correction-1244")), "question-timers"): Warn(pattern=r"touches it without quoting it"),
@@ -445,7 +446,7 @@ def asks(name: str, prompt: str, state: str, **extra: object) -> Input:
         question("ls", "question-timers"): Allow(),
         Input(tool="Agent", tool_input={"name": "lane-x", "prompt": ROSTER}, state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands={ROWS: (1, "boom"), "cci post": "#1"}): Allow(),
         Input(tool="Agent", tool_input={"name": "lane-x", "prompt": ROSTER}, cwd=CWD, commands=readings("question-timers")): Allow(),
-    },
+    }),
 )
 def owner_question_gate(evt: BaseHookEvent) -> HookResult | None:
     if incident_fix_spawn(evt) or not (which := drive_args(evt)):
@@ -481,10 +482,10 @@ def close(evt: BaseHookEvent, hook: str, answered: Callable[[dict], bool], how: 
 @on(
     Event.PostToolUse,
     only_if=[DriveActive(), Tool("Bash")],
-    tests={
+    tests=separate('register_gates.close_replied_questions', {
         question(reply("c7-repair", "Done."), "question-timers"): Allow(),
         question("cc-present push /tmp/board.json", "question-timers"): Allow(),
-    },
+    }),
 )
 def close_replied_questions(evt: BaseHookEvent) -> HookResult | None:
     if blocks := {block for args in replies(evt) for block in option(args, "--block")}:
@@ -496,10 +497,10 @@ def close_replied_questions(evt: BaseHookEvent) -> HookResult | None:
     Event.Stop,
     only_if=[DriveActive()],
     skip_if=[FromSubagent()],
-    tests={
+    tests=separate('register_gates.close_chat_questions', {
         Input(state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands=readings("question-timers")): Allow(),
         Input(state=[CompactionState(active=True)], cwd=CWD): Allow(),
-    },
+    }),
 )
 def close_chat_questions(evt: BaseHookEvent) -> HookResult | None:
     close(evt, "close_chat_questions", lambda found: not found.get("blocks"), "turn end")
@@ -593,7 +594,7 @@ def lane(name: str) -> dict[str, str]:
 
 @on(
     Event.PreToolUse,
-    tests={
+    tests=separate('register_gates.register_write_guard', {
         register_case(f"ccn ledger row set {LEDGER[:7]} rule/0a1b2c3 --field status=met"): Warn(
             pattern=r"^Warning, nothing was blocked: Only `rulings\.py` writes the register ledger of `brook`"
         ),
@@ -630,7 +631,7 @@ def lane(name: str) -> dict[str, str]:
         ),
         Input(command="python3 rulings.py classify 629293ae14388dc9", cwd=CWD, env={"CLAUDE_LONG_RUNNING_LANE": "p1-hooks"}): Allow(),
         Input(command=f"ccn ledger row set {LEDGER[:7]} rule/0a1b2c3", state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands={ROWS: (1, "ccn: no ledger"), "cci post": "#1"}): Allow(),
-    },
+    }),
 )
 def register_write_guard(evt: BaseHookEvent) -> HookResult | None:
     if not drive_args(evt):
@@ -684,7 +685,7 @@ def written_paths(evt: BaseHookEvent) -> list[Path]:
 @on(
     Event.PreToolUse,
     only_if=[Tool("Bash", "Edit", "Write", "MultiEdit", "NotebookEdit")],
-    tests={
+    tests=separate('register_gates.hook_edit_guard', {
         Input(tool="Edit", tool_input={"file_path": f"{CACHE}/capt-hook/hooks/register_gates.py", "old_string": "a", "new_string": "b"}, state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG): Block(
             pattern=r"^The installed long-running plugin changes only through a reviewed pull request, so this write into its `0\.7\.217/capt-hook/hooks/register_gates\.py` is refused\."
         ),
@@ -698,7 +699,7 @@ def written_paths(evt: BaseHookEvent) -> list[Path]:
         Input(command=f"sed -e s/a/b/ {CACHE}/capt-hook/hooks/x.py", state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG): Allow(),
         Input(tool="Write", tool_input={"file_path": "/repo/plugins/long-running/capt-hook/hooks/x.py", "content": "x"}, state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG): Allow(),
         Input(tool="Write", tool_input={"file_path": f"{CACHE}/x.py", "content": "x"}, cwd=CWD, env=CACHE_ENV): Allow(),
-    },
+    }),
 )
 def hook_edit_guard(evt: BaseHookEvent) -> HookResult | None:
     if not drive_args(evt):
@@ -765,7 +766,7 @@ def cut_case(command: str, **extra: object) -> Input:
 @on(
     Event.PreToolUse,
     only_if=[Tool("Bash", "Edit", "Write")],
-    tests={
+    tests=separate('register_gates.go_and_cut_gate', {
         cut_case("tools/ci release channel promote next fleet"): Warn(pattern=r"^Warning, nothing was blocked[\s\S]*- rule/7e8f901 \(widen\): Run every scenario"),
         cut_case("tools/ci release channel promote fleet next"): Allow(),
         cut_case("tools/ci release start sand && tools/ci release channel promote next fleet"): Warn(pattern=r"\(widen\)"),
@@ -776,7 +777,7 @@ def cut_case(command: str, **extra: object) -> Input:
         cut_case("cci post --lane root --kind note --to walker --text 'step 1.7 is next'"): Allow(),
         Input(command="tools/ci release channel promote next fleet", cwd=CWD, commands=readings("quiet")): Allow(),
         Input(command="tools/ci release channel promote next fleet", state=ACTIVE, cwd=CWD, env=DRIVE_CONFIG, commands={ROWS: (1, "ccn: no ledger"), "cci post": "#1"}): Allow(),
-    },
+    }),
 )
 def go_and_cut_gate(evt: BaseHookEvent) -> HookResult | None:
     texts = go_texts(evt) + release_targets(evt)
@@ -835,7 +836,7 @@ def has_pr(entry: dict, lane: str) -> bool:
 
 def acceptance(evt: BaseHookEvent, lane: str, drive: str) -> str:
     try:
-        said = rulings(str(evt.cwd), "accepted", "--lane", lane, "--drive", drive)
+        said = rulings(str(evt.cwd), "accepted", "--lane", lane, "--drive", drive, evt=evt)
     except subprocess.CalledProcessError as refused:
         if not (refused.stdout or "").startswith(CONTRACT_MISSING):
             raise
@@ -853,7 +854,7 @@ def gated(command: str, said: str = "accepted lane-a\n", env: dict[str, str] = L
 @on(
     Event.PreToolUse,
     only_if=[Tool("Bash")],
-    tests={
+    tests=separate('register_gates.readback_gate', {
         gated("ccx vcs ship -m 'long-running: ✨ x' --new-branch lane-a-x"): Allow(),
         gated("ccx vcs ship -m 'long-running: ✨ x'", "CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n"): Warn(
             pattern=r"^Warning, nothing was blocked: lane `lane-a` has no read-back a fidelity desk accepted yet\.[\s\S]*CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n~+$"
@@ -874,7 +875,7 @@ def gated(command: str, said: str = "accepted lane-a\n", env: dict[str, str] = L
         gated("ccx vcs ship -m x", "CONTRACT-MISSING alerts-api-0305-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "alerts-api-0305-fix"}, incidents=(1, "store down")): Allow(),
         gated("ccx vcs ship -m x", "CONTRACT-MISSING lane-a: none\n", prs=(1, "ccn down")): Allow(),
         gated("ccx vcs ship -m x", "Traceback: boom\n"): Allow(),
-    },
+    }),
 )
 def readback_gate(evt: BaseHookEvent) -> HookResult | None:
     called = runs(evt)

@@ -18,6 +18,7 @@ from .register_gates import READ_ERRORS, captures, failed_open, folded, read_reg
 from .register_injection import drive_args
 from .root_context import DriveActive, OwnerPrompt, message_label
 from .tests.register_fixtures import ACTIVE, CWD, DRIVE_CONFIG, ROWS, readings
+from .tests.rulings_consumers import separate
 
 STAMP = "%Y-%m-%dT%H:%M:%SZ"
 TRIGGERS = (
@@ -80,10 +81,10 @@ def digest_of(evt: BaseHookEvent) -> str:
     Event.UserPromptSubmit,
     only_if=[DriveActive(), OwnerPrompt()],
     skip_if=[FromSubagent()],
-    tests={
+    tests=separate('register_capture.record_owner_prompt', {
         Input(prompt="keep the nightly report", env=DRIVE_CONFIG, state=ACTIVE): Allow(),
         Input(prompt="keep the nightly report"): Allow(),
-    },
+    }),
 )
 def record_owner_prompt(evt: BaseHookEvent) -> HookResult | None:
     if not drive_args(evt):
@@ -97,10 +98,10 @@ def record_owner_prompt(evt: BaseHookEvent) -> HookResult | None:
     Event.UserPromptSubmit,
     only_if=[DriveActive()],
     skip_if=[FromSubagent()],
-    tests={
+    tests=separate('register_capture.record_relayed_quote', {
         Input(prompt=f'<cross-session-message from="uds:/tmp/s.sock" from-name="ai-oncall">{RELAYED}</cross-session-message>', env=DRIVE_CONFIG, state=ACTIVE): Allow(),
         Input(prompt='<cross-session-message from="uds:/tmp/s.sock">p3 DONE: note 635dab7</cross-session-message>', env=DRIVE_CONFIG, state=ACTIVE): Allow(),
-    },
+    }),
 )
 def record_relayed_quote(evt: BaseHookEvent) -> HookResult | None:
     if not (relay := RELAY.search(evt.user_prompt or "")) or not OWNER.search(relay["body"]) or not drive_args(evt):
@@ -139,10 +140,10 @@ def picked_text(question: str, picked: str, note: str) -> str:
     Event.PostToolUse,
     only_if=[DriveActive(), Tool("AskUserQuestion")],
     skip_if=[FromSubagent()],
-    tests={
+    tests=separate('register_capture.record_owner_picks', {
         Input(tool="AskUserQuestion", tool_input=ASKED_KEEP, output=PICKED_KEEP, env=DRIVE_CONFIG, state=ACTIVE): Allow(),
         Input(tool="AskUserQuestion", tool_input=ASKED_KEEP, output=PICKED_KEEP): Allow(),
-    },
+    }),
 )
 def record_owner_picks(evt: BaseHookEvent) -> HookResult | None:
     if not drive_args(evt):
@@ -248,7 +249,7 @@ def capture(prompt: dict) -> dict:
     only_if=[DriveActive()],
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    tests={
+    tests=separate('register_capture.stamp_owner_prompts', {
         Input(command="ls", env=DRIVE_CONFIG, state=ACTIVE, cwd=CWD, commands=readings("quiet")): Allow(),
         Input(env=DRIVE_CONFIG, state=ACTIVE, cwd=CWD, commands=readings("quiet")): Allow(),
         Input(
@@ -258,7 +259,7 @@ def capture(prompt: dict) -> dict:
             commands={ROWS: (1, "boom"), "cci post": "#1"},
             transcript=[{"type": "user", "message": {"role": "user", "content": "keep the nightly report"}}],
         ): Allow(),
-    },
+    }),
 )
 def stamp_owner_prompts(evt: BaseHookEvent) -> HookResult | None:
     dms = slack_dms(evt)
@@ -385,12 +386,12 @@ def revise(evt: BaseHookEvent, blocks: list[str]) -> None:
     only_if=[DriveActive(), OwnerPrompt()],
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    tests={
+    tests=separate('register_capture.mark_owner_question', {
         Input(prompt="that is fine, ship it", env=DRIVE_CONFIG, state=ACTIVE, cwd=CWD, commands=readings("quiet")): Allow(),
         Input(prompt="waht is a relay slot? why is this here?", env=DRIVE_CONFIG, state=ACTIVE, cwd=CWD, commands={ROWS: (1, "boom"), "cci post": "#1"}): Allow(),
         Input(prompt="what is a relay slot?", state=[CompactionState(active=True)], cwd=CWD): Allow(),
         Input(prompt="what is a relay slot?", cwd=CWD, commands=readings("quiet")): Allow(),
-    },
+    }),
 )
 def mark_owner_question(evt: BaseHookEvent) -> HookResult | None:
     words = tokens(evt.user_prompt or "")
@@ -410,7 +411,7 @@ def mark_owner_question(evt: BaseHookEvent) -> HookResult | None:
         path.write_text(json.dumps(question))
         if blocks:
             revise(evt, blocks)
-        hits = [rulings(str(evt.cwd), "sweep", key, *which) for key in rows]
+        hits = [rulings(str(evt.cwd), "sweep", key, *which, evt=evt) for key in rows]
     except READ_ERRORS as error:
         failed_open(evt, "mark_owner_question", error)
         return None
