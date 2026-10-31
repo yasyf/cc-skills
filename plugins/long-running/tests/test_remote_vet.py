@@ -11,9 +11,14 @@ import pytest
 SCRIPT = Path(__file__).resolve().parents[1] / "skills/long-running/scripts/remote-vet.py"
 
 SPRITE = """#!/usr/bin/env python3
-import os, subprocess, sys
+import json, os, subprocess, sys
 args = sys.argv[4:]
+if args[-1] == "/proc/loadavg":
+    print(json.loads(os.environ["LOADS"])[sys.argv[3]])
+    sys.exit(0)
 mac, sprite = os.environ["MAC_ROOT"], os.environ["SPRITE_ROOT"]
+with open(os.environ["SPRITES_LOG"], "a") as log:
+    log.write(sys.argv[3] + "\\n")
 sys.exit(subprocess.run([sprite + arg if arg.startswith(mac) else arg for arg in args[1:]]).returncode)
 """
 
@@ -63,6 +68,10 @@ def lane_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str, p
     clone = mac / "clone"
     subprocess.run(["git", "clone", "-q", str(origin), f"{sprite}{clone}"], check=True, capture_output=True)
     git(work, "remote", "set-head", "origin", "dev")
+    git(work, "checkout", "-q", "-b", "below")
+    write(work, "go/m/b/b.go", "package b\n\nfunc B() {}\n")
+    git(work, "commit", "-q", "-am", "b")
+    git(work, "push", "-q", "origin", "below")
     git(work, "checkout", "-q", "-b", "lane")
     write(work, "go/m/a/a.go", "package a\n\nfunc A() {}\n")
     git(work, "commit", "-q", "-am", "a")
@@ -70,13 +79,14 @@ def lane_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str, p
     write(work, "go/m/a/new.go", "package a\n\nfunc New() {}\n")
     write(work, "README.md", "changed\n")
     config = tmp_path / "runner.json"
-    config.write_text(json.dumps({"drive": "d1", "landing": {"repo": "o/r", "checkout": str(clone)}, "finder": {"sprite": ["vet4", "fleet2"]}, "vet": {"prepare": prepare}}))
+    config.write_text(json.dumps({"drive": "d1", "landing": {"repo": "o/r", "checkout": str(clone)}, "finder": {"sprite": ["vet4", "fleet2"]}, "fidelity": {"sprite": ["vet4"]}, "vet": {"sprite": ["busy", "vetbox"], "prepare": prepare}}))
     log = tmp_path / "tools.log"
     executable(mac / "bin" / "sprite", SPRITE)
     executable(mac / "bin" / "gh", "#!/bin/sh\necho token\n")
+    executable(mac / "bin" / "ccx", '#!/bin/sh\necho \'{"branches": [{"branch": "below"}, {"branch": "lane"}]}\'\n')
     executable(mac / "bin" / "go", TOOL.format(log=log, failing=failing))
     executable(mac / "bin" / "cargo", TOOL.format(log=log, failing=failing))
-    env = os.environ | {"PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "SPRITE_VET_ROOT": str(mac / "vet"), "RUSTC_WRAPPER": "sccache"}
+    env = os.environ | {"PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "SPRITE_VET_ROOT": str(mac / "vet"), "RUSTC_WRAPPER": "sccache", "SPRITES_LOG": str(tmp_path / "sprites.log"), "LOADS": json.dumps({"busy": "21.5", "vetbox": "3.2"})}
     return mac, sprite, work, config, log, env
 
 
@@ -84,7 +94,7 @@ def lane_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str, p
 def test_a_remote_vet_builds_the_lanes_uncommitted_change_on_the_sprite_for_only_the_packages_and_crates_it_touches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str) -> None:
     """Root #221365, under the owner's 11:52 AM Oct 30 order to move grading load off this machine: a lane ships its diff to a Sprite, which runs go build, go vet and cargo check on the touched packages and returns the result.
 
-    Root #235301, from team-credential-4's #235284: no Sprite has sccache, so cargo runs with RUSTC_WRAPPER cleared, and with --tests so a test-only change compiles. Root #235223: the partial clone's lazy fetches authenticate, so every git command on the Sprite carries the credential helper."""
+    Root #235301, from team-credential-4's #235284: no Sprite has sccache, so cargo runs with RUSTC_WRAPPER cleared, and with --tests so a test-only change compiles. Root #235223: the partial clone's lazy fetches authenticate, so every git command on the Sprite carries the credential helper. remote-desks-5, 10:50 PM Oct 30: dar-vet-1 and dar-fleet-14 to 16, 8 GB with no swap, restarted mid-build under go's default parallelism, so builds run at most three compile jobs."""
     mac, sprite, work, config, log, env = lane_change(tmp_path, monkeypatch, failing, "echo generated > prepared.txt && git config --get-all credential.helper > helper.txt || true")
 
     done = subprocess.run([sys.executable, str(SCRIPT), "--config", str(config), "--lane", "l1", str(work)], env=env, capture_output=True, text=True)
@@ -96,10 +106,11 @@ def test_a_remote_vet_builds_the_lanes_uncommitted_change_on_the_sprite_for_only
     assert (vetted / "rust/c/src/lib.rs").read_text() == "pub fn c() -> u8 { 1 }\n"
     assert (vetted / "prepared.txt").read_text() == "generated\n"
     assert (vetted / "helper.txt").read_text().splitlines()[-1] == '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
-    assert log.read_text().splitlines() == [f"{vetted}/go/m wrapper=sccache build ./a", f"{vetted}/go/m wrapper=sccache vet ./a", f"{vetted}/rust wrapper= check --quiet --tests -p cee"]
+    assert log.read_text().splitlines() == [f"{vetted}/go/m wrapper=sccache build -p 3 ./a", f"{vetted}/go/m wrapper=sccache vet -p 3 ./a", f"{vetted}/rust wrapper= check --quiet --tests -j 3 -p cee"]
     assert [line for line in done.stdout.splitlines() if line.startswith("START ")][:5] == ["START lock", "START fetch", "START checkout", "START apply", "START prepare"]
     assert ("FAIL cd go/m" in done.stdout) == bool(failing)
     assert "PASS cd rust" in done.stdout
+    assert (tmp_path / "sprites.log").read_text() == "vetbox\n"
     assert git(work, "status", "--porcelain") == "M README.md\n M rust/c/src/lib.rs\n?? go/m/a/new.go".lstrip()
 
 
@@ -112,3 +123,19 @@ def test_a_remote_vet_that_hangs_stops_at_its_timeout_and_names_the_stage(tmp_pa
     assert done.returncode == 1
     assert "START prepare" in done.stdout
     assert "gave no result within 3s, still in stage prepare" in done.stderr
+
+
+def test_a_remote_vet_refuses_when_every_vet_sprite_is_over_load_so_the_lane_pushes_for_ci(tmp_path: Path) -> None:
+    """progress-build-6 #230992, root #231006: two vets ran go build for 30+ min at Sprite load 39 against a 2-minute target, so the lane waited instead of pushing."""
+    mac, work = tmp_path / "mac", tmp_path / "work"
+    subprocess.run(["git", "init", "-q", str(work)], check=True)
+    config = tmp_path / "runner.json"
+    config.write_text(json.dumps({"drive": "d1", "landing": {"repo": "o/r", "checkout": str(mac / "clone")}, "vet": {"sprite": ["busy", "busier"]}}))
+    executable(mac / "bin" / "sprite", SPRITE)
+    env = os.environ | {"PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(tmp_path / "sprite"), "SPRITES_LOG": str(tmp_path / "sprites.log"), "LOADS": json.dumps({"busy": "16.5", "busier": "39"})}
+
+    done = subprocess.run([sys.executable, str(SCRIPT), "--config", str(config), "--lane", "l1", str(work)], env=env, capture_output=True, text=True)
+
+    assert done.returncode == 3, done.stdout + done.stderr
+    assert done.stdout == "remote-vet: every vet Sprite is over load 16 (busy at 16.5); push and let CI grade l1\n"
+    assert not (tmp_path / "sprites.log").exists()

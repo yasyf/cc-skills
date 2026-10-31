@@ -3214,9 +3214,12 @@ the Sprite's disk.
 A lane checks its change before it pushes with
 `remote-vet.py --config <runner config> --lane <lane> [<worktree>]`, never a local
 `go build`, `go vet` or `cargo check`. It ships everything the worktree changed since
-its merge base, uncommitted and untracked files included, to the lane's own worktree
-on a Sprite, runs the config's `vet.prepare` code generation, then builds and vets
-only the Go packages and Rust crates the change touches, and exits 1 on any `FAIL`.
+its merge base with the branch below it in its stack, uncommitted and untracked files
+included, to the lane's own worktree on the least loaded Sprite the config's
+`vet.sprite` lists, Sprites no finder or fidelity pass runs on. There it runs the
+config's `vet.prepare` code generation, then builds and vets only the Go packages and
+Rust crates the change touches, and exits 1 on any `FAIL`. When every vet Sprite is
+over load 16 it exits 3 at once, and the lane pushes and lets CI grade the change.
 
 For in-process subagents, use one of this plugin's two lane types with the
 routing table's `model`. Both definitions default to Opus; set a different

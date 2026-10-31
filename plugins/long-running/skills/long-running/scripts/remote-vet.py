@@ -7,14 +7,17 @@
     remote-vet.py --config PATH --lane LANE [--sprite NAME] [--base REF] [--timeout SECONDS] [WORKTREE]
 
 STDLIB ONLY. `--config` is the drive's desk-runner `runner.json`: `landing.checkout` names the clone path every Sprite
-holds, and the first Sprite the `fidelity` or `finder` desk names runs the vet unless `--sprite` names another. The
-change is everything in WORKTREE (default the current directory) that differs from its merge base with `--base`
-(default the remote's default branch), committed or not, untracked files included. On the Sprite, the lane's own
+holds, and the vet runs on `--sprite` or else the least loaded Sprite `vet.sprite` lists, Sprites of their own so a build
+never starves the finder and fidelity passes on a grader Sprite. When every one is over load 16 the script exits 3
+without vetting, so the lane pushes and CI grades it. The change is everything in WORKTREE (default the current
+directory) that differs from its merge base with `--base`, default the branch below it in its ccx stack, else the
+remote's default branch, so a stacked lane vets only its own commits; committed or not, untracked files included. On the Sprite, the lane's own
 worktree `<root>/vet-<lane>` beside the clone, kept between runs so later checkouts read local objects, moves to that
 merge base, takes the change as one binary patch, runs `vet.prepare` from the config when it names one (the
 repository's code generation), then runs `go build` and `go vet` on each Go package the change touches, from its
 module's root, and `cargo check` on each Rust crate it touches, from its workspace's root, with the lane's own
-`target-vet-<lane>`, with no `RUSTC_WRAPPER` and with `--tests`, so a test-only change compiles. Every command runs
+`target-vet-<lane>`, with no `RUSTC_WRAPPER` and with `--tests`, so a test-only change compiles, and at most three
+compile jobs at once, since a Sprite has 8 GB and no swap and restarts when a wider build runs it out of memory. Every command runs
 even after one fails; each prints a `PASS` or `FAIL` line with its seconds, and the script exits 1 when any failed.
 Each stage prints a `START` line as it begins, streamed as it happens, and a run with no result after `--timeout`
 seconds (default 1800) stops and names the stage it was in. One run per lane holds the worktree at a time. The GitHub
@@ -152,11 +155,27 @@ def commands(worktree: Path, tree: str, changed: list[str], lane: str, root: str
     lines = []
     for module, names in sorted(packages.items()):
         listed = " ".join(sorted(names))
-        lines.append(f"cd {shlex.quote(str(module))} && go build {listed} && go vet {listed}")
+        lines.append(f"cd {shlex.quote(str(module))} && go build -p {JOBS} {listed} && go vet -p {JOBS} {listed}")
     for space, names in sorted(crates.items()):
         listed = " ".join(f"-p {shlex.quote(name)}" for name in sorted(names))
-        lines.append(f"cd {shlex.quote(str(space))} && RUSTC_WRAPPER= CARGO_TARGET_DIR={shlex.quote(f'{root}/target-vet-{lane}')} cargo check --quiet --tests {listed}")
+        lines.append(f"cd {shlex.quote(str(space))} && RUSTC_WRAPPER= CARGO_TARGET_DIR={shlex.quote(f'{root}/target-vet-{lane}')} cargo check --quiet --tests -j {JOBS} {listed}")
     return lines
+
+
+MAX_LOAD = 16.0
+JOBS = 3
+
+
+def parent(worktree: Path) -> str | None:
+    branches = [entry["branch"] for entry in json.loads(run("ccx", "vcs", "stack", "list", "--json", cwd=worktree))["branches"]]
+    at = branches.index(run("git", "branch", "--show-current", cwd=worktree).strip())
+    return branches[at - 1] if at else None
+
+
+def idlest(sprites: list[str]) -> tuple[str, float]:
+    loads = {name: float(run("sprite", "exec", "-s", name, "--no-stdin", "--", "cut", "-d", " ", "-f1", "/proc/loadavg")) for name in sprites}
+    name = min(loads, key=loads.__getitem__)
+    return name, loads[name]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -170,10 +189,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     config = json.loads(args.config.read_text())
     clone = config["landing"]["checkout"]
-    named = [config.get(desk, {}).get("sprite", []) for desk in ("fidelity", "finder")]
-    sprite = args.sprite or next(name for names in named for name in ([names] if isinstance(names, str) else names))
     worktree = Path(run("git", "rev-parse", "--show-toplevel", cwd=args.worktree).strip())
-    target = args.base or run("git", "rev-parse", "--abbrev-ref", "origin/HEAD", cwd=worktree).strip()
+    sprite, load = (args.sprite, 0.0) if args.sprite else idlest(config["vet"]["sprite"])
+    if load > MAX_LOAD:
+        print(f"remote-vet: every vet Sprite is over load {MAX_LOAD:g} ({sprite} at {load:g}); push and let CI grade {args.lane}")
+        return 3
+    target = args.base or parent(worktree) or run("git", "rev-parse", "--abbrev-ref", "origin/HEAD", cwd=worktree).strip()
     base = run("git", "merge-base", "HEAD", target, cwd=worktree).strip()
     tree = snapshot(worktree)
     changed = run("git", "diff", "--name-only", "--no-renames", base, tree, cwd=worktree).splitlines()
