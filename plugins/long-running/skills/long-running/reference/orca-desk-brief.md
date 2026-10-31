@@ -434,7 +434,7 @@ or `[vcs] queue` in `.claude/ccx.toml`, is `trunk`,
 when the checkout carries that script on a legacy Graphite queue only (the runner refuses it on a
 Trunk repository), and `{"kind": "label"}` otherwise,
 for a queue that takes the `merge` label through `ledger.py label`. The runner never picks one itself. `landing.checks`, optional, lists the
-check registry in order, from `hold`, `precondition`, `rules-review`, `rulings`, `fidelity`, `finder`,
+check registry in order, from `hold`, `precondition`, `rulings`, `fidelity`, `finder`,
 `merge-mode`, `approvals`, and `required-ci`; without it every check runs. On an adapter, a check,
 or a high-risk setting it cannot run, the landing runner exits and posts `MQ-CONFIG-INVALID`,
 ending with the exact `landing` members that fix every fault at once.
@@ -794,9 +794,9 @@ GitHub's compare, is equal. The carried grade reads `fidelity: ok at <head>,
 patch-identical to <graded head>` under the graded record's seq. A compare GitHub
 refuses for the PR's own head logs `PATCH-READ-FAILED` once and carries nothing.
 
-The runner posts no `fidelity` status. Its check registry alone enforces holds,
-rules-review, and fidelity, so a hand `gt merge`, a web-UI enqueue, or a hand adapter
-call bypasses all three. `mq.py --config <runner config> why <n>` prints each check's
+The runner posts no `fidelity` status. Its check registry alone enforces holds
+and fidelity, so a hand `gt merge`, a web-UI enqueue, or a hand adapter
+call bypasses both. `mq.py --config <runner config> why <n>` prints each check's
 state at the PR's head. The fidelity lane keeps naming the head in each `review` record.
 
 `landing.merge_mode` decides which ready prefixes wait for the owner. Under `auto`

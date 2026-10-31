@@ -354,8 +354,8 @@ def reviewed(shell: Shell, job: dict) -> str:
     return next((full for name in earlier_heads(job) if (full := fetched(shell, job, name))), "")
 
 
-def slice_rows(shell: Shell, job: dict, pr: str, head: str, branch: str) -> str:
-    return shell.run(rulings(job, "slice", "--required", "--pr", pr, "--head", head, "--base", branch), timeout=SLICE_SECONDS)
+def slice_rows(shell: Shell, job: dict, pr: str, head: str, branch: str, *flags: str) -> str:
+    return shell.run(rulings(job, "slice", "--required", "--pr", pr, "--head", head, "--base", branch, *flags), timeout=SLICE_SECONDS)
 
 
 def previous(record: dict | None, repo: str, pr: str) -> str:

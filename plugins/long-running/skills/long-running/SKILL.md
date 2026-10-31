@@ -1458,9 +1458,7 @@ which polls each repository at most once every 30 seconds. Its PR store is a cc-
 ledger with a row per PR our lanes shipped. The holds, the routing, the label history,
 and the landing are fields on that row. Lane messages are cci records keyed `#<seq>` on the program's cci drive,
 the same drive named by desk-runner's config `drive`; owner asks are `ask/<seq>`
-rows beside the PR rows. Rules reviews are `review/<pr>@<head>`
-rows that hold landing while the PR's current head has a pending review or an
-unwaived finding. cc-notes
+rows beside the PR rows. cc-notes
 finds the ledger through the working directory's repository, so a lane outside that
 checkout passes `ledger.py -C <checkout> <verb>`.
 
@@ -1532,7 +1530,6 @@ checks in order, and every built-in runs when it lists none:
 
 - `hold`: the `hold` label, the PR's cci `hold` and `ready` records, and any open cci `incident` record whose refs or text name the PR, read fresh just before the enqueue call. An incident's fix never enters the queue: its lane squash-merges it directly, and the refusal names the incident's seq. It runs first on every enqueue path, the runner's and `mq.py gate` and `enqueue`, whether `landing.checks` lists it or not; `mq.py enqueue` refuses a held PR with a `HELD` line after the hold's own line, and an open `hold` record of any age holds until the root's `--resolves` closes it.
 - `precondition`: a sentence in the PR body or the PR's cci records that holds its landing on something outside the PR in so many words (`lands only after`, `merge only after`, `before it lands`, `do not land until`, `not for landing`), outside quotes, code and block quotes, so a body that cites the phrases holds nothing. It never refuses a head: the root gets one `note` warning per head quoting the sentence, on the incident squash too, and posts a `hold` record when the sentence is a real dependency.
-- `rules-review`: the ledger's `review/<pr>@<head>` row, which `ledger.py list` reports as `rules_blocked`.
 - `rulings`: `rulings.py check-pr` at the head, below.
 - `fidelity`: the fidelity lane's cci `review` grade at the head, below.
 - `finder`: the sol finder's cci `review` record at the head, below.
@@ -1671,8 +1668,9 @@ grade on the PR; else from the carried grade. A `missing` grade a root `decide` 
 `--re` or `--resolves` or by saying settled about the PR, counts as ok for a carry, which cites that
 decide. A new head's codex read lists the settled points, a `missing` entry that repeats one word
 for word is dropped, and a reply left with none posts ok citing the decide. Any other head gets one codex read from `reference/fidelity-job-brief.md`
-over its own diff, its required register rows, the plan, the lane's newest contract and the
-PR body, graded by `reference/fidelity-desk-brief.md`, and posts its fidelity line, one
+over its own diff, its required register rows as the owner's words with the board card each
+tap answered and none of the register's implications, the repository's AGENTS.md rules, the
+plan, the lane's newest contract and the PR body, graded by `reference/fidelity-desk-brief.md`, and posts its fidelity line, one
 `touches <key>` per reserved row and its `old-app:` line. A head codex cannot settle goes to
 the other fidelity lanes as `fidelity: reader <head> <why>`; those desks keep read-backs,
 text grades and the sweep. A failed pass is one `FIDELITY-FAILED` to them, and the next
@@ -2034,7 +2032,7 @@ logs `UNGRADED-30` once (d968e1d).
 that each per-PR ask is a card with buttons, never a blocking `AskUserQuestion`.*
 
 The runner posts no commit status and adds or removes no label. Its check registry
-alone enforces holds, rules-review, the rulings, fidelity, and the finder: no required
+alone enforces holds, the rulings, fidelity, and the finder: no required
 check carries them, so a hand `gt merge`, a web-UI enqueue, or a hand adapter call
 bypasses all of them. The pack's `rulings_at_merge` hook runs `check-pr` on a
 `gh pr merge` in a drive session and advises with each cause (0afd2f6). An incident
@@ -2071,7 +2069,8 @@ again unchanged, and a green priority PR waiting for the owner to queue it by ha
 On 2026-10-21 the owner moved drive machinery out of the monorepo: #41528 removed
 stack-enqueue's rules-review gate, its drive-scoped dequeue, and `--flake`, and the
 owner ruled that the long-running merge queue carries all three, behind a repository
-adapter, with no monorepo wrapper skill.*
+adapter, with no monorepo wrapper skill. The rules review now runs inside the
+fidelity grade, one codex read per head.*
 
 **D4. Landed means the squash is on the base branch.** `ledger.py reconcile` fetches the
 trunk (the repo's default branch) once, lands every row a squash subject ending `(#n)`
