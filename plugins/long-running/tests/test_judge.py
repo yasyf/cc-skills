@@ -196,6 +196,26 @@ def test_a_tap_carries_the_card_it_answered_and_a_typed_prompt_carries_none(tmp_
     assert "One upload process per Mac: where does the fix go?" in judge.owner_words("rule/x", said)
 
 
+def test_each_taps_card_is_read_from_the_board_once_and_bounded(tmp_path, monkeypatch):
+    (tmp_path / "owner-prompts.jsonl").write_text(json.dumps({"digest": "a" * 16, "at": "x", "session": "s", "source": "board", "block": "merge-triage"}) + "\n")
+    shown = []
+
+    def present(args, **kwargs):
+        shown.append(args)
+        return subprocess.CompletedProcess(args, 0, stdout="card-merge-triage: Which pull requests may merge?\n" + "  Oct 26 picked approve\n" * 1000, stderr="")
+
+    monkeypatch.setattr(judge.subprocess, "run", present)
+    row = {"at": "Oct 26", "words": "Approve", "proof": f"proof:board:{'a' * 16}"}
+
+    [first] = judge.said(row, tmp_path)
+    [again] = judge.said(row, tmp_path)
+
+    assert len(shown) == 1
+    assert first["answered"] == again["answered"]
+    assert first["answered"].startswith("card-merge-triage: Which pull requests may merge?")
+    assert len(first["answered"]) < judge.CARD_CHARS + 100
+
+
 def test_a_card_the_board_cannot_show_leaves_the_tap_without_one(tmp_path, monkeypatch):
     (tmp_path / "owner-prompts.jsonl").write_text(json.dumps({"digest": "a" * 16, "at": "x", "session": "s", "source": "board", "block": "gone"}) + "\n")
 

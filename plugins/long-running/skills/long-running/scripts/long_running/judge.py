@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
@@ -33,6 +34,7 @@ JEV_SECONDS = 20
 JEV_YES = 0.5
 ARTIFACT_CHARS = 12000
 CALLS = Path("judge") / "calls.jsonl"
+CARDS = Path("judge") / "cards"
 CARD_SECONDS = 10
 CARD_CHARS = 4000
 BOARD_PROOF = re.compile(r"proof:board:([0-9a-f]{16})\b")
@@ -247,16 +249,22 @@ def captures(state: Path) -> dict[str, dict]:
 
 
 def said(row: dict, state: Path, env: Mapping[str, str] | None = None) -> list[dict]:
-    """Every time the owner said a register row, oldest first, as `{at, words, answered}`: `answered` is the board card a tap answered, as the board shows it, else None."""
+    """Every time the owner said a register row, oldest first, as `{at, words, answered}`: `answered` is the board card a tap answered, as the board first showed it after the tap, up to `CARD_CHARS` characters, else None.
+
+    Each tap's card is read from the board once and kept under the state folder's `judge/cards/`, so a grade over hundreds of rows reads only the taps no judge has read before.
+    """
     owner = captures(state)
     items = [{"at": row.get("at", ""), "words": row["words"], "proof": row.get("proof", "")}, *json.loads(row.get("repeats") or "[]")]
-    return [{"at": item.get("at", ""), "words": item["words"], "answered": answered_card(owner, item.get("proof", ""), env)} for item in items if item["words"]]
+    return [{"at": item.get("at", ""), "words": item["words"], "answered": answered_card(state, owner, item.get("proof", ""), env)} for item in items if item["words"]]
 
 
-def answered_card(owner: dict[str, dict], proof: str, env: Mapping[str, str] | None) -> str | None:
+def answered_card(state: Path, owner: dict[str, dict], proof: str, env: Mapping[str, str] | None) -> str | None:
     capture = next((owner[digest] for digest in BOARD_PROOF.findall(proof) if digest in owner), None)
     if capture is None or capture.get("source") != "board" or not capture.get("block"):
         return None
+    kept = state / CARDS / f"{capture['digest']}.txt"
+    if kept.is_file():
+        return kept.read_text()
     try:
         shown = subprocess.run(
             ["cc-present", "block", "show", capture["block"], "--session", capture["session"]],
@@ -268,7 +276,13 @@ def answered_card(owner: dict[str, dict], proof: str, env: Mapping[str, str] | N
         )
     except (subprocess.SubprocessError, OSError):
         return None
-    return shown.stdout.strip()[:CARD_CHARS]
+    card = shown.stdout.strip()
+    card = card if len(card) <= CARD_CHARS else f"{card[:CARD_CHARS]}\n… the rest of the card left out"
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    staged = kept.with_name(f"{kept.name}.{os.getpid()}.{threading.get_ident()}")
+    staged.write_text(card)
+    staged.replace(kept)
+    return card
 
 
 def owner_words(key: str, said: list[dict]) -> str:

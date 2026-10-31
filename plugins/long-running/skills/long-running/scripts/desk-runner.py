@@ -265,7 +265,7 @@ A check the script refuses because a stack is no native GitHub stack runs `gh st
 one `STACK-LINK` note to the lanes, and checks again in the same pass; a check that prints a `would enqueue` line the adapter cannot
 read escalates `GATE-FAILED` with that line.
 Each prefix passes the check registry, `landing.checks` in order, every built-in when it names none, and `hold` first whether it names it or not: `hold`, `precondition`,
-`rules-review`, `rulings`, `fidelity`, `finder`, and `merge-mode` are the desk's own, and `approvals` and `required-ci` are the adapter's verdict;
+`rulings`, `fidelity`, `finder`, and `merge-mode` are the desk's own, and `approvals` and `required-ci` are the adapter's verdict;
 `old-app` and `build-failed` run only when `landing.checks` names them. Trees gate in
 `(priority, root PR)` order, a tree's priority the lowest ledger `priority` among its PRs, and accepted enqueues run one parallel
 wave per priority, lower first. A check that reads no verdict first settles its tips through `ledger.py landed`, which
@@ -799,10 +799,10 @@ DIFF_MEDIA = "Accept: application/vnd.github.diff"
 ALLOW_ESCAPES = "--allow-escape-sequences"
 HOLD_LABEL = "hold"
 MERGE_MODES = ("every", "high-risk", "auto")
-ACCEPT_CHECKS = ("precondition", "rules-review", "rulings", "fidelity", "finder", "old-app", "build-failed", "merge-mode")
+ACCEPT_CHECKS = ("precondition", "rulings", "fidelity", "finder", "old-app", "build-failed", "merge-mode")
 HOLD_CHECKS = ("hold",)
-ENQUEUE_CHECKS = ("precondition", "rules-review", "rulings", "fidelity", "finder", "old-app", "build-failed", "merge-mode")
-CHECK_STAGES = {"hold": "enqueue", "precondition": "accept, enqueue", "rules-review": "accept, enqueue", "rulings": "accept, enqueue", "fidelity": "accept, enqueue", "finder": "accept, enqueue", "old-app": "accept, enqueue", "build-failed": "accept, enqueue", "merge-mode": "accept, enqueue", "approvals": "adapter check", "required-ci": "adapter check"}
+ENQUEUE_CHECKS = ("precondition", "rulings", "fidelity", "finder", "old-app", "build-failed", "merge-mode")
+CHECK_STAGES = {"hold": "enqueue", "precondition": "accept, enqueue", "rulings": "accept, enqueue", "fidelity": "accept, enqueue", "finder": "accept, enqueue", "old-app": "accept, enqueue", "build-failed": "accept, enqueue", "merge-mode": "accept, enqueue", "approvals": "adapter check", "required-ci": "adapter check"}
 DEFAULT_PRIORITY = 100
 HIGH_RISK_STARTER = ("*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "*creds*")
 PULLED = "pulled"
@@ -5620,18 +5620,18 @@ class Landing:
         return rows
 
     def held(self, rows: dict[str, dict]) -> list[str]:
-        """Every PR an open cci `hold` record, a rules-review block, or GitHub's `hold` label holds, so the gate routes no blocker for it or for the PRs stacked above it."""
-        numbers = {pr for pr, row in rows.items() if row.get("rules_blocked") or HOLD_LABEL in row.get("labels", "").split(",")}
+        """Every PR an open cci `hold` record or GitHub's `hold` label holds, so the gate routes no blocker for it or for the PRs stacked above it."""
+        numbers = {pr for pr, row in rows.items() if HOLD_LABEL in row.get("labels", "").split(",")}
         numbers |= cci.held_prs(self.cci_tail, self.runner.config.drive).keys()
         return sorted(numbers, key=int)
 
     def hold_sources(self, prs: list[str], rows: dict[str, dict]) -> str:
-        """Each of `prs` with where its hold stands: an open cci `hold` record by seq, a rules-review block, or GitHub's `hold` label, so a reader finds the hold the runner obeys."""
+        """Each of `prs` with where its hold stands: an open cci `hold` record by seq or GitHub's `hold` label, so a reader finds the hold the runner obeys."""
         posted = cci.held_prs(self.cci_tail, self.runner.config.drive)
 
         def where(pr: str) -> str:
             row = rows.get(pr, {})
-            found = [f"cci hold #{posted[pr]}" if pr in posted else "", "rules-review" if row.get("rules_blocked") else "", "the hold label" if HOLD_LABEL in row.get("labels", "").split(",") else ""]
+            found = [f"cci hold #{posted[pr]}" if pr in posted else "", "the hold label" if HOLD_LABEL in row.get("labels", "").split(",") else ""]
             return "; ".join(filter(None, found))
 
         return " ".join(f"#{pr} ({where(pr)})" for pr in prs)
@@ -5649,8 +5649,6 @@ class Landing:
         def status(pr: str, row: dict) -> str:
             if pr in held:
                 return "held"
-            if row.get("rules_blocked"):
-                return "rules-blocked"
             if pr in queued:
                 return "queued"
             return row.get("mergeable_state") or "open"
@@ -6822,17 +6820,10 @@ class Landing:
         return None
 
     def check(self, name: str, graded: Graded) -> dict[str, merge_queue.State]:
-        return {"hold": self.check_hold, "precondition": self.check_precondition, "rules-review": self.check_rules_review, "rulings": self.check_rulings, "fidelity": self.check_fidelity, "finder": self.check_finder, "old-app": self.check_old_app, "build-failed": self.check_build_failed, "merge-mode": self.check_merge_mode}[name](graded)
+        return {"hold": self.check_hold, "precondition": self.check_precondition, "rulings": self.check_rulings, "fidelity": self.check_fidelity, "finder": self.check_finder, "old-app": self.check_old_app, "build-failed": self.check_build_failed, "merge-mode": self.check_merge_mode}[name](graded)
 
     def check_hold(self, graded: Graded) -> dict[str, merge_queue.State]:
         return {pr: merge_queue.State(merge_queue.FAIL, reason) for pr, reason in self.holding(list(graded.heads), graded.rows, graded.accepted_at).items()}
-
-    def check_rules_review(self, graded: Graded) -> dict[str, merge_queue.State]:
-        return {
-            pr: merge_queue.State(merge_queue.FAIL, f"rules-review holds {sha[:10]}: its review is pending or carries a finding no `rules-override` waived")
-            for pr, sha in graded.heads.items()
-            if graded.rows.get(pr, {}).get("rules_blocked")
-        }
 
     def read_reports(self, heads: dict[str, str]) -> None:
         """Run `check-pr` for every head of `heads` this pass has not read yet, `CHECK_PR_WORKERS` at a time: each one diffs on this machine."""

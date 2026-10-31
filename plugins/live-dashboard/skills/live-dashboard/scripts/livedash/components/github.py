@@ -23,7 +23,6 @@ REVIEW_COLUMNS = [
     Col("size", "Size", "num", phone=False),
     Col("ci", "CI", "badge"),
     Col("bot", "Bot", "badge"),
-    Col("rules", "Rules review", "badge", phone=False),
     Col("threads", "Open threads", "num", phone=False),
     Col("verdict", "Queue", "badge"),
     Col("held", "Held since", "age", phone=False),
@@ -114,8 +113,8 @@ def review_queue(
     owner_login: str = "",
     parents: dict[str, str] | None = None,
 ) -> Table:
-    """Open PRs from `prs`, else the ledger's open rows, kept to those GitHub still lists as open: size, CI without the ignored checks, the review bot's check, the
-    ledger's rules-review verdict at the current head, unresolved threads, the queue verdict from `ccx vcs pr status`, hold
+    """Open PRs from `prs`, else the ledger's open rows, kept to those GitHub still lists as open: size, CI without the ignored checks, the review bot's check,
+    unresolved threads, the queue verdict from `ccx vcs pr status`, hold
     age, and, when `owner_login` is set, whether the owner reviewed (`owner_reviewed_at`, or an approval or change request
     by that login). Comments never count, since agents comment under the owner's login.
     `order: stack` walks each stack from its trunk; `age` puts the oldest first. Action `reviewed` posts an owner record to main.
@@ -151,7 +150,6 @@ def review_queue(
                 "deletions": pr["deletions"],
                 "ci": ci,
                 "bot": bot_state(contexts, bot_checks),
-                "rules": ledgers.rules_verdict(rows, str(number), pr["headRefOid"]) if fields else "",
                 "threads": sum(not thread["isResolved"] for thread in pr["reviewThreads"]["nodes"]),
                 "verdict": verdict,
                 "held": fields.get("hold_since") if held else None,

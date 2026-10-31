@@ -2205,7 +2205,6 @@ def test_a_landed_pr_with_an_unpruned_branch_gets_no_blocker(shell, config, tmp_
         "graphite WAITING_ON_DOWNSTACK",
         "graphite NEEDS_CODEOWNER_APPROVALS; ai-review in progress",
         "graphite REBASING; retry when restacked",
-        "rules-review in progress on head",
         "not approved by poetic-svc",
     ],
 )
@@ -6729,7 +6728,7 @@ def mq(shell: FakeShell, config: Path, *argv: str) -> int:
     return mq_module.main(["--config", str(config), *argv], shell)
 
 
-QUIET_WHY = ["hold pass", "precondition pass", "rules-review pass", "rulings pass", "fidelity pass", "finder pass", "merge-mode pass", "approvals pass", "required-ci pass"]
+QUIET_WHY = ["hold pass", "precondition pass", "rulings pass", "fidelity pass", "finder pass", "merge-mode pass", "approvals pass", "required-ci pass"]
 
 
 @pytest.mark.parametrize(
@@ -6738,10 +6737,9 @@ QUIET_WHY = ["hold pass", "precondition pass", "rules-review pass", "rulings pas
         ("hold", "hold fail open cci hold #{seq}"),
         ("fidelity", "fidelity fail no review from fidelity-desk starting `fidelity: ok` names this head"),
         ("finder", "finder fail FINDER-PENDING #29020: no `finder:` record from finder-desk names this head, and a lane's own finder record never grades it"),
-        ("rules-review", "rules-review fail rules-review holds cccc333333: its review is pending or carries a finding no `rules-override` waived"),
     ],
 )
-def test_a_held_an_ungraded_or_a_rules_blocked_head_is_refused_and_mq_why_names_the_check(shell, config, tmp_path, capsys, blocked, line):
+def test_a_held_or_an_ungraded_head_is_refused_and_mq_why_names_the_check(shell, config, tmp_path, capsys, blocked, line):
     lone_green_pr(shell)
     if blocked == "fidelity":
         finder_verdict(shell, "29020", "ok cccc333 no findings")
@@ -6751,8 +6749,6 @@ def test_a_held_an_ungraded_or_a_rules_blocked_head_is_refused_and_mq_why_names_
         grade_gated_heads_ok(shell)
     if blocked == "hold":
         line = line.format(seq=root_hold(shell, 29020, text="hold #29020 owner review"))
-    if blocked == "rules-review":
-        shell.rows[0]["rules_blocked"] = True
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert shell.enqueues() == []
@@ -7340,13 +7336,13 @@ def test_a_config_with_no_adapter_on_a_checkout_carrying_stack_enqueue_is_told_t
 
 def test_a_checks_list_without_fidelity_enqueues_an_ungraded_head(shell, config, tmp_path, capsys):
     raw = json.loads(config.read_text())
-    raw["landing"]["checks"] = ["hold", "rules-review", "merge-mode", "approvals", "required-ci"]
+    raw["landing"]["checks"] = ["hold", "merge-mode", "approvals", "required-ci"]
     config.write_text(json.dumps(raw))
     lone_green_pr(shell)
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1 and blockers(shell) == []
     assert mq(shell, config, "checks") == 0
-    assert capsys.readouterr().out.splitlines() == ["hold enqueue", "rules-review accept, enqueue", "merge-mode accept, enqueue", "approvals adapter check", "required-ci adapter check"]
+    assert capsys.readouterr().out.splitlines() == ["hold enqueue", "merge-mode accept, enqueue", "approvals adapter check", "required-ci adapter check"]
 
 
 def old_app_checked(config: Path) -> None:

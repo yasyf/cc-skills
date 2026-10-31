@@ -237,8 +237,8 @@ Reads: `orca orchestration task-list`, `orca orchestration worker-list`.
 
 _Which PRs wait on review, and what exactly gates each one?_
 
-**PRs waiting for review.** Open PRs from `prs`, else the ledger's open rows, kept to those GitHub still lists as open: size, CI without the ignored checks, the review bot's check, the
-ledger's rules-review verdict at the current head, unresolved threads, the queue verdict from `ccx vcs pr status`, hold
+**PRs waiting for review.** Open PRs from `prs`, else the ledger's open rows, kept to those GitHub still lists as open: size, CI without the ignored checks, the review bot's check,
+unresolved threads, the queue verdict from `ccx vcs pr status`, hold
 age, and, when `owner_login` is set, whether the owner reviewed (`owner_reviewed_at`, or an approval or change request
 by that login). Comments never count, since agents comment under the owner's login.
 `order: stack` walks each stack from its trunk; `age` puts the oldest first. Action `reviewed` posts an owner record to main.

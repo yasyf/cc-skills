@@ -29,7 +29,7 @@ from long_running import ghread
 PASS = "pass"
 PENDING = "pending"
 FAIL = "fail"
-CHECKS = ("hold", "precondition", "rules-review", "rulings", "fidelity", "finder", "merge-mode", "approvals", "required-ci")
+CHECKS = ("hold", "precondition", "rulings", "fidelity", "finder", "merge-mode", "approvals", "required-ci")
 OPT_IN_CHECKS = ("old-app", "build-failed")
 CONFLICT = "conflict"
 OWN_RED = "own-red"
