@@ -89,6 +89,8 @@ jobs:
             grep -F 'stale blocker used human reference for internal sequence' "$negative"
             grep -F '1 failed' "$negative"
           done
+      - name: Actual completed-bus cleanup history costs
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py::test_stale_blocker_cleanup_completed_history_cost_baseline -q -s
       - name: Stale-blocker internal references
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py::test_stale_blocker_uses_internal_reference_for_mixed_origin_receipt -q
       - name: Immutable inherited-child termination negative controls
