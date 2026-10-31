@@ -34,7 +34,8 @@ def counted_open(monkeypatch):
         if path != counts["path"]:
             return original(path, mode, buffering, encoding, errors, newline)
         assert mode == "rb"
-        return io.BufferedReader(Counted(path, "r"), buffer_size=io.DEFAULT_BUFFER_SIZE if buffering == -1 else buffering)
+        raw = Counted(path, "r")
+        return raw if buffering == 0 else io.BufferedReader(raw, buffer_size=io.DEFAULT_BUFFER_SIZE if buffering == -1 else buffering)
 
     monkeypatch.setattr(Path, "open", opened)
     return counts
