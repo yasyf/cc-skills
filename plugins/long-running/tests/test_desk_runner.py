@@ -4953,6 +4953,22 @@ def test_a_head_whose_own_build_failed_is_unproven_whatever_build_covers_it(shel
     assert any("#29020 cccc333333: unproven: its own build https://buildkite.com/forge/test/builds/78299 failed at cccc333333" in body for body in bodies)
 
 
+def test_a_head_is_proven_at_the_head_its_check_read_from_github_never_at_a_ledger_head_it_superseded(shell, config, tmp_path):
+    """Root #230508: #45756's check read ddb2d0a from GitHub while the ledger row still held 0c806e9, and the runner refused it on 0c806e9's failed build."""
+    with_ci_build(config)
+    shell.launch(LANE, "ctx_a")
+    lone_green_pr(shell)
+    shell.rows[0] |= {"head": "bbbb222222", "reported_head": "bbbb222222"}
+    grade_gated_heads_ok(shell)
+    shell.commit_statuses["bbbb222222"] = [status("test", "78299", "failure")]
+    shell.builds["78299"] = finished(FULL_BUILD, "bbbb222222", "failed")
+    shell.commit_statuses["cccc333333"] = [status("test", "78301")]
+    shell.builds["78301"] = finished(FULL_BUILD, "cccc333333")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    assert not [call for call in shell.calls if "repos/Forge-AI/monorepo/commits/bbbb222222/status" in call]
+
+
 def test_only_a_full_build_of_the_skipped_pipeline_on_the_stacks_tip_covers_the_heads_below_it(shell, config, tmp_path):
     with_ci_build(config)
     shell.launch(LANE, "ctx_a")
@@ -5766,6 +5782,33 @@ def test_a_root_decide_on_the_rebuttal_chain_that_keeps_the_finding_holds_the_he
     seq = finder_verdict(shell, "29020", "major cccc333 1 open: go/a.go:12 the migration test seeds write version 1")
     shell.records.append({"seq": seq + 1, "drive": "d1", "lane": LANE, "kind": "note", "to": ["root"], "re": seq, "refs": {"prs": [29020]}, "text": "the seed is a test gap, not a defect"})
     shell.records.append({"seq": seq + 2, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "re": seq + 1, "refs": {}, "text": "Finding not cleared: seed version 2 before it lands."})
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+
+
+@pytest.mark.parametrize("cleared", ["names-head", "source-settled"])
+def test_a_root_clear_of_a_carried_finder_major_lets_the_head_enqueue(shell, config, tmp_path, cleared):
+    """Root #231127: root cleared carried majors on #45199, #46081 and #45821 in a DECIDE answering the lane's ask, and the runner kept each FINDER-PENDING."""
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333", finder=False)
+    source = finder_verdict(shell, "29020", "major bbbb222 1 open over whole bbbb222^..bbbb222: go/a.go:12 the unused import breaks the build")
+    if cleared == "source-settled":
+        shell.records.append({"seq": source + 1, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {}, "resolves": [source], "text": "refuted: the import is still used"})
+    carried = finder_verdict(shell, "29020", f"major cccc333 carried from #{source}")
+    landing_pass(shell, config)
+    if cleared == "names-head":
+        assert shell.enqueues() == []
+        shell.records.append({"seq": carried + 1, "drive": "d1", "lane": LANE, "kind": "ask", "to": ["root"], "refs": {"prs": [29020]}, "text": "the carried major is refuted; clear it"})
+        shell.records.append({"seq": carried + 2, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "resolves": [carried + 1], "text": "6:49 PM Clear finder on #29020 cccc333: the carried major (unused import) is refuted."})
+        landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
+def test_a_root_clear_naming_another_head_or_a_negated_clear_settles_nothing(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333", finder=False)
+    seq = finder_verdict(shell, "29020", "major cccc333 1 open: go/a.go:12 the retry drops the sealed read")
+    shell.records.append({"seq": seq + 1, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {}, "text": "Clear finder on #29020 bbbb222. Do not clear the finder on #29020 cccc333 yet."})
     landing_pass(shell, config)
     assert shell.enqueues() == []
 
