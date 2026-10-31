@@ -5531,6 +5531,7 @@ def test_stale_blocker_uses_internal_reference_for_mixed_origin_receipt(shell, c
     landing = landing_of(shell, config, tmp_path)
     shell.post_out = json.dumps({"seq": 41, "num": display_number}) + "\n"
     assert landing.post_record("blocker", "stale-origin", LANE, "#29020 cccc333333: pending", "29020")
+    shell.records.append({"seq": 41, "drive": "d1", "lane": runner_module.RUNNER, "kind": "blocker", "status": "open"})
     assert landing.book.action(runner_module.LANDING, "stale-origin").response["posted"] == "#41"
     landing.resolve_stale_blockers({"29020": {"state": "open", "head": "eeee555555"}})
     [resolution] = [call for call in shell.raw if call[:2] == ["cci", "post"] and "landing-hygiene" in call]
