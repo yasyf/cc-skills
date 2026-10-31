@@ -74,7 +74,6 @@ import os
 import hashlib
 import json
 import re
-import signal
 import subprocess
 import sys
 import threading
@@ -126,20 +125,45 @@ class Bus:
 class Shell:
     """The single side-effect boundary: the board's event stream, its document and outcomes, cc-present writes, cci, the drive registry, threads, and the clock."""
 
+    def __init__(self) -> None:
+        self._watch_lock = threading.Lock()
+        self._watches: list[subprocess.Popen] = []
+        self._closing = False
+
     def stale(self) -> bool:
         return drive.behind(drive.plugin_manifest()["version"], drive.installed_version())
 
     def reexec(self) -> None:
         os.environ.pop(drive.CALLER_VERSION_ENV, None)
-        drive.run_installed(__file__)
+        with self._watch_lock:
+            drive.run_installed(__file__, before_exec=self._end_watches_locked)
 
-    def end_inherited_children(self) -> None:
-        for pid in subprocess.run(["pgrep", "-P", str(os.getpid())], capture_output=True, text=True).stdout.split():
-            os.kill(int(pid), signal.SIGTERM)
+    def _end_watch_locked(self, child: subprocess.Popen) -> None:
+        child.kill()
+        child.wait(timeout=drive.REAP_SECONDS)
+        self._watches.remove(child)
+
+    def _end_watches_locked(self) -> None:
+        self._closing = True
+        for child in list(self._watches):
+            self._end_watch_locked(child)
+
+    def _watch(self, argv: list[str]) -> Iterator[str]:
+        with self._watch_lock:
+            if self._closing:
+                return
+            child = subprocess.Popen(argv, stdout=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True)
+            self._watches.append(child)
+        try:
+            yield from child.stdout
+        finally:
+            with self._watch_lock:
+                if child in self._watches:
+                    self._end_watch_locked(child)
+            child.stdout.close()
 
     def watch(self, session: str) -> Iterator[str]:
-        with subprocess.Popen(["cc-present", "watch", "--session", session], stdout=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True) as child:
-            yield from child.stdout
+        yield from self._watch(["cc-present", "watch", "--session", session])
 
     def document(self, session: str, block: str) -> dict | None:
         argv = ["cc-present", "outcomes", "--session", session, "--block", block]
@@ -156,8 +180,7 @@ class Shell:
 
     def writes(self, drive_name: str, cursor: str) -> Iterator[str]:
         argv = ["cci", "watch", "--drive", drive_name, "--cursor", cursor, "--lane", RUNNER, "--topic", board_rows.WRITE_TOPIC, "--json", "--budget", str(WATCH_BYTES)]
-        with subprocess.Popen(argv, stdout=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True) as child:
-            yield from child.stdout
+        yield from self._watch(argv)
 
     def spawn(self, target, *args) -> None:
         threading.Thread(target=target, args=args, name=target.__name__, daemon=True).start()
@@ -503,7 +526,6 @@ def cmd_start(args: argparse.Namespace, shell: Shell) -> int:
         if not free(lock):
             print(f"board-watch {args.session}: another watch holds {lock.name}")
             return 0
-        shell.end_inherited_children()
         seen = recorded(state / CAPTURES)
         events = state / BOARDS / f"{args.session}-events.jsonl"
         bus = Bus(bus_drive(args), events.read_text().count("\n") if events.exists() else 0)
