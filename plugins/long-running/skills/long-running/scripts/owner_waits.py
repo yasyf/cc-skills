@@ -265,7 +265,7 @@ class ReadFailed(RuntimeError):
 
 
 def run(argv: list[str], env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run(argv, capture_output=True, text=True, env=env)
+    return cci.installed(argv, lambda: subprocess.run(argv, capture_output=True, text=True, env=env))
 
 
 def read_board(drive_name: str, session: str, runner: Callable[..., subprocess.CompletedProcess] = run) -> Board:

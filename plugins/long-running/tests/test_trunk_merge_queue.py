@@ -83,6 +83,21 @@ def test_failed_verification_is_not_guessed_to_be_a_flake_or_an_own_red():
     assert queue.recover(["20"])[0] != 0
 
 
+def test_a_failed_trunk_attempt_is_a_blocker_but_never_a_bare_eviction_a_down_queue_lands_directly():
+    """Root #228786: stack-enqueue prints `Trunk attempt <time> failed: <reason>` for a failed head, and the adapter routed none of it."""
+    queue = adapter(Shell())
+    failed = verdict("Trunk attempt 2026-10-30T23:10:00Z failed: TEST_RUN_REQUIRED_STATUS_FAILED (verification v1); inspect its verification and push a fix or explicitly name this PR with --flake")
+    assert queue.blocker(failed, {"20"}, False) == merge_queue.Blocker(failed["detail"], False)
+    assert not queue.evicted_only(failed)
+    assert queue.ejection(failed, {"20"}) is None
+
+
+def test_an_enqueue_trunk_answers_http_429_ends_rate_limited_and_is_never_retried_in_the_pass():
+    shell = Shell(done("submission not confirmed: ci trunk: Trunk GET /v2/pull-requests?limit=100&number=20 answered HTTP 429 (): ; request; inspect Trunk before retrying\n", code=5))
+    assert adapter(shell).enqueue(["20"], False, {})[0] == merge_queue.RATE_LIMITED
+    assert shell.calls == [["/repo/stack-enqueue", "20"]] and shell.slept == []
+
+
 def test_known_native_conflict_routes_as_conflict():
     queue = adapter(Shell())
     failed = verdict("GitHub mergeability CONFLICTING; run ccx vcs stack submit for conflicts")

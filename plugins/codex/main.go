@@ -45,11 +45,11 @@ var terminal = []string{"completed", "failed", "no-run"}
 
 var runPrefixes = []string{"codex-ask.", "codex-root.", runDirPrefix}
 
-// selfPath is the resolved absolute path of this binary (Python's SELF).
-var selfPath string
-
-// Resolved Caskroom paths die on upgrade; invokePath survives atomic relinking.
-var invokePath string
+var (
+	selfPath     string
+	invokePath   string
+	resourcePath string
+)
 
 func main() {
 	// The ambient OPENAI_API_KEY is billing-capped and blocks the hosted image_gen
@@ -59,9 +59,11 @@ func main() {
 
 	args := os.Args[1:]
 	switch {
-	case len(args) == 2 && args[0] == "--worker":
+	case len(args) == 4 && args[0] == "--worker":
+		invokePath, resourcePath = args[2], args[3]
 		runWorker(args[1])
-	case len(args) == 2 && args[0] == "--detach-middle":
+	case len(args) == 4 && args[0] == "--detach-middle":
+		invokePath, resourcePath = args[2], args[3]
 		detachMiddle(args[1])
 	case len(args) >= 1 && args[0] == "--cancel":
 		cancelMode(argOrEmpty(args, 1))
@@ -107,6 +109,7 @@ func initSelf() {
 		exe = resolved
 	}
 	selfPath = exe
+	resourcePath = exe
 }
 
 func die(msg string, code int) {

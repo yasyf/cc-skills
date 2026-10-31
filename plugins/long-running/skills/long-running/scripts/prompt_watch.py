@@ -110,6 +110,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from long_running import cci
 from long_running import drive
 import prompt_screen
 
@@ -179,7 +180,7 @@ class Shell:
 
     def run(self, argv: list[str], env: dict[str, str] | None = None) -> Done:
         try:
-            proc = subprocess.run(argv, capture_output=True, text=True, timeout=ORCA_SECONDS, env={**os.environ, **env} if env else None)
+            proc = cci.installed(argv, lambda: subprocess.run(argv, capture_output=True, text=True, timeout=ORCA_SECONDS, env={**os.environ, **env} if env else None))
         except subprocess.TimeoutExpired:
             return Done(TIMED_OUT, "", f"no answer in {ORCA_SECONDS}s")
         return Done(proc.returncode, proc.stdout, proc.stderr)

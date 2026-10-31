@@ -45,6 +45,7 @@ STATUS_LINE = re.compile(r"^#(?P<pr>\d+) (?P<status>[A-Z_]+) ", re.MULTILINE)
 GRAPHITE_QUEUED = frozenset({"QUEUED_TO_MERGE", "WAITING_TO_MERGE", "FAILURE_HANDLING", "REBASING", "MERGED"})
 ENQUEUE_OUTCOMES = {0: "enqueued", 1: "blocked", 2: "unsettled", 3: "stranded"}
 ENQUEUE_FAILED = 5
+RATE_LIMITED = "rate-limited"
 DEQUEUE_RELEASED = (0, 1)
 TRANSIENT_FAILURE = re.compile(
     r"handshake operation timed out|TLS handshake timeout|i/o timeout|context deadline exceeded|urlopen error|Connection reset|reset by peer|Remote end closed|Temporary failure in name resolution|nodename nor servname|Name or service not known|HTTP(?: Error)? 5\d\d|Operation timed out|Failed to connect to .* port 443|Recv failure|Could not resolve host"
@@ -200,9 +201,9 @@ class GraphiteStackEnqueue:
                 break
         return done
 
-    def limited(self, argv: list[str]):
-        """Run one call that reaches Trunk with at most `TRUNK_CALLS` in flight across the pass's workers; a call Trunk answers with HTTP 429 and no verdict holds every caller for the next `TRUNK_BACKOFF_SECONDS` pause, then runs again."""
-        for pause in (*TRUNK_BACKOFF_SECONDS, None):
+    def limited(self, argv: list[str], retry: bool = True):
+        """Run one call that reaches Trunk with at most `TRUNK_CALLS` in flight across the pass's workers; a call Trunk answers with HTTP 429 and no verdict holds every caller for the next `TRUNK_BACKOFF_SECONDS` pause, then runs again, unless `retry` is off."""
+        for pause in (*TRUNK_BACKOFF_SECONDS, None) if retry else (None,):
             with self.trunk_slots:
                 if self.resume_at and (wait := (self.resume_at - self.shell.now()).total_seconds()) > 0:
                     self.shell.sleep(wait)
@@ -302,7 +303,7 @@ class TrunkStackEnqueue(GraphiteStackEnqueue):
         self.ci = str(checkout / "tools/ci")
 
     def run_settled(self, argv: list[str]):
-        return super().run_settled(argv) if "--check" in argv else self.limited(argv)
+        return super().run_settled(argv) if "--check" in argv else self.limited(argv, retry=False)
 
     def check(self, tips: list[str], whole: bool, heads: dict[str, str], partial: bool) -> Gate:
         done = self.run([self.script, *tips, "--check", *(["--whole"] if whole else [])])
@@ -313,6 +314,8 @@ class TrunkStackEnqueue(GraphiteStackEnqueue):
     def enqueue(self, tops: list[str], whole: bool, heads: dict[str, str]) -> tuple[str, str, str]:
         done = self.run([self.script, *tops, *(["--whole"] if whole else [])])
         outcome = ENQUEUE_OUTCOMES.get(done.code, "failed")
+        if outcome == "failed" and TRUNK_LIMITED.search(done.err + done.out):
+            outcome = RATE_LIMITED
         if outcome == "enqueued" and not re.search(r"^#\d+ (?:QUEUED \S+ native stack covers|MERGED \S+ Trunk reports merged)", done.out, re.MULTILINE):
             outcome = "noop"
         last = (done.out or done.err).strip().splitlines()
@@ -354,7 +357,7 @@ class TrunkStackEnqueue(GraphiteStackEnqueue):
 
     def blocker(self, verdict: dict, stack: set[str], gated_red: bool) -> Blocker | None:
         kept = [part for part in segments(verdict) if not (gated_red and (match := TRUNK_REQUIRED_CHECK.match(part)) and match[1] in TRUNK_FAILED_CHECKS)]
-        actionable = [part for part in kept if ROUTED_BLOCKER.match(part) or TRUNK_REQUIRED_CHECK.match(part) or part.startswith(("Trunk indexed ", "Trunk's last attempt failed", "GitHub mergeability ", "GitHub merge state ", "base "))]
+        actionable = [part for part in kept if ROUTED_BLOCKER.match(part) or TRUNK_REQUIRED_CHECK.match(part) or part.startswith(("Trunk indexed ", "Trunk attempt ", "inspect its verification ", "Trunk's last attempt failed", "GitHub mergeability ", "GitHub merge state ", "base "))]
         if not actionable:
             return None
         return Blocker("; ".join(actionable), bool(re.search(r"conflicts with origin/|GitHub mergeability CONFLICTING|GitHub merge state DIRTY", "; ".join(actionable))))

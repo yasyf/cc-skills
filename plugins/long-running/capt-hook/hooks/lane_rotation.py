@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import subprocess
 import time
 import uuid
 from collections import Counter
@@ -17,11 +18,11 @@ from cc_transcript.models import TranscriptEvent
 from captain_hook import (
     Allow,
     BaseHookEvent,
-    Block,
     Event,
     FromSubagent,
     HookResult,
     Input,
+    Rewrite,
     Tool,
     Warn,
     WorkflowState,
@@ -32,9 +33,10 @@ from captain_hook.util import reqenv
 from captain_hook.util.caching import StampedCache
 
 from . import session_tree
-from .compaction_handoff import TURN_WINDOW, CompactionState
+from .compaction_handoff import TURN_WINDOW, CompactionState, bus_name, drive_entry
 from .nudges import NudgeState, cancel_root_action, queue_nudge, root_action_key, stopped_lane
 from .session_tree import IDLE_NOTIFICATION, TEAMMATE_MESSAGE, Subagent, covered
+from .tests.register_fixtures import DRIVE_CONFIG
 from .tests.rotation_fixtures import POLLER, REVIEWER, ROOT, SLEEPY
 from .turns import Turn, rotation_line, turn_of
 
@@ -57,6 +59,9 @@ FLUSHED_ID = re.compile(r"[\w#/-]*\d[\w#/-]*")
 NUMBERED = re.compile(r"(.+)-(\d+)")
 HANDOFF = "-handoff"
 LIVE_LANES = "long-running.live-lanes"
+SUCCESSOR_OF = "cci who --successor-of"
+MAIN = "main"
+SUCCESSOR_TIMEOUT_SECONDS = 10
 SCAN_CACHE_SIZE = 4096
 SCANS: StampedCache[Path, tuple[int, int, int, int], Scan | None] = StampedCache(SCAN_CACHE_SIZE)
 
@@ -487,62 +492,70 @@ def record_retired_lanes(evt: BaseHookEvent) -> HookResult | None:
     return None
 
 
+def stand_down(evt: BaseHookEvent, lane: str) -> tuple[bool, str | None]:
+    """Whether cci records `lane` stood down, and the lane at the end of its successor chain, if any."""
+    if not (entry := drive_entry(evt)):
+        return False, None
+    argv = [*SUCCESSOR_OF.split(), lane, "--drive", bus_name(entry), "--json"]
+    done = subprocess.run(argv, capture_output=True, text=True, timeout=SUCCESSOR_TIMEOUT_SECONDS, env=dict(reqenv.env_map()), check=True)
+    found = json.loads(done.stdout)
+    return found["stood_down"], found["successor"] or None
+
+
+def cci_successor(to: str, chain: list[str]) -> dict:
+    return {SUCCESSOR_OF: json.dumps({"drive": "brook-drive", "lane": to, "stood_down": bool(chain), "successor": chain[-1] if chain else "", "chain": chain})}
+
+
 @on(
     Event.PreToolUse,
     only_if=[Tool("SendMessage")],
     tests={
-        Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, state=[RotationState(retired={"desk": "desk-2"})]): Block(
-            pattern=r"^`desk` rotated to `desk-2`.*`TaskStop` `desk`, and send its work to `desk-2`\.$"
-        ),
+        Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, state=[RotationState(retired={"desk": "desk-2"})]): Rewrite(None, to="desk-2"),
         Input(
             tool="SendMessage", tool_input={"to": "desk", "message": "STAND-DOWN: desk-2 owns it"}, state=[RotationState(retired={"desk": "desk-2"})]
-        ): Block(),
+        ): Warn(pattern=r"^Warning, nothing was blocked: `desk` is already stood down for `desk-2`.*`TaskStop` `desk` instead\.$"),
         Input(
-            tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, agent_id="a1b2c3", state=[RotationState(retired={"desk": "desk-2"})]
-        ): Block(pattern=r"^(?!.*TaskStop).*Send its work to `desk-2`\.$"),
+            tool="SendMessage",
+            tool_input={"to": "desk", "message": "done: #12 merged"},
+            agent_id="a1b2c3",
+            state=[RotationState(retired={"desk": "desk-2", "desk-2": "desk-3"})],
+        ): Rewrite(None, to="desk-3"),
+        Input(
+            tool="SendMessage", tool_input={"to": "desk", "message": "done: #12 merged"}, agent_id="a1b2c3", env=DRIVE_CONFIG, commands=cci_successor("desk", ["desk-2"])
+        ): Rewrite(None, to="desk-2"),
+        Input(tool="SendMessage", tool_input={"to": "desk", "message": "done: #12 merged"}, agent_id="a1b2c3", env=DRIVE_CONFIG, commands=cci_successor("desk", [])): Allow(),
+        Input(
+            tool="SendMessage",
+            tool_input={"to": "desk", "message": "done: #12 merged"},
+            agent_id="a1b2c3",
+            env=DRIVE_CONFIG,
+            commands={SUCCESSOR_OF: json.dumps({"drive": "brook-drive", "lane": "desk", "stood_down": True, "successor": "", "chain": []})},
+        ): Rewrite(None, to="main"),
         Input(
             tool="SendMessage",
             tool_input={"to": "desk", "message": "status?"},
-            agent_id="a1b2c3",
-            state=[RotationState(retired={"desk": "desk-2", "desk-2": "desk-3"})],
-        ): Block(pattern="Send its work to `desk-3`"),
-        Input(
-            tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, state=[RotationState(retired={"desk": "desk-2"}, blocked=["desk"])]
-        ): Warn(pattern=r"^Warning, nothing was blocked: `desk` rotated to `desk-2`.*`TaskStop` `desk`"),
-        Input(
-            tool="SendMessage",
-            tool_input={"to": "desk", "message": "Lane desk: stand down now, desk-2 took over at 11:09 AM; send nothing further."},
-            state=[RotationState(retired={"desk": "desk-2"}, blocked=["desk"])],
-        ): Warn(),
-        Input(
-            tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, agent_id="a1b2c3", state=[RotationState(retired={"desk": None})]
-        ): Warn(pattern="Send the next one to `main`"),
+            env=DRIVE_CONFIG,
+            commands={SUCCESSOR_OF: json.dumps({"drive": "brook-drive", "lane": "desk", "stood_down": True, "successor": "", "chain": []})},
+        ): Warn(pattern=r"^Warning, nothing was blocked: `desk` is stood down with no successor"),
+        Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, agent_id="a1b2c3", state=[RotationState(retired={"desk": None})]): Rewrite(None, to="main"),
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, state=[RotationState(retired={"desk": None})]): Allow(),
         Input(tool="SendMessage", tool_input={"to": "desk-2", "message": "status?"}, state=[RotationState(retired={"desk": "desk-2"})]): Allow(),
     },
 )
 def redirect_retired_lanes(evt: BaseHookEvent) -> HookResult | None:
     raw = evt.input.raw
+    if not (to := raw.get("to")):
+        return None
     retired = RotationState.load(evt).retired
-    if (to := raw.get("to")) not in retired:
-        return None
-    if successor := heir(retired, to):
-        with RotationState.mutate(evt) as state:
-            if first := to not in state.blocked:
-                state.blocked.append(to)
-        redirect = f"Stand it down with `TaskStop` `{to}`, and send" if evt.agent_id is None else "Send"
-        if first:
-            return evt.block(
-                f"`{to}` rotated to `{successor}`, which owns its work now, so this `SendMessage` is blocked: any message to `{to}`, "
-                f"a stand-down included, resumes it on its stale brief. {redirect} its work to `{successor}`."
-            )
-        return evt.context(
-            f"Warning, nothing was blocked: `{to}` rotated to `{successor}`, which owns its work now, and this message resumes the old lane "
-            f"on its stale brief. {redirect} the next one to `{successor}`."
-        )
-    if mentions_stand_down(raw.get("message")) or evt.agent_id is None:
-        return None
-    return evt.context(
-        f"Warning, nothing was blocked: `{to}` was stopped and has no successor, and this message resumes the stopped lane on its stale brief. "
-        "Send the next one to `main`."
-    )
+    recorded, successor = stand_down(evt, to)
+    successor = successor or (heir(retired, to) if to in retired else None)
+    if successor and mentions_stand_down(raw.get("message")):
+        return evt.context(f"Warning, nothing was blocked: `{to}` is already stood down for `{successor}`, and this message resumes it on its stale brief. `TaskStop` `{to}` instead.")
+    if successor:
+        stop = f" `TaskStop` `{to}` if it still runs." if evt.agent_id is None else ""
+        return evt.rewrite(raw | {"to": successor}, note=f"`{to}` is stood down, so this message went to its successor `{successor}`, which owns its work.{stop}")
+    if evt.agent_id is not None and (recorded or to in retired):
+        return evt.rewrite(raw | {"to": MAIN}, note=f"`{to}` is stood down with no successor, so this message went to `{MAIN}` instead of resuming it on its stale brief.")
+    if recorded:
+        return evt.context(f"Warning, nothing was blocked: `{to}` is stood down with no successor, and this message resumes it on its stale brief.")
+    return None
