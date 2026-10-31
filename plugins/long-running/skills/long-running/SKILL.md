@@ -1153,7 +1153,12 @@ every open ask, blocker, or hold whose text names the block, its card, or the me
 (`merge-row-<pr>`, `merge:<pr>`). A lane parked on a card names the card's block or card
 id in its ask, then unparks on the `owner` record or its own closed ask, never on a root
 relay. Each record carries its block, row, verdict and head as attributes, one record per
-merge row. The root board's recorder also posts what the board shows as a `board-rows`
+merge row. Each pick and written answer on the root's board also gets a lane at once: the
+recorder files a `needs-lane` task on the drive's cc-notes backlog and posts an `ask` to root
+on topic `needs-lane:<block>` naming the card, his words and the task, unless the pick answers
+an open ask a lane posted, since that lane already waits on it. Root binds a lane by spawning
+one whose brief names the block or the ask's number, or by a lane's `claim` naming it, and the
+stall watch raises any such ask still unbound at 15 minutes. The root board's recorder also posts what the board shows as a `board-rows`
 record and applies the landing runner's `board-write` records with cc-present, so the
 landing runner and the stall watch read the board only from cci and run on any machine;
 `board_watch.py backfill --session <id>` records every verdict the board already held and
@@ -2828,6 +2833,7 @@ stalls in one stack post as one record, on the stack's lowest PR.
 | `carry` | a tap or go names an earlier head, nothing carries it to this head, the board shows no row at it, and no desk runner `TAP-KEPT`, `TAP-CARRIED`, or `TAP-NOT-CARRIED` note names the head, since that note settles the carry | 15 | the fidelity lane when Sonnet reads a patch-identical restack, else root, to ask the owner again |
 | `lane` | a lane with an in-progress task on root's task list stays silent past the time its last record promised, or past 30 minutes | 30 | the lane, or root when the lane posted nothing in the window |
 | `ask` | a lane's ask to root is open, and no root record answers it | 15 | root |
+| `pick` | board-watch's `needs-lane:<block>` ask for an owner pick or written answer is open, and no record resolves or answers it, and no claim, lane record, spawn record, or spawned brief names the block or the ask's number | 15 | root, once per pick |
 | `order` | a root `decide` record relays an owner order, Sonnet reads it as naming a change that ships as a new PR, and no lane it names, or a numbered successor, posts a record citing a PR after it, such as `opened`, `done`, or a `state` with a PR reference; it stops at two hours or when a root record closes it | 3 | root, as `urgent` |
 
 **S2. Python checks the facts, and one Sonnet call answers the judgment.** Sonnet judges
