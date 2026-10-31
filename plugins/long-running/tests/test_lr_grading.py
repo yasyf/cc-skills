@@ -1,4 +1,4 @@
-"""Every ungraded head is graded once; a dead job comes back; a same-patch rebase is not graded twice."""
+"""Every ungraded head is graded once; a dead job comes back, at once when its executor is gone; a same-patch rebase is not graded twice."""
 
 from __future__ import annotations
 
@@ -23,10 +23,15 @@ def facts(number=45489, head=HEAD, **fields):
 class FakePool:
     def __init__(self):
         self.jobs = []
+        self.box = "sprite-1"
+        self.gone = set()
 
     def dispatch(self, grader, repo, number, head):
         self.jobs.append((grader, number, head))
-        return f"sprite-1/{grader}/{number}"
+        return f"{self.box}/{grader}/{number}"
+
+    def alive(self, worker):
+        return worker not in self.gone
 
 
 def pass_items(store, snapshot, now=T0):
@@ -66,6 +71,30 @@ def test_a_job_that_died_is_dispatched_again_after_the_deadline():
 
     assert quiet.dispatched == []
     assert [grader for grader, _, _ in late.dispatched] == ["finder", "fidelity"]
+
+
+def test_a_job_whose_executor_is_gone_is_dispatched_again_in_the_same_pass():
+    store, pool = Store.memory(), FakePool()
+    items, snapshot = pass_items(store, [facts()])
+    grading.act(store, pool, items, snapshot, T0, 1)
+    pool.gone = {"sprite-1/finder/45489", "sprite-1/fidelity/45489"}
+    pool.box = "sprite-2"
+
+    again = grading.act(store, pool, store.open_items(REPO), snapshot, T0 + timedelta(minutes=1), 1)
+
+    assert [grader for grader, _, _ in again.dispatched] == ["finder", "fidelity"]
+    assert store.open_items(REPO)[0].worker == "sprite-2/fidelity/45489"
+    assert {row["name"] for row in store.workers()} == {"sprite-2/finder/45489", "sprite-2/fidelity/45489"}
+
+
+def test_a_live_job_before_its_deadline_is_left_alone():
+    store, pool = Store.memory(), FakePool()
+    items, snapshot = pass_items(store, [facts()])
+    grading.act(store, pool, items, snapshot, T0, 1)
+
+    again = grading.act(store, pool, store.open_items(REPO), snapshot, T0 + timedelta(minutes=1), 1)
+
+    assert again.dispatched == []
 
 
 def test_a_stale_job_releases_the_item_and_the_next_pass_dispatches_again():
