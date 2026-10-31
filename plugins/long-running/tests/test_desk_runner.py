@@ -2639,6 +2639,25 @@ def test_a_head_trunk_failed_posts_one_red_to_its_lane_and_root_and_leaves_the_q
     assert len(shell.enqueues()) == 1
 
 
+def test_a_trunk_enqueue_answered_http_429_is_retried_next_pass_and_fails_nothing(shell, config, tmp_path, monkeypatch):
+    """Root #230939: Trunk answered the overflow enqueue's confirmation read with HTTP 429 and the runner failed the batch with ENQUEUE-FAILED (#230906)."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["adapter"] = {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}
+    config.write_text(json.dumps(raw))
+    monkeypatch.setenv("TRUNK_MERGE_API_KEY", "trunk-secret")
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 Trunk notSubmitted")
+    shell.gates["33001"] = ["#33001 GREEN aaaa111111 Trunk notSubmitted\nwould enqueue native stack through #33001: #33001\n"]
+    shell.enqueue_out["33001"] = (5, "submission not confirmed: ci trunk: Trunk GET /v2/pull-requests?limit=100&number=33001 answered HTTP 429 (): ; request; inspect Trunk before retrying\n")
+    shell.queue["33001"] = "unknown"
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+    assert not [line for line in escalations(shell) if line.startswith("ENQUEUE-")]
+    shell.enqueue_out["33001"] = (0, "#33001 QUEUED aaaa111111 native stack covers #33001\n")
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 2
+
+
 def test_a_check_with_no_verdict_on_a_pr_github_reads_merged_escalates_nothing(shell, config, tmp_path):
     """Root #200922: #44828 merged directly, its branch went, and the gate's fetch of that branch read as a GATE-FAILED defect."""
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": True}]
