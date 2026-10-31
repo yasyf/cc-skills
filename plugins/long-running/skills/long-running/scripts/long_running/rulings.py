@@ -1879,8 +1879,7 @@ def cmd_glossary(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
-def transcript_entries(entry: dict) -> list[dict]:
-    projects = args.runtime.drives.parent.parent / "projects"
+def transcript_entries(entry: dict, projects: Path) -> list[dict]:
     found = []
     for session in entry["sessions"]:
         for path in projects.glob(f"*/{session}.jsonl"):
@@ -2040,7 +2039,7 @@ def cmd_authorize(args: argparse.Namespace, shell: ledger.Shell) -> int:
     fields = loaded.rows[key]
     if not (entry := entry_of(args)):
         raise SystemExit(f"no drive runs program {loaded.program}; authorize reads its root transcript")
-    entries = transcript_entries(entry)
+    entries = transcript_entries(entry, args.runtime.drives.parent.parent / "projects")
     owner = answers_for(loaded, f"program:{loaded.program}", "from:owner")
     if args.action:
         found = slack_proof(args, shell, key, fields, owner, tapped) if (tapped := tapped_card(entries, args.action)) else board_proof(args, loaded, shell, key, fields, owner, entry["sessions"][-1])

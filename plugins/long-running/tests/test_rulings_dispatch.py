@@ -75,3 +75,15 @@ def test_dispatch_uses_the_owned_lock_and_state_root(tmp_path: Path) -> None:
     assert shown["state_dir"] == str(request.scratch / "brook")
     assert checkpoints == [True, True, True]
     assert request.stderr.getvalue() == ""
+
+
+def test_authorization_transcripts_use_the_explicit_request_projects_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    expected = {"type": "user", "message": {"content": "selected request"}}
+    requested = tmp_path / "request" / "projects" / "repo"
+    requested.mkdir(parents=True)
+    (requested / "same-session.jsonl").write_text(json.dumps(expected) + "\n")
+    unrelated = tmp_path / "other" / "projects" / "repo"
+    unrelated.mkdir(parents=True)
+    (unrelated / "same-session.jsonl").write_text(json.dumps({"message": "unrelated request"}) + "\n")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "other"))
+    assert rulings.transcript_entries({"sessions": ["same-session"]}, requested.parent) == [expected]
