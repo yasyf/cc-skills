@@ -174,6 +174,57 @@ def test_actual_refresh_bypasses_persistent_passed_summary(shell, config, tmp_pa
         landing.close()
 
 
+@pytest.mark.parametrize("population", [32, 10_000])
+def test_actual_landing_selected_cached_build_read_connections(shell, config, tmp_path, monkeypatch, population):
+    with_ci_build(config)
+    landing = landing_of(shell, config, tmp_path)
+    stored = passed(shell.now() - timedelta(hours=1))
+    urls = [f"https://buildkite.com/forge/test/builds/{number}" for number in range(population)]
+    landing.build_cache.put(dict.fromkeys(urls, stored), shell.now() - timedelta(days=3))
+    selected = urls[:32]
+    monkeypatch.setattr(landing, "ci_builds", lambda head: [(url, "success", False) for url in selected])
+    costs = {"connections": 0, "closes": 0, "vm_steps": 0}
+    threads = set()
+    measuring = threading.Lock()
+    connect = sqlite3.connect
+    database = landing.build_cache.book.store.path("passed-builds").absolute().as_uri()
+
+    def progress():
+        with measuring:
+            costs["vm_steps"] += 1
+        return 0
+
+    class ObservedConnection(sqlite3.Connection):
+        def close(self):
+            with measuring:
+                costs["closes"] += 1
+            super().close()
+
+    def observed(path, *args, **kwargs):
+        if str(path).partition("?")[0] != database:
+            return connect(path, *args, **kwargs)
+        with measuring:
+            costs["connections"] += 1
+            threads.add(threading.get_ident())
+        connection = connect(path, *args, **kwargs, factory=ObservedConnection)
+        connection.set_progress_handler(progress, 1)
+        return connection
+
+    monkeypatch.setattr(sqlite3, "connect", observed)
+    rows = {"1": {"state": "open", "head": "a" * 40}}
+    try:
+        assert landing.landing_steps("test", rows) == {"test"}
+        first = dict(costs)
+        assert first["connections"] == first["closes"] == 32
+        assert first["vm_steps"] < 40_000
+        assert landing.landing_steps("test", rows) == {"test"}
+        assert costs == first
+        assert all(build_reads(shell, str(number)) == [] for number in range(32))
+        print(json.dumps({"population": population, "selected": 32, "first": first, "reading_threads": len(threads), "warm_additional_operations": 0, "remote_build_reads": 0, "scope": "actual Landing.landing_steps/build with real BuildCache/Book/Store; SQLite connection and VM counts, not physical IO"}))
+    finally:
+        landing.close()
+
+
 def test_failed_persistence_keeps_pending_build_for_retry(shell, config, tmp_path, monkeypatch):
     with_ci_build(config)
     landing = landing_of(shell, config, tmp_path)
