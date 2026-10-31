@@ -74,7 +74,7 @@ class FakeShell(stall_watch.Shell):
 
     def run(self, argv, stdin=None, env=None, timeout=stall_watch.COMMAND_SECONDS):
         if argv[:2] == ["cci", "tail"]:
-            since = argv[argv.index("--since") + 1]
+            since = argv[argv.index("--since-seq" if "--since-seq" in argv else "--since") + 1]
             kinds = {arg.split("=", 1)[1] for arg in argv if arg.startswith("--kind=")}
             topics = {arg.split("=", 1)[1] for arg in argv if arg.startswith("--topic=")}
             lane = argv[argv.index("--lane") + 1] if "--lane" in argv else None
@@ -430,6 +430,20 @@ def test_a_go_the_runner_refused_names_its_newest_open_blocker_for_that_head_and
     assert post["text"].endswith(f"| owner api-lane, board-refresher | GO-UNQUEUED: the runner's newest blocker for #101 at abc1234, cci #7: #101 {HEAD[:10]}: nothing in #101 was enqueued; GO-UNQUEUED #101: the merge queue refused it at this head")
 
 
+@pytest.mark.parametrize("withdrawn", [False, True])
+def test_a_root_correction_withdrawing_a_go_ends_its_go_stall(config, withdrawn):
+    """#243593: root withdrew go #237906 on #46228 with a correction, not a withdraw, and the stall watch still counted the go."""
+    records = gone("101", HEAD)
+    records.append(record(5, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; GO-UNQUEUED #101: the merge queue refused it at this head", 9, to=["api-lane"], topic="101", status="open"))
+    if withdrawn:
+        records.append(record(6, "root", "correction", "Withdraw the go in #4; the finder clear stands. I had not verified a tap.", 8, re=4))
+    shell = FakeShell(records, [row("101")])
+
+    watch(shell, config)
+
+    assert bool([topic for topic in shell.topics() if topic.startswith("go:101")]) != withdrawn
+
+
 def finder_pass(tmp_path: Path, pr: str, sha: str, status: str) -> None:
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident("desk-finder", "desk-finder", 0, stamp(30), {}))
@@ -602,6 +616,44 @@ def test_an_open_ask_to_root_stalls_until_root_answers_it(config):
     assert "answer it with `cci post --re '#1'`" in shell.post("ask:1")["text"]
 
 
+def needs_lane(seq: int, block: str, minutes_ago: float, status: str = "open") -> dict:
+    return record(seq, "board-watch", "ask", f"NEEDS-LANE {block} on board s-root: the owner picked \u201cyes\u201d", minutes_ago, topic=f"needs-lane:{block}", status=status, fields={"attrs": {"block": block}})
+
+
+def test_an_owner_pick_no_lane_binds_stalls_to_root_once_at_fifteen_minutes_and_clears_once_a_lane_claims_it(config, tmp_path):
+    """Root #225532: three owner picks sat two hours with no lane; a spawn whose brief names the pick, a claim, a lane's record or an answer binds it, and board-watch's own records never do."""
+    brief = tmp_path / "pick-lane.md"
+    brief.write_text("Route the owner's pick #4 to a fix.")
+    records = [
+        needs_lane(1, "share-pick", 20),
+        needs_lane(2, "claimed-pick", 20),
+        record(3, "api-lane", "claim", "taking claimed-pick", 10),
+        needs_lane(4, "spawned-pick", 20),
+        record(5, "root", "state", f"SPAWNED pick-lane {brief}", 10, topic="spawn:pick-lane"),
+        record(6, "pick-lane", "state", "started", 9),
+        needs_lane(7, "fresh-pick", 5),
+        needs_lane(8, "closed-pick", 30, status="closed"),
+        needs_lane(9, "answered-pick", 20),
+        record(10, "root", "decide", "no lane: the owner withdrew it", 5, re=9),
+        needs_lane(11, "noted-pick", 20),
+        record(12, "board-watch", "owner", "Owner on board s-root, noted-pick: wrote \u201cmore\u201d", 10, topic="noted-pick"),
+    ]
+    shell = FakeShell(records, [])
+
+    watch(shell, config)
+    watch(shell, config)
+
+    assert shell.topics() == ["pick:1", "pick:11"]
+    assert shell.post("pick:1")["to"] == "root"
+    assert shell.post("pick:1")["kind"] == "urgent"
+    assert shell.post("pick:1")["text"].startswith("STALL pick owner pick share-pick, 20 min: board-watch asked root for a lane at ")
+    assert shell.post("pick:1")["text"].endswith("| owner root | spawn a lane whose brief names share-pick or #1, or have a lane post a `claim` naming it; close it with `cci post --resolves '#1'`")
+    shell.records.append(record(13, "share-lane", "state", "working share-pick", 0))
+    watch(shell, config)
+    assert "pick:1" not in opened(config)
+    assert "pick:11" in opened(config)
+
+
 def alive(seq: int, desk: str, minutes_ago: float) -> dict:
     restart = f"nohup desk-runner.py run --config /drive/runner.json --desk {desk} >> /drive/{desk}-runner.log 2>&1 < /dev/null &"
     return record(seq, "desk-runner", "state", f"{desk} alive 9:00 PM pass 4", minutes_ago, topic=desk, to=[f"drive-watchdog@{DRIVE}"], fields={"attrs": {"pid": "73091", "restart": restart}})
@@ -745,6 +797,21 @@ def test_a_red_head_classed_inherited_flake_or_stale_draws_no_red_stall_until_th
     shell.clock = NOW + timedelta(minutes=6)
     watch(shell, config)
     assert "red:101:fedcba9" in shell.topics()
+
+
+def test_a_red_head_classed_inherited_waits_on_the_pr_below_it_so_only_the_base_draws_a_stale_stall(config):
+    red = json.dumps([{"name": "buildkite/test"}])
+    raw = json.loads(config.read_text())
+    config.write_text(json.dumps(raw | {"stall": {"minutes": {"unclassed": 600, "sweep": 600}}}))
+    classed = record(7, "api-lane", "red", "class=inherited head=fedcba9 owner=api-lane #201 fails the same jobs", 140, "202")
+    shell = FakeShell([*graded(1, "201", HEAD, 150), *graded(4, "202", OTHER, 150), classed], [row("201", test_state="failure", failing_checks=red), row("202", OTHER, base="b201", test_state="failure", red_at=stamp(150), failing_checks=red)])
+    shell.doc = {"blocks": [{"id": f"merge:201:{HEAD[:7]}", "type": "card", "children": []}, {"id": f"merge:202:{OTHER[:7]}", "type": "card", "children": []}]}
+
+    watch(shell, config)
+
+    assert shell.topics() == ["stale:201:abc1234"]
+    assert shell.post("stale:201:abc1234")["text"] == "STALE #201 at abc1234, 150 min: red on buildkite/test; 1 above wait on it: #202 | owner api-lane | fix the red build of #201 at abc1234"
+    assert stack(config)["202"]["state"] == "red on buildkite/test, inherited from #201 below it"
 
 
 def test_an_owner_order_naming_a_pr_no_named_lane_cites_a_pr_for_three_minutes_posts_one_urgent_record_to_root(config):

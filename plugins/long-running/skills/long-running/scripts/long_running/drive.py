@@ -128,6 +128,7 @@ import re
 import signal
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable, Mapping
 from contextlib import suppress
@@ -147,6 +148,7 @@ TERMINAL_ENV = "ORCA_TERMINAL_HANDLE"
 CALLER_VERSION_ENV = "LONG_RUNNING_CALLER_VERSION"
 PIN_ENV = "LONG_RUNNING_PIN"
 DEADLINE_ENV = "LONG_RUNNING_DEADLINE"
+REEXEC_ENV = "LONG_RUNNING_REEXEC"
 REAP_SECONDS = 5
 DRIVE_ID_LENGTH = 8
 DASHBOARD_CONTEXT = Path("dashboard") / "context.json"
@@ -259,16 +261,39 @@ def behind(running: str, installed: str) -> bool:
 
 
 def run_installed(script: str) -> None:
-    """Re-execute `script` from the installed plugin version, as the `bin/` shim does, when it is a copy of an older version, the installed copy's own manifest is newer, no process of its own version started it, and `LONG_RUNNING_PIN` does not pin its version, so a path that names an old version still runs current code and never writes a line the current runner cannot read; a process that passes marks its children with its version, so a runner started before an update keeps its own scripts until it re-executes, and a runner on its pinned version keeps them for its life. Every GitHub read the script makes through ccx is charged to the script's name, and every command it starts ends with it (`end_commands_with_script`)."""
+    """Re-execute `script` from the installed plugin version, as the `bin/` shim does, when it is a copy of an older version, the installed copy's own manifest is newer, no process of its own version started it, and `LONG_RUNNING_PIN` does not pin its version, so a path that names an old version still runs current code and never writes a line the current runner cannot read; a process that passes marks its children with its version, so a runner started before an update keeps its own scripts until it re-executes, and a runner on its pinned version keeps them for its life. Every GitHub read the script makes through ccx is charged to the script's name, every command it starts ends with it (`end_commands_with_script`), and an image that replaced an earlier one in place ends and reaps what that one left (`adopt_children`)."""
     os.environ["CCX_CALLER"] = Path(script).stem
     running = plugin_manifest()["version"]
     if running not in (os.environ.get(CALLER_VERSION_ENV), os.environ.get(PIN_ENV)) and (install := newest_install()) and behind(running, install["version"]):
         manifest = Path(install["installPath"]) / ".claude-plugin" / "plugin.json"
         if manifest.is_file() and behind(running, load(manifest)["version"]):
             fresh = manifest.parents[1] / Path(__file__).resolve().parents[1].relative_to(PLUGIN) / Path(script).resolve().name
-            os.execv(sys.executable, [sys.executable, str(fresh), *sys.argv[1:]])
+            reexec([sys.executable, str(fresh), *sys.argv[1:]])
     os.environ[CALLER_VERSION_ENV] = running
     end_commands_with_script()
+    adopt_children()
+
+
+def reexec(argv: list[str]) -> None:
+    """Replace this process with `argv` under the same pid, marked so the new image's `run_installed` takes over the children this one leaves."""
+    os.environ[REEXEC_ENV] = str(os.getpid())
+    os.execv(argv[0], argv)
+
+
+def adopt_children() -> None:
+    """In an image `reexec` started, SIGKILL every command the earlier image left in this process's group, whose pipes closed with it, and reap each child it left, a detached job once it exits, from a daemon thread: no image knows the children an earlier one started, so a board watch re-executed on each plugin update kept its old `cc-present watch` and `cci watch` running and each turned zombie when it exited (154 under one watch after 27 h on 2026-10-31)."""
+    if os.environ.pop(REEXEC_ENV, "") != str(os.getpid()):
+        return
+    rows = processes()
+    kill(under(os.getpid(), rows))
+    for child in (child for child, parent, _ in rows if parent == os.getpid()):
+        threading.Thread(target=reap, args=(child,), name=f"reap-{child}", daemon=True).start()
+
+
+def reap(pid: int) -> None:
+    """Wait for child `pid` to exit; the `ps` that listed it is a child too, one `subprocess.run` has already reaped."""
+    with suppress(ChildProcessError):
+        os.waitpid(pid, 0)
 
 
 def deadline_env(seconds: float) -> dict[str, str]:
@@ -276,9 +301,14 @@ def deadline_env(seconds: float) -> dict[str, str]:
     return {DEADLINE_ENV: f"{os.getpid()}:{time.time() + seconds:.3f}"}
 
 
-def under(pid: int) -> list[int]:
-    """Every process under `pid` still in this process's group, at any depth, from one `ps` snapshot; one that left the group, as a daemon started in a session of its own does, is not this process's to end."""
-    rows = [tuple(map(int, line.split())) for line in subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid="], capture_output=True, text=True, check=True).stdout.splitlines()]
+def processes() -> list[tuple[int, int, int]]:
+    """Each process's pid, parent pid and process group, from one `ps` snapshot."""
+    return [tuple(map(int, line.split())) for line in subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid="], capture_output=True, text=True, check=True).stdout.splitlines()]
+
+
+def under(pid: int, rows: list[tuple[int, int, int]] | None = None) -> list[int]:
+    """Every process under `pid` still in this process's group, at any depth, from one `ps` snapshot, `rows` when given; one that left the group, as a daemon started in a session of its own does, is not this process's to end."""
+    rows = processes() if rows is None else rows
     group, found, parents = os.getpgrp(), [], {pid}
     while parents:
         parents = {child for child, parent, pgid in rows if parent in parents and pgid == group}

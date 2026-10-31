@@ -15,8 +15,10 @@ is partial.
 
 SPRITE_JOB_KEYS, a JSON object of environment names to the commands that print
 their values, such as {"GH_TOKEN": ["gh", "auth", "token"]}, is run here at
-start; each value reaches the job's process on the Sprite through its standard
-input and its environment only, never a file or an argument; a command that prints
+start; each value reaches the job's process on the Sprite through a named pipe
+the job reads once and its environment only, never a stored file or an argument,
+written by a short exec's standard input, so the long exec that runs the job
+forwards no stdin and the Sprite CLI reconnects it when the connection drops; a command that prints
 nothing stops the job before it reaches the Sprite, with that error as its result. Every git command
 the job runs authenticates through `gh auth git-credential`, the partial clone's
 on-demand object fetches included. A GH_TOKEN also refreshes git's in-memory
@@ -118,8 +120,16 @@ for name, argv in json.loads(os.environ.get("SPRITE_JOB_KEYS") or "{}").items():
         sys.exit(f"sprite-job: {error}")
     print(f"{name}={value}")
 ' "$dir") || exit 1
-{ [ -z "$keys" ] || printf "%s\n" "$keys"; } | sprite exec -s "$sprite" -- sh -c '
-  while IFS= read -r line; do export "$line"; done
+sprite exec -s "$sprite" --no-stdin -- sh -c '
+  rm -f "$2.keys" && mkfifo -m 600 "$2.keys"
+  vars=$(timeout 120 cat "$2.keys") || exit 1
+  rm -f "$2.keys"
+  nl=$(printf "\n_")
+  IFS=${nl%_}
+  set -f
+  for line in $vars; do export "$line"; done
+  unset IFS vars
+  set +f
   export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper "GIT_CONFIG_VALUE_1=!gh auth git-credential"
   [ -z "${GH_TOKEN:-}" ] || printf "protocol=https\nhost=github.com\nusername=x-access-token\npassword=%s\n\n" "$GH_TOKEN" |
     git credential-cache --timeout=3900 store
@@ -136,6 +146,12 @@ for name, argv in json.loads(os.environ.get("SPRITE_JOB_KEYS") or "{}").items():
   exec 9>&-
   exec python3 "$1" "$2"' sh "$script" "$dir" "$checkout" &
 job=$!
+{ [ -z "$keys" ] || printf "%s\n" "$keys"; } | sprite exec -s "$sprite" -- sh -c '
+  for _ in $(seq 600); do
+    if [ -p "$1.keys" ]; then exec cat >"$1.keys"; fi
+    sleep 0.2
+  done
+  exit 1' sh "$dir"
 forwarded=
 while kill -0 "$job" 2>/dev/null; do
   if [ -z "$forwarded" ] && [ -e "$dir/cancelled" ]; then

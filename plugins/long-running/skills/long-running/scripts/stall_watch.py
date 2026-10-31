@@ -114,6 +114,10 @@ and, across the drive:
               its answer to the reviewer bot is idle when it has open PRs or its last record is a
               done or READY one
     ask       a lane's `ask` to root is open, and no root record answers it
+    pick      board-watch's `needs-lane:<block>` ask to root for an owner pick or write-in is open, and no
+              lane is bound to it: no record resolves it or answers it by `--re`, no `claim`, no record of a
+              lane other than root, a watcher or a desk runner, and no `SPAWNED` record or the brief it
+              names, names the block or the ask's `#<seq>`; it goes to root alone, once per pick
     order     a root `decide` record relays an owner order ("owner ... verbatim"), Sonnet reads it as
               naming a change that ships as a new PR, no record from a lane it names or a numbered
               successor cites a PR after it (an `opened` record, or any record with a PR reference),
@@ -135,7 +139,7 @@ and, across the drive:
               answered, post one `state` record to root per head instead, once while the PR stays open
               at that head, and one digest record when several post in one pass; a tap row counts from
               the earlier of its board row's write and the head's READY record; a PR that waits on the PR
-              below it posts nothing itself and is listed on the stale PR its stack waits on, a PR in
+              below it, a red one whose `red` record classes its head inherited included, posts nothing itself and is listed on the stale PR its stack waits on, a PR in
               the merge queue or green with a go goes to the landing desk lanes, whose step it is, and
               any other PR whose owning lane has no live record in the window goes to root; a changed state on
               the same head counts from the pass that saw it change; a held PR whose open `hold` record
@@ -158,7 +162,7 @@ own: its lane and unregistered stalls go to that lane, never to root, and name t
 one state line as its first act. A numbered successor such as `mq-health-4-2` extends no lane.
 
 Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, successor 20, red 2, unclassed 20, unfixed 60, sweep 20, order 3, tap 10, ungraded 10, finder 30,
-fidelity 30, running 25, board 15, carry 20 (one fidelity pass), lane 30, ask 15, gate 30, stale 120, desk 10, shape 30, unregistered 3. A PR's head is as old as the first record about the
+fidelity 30, running 25, board 15, carry 20 (one fidelity pass), lane 30, ask 15, pick 15, gate 30, stale 120, desk 10, shape 30, unregistered 3. A PR's head is as old as the first record about the
 PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record. A board
 stall counts from the latest of its finder ok, its fidelity ok, and its ledger row's `green_at`, the refresh that
 first read the head's build green, since the board refresher puts a row up only once the build is green.
@@ -224,7 +228,7 @@ ROOT_NAMES = frozenset({ROOT, "main"})
 NOT_LANES = frozenset({*ROOT_NAMES, "team-lead", LANE, RUNNER})
 PACIFIC = ZoneInfo("America/Los_Angeles")
 WINDOW_HOURS = 24
-MINUTES = {"go": 10, "silent": 15, "refusal": 10, "successor": 20, "red": 2, "unclassed": 20, "unfixed": 60, "sweep": 20, "order": 3, "tap": 10, "ungraded": 10, "finder": 10, "fidelity": 10, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "lane": 10, "ask": 15, "gate": 10, "stale": 120, "desk": 10, "shape": 10, "unregistered": 3}
+MINUTES = {"go": 10, "silent": 15, "refusal": 10, "successor": 20, "red": 2, "unclassed": 20, "unfixed": 60, "sweep": 20, "order": 3, "tap": 10, "ungraded": 10, "finder": 10, "fidelity": 10, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "lane": 10, "ask": 15, "pick": 15, "gate": 10, "stale": 120, "desk": 10, "shape": 10, "unregistered": 3}
 DESK_KINDS = frozenset({"finder", "fidelity"})
 ROOT_KINDS = frozenset({"missing", "unclassed", "unfixed"})
 REPOSTED = frozenset({"red"})
@@ -283,7 +287,6 @@ CAUSE_COMMANDS = {
 MERGE_ASK = "MERGE-ASK"
 SILENT_STEP = "root routes the tooling lane: "
 HEAD_BLOCKERS = ("GO-UNQUEUED", "REFUSED", "BELOW-BLOCKED", "BELOW-HELD", MERGE_ASK, "AWAITS-GO")
-GO_KINDS = frozenset({"go", "decide", "decision"})
 BLOCKER_LABEL = re.compile(r"\b[A-Z]+(?:-[A-Z]+)+\b")
 MERGE_WAITS = "merge_waits"
 MERGE_CARDS = "merge_asks"
@@ -316,6 +319,8 @@ STACKS_FILE = "landing-stacks.json"
 GATE_REPEAT = timedelta(hours=1)
 WAITS_ON = re.compile(r"\b(?:waits?\s+(?:only\s+)?on|blocked\s+on)\s+#(\d+)|\bwhen\s+#(\d+)\s+lands\b", re.IGNORECASE)
 LANDED = re.compile(r"^LANDED\s+#(\d+)\b")
+NEEDS_LANE = "needs-lane:"
+BOARD_WATCH = board_rows.OWNER_LANE
 TAP_NOTE = re.compile(r"^TAP-(?:KEPT|NOT-CARRIED|CARRIED(?:-BY-PATCH)?) #(\d+): .*?\b(?:keeps at|does not carry to|now stands at) ([0-9a-f]{7,40})\b")
 LANE_NUMBER = re.compile(r"-\d+$")
 SCHEMA = json.dumps(
@@ -513,7 +518,7 @@ def carried_heads(head: str, carries: list[tuple[str, str]]) -> set[str]:
 downstack = owner_waits.downstack
 
 
-def stack_row(pr: str, row: dict, rows: dict[str, dict], owner: str, held: bool, going: bool, in_queue: bool, tapping: bool) -> dict:
+def stack_row(pr: str, row: dict, rows: dict[str, dict], owner: str, held: bool, going: bool, in_queue: bool, tapping: bool, inherited: bool) -> dict:
     named = f"#{pr} at {short(row['head'])}"
     below = next((other for other, parent in rows.items() if parent.get("branch") and parent["branch"] == row.get("base")), "")
     red = ", ".join(check["name"] for check in json.loads(row.get("failing_checks") or "[]")) or "a required check"
@@ -526,6 +531,8 @@ def stack_row(pr: str, row: dict, rows: dict[str, dict], owner: str, held: bool,
         state, step = f"{BASE_DRIFT}{row['base']}", f"resubmit {named} with `ccx vcs ship --tip-only` and post HEAD"
     elif row.get("mergeable_state") == "dirty":
         state, step = CONFLICTS, f"restack {named} and post HEAD"
+    elif row.get("test_state") == "failure" and inherited and below:
+        state, step, waits = f"{RED}{red}, inherited from #{below} below it", f"fix the red build of #{below} below it", below
     elif row.get("test_state") == "failure":
         state, step = f"{RED}{red}", f"fix the red build of {named}"
     elif below:
@@ -621,6 +628,17 @@ def cites_pr(record: dict) -> bool:
     return record["kind"] == "opened" or bool((record.get("refs") or {}).get("prs"))
 
 
+def binds(record: dict, asked: dict) -> bool:
+    """Whether `record` binds a lane to the owner pick board-watch's `asked` record routes: it resolves or answers it, or a claim, a lane's own record, or a spawn or its brief names the pick's block or seq."""
+    if asked["seq"] in cci.resolved(record) or record.get("re") == asked["seq"]:
+        return True
+    names = re.compile(rf"(?<![\w-])(?:{re.escape(asked['topic'].removeprefix(NEEDS_LANE))}|{re.escape(asked['num'])})(?![\w-])")
+    if record["kind"] == "state" and (spawn := SPAWNED.match(record["text"])):
+        brief = Path(spawn["brief"])
+        return bool(names.search(record["text"]) or brief.is_file() and names.search(brief.read_text(errors="replace")))
+    return (record["kind"] == "claim" or record["lane"] not in NOT_LANES | {BOARD_WATCH}) and bool(names.search(grades.full_text(record)))
+
+
 def successor_of(lane: str) -> re.Pattern[str]:
     return re.compile(rf"{re.escape(grades.SUCCESSOR_NUMBER.sub('', lane))}(?:-\d{{1,2}})*")
 
@@ -683,7 +701,7 @@ class Pass:
             self.warn({"lane"}, f"no drive registry entry for {self.watch.drive} names a root session, so the task list does not read")
         stalls, questions, entries = self.prs(records)
         lane_stalls, lane_questions = self.lanes(records, session, entries)
-        stalls += lane_stalls + self.asks(records) + self.gates(records) + self.desks(records) + self.unregistered(records) + self.shapes()
+        stalls += lane_stalls + self.asks(records) + self.picks(records) + self.gates(records) + self.desks(records) + self.unregistered(records) + self.shapes()
         questions += lane_questions + self.orders(records)
         cached = saved.get("verdicts", {})
         fresh = self.judge([question.ask | {"id": question.key} for question in questions if question.key not in cached])
@@ -887,8 +905,8 @@ class Pass:
         fidelity_lanes = lanes_of(landing.get("fidelity_lane", []))
         go_lanes = [ROOT, *landing.get("go_lanes", [])]
         exempt = landing.get("exempt_grades", [landing.get("port_phrase", grades.PORT_PHRASE), *grades.TEST_ONLY_PHRASES])
-        closed = {seq for record in records if record["lane"] in ROOT_NAMES for seq in grades.closes(record)}
-        gos = [record | {"voided": set()} for record in records if record["kind"] in GO_KINDS and (record["lane"] == RUNNER or grades.delegated(record["lane"], go_lanes)) and record["seq"] not in closed and grades.go_heads(record)]
+        closed = {seq for record in records if record["lane"] in ROOT_NAMES for seq in grades.closes(record) | grades.voids(record)}
+        gos = [record | {"voided": set()} for record in records if record["kind"] in grades.GO_KINDS and (record["lane"] == RUNNER or grades.delegated(record["lane"], go_lanes)) and record["seq"] not in closed and grades.go_heads(record)]
         reviews = [record for record in records if record["kind"] in ("review", "head")]
         fidelity = [record for record in reviews if record["kind"] == "review" and record["lane"] in fidelity_lanes and record["text"].startswith(grades.FIDELITY_GRADES)]
         gos += grades.carried_gos(gos, fidelity, repo, lambda pr, head: True)
@@ -941,8 +959,8 @@ class Pass:
             tapping = board is not None and board.shows(pr, head) and not board_rows.at_head(board.taps.get(pr), "rejected", head)
             readied = [at(record) for record in announced if record["kind"] == "ready" or READY.search(record["text"])]
             tap_at = min([*readied, *([live] if (live := board.live_at(pr, head)) else [])], default=None) if tapping else None
-            entries.append(stack_row(pr, row, rows, lane, holding(pr) or pr in self.hold_gates, bool(going), in_queue, tapping) | {"head_at": head_at, "tap_at": tap_at})
             classed = red_entry(row, lane, [record for record in classes if grades.about_pr(record, repo, pr)]) if row.get("red_at") else None
+            entries.append(stack_row(pr, row, rows, lane, holding(pr) or pr in self.hold_gates, bool(going), in_queue, tapping, bool(classed) and classed["class"] == "inherited") | {"head_at": head_at, "tap_at": tap_at})
             if (classed is None or classed["class"] in ("real", "unclassed")) and (red := self.red(pr, row, lane)):
                 (probes if red.kind == "probe" else stalls).append(red)
             if row.get("test_state") == "failure" and classed:
@@ -1373,7 +1391,29 @@ class Pass:
             and ROOT_NAMES & set(record.get("to") or [])
             and record["lane"] not in NOT_LANES
             and record["seq"] not in answered
+            and not (record.get("topic") or "").startswith(NEEDS_LANE)
             and self.now - at(record) >= self.watch.age("ask")
+        ]
+
+    def picks(self, records: list[dict]) -> list[Stall]:
+        """An owner pick or write-in board-watch asked root to route, `stall.minutes.pick` old, still open, and bound to no lane by a spawn, claim, lane record or answer naming it (root #225532)."""
+        return [
+            Stall(
+                f"pick:{asked['seq']}",
+                "pick",
+                at(asked),
+                f"owner pick {asked['topic'].removeprefix(NEEDS_LANE)}",
+                f"board-watch asked root for a lane at {pacific(at(asked))} ({asked['num']}), and no spawn or claim names it: {clip(asked['text'])}",
+                (ROOT,),
+                f"spawn a lane whose brief names {asked['topic'].removeprefix(NEEDS_LANE)} or {asked['num']}, or have a lane post a `claim` naming it; close it with `cci post --resolves {shlex.quote(asked['num'])}`",
+            )
+            for asked in records
+            if asked["lane"] == BOARD_WATCH
+            and asked["kind"] == "ask"
+            and (asked.get("topic") or "").startswith(NEEDS_LANE)
+            and asked.get("status") == "open"
+            and self.now - at(asked) >= self.watch.age("pick")
+            and not any(record["seq"] > asked["seq"] and binds(record, asked) for record in records)
         ]
 
 
