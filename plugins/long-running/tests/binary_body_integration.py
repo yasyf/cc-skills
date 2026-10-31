@@ -25,7 +25,7 @@ def test_mq_why_reads_only_to_the_binary_attachment_decode_error(shell, config, 
     raw["landing"]["checks"] = ["hold"]
     config.write_text(json.dumps(raw))
     lone_green_pr(shell)
-    shell.records.append({"seq": 42, "drive": "d1", "lane": "incident-api-1", "kind": "incident", "status": "open", "to": ["root"], "refs": {"path": str(attachment)}, "text": "INCIDENT api 5xx; the fix is #29020", "source": "post", "at": "2026-10-01T17:59:00Z"})
+    shell.records.append({"seq": 42, "num": "#42", "drive": "d1", "lane": "incident-api-1", "kind": "incident", "status": "open", "to": ["root"], "refs": {"path": str(attachment)}, "text": "INCIDENT api 5xx; the fix is #29020", "source": "post", "at": "2026-10-01T17:59:00Z"})
     original_open = Path.open
     consumed = 0
 
