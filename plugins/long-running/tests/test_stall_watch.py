@@ -60,7 +60,7 @@ class FakeShell(stall_watch.Shell):
         self.triage: dict = {}
         self.choices: dict = {}
         self.answer = lambda question: {}
-        self.judge_code = 0
+        self.judge_fails = False
         self.ledger_code = 0
         self.posts: list[list[str]] = []
         self.prompts: list[str] = []
@@ -81,12 +81,6 @@ class FakeShell(stall_watch.Shell):
         if argv[:2] == ["cci", "post"]:
             self.posts.append(argv)
             return stall_watch.Done(0, f"posted #{9000 + len(self.posts)}", "")
-        if argv[0] == "claude":
-            assert argv[argv.index("--model") + 1] == stall_watch.MODEL and argv[argv.index("--effort") + 1] == "low"
-            self.prompts.append(stdin)
-            questions = json.loads(stdin.split("Questions:\n", 1)[1])
-            verdicts = [{"id": question["id"], "why": "the record says so"} | self.answer(question) for question in questions]
-            return stall_watch.Done(self.judge_code, json.dumps({"structured_output": {"verdicts": verdicts}}) if self.judge_code == 0 else "", "boom" if self.judge_code else "")
         if argv[:3] == ["ccx", "vcs", "gh"] and argv[argv.index("--") + 1 : argv.index("--") + 3] == ["pr", "view"]:
             return stall_watch.Done(0, json.dumps({"comments": self.comments.get(argv[argv.index("--") + 3], [])}), "")
         if argv[:3] == ["ccx", "vcs", "gh"]:
@@ -99,6 +93,14 @@ class FakeShell(stall_watch.Shell):
         if Path(argv[1]).name == "ledger.py":
             return stall_watch.Done(self.ledger_code, json.dumps(self.rows) if self.ledger_code == 0 else "", "ccn down" if self.ledger_code else "")
         raise AssertionError(f"unexpected command {argv}")
+
+    def batch(self, kind: str, prompt: str, schema: str, *, drive: str | None = None, timeout: float = 0) -> dict | None:
+        assert (kind, schema, drive) == (stall_watch.JUDGE_KIND, stall_watch.SCHEMA, "durable")
+        self.prompts.append(prompt)
+        if self.judge_fails:
+            return None
+        questions = json.loads(prompt.split("Questions:\n", 1)[1])
+        return {"verdicts": [{"id": question["id"], "why": "the record says so"} | self.answer(question) for question in questions]}
 
     def board_records(self) -> list[dict]:
         found = [record(800000, "board-watch", "note", "board", 1, topic="board-rows", fields={"attrs": {"session": SESSION, "board": json.dumps(board_rows.snapshot(self.doc))}})]
@@ -157,7 +159,9 @@ def opened(config: Path) -> dict:
 
 
 def watch(shell: FakeShell, config: Path) -> None:
-    assert stall_watch.main(["--config", str(config)], shell) == 0
+    with pytest.MonkeyPatch.context() as patched:
+        patched.setattr(stall_watch.judge, "batch", shell.batch)
+        assert stall_watch.main(["--config", str(config)], shell) == 0
 
 
 def test_a_stall_reaches_the_live_successor_of_the_lane_that_posted_the_prs_newest_head(config):
@@ -475,7 +479,7 @@ def test_a_root_go_that_opens_with_its_clock_time_settles_the_carry_of_its_head(
 def test_a_failed_sonnet_call_leaves_the_carry_to_both_owners_and_asks_again_next_pass(config):
     shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 20)], [row("101")])
     shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": OLD[:7], "at": stamp(60)}}}
-    shell.judge_code = 1
+    shell.judge_fails = True
 
     watch(shell, config)
     watch(shell, config)

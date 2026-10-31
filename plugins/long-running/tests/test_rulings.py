@@ -456,6 +456,25 @@ def package(home: Path) -> Path:
     return root
 
 
+class Judge:
+    """The drive's judge, scripted: it records each question and answers with `verdict(kind, artifact)`, `None` by default, as a failed call."""
+
+    def __init__(self) -> None:
+        self.asked: list[tuple[str, str, str, dict]] = []
+        self.verdict = lambda kind, artifact: None
+
+    def __call__(self, kind: str, evidence: str, artifact: str, **kwargs) -> rulings.judge.Verdict | None:
+        self.asked.append((kind, evidence, artifact, kwargs))
+        return self.verdict(kind, artifact)
+
+
+@pytest.fixture(autouse=True)
+def judged(monkeypatch: pytest.MonkeyPatch) -> Judge:
+    stub = Judge()
+    monkeypatch.setattr(rulings.judge, "judge", stub)
+    return stub
+
+
 @pytest.fixture
 def state(home: Path) -> Path:
     path = home / ".claude" / "scratch" / "brook"
@@ -883,6 +902,32 @@ def test_classify_writes_a_scope_row_its_card_and_one_record_to_every_live_lane(
     assert "> uploads stay out of the desktop shell. keep them in the journal" in announced
     assert "3. The journal may keep an upload queue. (permits, proposed, waits for the owner's tick)" in announced
     assert [post[index + 1] for index, flag in enumerate(post) if flag == "--to"] == ["lane-a", "lane-b"]
+
+
+def test_classify_warns_of_each_new_implication_the_judge_reads_as_misstating_his_words_and_writes_it_anyway(
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys, judged: Judge
+) -> None:
+    captured(state, capture("4", "uploads stay out of the desktop shell. keep them in the journal"))
+    shell = RegisterShell(seeded(package), records=LIVE)
+    three = [
+        {"text": "The desktop shell gains no uploader.", "direction": "removes"},
+        {"text": "Shell upload code is deleted.", "direction": "removes"},
+        {"text": "The journal may keep an upload queue.", "direction": "permits"},
+    ]
+    binds = rulings.judge.Verdict("yes", "Shell upload code is deleted.", "uploads stay out of the desktop shell", "He keeps uploads out of the shell; he never asked for its code to be deleted.")
+    judged.verdict = lambda kind, artifact: binds if artifact.startswith("Shell upload") else None
+    path = tmp_path / "classified.json"
+    path.write_text(json.dumps([{"digest": "4" * 16, "kind": "scope", "words": "uploads stay out of the desktop shell.", "implications": three, "names": ["desktop shell"], "surfaces": ["desktop app"]}]))
+
+    assert rulings.main(["classify", "--program", "brook", "--repo", REPO, str(path)], shell) == 0
+
+    assert sorted(artifact for _, _, artifact, _ in judged.asked) == sorted(f"{item['text']} ({item['direction']})" for item in three)
+    assert {(kind, evidence, kwargs["drive"]) for kind, evidence, _, kwargs in judged.asked} == {
+        ("implication", f'His words on ruling {PROMPT_KEY}, verbatim, oldest first:\n- Oct 23 5:30 AM PT: "uploads stay out of the desktop shell. keep them in the journal"', "brook-drive")
+    }
+    [warning] = [line for line in capsys.readouterr().err.splitlines() if line.startswith("WARN")]
+    assert warning.startswith(f"WARN {PROMPT_KEY} implication 2 misstates the owner's words and is written anyway: He keeps uploads out of the shell;")
+    assert len(json.loads(shell.rows[PROMPT_KEY]["implications"])) == 3
 
 
 def test_classify_posts_one_record_per_batch_however_many_rows_and_captures_it_touches(
@@ -2305,7 +2350,7 @@ def test_confirm_takes_an_owner_answer_classified_onto_the_row_or_cited_by_its_i
     assert json.loads(cited.rows["rule/aaaaaaa"]["implications"])[1]["state"] == "ticked"
 
 
-def test_amend_links_an_answer_and_rewrites_one_implication_and_records_both_on_the_row(home: Path, package: Path, state: Path, capsys) -> None:
+def test_amend_links_an_answer_and_rewrites_one_implication_and_records_both_on_the_row(home: Path, package: Path, state: Path, capsys, judged: Judge) -> None:
     shell = RegisterShell(seeded(package), answers=[ROUND_TWO])
     was = json.loads(shell.rows["rule/aaaaaaa"]["implications"])[1]["text"]
 
@@ -2316,6 +2361,7 @@ def test_amend_links_an_answer_and_rewrites_one_implication_and_records_both_on_
     assert ROUND_TWO["id"] in json.loads(row["answer"])
     assert json.loads(row["implications"])[1]["text"] == "Relay cleanup lives in the journal crate."
     assert [(edit.get("answer"), edit.get("implication"), edit.get("was")) for edit in json.loads(row["amends"])] == [([ROUND_TWO["id"]], None, None), (None, 2, was)]
+    assert [(kind, artifact) for kind, _, artifact, _ in judged.asked] == [("implication", "Relay cleanup lives in the journal crate. (removes)")]
 
 
 def test_an_owner_requirement_binds_when_recorded_and_amend_moves_a_permits_line_to_requires(home: Path, package: Path, state: Path, capsys) -> None:

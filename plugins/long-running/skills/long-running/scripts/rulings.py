@@ -61,6 +61,9 @@ that replaces the one line ``--strike`` names, in that line's direction.
 ``amend`` links answer ids to a row and rewrites one implication's text or direction, keeping its state and proof; each edit
 lands on the row's ``amends`` list with its time and, for an implication, the text or direction it replaced. An implication
 ``removes`` or ``requires`` binds the moment it is recorded; only a ``permits`` line waits for the owner's tick.
+Each implication line ``classify``, ``confirm --implication`` and ``amend`` write goes to the drive's judge with the owner's
+words on its row verbatim; a line it reads as saying other than his words, binding what they only permit, or leaving
+unbound what they demand prints one ``WARN`` line on stderr naming the ``amend`` that rewrites it, and stays written.
 
 ``--program`` uses ``~/.claude/scratch/<program>`` as the state directory. ``--drive``
 resolves the program and the state directory from the drive registry. With neither, the drive is the
@@ -98,14 +101,16 @@ import re
 import subprocess
 import sys
 from collections.abc import Callable, Iterable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import cache, cached_property
 from pathlib import Path
 
 from zoneinfo import ZoneInfo
 
+from long_running import judge
 from long_running.judge import captures
 from long_running.ruling_documents import DocumentIndex
 
@@ -137,6 +142,7 @@ NOT_RULINGS = ("corpus/", "no/")
 CORPUS_KEY = "corpus/b-tests"
 UNANCHORED = frozenset({"pending", "none", "all"})
 IMPLICATION_COUNTS = range(3, 7)
+JUDGED_AT_ONCE = 6
 DIRECTIONS = ("removes", "requires", "permits")
 BINDING_DIRECTIONS = frozenset({"removes", "requires"})
 ANSWER_SOURCE = "answer"
@@ -1426,6 +1432,7 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
         documents = DocumentIndex(sweep_words, sweep_starts(names))
         touched_rows: dict[str, str] = {}
         repeats: dict[str, list[str]] = {}
+        fresh: dict[str, list[dict]] = {}
         before = {key: dict(fields) for key, fields in loaded.rows.items()}
         for entry in entries:
             result = applied(loaded, captured, entry, files, documents)
@@ -1434,12 +1441,32 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
                 touched_rows.setdefault(result["key"], result["how"])
             if result.get("repeated"):
                 repeats[result["key"]] = result["hits"]
+            if "key" in result and (added := len(entry.get("implications") or [])):
+                fresh.setdefault(result["key"], []).extend(result["implications"][-added:])
         if touched_rows and (drive_entry := entry_of(args)):
             cci = drive.cci_drive(drive_entry)
             announce(loaded, cci, live_lanes(loaded, cci), touched_rows, before)
             for key, hits in repeats.items():
                 post_repeat(loaded, cci, key, hits)
+    for key, items in fresh.items():
+        misstated(args, loaded, key, items)
     return 0
+
+
+def misstated(args: argparse.Namespace, loaded: Register, key: str, items: list[dict]) -> None:
+    """Warn the classifier of each new implication line on `key` that the drive's judge reads as misstating the owner's words; the line stays written."""
+    evidence = judge.owner_words(key, judge.said(loaded.rows[key], loaded.state))
+    backend, entry = judge.backend_from(os.environ), entry_of(args)
+    with ThreadPoolExecutor(JUDGED_AT_ONCE) as pool:
+        verdicts = list(pool.map(lambda item: judge.judge("implication", evidence, f"{item['text']} ({item['direction']})", backend=backend, drive=entry["drive"] if entry else None), items))
+    for item, verdict in zip(items, verdicts):
+        if verdict is not None and verdict.flagged:
+            print(
+                f"WARN {key} implication {item['n']} misstates the owner's words and is written anyway: {verdict.sentence}"
+                f' The line: "{verdict.artifact_phrase}"; his words: "{verdict.evidence_phrase}".'
+                f" Rewrite it with `rulings.py amend {key} --implication {item['n']} --text <line> --direction <removes|requires|permits>`, or keep it.",
+                file=sys.stderr,
+            )
 
 
 def implication_lines(fields: dict[str, str]) -> list[str]:
@@ -1460,7 +1487,10 @@ def numbers(value: str | None, implications: list[dict]) -> set[int]:
 
 def cmd_confirm(args: argparse.Namespace, shell: ledger.Shell) -> int:
     with writing(args, shell) as loaded:
-        return confirmed(args, loaded, args.key)
+        code = confirmed(args, loaded, args.key)
+    if code == 0 and args.implication:
+        misstated(args, loaded, args.key, listed(loaded.rows[args.key]["implications"])[-1:])
+    return code
 
 
 def source_answers(fields: dict[str, str]) -> set[str]:
@@ -1550,6 +1580,8 @@ def cmd_amend(args: argparse.Namespace, shell: ledger.Shell) -> int:
             return 0
         loaded.write(args.key, answer=answers + added, implications=implications, amends=listed(fields.get("amends")) + edits)
         print("\n".join(implication_lines(loaded.rows[args.key])))
+    if args.implication is not None:
+        misstated(args, loaded, args.key, named)
     return 0
 
 
@@ -1724,9 +1756,50 @@ def shape_rows(loaded: Register) -> dict[str, dict[str, str]]:
     return {key: fields for key, fields in loaded.rulings().items() if fields.get("status") == "in-force" and shaped(fields)}
 
 
-def tests_naming(diff: Diff, key: str, fields: dict[str, str]) -> bool:
+def tests_naming(diff: Diff, key: str, fields: dict[str, str]) -> str:
+    """The lines each test file of `diff` adds, for every test file one of whose added lines names `key` or one of its answers; empty when none does."""
     names = {key, *(str(answer)[:SHORT] for answer in listed(fields.get("answer")))}
-    return any(testfiles.test_file(file) and any(name in text for name in names) for file, _, text in diff.added)
+    files = sorted({file for file, _, text in diff.added if testfiles.test_file(file) and any(name in text for name in names)})
+    return "\n\n".join("\n".join([file, *(text for added, _, text in diff.added if added == file)]) for file in files)
+
+
+def shape_untested(loaded: Register, args: argparse.Namespace, head: Head) -> list[str]:
+    """A cited shape row owes a test: one that names it and that the drive's judge does not read as holding a different invariant than his words. A recorded test stands in for a PR that adds none."""
+    found = []
+    for key, fields in shape_rows(loaded).items():
+        if not cites(head, key, fields):
+            continue
+        if not (tests := tests_naming(head.diff, key, fields)):
+            if not listed(fields.get("shape_tests")):
+                found.append(f"SHAPE-UNTESTED {key}\tadd a test that fails on today's code and names {key}, or record the one that does with `rulings.py shape {key} --test <repo>#<pr> <path>::<test>`")
+            continue
+        if (verdict := judged_test(loaded, args, key, fields, tests)) and verdict["verdict"] == "yes":
+            found.append(
+                f"SHAPE-UNTESTED {key}\ta judge reads the test naming {key} as asserting a different invariant than his words: {verdict['sentence']}"
+                f' The test: "{verdict["artifact_phrase"]}"; his words: "{verdict["evidence_phrase"]}".'
+                " Make it fail whenever his invariant fails, or answer this warning with the owner words it carries"
+            )
+    return found
+
+
+def judged_test(loaded: Register, args: argparse.Namespace, key: str, fields: dict[str, str], tests: str) -> dict | None:
+    """The judge's verdict on `tests` against the owner's words on `key`, kept per evidence and test text so a head is judged once, not once a pass; `None` when the call failed, so nothing is added."""
+    evidence = judge.owner_words(key, judge.said(fields, loaded.state))
+    kept = loaded.state / "check-pr" / "judged" / f"{hashlib.sha256(json.dumps([evidence, tests]).encode()).hexdigest()[:24]}.json"
+    if kept.is_file():
+        return json.loads(kept.read_text())
+    entry = entry_of(args)
+    verdict = judge.judge(
+        "test",
+        evidence,
+        tests,
+        backend=judge.backend_from(os.environ),
+        drive=entry["drive"] if entry else None,
+    )
+    if verdict is None:
+        return None
+    write_atomic(kept, json.dumps(asdict(verdict)))
+    return asdict(verdict)
 
 
 def cmd_shapes(args: argparse.Namespace, shell: ledger.Shell) -> int:
@@ -2350,11 +2423,7 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
     findings.refusals += findings.read("the removed tests", lambda: removed_tests(loaded, head, findings, args.incident, loaded.plan(args.plan))) or []
     if args.incident:
         return
-    findings.refusals += [
-        f"SHAPE-UNTESTED {key}\tadd a test that fails on today's code and names {key}, or record the one that does with `rulings.py shape {key} --test <repo>#<pr> <path>::<test>`"
-        for key, fields in shape_rows(loaded).items()
-        if cites(head, key, fields) and not listed(fields.get("shape_tests")) and not tests_naming(head.diff, key, fields)
-    ]
+    findings.refusals += shape_untested(loaded, args, head)
     if records is not None and (major := finder_major(records, head.sha)):
         findings.refusals.append(f"FINDER-MAJOR {major[:SHORT]}")
     authorizers, scope = loaded.answer_words(), loaded.scope()
