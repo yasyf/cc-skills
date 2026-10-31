@@ -4111,6 +4111,20 @@ def tap_notes(shell: FakeShell) -> list[dict]:
     return [post for post in shell.posts if post["kind"] in ("note", "ask") and post["text"].startswith("TAP-")]
 
 
+def test_a_pr_the_owner_tapped_lands_on_its_go_with_no_fidelity_grade_and_an_open_finder_major(shell, config, tmp_path):
+    """Owner 2:48 AM Oct 31: a tapped PR merges as it is, and its finder and fidelity findings are answered, never block (root #248666)."""
+    board_surface(config)
+    lone_green_pr(shell)
+    finder_verdict(shell, "29020", "major cccc333 1 open: go/a.go:12 the retry drops the sealed read")
+    merge_go(shell, "29020", "go #29020 at cccc333")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    tap(shell, "29020", "aaaa111111")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
 def test_a_snapshot_from_an_older_board_watch_with_no_blocks_carries_no_tap_and_the_pass_goes_on(shell, config, tmp_path):
     board_surface(config)
     board_lane(config)
