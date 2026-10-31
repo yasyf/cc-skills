@@ -5643,7 +5643,7 @@ def test_an_open_finder_major_holds_the_head_until_a_finder_pass_answers_it(shel
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and len(blockers(shell)) == 1
 
 
-@pytest.mark.parametrize("settled", ["decision", "go", "resolves", "also-resolves"])
+@pytest.mark.parametrize("settled", ["decision", "decide-clears", "go", "resolves", "also-resolves"])
 def test_a_root_decision_answering_a_finder_major_or_a_later_root_go_lets_the_head_enqueue(shell, config, tmp_path, settled):
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333", finder=False)
@@ -5653,6 +5653,9 @@ def test_a_root_decision_answering_a_finder_major_or_a_later_root_go_lets_the_he
     if settled == "decision":
         shell.records.append({"seq": seq + 1, "drive": "d1", "lane": LANE, "kind": "ask", "to": ["root"], "re": seq, "refs": {"prs": [29020]}, "text": "a test gap, not a defect"})
         shell.records.append({"seq": seq + 2, "drive": "d1", "lane": "root", "kind": "decision", "to": [LANE], "re": seq + 1, "refs": {}, "text": "land it; the test gap is a follow-up PR"})
+    elif settled == "decide-clears":
+        shell.records.append({"seq": seq + 1, "drive": "d1", "lane": LANE, "kind": "note", "to": ["root"], "re": seq, "refs": {"prs": [29020]}, "text": "the seed is a test gap, not a defect"})
+        shell.records.append({"seq": seq + 2, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "re": seq + 1, "refs": {}, "text": "7:42 PM Clear finder on #29020 cccc333: rebuttal accepted."})
     elif settled == "resolves":
         shell.records.append({"seq": seq + 1, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {}, "resolves": [seq], "text": "the migration seed is a test gap; land it"})
     elif settled == "also-resolves":
@@ -5661,6 +5664,16 @@ def test_a_root_decision_answering_a_finder_major_or_a_later_root_go_lets_the_he
         merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
+def test_a_root_decide_on_the_rebuttal_chain_that_keeps_the_finding_holds_the_head(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333", finder=False)
+    seq = finder_verdict(shell, "29020", "major cccc333 1 open: go/a.go:12 the migration test seeds write version 1")
+    shell.records.append({"seq": seq + 1, "drive": "d1", "lane": LANE, "kind": "note", "to": ["root"], "re": seq, "refs": {"prs": [29020]}, "text": "the seed is a test gap, not a defect"})
+    shell.records.append({"seq": seq + 2, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "re": seq + 1, "refs": {}, "text": "Finding not cleared: seed version 2 before it lands."})
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
 
 
 def test_a_finder_major_after_a_missing_finder_record_posts_its_own_blocker(shell, config, tmp_path):
