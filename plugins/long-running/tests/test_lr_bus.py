@@ -128,3 +128,14 @@ def test_every_kind_in_the_table_has_a_whole_spec():
         assert set(spec) <= {"fields", "optional", "identity", "audience"}, kind
         assert set(spec["identity"]) <= set(spec["fields"]) | set(spec.get("optional", {})), kind
         assert spec["audience"] == "any" or set(spec["audience"]) <= {"supervisor", "lane", "pool", "owner", "root"}, kind
+
+
+def test_a_tap_carries_its_condition_as_a_typed_field():
+    record = Bus("d", "owner-board", FakeCci()).post("tap", to=["supervisor"], pr=45470, head=HEAD, by="owner", value="tapped", condition="only if the bot finding is accepted as superseded")
+
+    assert record.condition == "only if the bot finding is accepted as superseded"
+
+
+def test_a_blank_condition_is_refused():
+    with pytest.raises(Refused, match="tap.condition must be non-empty text"):
+        Bus("d", "owner-board", FakeCci()).post("tap", to=["supervisor"], pr=45470, head=HEAD, by="owner", value="tapped", condition="  ")

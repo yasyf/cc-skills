@@ -133,3 +133,10 @@ def test_a_grading_job_whose_wrapper_died_frees_its_item_for_the_next_dispatch(s
     assert [held.kind for held in out.released["sprite-3/finder/46052"]] == ["grade"]
     assert store.open_items(REPO, 46052)[0].worker is None
     assert [row["name"] for row in store.workers()] == []
+
+
+def test_a_fresh_store_acts_on_every_landable_head_in_its_first_pass(store):
+    out = run_pass(store, [facts(number=n) for n in range(1, 11)], T0, Posts())
+
+    assert sorted(f.number for f, v in out.acts if v.action == "enqueue") == list(range(1, 11))
+    assert len(store.open_items(REPO)) == 10

@@ -135,3 +135,13 @@ def test_facts_belong_to_a_head_so_a_new_push_starts_ungraded():
     [row] = facts.assemble(store, REPO, [status(1, head=HEAD)], {}, {})
 
     assert (row.finder, row.tap, row.graded) == (None, None, False)
+
+
+def test_a_conditional_tap_is_not_a_tap_and_keeps_its_condition_as_a_fact():
+    store = Store.memory()
+    run = Recorded(bus=[bus_row(3, "tap", dict(pr=45470, head=HEAD, by="owner", value="tapped", condition="only if the finding is superseded"), lane="owner-board")])
+    facts.ingest(store, REPO, Bus("d", "supervisor", run).read(0)[0])
+
+    assert store.facts(REPO, 45470, HEAD) == {"tap": "conditional", "condition": "only if the finding is superseded"}
+    [row] = facts.assemble(store, REPO, [status(45470)], {}, {})
+    assert (row.tap, row.tapped, row.condition) == ("conditional", False, "only if the finding is superseded")

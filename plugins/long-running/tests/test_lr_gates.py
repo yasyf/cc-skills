@@ -72,3 +72,18 @@ def test_nothing_missing_means_landable():
 
     assert gates.missing(facts) == []
     assert facts.landable
+
+
+def test_a_conditional_tap_never_anchors_a_carry():
+    store = Store.memory()
+    store.put_fact(REPO, 45470, OLD, "tap", "conditional", T0)
+    store.put_fact(REPO, 45470, OLD, "condition", "only if covered", T0)
+
+    assert not gates.carry_tap(store, REPO, 45470, OLD, NEW, {OLD: "p1", NEW: "p1"}, T0)
+    assert store.facts(REPO, 45470, NEW) == {}
+
+
+def test_missing_names_the_condition_a_tap_waits_on():
+    facts = Facts(repo=REPO, number=45470, head=NEW, base="dev", lane="l", ci="success", mergeable="clean", finder="clear", fidelity="pass", tap="conditional", condition="only if covered")
+
+    assert gates.missing(facts) == ["tap given only if covered"]
