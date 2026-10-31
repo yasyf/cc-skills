@@ -398,6 +398,30 @@ def test_done_and_a_root_stand_down_retire_a_lane(tmp_path, brief):
     assert [(lane.name, lane.retired_by) for lane in store.all_lanes()] == [("conflicts-2", "done"), ("red-sweep-3", "root")]
 
 
+@pytest.mark.parametrize(("kind", "text"), [("state", "conflicts-2 STAND-DOWN per #265653. Thread names 2 releases"), ("state", "2:10 PM conflicts-2: standing down, root owns it"), ("stopped", "stopping at root's word")])
+def test_a_lane_that_records_its_own_stand_down_is_retired_not_relaunched(tmp_path, brief, kind, text):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    fake.feed.append(record(2, "conflicts-2", kind, T0, text, ("root",)))
+    fake.peers = [who("conflicts-2", False, T0)]
+
+    out = lanes.tick(store, fake.deps, T0 + timedelta(minutes=16), 1)
+
+    assert out.relaunched == [] and fake.launches == []
+    assert (store.lane("conflicts-2").state, store.lane("conflicts-2").retired_by) == ("retired", "stand-down")
+
+
+def test_a_lane_reporting_another_lanes_stand_down_stays_watched(tmp_path, brief):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    fake.feed.append(record(2, "conflicts-2", "state", T0, "p8-lane STAND-DOWN seen; conflicts-2 keeps restacking", ("root",)))
+    fake.peers = [who("conflicts-2", True, T0)]
+
+    lanes.tick(store, fake.deps, T0, 1)
+
+    assert store.lane("conflicts-2").state == "desired"
+
+
 def test_a_root_decide_moves_pr_ownership(tmp_path, brief):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store, prs=(46001,))
