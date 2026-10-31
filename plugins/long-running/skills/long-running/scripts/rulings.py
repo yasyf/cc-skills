@@ -104,6 +104,7 @@ from datetime import UTC, datetime, timedelta
 from functools import cache, cached_property
 from pathlib import Path
 
+from typing import TextIO
 from zoneinfo import ZoneInfo
 
 from long_running import register_reads
@@ -920,7 +921,7 @@ def refresh(loaded: Register, brief: Path, plan: Path | None) -> str:
 
 
 def cmd_register(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    print(json.dumps(register(shell, register_repo(args), program_of(args))))
+    print(json.dumps(register(shell, register_repo(args), program_of(args))), file=args.stdout)
     return 0
 
 
@@ -931,15 +932,15 @@ def cmd_match(args: argparse.Namespace, shell: ledger.Shell) -> int:
     mirror(durable, directory)
     cited = {token[:SHORT] for token in CITED.findall((register(shell, args.repo, program) or {}).get("body", ""))}
     answers = {key: answer for answer in durable if (key := answer["id"][:SHORT]) not in cited and key not in args.exclude}
-    query = sys.stdin.read()[:QUERY_CHARS]
+    query = args.stdin.read()[:QUERY_CHARS]
     hits = [hit for hit in search(shell, query, directory, args.k) if hit in answers] if answers else []
-    sys.stdout.write(within([rendered(answers[hit]) for hit in hits], args.budget))
+    args.stdout.write(within([rendered(answers[hit]) for hit in hits], args.budget))
     return 0
 
 
 def cmd_rows(args: argparse.Namespace, shell: ledger.Shell) -> int:
     loaded = Register.load(args, shell)
-    print(json.dumps({"ledger": loaded.ledger, "program": loaded.program, "state_dir": str(loaded.state), "rows": loaded.rows, "classified": loaded.classified()}, ensure_ascii=False))
+    print(json.dumps({"ledger": loaded.ledger, "program": loaded.program, "state_dir": str(loaded.state), "rows": loaded.rows, "classified": loaded.classified()}, ensure_ascii=False), file=args.stdout)
     return 0
 
 
@@ -1163,7 +1164,7 @@ def cmd_round(args: argparse.Namespace, shell: ledger.Shell) -> int:
         print(f"{len(skipped)} card(s) left the queue unsent: the owner's own tap or reply made the row, or the row is superseded", file=sys.stderr)
     taken = sorted(wanted, key=lambda item: item[:2])[:ROUND_SIZE]
     if not taken:
-        print("no ruling card queues")
+        print("no ruling card queues", file=args.stdout)
         return 0
     taken_dir = rounds / f"round-{number}"
     taken_dir.mkdir(parents=True, exist_ok=True)
@@ -1175,7 +1176,7 @@ def cmd_round(args: argparse.Namespace, shell: ledger.Shell) -> int:
     for *_, path, _ in taken:
         path.replace(taken_dir / path.name)
     write_atomic(rounds / f"round-{number}.json", json.dumps({"round": number, "keys": [row_of_card(card["waits"]) for *_, card in taken]}, indent=2) + "\n")
-    print(f"round {number}: {len(taken)} rulings on the board, foundational rows first")
+    print(f"round {number}: {len(taken)} rulings on the board, foundational rows first", file=args.stdout)
     return 0
 
 
@@ -1337,7 +1338,7 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
         done = set(loaded.classified())
         for item, capture in classifiable(loaded, args).items():
             if item not in done:
-                print(json.dumps(capture, ensure_ascii=False))
+                print(json.dumps(capture, ensure_ascii=False), file=args.stdout)
         return 0
     entries = [entry for path in args.files for entry in classifications(Path(path))]
     with writing(args, shell) as loaded:
@@ -1348,7 +1349,7 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
         files = cache(lambda: default_files(loaded, loaded.plan(args.plan)))
         batch = Batch()
         if refused := [line for entry in entries for line in refusals(loaded, captured, entry, batch)]:
-            print("\n".join(refused))
+            print("\n".join(refused), file=args.stdout)
             return 1
         names = [name for entry in entries for name in [*names_of(loaded.rows.get(entry.get("extends"), {})), *map(str, entry.get("names") or [])]]
         documents = DocumentIndex(sweep_words, sweep_starts(names))
@@ -1357,7 +1358,7 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
         before = {key: dict(fields) for key, fields in loaded.rows.items()}
         for entry in entries:
             result = applied(loaded, captured, entry, files, documents)
-            print(json.dumps(result, ensure_ascii=False))
+            print(json.dumps(result, ensure_ascii=False), file=args.stdout)
             if "key" in result:
                 touched_rows.setdefault(result["key"], result["how"])
             if result.get("repeated"):
@@ -1376,7 +1377,7 @@ def implication_lines(fields: dict[str, str]) -> list[str]:
 
 def cmd_implications(args: argparse.Namespace, shell: ledger.Shell) -> int:
     fields = Register.load(args, shell).row(args.key)
-    print("\n".join(implication_lines(fields)) or f"{args.key} carries no implications")
+    print("\n".join(implication_lines(fields)) or f"{args.key} carries no implications", file=args.stdout)
     return 0
 
 
@@ -1418,22 +1419,22 @@ def confirmed(args: argparse.Namespace, loaded: Register, key: str) -> int:
     names_source = any(answer in text for answer in source_answers(fields))
     on_card = capture and (classified or block in (card, answer_id(card)) or key in text or card in text or names_source)
     if not capture or capture.get("source") not in CONFIRM_SOURCES or not on_card:
-        print(f"CAPTURE-NOT-ON-CARD {args.capture}: confirm takes only a captured tap or reply on {key}'s card")
+        print(f"CAPTURE-NOT-ON-CARD {args.capture}: confirm takes only a captured tap or reply on {key}'s card", file=args.stdout)
         return 1
     implications = listed(fields.get("implications"))
     ticks, strikes = numbers(args.tick, implications), numbers(args.strike, implications)
     struck = [item for item in implications if item["n"] in strikes]
     if args.implication and len(struck) != 1:
-        print(f"CONFIRM-NARROW {args.capture}: a narrowed implication replaces the one line --strike names")
+        print(f"CONFIRM-NARROW {args.capture}: a narrowed implication replaces the one line --strike names", file=args.stdout)
         return 1
     picked = text.strip().lower().removesuffix(RECOMMENDED_MARK.lower())
     tapped = capture["source"] == "slack-action" or (capture["source"] in TAPS and picked == RIGHT)
     if tapped and (picked != RIGHT or args.tick != "all" or strikes):
-        print(f"CONFIRM-TAP {args.capture}: a Right tap ticks every line with --tick all; Some wrong waits for the owner's reply naming the lines, and Other's modal text names them")
+        print(f"CONFIRM-TAP {args.capture}: a Right tap ticks every line with --tick all; Some wrong waits for the owner's reply naming the lines, and Other's modal text names them", file=args.stdout)
         return 1
     named_lines = {int(number) for number in NUMBER.findall(text)}
     if not tapped and not classified and (args.tick == "all" or not (ticks | strikes) <= named_lines):
-        print(f"CONFIRM-UNNAMED {args.capture}: a reply ticks or strikes only the lines it names by number")
+        print(f"CONFIRM-UNNAMED {args.capture}: a reply ticks or strikes only the lines it names by number", file=args.stdout)
         return 1
     for item in implications:
         if item["n"] in strikes:
@@ -1443,13 +1444,13 @@ def confirmed(args: argparse.Namespace, loaded: Register, key: str) -> int:
     if args.implication:
         implications += numbered([{"text": args.implication, "direction": struck[0]["direction"]}], len(implications) + 1, args.capture)
     loaded.write(key, implications=implications)
-    print("\n".join(implication_lines(loaded.rows[key])))
+    print("\n".join(implication_lines(loaded.rows[key])), file=args.stdout)
     return 0
 
 
 def cmd_amend(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if (args.implication is None) != (args.text is None and args.direction is None):
-        print("AMEND-USAGE: --implication goes with --text, --direction, or both")
+        print("AMEND-USAGE: --implication goes with --text, --direction, or both", file=args.stdout)
         return 2
     with writing(args, shell) as loaded:
         fields = loaded.row(args.key)
@@ -1463,7 +1464,7 @@ def cmd_amend(args: argparse.Namespace, shell: ledger.Shell) -> int:
         edits = [{"at": stamp(), "answer": added}] if added else []
         if args.implication is not None:
             if not (named := [item for item in implications if item["n"] == args.implication]):
-                print(f"NO-IMPLICATION {args.key}: it carries no implication {args.implication}")
+                print(f"NO-IMPLICATION {args.key}: it carries no implication {args.implication}", file=args.stdout)
                 return 1
             edit = {"at": stamp(), "implication": args.implication}
             if args.text is not None:
@@ -1474,10 +1475,10 @@ def cmd_amend(args: argparse.Namespace, shell: ledger.Shell) -> int:
                 named[0]["direction"] = args.direction
             edits.append(edit)
         if not edits:
-            print(f"{args.key} already carries every answer named")
+            print(f"{args.key} already carries every answer named", file=args.stdout)
             return 0
         loaded.write(args.key, answer=answers + added, implications=implications, amends=listed(fields.get("amends")) + edits)
-        print("\n".join(implication_lines(loaded.rows[args.key])))
+        print("\n".join(implication_lines(loaded.rows[args.key])), file=args.stdout)
     return 0
 
 
@@ -1492,21 +1493,21 @@ def cmd_slice(args: argparse.Namespace, shell: ledger.Shell) -> int:
             raise SystemExit("slice --required needs --pr and --head")
         repo, number = pull(args, shell)
         base = args.base or json.loads(shell.run(ghread.read("pr", "view", number, "--repo", repo, "--json", "baseRefName")))["baseRefName"]
-        sys.stdout.write(required_slice(loaded, pr_diff(args, shell, repo, base, args.head), f"{repo}#{number}", args.head))
+        args.stdout.write(required_slice(loaded, pr_diff(args, shell, repo, base, args.head), f"{repo}#{number}", args.head))
     elif args.root:
-        sys.stdout.write(root_slice(loaded))
+        args.stdout.write(root_slice(loaded))
     elif args.refresh:
-        print(refresh(loaded, Path(args.refresh), plan_path(args, loaded)))
+        print(refresh(loaded, Path(args.refresh), plan_path(args, loaded)), file=args.stdout)
     else:
         if not (args.lane and args.step):
             raise SystemExit("slice needs --lane and --step, --root, --refresh BRIEF, or --required")
-        sys.stdout.write(lane_slice(loaded, Want(args.lane, args.step, args.paths, args.codex), plan_path(args, loaded)))
+        args.stdout.write(lane_slice(loaded, Want(args.lane, args.step, args.paths, args.codex), plan_path(args, loaded)))
     return 0
 
 
 def cmd_plan(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if plan := Register.load(args, shell, last=True, kept_any=True).plan(None):
-        print(plan)
+        print(plan, file=args.stdout)
     return 0
 
 
@@ -1521,7 +1522,7 @@ def cmd_sweep(args: argparse.Namespace, shell: ledger.Shell) -> int:
     else:
         hits = sweeper.files(default_files(loaded, plan_path(args, loaded)))
     for hit in hits:
-        print(hit)
+        print(hit, file=args.stdout)
     return 0
 
 
@@ -1634,10 +1635,10 @@ def cmd_readback(args: argparse.Namespace, shell: ledger.Shell) -> int:
         raise SystemExit(f"no drive runs program {loaded.program}; readback reads the lane's contract from its cci drive")
     read = read_back(loaded, drive.cci_drive(entry), args.contract, args.lane, args.step, plan_path(args, loaded), f"--drive {args.drive}" if args.drive else f"--program {loaded.program}")
     if isinstance(read, str):
-        print(read)
+        print(read, file=args.stdout)
         return 1
     if read.sliced_by:
-        print(f"WARNING READBACK-SLICE-FROM-BRIEF #{args.contract}: {read.sliced_by}")
+        print(f"WARNING READBACK-SLICE-FROM-BRIEF #{args.contract}: {read.sliced_by}", file=args.stdout)
     fresh = lane_slice(loaded, read.want, plan_path(args, loaded))
     posted = datetime.fromisoformat(read.record["at"])
     later = {digest for digest, capture in captures(loaded.state).items() if captured_at(capture["at"]) > posted}
@@ -1651,8 +1652,8 @@ def cmd_readback(args: argparse.Namespace, shell: ledger.Shell) -> int:
     warnings += [f"READBACK-HIT-UNMARKED {hit}" for hit in expected if not any(line.startswith(hit) and VERDICT.search(line[len(hit) :]) for line in lines)]
     warnings += narrowed_lines(narrowings(loaded, read.body), "READBACK-NARROWED")
     for warning in warnings:
-        print(f"WARNING {warning}")
-    print(f"readback request {args.lane} {SLICE_HASH.search(fresh)['hash']}: {len(keys)} rows, contract #{args.contract}{f' at {read.attached}' if read.attached else ''}; a fidelity desk grades it against each row's words and implications")
+        print(f"WARNING {warning}", file=args.stdout)
+    print(f"readback request {args.lane} {SLICE_HASH.search(fresh)['hash']}: {len(keys)} rows, contract #{args.contract}{f' at {read.attached}' if read.attached else ''}; a fidelity desk grades it against each row's words and implications", file=args.stdout)
     return 0
 
 
@@ -1686,9 +1687,9 @@ def cmd_accepted(args: argparse.Namespace, shell: ledger.Shell) -> int:
         raise SystemExit(f"no drive runs program {loaded.program}; accepted reads the lane's read-back from its cci drive")
     cci = drive.cci_drive(entry)
     if why := unaccepted(loaded, cci, args.lane, pr_records(shell, cci, *READBACK_FLAGS)):
-        print(f"CONTRACT-MISSING {args.lane}: {why}")
+        print(f"CONTRACT-MISSING {args.lane}: {why}", file=args.stdout)
         return 1
-    print(f"accepted {args.lane}")
+    print(f"accepted {args.lane}", file=args.stdout)
     return 0
 
 
@@ -1710,10 +1711,10 @@ def tests_naming(diff: Diff, key: str, fields: dict[str, str]) -> bool:
 def cmd_shapes(args: argparse.Namespace, shell: ledger.Shell) -> int:
     rows = {key: fields for key, fields in shape_rows(Register.load(args, shell)).items() if not (args.untested and listed(fields.get("shape_tests")))}
     if args.json:
-        print(json.dumps([{"key": key, "at": fields.get("at", ""), "updated_at": fields.get("updated_at", ""), "words": fields.get("words", ""), "shape_tests": listed(fields.get("shape_tests"))} for key, fields in rows.items()], ensure_ascii=False))
+        print(json.dumps([{"key": key, "at": fields.get("at", ""), "updated_at": fields.get("updated_at", ""), "words": fields.get("words", ""), "shape_tests": listed(fields.get("shape_tests"))} for key, fields in rows.items()], ensure_ascii=False), file=args.stdout)
         return 0
     for key, fields in rows.items():
-        print(f"{key} {', '.join(map(str, listed(fields.get('shape_tests')))) or 'untested'} | {first_sentence(fields.get('words') or '')[:ASK_QUOTE]}")
+        print(f"{key} {', '.join(map(str, listed(fields.get('shape_tests')))) or 'untested'} | {first_sentence(fields.get('words') or '')[:ASK_QUOTE]}", file=args.stdout)
     return 0
 
 
@@ -1722,25 +1723,25 @@ def cmd_shape(args: argparse.Namespace, shell: ledger.Shell) -> int:
         fields = loaded.row(args.key)
         if args.not_shape:
             loaded.write(args.key, shape="no", shape_why=args.not_shape)
-            print(f"{args.key} is no shape ruling: {args.not_shape}")
+            print(f"{args.key} is no shape ruling: {args.not_shape}", file=args.stdout)
             return 0
         loaded.write(args.key, shape="yes", shape_tests=list(dict.fromkeys([*listed(fields.get("shape_tests")), args.test])))
-        print(f"{args.key} shape tested by {', '.join(listed(loaded.rows[args.key]['shape_tests']))}")
+        print(f"{args.key} shape tested by {', '.join(listed(loaded.rows[args.key]['shape_tests']))}", file=args.stdout)
     return 0
 
 
 def cmd_narrowed(args: argparse.Namespace, shell: ledger.Shell) -> int:
     loaded = Register.load(args, shell)
     if args.contract is None:
-        found = narrowings(loaded, sys.stdin.read())
+        found = narrowings(loaded, args.stdin.read())
     elif not (entry := entry_of(args)):
         raise SystemExit(f"no drive runs program {loaded.program}; narrowed --contract reads the record from its cci drive")
     elif (record := record_of(shell, drive.cci_drive(entry), args.contract)).get("kind") != "contract":
         return 0
     else:
-        found = unanswered(loaded, narrowings(loaded, record_body(record)), sys.stdin.read())
+        found = unanswered(loaded, narrowings(loaded, record_body(record)), args.stdin.read())
     for line in (found := narrowed_lines(found, "NARROWED")):
-        print(line)
+        print(line, file=args.stdout)
     return 1 if found else 0
 
 
@@ -1788,7 +1789,7 @@ def cmd_pr_block(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if not matched:
         rulings.append("- No anchored ruling matches this change.")
         words.append("- None of your rulings names the code this change touches.")
-    print("\n".join([*rulings, "", *words]))
+    print("\n".join([*rulings, "", *words]), file=args.stdout)
     return 0
 
 
@@ -1834,7 +1835,7 @@ def cmd_table(args: argparse.Namespace, shell: ledger.Shell) -> int:
     rulings = {key: fields for key, fields in loaded.rows.items() if not key.startswith(NOT_RULINGS)}
     if not args.since_last_update:
         shown = rulings if args.full else {key: fields for key, fields in rulings.items() if fields.get("status") != "superseded"}
-        print("\n".join(table(ordered(shown))))
+        print("\n".join(table(ordered(shown))), file=args.stdout)
         return 0
     cursor = loaded.state / "register" / "table-cursor.json"
     last = json.loads(cursor.read_text())["at"] if cursor.exists() else ""
@@ -1846,7 +1847,7 @@ def cmd_table(args: argparse.Namespace, shell: ledger.Shell) -> int:
     lines = []
     for title, rows in parts:
         lines += [f"**{title}**", "", *(table(ordered(rows)) if rows else ["None."]), ""]
-    print("\n".join(lines).rstrip())
+    print("\n".join(lines).rstrip(), file=args.stdout)
     write_atomic(cursor, json.dumps({"at": now.strftime("%Y-%m-%dT%H:%M:%SZ")}) + "\n")
     return 0
 
@@ -1857,7 +1858,7 @@ def cmd_glossary(args: argparse.Namespace, shell: ledger.Shell) -> int:
     for fields in loaded.rulings().values():
         texts += [fields.get("words") or "", *(str(repeat.get("words") or "") for repeat in listed(fields.get("repeats")))]
     owner = sorted({word for text in texts for word in WORD.findall(text.lower())} - {noun.lower() for noun in PRODUCT_NOUNS})
-    print("\n".join([*PRODUCT_NOUNS, *owner]))
+    print("\n".join([*PRODUCT_NOUNS, *owner]), file=args.stdout)
     return 0
 
 
@@ -1931,13 +1932,13 @@ def replied_to(entries: list[dict], text: str) -> str | None:
 def slack_proof(args: argparse.Namespace, shell: ledger.Shell, key: str, fields: dict[str, str], owner: list[dict], tapped: tuple[dict, str]) -> list[dict] | None:
     action, shown = tapped
     if not AFFIRMATIVE.match(action.get("label") or ""):
-        print(f"AUTHORIZE-NOT-AFFIRMATIVE {key}: the tap was {action.get('label')!r}, which grants nothing")
+        print(f"AUTHORIZE-NOT-AFFIRMATIVE {key}: the tap was {action.get('label')!r}, which grants nothing", file=args.stdout)
         return None
     if not quotes_row(shown, key, fields):
-        print(f"AUTHORIZE-CARD-NAMES-NO-ROW {key}: the tapped card does not quote {key} and its words")
+        print(f"AUTHORIZE-CARD-NAMES-NO-ROW {key}: the tapped card does not quote {key} and its words", file=args.stdout)
         return None
     if pr_head := untouched(args, shell, fields, str(action.get("id") or "")):
-        print(f"AUTHORIZE-ROW-UNTOUCHED {key}: {pr_head} changes nothing {key} covers, so the tap authorizes nothing")
+        print(f"AUTHORIZE-ROW-UNTOUCHED {key}: {pr_head} changes nothing {key} covers, so the tap authorizes nothing", file=args.stdout)
         return None
     permalink = f"p{action['ts'].replace('.', '')}"
     return [
@@ -1962,11 +1963,11 @@ def board_proof(args: argparse.Namespace, loaded: Register, shell: ledger.Shell,
         if tap.get("at") == args.action and (pr := board_rows.pr_of(row_id))
     ]
     if not taps:
-        print(f"AUTHORIZE-NO-TAP {key}: neither the root transcript nor board {session[:8]} holds a tap at {args.action}; a root go is no authorization")
+        print(f"AUTHORIZE-NO-TAP {key}: neither the root transcript nor board {session[:8]} holds a tap at {args.action}; a root go is no authorization", file=args.stdout)
         return None
     approved = [tap for tap in taps if tap[2].get("verdict") == "approved"]
     if not approved:
-        print(f"AUTHORIZE-NOT-AFFIRMATIVE {key}: the board tap was {taps[0][2].get('verdict')!r}, which grants nothing")
+        print(f"AUTHORIZE-NOT-AFFIRMATIVE {key}: the board tap was {taps[0][2].get('verdict')!r}, which grants nothing", file=args.stdout)
         return None
     reasons = []
     for block, pr, tap in approved:
@@ -1981,7 +1982,7 @@ def board_proof(args: argparse.Namespace, loaded: Register, shell: ledger.Shell,
             body = f"Owner approved #{pr} at {tap['head']}{carried} on board {session[:8]} block {block} at {args.action}; the row quotes {key}, so merging also authorizes {key}."
             made = [answer for answer in owner if proof in (answer.get("tags") or [])]
             return made or [ccn(shell, loaded.repo, "answer", "add", f"Merge #{pr}?", "--body", body, "--label", "from:owner", "--label", f"program:{loaded.program}", "--label", proof)]
-    print("\n".join(reasons))
+    print("\n".join(reasons), file=args.stdout)
     return None
 
 
@@ -1992,7 +1993,7 @@ def card_proof(args: argparse.Namespace, loaded: Register, shell: ledger.Shell, 
         shown = ""
     card, _, answers = shown.partition(CARD_ANSWERS)
     if not (newest := next((said["said"] for said in CARD_ANSWER.finditer(answers) if said["block"] == args.block), None)):
-        print(f"AUTHORIZE-NO-TAP {key}: board {session[:8]} holds no answer on block {args.block}; a root go is no authorization")
+        print(f"AUTHORIZE-NO-TAP {key}: board {session[:8]} holds no answer on block {args.block}; a root go is no authorization", file=args.stdout)
         return None
     if args.option:
         picked = re.search(rf"^\s+- {re.escape(args.option)}: (.+)$", card, re.MULTILINE)
@@ -2001,10 +2002,10 @@ def card_proof(args: argparse.Namespace, loaded: Register, shell: ledger.Shell, 
     else:
         label, granted = newest, newest == "approved"
     if not granted:
-        print(f"AUTHORIZE-NOT-AFFIRMATIVE {key}: the newest answer on block {args.block} is {newest!r}, {label!r}, which grants nothing")
+        print(f"AUTHORIZE-NOT-AFFIRMATIVE {key}: the newest answer on block {args.block} is {newest!r}, {label!r}, which grants nothing", file=args.stdout)
         return None
     if not ((sentence := first_sentence(fields.get("words") or "")) and sentence in " ".join(card.split())):
-        print(f"AUTHORIZE-CARD-NAMES-NO-ROW {key}: the card holding block {args.block} does not quote the words of {key}")
+        print(f"AUTHORIZE-CARD-NAMES-NO-ROW {key}: the card holding block {args.block} does not quote the words of {key}", file=args.stdout)
         return None
     proof = f"proof:card:{args.block}:{args.option or 'approved'}"
     title = card.split("\n", 1)[0].partition(": ")[2]
@@ -2017,7 +2018,7 @@ def cmd_authorize(args: argparse.Namespace, shell: ledger.Shell) -> int:
     loaded = Register.load(args, shell)
     key = args.row
     if key not in loaded.rulings():
-        print(f"AUTHORIZE-NO-ROW {key}: no in-force register row")
+        print(f"AUTHORIZE-NO-ROW {key}: no in-force register row", file=args.stdout)
         return 1
     fields = loaded.rows[key]
     if not (entry := entry_of(args)):
@@ -2035,23 +2036,23 @@ def cmd_authorize(args: argparse.Namespace, shell: ledger.Shell) -> int:
         capture = captures(loaded.state).get(args.prompt) or {}
         board = capture.get("source") == "board"
         if board and (capture.get("verdict") != "approved" or capture.get("row")):
-            print(f"AUTHORIZE-NOT-AFFIRMATIVE {key}: board capture {args.prompt} is no approval of a card, which grants nothing")
+            print(f"AUTHORIZE-NOT-AFFIRMATIVE {key}: board capture {args.prompt} is no approval of a card, which grants nothing", file=args.stdout)
             return 1
         said = capture.get("text") if board else replied_to(entries, capture["text"]) if capture else None
         if said is None or not quotes_row(said, key, fields):
-            print(f"AUTHORIZE-PROMPT-NAMES-NO-ROW {key}: capture {args.prompt} is no board approval quoting {key} and its words, and replies to no root message that does")
+            print(f"AUTHORIZE-PROMPT-NAMES-NO-ROW {key}: capture {args.prompt} is no board approval quoting {key} and its words, and replies to no root message that does", file=args.stdout)
             return 1
         if board and (pr_head := untouched(args, shell, fields, capture.get("block") or "")):
-            print(f"AUTHORIZE-ROW-UNTOUCHED {key}: {pr_head} changes nothing {key} covers, so the approval authorizes nothing")
+            print(f"AUTHORIZE-ROW-UNTOUCHED {key}: {pr_head} changes nothing {key} covers, so the approval authorizes nothing", file=args.stdout)
             return 1
         found = [answer for answer in owner if f"proof:{capture['source']}:{args.prompt}" in (answer.get("tags") or [])]
     named_row = [answer for answer in found if key in f"{answer.get('title', '')}\n{answer.get('body', '')}" or card_id(key) in f"{answer.get('title', '')}\n{answer.get('body', '')}"]
     if not named_row:
-        print(f"AUTHORIZE-ANSWER-NAMES-NO-ROW {key}: no from:owner answer for this capture names {key}")
+        print(f"AUTHORIZE-ANSWER-NAMES-NO-ROW {key}: no from:owner answer for this capture names {key}", file=args.stdout)
         return 1
     answer = named_row[0]["id"]
     shell.run(["ccn", "-R", loaded.repo, "answer", "edit", answer, "--add-label", f"authorizes:{key}"])
-    print(f"authorized {key} by {answer[:SHORT]}")
+    print(f"authorized {key} by {answer[:SHORT]}", file=args.stdout)
     return 0
 
 
@@ -2059,7 +2060,7 @@ def cmd_status(args: argparse.Namespace, shell: ledger.Shell) -> int:
     with writing(args, shell) as loaded:
         loaded.row(args.key)
         loaded.write(args.key, status=args.state, evidence=args.evidence)
-    print(f"{args.key} {args.state} ({args.evidence})")
+    print(f"{args.key} {args.state} ({args.evidence})", file=args.stdout)
     return 0
 
 
@@ -2070,7 +2071,7 @@ def cmd_anchor(args: argparse.Namespace, shell: ledger.Shell) -> int:
     with writing(args, shell) as loaded:
         loaded.row(args.key)
         loaded.write(args.key, **fields)
-    print(f"{args.key} anchored: {', '.join(f'{name} {len(values)}' for name, values in fields.items())}")
+    print(f"{args.key} anchored: {', '.join(f'{name} {len(values)}' for name, values in fields.items())}", file=args.stdout)
     return 0
 
 
@@ -2082,7 +2083,7 @@ def cmd_names(args: argparse.Namespace, shell: ledger.Shell) -> int:
         names, repeats = names_of(fields), listed(fields.get("repeats"))
         absent = [name for name in args.remove if name not in names] + [key for key in args.drop_repeat if key not in {repeat.get("key") for repeat in repeats}]
         if absent:
-            print(f"NOT-ON-ROW {args.key}: {', '.join(absent)} is not on the row")
+            print(f"NOT-ON-ROW {args.key}: {', '.join(absent)} is not on the row", file=args.stdout)
             return 1
         kept = [repeat for repeat in repeats if repeat.get("key") not in args.drop_repeat]
         counted = sum(bool(repeat.get("repeat", True)) for repeat in repeats if repeat.get("key") in args.drop_repeat)
@@ -2093,7 +2094,7 @@ def cmd_names(args: argparse.Namespace, shell: ledger.Shell) -> int:
             said=str(int(fields.get("said") or 1) - counted),
             narrowed=[*listed(fields.get("narrowed")), {"removed": args.remove, "repeats": args.drop_repeat, "why": args.why, "at": stamp()}],
         )
-    print(f"{args.key} narrowed under {args.why}: removed {', '.join([*args.remove, *args.drop_repeat])}")
+    print(f"{args.key} narrowed under {args.why}: removed {', '.join([*args.remove, *args.drop_repeat])}", file=args.stdout)
     return 0
 
 
@@ -2108,7 +2109,7 @@ def superseded(loaded: Register, old_key: str, replacement: str) -> None:
 def cmd_supersede(args: argparse.Namespace, shell: ledger.Shell) -> int:
     with writing(args, shell) as loaded:
         superseded(loaded, args.old, args.by)
-    print(f"{args.old} superseded by {args.by}")
+    print(f"{args.old} superseded by {args.by}", file=args.stdout)
     return 0
 
 
@@ -2485,7 +2486,7 @@ def cmd_check_pr(args: argparse.Namespace, shell: ledger.Shell) -> int:
         comments = tuple(comment.get("body") or "" for comment in view.get("comments") or [])
         check_pr(loaded, args, Head(repo, number, args.head, view.get("body") or "", diff, comments), findings, args.base or view["baseRefName"])
     for line in [*sorted(findings.refusals, key=lambda line: CHECK_PR_ORDER.index(line.split()[0])), *findings.blockers]:
-        print(line)
+        print(line, file=args.stdout)
     return 1 if findings.refusals else 0
 
 
@@ -2597,30 +2598,30 @@ def cmd_grade(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if stray := [target for target, _ in asides if not any(fnmatch.fnmatch(mechanism.id, target) for mechanism in found)]:
         raise SystemExit(f"--not-a-mechanism names no listed mechanism: {', '.join(stray)}")
     extra = [desk_named(target) for target, _ in grounds if not any(fnmatch.fnmatch(mechanism.id, target) for mechanism in found)]
-    print(f"scanned {len(scanned)} files: {', '.join(scanned) or 'none'}")
-    print(f"skipped {len(skipped)} test or prose files: {', '.join(skipped) or 'none'}")
-    print(f"shapes: migration, {', '.join(shape for shape, _ in MECHANISM_SHAPES)}")
-    print(f"mechanisms {len(found)}")
+    print(f"scanned {len(scanned)} files: {', '.join(scanned) or 'none'}", file=args.stdout)
+    print(f"skipped {len(skipped)} test or prose files: {', '.join(skipped) or 'none'}", file=args.stdout)
+    print(f"shapes: migration, {', '.join(shape for shape, _ in MECHANISM_SHAPES)}", file=args.stdout)
+    print(f"mechanisms {len(found)}", file=args.stdout)
     misses = [f"{key} {words}" for key, words in missing]
     for mechanism in [*found, *extra]:
         aside = next((why for target, why in asides if fnmatch.fnmatch(mechanism.id, target)), None)
         cited = [ground for target, said in grounds if fnmatch.fnmatch(mechanism.id, target) for ground in said.split(",") if ground.strip()]
         verdicts = [grounded(loaded, plan, ground.strip()) for ground in cited]
         if aside:
-            print(f"not-a-mechanism {mechanism} : {aside}")
+            print(f"not-a-mechanism {mechanism} : {aside}", file=args.stdout)
         elif any(ok for ok, _ in verdicts):
-            print(f"grounded {mechanism}")
+            print(f"grounded {mechanism}", file=args.stdout)
         else:
-            print(f"UNGROUNDED {mechanism}")
+            print(f"UNGROUNDED {mechanism}", file=args.stdout)
             rejected = [said for ok, said in verdicts if not ok]
             why = "; ".join(rejected) if rejected else "no plan line or owner row names it; put it on the owner's board"
             misses.append(f"plan {mechanism.id} plan names no {' or '.join(mechanism.shapes)} `{mechanism.text[:CCI_TEXT // 4]}`; {why}")
         for ok, said in verdicts:
-            print(f"  {'accepted' if ok else 'REJECTED'} {said}")
+            print(f"  {'accepted' if ok else 'REJECTED'} {said}", file=args.stdout)
     lines = grade_lines(args.head[:7], required_rows(loaded, diff), misses)
     write_atomic(Path(args.out), "\n".join(lines) + "\n")
-    print(f"grade -> {args.out}")
-    print("\n".join(lines))
+    print(f"grade -> {args.out}", file=args.stdout)
+    print("\n".join(lines), file=args.stdout)
     return 1 if misses else 0
 
 
@@ -2756,8 +2757,9 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None, shell: ledger.Shell | None = None) -> int:
+def main(argv: list[str] | None = None, shell: ledger.Shell | None = None, *, stdin: TextIO, stdout: TextIO) -> int:
     args = build_parser().parse_args(argv)
+    args.stdin, args.stdout = stdin, stdout
     if not (args.program or args.drive):
         args.drive = drive.current_drive() or args.error("one of the arguments --program --drive is required")
     return args.handler(args, shell or ledger.Shell())
@@ -2765,4 +2767,4 @@ def main(argv: list[str] | None = None, shell: ledger.Shell | None = None) -> in
 
 if __name__ == "__main__":
     drive.run_installed(__file__)
-    raise SystemExit(main())
+    raise SystemExit(main(stdin=sys.stdin, stdout=sys.stdout))
