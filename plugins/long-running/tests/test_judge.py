@@ -94,6 +94,7 @@ def test_a_sonnet_yes_is_asked_twice_and_both_calls_are_counted(tmp_path, monkey
 
     assert verdict.flagged
     assert len(argv) == 2 and argv[0][argv[0].index("--system-prompt") + 1] == judge.SYSTEM
+    assert all(args.count("--safe-mode") == 1 and "--bare" not in args for args in argv), "stateless review must skip plugin startup while retaining OAuth"
     [row] = judge.calls(tmp_path, datetime.now(timezone.utc) - timedelta(minutes=1))
     assert (row["asks"], row["tokens"], row["cost_usd"]) == (2, 1920, 0.02)
 
@@ -124,6 +125,7 @@ def test_a_batch_asks_sonnet_once_under_its_own_system_prompt_and_logs_an_answer
 
     assert judge.batch("stall", "Questions: q1", '{"type": "object"}', drive="d1") == {"verdicts": [{"id": "q1", "why": "w"}]}
     assert len(argv) == 1 and argv[0][argv[0].index("--system-prompt") + 1] == judge.BATCH_SYSTEM
+    assert argv[0].count("--safe-mode") == 1 and "--bare" not in argv[0], "stateless review must skip plugin startup while retaining OAuth"
     [row] = judge.calls(tmp_path, datetime.now(timezone.utc) - timedelta(minutes=1))
     assert (row["kind"], row["verdict"], row["asks"], row["tokens"]) == ("stall", "answered", 1, 3000)
 

@@ -91,6 +91,7 @@ def test_default_cli_transport_and_explicit_capability_keep_the_same_cards_verdi
     normalize = lambda rows: [{k: v for k, v in row.items() if k not in {"at", "seconds"}} for row in rows]
     assert normalize(logged(owned_state)) == normalize(logged(cli_state))
     if backend != "jev":
+        assert all(argv.count("--safe-mode") == 1 and "--bare" not in argv for argv, _, _ in cli_calls if argv[0] == "claude"), "stateless review must skip plugin startup while retaining OAuth"
         assert next(argv for argv, _, _ in cli_calls if argv[0] == "claude")[3:5] == ["claude-sonnet-5-5", "--effort"]
 
 

@@ -428,6 +428,7 @@ def claude(prompt: str, system: str, schema: str, timeout: float, env: Mapping[s
             "claude", "-p", "--model", SONNET, "--effort", "low", "--system-prompt", system,
             "--tools", "", "--strict-mcp-config", "--setting-sources", "", "--disable-slash-commands",
             "--no-session-persistence", "--output-format", "json", "--json-schema", schema,
+            "--safe-mode",
         ],
         input=prompt,
         timeout=timeout,
