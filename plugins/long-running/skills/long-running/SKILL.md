@@ -1006,6 +1006,18 @@ and `drive.py digest` prints each judge kind's verdicts, errors and latency over
 day. `judge-eval.py <fixtures>` scores every backend on the same answers over fixture
 files kept in the drive's state folder, because they carry the owner's words; it calls
 models, so it runs by hand before a judge ships or a prompt changes, never in CI.
+The same library judges what a lane ships and what the root tells the owner, each as a
+warning beside the check it replaces or fronts. At ship, `refusal_kinds_need_owner_answer`
+reads the refusal kinds, retries, clocks and budgets a pull request adds and asks whether
+the owner's words or the plan name them, and `pr_bodies_name_what_they_defer` asks
+whether a body being opened or edited names the fix its stand-ins put off and why, and
+the rulings the diff builds in plain words. A lane brief's `Scale:` line must be there,
+and a judge asks whether it names the N the brief's paths run at, in the spawn hook and
+as one `SCALE-MISSED` from the orca desk runner. A root reply that admits a defect during
+an open incident is judged on whether the same turn started its fix; a claim about code
+or a review that follows a read is judged on whether it says more than the read showed;
+and a release cancel or rollback that cites an owner answer is judged on whether that
+answer orders this exact undo, beside the block that still refuses an unordered rollback.
 A ruling about system shape (one process, one primary and one replica, everything a
 client, N things sharing one X) gets a CI test that fails on today's code in the same
 turn as the build. `rulings.py shapes` lists the in-force shape rows; `check-pr` warns
@@ -1678,15 +1690,16 @@ answer id, quotes at least four of the owner's words from it verbatim, and follo
 with a plain sentence of at least three words on how the PR keeps the ruling. The citation
 is the acknowledgment, even for the row's own names (926a89d).
 A row whose `protects` field names the harm it prevents, with `not_when` naming where it
-does not apply, prints both under its words in every slice. A cited row that has one needs
-a `## Rulings` line naming it that says what it protects and how the change serves that,
-`<rule> protects <harm>; this change serves it by <how>`; otherwise check-pr prints
-`RULINGS-PLAIN <rule> cited by id alone` (root #204765).
-A `MECHANISM-BANNED` line names an added line, in code or a test, that starts a timer
-(rule/949e6be), waits inside a loop (rule/f60345a), writes a credential, token, grant or
-pass to a file (prompt/1026-105052), or runs a build or test on this machine
-(rule/c9b7c87). Its lane fixes it before the owner's tap, or cites his answer naming the
-shape as a `# owner: <answer id>` line under `## Rulings`. Lanes see the same lines
+does not apply, prints both under its words in every slice. Whether a body names the
+rulings its diff builds in plain words is the PR body judge's question at ship, so
+check-pr prints `RULINGS-UNCITED` only for an incident fix, whose merge it blocks (45200f2).
+A `MECHANISM-BANNED` line names added lines, in code or a test, that start a timer
+(rule/949e6be) or wait inside a loop (rule/f60345a) when the drive's judge, given the
+owner's words on those rows and the rows the PR cites and the plan's lines naming the
+files, reads them as named by neither; and an added line that writes a credential, token,
+grant or pass to a file (prompt/1026-105052), or runs a build or test on this machine
+(rule/c9b7c87), unless a `# owner: <answer id>` line under `## Rulings` cites his answer
+naming that shape. Its lane fixes it before the owner's tap. Lanes see the same lines
 before a push from `rulings.py sweep --diff <file>` over their own diff.
 A run that exits with a code other than 0 or 1, or prints a line naming no cause, passes the head with nothing
 posted, and so does each `BLOCKER` line it prints: the check fails open (0afd2f6, 4236611).
@@ -3108,7 +3121,8 @@ Scale: <the N each path this lane changes runs at: chats, teams, sessions, or ru
   builds the fix. The spawn hook and the orca desk runner warn on a new non-incident
   lane brief with no `Scale:` line and never refuse it; a `<lane>-handoff` writer, a
   successor (`<lane>-<n>` or a `Replaces:` line), and a brief written before the rule pass
-  quietly.
+  quietly. Both also warn when a judge reads a brief's `Scale:` line as missing the N its
+  paths run at.
 Standing rules served: <`#<seq>` ids with their answer ids, each with the owner's
   words and confirmed implications (R19b), or "none">. Your task cites
   them; finishing it never retires them, and no report calls them done.

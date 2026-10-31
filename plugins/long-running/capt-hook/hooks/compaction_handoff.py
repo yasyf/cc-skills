@@ -127,6 +127,15 @@ def script_module(name: str) -> ModuleType:
     return module
 
 
+def judged(kind: str, evidence: str, artifact: str, drive: str | None) -> str | None:
+    """The fenced finding a judge returns when it flags `artifact`; None when it clears it or its call fails, so the caller adds nothing."""
+    judge, env = script_module("long_running/judge"), reqenv.env_map()
+    found = judge.judge(kind, evidence, artifact, backend=judge.backend_from(env), drive=drive, timeout=reqenv.clamp_timeout(judge.JUDGE_SECONDS), env=env)
+    if found is None or not found.flagged:
+        return None
+    return f'{REGISTER_FENCE}\n{found.sentence}\nArtifact: "{found.artifact_phrase}"\nEvidence: "{found.evidence_phrase}"\n{REGISTER_FENCE}'
+
+
 @workflow_state("long_running_compaction")
 class CompactionState(WorkflowState):
     active: bool = False

@@ -96,7 +96,8 @@ only `incident` runs on the fast tier, and plain `sol` is the standard tier. A r
 and launches nothing for a lane with a live dispatch or a launch still in flight,
 a key that already holds an action, a model or effort `launch` refuses, a brief
 that is not a file, or a brief with no `Register slice: lane=<lane> step=<n>` line
-or no `Scale:` line unless the launch is an incident fix's. Before it launches, the runner refreshes the
+or no `Scale:` line unless the launch is an incident fix's. A non-incident launch whose `Scale:` line a judge reads as
+missing the N the brief's paths run at launches anyway, with one `SCALE-MISSED <key> <lane>` to the root. Before it launches, the runner refreshes the
 slice under that line with `rulings.py slice --refresh <brief>`, writing
 `Register slice: lane=<lane> step=incident` into an incident brief that has none, and
 it writes the slice into every alert, case, fallback and manual release brief it
