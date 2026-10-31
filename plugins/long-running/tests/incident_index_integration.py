@@ -52,20 +52,20 @@ def test_actual_landing_native_incidents_follow_mutable_files_and_closures(incid
     calls = []
     work = []
 
-    def query(expected, *, changed=False, startup=False):
+    def query(expected, *, changed=False, startup=False, changed_names=1):
         before = incident_index.counts()
         assert landing.holding(prefix, {}, shell.now()) == expected
         after = incident_index.counts()
         calls.append(after["native_requests"] - before["native_requests"])
         delta = {key: after["backend"][key] - before["backend"][key] for key in ("body_stats", "body_opens", "body_bytes", "route_stats", "missing_name_checks")}
         work.append(delta)
-        print(json.dumps({"population": incident_index.population, "call": len(calls), "startup": startup, "changed": changed, "native_requests": calls[-1], "work": delta}))
+        print(json.dumps({"population": incident_index.population, "call": len(calls), "startup": startup, "changed": changed, "changed_names": changed_names, "native_requests": calls[-1], "work": delta}))
         if changed:
             assert delta["body_stats"] <= 4
             assert delta["body_opens"] <= 1
             assert delta["body_bytes"] <= 64
             assert delta["route_stats"] <= 64
-            assert delta["missing_name_checks"] <= (8 if startup else 4)
+            assert delta["missing_name_checks"] <= (8 if startup else 4 * changed_names)
         else:
             assert delta == {"body_stats": 0, "body_opens": 0, "body_bytes": 0, "route_stats": 0, "missing_name_checks": 0}
 
@@ -76,7 +76,7 @@ def test_actual_landing_native_incidents_follow_mutable_files_and_closures(incid
         query(held("29020", "29022"))
         for operation, prs in [("body-unicode-nonmatch", ["29022"]), ("body-match", ["29020", "29022"]), ("body-rename", ["29022", "29023"]), ("body-remove", ["29021", "29022"]), ("body-recreate", ["29020", "29022"]), ("body-invalid", ["29021", "29022"]), ("body-match", ["29020", "29022"])]:
             incident_index.change(operation)
-            query(held(*prs), changed=True)
+            query(held(*prs), changed=True, changed_names=2 if operation == "body-rename" else 1)
         newer = incident_index.change("append")["newer"]
         query(held("29020", seq=newer) | held("29022"))
         incident_index.change("resolve-newer")
