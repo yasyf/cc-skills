@@ -171,6 +171,7 @@ ADMITTED = "landing-admitted.json"
 VERSION_PART = re.compile(r"\d+")
 NUMBERED = re.compile(r"(?<![\w&])#\d+\b")
 SLUG_WORDS = 6
+INSTALL_MARKERS = frozenset({"__pycache__", ".in_use", ".orphaned_at"})
 
 
 def config_dir() -> Path:
@@ -195,16 +196,6 @@ def newest_install() -> dict | None:
     return max(installs, key=lambda install: version_key(install["version"]), default=None)
 
 
-def marketplace_copy(path: Path) -> Path | None:
-    """``path``, inside this plugin's cache install, in the marketplace checkout Claude Code installed it from, or None when the plugin runs from no cache install."""
-    cache = PLUGIN.parents[2]
-    if cache.name != "cache":
-        return None
-    marketplace = cache.parent / "marketplaces" / PLUGIN.parents[1].name
-    source = next(entry["source"] for entry in load(marketplace / ".claude-plugin" / "marketplace.json")["plugins"] if entry["name"] == PLUGIN.parent.name)
-    return marketplace / source / path.relative_to(PLUGIN)
-
-
 def installed_version() -> str:
     return (newest_install() or {}).get("version", "")
 
@@ -219,37 +210,40 @@ def install_bin(version: str, tool: str) -> Path:
 
 
 def release_faults(version: str) -> list[str]:
-    """Each file of the release tagged for `version` that its install lacks or holds with other bytes, read against that tag fetched from the remote of the marketplace checkout Claude Code installed from, so an install cut short or edited in place reads here before anything runs it; none when this plugin runs from no cache install."""
+    """Each way the install of `version` differs from the release tagged for it, read against that tag fetched from the repository the marketplace entry Claude Code installed from pins, so an install cut short, copied from past its tag, or edited in place reads here before anything runs it; none when this plugin runs from no cache install."""
     if PLUGIN.parents[2].name != "cache":
         return []
     copy = installs() / version
     if not (copy / ".claude-plugin" / "plugin.json").is_file():
         return [f"{copy} holds no install of {version}"]
-    source = marketplace_copy(PLUGIN)
-    url, prefix = (subprocess.run(["git", "-C", str(source), *argv], capture_output=True, text=True, check=True).stdout.strip() for argv in (["remote", "get-url", "origin"], ["rev-parse", "--show-prefix"]))
-    return tree_faults(copy, url, f"{PLUGIN.parent.name}--v{version}", prefix.rstrip("/"), config_dir() / "long-running" / "releases.git")
+    marketplace = PLUGIN.parents[3] / "marketplaces" / PLUGIN.parents[1].name / ".claude-plugin" / "marketplace.json"
+    source = next(entry["source"] for entry in load(marketplace)["plugins"] if entry["name"] == PLUGIN.parent.name)
+    return tree_faults(copy, source["url"], f"{PLUGIN.parent.name}--v{version}", source["path"], config_dir() / "long-running" / "releases.git")
 
 
 def tree_faults(copy: Path, url: str, tag: str, source: str, releases: Path) -> list[str]:
-    """Each file under `source` in `tag` of the repository at `url` that `copy` lacks or holds with other bytes; the tag is fetched into the bare repository `releases`, created on first use. Files the copy holds beyond the release, such as caches, are not faults."""
+    """Each way `copy` differs from `source` in `tag` of the repository at `url`: its file count when that differs, then each release file it lacks, each file it holds that the release does not, and each file it holds with other bytes. The tag is fetched into the bare repository `releases`, created on first use. Python's bytecode caches and the markers Claude Code keeps beside an install are not part of it."""
     if not releases.is_dir():
         subprocess.run(["git", "init", "-q", "--bare", str(releases)], check=True)
     fetched = subprocess.run(["git", "-C", str(releases), "fetch", "-q", "--depth", "1", url, f"+refs/tags/{tag}:refs/tags/{tag}"], capture_output=True, text=True)
     if fetched.returncode:
         return [f"the release tag {tag} did not fetch from {url}: {(fetched.stderr.strip().splitlines() or ['no output'])[-1]}"]
     listed = subprocess.run(["git", "-C", str(releases), "ls-tree", "-r", "-z", tag, "--", f"{source}/"], capture_output=True, text=True, check=True).stdout
-    missing, blobs = [], []
+    released = {}
     for row in filter(None, listed.split("\0")):
         meta, path = row.split("\t", 1)
         mode, _, sha = meta.split()
-        relative = path.removeprefix(f"{source}/")
-        target = copy / relative
-        if not (target.is_symlink() if mode == "120000" else target.is_file()):
-            missing.append(relative)
-        elif mode != "120000":
-            blobs.append((relative, sha))
+        released[path.removeprefix(f"{source}/")] = (mode, sha)
+    held = {str(path.relative_to(copy)) for path in copy.rglob("*") if (path.is_symlink() or path.is_file()) and not INSTALL_MARKERS.intersection(path.relative_to(copy).parts)}
+    missing = [relative for relative, (mode, _) in released.items() if not ((copy / relative).is_symlink() if mode == "120000" else (copy / relative).is_file())]
+    blobs = [(relative, sha) for relative, (mode, sha) in released.items() if mode != "120000" and relative not in missing]
     hashed = subprocess.run(["git", "-C", str(releases), "hash-object", "--stdin-paths"], input="\n".join(str(copy / relative) for relative, _ in blobs), capture_output=True, text=True, check=True).stdout.split()
-    return [*(f"{relative} is missing" for relative in missing), *(f"{relative} differs from the release" for (relative, sha), got in zip(blobs, hashed, strict=True) if got != sha)]
+    return [
+        *([f"the install holds {len(held)} files where the release holds {len(released)}"] if len(held) != len(released) else []),
+        *(f"{relative} is missing" for relative in missing),
+        *(f"{relative} is not in the release" for relative in sorted(held - released.keys())),
+        *(f"{relative} differs from the release" for (relative, sha), got in zip(blobs, hashed, strict=True) if got != sha),
+    ]
 
 
 def version_key(version: str) -> tuple[int, ...]:

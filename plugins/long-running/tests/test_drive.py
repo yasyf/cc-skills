@@ -570,49 +570,107 @@ def test_digest_prints_the_stack_ledger_the_stall_watch_wrote_and_marks_each_sta
     ]
 
 
-def test_marketplace_copy_maps_a_cache_install_path_into_the_marketplace_checkout_it_came_from(tmp_path, monkeypatch):
-    plugins = tmp_path / ".claude/plugins"
-    plugin = plugins / "cache/skills/long-running/0.7.503"
-    marketplace = plugins / "marketplaces/skills"
-    (marketplace / ".claude-plugin").mkdir(parents=True)
-    (marketplace / ".claude-plugin/marketplace.json").write_text(json.dumps({"plugins": [{"name": "cc-inbox", "source": "./plugins/cc-inbox"}, {"name": "long-running", "source": "./plugins/long-running"}]}))
-    monkeypatch.setattr(drive, "PLUGIN", plugin)
-    assert drive.marketplace_copy(plugin / "skills/long-running") == marketplace / "plugins/long-running/skills/long-running"
-    checkout = tmp_path / "cc-skills/plugins/long-running"
-    monkeypatch.setattr(drive, "PLUGIN", checkout)
-    assert drive.marketplace_copy(checkout / "skills/long-running") is None
+def released(origin: Path) -> Path:
+    plugin = origin / "plugins" / "long-running"
+    (plugin / ".claude-plugin").mkdir(parents=True)
+    (plugin / "scripts").mkdir()
+    (plugin / "bin").mkdir()
+    (plugin / "reference").mkdir()
+    (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "long-running", "version": "1.2.3"}))
+    (plugin / "scripts" / "desk-runner.py").write_text("print('released')\n")
+    (plugin / "scripts" / "merge_queue.py").write_text("QUEUE = 1\n")
+    (plugin / "reference" / "finder-brief.md").write_text("brief\n")
+    (plugin / "reference" / "orca-lane-brief.md").write_text("lane\n")
+    (plugin / "bin" / "desk-runner.py").symlink_to("../scripts/desk-runner.py")
+    (origin / "README.md").write_text("outside the plugin\n")
+    commit(origin, "release")
+    subprocess.run(["git", "-C", str(origin), "tag", "long-running--v1.2.3"], check=True)
+    return plugin
+
+
+def commit(origin: Path, message: str) -> None:
+    git = ["git", "-C", str(origin), "-c", "user.name=t", "-c", "user.email=t@example.com"]
+    if not (origin / ".git").is_dir():
+        subprocess.run(["git", "init", "-q", str(origin)], check=True)
+    subprocess.run([*git, "add", "-A"], check=True)
+    subprocess.run([*git, "commit", "-q", "-m", message], check=True)
+
+
+def installed_copy(plugin: Path, copy: Path) -> Path:
+    shutil.copytree(plugin, copy, symlinks=True)
+    (copy / "scripts" / "__pycache__").mkdir()
+    (copy / "scripts" / "__pycache__" / "merge_queue.cpython-313.pyc").write_bytes(b"\0")
+    (copy / ".in_use").mkdir()
+    (copy / ".in_use" / "4242").write_text("")
+    (copy / ".orphaned_at").write_text("1793462400000")
+    return copy
 
 
 def test_tree_faults_names_each_release_file_an_install_lacks_or_holds_edited_and_ignores_its_caches(tmp_path):
     """Oct 30: 0.7.656 and 0.7.701 installed without skills/, and 0.7.682's desk-runner.py and merge_queue.py were patched in place; each read as a whole install."""
     origin = tmp_path / "origin"
-    plugin = origin / "plugins" / "long-running"
-    (plugin / "scripts").mkdir(parents=True)
-    (plugin / "bin").mkdir()
-    (plugin / "scripts" / "desk-runner.py").write_text("print('released')\n")
-    (plugin / "scripts" / "merge_queue.py").write_text("QUEUE = 1\n")
-    (plugin / "reference.md").write_text("brief\n")
-    (plugin / "bin" / "desk-runner.py").symlink_to("../scripts/desk-runner.py")
-    (origin / "README.md").write_text("outside the plugin\n")
-    git = ["git", "-C", str(origin), "-c", "user.name=t", "-c", "user.email=t@example.com"]
-    subprocess.run(["git", "init", "-q", str(origin)], check=True)
-    subprocess.run([*git, "add", "-A"], check=True)
-    subprocess.run([*git, "commit", "-q", "-m", "release"], check=True)
-    subprocess.run([*git, "tag", "long-running--v1.2.3"], check=True)
-    copy = tmp_path / "cache" / "1.2.3"
-    shutil.copytree(plugin, copy, symlinks=True)
-    (copy / "scripts" / "__pycache__").mkdir()
-    (copy / "scripts" / "__pycache__" / "merge_queue.cpython-313.pyc").write_bytes(b"\0")
+    copy = installed_copy(released(origin), tmp_path / "cache" / "1.2.3")
     releases = tmp_path / "releases.git"
 
     assert drive.tree_faults(copy, str(origin), "long-running--v1.2.3", "plugins/long-running", releases) == []
 
     (copy / "scripts" / "merge_queue.py").write_text("QUEUE = 2\n")
-    (copy / "reference.md").unlink()
+    (copy / "reference" / "finder-brief.md").unlink()
     (copy / "bin" / "desk-runner.py").unlink()
     assert drive.tree_faults(copy, str(origin), "long-running--v1.2.3", "plugins/long-running", releases) == [
+        "the install holds 4 files where the release holds 6",
         "bin/desk-runner.py is missing",
-        "reference.md is missing",
+        "reference/finder-brief.md is missing",
         "scripts/merge_queue.py differs from the release",
     ]
     assert drive.tree_faults(copy, str(origin), "long-running--v9.9.9", "plugins/long-running", releases)[0].startswith("the release tag long-running--v9.9.9 did not fetch from")
+
+
+def test_tree_faults_names_an_install_copied_from_the_default_branch_past_its_tag(tmp_path):
+    """Oct 31 8:43 AM (#257362): 0.7.729's cache was copied from main at #1442, past its tag, and read as that release."""
+    origin = tmp_path / "origin"
+    plugin = released(origin)
+    (plugin / "scripts" / "stall_watch.py").write_text("PARKED = 'waiting'\n")
+    (plugin / "scripts" / "merge_queue.py").write_text("QUEUE = 2\n")
+    commit(origin, "#1442 lands after the bump")
+    copy = installed_copy(plugin, tmp_path / "cache" / "1.2.3")
+
+    assert drive.tree_faults(copy, str(origin), "long-running--v1.2.3", "plugins/long-running", tmp_path / "releases.git") == [
+        "the install holds 7 files where the release holds 6",
+        "scripts/stall_watch.py is not in the release",
+        "scripts/merge_queue.py differs from the release",
+    ]
+
+
+def test_tree_faults_names_every_file_of_a_directory_the_install_lacks(tmp_path):
+    """Oct 31 8:43 AM (#257362): 0.7.730's cache lacked skills/long-running/reference/ while `claude plugin update` reported it current."""
+    origin = tmp_path / "origin"
+    copy = installed_copy(released(origin), tmp_path / "cache" / "1.2.3")
+    shutil.rmtree(copy / "reference")
+
+    assert drive.tree_faults(copy, str(origin), "long-running--v1.2.3", "plugins/long-running", tmp_path / "releases.git") == [
+        "the install holds 4 files where the release holds 6",
+        "reference/finder-brief.md is missing",
+        "reference/orca-lane-brief.md is missing",
+    ]
+
+
+def test_release_faults_reads_the_release_the_marketplace_entry_pins(tmp_path, monkeypatch):
+    origin = tmp_path / "origin"
+    plugins = tmp_path / ".claude" / "plugins"
+    copy = installed_copy(released(origin), plugins / "cache" / "skills" / "long-running" / "1.2.3")
+    (plugins / "marketplaces" / "skills" / ".claude-plugin").mkdir(parents=True)
+    (plugins / "marketplaces" / "skills" / ".claude-plugin" / "marketplace.json").write_text(json.dumps({"plugins": [
+        {"name": "cc-inbox", "source": "./plugins/cc-inbox"},
+        {"name": "long-running", "source": {"source": "git-subdir", "url": str(origin), "path": "plugins/long-running", "ref": "long-running--v1.2.4"}, "version": "1.2.4"},
+    ]}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / ".claude"))
+    monkeypatch.setattr(drive, "PLUGIN", plugins / "cache" / "skills" / "long-running" / "1.2.4")
+
+    assert drive.release_faults("1.2.3") == []
+
+    (copy / "reference" / "orca-lane-brief.md").unlink()
+    assert drive.release_faults("1.2.3") == ["the install holds 5 files where the release holds 6", "reference/orca-lane-brief.md is missing"]
+    assert drive.release_faults("1.2.9") == [f"{plugins / 'cache' / 'skills' / 'long-running' / '1.2.9'} holds no install of 1.2.9"]
+    monkeypatch.setattr(drive, "PLUGIN", tmp_path / "cc-skills" / "plugins" / "long-running")
+    assert drive.release_faults("1.2.3") == []

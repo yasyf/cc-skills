@@ -4,8 +4,10 @@
 """Auto-bump a plugin's patch version when its content drifts from the last
 version change, and tag the bump commit `<name>--v<version>`. The installed-plugin
 cache only re-pulls on a version move, so content shipped without a bump goes
-stale on every consumer. Guarded plugins (binary-pinned) get a drift warning
-instead of a bump.
+stale on every consumer. The bump commit also pins the plugin's marketplace
+entry to that tag, so Claude Code installs the tagged tree rather than whatever
+the default branch holds when it copies. Guarded plugins (binary-pinned) get a
+drift warning instead of a bump.
 
 Env contract:
   AUTOBUMP_DRY_RUN   "true"/"false" — plan only, never write/commit/push
@@ -31,6 +33,7 @@ from pathlib import Path
 BOT_NAME = "github-actions[bot]"
 BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
 ROOT_EXCLUDES = (".claude-plugin", ".cursor-plugin", ".github", ".claude", ".gitignore")
+MARKETPLACE = Path(".claude-plugin") / "marketplace.json"
 
 
 def _git(repo: Path, *args: str, text: bool = True) -> subprocess.CompletedProcess:
@@ -212,10 +215,36 @@ def render_summary(results: list[Result]) -> str:
     return "\n".join(lines)
 
 
+def tagged_source(url: str, root: str, tag: str) -> dict:
+    if root == ".":
+        return {"source": "url", "url": url, "ref": tag}
+    return {"source": "git-subdir", "url": url, "path": root, "ref": tag}
+
+
+def pin_marketplace(repo: Path, bumps: list[Result]) -> list[str]:
+    """Point each bumped plugin's marketplace entry at its new tag; the marketplace file when it changed, else nothing."""
+    path = repo / MARKETPLACE
+    if not path.is_file():
+        return []
+    marketplace = json.loads(path.read_text(encoding="utf-8"))
+    bumped = {r.name: r for r in bumps}
+    url = _git_out(repo, "remote", "get-url", "origin").strip()
+    pinned = False
+    for entry in marketplace["plugins"]:
+        if r := bumped.get(entry["name"]):
+            entry["source"] = tagged_source(url, r.root, f"{r.name}--v{r.new_version}")
+            entry["version"] = r.new_version
+            pinned = True
+    if not pinned:
+        return []
+    path.write_text(json.dumps(marketplace, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return [str(MARKETPLACE)]
+
+
 def commit_and_push(repo: Path, bumps: list[Result], branch: str) -> bool:
     for r in bumps:
         (repo / r.manifest).write_text(r.new_text, encoding="utf-8")  # precomputed + validated in analyze
-    _git_out(repo, "add", *(r.manifest for r in bumps))
+    _git_out(repo, "add", *(r.manifest for r in bumps), *pin_marketplace(repo, bumps))
     if len(bumps) == 1:
         r = bumps[0]
         message = [f"chore(plugins): autobump {r.name} {r.version}→{r.new_version} [skip ci]"]
