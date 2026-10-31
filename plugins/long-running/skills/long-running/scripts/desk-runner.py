@@ -53,7 +53,9 @@ wait before the next, up to two minutes, and the first pass Orca answers again l
 worker list once and logs one `LANE-GONE` for each lane with a receipt whose dispatch was
 live on the last pass Orca answered, or is still listed as dispatched, and that Orca now
 shows gone, completed or failed, or whose terminal Orca finds missing, unless the runner
-withdrew it, relayed its `worker_done`, or the lane's newest record ends its work; it names
+withdrew it, relayed its `worker_done`, or the lane's newest record ends its work, or a Sonnet
+judge reading its last records, off the pass, calls it alive, done or waiting, which posts one
+`JUDGE-SILENCED` note to root with its sentence instead; it names
 the dispatch, the lane's last record and its age, and the outage that just ended. `cci post` keeps only the first
 line of a text over its 400-character limit in the record, clipped, and writes the
 whole text to a file the record names by path. The runner reads a relay record's or a
@@ -564,11 +566,11 @@ logs `MERGE-CARD-FAILED` once per head and cause and tries again next pass. With
 carries the owner's board taps: an approval on a `pr-groups` row of the root's board at an older head of an open PR, with no verdict at
 its ledger head, moves to that head through a `board-write` record, `op=carry`, once `head` records reading `<new> (was <old>)` and fidelity carries
 call each move between the two patch-identical, with one `TAP-CARRIED` note naming both heads to root and each lane `landing.board_lane`
-names, one lane or a list, and, when no go names the new head, one `go` record of the runner's own for it, which `go_lane` counts. A new head a record names with no such chain, a fixed version, is never carried. A record saying it adds new
-behavior draws one `TAP-NOT-CARRIED` note to the same lanes saying the board needs a new row; a fidelity ok grade naming none draws one
-`TAP-KEPT` note saying his tap keeps over that review fix, which still waits for root's go naming the fix (rule 399b5fa, root #195224), and once a go
-names the head the runner carries the tap there itself, citing the grade and the go; a root `go` or a
-patch-identical fidelity carry grade naming that head otherwise draws neither, except that a go'd head whose tap does not keep draws one `TAP-CARRY-FAILED` naming why (#193444). The runner reads the board only from records: board-watch's `owner` records carrying a row and verdict, its newest `board-rows` snapshot of what the board shows, and the runner's own carries, each of which stands as the owner's tap at its new head the moment it posts. A carry onto a block the newest snapshot no longer holds has nothing to carry; records that do not read, or a carry that does not post, log `TAP-CARRY-FAILED` once per
+names, one lane or a list, and, when no go names the new head, one `go` record of the runner's own for it, which `go_lane` counts. A new head whose own commits differ, a fixed version, is never carried on words: once a fidelity ok grade stands there, a
+Sonnet judge reads every record about the PR since his tap, off the pass. Its yes, an unsure answer or a failed call draws one `TAP-NOT-CARRIED`
+note to the same lanes saying the board needs a new row; its no draws one `TAP-KEPT` ask to root proposing the carry, and only a root go
+naming the head, with the finder clear, carries the tap there, citing the go (rule 399b5fa, root #195224), while any other root answer to the
+ask draws the `TAP-NOT-CARRIED` note; a go'd head whose tap does not carry draws one `TAP-CARRY-FAILED` naming why (#193444). The runner reads the board only from records: board-watch's `owner` records carrying a row and verdict, its newest `board-rows` snapshot of what the board shows, and the runner's own carries, each of which stands as the owner's tap at its new head the moment it posts. A carry onto a block the newest snapshot no longer holds has nothing to carry; records that do not read, or a carry that does not post, log `TAP-CARRY-FAILED` once per
 cause and try again next pass, and the board's watch answers a carry cc-present refuses with a `defect` record. An exempt change, one whose fidelity grade and whole diff
 make it a pure port, test-only or CI-only (`EXEMPT-ADMITTED`), needs no go and no tap in any mode: its tree gates with the go'd ones, it asks no
 merge question, and it goes straight to the merge queue once the hold, fidelity, finder, build and CI checks pass (root #194387). Under `every` the runner
@@ -623,7 +625,6 @@ round, foundational rows first.
 from __future__ import annotations
 
 import argparse
-import fcntl
 import hashlib
 import html
 import itertools
@@ -671,14 +672,14 @@ import judge_watch
 import prompt_watch
 import stall_watch
 from long_running import testfiles
-from long_running.grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, head_of, head_says, heads_since, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
-from long_running.grades import carry_of, delegated, keeps_tap, succeeds, with_successors
+from long_running.grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, heads_since, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
+from long_running.grades import carry_of, delegated, succeeds, with_successors
 from long_running.grades import carries as carry_grade
 from long_running.grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
 from long_running.grades import WITHDRAWN as WITHDRAWN_OPENING
 from long_running.grades import go_state, owes
 from long_running.grades import REVIEW_BOT_CHECK, REVIEW_BOT_HELD, VOIDING_KINDS, review_bot_wait, voids, withdrawn
-from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
+from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK
 
 SCRIPTS = Path(__file__).resolve().parent
 RUNNER_BIN = SCRIPTS.parents[2] / "bin" / "desk-runner.py"
@@ -730,7 +731,7 @@ SPRITE_STALLED_AFTER = timedelta(minutes=30)
 FINDER_TAPS_EVERY = timedelta(minutes=5)
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker", "GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": "blocker", "GO-TAP-MISSING": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker", "GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": "blocker", "GO-TAP-MISSING": "blocker", "JUDGE-SILENCED": "note"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 TRUNK = "dev"
@@ -905,6 +906,12 @@ STOP_CONFIRM = timedelta(seconds=30)
 STOP_POLL_SECONDS = 2
 SHOW_WORKERS = 8
 GATE_WORKERS = 16
+JUDGE_WORKERS = 2
+SILENCED = "silenced:"
+JUDGED_RECORDS = 12
+LOG_LINES = 40
+FAILURE_LINE = re.compile(r"^\s*(?:error(?:\[\w+\])?:|--- FAIL|FAIL\b|test \S+ \.\.\. FAILED|thread .* panicked|Error:|✗|×)", re.MULTILINE)
+RED_JOBS = 3
 GATE_BUDGET = timedelta(seconds=120)
 STEP_BUDGETS = {"fetch": FETCH_SECONDS, "check": 180, "settle": 300, "enqueue": 300}
 STACKS_FILE = "landing-stacks.json"
@@ -1572,6 +1579,24 @@ def pacific(moment: datetime) -> str:
     return moment.astimezone(PACIFIC).strftime("%H:%M")
 
 
+def log_excerpt(log: str) -> str:
+    """The lines of a failed job's log a judge reads: those around the first line that reads as a failure, then its last `LOG_LINES` lines."""
+    lines = log.splitlines()
+    found = FAILURE_LINE.search(log)
+    at = log.count("\n", 0, found.start()) if found else len(lines)
+    picked = dict.fromkeys([*range(max(0, at - 5), min(len(lines), at + 25)), *range(max(0, len(lines) - LOG_LINES), len(lines))])
+    return "\n".join(lines[index] for index in picked if lines[index].strip())
+
+
+def gone_evidence(lane: str, orders: list[dict], own: list[dict], naming: list[dict]) -> str:
+    """What the `LANE-GONE` judge reads beside the alarm: the root's orders `lane` has not answered, its own last records, and the other lanes' records that name it."""
+    parts = [f"The root's orders to {lane} it has not answered, oldest first:\n{judge.bus(orders)}"] if orders else []
+    parts.append(f"{lane}'s own last records, oldest first:\n{judge.bus(own[-JUDGED_RECORDS:])}" if own else f"{lane} has posted no record in that time.")
+    if naming:
+        parts.append(f"Other lanes' records that name {lane}, oldest first:\n{judge.bus(naming[-JUDGED_RECORDS:])}")
+    return "\n\n".join(parts)
+
+
 def lane_container(lane: str) -> str:
     return f"{LANE_PREFIX}{lane}"
 
@@ -1904,6 +1929,10 @@ class Runner:
         self.read_failed_at = float("-inf")
         self.passing: set[str] = set()
         self.bus_misses: list[datetime] = []
+        self.judge_backend = judge.backend_from(os.environ)
+        self.judges = ThreadPoolExecutor(JUDGE_WORKERS)
+        self.judgments: dict[str, Future] = {}
+        self.judging = threading.Lock()
         self.book.ensure(RUNNER, RUNNER)
 
     def now(self) -> datetime:
@@ -1926,6 +1955,33 @@ class Runner:
             return
         self.record(action_id, line)
         self.book.attempt(RUNNER, lambda incident: (incident.start(action_id, self.now()), incident.complete(action_id, {"at": self.book.stamp(), "posted": cci.receipt(done.records[0].seq), "to": to})))
+
+    def front(self, key: str, kind: str, about: str, text: str, subject: str, to: str, evidence: Callable[[], str]) -> bool:
+        """Escalate as `escalate` does unless the judge of `kind`, reading `evidence` beside the alarm, calls it false, and say whether the alarm stands. Nothing posts until the judge answers, a pass or more later; a no posts one `JUDGE-SILENCED` note to root in its place, once per key, with the judge's sentence and the evidence it rests on, while a yes, an unsure answer or a failed model call escalates as before."""
+        if self.book.known(RUNNER, f"escalation:{key}"):
+            return True
+        if self.book.known(RUNNER, f"escalation:{SILENCED}{key}"):
+            return False
+        line = f"{kind} {subject or key} {about}: {' '.join(text.split())}"
+        answered, verdict = self.judgment(key, kind.lower(), lambda: (evidence(), line))
+        if not answered:
+            return False
+        if verdict and verdict.verdict == "no":
+            self.escalate(f"{SILENCED}{key}", "JUDGE-SILENCED", about, f"the {kind} alarm is false, the judge reads: {verdict.sentence} It rests on: \"{verdict.evidence_phrase}\"", f"{SILENCED}{subject or key}", ROOT)
+            return False
+        self.escalate(key, kind, about, text, subject, to)
+        return True
+
+    def judgment(self, key: str, kind: str, read: Callable[[], tuple[str, str]]) -> tuple[bool, judge.Verdict | None]:
+        """The `kind` judge on `key`, asked once on the runner's judge pool so no pass waits on a model: whether it has answered, and its verdict, None when the model call failed. `read` builds its evidence and artifact on the pool; an error it raises reaches the pass that collects it, and the next pass asks again."""
+        with self.judging:
+            if (future := self.judgments.get(key)) is None:
+                self.judgments[key] = self.judges.submit(lambda: judge.judge(kind, *read(), backend=self.judge_backend, drive=self.config.drive))
+                return False, None
+            if not future.done():
+                return False, None
+            del self.judgments[key]
+        return True, future.result()
 
     def raised_before(self, key: str, subject: str) -> bool:
         """Whether an escalation under another key already named `subject`."""
@@ -3917,7 +3973,7 @@ class Runner:
             self.tail_failed(failure)
 
     def lanes_gone(self) -> None:
-        """Log one `LANE-GONE` per lane and newest order for each lane, other than the runner's own lanes and its child passes `stall-watch` and `prompt-watch`, that a root `ask` addressed, or a root `decide` or `correction` gave an order as `<lane>: ...`, in the last `LANE_ORDER_WINDOW`, whose oldest unanswered order is `LANE_SILENT` old, that has posted nothing since, neither it nor a numbered successor (`<lane>-<n>`), that no later root `stand-down` or `stopped` retired, whose newest record does not end its work (`done`, `handoff`, `stand-down`, `stopped`, `not-ours`), whose records are not all `defect` records, as a build script's are (root #152067), whose dispatch the runner did not withdraw and Orca does not show active, with no session `cci who` announced in the last `LANE_SPAWN_GRACE`, and no earlier LANE-GONE of it the root resolved or answered in the window, once its newest record and `cci who`'s last sight of it, by lane or agent name, are both `LANE_SILENT` old, naming the unanswered orders and its last record, so the root pings it and spawns a successor only when the ping goes unanswered (root #147167, drive-watchdog #147921)."""
+        """Log one `LANE-GONE` per lane and newest order for each lane, other than the runner's own lanes and its child passes `stall-watch` and `prompt-watch`, that a root `ask` addressed, or a root `decide` or `correction` gave an order as `<lane>: ...`, in the last `LANE_ORDER_WINDOW`, whose oldest unanswered order is `LANE_SILENT` old, that has posted nothing since, neither it nor a numbered successor (`<lane>-<n>`), that no later root `stand-down` or `stopped` retired, whose newest record does not end its work (`done`, `handoff`, `stand-down`, `stopped`, `not-ours`), whose records are not all `defect` records, as a build script's are (root #152067), whose dispatch the runner did not withdraw and Orca does not show active, with no session `cci who` announced in the last `LANE_SPAWN_GRACE`, and no earlier LANE-GONE of it the root resolved or answered in the window, once its newest record and `cci who`'s last sight of it, by lane or agent name, are both `LANE_SILENT` old, naming the unanswered orders and its last record, so the root pings it and spawns a successor only when the ping goes unanswered (root #147167, drive-watchdog #147921). A judge reads those orders, its last records and the other lanes' records naming it first, off the pass, and its no, a lane alive, done, another lane's worker, or waiting on what its records name, posts `JUDGE-SILENCED` in the alarm's place; a yes, an unsure answer or a failed model call logs it as before."""
         try:
             now, drive = self.now(), self.config.drive
             records = [record for record in cci.records(self.cci_tail, drive, since=actions.stamp(now - LANE_ORDER_WINDOW)) if record["drive"] == drive]
@@ -3959,7 +4015,8 @@ class Runner:
                 orders_named = ", ".join(f"#{order['seq']}" for order in unanswered)
                 key, subject = f"lane-gone:{lane}:{unanswered[-1]['seq']}", f"lane-gone:{lane}"
                 to = ",".join(dict.fromkeys([ROOT, *desks, *self.landing_lanes("board_lane"), lane])) if self.raised_before(key, subject) and (desks := self.landing_lanes("desk_lane")) else ""
-                self.escalate(key, "LANE-GONE", lane, f"root {orders_named} to {lane} unanswered; {said}, and {sight}; a roster or cci miss is not absence: SendMessage it and spawn a successor only when it has not answered in 5 minutes", subject, to)
+                naming = [record for record in records if record["lane"] not in family | RUNNER_LANES and record not in addressed and names_lane(record | {"to": []}, {lane})]
+                self.front(key, "LANE-GONE", lane, f"root {orders_named} to {lane} unanswered; {said}, and {sight}; a roster or cci miss is not absence: SendMessage it and spawn a successor only when it has not answered in 5 minutes", subject, to, lambda lane=lane, unanswered=unanswered, posted=posted, naming=naming: gone_evidence(lane, unanswered, posted, naming))
         except CciTailFailed as failure:
             self.tail_failed(failure)
 
@@ -3967,7 +4024,7 @@ class Runner:
         return bool(self.orca.receipt(lane) and (shown := self.orca.show(lane)) and shown.status not in INACTIVE)
 
     def dispatches_gone(self) -> None:
-        """Read the Run's worker list once and log one `LANE-GONE` for each lane with a receipt whose dispatch was live on the last pass Orca answered, or is still listed as dispatched, and that Orca now shows gone, completed or failed, or whose terminal Orca finds missing, unless the runner withdrew it, relayed its `worker_done`, or the lane's newest record ends its work; the dispatch is the evidence, so no `LANE_SILENT` wait applies."""
+        """Read the Run's worker list once and log one `LANE-GONE` for each lane with a receipt whose dispatch was live on the last pass Orca answered, or is still listed as dispatched, and that Orca now shows gone, completed or failed, or whose terminal Orca finds missing, unless the runner withdrew it, relayed its `worker_done`, or the lane's newest record ends its work; the dispatch is the evidence, so no `LANE_SILENT` wait applies, and the judge `lanes_gone` asks reads its last records first."""
         try:
             statuses = {row["dispatchId"]: row["dispatchStatus"] for row in self.orca.workers("--include-remote")}
             facts = self.book.facts(RUNNER, [ORCA_LIVE, UNREACHABLE_FACT])
@@ -3987,6 +4044,8 @@ class Runner:
                 else:
                     continue
                 self.lane_vanished(lane, dispatch, state, facts.get(UNREACHABLE_FACT))
+                if f"lane-gone:{lane}:{dispatch}" in self.judgments:
+                    live[lane] = dispatch
             if live != known:
                 self.book.edit(RUNNER, lambda incident: incident.facts.update({ORCA_LIVE: live}))
         except CciTailFailed as failure:
@@ -3996,7 +4055,8 @@ class Runner:
         if self.withdrawn_by(lane) or any(action.target.startswith("OUTCOME ") and f" dispatch={dispatch}:" in action.target for action in self.book.actions(RUNNER, kind="escalation")):
             return
         drive = self.config.drive
-        last = max((record for record in cci.records(self.cci_tail, drive, "--lane", lane) if (record["drive"], record["lane"]) == (drive, lane)), key=lambda record: record["seq"], default=None)
+        posted = sorted((record for record in cci.records(self.cci_tail, drive, "--lane", lane) if (record["drive"], record["lane"]) == (drive, lane)), key=lambda record: record["seq"])
+        last = posted[-1] if posted else None
         if last and last["kind"] in LANE_ENDED_KINDS:
             return
         said = "it has posted no record"
@@ -4004,7 +4064,7 @@ class Runner:
             at = actions.parse_stamp(last["at"])
             said = f"its last record is #{last['seq']} {last['kind']} at {pacific(at)}, {whole_minutes(at, self.now())} min ago"
         down = f"; Orca gave no answer from {pacific(actions.parse_stamp(outage['since']))} until this pass ({outage['error']})" if outage else ""
-        self.escalate(f"lane-gone:{lane}:{dispatch}", "LANE-GONE", lane, f"Orca shows its dispatch {dispatch} {state}; {said}{down}; relaunch it from its brief and handoff", f"lane-gone:{lane}")
+        self.front(f"lane-gone:{lane}:{dispatch}", "LANE-GONE", lane, f"Orca shows its dispatch {dispatch} {state}; {said}{down}; relaunch it from its brief and handoff", f"lane-gone:{lane}", "", lambda: gone_evidence(lane, [], posted, []))
 
     def class_unowned(self) -> None:
         """Log one `CLASS-UNOWNED` for each class record that names an incident key and, `deadlines.pr_silent_minutes` after it, has no later root GO, decide, or decision naming one of its keys."""
@@ -6341,10 +6401,13 @@ class Landing:
 
     def failed_test(self, build: str, job: str) -> str:
         """The first failing test the log of `job` in `build` names, Go or Rust; empty when the log does not read or names none."""
+        found = FAILED_TEST.search(self.job_log(build, job))
+        return next(filter(None, found.groups())) if found else ""
+
+    def job_log(self, build: str, job: str) -> str:
+        """The log of `job` in `build` with its terminal control codes taken out; empty when it does not read."""
         done = self.shell.run(release_build_argv(self.checkout, f"{self.landing_config['ci_build']}/jobs/{job}/log", build))
-        if done.code != 0 or not (found := FAILED_TEST.search(LOG_CONTROL.sub("", json.loads(done.out)["content"]))):
-            return ""
-        return next(filter(None, found.groups()))
+        return LOG_CONTROL.sub("", json.loads(done.out)["content"]) if done.code == 0 else ""
 
     def test_file(self, test: str) -> str:
         """The first trunk file naming `test` as a word, a Rust test by its last path segment."""
@@ -7076,7 +7139,7 @@ class Landing:
         return {pr: merge_queue.State(merge_queue.PENDING, f"merge mode {self.merge_mode} waits for the owner's Merge answer at {graded.heads[pr][:7]}") for pr in waiting} | {pr: merge_queue.State(merge_queue.PENDING, why) for pr, why in (untapped | unread).items()}
 
     def untapped(self, heads: dict[str, str]) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
-        """Each PR of `heads` whose changed files a glob of a `landing.tap_rules` row names, while that row is in the register in force, and no approval on the root's board names its head, with why it waits, since a root `go` never stands in for the owner's tap (rule/82317b0); each PR whose changed files, register, or board did not read, with what did not, which the runner leaves unqueued for the landing desk rather than guess a merge (4236611); and each such PR the owner's port and test-only rulings admit with no tap, with its `EXEMPT-ADMITTED` note (06288326)."""
+        """Each PR of `heads` whose changed files a glob of a `landing.tap_rules` row names, while that row is in the register in force, and no approval on the root's board names its head, with why it waits, since a root `go` never stands in for the owner's tap (rule/82317b0) unless it answers this runner's `TAP-KEPT` ask, which carries his tap; each PR whose changed files, register, or board did not read, with what did not, which the runner leaves unqueued for the landing desk rather than guess a merge (4236611); and each such PR the owner's port and test-only rulings admit with no tap, with its `EXEMPT-ADMITTED` note (06288326)."""
         if not (rules := self.landing_config.get("tap_rules")):
             return {}, {}, {}
         touching, unread = {}, {}
@@ -7106,24 +7169,15 @@ class Landing:
             if register is None or verdicts is None:
                 unread[pr] = f"TAP-UNREAD #{pr}: {'the register' if register is None else 'the root board'} did not read, so the runner leaves it unqueued for the landing desk"
                 continue
-            if self.tap_kept(pr, heads[pr]) or any(entry["verdict"] == "approved" and names_head(heads[pr], entry.get("head") or "") for by_row in verdicts.values() for row, entry in by_row.items() if board_rows.pr_of(row) == pr):
+            if self.kept_by_go(pr, heads[pr]) or any(entry["verdict"] == "approved" and names_head(heads[pr], entry.get("head") or "") for by_row in verdicts.values() for row, entry in by_row.items() if board_rows.pr_of(row) == pr):
                 continue
             board = board or self.owner_board()
             waits[pr] = f"{mismatched[pr]}TAP-REQUIRED {','.join(found)}: it lands only on the owner's tap at this head, and a root go is no tap; {self.owner_state(pr, board)}"
         return waits, unread, exempt
 
-    def tap_kept(self, pr: str, head: str) -> bool:
-        """Whether this runner noted `TAP-KEPT` for `pr` at `head` and the standing fidelity grade there still says no new behavior since that tap: the owner's tap then carries without a board row or a go at the new head (root #192094, #194387, #195066)."""
-        tapped = [parts[-2] for action in self.book.actions(LANDING, kind="bus") if (parts := action.action_id.split(":"))[0] == "tap-kept" and parts[2] == pr and names_head(parts[-1], head)]
-        if not tapped:
-            return False
-        standing = self.fidelity(pr, head)
-        return bool(standing.ok and standing.record) and any(self.keeper(self.scanned_reviews(), pr, head, sha) for sha in tapped)
-
-    def keeper(self, reviews: list[dict], pr: str, head: str, tapped: str) -> dict | None:
-        """The newest fidelity ok grade at `head`, or root go naming it, that says no new behavior since the owner's tap at `tapped`; once one says so, a later grade at the same head without the phrase does not undo it (root #205037, #205918)."""
-        oks = [grade for grade in fidelity_grades_in(reviews, self.runner.config.drive, self.fidelity_lanes, self.repo, pr) if grade["text"].startswith(FIDELITY_OK) and names_head(graded_head(grade["text"]), head)]
-        return max((record for record in [*oks, *self.head_gos(pr, head)] if keeps_tap(full_text(record), tapped)), key=lambda record: record["seq"], default=None)
+    def kept_by_go(self, pr: str, head: str) -> bool:
+        """Whether the owner's tap stands at `head` by a root go on this runner's `TAP-KEPT` ask for it, with the finder clear there, as its carry would, even when the board no longer holds the block the carry writes to (root #192094)."""
+        return any((parts := action.action_id.split(":"))[0] == "tap-kept" and parts[2] == pr and names_head(parts[-1], head) and self.proposal_gos(pr, head, action.action_id) for action in self.book.actions(LANDING, kind="bus")) and self.finder_clear(pr, head)
 
     def exempt_admitted(self, pr: str, sha: str) -> tuple[str, str]:
         """The `EXEMPT-ADMITTED` note for `pr` at `sha` when its change is exempt and goes straight to Graphite's queue with no go and no board tap, and why its whole diff breaks the class its grade claims, read once per pass (root #194387, 06288326, owner Oct 28 8:45 PM). The head grades ok by `fidelity`'s rule and `exempt_class` finds one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first) in its grades. Both classes are checked against every file the PR changes against its base, never the grade's words alone (root #182391): a test-only or CI-only class fails on a file outside the test, CI, skill-script and docs set, and a port class on a file outside `PORT_PREFIXES` unless a `Rulings` comment clears its interaction; changed files that do not read admit nothing that pass."""
@@ -7387,7 +7441,7 @@ class Landing:
         return ",".join(dict.fromkeys(map(self.successor, [*desks, *self.board_lanes, *owners])))
 
     def carry_taps(self, rows: dict[str, dict]) -> None:
-        """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head when its own commits have the tapped head's `git patch-id`, citing any chain of `head` records and fidelity carries that call each move patch-identical, whose words alone never carry a tap (p8a-step7 #199440): `cc-present verdict carry` records it, so the row shows his tap and asks nothing, and one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads. A tap whose new head a record names with no such chain, a fixed version, is never carried: a record saying the head adds new behavior draws one `TAP-NOT-CARRIED` note to the same lanes saying the board needs a new row, with the three facts its row opens with: his tap's Pacific time, the heads since it, and that record's sentence naming the new behavior (root #194315), and a fidelity ok grade of the head that names none draws one `TAP-KEPT` note saying his tap keeps over that review fix, so root posts the go naming the fix and the row lists it (rule 399b5fa, root #151306). Once root posts that go, the runner carries the tap to the fix itself the same way, citing the grade and the go. A head a root `go` names whose tap does not keep draws one `TAP-CARRY-FAILED` naming why, the new behavior, the grade or the finder, never a silent wait on a tap the go assumed (#193444); a head a patch-identical fidelity carry grade already names is otherwise settled and gets no such note, and a carry onto a merge block the board no longer holds has nothing to carry, so it logs no `TAP-CARRY-FAILED` (root #151003, #151839)."""
+        """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head when its own commits have the tapped head's `git patch-id`, citing any chain of `head` records and fidelity carries that call each move patch-identical, whose words alone never carry a tap (p8a-step7 #199440): `cc-present verdict carry` records it, so the row shows his tap and asks nothing, and one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads. Any other new head goes to `judge_tap`, where a judge reads what changed and only a root go carries his tap. Records that do not read log one `TAP-CARRY-FAILED` per cause, and a carry onto a merge block the board no longer holds has nothing to carry, so it logs none (root #151003, #151839)."""
         if self.landing_config.get("merge_ask_surface", "slack") != "board":
             return
         try:
@@ -7411,7 +7465,6 @@ class Landing:
         reviews = [record for record in self.scanned_reviews() if record["seq"] not in withdrawn]
         for block, pr, entry in moved:
             head, tapped, session = heads[pr], entry.get("carriedFrom") or entry["head"], entry.get("session", "")
-            graded = newest_naming(fidelity_grades_in(reviews, drive, self.fidelity_lanes, self.repo, pr), head)
             moves = head_moves(reviews, drive, self.fidelity_lanes, self.repo, pr)
             if (commits := self.own_commits(pr, head)) and (ours := self.patch_id(pr, head, commits, escalate=True)) and self.patch_id(pr, entry["head"], commits, escalate=False) == ours:
                 chain = patch_chain(moves, head, entry["head"])
@@ -7419,38 +7472,69 @@ class Landing:
                 if self.carry_tap(session, block, pr, tapped, head, why, self.landing_audience([pr], rows, to), label):
                     self.go_carried_tap(pr, head, tapped, rows, to)
                 continue
-            said = [record for record in reviews if record["kind"] == "head" and about_pr(record, self.repo, pr) and names_head(head_of(record, self.repo, pr), head)]
-            adds = [record for record in [*said, *([graded] if graded else [])] if ADDS_BEHAVIOR.search(head_says(record, self.repo, pr))]
-            standing = self.fidelity(pr, head)
-            graded_ok = bool(standing.ok and standing.record)
-            keeper = self.keeper(reviews, pr, head, tapped)
-            says_kept = graded_ok and keeper is not None
-            kept = not adds and says_kept and self.finder_clear(pr, head)
-            if kept and not self.book.known(LANDING, key := f"tap-kept:{block}:{pr}:{tapped}:{head}"):
-                self.post_record("note", key, to, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} on board block {block} keeps at {head[:10]}, a review fix with no new behavior per {'root go' if keeper['kind'] == 'go' else 'fidelity grade'} cci #{keeper['seq']} (rule 399b5fa), so it goes straight to the merge queue with no go (root #194387), and the row lists the fix", pr)
-            if kept and (gos := self.head_gos(pr, head)):
-                self.carry_tap(session, block, pr, tapped, head, f"review fix with no new behavior, per {'root go' if keeper['kind'] == 'go' else 'fidelity grade'} cci #{keeper['seq']} and root go cci #{gos[-1]['seq']} (rule 399b5fa)", self.landing_audience([pr], rows, to))
-                continue
-            if self.head_gos(pr, head):
-                if adds:
-                    why = f"cci #{adds[-1]['seq']} says that head adds new behavior"
-                elif not graded_ok:
-                    why = standing.why or f"no fidelity ok grade stands at {head[:10]}"
-                elif not says_kept:
-                    why = f"fidelity grade cci #{standing.record['seq']} does not say {head[:10]} adds no new behavior since the tap at {tapped[:10]}"
-                else:
-                    why = f"the finder is not clear at {head[:10]}"
-                self.runner.escalate(f"tap-carry:{pr}:{head[:7]}:{hashlib.sha1(why.encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", f"#{pr}", f"the owner's tap on #{pr} at {tapped[:10]} on board block {block} does not carry to {head[:10]}, which a root go names: {why}; {self.owner_state(pr, self.owner_board())}", "", self.go_audience([pr], rows))
-                continue
-            if graded and any(seq == graded["seq"] and identical for _, _, identical, seq in moves):
-                continue
-            if (adds or graded_ok and not says_kept) and not self.book.known(LANDING, key := f"tap-new-row:{block}:{pr}:{tapped}:{head}"):
-                record = adds[-1] if adds else standing.record
-                text = head_says(record, self.repo, pr)
-                why = f"says that head adds new behavior: \"{board_rows.sentence_at(text, ADDS_BEHAVIOR.search(text).start()).strip()}\"" if adds else f"grades it ok without saying no new behavior since the tap at {tapped[:10]}"
-                when = board_rows.tapped_at(entry)
-                since = " -> ".join(sha[:10] for sha in heads_since(moves, head, entry["head"]))
-                self.post_record("note", key, to, f"TAP-NOT-CARRIED #{pr}: the owner's tap at {tapped[:10]} ({when} Pacific) on board block {block} does not carry to {head[:10]}, since cci #{record['seq']} {why}. Heads since his tap: {since}. The board needs a new row for #{pr} at {head[:10]} opening 'You approved this at {when}. Since then: <what changed>. Shown again because: <the new behavior>.'", pr)
+            self.judge_tap(block, pr, entry, head, tapped, session, heads_since(moves, head, entry["head"]), rows, to)
+
+    def judge_tap(self, block: str, pr: str, entry: dict, head: str, tapped: str, session: str, since: list[str], rows: dict[str, dict], to: str) -> None:
+        """Settle the owner's tap on `pr` at `tapped` for a new head that is not patch-identical to it, once a fidelity ok grade stands there: the `tap-carry` judge reads what the lane, the grade and the finder say changed since his tap, off the pass. Its yes, an unsure answer or a failed model call draws one `TAP-NOT-CARRIED` note to `to`, so the board shows him a fresh row at once (root #194315); its no draws one `TAP-KEPT` ask proposing the carry to root, and only a go root posts naming the head, with the finder clear there, carries his tap (rule 399b5fa), while any other root answer to that ask draws the `TAP-NOT-CARRIED` note. A head a root go names whose tap does not carry draws one `TAP-CARRY-FAILED` naming why (#193444)."""
+        standing = self.fidelity(pr, head)
+        kept, fresh = f"tap-kept:{block}:{pr}:{tapped}:{head}", f"tap-new-row:{block}:{pr}:{tapped}:{head}"
+        when = board_rows.tapped_at(entry)
+        opener = f"TAP-NOT-CARRIED #{pr}: the owner's tap at {tapped[:10]} ({when} Pacific) on board block {block} does not carry to {head[:10]}"
+        asks = f"Heads since his tap: {' -> '.join(sha[:10] for sha in since)}. The board needs a new row for #{pr} at {head[:10]} opening 'You approved this at {when}. Since then: <what changed>. Shown again because: <the new behavior>.'"
+        if self.book.known(LANDING, fresh):
+            changed: bool | None = True
+        elif self.book.known(LANDING, kept):
+            changed = False
+            if not self.proposal_gos(pr, head, kept) and (declined := self.proposal_declined(kept)):
+                self.post_record("note", fresh, to, f"{opener}: root answered the carry proposal with cci #{declined['seq']}, not a go. {asks}", pr)
+                changed = True
+        elif not (standing.ok and standing.record):
+            changed = None
+        else:
+            answered, verdict = self.runner.judgment(kept, "tap-carry", lambda: self.tap_read(pr, head, tapped, entry, since))
+            if not answered:
+                return
+            changed = not (verdict and verdict.verdict == "no")
+            if not changed:
+                self.post_record("ask", kept, ROOT, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} ({when} Pacific) on board block {block} can carry to {head[:10]}, a fix the judge reads as changing nothing he approved: {verdict.sentence} Post `go #{pr} at {head[:10]}` to carry it (rule 399b5fa); any other answer puts a fresh row on his board.", pr)
+            else:
+                said = f"the judge reads new behavior since his tap: {verdict.sentence}" if verdict and verdict.flagged else "the judge is unsure it changes nothing he approved." if verdict else "the judge did not answer, so he is asked again."
+                self.post_record("note", fresh, to, f"{opener}: {said} {asks}", pr)
+        carriers = self.proposal_gos(pr, head, kept) if changed is False else []
+        if carriers and self.finder_clear(pr, head):
+            self.carry_tap(session, block, pr, tapped, head, f"fix with no new behavior, per the judge's TAP-KEPT and root go cci #{carriers[-1]['seq']} (rule 399b5fa)", self.landing_audience([pr], rows, to))
+            return
+        if not self.tap_gos(pr, head):
+            return
+        why = (standing.why or f"no fidelity ok grade stands at {head[:10]}") if changed is None else f"the finder is not clear at {head[:10]}" if carriers else f"no root go answers the TAP-KEPT proposal for {head[:10]}" if changed is False else f"{head[:10]} changes behavior since the tap at {tapped[:10]}, so the board asks him again"
+        self.runner.escalate(f"tap-carry:{pr}:{head[:7]}:{hashlib.sha1(why.encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", f"#{pr}", f"the owner's tap on #{pr} at {tapped[:10]} on board block {block} does not carry to {head[:10]}, which a root go names: {why}; {self.owner_state(pr, self.owner_board())}", "", self.go_audience([pr], rows))
+
+    def tap_gos(self, pr: str, head: str) -> list[dict]:
+        """The gos naming `pr` at `head` that a go lane posted, never one a fidelity grade or a patch-identical restack carried there."""
+        return [go for go in self.head_gos(pr, head) if "graded_at" not in go]
+
+    def proposal_seq(self, key: str) -> int | None:
+        """The seq of the `TAP-KEPT` ask this runner posted under `key`, once it posted."""
+        posted = self.book.known(LANDING, key)
+        return cci.receipt_seq(posted.response["posted"]) if posted and posted.status == "completed" else None
+
+    def proposal_gos(self, pr: str, head: str, key: str) -> list[dict]:
+        """The root gos naming `pr` at `head` posted after the `TAP-KEPT` ask under `key`, the only gos that carry the owner's tap over a fix the judge clears (rule 399b5fa)."""
+        seq = self.proposal_seq(key)
+        return [go for go in self.tap_gos(pr, head) if seq and go["lane"] == ROOT and go["seq"] > seq]
+
+    def proposal_declined(self, key: str) -> dict | None:
+        """The root record answering the `TAP-KEPT` ask this runner posted under `key`, when no root go for its head followed the ask."""
+        if (seq := self.proposal_seq(key)) is None:
+            return None
+        return next((record for record in cci.records(self.cci_tail, self.runner.config.drive, "--lane", ROOT, since=seq) if record.get("re") == seq or seq in closes(record)), None)
+
+    def tap_read(self, pr: str, head: str, tapped: str, entry: dict, since: list[str]) -> tuple[str, str]:
+        """What the `tap-carry` judge reads: as evidence when the owner approved `pr` and at which head, and the heads since; as the artifact every record about `pr` since his tap but the runner's own, where its lane, its fidelity grade and its finder say what changed."""
+        drive = self.runner.config.drive
+        records = [record for record in cci.records(self.cci_tail, drive, "--pr", f"{self.repo}#{pr}", since=entry["at"]) if record["drive"] == drive and record["lane"] not in (RUNNER, ORCA_DESK, stall_watch.LANE, prompt_watch.LANE)]
+        evidence = f"The owner approved #{pr} at head {tapped[:10]} at {board_rows.tapped_at(entry)} Pacific. Its heads since then: {' -> '.join(sha[:10] for sha in since)}. The question is about {head[:10]}."
+        return evidence, f"The records about #{pr} since his approval, oldest first:\n{judge.bus(records)}"
 
     def question_tap_claims(self, heads: dict[str, str], verdicts: dict[str, dict[str, dict]], rows: dict[str, dict]) -> None:
         """One `GO-TAP-MISSING` to root per root `go` and PR when the go claims the owner's tap in one of its explicit forms, `TAP-KEPT`, `TAP-CARRIED` or `owner tapped <sha>`, never a bare word such as tap row or approved (root 2:29 AM Oct 30, #204186), at an open PR's ledger head, claims no port, test-only or CI-only exemption, and no approval on the root's board names that head or a head the go names, saying what the board holds for the PR instead: a go rests on a board verdict, never on a lane's line that says tapped (rule/82317b0, root #172682)."""
@@ -7528,11 +7612,11 @@ class Landing:
             )
 
     def askable(self, heads: dict[str, str], asking: list[str], rows: dict[str, dict]) -> list[str]:
-        """The PRs of `asking` the owner can tap now: a fidelity ok stands at the head, the finder is clear there, and the root's board holds a row at that head or the runner noted `TAP-KEPT` there (root #191653). A graded head with no row is told to the board lanes once, so the row goes up in their next pass; an ungraded head already has its grade blocker."""
+        """The PRs of `asking` the owner can tap now: a fidelity ok stands at the head, the finder is clear there, and the root's board holds a row at that head (root #191653). A graded head with no row is told to the board lanes once, so the row goes up in their next pass; an ungraded head already has its grade blocker."""
         graded = [pr for pr in asking if self.fidelity(pr, heads[pr]).ok and self.finder_clear(pr, heads[pr])]
         if not graded or (board := self.board_heads()) is None:
             return []
-        askable = [pr for pr in graded if (pr, heads[pr][:7]) in board or self.tap_kept(pr, heads[pr])]
+        askable = [pr for pr in graded if (pr, heads[pr][:7]) in board]
         for pr in sorted(set(graded) - set(askable), key=int):
             if not self.book.known(LANDING, key := f"board-row-missing:{pr}:{heads[pr]}"):
                 self.post_record("note", key, ",".join(self.board_lanes) or ROOT, f"BOARD-ROW-MISSING #{pr} at {heads[pr][:10]}: graded ok with the finder clear, and the root's board holds no row at this head, so nothing asks the owner yet; put its row up, and the runner asks for the tap once it is there (root #191653)", pr)
@@ -9033,7 +9117,7 @@ class Landing:
         self.trunk_states = states
 
     def route_blocker(self, pr: str, sha: str, blocker: merge_queue.Blocker, row: dict, tips: list[str], stack: set[str], gated_red: bool, failing: bool) -> None:
-        """Tell the lane once per head, re-reading the gate just before the send so an approval or fix that already arrived is never asked for. A failing required check posts one blocker per PR, refusal, red job and cause: a later head failing the same way adds one line under that blocker, and a changed cause or a new red job opens a new one. A conflict whose lane has no live dispatch and no live cci session routes nothing: the root gets one `PARKED` line per PR, and the head routes once the lane is back."""
+        """Tell the lane once per head, re-reading the gate just before the send so an approval or fix that already arrived is never asked for. A failing required check posts one blocker per PR, refusal, red job and cause: a later head failing the same way adds one line under that blocker, and a changed cause or a new red job opens a new one, once `red_ours` finds the PR's diff may have caused it. A conflict whose lane has no live dispatch and no live cci session routes nothing: the root gets one `PARKED` line per PR, and the head routes once the lane is back."""
         key = blocker_key(pr, sha)
         owner = self.owner(pr, row)
         if self.routed(key, owner) or self.has_landed(pr) or blocker.conflict and self.routed(f"conflict:{pr}:{row.get('base', '')}", owner):
@@ -9055,8 +9139,36 @@ class Landing:
         elif earlier and (seq := cci.receipt_seq(earlier.response["posted"])) is not None:
             to = ",".join(self.reach(owner)) if owner else json.loads(earlier.target)["lane"]
             self.post_record("note", key, to, f"{self.dead_note(owner)}#{pr} {sha}: the same failure again: {red}", pr, re_seq=str(seq))
-        else:
+        elif not red or self.red_ours(key, pr, sha, blocker.text, red, row, owner):
             self.route(key, owner, f"#{pr} {sha}: {blocker.text}", pr, cause)
+
+    def red_ours(self, key: str, pr: str, sha: str, said: str, red: str, row: dict, owner: str) -> bool:
+        """Whether the red blocker `key` of `pr` at `sha` goes to its lane. The `red` judge reads the red jobs' logs, the PR's diff and the trunk's state off the pass, and nothing routes until it answers. Its yes, a red the PR's diff did not cause, posts one `RED-NOT-OURS` report under the blocker's key to root and the watchdog, who hear the trunk's reds, with its sentence and log line; a no, an unsure answer or a failed model call routes it to the lane as before."""
+        answered, verdict = self.runner.judgment(key, "red", lambda: self.red_read(pr, sha, said, red, row))
+        if not answered:
+            return False
+        if not (verdict and verdict.flagged):
+            return True
+        self.trust_reads()
+        self.post_record("report", key, f"{ROOT},{self.runner.watchdog}", f"RED-NOT-OURS #{pr} {sha[:10]}: {verdict.sentence} Log: \"{verdict.artifact_phrase}\". The runner sends it to root and the watchdog, not to {owner or 'its lane'}; red: {red}", pr)
+        return False
+
+    def red_read(self, pr: str, sha: str, said: str, red: str, row: dict) -> tuple[str, str]:
+        """What the `red` judge reads: as evidence the trunk's newest red-state records, the PR below, the files the diff changes and the PR's newest records; as the artifact the blocker and each red Buildkite build's failed jobs' logs, `RED_JOBS` jobs at most."""
+        drive = self.runner.config.drive
+        trunk = cci.records(self.cci_tail, drive, f"--topic={cci.TRUNK_TOPIC}")
+        below = next((number for number, other in self.ledger_rows.items() if other.get("branch") and other["branch"] == row.get("base")), "")
+        files, unread = self.changed_files(pr, sha)
+        evidence = "\n\n".join([
+            f"The trunk's newest records on its red state, oldest first:\n{judge.bus(trunk[-JUDGED_RECORDS:])}" if trunk else "No record names the trunk red.",
+            f"#{pr} is stacked on #{below}, branch {row['base']}, which has not landed." if below else f"#{pr} is based on {row.get('base') or TRUNK}.",
+            f"The files #{pr}'s diff changes:\n" + "\n".join(files) if files is not None else f"#{pr}'s changed files did not read: {unread}",
+            f"#{pr}'s newest records, oldest first:\n{judge.bus(cci.records(self.cci_tail, drive, '--pr', f'{self.repo}#{pr}')[-JUDGED_RECORDS:])}",
+        ])
+        builds = [url for url, state, _ in self.ci_builds(sha) or [] if state in RED_STATES] if self.landing_config.get("ci_build") else []
+        jobs = [(url, job) for url in builds if (build := self.build(url)) for job in build.get("jobs", []) if job.get("type") == "script" and job.get("state") == "failed" and not job.get("soft_failed")]
+        logs = "".join(f"\n\nJob {job.get('name') or job.get('step_key')} failed on {url}; its log reads:\n{log_excerpt(self.job_log(url, job['id']))}" for url, job in jobs[:RED_JOBS])
+        return evidence, f"#{pr} {sha}: {said}\nRed: {red}{logs}"
 
     def cause_blocker(self, pr: str, cause: str) -> actions.Action | None:
         """The blocker this desk already posted on `pr` for the same refusal, red jobs and causes, if any."""
@@ -9175,7 +9287,7 @@ class Landing:
         return None if statuses is None else {pr: entry["queue"] for pr, entry in statuses.items()}
 
     def tell_unpassed(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Tell each PR `unpassed` keeps out of every check, and each PR of a tree `landable_trees` left unchecked, what the pass's one status read says, after the go'd trees enqueue: red CI or requested changes goes to its lane as that head's blocker, and to root as well when the merge queue dropped it (owner, 10:44 PM Oct 30), a conflict alone once per base, since a restack that keeps its base on purpose stays conflicting at every head, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM), `GATE_WORKERS` heads at a time, heads not yet told at their head first and then the longest untold, starting none once `TELL_BUDGET` has passed, so a later pass tells the rest. It reads the root's gos again first, so a go posted while the pass ran asks nothing (root #143360)."""
+        """Tell each PR `unpassed` keeps out of every check, and each PR of a tree `landable_trees` left unchecked, what the pass's one status read says, after the go'd trees enqueue: red CI or requested changes goes to its lane as that head's blocker, red CI alone once `red_ours` finds the PR's diff may have caused it, and to root as well when the merge queue dropped it (owner, 10:44 PM Oct 30), a conflict alone once per base, since a restack that keeps its base on purpose stays conflicting at every head, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM), `GATE_WORKERS` heads at a time, heads not yet told at their head first and then the longest untold, starting none once `TELL_BUDGET` has passed, so a later pass tells the rest. It reads the root's gos again first, so a go posted while the pass ran asks nothing (root #143360)."""
         if not (self.no_go or self.unchecked) or (statuses := self.pr_statuses()) is None:
             return
         self.reread()
@@ -9202,7 +9314,11 @@ class Landing:
                 continue
             owner = self.owner(pr, open_rows[pr])
             if entry["queue"] != "evicted":
-                self.route(f"conflict:{pr}:{open_rows[pr].get('base', '')}" if why == CONFLICT_BLOCKER else blocker_key(pr, head), owner, f"#{pr} {head}: {why}", pr)
+                key = f"conflict:{pr}:{open_rows[pr].get('base', '')}" if why == CONFLICT_BLOCKER else blocker_key(pr, head)
+                if self.routed(key, owner):
+                    continue
+                if why != status_blocker({"verdict": "blocked:ci-red", "ci": entry.get("ci") or {}}) or self.red_ours(key, pr, head, why, self.red_cause(pr, head) or why, open_rows[pr], owner):
+                    self.route(key, owner, f"#{pr} {head}: {why}", pr)
             elif not self.routed(key := blocker_key(pr, head), owner):
                 self.post_blocker(key, ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])), f"#{pr} {head}: {why}; the queue dropped it at {entry.get('evicted_at') or 'an unstamped time'}: {entry.get('evicted') or 'no reason given'}", pr)
 
