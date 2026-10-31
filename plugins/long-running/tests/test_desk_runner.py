@@ -1054,6 +1054,10 @@ def escalations(shell: FakeShell) -> list[str]:
     return [Path(post["path"]).read_text().splitlines()[0] if "path" in post else post["text"] for post in shell.posts if post["to"] == "root"]
 
 
+def refused_escalations(shell: FakeShell) -> list[str]:
+    return [line for line in said(shell) if line.startswith("REFUSED refused:")]
+
+
 def watchdog_lines(shell: FakeShell) -> list[str]:
     return [Path(post["path"]).read_text().splitlines()[0] if "path" in post else post["text"] for post in shell.posts if post["to"] == f"{runner_module.WATCHDOG}@d1"]
 
@@ -3118,7 +3122,7 @@ def test_a_label_read_github_refuses_holds_the_enqueue(shell, config, tmp_path):
     grade_gated_heads_ok(shell)
     shell.pr_label_error = "HTTP 502"
     landing_pass(shell, config)
-    [line] = escalations(shell)
+    [line] = refused_escalations(shell)
     assert "#29020 is held by GitHub refused the label read: HTTP 502" in line and shell.enqueues() == []
     shell.pr_label_error = ""
     landing_pass(shell, config)
@@ -3131,13 +3135,13 @@ def test_a_ready_record_older_than_a_later_hold_never_enqueues_until_a_newer_rea
     ready_record(shell, 10, 29020, "2026-10-01T16:00:00Z")
     hold_record(shell, 11, 29020, "closed", "2026-10-01T17:00:00Z")
     landing_pass(shell, config)
-    [line] = escalations(shell)
+    [line] = refused_escalations(shell)
     assert "cci ready #10 is older than cci hold #11" in line and shell.enqueues() == []
     landing_pass(shell, config)
-    assert shell.enqueues() == [] and len(escalations(shell)) == 1
+    assert shell.enqueues() == [] and len(refused_escalations(shell)) == 1
     ready_record(shell, 12, 29020, "2026-10-01T17:30:00Z")
     landing_pass(shell, config)
-    assert len(shell.enqueues()) == 1 and len(escalations(shell)) == 1
+    assert len(shell.enqueues()) == 1 and len(refused_escalations(shell)) == 1
 
 
 def test_a_lifted_hold_posted_after_the_enqueue_was_accepted_still_refuses_it(shell, config, tmp_path):
@@ -3145,7 +3149,7 @@ def test_a_lifted_hold_posted_after_the_enqueue_was_accepted_still_refuses_it(sh
     grade_gated_heads_ok(shell)
     after_call(shell, is_check, lambda: hold_record(shell, 20, 29020, "closed", "2026-10-01T18:00:05Z"))
     landing_pass(shell, config)
-    [line] = escalations(shell)
+    [line] = refused_escalations(shell)
     assert "cci hold #20 was posted after this enqueue was accepted" in line and shell.enqueues() == []
 
 
@@ -6032,13 +6036,14 @@ def test_lanes_take_turns_so_one_lanes_many_stacks_never_go_ahead_of_every_other
     assert runner_module.lane_turns([["1"], ["2"], ["3"], ["4"]], open_rows) == [["1"], ["4"], ["2"], ["3"]]
 
 
-def test_every_landing_pass_posts_one_state_line_to_root(shell, config, tmp_path):
+def test_every_landing_pass_posts_one_state_line_to_the_drive_watchdog(shell, config, tmp_path):
+    """Owner, 8:52 PM Oct 30, and root #243447: landing-state lines reach the drive watchdog, never root."""
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
     landing_pass(shell, config)
     states = shell.states
-    assert len(states) == 2 and all(post["to"] == "root" for post in states)
+    assert len(states) == 2 and all(post["to"] == f"{runner_module.WATCHDOG}@d1" for post in states)
     assert re.fullmatch(r"LANDING queued \d+, waiting \d+, held 0, refused 0, in flight 0; pass \d+s", states[-1]["text"])
 
 
