@@ -48,6 +48,8 @@ jobs:
           grep -F 'query survived register budget:' "$RUNNER_TEMP/register-orphan-negative.log"
           REGISTER_READ_ORACLE="$RUNNER_TEMP/register-read-oracle.json" REGISTER_READ_ORACLE_WRITE=1 uv run --locked --project plugins/long-running pytest -c .ci-register-orphan-baseline/plugins/long-running/pyproject.toml .ci-register-orphan-baseline/plugins/long-running/tests/test_register_reads.py -q -s -k test_register_read_cli_oracle
           REGISTER_READ_ORACLE="$RUNNER_TEMP/register-read-oracle.json" uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_register_reads.py -q -s
+      - name: Request-owned judge regressions
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_judge_request_owned.py plugins/long-running/tests/test_judge.py plugins/long-running/tests/test_rulings_dispatch.py -q -s
       - name: pytest
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q
       - name: Binary attachment actual mq read costs
@@ -162,7 +164,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
       - name: native mailbox freshness and lifecycle, and the shells' command reaping
-        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_rosters.py plugins/long-running/tests/test_inboxes.py plugins/long-running/tests/test_register_reads.py plugins/long-running/tests/test_ledger_shell.py plugins/long-running/tests/test_stall_watch.py plugins/long-running/tests/test_build_cache.py -q -s
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_rosters.py plugins/long-running/tests/test_inboxes.py plugins/long-running/tests/test_register_reads.py plugins/long-running/tests/test_ledger_shell.py plugins/long-running/tests/test_stall_watch.py plugins/long-running/tests/test_build_cache.py plugins/long-running/tests/test_judge_request_owned.py plugins/long-running/tests/test_judge.py plugins/long-running/tests/test_rulings_dispatch.py -q -s
       - name: mailbox index scaling costs
         run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/mailbox-index.py > mailbox-index-macos.json
       - uses: actions/upload-artifact@v7
