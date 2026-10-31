@@ -6813,6 +6813,39 @@ def test_a_withdrawn_go_leaves_a_pr_queued_that_another_standing_go_admits_at_th
     assert dequeues(shell) == []
 
 
+def test_a_queued_pr_whose_head_moved_past_its_go_dequeues_and_enqueues_again_on_a_go_at_the_new_head(shell, config):
+    """Root #234005: Trunk merged #45744 at 23c548f, a head no go named, because the queue entry from go #228814 at e147581 survived the lane's force-push."""
+    merge_mode(config, "every")
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    shell.rows[0] |= {"head": "eeee555555", "reported_head": "eeee555555"}
+    landing_pass(shell, config)
+    assert dequeues(shell) == [["29020", "--dequeue"]]
+    shell.clock += runner_module.STATUS_MAX_AGE + timedelta(seconds=1)
+    shell.queue["29020"] = "not queued"
+    landing_pass(shell, config)
+    assert [line.split(": ", 2)[-1] for line in dequeue_lines(shell)] == ["the status read after the dequeue finds it not queued; a go at its new head enqueues it again"]
+    shell.gates["29020"] = [gate("#29020 GREEN eeee555555 graphite READY", would="#29020")]
+    grade(shell, "29020", "ok F307 at eeee555.")
+    merge_go(shell, "29020", "merge #29020 at eeee555")
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 2
+
+
+def test_a_queued_pr_a_go_names_at_its_current_head_stays_queued(shell, config):
+    merge_mode(config, "every")
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    merge_go(shell, "29020", "merge #29020 at aaaa111")
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert dequeues(shell) == []
+
+
 def test_mq_dequeue_refuses_another_drives_pr_and_names_its_root(shell, config, tmp_path, capsys):
     shell.rows = [dict(ONE_ROW, ours=False)]
     other_drive_opened(shell, "29020")
