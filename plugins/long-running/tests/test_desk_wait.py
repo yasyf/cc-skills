@@ -287,7 +287,7 @@ def test_a_mailbox_source_wakes_on_the_lanes_roster_mailbox(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == "MAILBOX 1 unread\n" + PRINTED
-    assert cursor.read_text() == "1\n"
+    assert json.loads(mailbox.read_text())[0]["read"] is True
 
 
 def test_a_mailbox_source_no_roster_lists_exits_one(tmp_path):
