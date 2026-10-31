@@ -3197,7 +3197,7 @@ class Runner:
                     self.book.attempt(container, lambda incident, key=action.action_id: finish(incident, key, response, dispatch.id))
                     continue
                 self.send(container, dispatch, action)
-            if not self.refused(lane, dispatch):
+            if not self.send_refused(lane, dispatch):
                 return
         if not stood_down and any(action.status in ("accepted", "started") for action in self.book.actions(container, kind="launch")):
             return
@@ -3216,9 +3216,9 @@ class Runner:
     def relayable(self, lane: str) -> Dispatch | None:
         """The lane's dispatch while it takes relays: Orca shows it active and it refused no send as not active."""
         dispatch = self.orca.show(lane)
-        return dispatch if dispatch and dispatch.status not in INACTIVE and not self.refused(lane, dispatch) else None
+        return dispatch if dispatch and dispatch.status not in INACTIVE and not self.send_refused(lane, dispatch) else None
 
-    def refused(self, lane: str, dispatch: Dispatch) -> bool:
+    def send_refused(self, lane: str, dispatch: Dispatch) -> bool:
         return any(send.target == dispatch.id and send.status == "failed" and FENCED in (send.reason or "") for send in self.book.actions(lane_container(lane), kind="send"))
 
     def no_live_dispatch(self, lane: str) -> str:
