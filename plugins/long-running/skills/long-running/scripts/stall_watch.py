@@ -152,6 +152,10 @@ and, across the drive:
               posted a record nor been bound as that lane in `cci who --drive <drive> --all` since; one
               stall to root names the lane and its brief
 
+A sub-worker whose name extends a live lane's, such as `mq-health-4-supervise` under `mq-health-4`, is that lane's
+own: its lane and unregistered stalls go to that lane, never to root, and name the step that lane owes, having it post
+one state line as its first act. A numbered successor such as `mq-health-4-2` extends no lane.
+
 Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, successor 20, red 2, unclassed 20, unfixed 60, sweep 20, order 3, tap 10, ungraded 10, finder 30,
 fidelity 30, running 25, board 15, carry 20 (one fidelity pass), lane 30, ask 15, gate 30, stale 120, desk 10, shape 30, unregistered 3. A PR's head is as old as the first record about the
 PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record. A board
@@ -188,10 +192,11 @@ import fcntl
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -296,6 +301,8 @@ PULLED = re.compile(r"\bpull(?:s|ed)?\b[^.]*\brows?\b", re.IGNORECASE)
 ASK_WORD = re.compile(r"\b(?:card|pick)\b", re.IGNORECASE)
 BLOCK_WORD = re.compile(r"[\w-]+")
 ENDED = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
+WORKER_KINDS = frozenset({"lane", "unregistered"})
+NUMBERED = re.compile(r"\d{1,2}(?:-\d{1,2})*")
 SPAWNED = re.compile(r"^SPAWNED (?P<lane>[\w.-]+) (?P<brief>\S+)")
 DESK = re.compile(r"(?:.+-)?desk(?:-\d{1,2})?")
 REPEAT = timedelta(minutes=30)
@@ -580,7 +587,7 @@ class Refusal:
     def command(self, head: str) -> str:
         if found := REFUSAL_COMMAND.search(self.said):
             return f"`{found[1]}`" if found[1] else f"run {found[2].strip()}"
-        return CAUSE_COMMANDS.get(self.cause or "", "act on cci #{seq}, then post HEAD or `cci post --re {seq}`").format(pr=self.pr, sha=short(head), seq=self.record["seq"])
+        return CAUSE_COMMANDS.get(self.cause or "", "act on cci {num}, then post HEAD or `cci post --re {reference}`").format(pr=self.pr, sha=short(head), num=self.record["num"], reference=shlex.quote(self.record["num"]))
 
 
 def refusals_in(record: dict, repo: str) -> list[Refusal]:
@@ -644,6 +651,23 @@ class Pass:
         self.unread |= kinds
         print(f"WARN {why}; the {', '.join(sorted(kinds))} stalls it would clear stay open", file=sys.stderr)
 
+    def successor(self, lane: str) -> str:
+        """`lane`, or once it handed off or ended, the newest numbered successor still posting, so a PR's alarms never go to a stopped lane (cci #234379)."""
+        ended = (last := self.lane_newest.get(lane)) is not None and last["kind"] in ENDED or f"{lane}-handoff" in self.lane_newest
+        later = [record for name, record in self.lane_newest.items() if grades.succeeds(name, lane) and record["kind"] not in ENDED]
+        return max(later, key=lambda record: record["seq"])["lane"] if ended and later else lane
+
+    def parent(self, lane: str) -> str | None:
+        """The live lane whose name `lane` extends, such as `mq-health-4` for `mq-health-4-supervise`; a numbered successor such as `mq-health-4-2` extends no lane."""
+        parents = [name for name, record in self.lane_newest.items() if lane.startswith(f"{name}-") and record["kind"] not in ENDED and not NUMBERED.fullmatch(lane[len(name) + 1 :])]
+        return max(parents, key=len, default=None)
+
+    def to_parent(self, stall: Stall) -> Stall:
+        """A sub-worker's lane and unregistered stalls go to the lane that owns it, never to root, and that lane has it post one state line as its first act (root #235327)."""
+        if stall.kind not in WORKER_KINDS or not (parent := self.parent(stall.subject)):
+            return stall
+        return replace(stall, owner=(parent,), step=f"{parent} has {stall.subject} post one state line as its first act")
+
     def run(self, dry_run: bool) -> int:
         saved = json.loads(self.watch.state.read_text()) if self.watch.state.is_file() else {"open": {}, "verdicts": {}}
         self.probe_day = saved.get("probe_day", "")
@@ -659,6 +683,7 @@ class Pass:
         fresh = self.judge([question.ask | {"id": question.key} for question in questions if question.key not in cached])
         verdicts = {question.key: cached.get(question.key) or fresh.get(question.key) for question in questions}
         stalls += [stall for question in questions if (stall := question.settle(verdicts[question.key]))]
+        stalls = [self.to_parent(stall) for stall in stalls]
         kept = {key.split(":")[1] for key, entry in saved["open"].items() if entry["kind"] in PR_KINDS & self.unread}
         stalls += self.stale(entries, saved.get("states", {}), records, kept | {stall.pr for stall in stalls if stall.pr})
         return self.report({stall.id: stall for stall in stalls}, saved, {key: verdict for key, verdict in verdicts.items() if verdict}, dry_run)
@@ -824,11 +849,11 @@ class Pass:
         for key, (refusal, owner, head) in standing.items():
             since, seq = at(refusal.record), refusal.record["seq"]
             subject, command = f"#{refusal.pr} at {short(head)}", refusal.command(head)
-            what = f"{refusal.record['lane']} refused to queue it at {pacific(since)} in #{seq}: {clip(refusal.said)}; {owner} has posted no HEAD and no answer since"
+            what = f"{refusal.record['lane']} refused to queue it at {pacific(since)} in {refusal.record['num']}: {clip(refusal.said)}; {owner} has posted no HEAD and no answer since"
             if self.now - since >= self.watch.age("refusal"):
-                stalls.append(Stall(f"refusal:{key}", "refusal", since, subject, what, (owner,), f"{owner}: {command}, then post HEAD or `cci post --re {seq}`", refusal.pr))
+                stalls.append(Stall(f"refusal:{key}", "refusal", since, subject, what, (owner,), f"{owner}: {command}, then post HEAD or `cci post --re {shlex.quote(refusal.record['num'])}`", refusal.pr))
             if self.now - since >= self.watch.age("successor") and owner not in ROOT_NAMES and not self.rotating(records, owner, seq):
-                stalls.append(Stall(f"successor:{key}", "successor", since, subject, what, (ROOT,), f"spawn a successor to {owner}, which has not acted on #{seq} in {int((self.now - since).total_seconds() // 60)} min; the successor's first step: {command}", refusal.pr))
+                stalls.append(Stall(f"successor:{key}", "successor", since, subject, what, (ROOT,), f"spawn a successor to {owner}, which has not acted on {refusal.record['num']} in {int((self.now - since).total_seconds() // 60)} min; the successor's first step: {command}", refusal.pr))
         return stalls
 
     def rotating(self, records: list[dict], owner: str, seq: int) -> bool:
@@ -907,7 +932,7 @@ class Pass:
             head_at = at(announced[0]) if announced else None
             going = grades.gone_at(gos, pr, head)
             in_queue = any(named == pr and grades.names_head(sha, head) for named, sha in queued)
-            lane = lanes[pr] = reassigned.get(pr) or next((record["lane"] for record in reversed(records) if record["kind"] == "head" and record["lane"] not in NOT_LANES and grades.about_pr(record, repo, pr)), None) or row.get("lane") or ROOT
+            lane = lanes[pr] = self.successor(reassigned.get(pr) or next((record["lane"] for record in reversed(records) if record["kind"] == "head" and record["lane"] not in NOT_LANES and grades.about_pr(record, repo, pr)), None) or row.get("lane") or ROOT)
             tapping = board is not None and board.shows(pr, head) and not board_rows.at_head(board.taps.get(pr), "rejected", head)
             readied = [at(record) for record in announced if record["kind"] == "ready" or READY.search(record["text"])]
             tap_at = min([*readied, *([live] if (live := board.live_at(pr, head)) else [])], default=None) if tapping else None
@@ -1049,11 +1074,11 @@ class Pass:
         """A `fidelity: missing` grade standing at the head: unanswered for `stall.minutes.missing`, a stall to root and the PR's lane like a red build; answered by a lane record or a PR comment with no grade since for `stall.minutes.regrade`, a stall to the lane that graded it, or the runner's desks for the fidelity pipeline."""
         grade = found.grade
         graded_at = at(grade)
-        said = f"fidelity grade cci #{grade['seq']} by {grade['lane']} reads missing since {pacific(graded_at)}: {clip(grade['text'])}"
+        said = f"fidelity grade cci {grade['num']} by {grade['lane']} reads missing since {pacific(graded_at)}: {clip(grade['text'])}"
         if found.answered_at is None:
             if self.now - graded_at < self.watch.age("missing"):
                 return None
-            return Stall(f"missing:{pr}:{grade['seq']}", "missing", graded_at, subject, f"{said}; nobody has answered it", (lane,), f"answer it: push the fix and post HEAD, or post `cci post --re {grade['seq']}` saying why the plan holds", pr)
+            return Stall(f"missing:{pr}:{grade['seq']}", "missing", graded_at, subject, f"{said}; nobody has answered it", (lane,), f"answer it: push the fix and post HEAD, or post `cci post --re {shlex.quote(grade['num'])}` saying why the plan holds", pr)
         if self.now - found.answered_at < self.watch.age("regrade"):
             return None
         grader = RUNNER if grade["lane"] == owner_waits.PIPELINE else grade["lane"]
@@ -1335,7 +1360,7 @@ class Pass:
     def asks(self, records: list[dict]) -> list[Stall]:
         answered = {record["re"] for record in records if record["lane"] in ROOT_NAMES and record.get("re")}
         return [
-            Stall(f"ask:{record['seq']}", "ask", at(record), f"#{record['seq']} from {record['lane']}", f"open and unanswered: {clip(record['text'])}", (ROOT,), f"answer it with `cci post --re {record['seq']}`, or close it with `--resolves {record['seq']}`")
+            Stall(f"ask:{record['seq']}", "ask", at(record), f"{record['num']} from {record['lane']}", f"open and unanswered: {clip(record['text'])}", (ROOT,), f"answer it with `cci post --re {shlex.quote(record['num'])}`, or close it with `--resolves {shlex.quote(record['num'])}`")
             for record in records
             if record["kind"] == "ask"
             and record.get("status") == "open"

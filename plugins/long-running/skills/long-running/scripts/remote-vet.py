@@ -4,7 +4,7 @@
 # ///
 """Build and vet a lane's change on a Sprite, so no compiler runs on this machine.
 
-    remote-vet.py --config PATH --lane LANE [--sprite NAME] [--base REF] [WORKTREE]
+    remote-vet.py --config PATH --lane LANE [--sprite NAME] [--base REF] [--timeout SECONDS] [WORKTREE]
 
 STDLIB ONLY. `--config` is the drive's desk-runner `runner.json`: `landing.checkout` names the clone path every Sprite
 holds, and the first Sprite the `fidelity` or `finder` desk names runs the vet unless `--sprite` names another. The
@@ -14,9 +14,12 @@ worktree `<root>/vet-<lane>` beside the clone, kept between runs so later checko
 merge base, takes the change as one binary patch, runs `vet.prepare` from the config when it names one (the
 repository's code generation), then runs `go build` and `go vet` on each Go package the change touches, from its
 module's root, and `cargo check` on each Rust crate it touches, from its workspace's root, with the lane's own
-`target-vet-<lane>`. Every command runs even after one fails; each prints a `PASS` or `FAIL` line with its seconds,
-and the script exits 1 when any failed. One run per lane holds the worktree at a time. The GitHub token reaches the
-Sprite on standard input only.
+`target-vet-<lane>`, with no `RUSTC_WRAPPER` and with `--tests`, so a test-only change compiles. Every command runs
+even after one fails; each prints a `PASS` or `FAIL` line with its seconds, and the script exits 1 when any failed.
+Each stage prints a `START` line as it begins, streamed as it happens, and a run with no result after `--timeout`
+seconds (default 1800) stops and names the stage it was in. One run per lane holds the worktree at a time. The GitHub
+token reaches the Sprite on standard input only, and every git command there, the partial clone's lazy object fetches
+included, authenticates with it.
 
   SPRITE_VET_ROOT   directory on the Sprite holding the worktrees and targets, default /work
 """
@@ -30,21 +33,23 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import threading
 import tomllib
 from pathlib import Path, PurePosixPath
 
 SPRITE_SCRIPT = r"""
 set -eu
 IFS= read -r GH_TOKEN
-export GH_TOKEN
+export GH_TOKEN GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper
+export GIT_CONFIG_VALUE_1='!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
 clone=$1 work=$2 base=$3 prepare=$4 commands=$5
-auth() {
-  git -C "$clone" -c credential.helper= -c 'credential.helper=!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f' "$@"
-}
 mkdir -p "$(dirname "$work")"
+echo "START lock"
 exec 9>"$work.lock"
 flock 9
-git -C "$clone" cat-file -e "$base^{commit}" 2>/dev/null </dev/null || (flock 8 && auth fetch --quiet origin "$base" </dev/null) 8>"$clone.fetch.lock"
+echo "START fetch"
+git -C "$clone" cat-file -e "$base^{commit}" 2>/dev/null </dev/null || (flock 8 && git -C "$clone" fetch --quiet origin "$base" </dev/null) 8>"$clone.fetch.lock"
+echo "START checkout"
 if [ -e "$work/.git" ]; then
   git -C "$work" checkout --quiet --force --detach "$base" </dev/null
   git -C "$work" clean -qfd </dev/null
@@ -52,11 +57,13 @@ else
   git -C "$clone" worktree prune </dev/null
   git -C "$clone" worktree add --quiet --force --detach "$work" "$base" </dev/null
 fi
+echo "START apply"
 git -C "$work" apply --binary --whitespace=nowarn
 cd "$work"
 if [ -n "$prepare" ]; then
+  echo "START prepare"
   start=$(date +%s)
-  if ! out=$(sh -c "$prepare" 2>&1); then
+  if ! out=$(sh -c "$prepare" 2>&1 </dev/null); then
     printf '%s\n' "$out" | tail -40
     echo "FAIL prepare $(( $(date +%s) - start ))s"
     exit 1
@@ -65,8 +72,9 @@ if [ -n "$prepare" ]; then
 fi
 failed=0
 while IFS= read -r line; do
+  echo "START $line"
   start=$(date +%s)
-  if out=$(sh -c "$line" 2>&1); then
+  if out=$(sh -c "$line" 2>&1 </dev/null); then
     echo "PASS $line $(( $(date +%s) - start ))s"
   else
     printf '%s\n' "$out" | tail -60
@@ -147,7 +155,7 @@ def commands(worktree: Path, tree: str, changed: list[str], lane: str, root: str
         lines.append(f"cd {shlex.quote(str(module))} && go build {listed} && go vet {listed}")
     for space, names in sorted(crates.items()):
         listed = " ".join(f"-p {shlex.quote(name)}" for name in sorted(names))
-        lines.append(f"cd {shlex.quote(str(space))} && CARGO_TARGET_DIR={shlex.quote(f'{root}/target-vet-{lane}')} cargo check --quiet {listed}")
+        lines.append(f"cd {shlex.quote(str(space))} && RUSTC_WRAPPER= CARGO_TARGET_DIR={shlex.quote(f'{root}/target-vet-{lane}')} cargo check --quiet --tests {listed}")
     return lines
 
 
@@ -157,6 +165,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lane", required=True)
     parser.add_argument("--sprite")
     parser.add_argument("--base")
+    parser.add_argument("--timeout", type=float, default=1800)
     parser.add_argument("worktree", nargs="?", type=Path, default=Path.cwd())
     args = parser.parse_args(argv)
     config = json.loads(args.config.read_text())
@@ -176,13 +185,33 @@ def main(argv: list[str] | None = None) -> int:
     patch = run("git", "diff", "--binary", "--no-renames", base, tree, cwd=worktree)
     token = run("gh", "auth", "token", "--hostname", "github.com").strip()
     work = f"{root}/vet-{args.lane}"
-    done = subprocess.run(["sprite", "exec", "-s", sprite, "--", "sh", "-c", SPRITE_SCRIPT, "sh", clone, work, base, config.get("vet", {}).get("prepare", ""), "\n".join(lines)], input=f"{token}\n{patch}", capture_output=True, text=True)
-    print(done.stdout, end="")
-    if done.returncode:
-        print(f"remote-vet: {args.lane} at {base[:10]} on {sprite} failed: {done.stderr.strip()[-400:] or 'see the FAIL lines above'}", file=sys.stderr)
+    sprited = subprocess.Popen(["sprite", "exec", "-s", sprite, "--", "sh", "-c", SPRITE_SCRIPT, "sh", clone, work, base, config.get("vet", {}).get("prepare", ""), "\n".join(lines)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    stage = ["connect"]
+    errors: list[str] = []
+    readers = [threading.Thread(target=relay, args=(sprited.stdout, stage), daemon=True), threading.Thread(target=errors.extend, args=(sprited.stderr,), daemon=True)]
+    for reader in readers:
+        reader.start()
+    sprited.stdin.write(f"{token}\n{patch}")
+    sprited.stdin.close()
+    try:
+        sprited.wait(args.timeout)
+    except subprocess.TimeoutExpired:
+        sprited.kill()
+        print(f"remote-vet: {args.lane} at {base[:10]} on {sprite} gave no result within {args.timeout:.0f}s, still in stage {stage[0]}", file=sys.stderr)
+        return 1
+    for reader in readers:
+        reader.join()
+    if sprited.returncode:
+        print(f"remote-vet: {args.lane} at {base[:10]} on {sprite} failed in stage {stage[0]}: {''.join(errors).strip()[-400:] or 'see the FAIL lines above'}", file=sys.stderr)
         return 1
     return 0
 
+
+def relay(stream, stage: list[str]) -> None:
+    for line in stream:
+        print(line, end="", flush=True)
+        if line.startswith("START "):
+            stage[0] = line.removeprefix("START ").strip()
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -527,7 +527,7 @@ def test_strict_names_an_uncited_standing_rule_until_a_cited_record_replaces_it(
 
     [finding] = capsys.readouterr().out.splitlines()
     assert finding.startswith("cci #3: standing rule #3 requires owner approval but cites no live answer id: ")
-    assert "--kind correction --re 3 --topic standing" in finding and "ccn doc edit" not in finding
+    assert "--kind correction --re-seq 3 --topic standing" in finding and "ccn doc edit" not in finding
 
     kind, text, fields = fix
     if kind == "go":

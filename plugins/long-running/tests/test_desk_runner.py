@@ -11,7 +11,9 @@ import itertools
 import json
 import shutil
 import os
+import plistlib
 import re
+import shlex
 import sys
 import threading
 import time
@@ -194,6 +196,7 @@ class FakeShell(runner_module.Shell):
         self.stack_merge_out = ""
         self.on_sleep: list = []
         self.link_out = ""
+        self.native: list[str] = []
         self.pr_states: dict[str, str] = {}
         self.bases: dict[str, str] = {}
         self.stack_members: set[str] = set()
@@ -248,6 +251,8 @@ class FakeShell(runner_module.Shell):
         self.board_error = ""
         self.pr_heads: dict[str, tuple[str, str]] = {}
         self.missing_prs: set[str] = set()
+        self.launchd: dict[str, int] = {}
+        self.launchctl_calls: list[list[str]] = []
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -272,6 +277,20 @@ class FakeShell(runner_module.Shell):
     def reexec(self, argv):
         self.reexeced.append(list(argv))
         raise Reexeced
+
+    def launchctl(self, *args):
+        self.launchctl_calls.append(list(args))
+        verb, target = args[0], args[-1]
+        label = Path(target).stem if verb == "bootstrap" else target.rpartition("/")[2]
+        if verb == "bootstrap":
+            self.launchd[label] = 0
+        elif label not in self.launchd:
+            return runner_module.Done(113, "", f'Could not find service "{label}" in domain for user gui: {os.getuid()}\n')
+        elif verb == "bootout":
+            del self.launchd[label]
+        elif verb == "print":
+            return runner_module.Done(0, f"{target} = {{\n\tstate = running\n\tpid = {self.launchd[label]}\n}}\n", "")
+        return runner_module.Done(0, "", "")
 
     def pid_alive(self, pid):
         return pid not in self.exited
@@ -394,10 +413,16 @@ class FakeShell(runner_module.Shell):
         if argv[:3] == ["gh", "pr", "list"] and "--author" in argv:
             assert argv[3:] == ["--repo", "Forge-AI/monorepo", "--author", "app/graphite-app", "--state", "all", "--limit", "2", "--json", "createdAt,closedAt"]
             return runner_module.Done(1, "", "HTTP 502") if self.queue_drafts is None else runner_module.Done(0, json.dumps(self.queue_drafts), "")
+        if argv[:2] == ["gh", "api"] and argv[3:] == ["--jq", ".stack.number // empty"]:
+            return runner_module.Done(0, "900\n" if argv[2].rsplit("/", 1)[1] in self.native else "", "")
+        if argv[:3] == ["gh", "api", "repos/Forge-AI/monorepo/stacks/900"]:
+            return runner_module.Done(0, json.dumps(self.native), "")
         if argv[:2] == ["gh", "stack"]:
             assert env == {"GH_REPO": "Forge-AI/monorepo"} and cwd == str(self.root / "checkout")
             if argv[2] == "link" and self.link_out:
                 return runner_module.Done(1, "", self.link_out)
+            if argv[2] == "link" and set(argv[3:]) & set(self.native) and not set(self.native) <= set(argv[3:]):
+                return runner_module.Done(5, "", "Include all existing PRs in the command to update the stack\n")
             code = self.stack_code if argv[2] == "merge" else 0
             return runner_module.Done(code, self.stack_merge_out if code else "", "a pull request in the stack is not mergeable" if code and not self.stack_merge_out else "")
         if argv[:4] == ["gh", "api", "-X", "PUT"] and argv[4].endswith("/merge-async"):
@@ -603,12 +628,12 @@ class FakeShell(runner_module.Shell):
             if flags.get("--topic") == runner_module.board_rows.WRITE_TOPIC:
                 return self.board_write(dict(value.split("=", 1) for flag, value in zip(argv[2::2], argv[3::2], strict=True) if flag == "--attr"), as_json)
             if stored := self.post_ids.get(flags.get("--id", "")):
-                return runner_module.Done(0, json.dumps({"seq": stored, "num": "#7@fixture"}) + "\n" if as_json else f"#{stored} (duplicate)\n", "")
+                return runner_module.Done(0, json.dumps({"seq": stored, "num": f"#{stored}"}) + "\n" if as_json else f"#{stored} (duplicate)\n", "")
             self.posts.append({{"--re-seq": "re", "--resolves-seq": "resolves"}.get(key, key.lstrip("-")): value for key, value in flags.items()})
             if "--id" in flags:
                 self.post_ids[flags["--id"]] = len(self.posts)
             output, self.post_out = self.post_out, ""
-            return runner_module.Done(0, output or (json.dumps({"seq": len(self.posts), "num": "#7@fixture"}) + "\n" if as_json else f"#{len(self.posts)}\n"), "")
+            return runner_module.Done(0, output or (json.dumps({"seq": len(self.posts), "num": f"#{len(self.posts)}"}) + "\n" if as_json else f"#{len(self.posts)}\n"), "")
         if argv[:2] == ["gh", "api"] and argv[2].startswith("repos/Forge-AI/monorepo/pulls/") and argv[3:] == ["--jq", ".mergeable"]:
             self.mergeable_reads.append(argv[2].rsplit("/", 1)[1])
             return runner_module.Done(0, "MERGEABLE\n", "")
@@ -662,7 +687,7 @@ class FakeShell(runner_module.Shell):
             self.pr_cards.append({"card": json.loads(write["card"]), "session": write["session"]})
             if self.pr_card_error:
                 return runner_module.Done(1, "", self.pr_card_error)
-            return runner_module.Done(0, json.dumps({"seq": self.board_seq + len(self.pr_cards), "num": "#7@fixture"}) + "\n" if as_json else f"#{self.board_seq + len(self.pr_cards)}\n", "")
+            return runner_module.Done(0, json.dumps({"seq": self.board_seq + len(self.pr_cards), "num": f"#{self.board_seq + len(self.pr_cards)}"}) + "\n" if as_json else f"#{self.board_seq + len(self.pr_cards)}\n", "")
         carry = {"--session": write["session"], "--block": write["block"], "--row": write["row"], "--head": write["head"], "--note": write["note"]}
         if carry not in self.carries:
             self.carries.append(carry)
@@ -693,7 +718,7 @@ class FakeShell(runner_module.Shell):
         if self.tail_error:
             return runner_module.Done(1, "", self.tail_error)
         drive = argv[argv.index("--drive") + 1]
-        assert drive in self.drives and "--json" in argv and "--cursor" not in argv
+        assert drive in [*self.drives, runner_module.TRUNK_QUEUE_DRIVE] and "--json" in argv and "--cursor" not in argv
         if "--to" in argv and argv[argv.index("--to") + 1] == f"{runner_module.WATCHDOG}@{drive}":
             topic = next(arg.partition("=")[2] for arg in argv if arg.startswith("--topic="))
             return runner_module.Done(0, "".join(f"{json.dumps(beat)}\n" for beat in [beat for beat in self.beats if beat["drive"] == drive and beat["topic"] == topic][-1:]), "")
@@ -2641,6 +2666,52 @@ def test_a_head_trunk_failed_posts_one_red_to_its_lane_and_root_and_leaves_the_q
     assert len(shell.enqueues()) == 1
 
 
+def trunk_queue_record(shell: FakeShell, pr: str, outcome: str, text: str) -> None:
+    shell.records.append(
+        {
+            "seq": 34766 + len(shell.records),
+            "drive": "trunk",
+            "lane": "trunk",
+            "kind": "queue",
+            "id": f"trunk:msg_{len(shell.records)}",
+            "to": [],
+            "refs": {"prs": [f"Forge-AI/monorepo#{pr}"], "url": f"https://app.trunk.io/forge-ai/merge/monorepo/{pr}"},
+            "fields": {"outcome": outcome},
+            "text": text,
+            "at": actions.stamp(shell.clock),
+        }
+    )
+
+
+def test_a_trunk_failed_record_posts_one_red_to_its_lane_and_root_in_the_pass_it_arrives(shell, config, monkeypatch):
+    """Owner pick e2c0820: Trunk's webhook writes a `queue` record per state change, and the runner raises a failed one within one pass instead of waiting on labels."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["adapter"] = {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}
+    config.write_text(json.dumps(raw))
+    monkeypatch.setenv("TRUNK_MERGE_API_KEY", "trunk-secret")
+    shell.rows = [ONE_ROW]
+    shell.gates["29020"] = [gate("#29020 GREEN cccc333333 Trunk notSubmitted")]
+    failed = "Forge-AI/monorepo#29020 failed in Trunk's merge queue: TEST_RUN_REQUIRED_STATUS_FAILED; failing: buildkite/test failure https://buildkite.com/forge/test/builds/9"
+    trunk_queue_record(shell, "29020", "queued", "Forge-AI/monorepo#29020 queued in Trunk's merge queue")
+    trunk_queue_record(shell, "29020", "failed", failed)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [post] = blockers(shell)
+    assert set(post["to"].split(",")) == {"root", LANE}
+    assert post_body(post) == f"#29020 cccc333333: {failed}; https://app.trunk.io/forge-ai/merge/monorepo/29020"
+
+
+def test_a_trunk_queue_record_decides_an_unknown_queue_state_before_the_labels():
+    unknown = {"number": 29020, "queue": "unknown", "verdict": "blocked:queue-unknown"}
+    failed = {"outcome": "failed", "text": "failed in Trunk's merge queue", "at": "2026-10-30T23:10:00Z"}
+    assert runner_module.trunk_recorded(unknown, failed) == unknown | {"queue": "evicted", "evicted": failed["text"], "evicted_at": failed["at"]}
+    assert runner_module.trunk_recorded(unknown, failed | {"outcome": "merged"})["queue"] == "landed"
+    assert runner_module.trunk_recorded(unknown, failed | {"outcome": "testing"})["queue"] == "queued"
+    assert runner_module.trunk_recorded(unknown, None) == unknown
+    queued = unknown | {"queue": "queued"}
+    assert runner_module.trunk_recorded(queued, failed) == queued
+
+
 def test_a_trunk_enqueue_answered_http_429_is_retried_next_pass_and_fails_nothing(shell, config, tmp_path, monkeypatch):
     """Root #230939: Trunk answered the overflow enqueue's confirmation read with HTTP 429 and the runner failed the batch with ENQUEUE-FAILED (#230906)."""
     raw = json.loads(config.read_text())
@@ -2658,6 +2729,26 @@ def test_a_trunk_enqueue_answered_http_429_is_retried_next_pass_and_fails_nothin
     shell.enqueue_out["33001"] = (0, "#33001 QUEUED aaaa111111 native stack covers #33001\n")
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 2
+
+
+def test_a_link_github_refuses_for_leaving_out_part_of_an_existing_stack_names_every_open_member(shell, config, tmp_path):
+    """p8a-step7 #227794: the runner linked only the two PRs it would enqueue, GitHub refused with 'Include all existing PRs', and the stack above them never linked."""
+    shell.rows = [
+        {"pr": "29016", "lane": LANE, "branch": "a/2", "base": "dev", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222", "ours": True},
+        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "a/2", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": True},
+    ]
+    shell.native = ["29020", "29031", "29044"]
+    shell.gates["29020"] = [
+        (5, "", "stack-enqueue failed: #29020 targets a/2 without a native GitHub stack; link it with gh stack link\n"),
+        gate("#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#29016 #29020"),
+    ]
+    shell.enqueue_out["29020"] = (0, "enqueue #29016 #29020: {}\n")
+    grade(shell, "29016", "ok F307 at bbbb222.")
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    assert [call for call in shell.calls if call[:3] == ["gh", "stack", "link"]] == [["gh", "stack", "link", "29016", "29020"], ["gh", "stack", "link", "29016", "29020", "29031", "29044"]]
+    assert shell.enqueues() != []
+    assert not [line for line in escalations(shell) if "GATE-FAILED" in line]
 
 
 def test_a_check_with_no_verdict_on_a_pr_github_reads_merged_escalates_nothing(shell, config, tmp_path):
@@ -5643,7 +5734,7 @@ def test_an_open_finder_major_holds_the_head_until_a_finder_pass_answers_it(shel
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and len(blockers(shell)) == 1
 
 
-@pytest.mark.parametrize("settled", ["decision", "go", "resolves", "also-resolves"])
+@pytest.mark.parametrize("settled", ["decision", "decide-clears", "go", "resolves", "also-resolves"])
 def test_a_root_decision_answering_a_finder_major_or_a_later_root_go_lets_the_head_enqueue(shell, config, tmp_path, settled):
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333", finder=False)
@@ -5653,6 +5744,9 @@ def test_a_root_decision_answering_a_finder_major_or_a_later_root_go_lets_the_he
     if settled == "decision":
         shell.records.append({"seq": seq + 1, "drive": "d1", "lane": LANE, "kind": "ask", "to": ["root"], "re": seq, "refs": {"prs": [29020]}, "text": "a test gap, not a defect"})
         shell.records.append({"seq": seq + 2, "drive": "d1", "lane": "root", "kind": "decision", "to": [LANE], "re": seq + 1, "refs": {}, "text": "land it; the test gap is a follow-up PR"})
+    elif settled == "decide-clears":
+        shell.records.append({"seq": seq + 1, "drive": "d1", "lane": LANE, "kind": "note", "to": ["root"], "re": seq, "refs": {"prs": [29020]}, "text": "the seed is a test gap, not a defect"})
+        shell.records.append({"seq": seq + 2, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "re": seq + 1, "refs": {}, "text": "7:42 PM Clear finder on #29020 cccc333: rebuttal accepted."})
     elif settled == "resolves":
         shell.records.append({"seq": seq + 1, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {}, "resolves": [seq], "text": "the migration seed is a test gap; land it"})
     elif settled == "also-resolves":
@@ -5661,6 +5755,16 @@ def test_a_root_decision_answering_a_finder_major_or_a_later_root_go_lets_the_he
         merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
+def test_a_root_decide_on_the_rebuttal_chain_that_keeps_the_finding_holds_the_head(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333", finder=False)
+    seq = finder_verdict(shell, "29020", "major cccc333 1 open: go/a.go:12 the migration test seeds write version 1")
+    shell.records.append({"seq": seq + 1, "drive": "d1", "lane": LANE, "kind": "note", "to": ["root"], "re": seq, "refs": {"prs": [29020]}, "text": "the seed is a test gap, not a defect"})
+    shell.records.append({"seq": seq + 2, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "re": seq + 1, "refs": {}, "text": "Finding not cleared: seed version 2 before it lands."})
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
 
 
 def test_a_finder_major_after_a_missing_finder_record_posts_its_own_blocker(shell, config, tmp_path):
@@ -9475,6 +9579,108 @@ def test_handoff_with_no_heartbeat_has_no_runner_to_stop_and_starts_one(shell, c
     assert shell.successors == [successor(config, tmp_path, desk)]
 
 
+LAUNCHD_PID = 9001
+
+
+def agent_label(desk: str) -> str:
+    return f"com.long-running.d1.{desk}"
+
+
+def agent_target(desk: str) -> str:
+    return f"gui/{os.getuid()}/{agent_label(desk)}"
+
+
+def launchd_restarts(shell: FakeShell, config: Path, tmp_path: Path, desk: str) -> contextlib.ExitStack:
+    _, held = live_runner(shell, config, tmp_path, desk)
+    config.resolve().with_name(f"{config.resolve().name}.{desk}.lock").write_text(f"{LAUNCHD_PID}\n")
+    shell.launchd[agent_label(desk)] = LAUNCHD_PID
+    return held
+
+
+def keyed(config: Path, **adapter: str) -> None:
+    raw = json.loads(config.read_text())
+    raw["landing"]["adapter"] = {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue", **adapter}
+    config.write_text(json.dumps(raw))
+
+
+@pytest.mark.parametrize("caller", ["waits", "killed"])
+def test_a_supervised_handoff_starts_no_successor_and_waits_for_launchds_restart_so_a_killed_handoff_leaves_launchds_runner(shell, config, tmp_path, monkeypatch, capsys, caller):
+    """Oct 30 7:46 PM: a `handoff --desk landing` under `timeout 150` wrote the stop marker and was killed before it spawned a successor, so landing runner 85161 exited at its next step boundary, logged nothing, and left the desk empty."""
+    shell.launchd[agent_label("landing")] = os.getpid()
+    runner, held = live_runner(shell, config, tmp_path, "landing")
+    restarted = []
+
+    def exits(seconds):
+        assert runner.stop_marker().read_text() == f"{os.getpid()}\n"
+        if caller == "killed":
+            raise Killed
+        runner.stop_marker().unlink()
+        held.close()
+        restarted.append(launchd_restarts(shell, config, tmp_path, "landing"))
+
+    monkeypatch.setattr(shell, "sleep", exits)
+    if caller == "killed":
+        with pytest.raises(Killed):
+            cli(shell, config, "handoff", "--desk", "landing")
+        assert runner.stop_marker().exists()
+        held.close()
+    else:
+        assert cli(shell, config, "handoff", "--desk", "landing") == 0
+        assert f"runner {os.getpid()} exited; launchd started runner {LAUNCHD_PID} as {agent_label('landing')}" in capsys.readouterr().out
+        restarted[0].close()
+    assert shell.successors == []
+    assert shell.launchctl_calls == [["print", agent_target("landing")]]
+
+
+def test_a_supervised_handoff_whose_launchd_restart_never_holds_the_desk_tells_root_and_starts_nothing(shell, config, tmp_path):
+    shell.launchd[agent_label("landing")] = 0
+    started = shell.now()
+    assert cli(shell, config, "handoff", "--desk", "landing") == 1
+    assert shell.successors == [] and shell.now() - started >= timedelta(minutes=3)
+    [line] = [line for line in escalations(shell) if line.startswith("HANDOFF-STALLED ")]
+    assert f"launchd's {agent_label('landing')} started no landing runner within 0:03:00 of the handoff" in line and str(tmp_path / "landing-runner.log") in line
+
+
+def test_supervise_install_bootstraps_only_its_own_label_with_the_key_read_from_its_keychain_item_and_never_its_value(shell, config, tmp_path, monkeypatch, capsys):
+    keyed(config, key_item="trunk-merge-api-key")
+    monkeypatch.setenv("TRUNK_MERGE_API_KEY", "trunk-secret")
+    shell.environ |= {"PATH": "/opt/homebrew/bin:/usr/bin:/bin", "TRUNK_MERGE_API_KEY": "trunk-secret"}
+    restarted = []
+    shell.on_sleep.append(lambda: restarted.append(launchd_restarts(shell, config, tmp_path, "landing")))
+    plist = tmp_path / "Library/LaunchAgents" / f"{agent_label('landing')}.plist"
+    log = str(tmp_path / "landing-runner.log")
+    assert cli(shell, config, "supervise", "install", "--desk", "landing") == 0
+    assert f"launchd started runner {LAUNCHD_PID} as {agent_label('landing')}" in capsys.readouterr().out
+    assert b"trunk-secret" not in plist.read_bytes()
+    assert plistlib.loads(plist.read_bytes()) == {
+        "Label": agent_label("landing"),
+        "ProgramArguments": ["/bin/zsh", "-c", f'export TRUNK_MERGE_API_KEY="$(security find-generic-password -s trunk-merge-api-key -w)"; exec {shlex.quote(str(runner_module.RUNNER_BIN))} run --config {shlex.quote(str(config.resolve()))} --desk landing'],
+        "EnvironmentVariables": {"PATH": "/opt/homebrew/bin:/usr/bin:/bin"},
+        "KeepAlive": True,
+        "ThrottleInterval": 60,
+        "StandardOutPath": log,
+        "StandardErrorPath": log,
+    }
+    assert shell.launchctl_calls == [["print", agent_target("landing")], ["bootstrap", f"gui/{os.getuid()}", str(plist)], ["print", agent_target("landing")]]
+    assert shell.successors == []
+    assert cli(shell, config, "supervise", "status", "--desk", "landing") == 0
+    assert f"pid {LAUNCHD_PID}" in capsys.readouterr().out
+    assert cli(shell, config, "supervise", "uninstall", "--desk", "landing") == 0
+    assert shell.launchctl_calls[-1] == ["bootout", agent_target("landing")] and not plist.exists()
+    assert cli(shell, config, "supervise", "status", "--desk", "landing") == 1
+    assert {arg for call in shell.launchctl_calls for arg in call[1:]} == {agent_target("landing"), f"gui/{os.getuid()}", str(plist)}
+    restarted[0].close()
+
+
+def test_supervise_install_refuses_a_landing_adapter_whose_key_no_keychain_item_names(shell, config, tmp_path, monkeypatch, capsys):
+    keyed(config)
+    monkeypatch.setenv("TRUNK_MERGE_API_KEY", "trunk-secret")
+    assert cli(shell, config, "supervise", "install", "--desk", "landing") == 3
+    err = capsys.readouterr().err
+    assert "TRUNK_MERGE_API_KEY" in err and "landing.adapter.key_item" in err and "trunk-secret" not in err
+    assert shell.launchctl_calls == [] and not (tmp_path / "Library/LaunchAgents").exists()
+
+
 @pytest.mark.parametrize("desk", ["orca", "landing"])
 def test_quiesce_waits_for_the_lifetime_lock_without_starting_a_successor(shell, config, tmp_path, monkeypatch, desk):
     runner, held = live_runner(shell, config, tmp_path, desk)
@@ -9987,7 +10193,7 @@ def test_a_record_cci_imported_from_the_old_desk_inbox_file_relays_once(shell, c
 
 def cci_record(shell: FakeShell, **fields) -> int:
     seq = 34766 + len(shell.records)
-    shell.records.append({"seq": seq, "drive": "d1", "lane": "root", "kind": "go", "to": [], "source": "post", **fields})
+    shell.records.append({"seq": seq, "num": f"#{seq}", "drive": "d1", "lane": "root", "kind": "go", "to": [], "source": "post", **fields})
     return seq
 
 
@@ -12547,6 +12753,7 @@ def lift_asks(shell: FakeShell) -> list[tuple[str, str]]:
 def test_a_freeze_past_its_until_gets_one_lift_ask_to_its_lane(shell, config, tmp_path):
     orca_pass(shell, config)
     frozen(shell, shell.clock + timedelta(minutes=30))
+    shell.records[-1]["num"] = "#7@remote"
     orca_pass(shell, config)
     assert lift_asks(shell) == []
     shell.clock += timedelta(minutes=31)
@@ -12555,6 +12762,7 @@ def test_a_freeze_past_its_until_gets_one_lift_ask_to_its_lane(shell, config, tm
     orca_pass(shell, config)
     [(to, text)] = lift_asks(shell)
     assert to == WALKER and text.startswith("lift freeze frz_77 on api/prod: it ran to its until")
+    assert "close hold #7@remote with `cci post --kind lift --resolves '#7@remote'`" in text
 
 
 def test_a_freeze_whose_lane_is_gone_gets_one_lift_ask_to_root(shell, config, tmp_path):
@@ -13081,6 +13289,23 @@ def test_each_head_starts_one_finder_at_once_however_many_records_name_it(shell,
     assert finder_jobs(shell) == [
         {"drive": "d1", "repo": "Forge-AI/monorepo", "pr": "43439", "head": FINDER_HEAD, "since": "", "prior": None, "previous": "", "history": [], "settled": {}, "lane": "p8a-step9", "to": ["desk-runner"], "checkout": str(config.parent / "checkout"), "model": "sol", "fast": True, "full": False, "sprite": ""}
     ]
+
+
+def test_one_multi_head_record_starts_a_finder_for_every_pr_its_restack_moved(shell, config):
+    finder_config(config, concurrent=3)
+    orca_pass(shell, config)
+    heads = {pr: hashlib.sha1(pr.encode()).hexdigest() for pr in ("43439", "43299", "42784")}
+    shell.pr_heads = {pr: ("OPEN", head) for pr, head in heads.items()}
+    head_record(
+        shell,
+        "43439",
+        heads["43439"],
+        refs={"prs": [f"Forge-AI/monorepo#{pr}" for pr in heads]},
+        fields={"attrs": {f"head:Forge-AI/monorepo#{pr}": f"{FINDER_OLD}..{head} restack, range-diff patch-identical (1 commit)" for pr, head in heads.items()}},
+        text="HEAD 3 PRs: " + ", ".join(f"#{pr} {head[:7]}" for pr, head in heads.items()),
+    )
+    orca_pass(shell, config)
+    assert sorted((job["pr"], job["head"]) for job in finder_jobs(shell)) == sorted(heads.items())
 
 
 def test_a_finder_job_also_addresses_its_prs_ledger_lane_when_a_worker_named_the_head(shell, config):
@@ -14946,6 +15171,20 @@ def test_cci_post_retains_each_internal_json_sequence_and_invalidates_the_tail(s
     runner.cci_tail.read[("d1", (), "0")] = [{"seq": 1}]
     shell.post_out = '{"seq":41,"num":"#7"}\n{"seq":52,"num":"#100@remote"}\n'
     done = runner.cci_post("note", "posted", "root", "machine-ci", "machine-ci")
-    assert done == runner_module.Done(0, "#41\n#52\n", "")
+    assert done.code == 0 and done.err == ""
+    assert done.records == (runner_module.cci.Posted(41, "#7"), runner_module.cci.Posted(52, "#100@remote"))
     assert runner.cci_tail.read == {}
     assert shell.raw[-1][-1] == "--json"
+
+
+def test_invalid_post_json_keeps_both_raw_diagnostic_streams(config, tmp_path):
+    class InvalidPostShell(runner_module.Shell):
+        def run(self, argv, **kwargs):
+            return runner_module.Done(0, "not-json\n", "provider warning\n")
+
+    runner = runner_module.Runner(InvalidPostShell(), runner_module.Config.load(config), actions.Store(tmp_path / "invalid-post-book"))
+    done = runner.cci_post("note", "posted", "root", "machine-ci", "machine-ci")
+    assert done.code == 1 and done.records == ()
+    assert done.out == "not-json\n"
+    assert done.err.startswith("provider warning\n")
+    assert "cci: invalid post receipt:" in done.err

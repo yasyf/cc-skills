@@ -452,9 +452,9 @@ def pure_fix(records: list[dict], drive: str, lanes: list[str], repo: str, row: 
     mine = [record for record in records if record["drive"] == drive]
     graded = grades.newest_naming(grades.fidelity_grades_in(mine, drive, lanes, repo, row.pr), row.head)
     ok = graded is not None and graded["text"].startswith(grades.FIDELITY_OK)
-    said = [record for record in mine if record["kind"] == "head" and grades.about_pr(record, repo, row.pr) and grades.names_head(grades.graded_head(record["text"]), row.head)]
+    said = [grades.head_says(record, repo, row.pr) for record in mine if record["kind"] == "head" and grades.about_pr(record, repo, row.pr) and grades.names_head(grades.head_of(record, repo, row.pr), row.head)]
     fixed = ok or any(carries(record, repo, row.pr, row.head) for record in mine)
-    return fixed and not any(grades.ADDS_BEHAVIOR.search(grades.full_text(record)) for record in [*([graded] if graded else []), *said])
+    return fixed and not any(grades.ADDS_BEHAVIOR.search(text) for text in [*([grades.full_text(graded)] if graded else []), *said])
 
 
 def stacks(rows: list[Row]) -> list[list[Row]]:
@@ -617,7 +617,9 @@ def sentence_at(text: str, at: int) -> str:
 
 
 def carries(record: dict, repo: str, pr: str, head: str) -> bool:
-    """Whether `record` says `pr`'s grade and finder carry to `head`: carried or patch-identical in the sentence or the stretch that ties `#<pr>` to `head`, or a record about only `pr` that names `head`."""
+    """Whether `record` says `pr`'s grade and finder carry to `head`: a multi-head `head` record whose entry for `pr` names `head` and says carried or patch-identical in its note, or else its text; carried or patch-identical in the sentence or the stretch that ties `#<pr>` to `head`; or a record about only `pr` that names `head`."""
+    if (entries := grades.head_entries(record, repo)) is not None:
+        return pr in entries and grades.names_head(entries[pr]["commit"], head) and bool(CARRY.search(grades.head_says(record, repo, pr)))
     text = record["text"]
     if not CARRY.search(text):
         return False

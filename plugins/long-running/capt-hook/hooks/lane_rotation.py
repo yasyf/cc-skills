@@ -33,7 +33,7 @@ from captain_hook.util import reqenv
 from captain_hook.util.caching import StampedCache
 
 from . import session_tree
-from .compaction_handoff import TURN_WINDOW, CompactionState, bus_name, drive_entry
+from .compaction_handoff import ROOT_LANE, TURN_WINDOW, CompactionState, bus_name, drive_entry
 from .nudges import NudgeState, cancel_root_action, queue_nudge, root_action_key, stopped_lane
 from .session_tree import IDLE_NOTIFICATION, TEAMMATE_MESSAGE, Subagent, covered
 from .tests.register_fixtures import DRIVE_CONFIG
@@ -469,7 +469,7 @@ def mentions_stand_down(message: object) -> bool:
     tests={
         Input(tool="TaskStop", tool_input={"task_id": "desk@session-root"}): Allow(),
         Input(tool="Agent", tool_input={"name": "landing-desk-2", "prompt": "go"}, transcript=ROOT): Allow(),
-        Input(tool="Agent", tool_input={"name": "token-retry-2", "prompt": "Replaces: token-retry\ngo"}, transcript=ROOT): Allow(),
+        Input(tool="Agent", tool_input={"name": "token-retry-2", "prompt": "Replaces: token-retry\ngo"}, transcript=ROOT, env=DRIVE_CONFIG, commands={"cci post": "#9"}): Allow(),
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "STAND-DOWN: desk-2 owns it"}): Allow(),
     },
 )
@@ -483,6 +483,8 @@ def record_retired_lanes(evt: BaseHookEvent) -> HookResult | None:
             state.retired.pop(name, None)
             state.blocked = [lane for lane in state.blocked if lane != name]
             state.retired |= dict.fromkeys(rotated, name)
+        for old in sorted(rotated):
+            hand_over(evt, old, name)
         return None
     retired = stopped_lane(evt) or (raw.get("to") if orders_stand_down(raw.get("message")) else None)
     if retired:
@@ -490,6 +492,17 @@ def record_retired_lanes(evt: BaseHookEvent) -> HookResult | None:
             state.retired.setdefault(retired, None)
         cancel_root_action(evt, retired)
     return None
+
+
+def hand_over(evt: BaseHookEvent, old: str, successor: str) -> None:
+    """Record in cci that `successor` replaced `old`, so a record any lane, desk or script addresses to `old` reaches `successor` too, not only this session's messages (cci #235092)."""
+    if not (entry := drive_entry(evt)):
+        return
+    argv = ["cci", "post", "--drive", bus_name(entry), "--lane", ROOT_LANE, "--kind", "stand-down", "--to", old, "--successor", successor, "--text", f"{old} rotated to {successor}; records addressed to {old} reach {successor} too"]
+    try:
+        subprocess.run(argv, capture_output=True, text=True, timeout=SUCCESSOR_TIMEOUT_SECONDS, env=dict(reqenv.env_map()))
+    except (OSError, subprocess.TimeoutExpired):
+        return
 
 
 def stand_down(evt: BaseHookEvent, lane: str) -> tuple[bool, str | None]:

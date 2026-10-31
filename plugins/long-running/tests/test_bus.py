@@ -38,7 +38,7 @@ def test_post_is_one_cci_post_and_prints_its_seq(capsys):
     argv = ["post", "--bus", "d1", "--from", "incident-x", "--kind", "ask", "--topic", "x2", "--text", '{"event": "opened"}', "--to", "comms", "--repo", "/m"]
     assert bus.main(argv, shell) == 0
     assert shell.calls == [["cci", "post", "--drive", "d1", "--lane", "incident-x", "--kind", "ask", "--text", '{"event": "opened"}', "--topic", "x2", "--to", "comms", "--json"]]
-    assert capsys.readouterr().out == "#41\n"
+    assert json.loads(capsys.readouterr().out) == {"seq": 41, "num": "#7@remote"}
 
 
 def test_a_reply_carries_its_re(capsys):
@@ -72,4 +72,17 @@ def test_read_takes_a_whole_cci_page_of_records_in_one_call(capsys):
 
 
 def test_posted_receipts_preserve_all_internal_ids_in_multi_record_json():
-    assert bus.cci.posted('{"seq":41,"num":"#7"}\n{"seq":52,"num":"#100@remote"}\n') == "#41\n#52\n"
+    assert bus.cci.posted('{"seq":41,"num":"#7"}\n{"seq":52,"num":"#100@remote"}\n') == (bus.cci.Posted(41, "#7"), bus.cci.Posted(52, "#100@remote"))
+
+
+@pytest.mark.parametrize("value,expected", [("", None), ("#41", 41), ("#41 (duplicate)", 41)])
+def test_book_receipt_decoder_preserves_existing_persisted_schema(value, expected):
+    assert bus.cci.receipt_seq(value) == expected
+    if expected is not None:
+        assert bus.cci.receipt(expected) == "#41"
+
+
+@pytest.mark.parametrize("value", ["#41@remote", "posted #41", "#41 extra", "41"])
+def test_book_receipt_decoder_refuses_human_numbers_and_decorated_text(value):
+    with pytest.raises(ValueError, match="invalid internal sequence receipt"):
+        bus.cci.receipt_seq(value)

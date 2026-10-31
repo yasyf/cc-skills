@@ -28,7 +28,7 @@ def stamp(minutes_ago: float) -> str:
 
 
 def record(seq: int, lane: str, kind: str, text: str, minutes_ago: float, pr: str = "", **extra) -> dict:
-    return {"seq": seq, "drive": DRIVE, "lane": lane, "kind": kind, "at": stamp(minutes_ago), "text": text, "to": ["root"], "refs": {"prs": [f"{REPO}#{pr}"]} if pr else {}} | extra
+    return {"seq": seq, "num": f"#{seq}", "drive": DRIVE, "lane": lane, "kind": kind, "at": stamp(minutes_ago), "text": text, "to": ["root"], "refs": {"prs": [f"{REPO}#{pr}"]} if pr else {}} | extra
 
 
 def hold(seq: int, text: str, *prs: str) -> dict:
@@ -583,7 +583,7 @@ def test_an_open_ask_to_root_stalls_until_root_answers_it(config):
     watch(shell, config)
 
     assert shell.topics() == ["ask:1"]
-    assert "answer it with `cci post --re 1`" in shell.post("ask:1")["text"]
+    assert "answer it with `cci post --re '#1'`" in shell.post("ask:1")["text"]
 
 
 def alive(seq: int, desk: str, minutes_ago: float) -> dict:
@@ -624,6 +624,19 @@ def test_a_spawned_lane_that_neither_posts_nor_binds_within_three_minutes_stalls
     shell.records.append(record(6, "lane-quiet", "state", "started", 0))
     watch(shell, config)
     assert "unregistered:lane-quiet" not in opened(config)
+
+
+def test_a_sub_worker_of_a_live_lane_stalls_to_that_lane_never_to_root(config):
+    """Root #235327: a sub-worker whose name starts with a live lane's name is that lane's own, so its unregistered stall goes to the parent lane, which has it post one state line first; a numbered successor and a lane whose parent ended still go to root."""
+    shell = FakeShell([record(1, "mq-health-4", "state", "supervising", 6), spawn(2, "mq-health-4-supervise", 5), record(3, "mq-health-4", "state", "still supervising", 1), spawn(4, "mq-health-4-2", 5), record(5, "gone-1", "done", "finished", 6), spawn(6, "gone-1-helper", 5)], [])
+    shell.peers = []
+
+    watch(shell, config)
+
+    assert shell.post("unregistered:mq-health-4-supervise")["to"] == "mq-health-4@d1"
+    assert shell.post("unregistered:mq-health-4-supervise")["text"].endswith("| owner mq-health-4 | mq-health-4 has mq-health-4-supervise post one state line as its first act")
+    assert shell.post("unregistered:mq-health-4-2")["to"] == "root"
+    assert shell.post("unregistered:gone-1-helper")["to"] == "root"
 
 
 def test_untested_shape_rulings_stall_to_root_once_they_are_half_an_hour_old(config):
@@ -1185,7 +1198,7 @@ def test_a_landing_refusal_no_lane_answers_escalates_to_root_and_its_lane_at_10_
     post = shell.post("refusal:44141:09c1863:parent")
     assert (post["kind"], post["to"]) == ("urgent", "root,p8a-step7@d1")
     assert post["text"].startswith("STALL refusal #44141 at 09c1863, 10 min: landing-desk-3 refused to queue it at ")
-    assert "| owner p8a-step7 | p8a-step7: run ccx vcs stack submit from #44141's worktree to put it on #44139, post HEAD, then post HEAD or `cci post --re 173678`" in post["text"]
+    assert "| owner p8a-step7 | p8a-step7: run ccx vcs stack submit from #44141's worktree to put it on #44139, post HEAD, then post HEAD or `cci post --re '#173678'`" in post["text"]
 
     shell.clock = NOW + timedelta(minutes=15)
     watch(shell, config)
@@ -1453,6 +1466,18 @@ def test_a_red_no_record_classes_alarms_root_once_at_twenty_minutes_a_real_class
         "#201 abc1234 | buildkite/lint | unclassed | owner api-lane | red since 12:35 PM Oct 27 | no action recorded",
         "#202 fedcba9 | buildkite/lint | real | owner web-lane | red since 12:35 PM Oct 27 | 12:50 PM needs a schema fix; blocker sent",
     ]
+
+
+def test_a_red_of_a_lane_that_handed_off_goes_to_its_successor(config):
+    """Drive watchdog #234379: #45894 read red after its lane handed off to a successor, and the alarm still named the stopped lane."""
+    handed = record(2, "api-lane-5-handoff", "handoff", "7:13 PM handoff api-lane-5: doc 364b0df; successor api-lane-6", 40)
+    working = record(3, "api-lane-6", "note", "picked up the chain", 30)
+    shell = FakeShell([handed, working], [row("201", lane="api-lane-5", test_state="failure", red_at=stamp(25), failing_checks=json.dumps([{"name": "buildkite/lint", "url": "u"}]))])
+
+    watch(shell, config)
+
+    assert shell.post("unclassed:201:abc1234")["to"] == "root,api-lane-6@d1"
+    assert "| owner api-lane-6 |" in shell.post("unclassed:201:abc1234")["text"]
 
 
 def test_reds_with_no_live_red_sweep_lane_post_one_blocker_to_root_until_a_red_sweep_lane_posts(config):
