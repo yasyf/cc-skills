@@ -984,6 +984,13 @@ partition (`per key`, `per destination`, `per chat`) or an exception (`only`,
 `rulings.py readback` prints it as `READBACK-NARROWED`, `rulings.py accepted` refuses
 an ok grade that leaves a narrowed key unnamed, and the `narrowed_contracts` hook warns
 the grade or root post that accepts such a contract.
+Those word checks catch only the shapes they name. The `ruling_misread` hook asks Sonnet
+whether each posted contract, root relay, card request, and the tests a pull request
+ships misread the owner's verbatim words on the rows they cite or match, either narrower
+than he said or applied literally past his purpose. A yes comes back to the writer as
+a warning with his words, the phrase that misreads, and one plain sentence; it never
+blocks. The writer fixes the artifact or answers on its record with the ruling that
+carries it.
 A ruling about system shape (one process, one primary and one replica, everything a
 client, N things sharing one X) gets a CI test that fails on today's code in the same
 turn as the build. `rulings.py shapes` lists the in-force shape rows; `check-pr` refuses
