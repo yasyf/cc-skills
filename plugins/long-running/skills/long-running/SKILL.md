@@ -1831,9 +1831,10 @@ that time.
 
 **Five minutes from go to queue.** A green PR a root `go` names at its head is in the
 merge queue within five minutes of that go. A stack the passes leave out that long, unheld and
-unrefused, goes straight into the queue through the runner's overflow, which posts a QUEUED
-report naming itself (owner 9524276). The overflow sends a stack in whole once any PR of it
-is due, and a blocked enqueue five minutes old no longer keeps the stack out. The runner logs one `GO-UNQUEUED` per head still
+unrefused, goes to a stack worker through the runner's overflow (owner 9524276), which runs
+the same check, admission and merge-mode gates a pass runs, so it never enqueues a batch
+carrying a PR the drive did not admit (root #245808). The overflow sends a stack in whole once
+any PR of it is due, and a blocked enqueue five minutes old no longer keeps the stack out. The runner logs one `GO-UNQUEUED` per head still
 out only when its own newest enqueue of that head since the go ended blocked, failed,
 stranded or unsettled, or went in and the queue then evicted it, never for backlog, naming that
 outcome or the eviction's time and reason. A head the queue evicted before any enqueue gets one
@@ -2429,8 +2430,9 @@ Each runner also posts a cci `state` record to `drive-watchdog` once a minute fr
 thread, whatever its pass is doing. It reads `<desk> alive <time> pass <n>`, plus
 ``running `<command>` for <m>m<s>s`` while a command is in flight, so the watchdog alarms
 within 10 minutes of silence and sees a pass stuck on one command. A GitHub, cci or ccx read
-get 60 seconds each, and a `stack-enqueue --check` and `rulings.py check-pr` 180 each, since a cold
-grade of a copy of thousands of files takes about 30. One that runs over is killed, logged as
+get 60 seconds each, a `rulings.py check-pr` 180, since a cold grade of a copy of thousands of
+files takes about 30, and a `stack-enqueue --check` the enqueue's 300, since both run the merge
+preflight's installs and typecheck on a batch touching `infra/`. One that runs over is killed, logged as
 `TIMED-OUT` in the runner log and read as a failed command; a killed `check-pr` posts the lane
 one `CHECK-PR-TIMEOUT` warning that the head's rulings are unproven, and holds nothing. `check-pr`
 keeps what a diff alone decides, the rows it touches, the reserved rows it hits and the lines naming a

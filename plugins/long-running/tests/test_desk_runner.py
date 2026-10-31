@@ -2855,8 +2855,7 @@ def test_a_check_that_hits_a_transient_network_failure_is_retried_and_reads_the_
     assert shell.clock - started >= timedelta(seconds=runner_module.merge_queue.TRANSIENT_PAUSE_SECONDS)
 
 
-def test_a_check_killed_at_its_sixty_second_cap_logs_nothing_and_the_next_pass_enqueues_on_its_verdict(shell, config, tmp_path):
-    assert runner_module.GATE_CHECK_SECONDS == 60
+def test_a_check_killed_at_its_cap_logs_nothing_and_the_next_pass_enqueues_on_its_verdict(shell, config, tmp_path):
     shell.rows = single_row()
     killed = f"stack-enqueue 29020 --check timed out after {runner_module.GATE_CHECK_SECONDS}s and was killed"
     shell.gates["29020"] = [(runner_module.TIMED_OUT, "", killed), gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
@@ -6153,25 +6152,40 @@ def test_a_slow_stack_check_holds_no_other_stack_out_of_the_queue(shell, config,
     assert [call[1] for call in shell.enqueues()] == ["29040", "29020"]
 
 
-def test_a_landable_stack_the_gate_never_settles_goes_straight_to_the_queue_five_minutes_on(shell, config, tmp_path):
+def overflowed(landing: runner_module.Landing) -> None:
+    landing.overflow(landing)
+    runner_module.finished_by([future for _, future in landing.inflight.values()], timeout=30)
+
+
+def test_the_overflow_never_enqueues_a_stack_whose_check_timed_out(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
     shell.queue["33001"] = "not queued"
     shell.gates["33001"] = [(runner_module.TIMED_OUT, "", "stack-enqueue --check timed out after 60s and was killed")]
     overflow = landing_of(shell, config, tmp_path)
     landing_pass(shell, config)
-    overflow.overflow()
-    assert shell.enqueues() == []
+    overflowed(overflow)
     shell.sleep(6 * 60)
     landing_pass(shell, config)
-    overflow.overflow()
+    overflowed(overflow)
     landing_pass(shell, config)
-    overflow.overflow()
-    assert [call[1:] for call in shell.enqueues()] == [["33001", "--partial"]]
-    queued = [post["text"] for post in shell.posts if post["kind"] == "report" and post["text"].startswith("QUEUED #33001 at aaaa111111")]
-    assert len(queued) == 1 and "overflow put it straight in the merge queue" in queued[0]
-    [action] = [action for action in enqueues_of(tmp_path).values() if f"#{runner_module.OVERFLOW}-" in action.action_id]
-    assert action.deadline
+    overflowed(overflow)
+    assert shell.enqueues() == []
+
+
+def test_the_overflow_never_enqueues_a_batch_carrying_a_pr_the_drive_did_not_admit(shell, config, tmp_path):
+    """#45489 at 2:03 AM Oct 31: the overflow enqueued it alone with no check, and Trunk landed #45488 below it, which no drive row held, untapped and with no go (root #245808)."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.rows[0]["base"] = "other/below"
+    shell.queue["33001"] = "not queued"
+    shell.gates["33001"] = [gate("#33000 GREEN ffff000000 graphite READY", "#33001 GREEN aaaa111111 graphite READY", would="#33000 #33001")]
+    overflow = landing_of(shell, config, tmp_path)
+    overflowed(overflow)
+    shell.sleep(6 * 60)
+    overflowed(overflow)
+    assert shell.enqueues() == []
+    assert [line for line in said(shell) if line.startswith("FOREIGN") and "#33000" in line]
 
 
 def test_the_overflow_leaves_a_landable_stack_the_runner_refused_at_its_head(shell, config, tmp_path):
@@ -6182,10 +6196,10 @@ def test_the_overflow_leaves_a_landable_stack_the_runner_refused_at_its_head(she
     merge_go(shell, "29020", "go test-only #29020 at cccc333")
     overflow = landing_of(shell, config, tmp_path)
     landing_pass(shell, config)
-    overflow.overflow()
+    overflowed(overflow)
     shell.sleep(6 * 60)
     landing_pass(shell, config)
-    overflow.overflow()
+    overflowed(overflow)
     assert [post for post in blockers(shell) if "TEST-ONLY-MISMATCH" in post_body(post)] and shell.enqueues() == []
 
 
@@ -6197,9 +6211,9 @@ def test_the_overflow_never_enqueues_a_head_whose_go_was_withdrawn(shell, config
     go = shell.records[-1]["seq"]
     shell.records.append({"seq": go + 1, "drive": "d1", "lane": "root", "kind": "withdraw", "re": go, "to": ["desk-runner"], "refs": {"prs": [33001]}, "text": f"withdrawn: go #{go} for #33001", "at": actions.stamp(shell.clock)})
     overflow = landing_of(shell, config, tmp_path)
-    overflow.overflow()
+    overflowed(overflow)
     shell.sleep(6 * 60)
-    overflow.overflow()
+    overflowed(overflow)
     assert shell.enqueues() == []
 
 
@@ -6211,9 +6225,9 @@ def test_the_overflow_never_enqueues_a_stack_holding_a_pr_below_with_no_go(shell
     shell.gates["29031"] = [(runner_module.TIMED_OUT, "", "stack-enqueue --check timed out after 60s and was killed")]
     merge_go(shell, "29031", "merge #29031 at dddd444")
     overflow = landing_of(shell, config, tmp_path)
-    overflow.overflow()
+    overflowed(overflow)
     shell.sleep(6 * 60)
-    overflow.overflow()
+    overflowed(overflow)
     assert shell.enqueues() == []
 
 
@@ -6224,30 +6238,11 @@ def test_the_overflow_puts_a_go_named_stack_in_whole_when_only_its_bottom_has_wa
     shell.queue["29020"] = shell.queue["29031"] = "not queued"
     merge_go(shell, "29020", "merge #29020 at cccc333")
     overflow = landing_of(shell, config, tmp_path)
-    overflow.overflow()
+    overflowed(overflow)
     shell.sleep(6 * 60)
     merge_go(shell, "29031", "merge #29031 at dddd444")
-    overflow.overflow()
+    overflowed(overflow)
     assert [call[1:] for call in shell.enqueues()] == [["29031", "--partial"]]
-
-
-def test_the_overflow_tries_a_blocked_enqueue_again_five_minutes_later(shell, config, tmp_path):
-    merge_mode(config, "every")
-    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
-    shell.queue["33001"] = "not queued"
-    shell.enqueue_out["33001"] = (1, "#33001 BLOCKED aaaa111111 CI running (graphite RUNNING)\nenqueued nothing: the bottom PR #33001 is BLOCKED\n")
-    overflow = landing_of(shell, config, tmp_path)
-    overflow.overflow()
-    shell.sleep(6 * 60)
-    overflow.overflow()
-    overflow.overflow()
-    assert len(shell.enqueues()) == 1
-    shell.enqueue_out["33001"] = (0, "enqueue #33001: {}\n")
-    shell.sleep(6 * 60)
-    overflow.overflow()
-    shell.sleep(6 * 60)
-    overflow.overflow()
-    assert len(shell.enqueues()) == 2
 
 
 def test_a_stack_worker_past_the_gate_budget_runs_on_after_the_pass_while_the_other_stack_lands(shell, config, tmp_path, monkeypatch):
@@ -6291,7 +6286,7 @@ def test_every_landing_pass_posts_one_state_line_to_root(shell, config, tmp_path
     landing_pass(shell, config)
     states = shell.states
     assert len(states) == 2 and all(post["to"] == "root" for post in states)
-    assert re.fullmatch(r"LANDING queued \d+, waiting \d+, held 0, refused 0, in flight 0, overflowed 0 this hour; pass \d+s", states[-1]["text"])
+    assert re.fullmatch(r"LANDING queued \d+, waiting \d+, held 0, refused 0, in flight 0; pass \d+s", states[-1]["text"])
 
 
 def test_an_overflow_thread_that_finished_no_run_in_five_minutes_logs_overflow_stalled(shell, config, tmp_path):
@@ -6313,7 +6308,6 @@ def test_landing_state_reads_one_incident_snapshot(shell, config, tmp_path, monk
     with landing.book.store.transaction(runner_module.LANDING, generation=0) as current:
         for index in range(1, min(count, 2) + 1):
             current.accept(f"blocker:{index}:{index:040x}", "bus", json.dumps({"kind": "blocker", "pr": str(index)}), "owner", shell.now())
-        current.accept("sample#overflow-1", "enqueue", "1", "owner", shell.now())
     decoded, opened = [], []
     load, read = actions.Incident.load, Path.read_text
 
@@ -6329,7 +6323,7 @@ def test_landing_state_reads_one_incident_snapshot(shell, config, tmp_path, monk
     monkeypatch.setattr(actions.Incident, "load", staticmethod(counted))
     monkeypatch.setattr(Path, "read_text", watched)
     landing.post_state(1.0)
-    assert shell.states[-1]["text"] == f"LANDING queued {int(count >= 3)}, waiting 0, held {int(count >= 4)}, refused {min(count, 2)}, in flight 0, overflowed 1 this hour; pass 1s"
+    assert shell.states[-1]["text"] == f"LANDING queued {int(count >= 3)}, waiting 0, held {int(count >= 4)}, refused {min(count, 2)}, in flight 0; pass 1s"
     assert decoded == []
     assert opened == []
 
@@ -6364,15 +6358,13 @@ def test_landing_refusal_gate_keeps_fresh_reads_and_empty_member_errors(shell, c
 def test_landing_state_reloads_actions_and_clock_on_each_report(shell, config, tmp_path):
     landing = landing_of(shell, config, tmp_path)
     landing.ledger_rows = {"1": {"state": "open", "head": f"{1:040x}"}}
-    with landing.book.store.transaction(runner_module.LANDING, generation=0) as current:
-        current.accept("sample#overflow-1", "enqueue", "1", "owner", shell.now())
     landing.post_state(1.0)
-    assert "refused 0, in flight 0, overflowed 1 this hour" in shell.states[-1]["text"]
+    assert "refused 0, in flight 0; pass 1s" in shell.states[-1]["text"]
     with landing.book.store.transaction(runner_module.LANDING, generation=0) as current:
         current.accept(f"blocker:1:{1:040x}", "bus", json.dumps({"kind": "blocker", "pr": "1"}), "owner", shell.now())
     shell.sleep(3601)
     landing.post_state(2.0)
-    assert "refused 1, in flight 0, overflowed 0 this hour; pass 2s" in shell.states[-1]["text"]
+    assert "refused 1, in flight 0; pass 2s" in shell.states[-1]["text"]
 
 
 def test_a_read_that_fails_on_a_transient_network_error_runs_once_more_and_a_write_never_does(tmp_path, monkeypatch):
@@ -15518,7 +15510,7 @@ def test_unchanged_actual_overflow_pass_changes_no_sql_rows(shell, config, tmp_p
         changed.append(transaction._connection.total_changes)
 
     monkeypatch.setattr(sqlite_store.Transaction, "flush", written)
-    overflow.overflow()
+    overflow.overflow(overflow)
     assert changed == [0]
 
 
