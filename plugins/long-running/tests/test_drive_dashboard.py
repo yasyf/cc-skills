@@ -521,6 +521,17 @@ def test_the_red_step_answer_says_what_failed_and_names_a_missing_error_line():
     assert (out["lines"][0]["text"], out["missing"]) == ("#42741 sandsql: reader: buildkite/test: TestReplica timed out after 30s", [])
 
 
+def test_a_done_step_with_no_pull_requests_finishes_with_no_landing():
+    """Root #242768: a done step that lists no pull request crashed every refresh with max() of nothing; no landing finishes it."""
+    drive = journey_drive({"number": 42766, "state": "landed"})
+    steps = [{"id": "s1", "label": "Plan", "tone": "done", "prs": []}, {"id": "s2", "label": "Signal", "tone": "done", "prs": [{"number": 42766, "state": "landed"}]}]
+    prs = {"42766": {"title": "sand: signal", "state": "landed", "landed_at": (NOW - dt.timedelta(minutes=50)).isoformat()}}
+
+    lines = journeys(drive, steps, [], [], [], prs, {}, TREES, NOW)["since"]["lines"]
+
+    assert [(line["text"], line["next"]) for line in lines] == [("#42766 sand: signal landed", "finishes step Signal")]
+
+
 def test_the_catch_up_answer_says_what_each_landing_and_approval_freed():
     drive = journey_drive({"number": 42766, "state": "landed"}, {"number": 42786, "state": "you", "base": 42766})
     prs = {"42766": {"title": "sand: signal", "state": "landed", "landed_at": (NOW - dt.timedelta(minutes=50)).isoformat()}, "42786": {"title": "sand: child"}}
