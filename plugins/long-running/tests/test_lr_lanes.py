@@ -82,11 +82,11 @@ def test_a_dead_lane_relaunches_with_its_handoff_and_stands_down_once_its_succes
     store = Store.memory()
     fake = adopted(tmp_path, brief, store, handoff="9f3c2e1", prs=(46001, 46002))
     assert [row["name"] for row in store.workers()] == ["conflicts-2"]
-    fake.peers = [who("conflicts-2", False, T0 - timedelta(minutes=3)), who("conflicts-3", False, T0 - timedelta(hours=9))]
+    fake.peers = [who("conflicts-2", False, T0 - timedelta(minutes=20)), who("conflicts-3", False, T0 - timedelta(hours=9))]
 
     out = lanes.tick(store, fake.deps, T0, 1)
 
-    assert out.relaunched == [("conflicts-2", "conflicts-4", "stopped at 9:57 AM")]
+    assert out.relaunched == [("conflicts-2", "conflicts-4", "stopped at 9:40 AM")]
     [(name, model, effort, path)] = fake.launches
     assert (name, model, effort) == ("conflicts-4", "opus", "xhigh")
     text = path.read_text()
@@ -157,7 +157,7 @@ def test_a_dead_lane_with_no_handoff_gets_a_successor_that_writes_one_from_the_t
     assert str(lanes.HANDOFF_BRIEF) in text
 
 
-def test_a_flushed_lane_rotates_without_root(tmp_path, brief):
+def test_a_flushed_lane_keeps_working_in_place(tmp_path, brief):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store)
     fake.peers = [who("conflicts-2", True, T0)]
@@ -170,13 +170,12 @@ def test_a_flushed_lane_rotates_without_root(tmp_path, brief):
     fake.feed.append(record(2, "conflicts-2", "handoff", T0 + timedelta(minutes=4), "flushed 9a1b2c3", ("root",), {"ccn": "9a1b2c3"}))
     out = lanes.tick(store, fake.deps, T0 + timedelta(minutes=5), 1)
 
-    assert [(old, new) for old, new, _ in out.relaunched] == [("conflicts-2", "conflicts-3")]
-    assert "doc show 9a1b2c3" in fake.launches[0][3].read_text()
-    assert fake.kinds() == [("report", "root")]
-    assert not [argv for argv in fake.posts if argv[argv.index("--kind") + 1] in ("ask", "blocker", "decide")]
+    assert out.relaunched == [] and fake.launches == [] and fake.posts == []
+    lane = store.lane("conflicts-2")
+    assert (lane.state, lane.handoff) == ("desired", "9a1b2c3")
 
 
-def test_a_lane_that_ignores_rotate_is_rotated_after_one_interval(tmp_path, brief):
+def test_a_live_lane_that_ignores_rotate_is_left_working(tmp_path, brief):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store)
     fake.peers = [who("conflicts-2", True, T0)]
@@ -186,7 +185,7 @@ def test_a_lane_that_ignores_rotate_is_rotated_after_one_interval(tmp_path, brie
 
     out = lanes.tick(store, fake.deps, T0 + timedelta(minutes=15), 1)
 
-    assert out.relaunched[0][2] == "posted no handoff within 15 minutes of its ROTATE ask at 10:00 AM"
+    assert out.relaunched == [] and fake.launches == []
 
 
 def test_a_protected_session_is_never_touched(tmp_path, brief):
@@ -194,7 +193,7 @@ def test_a_protected_session_is_never_touched(tmp_path, brief):
     fake = adopted(tmp_path, brief, store)
     root = who("root", True, T0, role="root")
     other = who("p8a-step7", True, T0 - timedelta(hours=2), env={"ORCA_TERMINAL_HANDLE": "term_08c7"})
-    fake.peers = [who("conflicts-2", True, T0 - timedelta(minutes=20)), root, other]
+    fake.peers = [who("conflicts-2", False, T0 - timedelta(minutes=20)), root, other]
 
     lanes.tick(store, fake.deps, T0, 1)
 
@@ -266,13 +265,13 @@ def test_a_desk_whose_last_record_is_a_blocker_to_another_lane_is_not_waiting(tm
     assert [old for old, *_ in out.relaunched] == ["conflicts-2"]
 
 
-def test_a_fresh_store_never_adopts_a_lane_cci_lists_live_but_silent_past_the_interval(tmp_path, brief):
+def test_a_fresh_store_adopts_a_live_lane_silent_for_hours_and_never_relaunches_it(tmp_path, brief):
     store = Store.memory()
-    fake = Fake(tmp_path, [spawned(1, "conflicts-2", brief)], [who("conflicts-2", True, T0 - timedelta(hours=7))])
+    fake = Fake(tmp_path, [spawned(1, "conflicts-2", brief), spawned(2, "conflicts-9", brief)], [who("conflicts-2", True, T0 - timedelta(hours=7)), who("conflicts-9", False, T0 - timedelta(hours=7))])
 
     out = lanes.tick(store, fake.deps, T0, 1)
 
-    assert out.adopted == [] and fake.launches == [] and store.lane("conflicts-2") is None
+    assert out.adopted == ["conflicts-2"] and fake.launches == [] and store.lane("conflicts-9") is None
 
 
 def test_a_numbered_successors_spawn_retires_the_older_lane_instead_of_relaunching_it(tmp_path, brief):
@@ -362,7 +361,7 @@ def test_a_lane_spawned_after_adoption_is_watched_from_its_launch(tmp_path, brie
 def test_a_successor_that_never_comes_up_escalates_once(tmp_path, brief):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store)
-    fake.peers = [who("conflicts-2", False, T0)]
+    fake.peers = [who("conflicts-2", False, T0 - timedelta(minutes=20))]
     lanes.tick(store, fake.deps, T0, 1)
     fake.posts.clear()
 
@@ -376,14 +375,14 @@ def test_a_successor_that_never_comes_up_escalates_once(tmp_path, brief):
 def test_a_successor_that_dies_within_an_interval_twice_is_held(tmp_path, brief):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store)
-    life = [("conflicts-2", False, 0, 0), ("conflicts-3", True, 1, 1), ("conflicts-3", False, 4, 5), ("conflicts-4", True, 6, 6), ("conflicts-4", False, 9, 10)]
+    life = [("conflicts-2", False, -20, 0), ("conflicts-3", True, 1, 1), ("conflicts-3", False, 1, 17), ("conflicts-4", True, 18, 18), ("conflicts-4", False, 18, 34)]
     for lane, live, seen, at in life:
         fake.peers = [who(lane, live, T0 + timedelta(minutes=seen))]
         lanes.tick(store, fake.deps, T0 + timedelta(minutes=at), 1)
 
     assert [name for name, *_ in fake.launches] == ["conflicts-3", "conflicts-4"]
     assert store.lane("conflicts-4").state == "held"
-    assert fake.kinds()[-1] == ("blocker", "root") and "died within 15 minutes of launch 2 times" in fake.posts[-1][-1]
+    assert fake.kinds()[-1] == ("blocker", "root") and "died within 30 minutes of launch 2 times" in fake.posts[-1][-1]
 
 
 def test_done_and_a_root_stand_down_retire_a_lane(tmp_path, brief):
@@ -422,6 +421,17 @@ def test_a_lane_reporting_another_lanes_stand_down_stays_watched(tmp_path, brief
     assert store.lane("conflicts-2").state == "desired"
 
 
+def test_a_lane_root_tells_to_stand_down_is_retired_not_relaunched(tmp_path, brief):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    fake.feed.append(record(2, "root", "decide", T0, "2:09 PM same incident. conflicts-2: no fix PR, no release; stand down after one record. runnerdb-fix owns 11549.", ("conflicts-2", "runnerdb-fix")))
+    fake.peers = [who("conflicts-2", False, T0)]
+
+    out = lanes.tick(store, fake.deps, T0 + timedelta(minutes=16), 1)
+
+    assert out.relaunched == [] and store.lane("conflicts-2").retired_by == "root"
+
+
 def test_a_root_decide_moves_pr_ownership(tmp_path, brief):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store, prs=(46001,))
@@ -437,7 +447,7 @@ def test_the_owner_hears_one_line_an_hour_and_only_when_a_lane_restarted(tmp_pat
     store = Store.memory()
     fake = adopted(tmp_path, brief, store)
     fake.peers = [who("conflicts-2", False, T0)]
-    lanes.tick(store, fake.deps, T0 + timedelta(minutes=10), 1)
+    lanes.tick(store, fake.deps, T0 + timedelta(minutes=16), 1)
     fake.peers = [who("conflicts-3", True, T0 + timedelta(minutes=50))]
     lanes.tick(store, fake.deps, T0 + timedelta(minutes=50), 1)
     fake.posts.clear()
@@ -456,14 +466,16 @@ def test_the_owner_hears_one_line_an_hour_and_only_when_a_lane_restarted(tmp_pat
     ("state", "peer", "heard", "asked", "flushed", "tokens", "expected"),
     [
         ("desired", (True, 1), None, None, None, None, "ok"),
-        ("desired", (True, 20), None, None, None, None, "dead"),
+        ("desired", (True, 20), None, None, None, None, "ok"),
         ("desired", (True, 20), 2, None, None, None, "ok"),
-        ("desired", (False, 1), None, None, None, None, "dead"),
+        ("desired", (False, 1), None, None, None, None, "ok"),
+        ("desired", (False, 20), None, None, None, None, "dead"),
+        ("desired", (False, 20), 2, None, None, None, "ok"),
         ("desired", None, None, None, None, None, "dead"),
         ("desired", (True, 1), None, None, None, 700_000, "ask-rotate"),
         ("desired", (True, 1), None, 5, None, None, "ok"),
-        ("desired", (True, 1), None, 15, None, None, "rotating"),
-        ("desired", (True, 1), None, 5, 2, None, "rotating"),
+        ("desired", (True, 1), None, 15, None, None, "ok"),
+        ("desired", (True, 1), None, 5, 2, None, "ok"),
         ("launching", None, None, None, None, None, "ok"),
         ("launching", (True, 1), None, None, None, None, "came-up"),
     ],
