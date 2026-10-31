@@ -112,7 +112,7 @@ class JobFailed(RuntimeError):
 
 class Shell:
     def run(self, argv: list[str], cwd: Path | None = None, timeout: int = READ_SECONDS) -> str:
-        return subprocess.run(argv, cwd=cwd, capture_output=True, text=True, errors="replace", check=True, timeout=timeout).stdout
+        return cci.installed(argv, lambda: subprocess.run(argv, cwd=cwd, capture_output=True, text=True, errors="replace", check=True, timeout=timeout)).stdout
 
 
 def heads(record: dict, repo: str) -> list[tuple[str, str]]:

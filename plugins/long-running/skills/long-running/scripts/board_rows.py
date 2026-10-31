@@ -160,7 +160,7 @@ class Shell:
     """The single side-effect boundary: gh, cci, cc-present, the push command, and blob reads."""
 
     def run(self, argv: list[str], env: dict[str, str] | None = None) -> Done:
-        done = subprocess.run(argv, capture_output=True, text=True, env={**os.environ, **env} if env else None)
+        done = cci.installed(argv, lambda: subprocess.run(argv, capture_output=True, text=True, env={**os.environ, **env} if env else None))
         return Done(done.returncode, done.stdout, done.stderr)
 
     def push(self, argv: list[str]) -> int:

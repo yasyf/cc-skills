@@ -1200,7 +1200,7 @@ class Shell:
                 feed.write(stdin or "")
                 feed.seek(0)
                 try:
-                    proc = subprocess.run(argv, stdin=feed, capture_output=True, text=True, errors="replace", env={**os.environ, **(env or {}), DEADLINE_ENV: str(time.time() + timeout)}, cwd=cwd, timeout=timeout)
+                    proc = cci.installed(argv, lambda: subprocess.run(argv, stdin=feed, capture_output=True, text=True, errors="replace", env={**os.environ, **(env or {}), DEADLINE_ENV: str(time.time() + timeout)}, cwd=cwd, timeout=timeout))
                 except subprocess.TimeoutExpired:
                     print(f"TIMED-OUT after {timeout}s, skipped: {command_name(argv)}", file=sys.stderr, flush=True)
                     return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {timeout}s and was killed")
@@ -1240,7 +1240,7 @@ class Shell:
     def spawn(self, argv: list[str], out: Path, env: dict[str, str], append: bool = False) -> subprocess.Popen:
         out.parent.mkdir(parents=True, exist_ok=True)
         with out.open("a" if append else "w") as sink:
-            return subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=sink, stderr=subprocess.STDOUT, env={**os.environ, **env}, start_new_session=True)
+            return cci.installed(argv, lambda: subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=sink, stderr=subprocess.STDOUT, env={**os.environ, **env}, start_new_session=True))
 
     def pid_alive(self, pid: int) -> bool:
         """Whether a process with id `pid` exists; a child that exited is reaped at the next spawn."""
