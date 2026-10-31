@@ -38,6 +38,7 @@ from .register_injection import drive_args
 from .ruling_misread import MATCH, candidate_rows
 from .tests.board_fixtures import JUDGE, judged
 from .tests.register_fixtures import CWD, DRIVE_CONFIG, STATES
+from .tests.rulings_consumers import separate
 
 DECISIONS = re.compile(r"^(#{2,3}) [^\n]*\bdecisions?\b[^\n]*$", re.IGNORECASE)
 BOARD_VERBS = frozenset({"push", "update-block"})
@@ -241,7 +242,7 @@ def feedback_memories(evt: BaseHookEvent) -> list[Settled]:
 def register_rulings(evt: BaseHookEvent, flags: list[str] | None) -> list[Settled]:
     if not flags:
         return []
-    rows = json.loads(rulings(str(evt.cwd), "rows", *flags))["rows"]
+    rows = json.loads(rulings(str(evt.cwd), "rows", *flags, evt=evt))["rows"]
     return [
         Settled(f'His words on {key}: "{" ".join(fields["words"].split())[:QUOTE]}"', fields["words"], key)
         for key, fields in rows.items()
@@ -302,7 +303,7 @@ DRIVEN = {"cwd": CWD, "env": DRIVE_CONFIG, "state": [CompactionState(active=True
 @on(
     Event.PreToolUse,
     only_if=[Tool("AskUserQuestion", "Bash", SLACK_CARD)],
-    tests={
+    tests=separate("settled_questions.check_settled_before_asking", {
         Input(tool_input=SETTLED_ASK, commands=judged("are some dropped", "His plan says nothing is dropped."), **PLAN_ASK): Warn(
             pattern=r"^Warning, nothing was blocked: A judge reads this as asking the owner what he already ruled[\s\S]*His plan says nothing is dropped\."
         ),
@@ -339,7 +340,7 @@ DRIVEN = {"cwd": CWD, "env": DRIVE_CONFIG, "state": [CompactionState(active=True
         Input(tool="AskUserQuestion", tool_input=SETTLED_ASK, commands=judged("are some dropped")): Allow(),
         Input(tool="Bash", tool_input={"command": "cc-present remove-block o1-card --session s"}, state=[CompactionState(active=True)]): Allow(),
         Input(tool_input=SETTLED_ASK, agent_id="a1b2c3", commands=judged("are some dropped"), **PLAN_ASK): Allow(),
-    },
+    }),
 )
 def check_settled_before_asking(evt: BaseHookEvent) -> HookResult | None:
     """Warn an asking call a judge reads as asking the owner what he already ruled, or as offering an option that misreads his words (root #211144)."""

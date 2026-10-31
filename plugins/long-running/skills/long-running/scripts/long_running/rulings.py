@@ -2840,5 +2840,3 @@ def dispatch(argv: list[str] | None, shell: ledger.Shell, runtime: Runtime) -> i
 def main(argv: list[str] | None = None, shell: ledger.Shell | None = None, *, stdin: TextIO, stdout: TextIO) -> int:
     runtime = Runtime(stdin, stdout, sys.stderr, drive.drives_dir(), Path.home() / ".claude" / "scratch", drive.current_drive, ledger.locked, ledger.held, lambda: None)
     return dispatch(argv, shell or ledger.Shell(), runtime)
-
-

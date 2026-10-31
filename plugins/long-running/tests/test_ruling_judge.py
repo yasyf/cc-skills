@@ -69,7 +69,7 @@ class Judged:
     def judge(self, kind: str, evidence: str, artifact: str, **kwargs) -> None:
         self.model_calls.append((kind, evidence))
 
-    def search(self, cwd: str, *args: str, stdin: str = "", timeout: int) -> str:
+    def search(self, cwd: str, *args: str, evt, stdin: str = "", timeout: int) -> str:
         assert timeout == judge.MATCH_TIMEOUT_SECONDS
         self.searches.append(args)
         return "" if ("--exclude", "1984bf6") in zip(args, args[1:]) else judge.CANDIDATE
@@ -94,7 +94,7 @@ def test_an_injected_ruling_is_excluded_from_the_search_and_skips_the_model(tmp_
 def test_a_match_that_times_out_fails_open_without_a_model_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     judged = Judged(tmp_path, monkeypatch, "Agent", {"prompt": "Add a --skip-tenant flag."})
 
-    def slow(cwd: str, *args: str, stdin: str = "", timeout: int) -> str:
+    def slow(cwd: str, *args: str, evt, stdin: str = "", timeout: int) -> str:
         raise subprocess.TimeoutExpired(["rulings.py", *args], timeout)
 
     monkeypatch.setattr(judge, "rulings", slow)

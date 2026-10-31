@@ -45,6 +45,7 @@ from .tests.refusal_fixtures import (
     UPLOAD_BUDGET,
     sources,
 )
+from .tests.rulings_consumers import separate
 
 ACTIVE = [CompactionState(active=True)]
 LANE = "alane-a-0123456789abcdef"
@@ -356,7 +357,7 @@ def owner_evidence(evt: BaseHookEvent, drive: list[str], text: str) -> str:
 
 
 def plan_lines(evt: BaseHookEvent, drive: list[str], findings: list[Finding]) -> list[str]:
-    found = rulings(str(evt.cwd), "plan", *drive).strip()
+    found = rulings(str(evt.cwd), "plan", *drive, evt=evt).strip()
     if not found or not (plan := Path(found)).is_file():
         return []
     names = {finding.name for finding in findings} | {Path(finding.path).name for finding in findings}
@@ -417,7 +418,7 @@ def ship(command: str, verdict: dict = FLAGGED, **extra: object) -> Input:
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     max_fires=1,
-    tests={
+    tests=separate("refusal_kinds_need_owner_answer.refusal_kinds_need_owner_answer", {
         ship(f"ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Warn(
             pattern=r"^Warning, nothing was blocked: a judge reads this PR as adding a refusal, retry, timer or wait[\s\S]*Artifact: \"per destination and key\""
             r"[\s\S]*desk-runner\.py:369 refusal kind LAUNCH-STALLED[\s\S]*STALL_SECONDS"
@@ -469,7 +470,7 @@ def ship(command: str, verdict: dict = FLAGGED, **extra: object) -> Input:
         ),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", agent_id="alanding-desk-0123456789abcdef", commands=sources(LAUNCH_STALLED)): Allow(),
         Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", env=NO_DRIVE, commands=sources(LAUNCH_STALLED)): Allow(),
-    },
+    }),
 )
 def refusal_kinds_need_owner_answer(evt: BaseHookEvent) -> HookResult | None:
     return next((result for req in lane_prs(evt) if (result := mechanisms_named(evt, req)) is not None), None)
@@ -479,7 +480,7 @@ def refusal_kinds_need_owner_answer(evt: BaseHookEvent) -> HookResult | None:
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     max_fires=1,
-    tests={
+    tests=separate("refusal_kinds_need_owner_answer.pr_bodies_name_what_they_defer", {
         ship(f"ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Warn(
             pattern=r"^Warning, nothing was blocked: a judge reads this PR's body as leaving out a fix[\s\S]*Artifact: \"per destination and key\""
         ),
@@ -490,7 +491,7 @@ def refusal_kinds_need_owner_answer(evt: BaseHookEvent) -> HookResult | None:
         ship(f"ccx vcs ship --pr-body-file {UNCITED}.missing", commands=sources(LAUNCH_STALLED)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED) | {CLAUDE: (1, "model unavailable")}): Allow(),
         Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", env=NO_DRIVE, commands=sources(LAUNCH_STALLED)): Allow(),
-    },
+    }),
 )
 def pr_bodies_name_what_they_defer(evt: BaseHookEvent) -> HookResult | None:
     return next((result for req in lane_prs(evt) if (result := body_names_what_it_defers(evt, req)) is not None), None)

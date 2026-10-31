@@ -64,6 +64,10 @@ jobs:
         run: |
           cat "$RUNNER_TEMP/long-running-json-consumers.json"
           cat "$RUNNER_TEMP/long-running-sqlite-consumers.json"
+      - name: Owned rulings caller regressions
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_board_text_gate.py plugins/long-running/tests/test_owner_facing.py plugins/long-running/tests/test_register_capture.py plugins/long-running/tests/test_register_gates.py plugins/long-running/tests/test_ruling_judge.py plugins/long-running/tests/test_rulings_consumers.py plugins/long-running/tests/test_rulings_owned_hooks.py plugins/long-running/tests/test_compaction_handoff.py -q -s
+      - name: capt-hook pack test
+        run: uvx --isolated --from 'capt-hook @ git+https://github.com/yasyf/captain-hook.git@76aaa2d5da2282d724dad5fe4b379cd76c95a416' capt-hook pack test plugins/long-running
       - name: pytest
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q
       - uses: actions/checkout@v7
@@ -130,8 +134,6 @@ jobs:
             grep -F 'selected cached builds reopened 32 readers' "$negative"
             grep -F '1 failed' "$negative"
           done
-      - name: capt-hook pack test
-        run: uvx --isolated 'capt-hook>=12.107.13' pack test plugins/long-running
       - name: installed state package
         run: |
           uv build --project plugins/long-running --wheel --out-dir "$RUNNER_TEMP/long-running-wheel"
