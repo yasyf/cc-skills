@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import json
 import sqlite3
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -82,6 +83,7 @@ def test_actual_landing_changed_and_unchanged_persistence_is_bounded(shell, conf
     landing.build_cache.put({f"https://buildkite.com/forge/test/builds/{number}": stored for number in range(population)}, shell.now() - timedelta(days=3))
     costs = {"vm_steps": 0, "changed_rows": 0, "connections": 0}
     connect = sqlite3.connect
+    owner_thread = threading.get_ident()
 
     def progress():
         costs["vm_steps"] += 1
@@ -93,6 +95,8 @@ def test_actual_landing_changed_and_unchanged_persistence_is_bounded(shell, conf
             super().close()
 
     def observed(*args, **kwargs):
+        if threading.get_ident() != owner_thread:
+            return connect(*args, **kwargs)
         costs["connections"] += 1
         connection = connect(*args, **kwargs, factory=ObservedConnection)
         connection.set_progress_handler(progress, 1)
