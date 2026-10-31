@@ -4508,19 +4508,31 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
 - **Registry.** A lane enters the `lanes` table of the drive store from the `SPAWNED`
   state record that `drive.py spawned` posts at each Orca launch and drive-lane spawn,
   with its brief, model, effort and role. Helper roles and `<lane>-handoff` writers stay
-  out. `opened` records add PRs to a lane, `landed` records drop them, a root
-  `decide ... owner=<lane>` moves them, `done` retires the lane, and a root `stand-down`
-  retires it or hands it to the successor it names.
+  out. A lane's `head` and `opened` records move their PRs to it, `landed` records drop
+  them, a root `decide ... owner=<lane>` moves them, `done` retires the lane, and a root
+  `stand-down` retires it or hands it to the successor it names. A lane is also retired
+  by the `SPAWNED` record of a numbered successor (`desk-4` for `desk-3`), by a root
+  `<new> replaces <old>`, and, while it has never come up, by another lane's records
+  taking its last PR. A `<lane>-handoff` writer's `handoff <lane>: doc <id>` is the
+  newest handoff of the lane now holding that work.
 - **Liveness.** A lane is alive while `cci who` lists it live and it was heard within
-  `STALE_AFTER`, 15 minutes, the one rule the store's `stale_workers` also applies. A live
-  lane beats in the workers table each tick.
-- **Relaunch.** A lane that stopped or went silent gets one `stand-down --successor
-  <lane>-<n+1>` record carrying its PRs, so cci delivers the old name's mail to the
-  successor. The supervisor writes the successor brief: the old brief, the newest
-  handoff doc or the order to spawn `<lane>-handoff` from
+  `STALE_AFTER`, 15 minutes, the one rule the store's `stale_workers` also applies; a
+  fresh store adopts only lanes alive by that rule. A lane whose newest record is an
+  `ask`, `blocked` or `blocker` to root is waiting, not dead, until 15 minutes after a
+  record answers it with `--re` or `--resolves`. A live lane beats in the workers table
+  each tick.
+- **Relaunch.** A lane that stopped or went silent, with no live numbered successor in
+  `cci who`, gets a successor `<lane>-<n+1>`. The supervisor writes its brief: a
+  `ccx: place=local` line, so the lane runs on the Mac beside the inputs the brief
+  names, a `Register slice:` line for the new name, the newest handoff doc or the order
+  to spawn `<lane>-handoff` from
   [reference/handoff-subagent-brief.md](reference/handoff-subagent-brief.md) when there
-  is none, and the `drive.py lane-status` live-process check before any write. It
-  launches the successor with `desk-launch.py lane` and posts one `RELAUNCHED` report.
+  is none, the `drive.py lane-status` live-process check before any write, and the old
+  brief. It launches the successor with `desk-launch.py lane` and posts one `RELAUNCHED`
+  report. Once the successor is up in `cci who`, one `stand-down --successor` record
+  carrying the PRs moves the old name's mail to it. A `SPAWNED` record for that name
+  from another brief, a lane the root spawned by hand, withdraws the supervisor's
+  launch.
 - **Rotation.** A live lane past its context line gets one `ROTATE` ask on cci. A
   `handoff --ccn <doc>` reply, or no reply within the interval, rotates it the same way.
 - **Holds.** A launch not live 15 minutes later, a lane whose successors die within 15
@@ -4535,7 +4547,9 @@ through the record that stands it down.
 A `SendMessage` to a rotated or stood-down lane resumes it on its stale brief. The pack
 rewrites every such message, from any sender, to the end of the lane's successor chain,
 which it reads from this session's spawns and stops and from cci's stand-down records
-(`cci who --successor-of <lane>`); a message that mentions a stand-down is never forwarded, only warned. A `TaskStop` or a
+(`cci who --successor-of <lane>`), when `cci who` lists that successor live; otherwise
+the message goes to the lane as addressed, with a warning. A message that mentions a
+stand-down is never forwarded, only warned. A `TaskStop` or a
 root `STAND-DOWN` retires a lane with no successor: a lane's or worker's message to it
 goes to `main` instead. No case blocks. Respawning under the name clears both.
 

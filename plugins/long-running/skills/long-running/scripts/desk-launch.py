@@ -37,12 +37,14 @@ lane has no verdict at all. `--session` reads the drive from the drive registry.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import re
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -60,6 +62,7 @@ REFUSAL_WINDOW = "30m"
 FIX_ALIAS = "-fix"
 POLL_SECONDS = 2
 BUDGET = "30000"
+KEY_LOCK = Path.home() / ".claude" / "scratch" / "desk-launch.lock"
 
 
 def cci(drive: str, *argv: str) -> str:
@@ -90,6 +93,15 @@ def agent_fallback(args: argparse.Namespace) -> str:
     if args.verb == "lane":
         return f"spawn an Agent named `{args.target}` instead"
     return "nothing was posted"
+
+
+@contextmanager
+def keyed():
+    """Hold the machine-wide key lock while a caller reads the next `R<n>` and posts it, so two launches started together never post the same key."""
+    KEY_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    with KEY_LOCK.open("a") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        yield
 
 
 def next_key(drive: str, fallback: str) -> int:
@@ -203,16 +215,18 @@ def main(argv: list[str] | None = None) -> int:
         return refused(args)
     if args.verb in ("relay", "hold", "unhold", "withdraw"):
         topic, text = directive(args)
-        post(args.drive, args.lane, topic, next_key(args.drive, agent_fallback(args)), text)
+        with keyed():
+            post(args.drive, args.lane, topic, next_key(args.drive, agent_fallback(args)), text)
         return 0
     planned = launches(args)
     for *_, brief in planned:
         if not brief.is_file():
             parser.error(f"brief {brief} is not a file")
     topic = args.name if args.verb == "incident" else args.target
-    first = next_key(args.drive, agent_fallback(args))
-    keys = {f"R{first + offset}": lane for offset, (lane, *_) in enumerate(planned)}
-    since = min(post(args.drive, args.lane, topic, first + offset, launch_directive(lane, model, effort, now, role, brief.resolve())) for offset, (lane, model, effort, now, role, brief) in enumerate(planned)) - 1
+    with keyed():
+        first = next_key(args.drive, agent_fallback(args))
+        keys = {f"R{first + offset}": lane for offset, (lane, *_) in enumerate(planned)}
+        since = min(post(args.drive, args.lane, topic, first + offset, launch_directive(lane, model, effort, now, role, brief.resolve())) for offset, (lane, model, effort, now, role, brief) in enumerate(planned)) - 1
     settled = wait(args.drive, since, keys, args.timeout_seconds)
     for key, lane in keys.items():
         if key not in settled:

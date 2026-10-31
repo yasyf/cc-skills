@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS lanes (
   name TEXT PRIMARY KEY, brief TEXT NOT NULL, model TEXT NOT NULL, effort TEXT NOT NULL, role TEXT NOT NULL,
   state TEXT NOT NULL CHECK (state IN ('launching', 'desired', 'held', 'retired')),
   since TEXT NOT NULL, heard TEXT, handoff TEXT, prs TEXT NOT NULL DEFAULT '[]',
-  predecessor TEXT, reason TEXT, strikes INTEGER NOT NULL DEFAULT 0, asked TEXT, flushed TEXT, retired_by TEXT
+  predecessor TEXT, reason TEXT, strikes INTEGER NOT NULL DEFAULT 0, asked TEXT, flushed TEXT, retired_by TEXT, waiting INTEGER, answered TEXT
 );
 """
 
@@ -110,11 +110,13 @@ class Lane:
     asked: datetime | None
     flushed: datetime | None
     retired_by: str | None
+    waiting: int | None
+    answered: datetime | None
 
     @classmethod
     def row(cls, row: sqlite3.Row) -> Lane:
-        when = {name: parse(row[name]) if row[name] else None for name in ("heard", "asked", "flushed")}
-        return cls(row["name"], row["brief"], row["model"], row["effort"], row["role"], row["state"], parse(row["since"]), when["heard"], row["handoff"], tuple(json.loads(row["prs"])), row["predecessor"], row["reason"], row["strikes"], when["asked"], when["flushed"], row["retired_by"])
+        when = {name: parse(row[name]) if row[name] else None for name in ("heard", "asked", "flushed", "answered")}
+        return cls(row["name"], row["brief"], row["model"], row["effort"], row["role"], row["state"], parse(row["since"]), when["heard"], row["handoff"], tuple(json.loads(row["prs"])), row["predecessor"], row["reason"], row["strikes"], when["asked"], when["flushed"], row["retired_by"], row["waiting"], when["answered"])
 
 
 @dataclass(frozen=True)
@@ -272,6 +274,9 @@ class Store:
 
     def lane_asked(self, name: str, at: datetime | None) -> None:
         self.db.execute("UPDATE lanes SET asked = ? WHERE name = ?", (stamp(at) if at else None, name))
+
+    def lane_waiting(self, name: str, ask: int | None, answered: datetime | None = None) -> None:
+        self.db.execute("UPDATE lanes SET waiting = ?, answered = ? WHERE name = ?", (ask, stamp(answered) if answered else None, name))
 
     def lane_prs(self, name: str, prs: Iterable[int]) -> None:
         self.db.execute("UPDATE lanes SET prs = ? WHERE name = ?", (json.dumps(sorted(set(prs))), name))
