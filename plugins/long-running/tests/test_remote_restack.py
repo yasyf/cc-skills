@@ -48,7 +48,7 @@ def executable(path: Path, text: str) -> None:
 
 @pytest.mark.parametrize("conflicting", [False, True], ids=["moves-the-chain", "conflict-pushes-nothing"])
 def test_a_remote_restack_replays_the_chain_onto_its_base_on_the_sprite_and_posts_each_new_head(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, conflicting: bool) -> None:
-    """Owner 1:27 PM Oct 30, through root #221702: restacks move off this machine; the lane names a PR or stack, a Sprite fetches, rebases, reports conflicts and pushes, and the lane gets the result record."""
+    """Owner 1:27 PM Oct 30, through root #221702: restacks move off this machine; the lane names a PR or stack, a Sprite fetches, rebases, reports conflicts and pushes, and the lane gets the result record. p8a-step7 #227831: a conflict in the lower PR's commit was reported against the top PR with no conflict output."""
     mac, sprite = tmp_path / "mac", tmp_path / "sprite"
     gitconfig = tmp_path / "gitconfig"
     gitconfig.write_text("[user]\n\tname = Lane\n\temail = lane@example.com\n[init]\n\tdefaultBranch = dev\n")
@@ -61,9 +61,9 @@ def test_a_remote_restack_replays_the_chain_onto_its_base_on_the_sprite_and_post
     commit(work, "dev.txt", "one\n")
     git(work, "push", "-q", "origin", "HEAD:dev")
     git(work, "checkout", "-q", "-b", "a")
-    commit(work, "a.txt", "a\n")
+    commit(work, "dev.txt" if conflicting else "a.txt", "a\n")
     git(work, "checkout", "-q", "-b", "b")
-    commit(work, "dev.txt" if conflicting else "b.txt", "b\n")
+    commit(work, "b.txt", "b\n")
     git(work, "push", "-q", "origin", "a", "b")
     git(work, "checkout", "-q", "dev")
     commit(work, "dev.txt", "two\n")
@@ -87,7 +87,9 @@ def test_a_remote_restack_replays_the_chain_onto_its_base_on_the_sprite_and_post
 
     posts = (tmp_path / "posts").read_text().splitlines() if (tmp_path / "posts").exists() else []
     if conflicting:
-        assert done.returncode == 1 and "CONFLICT replaying b onto dev" in done.stdout
+        assert done.returncode == 1 and "CONFLICT replaying a onto dev at " in done.stdout
+        assert "  dev.txt" in done.stdout.splitlines() and "CONFLICT (content): Merge conflict in dev.txt" in done.stdout
+        assert "see the lines above" not in done.stderr
         assert {branch: git(origin, "rev-parse", branch) for branch in ("a", "b")} == heads and posts == []
         return
     assert done.returncode == 0, done.stderr

@@ -3084,7 +3084,7 @@ Stack shape, under D19: put each shared-file edit in the smallest additive first
   exists, never once it lands: ship on the parent branch, then restack after the parent
   lands with `remote-restack.py --config <runner config> --lane <lane> <top PR>`, which
   replays the stack on a Sprite, pushes, and posts each new head. No rebase runs here.
-  Resolve by hand only a conflict it reports. Never commit a generated output; the build
+  Resolve by hand only a conflict it reports, on the branch and commit it names. Never commit a generated output; the build
   generates it. A stack that still carries a regenerated artifact rebases and
   regenerates it on ejection.
 Holds file: <path>, root-owned. Never enqueue, merge, or add a `merge` or `merge-fast`
