@@ -685,6 +685,8 @@ FINDER_MINUTES = 60
 FINDER_MODEL = "sol"
 FINDER_FAST = True
 FINDER_ATTEMPTS = 3
+GRADER_RETRY_AFTER = timedelta(minutes=10)
+TOOLING_CAUSE = re.compile(r"[0-9a-f]{7,}|\d+|/\S+")
 FINDER_STALLED_AFTER = timedelta(minutes=15)
 FINDER_SETTLED = "settled_at"
 FINDER_SKIPS = {"CLOSED": "#{pr} is closed", "NOT_FOUND": "#{pr} is no pull request in {repo}"}
@@ -4358,7 +4360,8 @@ class Runner:
         for action in sorted(newest.values(), key=lambda action: (ranks.get(pr := json.loads(action.target)["pr"], DEFAULT_PRIORITY), not full_pass(action), pr not in going, pr not in graded, queued_since(history[pr], action))):
             if running >= spec.get("concurrent", FINDER_CONCURRENT):
                 return
-            running += self.start_finder(spec, repo, action, rows)
+            if not self.waiting_on_fix(action):
+                running += self.start_finder(spec, repo, action, rows)
 
     def cancel_finder(self, action: actions.Action, queued: actions.Action | None) -> bool:
         """Settle a running pass as superseded when a newer head of its PR is queued, write its job's `cancelled` mark so it asks codex nothing, and cancel each codex run it started, since a head that moves while codex reads it posts nothing."""
@@ -4496,9 +4499,12 @@ class Runner:
         self.book.attempt(FINDER, settle)
 
     def finder_failed(self, action: actions.Action, why: str) -> None:
-        """Fail a pass and queue its job again, so a job runs at most `FINDER_ATTEMPTS` times; the last failure logs `FINDER-FAILED` once."""
+        """Fail a pass and queue its job again once the tooling may be fixed, so a job runs at most `FINDER_ATTEMPTS` times; each failure tells the tooling lane once per cause, and only the last logs `FINDER-FAILED` to the lanes (root #226668)."""
         job = json.loads(action.target)
-        if not self.book.attempt(FINDER, lambda incident: incident.fail(action.action_id, why)) or self.requeue_finder(action.action_id.partition("#")[0], action.target, action.authority_ref):
+        if not self.book.attempt(FINDER, lambda incident: incident.fail(action.action_id, why)):
+            return
+        self.tooling_failed("finder", job, why)
+        if self.requeue_finder(action.action_id.partition("#")[0], self.on_fix(action.target), action.authority_ref):
             return
         log = Path(action.dispatch_id) / finder.LOG
         self.escalate(f"finder:{job['pr']}:{job['head']}", "FINDER-FAILED", job["lane"], f"#{job['pr']} {job['head'][:12]}: the finder desk's pass failed on the last of its {FINDER_ATTEMPTS} attempts: {why}; its log is {log}; root asks {finder.LANE} `finder: whole` on #{job['pr']} to run it again, since only its records grade a head")
@@ -4613,7 +4619,8 @@ class Runner:
         for action in sorted(newest.values(), key=lambda action: ranks.get(json.loads(action.target)["pr"], DEFAULT_PRIORITY)):
             if running >= spec.get("concurrent", FIDELITY_CONCURRENT):
                 return
-            running += self.start_fidelity(spec, repo, action, rows)
+            if not self.waiting_on_fix(action):
+                running += self.start_fidelity(spec, repo, action, rows)
 
     def start_fidelity(self, spec: dict, repo: str, action: actions.Action, rows: dict[str, dict]) -> bool:
         """Settle a head a fidelity lane already graded or sent to a reader, or write the pass's job, with every fidelity grade and `old-app:` line on the PR, the grades a root `class wrong` decision answers, and the lane's newest contract, and start fidelity.py on it detached."""
@@ -4628,7 +4635,7 @@ class Runner:
             return False
         contracts = [record for record in cci.records(self.cci_tail, drive_id, "--kind=contract", "--lane", job["lane"]) if (record["kind"], record["lane"]) == ("contract", job["lane"])]
         contract = max((record for record in contracts if about_pr(record, repo, job["pr"])), key=lambda record: record["seq"], default=None) or max(contracts, key=lambda record: record["seq"], default=None)
-        directory = self.config.source.parent / fidelity.LANE / f"{job['pr']}-{job['head'][:12]}-{job['seq']}"
+        directory = self.config.source.parent / fidelity.LANE / (f"{job['pr']}-{job['head'][:12]}-{job['seq']}" + (f"-{attempt}" if (attempt := action.action_id.partition("#")[2]) else ""))
         directory.mkdir(parents=True, exist_ok=True)
         sprite = self.least_busy_sprite(FIDELITY, spec)
         drive.write_atomic(
@@ -4712,13 +4719,35 @@ class Runner:
         self.book.attempt(container, settled)
 
     def fidelity_failed(self, action: actions.Action, why: str) -> None:
-        """Tell the human fidelity desks and fail the pass whether or not the notice posts, so a refused notice never holds a slot (root #219303)."""
+        """Fail the pass whether or not any notice posts, so a refused notice never holds a slot (root #219303), and queue it again once the tooling may be fixed, so a pass runs at most `FINDER_ATTEMPTS` times; each failure tells the tooling lane once per cause, and only the last tells the human fidelity desks (root #226668)."""
         job = json.loads(action.target)
+        self.book.attempt(FIDELITY, lambda incident: incident.fail(action.action_id, why))
+        self.tooling_failed("fidelity", job, why)
+        base = action.action_id.partition("#")[0]
+        tried = sum(other.action_id.partition("#")[0] == base for other in self.book.actions(FIDELITY, kind="fidelity"))
+        if tried < FINDER_ATTEMPTS:
+            self.book.accept(FIDELITY, f"{base}#{tried + 1}", "fidelity", self.on_fix(action.target), action.authority_ref, None)
+            return
         key = f"fidelity:{job['pr']}:{job['head']}:{job['seq']}"
         readers = [lane for lane in self.landing_lanes("fidelity_lane") if lane != fidelity.LANE]
         log = Path(action.dispatch_id) / fidelity.LOG
-        self.escalate(key, "FIDELITY-FAILED", job["lane"], f"#{job['pr']} {job['head'][:12]}: the fidelity pass failed: {why}; its log is {log}; a fidelity desk grades it by hand, and the next head record for #{job['pr']} queues the pass again", to=",".join(readers))
-        self.book.attempt(FIDELITY, lambda incident: incident.fail(action.action_id, why))
+        self.escalate(key, "FIDELITY-FAILED", job["lane"], f"#{job['pr']} {job['head'][:12]}: the fidelity pass failed on the last of its {FINDER_ATTEMPTS} attempts: {why}; its log is {log}; a fidelity desk grades it by hand, and the next head record for #{job['pr']} queues the pass again", to=",".join(readers))
+
+    def on_fix(self, target: str) -> str:
+        """`target` marked to wait `GRADER_RETRY_AFTER`, or until a newer runner version installs, before it starts again."""
+        return json.dumps(json.loads(target) | {"retry_after": actions.stamp(self.now() + GRADER_RETRY_AFTER), "failed_on": RUNNING_VERSION})
+
+    def waiting_on_fix(self, action: actions.Action) -> bool:
+        job = json.loads(action.target)
+        return job.get("failed_on") == RUNNING_VERSION and self.now() < actions.parse_stamp(job["retry_after"])
+
+    def tooling_failed(self, desk: str, job: dict, why: str) -> None:
+        """Tell runner.json's `tooling_lane`, when it names one, once an hour per cause, that a grader pass died on a tooling error rather than a verdict."""
+        if not (lane := json.loads(self.config.source.read_text()).get("tooling_lane")):
+            return
+        cause = TOOLING_CAUSE.sub("…", why)[:200]
+        minutes = int(GRADER_RETRY_AFTER.total_seconds() // 60)
+        self.escalate(f"grader-tooling:{hashlib.sha1(cause.encode()).hexdigest()[:12]}:{self.now():%Y%m%d%H}", "GRADER-TOOLING", desk, f"{desk} passes die on a tooling error, first on #{job['pr']} {job['head'][:12]}: {why}; each retries after {minutes} min or once a newer long-running installs, and its lanes hear only after its {FINDER_ATTEMPTS}th failure", to=lane)
 
     def render(self) -> str:
         runner = self.book.facts(RUNNER, [BINDING, DEFERRED, PR_SILENT])

@@ -13252,6 +13252,8 @@ def test_a_finder_that_fails_or_writes_nothing_by_its_deadline_runs_again_and_es
         shell.clock += timedelta(minutes=2)
         orca_pass(shell, config)
         assert len(finder_failures(shell)) == (2 if attempt == 2 else 0)
+        shell.clock += runner_module.GRADER_RETRY_AFTER
+        orca_pass(shell, config)
     orca_pass(shell, config)
     first, second = shell.finder_jobs[:2]
     assert shell.finder_jobs == [first, second, first.with_name(f"{first.name}-2"), second.with_name(f"{second.name}-2"), first.with_name(f"{first.name}-3"), second.with_name(f"{second.name}-3")]
@@ -13261,7 +13263,7 @@ def test_a_finder_that_fails_or_writes_nothing_by_its_deadline_runs_again_and_es
     ]
 
 
-def test_a_pass_whose_process_exited_with_no_result_fails_that_pass_and_its_slot_starts_the_retry(shell, config, tmp_path):
+def test_a_pass_whose_process_exited_with_no_result_frees_its_slot_and_retries_after_the_fix_window(shell, config, tmp_path):
     finder_config(config, concurrent=1)
     orca_pass(shell, config)
     head_record(shell, "43439", FINDER_HEAD)
@@ -13270,10 +13272,15 @@ def test_a_pass_whose_process_exited_with_no_result_fails_that_pass_and_its_slot
     [crashed] = shell.finder_jobs
     shell.exited.add(int((crashed / "pid").read_text()))
     orca_pass(shell, config)
-    assert shell.finder_jobs == [crashed, crashed.with_name(f"{crashed.name}-2")]
     passes = incident(tmp_path, "desk-finder").actions
     assert passes[f"finder:43439:{FINDER_HEAD}"].reason == "finder.py exited 0 min after it started and wrote no result"
-    assert passes[f"finder:43439:{FINDER_HEAD}#2"].status == "started" and passes[f"finder:43299:{FINDER_OLD}"].status == "accepted"
+    assert passes[f"finder:43439:{FINDER_HEAD}#2"].status == "accepted" and passes[f"finder:43299:{FINDER_OLD}"].status == "started"
+    [_, other] = shell.finder_jobs
+    shell.exited.add(int((other / "pid").read_text()))
+    shell.clock += runner_module.GRADER_RETRY_AFTER
+    orca_pass(shell, config)
+    assert shell.finder_jobs[-1] == crashed.with_name(f"{crashed.name}-2")
+    assert incident(tmp_path, "desk-finder").actions[f"finder:43439:{FINDER_HEAD}#2"].status == "started"
     assert not finder_failures(shell)
 
 
@@ -13445,22 +13452,28 @@ def test_a_green_ledger_head_no_record_named_starts_one_fidelity_pass(shell, con
     assert [(job["pr"], job["head"], job["lane"]) for job in fidelity_jobs(shell)] == [("44614", FINDER_HEAD, "p8c-conversion-ship-6")]
 
 
-def test_a_failed_fidelity_pass_fails_at_once_to_the_human_desks_and_the_next_head_record_queues_it_again(shell, config):
+def test_a_failed_fidelity_pass_retries_and_tells_the_human_desks_only_on_its_third_failure(shell, config):
+    """Root #226668: seven passes that died on one tooling error each posted FIDELITY-FAILED to the lanes; a tooling failure now tells the tooling lane once per cause and retries after the fix window."""
     fidelity_config(config, timeout_minutes=1)
+    config.write_text(json.dumps(json.loads(config.read_text()) | {"tooling_lane": "root"}))
     orca_pass(shell, config)
     first = head_record(shell, "43439", FINDER_HEAD)
     silent = head_record(shell, "43299", FINDER_OLD)
     orca_pass(shell, config)
-    failed, quiet = shell.fidelity_jobs
-    (failed / "result.json").write_text(json.dumps({"error": "codex-ask -m sol --schema fidelity.schema.json exited 1: quota exhausted"}))
-    orca_pass(shell, config)
-    shell.clock += timedelta(minutes=2)
-    orca_pass(shell, config)
-    orca_pass(shell, config)
+    for attempt in range(3):
+        failed, quiet = shell.fidelity_jobs[-2:]
+        (failed / "result.json").write_text(json.dumps({"error": "codex-ask -m sol --schema fidelity.schema.json exited 1: quota exhausted"}))
+        shell.clock += timedelta(minutes=2)
+        orca_pass(shell, config)
+        assert len(fidelity_failures(shell)) == (2 if attempt == 2 else 0)
+        shell.clock += runner_module.GRADER_RETRY_AFTER
+        orca_pass(shell, config)
     assert fidelity_failures(shell) == [
-        ("fidelity-desk-4", f"FIDELITY-FAILED fidelity:43439:{FINDER_HEAD}:{first} p8a-step9: #43439 {FINDER_HEAD[:12]}: the fidelity pass failed: codex-ask -m sol --schema fidelity.schema.json exited 1: quota exhausted; its log is {failed / 'job.log'}; a fidelity desk grades it by hand, and the next head record for #43439 queues the pass again"),
-        ("fidelity-desk-4", f"FIDELITY-FAILED fidelity:43299:{FINDER_OLD}:{silent} p8a-step9: #43299 {FINDER_OLD[:12]}: the fidelity pass failed: no result 2 min after it started; its log is {quiet / 'job.log'}; a fidelity desk grades it by hand, and the next head record for #43299 queues the pass again"),
+        ("fidelity-desk-4", f"FIDELITY-FAILED fidelity:43439:{FINDER_HEAD}:{first} p8a-step9: #43439 {FINDER_HEAD[:12]}: the fidelity pass failed on the last of its 3 attempts: codex-ask -m sol --schema fidelity.schema.json exited 1: quota exhausted; its log is {failed / 'job.log'}; a fidelity desk grades it by hand, and the next head record for #43439 queues the pass again"),
+        ("fidelity-desk-4", f"FIDELITY-FAILED fidelity:43299:{FINDER_OLD}:{silent} p8a-step9: #43299 {FINDER_OLD[:12]}: the fidelity pass failed on the last of its 3 attempts: no result 2 min after it started; its log is {quiet / 'job.log'}; a fidelity desk grades it by hand, and the next head record for #43299 queues the pass again"),
     ]
+    tooling = [post for post in shell.posts if post["text"].startswith("GRADER-TOOLING")]
+    assert {post["to"] for post in tooling} == {"root"} and 0 < len(tooling) < 6
     again = head_record(shell, "43439", FINDER_HEAD)
     orca_pass(shell, config)
     assert shell.fidelity_jobs[-1] == config.resolve().parent / "fidelity-pipeline" / f"43439-{FINDER_HEAD[:12]}-{again}"
@@ -13477,7 +13490,7 @@ def test_a_pass_whose_job_directory_is_gone_fails_without_raising(shell, config,
         shutil.rmtree(directory)
     orca_pass(shell, config)
     assert incident(tmp_path, "desk-finder").actions[f"finder:43439:{FINDER_HEAD}"].reason == f"its job directory {shell.finder_jobs[0]} is gone"
-    assert [text for _, text in fidelity_failures(shell)] == [f"FIDELITY-FAILED fidelity:43439:{FINDER_HEAD}:{seq} p8a-step9: #43439 {FINDER_HEAD[:12]}: the fidelity pass failed: its job directory {shell.fidelity_jobs[0]} is gone; its log is {shell.fidelity_jobs[0] / 'job.log'}; a fidelity desk grades it by hand, and the next head record for #43439 queues the pass again"]
+    assert incident(tmp_path, "desk-fidelity").actions[f"fidelity:43439:{FINDER_HEAD}:{seq}"].reason == f"its job directory {shell.fidelity_jobs[0]} is gone"
 
 
 def test_a_failed_fidelity_pass_settles_when_a_reader_lane_in_runner_json_has_not_started(shell, config):
@@ -13490,13 +13503,15 @@ def test_a_failed_fidelity_pass_settles_when_a_reader_lane_in_runner_json_has_no
     orca_pass(shell, config)
     head_record(shell, "43439", FINDER_HEAD)
     orca_pass(shell, config)
-    [failed] = shell.fidelity_jobs
-    (failed / "result.json").write_text(json.dumps({"error": "codex-ask -m sol --schema fidelity.schema.json exited 1: quota exhausted"}))
-    orca_pass(shell, config)
+    for _ in range(3):
+        (shell.fidelity_jobs[-1] / "result.json").write_text(json.dumps({"error": "codex-ask -m sol --schema fidelity.schema.json exited 1: quota exhausted"}))
+        orca_pass(shell, config)
+        shell.clock += runner_module.GRADER_RETRY_AFTER
+        orca_pass(shell, config)
     assert [to for to, _ in fidelity_failures(shell)] == ["fidelity-desk-4,fidelity-desk-14"]
     head_record(shell, "43439", FINDER_HEAD)
     orca_pass(shell, config)
-    assert len(shell.fidelity_jobs) == 2
+    assert len(shell.fidelity_jobs) == 4
 
 
 def test_a_failed_pass_whose_notice_does_not_post_still_fails_and_frees_its_slot(shell, config):
@@ -13509,7 +13524,7 @@ def test_a_failed_pass_whose_notice_does_not_post_still_fails_and_frees_its_slot
     (failed / "result.json").write_text(json.dumps({"error": "codex-ask exited 1: quota exhausted"}))
     shell.post_error = "cci: daemon restarting"
     orca_pass(shell, config)
-    assert not fidelity_failures(shell) and [action.status for action in incident(config.parent, "desk-fidelity").actions.values()] == ["failed"]
+    assert not fidelity_failures(shell) and [action.status for action in incident(config.parent, "desk-fidelity").actions.values()] == ["failed", "accepted"]
 
 
 def test_more_than_ten_refused_notices_in_a_minute_raise_one_defect_to_root(shell, config, tmp_path):
