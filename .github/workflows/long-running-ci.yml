@@ -43,6 +43,9 @@ jobs:
           REGISTER_READ_ORACLE="$RUNNER_TEMP/register-read-oracle.json" uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_register_reads.py -q -s
       - name: pytest
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q
+      - name: Incident body reference scope baseline
+        if: always()
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/incident_body_scope_integration.py -q -s
       - name: bounded controller operation counts
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py -q -s -k 'test_flake_watch_reads_only_remembered_red_builds or test_release_and_cut_polls_decode_only_active_fact_entries'
       - name: historical lane read costs
