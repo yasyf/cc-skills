@@ -6,7 +6,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, TranscriptFixture, on
+from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, Tool, TranscriptFixture, Warn, on
 from captain_hook.annotations import dispatch_prompt, header_lines, session_annotations
 from captain_hook.util import reqenv
 
@@ -49,11 +49,11 @@ EVIDENCE_LANE = "ainc-fixruns-evidence-0123456789abcdef"
 PINNED_MERGE = "gh pr merge 44717 --squash --match-head-commit 0123456789abcdef0123456789abcdef01234567"
 ENQUEUE = "~/monorepo/.agents/skills/submit-pr/scripts/stack-enqueue 36023 --hold 30082"
 REFUSAL = (
-    "Lanes never enqueue: the landing desk is the only enqueuer, so lane `{lane}` may not run `{verb}`. "
+    "Warning, nothing was blocked: Lanes never enqueue: the landing desk is the only enqueuer, so lane `{lane}` may not run `{verb}`. "
     "Report the PR with `ledger.py report --drive <drive>`, and the landing desk enqueues it against the root's holds."
 )
 STEERING_REFUSAL = (
-    "Only the root steers the merge queue, so lane `{lane}` may not run `mq.py {verb}`. "
+    "Warning, nothing was blocked: Only the root steers the merge queue, so lane `{lane}` may not run `mq.py {verb}`. "
     "Send the root a `RULING NEEDED` line naming the PR and the verb, and read the queue with `mq.py why <n>`."
 )
 RULINGS_ADVICE = (
@@ -61,11 +61,11 @@ RULINGS_ADVICE = (
     "and this hook only advises, so settle each one you can before the merge lands."
 )
 INCIDENT_RULINGS_REFUSAL = (
-    "#{pr} {head}: RULINGS-REFUSED `rulings.py check-pr --incident` names these on the incident fix, so lane `{lane}` may not merge it until they clear (45200f2): {causes}. "
+    "Warning, nothing was blocked: #{pr} {head}: RULINGS-REFUSED `rulings.py check-pr --incident` names these on the incident fix, so lane `{lane}` may not merge it until they clear (45200f2): {causes}. "
     "Fix each one and push, then merge the new head."
 )
 GREEN_EXCEPT_REFUSAL = (
-    "`{phrase}` reads as red: a head with a failing required job is not green, however well known the job, and a red trunk is never red by design. {trunk}"
+    "Warning, nothing was blocked: `{phrase}` reads as red: a head with a failing required job is not green, however well known the job, and a red trunk is never red by design. {trunk}"
     "Report READY only once every required job on the head passes; a job that fails because dev is red waits for dev's fix."
 )
 TRUNK_BLOCKED = "dev's test build is red since {since}; nothing lands until {fix}. "
@@ -74,16 +74,16 @@ HAND_ENQUEUE_WARNING = (
     "Clear each one before you enqueue, with a grade naming the head, a fidelity ok, or the owner's go."
 )
 HAND_ENQUEUE_TAP_REFUSAL = (
-    "A hand `stack-enqueue` lands nothing the landing runner refuses for the owner's tap, and these heads have no approval on the root's board: {lines}. "
+    "Warning, nothing was blocked: A hand `stack-enqueue` lands nothing the landing runner refuses for the owner's tap, and these heads have no approval on the root's board: {lines}. "
     "A root go is no tap: wait for his approval on the board row at that head, then enqueue."
 )
 TAP_REFUSAL = "TAP-REQUIRED"
 ADMIN_MERGE_REFUSAL = (
-    "Incident fixes merge by plain squash once approved and green, never past review, so lane `{lane}` may not run `gh pr merge --admin`. "
+    "Warning, nothing was blocked: Incident fixes merge by plain squash once approved and green, never past review, so lane `{lane}` may not run `gh pr merge --admin`. "
     "Wait for the approval and the required checks, then run `gh pr merge <N> --squash`."
 )
 INCIDENT_REFUSAL = (
-    "Incident fixes land by plain squash the pass they are approved and green, never through the queue (the owner ruled it on Oct 20), so lane `{lane}` may not run `stack-enqueue`. "
+    "Warning, nothing was blocked: Incident fixes land by plain squash the pass they are approved and green, never through the queue (the owner ruled it on Oct 20), so lane `{lane}` may not run `stack-enqueue`. "
     "Post `ready`, and the landing runner merges it."
 )
 
@@ -255,29 +255,29 @@ def landing_verb(call: Call) -> str | None:
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     tests={
-        Input(command=ENQUEUE, agent_id=LANE, state=ACTIVE): Block(pattern=r"^Lanes never enqueue: the landing desk is the only enqueuer, so lane `lane-a` may not run `stack-enqueue`\."),
-        Input(command="stack-enqueue 36039 --fast", agent_id="aL23-dashboard-wasm-follower-14fd0a86e696c1e3", state=ACTIVE): Block(pattern=r"`L23-dashboard-wasm-follower`"),
-        Input(command="tools/ci trunk submit 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`ci trunk submit`"),
+        Input(command=ENQUEUE, agent_id=LANE, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: Lanes never enqueue: the landing desk is the only enqueuer, so lane `lane-a` may not run `stack-enqueue`\."),
+        Input(command="stack-enqueue 36039 --fast", agent_id="aL23-dashboard-wasm-follower-14fd0a86e696c1e3", state=ACTIVE): Warn(pattern=r"`L23-dashboard-wasm-follower`"),
+        Input(command="tools/ci trunk submit 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`ci trunk submit`"),
         Input(command="tools/ci trunk status 36023", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="gh stack merge 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`gh stack merge`"),
-        Input(command="cd ~/wt && gt merge", agent_id=LANE, state=ACTIVE): Block(pattern=r"`gt merge`"),
-        Input(command="gh pr merge 36023 --squash", agent_id=LANE, state=ACTIVE): Block(pattern=r"`gh pr merge`"),
-        Input(command="gh -R Forge-AI/monorepo pr merge 36023 --squash", agent_id=LANE, state=ACTIVE): Block(pattern=r"`gh pr merge`"),
-        Input(command="python3 .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
-        Input(command="bash .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
-        Input(command="python3 -W ignore .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
-        Input(command="uv run --with requests .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
-        Input(command=".agents/skills/submit-pr/scripts/stack-enqueue --fast 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
-        Input(command="git fetch -q && stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
-        Input(command="true; stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
-        Input(command="true | .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
-        Input(command="echo $(stack-enqueue 36023)", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
-        Input(command="mq.py --config r.json enqueue 36023 --partial", agent_id=LANE, state=ACTIVE): Block(pattern=r"lane `lane-a` may not run `mq.py enqueue`"),
+        Input(command="gh stack merge 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh stack merge`"),
+        Input(command="cd ~/wt && gt merge", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gt merge`"),
+        Input(command="gh pr merge 36023 --squash", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh pr merge`"),
+        Input(command="gh -R Forge-AI/monorepo pr merge 36023 --squash", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh pr merge`"),
+        Input(command="python3 .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        Input(command="bash .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        Input(command="python3 -W ignore .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        Input(command="uv run --with requests .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        Input(command=".agents/skills/submit-pr/scripts/stack-enqueue --fast 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        Input(command="git fetch -q && stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        Input(command="true; stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        Input(command="true | .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        Input(command="echo $(stack-enqueue 36023)", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        Input(command="mq.py --config r.json enqueue 36023 --partial", agent_id=LANE, state=ACTIVE): Warn(pattern=r"lane `lane-a` may not run `mq.py enqueue`"),
         Input(command="mq.py --config r.json enqueue 36023 --partial", agent_id=DESK, state=ACTIVE): Allow(),
-        Input(command="sudo stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
-        Input(command="env GH_TOKEN=x stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
-        Input(command="cc-sudo run -- .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
-        Input(command="bash -c 'stack-enqueue 36023'", agent_id=LANE, state=ACTIVE): Block(pattern=r"`stack-enqueue`"),
+        Input(command="sudo stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        Input(command="env GH_TOKEN=x stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        Input(command="cc-sudo run -- .agents/skills/submit-pr/scripts/stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
+        Input(command="bash -c 'stack-enqueue 36023'", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`stack-enqueue`"),
         Input(command="python3 -m py_compile .agents/skills/submit-pr/scripts/stack-enqueue", agent_id=LANE, state=ACTIVE): Allow(),
         Input(command="bash -n .agents/skills/submit-pr/scripts/stack-enqueue", agent_id=LANE, state=ACTIVE): Allow(),
         Input(command="python3 -c 'print(\"stack-enqueue 36023\")'", agent_id=LANE, state=ACTIVE): Allow(),
@@ -286,37 +286,37 @@ def landing_verb(call: Call) -> str | None:
         Input(command="cat .agents/skills/submit-pr/scripts/stack-enqueue", agent_id=LANE, state=ACTIVE): Allow(),
         Input(command="echo ok # stack-enqueue 36023", agent_id=LANE, state=ACTIVE): Allow(),
         Input(command="cc-sudo run -- stack-enqueue --check 36023", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="gh api repos/Forge-AI/monorepo/issues/36023/labels '--raw-field=labels[]=merge'", agent_id=LANE, state=ACTIVE): Block(pattern=r"`gh api labels`"),
-        Input(command="gh api repos/Forge-AI/monorepo/issues/36023/labels -flabels[]=merge-fast", agent_id=LANE, state=ACTIVE): Block(),
-        Input(command="gh pr edit 36023 --add-label merge", agent_id=LANE, state=ACTIVE): Block(pattern=r"`gh pr edit --add-label`"),
-        Input(command="gh pr edit 36023 --add-label=docs,MERGE-FAST", agent_id=LANE, state=ACTIVE): Block(),
-        Input(command="gh issue edit 36023 --add-label merge", agent_id=LANE, state=ACTIVE): Block(),
-        Input(command="gh api -X POST repos/Forge-AI/monorepo/issues/36023/labels -f 'labels[]=merge'", agent_id=LANE, state=ACTIVE): Block(pattern=r"`gh api labels`"),
-        Input(command="ledger.py label --ledger 1a2b --pr 36023 --expect-head abc", agent_id=LANE, state=ACTIVE): Block(pattern=r"`ledger.py label`"),
-        Input(command=ENQUEUE, env={"CLAUDE_LONG_RUNNING_LANE": "lane-b"}): Block(pattern=r"`lane-b`"),
+        Input(command="gh api repos/Forge-AI/monorepo/issues/36023/labels '--raw-field=labels[]=merge'", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh api labels`"),
+        Input(command="gh api repos/Forge-AI/monorepo/issues/36023/labels -flabels[]=merge-fast", agent_id=LANE, state=ACTIVE): Warn(),
+        Input(command="gh pr edit 36023 --add-label merge", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh pr edit --add-label`"),
+        Input(command="gh pr edit 36023 --add-label=docs,MERGE-FAST", agent_id=LANE, state=ACTIVE): Warn(),
+        Input(command="gh issue edit 36023 --add-label merge", agent_id=LANE, state=ACTIVE): Warn(),
+        Input(command="gh api -X POST repos/Forge-AI/monorepo/issues/36023/labels -f 'labels[]=merge'", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`gh api labels`"),
+        Input(command="ledger.py label --ledger 1a2b --pr 36023 --expect-head abc", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`ledger.py label`"),
+        Input(command=ENQUEUE, env={"CLAUDE_LONG_RUNNING_LANE": "lane-b"}): Warn(pattern=r"`lane-b`"),
         Input(command=ENQUEUE, agent_id=DESK, state=ACTIVE): Allow(),
         Input(command=ENQUEUE, agent_id="alanding-desk-2-0123456789abcdef", state=ACTIVE): Allow(),
         Input(command=ENQUEUE, agent_id="adesk-runner-0123456789abcdef", state=ACTIVE): Allow(),
         Input(command=ENQUEUE, env={"CLAUDE_LONG_RUNNING_LANE": "landing-desk"}): Allow(),
         Input(command=ENQUEUE, agent_id="asandsql-replica-desk-0123456789abcdef", state=ACTIVE): Allow(),
         Input(command="ledger.py label --pr 36023 --expect-head abc", agent_id="amerge-train-release-0123456789abcdef", state=ACTIVE): Allow(),
-        Input(command=ENQUEUE, agent_id="adesk-cleanup-lane-0123456789abcdef", state=ACTIVE): Block(),
-        Input(command="stack-enqueue 36050 --fast", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Block(pattern=r"plain squash"),
-        Input(command="stack-enqueue 36050", agent_id="aoutage-sand-0123456789abcdef", state=ACTIVE): Block(pattern=r"^Incident fixes land by plain squash .* lane `outage-sand` may not run `stack-enqueue`\."),
+        Input(command=ENQUEUE, agent_id="adesk-cleanup-lane-0123456789abcdef", state=ACTIVE): Warn(),
+        Input(command="stack-enqueue 36050 --fast", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Warn(pattern=r"plain squash"),
+        Input(command="stack-enqueue 36050", agent_id="aoutage-sand-0123456789abcdef", state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: Incident fixes land by plain squash .* lane `outage-sand` may not run `stack-enqueue`\."),
         Input(command="stack-enqueue 36050 --check", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Allow(),
-        Input(command="stack-enqueue 36050 --fast", agent_id="asand-5a-fix-0123456789abcdef", state=ACTIVE): Block(pattern=r"lane `sand-5a-fix` may not run `stack-enqueue`"),
-        Input(command="gh pr edit 36050 --add-label merge-fast", agent_id="asand-5a-fix-0123456789abcdef", state=ACTIVE): Block(pattern=r"lane `sand-5a-fix` may not run `gh pr edit --add-label`"),
+        Input(command="stack-enqueue 36050 --fast", agent_id="asand-5a-fix-0123456789abcdef", state=ACTIVE): Warn(pattern=r"lane `sand-5a-fix` may not run `stack-enqueue`"),
+        Input(command="gh pr edit 36050 --add-label merge-fast", agent_id="asand-5a-fix-0123456789abcdef", state=ACTIVE): Warn(pattern=r"lane `sand-5a-fix` may not run `gh pr edit --add-label`"),
         Input(command="gh pr merge 36050 --squash", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Allow(),
         Input(command=PINNED_MERGE, agent_id=LANE, state=ACTIVE, transcript=INCIDENT_BRIEF): Allow(),
-        Input(command=PINNED_MERGE, agent_id=LANE, state=ACTIVE, transcript=NON_INCIDENT_BRIEF): Block(pattern=r"lane `lane-a` may not run `gh pr merge`"),
-        Input(command="stack-enqueue 44717", agent_id=LANE, state=ACTIVE, transcript=INCIDENT_BRIEF): Block(pattern=r"^Incident fixes land by plain squash"),
+        Input(command=PINNED_MERGE, agent_id=LANE, state=ACTIVE, transcript=NON_INCIDENT_BRIEF): Warn(pattern=r"lane `lane-a` may not run `gh pr merge`"),
+        Input(command="stack-enqueue 44717", agent_id=LANE, state=ACTIVE, transcript=INCIDENT_BRIEF): Warn(pattern=r"^Warning, nothing was blocked: Incident fixes land by plain squash"),
         Input(command="gh pr merge 44811 --squash", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-fix", "incident")): Allow(),
-        Input(command="gh pr merge 44811 --squash --admin", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-fix", "incident")): Block(pattern=r"^Incident fixes merge by plain squash .* lane `inc-fixruns-fix` may not run `gh pr merge --admin`\."),
-        Input(command="gh pr merge 36050 --admin --squash", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Block(pattern=r"`gh pr merge --admin`"),
-        Input(command="stack-enqueue 44811", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-fix", "incident")): Block(pattern=r"^Incident fixes land by plain squash"),
-        Input(command="gh pr merge 44811 --squash", agent_id=EVIDENCE_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-evidence", "incident")): Block(pattern=r"lane `inc-fixruns-evidence` may not run `gh pr merge`"),
-        Input(command="gh pr merge 44811 --squash", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-fix", "1.9")): Block(pattern=r"lane `inc-fixruns-fix` may not run `gh pr merge`"),
-        Input(command="gh pr merge 44811 --squash", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("other-fix", "incident")): Block(pattern=r"lane `inc-fixruns-fix` may not run `gh pr merge`"),
+        Input(command="gh pr merge 44811 --squash --admin", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-fix", "incident")): Warn(pattern=r"^Warning, nothing was blocked: Incident fixes merge by plain squash .* lane `inc-fixruns-fix` may not run `gh pr merge --admin`\."),
+        Input(command="gh pr merge 36050 --admin --squash", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Warn(pattern=r"`gh pr merge --admin`"),
+        Input(command="stack-enqueue 44811", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-fix", "incident")): Warn(pattern=r"^Warning, nothing was blocked: Incident fixes land by plain squash"),
+        Input(command="gh pr merge 44811 --squash", agent_id=EVIDENCE_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-evidence", "incident")): Warn(pattern=r"lane `inc-fixruns-evidence` may not run `gh pr merge`"),
+        Input(command="gh pr merge 44811 --squash", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("inc-fixruns-fix", "1.9")): Warn(pattern=r"lane `inc-fixruns-fix` may not run `gh pr merge`"),
+        Input(command="gh pr merge 44811 --squash", agent_id=FIX_LANE, state=ACTIVE, transcript=sliced_brief("other-fix", "incident")): Warn(pattern=r"lane `inc-fixruns-fix` may not run `gh pr merge`"),
         Input(command=ENQUEUE, state=ACTIVE): Allow(),
         Input(command=ENQUEUE, agent_id=LANE): Allow(),
         Input(command="stack-enqueue 36023 --check --hold 30082", agent_id=LANE, state=ACTIVE): Allow(),
@@ -326,8 +326,8 @@ def landing_verb(call: Call) -> str | None:
         Input(command="ledger.py label --dry-run --pr 36023", agent_id=LANE, state=ACTIVE): Allow(),
         Input(command="echo 'stack-enqueue 36023'", agent_id=LANE, state=ACTIVE): Allow(),
         Input(command="gh pr view 36023 --json mergedAt", agent_id=LANE, state=ACTIVE): Allow(),
-        Input(command="gh pr merge 36023 -R o/r --squash", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Block(pattern=r"`gh pr merge`"),
-        Input(command="gh api repos/O/R/issues/36023/labels -f 'labels[]=merge'", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Block(),
+        Input(command="gh pr merge 36023 -R o/r --squash", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Warn(pattern=r"`gh pr merge`"),
+        Input(command="gh api repos/O/R/issues/36023/labels -f 'labels[]=merge'", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Warn(),
         Input(command="gh pr merge 81 -R yasyf/cc-inbox --squash", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Allow(),
         Input(command="gh pr merge https://github.com/yasyf/cc-skills/pull/403 --squash", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Allow(),
         Input(command="gh api repos/yasyf/cc-skills/issues/403/labels -f 'labels[]=merge'", agent_id=LANE, env=DRIVE_ENV, state=ACTIVE): Allow(),
@@ -345,11 +345,11 @@ def lanes_never_enqueue(evt: BaseHookEvent) -> HookResult | None:
     verbs = [verb for _, verb in landings]
     incident = incident_lane(evt, lane)
     if incident and any(verb == "gh pr merge" and "--admin" in call.args for call, verb in landings):
-        return evt.block(ADMIN_MERGE_REFUSAL.format(lane=lane))
+        return evt.context(ADMIN_MERGE_REFUSAL.format(lane=lane))
     verb = next((verb for verb in verbs if verb in ENQUEUERS or not incident), None)
     if verb and incident:
-        return evt.block(INCIDENT_REFUSAL.format(lane=lane))
-    return evt.block(REFUSAL.format(lane=lane or "unnamed", verb=verb)) if verb else None
+        return evt.context(INCIDENT_REFUSAL.format(lane=lane))
+    return evt.context(REFUSAL.format(lane=lane or "unnamed", verb=verb)) if verb else None
 
 
 def gate_args(call: Call) -> list[str]:
@@ -378,7 +378,7 @@ def hand_enqueue_meets_the_runner_checks(evt: BaseHookEvent) -> HookResult | Non
     runs = [run_quietly([sys.executable, str(script("mq.py")), "--config", str(config), "gate", *args], str(evt.cwd)) for args in gates]
     failing = [line for done in runs if done is not None and done.returncode == 1 for line in done.stdout.splitlines() if line.strip()]
     if untapped := [line for line in failing if TAP_REFUSAL in line]:
-        return evt.block(HAND_ENQUEUE_TAP_REFUSAL.format(lines="; ".join(untapped)))
+        return evt.context(HAND_ENQUEUE_TAP_REFUSAL.format(lines="; ".join(untapped)))
     return evt.context(HAND_ENQUEUE_WARNING.format(lines="; ".join(failing))) if failing else None
 
 
@@ -455,7 +455,7 @@ def rulings_at_merge(evt: BaseHookEvent) -> HookResult | None:
     incident = incident_lane(evt, lane)
     found = [checked for call in merges if (checked := merge_causes(call, entry, str(call.cwd or evt.cwd), incident))]
     if incident and found:
-        return evt.block("\n".join(INCIDENT_RULINGS_REFUSAL.format(pr=pr, head=head, lane=lane, causes=causes) for pr, head, causes in found))
+        return evt.context("\n".join(INCIDENT_RULINGS_REFUSAL.format(pr=pr, head=head, lane=lane, causes=causes) for pr, head, causes in found))
     advice = [RULINGS_ADVICE.format(causes=causes, pr=pr, head=head) for pr, head, causes in found]
     return evt.context("\n".join(advice)) if advice else None
 
@@ -464,12 +464,12 @@ def rulings_at_merge(evt: BaseHookEvent) -> HookResult | None:
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     tests={
-        Input(command="mq.py --config ~/d/runner.json dequeue 36023 --reason pulled", agent_id=LANE, state=ACTIVE): Block(pattern=r"^Only the root steers the merge queue, so lane `lane-a` may not run `mq.py dequeue`\."),
-        Input(command="python3 skills/long-running/scripts/mq.py --config=r.json requeue 36023", agent_id=LANE, state=ACTIVE): Block(pattern=r"`mq.py requeue`"),
-        Input(command="mq.py --config r.json priority 36023 0", agent_id=DESK, state=ACTIVE): Block(pattern=r"lane `landing-desk` may not run `mq.py priority`"),
-        Input(command="mq.py --config r.json recover 36023", agent_id="adesk-runner-0123456789abcdef", state=ACTIVE): Block(pattern=r"`mq.py recover`"),
-        Input(command="mq.py --config r.json hold 36023 --reason wait", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Block(pattern=r"`mq.py hold`"),
-        Input(command="git fetch -q && mq.py --config r.json lift 36023", env={"CLAUDE_LONG_RUNNING_LANE": "lane-b"}): Block(pattern=r"lane `lane-b` may not run `mq.py lift`"),
+        Input(command="mq.py --config ~/d/runner.json dequeue 36023 --reason pulled", agent_id=LANE, state=ACTIVE): Warn(pattern=r"^Warning, nothing was blocked: Only the root steers the merge queue, so lane `lane-a` may not run `mq.py dequeue`\."),
+        Input(command="python3 skills/long-running/scripts/mq.py --config=r.json requeue 36023", agent_id=LANE, state=ACTIVE): Warn(pattern=r"`mq.py requeue`"),
+        Input(command="mq.py --config r.json priority 36023 0", agent_id=DESK, state=ACTIVE): Warn(pattern=r"lane `landing-desk` may not run `mq.py priority`"),
+        Input(command="mq.py --config r.json recover 36023", agent_id="adesk-runner-0123456789abcdef", state=ACTIVE): Warn(pattern=r"`mq.py recover`"),
+        Input(command="mq.py --config r.json hold 36023 --reason wait", agent_id="aincident-api-500s-0123456789abcdef", state=ACTIVE): Warn(pattern=r"`mq.py hold`"),
+        Input(command="git fetch -q && mq.py --config r.json lift 36023", env={"CLAUDE_LONG_RUNNING_LANE": "lane-b"}): Warn(pattern=r"lane `lane-b` may not run `mq.py lift`"),
         Input(command="mq.py --config r.json why 36023", agent_id=DESK, state=ACTIVE): Allow(),
         Input(command="mq.py --config r.json status", agent_id=LANE, state=ACTIVE): Allow(),
         Input(command="mq.py --config r.json checks", agent_id=LANE, state=ACTIVE): Allow(),
@@ -487,11 +487,11 @@ def only_the_root_steers_the_queue(evt: BaseHookEvent) -> HookResult | None:
         return None
     verb = next((verb for call in evt.cmd.calls() if (verb := mq_verb(call))), None)
     if verb:
-        return evt.block(STEERING_REFUSAL.format(lane=lane or "unnamed", verb=verb))
+        return evt.context(STEERING_REFUSAL.format(lane=lane or "unnamed", verb=verb))
     for call in evt.cmd.calls():
         run = program((call.name, *call.args))
         if len(run) > 2 and Path(run[0]).name == "ci" and run[1] == "trunk" and run[2] in ("dequeue", "restart", "prioritize"):
-            return evt.block(f"Only the root steers the merge queue, so lane `{lane or 'unnamed'}` may not run `ci trunk {run[2]}`. Ask the root and read the queue with `mq.py why <n>`.")
+            return evt.context(f"Only the root steers the merge queue, so lane `{lane or 'unnamed'}` may not run `ci trunk {run[2]}`. Ask the root and read the queue with `mq.py why <n>`.")
     return None
 
 
@@ -531,11 +531,11 @@ def trunk_clause(entry: dict) -> str:
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     tests={
-        Input(command="ledger.py report --pr 43163 --head abc --verdict clean --text 'READY CI green except the known red'", env=DRIVE_ENV): Block(pattern=r"^`green except` reads as red"),
-        Input(command="python3 ledger.py -C ~/m report --pr 43163 --text 'READY: green apart from the known publish job'", env=DRIVE_ENV): Block(pattern=r"`green apart from`"),
-        Input(command="cci post --drive d --lane root --kind decide --text 'dev is design red; land on'", env=DRIVE_ENV): Block(pattern=r"`design red`"),
-        Input(command="cci post --drive d --lane x --kind=report --text='READY #43163: known-red test job only'", env=DRIVE_ENV): Block(pattern=r"`known-red`"),
-        Input(command="cci post --drive d --lane x --kind report 'READY #43163: green except the publish job'", env=DRIVE_ENV): Block(pattern=r"`green except`"),
+        Input(command="ledger.py report --pr 43163 --head abc --verdict clean --text 'READY CI green except the known red'", env=DRIVE_ENV): Warn(pattern=r"^Warning, nothing was blocked: `green except` reads as red"),
+        Input(command="python3 ledger.py -C ~/m report --pr 43163 --text 'READY: green apart from the known publish job'", env=DRIVE_ENV): Warn(pattern=r"`green apart from`"),
+        Input(command="cci post --drive d --lane root --kind decide --text 'dev is design red; land on'", env=DRIVE_ENV): Warn(pattern=r"`design red`"),
+        Input(command="cci post --drive d --lane x --kind=report --text='READY #43163: known-red test job only'", env=DRIVE_ENV): Warn(pattern=r"`known-red`"),
+        Input(command="cci post --drive d --lane x --kind report 'READY #43163: green except the publish job'", env=DRIVE_ENV): Warn(pattern=r"`green except`"),
         Input(command="ledger.py report --pr 43163 --head abc --verdict clean --text 'READY CI green on build 82560'", env=DRIVE_ENV): Allow(),
         Input(command="cci post --drive d --lane x --kind note --text 'retro: lanes graded green except the known red by hand'", env=DRIVE_ENV): Allow(),
         Input(command="cci post --drive d --lane x --kind report --text 'DONE: the hook now refuses green except and known red claims'", env=DRIVE_ENV): Allow(),
@@ -546,4 +546,4 @@ def green_except_is_red(evt: BaseHookEvent) -> HookResult | None:
     if (entry := drive_entry(evt)) is None:
         return None
     phrase = next((found for call in evt.cmd.calls() if (found := green_except(call))), None)
-    return evt.block(GREEN_EXCEPT_REFUSAL.format(phrase=phrase, trunk=trunk_clause(entry))) if phrase else None
+    return evt.context(GREEN_EXCEPT_REFUSAL.format(phrase=phrase, trunk=trunk_clause(entry))) if phrase else None

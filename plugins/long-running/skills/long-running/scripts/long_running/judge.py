@@ -189,10 +189,6 @@ When it does, answer "yes" if it drops, narrows or contradicts any part of his a
         "a pull request's failing CI build, with the failing jobs' log lines, that the landing runner sends to the pull request's own lane to fix",
         "Is this red not caused by this pull request's diff: inherited from the trunk or from the pull request below it, a flaky test, or a failure of the CI infrastructure? Answer \"yes\" only when the evidence shows it: the same job fails the same way on the trunk or the base, the failing code neither is in the diff nor builds against, imports, calls or is generated from anything the diff changes, or the log shows the infrastructure failing. Answer \"no\" when the diff can cause the failure, and \"unsure\" when the logs do not show what failed. Quote the deciding log line as the artifact phrase.",
     ),
-    "tap-carry": (
-        "what changed on a pull request between the head the owner approved and its new head, as its lane, its fidelity grade and its finder describe it",
-        "Does the new head change any behavior he approved at the old head? Count every change since the head he approved, across each head in between, not only the newest move. Answer \"yes\" when it adds, removes or changes what a user, an operator or a caller sees or gets, including a fix that changes behavior, or when the records do not say what changed. Answer \"no\" only when the records show it changes nothing he approved: a restack or replay onto a newer base, a conflict resolution that keeps both sides, or a review fix to tests, comments or wording.",
-    ),
 }
 
 

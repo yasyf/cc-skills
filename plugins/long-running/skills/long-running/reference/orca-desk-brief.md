@@ -568,15 +568,26 @@ For the cci cutover, the root adds `drive` to the runner config, confirms
 `orca.desk_inbox`, and restarts both runners. Its records keep arriving over the
 `cci` channel. The root owns that cutover.
 
-To upgrade a running desk without a signal, run `desk-runner.py handoff --desk orca
---config "$CONFIG"`, or `--desk landing` for the landing desk, from the Run's bound
-terminal. Every runner holds `$CONFIG.<desk>.lock` for its life, and a second
-`run` on the same config and desk refuses to start. `handoff` reads the lock's holder
-and writes its pid to `$CONFIG.stop`. That runner finishes its pass, removes
-`$CONFIG.stop`, and exits 0. Only once it has exited does `handoff`
-start the next runner itself, on the newest installed plugin with the same config and
-desk, its output appended to `<desk>-runner.log` in the drive's state directory, so one
-process per desk runs at every moment and a rotation is one command.
+Both desks run the plugin version `$CONFIG` pins in its top-level `version`, and a
+plugin update never moves them, and a drive's first `run` pins the version it runs. A
+fix reaches a running desk only as a merged PR, a release, and a handoff; nothing edits
+an installed copy.
+
+To move a desk to a new release, run `desk-runner.py handoff --desk orca --config
+"$CONFIG" --version <installed version>`, or `--desk landing` for the landing desk,
+from the Run's bound terminal. `handoff` first reads that version's install against its
+release tag. It stops nothing when a file is missing or differs, as after an install cut
+short or a copy edited in place. It then runs that version's own `preflight` for the desk
+and stops nothing when that refuses. Only then does it write the pin. Without `--version`
+it restarts the desk on the pinned version, which reloads `$CONFIG`.
+
+Every runner holds `$CONFIG.<desk>.lock` for its life, and a second `run` on the same
+config and desk refuses to start. `handoff` reads the lock's holder and writes its pid to
+`$CONFIG.stop`. That runner finishes its pass, removes `$CONFIG.stop`, and exits 0. Once
+it has exited, `handoff` starts the next runner on the pinned version with the same
+config and desk. Its output goes to `<desk>-runner.log` in the drive's state directory,
+so one process per desk runs at every moment. The other desk follows the moved pin at
+the end of its pass.
 
 Only the terminal bound to the Run may call `worker-start`. Every pass the orca desk
 reads the Run's coordinator from Orca and calls Orca, and starts each launcher, as that
@@ -808,10 +819,9 @@ waiting PR's prefix enqueues nothing, and the runner asks one merge card per PR 
 on the root's board and in the root's Slack status thread and logs one `MERGE-ASK` naming the card and the record that answers it.
 With `landing.merge_ask_surface` set to `board` (default `slack`), the runner posts and edits no card, and the root asks every merge
 question on its own board. On that surface the runner carries the owner's board taps itself. An approval on a `pr-groups` row
-at an older head of an open PR moves to the PR's head through a `board-write` carry record, which the board's recorder applies, once records call each move between the two
-heads patch-identical, `head` records reading `<new> (was <old>)` and fidelity carries alike. One `TAP-CARRIED` note naming both heads
-goes to root and each lane `landing.board_lane` names. A new head that a record names but no such chain reaches keeps the tap at the old
-head, and one `TAP-NOT-CARRIED` note to the same lanes says the board needs a new row. Board records that do not read, or a carry
+at an older head of an open PR moves to the PR's head through a `board-write` carry record, which the board's recorder applies, whatever
+changed between the two heads, since a PR the owner tapped never returns to his board (owner 2:48 AM Oct 31). One `TAP-CARRIED` note naming
+both heads goes to root and each lane `landing.board_lane` names. Board records that do not read, or a carry
 that does not post, log `TAP-CARRY-FAILED`; a carry cc-present refuses comes back as the recorder's `defect` record.
 Under `every` the runner then checks only heads a root `go` names: no check or enqueue call names any
 other PR or sweeps it in, and a PR stacked on it waits. Its blockers and `MERGE-ASK` come from the pass's `ccx vcs pr status` read instead. `landing.checks_wait_for_go`, a cci sequence number,

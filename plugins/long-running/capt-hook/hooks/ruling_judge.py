@@ -11,12 +11,13 @@ from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, 
 from captain_hook.util import reqenv
 
 from .compaction_handoff import REGISTER_FENCE, CompactionState, rulings, script, script_module
-from .register_injection import drive_args
+from .register_injection import SLICE_HEADER, drive_args
 from .tests.register_fixtures import DRIVE_CONFIG
 
 CANDIDATES = 2
 CANDIDATE_BYTES = 6000
 MOMENT_CHARS = 2000
+BRIEF_CHARS = 6000
 MATCH_TIMEOUT_SECONDS = 8
 DECISION = re.compile(r"\b(?:GO|HOLD|DECIDE)\b")
 BLOCK_ID = re.compile(r"^- ([0-9a-f]{7}) ", re.MULTILINE)
@@ -80,6 +81,13 @@ def moment(evt: BaseHookEvent) -> tuple[str, str] | None:
         Input(tool="Agent", tool_input={"prompt": "Add a --skip-tenant flag."}, commands=answered(CARRIED), env=DRIVE_CONFIG, state=[ACTIVE]): Allow(),
         Input(
             tool="Agent",
+            tool_input={"prompt": "Register slice: lane=lane-a step=1\n### rule/1984bf6 | pick | in-force\n> Add a --skip-tenant flag."},
+            commands=answered(DROPPED),
+            env=DRIVE_CONFIG,
+            state=[ACTIVE],
+        ): Allow(),
+        Input(
+            tool="Agent",
             tool_input={"prompt": "Add a --skip-tenant flag."},
             commands=answered(DROPPED),
             env=DRIVE_CONFIG,
@@ -95,9 +103,12 @@ def moment(evt: BaseHookEvent) -> tuple[str, str] | None:
     },
 )
 def judge_key_moment(evt: BaseHookEvent) -> HookResult | None:
-    if not (found := moment(evt)) or not found[1].strip() or not (which := drive_args(evt)):
+    if not (found := moment(evt)) or not (which := drive_args(evt)):
         return None
     kind, text = found
+    text = SLICE_HEADER.split(text, maxsplit=1)[0][:BRIEF_CHARS] if kind == "a lane spawn" else text[:MOMENT_CHARS]
+    if not text.strip():
+        return None
     lane = f"{evt.agent_id}:" if evt.agent_id else ROOT
     excluded = [arg for key in JudgedAnswers.load(evt).injected if key.startswith(lane) for arg in ("--exclude", key.removeprefix(lane))]
     try:
@@ -110,7 +121,7 @@ def judge_key_moment(evt: BaseHookEvent) -> HookResult | None:
             "--budget",
             str(CANDIDATE_BYTES),
             *excluded,
-            stdin=text[:MOMENT_CHARS],
+            stdin=text,
             timeout=reqenv.clamp_timeout(MATCH_TIMEOUT_SECONDS),
         )
     except subprocess.TimeoutExpired:
@@ -122,7 +133,7 @@ def judge_key_moment(evt: BaseHookEvent) -> HookResult | None:
         verdict = judge.judge(
             "answer",
             EVIDENCE.format(block=block),
-            f"{kind}:\n{text[:MOMENT_CHARS]}",
+            f"{kind}:\n{text}",
             backend=judge.backend_from(env),
             drive=which[1],
             timeout=reqenv.clamp_timeout(judge.JUDGE_SECONDS),
