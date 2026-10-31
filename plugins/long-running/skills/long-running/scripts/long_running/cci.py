@@ -260,6 +260,25 @@ def current_records(run: Callable[[list[str]], str], drive: str, *filters: str, 
     return _read_records(run, drive, filters, since, history=False)
 
 
+def selected_records(run: Callable[[list[str]], str], drive: str, seqs: list[int]) -> list[dict]:
+    """Read complete current annotations for selected internal sequences without retaining history."""
+    selected = sorted(set(seqs))
+    found: dict[int, dict] = {}
+    for start in range(0, len(selected), PAGE_ROWS):
+        batch = selected[start : start + PAGE_ROWS]
+        out = run(["cci", "tail", "--drive", drive, "--since-seq", "0", "--seqs", ",".join(map(str, batch)), "--json", "--budget", "0"])
+        requested = set(batch)
+        for line in out.splitlines():
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            seq = record["seq"]
+            if seq not in requested or seq in found:
+                raise ValueError(f"unexpected selected cci sequence: {seq}")
+            found[seq] = record
+    return [found[seq] for seq in selected if seq in found]
+
+
 def _read_records(run: Callable[[list[str]], str], drive: str, filters: tuple[str, ...], since: int | str, *, history: bool) -> list[dict]:
     key = (drive, filters, str(since), history)
     read = run.read if isinstance(run, Tail) else None

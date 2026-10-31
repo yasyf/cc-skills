@@ -744,6 +744,13 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(1, "", self.tail_error)
         drive = argv[argv.index("--drive") + 1]
         assert drive in [*self.drives, runner_module.TRUNK_QUEUE_DRIVE] and "--json" in argv and "--cursor" not in argv
+        if "--seqs" in argv:
+            selected = set(map(int, argv[argv.index("--seqs") + 1].split(",")))
+            records = [{"seq": index, **post} for index, post in enumerate(self.posts, 1)] + self.records
+            closed = set().union(*(runner_module.cci.resolved(record) for record in self.records))
+            closed.update(int(seq) for post in self.posts for seq in post.get("resolves", "").split(",") if seq)
+            found = {record["seq"]: record | {"status": "closed" if record["seq"] in closed else record.get("status", "open" if record["kind"] == "blocker" else "imported")} for record in records if record["seq"] in selected and record.get("drive", "d1") == drive}
+            return runner_module.Done(0, "".join(json.dumps(found[seq]) + "\n" for seq in sorted(found)), "")
         if "--to" in argv and argv[argv.index("--to") + 1] == f"{runner_module.WATCHDOG}@{drive}":
             topic = next(arg.partition("=")[2] for arg in argv if arg.startswith("--topic="))
             return runner_module.Done(0, "".join(f"{json.dumps(beat)}\n" for beat in [beat for beat in self.beats if beat["drive"] == drive and beat["topic"] == topic][-1:]), "")
@@ -5449,6 +5456,7 @@ def test_stale_blocker_uses_internal_reference_for_mixed_origin_receipt(shell, c
     landing = landing_of(shell, config, tmp_path)
     shell.post_out = json.dumps({"seq": 41, "num": display_number}) + "\n"
     assert landing.post_record("blocker", "stale-origin", LANE, "#29020 cccc333333: pending", "29020")
+    shell.records.append({"seq": 41, "drive": "d1", "lane": runner_module.RUNNER, "kind": "blocker", "status": "open"})
     assert landing.book.action(runner_module.LANDING, "stale-origin").response["posted"] == "#41"
     landing.resolve_stale_blockers({"29020": {"state": "open", "head": "eeee555555"}})
     [resolution] = [call for call in shell.raw if call[:2] == ["cci", "post"] and "landing-hygiene" in call]
@@ -5459,6 +5467,73 @@ def test_stale_blocker_uses_internal_reference_for_mixed_origin_receipt(shell, c
     before = len(shell.raw)
     landing.resolve_stale_blockers({"29020": {"state": "open", "head": "eeee555555"}})
     assert len(shell.raw) == before
+
+
+@pytest.mark.parametrize("record", [
+    {"status": "closed"},
+    {"status": "open", "expires_at": "2026-10-01T17:00:00+00:00"},
+], ids=["closed", "expired"])
+def test_stale_blocker_current_closure_keeps_original_receipt_without_reposting(shell, config, tmp_path, monkeypatch, record):
+    landing = landing_of(shell, config, tmp_path)
+    assert landing.post_record("blocker", "closed-elsewhere", LANE, "#29020 cccc333333: pending", "29020")
+    original = dict(landing.book.action(runner_module.LANDING, "closed-elsewhere").response)
+    seq = runner_module.cci.receipt_seq(original["posted"])
+    calls = []
+
+    def read(argv):
+        calls.append(argv)
+        return json.dumps({"seq": seq, "lane": runner_module.RUNNER, "kind": "blocker", **record})
+
+    monkeypatch.setattr(landing.runner, "cci_read", read)
+    before = len(shell.posts)
+    landing.resolve_stale_blockers({})
+    action = landing.book.action(runner_module.LANDING, "closed-elsewhere")
+    assert action.status == "verified", "selected status did not retire externally closed blocker"
+    assert action.response == original
+    assert action.verification_receipt == {"closed": original["posted"], "at": landing.book.stamp()}
+    assert len(shell.posts) == before and len(calls) == 1
+    landing.resolve_stale_blockers({})
+    assert len(shell.posts) == before and len(calls) == 1
+
+
+@pytest.mark.parametrize("wrong", [None, {"status": "imported"}, {"kind": "note"}, {"lane": "foreign"}])
+def test_stale_blocker_validates_complete_selected_batch_before_verification(shell, config, tmp_path, monkeypatch, wrong):
+    landing = landing_of(shell, config, tmp_path)
+    for key in ("first", "second"):
+        assert landing.post_record("blocker", key, LANE, "#29020 cccc333333: pending", "29020")
+    first, second = [runner_module.cci.receipt_seq(landing.book.action(runner_module.LANDING, key).response["posted"]) for key in ("first", "second")]
+    records = [{"seq": first, "lane": runner_module.RUNNER, "kind": "blocker", "status": "closed"}]
+    if wrong is not None:
+        records.append({"seq": second, "lane": runner_module.RUNNER, "kind": "blocker", "status": "open", **wrong})
+    monkeypatch.setattr(landing.runner, "cci_read", lambda argv: "\n".join(map(json.dumps, records)))
+    before = len(shell.posts)
+    with pytest.raises(ValueError, match="has no current blocker record"):
+        landing.resolve_stale_blockers({"29020": {"state": "open", "head": "eeee555555"}})
+    assert len(shell.posts) == before
+    assert [landing.book.action(runner_module.LANDING, key).status for key in ("first", "second")] == ["completed", "completed"]
+
+
+def test_stale_blocker_selected_status_retains_duplicate_receipt_and_audience_order(shell, config, tmp_path, monkeypatch):
+    landing = landing_of(shell, config, tmp_path)
+    for key, lane in [("first", "z,a"), ("second", "a,b")]:
+        assert landing.post_record("blocker", key, lane, "#29020 cccc333333: pending", "29020")
+    original = landing.book.action(runner_module.LANDING, "first").response["posted"]
+    landing.book.edit(runner_module.LANDING, lambda state: state.action("second").response.update({"posted": original}))
+    seq = runner_module.cci.receipt_seq(original)
+    calls = []
+
+    def read(argv):
+        calls.append(argv)
+        return json.dumps({"seq": seq, "lane": runner_module.RUNNER, "kind": "blocker", "status": "open"})
+
+    monkeypatch.setattr(landing.runner, "cci_read", read)
+    landing.resolve_stale_blockers({"29020": {"state": "closed", "head": "cccc333333"}})
+    assert calls[0][calls[0].index("--seqs") + 1] == str(seq)
+    posted = shell.posts[-1]
+    assert posted["resolves"] == f"{seq},{seq}" and posted["to"] == "z,a,b"
+    assert posted["text"].startswith("RESOLVED 2 ")
+    assert [landing.book.action(runner_module.LANDING, key).status for key in ("first", "second")] == ["verified", "verified"]
+
 
 
 def test_a_blocker_the_runner_posted_is_resolved_once_its_pr_moves_past_that_head(shell, config, tmp_path):

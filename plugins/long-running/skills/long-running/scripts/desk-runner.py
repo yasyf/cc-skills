@@ -9237,13 +9237,30 @@ class Landing:
     def resolve_stale_blockers(self, rows: dict[str, dict]) -> None:
         """Resolve, with one note a pass, every blocker this runner posted about a PR that has since landed, closed, or moved past the head the blocker names, so the bus holds no blocker the runner itself has outlived (root #253512)."""
         stale: dict[str, tuple[int, str]] = {}
+        pending: dict[str, int] = {}
         for action in self.book.actions(LANDING, kind="bus", status="completed"):
             target = json.loads(action.target)
-            if target.get("kind") != "blocker" or not (seq := cci.receipt_seq(action.response.get("posted", ""))) or not (row := rows.get(target["pr"])):
+            if target.get("kind") != "blocker" or not (seq := cci.receipt_seq(action.response.get("posted", ""))):
+                continue
+            pending[action.action_id] = seq
+            if not (row := rows.get(target["pr"])):
                 continue
             named = re.search(rf"#{target['pr']} ([0-9a-f]{{7,40}})\b", target["text"])
             if named and (row.get("state", "open") != "open" or not names_head(named[1], row.get("head", ""))):
                 stale[action.action_id] = (seq, target["lane"])
+        if not pending:
+            return
+        current = {record["seq"]: record for record in cci.selected_records(self.runner.cci_read, self.runner.config.drive, list(pending.values()))}
+        closed: dict[str, int] = {}
+        for key, seq in pending.items():
+            record = current.get(seq)
+            if record is None or record["kind"] != "blocker" or record["lane"] != RUNNER or record["status"] not in ("open", "closed"):
+                raise ValueError(f"owned landing blocker {key} has no current blocker record at internal sequence {seq}")
+            if record["status"] == "closed" or cci.expired(record, self.runner.now()):
+                closed[key] = seq
+                stale.pop(key, None)
+        for key, seq in closed.items():
+            self.book.attempt(LANDING, lambda incident, key=key, seq=seq: incident.verify(key, {"closed": cci.receipt(seq), "at": self.book.stamp()}))
         if not stale:
             return
         seqs = sorted(seq for seq, _ in stale.values())
