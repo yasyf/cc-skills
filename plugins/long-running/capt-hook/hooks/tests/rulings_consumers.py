@@ -1,6 +1,8 @@
+from datetime import UTC, datetime
 from pathlib import Path
 
 MIGRATED: dict[str, dict] = {}
+MIGRATED_AT: dict[str, datetime] = {}
 
 
 def rulings_prefix(command: str) -> bool:
@@ -13,4 +15,5 @@ def separate(name: str, cases: dict) -> dict:
     if migrated:
         assert name not in MIGRATED
         MIGRATED[name] = migrated
+        MIGRATED_AT[name] = datetime.now(UTC)
     return {inp: expected for inp, expected in cases.items() if inp not in migrated}

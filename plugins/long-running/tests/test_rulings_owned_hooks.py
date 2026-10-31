@@ -22,7 +22,18 @@ from long_running import rulings
 from hooks import compaction_handoff as handoff
 from test_compaction_handoff import register_drive, session_start
 from test_register_reads import alive, owned_query, stop_owned_query
-from test_rulings import REPO, RegisterShell, home, registered, state
+from test_rulings import REPO, RegisterShell, gateway, home, registered, state
+
+class HookShell(RegisterShell):
+    def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
+        argv = gateway(argv)
+        if argv == ["ccn", "-R", REPO, "answer", "list", "--label", "scope:durable", "--limit", "0", "--label", "program:brook", "--json"]:
+            argv = ["ccn", "-R", REPO, "answer", "list", "--label", "scope:durable", "--label", "program:brook", "--limit", "0", "--json"]
+        if argv[:4] == ["cci", "tail", "--drive", "brook-cci"]:
+            self.calls.append(argv)
+            return "".join(json.dumps(record) + "\n" for record in self.records)
+        return super().run(argv, stdin, cwd)
+
 
 HOOKS = Path(handoff.__file__).parent
 CALLERS = (
@@ -45,7 +56,7 @@ def caller_expressions():
 @pytest.mark.parametrize("module,node", caller_expressions())
 def test_all_current_hook_call_expressions_reach_real_dispatch_without_a_python_intermediary(module, node, home: Path, registered: Path, state: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]):
     traces = []
-    backend = RegisterShell({}, records=[{"seq": 8, "kind": "state", "text": "not a contract"}])
+    backend = HookShell({}, records=[{"seq": 8, "kind": "state", "text": "not a contract"}])
 
     def call_cli(argv, *, input=None, cwd=None, env=None, timeout=None):
         assert timeout > 0
@@ -77,9 +88,12 @@ def test_all_current_hook_call_expressions_reach_real_dispatch_without_a_python_
     expected = io.StringIO()
     code = 0
     try:
-        code = rulings.main([*args, "--repo", cwd], RegisterShell({}, records=[{"seq": 8, "kind": "state", "text": "not a contract"}]), stdin=io.StringIO(kwargs.get("stdin", "")), stdout=expected)
+        code = rulings.main([*args, "--repo", cwd], HookShell({}, records=[{"seq": 8, "kind": "state", "text": "not a contract"}]), stdin=io.StringIO(kwargs.get("stdin", "")), stdout=expected)
     except SystemExit as error:
         code = error.code
+        if isinstance(code, str):
+            print(code, file=sys.stderr)
+            code = 1
     captured = capsys.readouterr()
     assert captured.out == ""
     shutil.rmtree(state)
@@ -193,7 +207,7 @@ def test_concurrent_owned_dispatches_keep_cwd_environment_roots_and_streams_requ
     def call(index):
         root = roots[index]
         selected = {"HOME": str(root), "CLAUDE_CONFIG_DIR": str(root / ".claude"), "CLAUDE_LONG_RUNNING_DRIVE": "same"}
-        backend = RegisterShell({"rule/1": {"kind": "scope", "status": "in-force", "words": str(index)}})
+        backend = HookShell({"rule/1": {"kind": "scope", "status": "in-force", "words": str(index)}})
 
         def call_cli(argv, *, input=None, cwd=None, env=None, timeout=None):
             assert cwd == REPO and env["HOME"] == str(root)
@@ -203,7 +217,7 @@ def test_concurrent_owned_dispatches_keep_cwd_environment_roots_and_streams_requ
             return backend.run(argv, input, Path(cwd))
 
         evt = SimpleNamespace(cwd=Path(REPO), ctx=SimpleNamespace(call_cli=call_cli))
-        with reqenv.use_request(reqenv.RequestOverrides(env=selected, cwd=REPO)):
+        with reqenv.use_request(reqenv.RequestOverrides(env=selected, cwd=REPO, client_ppid=os.getpid(), session_id=f"owned-{index}")):
             return json.loads(handoff.rulings(REPO, "rows", "--json", evt=evt))
 
     with ThreadPoolExecutor(max_workers=2) as pool:

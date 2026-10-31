@@ -15,6 +15,8 @@ from captain_hook.testing.helpers import build_context
 
 from fire import fire
 from hooks import register_capture
+from hooks import register_gates
+from rulings_fixture import rulings_command_fixture
 from hooks.compaction_handoff import CompactionState, script
 
 SESSION = "0123456789abcdef"
@@ -42,6 +44,12 @@ REGISTER_ROWS = {
 
 def board(*blocks: dict) -> str:
     return json.dumps({"schemaVersion": 1, "doc": {"title": "round 3", "blocks": list(blocks)}, "interactions": {"closed": {"value": False}}})
+
+
+@pytest.fixture(autouse=True)
+def rulings_capability(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(register_capture, "rulings", rulings_command_fixture)
+    monkeypatch.setattr(register_gates, "rulings", rulings_command_fixture)
 
 
 class Root:

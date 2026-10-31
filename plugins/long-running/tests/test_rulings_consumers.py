@@ -3,13 +3,14 @@ from __future__ import annotations
 import importlib
 import sys
 from dataclasses import replace
+from datetime import datetime
 
 import pytest
 from captain_hook.app import _state
 from captain_hook.testing.helpers import run_inline_tests
 
 from hooks import compaction_handoff
-from hooks.tests.rulings_consumers import MIGRATED
+from hooks.tests.rulings_consumers import MIGRATED, MIGRATED_AT
 
 MODULES = tuple(importlib.import_module(f"hooks.{name}") for name in (
     "board_text_gate", "refusal_kinds_need_owner_answer", "owner_facing", "register_capture",
@@ -41,6 +42,15 @@ def test_rulings_consumer_outcomes(entry, inp, expected, monkeypatch: pytest.Mon
     for module in (*MODULES, compaction_handoff):
         if hasattr(module, "rulings"):
             monkeypatch.setattr(module, "rulings", capability)
+    if entry.handler.__module__ == "hooks.board_text_gate":
+        captured = MIGRATED_AT[f"board_text_gate.{entry.handler.__name__}"]
+
+        class FixtureDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return captured.astimezone(tz) if tz is not None else captured.replace(tzinfo=None)
+
+        monkeypatch.setattr(next(module for module in MODULES if module.__name__ == "hooks.board_text_gate"), "datetime", FixtureDateTime)
     isolated = replace(entry, spec=replace(entry.spec, tests={inp: expected}))
     monkeypatch.setattr(_state, "hooks", [isolated])
     results = run_inline_tests()

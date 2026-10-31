@@ -2848,8 +2848,7 @@ def test_a_check_that_hits_a_transient_network_failure_is_retried_and_reads_the_
     assert shell.clock - started >= timedelta(seconds=runner_module.merge_queue.TRANSIENT_PAUSE_SECONDS)
 
 
-def test_a_check_killed_at_its_sixty_second_cap_logs_nothing_and_the_next_pass_enqueues_on_its_verdict(shell, config, tmp_path):
-    assert runner_module.GATE_CHECK_SECONDS == 60
+def test_a_check_killed_at_its_cap_logs_nothing_and_the_next_pass_enqueues_on_its_verdict(shell, config, tmp_path):
     shell.rows = single_row()
     killed = f"stack-enqueue 29020 --check timed out after {runner_module.GATE_CHECK_SECONDS}s and was killed"
     shell.gates["29020"] = [(runner_module.TIMED_OUT, "", killed), gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
@@ -3515,7 +3514,7 @@ def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge
 
 
 @pytest.mark.parametrize("row", ["", "29020", "merge-row-29020-cccc333"])
-def test_a_go_on_a_head_a_tap_rule_names_enqueues_only_on_the_owners_board_tap_at_that_head(shell, config, row):
+def test_a_go_on_a_head_a_tap_rule_names_enqueues_only_on_the_owners_board_tap_at_any_head(shell, config, row):
     merge_mode(config, "every")
     raw = json.loads(config.read_text())
     raw["landing"]["tap_rules"] = {"rule/82317b0": ["go/sand/next/*"]}
@@ -3524,7 +3523,7 @@ def test_a_go_on_a_head_a_tap_rule_names_enqueues_only_on_the_owners_board_tap_a
     lone_green_pr(shell)
     shell.files["29020"] = ["go/sand/next/vm/run.go"]
     grade(shell, "29020", "ok F307 at cccc333.")
-    shell.board["merge-rows"] = {row or "29020": {"verdict": "approved", "head": "cccc333333" if row else "bbbb222222", "at": "2026-10-01T17:40:00Z"}}
+    shell.board["merge-rows"] = {row: {"verdict": "approved", "head": "bbbb222222" if row == "29020" else "cccc333333", "at": "2026-10-01T17:40:00Z"}} if row else {}
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
     landing_pass(shell, config)
@@ -3534,7 +3533,7 @@ def test_a_go_on_a_head_a_tap_rule_names_enqueues_only_on_the_owners_board_tap_a
         return
     assert shell.enqueues() == []
     [blocker] = refusals
-    assert "root" in blocker["to"].split(",") and post_body(blocker).endswith("; TAP-REQUIRED rule/82317b0: it lands only on the owner's tap at this head, and a root go is no tap; #29020 at cccc333: not waiting on the owner: the board holds no row for it; the owner approved it at bbbb222, an older head")
+    assert "root" in blocker["to"].split(",") and "; TAP-REQUIRED rule/82317b0: it lands only once the owner has tapped some head of it, and a root go is no tap; #29020 at cccc333: " in post_body(blocker)
 
 
 @pytest.mark.parametrize(
@@ -3765,34 +3764,6 @@ def test_an_exempt_change_a_hold_names_stays_out_of_the_queue(shell, config, tmp
     root_hold(shell, 29020, text="hold #29020 owner hold until the parity waves land")
     landing_pass(shell, config)
     assert shell.enqueues() == []
-
-
-def test_a_kept_tap_waits_for_the_root_go_before_the_queue(shell, config, tmp_path, judges):
-    """Root #195224: a kept tap is never exempt; the head waits for root's go naming the fix."""
-    judges.verdicts["tap-carry"] = judge_says("no", "A review fix with no new behavior.")
-    board_surface(config)
-    board_lane(config)
-    lone_green_pr(shell)
-    tap(shell, "29020", "aaaa111111")
-    grade(shell, "29020", KEPT_GRADE)
-    landing_pass(shell, config)
-    assert [note["text"].split(":")[0] for note in tap_notes(shell)] == ["TAP-KEPT #29020"]
-    assert shell.enqueues() == []
-    assert not [post for post in shell.posts if "EXEMPT-ADMITTED" in post_body(post)]
-
-
-def test_a_kept_tap_holds_when_a_later_grade_at_the_same_head_omits_the_phrase(shell, config, tmp_path, judges):
-    """Root #205918: #45393 at 389e77a drew TAP-KEPT, then TAP-NOT-CARRIED nine minutes later because a newer grade at the same head lacked the phrase; a head the judge cleared is not judged again."""
-    judges.verdicts["tap-carry"] = judge_says("no", "A review fix with no new behavior.")
-    board_surface(config)
-    board_lane(config)
-    lone_green_pr(shell)
-    tap(shell, "29020", "aaaa111111")
-    grade(shell, "29020", KEPT_GRADE)
-    landing_pass(shell, config)
-    grade(shell, "29020", "ok cccc333333 a review fix: the poll gains a nil check.")
-    landing_pass(shell, config)
-    assert [note["text"].split(":")[0] for note in tap_notes(shell)] == ["TAP-KEPT #29020"]
 
 
 def test_a_port_exemption_carries_to_a_head_a_head_record_calls_patch_identical(shell, config):
@@ -4153,111 +4124,22 @@ def test_a_snapshot_from_an_older_board_watch_with_no_blocks_carries_no_tap_and_
     assert shell.carries == [] and tap_notes(shell) == []
 
 
-@pytest.mark.parametrize("restack", ["head", "fidelity", "no new behavior", "chain", "carried: patch-identical to", "tap carries"])
-def test_a_board_tap_carries_itself_to_a_patch_identical_restack_once_a_record_says_so(shell, config, tmp_path, restack):
+def test_a_board_tap_carries_itself_to_every_later_head_whatever_changed(shell, config, tmp_path):
+    """Owner 2:48 AM Oct 31: a PR he tapped never returns to his board, and his tap carries to every later head with no grading."""
     board_surface(config)
     board_lane(config)
     lone_green_pr(shell)
     tap(shell, "29020", "aaaa111111")
     landing_pass(shell, config)
-    assert shell.carries == [] and tap_notes(shell) == []
-    shell.diffs["aaaa111111"] = shell.diffs["cccc333333"] = "diff --git a/x.go b/x.go\n+same\n"
-    if restack == "head":
-        seqs = [lane_head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): restack onto dev, range-diff patch-identical (3 commits)")]
-    elif restack == "fidelity":
-        seqs = [grade(shell, "29020", "ok cccc333333 patch-identical to, with no root go at, aaaa111111 (#34700), patch-identical (patch-id 5ebf1cae3e6e).", lane="fidelity-desk")]
-    elif restack == "no new behavior":
-        seqs = [grade(shell, "29020", "ok cccc333333 carried from aaaa111111, patch-identical replay with no new behavior.")]
-    elif restack == "carried: patch-identical to":
-        seqs = [grade(shell, "29020", "ok cccc333333 carried: patch-identical to aaaa111 (ok #165915), on dev after the batch landed. A pure replay, so his 6:03 PM tap on aaaa111 carries under 399b5fa.")]
-    elif restack == "tap carries":
-        seqs = [grade(shell, "29020", "ok cccc333, tap carries (399b5fa): patch-identical replay of aaaa111 onto the restacked #42810. old-app: unchanged vs c57cad26 (release 10435).")]
-    else:
-        older = lane_head_record(shell, "29020", "HEAD #29020 bbbb222222 (was aaaa111111): restack, range-diff patch-identical")
-        seqs = [grade(shell, "29020", "ok cccc333333 carried from bbbb222222, patch-identical replay onto dev."), older]
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    cited = ", ".join(f"cci #{seq}" for seq in seqs)
-    assert shell.carries == [{"--session": "s-root", "--block": "merge-rows", "--row": "29020", "--head": "cccc333333", "--note": f"patch-identical restack, per {cited}"}]
+    why = "the owner's tap carries to every later head of a PR he tapped (owner 2:48 AM Oct 31)"
+    assert shell.carries == [{"--session": "s-root", "--block": "merge-rows", "--row": "29020", "--head": "cccc333333", "--note": why}]
     assert shell.board["merge-rows"]["29020"]["head"] == "cccc333333" and shell.board["merge-rows"]["29020"]["carriedFrom"] == "aaaa111111"
     [note] = tap_notes(shell)
     assert note["to"] == "root,board-refresher"
+    assert note["text"] == f"TAP-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, since {why}, recorded as a board-write record the board's watch applies; the row asks no new tap"
     [go] = [post for post in shell.posts if post["kind"] == "go"]
-    assert go["text"].startswith("go #29020 at cccc333 TAP-CARRIED: the owner's tap at aaaa111111 carries to cccc333333, a patch-identical restack; the runner posts this go itself")
-    assert note["text"] == f"TAP-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, a patch-identical restack, per {cited}, recorded as a board-write record the board's watch applies; the row asks no new tap"
+    assert go["text"].startswith("go #29020 at cccc333 TAP-CARRIED: the owner's tap at aaaa111111 carries to cccc333333, since his tap carries to every later head of a PR he tapped (owner 2:48 AM Oct 31); the runner posts this go itself")
     assert [line for line in escalations(shell) if line.startswith("TAP-")] == []
-
-
-def test_a_record_calling_a_head_patch_identical_carries_no_tap_when_the_head_adds_a_commit(shell, config, tmp_path):
-    """p8a-step7 #199440: #45309's head record said "adds one test-only commit on top of the patch-identical e86a899", and the runner carried the tap to d6f1bca on those words."""
-    board_surface(config)
-    board_lane(config)
-    lone_green_pr(shell)
-    tap(shell, "29020", "aaaa111111")
-    shell.diffs["aaaa111111"] = "diff --git a/x.go b/x.go\n+same\n"
-    shell.diffs["cccc333333"] = "diff --git a/x.go b/x.go\n+same\ndiff --git a/x_test.go b/x_test.go\n+added\n"
-    lane_head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): adds one test-only commit on top of the patch-identical aaaa111111.")
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.carries == [] and [post for post in shell.posts if post["kind"] == "go"] == []
-    assert not [note for note in tap_notes(shell) if note["text"].startswith("TAP-CARRIED")]
-
-
-def said_on(shell: FakeShell, said: list[tuple[str, str]]) -> int:
-    seq = 0
-    for kind, text in said:
-        if kind == "head":
-            seq = lane_head_record(shell, "29020", text)
-        elif kind == "withdraw":
-            seq = 34766 + len(shell.records)
-            shell.records.append({"seq": seq, "drive": "d1", "lane": LANE, "kind": "withdraw", "to": [], "re": shell.records[-1]["seq"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": text, "at": actions.stamp(shell.clock)})
-        else:
-            seq = grade(shell, "29020", text)
-    return seq
-
-
-@pytest.mark.parametrize(
-    ("answer", "said"),
-    [
-        (judge_says("yes", "It now retries the upload."), "the judge reads new behavior since his tap: It now retries the upload."),
-        (judge_says("unsure", "The records do not say."), "the judge is unsure it changes nothing he approved."),
-        (None, "the judge did not answer, so he is asked again."),
-    ],
-    ids=["new-behavior", "unsure", "no-answer"],
-)
-def test_a_board_tap_never_carries_to_a_graded_head_the_judge_does_not_clear_and_root_and_the_board_lane_hear_once_it_needs_a_new_row(shell, config, tmp_path, judges, answer, said):
-    """Owner 6:59 PM Oct 29 (root #194315): a re-asked row says when he tapped, what changed since, and why it is shown again, so the note carries his tap's Pacific time, the heads since it, and the judge's sentence; a judge that does not clear the head asks him again."""
-    board_surface(config)
-    board_lane(config)
-    lone_green_pr(shell)
-    tap(shell, "29020", "aaaa111111")
-    lane_head_record(shell, "29020", "HEAD #29020 cccc333333 (was bbbb222222): adds upload retries; bbbb222222 (was aaaa111111): restack, range-diff patch-identical")
-    grade(shell, "29020", "ok cccc333333 a fixed version of bbbb222222.")
-    judges.verdicts["tap-carry"] = answer
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.carries == [] and shell.board["merge-rows"]["29020"]["head"] == "aaaa111111"
-    [note] = tap_notes(shell)
-    assert note["to"] == "root,board-refresher"
-    assert post_body(note).strip() == f"TAP-NOT-CARRIED #29020: the owner's tap at aaaa111111 (10:40 AM Oct 1 Pacific) on board block merge-rows does not carry to cccc333333: {said} Heads since his tap: bbbb222222 -> cccc333333. The board needs a new row for #29020 at cccc333333 opening 'You approved this at 10:40 AM Oct 1. Since then: <what changed>. Shown again because: <the new behavior>.'"
-    [(kind, evidence, artifact)] = judges.read
-    assert kind == "tap-carry" and evidence == "The owner approved #29020 at head aaaa111111 at 10:40 AM Oct 1 Pacific. Its heads since then: bbbb222222 -> cccc333333. The question is about cccc333333."
-    assert "adds upload retries" in artifact and "fidelity: ok cccc333333 a fixed version of bbbb222222." in artifact
-
-
-@pytest.mark.parametrize("identical", [True, False], ids=["patch-identical", "changed"])
-def test_a_tap_carries_itself_to_a_head_whose_own_commits_have_the_tapped_heads_patch(shell, config, tmp_path, identical):
-    """Root #197523, p8a-step7 #197578: the merger's rebases of #45367 were patch-identical to his tap at 61cd21b, yet the runner asked for a new row because no grade used the keep phrase."""
-    board_surface(config)
-    board_lane(config)
-    lone_green_pr(shell)
-    tap(shell, "29020", "aaaa111111")
-    shell.diffs["aaaa111111"] = "diff --git a/x.go b/x.go\n+tapped\n"
-    shell.diffs["cccc333333"] = shell.diffs["aaaa111111"] if identical else "diff --git a/x.go b/x.go\n+changed\n"
-    landing_pass(shell, config)
-    carried = [note["text"] for note in tap_notes(shell) if note["text"].startswith("TAP-CARRIED-BY-PATCH")]
-    assert carried == (["TAP-CARRIED-BY-PATCH #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, a patch-identical restack by git patch-id over its 1 own commits, recorded as a board-write record the board's watch applies; the row asks no new tap"] if identical else [])
-    assert [carry["--head"] for carry in shell.carries] == (["cccc333333"] if identical else [])
 
 
 def test_a_successor_fidelity_desk_grade_counts_with_no_config_edit(shell, config, tmp_path):
@@ -4271,42 +4153,6 @@ def test_a_successor_fidelity_desk_grade_counts_with_no_config_edit(shell, confi
     grade(shell, "29020", "ok cccc333 resubscribes from the fetched position.", lane="fidelity-desk-13")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
-
-
-def test_a_board_tap_the_judge_clears_over_a_graded_fix_asks_root_once_to_carry_it_and_nothing_lands_meanwhile(shell, config, tmp_path, judges):
-    """Rule 399b5fa: his tap keeps over a review fix with no new behavior, and only a root go carries it, so the judge's no is one proposal to root, never a carry."""
-    board_surface(config)
-    board_lane(config)
-    lone_green_pr(shell)
-    tap(shell, "29020", "aaaa111111")
-    lane_head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): answers the finder's major with a nil check")
-    grade(shell, "29020", "ok cccc333333 a nil check answers the finder's major.")
-    judges.verdicts["tap-carry"] = judge_says("no", "Only a nil check answers the finder.")
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.carries == [] and shell.enqueues() == []
-    [ask] = tap_notes(shell)
-    assert (ask["kind"], ask["to"]) == ("ask", "root")
-    assert post_body(ask).strip() == "TAP-KEPT #29020: the owner's tap at aaaa111111 (10:40 AM Oct 1 Pacific) on board block merge-rows can carry to cccc333333, a fix the judge reads as changing nothing he approved: Only a nil check answers the finder. Post `go #29020 at cccc333333` to carry it (rule 399b5fa); any other answer puts a fresh row on his board."
-    assert len(judges.read) == 1
-
-
-def test_a_root_answer_to_the_carry_proposal_that_is_not_a_go_puts_a_fresh_row_on_his_board(shell, config, tmp_path, judges):
-    """Rule 399b5fa: only a root go carries his tap over a fix the judge clears, so root's other answer to the proposal asks him again."""
-    board_surface(config)
-    board_lane(config)
-    lone_green_pr(shell)
-    tap(shell, "29020", "aaaa111111")
-    grade(shell, "29020", "ok cccc333333 a review fix.")
-    judges.verdicts["tap-carry"] = judge_says("no", "A review fix.")
-    landing_pass(shell, config)
-    asked = 1 + next(at for at, post in enumerate(shell.posts) if post["text"].startswith("TAP-KEPT"))
-    answer = cci_record(shell, kind="answer", re=asked, text="the retry is new to him; ask again", at=actions.stamp(shell.clock))
-    landing_pass(shell, config)
-    assert shell.carries == []
-    notes = tap_notes(shell)
-    assert [post_body(note).split(":")[0] for note in notes] == ["TAP-KEPT #29020", "TAP-NOT-CARRIED #29020"]
-    assert f": root answered the carry proposal with cci #{answer}, not a go. Heads since his tap: cccc333333." in post_body(notes[1])
 
 
 @pytest.mark.parametrize(("graded", "row"), [(True, False), (False, True)], ids=["no-row", "ungraded"])
@@ -4345,62 +4191,8 @@ def test_a_pass_reads_the_board_from_records_alone_for_its_tap_carries_and_its_r
     assert [call for call in shell.calls if call[0] == "cc-present"] == []
 
 
-def test_a_root_go_carries_a_cleared_tap_only_once_the_finder_is_clear_at_the_fixed_head(shell, config, tmp_path, judges):
-    """p8a-step7 #192190: the runner noted TAP-KEPT for #44103 at 78aad32 while finder #191854's major on the head before it stood unanswered, and root's go on it had to be withdrawn."""
-    board_surface(config)
-    board_lane(config)
-    lone_green_pr(shell)
-    tap(shell, "29020", "aaaa111111")
-    finder_verdict(shell, "29020", "major aaaa111 1 open: go/a.go:12 the retry drops the sealed read")
-    grade(shell, "29020", "ok cccc333333 a review fix.", finder=False)
-    judges.verdicts["tap-carry"] = judge_says("no", "A review fix.")
-    merge_go(shell, "29020", "go #29020 at cccc333333")
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.carries == []
-    [line] = [line for line in said(shell) if line.startswith("TAP-CARRY-FAILED")]
-    assert "which a root go names: the finder is not clear at cccc333333;" in line
-    finder_verdict(shell, "29020", "ok cccc333 no findings")
-    landing_pass(shell, config)
-    assert [carry["--head"] for carry in shell.carries] == ["cccc333333"]
-
-
-def test_a_tap_keeps_over_a_pipeline_missing_a_desk_ok_overrides_at_the_same_head(shell, config, tmp_path, judges):
-    """p8a-step7 #193454: fidelity-desk-3's ok and root's TAP-KEPT go stood at #45286 c8a6014, but fidelity-pipeline's newer missing at that head kept the runner from noting TAP-KEPT, so it refused the head TAP-REQUIRED."""
-    judges.verdicts["tap-carry"] = judge_says("no", "A review fix with no new behavior.")
-    board_surface(config)
-    board_lane(config)
-    raw = json.loads(config.read_text())
-    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-pipeline"]
-    config.write_text(json.dumps(raw))
-    lone_green_pr(shell)
-    tap(shell, "29020", "aaaa111111")
-    grade(shell, "29020", KEPT_GRADE)
-    grade(shell, "29020", "missing cccc333333 plan:266 lists every local chat before grouping teams.", lane="fidelity-pipeline")
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert [note["text"].split(":")[0] for note in tap_notes(shell)] == ["TAP-KEPT #29020"]
-
-
-def test_a_root_go_on_a_head_the_judge_reads_as_new_behavior_draws_one_tap_carry_failed_naming_why(shell, config, tmp_path, judges):
-    """p8a-step7 #193454: root's TAP-KEPT go named #45286 c8a6014, the runner did not carry the tap there, said nothing, and refused the head TAP-REQUIRED."""
-    board_surface(config)
-    board_lane(config)
-    lone_green_pr(shell)
-    tap(shell, "29020", "aaaa111111")
-    grade(shell, "29020", "ok cccc333333 new-tree fix, stays a tap row, carried from aaaa111.")
-    judges.verdicts["tap-carry"] = judge_says("yes", "It adds a retry.")
-    merge_go(shell, "29020", "go #29020 at cccc333333 TAP-KEPT: owner tap at aaaa111 keeps")
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.carries == []
-    [line] = [line for line in said(shell) if line.startswith("TAP-CARRY-FAILED")]
-    assert line.endswith("#29020: the owner's tap on #29020 at aaaa111111 on board block merge-rows does not carry to cccc333333, which a root go names: cccc333333 changes behavior since the tap at aaaa111111, so the board asks him again; #29020 at cccc333: not waiting on the owner: the board holds no row for it; the owner approved it at aaaa111, an older head")
-
-
-def test_a_kept_tap_under_a_root_go_lands_the_tap_rule_head_when_the_board_refuses_the_carry(shell, config, tmp_path, judges):
+def test_a_kept_tap_under_a_root_go_lands_the_tap_rule_head_when_the_board_refuses_the_carry(shell, config, tmp_path):
     """Root #192094: the runner noted TAP-KEPT for #44704, root posted the go, and the runner still refused it TAP-REQUIRED because the board named only the old head."""
-    judges.verdicts["tap-carry"] = judge_says("no", "A review fix with no new behavior.")
     board_surface(config)
     board_lane(config)
     raw = json.loads(config.read_text())
@@ -4421,66 +4213,10 @@ def test_a_kept_tap_under_a_root_go_lands_the_tap_rule_head_when_the_board_refus
 
 
 @pytest.mark.parametrize(
-    "said",
-    [
-        [("head", "HEAD #29020 cccc333333 (was aaaa111111): answers the finder's major with a nil check")],
-        [("head", "HEAD #29020 cccc333333 (was aaaa111111): restack, range-diff not patch-identical, one commit answers the finder's major")],
-        [("head", "HEAD #29020 cccc333333 (was aaaa111111): restack, range-diff patch-identical"), ("withdraw", "wrong: one commit changed"), ("head", "HEAD #29020 cccc333333 (was aaaa111111): one commit changed in the restack")],
-    ],
-)
-def test_a_board_tap_at_an_ungraded_fixed_head_asks_for_nothing_until_its_grade_says_fix_or_new_behavior(shell, config, tmp_path, said):
-    board_surface(config)
-    board_lane(config)
-    lone_green_pr(shell)
-    tap(shell, "29020", "aaaa111111")
-    said_on(shell, said)
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.carries == [] and tap_notes(shell) == []
-
-
-def test_a_kept_tap_carries_to_the_review_fix_once_root_posts_its_go_and_the_tap_rule_admits_the_head(shell, config, tmp_path, judges):
-    judges.verdicts["tap-carry"] = judge_says("no", "A review fix with no new behavior.")
-    board_surface(config)
-    board_lane(config)
-    raw = json.loads(config.read_text())
-    raw["landing"]["tap_rules"] = {"rule/82317b0": ["go/sand/next/*"]}
-    config.write_text(json.dumps(raw))
-    shell.register = {"rule/82317b0": {"kind": "order", "status": "in-force"}}
-    lone_green_pr(shell)
-    shell.files["29020"] = ["go/sand/next/vm/run.go"]
-    tap(shell, "29020", "aaaa111111")
-    grade(shell, "29020", "ok cccc333333 restacked from aaaa111 (ok #166024) onto #44069 21c80e5. Its one commit changes only context lines. The added and removed lines are the same as at aaaa111. No new behavior since the tap at aaaa111.")
-    landing_pass(shell, config)
-    assert shell.carries == [] and [note["text"].split(":")[0] for note in tap_notes(shell)] == ["TAP-KEPT #29020"]
-    merge_go(shell, "29020", "go #29020 at cccc333333: carried from his tap on aaaa111 (go at that head), no new behavior (rule 399b5fa).")
-    go = shell.records[-1]["seq"]
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    why = f"fix with no new behavior, per the judge's TAP-KEPT and root go cci #{go} (rule 399b5fa)"
-    assert shell.carries == [{"--session": "s-root", "--block": "merge-rows", "--row": "29020", "--head": "cccc333333", "--note": why}]
-    assert [note["text"] for note in tap_notes(shell)][1:] == [f"TAP-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, a {why}, recorded as a board-write record the board's watch applies; the row asks no new tap"]
-    assert not [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
-    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
-
-
-def test_a_fixed_head_a_root_go_names_asks_the_board_for_no_new_row(shell, config, tmp_path):
-    board_surface(config)
-    board_lane(config)
-    lone_green_pr(shell)
-    tap(shell, "29020", "aaaa111111")
-    lane_head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): answers the finder's major with a nil check")
-    root_go(shell, "go #29020 at cccc333 (fixed version of aaaa111, his tap)", shell.now())
-    landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.carries == [] and tap_notes(shell) == []
-
-
-@pytest.mark.parametrize(
     ("said", "board", "holds"),
     [
         ("go #29020 at cccc333333: owner tapped cccc333333 on the board (watchdog #172407).", None, "no verdict for #29020"),
-        ("go #29020 at cccc333333: TAP-CARRIED from the board.", "aaaa111111", "approved at aaaa111111 on block merge-rows"),
+        ("go #29020 at cccc333333: TAP-CARRIED from the board.", "aaaa111111", ""),
         ("go #29020 at cccc333333: tapped, the watchdog says.", "aaaa111111", ""),
         ("go #29020 at cccc333333: owner tapped cccc333 on merge-rows.", "cccc333333", ""),
         ("go #29020 at cccc333333: TAP-KEPT from his tap at aaaa111 (#178242).", "aaaa111111", ""),
@@ -6146,25 +5882,40 @@ def test_a_slow_stack_check_holds_no_other_stack_out_of_the_queue(shell, config,
     assert [call[1] for call in shell.enqueues()] == ["29040", "29020"]
 
 
-def test_a_landable_stack_the_gate_never_settles_goes_straight_to_the_queue_five_minutes_on(shell, config, tmp_path):
+def overflowed(landing: runner_module.Landing) -> None:
+    landing.overflow(landing)
+    runner_module.finished_by([future for _, future in landing.inflight.values()], timeout=30)
+
+
+def test_the_overflow_never_enqueues_a_stack_whose_check_timed_out(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
     shell.queue["33001"] = "not queued"
     shell.gates["33001"] = [(runner_module.TIMED_OUT, "", "stack-enqueue --check timed out after 60s and was killed")]
     overflow = landing_of(shell, config, tmp_path)
     landing_pass(shell, config)
-    overflow.overflow()
-    assert shell.enqueues() == []
+    overflowed(overflow)
     shell.sleep(6 * 60)
     landing_pass(shell, config)
-    overflow.overflow()
+    overflowed(overflow)
     landing_pass(shell, config)
-    overflow.overflow()
-    assert [call[1:] for call in shell.enqueues()] == [["33001", "--partial"]]
-    queued = [post["text"] for post in shell.posts if post["kind"] == "report" and post["text"].startswith("QUEUED #33001 at aaaa111111")]
-    assert len(queued) == 1 and "overflow put it straight in the merge queue" in queued[0]
-    [action] = [action for action in enqueues_of(tmp_path).values() if f"#{runner_module.OVERFLOW}-" in action.action_id]
-    assert action.deadline
+    overflowed(overflow)
+    assert shell.enqueues() == []
+
+
+def test_the_overflow_never_enqueues_a_batch_carrying_a_pr_the_drive_did_not_admit(shell, config, tmp_path):
+    """#45489 at 2:03 AM Oct 31: the overflow enqueued it alone with no check, and Trunk landed #45488 below it, which no drive row held, untapped and with no go (root #245808)."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.rows[0]["base"] = "other/below"
+    shell.queue["33001"] = "not queued"
+    shell.gates["33001"] = [gate("#33000 GREEN ffff000000 graphite READY", "#33001 GREEN aaaa111111 graphite READY", would="#33000 #33001")]
+    overflow = landing_of(shell, config, tmp_path)
+    overflowed(overflow)
+    shell.sleep(6 * 60)
+    overflowed(overflow)
+    assert shell.enqueues() == []
+    assert [line for line in said(shell) if line.startswith("FOREIGN") and "#33000" in line]
 
 
 def test_the_overflow_leaves_a_landable_stack_the_runner_refused_at_its_head(shell, config, tmp_path):
@@ -6175,10 +5926,10 @@ def test_the_overflow_leaves_a_landable_stack_the_runner_refused_at_its_head(she
     merge_go(shell, "29020", "go test-only #29020 at cccc333")
     overflow = landing_of(shell, config, tmp_path)
     landing_pass(shell, config)
-    overflow.overflow()
+    overflowed(overflow)
     shell.sleep(6 * 60)
     landing_pass(shell, config)
-    overflow.overflow()
+    overflowed(overflow)
     assert [post for post in blockers(shell) if "TEST-ONLY-MISMATCH" in post_body(post)] and shell.enqueues() == []
 
 
@@ -6190,9 +5941,9 @@ def test_the_overflow_never_enqueues_a_head_whose_go_was_withdrawn(shell, config
     go = shell.records[-1]["seq"]
     shell.records.append({"seq": go + 1, "drive": "d1", "lane": "root", "kind": "withdraw", "re": go, "to": ["desk-runner"], "refs": {"prs": [33001]}, "text": f"withdrawn: go #{go} for #33001", "at": actions.stamp(shell.clock)})
     overflow = landing_of(shell, config, tmp_path)
-    overflow.overflow()
+    overflowed(overflow)
     shell.sleep(6 * 60)
-    overflow.overflow()
+    overflowed(overflow)
     assert shell.enqueues() == []
 
 
@@ -6204,9 +5955,9 @@ def test_the_overflow_never_enqueues_a_stack_holding_a_pr_below_with_no_go(shell
     shell.gates["29031"] = [(runner_module.TIMED_OUT, "", "stack-enqueue --check timed out after 60s and was killed")]
     merge_go(shell, "29031", "merge #29031 at dddd444")
     overflow = landing_of(shell, config, tmp_path)
-    overflow.overflow()
+    overflowed(overflow)
     shell.sleep(6 * 60)
-    overflow.overflow()
+    overflowed(overflow)
     assert shell.enqueues() == []
 
 
@@ -6217,30 +5968,11 @@ def test_the_overflow_puts_a_go_named_stack_in_whole_when_only_its_bottom_has_wa
     shell.queue["29020"] = shell.queue["29031"] = "not queued"
     merge_go(shell, "29020", "merge #29020 at cccc333")
     overflow = landing_of(shell, config, tmp_path)
-    overflow.overflow()
+    overflowed(overflow)
     shell.sleep(6 * 60)
     merge_go(shell, "29031", "merge #29031 at dddd444")
-    overflow.overflow()
+    overflowed(overflow)
     assert [call[1:] for call in shell.enqueues()] == [["29031", "--partial"]]
-
-
-def test_the_overflow_tries_a_blocked_enqueue_again_five_minutes_later(shell, config, tmp_path):
-    merge_mode(config, "every")
-    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
-    shell.queue["33001"] = "not queued"
-    shell.enqueue_out["33001"] = (1, "#33001 BLOCKED aaaa111111 CI running (graphite RUNNING)\nenqueued nothing: the bottom PR #33001 is BLOCKED\n")
-    overflow = landing_of(shell, config, tmp_path)
-    overflow.overflow()
-    shell.sleep(6 * 60)
-    overflow.overflow()
-    overflow.overflow()
-    assert len(shell.enqueues()) == 1
-    shell.enqueue_out["33001"] = (0, "enqueue #33001: {}\n")
-    shell.sleep(6 * 60)
-    overflow.overflow()
-    shell.sleep(6 * 60)
-    overflow.overflow()
-    assert len(shell.enqueues()) == 2
 
 
 def test_a_stack_worker_past_the_gate_budget_runs_on_after_the_pass_while_the_other_stack_lands(shell, config, tmp_path, monkeypatch):
@@ -6284,7 +6016,7 @@ def test_every_landing_pass_posts_one_state_line_to_root(shell, config, tmp_path
     landing_pass(shell, config)
     states = shell.states
     assert len(states) == 2 and all(post["to"] == "root" for post in states)
-    assert re.fullmatch(r"LANDING queued \d+, waiting \d+, held 0, refused 0, in flight 0, overflowed 0 this hour; pass \d+s", states[-1]["text"])
+    assert re.fullmatch(r"LANDING queued \d+, waiting \d+, held 0, refused 0, in flight 0; pass \d+s", states[-1]["text"])
 
 
 def test_an_overflow_thread_that_finished_no_run_in_five_minutes_logs_overflow_stalled(shell, config, tmp_path):
@@ -6306,7 +6038,6 @@ def test_landing_state_reads_one_incident_snapshot(shell, config, tmp_path, monk
     with landing.book.store.transaction(runner_module.LANDING, generation=0) as current:
         for index in range(1, min(count, 2) + 1):
             current.accept(f"blocker:{index}:{index:040x}", "bus", json.dumps({"kind": "blocker", "pr": str(index)}), "owner", shell.now())
-        current.accept("sample#overflow-1", "enqueue", "1", "owner", shell.now())
     decoded, opened = [], []
     load, read = actions.Incident.load, Path.read_text
 
@@ -6322,7 +6053,7 @@ def test_landing_state_reads_one_incident_snapshot(shell, config, tmp_path, monk
     monkeypatch.setattr(actions.Incident, "load", staticmethod(counted))
     monkeypatch.setattr(Path, "read_text", watched)
     landing.post_state(1.0)
-    assert shell.states[-1]["text"] == f"LANDING queued {int(count >= 3)}, waiting 0, held {int(count >= 4)}, refused {min(count, 2)}, in flight 0, overflowed 1 this hour; pass 1s"
+    assert shell.states[-1]["text"] == f"LANDING queued {int(count >= 3)}, waiting 0, held {int(count >= 4)}, refused {min(count, 2)}, in flight 0; pass 1s"
     assert decoded == []
     assert opened == []
 
@@ -6357,15 +6088,13 @@ def test_landing_refusal_gate_keeps_fresh_reads_and_empty_member_errors(shell, c
 def test_landing_state_reloads_actions_and_clock_on_each_report(shell, config, tmp_path):
     landing = landing_of(shell, config, tmp_path)
     landing.ledger_rows = {"1": {"state": "open", "head": f"{1:040x}"}}
-    with landing.book.store.transaction(runner_module.LANDING, generation=0) as current:
-        current.accept("sample#overflow-1", "enqueue", "1", "owner", shell.now())
     landing.post_state(1.0)
-    assert "refused 0, in flight 0, overflowed 1 this hour" in shell.states[-1]["text"]
+    assert "refused 0, in flight 0; pass 1s" in shell.states[-1]["text"]
     with landing.book.store.transaction(runner_module.LANDING, generation=0) as current:
         current.accept(f"blocker:1:{1:040x}", "bus", json.dumps({"kind": "blocker", "pr": "1"}), "owner", shell.now())
     shell.sleep(3601)
     landing.post_state(2.0)
-    assert "refused 1, in flight 0, overflowed 0 this hour; pass 2s" in shell.states[-1]["text"]
+    assert "refused 1, in flight 0; pass 2s" in shell.states[-1]["text"]
 
 
 def test_a_read_that_fails_on_a_transient_network_error_runs_once_more_and_a_write_never_does(tmp_path, monkeypatch):
@@ -6919,7 +6648,7 @@ def test_mq_enqueue_refuses_a_go_named_head_the_owner_never_tapped_with_the_runn
     merge_go(shell, "29020", "go #29020 at cccc333: his tap on the board (watchdog #172407)")
     assert mq(shell, config, "enqueue", "29020", "--partial") == 1
     out = capsys.readouterr().out.splitlines()
-    assert "#29020 cccc333333 merge-mode pending TAP-REQUIRED rule/82317b0: it lands only on the owner's tap at this head, and a root go is no tap; #29020 at cccc333: not waiting on the owner: the board holds no row for it" in out
+    assert "#29020 cccc333333 merge-mode pending TAP-REQUIRED rule/82317b0: it lands only once the owner has tapped some head of it, and a root go is no tap; #29020 at cccc333: not waiting on the owner: the board holds no row for it" in out
     assert out[-1] == "REFUSED: a check above does not pass a head this enqueue puts in the queue" and shell.enqueues() == []
     tap(shell, "29020", "cccc333333")
     assert mq(shell, config, "enqueue", "29020", "--partial") == 0
@@ -9596,14 +9325,78 @@ def test_a_runner_behind_the_installed_plugin_posts_nothing_about_it(shell, conf
     assert shell.reexeced == []
 
 
+def pin(config: Path, version: str) -> None:
+    config.write_text(json.dumps(json.loads(config.read_text()) | {"version": version}))
+
+
+def pinned(config: Path) -> str | None:
+    return json.loads(config.read_text()).get("version")
+
+
+def loop_twice(runner: runner_module.Runner, desk: str, monkeypatch) -> int:
+    """Run `desk`'s loop for two passes: the wait after the first returns, the wait after the second asks the runner to stop."""
+    waits = []
+
+    def wait(seconds):
+        waits.append(seconds)
+        if len(waits) == 2:
+            runner.stop_marker().write_text(f"{os.getpid()}\n")
+        return runner.stop_requested()
+
+    monkeypatch.setattr(runner, "idle" if desk == "orca" else "rest", wait)
+    return (runner_module.run_orca if desk == "orca" else runner_module.run_landing)(runner, False)
+
+
 @pytest.mark.parametrize("desk", ["orca", "landing"])
-def test_a_runner_behind_the_installed_plugin_re_executes_into_it_at_the_end_of_its_pass(shell, config, tmp_path, desk):
-    installed(tmp_path, newer(runner_module.RUNNING_VERSION))
+def test_a_runner_on_its_pinned_version_stays_on_it_when_a_newer_version_installs(shell, config, tmp_path, monkeypatch, desk):
+    """Oct 30: every autobump re-executed the live runner into the newest install, so a fix patched into one installed copy was gone minutes later and a half-written install could take the desk; only a handoff moves a runner now."""
+    pin(config, runner_module.RUNNING_VERSION)
+    installed(tmp_path, runner_module.RUNNING_VERSION, newer(runner_module.RUNNING_VERSION))
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    assert loop_twice(runner, desk, monkeypatch) == 0
+    assert shell.reexeced == []
+
+
+@pytest.mark.parametrize("desk", ["orca", "landing"])
+def test_a_pin_moved_under_a_running_desk_re_executes_it_at_the_end_of_its_pass(shell, config, tmp_path, monkeypatch, desk):
+    pin(config, runner_module.RUNNING_VERSION)
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    pin(config, newer(runner_module.RUNNING_VERSION))
     with pytest.raises(Reexeced):
-        (runner_module.run_orca if desk == "orca" else runner_module.run_landing)(runner, False)
+        loop_twice(runner, desk, monkeypatch)
     assert shell.reexeced == [[str(runner_module.RUNNER_BIN), "run", "--config", str(config.resolve()), "--desk", desk]]
     assert heartbeat(shell, desk)["pid"] == str(os.getpid())
+
+
+def test_the_first_run_of_a_drive_pins_the_version_it_runs(shell, config):
+    assert pinned(config) is None
+    orca_pass(shell, config)
+    assert pinned(config) == runner_module.RUNNING_VERSION
+    assert shell.environ[runner_module.drive.PIN_ENV] == runner_module.RUNNING_VERSION
+
+
+@pytest.mark.parametrize("desk", ["orca", "landing"])
+def test_run_re_executes_into_the_pinned_versions_own_copy_before_it_takes_the_desk(shell, config, tmp_path, monkeypatch, desk):
+    version = newer(runner_module.RUNNING_VERSION)
+    monkeypatch.setattr(runner_module.drive, "installs", lambda: tmp_path / "installs")
+    copy = tmp_path / "installs" / version / "bin" / "desk-runner.py"
+    copy.parent.mkdir(parents=True)
+    copy.write_text("")
+    pin(config, version)
+    with pytest.raises(Reexeced):
+        cli(shell, config, "run", "--desk", desk, "--once")
+    assert shell.reexeced == [[str(copy), "run", "--config", str(config.resolve()), "--desk", desk, "--once"]]
+    assert shell.environ[runner_module.drive.PIN_ENV] == version
+    assert heartbeat(shell, desk) is None
+
+
+def test_run_on_a_pin_with_no_install_refuses_and_tells_root(shell, config, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(runner_module.drive, "installs", lambda: tmp_path / "installs")
+    pin(config, "9.9.9")
+    assert cli(shell, config, "run", "--desk", "orca", "--once") == 3
+    assert "pins long-running 9.9.9, which has no install at" in capsys.readouterr().err
+    assert [line for line in escalations(shell) if line.startswith("PINNED-VERSION-MISSING ")]
+    assert shell.reexeced == [] and heartbeat(shell, "orca") is None
 
 
 def test_the_orca_loop_exits_on_its_stop_marker_at_the_first_step(shell, config, tmp_path):
@@ -9806,29 +9599,70 @@ def test_the_landing_loop_exits_on_its_stop_marker_within_one_interval_and_its_s
     assert [post["kind"] for post in shell.posts] == ["release", "blocker"]
 
 
-def test_handoff_to_an_install_missing_a_brief_stops_no_runner_and_starts_no_successor(shell, config, tmp_path, monkeypatch):
+def test_handoff_to_a_version_whose_install_is_not_its_release_stops_no_runner_and_keeps_the_pin(shell, config, tmp_path, monkeypatch, capsys):
+    """Oct 30: two installs were cut short (0.7.656, 0.7.701) and one copy was hand-patched (0.7.682); a handoff onto either would have run code no release holds."""
+    version = newer(runner_module.RUNNING_VERSION)
+    pin(config, runner_module.RUNNING_VERSION)
+    checked = []
+    monkeypatch.setattr(runner_module.drive, "release_faults", lambda target: checked.append(target) or ["skills/long-running/scripts/desk-runner.py differs from the release", "reference/orca-lane-brief.md is missing"])
     runner, held = live_runner(shell, config, tmp_path, "orca")
-    monkeypatch.setattr(runner_module, "BRIEF_FILES", (tmp_path / "install" / "reference" / "finder-desk-brief.md",))
-    assert cli(shell, config, "handoff", "--desk", "orca") == 1
-    assert not runner.stop_marker().exists()
-    assert shell.successors == []
-    held.close()
+    with held:
+        assert cli(shell, config, "handoff", "--desk", "orca", "--version", version) == 1
+    assert checked == [version]
+    assert f"the {version} install is not its release: skills/long-running/scripts/desk-runner.py differs from the release; reference/orca-lane-brief.md is missing" in capsys.readouterr().err
+    assert not runner.stop_marker().exists() and shell.successors == []
+    assert pinned(config) == runner_module.RUNNING_VERSION
 
 
-def test_handoff_to_an_install_missing_a_file_its_marketplace_copy_holds_stops_no_runner(shell, config, tmp_path, monkeypatch, capsys):
-    install, source = tmp_path / "cache/long-running/0.7.503/skill", tmp_path / "marketplaces/skills/skill"
-    for root, names in ((install, ["reference/finder-desk-brief.md", "scripts/desk-runner.py"]), (source, ["reference/finder-desk-brief.md", "reference/orca-lane-brief.md", "scripts/desk-runner.py", "scripts/lanes.py", "scripts/__pycache__/lanes.cpython-313.pyc"])):
-        for name in names:
-            (root / name).parent.mkdir(parents=True, exist_ok=True)
-            (root / name).write_text("")
-    monkeypatch.setattr(runner_module, "SCRIPTS", install / "scripts")
-    monkeypatch.setattr(runner_module.drive, "marketplace_copy", lambda path: source)
+def test_handoff_to_a_version_whose_own_preflight_refuses_stops_no_runner_and_keeps_the_pin(shell, config, tmp_path, monkeypatch, capsys):
+    version = newer(runner_module.RUNNING_VERSION)
+    pin(config, runner_module.RUNNING_VERSION)
+    monkeypatch.setattr(runner_module.drive, "release_faults", lambda target: [])
+    run = shell.run
+    preflights = []
+
+    def refuses(argv, stdin=None, env=None, cwd=None):
+        if argv[1:2] == ["preflight"]:
+            preflights.append((list(argv), env))
+            return runner_module.Done(3, json.dumps({"ok": False, "label": "PREFLIGHT-FAILED", "why": "the runner refused to start: TRUNK_MERGE_API_KEY is unset"}), "")
+        return run(argv, stdin, env, cwd)
+
+    monkeypatch.setattr(shell, "run", refuses)
+    runner, held = live_runner(shell, config, tmp_path, "landing")
+    with held:
+        assert cli(shell, config, "handoff", "--desk", "landing", "--version", version) == 3
+    assert preflights == [([str(runner_module.drive.install_bin(version, "desk-runner.py")), "preflight", "--config", str(config.resolve()), "--desk", "landing", "--json"], {runner_module.drive.PIN_ENV: version})]
+    assert f"its successor on {version} would refuse: the runner refused to start: TRUNK_MERGE_API_KEY is unset" in capsys.readouterr().err
+    assert not runner.stop_marker().exists() and shell.successors == []
+    assert pinned(config) == runner_module.RUNNING_VERSION
+
+
+def test_handoff_to_a_released_version_whose_preflight_passes_pins_it_and_starts_the_successor(shell, config, tmp_path, monkeypatch):
+    version = newer(runner_module.RUNNING_VERSION)
+    pin(config, runner_module.RUNNING_VERSION)
+    monkeypatch.setattr(runner_module.drive, "release_faults", lambda target: [])
+    run = shell.run
+    preflights = []
+
+    def passes(argv, stdin=None, env=None, cwd=None):
+        if argv[1:2] == ["preflight"]:
+            preflights.append(list(argv))
+            return runner_module.Done(0, json.dumps({"ok": True, "label": None, "why": None}), "")
+        return run(argv, stdin, env, cwd)
+
+    monkeypatch.setattr(shell, "run", passes)
     runner, held = live_runner(shell, config, tmp_path, "orca")
-    assert cli(shell, config, "handoff", "--desk", "orca") == 1
-    assert "this install lacks reference/orca-lane-brief.md, scripts/lanes.py, so no runner was stopped" in capsys.readouterr().err
-    assert not runner.stop_marker().exists()
-    assert shell.successors == []
-    held.close()
+
+    def exits(seconds):
+        assert pinned(config) == version
+        runner.stop_marker().unlink()
+        held.close()
+
+    monkeypatch.setattr(shell, "sleep", exits)
+    assert cli(shell, config, "handoff", "--desk", "orca", "--version", version) == 0
+    assert pinned(config) == version
+    assert shell.successors == [successor(config, tmp_path, "orca")]
+    assert preflights == [[str(runner_module.drive.install_bin(version, "desk-runner.py")), "preflight", "--config", str(config.resolve()), "--desk", "orca", "--json"]]
 
 
 @pytest.mark.parametrize("desk", ["orca", "landing"])
@@ -15454,7 +15288,7 @@ def test_unchanged_actual_overflow_pass_changes_no_sql_rows(shell, config, tmp_p
         changed.append(transaction._connection.total_changes)
 
     monkeypatch.setattr(sqlite_store.Transaction, "flush", written)
-    overflow.overflow()
+    overflow.overflow(overflow)
     assert changed == [0]
 
 

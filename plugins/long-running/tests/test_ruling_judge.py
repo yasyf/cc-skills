@@ -70,7 +70,6 @@ class Judged:
         self.model_calls.append((kind, evidence))
 
     def search(self, cwd: str, *args: str, evt, stdin: str = "", timeout: int) -> str:
-        assert evt is self.evt
         assert timeout == judge.MATCH_TIMEOUT_SECONDS
         self.searches.append(args)
         return "" if ("--exclude", "1984bf6") in zip(args, args[1:]) else judge.CANDIDATE

@@ -1481,7 +1481,7 @@ will ship through one merge queue or the drive will outlive one context window. 
 that the lane that opened the PR lands it, or the root lists it for the label watch
 under Mechanics, and there is no desk.
 
-**D1. The landing desk is the only enqueuer; lanes report; the root owns holds and priority PRs.** A lane never runs `stack-enqueue` (outside `--check` and `--status`), `gt merge`, `gh pr merge`, or `ledger.py label`, and never adds a `merge` or `merge-fast` label. The pack's `lane_landing` hook refuses those commands against the drive's repo, read from the drive registry, from every lane except the desks (`landing-desk`, its shards, priority desks), `desk-runner`, `merge-train` lanes, and incident lanes, named `incident-` or `outage-` or briefed with a `ccx: incident=<id>` line other than `none`, or named `<x>-fix` and briefed with its own `Register slice: lane=<x>-fix step=incident` line, which it refuses only `stack-enqueue` and `gh pr merge --admin` and lets run `gh pr merge <n> --squash`: incident fixes land by plain squash the pass they are approved and green (ef905a6), and the landing runner merges them. The same pack refuses `mq.py dequeue`, `requeue`, `priority`, `recover`, `hold`, and `lift` from every lane, desks included: only the root steers the queue. A tooling lane merges its own PRs in other repos. The merge queue enqueues every bottom prefix its check registry passes under D3, through its adapter in every repository. A hold is an open cci `hold` record, which `ledger.py held --drive <drive>` prints, or GitHub's `hold` label. Only the queue's `hold` check reads holds: no adapter takes a hold flag or reads one. A lane's `cci post --kind hold --pr <n>` holds that PR until a `lift --resolves <seq>` closes the record. The queue re-reads every hold just before each enqueue call, never a cached set.
+**D1. The landing desk is the only enqueuer; lanes report; the root owns holds and priority PRs.** A lane never runs `stack-enqueue` (outside `--check` and `--status`), `gt merge`, `gh pr merge`, or `ledger.py label`, and never adds a `merge` or `merge-fast` label. The pack's `lane_landing` hook warns on those commands against the drive's repo and blocks none of them (4236611), read from the drive registry, from every lane except the desks (`landing-desk`, its shards, priority desks), `desk-runner`, `merge-train` lanes, and incident lanes, named `incident-` or `outage-` or briefed with a `ccx: incident=<id>` line other than `none`, or named `<x>-fix` and briefed with its own `Register slice: lane=<x>-fix step=incident` line, which it warns only on `stack-enqueue` and `gh pr merge --admin` and lets run `gh pr merge <n> --squash`: incident fixes land by plain squash the pass they are approved and green (ef905a6), and the landing runner merges them. The same pack warns on `mq.py dequeue`, `requeue`, `priority`, `recover`, `hold`, and `lift` from every lane, desks included: only the root steers the queue. A tooling lane merges its own PRs in other repos. The merge queue enqueues every bottom prefix its check registry passes under D3, through its adapter in every repository. A hold is an open cci `hold` record, which `ledger.py held --drive <drive>` prints, or GitHub's `hold` label. Only the queue's `hold` check reads holds: no adapter takes a hold flag or reads one. A lane's `cci post --kind hold --pr <n>` holds that PR until a `lift --resolves <seq>` closes the record. The queue re-reads every hold just before each enqueue call, never a cached set.
 
 The lane's part is the report. The moment a PR is green, it reports `READY` with `ledger.py report --drive <drive>`, then keeps `ccx vcs pr watch` on the stack. On ejection or conflict it restacks at once with `remote-restack.py --config <runner config> --lane <lane> <top PR>`, which replays the stack on a Sprite, pushes, and posts each new head, and it resolves by hand only a conflict that tool reports; the runner re-enqueues it. It is not finished until its squash `(#N)` is on the base branch. After the prefix lands, it restacks the PRs above it the same way. No ruling is needed.
 
@@ -1746,9 +1746,10 @@ change is one edit plus an `answer supersede`, with no restart.
 `landing.tap_rules` maps a register row key to path globs, such as
 `{"rule/82317b0": ["go/sand/next/*", "infra/ci/src/pipelines/test/sand.ts"]}`. In every
 merge mode, a head whose changed files a row's globs name waits, while `rulings.py rows`
-lists that row in force, until an approval on the root's board names that head. A root
-`go` never stands in for that tap. A pure port (06288326), a test-only or CI-only PR
-(owner, Oct 28 8:45 PM), and a head the runner noted `TAP-KEPT` at are exempt: a head
+lists that row in force, until an approval on the root's board names some head of the PR,
+since his tap carries to every later head (owner 2:48 AM Oct 31). A root `go` never stands in
+for that tap. A pure port (06288326) and a test-only or CI-only PR (owner, Oct 28 8:45 PM)
+are exempt: a head
 whose newest fidelity grade says one of `landing.exempt_grades` (default
 `pure port, no interaction` and `test-only or CI-only, no non-test code`; the legacy
 `landing.port_phrase` replaces the first) needs no tap and no go in any merge mode and
@@ -1831,9 +1832,10 @@ that time.
 
 **Five minutes from go to queue.** A green PR a root `go` names at its head is in the
 merge queue within five minutes of that go. A stack the passes leave out that long, unheld and
-unrefused, goes straight into the queue through the runner's overflow, which posts a QUEUED
-report naming itself (owner 9524276). The overflow sends a stack in whole once any PR of it
-is due, and a blocked enqueue five minutes old no longer keeps the stack out. The runner logs one `GO-UNQUEUED` per head still
+unrefused, goes to a stack worker through the runner's overflow (owner 9524276), which runs
+the same check, admission and merge-mode gates a pass runs, so it never enqueues a batch
+carrying a PR the drive did not admit (root #245808). The overflow sends a stack in whole once
+any PR of it is due, and a blocked enqueue five minutes old no longer keeps the stack out. The runner logs one `GO-UNQUEUED` per head still
 out only when its own newest enqueue of that head since the go ended blocked, failed,
 stranded or unsettled, or went in and the queue then evicted it, never for backlog, naming that
 outcome or the eviction's time and reason. A head the queue evicted before any enqueue gets one
@@ -1917,32 +1919,16 @@ each refusal. A refusal goes to root and the row is fixed before the push, never
 as it stands.
 
 His tap carries. With `landing.merge_ask_surface` set to `board`, the landing runner
-carries it across a restack itself on every pass, and no lane carries a tap by hand.
-Take an approval on a `pr-groups` row at an older head of an open PR, with no verdict at
-the PR's current head. The runner moves it to the current head with `cc-present verdict
-carry` when records chain the two heads and call each move patch-identical. A lane's
-`head` record reading `<new> (was <old>): restack, range-diff patch-identical` is one
-such move, and so is each entry of a multi-head record (`cci post --head <pr>=<old>..<new>
-<note>`) whose note, or else whose text, says patch-identical. A fidelity grade of `<new>` that names `<old>` anywhere and says patch-identical,
-tap carries, no new behavior, test-only, or pure replay in its first sentence, with no added
-behavior, is another. One
-`TAP-CARRIED` note naming both heads goes to root and each lane `landing.board_lane`
-names, one lane or a list, and a patch-identical carry onto a head no go names also draws the
-runner's own `go` record for that head, so root posts none. A new head that a record names but no such chain reaches is a
-fixed version, and its tap stays at the old head. One `TAP-NOT-CARRIED` note to the same
-lanes says the board needs a new row at that head, and gives his tap's Pacific time, the
-heads since it, and the sentence of the record that names the new behavior. For a review fix, the
-root posts `go #<n> at <new head>` naming the fix, and the runner then carries the tap to
-that head itself, citing the fidelity grade and the go, so the row lists his approved head
-in `carried` and he is never asked again. A head that
-adds behavior asks again. The re-asked row's `since` holds `changed` and `because`, and
-`board_rows.py` refuses it (`since`) without both, then opens its `change` with "You
-approved this at <time>. Since then: <what changed>. Shown again because: <the behavior
-change>." Owner, 6:59 PM Oct 29: "if ur asking for a PR tap that Ive alrady apporiove dyou
-ned to tell me whats changed / why ur showing it gain". A stack whose every row asks
-again this way, each moved only by a fix with no new behavior, pushes as one row at its tip:
-the row lists the others in cc-present's `stack`, and his one tap decides each at its own head
-(root #194387, his 7:00 PM Oct 29 "all 3" on land-faster). Every verdict is read live
+carries it to every later head itself on every pass, and no lane carries a tap by hand.
+Owner, 2:48 AM Oct 31: "all of these other monorepo PRs have my taps now so do not put them
+back in front of me no matter what, and dont change their behaviors now, jsut get them
+merged". Take an approval on a `pr-groups` row at an older head of an open PR, with no
+verdict at the PR's current head. The runner moves it to the current head with `cc-present
+verdict carry`, whatever changed between the two, posts one `TAP-CARRIED` note naming both
+heads to root and each lane `landing.board_lane` names, one lane or a list, and posts its own
+`go` record for that head when no go names it, so root posts none. A reserved-row tap gate,
+a merge question and a go's tap claim all count his approval at any head of the PR, so a PR
+he tapped never draws a merge row, a `MERGE-ASK` or a `TAP-REQUIRED` refusal again. Every verdict is read live
 from the cc-present store (`cc-present outcomes`) and the root's `go` records at the
 moment it is used; no writer, row, card, or dashboard keeps a copy. Owner, 12:28 PM Oct
 27: "for each Biggest blocker, how are you fixing it structurally for future e.g. the
@@ -2429,8 +2415,9 @@ Each runner also posts a cci `state` record to `drive-watchdog` once a minute fr
 thread, whatever its pass is doing. It reads `<desk> alive <time> pass <n>`, plus
 ``running `<command>` for <m>m<s>s`` while a command is in flight, so the watchdog alarms
 within 10 minutes of silence and sees a pass stuck on one command. A GitHub, cci or ccx read
-get 60 seconds each, and a `stack-enqueue --check` and `rulings.py check-pr` 180 each, since a cold
-grade of a copy of thousands of files takes about 30. One that runs over is killed, logged as
+get 60 seconds each, a `rulings.py check-pr` 180, since a cold grade of a copy of thousands of
+files takes about 30, and a `stack-enqueue --check` the enqueue's 300, since both run the merge
+preflight's installs and typecheck on a batch touching `infra/`. One that runs over is killed, logged as
 `TIMED-OUT` in the runner log and read as a failed command; a killed `check-pr` posts the lane
 one `CHECK-PR-TIMEOUT` warning that the head's rulings are unproven, and holds nothing. `check-pr`
 keeps what a diff alone decides, the rows it touches, the reserved rows it hits and the lines naming a

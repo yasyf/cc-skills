@@ -270,7 +270,7 @@ Each prefix passes the check registry, `landing.checks` in order, every built-in
 `(priority, root PR)` order, a tree's priority the lowest ledger `priority` among its PRs, and accepted enqueues run one parallel
 wave per priority, lower first. A check that reads no verdict first settles its tips through `ledger.py landed`, which
 reads each tip's squash on the freshly fetched trunk, and drops every tip whose row then reads landed; only the tips left
-log `GATE-FAILED`. A check killed at its 60-second cap on both tries has no verdict yet, runs again next pass, and refuses its heads for `GATE-TIMEOUT` meanwhile. `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
+log `GATE-FAILED`. A check killed at its cap, the enqueue's 300 seconds since both run the merge preflight, on both tries has no verdict yet, runs again next pass, and refuses its heads for `GATE-TIMEOUT` meanwhile. `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
 adapter call runs the trunk's script; a checkout its repository no longer lists as a worktree, or one on a branch with no commit, is rebuilt at the fetched trunk head with a clean tree,
 re-registered through `git worktree add --no-checkout` and `git worktree repair` when git lost it, logs `MIRROR-REBUILT` to root, and the pass goes on;
 a checkout that still cannot fast-forward logs `CHECKOUT-STALE` to root and gates nothing that pass.
@@ -283,7 +283,7 @@ stack waits on another stack's checks or enqueue. The workers outlive the pass: 
 them at most 120 s, skips a tree whose worker still runs or waits, and its releases, announcements and restack checks run
 on a side worker, never ahead of the gate, and its worktree removal on a worker of its own, so a slow removal holds back neither. Each worker writes its step and when it began to `<config>.landing-stacks.json`, which
 stall_watch reads to name a stack stuck past its step's budget. Every pass posts one `state` record to root on topic `landing-state`
-counting the queued, waiting, held and refused PRs, the workers running and the overflow's enqueues, with the pass's seconds.
+counting the queued, waiting, held and refused PRs and the workers running, with the pass's seconds.
 Each gate step admits every open drive PR green at its ledger head, under no hold, that a root `go` or an exemption names there, and
 every branch of the pass that acts on or drops one settles it: queued, refused with the gate line or the check that refused it,
 below-blocked on the unlanded or unadmitted PR it sits on (never `GATE-FAILED` for that), or in flight on a stack worker. The pass
@@ -302,9 +302,9 @@ Every text that says a PR has, lacks or lost a go, `GO-UNQUEUED`, `BELOW-BLOCKED
 `grades.go_state`, citing the newest go at the head, a carried one included, by seq, lane and time, or the newest go at
 an older head when none names it; `go --config PATH PR...` prints the same for any PR, and `drive.py go` runs it.
 `GO-UNQUEUED` is raised only when the newest enqueue of a go'd head since its go ended blocked, failed, stranded or unsettled, or went in and the queue's merge activity then evicted it, naming that eviction's time and reason, never for
-backlog, and `OVERFLOW-STALLED` when the overflow thread finished no run in five minutes. A go'd head whose queue draft closed unmerged is taken out with the adapter's dequeue once per head, posting `ORPHAN-RELEASED`, and enqueued afresh, never `--recover`ed. Beside the passes, an overflow thread reads afresh every minute and puts straight
-into the queue, with none of the runner's checks, each stack that has stayed green, named at its heads by a root go, unheld, unqueued
-and unrefused for five minutes, posting a QUEUED report that names the overflow (owner 9524276). Under `graphite-stack-enqueue` only (never `trunk-stack-enqueue`, where Trunk failures stay blocked or `UNKNOWN`), Graphite reads down when no queue
+backlog, and `OVERFLOW-STALLED` when the overflow thread finished no run in five minutes. A go'd head whose queue draft closed unmerged is taken out with the adapter's dequeue once per head, posting `ORPHAN-RELEASED`, and enqueued afresh, never `--recover`ed. Beside the passes, an overflow thread reads afresh every minute and hands
+to a stack worker each stack that has stayed green, named at its heads by a root go, unheld, unqueued and unrefused for five minutes,
+so it runs the same check, admission and merge-mode gates a pass runs, never a bare enqueue (owner 9524276, root #245808). Under `graphite-stack-enqueue` only (never `trunk-stack-enqueue`, where Trunk failures stay blocked or `UNKNOWN`), Graphite reads down when no queue
 draft from its app has opened in 15 minutes while the queue read holds a PR, or its two newest drafts are both still open 30 minutes after
 opening, which is how its batches time out; a draft read that fails changes nothing. The pass that sees it posts one `GRAPHITE-DOWN since
 <time>` state record to root and each `landing.desk_lane`, and one `GRAPHITE-UP` once a draft opens after that time. While down, the
@@ -564,13 +564,10 @@ open for the head is edited in place, never re-posted, and a post that fails
 logs `MERGE-CARD-FAILED` once per head and cause and tries again next pass. With `landing.merge_ask_surface` set to `board`
 (default `slack`), the runner posts and edits no card, and the root asks every merge question on its own board. On that surface each pass
 carries the owner's board taps: an approval on a `pr-groups` row of the root's board at an older head of an open PR, with no verdict at
-its ledger head, moves to that head through a `board-write` record, `op=carry`, once `head` records reading `<new> (was <old>)` and fidelity carries
-call each move between the two patch-identical, with one `TAP-CARRIED` note naming both heads to root and each lane `landing.board_lane`
-names, one lane or a list, and, when no go names the new head, one `go` record of the runner's own for it, which `go_lane` counts. A new head whose own commits differ, a fixed version, is never carried on words: once a fidelity ok grade stands there, a
-Sonnet judge reads every record about the PR since his tap, off the pass. Its yes, an unsure answer or a failed call draws one `TAP-NOT-CARRIED`
-note to the same lanes saying the board needs a new row; its no draws one `TAP-KEPT` ask to root proposing the carry, and only a root go
-naming the head, with the finder clear, carries the tap there, citing the go (rule 399b5fa, root #195224), while any other root answer to the
-ask draws the `TAP-NOT-CARRIED` note; a go'd head whose tap does not carry draws one `TAP-CARRY-FAILED` naming why (#193444). The runner reads the board only from records: board-watch's `owner` records carrying a row and verdict, its newest `board-rows` snapshot of what the board shows, and the runner's own carries, each of which stands as the owner's tap at its new head the moment it posts. A carry onto a block the newest snapshot no longer holds has nothing to carry; records that do not read, or a carry that does not post, log `TAP-CARRY-FAILED` once per
+its ledger head, moves to that head through a `board-write` record, `op=carry`, whatever changed between the two, since a PR he tapped
+never returns to his board (owner 2:48 AM Oct 31), with one `TAP-CARRIED` note naming both heads to root and each lane `landing.board_lane`
+names, one lane or a list, and, when no go names the new head, one `go` record of the runner's own for it, which `go_lane` counts. A
+reserved-row tap gate, a merge question and a go's tap claim all count his approval at any head of the PR. The runner reads the board only from records: board-watch's `owner` records carrying a row and verdict, its newest `board-rows` snapshot of what the board shows, and the runner's own carries, each of which stands as the owner's tap at its new head the moment it posts. A carry onto a block the newest snapshot no longer holds has nothing to carry; records that do not read, or a carry that does not post, log `TAP-CARRY-FAILED` once per
 cause and try again next pass, and the board's watch answers a carry cc-present refuses with a `defect` record. An exempt change, one whose fidelity grade and whole diff
 make it a pure port, test-only or CI-only (`EXEMPT-ADMITTED`), needs no go and no tap in any mode: its tree gates with the go'd ones, it asks no
 merge question, and it goes straight to the merge queue once the hold, fidelity, finder, build and CI checks pass (root #194387). Under `every` the runner
@@ -595,16 +592,20 @@ runs, or empty, which `drive.py digest --quiet-point` reads; every reader reads 
 machine, and `desk-runner.py show` renders its state from the store. Every minute the orca runner also reads the bus's
 newest record under 15 seconds; two misses in a row write `BUS-DOWN` with the first miss's time to `bus-down.json` beside
 `runner.json`, the drive dashboard's alarm, since the bus cannot carry news of its own outage, and the first good read
-after it posts one `BUS-RECOVERED` to root with how long the bus was down. A runner behind the version `installed_plugins.json` lists posts nothing and re-executes into the installed version after
-that pass's wait, keeping its pid, config, and desk; `--once` never re-executes. An `env` object under a desk's config
+after it posts one `BUS-RECOVERED` to root with how long the bus was down. A runner runs the version `runner.json` pins in
+its top-level `version`: an installed update never moves it, `run` re-executes into the pinned version's own copy before it
+takes its lock, the first `run` of a drive with no pin pins the version it runs, and a pin `handoff --version` moved re-executes
+each desk into the new copy after that pass's wait, keeping its pid, config, and desk; `--once` never re-executes. An `env` object under a desk's config
 object, such as `"landing": {"env": {"AWS_PROFILE": "release-operator"}}`, is merged into that desk's process environment
 each time `run` starts, a re-execution included, and is carried by its restart command and its `handoff` successor. `handoff` stops the live runner at the next
 boundary between the steps of its pass, or between the PRs and stacks a landing step works through, and starts the next one with the same config and desk, appending to `<desk>-runner.log`. Each `run` holds
 `<config>.<desk>.lock` for its life and refuses to start, naming the holder's pid, while another runner holds it; `handoff` stops
 that holder and waits up to 20 minutes, as long as a slow pass takes, for it to exit, or for its newest alive record to show it
 re-executed into the handoff's own version under the same pid, which withdraws the stop and starts nothing; past that it
-starts nothing and logs `HANDOFF-STALLED` to root with the pid. `handoff` stops nothing while the install lacks a runtime brief or any file of
-`reference/` or `scripts/` that the marketplace copy it was installed from holds. `supervise install --desk <d>` writes
+starts nothing and logs `HANDOFF-STALLED` to root with the pid. `handoff --version <v>` moves the pin: it stops nothing while
+version `<v>`'s install lacks a file of its release tag or holds one with other bytes, an install cut short or edited in place
+read against the tag fetched from the plugin's remote, or while `<v>`'s own `preflight` for the desk refuses, and only then
+writes the pin and hands the desk over; without `--version` it hands over onto the pinned version. `supervise install --desk <d>` writes
 `~/Library/LaunchAgents/com.long-running.<drive>.<desk>.plist` and bootstraps that one label in the `gui/<uid>` domain, touching no
 other job: launchd runs `run` through `/bin/zsh -c`, exporting each key the landing adapter needs from the Keychain item
 `landing.adapter.key_item` names, so no file holds its value, restarts it after any exit at most once a minute, with the installing shell's PATH,
@@ -672,7 +673,7 @@ import judge_watch
 import prompt_watch
 import stall_watch
 from long_running import testfiles
-from long_running.grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, heads_since, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
+from long_running.grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, precondition_sentences, repo_prs, standing
 from long_running.grades import carry_of, delegated, succeeds, with_successors
 from long_running.grades import carries as carry_grade
 from long_running.grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
@@ -891,7 +892,7 @@ FETCH_SECONDS = 120
 GRAPHITE_BASE = "graphite-base/"
 QUICK_SECONDS = 60
 CHECK_PR_SECONDS = 180
-GATE_CHECK_SECONDS = 60
+GATE_CHECK_SECONDS = ENQUEUE_SECONDS
 QUEUE_STATUS_SECONDS = 300
 LANDABLE = "landable"
 CHECK_PR_TIMEOUT = "CHECK-PR-TIMEOUT"
@@ -913,7 +914,7 @@ LOG_LINES = 40
 FAILURE_LINE = re.compile(r"^\s*(?:error(?:\[\w+\])?:|--- FAIL|FAIL\b|test \S+ \.\.\. FAILED|thread .* panicked|Error:|✗|×)", re.MULTILINE)
 RED_JOBS = 3
 GATE_BUDGET = timedelta(seconds=120)
-STEP_BUDGETS = {"fetch": FETCH_SECONDS, "check": 180, "settle": 300, "enqueue": 300}
+STEP_BUDGETS = {"fetch": FETCH_SECONDS, "check": 2 * GATE_CHECK_SECONDS + 60, "settle": 300, "enqueue": 300}
 STACKS_FILE = "landing-stacks.json"
 BUILDS_KEPT = timedelta(days=3)
 CHECK_PR_WORKERS = 8
@@ -989,6 +990,7 @@ LANE_SPAWN_GRACE = timedelta(minutes=10)
 LANE_GONE_REPORT = re.compile(r"\bLANE-GONE lane-gone:([^:\s]+)[:\s]")
 LANE_ENDED_KINDS = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
 HANDOFF_WAIT = timedelta(minutes=20)
+HANDOFF_FAULTS = 12
 LAUNCHD_THROTTLE_SECONDS = 60
 RUNNER_OPEN_FILES = 65536
 CCI_SHIM = Path(".claude/plugins/marketplaces/cc-inbox/plugin/bin")
@@ -1018,8 +1020,6 @@ INCIDENT_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9_.-]*) (?P<link>\S+) repo
 INCIDENT_BAR = timedelta(minutes=20)
 ALERT_TEMPLATE = SCRIPTS.parent / "reference" / "alert-fix-brief.md"
 UNFIXED_TEMPLATE = SCRIPTS.parent / "reference" / "unfixed-case-brief.md"
-INSTALL_PARTS = ("reference", "scripts")
-BRIEF_FILES = (MANUAL_TEMPLATE, ALERT_TEMPLATE, UNFIXED_TEMPLATE, finder.TEMPLATE, finder.ROWS_STEP, fidelity.TEMPLATE, fidelity.RUBRIC, incident.TEMPLATE)
 SLICE_LINE = "Register slice:"
 SLICE_HEADER = re.compile(rf"^{SLICE_LINE}", re.MULTILINE)
 SCALE_LINES = re.compile(r"^[ \t>*_-]*Scale:.*$", re.MULTILINE)
@@ -1839,13 +1839,6 @@ class Orca:
         return "" if closed.get("ok") else closed["error"]["code"]
 
 
-def install_gaps() -> list[str]:
-    """Each file under `reference/` or `scripts/` of the marketplace copy this install came from that the install lacks; none when the runner runs from no cache install."""
-    if not (source := drive.marketplace_copy(SCRIPTS.parent)):
-        return []
-    return sorted(str(path.relative_to(source)) for part in INSTALL_PARTS for path in (source / part).rglob("*") if path.is_file() and "__pycache__" not in path.parts and not (SCRIPTS.parent / path.relative_to(source)).exists())
-
-
 def drop_receipt(receipt: Path, read: str) -> None:
     """Delete the receipt gc read, unless a launch has since written another in its place."""
     if receipt.read_text() == read:
@@ -2198,9 +2191,21 @@ class Runner:
         self.passes[desk] += 1
         self.post_alive(desk)
 
-    def stale(self) -> bool:
-        """Whether a newer plugin version is installed than this runner runs; the loop re-executes into it at the end of the pass."""
-        return drive.behind(RUNNING_VERSION, drive.installed_version())
+    def pinned(self) -> str:
+        """The version `runner.json` pins, read fresh, so a pin `handoff --version` moves reaches a runner without a restart; empty while it pins none."""
+        return json.loads(self.config.source.read_text()).get("version", "")
+
+    def pin(self, version: str) -> None:
+        raw = json.loads(self.config.source.read_text())
+        if raw.get("version") == version:
+            return
+        staged = self.config.source.with_name(f".{self.config.source.name}.pin")
+        staged.write_text(json.dumps(raw | {"version": version}, indent=2) + "\n")
+        staged.replace(self.config.source)
+
+    def moved(self) -> bool:
+        """Whether `runner.json` pins a version other than the one this runner runs; the loop re-executes into the pinned copy at the end of the pass."""
+        return self.pinned() not in ("", RUNNING_VERSION)
 
     def reexec(self, desk: str) -> None:
         self.shell.reexec([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk])
@@ -2238,28 +2243,31 @@ class Runner:
         with self.desk_lock(desk) as holder:
             return holder
 
-    def handoff(self, desk: str) -> int:
-        """Stop the runner holding `desk`'s lock at its next step boundary, wait until it has exited, then start its successor, or under launchd supervision wait for launchd's restart instead, so a handoff killed mid-wait never leaves the desk empty (Oct 30 7:46 PM); a runner whose newest alive record, posted after the stop was asked, shows it re-executed into this version under the same pid has handed over in place, so its stop is withdrawn and no successor starts (root, Oct 29 11:46 AM), unless it already ran this version when the stop was asked, since only a restart then reloads runner.json (cci #215987); refuse, naming its pid, when neither happens within HANDOFF_WAIT (#140225). Refuse before stopping anything when the landing desk's successor would fail its preflight (Oct 30 9:47 PM), or when the install lacks a brief the runner, finder, or incident job reads, or any reference or script file the marketplace copy it was installed from holds."""
-        if missing := list(dict.fromkeys([*(f"{path.parent.name}/{path.name}" for path in BRIEF_FILES if not path.exists()), *install_gaps()])):
-            print(f"desk-runner handoff: this install lacks {', '.join(missing)}, so no runner was stopped; reinstall the plugin and hand off again", file=sys.stderr)
+    def handoff(self, desk: str, version: str = "") -> int:
+        """Move `desk` onto `version`, or onto the pinned version without one. Refuse before stopping anything when that version's install is not its release (`drive.release_faults`: a file missing or edited in place) or that version's own preflight for the desk refuses (Oct 30 9:47 PM); then pin it, stop the runner holding `desk`'s lock at its next step boundary, wait until it has exited, then start its successor, or under launchd supervision wait for launchd's restart instead, so a handoff killed mid-wait never leaves the desk empty (Oct 30 7:46 PM). A runner whose newest alive record, posted after the stop was asked, shows it re-executed into the pinned version under the same pid has handed over in place, so its stop is withdrawn and no successor starts (root, Oct 29 11:46 AM), unless it already ran that version when the stop was asked, since only a restart then reloads runner.json (cci #215987); refuse, naming its pid, when neither happens within HANDOFF_WAIT (#140225)."""
+        target = version or self.pinned() or RUNNING_VERSION
+        if faults := drive.release_faults(target):
+            shown = "; ".join(faults[:HANDOFF_FAULTS]) + (f"; and {len(faults) - HANDOFF_FAULTS} more" if len(faults) > HANDOFF_FAULTS else "")
+            print(f"desk-runner handoff: no runner was stopped, since the {target} install is not its release: {shown}; reinstall it with `claude plugin update long-running@skills` and hand off again", file=sys.stderr)
             return 1
         supervised = self.supervised(desk)
-        if desk == "landing" and (fault := startup_fault(self, keychain=supervised)):
-            print(f"desk-runner handoff: no runner was stopped, since its successor would refuse: {fault[2]}", file=sys.stderr)
+        if fault := self.successor_fault(desk, target, supervised):
+            print(f"desk-runner handoff: no runner was stopped, since its successor on {target} would refuse: {fault}", file=sys.stderr)
             return 3
+        self.pin(target)
         pid = self.desk_holder(desk)
         if pid is not None:
-            current = self.on_this_version(desk, pid, datetime.min.replace(tzinfo=timezone.utc))
+            current = self.on_version(desk, pid, datetime.min.replace(tzinfo=timezone.utc), target)
             marker = self.stop_marker(pid)
             marker.write_text(f"{pid}\n")
             asked = self.now()
             deadline = asked + HANDOFF_WAIT
             while self.desk_holder(desk) == pid:
-                if not current and self.on_this_version(desk, pid, asked):
+                if not current and self.on_version(desk, pid, asked, target):
                     marker.unlink(missing_ok=True)
                     self.shell.sleep(WAKE_SECONDS)
                     if self.desk_holder(desk) == pid:
-                        print(f"desk-runner handoff: runner {pid} re-executed into {RUNNING_VERSION} in place, so no successor started")
+                        print(f"desk-runner handoff: runner {pid} re-executed into {target} in place, so no successor started")
                         return 0
                     break
                 if self.now() >= deadline:
@@ -2362,9 +2370,20 @@ class Runner:
             return False
         return True
 
-    def on_this_version(self, desk: str, pid: int, since: datetime) -> bool:
+    def on_version(self, desk: str, pid: int, since: datetime, version: str) -> bool:
         beat = drive.heartbeat(self.cci_tail, self.config.drive, desk)
-        return beat is not None and beat.get("pid") == str(pid) and beat.get("version") == RUNNING_VERSION and actions.parse_stamp(beat["at"]) >= since
+        return beat is not None and beat.get("pid") == str(pid) and beat.get("version") == version and actions.parse_stamp(beat["at"]) >= since
+
+    def successor_fault(self, desk: str, version: str, keychain: bool) -> str:
+        """Why `desk`'s runner on `version` would refuse to start, as that version's own `preflight` reads it, or this runner's own checks when it runs that version; empty when it would start."""
+        if version == RUNNING_VERSION:
+            return fault[2] if desk == "landing" and (fault := startup_fault(self, keychain=keychain)) else ""
+        done = self.shell.run([str(drive.install_bin(version, "desk-runner.py")), "preflight", "--config", str(self.config.source), "--desk", desk, "--json", *(["--keychain"] if keychain else [])], env={drive.PIN_ENV: version})
+        if done.code == 0:
+            return ""
+        if done.code == 3:
+            return json.loads(done.out)["why"]
+        return f"its preflight exited {done.code}: {((done.err or done.out).strip().splitlines() or ['no output'])[-1][:300]}"
 
     def binding(self, via: str = "") -> dict:
         """Ask Orca whether the Run's coordinator is a live terminal that coordinates it, and record the answer, with how it was obtained, in the runner's state."""
@@ -5268,6 +5287,10 @@ def status_blocker(entry: dict, red: bool = True) -> str:
     return "; ".join(said)
 
 
+def approved_prs(verdicts: dict[str, dict[str, dict]]) -> set[str]:
+    return {pr for by_row in verdicts.values() for row, entry in by_row.items() if entry["verdict"] == "approved" and (pr := board_rows.pr_of(row))}
+
+
 def prefix_tops(prefix: list[str], rows: dict[str, dict]) -> list[str]:
     bases = {rows[pr].get("base") for pr in prefix}
     return [pr for pr in prefix if rows[pr].get("branch") not in bases]
@@ -7130,7 +7153,7 @@ class Landing:
         return {pr: merge_queue.State(merge_queue.PENDING, f"merge mode {self.merge_mode} waits for the owner's Merge answer at {graded.heads[pr][:7]}") for pr in waiting} | {pr: merge_queue.State(merge_queue.PENDING, why) for pr, why in (untapped | unread).items()}
 
     def untapped(self, heads: dict[str, str]) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
-        """Each PR of `heads` whose changed files a glob of a `landing.tap_rules` row names, while that row is in the register in force, and no approval on the root's board names its head, with why it waits, since a root `go` never stands in for the owner's tap (rule/82317b0) unless it answers this runner's `TAP-KEPT` ask, which carries his tap; each PR whose changed files, register, or board did not read, with what did not, which the runner leaves unqueued for the landing desk rather than guess a merge (4236611); and each such PR the owner's port and test-only rulings admit with no tap, with its `EXEMPT-ADMITTED` note (06288326)."""
+        """Each PR of `heads` whose changed files a glob of a `landing.tap_rules` row names, while that row is in the register in force, and no approval on the root's board names any head of the PR, with why it waits, since a root `go` never stands in for the owner's tap (rule/82317b0); each PR whose changed files, register, or board did not read, with what did not, which the runner leaves unqueued for the landing desk rather than guess a merge (4236611); and each such PR the owner's port and test-only rulings admit with no tap, with its `EXEMPT-ADMITTED` note (06288326)."""
         if not (rules := self.landing_config.get("tap_rules")):
             return {}, {}, {}
         touching, unread = {}, {}
@@ -7160,15 +7183,11 @@ class Landing:
             if register is None or verdicts is None:
                 unread[pr] = f"TAP-UNREAD #{pr}: {'the register' if register is None else 'the root board'} did not read, so the runner leaves it unqueued for the landing desk"
                 continue
-            if self.kept_by_go(pr, heads[pr]) or any(entry["verdict"] == "approved" and names_head(heads[pr], entry.get("head") or "") for by_row in verdicts.values() for row, entry in by_row.items() if board_rows.pr_of(row) == pr):
+            if pr in approved_prs(verdicts):
                 continue
             board = board or self.owner_board()
-            waits[pr] = f"{mismatched[pr]}TAP-REQUIRED {','.join(found)}: it lands only on the owner's tap at this head, and a root go is no tap; {self.owner_state(pr, board)}"
+            waits[pr] = f"{mismatched[pr]}TAP-REQUIRED {','.join(found)}: it lands only once the owner has tapped some head of it, and a root go is no tap; {self.owner_state(pr, board)}"
         return waits, unread, exempt
-
-    def kept_by_go(self, pr: str, head: str) -> bool:
-        """Whether the owner's tap stands at `head` by a root go on this runner's `TAP-KEPT` ask for it, with the finder clear there, as its carry would, even when the board no longer holds the block the carry writes to (root #192094)."""
-        return any((parts := action.action_id.split(":"))[0] == "tap-kept" and parts[2] == pr and names_head(parts[-1], head) and self.proposal_gos(pr, head, action.action_id) for action in self.book.actions(LANDING, kind="bus")) and self.finder_clear(pr, head)
 
     def exempt_admitted(self, pr: str, sha: str) -> tuple[str, str]:
         """The `EXEMPT-ADMITTED` note for `pr` at `sha` when its change is exempt and goes straight to Graphite's queue with no go and no board tap, and why its whole diff breaks the class its grade claims, read once per pass (root #194387, 06288326, owner Oct 28 8:45 PM). The head grades ok by `fidelity`'s rule and `exempt_class` finds one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first) in its grades. Both classes are checked against every file the PR changes against its base, never the grade's words alone (root #182391): a test-only or CI-only class fails on a file outside the test, CI, skill-script and docs set, and a port class on a file outside `PORT_PREFIXES` unless a `Rulings` comment clears its interaction; changed files that do not read admit nothing that pass."""
@@ -7432,7 +7451,7 @@ class Landing:
         return ",".join(dict.fromkeys(map(self.successor, [*desks, *self.board_lanes, *owners])))
 
     def carry_taps(self, rows: dict[str, dict]) -> None:
-        """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head when its own commits have the tapped head's `git patch-id`, citing any chain of `head` records and fidelity carries that call each move patch-identical, whose words alone never carry a tap (p8a-step7 #199440): `cc-present verdict carry` records it, so the row shows his tap and asks nothing, and one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads. Any other new head goes to `judge_tap`, where a judge reads what changed and only a root go carries his tap. Records that do not read log one `TAP-CARRY-FAILED` per cause, and a carry onto a merge block the board no longer holds has nothing to carry, so it logs none (root #151003, #151839)."""
+        """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head whatever changed between the two, since a PR he tapped never returns to his board (owner 2:48 AM Oct 31): `cc-present verdict carry` records it, so the row shows his tap and asks nothing, one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads, and the runner posts its own go at the new head. A carry onto a merge block the board no longer holds has nothing to carry, so it logs no `TAP-CARRY-FAILED` (root #151003, #151839)."""
         if self.landing_config.get("merge_ask_surface", "slack") != "board":
             return
         try:
@@ -7448,84 +7467,11 @@ class Landing:
         for _, pr, entry in entries:
             if entry["verdict"] == "approved" and entry.get("carriedFrom") and names_head(entry["head"], heads[pr]):
                 self.go_carried_tap(pr, heads[pr], entry["carriedFrom"], rows, to)
-        moved = [(block, pr, entry) for block, pr, entry in entries if entry["verdict"] == "approved" and pr not in decided]
-        if not moved:
-            return
-        drive = self.runner.config.drive
-        withdrawn = {seq for record in cci.records(self.cci_tail, drive, "--kind=withdraw") if record["kind"] == "withdraw" and record["drive"] == drive for seq in closes(record)}
-        reviews = [record for record in self.scanned_reviews() if record["seq"] not in withdrawn]
-        for block, pr, entry in moved:
-            head, tapped, session = heads[pr], entry.get("carriedFrom") or entry["head"], entry.get("session", "")
-            moves = head_moves(reviews, drive, self.fidelity_lanes, self.repo, pr)
-            if (commits := self.own_commits(pr, head)) and (ours := self.patch_id(pr, head, commits, escalate=True)) and self.patch_id(pr, entry["head"], commits, escalate=False) == ours:
-                chain = patch_chain(moves, head, entry["head"])
-                why, label = (f"patch-identical restack, per {', '.join(f'cci #{seq}' for seq in chain)}", "TAP-CARRIED") if chain else (f"patch-identical restack by git patch-id over its {commits} own commits", "TAP-CARRIED-BY-PATCH")
-                if self.carry_tap(session, block, pr, tapped, head, why, self.landing_audience([pr], rows, to), label):
-                    self.go_carried_tap(pr, head, tapped, rows, to)
-                continue
-            self.judge_tap(block, pr, entry, head, tapped, session, heads_since(moves, head, entry["head"]), rows, to)
-
-    def judge_tap(self, block: str, pr: str, entry: dict, head: str, tapped: str, session: str, since: list[str], rows: dict[str, dict], to: str) -> None:
-        """Settle the owner's tap on `pr` at `tapped` for a new head that is not patch-identical to it, once a fidelity ok grade stands there: the `tap-carry` judge reads what the lane, the grade and the finder say changed since his tap, off the pass. Its yes, an unsure answer or a failed model call draws one `TAP-NOT-CARRIED` note to `to`, so the board shows him a fresh row at once (root #194315); its no draws one `TAP-KEPT` ask proposing the carry to root, and only a go root posts naming the head, with the finder clear there, carries his tap (rule 399b5fa), while any other root answer to that ask draws the `TAP-NOT-CARRIED` note. A head a root go names whose tap does not carry draws one `TAP-CARRY-FAILED` naming why (#193444)."""
-        standing = self.fidelity(pr, head)
-        kept, fresh = f"tap-kept:{block}:{pr}:{tapped}:{head}", f"tap-new-row:{block}:{pr}:{tapped}:{head}"
-        when = board_rows.tapped_at(entry)
-        opener = f"TAP-NOT-CARRIED #{pr}: the owner's tap at {tapped[:10]} ({when} Pacific) on board block {block} does not carry to {head[:10]}"
-        asks = f"Heads since his tap: {' -> '.join(sha[:10] for sha in since)}. The board needs a new row for #{pr} at {head[:10]} opening 'You approved this at {when}. Since then: <what changed>. Shown again because: <the new behavior>.'"
-        if self.book.known(LANDING, fresh):
-            changed: bool | None = True
-        elif self.book.known(LANDING, kept):
-            changed = False
-            if not self.proposal_gos(pr, head, kept) and (declined := self.proposal_declined(kept)):
-                self.post_record("note", fresh, to, f"{opener}: root answered the carry proposal with cci #{declined['seq']}, not a go. {asks}", pr)
-                changed = True
-        elif not (standing.ok and standing.record):
-            changed = None
-        else:
-            answered, verdict = self.runner.judgment(kept, "tap-carry", lambda: self.tap_read(pr, head, tapped, entry, since))
-            if not answered:
-                return
-            changed = not (verdict and verdict.verdict == "no")
-            if not changed:
-                self.post_record("ask", kept, ROOT, f"TAP-KEPT #{pr}: the owner's tap at {tapped[:10]} ({when} Pacific) on board block {block} can carry to {head[:10]}, a fix the judge reads as changing nothing he approved: {verdict.sentence} Post `go #{pr} at {head[:10]}` to carry it (rule 399b5fa); any other answer puts a fresh row on his board.", pr)
-            else:
-                said = f"the judge reads new behavior since his tap: {verdict.sentence}" if verdict and verdict.flagged else "the judge is unsure it changes nothing he approved." if verdict else "the judge did not answer, so he is asked again."
-                self.post_record("note", fresh, to, f"{opener}: {said} {asks}", pr)
-        carriers = self.proposal_gos(pr, head, kept) if changed is False else []
-        if carriers and self.finder_clear(pr, head):
-            self.carry_tap(session, block, pr, tapped, head, f"fix with no new behavior, per the judge's TAP-KEPT and root go cci #{carriers[-1]['seq']} (rule 399b5fa)", self.landing_audience([pr], rows, to))
-            return
-        if not self.tap_gos(pr, head):
-            return
-        why = (standing.why or f"no fidelity ok grade stands at {head[:10]}") if changed is None else f"the finder is not clear at {head[:10]}" if carriers else f"no root go answers the TAP-KEPT proposal for {head[:10]}" if changed is False else f"{head[:10]} changes behavior since the tap at {tapped[:10]}, so the board asks him again"
-        self.runner.escalate(f"tap-carry:{pr}:{head[:7]}:{hashlib.sha1(why.encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", f"#{pr}", f"the owner's tap on #{pr} at {tapped[:10]} on board block {block} does not carry to {head[:10]}, which a root go names: {why}; {self.owner_state(pr, self.owner_board())}", "", self.go_audience([pr], rows))
-
-    def tap_gos(self, pr: str, head: str) -> list[dict]:
-        """The gos naming `pr` at `head` that a go lane posted, never one a fidelity grade or a patch-identical restack carried there."""
-        return [go for go in self.head_gos(pr, head) if "graded_at" not in go]
-
-    def proposal_seq(self, key: str) -> int | None:
-        """The seq of the `TAP-KEPT` ask this runner posted under `key`, once it posted."""
-        posted = self.book.known(LANDING, key)
-        return cci.receipt_seq(posted.response["posted"]) if posted and posted.status == "completed" else None
-
-    def proposal_gos(self, pr: str, head: str, key: str) -> list[dict]:
-        """The root gos naming `pr` at `head` posted after the `TAP-KEPT` ask under `key`, the only gos that carry the owner's tap over a fix the judge clears (rule 399b5fa)."""
-        seq = self.proposal_seq(key)
-        return [go for go in self.tap_gos(pr, head) if seq and go["lane"] == ROOT and go["seq"] > seq]
-
-    def proposal_declined(self, key: str) -> dict | None:
-        """The root record answering the `TAP-KEPT` ask this runner posted under `key`, when no root go for its head followed the ask."""
-        if (seq := self.proposal_seq(key)) is None:
-            return None
-        return next((record for record in cci.records(self.cci_tail, self.runner.config.drive, "--lane", ROOT, since=seq) if record.get("re") == seq or seq in closes(record)), None)
-
-    def tap_read(self, pr: str, head: str, tapped: str, entry: dict, since: list[str]) -> tuple[str, str]:
-        """What the `tap-carry` judge reads: as evidence when the owner approved `pr` and at which head, and the heads since; as the artifact every record about `pr` since his tap but the runner's own, where its lane, its fidelity grade and its finder say what changed."""
-        drive = self.runner.config.drive
-        records = [record for record in cci.records(self.cci_tail, drive, "--pr", f"{self.repo}#{pr}", since=entry["at"]) if record["drive"] == drive and record["lane"] not in (RUNNER, ORCA_DESK, stall_watch.LANE, prompt_watch.LANE)]
-        evidence = f"The owner approved #{pr} at head {tapped[:10]} at {board_rows.tapped_at(entry)} Pacific. Its heads since then: {' -> '.join(sha[:10] for sha in since)}. The question is about {head[:10]}."
-        return evidence, f"The records about #{pr} since his approval, oldest first:\n{judge.bus(records)}"
+        for block, pr, entry in entries:
+            if entry["verdict"] == "approved" and pr not in decided:
+                tapped = entry.get("carriedFrom") or entry["head"]
+                if self.carry_tap(entry.get("session", ""), block, pr, tapped, heads[pr], "the owner's tap carries to every later head of a PR he tapped (owner 2:48 AM Oct 31)", self.landing_audience([pr], rows, to)):
+                    self.go_carried_tap(pr, heads[pr], tapped, rows, to)
 
     def question_tap_claims(self, heads: dict[str, str], verdicts: dict[str, dict[str, dict]], rows: dict[str, dict]) -> None:
         """One `GO-TAP-MISSING` to root per root `go` and PR when the go claims the owner's tap in one of its explicit forms, `TAP-KEPT`, `TAP-CARRIED` or `owner tapped <sha>`, never a bare word such as tap row or approved (root 2:29 AM Oct 30, #204186), at an open PR's ledger head, claims no port, test-only or CI-only exemption, and no approval on the root's board names that head or a head the go names, saying what the board holds for the PR instead: a go rests on a board verdict, never on a lane's line that says tapped (rule/82317b0, root #172682)."""
@@ -7534,10 +7480,9 @@ class Landing:
                 text = full_text(go)
                 if EXEMPT_GO.search(text) or not TAP_CLAIM.search(text):
                     continue
-                held = [(block, entry) for block, by_row in verdicts.items() for row, entry in by_row.items() if board_rows.pr_of(row) == pr]
-                named = [head, *SHORT_SHA.findall(text)]
-                if any(entry["verdict"] == "approved" and any(names_head(sha, entry.get(at) or "") for sha in named for at in ("head", "carriedFrom")) for _, entry in held):
+                if pr in approved_prs(verdicts):
                     continue
+                held = [(block, entry) for block, by_row in verdicts.items() for row, entry in by_row.items() if board_rows.pr_of(row) == pr]
                 board = "; ".join(f"{entry['verdict']} at {(entry.get('head') or '')[:10]} on block {block}" for block, entry in held) or f"no verdict for #{pr}"
                 self.runner.escalate(f"go-tap-missing:{go['seq']}:{pr}", "GO-TAP-MISSING", f"#{pr}", f"root go cci #{go['seq']} says the owner tapped #{pr} at {head[:10]}, but no approval on the root's board names {head[:10]} or a head the go names; the board holds {board}. Withdraw the go, or post it again citing the board verdict at this head or the carry to it", "", self.go_audience([pr], rows))
 
@@ -7546,7 +7491,7 @@ class Landing:
         key = f"tap-go:{pr}:{head}"
         if self.head_gos(pr, head) or ((posted := self.book.known(LANDING, key)) and posted.status == "completed"):
             return
-        self.post_record("go", key, self.landing_audience([pr], rows, to), f"go #{pr} at {head[:7]} TAP-CARRIED: the owner's tap at {tapped[:10]} carries to {head[:10]}, a patch-identical restack; the runner posts this go itself, so no root hop (owner, Oct 29 2:06 PM)", pr)
+        self.post_record("go", key, self.landing_audience([pr], rows, to), f"go #{pr} at {head[:7]} TAP-CARRIED: the owner's tap at {tapped[:10]} carries to {head[:10]}, since his tap carries to every later head of a PR he tapped (owner 2:48 AM Oct 31); the runner posts this go itself, so no root hop (owner, Oct 29 2:06 PM)", pr)
 
     def carry_tap(self, session: str, block: str, pr: str, tapped: str, head: str, why: str, to: str, label: str = "TAP-CARRIED") -> bool:
         """Carry the owner's tap on `pr` from `tapped` to `head` with one `board-write` record, which stands as his tap at `head` the moment it posts and which the watch of the board that holds the tap applies with `cc-present verdict carry`, then post `label`, `TAP-CARRIED` by default, once; whether the record posted. A block the board's newest snapshot no longer holds has nothing to carry (root #151003)."""
@@ -7563,7 +7508,7 @@ class Landing:
             self.runner.escalate(f"tap-carry:{pr}:{head[:7]}:{hashlib.sha1(VOLATILE.sub('', why).encode()).hexdigest()[:8]}", "TAP-CARRY-FAILED", f"#{pr}", f"the carry of the owner's tap on #{pr} from {tapped[:10]} to {head[:10]} did not post: {why}; the next pass tries again")
             return False
         if not self.book.known(LANDING, key := f"tap-carried:{block}:{pr}:{head}"):
-            self.post_record("note", key, to, f"{label} #{pr}: the owner's tap at {tapped[:10]} on board block {block} now stands at {head[:10]}, a {why}, recorded as a board-write record the board's watch applies; the row asks no new tap", pr)
+            self.post_record("note", key, to, f"{label} #{pr}: the owner's tap at {tapped[:10]} on board block {block} now stands at {head[:10]}, since {why}, recorded as a board-write record the board's watch applies; the row asks no new tap", pr)
         return True
 
     def ask_owner(self, heads: dict[str, str], waiting: dict[str, list[str]], rows: dict[str, dict]) -> None:
@@ -7603,8 +7548,12 @@ class Landing:
             )
 
     def askable(self, heads: dict[str, str], asking: list[str], rows: dict[str, dict]) -> list[str]:
-        """The PRs of `asking` the owner can tap now: a fidelity ok stands at the head, the finder is clear there, and the root's board holds a row at that head (root #191653). A graded head with no row is told to the board lanes once, so the row goes up in their next pass; an ungraded head already has its grade blocker."""
-        graded = [pr for pr in asking if self.fidelity(pr, heads[pr]).ok and self.finder_clear(pr, heads[pr])]
+        """The PRs of `asking` the owner can tap now: he has approved no head of the PR, since a PR he tapped never returns to his board (owner 2:48 AM Oct 31), a fidelity ok stands at the head, the finder is clear there, and the root's board holds a row at that head (root #191653). A graded head with no row is told to the board lanes once, so the row goes up in their next pass; an ungraded head already has its grade blocker."""
+        try:
+            tapped = approved_prs(board_rows.verdicts_of_records(self.runner.board_records()))
+        except CciTailFailed:
+            return []
+        graded = [pr for pr in asking if pr not in tapped and self.fidelity(pr, heads[pr]).ok and self.finder_clear(pr, heads[pr])]
         if not graded or (board := self.board_heads()) is None:
             return []
         askable = [pr for pr in graded if (pr, heads[pr][:7]) in board]
@@ -8561,7 +8510,7 @@ class Landing:
                     if self.down_since():
                         mine.overflowed_at = time.monotonic()
                     else:
-                        mine.overflow()
+                        mine.overflow(self)
                 except Exception:
                     traceback.print_exc()
                 time.sleep(max(0.0, OVERFLOW_EVERY.total_seconds() - (time.monotonic() - started)))
@@ -8570,7 +8519,7 @@ class Landing:
         self.overflowing.start()
 
     def post_state(self, took: float) -> None:
-        """Post the pass's one `state` record to root on topic `landing-state`, which cci delivers newest-only, so root never asks what the runner is doing (owner 9524276): the open rows the queue holds, the green ones a root go names at their heads that are out of it and neither held nor refused, with the oldest stack step in flight, the held, the refused at their heads, the stack workers running, the overflow's enqueues this hour, and the pass's seconds. It logs `OVERFLOW-STALLED` once an hour while the overflow thread has finished no run in `OVERFLOW_STALLED`."""
+        """Post the pass's one `state` record to root on topic `landing-state`, which cci delivers newest-only, so root never asks what the runner is doing (owner 9524276): the open rows the queue holds, the green ones a root go names at their heads that are out of it and neither held nor refused, with the oldest stack step in flight, the held, the refused at their heads, the stack workers running, and the pass's seconds. It logs `OVERFLOW-STALLED` once an hour while the overflow thread has finished no run in `OVERFLOW_STALLED`."""
         open_rows = {pr: row for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"}
         statuses, gos, held = self.statuses or {}, self.gos or [], set(self.held_now)
         refused = set(refused_members(self.book.actions(LANDING, kind="bus"), set(open_rows), open_rows)) if open_rows else set()
@@ -8580,17 +8529,15 @@ class Landing:
         with self.dispatching:
             oldest = min(self.steps.values(), key=lambda entry: entry["since"], default=None)
             running = sum(1 for _, future in self.inflight.values() if not future.done())
-        hour = now - timedelta(hours=1)
-        overflowed = sum(1 for action in self.book.actions(LANDING, kind="enqueue") if f"#{OVERFLOW}-" in action.action_id and actions.parse_stamp(action.accepted_at) >= hour)
         step = f" (oldest #{oldest['root']} {oldest['step']} {whole_minutes(actions.parse_stamp(oldest['since']), now)}m)" if oldest else ""
-        text = f"LANDING queued {len(queued)}, waiting {len(waiting)}{step}, held {len(held)}, refused {len(refused)}, in flight {running}, overflowed {overflowed} this hour; pass {took:.0f}s"
+        text = f"LANDING queued {len(queued)}, waiting {len(waiting)}{step}, held {len(held)}, refused {len(refused)}, in flight {running}; pass {took:.0f}s"
         self.runner.cci_post("state", text, ROOT, "landing-state", f"landing-state:{self.book.stamp()}")
         if self.overflower and (quiet := time.monotonic() - self.overflower.overflowed_at) > OVERFLOW_STALLED.total_seconds():
             alive = self.overflowing is not None and self.overflowing.is_alive()
             self.runner.escalate(f"overflow-stalled:{now:%Y%m%d%H}", "OVERFLOW-STALLED", "landing", f"the overflow thread has finished no run in {int(quiet // 60)} minutes{'' if alive else ' and is dead'}, so a stack the passes leave out waits on them alone; `desk-runner.py handoff` restarts the runner")
 
-    def overflow(self) -> None:
-        """Enqueue straight into the merge queue, through the adapter and with none of the runner's own checks, each stack that has stayed landable for `OVERFLOW_AFTER` since an overflow first found it so: every unqueued PR of it green at its ledger head, named at that head by a root go, under no hold, pull, or incident fix, with no enqueue of it running and nothing the runner decided against it at that head, which is a refusal `last_refusal` finds since the go, an enqueue outcome outside `OVERFLOW_RETRIES` other than a `blocked` one five minutes old, a drop still waiting on a go, or a reserved row no answer authorizes (C224). A stack is due once any PR of it is, so a restack that restarted an upper PR's clock never sends the bottom in alone for Graphite to hold the rest on. Each goes in as its stack's top, recorded as an enqueue and posted as a QUEUED report that names the overflow."""
+    def overflow(self, gate: "Landing") -> None:
+        """Hand to a stack worker of `gate`, the passes' Landing, each stack that has stayed landable for `OVERFLOW_AFTER` since an overflow first found it so: every unqueued PR of it green at its ledger head, named at that head by a root go, under no hold, pull, or incident fix, with no enqueue of it running and nothing the runner decided against it at that head, which is a refusal `last_refusal` finds since the go, an enqueue outcome outside `OVERFLOW_RETRIES` other than a `blocked` one five minutes old, a drop still waiting on a go, or a reserved row no answer authorizes (C224). A stack is due once any PR of it is, so a restack that restarted an upper PR's clock never sends the bottom in alone for Graphite to hold the rest on. Each goes to `land_tree` as its stack's top, so the overflow runs every check, admission and merge-mode gate a pass runs and refuses a batch carrying a PR the drive did not admit (root #245808)."""
         self.cci_tail.remember()
         try:
             self.statuses, self.queues_read, self.gos, self.cleared = None, False, None, {}
@@ -8611,9 +8558,8 @@ class Landing:
             with ThreadPoolExecutor(max(1, len(due))) as pool:
                 touched = dict(zip(due, pool.map(lambda pr: bool(self.reserved_touches(pr, open_rows[pr]["head"])), due)))
             due = {pr for pr in due if not any(touched.get(member, False) for member in downstack(open_rows, pr) & due)}
-            tops = [pr for pr in due if not any(pr in downstack(open_rows, other) for other in due - {pr})]
-            with ThreadPoolExecutor(max(1, len(tops))) as pool:
-                list(pool.map(lambda top: self.overflow_one(top, open_rows, queue, min(actions.parse_stamp(since[member][1]) for member in downstack(open_rows, top) & landable)), tops))
+            for top in (pr for pr in due if not any(pr in downstack(open_rows, other) for other in due - {pr})):
+                gate.dispatch(f"{OVERFLOW}:{top}", downstack(open_rows, top), lambda top=top: gate.land_tree(rows, held, [top]))
         finally:
             self.cci_tail.stop()
             self.overflowed_at = time.monotonic()
@@ -8649,26 +8595,6 @@ class Landing:
             return True
         since = min(max(actions.parse_stamp(go["at"]), actions.parse_stamp(go.get("graded_at") or go["at"])) for pr in members for go in gone_at(gos, pr, heads[pr]))
         return self.last_refusal(members, open_rows, since) is not None
-
-    def overflow_one(self, top: str, open_rows: dict[str, dict], queue: dict[str, str], since: datetime) -> None:
-        prefix = sorted((pr for pr in downstack(open_rows, top) if queue.get(pr) not in STATUS_SETTLED), key=lambda pr: len(downstack(open_rows, pr)))
-        heads = {pr: open_rows[pr]["head"] for pr in prefix}
-        base = "enqueue:" + ",".join(f"{pr}@{heads[pr][:10]}" for pr in prefix)
-        key = f"{base}#{OVERFLOW}-{len([action for action in self.book.actions(LANDING, kind='enqueue') if action.action_id.split('#')[0] == base]) + 1}"
-        deadline = self.runner.now() + timedelta(minutes=self.runner.config.enqueue_minutes)
-        self.book.accept(LANDING, key, "enqueue", ",".join(prefix), OVERFLOW, deadline)
-        if not self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now(), deadline=deadline)):
-            return
-        if landed := self.landed_now(prefix):
-            self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "landed", "out": f"{numbered(sorted(landed, key=int))} already landed on {TRUNK}", "at": self.book.stamp(), OVERFLOW: True}))
-            return
-        outcome, out, last = self.adapter.enqueue([top], self.whole(), heads)
-        self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": outcome, "out": out, "drive": self.runner.config.drive, "at": self.book.stamp(), OVERFLOW: True}))
-        if outcome in BELIEVED_QUEUED:
-            waited = whole_minutes(since, self.runner.now())
-            self.post_settled(enqueued_heads(key), Queued(f"the landing runner's overflow put it straight in the merge queue at {pacific(self.runner.now())}, {waited} minutes after it found it landable and unqueued, without its own checks (owner 9524276)"))
-        elif outcome in ("stranded", "failed", "unsettled"):
-            self.runner.escalate(key, f"ENQUEUE-{outcome.upper()}", numbered([top]), f"the overflow enqueue of {numbered(prefix)} ended {outcome}: {last}")
 
     def refused_at_head(self, members: set[str], open_rows: dict[str, dict]) -> bool:
         """Whether this runner posted a `blocker` for a PR of `members` at its current head: that refusal is the record, so no `GO-UNQUEUED` repeats it (root, Oct 29 10:35 AM)."""
@@ -9602,7 +9528,7 @@ def run_orca(runner: Runner, once: bool) -> int:
         runner.stalled_launches()
         runner.stall_watch()
         runner.judge_watch()
-        behind = runner.stale()
+        behind = runner.moved()
         runner.flush()
         runner.beat("orca")
         if once:
@@ -9716,7 +9642,7 @@ def run_landing(runner: Runner, once: bool) -> int:
                 runner.shell.sleep(RAISED_BACKOFF.total_seconds())
                 runner.reexec("landing")
         runner.passing.discard("landing")
-        behind = runner.stale()
+        behind = runner.moved()
         took = (runner.now() - started).total_seconds()
         landing.post_state(took)
         runner.flush()
@@ -9768,10 +9694,13 @@ def build_parser() -> argparse.ArgumentParser:
     rebind = verbs.add_parser("rebind")
     handoff = verbs.add_parser("handoff")
     handoff.add_argument("--desk", choices=DESKS, required=True)
+    handoff.add_argument("--version", default="", help="the installed plugin version to pin and move the desk onto, after its release check and its own preflight pass; the pinned version when omitted")
     supervise = verbs.add_parser("supervise", help="install, uninstall, or report the launchd user agent com.long-running.<drive>.<desk> that keeps the desk's runner alive; status exits 0 while launchd has it loaded")
     supervise.add_argument("action", choices=("install", "uninstall", "status"))
     supervise.add_argument("--desk", choices=DESKS, required=True)
-    preflight = verbs.add_parser("preflight", help="check the landing desk's config and machine without starting it; exit 0 when it would start, 3 when it would refuse")
+    preflight = verbs.add_parser("preflight", help="check a desk's config and machine without starting it; exit 0 when it would start, 3 when it would refuse")
+    preflight.add_argument("--desk", choices=DESKS, default="landing")
+    preflight.add_argument("--keychain", action="store_true", help="read the landing adapter's key from its Keychain item, as a launchd-supervised runner does")
     preflight.add_argument("--json", action="store_true")
     quiesce = verbs.add_parser("quiesce")
     quiesce.add_argument("--desk", choices=DESKS, required=True)
@@ -9799,6 +9728,18 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
         return 0
     runner = Runner(shell, config, actions.Store(config.store))
     if args.verb == "run":
+        if not (pin := runner.pinned()):
+            runner.pin(pin := RUNNING_VERSION)
+        if pin != RUNNING_VERSION:
+            if not (pinned := drive.install_bin(pin, "desk-runner.py")).exists():
+                why = f"{config.source} pins long-running {pin}, which has no install at {pinned.parents[1]}, so the {args.desk} runner refused to start; install it, or move the pin with `desk-runner.py handoff --config {config.source} --desk {args.desk} --version <an installed version>`"
+                runner.escalate(f"pin-missing:{config.source}:{pin}", "PINNED-VERSION-MISSING", "runner", why)
+                runner.flush()
+                print(why, file=sys.stderr)
+                return 3
+            runner.shell.adopt({drive.PIN_ENV: pin})
+            runner.shell.reexec([str(pinned), "run", "--config", str(config.source), "--desk", args.desk, *(["--once"] if args.once else [])])
+        runner.shell.adopt({drive.PIN_ENV: pin})
         if args.desk == "landing" and (fault := startup_fault(runner)):
             label, key, why = fault
             runner.escalate(key, label, "runner", why)
@@ -9832,12 +9773,12 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     if args.verb == "rebind":
         return runner.rebind()
     if args.verb == "handoff":
-        return runner.handoff(args.desk)
+        return runner.handoff(args.desk, args.version)
     if args.verb == "supervise":
         return runner.supervise(args.action, args.desk)
     if args.verb == "preflight":
-        fault = startup_fault(runner)
-        print(json.dumps({"ok": fault is None, "label": fault and fault[0], "why": fault and fault[2]}) if args.json else fault[2] if fault else f"desk-runner preflight: the landing desk on {config.source} would start")
+        fault = startup_fault(runner, keychain=args.keychain) if args.desk == "landing" else None
+        print(json.dumps({"ok": fault is None, "label": fault and fault[0], "why": fault and fault[2]}) if args.json else fault[2] if fault else f"desk-runner preflight: the {args.desk} desk on {config.source} would start")
         return 3 if fault else 0
     if args.verb == "gc":
         try:

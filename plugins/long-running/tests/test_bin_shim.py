@@ -107,3 +107,10 @@ def test_runs_the_newest_whole_orphaned_copy_while_the_newest_install_is_half_wr
     assert run(cache, "0.7.512") == "0.7.700 py a b c"
     assert run(cache, "0.7.512", "tool.sh") == "0.7.700 sh a b c"
 
+
+
+def test_stays_on_the_version_long_running_pin_names_and_hops_from_any_other(tmp_path: Path):
+    cache = plugin_cache(tmp_path, {"0.7.44": False, "0.7.57": False})
+    pinned = {"PATH": os.environ["PATH"], "LONG_RUNNING_PIN": "0.7.44"}
+    assert subprocess.run([str(cache / "0.7.44" / "bin" / "tool.py"), "a"], capture_output=True, text=True, check=True, env=pinned).stdout.strip() == "0.7.44 py a"
+    assert subprocess.run([str(cache / "0.7.44" / "bin" / "tool.py"), "a"], capture_output=True, text=True, check=True, env=pinned | {"LONG_RUNNING_PIN": "0.7.9"}).stdout.strip() == "0.7.57 py a"
