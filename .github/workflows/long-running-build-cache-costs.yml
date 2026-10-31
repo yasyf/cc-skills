@@ -1,0 +1,31 @@
+name: Long-running build cache costs
+
+on:
+  push:
+    paths:
+      - ".github/fixtures/long_running_build_cache_costs.py"
+      - ".github/workflows/long-running-build-cache-costs.yml"
+  pull_request:
+    paths:
+      - ".github/fixtures/long_running_build_cache_costs.py"
+      - ".github/workflows/long-running-build-cache-costs.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    env:
+      UV_PYTHON: "3.14"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          ref: 21489a49a02014f7fe2121c5ccb2d690f4ebca4d
+          path: .ci-build-cache-legacy
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: Actual immutable 704 caller write amplification
+        run: |
+          cp .github/fixtures/long_running_build_cache_costs.py .ci-build-cache-legacy/plugins/long-running/tests/build_cache_costs.py
+          uv run --locked --project .ci-build-cache-legacy/plugins/long-running pytest .ci-build-cache-legacy/plugins/long-running/tests/build_cache_costs.py -q -s
