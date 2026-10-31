@@ -2594,6 +2594,16 @@ def test_a_check_refused_for_a_missing_native_stack_links_the_chain_and_enqueues
     assert [post["text"].split(":", 1)[0] for post in shell.posts if post["text"].startswith("STACK-LINK ")] == ["STACK-LINK #29016 #29020"]
 
 
+def test_a_trunk_label_reads_as_queued_or_landed_where_the_status_read_says_unknown():
+    """Oct 30: ccx read every Trunk-queued head as queue unknown, so the landing state read queued 0 while Trunk tested seven PRs."""
+    unknown = {"number": 45651, "queue": "unknown", "verdict": "blocked:queue-unknown"}
+    assert runner_module.trunk_labelled(unknown, {"labels": "trunk-not-ready"})["queue"] == "queued"
+    assert runner_module.trunk_labelled(unknown, {"labels": "externally-merged,trunk-merged"})["verdict"] == "landed"
+    assert runner_module.trunk_labelled(unknown, {"labels": "trunk-failed"}) == unknown
+    evicted = {"number": 45651, "queue": "not queued", "verdict": "landable"}
+    assert runner_module.trunk_labelled(evicted, {"labels": "trunk-testing"}) == evicted
+
+
 def test_a_check_with_no_verdict_on_a_pr_github_reads_merged_escalates_nothing(shell, config, tmp_path):
     """Root #200922: #44828 merged directly, its branch went, and the gate's fetch of that branch read as a GATE-FAILED defect."""
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": True}]
@@ -6474,6 +6484,19 @@ def test_mq_why_names_the_refusal_of_a_check_that_read_no_verdict(shell, config,
     shell.gates["29020"] = [(5, "", "stack-enqueue failed: ci trunk: runs with no TRUNK_MERGE_API_KEY\n")]
     assert mq(shell, config, "why", "29020") == 0
     assert capsys.readouterr().out.splitlines()[0] == "#29020 cccc333333 graphite-stack-enqueue: no verdict, the check exited 5: stack-enqueue failed: ci trunk: runs with no TRUNK_MERGE_API_KEY"
+
+
+def test_mq_why_in_a_shell_without_the_trunk_key_says_so_instead_of_reporting_the_runner(shell, config, capsys, monkeypatch):
+    """Root #223262: a lane's unkeyed mq.py why read as the runner lacking TRUNK_MERGE_API_KEY while the runner held it."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["adapter"] = {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}
+    config.write_text(json.dumps(raw))
+    monkeypatch.delenv("TRUNK_MERGE_API_KEY", raising=False)
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    assert mq(shell, config, "why", "29020") == 0
+    assert capsys.readouterr().out.splitlines()[0].startswith("#29020 cccc333333 trunk-stack-enqueue: not checked: this shell sets no TRUNK_MERGE_API_KEY")
+    assert not [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
 
 
 def test_mq_why_reads_past_peer_mail_that_cci_returns_with_no_status(shell, config, capsys):

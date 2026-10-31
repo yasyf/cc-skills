@@ -892,6 +892,8 @@ CHECK_PR_REREAD = timedelta(minutes=5)
 RULINGS_SOURCES = ("rulings", "board_rows", "testfiles")
 TRUNK_REREAD = timedelta(minutes=5)
 QUEUED_STATE = "queued"
+TRUNK_QUEUED_LABELS = frozenset({"trunk-queued", "trunk-not-ready", "trunk-testing", "trunk-tests-passed", "trunk-queued (bisection)", "trunk-testing (bisection)", "trunk-tests-passed (bisection)"})
+TRUNK_MERGED_LABEL = "trunk-merged"
 QUEUED_VERDICT = "QUEUED"
 ORPHANED_HEAD = "queue head orphaned"
 STATUS_SETTLED = frozenset({QUEUED_STATE, "landed"})
@@ -4855,6 +4857,15 @@ def queue_state(action: actions.Action) -> str:
     return f"blocked: {why}"
 
 
+def trunk_labelled(entry: dict, row: dict) -> dict:
+    labels = set(row.get("labels", "").split(","))
+    if entry["queue"] == "unknown" and TRUNK_MERGED_LABEL in labels:
+        return entry | {"queue": "landed", "verdict": "landed"}
+    if entry["queue"] == "unknown" and labels & TRUNK_QUEUED_LABELS:
+        return entry | {"queue": QUEUED_STATE, "verdict": QUEUED_STATE}
+    return entry
+
+
 def numbered(prs: list[str]) -> str:
     return " ".join(f"#{pr}" for pr in prs)
 
@@ -8381,9 +8392,13 @@ class Landing:
         if row is None:
             return [f"#{pr} has no ledger row, so the queue never gates it"]
         head = row.get("head", "")
-        gate = self.checked([pr])
-        verdict = gate.verdicts.get(pr)
-        said = " ".join(filter(None, (verdict["verdict"], verdict["detail"]))) if verdict else f"no verdict, the check exited {gate.code}: {gate.last}"
+        missing = [name for name in self.adapter.required_env if not os.environ.get(name)]
+        gate = None if missing else self.checked([pr])
+        verdict = gate.verdicts.get(pr) if gate else None
+        if missing:
+            said = f"not checked: this shell sets no {' or '.join(missing)}, which the check needs; the landing runner checks with its own environment, which `desk-runner.py preflight` reads"
+        else:
+            said = " ".join(filter(None, (verdict["verdict"], verdict["detail"]))) if verdict else f"no verdict, the check exited {gate.code}: {gate.last}"
         lines = [f"#{pr} {head[:10]} {self.adapter.kind}: {said}"]
         if not row.get("ours"):
             lines.append(f"ours fail {NOT_ADMITTED}")
@@ -8590,7 +8605,7 @@ class Landing:
             with ThreadPoolExecutor(max(1, len(pages))) as pool:
                 reads = list(pool.map(lambda page: self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", "--max-age", f"{int(STATUS_MAX_AGE.total_seconds())}s", *page]), pages))
             done = next((read for read in reads if read.code != 0), Done(0, "", ""))
-            statuses = self.statuses = None if done.code else {str(entry["number"]): entry for read in reads for entry in json.loads(read.out)}
+            statuses = self.statuses = None if done.code else {str(entry["number"]): trunk_labelled(entry, self.ledger_rows.get(str(entry["number"]), {})) if self.adapter.kind == merge_queue.TrunkStackEnqueue.kind else entry for read in reads for entry in json.loads(read.out)}
             self.queues_read = True
             if statuses is None:
                 last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
