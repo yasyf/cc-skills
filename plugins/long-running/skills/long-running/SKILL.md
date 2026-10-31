@@ -1746,9 +1746,10 @@ change is one edit plus an `answer supersede`, with no restart.
 `landing.tap_rules` maps a register row key to path globs, such as
 `{"rule/82317b0": ["go/sand/next/*", "infra/ci/src/pipelines/test/sand.ts"]}`. In every
 merge mode, a head whose changed files a row's globs name waits, while `rulings.py rows`
-lists that row in force, until an approval on the root's board names that head. A root
-`go` never stands in for that tap. A pure port (06288326), a test-only or CI-only PR
-(owner, Oct 28 8:45 PM), and a head the runner noted `TAP-KEPT` at are exempt: a head
+lists that row in force, until an approval on the root's board names some head of the PR,
+since his tap carries to every later head (owner 2:48 AM Oct 31). A root `go` never stands in
+for that tap. A pure port (06288326) and a test-only or CI-only PR (owner, Oct 28 8:45 PM)
+are exempt: a head
 whose newest fidelity grade says one of `landing.exempt_grades` (default
 `pure port, no interaction` and `test-only or CI-only, no non-test code`; the legacy
 `landing.port_phrase` replaces the first) needs no tap and no go in any merge mode and
@@ -1917,32 +1918,16 @@ each refusal. A refusal goes to root and the row is fixed before the push, never
 as it stands.
 
 His tap carries. With `landing.merge_ask_surface` set to `board`, the landing runner
-carries it across a restack itself on every pass, and no lane carries a tap by hand.
-Take an approval on a `pr-groups` row at an older head of an open PR, with no verdict at
-the PR's current head. The runner moves it to the current head with `cc-present verdict
-carry` when records chain the two heads and call each move patch-identical. A lane's
-`head` record reading `<new> (was <old>): restack, range-diff patch-identical` is one
-such move, and so is each entry of a multi-head record (`cci post --head <pr>=<old>..<new>
-<note>`) whose note, or else whose text, says patch-identical. A fidelity grade of `<new>` that names `<old>` anywhere and says patch-identical,
-tap carries, no new behavior, test-only, or pure replay in its first sentence, with no added
-behavior, is another. One
-`TAP-CARRIED` note naming both heads goes to root and each lane `landing.board_lane`
-names, one lane or a list, and a patch-identical carry onto a head no go names also draws the
-runner's own `go` record for that head, so root posts none. A new head that a record names but no such chain reaches is a
-fixed version, and its tap stays at the old head. One `TAP-NOT-CARRIED` note to the same
-lanes says the board needs a new row at that head, and gives his tap's Pacific time, the
-heads since it, and the sentence of the record that names the new behavior. For a review fix, the
-root posts `go #<n> at <new head>` naming the fix, and the runner then carries the tap to
-that head itself, citing the fidelity grade and the go, so the row lists his approved head
-in `carried` and he is never asked again. A head that
-adds behavior asks again. The re-asked row's `since` holds `changed` and `because`, and
-`board_rows.py` refuses it (`since`) without both, then opens its `change` with "You
-approved this at <time>. Since then: <what changed>. Shown again because: <the behavior
-change>." Owner, 6:59 PM Oct 29: "if ur asking for a PR tap that Ive alrady apporiove dyou
-ned to tell me whats changed / why ur showing it gain". A stack whose every row asks
-again this way, each moved only by a fix with no new behavior, pushes as one row at its tip:
-the row lists the others in cc-present's `stack`, and his one tap decides each at its own head
-(root #194387, his 7:00 PM Oct 29 "all 3" on land-faster). Every verdict is read live
+carries it to every later head itself on every pass, and no lane carries a tap by hand.
+Owner, 2:48 AM Oct 31: "all of these other monorepo PRs have my taps now so do not put them
+back in front of me no matter what, and dont change their behaviors now, jsut get them
+merged". Take an approval on a `pr-groups` row at an older head of an open PR, with no
+verdict at the PR's current head. The runner moves it to the current head with `cc-present
+verdict carry`, whatever changed between the two, posts one `TAP-CARRIED` note naming both
+heads to root and each lane `landing.board_lane` names, one lane or a list, and posts its own
+`go` record for that head when no go names it, so root posts none. A reserved-row tap gate,
+a merge question and a go's tap claim all count his approval at any head of the PR, so a PR
+he tapped never draws a merge row, a `MERGE-ASK` or a `TAP-REQUIRED` refusal again. Every verdict is read live
 from the cc-present store (`cc-present outcomes`) and the root's `go` records at the
 moment it is used; no writer, row, card, or dashboard keeps a copy. Owner, 12:28 PM Oct
 27: "for each Biggest blocker, how are you fixing it structurally for future e.g. the
