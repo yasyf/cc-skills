@@ -241,7 +241,7 @@ def test_a_lane_that_ended_its_turn_on_an_ask_to_root_waits_until_the_answer_goe
 
     out = lanes.tick(store, fake.deps, T0 + timedelta(hours=3, minutes=16), 1)
 
-    assert out.relaunched == [("conflicts-2", "conflicts-3", "stopped at 1:00 PM")]
+    assert out.relaunched == [("conflicts-2", "conflicts-3", "stopped at 10:00 AM")]
 
 
 def test_a_lane_waiting_on_root_whose_session_cci_no_longer_lists_is_gone(tmp_path, brief):

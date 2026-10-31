@@ -167,8 +167,7 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
         if answers := {record.get("re"), record.get("resolves")} - {None}:
             for waiter in store.lanes(*LIVE):
                 if waiter.waiting in answers:
-                    store.lane_waiting(waiter.name, None)
-                    store.lane_heard(waiter.name, at)
+                    store.lane_waiting(waiter.name, None, at)
         if lane == SELF:
             continue
         if kind == "handoff" and row and (doc := (record.get("refs") or {}).get("ccn")):
@@ -275,7 +274,7 @@ def classify_lane(lane: Lane, peer: Peer | None, now: datetime, tokens: int | No
             return Verdict("came-up")
         return Verdict("no-show", f"not live {STALE_AFTER.seconds // 60} minutes after its launch") if now - lane.since >= STALE_AFTER else Verdict("ok")
     if not alive_now:
-        if lane.waiting is not None and peer is not None:
+        if peer is not None and (lane.waiting is not None or (lane.answered and now - lane.answered < STALE_AFTER)):
             return Verdict("ok")
         if heard is None:
             return Verdict("dead", "never registered")
