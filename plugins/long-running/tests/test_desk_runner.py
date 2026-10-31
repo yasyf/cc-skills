@@ -7029,7 +7029,6 @@ def trunk_queue(landing: dict) -> None:
         (lambda landing: landing.pop("adapter"), "names no landing.adapter.kind", '"adapter": {"kind": "label"}'),
         (trunk_queue, "names landing.adapter.kind graphite-stack-enqueue on a repository whose ccx queue is trunk", '"adapter": {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}'),
         (lambda landing: landing.update(adapter={"kind": "graphite-stack-enqueue"}), "names no landing.adapter.script", '"adapter": {"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}'),
-        (lambda landing: landing.update(checks=["hold", "lint"]), "lists lint under landing.checks", '"checks": ["hold"]'),
         (lambda landing: landing.update(merge_mode="high-risk"), "runs merge mode high-risk with no landing.high_risk_paths globs", '"high_risk_paths": ["*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "*creds*"]'),
         (lambda landing: landing.pop("release_cli"), "names no landing.release_cli", '"release_cli": "<release command line>"'),
     ],
@@ -7061,6 +7060,17 @@ def test_a_config_with_no_adapter_on_a_checkout_carrying_stack_enqueue_is_told_t
     fault = runner_module.mq_config_fault(raw["landing"])
     assert "names no landing.adapter.kind" in fault and "no landing.high_risk_paths globs" in fault
     assert fault.endswith(': "adapter": {"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}, "high_risk_paths": ["*migrations/*", "*.sql", "*backfill*", "*secret*", "*credential*", "*creds*"]')
+
+
+def test_a_check_a_release_retired_is_skipped_with_a_warning_and_the_runner_still_lands(shell, config, tmp_path, capsys):
+    """Oct 31 4:00 AM: 0.7.713 folded rules-review into fidelity, and the landing runner refused to start for ten minutes on a runner.json that still named it."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["checks"] = ["hold", "rules-review", "merge-mode", "approvals", "required-ci"]
+    config.write_text(json.dumps(raw))
+    lone_green_pr(shell)
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+    assert "WARN runner.json lists rules-review under landing.checks" in capsys.readouterr().err
 
 
 def test_a_checks_list_without_fidelity_enqueues_an_ungraded_head(shell, config, tmp_path, capsys):
