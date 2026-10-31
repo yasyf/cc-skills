@@ -142,6 +142,7 @@ def test_an_incident_spawn_passes_with_its_slice_and_captures_written_into_the_p
 def test_a_sub_lane_a_lane_spawns_is_warned_without_its_slice_and_refreshed_with_one(tools: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, ...]] = []
     monkeypatch.setattr(injection, "rulings", lambda cwd, *args, **_: calls.append(args) or "fresh /tmp/brief.md slice-hash 0123456789ab\n")
+    monkeypatch.setattr(injection, "judged", lambda *_: None)
     session = activated(tools / "session")
     sliced = "Lane lane-a-sub.\nScale: no N\nRegister slice: lane=lane-a-sub step=1.9\nslice-hash: 0123456789ab\n"
 
@@ -171,6 +172,7 @@ def test_a_slice_that_does_not_read_passes_the_spawn_and_posts_one_blocker(tools
     posted: list[tuple[str, dict]] = []
     monkeypatch.setattr(injection, "rulings", broken)
     monkeypatch.setattr(injection, "post_blocker", lambda evt, text, **flags: posted.append((text, flags)))
+    monkeypatch.setattr(injection, "judged", lambda *_: None)
     prompt = "Lane lane-a.\nScale: no N\nRegister slice: lane=lane-a step=1.9\nslice-hash: 0123456789ab\n"
 
     assert injection.slice_on_spawn(spawned(activated(tools / "session"), "Agent", {"name": "lane-a", "prompt": prompt})) is None

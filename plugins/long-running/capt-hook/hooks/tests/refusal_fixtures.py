@@ -5,7 +5,6 @@ from pathlib import Path
 BODIES = Path(__file__).parent / "fixtures" / "refusal-kinds"
 CITED = BODIES / "cited.md"
 UNCITED = BODIES / "uncited.md"
-UNNAMED = BODIES / "unnamed.md"
 TREE = BODIES / "tree"
 HELPER_TRANSCRIPT = BODIES.parent / "launched-460k.jsonl"
 NO_DRIVE = {"CLAUDE_LONG_RUNNING_LANE": "p1-hooks", "CLAUDE_CONFIG_DIR": str(BODIES)}
@@ -131,12 +130,6 @@ diff --git a/service/blob/blobtest/faults.go b/service/blob/blobtest/faults.go
 +	case <-time.After(rule.Delay):
 +	}
 """
-
-DIGIT_ID_BODY = """ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file - <<'EOF'
-## Rulings
-
-- 1068167: the owner's answer adds `LAUNCH-STALLED` with a `STALL_SECONDS` clock.
-EOF"""
 
 RELISTED = """\
 diff --git a/plugins/long-running/skills/long-running/scripts/desk-runner.py b/plugins/long-running/skills/long-running/scripts/desk-runner.py
