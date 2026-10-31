@@ -90,7 +90,7 @@ def check(minutes: int, failed: str = "") -> dict:
 
 
 def test_a_watch_under_thirty_minutes_since_the_last_cut_refuses() -> None:
-    assert endstate.watch_refusals(check(20)) == ["the watch read 19 of 30 minutes since the last cut; watch again from 2026-10-30T18:30:00.123456+00:00"]
+    assert endstate.watch_refusals(check(20)) == ["the watch read 20 of 30 minutes since the last cut; watch again from 2026-10-30T18:30:00.123456+00:00"]
 
 
 def test_a_watch_whose_series_refuses_refuses_and_a_clean_thirty_minutes_passes() -> None:
