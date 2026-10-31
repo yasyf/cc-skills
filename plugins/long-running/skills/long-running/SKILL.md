@@ -4516,9 +4516,11 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   `<new> replaces <old>`, and, while it has never come up, by another lane's records
   taking its last PR. A `<lane>-handoff` writer's `handoff <lane>: doc <id>` is the
   newest handoff of the lane now holding that work.
-- **Liveness.** A lane is alive while `cci who` lists it live and it was heard within
-  `STALE_AFTER`, 15 minutes, the one rule the store's `stale_workers` also applies; a
-  fresh store adopts only lanes alive by that rule. A lane whose newest record is an
+- **Liveness.** A lane is dead only when it has no live process and no record within
+  `STALE_AFTER`, 15 minutes. A live process is a `cci who` row that reads live, a live
+  Orca dispatch, or an in-process teammate on a live lead session's team roster, since
+  `SendMessage` resumes it however long it idled. A fresh store adopts only lanes alive
+  by that rule. A lane whose newest record is an
   `ask`, `blocked` or `blocker` to root is waiting, not dead, until 15 minutes after a
   record answers it with `--re` or `--resolves`. A live lane beats in the workers table
   each tick.
@@ -4534,10 +4536,14 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   carrying the PRs moves the old name's mail to it. A `SPAWNED` record for that name
   from another brief, a lane the root spawned by hand, withdraws the supervisor's
   launch.
-- **Rotation.** A live lane past its context line gets one `ROTATE` ask on cci. A
-  `handoff --ccn <doc>` reply, or no reply within the interval, rotates it the same way.
-- **Holds.** A launch not live 15 minutes later, a lane whose successors die within 15
-  minutes twice running, or a lane whose brief is gone is held, with one blocker to root.
+- **Rotation.** A live lane past its context line gets one `ROTATE` ask on cci. It
+  flushes in place: its `handoff --ccn <doc>` reply becomes its newest handoff and the
+  lane keeps working. The supervisor never relaunches a lane for its size; the handoff
+  only seeds the successor if the lane later dies.
+- **Holds.** A launch not live 15 minutes later, a lane whose successors die within 30
+  minutes of launch twice running, or a lane whose brief is gone is held, with one
+  blocker to root. A name root stood down, by a `stand-down` record or by a record
+  addressed to it that tells it to stand down, is never relaunched.
 - **Report.** Once an hour, one owner-facing report to root names each lane it restarted
   and why.
 

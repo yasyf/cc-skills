@@ -29,6 +29,19 @@ def test_a_compaction_after_the_last_turn_means_no_reading(tmp_path: Path):
     assert supervisor.last_tokens(path) is None
 
 
+def test_an_idle_teammate_of_a_live_lead_session_reads_live(tmp_path: Path):
+    (tmp_path / "session-d50e80e8").mkdir()
+    (tmp_path / "session-d50e80e8" / "config.json").write_text(json.dumps({"members": [{"name": "team-lead"}, {"name": "flock-race-1"}]}))
+    rows = [
+        {"lane": "root", "session": "d50e80e8-7ba3", "live": True},
+        {"lane": "flock-race-1", "session": "d50e80e8-7ba3", "agent": "aflock-race-1-01", "live": False},
+        {"lane": "gone-lane", "session": "d50e80e8-7ba3", "agent": "agone-lane-01", "live": False},
+        {"lane": "orphan", "session": "0badc0de-1111", "agent": "aorphan-01", "live": False},
+    ]
+
+    assert [row["live"] for row in supervisor.rostered(rows, tmp_path)] == [True, True, False, False]
+
+
 def test_only_active_orca_dispatches_count_as_live(tmp_path: Path, monkeypatch):
     for lane, dispatch in (("sol-fix", "ctx_1"), ("sol-done", "ctx_2"), ("sol-gone", "ctx_3")):
         (tmp_path / f"{lane}.json").write_text(json.dumps({"result": {"dispatchId": dispatch}}))

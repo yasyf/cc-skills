@@ -36,6 +36,7 @@ SCRIPTS = Path(__file__).resolve().parent
 BIN = SCRIPTS.parents[2] / "bin" / "drive_supervisor.py"
 DESK_LAUNCH = SCRIPTS / "desk-launch.py"
 PROJECTS = Path.home() / ".claude" / "projects"
+TEAMS = Path.home() / ".claude" / "teams"
 RECEIPTS = Path.home() / ".claude" / "scratch" / "orca-launch"
 SETTINGS = Path.home() / ".claude" / "settings.json"
 TIMEOUT = 60
@@ -105,6 +106,13 @@ def orca_rows(run_id: str, receipts: Path, names: set[str] | None, now: datetime
     return [{"lane": lane, "live": True, "seen_at": seen, "dispatch": dispatch} for lane, dispatch in dispatches.items() if statuses.get(dispatch, "completed") not in INACTIVE]
 
 
+def rostered(rows: list[dict], teams: Path) -> list[dict]:
+    """`cci who` rows with each in-process teammate of a live lead session read as live, since SendMessage resumes it however long it has been idle."""
+    leads = {row["session"] for row in rows if row.get("live") and row.get("session") and not row.get("agent")}
+    members = {session: {member["name"] for member in json.loads(path.read_text())["members"]} for session in leads if (path := teams / f"session-{session[:8]}" / "config.json").is_file()}
+    return [row | {"live": True} if row.get("agent") and row.get("lane") in members.get(row.get("session"), ()) else row for row in rows]
+
+
 def transcript(row: dict) -> Path | None:
     session, agent = row.get("session"), row.get("agent")
     if not session:
@@ -163,7 +171,7 @@ def lanes_deps(config: lr_config.Config, state: Path) -> lanes.Deps:
     receipts = RECEIPTS / config.orca_run
 
     def who(names: set[str] | None) -> list[dict]:
-        rows = [json.loads(line) for line in run(["cci", "who", "--drive", config.drive, "--all", "--json"]).splitlines() if line.strip()]
+        rows = rostered([json.loads(line) for line in run(["cci", "who", "--drive", config.drive, "--all", "--json"]).splitlines() if line.strip()], TEAMS)
         return rows + (orca_rows(config.orca_run, receipts, names, clock()) if config.orca_run else [])
 
     briefs = state / "lanes"

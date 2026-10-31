@@ -1,17 +1,18 @@
 """The lanes mover: every lane the drive needs stays alive without the root.
 
 Each tick folds the bus records after the mover's cursor into the `lanes` registry, reads
-once which lanes `cci who` lists live, and acts on each desired lane: one that stopped, or
-went silent past `STALE_AFTER`, has its successor launched from the lane's brief and newest
-handoff, and is stood down by one record naming that successor and the PRs it takes over
-once the successor is up; a lane whose newest record is an unanswered ask is waiting, not
-silent, and its clock restarts at the answer; one
-past its context line is asked to rotate, and rotated the same way when no handoff answers
-within the interval. Each live lane beats in the store's worker table, so `stale_workers` is the
-one liveness rule, and a lane it relaunches, holds or retires leaves that table. A fresh store adopts only the lanes alive at that moment by the same rule, and a tick whose
-sources do not all answer acts on nothing. A numbered successor's `SPAWNED`, a root
-`<new> replaces <old>`, and a `head` or `opened` record that takes a never-launched lane's last
-PR each retire the older lane; a `<lane>-handoff` writer's `handoff <lane>: doc <id>` is the
+once which lanes `cci who` lists live, and acts on each desired lane. A lane with no live
+process and no record within `STALE_AFTER` has its successor launched from the lane's brief
+and newest handoff, and is stood down by one record naming that successor and the PRs it
+takes over once the successor is up; a lane whose newest record is an unanswered ask to root
+is waiting, and its clock restarts at the answer. A lane past its context line is asked to
+rotate and flushes in place: its handoff becomes the newest one and it keeps working. Each
+live lane beats in the store's worker table, and a lane it relaunches, holds or retires
+leaves that table. A fresh store adopts only the lanes alive at that moment by the same
+rule, and a tick whose sources do not all answer acts on nothing. A numbered successor's
+`SPAWNED`, a root `<new> replaces <old>`, a root record telling a lane to stand down, the
+lane's own stand-down, and a `head` or `opened` record that takes a never-launched lane's
+last PR each retire a lane; a `<lane>-handoff` writer's `handoff <lane>: doc <id>` is the
 lane's newest handoff. It signals no process: a live lane leaves only
 through the record that stands it down.
 """
@@ -42,6 +43,8 @@ CARRIES = ("head", "opened")
 WAITS = frozenset({"ask", "blocked", "blocker"})
 SLICE_STEP = re.compile(r"^Register slice: lane=\S+ step=(\S+)", re.MULTILINE)
 STOOD_DOWN = r"^(?:\d{{1,2}}:\d{{2}} [AP]M )?{}:? (?:STAND-DOWN|stood down|standing down)\b"
+TOLD_TO_STAND_DOWN = r"\b{}\b[^.\n]{{0,60}}\bstand[ -]?down\b"
+STRIKE_WINDOW = 2 * STALE_AFTER
 OWNER = re.compile(r"\bowner=([\w.-]+)")
 PACIFIC = ZoneInfo("America/Los_Angeles")
 HANDOFF_BRIEF = Path(__file__).parents[3] / "reference" / "handoff-subagent-brief.md"
@@ -207,6 +210,10 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
         elif lane == ROOT and (moved := REPLACES.search(text)) and (old := store.lane(moved["old"])) and old.state in LIVE and (taker := store.lane(moved["new"])):
             retire(store, old.name, taker.name, at)
             store.lane_prs(taker.name, {*taker.prs, *old.prs})
+        if lane == ROOT and kind != "stand-down":
+            for name in record.get("to") or []:
+                if (told := store.lane(name)) and told.state != "retired" and re.search(TOLD_TO_STAND_DOWN.format(re.escape(name)), text, re.IGNORECASE):
+                    retire(store, name, ROOT, at)
     return adopted, hand
 
 
@@ -265,15 +272,16 @@ class Verdict:
 
 
 def alive(peer: Peer | None, heard: datetime | None, now: datetime) -> bool:
-    return bool(peer and peer.live and heard and now - heard < STALE_AFTER)
+    """A lane is alive while its process is live or it was heard within `STALE_AFTER`; only both failing reads as dead."""
+    return bool(peer and peer.live) or bool(heard and now - heard < STALE_AFTER)
 
 
 def classify_lane(lane: Lane, peer: Peer | None, now: datetime, tokens: int | None = None, rotate_at: int = 0) -> Verdict:
-    """One registry row against what `cci who` shows now: `ok`, `came-up`, `no-show`, `dead`, `ask-rotate` or `rotating`."""
+    """One registry row against what `cci who` shows now: `ok`, `came-up`, `no-show`, `dead` or `ask-rotate`; a flushed lane keeps working in place."""
     heard = max([t for t in (peer.seen if peer else None, lane.heard) if t], default=None)
     alive_now = alive(peer, heard, now)
     if lane.state == "launching":
-        if alive_now:
+        if peer is not None and alive_now:
             return Verdict("came-up")
         return Verdict("no-show", f"not live {STALE_AFTER.seconds // 60} minutes after its launch") if now - lane.since >= STALE_AFTER else Verdict("ok")
     if not alive_now:
@@ -281,11 +289,7 @@ def classify_lane(lane: Lane, peer: Peer | None, now: datetime, tokens: int | No
             return Verdict("ok")
         if heard is None:
             return Verdict("dead", "never registered")
-        return Verdict("dead", f"went silent at {pacific(heard)}" if peer and peer.live else f"stopped at {pacific(heard)}")
-    if lane.flushed is not None:
-        return Verdict("rotating", f"flushed its handoff for rotation at {pacific(lane.flushed)}")
-    if lane.asked is not None:
-        return Verdict("rotating", f"posted no handoff within {STALE_AFTER.seconds // 60} minutes of its ROTATE ask at {pacific(lane.asked)}") if now - lane.asked >= STALE_AFTER else Verdict("ok")
+        return Verdict("dead", f"stopped at {pacific(heard)}")
     if tokens is not None and rotate_at and tokens >= rotate_at:
         return Verdict("ask-rotate", f"{tokens:,} tokens")
     return Verdict("ok")
@@ -305,10 +309,10 @@ def relaunch(store: Store, deps: Deps, old: Lane, peers: dict[str, Peer], why: s
         retire(store, old.name, heir, now)
         return
     peer = peers.get(old.name)
-    strikes = old.strikes + 1 if old.predecessor and now - old.since < STALE_AFTER else 0
+    strikes = old.strikes + 1 if old.predecessor and now - old.since < STRIKE_WINDOW else 0
     if strikes >= STRIKES or not Path(old.brief).is_file():
         hold(store, old.name, why, now)
-        cause = f"its successors died within {STALE_AFTER.seconds // 60} minutes of launch {STRIKES} times" if strikes >= STRIKES else f"its brief {old.brief} is gone"
+        cause = f"its successors died within {STRIKE_WINDOW.seconds // 60} minutes of launch {STRIKES} times" if strikes >= STRIKES else f"its brief {old.brief} is gone"
         escalate(store, deps, f"lane:{old.name}", f"held, not relaunched: {cause}; it {why}", now)
         out.held.append(old.name)
         return
@@ -369,7 +373,7 @@ def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
             hold(store, lane.name, verdict.why, now)
             escalate(store, deps, f"lane:{lane.name}", f"{verdict.why}; brief {deps.briefs / f'{lane.name}.brief.md'}", now)
             out.held.append(lane.name)
-        elif verdict.kind in ("dead", "rotating"):
+        elif verdict.kind == "dead":
             relaunch(store, deps, lane, found, verdict.why, taken, now, out)
         elif verdict.kind == "ask-rotate":
             post(deps, "ask", lane.name, f"ROTATE: {lane.name} is at {verdict.why}. Write anything not yet in the ledger or cc-notes to a cc-notes doc, post `cci post --lane {lane.name} --kind handoff --ccn <doc id> --re <this record>`, then keep working.")
