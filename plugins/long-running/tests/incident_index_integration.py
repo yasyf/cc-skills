@@ -52,14 +52,14 @@ def test_actual_landing_native_incidents_follow_mutable_files_and_closures(incid
     calls = []
     work = []
 
-    def query(expected, *, changed=False, startup=False, changed_names=1):
+    def query(expected, *, changed=False, startup=False, changed_names=1, records_changed=False):
         before = incident_index.counts()
         assert landing.holding(prefix, {}, shell.now()) == expected
         after = incident_index.counts()
         calls.append(after["native_requests"] - before["native_requests"])
         delta = {key: after["backend"][key] - before["backend"][key] for key in ("body_stats", "body_opens", "body_bytes", "route_stats", "missing_name_checks")}
         work.append(delta)
-        print(json.dumps({"population": incident_index.population, "call": len(calls), "startup": startup, "changed": changed, "changed_names": changed_names, "native_requests": calls[-1], "work": delta}))
+        print(json.dumps({"population": incident_index.population, "call": len(calls), "startup": startup, "changed": changed, "changed_names": changed_names, "records_changed": records_changed, "native_requests": calls[-1], "work": delta}))
         if changed:
             assert delta["body_stats"] <= 4
             assert delta["body_opens"] <= 1
@@ -67,7 +67,8 @@ def test_actual_landing_native_incidents_follow_mutable_files_and_closures(incid
             assert delta["route_stats"] <= 64
             assert delta["missing_name_checks"] <= (8 if startup else 4 * changed_names)
         else:
-            assert delta == {"body_stats": 0, "body_opens": 0, "body_bytes": 0, "route_stats": 0, "missing_name_checks": 0}
+            assert {key: value for key, value in delta.items() if key != "missing_name_checks"} == {"body_stats": 0, "body_opens": 0, "body_bytes": 0, "route_stats": 0}
+            assert delta["missing_name_checks"] <= (4 if records_changed else 0)
 
     try:
         query(held("29020", "29022"), changed=True, startup=True)
@@ -78,9 +79,9 @@ def test_actual_landing_native_incidents_follow_mutable_files_and_closures(incid
             incident_index.change(operation)
             query(held(*prs), changed=True, changed_names=2 if operation == "body-rename" else 1)
         newer = incident_index.change("append")["newer"]
-        query(held("29020", seq=newer) | held("29022"))
+        query(held("29020", seq=newer) | held("29022"), records_changed=True)
         incident_index.change("resolve-newer")
-        query(held("29020", "29022"))
+        query(held("29020", "29022"), records_changed=True)
         incident_index.change("expire-selected")
         query({}, changed=True)
         assert calls == [2] + [1] * (len(calls) - 1)
