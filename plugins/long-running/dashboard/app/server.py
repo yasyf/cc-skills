@@ -1345,7 +1345,10 @@ def handler(drive):
             elif self.path == "/api/asked":
                 status, out = drive.asked(body["text"])
             elif self.path == "/api/change":
-                status, out = drive.change_request(int(body["number"]), body["head"], body["text"].strip())
+                try:
+                    status, out = drive.change_request(int(body["number"]), body["head"], body["text"].strip())
+                except (OSError, subprocess.SubprocessError) as failure:
+                    status, out = 502, {"error": f"the drive's records could not take it ({getattr(failure, 'stderr', None) or failure})"}
             else:
                 status, out = drive.decide(body["block"], body["number"], body["verdict"], body.get("head"), body.get("note"))
             self.send(status, "application/json", json.dumps(out).encode())

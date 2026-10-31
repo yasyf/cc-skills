@@ -378,3 +378,28 @@ def test_the_hovered_milestone_or_else_the_current_one_is_wide_with_its_details_
     page.mouse.move(5, 5, steps=4)
     page.wait_for_timeout(900)
     assert focused(page) == cur
+
+
+def test_a_live_update_keeps_the_caret_in_the_open_drawers_note_and_its_draft(page):
+    page.goto(page.url.split("#")[0] + "#/review/decided~review/49001")
+    note = page.locator(".pr-drawer.front [data-change] input")
+    note.click()
+    note.press_sequentially("hold the lock")
+    note.press("ArrowLeft")
+    page.evaluate("render()")
+    assert page.evaluate("document.activeElement.closest('.pr-drawer.front') !== null")
+    assert page.evaluate("document.activeElement.selectionStart") == len("hold the lock") - 1
+    assert note.input_value() == "hold the lock"
+    assert page.locator('.mr[data-peek="49001"] [data-change] input').evaluate("(el) => el.closest('[inert]') !== null")
+
+
+def test_a_change_request_the_server_drops_says_not_sent_and_keeps_the_draft_for_a_retry(page):
+    page.goto(page.url.split("#")[0] + "#/review/decided~review/49001")
+    page.route("**/api/change", lambda route: route.abort())
+    note = page.locator(".pr-drawer.front [data-change] input")
+    note.fill("no lock on insert")
+    note.press("Enter")
+    page.wait_for_selector(".pr-drawer.front [data-change] .pill.bad")
+    assert page.locator(".pr-drawer.front [data-change] button").inner_text() == "Send"
+    assert page.locator(".pr-drawer.front [data-change] input").input_value() == "no lock on insert"
+    page.unroute("**/api/change")

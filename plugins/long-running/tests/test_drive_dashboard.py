@@ -1052,3 +1052,18 @@ def test_a_tap_records_only_on_a_row_the_board_still_holds_at_the_head_the_page_
 
     assert Drive({"board_url": "http://board/p/x", "board_session": "s"}, None).decide("merge-prs", number, verdict, head, None) == (status, out)
     assert bool(sent) is posted
+
+
+def test_a_change_request_the_record_tool_cannot_post_answers_with_the_reason(monkeypatch):
+    drive = Drive({"drive": "d", "board_url": "http://board/p/x"}, None)
+    monkeypatch.setattr(server, "run", lambda *args, **kwargs: (_ for _ in ()).throw(FileNotFoundError(2, "No such file or directory", "cci")))
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler(drive))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    request = urllib.request.Request(f"http://127.0.0.1:{httpd.server_port}/api/change", data=json.dumps({"number": 7, "head": "abc", "text": "no lock"}).encode(), headers={"Content-Type": "application/json"})
+    try:
+        with pytest.raises(urllib.error.HTTPError) as failed:
+            urllib.request.urlopen(request, timeout=5)
+        assert failed.value.code == 502
+        assert "cci" in json.loads(failed.value.read())["error"]
+    finally:
+        httpd.shutdown()
