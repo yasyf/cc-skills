@@ -7788,6 +7788,16 @@ def test_an_admitted_head_no_branch_settles_is_refused_unsettled_to_the_watchdog
     assert admitted_heads(config)["33001"]["state"] == "defect"
 
 
+def test_a_green_pr_under_a_queued_native_stack_top_settles_queued_never_unsettled(shell, config, tmp_path):
+    """Oct 31 8:35 AM: #45785, #45791 and #46614 read GREEN under a stack top Trunk already held, the check printed no enqueue line, and they posted `unsettled: the stack worker's settle step` until they landed (root #257204)."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 Trunk not queued")
+    shell.gates["33001"] = ["#33001 GREEN aaaa111111 Trunk not queued\nnothing to enqueue: Trunk already holds the green bottom prefix\n"]
+    landing_pass(shell, config)
+    assert not [line for line in said(shell) if "unsettled" in line]
+    assert settled(shell, "QUEUED") and shell.enqueues() == []
+
+
 @pytest.mark.parametrize(
     ("gate_line", "why"),
     [

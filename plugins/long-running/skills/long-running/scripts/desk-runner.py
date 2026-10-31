@@ -827,6 +827,7 @@ SETTLED = "settled"
 ROWED_READ = "rowed-read"
 QUOTA_OFF = "GitHub's read quota is under ccx's floor"
 IN_QUEUE_SAID = "the merge queue holds it"
+PREFIX_HELD = re.compile(r"^nothing to enqueue: \w+ already holds the green bottom prefix$", re.MULTILINE)
 QUEUE_SAID = "the landing runner put it in the merge queue at {at}"
 UNSETTLED = "unsettled:"
 DEQUEUE_ORDERS = "dequeue-orders"
@@ -6137,8 +6138,9 @@ class Landing:
                 else:
                     self.gate_failed(tips, done, open_rows)
                 continue
+            held_prefix = PREFIX_HELD.search(done.out) is not None
             for pr, match in verdicts.items():
-                if match["verdict"] == QUEUED_VERDICT:
+                if match["verdict"] == QUEUED_VERDICT or match["verdict"] == "GREEN" and held_prefix:
                     self.settle({pr: match["sha"]}, Queued(IN_QUEUE_SAID))
                 elif match["verdict"] == "BLOCKED":
                     self.settle({pr: match["sha"]}, Refused(f"the gate read {match['sha']} BLOCKED: {match['detail']}"))
