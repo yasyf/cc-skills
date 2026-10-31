@@ -112,7 +112,7 @@ def test_run_ends_by_itself_when_its_generation_is_taken():
 def test_a_lanes_only_supervisor_runs_no_pr_pass(monkeypatch):
     store, clock = Store.memory(), Clock()
     ticked = []
-    monkeypatch.setattr(loop.lanes, "tick", lambda store, deps, now: ticked.append(now) or loop.lanes.Outcome())
+    monkeypatch.setattr(loop.lanes, "tick", lambda store, deps, now, generation: ticked.append(now) or loop.lanes.Outcome())
 
     [tick] = loop.run(store, "d", "0.8.0", 1, loop.Deps(movers=frozenset({"lanes"}), clock=clock, sleep=clock.sleep, lane_deps=object()), ticks=1)
 

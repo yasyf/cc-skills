@@ -6,7 +6,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-import supervisor
+import drive_supervisor as supervisor
 
 NOW = datetime(2026, 10, 31, 17, 0, tzinfo=UTC)
 

@@ -50,7 +50,7 @@ def tick(store: Store, drive: str, generation: int, deps: Deps) -> Tick:
     now = deps.clock()
     store.renew_lease(drive, generation, now)
     store.heartbeat(SELF, generation, now)
-    relaunched = len(lanes.tick(store, deps.lane_deps, now).relaunched) if "lanes" in deps.movers else 0
+    relaunched = len(lanes.tick(store, deps.lane_deps, now, generation).relaunched) if "lanes" in deps.movers else 0
     if not deps.movers & {"landing", "grading"}:
         return Tick(now, 0, 0, 0, 0, relaunched)
     snapshot = list(deps.snapshot())

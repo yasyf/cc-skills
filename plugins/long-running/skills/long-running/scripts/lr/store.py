@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -260,9 +261,20 @@ class Store:
     def all_lanes(self) -> list[Lane]:
         return [Lane.row(row) for row in self.db.execute("SELECT * FROM lanes ORDER BY name").fetchall()]
 
-    def set_lane(self, name: str, **fields) -> None:
-        values = {key: stamp(value) if isinstance(value, datetime) else json.dumps(list(value)) if key == "prs" else value for key, value in fields.items()}
-        self.db.execute(f"UPDATE lanes SET {', '.join(f'{key} = ?' for key in values)} WHERE name = ?", (*values.values(), name))
+    def lane_state(self, name: str, state: str, at: datetime, retired_by: str | None = None, reason: str | None = None) -> None:
+        self.db.execute("UPDATE lanes SET state = ?, since = ?, retired_by = coalesce(?, retired_by), reason = coalesce(?, reason) WHERE name = ?", (state, stamp(at), retired_by, reason, name))
+
+    def lane_heard(self, name: str, at: datetime) -> None:
+        self.db.execute("UPDATE lanes SET heard = ? WHERE name = ? AND (heard IS NULL OR heard < ?)", (stamp(at), name, stamp(at)))
+
+    def lane_handoff(self, name: str, doc: str, flushed: datetime | None) -> None:
+        self.db.execute("UPDATE lanes SET handoff = ?, flushed = coalesce(?, flushed) WHERE name = ?", (doc, stamp(flushed) if flushed else None, name))
+
+    def lane_asked(self, name: str, at: datetime | None) -> None:
+        self.db.execute("UPDATE lanes SET asked = ? WHERE name = ?", (stamp(at) if at else None, name))
+
+    def lane_prs(self, name: str, prs: Iterable[int]) -> None:
+        self.db.execute("UPDATE lanes SET prs = ? WHERE name = ?", (json.dumps(sorted(set(prs))), name))
 
     def advance(self, source: str, position: int) -> None:
         self.db.execute("INSERT INTO cursors (source, position) VALUES (?, ?) ON CONFLICT (source) DO UPDATE SET position = max(cursors.position, excluded.position)", (source, position))
