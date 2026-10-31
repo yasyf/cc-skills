@@ -1441,7 +1441,7 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
                 touched_rows.setdefault(result["key"], result["how"])
             if result.get("repeated"):
                 repeats[result["key"]] = result["hits"]
-            if added := len(entry.get("implications") or []):
+            if "key" in result and (added := len(entry.get("implications") or [])):
                 fresh.setdefault(result["key"], []).extend(result["implications"][-added:])
         if touched_rows and (drive_entry := entry_of(args)):
             cci = drive.cci_drive(drive_entry)
@@ -1783,15 +1783,15 @@ def shape_untested(loaded: Register, args: argparse.Namespace, head: Head) -> li
 
 
 def judged_test(loaded: Register, args: argparse.Namespace, key: str, fields: dict[str, str], tests: str) -> dict | None:
-    """The judge's verdict on `tests` against the owner's words on `key`, kept per row and test text so a head is judged once, not once a pass; `None` when the call failed, so nothing is added."""
-    digest = hashlib.sha256(json.dumps([key, fields.get("words"), fields.get("repeats"), tests]).encode()).hexdigest()[:24]
-    kept = loaded.state / "check-pr" / "judged" / f"{digest}.json"
+    """The judge's verdict on `tests` against the owner's words on `key`, kept per evidence and test text so a head is judged once, not once a pass; `None` when the call failed, so nothing is added."""
+    evidence = judge.owner_words(key, judge.said(fields, loaded.state))
+    kept = loaded.state / "check-pr" / "judged" / f"{hashlib.sha256(json.dumps([evidence, tests]).encode()).hexdigest()[:24]}.json"
     if kept.is_file():
         return json.loads(kept.read_text())
     entry = entry_of(args)
     verdict = judge.judge(
         "test",
-        judge.owner_words(key, judge.said(fields, loaded.state)),
+        evidence,
         tests,
         backend=judge.backend_from(os.environ),
         drive=entry["drive"] if entry else None,
