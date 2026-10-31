@@ -26,6 +26,18 @@ depth = int(sys.argv[2])
 ledger.Shell().run([sys.executable, __file__, sys.argv[1], str(depth - 1)] if depth else [sys.executable, "-c", {hung!r}, sys.argv[1]])
 """
 
+REEXECS = """import os, subprocess, sys, time
+sys.path.insert(0, {scripts!r})
+from long_running import drive
+drive.run_installed(__file__)
+if left := int(sys.argv[2]):
+    started = [subprocess.Popen(["sleep", "60"], stdout=subprocess.PIPE), subprocess.Popen(["true"]), subprocess.Popen(["sleep", "1"], start_new_session=True)]
+    time.sleep(0.2)
+    drive.reexec([sys.executable, __file__, sys.argv[1], str(left - 1)])
+open(sys.argv[1], "w").write(str(os.getpid()))
+time.sleep(60)
+"""
+
 
 def nesting_script(tmp_path: Path) -> Path:
     """A plugin script that runs itself through `ledger.Shell` `depth` times, then a command that swallows SIGTERM and hangs, as a `ccn` stuck on cc-notes does, writing its pid to the first argument."""
@@ -135,6 +147,27 @@ def test_a_deadline_another_process_set_is_left_alone(tmp_path, monkeypatch):
     done = subprocess.run(["sh", "-c", f"{sys.executable} {script}; exit $?"], capture_output=True, text=True, timeout=30)
 
     assert (done.returncode, done.stdout) == (0, "done\n")
+
+
+def children(pid: int) -> list[str]:
+    rows = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,stat=,command="], capture_output=True, text=True, check=True).stdout.splitlines()
+    return [row.strip() for row in rows if row.split()[1] == str(pid)]
+
+
+def test_a_script_that_reexecutes_in_place_leaves_no_child_of_an_earlier_image_running_or_unreaped(tmp_path):
+    """On 2026-10-31 a board watch re-executed on each plugin update held 154 zombie `cc-present watch` and `cci watch` children after 27 h, and a desk runner held the launch jobs its earlier image started: no image knows the children an earlier one started."""
+    script, final = tmp_path / "reexecs.py", tmp_path / "final"
+    script.write_text(REEXECS.format(scripts=str(Path(drive.__file__).parent.parent)))
+    top = subprocess.Popen([sys.executable, str(script), str(final), "3"], env=os.environ | {drive.CALLER_VERSION_ENV: drive.plugin_manifest()["version"]})
+    try:
+        assert written(final) == top.pid
+        deadline = time.monotonic() + 15
+        while (left := children(top.pid)) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert left == []
+    finally:
+        top.kill()
+        top.wait()
 
 
 def test_a_timed_out_command_fails_the_verb_and_names_the_command(capsys):
@@ -267,4 +300,3 @@ def test_a_missing_working_directory_fails_at_once_rather_than_waiting_out_the_i
     with pytest.raises(FileNotFoundError):
         ledger.Shell().run(["true"], cwd=tmp_path / "gone")
     assert time.monotonic() - started < 1
-

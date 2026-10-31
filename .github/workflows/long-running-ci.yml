@@ -84,7 +84,10 @@ jobs:
           prior = next(node for node in ast.parse(original).body if isinstance(node, ast.FunctionDef) and node.name == name)
           start = lambda node: min([node.lineno, *(decorator.lineno for decorator in node.decorator_list)]) - 1
           lines = original.splitlines(keepends=True)
-          lines[start(prior):prior.end_lineno] = current.splitlines(keepends=True)[start(selected):selected.end_lineno]
+          for node in ast.walk(selected):
+              if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "said":
+                  node.func.id = "escalations"
+          lines[start(prior):prior.end_lineno] = [ast.unparse(selected) + "\n"]
           baseline.write_text("".join(lines))
           PYCODE
           for number in '#7' '#100@bbbbbbbb'; do
