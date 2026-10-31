@@ -1209,6 +1209,10 @@ class Shell:
     def cci_query(self, argv: list[str], env: dict[str, str] | None = None, cwd: str | None = None) -> Done:
         return self._repeat(argv, lambda: self._cci_query_once(argv, env, cwd))
 
+    def incident_holds(self, home: str, drive: str, prs: list[str]) -> dict[str, dict]:
+        with self._measuring(["cci", "incident-holds", "--drive", drive]) as timeout:
+            return cci.incident_holds(home, drive, prs, timeout)
+
     def _repeat(self, argv: list[str], operation: Callable[[], Done]) -> Done:
         done = operation()
         for wait in MISSING_BACKOFF:
@@ -1925,6 +1929,9 @@ class Runner:
         self.finding = threading.Lock()
         self.taps: tuple[datetime, set[str]] = (datetime.min.replace(tzinfo=timezone.utc), set())
         self.cci_tail = cci.Tail(self.cci_read)
+        self.incident_home = ""
+        self.incident_native: bool | None = None
+        self.incident_admission = threading.Lock()
         self.read_failed_at = float("-inf")
         self.passing: set[str] = set()
         self.bus_misses: list[datetime] = []
@@ -2486,6 +2493,25 @@ class Runner:
             self.read_failed_at = time.monotonic()
             raise CciTailFailed(f"cci tail exited {done.code}: {(done.err or done.out).strip()[:300]}")
         return done.out
+
+    def incident_holds(self, prs: list[str]) -> dict[str, dict] | None:
+        if not prs:
+            return {}
+        try:
+            with self.incident_admission:
+                if self.incident_native is None:
+                    self.incident_home = cci.native_home()
+                    self.incident_native = True
+                    try:
+                        self.shell.incident_holds(self.incident_home, self.config.drive, [])
+                    except cci.IncidentQueryFailed as error:
+                        if (error.status, error.code) not in {(409, "home_mismatch"), (503, "scope_not_admitted")}:
+                            raise
+                        self.incident_native = False
+            return self.shell.incident_holds(self.incident_home, self.config.drive, prs) if self.incident_native else None
+        except cci.IncidentQueryFailed as error:
+            self.read_failed_at = time.monotonic()
+            raise CciTailFailed(f"cci incident query failed ({error.code}): {error}") from error
 
     def cci_line(self, record: dict) -> None:
         seq, line = record["seq"], record["text"].strip()
@@ -8052,11 +8078,17 @@ class Landing:
     def holding(self, prefix: list[str], rows: dict[str, dict], accepted_at: datetime) -> dict[str, str]:
         """Why each PR of `prefix` may not be in the queue right now, read fresh: an open cci `incident` record that names it, whose lane squash-merges the fix directly (ef905a6), the `hold` label on GitHub, an open cci `hold` record, a `hold` record posted after this enqueue was accepted, or a `hold` record newer than the PR's newest `ready` record. A label read GitHub refuses holds the PR too."""
         drive = self.runner.config.drive
-        incidents = [record for record in cci.records(self.cci_tail.run, drive, "--kind=incident") if (record["kind"], record["drive"], record.get("status")) == ("incident", drive, "open")]
+        indexed = self.runner.incident_holds(prefix)
+        incidents = [record for record in cci.records(self.cci_tail.run, drive, "--kind=incident") if (record["kind"], record["drive"], record.get("status")) == ("incident", drive, "open")] if indexed is None else []
         why = {}
         for pr in prefix:
-            if named := [record for record in incidents if names_pr({**record, "text": full_text(record)}, pr)]:
-                why[pr] = f"open INCIDENT #{named[-1]['seq']}, whose lane squash-merges it directly, never through the queue"
+            if indexed is None:
+                named = [record for record in incidents if names_pr({**record, "text": full_text(record)}, pr)]
+                incident = named[-1] if named else None
+            else:
+                incident = indexed.get(pr)
+            if incident:
+                why[pr] = f"open INCIDENT #{incident['seq']}, whose lane squash-merges it directly, never through the queue"
             elif reason := self.label_hold(pr) or self.record_hold(pr, accepted_at):
                 why[pr] = reason
         return why
