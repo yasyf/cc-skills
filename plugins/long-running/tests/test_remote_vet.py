@@ -14,7 +14,10 @@ SPRITE = """#!/usr/bin/env python3
 import json, os, subprocess, sys
 args = sys.argv[4:]
 if args[-1] == "/proc/loadavg":
-    print(json.loads(os.environ["LOADS"])[sys.argv[3]])
+    loads = json.loads(os.environ["LOADS"])
+    if sys.argv[3] not in loads:
+        sys.exit("failed to start sprite command: Storage not ready")
+    print(loads[sys.argv[3]])
     sys.exit(0)
 mac, sprite = os.environ["MAC_ROOT"], os.environ["SPRITE_ROOT"]
 with open(os.environ["SPRITES_LOG"], "a") as log:
@@ -138,6 +141,26 @@ def test_a_remote_vet_refuses_when_every_vet_sprite_is_over_load_so_the_lane_pus
 
     assert done.returncode == 3, done.stdout + done.stderr
     assert done.stdout == "remote-vet: every vet Sprite is over load 16 (busy at 16.5); push and let CI grade l1\n"
+    assert not (tmp_path / "sprites.log").exists()
+
+
+@pytest.mark.parametrize(("loads", "said"), [
+    ({"busy": "39"}, "remote-vet: every vet Sprite is over load 16 (busy at 39); push and let CI grade l1\n"),
+    ({}, "remote-vet: no vet Sprite of down, busy answered; push and let CI grade l1\n"),
+], ids=["one-down", "all-down"])
+def test_a_vet_sprite_that_cannot_start_a_command_is_passed_over_instead_of_failing_the_vet(tmp_path: Path, loads: dict[str, str], said: str) -> None:
+    """pod-volume-3 #257954: a vet Sprite answering 'Storage not ready' failed every vet instead of leaving the choice to the Sprites that answered."""
+    mac, work = tmp_path / "mac", tmp_path / "work"
+    subprocess.run(["git", "init", "-q", str(work)], check=True)
+    config = tmp_path / "runner.json"
+    config.write_text(json.dumps({"drive": "d1", "landing": {"repo": "o/r", "checkout": str(mac / "clone")}, "vet": {"sprite": ["down", "busy"]}}))
+    executable(mac / "bin" / "sprite", SPRITE)
+    env = os.environ | {"PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(tmp_path / "sprite"), "SPRITES_LOG": str(tmp_path / "sprites.log"), "LOADS": json.dumps(loads)}
+
+    done = subprocess.run([sys.executable, str(SCRIPT), "--config", str(config), "--lane", "l1", str(work)], env=env, capture_output=True, text=True)
+
+    assert done.returncode == 3, done.stdout + done.stderr
+    assert done.stdout == said
     assert not (tmp_path / "sprites.log").exists()
 
 

@@ -8,8 +8,9 @@
 
 STDLIB ONLY. `--config` is the drive's desk-runner `runner.json`: `landing.checkout` names the clone path every Sprite
 holds, and the vet runs on `--sprite` or else the least loaded Sprite `vet.sprite` lists, Sprites of their own so a build
-never starves the finder and fidelity passes on a grader Sprite. When every one is over load 16 the script exits 3
-without vetting, so the lane pushes and CI grades it. The change is everything in WORKTREE (default the current
+never starves the finder and fidelity passes on a grader Sprite. A Sprite that does not answer the load probe is passed
+over, and when none answers or every one is over load 16 the script exits 3 without vetting, so the lane pushes and CI
+grades it. The change is everything in WORKTREE (default the current
 directory) that differs from its merge base with `--base`, default the branch below it in its ccx stack, else the
 remote's default branch, so a stacked lane vets only its own commits; committed or not, untracked files included. On the Sprite, the lane's own
 worktree `<root>/vet-<lane>` beside the clone, kept between runs so later checkouts read local objects, moves to that
@@ -172,8 +173,15 @@ def parent(worktree: Path) -> str | None:
     return branches[at - 1] if at else None
 
 
-def idlest(sprites: list[str]) -> tuple[str, float]:
-    loads = {name: float(run("sprite", "exec", "-s", name, "--no-stdin", "--", "cut", "-d", " ", "-f1", "/proc/loadavg")) for name in sprites}
+def idlest(sprites: list[str]) -> tuple[str, float] | None:
+    loads = {}
+    for name in sprites:
+        try:
+            loads[name] = float(run("sprite", "exec", "-s", name, "--no-stdin", "--", "cut", "-d", " ", "-f1", "/proc/loadavg"))
+        except subprocess.CalledProcessError:
+            continue
+    if not loads:
+        return None
     name = min(loads, key=loads.__getitem__)
     return name, loads[name]
 
@@ -193,7 +201,10 @@ def main(argv: list[str] | None = None) -> int:
     if not args.sprite and not (builds := config.get("vet", {}).get("sprite")):
         print(f"remote-vet: {args.config} names no BUILD Sprite under vet.sprite, and a vet never runs on a grading Sprite; pass --sprite or push and let CI grade {args.lane}")
         return 3
-    sprite, load = (args.sprite, 0.0) if args.sprite else idlest(builds)
+    if not (picked := (args.sprite, 0.0) if args.sprite else idlest(builds)):
+        print(f"remote-vet: no vet Sprite of {', '.join(builds)} answered; push and let CI grade {args.lane}")
+        return 3
+    sprite, load = picked
     if load > MAX_LOAD:
         print(f"remote-vet: every vet Sprite is over load {MAX_LOAD:g} ({sprite} at {load:g}); push and let CI grade {args.lane}")
         return 3
