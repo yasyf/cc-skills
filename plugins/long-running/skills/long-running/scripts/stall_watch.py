@@ -644,6 +644,12 @@ class Pass:
         self.unread |= kinds
         print(f"WARN {why}; the {', '.join(sorted(kinds))} stalls it would clear stay open", file=sys.stderr)
 
+    def successor(self, lane: str) -> str:
+        """`lane`, or once it handed off or ended, the newest numbered successor still posting, so a PR's alarms never go to a stopped lane (cci #234379)."""
+        ended = (last := self.lane_newest.get(lane)) is not None and last["kind"] in ENDED or f"{lane}-handoff" in self.lane_newest
+        later = [record for name, record in self.lane_newest.items() if grades.succeeds(name, lane) and record["kind"] not in ENDED]
+        return max(later, key=lambda record: record["seq"])["lane"] if ended and later else lane
+
     def run(self, dry_run: bool) -> int:
         saved = json.loads(self.watch.state.read_text()) if self.watch.state.is_file() else {"open": {}, "verdicts": {}}
         self.probe_day = saved.get("probe_day", "")
@@ -907,7 +913,7 @@ class Pass:
             head_at = at(announced[0]) if announced else None
             going = grades.gone_at(gos, pr, head)
             in_queue = any(named == pr and grades.names_head(sha, head) for named, sha in queued)
-            lane = lanes[pr] = reassigned.get(pr) or next((record["lane"] for record in reversed(records) if record["kind"] == "head" and record["lane"] not in NOT_LANES and grades.about_pr(record, repo, pr)), None) or row.get("lane") or ROOT
+            lane = lanes[pr] = self.successor(reassigned.get(pr) or next((record["lane"] for record in reversed(records) if record["kind"] == "head" and record["lane"] not in NOT_LANES and grades.about_pr(record, repo, pr)), None) or row.get("lane") or ROOT)
             tapping = board is not None and board.shows(pr, head) and not board_rows.at_head(board.taps.get(pr), "rejected", head)
             readied = [at(record) for record in announced if record["kind"] == "ready" or READY.search(record["text"])]
             tap_at = min([*readied, *([live] if (live := board.live_at(pr, head)) else [])], default=None) if tapping else None
