@@ -36,7 +36,8 @@ its ledger row names, it finds:
               or running draws none, since the desk's own FINDER-DESK-STALLED covers a stalled
               queue; a go a fidelity carry moved to a new head counts from the carry grade, not the go
               a go whose stack holds a PR a standing refusal names draws none, since that refusal's
-              own stall names its lane and command
+              own stall names its lane and command; a go marked `TAP-REQUIRED` is no go until the owner
+              has tapped some head of the PR, since the runner lands it only then (root #267724)
     refusal   the desk runner or a landing desk lane refused to queue a PR a root go or the owner's
               tap names, at the head the refusal names: it needs a restack, conflicts with its base,
               sits on an untracked or closed parent or lost its Graphite parent, GitHub is still
@@ -287,6 +288,7 @@ BOT_HOLDS = "the reviewer bot holds it"
 NO_VERDICT = "no reviewer bot verdict on this head"
 PR_REF = re.compile(r"#(\d+)")
 READY = re.compile(r"\b(?:READY|DONE)\b")
+TAP_REQUIRED = re.compile(r"\bTAP-REQUIRED\b")
 NO_ROW = re.compile(r"\bno row\b", re.IGNORECASE)
 PULLED = re.compile(r"\bpull(?:s|ed)?\b[^.]*\brows?\b", re.IGNORECASE)
 ASK_WORD = re.compile(r"\b(?:card|pick)\b", re.IGNORECASE)
@@ -864,6 +866,7 @@ class Pass:
                 self.hold_gates.setdefault(named, []).extend(gate for gate in PR_REF.findall(record["text"]) if gate != named)
                 if board:
                     self.hold_asks.setdefault(named, set()).update(board.open_asks(named, record["text"]))
+        approved = {pr for pr, tap in (board.taps if board else {}).items() if tap.get("verdict") == "approved"}
         self.tapped = {pr for pr, row in rows.items() if board and (tap := board.taps.get(pr) or {}).get("verdict") == "approved" and tap.get("head") and grades.names_head(tap["head"], row.get("head", ""))}
         facts = self.landing_facts()
         waits = {pr: wait["key"] for pr, wait in facts.get(MERGE_WAITS, {}).items()}
@@ -899,7 +902,7 @@ class Pass:
                 continue
             announced = [record for record in records if grades.about_pr(record, repo, pr) and short(head) in grades.full_text(record)]
             head_at = at(announced[0]) if announced else None
-            going = grades.gone_at(gos, pr, head)
+            going = [go for go in grades.gone_at(gos, pr, head) if pr in approved or not TAP_REQUIRED.search(grades.full_text(go))]
             in_queue = any(named == pr and grades.names_head(sha, head) for named, sha in queued)
             lane = lanes[pr] = self.handed_to(next((record["lane"] for record in reversed(records) if record["kind"] == "head" and record["lane"] not in NOT_LANES and grades.about_pr(record, repo, pr)), None) or reassigned.get(pr) or row.get("lane") or ROOT)
             tapping = board is not None and board.shows(pr, head) and not board_rows.at_head(board.taps.get(pr), "rejected", head)
@@ -1000,7 +1003,7 @@ class Pass:
             above = f"; {', '.join(f'#{stall.pr}' for stall in rest)} above it in its stack wait on their rows too" if rest else ""
             quiet = all(stall.quiet for stall in group)
             stalls.append(Stall(first.id + (":quiet" if quiet else ""), first.kind, min(stall.since for stall in group), first.subject, first.what + above, first.owner, first.step + (f", and the rows for {', '.join(stall.subject for stall in rest)}" if rest else ""), first.pr, quiet))
-        approved = {pr for go in gos for pr in grades.go_heads(go)} | {pr for pr, tap in (board.taps if board else {}).items() if tap.get("verdict") == "approved"}
+        approved |= {pr for go in gos for pr in grades.go_heads(go)}
         stalls += self.refusals(records, rows, approved, lanes, holding)
         for bottom, group in waiting.items():
             if any(member in self.refused for pr, *_ in group for member in [pr, *downstack(rows, rows[pr])]):

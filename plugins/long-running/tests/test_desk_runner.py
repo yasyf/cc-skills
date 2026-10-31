@@ -859,6 +859,8 @@ class FakeShell(runner_module.Shell):
             dispatch |= {"status": "failed", "fenced": True}
             return self.ok({"state": "stopped" if verb[1] == "worker-stop" else "abandoned", "processAction": "terminated"})
         if verb == ["orchestration", "send"]:
+            if self.dispatches.get(inactive := argv[argv.index("--to") + 1].removeprefix("dispatch:"), {}).get("inactive"):
+                return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "dispatch_inactive", "message": f"Federated Dispatch {inactive} is not active."}}), "")
             if self.reject_sends:
                 self.reject_sends -= 1
                 return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "invalid_argument", "message": "refused"}}), "")
@@ -8998,6 +9000,53 @@ def test_an_accepted_relay_with_no_dispatch_to_reach_fails_at_once_not_at_its_de
     assert shell.sends() == [] and replies(shell) == []
 
 
+def test_a_relay_to_a_lane_the_root_stood_down_fails_quietly_and_a_relaunch_takes_relays_again(shell, config, tmp_path):
+    """Root #267130: runnerdb-fix stood down at 2:53 PM Oct 31, and at 3:23 PM the runner still escalated RELAY-FAILED for its blocker and RELEASE-CLAIM-FAILED for its finished builds."""
+    shell.launch(LANE, "ctx_a", status="completed")
+    cli(shell, config, "relay", "--key", "R633", "--lane", LANE, "--text", "use evidence.md")
+    cci_record(shell, kind="stand-down", to=[LANE], at=actions.stamp(shell.clock), text="stand down; no successor")
+    orca_pass(shell, config)
+    assert [line for line in escalations(shell) if not line.startswith("RECLAIM")] == []
+    assert incident(tmp_path, f"desk-lane-{LANE}").actions["R633"].status == "failed"
+    assert shell.sends() == []
+
+
+def test_a_landing_line_to_a_lane_whose_dispatch_refuses_sends_as_inactive_goes_to_cci_after_one_send(shell, config, tmp_path):
+    """Root #267150: pod-volume-5's Sprite dispatch ctx_7f337a9b89cc answered dispatch_inactive to every send, and each bot-held and conflict line logged SEND-FAILED after three sends."""
+    shell.launch(LANE, "ctx_a")
+    shell.dispatches["ctx_a"]["inactive"] = True
+    shell.rows = [ONE_ROW]
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED")]
+    landing_pass(shell, config)
+    for _ in range(3):
+        orca_pass(shell, config)
+        shell.sleep(60)
+    assert len(shell.sends()) == 1
+    assert [(post["kind"], post["to"], post["text"]) for post in shell.posts if post["kind"] == "blocker"] == [("blocker", LANE, "#29020 cccc333333: graphite FAILING_REQUIRED")]
+    assert not [line for line in escalations(shell) if line.startswith(("SEND-FAILED", "RELAY-FAILED"))]
+
+
+def test_a_landing_line_to_a_lane_with_no_live_dispatch_goes_to_cci(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a", status="completed")
+    shell.rows = [ONE_ROW]
+    shell.gates["29020"] = [gate("#29020 BLOCKED cccc333333 graphite FAILING_REQUIRED")]
+    landing_pass(shell, config)
+    orca_pass(shell, config)
+    assert [(post["kind"], post["to"]) for post in shell.posts if post["kind"] == "blocker"] == [("blocker", LANE)]
+    assert shell.sends() == [] and not [line for line in escalations(shell) if line.startswith("RELAY-FAILED")]
+
+
+def test_a_root_relay_to_a_dispatch_that_refuses_sends_as_inactive_fails_after_one_send(shell, config, tmp_path):
+    shell.launch(LANE, "ctx_a")
+    shell.dispatches["ctx_a"]["inactive"] = True
+    cli(shell, config, "relay", "--key", "R636", "--lane", LANE, "--text", "rebase onto dev")
+    for _ in range(3):
+        orca_pass(shell, config)
+        shell.sleep(60)
+    assert len(shell.sends()) == 1
+    assert [line for line in escalations(shell) if not line.startswith("RECLAIM")] == [f"RELAY-FAILED R636 {LANE}: no live dispatch (ctx_a is not active); nothing was relayed"]
+
+
 def test_a_dispatch_orca_answers_is_gone_fails_its_relay(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     del shell.dispatches["ctx_a"]
@@ -10758,7 +10807,7 @@ def test_a_class_record_with_no_fix_lane_go_in_ten_minutes_raises_one_blocker(sh
 
 
 def cci_go(shell: FakeShell, text: str, source: str = "post") -> None:
-    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "root", "kind": "go", "text": text, "to": ["orca-desk"], "source": source})
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "root", "kind": "go", "text": text, "to": ["orca-desk"], "source": source, "at": actions.stamp(shell.clock)})
 
 
 def test_a_launch_posted_to_the_orca_desk_on_cci_launches_once_and_history_never_replays(shell, config, tmp_path):
@@ -10785,6 +10834,22 @@ def test_a_record_cci_imported_from_the_old_desk_inbox_file_relays_once(shell, c
     orca_pass(shell, config)
     assert len(shell.sends()) == 1
     assert escalations(shell) == [f"RELAYED inbox@cci#{shell.records[-1]['seq']} {LANE}: relay to dispatch ctx_a"]
+
+
+def test_a_launch_line_read_over_fifteen_minutes_after_its_record_launches_nothing(shell, config, tmp_path):
+    """Root #267159: after the 12:55-3:17 PM Oct 31 orca read outage the desk replayed its backlog and launched R84867, posted two hours earlier and since replaced."""
+    brief = launch_brief(tmp_path)
+    orca_pass(shell, config)
+    cci_record(shell, to=["orca-desk"], at=actions.stamp(shell.clock - timedelta(minutes=16)), text=f"R84867 (5:44 PM) orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
+    cci_record(shell, to=["orca-desk"], at=actions.stamp(shell.clock - timedelta(minutes=16)), text="orca-desk: incident dd-7 https://app.datadoghq.com/monitors/7 reported=10:44 :: Datadog OK -> Alert api 5xx")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    launch, alert = shell.records[-2]["seq"], shell.records[-1]["seq"]
+    assert launches(shell) == []
+    assert [line.partition(", ")[0] for line in escalations(shell) if line.endswith("a launch line is valid for 15; nothing was launched")] == [
+        f"LAUNCH-EXPIRED R84867 {LANE}: cci #{launch} was posted at 10:44",
+        f"LAUNCH-EXPIRED inbox@cci#{alert} dd-7-fix: cci #{alert} was posted at 10:44",
+    ]
 
 
 def cci_record(shell: FakeShell, **fields) -> int:
@@ -10880,10 +10945,10 @@ def test_a_root_cci_withdraw_of_a_launch_record_withdraws_it_and_is_no_directive
     brief = launch_brief(tmp_path)
     shell.cpu_load = 140
     orca_pass(shell, config)
-    launch = cci_record(shell, to=["orca-desk"], text=f"R30 (11:49 PM) orca-desk: launch {LANE} sol xhigh brief={brief}")
+    launch = cci_record(shell, to=["orca-desk"], at=actions.stamp(shell.clock), text=f"R30 (11:49 PM) orca-desk: launch {LANE} sol xhigh brief={brief}")
     orca_pass(shell, config)
     cci_record(shell, kind="withdraw", to=["orca-desk"], re=launch, text="withdraw R30; relaunching under R32")
-    cci_record(shell, to=["orca-desk"], text=f"R32 (11:51 PM) orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
+    cci_record(shell, to=["orca-desk"], at=actions.stamp(shell.clock), text=f"R32 (11:51 PM) orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
     shell.cpu_load = 1.0
     orca_pass(shell, config)
     assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)]]
@@ -13136,6 +13201,17 @@ def test_a_release_record_from_before_the_runner_started_is_never_claimed(shell,
     orca_pass(shell, config)
     orca_pass(shell, config)
     assert shell.claims == []
+
+
+def test_a_release_build_of_a_lane_the_root_stood_down_is_never_claimed(shell, config, tmp_path):
+    """Root #267130: after the runnerdb incident closed, the runner tried to claim runnerdb-fix's six finished builds for the stood-down lane."""
+    orca_pass(shell, config)
+    cci_record(shell, kind="stand-down", to=[WALKER], at=actions.stamp(shell.now()), text="stand down; no successor")
+    release_started(shell)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert shell.claims == [] and shell.registered == []
+    assert [line for line in escalations(shell) if "CLAIM" in line] == []
 
 
 def test_a_refused_claim_escalates_once(shell, config, tmp_path):
