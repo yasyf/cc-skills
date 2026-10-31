@@ -119,5 +119,5 @@ def test_idle_removal_runs_in_its_own_exec_with_no_stdin_before_the_upload(
 
     assert result.returncode == 0, result.stderr
     cleanup, upload, _ = [json.loads(line) for line in (tmp_path / "calls.jsonl").read_text().splitlines()]
-    assert "--no-stdin" in cleanup and "rm -rf" in cleanup[-3]
+    assert "--no-stdin" in cleanup and "rm -rf" in " ".join(cleanup)
     assert "--no-stdin" not in upload and "rm -rf" not in " ".join(upload)
