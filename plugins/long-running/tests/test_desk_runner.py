@@ -7687,6 +7687,26 @@ def test_an_admitted_head_no_branch_settles_is_refused_unsettled_to_the_root_nam
     assert admitted_heads(config)["33001"]["state"] == "defect"
 
 
+@pytest.mark.parametrize(
+    ("gate_line", "why"),
+    [
+        ("#33001 GREEN eeee555555 graphite READY", "its head moved to eeee555555 after the ledger read aaaa111111, so the next pass gates the new head"),
+        ("#33001 WAITING aaaa111111 CI running", "the gate read aaaa111111 WAITING: CI running"),
+    ],
+    ids=["moved-head", "waiting"],
+)
+def test_a_moved_head_or_a_waiting_verdict_settles_refused_with_its_reason_never_unsettled(shell, config, tmp_path, gate_line, why):
+    """Oct 31 3:49 to 4:10 AM: #45655, #45729 and #46200 read `unsettled: the stack worker's settle step`, since their heads moved after the ledger read or the check read them waiting (root #250160)."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.gates["33001"] = [gate(gate_line)]
+    shell.queue["33001"] = "not queued"
+    landing_pass(shell, config)
+    assert not [line for line in said(shell) if "unsettled" in line]
+    [line] = settled(shell, "REFUSED")
+    assert line.endswith(why)
+
+
 def test_a_stacked_head_on_a_base_the_pass_did_not_admit_reads_below_blocked_never_gate_failed(shell, config, tmp_path):
     shell.rows = [
         {"pr": "33000", "lane": LANE, "branch": "g/0", "base": "dev", "head": "aaaa000000", "state": "open", "reported_head": "aaaa000000"},
