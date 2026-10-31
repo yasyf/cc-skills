@@ -237,6 +237,7 @@ REPOSTED = frozenset({"red"})
 POST_KINDS = {"red": "blocker", "unclassed": "blocker", "unfixed": "blocker", "sweep": "blocker", "probe": "report"}
 RED_CLASSES = ("inherited", "flake", "real", "stale")
 RED_FIELD = re.compile(r"\b(class|head|owner)=(\S+)")
+HANDED_TO = re.compile(r"\bsuccessor ([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b")
 RED_SWEEP = "red-sweep"
 OWNER_ORDER = re.compile(r"\bowner\b.{0,80}\bverbatim\b", re.IGNORECASE | re.DOTALL)
 ORDER_WINDOW = timedelta(hours=2)
@@ -677,6 +678,11 @@ class Pass:
         self.unread |= kinds
         print(f"WARN {why}; the {', '.join(sorted(kinds))} stalls it would clear stay open", file=sys.stderr)
 
+    def handed_to(self, lane: str) -> str:
+        """The successor `lane`'s own handoff record names, such as `successor api-lane-6`, else `lane`: a PR follows a handoff its lane wrote, never a successor guessed from a lane's name (cci #234379, root #259013)."""
+        handoff = self.lane_newest.get(f"{lane}-handoff")
+        return named[1] if handoff is not None and (named := HANDED_TO.search(handoff["text"])) else lane
+
     def parent(self, lane: str) -> str | None:
         """The live lane whose name `lane` extends, such as `mq-health-4` for `mq-health-4-supervise`; a numbered successor such as `mq-health-4-2` extends no lane."""
         parents = [name for name, record in self.lane_newest.items() if lane.startswith(f"{name}-") and record["kind"] not in ENDED and not NUMBERED.fullmatch(lane[len(name) + 1 :])]
@@ -951,7 +957,7 @@ class Pass:
             head_at = at(announced[0]) if announced else None
             going = grades.gone_at(gos, pr, head)
             in_queue = any(named == pr and grades.names_head(sha, head) for named, sha in queued)
-            lane = lanes[pr] = next((record["lane"] for record in reversed(records) if record["kind"] == "head" and record["lane"] not in NOT_LANES and grades.about_pr(record, repo, pr)), None) or reassigned.get(pr) or row.get("lane") or ROOT
+            lane = lanes[pr] = self.handed_to(next((record["lane"] for record in reversed(records) if record["kind"] == "head" and record["lane"] not in NOT_LANES and grades.about_pr(record, repo, pr)), None) or reassigned.get(pr) or row.get("lane") or ROOT)
             tapping = board is not None and board.shows(pr, head) and not board_rows.at_head(board.taps.get(pr), "rejected", head)
             readied = [at(record) for record in announced if record["kind"] == "ready" or READY.search(record["text"])]
             tap_at = min([*readied, *([live] if (live := board.live_at(pr, head)) else [])], default=None) if tapping else None
