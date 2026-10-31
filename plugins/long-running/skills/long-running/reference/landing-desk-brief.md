@@ -34,7 +34,7 @@ record naming the PR and its head, which the runner enqueues on; a `Hold` tap be
 a root `hold` record. The desk never answers a `MERGE-ASK` and never enqueues a PR that
 waits on one.
 
-Lanes never enqueue under D1; the pack's `lane_landing` hook refuses it. A hold is
+Lanes never enqueue under D1; the pack's `lane_landing` hook warns a lane that does. A hold is
 an open cci `hold` record or GitHub's `hold` label. The runner
 never enqueues a held PR or a PR above it, and no adapter takes a hold flag
 or reads holds. The desk never
