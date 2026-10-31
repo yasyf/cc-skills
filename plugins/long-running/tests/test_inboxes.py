@@ -231,3 +231,15 @@ def test_a_refused_signal_to_a_live_child_raises(monkeypatch):
     finally:
         child.kill()
         child.wait()
+
+
+def test_a_cursor_holding_a_count_and_mailbox_keys_reads_as_either(tmp_path: Path):
+    """p8a-step7 #233982: an older desk-wait.sh wrote a line count, a newer one appended mailbox keys under it, and the next wait died parsing the whole file as a count."""
+    cursor = tmp_path / "mailbox.cursor"
+    cursor.write_text("1\n0f2e6c1a-8b7d-4c3e-9a21-5d4b3c2a1f00\n9c8b7a6f-5e4d-4c3b-8a29-1f0e9d8c7b6a\n")
+
+    assert inboxes.seen_count(cursor) == 1
+    assert inboxes.seen_keys(cursor) == ["0f2e6c1a-8b7d-4c3e-9a21-5d4b3c2a1f00", "9c8b7a6f-5e4d-4c3b-8a29-1f0e9d8c7b6a"]
+    cursor.write_text("0f2e6c1a-8b7d-4c3e-9a21-5d4b3c2a1f00\n")
+    assert inboxes.seen_count(cursor) == 0
+

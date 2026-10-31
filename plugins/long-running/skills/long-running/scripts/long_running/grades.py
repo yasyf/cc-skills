@@ -53,6 +53,7 @@ QUOTED_SPAN = re.compile(r"(`+)[^\n]*?\1|\"[^\"\n]*\"|“[^”]*”")
 WITHDRAWN = re.compile(r"^\s*withdrawn\b", re.IGNORECASE)
 CARRY_SAYS = re.compile(r"(?<!\bnot )\bpatch-identical\b|\btap carries\b|\bno new behaviou?r\b(?! since (?:the |his |the owner['’]s )?tap at)|\btest-only\b|\bpure replay\b", re.IGNORECASE)
 CARRY_FORM = re.compile(rf"\bcarried\b|{CARRY_SAYS.pattern}", re.IGNORECASE)
+HEAD_ATTR = "head:"
 HEAD_MOVE = re.compile(r"\b([0-9a-f]{7,40})\s*\(was ([0-9a-f]{7,40})\)", re.IGNORECASE)
 PATCH_IDENTICAL = re.compile(r"(?<!\bnot )\bpatch-identical\b", re.IGNORECASE)
 TAP_KEPT = re.compile(r"\bno new behaviou?r since (?:the |his |the owner['’]s )?tap at ([0-9a-f]{7,40})\b", re.IGNORECASE)
@@ -119,13 +120,39 @@ def newest_naming(grades: list[dict], sha: str) -> dict | None:
 
 def repo_prs(record: dict, repo: str) -> list[tuple[str, bool]]:
     """Each PR `record` names that may be in `repo`, with whether its ref says so: `owner/repo#N` refs to `repo`, and bare numbers, which name no repo."""
-    named = []
-    for ref in record.get("refs", {}).get("prs", []):
-        if isinstance(ref, int):
-            named.append((str(ref), False))
-        elif (where := str(ref).rpartition("#"))[0].lower() == repo.lower():
-            named.append((where[2], True))
-    return named
+    return [named for ref in record.get("refs", {}).get("prs", []) if (named := repo_pr(ref, repo))]
+
+
+def repo_pr(ref: int | str, repo: str) -> tuple[str, bool] | None:
+    if isinstance(ref, int):
+        return str(ref), False
+    where = str(ref).rpartition("#")
+    return (where[2], True) if where[0].lower() == repo.lower() else None
+
+
+def head_entries(record: dict, repo: str) -> dict[str, dict] | None:
+    """Each PR in `repo` a multi-head `head` record names, to its `commit`, `was` and `note`: one `cci post --head` record carries every head a restack moved, each as the attribute `head:<pr>` = `[<was>..]<sha>[ <note>]`; None for a record with no such attribute."""
+    named = [(key.removeprefix(HEAD_ATTR), value) for key, value in ((record.get("fields") or {}).get("attrs") or {}).items() if key.startswith(HEAD_ATTR)]
+    if not named:
+        return None
+    entries = {}
+    for ref, value in named:
+        moved, _, note = value.partition(" ")
+        was, _, commit = moved.rpartition("..")
+        if found := repo_pr(int(ref) if ref.isdigit() else ref, repo):
+            entries[found[0]] = {"commit": commit.lower(), "was": was.lower(), "note": note}
+    return entries
+
+
+def head_of(record: dict, repo: str, pr: str) -> str:
+    """The head a `head` record names for `pr`: its `head:<pr>` attribute's commit, else its text's first short sha."""
+    entries = head_entries(record, repo)
+    return graded_head(record["text"]) if entries is None else entries.get(pr, {}).get("commit", "")
+
+
+def head_says(record: dict, repo: str, pr: str) -> str:
+    """What `record` says of `pr`'s head: a multi-head `head` record's note for `pr`, else the record's whole text."""
+    return ((head_entries(record, repo) or {}).get(pr) or {}).get("note") or full_text(record)
 
 
 def names_pr(record: dict, pr: str) -> bool:
@@ -192,7 +219,11 @@ def head_moves(found: list[dict], drive: str, lanes: list[str], repo: str, pr: s
     graded = [graded_head(record["text"][len(FIDELITY_OK) :]) for record in mine if record["kind"] == "review" and record["lane"] in lanes and record["text"].startswith(FIDELITY_OK) and identical(record["text"])]
     for record in mine:
         text = record["text"]
-        if record["kind"] == "head":
+        if record["kind"] == "head" and (entries := head_entries(record, repo)) is not None:
+            if (entry := entries.get(pr)) and entry.get("was"):
+                said = head_says(record, repo, pr)
+                moves.append((entry["commit"], entry["was"], bool(PATCH_IDENTICAL.search(said)) and not ADDS_BEHAVIOR.search(said) or any(names_head(sha, entry["commit"]) for sha in graded), record["seq"]))
+        elif record["kind"] == "head":
             named = list(HEAD_MOVE.finditer(text))
             for move, after in pairwise([*named, None]):
                 said = SENTENCE_BREAK.split(text[move.start() : after.start() if after else len(text)], maxsplit=1)[0]
@@ -368,7 +399,7 @@ def finder_reviews_in(found: list[dict], drive: str, repo: str, pr: str) -> list
     for record in records:
         if record["kind"] != "review" or not FINDER_NAMED.search(record["text"]) or record["text"].startswith(GRADER_LINES):
             continue
-        reviews.append(record | {"grade": finder_grade(record["text"]) if finder_desk_line(record) else "", "head": head_named(record, heads)})
+        reviews.append(record | {"grade": finder_grade(record["text"]) if finder_desk_line(record) else "", "head": head_named(record, heads, repo, pr)})
     return reviews
 
 
@@ -376,10 +407,10 @@ def finder_records(reviews: list[dict]) -> list[dict]:
     return [record for record in reviews if record["grade"] and record["head"]]
 
 
-def head_named(record: dict, heads: list[dict]) -> str:
-    """The head `record` names: its first short sha, or the first short sha of the newest `head` record of `heads` posted before it."""
+def head_named(record: dict, heads: list[dict], repo: str, pr: str) -> str:
+    """The head `record` names: its first short sha, or the head the newest `head` record of `heads` posted before it names for `pr`."""
     posted = max((head for head in heads if head["seq"] < record["seq"]), key=lambda head: head["seq"], default=None)
-    return graded_head(record["text"]) or (graded_head(posted["text"]) if posted else "")
+    return graded_head(record["text"]) or (head_of(posted, repo, pr) if posted else "")
 
 
 def old_app_grades_in(found: list[dict], drive: str, lanes: list[str], repo: str, pr: str) -> list[dict]:
@@ -389,7 +420,7 @@ def old_app_grades_in(found: list[dict], drive: str, lanes: list[str], repo: str
     return [
         record | {"grade": said[1].lower(), "head": head}
         for record in records
-        if record["kind"] == "review" and record["lane"] in lanes and (said := OLD_APP.search(full_text(record))) and (head := head_named(record, heads))
+        if record["kind"] == "review" and record["lane"] in lanes and (said := OLD_APP.search(full_text(record))) and (head := head_named(record, heads, repo, pr))
     ]
 
 

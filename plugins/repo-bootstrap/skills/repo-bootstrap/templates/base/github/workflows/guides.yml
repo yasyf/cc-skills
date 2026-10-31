@@ -11,6 +11,9 @@ on:
         description: Exact commit to render and verify
         required: true
         type: string
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions: {contents: write}
 jobs:
   guides:

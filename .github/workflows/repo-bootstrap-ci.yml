@@ -2,6 +2,7 @@ name: repo-bootstrap CI
 
 on:
   push:
+    branches: [main]
     paths:
       - "plugins/repo-bootstrap/**"
       - "plugin/guides/**"
@@ -12,6 +13,10 @@ on:
       - "plugin/guides/**"
       - ".github/workflows/repo-bootstrap-ci.yml"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

@@ -2,6 +2,7 @@ name: long-running CI
 
 on:
   push:
+    branches: [main]
     paths:
       - "plugins/long-running/**"
       - "plugins/live-dashboard/skills/live-dashboard/scripts/**"
@@ -12,6 +13,10 @@ on:
       - "plugins/live-dashboard/skills/live-dashboard/scripts/**"
       - ".github/workflows/long-running-ci.yml"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

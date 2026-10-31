@@ -28,7 +28,8 @@ on the Sprite reads instead of rebuilding the register cold with ccn, and the pl
 register names, the directory holding plan/plan.md, whenever a file in it was
 added, removed or changed since the Sprite's copy. The job's checkout drops the
 empty loose refs a Sprite restart leaves, which every fetch reads as the zero
-object, and fetches every remote, and the job runs there. <dir> is then copied
+object, and fetches every remote unless a fetch that began after this job asked for one already
+did, then merges its packs into a geometric progression, so the packs fetches and on-demand blob reads leave stay few, and the job runs there. <dir> is then copied
 back, result.json included and job.json and pid left as this machine wrote
 them, so the runner settles the pass from this process and its files as it does
 a local one. The Sprite then pushes the records the job posted to the drive's
@@ -99,7 +100,16 @@ for name, argv in json.loads(os.environ.get("SPRITE_JOB_KEYS") or "{}").items():
   [ -z "${GH_TOKEN:-}" ] || printf "protocol=https\nhost=github.com\nusername=x-access-token\npassword=%s\n\n" "$GH_TOKEN" |
     git credential-cache --timeout=3900 store
   find "$(git -C "$3" rev-parse --path-format=absolute --git-common-dir)/refs" -type f -empty ! -name "*.lock" -delete
-  flock "$3.fetch.lock" git -C "$3" -c credential.helper= -c "credential.helper=!gh auth git-credential" fetch --quiet --all
+  asked=$(date +%s%N)
+  exec 9>"$3.fetch.lock"
+  flock 9
+  if [ "$(cat "$3.fetched" 2>/dev/null || echo 0)" -lt "$asked" ]; then
+    began=$(date +%s%N)
+    git -C "$3" -c credential.helper= -c "credential.helper=!gh auth git-credential" fetch --quiet --all
+    git -C "$3" repack --geometric=2 -d -q
+    printf %s "$began" >"$3.fetched"
+  fi
+  exec 9>&-
   exec python3 "$1" "$2"' sh "$script" "$dir" "$checkout" &
 job=$!
 forwarded=

@@ -2,6 +2,7 @@ name: agent-browser-with-cookies CI
 
 on:
   push:
+    branches: [main]
     paths:
       - "plugins/agent-browser-with-cookies/**"
       - ".github/workflows/agent-browser-with-cookies-ci.yml"
@@ -10,6 +11,10 @@ on:
       - "plugins/agent-browser-with-cookies/**"
       - ".github/workflows/agent-browser-with-cookies-ci.yml"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
