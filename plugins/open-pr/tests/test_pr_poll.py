@@ -338,10 +338,37 @@ def test_deadline_counts_from_the_state_files_started_at(poll, tmp_path):
     state = tmp_path / "state.json"
     seeded = json.loads(state.read_text())
     seeded["started_at"] = 1000
+    seeded["head_at_last_pass"] = HEAD
     state.write_text(json.dumps(seeded))
     run = poll(PENDING, env={"PR_POLL_DEADLINE": "10"})
     assert run.done == "DONE deadline-still-open"
     assert run.state["started_at"] == 1000
+
+
+def test_a_new_head_restarts_the_deadline(poll, tmp_path):
+    state = tmp_path / "state.json"
+    seeded = json.loads(state.read_text())
+    seeded["started_at"] = 1000
+    seeded["head_at_last_pass"] = HEAD
+    state.write_text(json.dumps(seeded))
+    moved = surface(pull(head=MOVED_HEAD), runs=[check_run("build", status="in_progress", conclusion=None)])
+    run = poll(moved, env={"PR_POLL_DEADLINE": "10"})
+    assert run.done is None
+    assert run.state["started_at"] > 1000
+
+
+def test_a_run_after_a_final_verdict_restarts_the_deadline(poll, tmp_path):
+    first = poll(surface(pull()))
+    assert first.done == "DONE ready-to-merge"
+    assert first.state["finished"] == "ready-to-merge"
+    state = tmp_path / "state.json"
+    seeded = json.loads(state.read_text())
+    seeded["started_at"] = 1000
+    state.write_text(json.dumps(seeded))
+    second = poll(PENDING, env={"PR_POLL_DEADLINE": "10"})
+    assert second.done is None
+    assert second.state["started_at"] > 1000
+    assert "finished" not in second.state
 QUEUE_URL = "https://app.graphite.com/merges?org=Forge-AI&repo=monorepo"
 
 

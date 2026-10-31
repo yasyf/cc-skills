@@ -99,17 +99,23 @@ def binding(implication: dict) -> str:
     return "waits for the owner's tick"
 
 def rendered_row(key: str, fields: dict[str, str]) -> list[str]:
-    lines = [f"### {key} | {fields.get('kind', '')} | {fields.get('status', '')} | said {fields.get('said') or 1} | {fields.get('at', '')}"]
+    lines = [row_heading(key, fields)]
     lines += [f"> {line}" for line in (fields.get("words") or "").splitlines()]
     lines += [f"> also, {repeat.get('at', '')}: {repeat.get('words', '')}" for repeat in listed(fields.get("repeats"))]
     lines += [f"{label}: {fields[name]}" for label, name in (("Protects", "protects"), ("Does not apply when", "not_when")) if fields.get(name)]
     if implications := listed(fields.get("implications")):
         lines.append("This also means:")
         lines += [f"{item['n']}. {item['text']} ({item['direction']}, {item['state']}, {binding(item)})" for item in implications]
-    for label, name in (("Names", "names"), ("Surfaces", "surfaces"), ("Tests", "tests")):
-        if values := [str(value) for value in listed(fields.get(name)) if value not in UNANCHORED]:
-            lines.append(f"{label}: {', '.join(values)}")
-    return lines
+    return lines + row_anchors(fields)
+
+
+def row_heading(key: str, fields: dict[str, str]) -> str:
+    return f"### {key} | {fields.get('kind', '')} | {fields.get('status', '')} | said {fields.get('said') or 1} | {fields.get('at', '')}"
+
+
+def row_anchors(fields: dict[str, str]) -> list[str]:
+    return [f"{label}: {', '.join(values)}" for label, name in (("Names", "names"), ("Surfaces", "surfaces"), ("Tests", "tests")) if (values := [str(value) for value in listed(fields.get(name)) if value not in UNANCHORED])]
+
 
 def hashed(lines: list[str]) -> str:
     body = "\n".join(lines).rstrip() + "\n"

@@ -21,9 +21,11 @@ decision answers the carried grade or a grade it was carried from, else each one
 fidelity-desk ok grade on the PR says, else each one the carried grade says. Otherwise it fills
 `reference/fidelity-job-brief.md` with the head's own hunks, the change to read (the whole PR, or, past the newest
 earlier head every lane stands ok at, only what `git range-diff` shows changed since it), its required register rows
-(`rulings.py slice --required`), the plan, the lane's newest contract and the PR body, and runs
+as the owner's words verbatim with the board card each tap answered and none of the register's implications
+(`rulings.py slice --required --words`), the repository's AGENTS.md rules, the plan, the lane's newest contract
+and the PR body, and runs
 `codex-ask -m <model> --schema fidelity.schema.json`, with `--incident` when the job is `fast`, in the drive's checkout. A reply that leaves
-a row ungraded, keys a `missing` line on anything but a plan line or an owner row, or gives no
+a row ungraded, keys a `missing` line on anything but a plan line, an owner row or an AGENTS.md line, or gives no
 reasoning in `swept` is asked once more; a second such reply fails the job. A reply with any `missing` entry grades
 `missing` whatever verdict it names, and posts its `reader` reason to the human fidelity desks as well. A head that moved while
 codex read it posts nothing. The question lists every point of a `missing` grade root settled, and a
@@ -65,6 +67,7 @@ FINDING_CHARS = 160
 OLD_APP_LINE = re.compile(r"^old-app:\s*(unchanged|bug fix|changes)\b:?\s*(?:[0-9a-f]{7,40}\b)?\s*(.*)$", re.IGNORECASE)
 CODEX_SECONDS = 3600
 PLAN_LINE = re.compile(r"plan:(?:[\w./-]+\.md:)?\d+(?:-\d+)?")
+AGENTS_LINE = re.compile(r"(?:[\w.-]+/)*AGENTS\.md:\d+(?:-\d+)?")
 
 
 def patch_id(shell: finder.Shell, job: dict, start: str, end: str) -> str:
@@ -178,8 +181,8 @@ def baseline(job: dict) -> str:
 
 
 def grounded(keys: list[str], key: str) -> bool:
-    """Whether a `missing` key is a plan line, a line of a doc in the plan's package, or a non-`design/` row of the head's required slice."""
-    return bool(PLAN_LINE.fullmatch(key)) or (key in keys and not key.startswith("design/"))
+    """Whether a `missing` key is a plan line, a line of a doc in the plan's package, a line of an AGENTS.md, or a non-`design/` row of the head's required slice."""
+    return bool(PLAN_LINE.fullmatch(key) or AGENTS_LINE.fullmatch(key)) or (key in keys and not key.startswith("design/"))
 
 
 def shortfalls(keys: list[str], reply: dict) -> list[str]:
@@ -187,7 +190,7 @@ def shortfalls(keys: list[str], reply: dict) -> list[str]:
     if unchecked := [key for key in keys if key not in reply["checked"]]:
         short.append(f"no grade for {', '.join(unchecked)}")
     if ungrounded := [entry["key"] for entry in reply["missing"] if not grounded(keys, entry["key"])]:
-        short.append(f"`missing` keys that are neither a plan line `plan:<n>`, a package doc line `plan:<path>:<n>`, nor a non-design row of the rows file: {', '.join(ungrounded)}")
+        short.append(f"`missing` keys that are neither a plan line `plan:<n>`, a package doc line `plan:<path>:<n>`, an AGENTS.md line `<path>AGENTS.md:<n>`, nor a non-design row of the rows file: {', '.join(ungrounded)}")
     if reply["verdict"] == "missing" and not reply["missing"]:
         short.append("verdict missing with no `missing` entries")
     if reply["verdict"] == "reader" and not reply["reader"].strip():
@@ -234,7 +237,7 @@ def post(shell: finder.Shell, job: dict, lines: list[tuple[str, list[str]]], bod
         to = ",".join(dict.fromkeys(filter(None, [job["lane"], *job["to"], *also])))
         clipped = text if len(text) <= finder.CCI_TEXT else text[: finder.CCI_TEXT - 1] + "…"
         argv = ["cci", "post", "--drive", job["drive"], "--lane", LANE, "--kind", "review", "--pr", pr, "--id", f"fidelity:{pr}:{job['head']}:{index}", "--path", str(body)]
-        posted.append(cci.posted(shell.run(finder.logged(body.parent, [*argv, *(["--to", to, "--force"] if to else []), "--text", clipped, "--json"])))[0])
+        posted.append(cci.posted(shell.run(finder.logged(body.parent, [*argv, *(["--to", to] if to else []), "--text", clipped, "--json"])))[0])
     return posted
 
 
@@ -257,7 +260,7 @@ def run(directory: Path, shell: finder.Shell) -> dict:
         body.write_text(f"{lines[0][0]}\n")
         return {"verdict": "missing", "posted": post(shell, job, lines, body)}
     heads = candidates(job)
-    slicing = None if heads else pool.submit(finder.slice_rows, shell, job, pr, head, view["baseRefName"])
+    slicing = None if heads else pool.submit(finder.slice_rows, shell, job, pr, head, view["baseRefName"], "--words")
     base, trunk = finder.checked_out(shell, job, view)
     if not (own := finder.beyond(shell, job, (base, trunk), head)):
         return {"skipped": f"{pr} at {head[:12]} carries no commit {view['baseRefName']} lacks"}
@@ -271,7 +274,7 @@ def run(directory: Path, shell: finder.Shell) -> dict:
         found = {"head": last, "grade": max(heads[0][1], key=lambda grade: grade["seq"])}
         return carried(shell, job, found, "git range-diff", f"`git range-diff {pairs}` pairs every own commit equal, or amended only by lines the base now carries.", body)
     rows = directory / "rows.md"
-    rows.write_text((slicing or pool.submit(finder.slice_rows, shell, job, pr, head, view["baseRefName"])).result())
+    rows.write_text((slicing or pool.submit(finder.slice_rows, shell, job, pr, head, view["baseRefName"], "--words")).result())
     keys = finder.ROW_KEY.findall(rows.read_text())
     touched = finder.hunks(finder.git(shell, job, "diff", "--unified=0", "--no-color", "--no-ext-diff", f"{own[0]}^", head))
     question = directory / "question-1.md"

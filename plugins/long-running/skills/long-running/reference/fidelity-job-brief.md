@@ -21,9 +21,30 @@ and their base versions when the head deletes or moves behavior. These are the h
 PR's own commits add or change, as new-file line ranges:
 {hunks}
 
-The rows you grade against, each with the owner's words, implications and names, are in
-{rows}. Grade every one: every row key in that file goes in `checked`, and every name you
-searched goes in `names`.
+The rows you grade against are in {rows}. Each holds the owner's words verbatim, oldest
+first, and for a tap the board card it answered, agent-written apart from what he picked or
+typed. Read his words for what he meant, given what they answered, never word for word:
+- A tap picks one option and rules out the others on its card, so a head that builds an
+  option he passed over breaks the row. The card's wording is ours: where an option says
+  less than his own words, his words rule.
+- His later words, on that row or any other, rule over his earlier ones, and the reason
+  behind a later correction covers what it did not name.
+- A head breaks a row when it reads him narrower than he said, such as a partition, an
+  exception or a smaller count his words lack ("per X", "same X"), or too literally,
+  applying his words to cases his purpose does not cover so that it adds the very cost his
+  words removed.
+A design row or exception holds the plan's text, the root's words his answers approve.
+Where a row names where it bears (names, surfaces, tests), that is the root's reading, a
+pointer and never the standard. The rows file leaves out the register's implications on
+purpose, so the rubric's line on reading implications does not apply to this grade. Grade
+every row: every row key in that file goes in `checked`, and every name you searched goes
+in `names`.
+
+The repository's AGENTS.md rules bind the head too: the AGENTS.md at the root of the
+checkout at the head, and any AGENTS.md nearer a changed file. An added line that does what
+one of them forbids, or undoes what one requires, is `missing` keyed by that line; a head that
+only touches a rule's subject breaks nothing, and style, coverage and defects no rule names
+are the finder's.
 
 Answer in the schema:
 
@@ -36,8 +57,9 @@ Answer in the schema:
   the rows that authorizes it, or a change too large to read whole in one pass; say which in
   `reader`, and leave `reader` empty for any other verdict.
 - `missing`: each entry's `key` is a plan line `plan:<n>`, a line of a sub-plan or design doc
-  as `plan:<path under the package>:<n>`, or a row key from the rows file other than a
-  `design/` row. A root record, a cci seq, a brief, a lane's read-back and the
+  as `plan:<path under the package>:<n>`, a line of an AGENTS.md as `<path>AGENTS.md:<n>`
+  (`AGENTS.md:<n>` at the root), or a row key from the rows file other than a `design/`
+  row. A root record, a cci seq, a brief, a lane's read-back and the
   PR body are never keys: a mechanism only they name is `plan:<the nearest plan line>` with
   the words "plan names no <thing>". Its `line` says what breaks in one sentence, quoting the
   owner's words it fails.
@@ -69,8 +91,10 @@ read `PLAN-MAP.md` there, find each step the hunks implement, and read the sub-p
 `subplans/` and the design docs under `designs/` the map names for that step. A head that
 builds a mechanism somewhere those docs do not put it (another process, server, crate,
 table or store), or contradicts what they say, is `missing` keyed
-`plan:<path under the package>:<line>`, such as `plan:subplans/signal-service.md:45`. An
-owner row in the rows file that postdates a doc and says otherwise rules over the doc.
+`plan:<path under the package>:<line>`, such as `plan:subplans/signal-service.md:45`. His
+words or taps in the rows file that postdate a doc and say otherwise rule over the doc: a
+mechanism a doc line names is not grounded when a later tap passed over it or later words
+remove it, so read the rows on a mechanism's subject before you ground it in a doc line.
 
 The lane's contract, its read-back of what it builds, moves or deletes, is a claim to check,
 never the standard:

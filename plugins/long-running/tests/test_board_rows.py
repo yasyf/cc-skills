@@ -56,7 +56,7 @@ class FakeShell(board_rows.Shell):
         return board_rows.Done(0, "".join(json.dumps(record) + "\n" for record in self.tailed(argv)), "")
 
     def tailed(self, argv: list[str]) -> list[dict]:
-        since = int(argv[argv.index("--since") + 1])
+        since = argv[argv.index("--since") + 1]
         kinds = [arg.split("=", 1)[1] for arg in argv if arg.startswith("--kind=")]
         lanes = [argv[at + 1] for at, arg in enumerate(argv) if arg == "--lane"]
         pr = argv[argv.index("--pr") + 1] if "--pr" in argv else None
@@ -64,7 +64,7 @@ class FakeShell(board_rows.Shell):
         return [
             record
             for record in self.records
-            if record["seq"] > since
+            if (record["seq"] > int(since) if since.isdigit() else record.get("at", since) >= since)
             and (not kinds or record["kind"] in kinds)
             and (not lanes or record["lane"] in lanes)
             and (pr is None or pr in record["refs"].get("prs", []))
@@ -428,32 +428,15 @@ def test_a_triage_verdict_left_behind_fails_the_pr_groups_row_until_a_re_key_nam
     [
         ("head", "p8e", f"Restacked onto #42722 0c2cb1d: #42815 43072de and #42590 {HEAD[:11]} (patch-identical to go'd 8bb87a3).", None),
         ("go", "root", f"merge #42711 at e6d93c0 and #42590 at {HEAD[:7]}: his taps and go carry, the patch is otherwise identical.", None),
-        ("go", "root", f"go-carry #42590 5321d37->{HEAD[:7]}: its commits implement his pick only.", None),
         ("head", "p8f", f"dar-p8f-replica-plan {HEAD[:7]} on signal-1 509a21c (#133292). Patch-identical.", "42590"),
+        ("head", "p8e", f"#42590 {HEAD[:7]} restacked onto dev; finder pending.", None),
     ],
 )
-def test_a_carry_record_tying_the_head_to_the_pr_counts_as_its_grade_and_finder(tmp_path: Path, capsys: pytest.CaptureFixture[str], kind: str, lane: str, text: str, pr: str | None) -> None:
+def test_a_record_saying_a_head_carries_counts_as_no_grade_or_finder_there(tmp_path: Path, capsys: pytest.CaptureFixture[str], kind: str, lane: str, text: str, pr: str | None) -> None:
+    """p8a-step7 #199440: words alone never carry; a head's grade and finder are the records naming it, and a tap moves only by the landing runner's carry."""
     fake = FakeShell()
     fake.pull("42590")
     fake.post(kind, lane, text, pr)
-    fake.verdicts = {"merge-triage": {"merge-row-42590": {"verdict": "approved"}}}
-
-    assert gate(tmp_path, fake, card(row("42590")), "--check") == 0
-    assert lines(capsys) == ["rows 1 failing 0 ungraded 0 flags 0"]
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        f"Desktop chain restacked, each patch-identical: #42721 4ddf3c8, #42829 b4d1bc1 (= {HEAD[:7]}, tapped 5321d37).",
-        f"#42590 {HEAD[:7]} restacked onto dev; finder pending.",
-        f"FIXED: 42590 5321d37/{HEAD[:7]} waits (log calls it patch-identical).",
-    ],
-)
-def test_a_record_that_does_not_carry_the_head_for_the_pr_leaves_it_ungraded(tmp_path: Path, capsys: pytest.CaptureFixture[str], text: str) -> None:
-    fake = FakeShell()
-    fake.pull("42590")
-    fake.post("head", "p8e", text)
 
     assert gate(tmp_path, fake, card(row("42590")), "--check") == 1
     assert lines(capsys)[-1] == "rows 1 failing 1 ungraded 1 flags 0"
@@ -577,23 +560,32 @@ def test_rows_in_different_groups_whose_titles_read_alike_fail(tmp_path: Path, s
 SINCE = {"changed": "the upload now retries twice", "because": "a failed upload retries instead of failing the turn"}
 
 
-@pytest.mark.parametrize("kind", ["decide", "answer"])
-def test_a_row_at_a_head_he_did_not_approve_waits_until_root_rules_it_new_content(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], kind: str) -> None:
-    """board-refresher-2 (root #213579): root ruled re-asks in answer records, which the gate never read."""
+def changed(pr: str, head: str = HEAD) -> str:
+    return f"TAP-NOT-CARRIED #{pr}: the owner's tap at {NEW_HEAD[:10]} (1:00 PM Oct 26 Pacific) on board block merge-prs does not carry to {head[:10]}: the judge reads new behavior since his tap: It retries."
+
+
+def kept(pr: str) -> str:
+    return f"TAP-KEPT #{pr}: the owner's tap at {NEW_HEAD[:10]} (1:00 PM Oct 26 Pacific) on board block merge-prs can carry to {HEAD[:10]}, a fix the judge reads as changing nothing he approved: A nil check."
+
+
+@pytest.mark.parametrize(("lane", "head"), [("desk-runner", HEAD), ("root", HEAD), ("desk-runner", NEW_HEAD)], ids=["runner-at-head", "root-words", "runner-at-another-head"])
+def test_a_row_at_a_head_he_did_not_approve_waits_until_the_landing_runner_finds_it_changes_what_he_approved(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], lane: str, head: str) -> None:
+    """board-refresher-2 (root #213579): a re-ask rests on the runner's tap judge, never on a phrase in a root record."""
     shell.verdicts = {"merge-prs": {"42590": approved("42590", NEW_HEAD)}}
+    shell.post("decide", "root", f"#42590 {HEAD[:7]} adds a retry he has not seen: the row re-asks his tap", "42590")
 
     assert gate(tmp_path, shell, groups(pr_row("42590") | {"since": SINCE}), "--check") == 1
-    assert lines(capsys)[0] == f"42590 42590 {HEAD[:7]} re-ask: he approved it at {NEW_HEAD[:7]}, and no root record rules {HEAD[:7]} replay or new content; it waits in Being fixed or checked"
+    assert lines(capsys)[0] == f"42590 42590 {HEAD[:7]} re-ask: he approved it at {NEW_HEAD[:7]}, and the landing runner has not found that {HEAD[:7]} changes what he approved; it waits in Being fixed or checked"
 
-    shell.post(kind, "root", f"#42590 {HEAD[:7]} adds a retry he has not seen: the row re-asks his tap", "42590")
-    assert gate(tmp_path, shell, groups(pr_row("42590") | {"since": SINCE}), "--check") == 0
+    shell.post("note", lane, changed("42590", head), "42590")
+    assert gate(tmp_path, shell, groups(pr_row("42590") | {"since": SINCE}), "--check") == (0 if (lane, head) == ("desk-runner", HEAD) else 1)
 
 
 @pytest.mark.parametrize("since", [None, {"changed": "the upload now retries twice"}, {"changed": " ", "because": "a failed upload retries"}])
 def test_a_re_asked_row_without_what_changed_since_his_tap_fails(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], since: dict | None) -> None:
     """Owner 6:59 PM Oct 29 (root #194315): 'if ur asking for a PR tap that Ive alrady apporiove dyou ned to tell me whats changed / why ur showing it gain'."""
     shell.verdicts = {"merge-prs": {"42590": approved("42590", NEW_HEAD)}}
-    shell.post("decide", "root", f"#42590 {HEAD[:7]} adds a retry he has not seen: the row re-asks his tap", "42590")
+    shell.post("note", "desk-runner", changed("42590"), "42590")
 
     assert gate(tmp_path, shell, groups(pr_row("42590") | ({"since": since} if since else {})), "--", "cc-present", "update-block") == 1
 
@@ -603,7 +595,7 @@ def test_a_re_asked_row_without_what_changed_since_his_tap_fails(tmp_path: Path,
 
 def test_a_re_asked_row_opens_with_his_tap_time_what_changed_and_why_it_is_shown_again(tmp_path: Path, shell: FakeShell) -> None:
     shell.verdicts = {"merge-prs": {"42590": approved("42590", NEW_HEAD, at="2026-10-30T01:59:00Z")}}
-    shell.post("decide", "root", f"#42590 {HEAD[:7]} adds a retry he has not seen: the row re-asks his tap", "42590")
+    shell.post("note", "desk-runner", changed("42590"), "42590")
 
     assert gate(tmp_path, shell, groups(pr_row("42590") | {"since": SINCE | {"because": "a failed upload retries instead of failing the turn."}}), "--", "cc-present", "update-block") == 0
 
@@ -701,15 +693,14 @@ def test_a_failing_one_tap_group_holds_every_row_it_covers(tmp_path: Path, shell
     assert lines(capsys)[-1].startswith("rows 2 failing 2 ") and shell.pushed == []
 
 
-REASK = "the row re-asks his tap"
-
-
-def stacked(shell: FakeShell, grade: str = "fidelity: ok {head} a review fix, no new behavior", base: str = "b/42590") -> None:
+def stacked(shell: FakeShell, grade: str = "fidelity: ok {head} a review fix", base: str = "b/42590", fix: bool = True) -> None:
     shell.pull("42591", base=base)
     for pr in ("42590", "42591"):
         shell.post("review", "fidelity-desk", grade.format(head=HEAD[:7]), pr)
         shell.post("review", "finder-desk", f"finder: ok {HEAD[:7]} no majors", pr)
-        shell.post("decide", "root", f"#{pr} {HEAD[:7]} answers the finder: {REASK}", pr)
+        if fix:
+            shell.post("ask", "desk-runner", kept(pr), pr)
+        shell.post("note", "desk-runner", changed(pr), pr)
     shell.verdicts = {"merge-prs": {"42590": approved("42590", NEW_HEAD), "42591": approved("42591", NEW_HEAD, at="2026-10-30T01:59:00Z")}}
 
 
@@ -737,16 +728,15 @@ def test_a_stack_of_re_asked_review_fixes_pushes_as_one_row_his_one_tap_decides(
 
 
 @pytest.mark.parametrize(
-    ("grade", "base"),
+    ("grade", "base", "fix"),
     [
-        ("fidelity: ok {head} adds new behavior: a retry", "b/42590"),
-        ("fidelity: missing {head} rule/2", "b/42590"),
-        ("fidelity: ok {head} a review fix, no new behavior", "dev"),
+        ("fidelity: ok {head} adds a retry", "b/42590", False),
+        ("fidelity: ok {head} a review fix", "dev", True),
     ],
-    ids=["new-behavior", "no-ok-grade", "not-stacked"],
+    ids=["new-behavior", "not-stacked"],
 )
-def test_a_stack_with_new_behavior_an_ungraded_fix_or_no_chain_keeps_a_row_per_pr(tmp_path: Path, shell: FakeShell, grade: str, base: str) -> None:
-    stacked(shell, grade, base)
+def test_a_stack_with_new_behavior_or_no_chain_keeps_a_row_per_pr(tmp_path: Path, shell: FakeShell, grade: str, base: str, fix: bool) -> None:
+    stacked(shell, grade, base, fix)
 
     gate(tmp_path, shell, stack_rows(), "--", "cc-present", "update-block")
 
@@ -772,18 +762,3 @@ def test_a_ledger_that_does_not_read_warns_and_fails_no_row(tmp_path: Path, shel
 
     assert "WARN the drive's ledger did not read (ledger.py list exited 1: ccn: no ledger 1a2b); no row is checked for a PR the ledger never admitted" in lines(capsys)
     assert pushed_rows(shell) == ["42590"]
-
-
-def test_a_multi_head_record_carries_only_the_prs_whose_own_note_says_patch_identical():
-    record = {
-        "kind": "head",
-        "refs": {"prs": ["Forge-AI/monorepo#45001", "Forge-AI/monorepo#45002"]},
-        "fields": {"attrs": {
-            "head:Forge-AI/monorepo#45001": "0f0f0f0f0f..a1b2c3d4e5 restack, range-diff patch-identical (2 commits)",
-            "head:Forge-AI/monorepo#45002": "4423264aaa..c3b44a3fee replay, range-diff 1 identical, 1 changed",
-        }},
-        "text": "HEAD 2 PRs: #45001 a1b2c3d, #45002 c3b44a3: restacked onto dev",
-    }
-    assert board_rows.carries(record, "Forge-AI/monorepo", "45001", "a1b2c3d4e5")
-    assert not board_rows.carries(record, "Forge-AI/monorepo", "45002", "c3b44a3fee")
-    assert not board_rows.carries(record, "Forge-AI/monorepo", "45001", "c3b44a3fee")

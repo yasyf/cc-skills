@@ -1982,38 +1982,17 @@ def test_list_reads_back_pr_rows_oldest_first_filtered_by_lane_and_state(capsys)
             {"key": "24070", "fields": {"lane": LANE, "registered": LANE, "registered_head": OLD_HEAD}},
             {"key": "24072", "fields": {"lane": "other", "state": "landed"}},
             {"key": "msg/000001", "fields": {"kind": "report"}},
-            {"key": f"review/24071@{HEAD}", "fields": {"pr": "24071", "head": HEAD, "verdict": "findings"}},
         ]
     )
 
     run(shell, "list", "--ledger", LEDGER, "--lane", LANE, "--json")
-    assert [(row["pr"], row["rules_blocked"]) for row in json.loads(capsys.readouterr().out)] == [("24070", False), ("24071", True)]
+    assert [row["pr"] for row in json.loads(capsys.readouterr().out)] == ["24070", "24071"]
 
     run(shell, "list", "--ledger", LEDGER, "--open")
     assert capsys.readouterr().out.splitlines() == [
         f"#24070 {LANE} open - -",
-        f"#24071 {LANE} open lightning/b {HEAD[:12]} rules-blocked",
+        f"#24071 {LANE} open lightning/b {HEAD[:12]}",
     ]
-
-
-@pytest.mark.parametrize(
-    ("review", "blocked"),
-    [
-        ({"verdict": "findings"}, True),
-        ({"verdict": "findings", "override": "R12"}, False),
-        ({"verdict": "pending"}, True),
-        ({"verdict": "error"}, False),
-        ({"verdict": "clean"}, False),
-    ],
-    ids=["findings", "overridden", "pending", "error", "clean"],
-)
-def test_list_blocks_a_head_on_a_pending_review_or_an_unwaived_finding(review, blocked, capsys):
-    old = {"key": f"review/24071@{OLD_HEAD}", "fields": {"pr": "24071", "head": OLD_HEAD, "verdict": "findings"}}
-    current = {"key": f"review/24071@{HEAD}", "fields": {"pr": "24071", "head": HEAD, **review}}
-    shell = FakeShell(rows=[{"key": "24071", "fields": {"lane": LANE, "state": "open", "head": HEAD}}, old, current])
-
-    run(shell, "list", "--ledger", LEDGER, "--json")
-    assert json.loads(capsys.readouterr().out)[0]["rules_blocked"] is blocked
 
 
 def test_list_gives_each_row_its_queue_priority_with_an_open_owner_ask_on_top(capsys):
@@ -2173,34 +2152,6 @@ def test_a_moved_downstack_head_is_graded_and_labelled_without_a_re_report(capsy
     assert all_clean(shell) == 0
     assert shell.labelled == ["24082:merge"]
     assert shell.fields("24081")["label_head"] == "c" * 40
-
-
-def test_a_head_with_an_unwaived_rules_finding_is_never_labelled(capsys):
-    shell = admitted(desk_shell())
-    review = {"key": f"review/{PR}@{HEAD}", "fields": {"pr": PR, "head": HEAD, "verdict": "findings"}}
-    shell.store["rows"].append(review)
-
-    assert label(shell, "--expect-head", HEAD) == 1
-    assert shell.labelled == []
-    assert f"#{PR} {HEAD[:9]} has rules-review findings" in capsys.readouterr().out
-
-    review["fields"]["override"] = "R901"
-    assert label(shell, "--expect-head", HEAD) == 0
-    assert shell.labelled == [f"{PR}:merge"]
-
-
-def test_a_head_whose_rules_review_is_pending_is_never_labelled(capsys):
-    shell = admitted(desk_shell())
-    review = {"key": f"review/{PR}@{HEAD}", "fields": {"pr": PR, "head": HEAD, "verdict": "pending"}}
-    shell.store["rows"].append(review)
-
-    assert label(shell, "--expect-head", HEAD) == 1
-    assert shell.labelled == []
-    assert f"#{PR} {HEAD[:9]} has a rules review in progress" in capsys.readouterr().out
-
-    review["fields"]["verdict"] = "clean"
-    assert label(shell, "--expect-head", HEAD) == 0
-    assert shell.labelled == [f"{PR}:merge"]
 
 
 def test_a_head_no_review_has_reached_is_labelled(capsys):

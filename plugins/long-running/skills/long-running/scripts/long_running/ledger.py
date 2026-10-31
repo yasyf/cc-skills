@@ -40,8 +40,7 @@ repository's PR list is never read and this script calls no GraphQL itself: ``re
 and ``watch`` subscribes through ``ccx vcs pr watch``, both over ccx's machine-wide pull request cache, one poll per
 repository at most every 30 seconds however many desks and lanes ask. Holds, routing, the label history, and the landing are fields on that row;
 lane messages are ``cci`` records on ``--drive D``, keyed ``#<seq>`` and pending until lane ``ledger``
-posts an ``answer`` with ``--re <seq>``; owner asks are ``ask/<seq>`` rows, and ``rules-review.py`` verdicts are
-``review/<pr>@<head>`` rows in the same ledger; ``list`` marks an open PR ``rules_blocked`` while its head's review is pending or holds an unwaived finding. It marks an open PR ``ours`` only when the drive admitted it: a lane registered or reported it by name, ``refresh`` found it on a branch prefix or stack a lane registered, or the landing desk registered it for the drive's label. Record text and authorship never admit a PR, and ``label`` refuses a stack holding any PR that is not ours. ``unadmit`` withdraws a PR: its row stays, marked, so neither ``refresh``, a report, nor the desk admits it again until a lane runs ``register --pr`` for it, and a merge label ``label`` set on it is pulled. A landing is proven by a
+posts an ``answer`` with ``--re <seq>``; owner asks are ``ask/<seq>`` rows in the same ledger. ``list`` marks an open PR ``ours`` only when the drive admitted it: a lane registered or reported it by name, ``refresh`` found it on a branch prefix or stack a lane registered, or the landing desk registered it for the drive's label. Record text and authorship never admit a PR, and ``label`` refuses a stack holding any PR that is not ours. ``unadmit`` withdraws a PR: its row stays, marked, so neither ``refresh``, a report, nor the desk admits it again until a lane runs ``register --pr`` for it, and a merge label ``label`` set on it is pulled. A landing is proven by a
 trunk squash whose subject ends ``(#<pr>)``, or by the trunk's tree in ``--checkout`` holding
 the PR's own files, never by the PR's merged field. A verb's ``--repo`` defaults to the origin of its
 ``--checkout``, else of the working directory, the same checkout ``ccn`` reads the ledger from. A PR row's key
@@ -149,7 +148,6 @@ ASK_KEY = re.compile(rf"(?:{ASK_PREFIX})?(?P<seq>\d+)")
 REMOTE = re.compile(r"[:/](?P<repo>[\w.-]+/[\w.-]+?)(?:\.git)?/?$")
 PR_KEY = re.compile(r"(?:(?P<repo>[\w.-]+/[\w.-]+)#)?(?P<pr>\d+)")
 GONE_PREFIX = "gone/"
-REVIEW_PREFIX = "review/"
 DEV_RED_PREFIX = "dev-red:"
 AGED_HOURS = 60
 TRAIN_CARS = 6
@@ -173,7 +171,7 @@ ASK_OVERRIDES = {"backlog": ASK_BACKLOG, "live": ASK_LIVE, "lost": ASK_LOST}
 ASK_STATES = (*ASK_OVERRIDES, ASK_OPEN)
 ASK_ANSWERED = "answered"
 WAITING_REASONS = ("ungraded", "refused", "red", "held")
-UNROUTED_REFUSALS = ("moved", "fetched", "held", "labelled", "rules", "rules-pending")
+UNROUTED_REFUSALS = ("moved", "fetched", "held", "labelled")
 QUEUE_BOTS = frozenset({"graphite-app[bot]", "trunk-io[bot]"})
 LANDED = "landed"
 CLOSED_WITHOUT_SQUASH = "closed-without-squash"
@@ -250,8 +248,6 @@ REFUSAL = {
     "closed": "#{pr} is {state}; a landing is read from the {base} tree, never labelled",
     "moved": "head moved: expected {expected}, the forge has {head}; grade the new head before labelling",
     "held": "#{pr} is held: {reason} until {until}",
-    "rules": "#{pr} {head} has rules-review findings; a new head fixes them or a root `rules-override` line waives them",
-    "rules-pending": "#{pr} {head} has a rules review in progress; retry once its verdict lands",
     "labelled": "{head} was labelled at {at}; a head carries the label once, and a strip is not a rejection: read the Merge activity comment",
     "pulled": "{head} had its label pulled at {at} ({reason}); the same head is never re-queued",
     "mergeable": "mergeable_state {state}: only {allowed} may be labelled",
@@ -466,7 +462,7 @@ def ref(key: str) -> str:
 
 @dataclass(frozen=True)
 class Scope:
-    """One repository's view of a ledger: its PR rows under bare numbers, every other repository's PR and review rows out of sight.
+    """One repository's view of a ledger: its PR rows under bare numbers, every other repository's PR rows out of sight.
 
     A PR row is stored under its bare number in the ledger checkout's own repository, `default`, and as `owner/name#<pr>` in any other.
     """
@@ -478,19 +474,14 @@ class Scope:
         return pr if same_repo(self.repo, self.default) else f"{self.repo.lower()}#{pr}"
 
     def store(self, key: str) -> str:
-        if key.isdigit():
-            return self.key(key)
-        pr, _, head = key.removeprefix(REVIEW_PREFIX).partition("@")
-        return review_key(self.key(pr), head) if key.startswith(REVIEW_PREFIX) and pr.isdigit() else key
+        return self.key(key) if key.isdigit() else key
 
     def local(self, key: str) -> str | None:
-        review = not is_pr_key(key) and key.startswith(REVIEW_PREFIX)
-        pr, _, head = key.removeprefix(REVIEW_PREFIX).partition("@") if review else (key, "", "")
-        if not (match := PR_KEY.fullmatch(pr)):
+        if not (match := PR_KEY.fullmatch(key)):
             return key
         if not same_repo(match["repo"] or self.default, self.repo):
             return None
-        return review_key(match["pr"], head) if review else match["pr"]
+        return match["pr"]
 
     def view(self, stored: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
         return {local: fields for key, fields in stored.items() if (local := self.local(key)) is not None}
@@ -846,23 +837,6 @@ def carries_label(fields: dict[str, str]) -> bool:
 
 def current_head(fields: dict[str, str]) -> str:
     return fields.get("head") or fields.get("reported_head", "")
-
-
-def review_key(pr: str, head: str) -> str:
-    return f"{REVIEW_PREFIX}{pr}@{head}"
-
-
-def review_pending(review: dict[str, str]) -> bool:
-    return review.get("verdict") == "pending"
-
-
-def review_blocks(review: dict[str, str]) -> bool:
-    return review_pending(review) or (review.get("verdict") == "findings" and not review.get("override"))
-
-
-def rules_blocked(rows: dict[str, dict[str, str]], pr: str) -> bool:
-    fields = rows[pr]
-    return is_open(fields) and review_blocks(rows.get(review_key(pr, current_head(fields)), {}))
 
 
 def is_tracked(fields: dict[str, str]) -> bool:
@@ -1905,11 +1879,6 @@ def guard(
         raise refusal("held", pr=pr, reason=fields["hold_reason"], until=fields["hold_until"])
     if lane_held(fields) and fields["reported_head"] == head:
         raise refusal("held", pr=pr, reason="its lane reported this head held", until="the lane reports it again")
-    rules = rows.get(review_key(pr, head), {})
-    if review_pending(rules):
-        raise refusal("rules-pending", pr=pr, head=head[:9])
-    if review_blocks(rules):
-        raise refusal("rules", pr=pr, head=head[:9])
     if fields.get("label_head") == head and fields.get("label_pulled_at"):
         raise refusal("pulled", head=head[:9], at=fields["label_pulled_at"], reason=fields["label_pull_reason"])
     if fields.get("label_head") == head and fields.get("labelled_at"):
@@ -2495,15 +2464,14 @@ def cmd_list(args: argparse.Namespace, shell: Shell) -> int:
         print(
             json.dumps(
                 [
-                    {"pr": key, "repo": args.repo, **fields, "priority": queue_priority(fields, asked, key), "rules_blocked": rules_blocked(every, key), "ours": is_open(fields) and is_ours(fields)}
+                    {"pr": key, "repo": args.repo, **fields, "priority": queue_priority(fields, asked, key), "ours": is_open(fields) and is_ours(fields)}
                     for key, fields in ordered
                 ]
             )
         )
         return 0
     for key, fields in ordered:
-        rules = " rules-blocked" if rules_blocked(every, key) else ""
-        print(f"#{key} {fields.get('lane', NO_PR)} {fields.get('state', 'open')} {fields.get('branch', NO_PR)} {current_head(fields)[:12] or NO_PR}{rules}")
+        print(f"#{key} {fields.get('lane', NO_PR)} {fields.get('state', 'open')} {fields.get('branch', NO_PR)} {current_head(fields)[:12] or NO_PR}")
     return 0
 
 

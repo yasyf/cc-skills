@@ -27,9 +27,9 @@ fails, with one line `<row-id> <pr> <head> <reasons>`, when:
               records no approval for the row at that head, so the row asks a tap he already gave;
               listing his approved head in the row's `carried` list (root #139021), `cc-present verdict
               import` at the head, or dropping the row clears it
-    re-ask    the board records his approval at another head, and no root go, decide, decision or answer record
-              names the PR at this head saying it re-asks or is new content (root #138721): until root
-              rules replay or new content the row sits in Being fixed or checked
+    re-ask    the board records his approval at another head, and the landing runner has posted no
+              `TAP-NOT-CARRIED` note for the PR at this head, its tap judge's finding that the head
+              changes what he approved (root #138721): until then the row sits in Being fixed or checked
     since     the board records his approval at another head that its `carried` list does not name,
               and the `pr-groups` row's `since` lacks `changed`, what changed since his tap in plain
               words, or `because`, the behavior change it is shown again for (root #194315)
@@ -53,8 +53,8 @@ checked as at any other time. A topic that does not read prints a `WARN` line an
 A markdown block of the pushed document that lists a PR as a `- #<pr>:` bullet fails as
 `<block>#<pr>`, with `listed`, when GitHub shows that PR merged or closed: a landed PR leaves every
 list the owner reads in the same push. In a markdown block whose id says `approved`, an open listed
-PR also fails, with `unapproved`, when neither a standing root go, his board approval, nor a carry
-record names its GitHub head, or when no fidelity grade or carry names that head.
+PR also fails, with `unapproved`, when neither a standing root go nor his board approval, a carry
+included, names its GitHub head, or when no fidelity grade names that head.
 
 A row asks a tap only once a fidelity lane graded its head and its own words settle it: a row
 with no fidelity grade at its head fails with `ungraded`, and one whose words say `pending` or
@@ -64,10 +64,7 @@ newer graded head clears it. A row with no finder review at its head
 gets a `WARN` line and fails nothing. Grades and finder reviews are read from one
 scan of the drive's `review` and `head` records, as desk-runner.py reads them, whatever verdict a
 finder posted; a codex finder reply saved as `<finders dir>/<pr>-<sha7>.md` counts as a finder
-review too. `--finders` names that directory, `finders/` beside the config by default. A carry
-counts as both at its head: a `review`, `head` or root record that says carried or patch-identical
-in the sentence or the stretch of text where `#<pr> <head>` or `#<pr> <old>-><head>` appears, or a
-record whose one PR ref is the PR, naming the head and saying carried or patch-identical. Two rows whose first sentences of five words or more, the label when there is none, share
+review too. `--finders` names that directory, `finders/` beside the config by default. Two rows whose first sentences of five words or more, the label when there is none, share
 a token Jaccard above 0.8 or their first 60 characters are flagged together as `FLAG` lines for the
 root; a flag fails nothing. A GitHub, cci, ledger, or cc-present read that fails prints a `WARN` line and
 fails no row on the checks it would have read. The verdicts are read with `cc-present outcomes`
@@ -77,9 +74,8 @@ otherwise. The push form opens each re-asked `pr-groups` row's `change` with `Yo
 tap's Pacific time>. Since then: <changed>. Shown again because: <because>.` and drops every row's
 `since`. Rows of one `pr-groups` block that GitHub chains into one stack, each PR based on the
 branch of the one below it, push as one row at the tip when every one of them passes, asks again
-with its `since`, and moved only by a fix with no new behavior: a fidelity ok grade at its head,
-or a carry record calling the head patch-identical, and no grade or `head` record at that head
-saying new behavior (root #194387). The row lists the others as cc-present's `stack`, so his one
+with its `since`, and moved only by a fix with no new behavior: the landing runner's `TAP-KEPT` ask
+names the PR at its head (root #194387). The row lists the others as cc-present's `stack`, so his one
 tap decides each at its own head; its `change` opens with one line for the stack, then each PR's
 change, and each other fact reads as one line when every PR shares it, else one clause per PR. It runs its command with a copy of the block, `textAt` removed and each failing
 row left out (its triage item, its `pr-groups` entry, or its `- #<pr>:` line, and a triage or `pr-groups` block
@@ -115,10 +111,8 @@ WORD = re.compile(r"[a-z0-9]+")
 LABEL_NUMBER = re.compile(r"^#\d+:\s*")
 SAVED_FINDER = re.compile(r"^(?P<pr>\d+)-(?P<sha>[0-9a-f]{7,40})\.md$")
 FINDERS = "finders"
-CARRY = re.compile(r"\bcarr(?:y|ies|ied|ying)\b|\bpatch-identical\b", re.IGNORECASE)
-PR_SHA = re.compile(r"#(?P<pr>\d+)\s+(?:[\w-]+\s+)?(?P<sha>[0-9a-f]{7,40})\b(?:\s*(?:->|→)\s*(?P<to>[0-9a-f]{7,40})\b)?")
 RULING_KINDS = cci.ROOT_ANSWER_KINDS | {"answer"}
-REASK = re.compile(r"\bre-?asks?\b|\bnew (?:behavior|behaviour|content)\b|\basks? (?:his|a fresh) tap\b", re.IGNORECASE)
+TAP_VERDICT = re.compile(r"^(?P<label>TAP-NOT-CARRIED|TAP-KEPT) #(?P<pr>\d+): the owner's tap at (?P<tapped>[0-9a-f]{7,40}) .*? carry to (?P<head>[0-9a-f]{7,40})\b")
 REKEY = re.compile(r"\bre-?keys?\b|\bre-?keyed\b", re.IGNORECASE)
 ONE_TAP = re.compile(r"\bone tap\b[^.]*?\bapprov(?:es|e)\b|\bapprov(?:es|e) (?:all|both|every)\b(?: (?:\d+|two|three|four|five|six|seven|eight|nine|ten))?", re.IGNORECASE)
 PR_REF = re.compile(r"#(\d+)\b")
@@ -432,29 +426,19 @@ def standing_gos(rulings: list[dict], withdrawn: set[int], pr: str, head: str) -
     return grades.gone_at([record for record in rulings if record["kind"] == "go" and record["seq"] not in withdrawn], pr, head)
 
 
-def tap_reasons(row: Row, entry: dict | None, gos: list[dict], rulings: list[dict]) -> list[str]:
+def tap_reasons(row: Row, entry: dict | None, gos: list[dict], taps: list[dict]) -> list[str]:
     if at_head(entry, "rejected", row.head):
         return [f"rejected: he rejected it at {row.head[:7]}{' at ' + entry['at'] if entry and entry.get('at') else ''}; it returns only at a new head"]
     carried = entry is not None and entry.get("verdict") == "approved" and bool(entry.get("head")) and any(grades.names_head(sha, entry["head"]) for sha in row.carried)
     if gos and not at_head(entry, "approved", row.head) and not carried:
         return [f"approved: root go cci #{gos[-1]['seq']} names it at {row.head[:7]}, and neither a board approval there nor his approved head in its carried list backs it; add {entry['head'] if entry and entry.get('verdict') == 'approved' and entry.get('head') else 'his approved head'} to carried, import the verdict, or drop the row"]
-    if moved_tap(row, entry) and not reasked(rulings, row):
-        return [f"re-ask: he approved it at {entry['head']}, and no root record rules {row.head[:7]} replay or new content; it waits in Being fixed or checked"]
+    if moved_tap(row, entry) and not tap_verdict(taps, row, entry, "TAP-NOT-CARRIED"):
+        return [f"re-ask: he approved it at {entry['head']}, and the landing runner has not found that {row.head[:7]} changes what he approved; it waits in Being fixed or checked"]
     return []
 
 
 def moved_tap(row: Row, entry: dict | None) -> bool:
     return entry is not None and entry.get("verdict") == "approved" and bool(entry.get("head")) and not at_head(entry, "approved", row.head) and not any(grades.names_head(sha, entry["head"]) for sha in row.carried)
-
-
-def pure_fix(records: list[dict], drive: str, lanes: list[str], repo: str, row: Row) -> bool:
-    """Whether `row`'s head is a fix with no new behavior: a fidelity ok grade or a patch-identical carry names it, and no grade or `head` record naming it says new behavior."""
-    mine = [record for record in records if record["drive"] == drive]
-    graded = grades.newest_naming(grades.fidelity_grades_in(mine, drive, lanes, repo, row.pr), row.head)
-    ok = graded is not None and graded["text"].startswith(grades.FIDELITY_OK)
-    said = [grades.head_says(record, repo, row.pr) for record in mine if record["kind"] == "head" and grades.about_pr(record, repo, row.pr) and grades.names_head(grades.head_of(record, repo, row.pr), row.head)]
-    fixed = ok or any(carries(record, repo, row.pr, row.head) for record in mine)
-    return fixed and not any(grades.ADDS_BEHAVIOR.search(text) for text in [*([grades.full_text(graded)] if graded else []), *said])
 
 
 def stacks(rows: list[Row]) -> list[list[Row]]:
@@ -519,8 +503,9 @@ def since_reasons(row: Row, entry: dict) -> list[str]:
     return []
 
 
-def reasked(rulings: list[dict], row: Row) -> bool:
-    return any(REASK.search(record["full"]) and re.search(rf"#{row.pr}\b", record["full"]) and any(grades.names_head(sha, row.head) for sha in grades.SHORT_SHA.findall(record["full"])) for record in rulings)
+def tap_verdict(taps: list[dict], row: Row, entry: dict, label: str) -> bool:
+    """Whether the landing runner's tap judge posted `label` for `row`'s PR from the head of his tap `entry` to the row's head: `TAP-NOT-CARRIED` when the head changes what the owner approved, so the board asks him again, `TAP-KEPT` when it changes nothing he approved."""
+    return any((found := TAP_VERDICT.match(record["text"])) and found["label"] == label and found["pr"] == row.pr and grades.names_head(found["tapped"], entry["head"]) and grades.names_head(found["head"], row.head) for record in taps)
 
 
 def attrs(record: dict) -> dict[str, str]:
@@ -610,34 +595,7 @@ def claim_reason(members: set[str], newest: dict[str, dict], pulls: dict[str, Pu
     return f"one tap: its words say one tap approves {len(members)} PRs, but {' and '.join(parts)}"
 
 
-def sentence_at(text: str, at: int) -> str:
-    start = max((cut.end() for cut in SENTENCE.finditer(text) if cut.end() <= at), default=0)
-    end = next((cut.start() for cut in SENTENCE.finditer(text) if cut.start() >= at), len(text))
-    return text[start:end]
-
-
-def carries(record: dict, repo: str, pr: str, head: str) -> bool:
-    """Whether `record` says `pr`'s grade and finder carry to `head`: a multi-head `head` record whose entry for `pr` names `head` and says carried or patch-identical in its note, or else its text; carried or patch-identical in the sentence or the stretch that ties `#<pr>` to `head`; or a record about only `pr` that names `head`."""
-    if (entries := grades.head_entries(record, repo)) is not None:
-        return pr in entries and grades.names_head(entries[pr]["commit"], head) and bool(CARRY.search(grades.head_says(record, repo, pr)))
-    text = record["text"]
-    if not CARRY.search(text):
-        return False
-    pairs = list(PR_SHA.finditer(text))
-    for at, pair in enumerate(pairs):
-        if pair["pr"] != pr or not grades.names_head(pair["to"] or pair["sha"], head):
-            continue
-        stretch = text[pair.start() : pairs[at + 1].start() if at + 1 < len(pairs) else len(text)]
-        if CARRY.search(stretch) or CARRY.search(sentence_at(text, pair.start())):
-            return True
-    if pairs:
-        return False
-    return [named for named, _ in grades.repo_prs(record, repo)] == [pr] and any(grades.names_head(sha, head) for sha in grades.SHORT_SHA.findall(text))
-
-
-def graded_warnings(reviews: list[dict], carried: list[dict], saved: list[str], drive: str, lanes: list[str], repo: str, row: Row) -> list[str]:
-    if any(record["drive"] == drive and carries(record, repo, row.pr, row.head) for record in carried):
-        return []
+def graded_warnings(reviews: list[dict], saved: list[str], drive: str, lanes: list[str], repo: str, row: Row) -> list[str]:
     warnings = []
     if not grades.standing(grades.fidelity_grades_in(reviews, drive, lanes, repo, row.pr), lanes, row.head):
         warnings.append(f"ungraded: no fidelity grade from {' or '.join(lanes)} names {row.head}")
@@ -721,6 +679,7 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
         ours = None
         warnings.append(f"WARN the drive's ledger did not read ({failed}); no row is checked for a PR the ledger never admitted")
     saved = shell.files(finders)
+    taps = tap_verdicts(shell, drive, [entry["at"] for row in named if verdicts is not None and (entry := verdicts.get(row.block, {}).get(row.id)) and moved_tap(row, entry) and entry.get("at")], warnings)
     for row in rows:
         row.reasons += moved.get(row.id, [])
     for row in named:
@@ -733,12 +692,12 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
             row.reasons.append(f"not open: root ruled it superseded or closed on cci #{ruling['seq']}")
         if verdicts is not None:
             row.entry = verdicts.get(row.block, {}).get(row.id)
-            row.reasons += tap_reasons(row, row.entry, standing_gos(rulings, withdrawn, row.pr, row.head) if rulings is not None else [], rulings or [])
+            row.reasons += tap_reasons(row, row.entry, standing_gos(rulings, withdrawn, row.pr, row.head) if rulings is not None else [], taps or [])
             if moved_tap(row, row.entry):
                 row.reasons += since_reasons(row, row.entry)
-                row.pure = reviews is not None and pure_fix(reviews + (rulings or []), drive, lanes, repo, row)
+                row.pure = tap_verdict(taps or [], row, row.entry, "TAP-KEPT")
         if reviews is not None:
-            gaps = graded_warnings(reviews, reviews + (rulings or []), saved, drive, lanes, repo, row)
+            gaps = graded_warnings(reviews, saved, drive, lanes, repo, row)
             row.reasons += [gap for gap in gaps if "fidelity" in gap]
             row.warnings += [gap for gap in gaps if "fidelity" not in gap]
         if unsettled := sorted({found.lower() for sentence in SENTENCE.split(row.words) for found in UNSETTLED.findall(sentence) if not any(not grades.names_head(sha, row.head) for sha in grades.SHORT_SHA.findall(sentence))}):
@@ -804,10 +763,21 @@ def opened_row(pr: dict, opener: str | None) -> dict:
 
 
 def approval_gaps(head: str, pr: str, entry: dict | None, rulings: list[dict], withdrawn: set[int], reviews: list[dict], drive: str, lanes: list[str], repo: str) -> list[str]:
-    carried = any(record["drive"] == drive and carries(record, repo, pr, head) for record in reviews + rulings)
-    approved = carried or standing_gos(rulings, withdrawn, pr, head) or (entry is not None and entry.get("verdict") == "approved" and bool(entry.get("head")) and grades.names_head(entry["head"], head))
-    graded = carried or grades.standing(grades.fidelity_grades_in(reviews, drive, lanes, repo, pr), lanes, head)
+    approved = standing_gos(rulings, withdrawn, pr, head) or (entry is not None and entry.get("verdict") == "approved" and bool(entry.get("head")) and grades.names_head(entry["head"], head))
+    graded = grades.standing(grades.fidelity_grades_in(reviews, drive, lanes, repo, pr), lanes, head)
     return (["no go, approval or carry"] if not approved else []) + (["no fidelity ok"] if not graded else [])
+
+
+def tap_verdicts(shell: Shell, drive: str, tapped: list[str], warnings: list[str]) -> list[dict] | None:
+    """The landing runner's `TAP-NOT-CARRIED` notes and `TAP-KEPT` asks since the oldest of the `tapped` times, the owner's taps at heads the rows have moved past; None when they do not read."""
+    if not tapped:
+        return []
+    try:
+        records = cci.records(tail(shell), drive, "--lane", RUNNER_LANE, "--kind=note", "--kind=ask", since=min(tapped, key=lambda at: parsed(at) or datetime.max.replace(tzinfo=PACIFIC)))
+    except ReadFailed as failed:
+        warnings.append(f"WARN the landing runner's tap verdicts did not read ({failed}); no moved tap clears its re-ask or folds into a stack row")
+        return None
+    return [record for record in records if record["lane"] == RUNNER_LANE and record["drive"] == drive and TAP_VERDICT.match(record["text"])]
 
 
 def withheld(node: object, failing: list[Row]) -> object:
@@ -900,5 +870,3 @@ def main(argv: list[str], shell: Shell | None = None) -> int:
         copy.flush()
         pushed = shell.push([*command, copy.name])
     return 1 if failing else pushed
-
-
