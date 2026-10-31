@@ -19,6 +19,7 @@
     drive.py reds    [--drive ID]
     drive.py go      [--drive ID] PR...
     drive.py worktree --lane NAME --path DIR [--session ID] [--drive ID]
+    drive.py spawned --lane NAME --brief PATH [--by LANE] [--session ID] [--drive ID]
     drive.py release --cci-drive NAME --owner LANE@DRIVE --build BUILD [--release ID]
     drive.py overview [--drive ID] [--steps PATH] [--json] [--step ID] [--since TIME]    (alias plan-status)
     drive.py ask-owner --title Q --lede TEXT --option LABEL... --recommend N [--id SLUG] [--for LANE...] [--lane NAME] [--drive ID] [--session ID]
@@ -96,6 +97,10 @@ reading every desk text that says a PR has, lacks, or lost a go comes from.
 ``worktree`` is the pack's entry point the first time a lane runs a command in a worktree: it posts one
 ``state`` record ``WORKTREE <lane> <path> <branch>`` with a ``worktree`` attr, keyed
 ``worktree:<lane>:<path>`` so it posts once. A path outside the drive's repository posts nothing and exits 3.
+
+``spawned`` is the pack's entry point at each drive-lane spawn, the Agent hook's and ``orca-launch.sh``'s: it posts
+one ``state`` record ``SPAWNED <lane> <brief>`` as ``--by`` (default root), which the stall watch reads to raise a
+lane that has not registered with cci within ``stall.minutes.unregistered``.
 
 ``release`` is the desk runner's entry point when a lane's ``release --build`` record names a build: it records
 the build under ``releases`` in the registry entry of the drive whose cci drive is ``--cci-drive``, with its owner
@@ -631,6 +636,14 @@ def cmd_worktree(args: argparse.Namespace, shell: ledger.Shell) -> int:
     return 0
 
 
+def cmd_spawned(args: argparse.Namespace, shell: ledger.Shell) -> int:
+    if (entry := find(args.drive or current_drive(), args.session)) is None:
+        print("this launch belongs to no drive", file=sys.stderr)
+        return 1
+    shell.run(["cci", "post", "--drive", cci_drive(entry), "--lane", args.by, "--kind", "state", "--topic", f"spawn:{args.lane}", "--lane-ref", args.lane, "--attr", f"brief={args.brief}", "--text", f"SPAWNED {args.lane} {args.brief}"])
+    return 0
+
+
 def cmd_overview(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if args.steps:
         path = args.steps
@@ -769,6 +782,14 @@ def build_parser() -> argparse.ArgumentParser:
     worktree.add_argument("--session")
     worktree.add_argument("--drive")
     worktree.set_defaults(handler=cmd_worktree)
+
+    spawned = subparsers.add_parser("spawned", help="post the SPAWNED record the stall watch reads to raise a lane that never registers with cci")
+    spawned.add_argument("--lane", required=True)
+    spawned.add_argument("--brief", required=True)
+    spawned.add_argument("--by", default="root", help="the lane that spawned it")
+    spawned.add_argument("--session")
+    spawned.add_argument("--drive")
+    spawned.set_defaults(handler=cmd_spawned)
 
     release = subparsers.add_parser("release", help="record which lane owns a release build the drive started")
     release.add_argument("--cci-drive", required=True, metavar="NAME", help="the cci drive the owning lane posts to")
