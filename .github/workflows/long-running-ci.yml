@@ -64,6 +64,8 @@ jobs:
         run: |
           cat "$RUNNER_TEMP/long-running-json-consumers.json"
           cat "$RUNNER_TEMP/long-running-sqlite-consumers.json"
+      - name: Actual overflow refusal historical read costs
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/overflow_read_integration.py -q -s
       - name: pytest
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q
       - name: Binary attachment actual mq read costs
