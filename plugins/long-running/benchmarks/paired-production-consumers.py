@@ -134,7 +134,10 @@ def measure(count):
         monkeypatch.setattr(overflow, "held", lambda _: [])
         monkeypatch.setattr(overflow, "overflow_landable", lambda *_: {"selected"})
         with measured() as unchanged_overflow:
-            overflow.overflow()
+            if args.format == "sqlite":
+                overflow.overflow(overflow)
+            else:
+                overflow.overflow()
         assert unchanged_overflow["json_payload_writes"] == unchanged_overflow["changed_sql_rows"] == 0
         clock = incidents.clock.__wrapped__()
         replay = incidents.fake.__wrapped__(clock)
