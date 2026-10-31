@@ -4535,7 +4535,8 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   carrying the PRs moves the old name's mail to it. A `SPAWNED` record for that name
   from another brief, a lane the root spawned by hand, withdraws the supervisor's
   launch.
-- **Rotation.** A live lane past its context line gets one `ROTATE` ask on cci. It
+- **Rotation.** A live lane active within the window and past its context line gets
+  one `ROTATE` ask on cci; an idle lane is never asked, since it cannot flush. The asked lane
   flushes in place: its `handoff --ccn <doc>` reply becomes its newest handoff and the
   lane keeps working. The supervisor never relaunches a lane for its size; the handoff
   only seeds the successor if the lane later dies.

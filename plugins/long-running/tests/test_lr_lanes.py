@@ -175,6 +175,17 @@ def test_a_flushed_lane_keeps_working_in_place(tmp_path, brief):
     assert (lane.state, lane.handoff) == ("desired", "9a1b2c3")
 
 
+def test_an_idle_lane_past_its_line_is_never_asked_to_rotate(tmp_path, brief):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    fake.peers = [who("conflicts-2", True, T0 - timedelta(hours=5))]
+    fake.token_counts = {"conflicts-2": 640_000}
+
+    out = lanes.tick(store, fake.deps, T0, 1)
+
+    assert out.asked == [] and fake.posts == [] and store.lane("conflicts-2").asked is None
+
+
 def test_a_live_lane_that_ignores_rotate_is_left_working(tmp_path, brief):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store)
