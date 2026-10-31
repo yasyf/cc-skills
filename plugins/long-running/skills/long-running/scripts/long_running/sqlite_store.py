@@ -708,7 +708,7 @@ class Store:
 
     def escalations_for(self, incident_id: str, pr: str) -> list[Action]:
         with self._read(incident_id) as connection:
-            return [Action.load(json.loads(row[0])) for row in connection.execute("SELECT a.record FROM escalation_pr AS r JOIN action AS a ON a.ordinal = r.action_ordinal WHERE r.pr = ? AND a.kind = 'escalation' ORDER BY a.ordinal", (pr,))]
+            return [Action.load(json.loads(row[0])) for row in connection.execute("SELECT a.record FROM escalation_pr AS r CROSS JOIN action AS a ON a.ordinal = r.action_ordinal WHERE r.pr = ? AND a.kind = 'escalation' ORDER BY a.ordinal", (pr,))]
 
     def actions(self, incident_id: str, kind: str | None = None, status: str | None = None, *, statuses=None) -> list[Action]:
         where, parameters = _selected(kind, status, statuses)
