@@ -595,7 +595,14 @@ boundary between the steps of its pass, or between the PRs and stacks a landing 
 that holder and waits up to 20 minutes, as long as a slow pass takes, for it to exit, or for its newest alive record to show it
 re-executed into the handoff's own version under the same pid, which withdraws the stop and starts nothing; past that it
 starts nothing and logs `HANDOFF-STALLED` to root with the pid. `handoff` stops nothing while the install lacks a runtime brief or any file of
-`reference/` or `scripts/` that the marketplace copy it was installed from holds. `drive.py digest`
+`reference/` or `scripts/` that the marketplace copy it was installed from holds. `supervise install --desk <d>` writes
+`~/Library/LaunchAgents/com.long-running.<drive>.<desk>.plist` and bootstraps that one label in the `gui/<uid>` domain, touching no
+other job: launchd runs `run` through `/bin/zsh -c`, exporting each key the landing adapter needs from the Keychain item
+`landing.adapter.key_item` names, so no file holds its value, restarts it after any exit at most once a minute, with the installing shell's PATH,
+logging to `<desk>-runner.log`, and the install then hands the desk over to it; `supervise uninstall` boots that label out and
+removes its plist, and `supervise status` exits 0 while launchd has it loaded. Under supervision `handoff` starts no successor:
+it waits up to 3 minutes after the runner exits for launchd's restart to hold the lock, so a handoff killed mid-wait still
+leaves launchd's runner and two runners never race for the lock. `drive.py digest`
 prints each desk's running and installed versions. Before the landing desk takes its lock it refuses to start, exiting 3 with one
 `PREFLIGHT-FAILED` to root, when an environment variable its adapter needs is unset (`TRUNK_MERGE_API_KEY` for
 `trunk-stack-enqueue`), a lane `fidelity_lane`, `go_lanes`, `desk_lane`, `board_lane` or `restack_lane` names never
@@ -615,6 +622,7 @@ import html
 import itertools
 import json
 import os
+import plistlib
 import re
 import shlex
 import subprocess
@@ -962,6 +970,9 @@ LANE_SPAWN_GRACE = timedelta(minutes=10)
 LANE_GONE_REPORT = re.compile(r"\bLANE-GONE lane-gone:([^:\s]+)[:\s]")
 LANE_ENDED_KINDS = frozenset({"done", "handoff", "stand-down", "stopped", "not-ours"})
 HANDOFF_WAIT = timedelta(minutes=20)
+LAUNCHD_THROTTLE_SECONDS = 60
+LAUNCHD_START = timedelta(minutes=3)
+AGENT_PID = re.compile(r"^\s*pid = (\d+)$", re.MULTILINE)
 RELAY_REF = re.compile(r"(?:^|cci#)(R?\d+)$")
 RUN_REF = re.compile(r"R\d+|\d+")
 ACK = re.compile(r"^(?P<verb>started|done)\b[: ]*(?P<rest>.*)$", re.DOTALL)
@@ -1237,6 +1248,14 @@ class Shell:
         sys.stdout.flush()
         sys.stderr.flush()
         os.execv(argv[0], argv)
+
+    def launchctl(self, *args: str) -> Done:
+        """`launchctl` run once within QUICK_SECONDS; a host without it, such as a Linux box, reads as unsupervised at once instead of waiting out the install window a missing binary gets."""
+        try:
+            done = subprocess.run(["launchctl", *args], capture_output=True, text=True, timeout=QUICK_SECONDS)
+        except FileNotFoundError:
+            return Done(MISSING_BINARY, "", "launchctl is not on PATH")
+        return Done(done.returncode, done.stdout, done.stderr)
 
     def spawn(self, argv: list[str], out: Path, env: dict[str, str], append: bool = False) -> subprocess.Popen:
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -2139,11 +2158,12 @@ class Runner:
             return holder
 
     def handoff(self, desk: str) -> int:
-        """Stop the runner holding `desk`'s lock at its next step boundary, wait until it has exited, then start its successor; a runner whose newest alive record, posted after the stop was asked, shows it re-executed into this version under the same pid has handed over in place, so its stop is withdrawn and no successor starts (root, Oct 29 11:46 AM), unless it already ran this version when the stop was asked, since only a restart then reloads runner.json (cci #215987); refuse, naming its pid, when neither happens within HANDOFF_WAIT (#140225). Refuse before stopping anything when the install lacks a brief the runner, finder, or incident job reads, or any reference or script file the marketplace copy it was installed from holds."""
+        """Stop the runner holding `desk`'s lock at its next step boundary, wait until it has exited, then start its successor, or under launchd supervision wait for launchd's restart instead, so a handoff killed mid-wait never leaves the desk empty (Oct 30 7:46 PM); a runner whose newest alive record, posted after the stop was asked, shows it re-executed into this version under the same pid has handed over in place, so its stop is withdrawn and no successor starts (root, Oct 29 11:46 AM), unless it already ran this version when the stop was asked, since only a restart then reloads runner.json (cci #215987); refuse, naming its pid, when neither happens within HANDOFF_WAIT (#140225). Refuse before stopping anything when the install lacks a brief the runner, finder, or incident job reads, or any reference or script file the marketplace copy it was installed from holds."""
         if missing := list(dict.fromkeys([*(f"{path.parent.name}/{path.name}" for path in BRIEF_FILES if not path.exists()), *install_gaps()])):
             print(f"desk-runner handoff: this install lacks {', '.join(missing)}, so no runner was stopped; reinstall the plugin and hand off again", file=sys.stderr)
             return 1
         pid = self.desk_holder(desk)
+        supervised = self.supervised(desk)
         if pid is not None:
             current = self.on_this_version(desk, pid, datetime.min.replace(tzinfo=timezone.utc))
             marker = self.stop_marker(pid)
@@ -2159,15 +2179,100 @@ class Runner:
                         return 0
                     break
                 if self.now() >= deadline:
-                    why = f"runner {pid} still runs the {desk} desk after {HANDOFF_WAIT}, so no successor started; {marker} stays, the runner exits at the end of its pass, and the next `desk-runner.py handoff --desk {desk}` starts the successor"
+                    then = f"launchd's {self.agent_label(desk)} starts its successor" if supervised else f"the next `desk-runner.py handoff --desk {desk}` starts the successor"
+                    why = f"runner {pid} still runs the {desk} desk after {HANDOFF_WAIT}, so no successor started; {marker} stays, the runner exits at the end of its pass, and {then}"
                     self.escalate(f"handoff:{desk}:{pid}", "HANDOFF-STALLED", "runner", why)
                     self.flush()
                     print(f"desk-runner handoff: {why}", file=sys.stderr)
                     return 1
                 self.shell.sleep(WAKE_SECONDS)
+        if supervised:
+            return self.await_launchd(desk, pid)
         started = self.shell.spawn([str(RUNNER_BIN), "run", "--config", str(self.config.source), "--desk", desk], self.runner_log(desk), self.config.desk_env[desk], append=True)
         print(f"desk-runner handoff: {f'runner {pid} exited' if pid is not None else f'no live {desk} runner'}; started runner {started.pid}, logging to {self.runner_log(desk)}")
         return 0
+
+    def await_launchd(self, desk: str, pid: int | None) -> int:
+        """Wait up to LAUNCHD_START for the runner launchd restarts to hold `desk`'s lock under a pid other than `pid`'s."""
+        deadline = self.now() + LAUNCHD_START
+        while not (holder := self.desk_holder(desk)) or holder == pid:
+            if self.now() >= deadline:
+                why = f"launchd's {self.agent_label(desk)} started no {desk} runner within {LAUNCHD_START} of {f'runner {pid} exiting' if pid is not None else 'the handoff'}; it starts one again every {LAUNCHD_THROTTLE_SECONDS} s, and {self.runner_log(desk)} says why each start ended"
+                self.escalate(f"handoff:{desk}:launchd:{pid}", "HANDOFF-STALLED", "runner", why)
+                self.flush()
+                print(f"desk-runner handoff: {why}", file=sys.stderr)
+                return 1
+            self.shell.sleep(WAKE_SECONDS)
+        print(f"desk-runner handoff: {f'runner {pid} exited' if pid is not None else f'no live {desk} runner'}; launchd started runner {holder} as {self.agent_label(desk)}, logging to {self.runner_log(desk)}")
+        return 0
+
+    def agent_label(self, desk: str) -> str:
+        return f"com.long-running.{self.config.drive}.{desk}"
+
+    def agent_target(self, desk: str) -> str:
+        return f"gui/{os.getuid()}/{self.agent_label(desk)}"
+
+    def agent_plist(self, desk: str) -> Path:
+        return Path.home() / "Library/LaunchAgents" / f"{self.agent_label(desk)}.plist"
+
+    def supervised(self, desk: str) -> bool:
+        return self.shell.launchctl("print", self.agent_target(desk)).code == 0
+
+    def supervise(self, action: str, desk: str) -> int:
+        """Install, uninstall, or report the launchd user agent that keeps `desk`'s runner alive; only its own label is bootstrapped or booted out."""
+        label, plist, target = self.agent_label(desk), self.agent_plist(desk), self.agent_target(desk)
+        if action == "status":
+            shown = self.shell.launchctl("print", target)
+            if shown.code:
+                print(f"desk-runner supervise: launchd does not supervise the {desk} desk; `desk-runner.py supervise install --config {self.config.source} --desk {desk}` installs {label}")
+                return 1
+            pid = AGENT_PID.search(shown.out)
+            print(f"desk-runner supervise: launchd supervises the {desk} desk as {label} from {plist}, {f'runner pid {pid[1]}' if pid else 'with no runner running'}, logging to {self.runner_log(desk)}")
+            return 0
+        if action == "uninstall":
+            loaded = self.supervised(desk)
+            if loaded and not self.boot_out(target):
+                return 1
+            plist.unlink(missing_ok=True)
+            print(f"desk-runner supervise: {label} {'booted out' if loaded else 'was not loaded'} and {plist} removed; no runner keeps the {desk} desk until `run` or `supervise install` starts one")
+            return 0
+        adapter = self.config.landing["adapter"] if desk == "landing" else {}
+        needed = [name for name in merge_queue.ADAPTERS[adapter["kind"]].required_env if name not in self.config.desk_env[desk]] if adapter else []
+        if needed and not adapter.get("key_item"):
+            print(f"desk-runner supervise: the {adapter['kind']} adapter needs {', '.join(needed)}, and no landing.adapter.key_item names the Keychain item launchd reads it from, so {label} was not installed", file=sys.stderr)
+            return 3
+        exports = "".join(f'export {name}="$(security find-generic-password -s {shlex.quote(adapter["key_item"])} -w)"; ' for name in needed)
+        log = str(self.runner_log(desk))
+        agent = plistlib.dumps(
+            {
+                "Label": label,
+                "ProgramArguments": ["/bin/zsh", "-c", f"{exports}exec {shlex.quote(str(RUNNER_BIN))} run --config {shlex.quote(str(self.config.source))} --desk {desk}"],
+                "EnvironmentVariables": {"PATH": self.shell.env("PATH")},
+                "KeepAlive": True,
+                "ThrottleInterval": LAUNCHD_THROTTLE_SECONDS,
+                "StandardOutPath": log,
+                "StandardErrorPath": log,
+            }
+        )
+        loaded = self.supervised(desk)
+        if loaded and plist.is_file() and plist.read_bytes() == agent:
+            print(f"desk-runner supervise: launchd already supervises the {desk} desk as {label} from {plist}")
+            return 0
+        if loaded and not self.boot_out(target):
+            return 1
+        plist.parent.mkdir(parents=True, exist_ok=True)
+        plist.write_bytes(agent)
+        if (booted := self.shell.launchctl("bootstrap", f"gui/{os.getuid()}", str(plist))).code:
+            print(f"desk-runner supervise: launchctl bootstrap {plist} failed: {(booted.err or booted.out).strip()}", file=sys.stderr)
+            return 1
+        print(f"desk-runner supervise: launchd supervises the {desk} desk as {label} from {plist}")
+        return self.handoff(desk)
+
+    def boot_out(self, target: str) -> bool:
+        if (out := self.shell.launchctl("bootout", target)).code:
+            print(f"desk-runner supervise: launchctl bootout {target} failed: {(out.err or out.out).strip()}", file=sys.stderr)
+            return False
+        return True
 
     def on_this_version(self, desk: str, pid: int, since: datetime) -> bool:
         beat = drive.heartbeat(self.cci_tail, self.config.drive, desk)
@@ -9366,6 +9471,9 @@ def build_parser() -> argparse.ArgumentParser:
     rebind = verbs.add_parser("rebind")
     handoff = verbs.add_parser("handoff")
     handoff.add_argument("--desk", choices=DESKS, required=True)
+    supervise = verbs.add_parser("supervise", help="install, uninstall, or report the launchd user agent com.long-running.<drive>.<desk> that keeps the desk's runner alive; status exits 0 while launchd has it loaded")
+    supervise.add_argument("action", choices=("install", "uninstall", "status"))
+    supervise.add_argument("--desk", choices=DESKS, required=True)
     preflight = verbs.add_parser("preflight", help="check the landing desk's config and machine without starting it; exit 0 when it would start, 3 when it would refuse")
     preflight.add_argument("--json", action="store_true")
     quiesce = verbs.add_parser("quiesce")
@@ -9375,7 +9483,7 @@ def build_parser() -> argparse.ArgumentParser:
     gc.add_argument("--dry-run", action="store_true")
     go = verbs.add_parser("go", help="each PR's ledger head and the newest go naming it, else the newest go at an older head, read as the landing runner reads them")
     go.add_argument("prs", nargs="+")
-    for sub in (relay, launch, policy, loop, rebind, handoff, preflight, quiesce, show, gc, go):
+    for sub in (relay, launch, policy, loop, rebind, handoff, supervise, preflight, quiesce, show, gc, go):
         sub.add_argument("--config", type=Path, required=True)
     return parser
 
@@ -9422,6 +9530,8 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
         return runner.rebind()
     if args.verb == "handoff":
         return runner.handoff(args.desk)
+    if args.verb == "supervise":
+        return runner.supervise(args.action, args.desk)
     if args.verb == "preflight":
         fault = startup_fault(runner)
         print(json.dumps({"ok": fault is None, "label": fault and fault[0], "why": fault and fault[2]}) if args.json else fault[2] if fault else f"desk-runner preflight: the landing desk on {config.source} would start")
