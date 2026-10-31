@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 import contextlib
 import hashlib
 import io
@@ -116,7 +118,7 @@ def pinned(package: Path, corpus: str = CORPUS, pin: str | None = None) -> dict[
 def current_stamp(rows: dict[str, dict[str, str]], plan: Path | None) -> str:
     printed = io.StringIO()
     with contextlib.redirect_stdout(printed):
-        assert rulings.main(["slice", "--program", "brook", "--repo", REPO, "--lane", "lane-a", "--step", STEP, *(["--plan", str(plan)] if plan else [])], RegisterShell(rows)) == 0
+        assert rulings.main(["slice", "--program", "brook", "--repo", REPO, "--lane", "lane-a", "--step", STEP, *(["--plan", str(plan)] if plan else [])], RegisterShell(rows), stdin=sys.stdin, stdout=sys.stdout) == 0
     return printed.getvalue().rstrip("\n").rpartition("slice-hash: ")[2]
 
 
