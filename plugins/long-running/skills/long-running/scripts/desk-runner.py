@@ -5607,6 +5607,7 @@ class Landing:
         self.unchecked: set[str] = set()
         self.settlement = Settlement({}, {})
         self.unproven_why: dict[str, str] = {}
+        self.untested_why: dict[str, str] = {}
         self.sessions: dict[str, bool] = {}
         self.live: list[dict] | None = None
         self.dead: dict[str, bool] = {}
@@ -6075,6 +6076,7 @@ class Landing:
             return []
         down = self.down_since() is not None
         read: dict[str, bool] = {}
+        self.read_heads({head: pr for tree in trees for tip in tree for pr in downstack(open_rows, tip) if (head := open_rows[pr].get("head"))})
 
         def landable(pr: str) -> bool:
             if pr not in read:
@@ -6090,13 +6092,16 @@ class Landing:
                 causes.discard("ci-unproven")
             elif causes == {"ci-unproven"}:
                 self.unproven_why[pr] = why
+            if not causes and (why := self.untested(open_rows.get(pr, {}).get("head", ""))):
+                self.untested_why[pr] = why
+                return False
             return not causes
 
         def ready(pr: str) -> bool:
             return landable(pr) and all(landable(below) or statuses.get(below, {}).get("verdict") in STATUS_SETTLED for below in downstack(open_rows, pr) - {pr})
 
         def said(pr: str) -> str:
-            return f"#{pr} {statuses.get(pr, {}).get('verdict') or 'unread'}" + (f" ({self.unproven_why[pr]})" if pr in self.unproven_why else "")
+            return f"#{pr} {statuses.get(pr, {}).get('verdict') or 'unread'}" + (f" ({why})" if (why := self.unproven_why.get(pr) or self.untested_why.get(pr)) else "")
 
         kept = []
         for tree in trees:
@@ -6111,6 +6116,13 @@ class Landing:
                 elif blocked := sorted((below for below in downstack(open_rows, pr) - {pr} if not landable(below) and statuses.get(below, {}).get("verdict") not in STATUS_SETTLED), key=lambda below: len(downstack(open_rows, below))):
                     self.settle({pr: open_rows[pr].get("head", "")}, BelowBlocked(f"#{blocked[0]}", f"stacked on {said(blocked[0])} in the status read, so the pass checked none of its stack"))
         return kept
+
+    def untested(self, head: str) -> str:
+        """Why `head` waits out of the queue, or empty: until its own `landing.trunk_check` build passes on that exact head, since a head enqueued before its own CI runs is evicted when that build fails, and each eviction costs a queue slot and a Trunk run (root #254954, #255451)."""
+        if not (check := self.landing_config.get("trunk_check")):
+            return ""
+        state = next((status["state"] for status in self.cached(head) or [] if status["context"] == check), "unreported")
+        return "" if state == "success" else f"untested: its own {check} reads {state} at {head[:10]}, so the queue sees it once that build passes"
 
     def settle_tree(self, rows: dict[str, dict], held: list[str], gated: list[tuple[list[str], merge_queue.Gate]]) -> None:
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
@@ -7203,7 +7215,13 @@ class Landing:
                 self.refuse_head(f"tap-rule:{pr}:{graded.heads[pr]}", pr, graded, why, untapped, also=[ROOT, *self.board_lanes])
             for pr, why in unread.items():
                 self.warn_head(f"tap-unread:{pr}:{graded.heads[pr]}:{why}", pr, graded, why, also=[ROOT, *self.runner.landing_lanes("desk_lane")])
-        return {pr: merge_queue.State(merge_queue.PENDING, f"merge mode {self.merge_mode} waits for the owner's Merge answer at {graded.heads[pr][:7]}") for pr in waiting} | {pr: merge_queue.State(merge_queue.PENDING, why) for pr, why in (untapped | unread).items()}
+        return {pr: merge_queue.State(merge_queue.PENDING, self.owner_wait(pr, graded.heads[pr])) for pr in waiting} | {pr: merge_queue.State(merge_queue.PENDING, why) for pr, why in (untapped | unread).items()}
+
+    def owner_wait(self, pr: str, sha: str) -> str:
+        """What a PR the merge-mode check holds waits on at `sha`: the owner's tap authorizing each reserved row it touches, which no go or carried tap stands in for (C224), else his Merge answer."""
+        if reserved := self.reserved_touches(pr, sha):
+            return f"reserved row {', '.join(f'{key} ({words})' for key, words in reserved)} waits for the owner's tap on a merge card at {sha[:7]} that quotes it, which no go or carried tap stands in for (C224)"
+        return f"merge mode {self.merge_mode} waits for the owner's Merge answer at {sha[:7]}"
 
     def untapped(self, heads: dict[str, str]) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
         """Each PR of `heads` whose changed files a glob of a `landing.tap_rules` row names, while that row is in the register in force, and no approval on the root's board names any head of the PR, with why it waits, since a root `go` never stands in for the owner's tap (rule/82317b0); each PR whose changed files, register, or board did not read, with what did not, which the runner leaves unqueued for the landing desk rather than guess a merge (4236611); and each such PR the owner's port and test-only rulings admit with no tap, with its `EXEMPT-ADMITTED` note (06288326)."""
@@ -9479,7 +9497,7 @@ class Landing:
         self.gate_deadline = time.monotonic() + GATE_BUDGET.total_seconds()
         self.trusted_from, self.pass_began = self.pass_began, time.monotonic()
         self.surface()
-        self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why, self.cleared, self.exempts = None, False, None, None, None, set(), {}, {}, {}
+        self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why, self.untested_why, self.cleared, self.exempts = None, False, None, None, None, set(), {}, {}, {}, {}
         self.settlement = Settlement({}, {})
         if self.quota_low():
             if rows := self.rows():

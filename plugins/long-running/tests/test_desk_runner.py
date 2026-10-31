@@ -5330,7 +5330,7 @@ def test_a_reserved_touch_found_after_the_enqueue_was_accepted_enqueues_nothing(
     landing.drain()
     assert shell.enqueues() == []
     [action] = enqueues_of(tmp_path).values()
-    assert action.response["outcome"] == "blocked" and action.response["out"].startswith("the merge-mode check refuses #29020: merge mode auto waits for the owner's Merge answer")
+    assert action.response["outcome"] == "blocked" and action.response["out"].startswith("the merge-mode check refuses #29020: reserved row reserved/user-data (User data stays where it is.) waits for the owner's tap on a merge card at cccc333 that quotes it")
 
 
 def test_a_head_regraded_missing_after_its_enqueue_was_accepted_enqueues_nothing(shell, config, tmp_path):
@@ -13125,6 +13125,21 @@ def trunk_watch(shell: FakeShell, config: Path, tmp_path: Path) -> runner_module
     return landing_of(shell, config, tmp_path)
 
 
+def test_a_head_enqueues_only_once_its_own_test_build_passes_on_that_exact_head(shell, config, tmp_path):
+    """Root #255451: no re-enqueue of any PR until buildkite/test is green on that exact head (#254954)."""
+    trunk_watch(shell, config, tmp_path)
+    shell.trunk = [trunk_commit("b", "SUCCESS", "29019", "2026-10-01T17:50:00Z")]
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    shell.combined_statuses["cccc333333"] = [{"context": TRUNK_CHECK, "state": "pending"}]
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    shell.clock += timedelta(minutes=2)
+    shell.combined_statuses["cccc333333"] = [{"context": TRUNK_CHECK, "state": "success"}]
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+
+
 def trunk_posts(shell: FakeShell) -> list[tuple[str, str, str]]:
     return [(post["kind"], post["to"], post["text"]) for post in shell.posts if post["topic"] == "dev-red"]
 
@@ -13189,6 +13204,7 @@ def test_a_trunk_that_does_not_read_gates_nothing_and_posts_once_per_streak(shel
     grade(shell, "29020", "ok F307 at cccc333.")
     trunk_watch(shell, config, tmp_path)
     shell.trunk = [trunk_commit("b", "SUCCESS", "29019", "2026-10-01T17:50:00Z")]
+    shell.combined_statuses["cccc333333"] = [{"context": TRUNK_CHECK, "state": "success"}]
     shell.trunk_error = "fatal: expected flush after ref listing"
     landing_pass(shell, config)
     shell.clock += timedelta(hours=2)
