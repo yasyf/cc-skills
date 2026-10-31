@@ -5169,11 +5169,10 @@ def test_preflight_names_the_missing_trunk_key_without_starting_or_posting(shell
 
 
 @pytest.mark.parametrize("stored", [True, False], ids=["in-keychain", "not-in-keychain"])
-def test_a_desk_reads_a_key_its_env_lacks_from_the_keychain_item_its_config_names(shell, config, tmp_path, monkeypatch, capsys, stored):
+def test_the_landing_desk_reads_its_adapter_key_from_the_keychain_item_the_adapter_names_when_its_env_lacks_it(shell, config, tmp_path, monkeypatch, capsys, stored):
     """Root #233126: a handoff from a shell without TRUNK_MERGE_API_KEY left the landing runner refusing to start."""
     raw = json.loads(config.read_text())
-    raw["landing"]["adapter"] = {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}
-    raw["landing"]["keychain"] = {"TRUNK_MERGE_API_KEY": "trunk-merge-api-key"}
+    raw["landing"]["adapter"] = {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue", "key_item": "trunk-merge-api-key"}
     config.write_text(json.dumps(raw))
     monkeypatch.delenv("TRUNK_MERGE_API_KEY", raising=False)
     if stored:
