@@ -25,7 +25,7 @@ def test_actual_landing_selected_blockers_retire_external_closures_without_histo
                 state.accept(key, "bus", json.dumps({"kind": "note", "text": "unrelated completed history"}), None, current.runner.now())
                 state.start(key, current.runner.now())
                 state.complete(key, {"posted": f"#{index + 100000}"})
-        for key, head, lane in [("external", "cccc333333", "z,a"), ("stale", "cccc333333", "a,b"), ("current", "eeee555555", "owner")]:
+        for key, head, lane in [("external", "cccc333333", "root@foreign"), ("stale", "cccc333333", "a,b"), ("current", "eeee555555", "owner@foreign")]:
             assert current.post_record("blocker", key, lane, f"#29020 {head}: pending", "29020")
         original = {key: dict(current.book.action(runner_module.LANDING, key).response) for key in ("external", "stale", "current")}
 
