@@ -9109,7 +9109,7 @@ class Landing:
     def cause_blocker(self, pr: str, cause: str) -> actions.Action | None:
         """The blocker this desk already posted on `pr` for the same refusal, red jobs and causes, if any."""
         return next(
-            (action for action in self.book.actions(LANDING, kind="bus", status="completed") if action.action_id.startswith(f"blocker:{pr}:") and json.loads(action.target).get("cause") == cause),
+            (action for action in self.book.actions(LANDING, kind="bus", statuses=("completed", "verified")) if (action.status == "completed" or action.response is not None) and action.action_id.startswith(f"blocker:{pr}:") and json.loads(action.target).get("cause") == cause),
             None,
         )
 
