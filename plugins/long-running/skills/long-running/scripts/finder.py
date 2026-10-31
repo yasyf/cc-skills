@@ -49,6 +49,7 @@ from __future__ import annotations
 import argparse
 from long_running import cci
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -539,7 +540,10 @@ def failure(error: Exception) -> str:
 
 def write_result(directory: Path, outcome: dict) -> None:
     staged = directory / f".{RESULT}"
-    staged.write_text(json.dumps(outcome, default=lambda posted: cci.receipt(posted.seq)) + "\n")
+    with staged.open("w") as out:
+        out.write(json.dumps(outcome, default=lambda posted: cci.receipt(posted.seq)) + "\n")
+        out.flush()
+        os.fsync(out.fileno())
     staged.replace(directory / RESULT)
 
 
