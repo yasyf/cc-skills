@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import importlib
+import json
+import shutil
 import sys
 from dataclasses import replace
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 from captain_hook.app import _state
@@ -33,7 +36,19 @@ def cases():
 
 
 @pytest.mark.parametrize("entry,inp,expected", cases())
-def test_rulings_consumer_outcomes(entry, inp, expected, monkeypatch: pytest.MonkeyPatch):
+def test_rulings_consumer_outcomes(entry, inp, expected, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    fixtures = Path(compaction_handoff.__file__).parent / "tests" / "fixtures"
+    env = inp.env or {}
+    configured = env.get("CLAUDE_CONFIG_DIR")
+    if configured in {str(fixtures / "register-config"), str(fixtures / "claude-config")}:
+        copied = tmp_path / "config"
+        shutil.copytree(configured, copied)
+        for registry in (copied / "long-running" / "drives").glob("*.json"):
+            entry_data = json.loads(registry.read_text())
+            entry_data["state_dir"] = str(tmp_path / "state" / Path(entry_data["state_dir"]).name)
+            registry.write_text(json.dumps(entry_data))
+        inp = replace(inp, env=env | {"CLAUDE_CONFIG_DIR": str(copied)})
+
     def capability(cwd, *args, evt, stdin="", timeout=compaction_handoff.CCN_TIMEOUT_SECONDS):
         argv = [sys.executable, str(compaction_handoff.script("rulings.py")), *args, "--repo", cwd]
         assert any(tuple(argv[:len(prefix)]) == prefix for key in inp.commands for prefix in [tuple(key.split())])
