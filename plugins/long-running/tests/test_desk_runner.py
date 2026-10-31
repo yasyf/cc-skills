@@ -3328,6 +3328,7 @@ def test_a_stale_title_in_the_newest_grade_warns_root_and_the_lane_and_still_ask
 def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge_answer(shell, config, tmp_path):
     merge_mode(config, "every")
     lone_green_pr(shell)
+    shell.queue["29020"] = "not queued"
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
     landing_pass(shell, config)
@@ -4467,6 +4468,7 @@ def test_on_a_board_surface_no_check_or_enqueue_names_a_pr_without_a_root_go_at_
         merge_go(shell, pr, f"merge #{pr} at {head}")
     merge_go(shell, "29100", "merge #29100 at bbbb222")
     shell.pr_status |= {"29031": {"verdict": "blocked:ci-pending"}, "29100": {"verdict": "blocked:ci-pending"}}
+    shell.queue["29100"] = "not queued"
     landing_pass(shell, config)
     assert stack_named(shell) == {"29020"}
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
