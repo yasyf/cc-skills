@@ -10,7 +10,7 @@ from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, T
 from captain_hook.annotations import dispatch_prompt, header_lines, session_annotations
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, bus_name, drive_entry, run_script, script, script_module
+from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, bus_name, drive_entry, rulings, run_script, script, script_module
 from .register_injection import INCIDENT_NAME, INCIDENT_SLICE
 from .session_tree import drive_lane
 
@@ -419,14 +419,21 @@ def run_quietly(argv: list[str], cwd: str) -> subprocess.CompletedProcess[str] |
         return None
 
 
-def merge_causes(call: Call, entry: dict, cwd: str, incident: bool) -> tuple[str, str, str] | None:
+def merge_causes(call: Call, entry: dict, cwd: str, incident: bool, *, evt: BaseHookEvent) -> tuple[str, str, str] | None:
     """The PR, head and joined refusals `rulings.py check-pr` prints for one `gh pr merge` call; None when it prints none or anything does not read."""
     repo = named_repo(call) or entry["repo"]
     if (merged := merged_pr(call, repo, cwd)) is None:
         return None
     pr, head = merged
-    done = run_quietly([sys.executable, str(script("rulings.py")), "check-pr", "--repo", cwd, "--drive", entry["drive"], "--pr", f"{repo}#{pr}", "--head", head, *(["--incident"] if incident else [])], cwd)
-    if done is None or done.returncode not in (0, 1):
+    args = ["check-pr", "--drive", entry["drive"], "--pr", f"{repo}#{pr}", "--head", head, *(["--incident"] if incident else [])]
+    try:
+        said = rulings(cwd, *args, evt=evt, timeout=CHECK_PR_TIMEOUT_SECONDS)
+        done = subprocess.CompletedProcess([sys.executable, str(script("rulings.py")), *args, "--repo", cwd], 0, said, "")
+    except subprocess.CalledProcessError as refused:
+        done = subprocess.CompletedProcess(refused.cmd, refused.returncode, refused.stdout, refused.stderr)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if done.returncode not in (0, 1):
         return None
     lines = [line.strip() for line in done.stdout.splitlines() if line.strip()]
     named = [line for line in lines if line.split(" ", 1)[0] in CHECK_PR_CAUSES]
@@ -453,7 +460,7 @@ def rulings_at_merge(evt: BaseHookEvent) -> HookResult | None:
         return None
     lane = lane_name(evt) or ""
     incident = incident_lane(evt, lane)
-    found = [checked for call in merges if (checked := merge_causes(call, entry, str(call.cwd or evt.cwd), incident))]
+    found = [checked for call in merges if (checked := merge_causes(call, entry, str(call.cwd or evt.cwd), incident, evt=evt))]
     if incident and found:
         return evt.context("\n".join(INCIDENT_RULINGS_REFUSAL.format(pr=pr, head=head, lane=lane, causes=causes) for pr, head, causes in found))
     advice = [RULINGS_ADVICE.format(causes=causes, pr=pr, head=head) for pr, head, causes in found]

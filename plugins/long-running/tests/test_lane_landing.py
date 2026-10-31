@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -121,7 +122,14 @@ def check_pr_stub(monkeypatch, code: int, out: str, viewed: str = "41700") -> li
             return subprocess.CompletedProcess(argv, code, out, "")
         return real(argv, **kwargs)
 
+    def capability(cwd, *args, evt, stdin="", timeout=lane_landing.CHECK_PR_TIMEOUT_SECONDS):
+        argv = [sys.executable, str(lane_landing.script("rulings.py")), *args, "--repo", cwd]
+        done = run(argv, input=stdin, cwd=cwd, timeout=timeout)
+        done.check_returncode()
+        return done.stdout
+
     monkeypatch.setattr(lane_landing.subprocess, "run", run)
+    monkeypatch.setattr(lane_landing, "rulings", capability)
     return calls
 
 

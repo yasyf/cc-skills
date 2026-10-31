@@ -14,7 +14,7 @@ import sys
 import time
 import traceback
 from contextlib import contextmanager
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from datetime import datetime
 from functools import cache
 from pathlib import Path
@@ -360,19 +360,20 @@ def rulings(cwd: str, *args: str, evt: BaseHookEvent, stdin: str = "", timeout: 
         home = Path(env["HOME"]) if env.get("HOME") else Path.home()
         drives = Path(env.get("CLAUDE_CONFIG_DIR") or home / ".claude") / "long-running" / "drives"
 
+        repo = Path(cwd)
+
+        def run(argv: list[str], *, input: str | None = None, timeout: float, env: Mapping[str, str] | None = None, cwd: Path | None = None) -> str:
+            read.remaining()
+            result = evt.ctx.call_cli(argv, input=input, cwd=str(cwd or repo), env=env, timeout=min(timeout, read.remaining()))
+            read.remaining()
+            return result
+
         class Shell(module.ledger.Shell):
             @staticmethod
             def once(command: list[str], stdin: str | None, cwd: Path | None = None) -> str:
-                def call() -> str:
-                    read.remaining()
-                    result = evt.ctx.call_cli(command, input=stdin, cwd=str(cwd or repo), env=env, timeout=read.remaining())
-                    read.remaining()
-                    return result
+                return module.cci.installed(command, lambda: run(command, input=stdin, cwd=cwd, env=env, timeout=read.remaining()))
 
-                return module.cci.installed(command, call)
-
-        repo = Path(cwd)
-        runtime = module.Runtime(io.StringIO(stdin), output, errors, drives, home / ".claude" / "scratch", lambda: module.drive.current_drive(env, drives), read.lock, read.held, read.remaining)
+        runtime = module.Runtime(io.StringIO(stdin), output, errors, drives, home / ".claude" / "scratch", lambda: module.drive.current_drive(env, drives), read.lock, read.held, read.remaining, run=run, env=env)
         code = module.dispatch([*args, "--repo", cwd], Shell(), runtime)
     except SystemExit as error:
         if isinstance(error.code, str):
