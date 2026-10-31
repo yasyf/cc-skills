@@ -70,27 +70,16 @@ class Tail:
         self.read = None
 
 
-def native_tail(argv: list[str], timeout: float, env: dict[str, str] | None = None, cwd: str | None = None) -> tuple[int, str, str]:
-    """Read a cursor-free tail through the daemon's native CLI handler."""
-    deadline = monotonic() + timeout
-
+def _native_json(path: str, request: dict, deadline: float) -> tuple[int, dict]:
     def remaining():
         seconds = deadline - monotonic()
         if seconds <= 0:
-            raise TimeoutError("native tail read budget expired")
+            raise TimeoutError("native CCI read budget expired")
         return seconds
 
-    environment = os.environ | (env or {})
-    home = environment.get("CCI_HOME") or os.path.join(environment["HOME"], ".cc-inbox")
-    request = {
-        "argv": argv,
-        "session": environment.get("CLAUDE_CODE_SESSION_ID") or environment.get("CODEX_THREAD_ID", ""),
-        "agent": environment.get("CCI_AGENT_ID", ""),
-        "home": os.path.abspath(os.path.join(cwd or os.getcwd(), home)),
-    }
     connection = http.client.HTTPConnection("127.0.0.1", 7377, timeout=remaining())
     try:
-        connection.request("POST", "/v1/tail", json.dumps(request).encode(), {"Content-Type": "application/json"})
+        connection.request("POST", path, json.dumps(request).encode(), {"Content-Type": "application/json"})
         wire = connection.sock
         wire.settimeout(remaining())
         response = connection.getresponse()
@@ -107,15 +96,52 @@ def native_tail(argv: list[str], timeout: float, env: dict[str, str] | None = No
             raise http.client.IncompleteRead(packet, response.length)
         result = json.loads(packet)
         del packet
-        if response.status != 200:
+        return response.status, result
+    finally:
+        connection.close()
+
+
+def native_home(environment: dict[str, str] | None = None, cwd: str | None = None) -> str:
+    environment = dict(os.environ) if environment is None else environment
+    home = environment.get("CCI_HOME") or os.path.join(environment["HOME"], ".cc-inbox")
+    return os.path.abspath(os.path.join(cwd or os.getcwd(), home))
+
+
+def native_tail(argv: list[str], timeout: float, env: dict[str, str] | None = None, cwd: str | None = None) -> tuple[int, str, str]:
+    """Read a cursor-free tail through the daemon's native CLI handler."""
+    deadline = monotonic() + timeout
+    environment = os.environ | (env or {})
+    request = {"argv": argv, "session": environment.get("CLAUDE_CODE_SESSION_ID") or environment.get("CODEX_THREAD_ID", ""), "agent": environment.get("CCI_AGENT_ID", ""), "home": native_home(environment, cwd)}
+    try:
+        status, result = _native_json("/v1/tail", request, deadline)
+        if status != 200:
             return 1, "", f"cci: {result['error']}\n"
         return result["returncode"], _tail_output(result["stdout_b64"]), _tail_output(result["stderr_b64"])
     except TimeoutError:
         raise
     except (OSError, http.client.HTTPException) as error:
         return 1, "", f"cci: native tail: {error}\n"
-    finally:
-        connection.close()
+
+
+class IncidentQueryFailed(RuntimeError):
+    def __init__(self, status: int, code: str, message: str):
+        super().__init__(message)
+        self.status, self.code = status, code
+
+
+def incident_holds(home: str, drive: str, prs: list[str], timeout: float) -> dict[str, dict]:
+    """Read the newest open incident naming each selected PR from the native projection."""
+    try:
+        status, result = _native_json("/v1/incident-holds", {"home": home, "drive": drive, "prs": prs}, monotonic() + timeout)
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise IncidentQueryFailed(0, "invalid_response", str(error)) from error
+    except (OSError, http.client.HTTPException) as error:
+        raise IncidentQueryFailed(0, "transport_failed", str(error)) from error
+    if status != 200:
+        raise IncidentQueryFailed(status, result["code"], result["error"])
+    if not isinstance(result, dict) or any(pr not in prs or not isinstance(record, dict) for pr, record in result.items()):
+        raise IncidentQueryFailed(0, "invalid_response", "native incident query returned an invalid selected-record map")
+    return result
 
 
 def _tail_output(encoded: str) -> str:
