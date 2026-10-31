@@ -26,7 +26,6 @@ import subprocess
 import sys
 import time
 import uuid
-from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -43,9 +42,6 @@ TEAMS = Path.home() / ".claude" / "teams"
 TASKS = Path.home() / ".claude" / "tasks"
 UNSAFE_NAME = re.compile(r"[^a-zA-Z0-9_-]")
 SENDER = "long-running"
-LOCK_TRIES = 20
-LOCK_WAIT_SECONDS = 0.05
-LOCK_STALE_SECONDS = 10
 RECEIPTS = Path.home() / ".claude" / "scratch" / "orca-launch"
 SETTINGS = Path.home() / ".claude" / "settings.json"
 TIMEOUT = 60
@@ -129,20 +125,12 @@ def task_open(tasks: Path, lane: str) -> bool:
 
 
 def append_inbox(inbox: Path, message: dict) -> bool:
-    """Append one message to a teammate inbox under the `<inbox>.lock` directory lock Claude Code takes, so its own writes never interleave."""
+    """Append one message to a teammate inbox under the `<inbox>.lock` directory lock Claude Code takes, so its own writes never interleave; a held lock leaves the wake to the next tick."""
     inbox.parent.mkdir(parents=True, exist_ok=True)
     lock = inbox.with_name(f"{inbox.name}.lock")
-    for _ in range(LOCK_TRIES):
-        try:
-            lock.mkdir()
-            break
-        except FileExistsError:
-            with suppress(FileNotFoundError):
-                if time.time() - lock.stat().st_mtime > LOCK_STALE_SECONDS:
-                    lock.rmdir()
-                    continue
-            time.sleep(LOCK_WAIT_SECONDS)
-    else:
+    try:
+        lock.mkdir()
+    except FileExistsError:
         return False
     try:
         text = inbox.read_text() if inbox.is_file() else ""

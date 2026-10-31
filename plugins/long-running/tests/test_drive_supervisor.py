@@ -66,6 +66,9 @@ def test_a_wake_mails_an_idle_lane_its_page_or_once_per_interval_while_its_root_
     [paged] = json.loads((roster / "inboxes" / "done-lane.json").read_text())
     assert "this blocker on your PR #46475 arrived after your last record: STALL red #46475 at 89f46c3" in paged["text"] and not (roster / "inboxes" / "flock-race-1.json.lock").exists()
 
+    (roster / "inboxes" / "held-lane.json.lock").mkdir()
+    assert not waker("held-lane", row, {"topic": "red:1:a", "text": "STALL red #1", "prs": [1]}) and not (roster / "inboxes" / "held-lane.json").exists()
+
 
 def test_only_active_orca_dispatches_count_as_live(tmp_path: Path, monkeypatch):
     for lane, dispatch in (("sol-fix", "ctx_1"), ("sol-done", "ctx_2"), ("sol-gone", "ctx_3")):
