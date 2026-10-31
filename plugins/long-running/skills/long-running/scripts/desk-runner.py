@@ -1291,7 +1291,7 @@ class Shell:
     def reexec(self, argv: list[str]) -> None:
         sys.stdout.flush()
         sys.stderr.flush()
-        os.execv(argv[0], argv)
+        drive.reexec(argv)
 
     def launchctl(self, *args: str) -> Done:
         """`launchctl` run once within QUICK_SECONDS; a host without it, such as a Linux box, reads as unsupervised at once instead of waiting out the install window a missing binary gets."""
