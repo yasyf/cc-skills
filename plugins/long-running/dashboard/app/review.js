@@ -193,7 +193,7 @@ const STALE_LINE = '<p class="assist-line stale">Showing the last copy of this r
 const ASSISTANT_LINE = `<p class="assist-line"><i class="on"></i><b>Assistant connected.</b> Ask in the bar under the code; it answers from<span class="pill" title="The files and lines this pull request changes">the diff</span><span class="pill" title="This pull request's row on the merge board: change, plan, risk, review, blocker">its board row</span><span class="pill" title="Your recorded rulings that match the question">your rulings</span><span class="pill" title="The drive's records that name this pull request">the drive's records</span></p>`;
 function syncReviewEmbed(r) {
   const note = [...document.querySelectorAll('.hold-form input')].find((input) => input.offsetParent);
-  if (note) {
+  if (note && !document.activeElement?.matches('input, textarea')) {
     note.focus();
     note.setSelectionRange(note.value.length, note.value.length);
   }
@@ -270,13 +270,15 @@ document.addEventListener('submit', async (e) => {
   changesSending.add(n);
   delete changesUnsent[n];
   render();
-  const res = await fetch('/api/change', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ number: n, head: form.dataset.head, text }) });
-  const out = await res.json();
+  const out = await fetch('/api/change', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ number: n, head: form.dataset.head, text }) })
+    .then((res) => res.json())
+    .catch((failure) => ({ error: `could not reach the dashboard server: ${failure.message}` }));
   changesSending.delete(n);
-  if (res.ok) {
+  if (out.error) changesUnsent[n] = out.error;
+  else {
     sentChanges.push({ seq: out.seq, lane: 'owner-board', kind: 'ask', at: new Date().toISOString(), text, refs: { prs: [n] } });
     changeDrafts[n] = '';
-  } else changesUnsent[n] = out.error;
+  }
   render();
 });
 document.addEventListener('keydown', (e) => {

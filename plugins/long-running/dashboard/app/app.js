@@ -303,6 +303,7 @@ function render() {
   const y = window.scrollY;
   const kept = [...document.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollLeft, el.scrollTop]);
   $('#main').innerHTML = (screens[p.screen] ?? nowScreen)() + drawers(stack) + `<div class="foot">${m.errors && Object.keys(m.errors).length ? `Some sources could not be read just now (${esc(Object.keys(m.errors).join(', '))}). ` : ''}All times Pacific.</div>`;
+  for (const el of $('#main').children) el.inert = stack.length > 0 && !el.matches('.pr-scrim, .pr-drawer');
   if (stack.length > (state.depth ?? 0)) $('#main .pr-drawer.front')?.classList.add('in');
   state.depth = stack.length;
   decorate(p);
@@ -315,7 +316,7 @@ function render() {
     }
     state.shown = location.hash;
   }
-  const again = caret && [...$('#main').querySelectorAll(`[name="${caret[0]}"]`)].find((el) => (el.dataset.draft ?? '') === caret[1]);
+  const again = caret && [...$('#main').querySelectorAll(`[name="${caret[0]}"]`)].find((el) => (el.dataset.draft ?? '') === caret[1] && !el.closest('[inert]') && el.checkVisibility());
   if (again) { again.focus(); again.setSelectionRange(caret[2], caret[3]); }
   if (spot) refocus(spot, spotRoot);
   window.scrollTo(0, y);
