@@ -2281,7 +2281,6 @@ def test_pr_block_says_what_a_protecting_row_protects_and_how_the_change_serves_
 
     assert "- rule/bbbbbbb protects runs from holding a closed pool's connections; this change serves it by meeting it with Pool.drain at src/relay/pool.rs:2" in met.splitlines()
     assert "- rule/bbbbbbb protects runs from holding a closed pool's connections; this change serves it by leaving Pool.drain alone" in left.splitlines()
-    assert all(rulings.EXPLAINS.search(line) for line in (met + left).splitlines() if line.startswith("- rule/bbbbbbb"))
 
 
 def test_pr_block_names_a_deletion_of_a_protected_symbol_and_never_calls_it_left_alone(home: Path, package: Path, state: Path, capsys) -> None:

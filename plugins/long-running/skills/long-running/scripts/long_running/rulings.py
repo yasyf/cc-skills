@@ -1,3 +1,7 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# ///
 """Read and write the owner's rulings: the standing-rules doc and the register ledger.
 
     rulings.py register     [--program SLUG | --drive ID] [--repo PATH]
@@ -71,10 +75,12 @@ through the registry entry and uses ``--repo`` for the PR's own checkout. ``slic
 ``check-pr`` diff the PR with git in that checkout when its origin is the PR's repository, and
 through the GitHub compare API otherwise. ``--paths`` globs
 resolve under ``--root``, which defaults to ``--repo``; an absolute glob stands alone.
-``check-pr`` and ``sweep --diff`` print one ``MECHANISM-BANNED`` line per added line, in code and tests alike, that starts
-a timer, waits inside a loop, writes a credential to a file, or runs a build or test on this machine, naming the shape,
-the line and the rule. It is a warning like every other cause, and a ``# owner: <answer id>`` line under ``## Rulings``
-citing an owner answer whose words name the shape clears it.
+``check-pr`` and ``sweep --diff`` print one ``MECHANISM-BANNED`` line for the added lines, in code and tests alike, that
+start a timer or wait inside a loop when the drive's judge reads them as named by neither the owner's words nor the plan,
+and one per added line that writes a credential to a file or runs a build or test on this machine, naming the shape,
+the line and the rule; a ``# owner: <answer id>`` line under ``## Rulings`` citing an owner answer whose words name that
+shape clears the second kind. Each is a warning like every other cause. ``RULINGS-UNCITED`` names, for an incident fix
+alone, the anchored rows its diff touches that no ``## Rulings`` line cites.
 ``grade`` writes a fidelity desk's head grade to ``--out``. It lists every mechanism the head adds, one per
 added line that matches a shape in ``MECHANISM_SHAPES`` or opens a migration file, as ``<file>:<line>``, and
 needs each one grounded by ``--ground`` or set aside by ``--not-a-mechanism``; an ``ID`` may be an fnmatch glob.
@@ -110,7 +116,6 @@ from zoneinfo import ZoneInfo
 from . import judge
 from . import register_reads
 from .register_reads import BINDING_DIRECTIONS, LEDGER_REFS, NOT_RULINGS, SLICE_LINE, UNANCHORED, binding, digest, hashed, kept_copy, listed, rendered_row, section, write_atomic
-from .judge import captures
 from .ruling_documents import DocumentIndex
 
 from . import board_rows
@@ -249,9 +254,7 @@ LOCAL_TOOL = re.compile(r"(?:^|/)(?:scripts|tools|bin|hooks|\.claude|\.agents)/|
 CI_CONFIG = re.compile(r"(?:^|/)(?:\.buildkite|\.github|\.circleci|ci)/|(?:^|/)(?:Dockerfile[^/]*|package\.json|Cargo\.toml|Makefile|[Jj]ustfile|BUCK|pyproject\.toml|mise\.toml)$")
 OWNER_LINE = re.compile(r"#\s*owner:\s*(?P<answer>[0-9a-f]{7,40})\b")
 RULINGS_SECTION = re.compile(r"^## Rulings\b.*?(?=^## |\Z)", re.MULTILINE | re.DOTALL)
-EXPLAINS = re.compile(r"\bprotects\b.+\bserves?\b", re.IGNORECASE)
 RULINGS_LINES = re.compile(r"^## Rulings\b.*?(?=^##+ |\Z)", re.MULTILINE | re.DOTALL)
-IN_YOUR_WORDS = re.compile(r"^### In your words\b.*?(?=^##+ |\Z)", re.MULTILINE | re.DOTALL)
 APPENDIX = re.compile(r"^## Appendix\b", re.MULTILINE)
 RUST_TEST = re.compile(r"^\s*#\[(?:\w+::)?test\b")
 RUST_TEST_FILE = re.compile(r"(?:^|/)tests/[^/]+\.rs$|_test\.rs$")
@@ -274,19 +277,13 @@ SHAPE = re.compile(
     r"|\bclients? of\b|\bshares? one\b|\beve\w*\s+(?:is\s+)?a client\b",
     re.IGNORECASE,
 )
-CHECK_PR_ORDER = ("RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "SHAPE-UNTESTED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS")
+CHECK_PR_ORDER = ("RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "SHAPE-UNTESTED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS")
+JUDGED_ROWS = 4
+PLAN_LINES = 12
+NO_RULINGS = "No ruling of his was found that bears on this pull request."
 OWNER_QUOTED = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”")
-PARENTHESIZED = re.compile(r"\([^()\n]*\)")
 FENCED = re.compile(r"```.*?```", re.DOTALL)
 DECISION = re.compile(r"\b(?:I|we)\s+(?:decided|chose|picked|went with|settled on|opted for)\b|\bdecided to\b|\b(?:my|our) (?:pick|choice|decision)\b", re.IGNORECASE)
-UNPLAIN = (
-    ("an internal id", re.compile(r"\b[GRL]\d{3,4}\b|\b(?:answer|grant|ruling|note|doc|log) [0-9a-f]{7}\b|\b(?:ctx|msg)_\w+")),
-    ("a plan row number", re.compile(r"\b(?:C|SI|E|X)-?\d+(?:\.\d+)*\b")),
-    ("an answer id", re.compile(r"\b(?=[a-f]*\d)[0-9a-f]{7,40}\b")),
-    ("a file path", re.compile(r"(?<![\w/.:~-])(?:[\w.-]+(?:/[\w.-]+){2,}|[\w-]+(?:/[\w.-]+)*\.(?:py|go|rs|ts|tsx|js|json|md|toml|ya?ml|sh|sql)\b)")),
-    ("a code symbol", re.compile(r"`[^`\n]+`|\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b|\b[a-z]{2,}(?:[A-Z][a-z0-9]+)+\b|\b\w+\(\)")),
-    ("a drive word", re.compile(r"\b(?:lanes?|desks?|slices?|sidecars?|rosters?|inbox pulls?|mount leases?|adapter lines?|verbs?|primary keys?|orphan(?:s|ed)?)\b", re.IGNORECASE)),
-)
 
 
 def ccn(shell: ledger.Shell, repo: str, *args: str) -> object:
@@ -791,7 +788,7 @@ def lane_slice(loaded: Register, want: Want, plan: Path | None) -> str:
     lines += section("Every global row", global_rows.items())
     if want.step == INCIDENT_STEP:
         done = set(loaded.classified())
-        pending = [capture for item, capture in captures(loaded.state).items() if item not in done]
+        pending = [capture for item, capture in judge.captures(loaded.state).items() if item not in done]
         lines += ["", f"## Owner captures not yet classified ({len(pending)})"]
         for capture in pending:
             lines += ["", f"### {capture['digest']} | {capture.get('source', '')} | {capture.get('at', '')}", *(f"> {line}" for line in capture["text"].splitlines())]
@@ -1322,7 +1319,7 @@ def applied(loaded: Register, captured: dict[str, dict], entry: dict, files: Cal
 
 def classifiable(loaded: Register, args: argparse.Namespace) -> dict[str, dict]:
     if not args.answer:
-        return captures(loaded.state)
+        return judge.captures(loaded.state)
     sourced = answer_capture(loaded, args.answer)
     return {sourced["digest"]: sourced}
 
@@ -1429,7 +1426,7 @@ def later_answers(fields: dict[str, str]) -> set[str]:
 
 
 def confirm_capture(loaded: Register, fields: dict[str, str], identity: str) -> dict | None:
-    if local := captures(loaded.state).get(identity):
+    if local := judge.captures(loaded.state).get(identity):
         return local
     return answer_capture(loaded, identity) if identity[:SHORT] in later_answers(fields) else None
 
@@ -1546,7 +1543,9 @@ def cmd_sweep(args: argparse.Namespace, shell: ledger.Shell) -> int:
         hits = sweeper.files([Path(path) for path in args.artifact])
         hits += sweeper.files(globbed(args.root or args.repo, args.paths), args.root or args.repo)
         diff = parse_diff(Path(args.diff).read_text()) if args.diff else None
-        hits += [*sweeper.diff(diff), *banned_mechanisms(diff)] if diff else []
+        banned = banned_mechanisms(diff) if diff else []
+        hits += [*sweeper.diff(diff), *of_shapes(banned, waits=False)] if diff else []
+        hits += unnamed_waits(loaded, Head("", "", "", "", diff), of_shapes(banned, waits=True), plan_path(args, loaded), (entry_of(args) or {}).get("drive")) if diff else []
     else:
         hits = sweeper.files(default_files(loaded, plan_path(args, loaded)))
     for hit in hits:
@@ -1622,7 +1621,7 @@ def cmd_readback(args: argparse.Namespace, shell: ledger.Shell) -> int:
         print(f"WARNING READBACK-SLICE-FROM-BRIEF #{args.contract}: {read.sliced_by}", file=args.stdout)
     fresh = lane_slice(loaded, read.want, plan_path(args, loaded))
     posted = datetime.fromisoformat(read.record["at"])
-    later = {digest for digest, capture in captures(loaded.state).items() if captured_at(capture["at"]) > posted}
+    later = {digest for digest, capture in judge.captures(loaded.state).items() if captured_at(capture["at"]) > posted}
     rows = loaded.rulings()
     keys = [key for key in re.findall(r"^### (\S+) \|", fresh, re.MULTILINE) if not (heard := proof_digests(rows[key]) if key in rows else {key}) or not heard <= later]
     lines = read.body.splitlines()
@@ -1864,7 +1863,7 @@ def cmd_table(args: argparse.Namespace, shell: ledger.Shell) -> int:
 
 def cmd_glossary(args: argparse.Namespace, shell: ledger.Shell) -> int:
     loaded = Register.load(args, shell)
-    texts = [capture["text"] for capture in captures(loaded.state).values()]
+    texts = [capture["text"] for capture in judge.captures(loaded.state).values()]
     for fields in loaded.rulings().values():
         texts += [fields.get("words") or "", *(str(repeat.get("words") or "") for repeat in listed(fields.get("repeats")))]
     owner = sorted({word for text in texts for word in WORD.findall(text.lower())} - {noun.lower() for noun in PRODUCT_NOUNS})
@@ -2043,7 +2042,7 @@ def cmd_authorize(args: argparse.Namespace, shell: ledger.Shell) -> int:
         if (found := card_proof(args, loaded, shell, key, fields, owner, entry["sessions"][-1])) is None:
             return 1
     else:
-        capture = captures(loaded.state).get(args.prompt) or {}
+        capture = judge.captures(loaded.state).get(args.prompt) or {}
         board = capture.get("source") == "board"
         if board and (capture.get("verdict") != "approved" or capture.get("row")):
             print(f"AUTHORIZE-NOT-AFFIRMATIVE {key}: board capture {args.prompt} is no approval of a card, which grants nothing", file=args.stdout)
@@ -2151,10 +2150,6 @@ class Head:
         return "\n".join(found[0] for text in (self.body, *self.comments) if (found := RULINGS_SECTION.search(text)))
 
     @cached_property
-    def in_your_words(self) -> str | None:
-        return next((found[0] for text in reversed((self.body, *self.comments)) if (found := IN_YOUR_WORDS.search(text))), None)
-
-    @cached_property
     def cited(self) -> set[str]:
         return {token[:SHORT] for token in CITED.findall(self.rulings)}
 
@@ -2179,11 +2174,6 @@ def acknowledges(line: str, key: str, fields: dict[str, str]) -> bool:
     said = said_words(fields)
     spans = [span for span in QUOTED.finditer(line) if folded(span[1]) in said or len(span[1].split()) >= QUOTED_WORDS and any(folded(span[1]) in words for words in said)]
     return bool(spans) and len(WORD.findall(line[spans[-1].end() :].lower())) >= PLAIN_WORDS
-
-
-def explains(head: Head, key: str, fields: dict[str, str]) -> bool:
-    answers = {str(answer)[:SHORT] for answer in listed(fields.get("answer"))}
-    return any(EXPLAINS.search(line) for line in head.rulings.splitlines() if key in line or answers & {token[:SHORT] for token in CITED.findall(line)})
 
 
 def acknowledged(head: Head, key: str, fields: dict[str, str]) -> bool:
@@ -2297,11 +2287,6 @@ def lane_of(records: list[dict]) -> str | None:
     return max(heads or reports)[1] if heads or reports else None
 
 
-def plain_problems(text: str) -> list[str]:
-    seen = PARENTHESIZED.sub(" ", OWNER_QUOTED.sub(" ", text))
-    return list(dict.fromkeys(f'RULINGS-PLAIN {kind} "{hit[0]}"' for kind, pattern in UNPLAIN for hit in pattern.finditer(seen)))
-
-
 def card_answers(loaded: Register, findings: Findings) -> set[str] | None:
     if (listed_answers := findings.read("the owner's answers", lambda: answers_for(loaded))) is None:
         return None
@@ -2344,11 +2329,8 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
     facts = diff_facts(loaded, head, base)
     cci = drive.cci_drive(entry_of(args))
     records = findings.read("the PR's cci records", lambda: pr_records(loaded.shell, cci, "--pr", f"{head.repo}#{head.number}"))
-    uncited = [key for key in facts["touched"] if not cites(head, key, rulings[key])]
-    if uncited:
+    if args.incident and (uncited := [key for key in facts["touched"] if not cites(head, key, rulings[key])]):
         findings.refusals.append(f"RULINGS-UNCITED {','.join(uncited)}\tcite them under a ## Rulings heading in one PR comment, never by editing the body (427c9c93)")
-    if unexplained := [key for key in facts["touched"] if key not in uncited and rulings[key].get("protects") and not explains(head, key, rulings[key])]:
-        findings.refusals.append(f"RULINGS-PLAIN {','.join(unexplained)} cited by id alone\tsay on the line citing each one what it protects and how this change serves that: '<rule> protects <harm>; this change serves it by <how>' (root #204765)")
     for key, fields in rulings.items():
         if fields.get("kind") == "reserved" and key in facts["reserved"]:
             if findings.read(f"the authorizes:{key} answers", lambda key=key: authorized(loaded, head, key)) is False:
@@ -2360,12 +2342,12 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
     if records is not None and (major := finder_major(records, head.sha)):
         findings.refusals.append(f"FINDER-MAJOR {major[:SHORT]}")
     authorizers, scope = loaded.answer_words(), loaded.scope()
-    findings.refusals += [str(hit) for hit in uncleared(banned_mechanisms(head.diff), head, authorizers)]
+    hits = banned_mechanisms(head.diff)
+    findings.refusals += [str(hit) for hit in uncleared(of_shapes(hits, waits=False), head, authorizers)]
+    findings.refusals += unnamed_waits(loaded, head, of_shapes(hits, waits=True), loaded.plan(args.plan), entry_of(args)["drive"])
     for hit in Sweeper(loaded, scope).statuses(facts["named"]):
         if hit.status == "open" and not acknowledged(head, hit.key, scope[hit.key]) and not any(hit.name.lower() not in banned and named(words, hit.name) for cited in head.cited for words, banned in authorizers.get(cited, [])):
             findings.refusals.append(f"NAME-HIT {hit.key} {hit.file}:{hit.line} {hit.name}")
-    words = head.in_your_words
-    findings.refusals += ["RULINGS-PLAIN no ### In your words section"] if words is None else plain_problems(words)
     findings.refusals += decided(head.body, card_answers(loaded, findings))
     if records is None:
         return
@@ -2381,11 +2363,12 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
 class Banned:
     shape: str
     rows: tuple[str, ...]
-    said: re.Pattern[str]
+    said: re.Pattern[str] | None = None
 
 
-TIMER = Banned("timer", ("rule/949e6be",), re.compile(r"\btimers?\b|\btick|\binterval|\bevery \d|keep-alive", re.IGNORECASE))
-POLL = Banned("poll loop", ("rule/949e6be", "rule/f60345a"), re.compile(r"\bpoll|\bloop|\bbackoff|\bretr", re.IGNORECASE))
+TIMER = Banned("timer", ("rule/949e6be",))
+POLL = Banned("poll loop", ("rule/949e6be", "rule/f60345a"))
+WAITS = (TIMER, POLL)
 CREDENTIAL_FILE = Banned("credential written to a file", ("prompt/1026-105052",), re.compile(r"\bfiles?\b|\bdisk\b", re.IGNORECASE))
 LOCAL_EXEC = Banned("local exec", ("rule/c9b7c87",), re.compile(r"\blocal(?:ly)?\b|\bthis mac\b|\blaptop\b", re.IGNORECASE))
 
@@ -2464,6 +2447,32 @@ def banned_mechanisms(diff: Diff) -> list[BannedHit]:
         if found:
             hits.append(BannedHit(tuple(found), file, number, text.strip()))
     return hits
+
+
+def of_shapes(hits: list[BannedHit], *, waits: bool) -> list[BannedHit]:
+    """Each hit cut to its timer and loop-wait shapes, or to its other shapes, dropping a hit left with none."""
+    kept = [BannedHit(tuple(banned for banned in hit.banned if (banned in WAITS) == waits), hit.file, hit.line, hit.text) for hit in hits]
+    return [hit for hit in kept if hit.banned]
+
+
+def unnamed_waits(loaded: Register, head: Head, hits: list[BannedHit], plan: Path | None, drive_name: str | None) -> list[str]:
+    """One `MECHANISM-BANNED` line for the timers and loop waits `head` adds when a judge reads them as named by neither the owner's words nor the plan; none when it reads them as named or its call fails."""
+    if not hits:
+        return []
+    cited = [key for key, fields in loaded.rulings().items() if cites(head, key, fields)]
+    keys = [key for key in dict.fromkeys([*cited, *(row for hit in hits for banned in hit.banned for row in banned.rows)]) if (loaded.rows.get(key) or {}).get("words")]
+    said = "\n\n".join(judge.owner_words(key, judge.said(loaded.rows[key], loaded.state)) for key in keys[:JUDGED_ROWS]) or NO_RULINGS
+    names = {Path(hit.file).name for hit in hits}
+    lines = enumerate(plan.read_text(errors="replace").splitlines(), start=1) if plan and plan.is_file() else ()
+    named = [f"{number}: {line.strip()[:CCI_TEXT]}" for number, line in lines if any(name in line for name in names)][:PLAN_LINES]
+    evidence = said + ("\n\nThe plan's lines that name these mechanisms, verbatim:\n" + "\n".join(named) if named else "")
+    added = "\n".join(f"{hit.file}:{hit.line} {' and '.join(banned.shape for banned in hit.banned)}: {hit.text}" for hit in hits)
+    found = judge.judge("mechanism", evidence, f"The lines it adds:\n{added}\n\nIts body:\n{head.body}", backend=judge.backend_from(os.environ), drive=drive_name)
+    if found is None or not found.flagged:
+        return []
+    shapes = " and ".join(dict.fromkeys(banned.shape for hit in hits for banned in hit.banned))
+    where = ",".join(f"{hit.file}:{hit.line}" for hit in hits)
+    return [f"MECHANISM-BANNED {shapes} {where} `{found.artifact_phrase[: CCI_TEXT // 4]}`\t{found.sentence} Remove it, or bring the owner the case for it."]
 
 
 def uncleared(hits: list[BannedHit], head: Head, authorizers: dict[str, list[tuple[str, frozenset[str]]]]) -> list[BannedHit]:

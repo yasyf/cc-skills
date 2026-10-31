@@ -47,6 +47,13 @@ FAST_SQUASH = "5e11a9d0c2b47f6e8a1d3c5b7f9e0a2c4d6b8e1f"
 FAST_BODY = "Resume uploads a pre-session-rows thread instead of refusing.\n\nRelease-With: sand\n"
 
 
+@pytest.fixture(autouse=True)
+def judged(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
+    asked: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(runner_module.judge, "judge", lambda kind, evidence, artifact, **_: asked.append((kind, evidence, artifact)))
+    return asked
+
+
 class Reexeced(Exception):
     pass
 
@@ -6711,8 +6718,8 @@ def test_a_rulings_warning_posts_once_per_head_whether_the_pass_names_it_by_full
     ("first", "second", "answered", "warnings"),
     [
         ("NAME-HIT rule/8aeaaff go/x.go:5 writer\nCONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n", "NAME-HIT rule/8aeaaff go/x.go:5 writer\n", False, 1),
-        ("NAME-HIT rule/8aeaaff go/x.go:5 writer\n", "NAME-HIT rule/8aeaaff go/x.go:5 writer\nRULINGS-PLAIN a code symbol\n", True, 1),
-        ("NAME-HIT rule/8aeaaff go/x.go:5 writer\n", "NAME-HIT rule/8aeaaff go/x.go:5 writer\nRULINGS-PLAIN a code symbol\n", False, 2),
+        ("NAME-HIT rule/8aeaaff go/x.go:5 writer\n", "NAME-HIT rule/8aeaaff go/x.go:5 writer\nLANE-DECIDED We decided to park the worker.\n", True, 1),
+        ("NAME-HIT rule/8aeaaff go/x.go:5 writer\n", "NAME-HIT rule/8aeaaff go/x.go:5 writer\nLANE-DECIDED We decided to park the worker.\n", False, 2),
     ],
 )
 def test_a_rulings_warning_posts_again_at_its_head_only_for_a_new_cause_before_the_lane_answers(shell, config, tmp_path, first, second, answered, warnings):
@@ -10171,6 +10178,21 @@ def test_a_successor_launched_on_its_predecessors_brief_owes_no_scale_line(shell
 
     assert launches(shell) == [[str(runner_module.LAUNCHER), f"{LANE}-2", "sol", "xhigh", str(brief)]]
     assert not [line for line in escalations(shell) if line.startswith("SCALE-MISSING")]
+
+
+def test_a_launch_whose_scale_line_a_judge_reads_as_missing_its_n_launches_and_warns_the_root(shell, config, tmp_path, judged, monkeypatch):
+    brief = launch_brief(tmp_path)
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    missed = runner_module.judge.Verdict("yes", "no N", "every chat on the Mac", "The fix runs once per chat, so the N is the chats on one Mac.")
+    monkeypatch.setattr(runner_module.judge, "judge", lambda kind, evidence, artifact, **_: judged.append((kind, evidence, artifact)) or missed)
+    orca_pass(shell, config)
+    desk_orders(shell, f"R45 orca-desk: launch {LANE} sol xhigh brief={brief}")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "sol", "xhigh", str(brief)]]
+    assert judged == [("scale", "The brief, verbatim:\nccx: place=local\nbrief\nScale: no N", "Scale: no N")]
+    assert f'SCALE-MISSED scale:R45 {LANE}: The fix runs once per chat, so the N is the chats on one Mac. Its line reads "no N"; fix it in {brief} for the next spawn.' in escalations(shell)
 
 
 def test_a_launch_refreshes_its_slice_first_and_a_slice_that_does_not_read_blocks_nothing(shell, config, tmp_path):
