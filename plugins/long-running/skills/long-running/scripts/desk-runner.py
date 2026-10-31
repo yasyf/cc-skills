@@ -659,7 +659,7 @@ from grades import carries as carry_grade
 from grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
 from grades import WITHDRAWN as WITHDRAWN_OPENING
 from grades import go_state, owes
-from grades import REVIEW_BOT_CHECK, REVIEW_BOT_HELD, review_bot_wait, withdrawn
+from grades import REVIEW_BOT_CHECK, REVIEW_BOT_HELD, VOIDING_KINDS, review_bot_wait, voids, withdrawn
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -5544,14 +5544,17 @@ class Landing:
             for record in records
             for pr in DEQUEUE_ORDER.findall(QUOTED_SPAN.sub("", QUOTED_BLOCK.sub("", full_text(record))))
         }
-        if withdrawn := {seq: record["seq"] for record in records if record["kind"] == "withdraw" for seq in closes(record)}:
+        if withdrawn := {seq: record["seq"] for record in records if record["kind"] in VOIDING_KINDS for seq in closes(record) | voids(record)}:
             admitted = [(pr, sha) for action in self.book.actions(LANDING, kind="enqueue", status="completed") if action.response["outcome"] in {*BELIEVED_QUEUED, PULLED} for pr, sha in enqueued_heads(action.action_id).items()]
-            for go in self.go_records():
+            gos = self.go_records()
+            kept = [go_heads(go) for go in gos if go["seq"] not in withdrawn]
+            for go in gos:
                 if go["seq"] in withdrawn:
                     orders |= {
                         f"{withdrawn[go['seq']]}:{pr}": {"pr": pr, "why": f"root #{withdrawn[go['seq']]} withdrew go #{go['seq']}"}
                         for pr, head in go_heads(go).items()
-                        if any(pr == queued and names_head(head, sha) for queued, sha in admitted)
+                        for queued, sha in admitted
+                        if pr == queued and names_head(head, sha) and not any(pr in heads and names_head(heads[pr], sha) for heads in kept)
                     }
         return orders, max((record["seq"] for record in records), default=read)
 
@@ -7027,7 +7030,7 @@ class Landing:
                 lanes = sorted({ROOT, *self.landing_config.get("go_lanes", []), *(go["lane"] for go in gos)})
                 later = [record | {"text": full_text(record)} for record in cci.records(self.cci_tail, drive, *(flag for lane in lanes for flag in ("--lane", lane)), since=min(go["seq"] for go in gos)) if record["lane"] in lanes and record["drive"] == drive] if gos else []
                 posted_seqs = {go["seq"] for go in gos}
-                closed = {seq for record in later for seq in closes(record)} | {seq for record in later for seq in withdrawn(record) & posted_seqs if record["seq"] > seq}
+                closed = {seq for record in later for seq in closes(record)} | {seq for record in later for seq in (withdrawn(record) | voids(record)) & posted_seqs if record["seq"] > seq}
                 withdrawals = [record for record in later if record["kind"] == "withdraw" or WITHDRAWN_OPENING.match(record["text"])]
                 posted = [go | {"voided": {pr for pr in go_heads(go) if any(record["seq"] > go["seq"] and about_pr(record, self.repo, pr) for record in withdrawals)}} for go in gos if go["seq"] not in closed]
                 graders = [record for lane in self.fidelity_lanes for record in cci.records(self.cci_tail, drive, "--kind=review", "--kind=withdraw", "--lane", lane) if record["drive"] == drive and record["lane"] == lane] if posted else []

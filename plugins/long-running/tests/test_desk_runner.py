@@ -6717,6 +6717,46 @@ def test_a_root_withdraw_of_a_go_the_runner_already_enqueued_takes_the_pr_out_an
     assert dequeue_lines(shell) == [f"DEQUEUED dequeue:40000:29020 #29020: #29020 at cccc333333, root #40000 withdrew go #{go}: the status read after the dequeue finds it not queued; its head stays out until mq.py requeue"]
 
 
+@pytest.mark.parametrize(
+    "voiding",
+    [
+        lambda go: {"kind": "correction", "re": go, "text": f"5:46 PM root: withdrawing go #{go} on #29020 (838530f was a graded head, never his tap)"},
+        lambda go: {"kind": "correction", "text": f"5:46 PM root: withdrawing go #{go} on #29020; #29020 is not admitted"},
+    ],
+    ids=["correction-re", "correction-names-it"],
+)
+def test_a_root_correction_withdrawing_a_queued_go_takes_the_pr_out_and_never_enqueues_it_again(shell, config, voiding):
+    """p8a-step7 #232081, root #232136: the runner queued #45911 on go #229223 after root withdrew it in correction #229326, because it read only withdraw records."""
+    merge_mode(config, "every")
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    go = shell.records[-1]["seq"]
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    shell.records.append({"seq": 40000, "drive": "d1", "lane": "root", "to": ["landing-desk"], "refs": {}, "at": actions.stamp(shell.clock)} | voiding(go))
+    landing_pass(shell, config)
+    assert dequeues(shell) == [["29020", "--dequeue"]]
+    shell.clock += runner_module.STATUS_MAX_AGE + timedelta(seconds=1)
+    shell.queue["29020"] = "not queued"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+
+
+def test_a_withdrawn_go_leaves_a_pr_queued_that_another_standing_go_admits_at_that_head(shell, config):
+    merge_mode(config, "every")
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    first = shell.records[-1]["seq"]
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    shell.records.append({"seq": 40000, "drive": "d1", "lane": "root", "kind": "correction", "re": first, "to": ["landing-desk"], "refs": {}, "text": f"withdrawing go #{first}; the newer go stands", "at": actions.stamp(shell.clock)})
+    landing_pass(shell, config)
+    assert dequeues(shell) == []
+
+
 def test_mq_dequeue_refuses_another_drives_pr_and_names_its_root(shell, config, tmp_path, capsys):
     shell.rows = [dict(ONE_ROW, ours=False)]
     other_drive_opened(shell, "29020")

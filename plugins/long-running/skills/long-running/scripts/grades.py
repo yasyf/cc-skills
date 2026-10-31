@@ -18,6 +18,8 @@ import cci
 LANE_NUMBER = re.compile(r"(.+?)(?:-(\d+))?")
 SUCCESSOR_NUMBER = re.compile(r"(?:-\d{1,2})+$")
 WITHDRAWS = re.compile(r"\bwithdraws?\b[^.;:\n#]*#(\d+)", re.IGNORECASE)
+WITHDRAW_NAMES = re.compile(r"(?<!not )(?<!never )\bwithdr(?:aw|aws|awing|awn|ew)\b[^.;:\n#]*#(\d+)", re.IGNORECASE)
+VOIDING_KINDS = frozenset({"withdraw", "correction"})
 WITHDRAWN_NAMED = re.compile(r"#(\d+)\b(?=(?:(?!\bnot\b)[^.;:\n])*\bwithdrawn\b)", re.IGNORECASE)
 FIDELITY_OK = "fidelity: ok"
 FIDELITY_MISSING = "fidelity: missing"
@@ -327,6 +329,12 @@ def closes(record: dict) -> set[int]:
     if record["kind"] != "withdraw":
         return closed
     return closed | ({record["re"]} if record.get("re") else set()) | {int(seq) for seq in WITHDRAWS.findall(record["text"])}
+
+
+def voids(record: dict) -> set[int]:
+    """The records `record` voids: the one a `withdraw` or `correction` answers by `--re`, and each `#<seq>` any record names after a form of "withdraw", such as `withdrawing go #229223` (root #232136)."""
+    named = {int(seq) for seq in WITHDRAW_NAMES.findall(record["text"])}
+    return named | {record["re"]} if record.get("re") and record["kind"] in VOIDING_KINDS else named
 
 
 def fidelity_grades_in(reviews: list[dict], drive: str, lanes: list[str], repo: str, pr: str) -> list[dict]:
