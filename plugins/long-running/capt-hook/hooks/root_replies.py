@@ -29,7 +29,7 @@ from captain_hook import (
 from captain_hook.transcripts import TranscriptLoadError
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState, bus_name, drive_entry, script
+from .compaction_handoff import CompactionState, bus_name, drive_entry, judged, script
 from .nudges import NagClock, once_per_hour
 from .owner_facing import CCI_POST, incident_sources, last_reply, open_incidents, record_text
 from .tests.incident_fixtures import CLOSED_0820, SAND_NOT_MIGRATED
@@ -38,6 +38,7 @@ from .tests.register_fixtures import DRIVE_CONFIG
 ACTIVE = [CompactionState(active=True)]
 DRIVE_ACTIVE = [CompactionState(active=True, slug="brook")]
 REPLY_WINDOW = 256
+CLAUDE = "claude -p"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 MINUTES_A_DAY = 24 * 60
 LABEL_SLACK_MINUTES = 1
@@ -67,7 +68,6 @@ MID_TURN = [
         "attachment": {"type": "queued_command", "prompt": "then post the board once the fix lands", "commandMode": "prompt"},
     },
 ]
-LAUNCHERS = frozenset({"orca-launch.sh", "desk-launch.py"})
 IDLE_CLAIM = re.compile(
     r"\b(?:is|was|looks|sat|sits|went)\s+(?:idle|silent|dead|stuck|empty)\b|(?<=[\w.-]):\s*(?:idle|silent|dead|stuck|empty)\b"
     r"|\bno (?:code|commits|work|progress)\b|\b(?:did|has done|done) nothing\b"
@@ -117,14 +117,23 @@ UNREAD_CLAIM = (
     " Run `cci show <seq>` or `Read` the file, or ask the worker and tell the owner you are reading it and will answer in a few minutes."
 )
 DEFECT_ADMITTED = re.compile(
-    r"\bmy bad\b|\bI (?:missed|forgot|should have|didn'?t)\b|\b(?:tooling|tool|hook|runner|desk)\s+(?:defect|bug|gap|is broken|was broken|misfired)\b"
-    r"|\bdead lane\b|\blane (?:is|was) dead\b|\bmissed (?:a|the) step\b|\bstep (?:was )?skipped\b",
+    r"\bmy (?:bad|doing|fault|mistake|miss|error|call was wrong)\b|\bI (?:missed|forgot|should have|didn'?t|was wrong|got \w+(?: \w+)? wrong)\b"
+    r"|\b(?:tooling|tool|hook|runner|desk|worker|script|check)\s+(?:defect|bug|gap|is broken|was broken|broke|misfired|failed)\b"
+    r"|\bdead lane\b|\blane (?:is|was) dead\b|\bmissed (?:a|the) step\b|\bstep (?:was )?skipped\b|\b(?:was|were) wrong\b",
     re.IGNORECASE,
 )
 NARRATED_DEFECT = (
-    "Warning, nothing was blocked: A reply that admits a tooling defect, a missed step, or a dead lane ships the fix in the same turn."
+    "Warning, nothing was blocked: a judge reads this reply as admitting a defect whose fix nothing in this turn started."
     " Spawn the fix lane or post its `cci post --kind go`, then report it."
 )
+OVERCLAIMED = (
+    "Warning, nothing was blocked: a judge reads this reply as claiming more about the code or a review than what this turn read shows."
+    " Read the part it rests on, or tell the owner what is still unread."
+)
+ACTION_SHOWN = 300
+READ_SHOWN = 1500
+FLAGGED = {"verdict": "yes", "artifact_phrase": "the runner was broken", "evidence_phrase": "- nothing", "sentence": "It admits the runner broke, and nothing this turn starts the fix."}
+CLEARED = {"verdict": "no", "artifact_phrase": "", "evidence_phrase": "", "sentence": "Nothing to add."}
 MEASURED = re.compile(
     r"\b\d[\d,]*(?:\.\d+)?\s*(?:%|percent\b|(?:users?|sessions?|runs?|errors?|crashes|failures?|requests?|events?|objects?|rows?|retires?|deletes?|refusals?|chats?|reports?)\b|(?:/|per\s+)(?:min(?:ute)?|hour|sec(?:ond)?|s)\b)",
     re.IGNORECASE,
@@ -134,6 +143,10 @@ UNSOURCED_NUMBER = (
     "Warning, nothing was blocked: A count, rate, or percentage told to the owner names the query record it came from."
     " Put that record's `#<seq>` or link beside each number below, or drop the number."
 )
+
+
+def judge_answer(verdict: dict) -> dict[str, str | tuple[int, str]]:
+    return {CLAUDE: json.dumps({"structured_output": verdict, "total_cost_usd": 0.01, "usage": {"input_tokens": 1000, "output_tokens": 50}})}
 
 
 def owner_text(event: object) -> str:
@@ -231,19 +244,41 @@ def lane_status_ran(evt: BaseHookEvent) -> bool:
     return any((args := script_args(argv, frozenset({"drive.py"}))) and args[0] == "lane-status" for argv in turn_commands(evt))
 
 
-def launched_lanes(argv: tuple[str, ...]) -> list[str]:
-    if (args := script_args(argv, LAUNCHERS)) is not None:
-        return [next((arg for arg in args if not arg.startswith("-") and arg != "launch"), "")]
-    if argv[:2] == ("cci", "post") and ("--kind", "go") in zip(argv, argv[1:]):
-        return [value for flag, value in zip(argv, argv[1:]) if flag == "--to"] + [arg.removeprefix("--to=") for arg in argv if arg.startswith("--to=")]
-    return []
+def first_line(text: object) -> str:
+    return next(iter(str(text or "").strip().splitlines()), "")[:ACTION_SHOWN]
 
 
-def fix_named(evt: BaseHookEvent, reply: str) -> bool:
-    spawned = [use.call.raw.get("name") for use in evt.ctx.turn.tool_calls.named("Agent").items]
-    launched = [name for argv in turn_commands(evt) for name in launched_lanes(argv)]
-    names = {part for name in [*spawned, *launched] if name for part in name.split(",") if part}
-    return any(re.search(rf"(?<![\w.-]){re.escape(name)}(?![\w.-])", reply) for name in names)
+def turn_actions(evt: BaseHookEvent) -> str:
+    lines = []
+    for use in evt.ctx.turn.tool_calls.items:
+        name, raw = use.call.name, use.call.raw
+        match name:
+            case "Agent":
+                lines.append(f"- Agent {raw.get('name') or raw.get('subagent_type') or ''}: {first_line(raw.get('prompt'))}")
+            case "Bash":
+                lines.append(f"- Bash: {str(raw.get('command') or '')[:ACTION_SHOWN]}")
+            case "SendMessage":
+                lines.append(f"- SendMessage to {raw.get('to')}: {first_line(raw.get('message'))}")
+            case "Edit" | "Write":
+                lines.append(f"- {name} {raw.get('file_path')}")
+            case _:
+                lines.append(f"- {name}")
+    return "What the writer did this turn, in order:\n" + ("\n".join(lines) or "- nothing")
+
+
+def read_call(name: str, argvs: list[tuple[str, ...]]) -> bool:
+    return name in READ_TOOLS or name.startswith(READ_MCP) or any(argv[: len(read)] == read for argv in argvs for read in READ_COMMANDS)
+
+
+def turn_reads(evt: BaseHookEvent) -> str:
+    shown = []
+    for use in evt.ctx.turn.tool_calls.items:
+        argvs = [(Path(cmd.argv[0]).name, *cmd.argv[1:]) for cmd in use.call.command_line if cmd.argv] if use.call.name == "Bash" else []
+        if read_call(use.call.name, argvs):
+            what = use.call.raw.get("command") or use.call.raw.get("file_path") or use.call.raw.get("pattern") or ""
+            shown.append(f"$ {use.call.name} {what}\n{(use.result.content if use.result else '')[:READ_SHOWN]}")
+    shown += [event.text[:READ_SHOWN] for event in evt.ctx.turn.events if isinstance(event, UserEvent) and event.text and any(marker in event.text for marker in WORKER_ANSWER)]
+    return "What the writer read this turn, verbatim:\n" + "\n\n".join(shown)
 
 
 def relabel(wrong: list[str]) -> str:
@@ -425,6 +460,25 @@ def read_this_turn(evt: BaseHookEvent) -> bool:
                 T.assistant("Per #149433, codex found two races in the retire path."),
             ],
             state=ACTIVE,
+            commands=judge_answer(CLEARED),
+        ): Ask(),
+        Input(
+            transcript=[
+                T.user("what did review find?"),
+                T.assistant(T.tool("Bash", command="cci show 149433")),
+                T.assistant("Per #149433, codex found two races in the retire path."),
+            ],
+            state=ACTIVE,
+            commands=judge_answer(FLAGGED),
+        ): Allow(system_message=r"^Warning, nothing was blocked: a judge reads this reply as claiming more[\s\S]*the runner was broken"),
+        Input(
+            transcript=[
+                T.user("what did review find?"),
+                T.assistant(T.tool("Bash", command="cci show 149433")),
+                T.assistant("Per #149433, codex found two races in the retire path."),
+            ],
+            state=ACTIVE,
+            commands={CLAUDE: (1, "model unavailable")},
         ): Ask(),
         Input(
             transcript=[
@@ -433,6 +487,7 @@ def read_this_turn(evt: BaseHookEvent) -> bool:
                 T.assistant("The mechanism is a journal upload after each merge."),
             ],
             state=ACTIVE,
+            commands=judge_answer(CLEARED),
         ): Ask(),
         Input(
             transcript=[
@@ -450,6 +505,7 @@ def read_this_turn(evt: BaseHookEvent) -> bool:
                 T.assistant("The mechanism is a journal upload after each merge, per p8a-step5-2."),
             ],
             state=ACTIVE,
+            commands=judge_answer(CLEARED),
         ): Ask(),
         Input(transcript=[T.user("status?"), T.assistant("Three PRs are open and two lanes are working.")], state=ACTIVE): Ask(),
         Input(transcript=[T.user("status?"), T.assistant("The PR lands by means of the queue.")], state=ACTIVE): Ask(),
@@ -457,9 +513,12 @@ def read_this_turn(evt: BaseHookEvent) -> bool:
     },
 )
 def code_claims_follow_a_read(evt: BaseHookEvent) -> HookResult | None:
-    if not CompactionState.load(evt).active or not (claims := CODE_CLAIM.findall(last_reply(evt))) or read_this_turn(evt):
+    if not CompactionState.load(evt).active or not (claims := CODE_CLAIM.findall(reply := last_reply(evt))):
         return None
-    return evt.allow(system_message=UNREAD_CLAIM) if once_per_hour(evt, [f"code-claim:{claim.casefold()}" for claim in claims]) else None
+    if not read_this_turn(evt):
+        return evt.allow(system_message=UNREAD_CLAIM) if once_per_hour(evt, [f"code-claim:{claim.casefold()}" for claim in claims]) else None
+    found = judged("claim", turn_reads(evt), reply, (drive_entry(evt) or {}).get("drive"))
+    return evt.allow(system_message=f"{OVERCLAIMED}\n{found}") if found else None
 
 
 @on(
@@ -515,8 +574,13 @@ def stand_downs_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
         Input(
             transcript=[T.user("why is it slow"), T.assistant("My bad: the runner was broken and I missed the stalled launch.")],
             state=ACTIVE,
-            commands=incident_sources(SAND_NOT_MIGRATED),
-        ): Allow(system_message=r"ships the fix in the same turn"),
+            commands=incident_sources(SAND_NOT_MIGRATED) | judge_answer(FLAGGED),
+        ): Allow(system_message=r"^Warning, nothing was blocked: a judge reads this reply as admitting a defect[\s\S]*nothing this turn starts the fix"),
+        Input(
+            transcript=[T.user("why is it slow"), T.assistant("My bad: the runner was broken and I missed the stalled launch.")],
+            state=ACTIVE,
+            commands=incident_sources(SAND_NOT_MIGRATED) | {CLAUDE: (1, "model unavailable")},
+        ): Ask(),
         Input(
             transcript=[
                 T.user("why is it slow"),
@@ -524,7 +588,7 @@ def stand_downs_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
                 T.assistant("My bad: the runner was broken; runner-stall-fix is on it."),
             ],
             state=ACTIVE,
-            commands=incident_sources(SAND_NOT_MIGRATED),
+            commands=incident_sources(SAND_NOT_MIGRATED) | judge_answer(CLEARED),
         ): Ask(),
         Input(
             transcript=[
@@ -533,7 +597,7 @@ def stand_downs_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
                 T.assistant("My bad: the runner was broken and I missed the stalled launch."),
             ],
             state=ACTIVE,
-            commands=incident_sources(SAND_NOT_MIGRATED),
+            commands=incident_sources(SAND_NOT_MIGRATED) | judge_answer(FLAGGED),
         ): Allow(system_message=r"^Warning, nothing was blocked"),
         Input(
             transcript=[T.user("why is it slow"), T.assistant("My bad: the runner was broken and I missed the stalled launch.")],
@@ -549,9 +613,10 @@ def stand_downs_read_lane_status(evt: BaseHookEvent) -> HookResult | None:
 )
 def narrated_defects_ship_their_fix(evt: BaseHookEvent) -> HookResult | None:
     reply = last_reply(evt)
-    if CompactionState.load(evt).active and DEFECT_ADMITTED.search(reply) and not fix_named(evt, reply) and open_incidents(evt):
-        return evt.allow(system_message=NARRATED_DEFECT)
-    return None
+    if not CompactionState.load(evt).active or not DEFECT_ADMITTED.search(reply) or not open_incidents(evt):
+        return None
+    found = judged("defect", turn_actions(evt), reply, (drive_entry(evt) or {}).get("drive"))
+    return evt.allow(system_message=f"{NARRATED_DEFECT}\n{found}") if found else None
 
 
 @on(

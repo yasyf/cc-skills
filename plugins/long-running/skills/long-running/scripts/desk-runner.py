@@ -77,7 +77,8 @@ per lane, a reply to the lane's latest open question no other reply claims, logg
 `RELAYED` or `RELAY-FAILED`. Each new `orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>`
 line is the `launch` command under its key, `NOW` meaning `--owner-directed` and `role=` meaning `--role`, refused as
 `LAUNCH-FAILED` while the lane has a live dispatch or a launch in flight, or while its brief has no `Register slice:`
-line and the launch is not an incident lane's; a new lane's brief (`lane_brief.owes_scale`) with no `Scale:` line logs `SCALE-MISSING` and launches. Before any launch the runner refreshes the register slice under that
+line and the launch is not an incident lane's; a new lane's brief (`lane_brief.owes_scale`) with no `Scale:` line logs `SCALE-MISSING` and launches; a non-incident launch whose `Scale:` line a judge reads as missing
+the N its brief's paths run at goes ahead with one `SCALE-MISSED` to the root. Before any launch the runner refreshes the register slice under that
 line with `rulings.py slice --refresh`, first writing `Register slice: lane=<lane> step=incident` into an incident
 brief that has none, and writes the slice into every brief it attaches itself; a slice that does not read logs
 `SLICE-UNREAD` and the launch goes ahead. Every verified
@@ -649,7 +650,7 @@ from fnmatch import fnmatch
 from pathlib import Path, PurePosixPath
 from zoneinfo import ZoneInfo
 
-from long_running import actions
+from long_running import actions, judge
 from long_running.book import Book
 from long_running.build_cache import BuildCache
 from long_running.desk_control import DeskControl, QuiesceFailed
@@ -756,7 +757,7 @@ ADMITTED = BELIEVED_QUEUED | {"dropped", "ejected", MERGED}
 OUT_OF_QUEUE = frozenset({"not queued", "evicted"})
 LANDING_REFUSALS = frozenset({"FOREIGN", "TAP-REQUIRED", "CONTRACT-MISSING", "PARKED", "UNOWNED", "GATE-FAILED", "RULINGS-REFUSED", "ENQUEUE-STRANDED", "ENQUEUE-FAILED", "ENQUEUE-UNSETTLED"})
 OWNER_KINDS = ("head", "opened", "ready", "claim", "report")
-CHECK_PR_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "SHAPE-UNTESTED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS"})
+CHECK_PR_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "SHAPE-UNTESTED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS"})
 INCIDENT_CHECKS = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"})
 RESERVED_TOUCH = "RESERVED-NO-ANSWER"
 CHECK_PR_BLOCKER = "BLOCKER"
@@ -1013,6 +1014,7 @@ INSTALL_PARTS = ("reference", "scripts")
 BRIEF_FILES = (MANUAL_TEMPLATE, ALERT_TEMPLATE, UNFIXED_TEMPLATE, finder.TEMPLATE, finder.ROWS_STEP, fidelity.TEMPLATE, fidelity.RUBRIC, incident.TEMPLATE)
 SLICE_LINE = "Register slice:"
 SLICE_HEADER = re.compile(rf"^{SLICE_LINE}", re.MULTILINE)
+SCALE_LINES = re.compile(r"^[ \t>*_-]*Scale:.*$", re.MULTILINE)
 INCIDENT_STEP = "incident"
 UNFIXED = re.compile(r"^[ \t>*-]*(?P<tick>`?)UNFIXED (?P<lane>[\w.-]+):[ \t]*(?P<case>\S.*?)(?P=tick)[ \t]*$", re.MULTILINE)
 UNFIXED_CASES = "unfixed-cases"
@@ -2523,6 +2525,18 @@ class Runner:
             self.escalate(f"scale:{key}", "SCALE-MISSING", lane, f"{lane_brief.no_scale(brief)}; {lane} launches anyway")
         self.refresh_slice(key, lane, brief)
         self.accept_launch(key, lane, spec["model"], spec["effort"], str(brief), bool(spec["now"]), role=spec["role"] or "")
+        if INCIDENT_MODEL not in (spec["model"], spec["role"]) and not incident_fix(lane, spec["model"], brief, spec["role"] or ""):
+            self.judge_scale(key, lane, brief)
+
+    def judge_scale(self, key: str, lane: str, brief: Path) -> None:
+        """Escalate one `SCALE-MISSED` when a judge reads the brief's `Scale:` line as missing the N its paths run at; the launch goes ahead either way, and a judge call that fails posts nothing."""
+        text = brief.read_text()
+        if not (lines := SCALE_LINES.findall(text)):
+            return
+        said = SLICE_HEADER.split(text, maxsplit=1)[0].strip()
+        found = judge.judge("scale", f"The brief, verbatim:\n{said}", "\n".join(line.strip() for line in lines), backend=judge.backend_from(os.environ), drive=self.config.drive)
+        if found is not None and found.flagged:
+            self.escalate(f"scale:{key}", "SCALE-MISSED", lane, f'{found.sentence} Its line reads "{found.artifact_phrase}"; fix it in {brief} for the next spawn.')
 
     def withdraw_line(self, at: str, key: str, rest: str) -> None:
         spec = WITHDRAW_SPEC.match(rest)
