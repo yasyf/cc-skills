@@ -13288,6 +13288,23 @@ def test_each_head_starts_one_finder_at_once_however_many_records_name_it(shell,
     ]
 
 
+def test_one_multi_head_record_starts_a_finder_for_every_pr_its_restack_moved(shell, config):
+    finder_config(config, concurrent=3)
+    orca_pass(shell, config)
+    heads = {pr: hashlib.sha1(pr.encode()).hexdigest() for pr in ("43439", "43299", "42784")}
+    shell.pr_heads = {pr: ("OPEN", head) for pr, head in heads.items()}
+    head_record(
+        shell,
+        "43439",
+        heads["43439"],
+        refs={"prs": [f"Forge-AI/monorepo#{pr}" for pr in heads]},
+        fields={"attrs": {f"head:Forge-AI/monorepo#{pr}": f"{FINDER_OLD}..{head} restack, range-diff patch-identical (1 commit)" for pr, head in heads.items()}},
+        text="HEAD 3 PRs: " + ", ".join(f"#{pr} {head[:7]}" for pr, head in heads.items()),
+    )
+    orca_pass(shell, config)
+    assert sorted((job["pr"], job["head"]) for job in finder_jobs(shell)) == sorted(heads.items())
+
+
 def test_a_finder_job_also_addresses_its_prs_ledger_lane_when_a_worker_named_the_head(shell, config):
     finder_config(config)
     orca_pass(shell, config)

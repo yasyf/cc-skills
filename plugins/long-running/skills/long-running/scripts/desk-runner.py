@@ -665,7 +665,7 @@ import prompt_screen
 import prompt_watch
 import stall_watch
 import testfiles
-from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, heads_since, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
+from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, head_of, head_says, heads_since, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
 from grades import carry_of, delegated, keeps_tap, succeeds, with_successors
 from grades import carries as carry_grade
 from grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
@@ -4598,7 +4598,7 @@ class Runner:
         if answered:
             self.finder_settled(action.action_id, {"answered": f"cci #{answered['seq']} from {answered['lane']}"})
             return False
-        last, prior = ("", None) if full else finder.since(reviews, records, job["head"])
+        last, prior = ("", None) if full else finder.since(reviews, records, job["head"], repo)
         attempt = action.action_id.partition("#")[2]
         directory = self.config.source.parent / finder.LANE / ((f"{job['pr']}-whole-{job['seq']}" if full else f"{job['pr']}-{job['head'][:12]}") + (f"-{attempt}" if attempt else ""))
         directory.mkdir(parents=True, exist_ok=True)
@@ -4613,7 +4613,7 @@ class Runner:
                 "head": job["head"],
                 "since": last,
                 "prior": prior,
-                "previous": finder.previous(next((record for record in records if record["seq"] == job["seq"]), None)) if named and not full else "",
+                "previous": finder.previous(next((record for record in records if record["seq"] == job["seq"]), None), repo, job["pr"]) if named and not full else "",
                 "history": [{"seq": record["seq"], "lane": record["lane"], "text": record["text"], "path": (record.get("refs") or {}).get("path", "")} for record in named],
                 "settled": self.root_settled(repo, job["pr"], named),
                 "lane": job["lane"],
@@ -7319,8 +7319,8 @@ class Landing:
                 if self.carry_tap(session, block, pr, tapped, head, why, self.landing_audience([pr], rows, to), label):
                     self.go_carried_tap(pr, head, tapped, rows, to)
                 continue
-            said = [record for record in reviews if record["kind"] == "head" and about_pr(record, self.repo, pr) and names_head(graded_head(record["text"]), head)]
-            adds = [record for record in [*said, *([graded] if graded else [])] if ADDS_BEHAVIOR.search(full_text(record))]
+            said = [record for record in reviews if record["kind"] == "head" and about_pr(record, self.repo, pr) and names_head(head_of(record, self.repo, pr), head)]
+            adds = [record for record in [*said, *([graded] if graded else [])] if ADDS_BEHAVIOR.search(head_says(record, self.repo, pr))]
             standing = self.fidelity(pr, head)
             graded_ok = bool(standing.ok and standing.record)
             keeper = self.keeper(reviews, pr, head, tapped)
@@ -7346,7 +7346,7 @@ class Landing:
                 continue
             if (adds or graded_ok and not says_kept) and not self.book.known(LANDING, key := f"tap-new-row:{block}:{pr}:{tapped}:{head}"):
                 record = adds[-1] if adds else standing.record
-                text = full_text(record)
+                text = head_says(record, self.repo, pr)
                 why = f"says that head adds new behavior: \"{board_rows.sentence_at(text, ADDS_BEHAVIOR.search(text).start()).strip()}\"" if adds else f"grades it ok without saying no new behavior since the tap at {tapped[:10]}"
                 when = board_rows.tapped_at(entry)
                 since = " -> ".join(sha[:10] for sha in heads_since(moves, head, entry["head"]))

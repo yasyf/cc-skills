@@ -1600,7 +1600,9 @@ major with a new head's record or a later `finder: ok <head7> answered: <how>`.
 The orca desk runner posts that record itself once `runner.json` carries a `finder`
 object: `{"model": "sol", "concurrent": 2, "checkout": "<repo checkout>", "to": ["<lane>"],
 "timeout_minutes": 60}`, every member optional. On every `head` record it starts one
-codex finder for that PR and head at once, taking the PR from the record's PR refs or,
+codex finder for that PR and head at once, one per PR a multi-head record's
+`head:<pr>` attributes name, so a restack posts one record with every head, never one per PR; for a
+single head it takes the PR from the record's PR refs or,
 when it has none, from the first `<owner/repo>#<n>` or `#<n>` of its text, beside the fidelity desks, never after them:
 over the head's own commits, those no commit on the base branch's current tip matches by
 patch, from `reference/finder-desk-brief.md`, which forbids any local build or test. A head
@@ -1889,7 +1891,8 @@ Take an approval on a `pr-groups` row at an older head of an open PR, with no ve
 the PR's current head. The runner moves it to the current head with `cc-present verdict
 carry` when records chain the two heads and call each move patch-identical. A lane's
 `head` record reading `<new> (was <old>): restack, range-diff patch-identical` is one
-such move. A fidelity grade of `<new>` that names `<old>` anywhere and says patch-identical,
+such move, and so is each entry of a multi-head record (`cci post --head <pr>=<old>..<new>
+<note>`) whose note, or else whose text, says patch-identical. A fidelity grade of `<new>` that names `<old>` anywhere and says patch-identical,
 tap carries, no new behavior, test-only, or pure replay in its first sentence, with no added
 behavior, is another. One
 `TAP-CARRIED` note naming both heads goes to root and each lane `landing.board_lane`

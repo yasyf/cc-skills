@@ -59,7 +59,7 @@ from pathlib import Path
 
 import drive
 import ghread
-from grades import FINDER_DESK, FINDER_PASS, finder_grade, names_head, repo_prs
+from grades import FINDER_DESK, FINDER_PASS, finder_grade, head_entries, names_head, repo_prs
 
 SCRIPTS = Path(__file__).resolve().parent
 TEMPLATE = SCRIPTS.parent / "reference" / "finder-desk-brief.md"
@@ -117,7 +117,9 @@ class Shell:
 
 
 def heads(record: dict, repo: str) -> list[tuple[str, str]]:
-    """Each `(pr, head)` a `head` record names: its `commit` field, else the first full sha of its text that no `was` precedes, else the first abbreviated one, which the caller spells whole from the PR's live head (#220098), for each PR its refs name in `repo`, or with no PR refs the PR its text names, as a lane that posts a head without `--pr` still gets its finder pass (root #158365)."""
+    """Each `(pr, head)` a `head` record names: each `head:<pr>` attribute of a multi-head record in `repo`, else its `commit` field, else the first full sha of its text that no `was` precedes, else the first abbreviated one, which the caller spells whole from the PR's live head (#220098), for each PR its refs name in `repo`, or with no PR refs the PR its text names, as a lane that posts a head without `--pr` still gets its finder pass (root #158365)."""
+    if (entries := head_entries(record, repo)) is not None:
+        return [(pr, entry["commit"]) for pr, entry in entries.items()]
     head = (record.get("fields") or {}).get("commit") or next(iter(HEAD_SHA.findall(record["text"])), "") or next(iter(SHORT_SHA.findall(record["text"])), "")
     prs = [pr for pr, _ in repo_prs(record, repo)] if (record.get("refs") or {}).get("prs") else text_pr(record["text"], repo)
     return [(pr, head) for pr in prs] if head else []
@@ -136,12 +138,12 @@ def requested(record: dict, repo: str) -> list[str]:
     return [pr for pr, _ in repo_prs(record, repo)] if (record.get("refs") or {}).get("prs") else text_pr(record["text"], repo)
 
 
-def since(reviews: list[dict], records: list[dict], head: str) -> tuple[str, dict | None]:
+def since(reviews: list[dict], records: list[dict], head: str, repo: str) -> tuple[str, dict | None]:
     """The full head the PR's newest finder record at another head read, empty when no `head` record spells it out, and that record."""
     prior = max((review for review in reviews if not names_head(review["head"], head)), key=lambda review: review["seq"], default=None)
     if prior is None:
         return "", None
-    spelled = [prior["head"], *(sha for record in records if record["kind"] == "head" for sha in [(record.get("fields") or {}).get("commit", ""), *FULL_SHA.findall(record["text"])])]
+    spelled = [prior["head"], *(sha for record in records if record["kind"] == "head" for sha in [(record.get("fields") or {}).get("commit", ""), *(entry[key] for entry in (head_entries(record, repo) or {}).values() for key in ("commit", "was")), *FULL_SHA.findall(record["text"])])]
     full = next((sha for sha in spelled if FULL_SHA.fullmatch(sha) and sha.startswith(prior["head"])), "")
     return full, {"seq": prior["seq"], "lane": prior["lane"], "head": prior["head"], "text": prior["text"]}
 
@@ -350,9 +352,13 @@ def slice_rows(shell: Shell, job: dict, pr: str, head: str, branch: str) -> str:
     return shell.run(rulings(job, "slice", "--required", "--pr", pr, "--head", head, "--base", branch), timeout=SLICE_SECONDS)
 
 
-def previous(record: dict | None) -> str:
-    """The head a `head` record says it replaced, `(was <sha>)`, empty when it names none."""
-    return found[1] if record and (found := WAS.search(record["text"])) else ""
+def previous(record: dict | None, repo: str, pr: str) -> str:
+    """The head a `head` record says `pr`'s head replaced: its `head:<pr>` attribute's `was`, else its text's `(was <sha>)`, empty when it names none."""
+    if record is None:
+        return ""
+    if (entries := head_entries(record, repo)) is not None:
+        return entries.get(pr, {}).get("was", "")
+    return found[1] if (found := WAS.search(record["text"])) else ""
 
 
 def range_pairs(shell: Shell, job: dict, base: str, last: str, earlier: list[str], own: list[str]) -> tuple[str, list[tuple[str, str]]]:
