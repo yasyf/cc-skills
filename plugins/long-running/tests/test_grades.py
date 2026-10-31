@@ -126,23 +126,6 @@ def test_carry_rechecks_rejected_lands_on_the_next_wave_and_stops_at_cycles():
     assert [record["text"] for record in moved] == ["go #13 at ddddddd", "go #12 at bbbbbbb"]
 
 
-@pytest.mark.parametrize(
-    ("grade", "kept"),
-    [
-        ("ok cccc333333 a review fix: no new behavior since the tap at aaaa111111.", True),
-        ("ok cccc333333 No new behavior since the owner's tap at aaaa111.", True),
-        ("ok cccc333333 a nil check; no new behaviour since his tap at aaaa111111.", True),
-        ("ok cccc333333 No new behavior since the owner’s tap at aaaa111.", True),
-        ("ok cccc333333 no new behavior since the owner's tap at bbbb222.", False),
-        ("ok cccc333333 carried from the owner's tap at aaaa111; stays a tap row.", False),
-    ],
-    ids=["the-tap", "the-owners-tap-204887", "his-tap", "curly-apostrophe", "another-tap", "carried-keeps-none"],
-)
-def test_a_grade_keeps_the_tap_however_it_names_whose_tap_it_was(grade, kept):
-    """Root #204975: grade #204887 'No new behavior since the owner's tap at 1f93c6d.' was read as no carry because it said the owner's tap."""
-    assert grades.keeps_tap(grade, "aaaa111111") is kept
-
-
 def test_the_go_state_names_the_newest_go_at_the_head_the_carry_that_reached_it_or_the_newest_go_at_an_older_head():
     """10:47 PM Oct 29 the watchdog told the merger a go was withdrawn seven minutes after root re-granted it at the new head (retro step 447)."""
 

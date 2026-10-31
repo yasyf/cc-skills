@@ -55,7 +55,8 @@
 # with one expiry notice a background agent can miss, so the script ends its own
 # round after PR_POLL_WINDOW seconds (25 minutes) and the watcher re-arms it on
 # the same state file. The deadline counts from the state file's started_at, so
-# it spans windows.
+# it spans windows; started_at restarts when the head moves and when a run
+# follows one that ended on any other DONE.
 #
 # A fresh state file watches from now on: label events before its start and the
 # merge-activity entries already posted are history, except that the latest
@@ -174,7 +175,8 @@ usage: pr-poll.sh <owner/repo> <pr-number> <state-file>
   to continue; the rerun waits out the interval before its first pass. Set
   PR_POLL_WINDOW=40 for a foreground Bash call capped at 60 seconds.
   DONE deadline-still-open ends the whole watch PR_POLL_DEADLINE
-  seconds (14400) after the state file's started_at.
+  seconds (14400) after the state file's started_at, which restarts on
+  a new head and on a run after any DONE but window-elapsed or evicted.
 EOF
   exit 2
 }
@@ -293,7 +295,12 @@ cci_watch() {
 finish() {
   case $1 in
   window-elapsed | evicted*) ;;
-  *) cci_watch unclaim ;;
+  *)
+    cci_watch unclaim
+    load_state
+    STATE=$(jq -c --arg v "$1" '.finished = $v' <<<"$STATE")
+    write_state
+    ;;
   esac
   printf 'DONE %s\n' "$1"
   exit 0
@@ -452,8 +459,9 @@ poll() {
 
   prev=$(state '.head_at_last_pass // ""')
   if [ "$head" != "$prev" ]; then
-    STATE=$(jq -c --arg h "$head" '
-      .head_at_last_pass = $h | .head_committed_at = null | .checks_seen = {} | .mergeable_false_reads = 0
+    STATE=$(jq -c --arg h "$head" --argjson t "$(date +%s)" '
+      if .head_at_last_pass != null then .started_at = $t else . end
+      | .head_at_last_pass = $h | .head_committed_at = null | .checks_seen = {} | .mergeable_false_reads = 0
       | if .queue.evicted != null then .queue.evicted = null | .queue.head = null else . end' <<<"$STATE")
   fi
   if [ "$(state '.head_committed_at == null')" = true ] &&
@@ -653,6 +661,10 @@ rest_until() {
 }
 
 load_state
+if [ "$(state '.finished // ""')" != "" ]; then
+  STATE=$(jq -c --argjson s "$STARTED" '.started_at = $s | del(.finished)' <<<"$STATE")
+  write_state
+fi
 cci_watch claim
 rest_until "$(state '.next_poll_at // 0')"
 while :; do

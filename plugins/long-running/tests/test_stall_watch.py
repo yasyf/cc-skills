@@ -729,6 +729,24 @@ def test_a_red_head_goes_to_its_live_lane_every_half_hour_to_root_once_when_no_l
     assert "red:101:abc1234" not in opened(config) and "red:103:0123456:root" in opened(config)
 
 
+@pytest.mark.parametrize(("red_class", "stalls"), [("inherited", []), ("flake", []), ("stale", []), ("real", ["red:101:abc1234"])])
+def test_a_red_head_classed_inherited_flake_or_stale_draws_no_red_stall_until_the_head_moves(config, red_class, stalls):
+    red = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/9", "job": "Run api tests", "error": "FAIL api/src/x.test.ts", "probe": False}
+    raw = json.loads(config.read_text())
+    config.write_text(json.dumps(raw | {"stall": {"minutes": {"unclassed": 600, "sweep": 600}}}))
+    classed = record(1, "api-lane", "red", f"class={red_class} head=abc1234 owner=api-lane fails on dev too", 1, "101")
+    shell = FakeShell([classed], [row("101", test_state="failure", red_at=stamp(1), failing_checks=json.dumps([red])), row("102", test_state="failure", red_at=stamp(1), failing_checks=json.dumps([red]))])
+
+    shell.clock = NOW + timedelta(minutes=2)
+    watch(shell, config)
+    assert sorted(shell.topics()) == [*stalls, "red:102:abc1234"]
+
+    shell.rows[0] = row("101", OTHER, test_state="failure", red_at=stamp(-2), failing_checks=json.dumps([red]))
+    shell.clock = NOW + timedelta(minutes=6)
+    watch(shell, config)
+    assert "red:101:fedcba9" in shell.topics()
+
+
 def test_an_owner_order_naming_a_pr_no_named_lane_cites_a_pr_for_three_minutes_posts_one_urgent_record_to_root(config):
     revert = record(1, "root", "decide", "Owner 8:15 PM, verbatim (answer e7170fa): 'back that out, revert the merge'. Binding now: landing-desk reverts 78a4e35.", 4, to=["landing-desk-3", "drive-watchdog-2"])
     merge = record(2, "root", "decide", "Owner 8:16 PM, verbatim: 'merge it now'.", 4, to=["landing-desk-3"])
