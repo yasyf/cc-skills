@@ -61,6 +61,29 @@ jobs:
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_ruling_binary_reader.py plugins/long-running/tests/test_rulings.py::test_classify_reads_each_unchanged_document_once_for_all_rows -q -s
       - uses: actions/checkout@v7
         with:
+          ref: 021af5b6f12e50e35016e74ebe9d0ea02998c903
+          path: .ci-selected-status-baseline
+          persist-credentials: false
+      - name: Immutable externally closed blocker transport negative controls
+        run: |
+          baseline=.ci-selected-status-baseline/plugins/long-running
+          cp plugins/long-running/tests/test_desk_runner.py "$baseline/tests/test_desk_runner.py"
+          for state in closed expired; do
+            negative="$RUNNER_TEMP/selected-status-$state-negative.log"
+            if uv run --locked --project plugins/long-running pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_desk_runner.py::test_stale_blocker_current_closure_keeps_original_receipt_without_reposting[$state]" -q > "$negative" 2>&1; then
+              cat "$negative"
+              exit 1
+            fi
+            cat "$negative"
+            grep -F 'selected status did not retire externally closed blocker' "$negative"
+            grep -F '1 failed' "$negative"
+          done
+      - name: Selected status transport without a local schema change
+        run: |
+          uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_cci_selected_records.py -q
+          uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py -k stale_blocker -q
+      - uses: actions/checkout@v7
+        with:
           ref: 963e964f15a919b6f0588fba2d7dd68de41c4d91
           path: .ci-register-orphan-baseline
       - name: Immutable register query orphan reproduction and CLI oracle
@@ -297,7 +320,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: yasyf/cc-inbox
-          ref: 5e61c5bc11d417c601889cac1393b346d17a44cb
+          ref: cc7485ab2ca7cda03f7790b38bdb0312b26fbcae
           path: .ci-native-cci
           persist-credentials: false
       - uses: actions/checkout@v7
@@ -315,13 +338,15 @@ jobs:
           cp plugins/long-running/tests/fixtures/native_cci/main.go .ci-native-cci/cmd/landing-native-fixture/main.go
           go -C .ci-native-cci build -p 2 -o "$RUNNER_TEMP/native-cci-fixture" ./cmd/landing-native-fixture
           go -C .ci-native-cci build -p 2 -o "$RUNNER_TEMP/native-cci-bin/cci" ./cmd/cci
+      - name: Verify selected status provider source
+        run: test "$(git -C .ci-native-cci rev-parse HEAD)" = cc7485ab2ca7cda03f7790b38bdb0312b26fbcae
       - name: actual Landing CCI process counts and freshness
         env:
           CCI_NATIVE_FIXTURE: ${{ runner.temp }}/native-cci-fixture
           CCI_NATIVE_BINARY_DIR: ${{ runner.temp }}/native-cci-bin
-          CCI_NATIVE_PROVIDER_SOURCE: 5e61c5bc11d417c601889cac1393b346d17a44cb
+          CCI_NATIVE_PROVIDER_SOURCE: cc7485ab2ca7cda03f7790b38bdb0312b26fbcae
           CCI_LEGACY_DESK_RUNNER: ${{ github.workspace }}/.ci-cci-legacy/plugins/long-running/skills/long-running/scripts/desk-runner.py
-        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/native_cci_integration.py -q -s --junitxml="$RUNNER_TEMP/native-cci.xml"
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/native_cci_integration.py plugins/long-running/tests/stale_blocker_transport_integration.py -q -s --junitxml="$RUNNER_TEMP/native-cci.xml"
       - uses: actions/upload-artifact@v7
         if: ${{ always() }}
         with:

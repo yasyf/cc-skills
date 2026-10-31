@@ -80,6 +80,29 @@ jobs:
           done
       - name: Ruling binary prefix bytes and text parity
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_ruling_binary_reader.py plugins/long-running/tests/test_rulings.py::test_classify_reads_each_unchanged_document_once_for_all_rows -q -s
+      - uses: actions/checkout@v7
+        with:
+          ref: 021af5b6f12e50e35016e74ebe9d0ea02998c903
+          path: .ci-selected-status-baseline
+          persist-credentials: false
+      - name: Immutable externally closed blocker transport negative controls
+        run: |
+          baseline=.ci-selected-status-baseline/plugins/long-running
+          cp plugins/long-running/tests/test_desk_runner.py "$baseline/tests/test_desk_runner.py"
+          for state in closed expired; do
+            negative="$RUNNER_TEMP/selected-status-$state-negative.log"
+            if uv run --locked --project plugins/long-running pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_desk_runner.py::test_stale_blocker_current_closure_keeps_original_receipt_without_reposting[$state]" -q > "$negative" 2>&1; then
+              cat "$negative"
+              exit 1
+            fi
+            cat "$negative"
+            grep -F 'selected status did not retire externally closed blocker' "$negative"
+            grep -F '1 failed' "$negative"
+          done
+      - name: Selected status transport without a local schema change
+        run: |
+          uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_cci_selected_records.py -q
+          uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py -k stale_blocker -q
       - name: native mailbox freshness and lifecycle, and the shells' command reaping
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_rosters.py plugins/long-running/tests/test_inboxes.py plugins/long-running/tests/test_register_reads.py plugins/long-running/tests/test_ledger_shell.py plugins/long-running/tests/test_stall_watch.py plugins/long-running/tests/test_build_cache.py plugins/long-running/tests/overflow_read_integration.py plugins/long-running/tests/test_rulings_dispatch.py plugins/long-running/tests/test_rulings_owned_hooks.py plugins/long-running/tests/test_rulings_consumers.py plugins/long-running/tests/test_lane_landing.py plugins/long-running/tests/test_judge_request_owned.py plugins/long-running/tests/test_judge.py plugins/long-running/tests/test_fifteenth_check_pr_owned.py plugins/long-running/tests/test_owned_reexec.py plugins/long-running/tests/test_board_watch.py::test_a_reexecuted_watch_ends_the_streams_its_older_image_started -q -s
       - name: Stale-blocker internal references
