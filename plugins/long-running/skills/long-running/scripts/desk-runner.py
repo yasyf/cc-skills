@@ -6151,6 +6151,8 @@ class Landing:
             if (would := self.direct_would(done)) is not None:
                 self.accept(tips, would, verdicts, rows, held)
             for pr, match in verdicts.items():
+                self.settlement.saw([pr], f"the {self.adapter.kind} check read {match['sha'][:10]} {match['verdict']} {match['detail']}".rstrip() + f" and ended `{done.last}`")
+            for pr, match in verdicts.items():
                 if match["verdict"] == "BLOCKED" and pr not in rows and self.adapter.rider(match):
                     if pr not in self.admit({pr: match["sha"]}):
                         self.runner.escalate(f"unnamed:{pr}@{match['sha']}", "FOREIGN", numbered(tips), f"#{pr} would ride the batch, and {NOT_ADMITTED}; nothing was enqueued; {ADMIT_HOW.format(pr=pr)}", "", self.routine_audience(tips, rows))
@@ -8484,7 +8486,7 @@ class Landing:
             elif pr in busy:
                 outcomes[pr] = InFlight(steps[pr]["step"], steps[pr]["since"]) if pr in steps else InFlight("waiting for a stack worker", self.book.stamp())
             else:
-                outcomes[pr] = Refused(f"{UNSETTLED} {seen.get(pr, 'no branch of the pass saw it')}")
+                outcomes[pr] = Refused(f"{UNSETTLED} {seen.get(pr, 'no branch of the pass saw it')}, and no step of the pass decided it: a runner defect the watchdog hears, its lane owes nothing, and the next pass checks it again")
         groups: dict[Posted, dict[str, str]] = {}
         for pr, outcome in outcomes.items():
             if isinstance(outcome, Posted):
