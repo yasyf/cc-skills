@@ -322,6 +322,10 @@ def rulings(cwd: str, *args: str, stdin: str = "", timeout: int = CCN_TIMEOUT_SE
     return subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=timeout, check=True, cwd=cwd, env=dict(reqenv.env_map())).stdout
 
 
+def register_of(cwd: str, *which: str) -> dict | None:
+    return json.loads(rulings(cwd, "register", *which))
+
+
 class RegisterRead:
     def __init__(self, evt: BaseHookEvent, entry: dict) -> None:
         self.evt = evt
