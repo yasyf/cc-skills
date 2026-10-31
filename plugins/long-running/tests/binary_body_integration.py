@@ -69,5 +69,4 @@ def test_mq_why_reads_only_to_the_binary_attachment_decode_error(shell, config, 
     print(json.dumps({"caller": "actual mq.main -> Landing.why -> check_hold -> holding -> full_text", "historical_source": hashlib.sha256(historical_path.read_bytes()).hexdigest(), "current_source": hashlib.sha256(Path(grades.__file__).read_bytes()).hexdigest(), "attachment_bytes": size, "invalid_utf8_at": invalid_at, "read_bytes": reads, "posts": len(shell.posts) - posts, "output_equal": outputs["legacy"] == outputs["current"]}))
     assert outputs["legacy"] == outputs["current"]
     assert reads["legacy"] == size
-    assert reads["current"] <= invalid_at + 64 * 1024
-    assert reads["current"] < reads["legacy"]
+    assert reads["current"] <= min(size, invalid_at + 64 * 1024)

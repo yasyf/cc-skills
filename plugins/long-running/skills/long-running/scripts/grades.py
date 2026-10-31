@@ -278,7 +278,7 @@ def full_text(record: dict) -> str:
         return record["text"]
     try:
         with spilled.open() as body:
-            return "".join(body)
+            return "".join(iter(lambda: body.read(64 * 1024), ""))
     except UnicodeDecodeError:
         return record["text"]
 
