@@ -1833,9 +1833,10 @@ that time.
 
 **Five minutes from go to queue.** A green PR a root `go` names at its head is in the
 merge queue within five minutes of that go. A stack the passes leave out that long, unheld and
-unrefused, goes straight into the queue through the runner's overflow, which posts a QUEUED
-report naming itself (owner 9524276). The overflow sends a stack in whole once any PR of it
-is due, and a blocked enqueue five minutes old no longer keeps the stack out. The runner logs one `GO-UNQUEUED` per head still
+unrefused, goes to a stack worker through the runner's overflow (owner 9524276), which runs
+the same check, admission and merge-mode gates a pass runs, so it never enqueues a batch
+carrying a PR the drive did not admit (root #245808). The overflow sends a stack in whole once
+any PR of it is due, and a blocked enqueue five minutes old no longer keeps the stack out. The runner logs one `GO-UNQUEUED` per head still
 out only when its own newest enqueue of that head since the go ended blocked, failed,
 stranded or unsettled, or went in and the queue then evicted it, never for backlog, naming that
 outcome or the eviction's time and reason. A head the queue evicted before any enqueue gets one
