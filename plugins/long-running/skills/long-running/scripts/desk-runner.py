@@ -5967,10 +5967,13 @@ class Landing:
         return self.proven(gate)
 
     def link_chains(self, tips: list[str]) -> bool:
+        """Link each tip's whole native chain, bottom first: every open row below it, then each open row stacked alone on the one above, since `gh stack link` exits 5 on a list that leaves out a PR already in the stack (root #228185)."""
         open_rows = {pr: row for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"}
         linked = True
         for tip in tips:
             chain = sorted(downstack(open_rows, tip), key=lambda pr: len(downstack(open_rows, pr)))
+            while len(above := [pr for pr, row in open_rows.items() if row.get("base") == open_rows[chain[-1]]["branch"] and pr not in chain]) == 1:
+                chain.append(above[0])
             done = self.shell.run(["gh", "stack", "link", *chain], env={"GH_REPO": self.repo}, cwd=str(self.checkout))
             said = "linked them as one native GitHub stack and checks again" if done.code == 0 else f"gh stack link exited {done.code}: {((done.err or done.out).strip().splitlines() or ['no output'])[-1][:300]}"
             self.post_record("note", f"stack-link:{','.join(chain)}@{open_rows[tip].get('head', '')}", self.routine_audience(chain, self.ledger_rows), f"STACK-LINK {numbered(chain)}: the {self.adapter.kind} check refused them as no native GitHub stack; the landing runner {said}", tip)
