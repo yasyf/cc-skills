@@ -5194,6 +5194,12 @@ def prefix_tops(prefix: list[str], rows: dict[str, dict]) -> list[str]:
     return [pr for pr in prefix if rows[pr].get("branch") not in bases]
 
 
+def commits_query(repo: str, prs: list[str]) -> str:
+    owner, name = repo.split("/")
+    fields = " ".join(f"c{pr}: pullRequest(number: {pr}) {{ commits(last: 100) {{ nodes {{ commit {{ oid }} }} }} }}" for pr in prs)
+    return f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'
+
+
 def heads_query(repo: str, shas: list[str]) -> str:
     owner, name = repo.split("/")
     review = f'checkSuites(last: 10, filterBy: {{checkName: "{REVIEW_BOT_CHECK}"}}) {{ nodes {{ checkRuns(last: 1, filterBy: {{checkName: "{REVIEW_BOT_CHECK}"}}) {{ nodes {{ title startedAt }} }} }} }}'
@@ -5465,6 +5471,7 @@ class Landing:
         self.bodies: dict[str, tuple[datetime, str]] = {}
         self.trunk_read: tuple[str, datetime, bool, dict] | None = None
         self.trunk_states: dict[str, dict] = {}
+        self.branch_commits: dict[tuple[str, str], list[str]] = {}
         self.unchecked: set[str] = set()
         self.settlement = Settlement({}, {})
         self.unproven_why: dict[str, str] = {}
@@ -8369,15 +8376,37 @@ class Landing:
         if self.post_record(kind, key, to, text, prs[-1]):
             self.book.edit(LANDING, lambda incident: incident.facts.setdefault(SETTLED, {}).update({pr: [head[:10], signature] for pr, head in fresh.items()}))
 
-    def refuse_pulled(self, rows: dict[str, dict], pulled: set[str]) -> None:
-        """Settle each admitted head a dequeue order or a pulled head keeps out of the queue, and each stacked on one, which no check of the pass reaches."""
+    def refuse_out(self, rows: dict[str, dict], out: dict[str, str], above: str) -> None:
+        """Settle each admitted head `out` keeps out of the queue as refused for its reason, and each stacked on one as below-blocked on the lowest, since no check of the pass reaches them."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
-        for pr in under_hold(open_rows, sorted(pulled, key=int)):
-            if pr in pulled:
-                self.settle({pr: open_rows[pr].get("head", "")}, Refused("a dequeue keeps it out of the queue until `mq.py requeue`"))
+        for pr in under_hold(open_rows, sorted(out, key=int)):
+            if pr in out:
+                self.settle({pr: open_rows[pr].get("head", "")}, Refused(out[pr]))
             elif not self.settlement.settled(pr):
-                below = min(downstack(open_rows, pr) & pulled, key=lambda member: len(downstack(open_rows, member)))
-                self.settle({pr: open_rows[pr].get("head", "")}, BelowBlocked(f"#{below}", f"stacked on #{below}, which a dequeue keeps out of the queue until `mq.py requeue`"))
+                below = min(downstack(open_rows, pr) & set(out), key=lambda member: len(downstack(open_rows, member)))
+                self.settle({pr: open_rows[pr].get("head", "")}, BelowBlocked(f"#{below}", f"stacked on #{below}, {above}"))
+
+    def carrying(self, rows: dict[str, dict]) -> dict[str, str]:
+        """Why each admitted PR based on trunk stays out of the queue when its branch carries another open PR's head, since a squash of it would land that PR too, whatever GitHub's base field says (root #239479): GitHub's commits of each, read in one GraphQL query per `HEADS_PER_QUERY` PRs and kept per head, since a head's commits never change. A read GitHub refuses keeps its PRs out until a later pass reads them."""
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}
+        heads = {row["head"]: pr for pr, row in open_rows.items()}
+        admitted = {pr: head for pr, head in self.settlement.heads.items() if open_rows.get(pr, {}).get("base") == TRUNK}
+        due = sorted((pr for pr, head in admitted.items() if (pr, head) not in self.branch_commits), key=int)
+        why: dict[str, str] = {}
+        for start in range(0, len(due), HEADS_PER_QUERY):
+            batch = due[start : start + HEADS_PER_QUERY]
+            done = self.shell.run(ghread.read("api", "graphql", "-f", f"query={commits_query(self.repo, batch)}"), env={"GH_REPO": self.repo})
+            if done.code:
+                refused = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
+                why |= {pr: f"GitHub refused the read of its branch's commits: {refused}" for pr in batch}
+                continue
+            read = json.loads(done.out)["data"]["repository"]
+            for pr in batch:
+                self.branch_commits[(pr, admitted[pr])] = [node["commit"]["oid"] for node in read[f"c{pr}"]["commits"]["nodes"]]
+        for pr, head in admitted.items():
+            if pr not in why and (carried := sorted({other for sha, other in heads.items() if other != pr and any(oid.startswith(sha) for oid in self.branch_commits[(pr, head)])}, key=int)):
+                why[pr] = f"its branch carries {numbered(carried)}, which a squash would land with it; restack it onto {TRUNK}"
+        return why
 
     def row_records(self, rows: dict[str, dict]) -> None:
         """Register under its lane each PR a `head` or `opened` record of this drive posted since the last pass names that has no ledger row, so the gate finds the row a go names (root #221244); a register that fails logs `UNROWED`, and a root go posted since then naming a PR no row holds and no such record names logs `GO-UNROWED`, once each."""
@@ -9338,8 +9367,10 @@ class Landing:
         self.no_go = self.unpassed(rows) if gating else set()
         self.refuse_ungone_parents(rows, held or [])
         pulled = self.pull_ordered(rows)
-        self.refuse_pulled(rows, pulled)
-        barred = sorted({*(held or []), *self.no_go, *pulled}, key=int)
+        self.refuse_out(rows, dict.fromkeys(pulled, "a dequeue keeps it out of the queue until `mq.py requeue`"), "which a dequeue keeps out of the queue until `mq.py requeue`")
+        carrying = self.carrying(rows) if gating else {}
+        self.refuse_out(rows, carrying, "whose branch carries open PRs a squash would land with it")
+        barred = sorted({*(held or []), *self.no_go, *pulled, *carrying}, key=int)
         gone = self.land_gone(rows, barred) if gating else set()
         self.runner.steps(lambda: self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}), self.reconcile, lambda: self.requeue(rows))
         if not self.side_work:
