@@ -1,0 +1,58 @@
+name: long-running mailbox macOS
+
+on:
+  push:
+    branches: [main]
+    tags: ["long-running--v*", "live-dashboard--v*"]
+    paths:
+      - "plugins/long-running/**"
+      - "plugins/live-dashboard/skills/live-dashboard/scripts/**"
+      - ".github/workflows/long-running-mailbox-macos.yml"
+  pull_request:
+    paths:
+      - "plugins/long-running/skills/long-running/scripts/long_running/roster_events.py"
+      - "plugins/long-running/skills/long-running/scripts/long_running/roster_service.py"
+      - "plugins/long-running/skills/long-running/scripts/long_running/rosters.py"
+      - "plugins/long-running/skills/long-running/scripts/long_running/register_reads.py"
+      - "plugins/long-running/skills/long-running/scripts/desk-wait.sh"
+      - "plugins/long-running/bin/desk-wait.sh"
+      - "plugins/long-running/skills/long-running/scripts/ledger.py"
+      - "plugins/long-running/skills/long-running/scripts/drive.py"
+      - "plugins/long-running/skills/long-running/scripts/stall_watch.py"
+      - "plugins/long-running/skills/long-running/scripts/desk-runner.py"
+      - "plugins/long-running/skills/long-running/scripts/cci.py"
+      - "plugins/long-running/capt-hook/hooks/compaction_handoff.py"
+      - "plugins/long-running/skills/long-running/scripts/long_running/build_cache.py"
+      - "plugins/long-running/tests/test_ledger_shell.py"
+      - "plugins/long-running/tests/test_stall_watch.py"
+      - "plugins/long-running/tests/test_build_cache.py"
+      - "plugins/long-running/tests/test_rosters.py"
+      - "plugins/long-running/tests/test_inboxes.py"
+      - "plugins/long-running/tests/test_register_reads.py"
+      - "plugins/long-running/benchmarks/mailbox-index.py"
+      - ".github/workflows/long-running-mailbox-macos.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  mailbox-macos:
+    runs-on: macos-latest
+    env:
+      UV_PYTHON: "3.14"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: native mailbox freshness and lifecycle, and the shells' command reaping
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_rosters.py plugins/long-running/tests/test_inboxes.py plugins/long-running/tests/test_register_reads.py plugins/long-running/tests/test_ledger_shell.py plugins/long-running/tests/test_stall_watch.py plugins/long-running/tests/test_build_cache.py -q -s
+      - name: mailbox index scaling costs
+        run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/mailbox-index.py > mailbox-index-macos.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mailbox-index-macos
+          path: mailbox-index-macos.json
