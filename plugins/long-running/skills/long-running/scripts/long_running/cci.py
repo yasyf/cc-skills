@@ -65,6 +65,11 @@ class Tail:
         self.read = None
 
 
+def posted(output: str) -> str:
+    """Project every posted JSON record to its internal sequence receipt."""
+    return "".join(f"#{json.loads(line)['seq']}\n" for line in output.splitlines())
+
+
 def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: int | str = 0) -> list[dict]:
     """Every record on `drive` after `since`, a sequence or any `cci tail --since` time, that matches the `cci tail` filters, paged by sequence; a page is the last when it holds fewer than the `PAGE_ROWS` records cci prints per call and fills under half the byte budget, since cci caps a record far below that; touches no cursor. A `Tail` answers a query it read since its last `forget` without running cci."""
     key = (drive, filters, str(since))

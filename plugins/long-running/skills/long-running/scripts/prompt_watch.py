@@ -394,7 +394,7 @@ class Watch:
     def post(self, entry: dict, kind: str, to: str | None, name: str, text: str, resolves: int | None = None) -> int | None:
         argv = ["cci", "post", "--drive", drive.cci_drive(entry), "--lane", LANE, "--kind", kind, "--topic", f"prompt:{name}", "--json"]
         argv += ["--to", to] if to else []
-        argv += ["--resolves", str(resolves)] if resolves else []
+        argv += ["--resolves-seq", str(resolves)] if resolves else []
         if len(text) > CCI_TEXT:
             body = watch_dir(entry) / NOTICES / f"{hashlib.sha1(text.encode()).hexdigest()[:12]}.txt"
             body.parent.mkdir(parents=True, exist_ok=True)

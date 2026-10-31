@@ -171,8 +171,16 @@ def ask(shell: FakeShell, *extra: str) -> int:
     return drive.main(argv, shell)
 
 
-def test_ask_owner_puts_the_card_on_the_root_sessions_board_and_opens_an_ask_for_the_waiting_lanes(registered, capsys):
+@pytest.mark.parametrize("number", ["#1", "#100@remote"])
+def test_ask_owner_puts_the_card_on_the_root_sessions_board_and_opens_an_ask_for_the_waiting_lanes(registered, capsys, monkeypatch, number):
     shell = BoardShell()
+    cci = shell._cci
+
+    def response(argv):
+        output = cci(argv)
+        return json.dumps(json.loads(output) | {"num": number}) if argv[1] == "post" and "--json" in argv else output
+
+    monkeypatch.setattr(shell, "_cci", response)
     assert ask(shell, "--for", "release-5", "--for", "root") == 0
     [(argv, block, cwd)] = shell.pushed
     assert argv == ["cc-present", "update-block", "-", "--session", ROOT_SESSION, "--round", "current"]
@@ -192,7 +200,7 @@ def test_ask_owner_puts_the_card_on_the_root_sessions_board_and_opens_an_ask_for
     assert "--force" in post
     assert [record["kind"] for record in shell.cci] == ["ask"]
     assert shell.cci[0]["text"] == "Owner card card-ship-the-chat-list-fix-tonight is on his board: Ship the chat-list fix tonight? Recommended: Wait for the morning build"
-    assert capsys.readouterr().out == "card card-ship-the-chat-list-fix-tonight is on the owner's board; ask #1 stays open until his tap\n"
+    assert capsys.readouterr().out == f"card card-ship-the-chat-list-fix-tonight is on the owner's board; ask {number} stays open until his tap\n"
 
 
 @pytest.mark.parametrize(

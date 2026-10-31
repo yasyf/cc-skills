@@ -49,9 +49,9 @@ def entry(record: dict) -> dict:
 def cmd_post(args: argparse.Namespace, shell: Shell) -> int:
     argv = ["cci", "post", "--drive", args.bus, "--lane", args.sender, "--kind", args.kind, "--text", args.text]
     argv += ["--topic", args.topic] if args.topic else []
-    argv += ["--re", str(args.re)] if args.re is not None else []
+    argv += ["--re-seq", str(args.re)] if args.re is not None else []
     argv += [flag for lane in args.to for flag in ("--to", lane)]
-    print(shell.run(argv).strip())
+    print(cci.posted(shell.run([*argv, "--json"])).strip())
     return 0
 
 

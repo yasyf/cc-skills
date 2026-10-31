@@ -61,9 +61,9 @@ class Fake:
             reply.write_text(json.dumps(self.replies.pop(0)))
             return f"REPLY_FILE: {reply}\n"
         if argv[:2] == ["cci", "post"]:
-            flags = [arg for arg in argv[2:] if arg != "--force"]
+            flags = [arg for arg in argv[2:] if arg not in ("--force", "--json")]
             self.posted.append(dict(zip(flags[::2], flags[1::2], strict=True)))
-            return f"#{150001 + len(self.posted)}\n"
+            return json.dumps({"seq": 150001 + len(self.posted), "num": "#7@fixture"}) + "\n"
         raise AssertionError(f"unexpected call {argv}")
 
     def git(self, argv: list[str]) -> str:

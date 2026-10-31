@@ -22,7 +22,7 @@ class FakeShell(bus.Shell):
     def run(self, argv: list[str]) -> str:
         self.calls.append(argv)
         if argv[:2] == ["cci", "post"]:
-            return "#41\n"
+            return json.dumps({"seq": 41, "num": "#7@remote"}) + "\n"
         since, budget = int(argv[argv.index("--since") + 1]), int(argv[argv.index("--budget") + 1])
         lines = [json.dumps(record) + "\n" for record in self.records if record["seq"] > since]
         fitting = next((count for count in range(len(lines), 0, -1) if sum(map(len, lines[:count])) <= budget), 0)
@@ -37,14 +37,14 @@ def test_post_is_one_cci_post_and_prints_its_seq(capsys):
     shell = FakeShell()
     argv = ["post", "--bus", "d1", "--from", "incident-x", "--kind", "ask", "--topic", "x2", "--text", '{"event": "opened"}', "--to", "comms", "--repo", "/m"]
     assert bus.main(argv, shell) == 0
-    assert shell.calls == [["cci", "post", "--drive", "d1", "--lane", "incident-x", "--kind", "ask", "--text", '{"event": "opened"}', "--topic", "x2", "--to", "comms"]]
+    assert shell.calls == [["cci", "post", "--drive", "d1", "--lane", "incident-x", "--kind", "ask", "--text", '{"event": "opened"}', "--topic", "x2", "--to", "comms", "--json"]]
     assert capsys.readouterr().out == "#41\n"
 
 
 def test_a_reply_carries_its_re(capsys):
     shell = FakeShell()
     assert bus.main(["post", "--bus", "d1", "--from", "comms", "--kind", "answer", "--re", "7", "--text", "posted ts=1.2"], shell) == 0
-    assert shell.calls == [["cci", "post", "--drive", "d1", "--lane", "comms", "--kind", "answer", "--text", "posted ts=1.2", "--re", "7"]]
+    assert shell.calls == [["cci", "post", "--drive", "d1", "--lane", "comms", "--kind", "answer", "--text", "posted ts=1.2", "--re-seq", "7", "--json"]]
 
 
 def test_read_pages_every_delivery_into_one_json_list(capsys):
@@ -69,3 +69,7 @@ def test_read_takes_a_whole_cci_page_of_records_in_one_call(capsys):
     assert bus.main(["read", "--bus", "d1", "--lane", "incident-x", "--all", "--peek", "--json", "--repo", "/m"], shell) == 0
     assert len(json.loads(capsys.readouterr().out)) == 300
     assert len(shell.calls) == 1
+
+
+def test_posted_receipts_preserve_all_internal_ids_in_multi_record_json():
+    assert bus.cci.posted('{"seq":41,"num":"#7"}\n{"seq":52,"num":"#100@remote"}\n') == "#41\n#52\n"

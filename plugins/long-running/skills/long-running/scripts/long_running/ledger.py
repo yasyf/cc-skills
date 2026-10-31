@@ -591,10 +591,10 @@ class Messages:
         argv = ["cci", "post", "--drive", self.drive, "--lane", fields["lane"], "--kind", MESSAGE_KINDS[fields["kind"]], "--topic", fields["pr"], "--text", fields["text"]]
         argv += ["--pr", fields["pr"]] if PR_KEY.fullmatch(fields["pr"]) else []
         argv += ["--commit", fields["head"]] if FULL_SHA.match(fields["head"]) else []
-        return self.shell.run(argv).strip()
+        return cci.posted(self.shell.run([*argv, "--json"])).strip()
 
     def answer(self, key: str, fields: dict[str, str], text: str) -> None:
-        self.shell.run(["cci", "post", "--drive", self.drive, "--lane", MESSAGE_ANSWERER, "--kind", "answer", "--re", key.lstrip("#"), "--topic", fields["pr"], "--text", f"{text} {key}"])
+        self.shell.run(["cci", "post", "--drive", self.drive, "--lane", MESSAGE_ANSWERER, "--kind", "answer", "--re-seq", key.lstrip("#"), "--topic", fields["pr"], "--text", f"{text} {key}"])
 
     def records(self, kinds: Collection[str], lanes: Collection[str]) -> list[dict]:
         """The drive's records of `kinds` from `lanes`, every lane when empty; `cci tail` also carries this session's peer mail from any drive, kind, or lane."""

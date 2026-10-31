@@ -659,7 +659,7 @@ from long_running.grades import carries as carry_grade
 from long_running.grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
 from long_running.grades import WITHDRAWN as WITHDRAWN_OPENING
 from long_running.grades import go_state, owes
-from long_running.grades import REVIEW_BOT_CHECK, REVIEW_BOT_HELD, review_bot_wait, withdrawn
+from long_running.grades import REVIEW_BOT_CHECK, REVIEW_BOT_HELD, VOIDING_KINDS, review_bot_wait, voids, withdrawn
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -1148,7 +1148,7 @@ def reserved_fingerprint(rows: dict[str, dict]) -> str:
 
 def rulings_digest() -> str:
     """What `rulings.py check-pr` reads its causes with: its source and the sources of the modules that decide a cause, the board rows it parses and the test-file rule, and none of the plumbing it reads through."""
-    return hashlib.sha256(b"".join((SCRIPTS / f"{name}.py").read_bytes() for name in RULINGS_SOURCES)).hexdigest()[:16]
+    return hashlib.sha256(b"".join((SCRIPTS / "long_running" / f"{name}.py").read_bytes() for name in RULINGS_SOURCES)).hexdigest()[:16]
 
 
 def command_name(argv: list[str]) -> str:
@@ -1945,7 +1945,13 @@ class Runner:
         if len(text) > CCI_TEXT:
             text = text[: CCI_TEXT - 1] + "…"
         self.cci_tail.forget()
-        return self.shell.run([*argv, "--text", text])
+        done = self.shell.run([*argv, "--text", text, "--json"])
+        if done.code:
+            return done
+        try:
+            return Done(0, cci.posted(done.out), done.err)
+        except (json.JSONDecodeError, KeyError) as error:
+            return Done(1, "", f"cci: invalid post receipt: {error}: {done.out.strip()}")
 
     def flush(self) -> bool:
         """Post each accepted escalation to root. While an incident clock runs, a DEADLINE, UNACKED, LIVENESS, STALE-MAIL, or RECLAIM about anything outside the incident waits in the view, and the pass after the last clock ends posts them as one DEFERRED record."""
@@ -5544,14 +5550,17 @@ class Landing:
             for record in records
             for pr in DEQUEUE_ORDER.findall(QUOTED_SPAN.sub("", QUOTED_BLOCK.sub("", full_text(record))))
         }
-        if withdrawn := {seq: record["seq"] for record in records if record["kind"] == "withdraw" for seq in closes(record)}:
+        if withdrawn := {seq: record["seq"] for record in records if record["kind"] in VOIDING_KINDS for seq in closes(record) | voids(record)}:
             admitted = [(pr, sha) for action in self.book.actions(LANDING, kind="enqueue", status="completed") if action.response["outcome"] in {*BELIEVED_QUEUED, PULLED} for pr, sha in enqueued_heads(action.action_id).items()]
-            for go in self.go_records():
+            gos = self.go_records()
+            kept = [go_heads(go) for go in gos if go["seq"] not in withdrawn]
+            for go in gos:
                 if go["seq"] in withdrawn:
                     orders |= {
                         f"{withdrawn[go['seq']]}:{pr}": {"pr": pr, "why": f"root #{withdrawn[go['seq']]} withdrew go #{go['seq']}"}
                         for pr, head in go_heads(go).items()
-                        if any(pr == queued and names_head(head, sha) for queued, sha in admitted)
+                        for queued, sha in admitted
+                        if pr == queued and names_head(head, sha) and not any(pr in heads and names_head(heads[pr], sha) for heads in kept)
                     }
         return orders, max((record["seq"] for record in records), default=read)
 
@@ -7027,7 +7036,7 @@ class Landing:
                 lanes = sorted({ROOT, *self.landing_config.get("go_lanes", []), *(go["lane"] for go in gos)})
                 later = [record | {"text": full_text(record)} for record in cci.records(self.cci_tail, drive, *(flag for lane in lanes for flag in ("--lane", lane)), since=min(go["seq"] for go in gos)) if record["lane"] in lanes and record["drive"] == drive] if gos else []
                 posted_seqs = {go["seq"] for go in gos}
-                closed = {seq for record in later for seq in closes(record)} | {seq for record in later for seq in withdrawn(record) & posted_seqs if record["seq"] > seq}
+                closed = {seq for record in later for seq in closes(record)} | {seq for record in later for seq in (withdrawn(record) | voids(record)) & posted_seqs if record["seq"] > seq}
                 withdrawals = [record for record in later if record["kind"] == "withdraw" or WITHDRAWN_OPENING.match(record["text"])]
                 posted = [go | {"voided": {pr for pr in go_heads(go) if any(record["seq"] > go["seq"] and about_pr(record, self.repo, pr) for record in withdrawals)}} for go in gos if go["seq"] not in closed]
                 graders = [record for lane in self.fidelity_lanes for record in cci.records(self.cci_tail, drive, "--kind=review", "--kind=withdraw", "--lane", lane) if record["drive"] == drive and record["lane"] == lane] if posted else []
@@ -8942,7 +8951,7 @@ class Landing:
     def post_record(self, kind: str, key: str, to: str, text: str, pr: str, cause: str = "", re_seq: str = "") -> bool:
         self.book.accept(LANDING, key, "bus", json.dumps({"lane": to, "pr": pr, "text": text, "kind": kind} | ({"cause": cause} if cause else {})), key, None)
         self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
-        done = self.runner.cci_post(kind, text, to, pr, key, pr=pr, flags=["--re", re_seq] if re_seq else None)
+        done = self.runner.cci_post(kind, text, to, pr, key, pr=pr, flags=["--re-seq", re_seq] if re_seq else None)
         if done.code == 0:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"posted": done.out.strip()[:200], "at": self.book.stamp()}))
         else:

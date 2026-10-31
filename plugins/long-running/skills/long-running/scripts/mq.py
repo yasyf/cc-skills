@@ -154,7 +154,7 @@ def hold_or_lift(runner_module, runner, landing, args: argparse.Namespace) -> in
         print(f"no open cci hold record holds #{pr}")
         return 0
     others = sorted({other for record in holding for other in cci.held_by(record)} - {pr}, key=int)
-    done = runner.shell.run([*post, "--kind", "lift", "--resolves", ",".join(str(record["seq"]) for record in holding), "--text", f"lift #{pr}"])
+    done = runner.shell.run([*post, "--kind", "lift", "--resolves-seq", ",".join(str(record["seq"]) for record in holding), "--text", f"lift #{pr}"])
     print((done.out or done.err).strip() + (f"; the same records held {', '.join(f'#{other}' for other in others)}, which lift too" if others and not done.code else ""), file=sys.stderr if done.code else sys.stdout)
     return done.code
 
