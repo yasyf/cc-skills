@@ -3072,9 +3072,10 @@ Scale: <the N each path this lane changes runs at: chats, teams, sessions, or ru
   A loop that awaits I/O per item, or a cap, timer, cache, retry, or idle wait standing
   in for a fundamental fix, is a defect the finder grades major; a diff that adds one
   names in the PR body the fix it stands in for and the owner pick that deferred it, or
-  builds the fix. The spawn hook and the orca desk runner refuse a new non-incident
-  lane brief with no `Scale:` line; a `<lane>-handoff` writer, a successor (`<lane>-<n>`
-  or a `Replaces:` line), and a brief written before the rule pass.
+  builds the fix. The spawn hook and the orca desk runner warn on a new non-incident
+  lane brief with no `Scale:` line and never refuse it; a `<lane>-handoff` writer, a
+  successor (`<lane>-<n>` or a `Replaces:` line), and a brief written before the rule pass
+  quietly.
 Standing rules served: <`#<seq>` ids with their answer ids, each with the owner's
   words and confirmed implications (R19b), or "none">. Your task cites
   them; finishing it never retires them, and no report calls them done.

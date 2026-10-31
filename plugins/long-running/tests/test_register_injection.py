@@ -189,8 +189,7 @@ def test_a_brief_that_does_not_read_passes_the_spawn_and_posts_one_blocker(tools
     assert posted[0][1] == {"key": "slice-on-spawn:brief"}
 
 
-def test_a_brief_written_before_the_scale_rule_spawns_its_lane_and_a_new_one_is_refused_naming_the_line(tools: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(injection, "rulings", lambda cwd, *args, **_: "fresh /tmp/brief.md slice-hash 0123456789ab\n")
+def test_a_brief_written_before_the_scale_rule_spawns_quietly_and_a_new_one_is_warned_naming_the_line(tools: Path) -> None:
     session = activated(tools / "session")
     old, new = tools / "old.md", tools / "new.md"
     for brief in (old, new):
@@ -198,22 +197,24 @@ def test_a_brief_written_before_the_scale_rule_spawns_its_lane_and_a_new_one_is_
     rule = injection.lane_brief.SCALE_RULE.timestamp()
     os.utime(old, (rule - 60, rule - 60))
 
-    passed = injection.slice_on_spawn(spawned(session, "Agent", {"prompt": f"Your brief is {old}; read it."}))
-    refused = injection.slice_on_spawn(spawned(session, "Agent", {"prompt": f"Your brief is {new}; read it."}))
+    passed = injection.warn_unscaled_spawn(spawned(session, "Agent", {"prompt": f"Your brief is {old}; read it."}))
+    warned = injection.warn_unscaled_spawn(spawned(session, "Agent", {"prompt": f"Your brief is {new}; read it."}))
 
     assert passed is None
-    assert refused.action.value == "block"
-    assert refused.message == f"brief {new} has no `Scale:` line, so this new lane's spawn is refused. Add one line to it: `Scale: no N`, or the N its paths run at, such as `Scale: chats on one Mac, up to 1,000`"
+    assert warned.action.value == "warn"
+    assert warned.message == (
+        f"Warning, nothing was blocked: brief {new} has no `Scale:` line; add one line to it: `Scale: no N`, or the N its paths run at, "
+        "such as `Scale: chats on one Mac, up to 1,000`"
+    )
 
 
-def test_an_unnamed_successor_spawned_on_its_predecessors_brief_owes_no_scale_line(tools: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(injection, "rulings", lambda cwd, *args, **_: "fresh /tmp/brief.md slice-hash 0123456789ab\n")
+def test_an_unnamed_successor_spawned_on_its_predecessors_brief_owes_no_scale_line(tools: Path) -> None:
     brief = tools / "lane-a.md"
     brief.write_text("Lane lane-a.\nRegister slice: lane=lane-a step=1.9\nslice-hash: 0123456789ab\n")
 
     prompt = f"Replaces: lane-a\nYou are lane-a-2 and take over lane-a's work. Your brief is {brief}."
 
-    assert injection.slice_on_spawn(spawned(activated(tools / "session"), "Agent", {"prompt": prompt})) is None
+    assert injection.warn_unscaled_spawn(spawned(activated(tools / "session"), "Agent", {"prompt": prompt})) is None
 
 
 def test_a_drive_lane_spawn_posts_one_spawned_record_naming_the_lane_its_slice_names_and_its_brief(tools: Path, monkeypatch: pytest.MonkeyPatch) -> None:
