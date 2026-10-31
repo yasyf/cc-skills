@@ -137,6 +137,7 @@ import cci
 import lanes
 import ledger
 import overview
+from long_running import judge
 
 SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
 DRIVE_ENV = ledger.DRIVE_ENV
@@ -157,6 +158,7 @@ DESK_RUNNER = "desk-runner"
 WATCHDOG = "drive-watchdog"
 BEAT_STALE = timedelta(minutes=5)
 QUIET_BEAT = timedelta(minutes=2)
+JUDGE_WINDOW = timedelta(hours=24)
 STACK = "stack.json"
 ADMITTED = "landing-admitted.json"
 VERSION_PART = re.compile(r"\d+")
@@ -594,6 +596,8 @@ def cmd_digest(args: argparse.Namespace, shell: ledger.Shell) -> int:
             sits = f"#{row['below']}" if row["below"] else row["base"]
             owner = row["owner"] if row["live"] else f"{row['owner']}, not live"
             print(f"{'STALE ' if row['stale'] else ''}#{row['pr']} {row['head'][:7]} on {sits}: {row['state']} | owner {owner} | since {row['since']} | next: {row['next']}")
+    for line in judge.digest(judge.calls(Path(entry["state_dir"]), datetime.now(timezone.utc) - JUDGE_WINDOW)):
+        print(line)
     held = busy(beats, datetime.now(timezone.utc))
     print(f"quiet point: no, {'; '.join(held)}" if held else "quiet point: yes, no pass or merge in flight")
     if args.quiet_point:
@@ -765,7 +769,7 @@ def build_parser() -> argparse.ArgumentParser:
     pr_owed.add_argument("--drive")
     pr_owed.set_defaults(handler=cmd_pr_owed)
 
-    digest = subparsers.add_parser("digest", help="each desk runner's running version beside the installed one; exit 1 when one is behind or has no heartbeat")
+    digest = subparsers.add_parser("digest", help="each desk runner's running version beside the installed one, and each judge kind's verdicts over the last day; exit 1 when a runner is behind or has no heartbeat")
     digest.add_argument("--drive")
     digest.add_argument("--quiet-point", action="store_true", help="exit 0 only at a quiet point, where no desk runs a pass or a merge, the one time a tooling lane installs a cci or long-running release")
     digest.set_defaults(handler=cmd_digest)
