@@ -64,6 +64,27 @@ jobs:
         run: |
           cat "$RUNNER_TEMP/long-running-json-consumers.json"
           cat "$RUNNER_TEMP/long-running-sqlite-consumers.json"
+      - uses: actions/checkout@v7
+        with:
+          ref: 35fa995a3f249a26137b9876a42052b7fd86fde7
+          path: .ci-unsafe-reexec-baseline
+          persist-credentials: false
+      - name: Immutable inherited-child termination negative controls
+        run: |
+          baseline=.ci-unsafe-reexec-baseline/plugins/long-running
+          cp plugins/long-running/tests/test_board_watch.py "$baseline/tests/test_board_watch.py"
+          cp plugins/long-running/tests/test_owned_reexec.py "$baseline/tests/test_owned_reexec.py"
+          negative="$RUNNER_TEMP/unsafe-inherited-reexec.log"
+          if uv run --locked --project "$baseline" pytest "$baseline/tests/test_board_watch.py::test_a_reexecuted_watch_ends_the_streams_its_older_image_started" "$baseline/tests/test_owned_reexec.py::test_reexec_does_not_signal_unregistered_inherited_children" -q >"$negative" 2>&1; then
+            cat "$negative"
+            echo "unsafe inherited-child implementation unexpectedly passed"
+            exit 1
+          fi
+          cat "$negative"
+          grep -F 'inherited protected child was terminated or changed' "$negative"
+          grep -F '2 failed' "$negative"
+      - name: Owned watch cleanup and protected-child survival
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_owned_reexec.py plugins/long-running/tests/test_board_watch.py plugins/long-running/tests/test_drive.py plugins/long-running/tests/test_ledger_shell.py -q -s
       - name: Owned rulings caller regressions
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_board_text_gate.py plugins/long-running/tests/test_owner_facing.py plugins/long-running/tests/test_register_capture.py plugins/long-running/tests/test_register_gates.py plugins/long-running/tests/test_ruling_judge.py plugins/long-running/tests/test_rulings_consumers.py plugins/long-running/tests/test_rulings_owned_hooks.py plugins/long-running/tests/test_compaction_handoff.py -q -s
       - name: Request-owned judge regressions

@@ -131,6 +131,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -260,14 +261,15 @@ def behind(running: str, installed: str) -> bool:
     return bool(installed) and (not running or version_key(running) < version_key(installed))
 
 
-def run_installed(script: str) -> None:
-    """Re-execute `script` from the installed plugin version, as the `bin/` shim does, when it is a copy of an older version, the installed copy's own manifest is newer, no process of its own version started it, and `LONG_RUNNING_PIN` does not pin its version, so a path that names an old version still runs current code and never writes a line the current runner cannot read; a process that passes marks its children with its version, so a runner started before an update keeps its own scripts until it re-executes, and a runner on its pinned version keeps them for its life. Every GitHub read the script makes through ccx is charged to the script's name, every command it starts ends with it (`end_commands_with_script`), and an image that replaced an earlier one in place ends and reaps what that one left (`adopt_children`)."""
+def run_installed(script: str, *, before_exec: Callable[[], None] = lambda: None) -> None:
+    """Re-execute `script` from the installed plugin version, as the `bin/` shim does, when it is a copy of an older version, the installed copy's own manifest is newer, no process of its own version started it, and `LONG_RUNNING_PIN` does not pin its version, so a path that names an old version still runs current code and never writes a line the current runner cannot read; a process that passes marks its children with its version, so a runner started before an update keeps its own scripts until it re-executes, and a runner on its pinned version keeps them for its life. Every GitHub read the script makes through ccx is charged to the script's name, every command it starts ends with it (`end_commands_with_script`), and an image that replaced an earlier one passively reaps inherited exits (`adopt_children`). Callers close explicitly owned resources through `before_exec` only when an update will actually replace the image."""
     os.environ["CCX_CALLER"] = Path(script).stem
     running = plugin_manifest()["version"]
     if running not in (os.environ.get(CALLER_VERSION_ENV), os.environ.get(PIN_ENV)) and (install := newest_install()) and behind(running, install["version"]):
         manifest = Path(install["installPath"]) / ".claude-plugin" / "plugin.json"
         if manifest.is_file() and behind(running, load(manifest)["version"]):
             fresh = manifest.parents[1] / Path(__file__).resolve().parents[1].relative_to(PLUGIN) / Path(script).resolve().name
+            before_exec()
             reexec([sys.executable, str(fresh), *sys.argv[1:]])
     os.environ[CALLER_VERSION_ENV] = running
     end_commands_with_script()
@@ -275,17 +277,16 @@ def run_installed(script: str) -> None:
 
 
 def reexec(argv: list[str]) -> None:
-    """Replace this process with `argv` under the same pid, marked so the new image's `run_installed` takes over the children this one leaves."""
+    """Replace this process with `argv` under the same pid, marking inherited children for passive reaping by the new image."""
     os.environ[REEXEC_ENV] = str(os.getpid())
     os.execv(argv[0], argv)
 
 
 def adopt_children() -> None:
-    """In an image `reexec` started, SIGKILL every command the earlier image left in this process's group, whose pipes closed with it, and reap each child it left, a detached job once it exits, from a daemon thread: no image knows the children an earlier one started, so a board watch re-executed on each plugin update kept its old `cc-present watch` and `cci watch` running and each turned zombie when it exited (154 under one watch after 27 h on 2026-10-31)."""
+    """Reap inherited children when they exit naturally, without assuming authority to terminate an earlier image's processes."""
     if os.environ.pop(REEXEC_ENV, "") != str(os.getpid()):
         return
     rows = processes()
-    kill(under(os.getpid(), rows))
     for child in (child for child, parent, _ in rows if parent == os.getpid()):
         threading.Thread(target=reap, args=(child,), name=f"reap-{child}", daemon=True).start()
 
