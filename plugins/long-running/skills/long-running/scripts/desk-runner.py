@@ -566,6 +566,8 @@ using the default six-hour window. While `runner.json` holds a `stall` object, r
 restart, the orca runner starts `stall_watch.py --config <config>` detached every `stall.every_minutes` (default 5)
 once its last pass has exited, logging to `stall-watch.log` beside `orca.desk_inbox`; a pass that exits non-zero posts one
 `STALL-WATCH-FAILED` to root per distinct last log line, since a failing pass posts no stall at all.
+It starts `judge_watch.py --config <config>` the same way every `judge.every_minutes` (default 1), logging to
+`judge-watch.log`, and a failing pass posts one `JUDGE-WATCH-FAILED` to root per distinct last log line.
 Each desk's heartbeat is its `<desk> alive <time> pass <n>` cci `state` record to the drive watchdog, posted when `run`
 starts and then once a minute from a thread whatever the pass is doing, whose attrs name its pid, config, terminal, restart
 command, the plugin version the runner runs, and its `flight`: the command in flight, `landing pass` while a landing pass
@@ -632,6 +634,7 @@ import lanes
 import merge_queue
 import owner_waits
 import prompt_screen
+import judge_watch
 import prompt_watch
 import stall_watch
 import testfiles
@@ -668,7 +671,7 @@ CCI_SEQ = re.compile(r"^#(\d+)\b", re.MULTILINE)
 RULING_ROUNDS = "cards/rounds"
 RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
-RUNNER_LANES = frozenset({RUNNER, ORCA_DESK, finder.LANE, fidelity.LANE, stall_watch.LANE, prompt_watch.LANE})
+RUNNER_LANES = frozenset({RUNNER, ORCA_DESK, finder.LANE, fidelity.LANE, stall_watch.LANE, prompt_watch.LANE, judge_watch.LANE})
 FINDER = "desk-finder"
 FINDER_CURSOR = "cursor"
 FINDER_CONCURRENT = 8
@@ -889,6 +892,7 @@ QUOTA_URGENT = 1500
 TOP_CALLERS = 5
 ROTATE_EVERY = timedelta(hours=1)
 STALL_WATCH = SCRIPTS / "stall_watch.py"
+JUDGE_WATCH = SCRIPTS / "judge_watch.py"
 STALL_EVERY_MINUTES = 5
 WATCHDOG = drive.WATCHDOG
 ALIVE_EVERY = timedelta(minutes=1)
@@ -1814,6 +1818,8 @@ class Runner:
         self.alive_posted: dict[str, datetime] = {}
         self.refused: list[datetime] = []
         self.stall_pass: subprocess.Popen | None = None
+        self.judge_pass: subprocess.Popen | None = None
+        self.judge_started = datetime.min.replace(tzinfo=timezone.utc)
         self.stall_started = datetime.min.replace(tzinfo=timezone.utc)
         self.finding = threading.Lock()
         self.taps: tuple[datetime, set[str]] = (datetime.min.replace(tzinfo=timezone.utc), set())
@@ -1989,6 +1995,17 @@ class Runner:
             self.escalate(f"stall-watch-failed:{error[:200]}", "STALL-WATCH-FAILED", "stall_watch.py", f"the last stall watch pass exited {code}, so no stall alarm posts until it passes again: {error}; log {log}", "stall-watch-failed", ROOT)
         self.stall_started = self.now()
         self.stall_pass = self.shell.spawn([sys.executable, str(STALL_WATCH), "--config", str(self.config.source)], log, {})
+
+    def judge_watch(self) -> None:
+        judged = json.loads(self.config.source.read_text()).get("judge") or {}
+        if (self.judge_pass and self.judge_pass.poll() is None) or self.now() - self.judge_started < timedelta(minutes=judged.get("every_minutes", judge_watch.EVERY_MINUTES)):
+            return
+        log = self.config.desk_inbox.with_name("judge-watch.log")
+        if self.judge_pass and (code := self.judge_pass.poll()):
+            error = next((line.strip() for line in reversed(log.read_text(errors="replace").splitlines()) if line.strip()), f"exit {code}")
+            self.escalate(f"judge-watch-failed:{error[:200]}", "JUDGE-WATCH-FAILED", "judge_watch.py", f"the last judge watch pass exited {code}, so posted contracts and relays go unjudged until it passes again: {error}; log {log}", "judge-watch-failed", ROOT)
+        self.judge_started = self.now()
+        self.judge_pass = self.shell.spawn([sys.executable, str(JUDGE_WATCH), "--config", str(self.config.source)], log, {})
 
     def keep_alive(self, desk: str) -> threading.Event:
         """Post the alive record now, then every minute from a daemon thread, whatever the pass is doing, until the returned event is set, so a long first pass never leaves a predecessor's pid as the desk's newest record."""
@@ -8836,6 +8853,7 @@ def run_orca(runner: Runner, once: bool) -> int:
         runner.aged_holds()
         runner.stalled_launches()
         runner.stall_watch()
+        runner.judge_watch()
         behind = runner.stale()
         runner.flush()
         runner.beat("orca")

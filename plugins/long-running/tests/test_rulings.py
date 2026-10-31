@@ -1776,38 +1776,6 @@ def test_readback_accepts_a_line_per_slice_row_and_a_verdict_per_hit(home: Path,
     assert ran(capsys, read_back(*header, *rows, *marked, lane="lane-b"), "readback", "--lane", "lane-b", "--contract", "500")[1].startswith("READBACK-NOT-LANES #500: ")
 
 
-def test_readback_warns_where_a_line_scopes_an_owner_row_narrower_than_his_words(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
-    _, sliced = ran(capsys, RegisterShell(seeded(package)), "slice", "--lane", "lane-a", "--step", "1.9")
-    marked = [f"{hit} - keep: the line states the ban" for hit in sliced.splitlines() if hit.startswith(("open ", "authorized "))]
-    rows = ["rule/aaaaaaa: builds nothing in relay-server", "rule/eeeeeee: leaves the outage gate alone", "exception/E1: leaves the pass alone"]
-    body = tmp_path / "readback.md"
-    records = [{"seq": 500, "kind": "contract", "lane": "lane-a", "text": "read-back", "refs": {"path": str(body)}, "at": AT}]
-
-    def warned(line: str) -> list[str]:
-        body.write_text("\n".join(["Register slice: lane=lane-a step=1.9", *rows, line, *marked]) + "\n")
-        code, out = ran(capsys, RegisterShell(seeded(package), records=records), "readback", "--lane", "lane-a", "--contract", "500")
-        assert code == 0
-        return [warning for warning in out.splitlines() if "NARROWED" in warning]
-
-    assert warned("rule/ccccccc: one card per destination and key quotes the words, only on the board") == [
-        'WARNING READBACK-NARROWED rule/ccccccc: says "per destination", "only"; the owner\'s words say none of them'
-    ]
-    assert warned('rule/ccccccc: every card quotes the words, per root #12, as he said: "Cards quote the words they ask about."') == []
-
-
-def test_narrowed_reads_rows_cited_by_key_answer_or_quote_and_exits_one_on_a_narrower_scope(home: Path, package: Path, state: Path, registered: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
-    def narrowed(text: str) -> tuple[int, str]:
-        monkeypatch.setattr("sys.stdin", io.StringIO(text))
-        return ran(capsys, RegisterShell(seeded(package)), "narrowed")
-
-    assert narrowed("Under bbbbbbb the pool drains per run only when it closes.") == (1, 'NARROWED rule/bbbbbbb: says "per run", "only"; the owner\'s words say none of them\n')
-    assert narrowed('He said "Drain the pool when a run closes."\nSo each pool drains, except the shared one.') == (1, 'NARROWED rule/bbbbbbb: says "except"; the owner\'s words say none of them\n')
-    assert narrowed("rule/bbbbbbb: the pool drains when a run closes.") == (0, "")
-    assert narrowed("Pools drain per run, except the shared one.") == (0, "")
-    assert narrowed("Under bbbbbbb a chat's kind is worked out per run and never stored; a separate note says only what the sweep marked.") == (1, 'NARROWED rule/bbbbbbb: says "per run", "only"; the owner\'s words say none of them\n')
-    assert narrowed("rule/bbbbbbb: the pool drains when a run closes.\nrule/ccccccc: cards quote the words they ask about.\nEvery sweep hit is marked, one per line, only in sweep-marked.tsv.") == (0, "")
-
-
 def test_shapes_lists_rows_naming_a_count_or_topology_until_shape_records_a_test_or_no_shape(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
     rows = seeded(package) | {
         "rule/1111111": {"kind": "order", "status": "in-force", "words": "there is only one local replca along side one local primary and eveyhtni is a client of it", "answer": '["1111111"]'},

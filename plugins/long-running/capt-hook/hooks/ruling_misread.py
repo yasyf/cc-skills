@@ -23,7 +23,6 @@ from captain_hook import (
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState, rulings, script, script_module
-from .owner_facing import CCI_POST, posted_text
 from .pr_ledger import OPENERS
 from .register_gates import fenced
 from .register_injection import drive_args
@@ -35,11 +34,9 @@ MATCH_CHARS = 2000
 MATCH_BYTES = 6000
 ROW_KEY = re.compile(r"\b(?:rule|prompt|exception|design|reserved)/[\w-]+")
 ANSWER_ID = re.compile(r"^- ([0-9a-f]{7}) ", re.MULTILINE)
-CARD = re.compile(r"\bcards?\b|\bthe owner's board\b|\bon (?:the|his) board\b", re.IGNORECASE)
-RELAY_KINDS = frozenset({"decide", "decision"})
 WARNING = (
-    "Warning, nothing was blocked: A judge reads what this call posted as misreading the owner's words on {keys}."
-    " Fix it, or answer on its record with the owner words that carry it."
+    "Warning, nothing was blocked: A judge reads the tests this ship adds as misreading the owner's words on {keys}."
+    " Fix them, or say in the PR body which owner words they carry."
 )
 FINDING = '{kind}, {key}: {sentence}\nArtifact: "{artifact_phrase}"\nHis words: "{evidence_phrase}"'
 FLAGGED = {
@@ -72,11 +69,11 @@ def posted(command: str, verdict: dict = FLAGGED, commands: dict[str, str] | Non
     )
 
 
-def candidate_rows(evt: BaseHookEvent, drive: list[str], text: str, semantic: bool) -> tuple[Path, dict[str, dict]]:
+def candidate_rows(evt: BaseHookEvent, drive: list[str], text: str) -> tuple[Path, dict[str, dict]]:
     registered = json.loads(rulings(str(evt.cwd), "rows", *drive))
     state, rows = Path(registered["state_dir"]), registered["rows"]
     keys = [key for key in dict.fromkeys(ROW_KEY.findall(text)) if key in rows]
-    if not keys and semantic:
+    if not keys:
         try:
             matched = rulings(
                 str(evt.cwd),
@@ -98,22 +95,6 @@ def candidate_rows(evt: BaseHookEvent, drive: list[str], text: str, semantic: bo
             else []
         )
     return state, {key: rows[key] for key in keys[:ROWS_PER_ARTIFACT] if rows[key].get("words")}
-
-
-def posted_artifacts(evt: BaseHookEvent) -> list[tuple[str, str]]:
-    found = []
-    for call in evt.command.calls("cci"):
-        values = CCI_POST.bind(call).values
-        if values.get("words", ())[:1] != ("post",):
-            continue
-        kinds, text = set(values.get("kind", ())), posted_text(values)
-        if "contract" in kinds:
-            found.append(("contract", text))
-        elif kinds & RELAY_KINDS and "root" in values.get("lane", ()):
-            found.append(("relay", text))
-        elif "ask" in kinds and CARD.search(text):
-            found.append(("card", text))
-    return found
 
 
 def shipped_tests(evt: BaseHookEvent) -> list[tuple[str, str]]:
@@ -154,27 +135,22 @@ def shipped_tests(evt: BaseHookEvent) -> list[tuple[str, str]]:
 
 @on(
     Event.PostToolUse,
-    only_if=[Tool("Bash"), Or(Runs("cci", "post"), *(Runs(*argv) for argv in OPENERS))],
+    only_if=[Tool("Bash"), Or(*(Runs(*argv) for argv in OPENERS))],
     skip_if=[Annotated("raw")],
     tests={
-        posted("cci post --lane lane-a --kind contract --text 'One refusal command per destination and key. rule/8b1048a'"): Warn(
-            pattern=r"^Warning, nothing was blocked: A judge reads what this call posted as misreading the owner's words on `rule/8b1048a`\.[\s\S]*contract, rule/8b1048a: You said"
-        ),
-        posted(
-            "cci post --lane lane-a --kind contract --text 'One refusal command per destination and key. rule/8b1048a'",
-            CARRIED,
-        ): Allow(),
-        posted("cci post --lane root --kind decide --text 'Owner picked one command per key. rule/8b1048a'"): Warn(pattern=r"relay, rule/8b1048a: You said"),
-        posted("cci post --lane lane-a --kind decide --text 'One command per key. rule/8b1048a'"): Allow(),
-        posted("cci post --lane root --kind decide --text 'Owner picked one command per key.'", commands={MATCH: MATCHED}): Allow(),
-        posted("cci post --lane lane-a --kind ask --text 'board-refresher: post card per-key-commands. rule/8b1048a'"): Warn(
-            pattern=r"card, rule/8b1048a: You said"
-        ),
-        posted("cci post --lane lane-a --kind state --text 'building per key. rule/8b1048a'"): Allow(),
-        posted("cci post --lane lane-a --kind contract --text 'per key. rule/8b1048a'  # ccx:raw"): Allow(),
         Input(
-            command="cci post --lane lane-a --kind contract --text 'per key. rule/8b1048a'",
-            commands={CLAUDE: answer(FLAGGED)},
+            command="ccx vcs ship -m 'ci: ✨ x'",
+            commands={CLAUDE: answer(FLAGGED), "git merge-base HEAD origin/HEAD": "abc123\n", "git diff --name-only abc123": "src/refusal_test.go\n", f"{DIFF} abc123": TESTS_DIFF},
+        ): Allow(),
+        posted(
+            "ccx vcs ship -m 'ci: ✨ x'",
+            CARRIED,
+            commands={
+                MATCH: MATCHED,
+                "git merge-base HEAD origin/HEAD": "abc123\n",
+                "git diff --name-only abc123": "src/refusal_test.go\n",
+                f"{DIFF} abc123": TESTS_DIFF,
+            },
         ): Allow(),
         posted(
             "ccx vcs ship -m 'ci: ✨ x'",
@@ -195,12 +171,12 @@ def shipped_tests(evt: BaseHookEvent) -> list[tuple[str, str]]:
     },
 )
 def misread_rulings(evt: BaseHookEvent) -> HookResult | None:
-    if not (drive := drive_args(evt)) or not (artifacts := [*posted_artifacts(evt), *shipped_tests(evt)]):
+    if not (drive := drive_args(evt)) or not (artifacts := shipped_tests(evt)):
         return None
     judge, env = script_module("long_running/judge"), reqenv.env_map()
     findings = []
     for kind, text in artifacts:
-        state, rows = candidate_rows(evt, drive, text, semantic=kind != "relay")
+        state, rows = candidate_rows(evt, drive, text)
         for key, row in rows.items():
             verdict = judge.judge(
                 kind,

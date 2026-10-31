@@ -71,7 +71,10 @@ Answer "yes" when the artifact misreads him, and say in your sentence whether it
 
 KINDS: dict[str, tuple[str, str]] = {
     "contract": ("a lane's contract: what it promises to build from his words", MISREAD),
-    "relay": ("the root's relay of his words or pick to the lanes that build it", MISREAD),
+    "relay": (
+        "the root's relay of his words or pick to the lanes that build it",
+        f"{MISREAD}\nA relay also misreads him when it adds a mechanism, state, field, timer or route that neither his words nor the plan lines shown name, unless it cites a ruling that names it.",
+    ),
     "card": ("a card, or a lane's request for one, that asks the owner to decide", MISREAD),
     "test": (
         "the tests a pull request adds or changes to lock in his ruling",
@@ -185,11 +188,12 @@ def judge(
     drive: str | None = None,
     timeout: float = JUDGE_SECONDS,
     env: Mapping[str, str] | None = None,
+    subject: str = "",
 ) -> Verdict | None:
-    """Ask `kind`'s question of `artifact` under `evidence`; `None` when the model call failed, so the caller fails open."""
+    """Ask `kind`'s question of `artifact` under `evidence`; `None` when the model call failed, so the caller fails open. `subject` names the artifact in the calls log, so a later judgment of it can find this one."""
     call = ask(kind, evidence, artifact, backend=backend, timeout=timeout, env=env)
     if drive:
-        record(drive, kind, backend, call)
+        record(drive, kind, backend, call, subject)
     return call.verdict
 
 
@@ -297,12 +301,13 @@ def state_dir(drive: str) -> Path:
     return Path.home() / ".claude" / "scratch" / drive
 
 
-def record(drive: str, kind: str, backend: Backend, call: Call) -> None:
+def record(drive: str, kind: str, backend: Backend, call: Call, subject: str = "") -> None:
     path = state_dir(drive) / CALLS
     path.parent.mkdir(parents=True, exist_ok=True)
     row = {
         "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "kind": kind,
+        "subject": subject,
         "backend": backend,
         "verdict": call.verdict.verdict if call.verdict else "error",
         **call.summary(),

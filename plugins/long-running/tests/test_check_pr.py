@@ -578,25 +578,6 @@ def test_accepted_names_a_lane_only_once_a_desk_graded_its_current_slice_ok(pack
     assert ran(capsys, CheckShell(rows, reviews=[]), "accepted", "--lane", "lane-a") == (1, "CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n")
 
 
-def test_accepted_refuses_an_ok_that_leaves_a_contract_narrower_than_the_owners_words_unanswered(package: Path, state: Path, registered: Path, capsys) -> None:
-    rows = pinned(package)
-    stamp = current_stamp(rows, None)
-    narrower = "rule/bbbbbbb: the pool drains per destination and key\n"
-
-    def accepted(grade: str) -> tuple[int, str]:
-        shell = CheckShell(rows, reviews=[dict(graded(stamp), text=grade)])
-        body = Path(read_back(stamp)["refs"]["path"])
-        body.write_text(body.read_text() + narrower)
-        return ran(capsys, shell, "accepted", "--lane", "lane-a")
-
-    assert accepted(f"readback: ok lane-a {stamp}") == (
-        1,
-        f"CONTRACT-MISSING lane-a: the newest grade, #9, accepts contract #{CONTRACT_SEQ} without answering where it is narrower than the owner's words: "
-        "NARROWED rule/bbbbbbb: says \"per destination\"; the owner's words say none of them\n",
-    )
-    assert accepted(f"readback: ok lane-a {stamp}; rule/bbbbbbb drains each pool, as his words say") == (0, "accepted lane-a\n")
-
-
 def test_a_pr_citing_a_shape_ruling_adds_a_test_naming_it_or_the_row_records_one(package: Path, state: Path, registered: Path, capsys) -> None:
     rows = pinned(package)
     rows["rule/bbbbbbb"]["words"] = "One pool process drains every run when it closes."

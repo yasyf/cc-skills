@@ -970,24 +970,24 @@ place the earlier narrowing survived, fixes them all that turn, and tells the ow
 was missed and why.
 The root never settles a plan gap by DECIDE. A new column, table, route, field, state,
 timer, or metric that neither the plan nor an owner row names goes on the owner's board
-as a card, and the lane that met the gap stops on it. A root `cci post --kind decide`
-that adds a mechanism the plan file does not name, with no owner row id or plan line
-cited in the same sentence, draws a warning from `root_decide_gate`. The root also reads what
+as a card, and the lane that met the gap stops on it. The root also reads what
 each lane reports it did against the plan before relaying it; "a worker did X" is the
 root's to check, not to pass on.
-A contract, read-back, or DECIDE is never narrower than the owner row it cites. A
-partition (`per key`, `per destination`, `per chat`) or an exception (`only`,
-`except`, `unless`) his words lack is graded missing against his words:
-`rulings.py readback` prints it as `READBACK-NARROWED`, `rulings.py accepted` refuses
-an ok grade that leaves a narrowed key unnamed, and the `narrowed_contracts` hook warns
-the grade or root post that accepts such a contract.
-Those word checks catch only the shapes they name. The `ruling_misread` hook asks the
-drive's judge whether each posted contract, root relay, card request, and the tests a
-pull request ships misread the owner's verbatim words on the rows they cite or match,
-either narrower than he said or applied literally past his purpose. A yes comes back to
-the writer as a warning with his words, the phrase that misreads, and one plain
-sentence; it never blocks. The writer fixes the artifact or answers on its record with
-the ruling that carries it.
+A contract, read-back, or DECIDE is never narrower than the owner row it cites, and
+never applies his words past their purpose. `judge_watch.py`, a pass the orca runner
+starts every minute, asks the drive's judge after the post, so no writer waits, whether
+each lane's contract and each root relay misreads his verbatim words on the rows it
+cites, or for a contract the two `rulings.py match` finds; a relay is also asked whether
+it adds a mechanism neither his words nor the plan lines it shares words with name. A yes
+posts one `review` record, `JUDGE <kind> #<seq> <key>: <sentence>`, in reply to the
+artifact, to its writer and root. The writer fixes the artifact or answers on the flag
+with the owner words that carry it; an answer puts one owner card on the board,
+`judge-dispute-<flag>`, with his words and both readings, and his pick becomes an eval
+case under `judge/owner/`. When `rulings.py classify` extends a row with new words, the
+pass judges the ten newest contracts and relays of the last day citing that row again
+under all his words; a yes there that the judge had read as carried before is a miss,
+said so in the flag and written under `judge/misses/` as an eval case. The
+`ruling_misread` hook judges the tests a pull request ships the same way at ship.
 Every small-model question in the pack goes through one library,
 `scripts/long_running/judge.py`. A judge reads the owner's words verbatim and what they
 answered, never the register's summaries. A yes is asked a second time, and a split is
