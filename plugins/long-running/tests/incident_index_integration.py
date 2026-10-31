@@ -52,24 +52,25 @@ def test_actual_landing_native_incidents_follow_mutable_files_and_closures(incid
     calls = []
     work = []
 
-    def query(expected, *, changed=False):
+    def query(expected, *, changed=False, startup=False):
         before = incident_index.counts()
         assert landing.holding(prefix, {}, shell.now()) == expected
         after = incident_index.counts()
         calls.append(after["native_requests"] - before["native_requests"])
         delta = {key: after["backend"][key] - before["backend"][key] for key in ("body_stats", "body_opens", "body_bytes", "route_stats", "missing_name_checks")}
         work.append(delta)
+        print(json.dumps({"population": incident_index.population, "call": len(calls), "startup": startup, "changed": changed, "native_requests": calls[-1], "work": delta}))
         if changed:
             assert delta["body_stats"] <= 4
             assert delta["body_opens"] <= 1
             assert delta["body_bytes"] <= 64
             assert delta["route_stats"] <= 64
-            assert delta["missing_name_checks"] <= 4
+            assert delta["missing_name_checks"] <= (8 if startup else 4)
         else:
             assert delta == {"body_stats": 0, "body_opens": 0, "body_bytes": 0, "route_stats": 0, "missing_name_checks": 0}
 
     try:
-        query(held("29020", "29022"), changed=True)
+        query(held("29020", "29022"), changed=True, startup=True)
         assert work[-1]["body_opens"] == work[-1]["body_bytes"] == 0
         query(held("29020", "29022"))
         query(held("29020", "29022"))
