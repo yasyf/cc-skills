@@ -7,7 +7,8 @@ supersedes an earlier one. An escalation is unique per subject and cause. Worker
 the store from their first heartbeat and go stale after fifteen silent minutes. One lease
 row per drive carries the generation a supervisor runs under; a stale generation is told
 so on its next renewal. The lanes table is the registry of lanes the drive needs alive, with each
-lane's brief, model, newest handoff and owned PRs; only the lanes mover writes it.
+lane's brief, model, newest handoff and owned PRs; only the lanes mover writes it. The store's
+one migration is additive: a column the schema declares that an older file lacks is added on open.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 STALE_AFTER = timedelta(minutes=15)
+ADDED_COLUMNS = (("lanes", "waiting", "INTEGER"), ("lanes", "answered", "TEXT"))
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS prs (
@@ -137,6 +139,9 @@ class Store:
         self.db = db
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
+        for table, column, kind in ADDED_COLUMNS:
+            if column not in {row["name"] for row in self.db.execute(f"PRAGMA table_info({table})")}:
+                self.db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
 
     @classmethod
     def open(cls, path: Path) -> Store:
