@@ -123,3 +123,110 @@ def test_a_job_fetches_only_when_no_fetch_began_after_it_asked_and_repacks_what_
     ran = ["fetch" if " fetch " in line else "repack" for line in log.read_text().splitlines() if " fetch " in line or " repack " in line]
     assert ran == ([] if served else ["fetch", "repack"])
     assert json.loads((directory / "result.json").read_text()) == {"verdict": "ok"}
+
+
+def test_a_sprite_whose_plugin_copy_is_missing_files_gets_the_whole_copy_again(tmp_path: Path) -> None:
+    """Root #234076, tooling-misc-3 #234214: long-running 0.7.701 installed truncated on this machine from 8:04 to 8:14 PM Oct 30, and a Sprite copied the plugin only when it lacked the version's directory, so a Sprite that copied the truncated install kept it after the reinstall."""
+    mac, sprite = tmp_path / "mac", tmp_path / "sprite"
+    checkout, directory, config = mac / "checkout", mac / "finder-desk" / "46075-decdc3400000", mac / "config"
+    script = mac / "plugin" / "skills" / "long-running" / "scripts" / "finder.py"
+    executable(script, RESTARTED_JOB)
+    executable(script.parent / "rulings.py", "")
+    (script.parent / "__pycache__").mkdir()
+    (script.parent / "__pycache__" / "finder.cpython-313.pyc").write_text("")
+    (mac / "plugin" / ".in_use").mkdir()
+    (mac / "plugin" / ".in_use" / "4242").write_text("")
+    executable(Path(f"{sprite}{script.parent}") / "rulings.py", "")
+    executable(mac / "bin" / "sprite", SPRITE)
+    executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    directory.mkdir(parents=True)
+    (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
+    (config / "long-running" / "drives").mkdir(parents=True)
+    (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
+    subprocess.run(["git", "init", "-q", f"{sprite}{checkout}"], check=True)
+
+    env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config)}
+    subprocess.run(["sh", str(SCRIPT), "vet4", str(script), str(directory)], env=env, check=True, capture_output=True, timeout=60)
+
+    assert Path(f"{sprite}{script}").read_text() == RESTARTED_JOB
+    assert not Path(f"{sprite}{script.parent}/__pycache__").exists()
+    assert json.loads((directory / "result.json").read_text()) == {"verdict": "ok"}
+    shipped = Path(f"{sprite}{mac}/plugin.digest").read_text()
+    (mac / "plugin" / ".in_use" / "4343").write_text("")
+    subprocess.run(["sh", str(SCRIPT), "vet4", str(script), str(directory)], env=env, check=True, capture_output=True, timeout=60)
+    assert Path(f"{sprite}{mac}/plugin.digest").read_text() == shipped and not Path(f"{sprite}{mac}/plugin/.in_use").exists()
+
+
+def test_a_job_that_dies_with_its_sprite_leaves_an_error_result_so_the_runner_fails_it_at_once(tmp_path: Path) -> None:
+    """remote-desks-5, 9:41 PM Oct 30: dar-fleet-4 restarted at about 9:20 PM mid-pass, sprite-job.sh exited with no result, and the runner counted fidelity #46330 801543b as running for 24 minutes, since a fidelity pass fails only on an error result or its 60-minute deadline."""
+    mac, sprite = tmp_path / "mac", tmp_path / "sprite"
+    checkout, directory, config = mac / "checkout", mac / "fidelity-pipeline" / "46330-801543be814f-236200", mac / "config"
+    script = mac / "plugin" / "skills" / "long-running" / "scripts" / "fidelity.py"
+    executable(script, "import shutil, sys\nshutil.rmtree(sys.argv[1])\nsys.exit(137)\n")
+    executable(script.parent / "rulings.py", "")
+    executable(mac / "bin" / "sprite", SPRITE)
+    executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", "#!/bin/sh\n")
+    directory.mkdir(parents=True)
+    (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
+    (config / "long-running" / "drives").mkdir(parents=True)
+    (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
+    subprocess.run(["git", "init", "-q", f"{sprite}{checkout}"], check=True)
+
+    env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config)}
+    done = subprocess.run(["sh", str(SCRIPT), "dar-fleet-4", str(script), str(directory)], env=env, capture_output=True, timeout=60)
+
+    assert done.returncode == 137
+    assert json.loads((directory / "result.json").read_text()) == {"error": "the job on Sprite dar-fleet-4 ended with status 137 and no result, as when the Sprite restarts mid-pass"}
+
+
+HELPER_JOB = """import json, pathlib, subprocess, sys
+job = pathlib.Path(sys.argv[1])
+helpers = subprocess.run(["git", "config", "--get-all", "credential.helper"], capture_output=True, text=True).stdout.splitlines()
+(job / "result.json").write_text(json.dumps({"helpers": helpers}))
+"""
+
+
+def test_every_git_command_a_job_runs_authenticates_through_gh(tmp_path: Path) -> None:
+    """desk-runner GRADER-TOOLING #238341: a finder's `git rev-list --cherry-pick` lazily fetched a missing object from the partial clone with no credential helper and died on "could not read Username"; the job's own git commands now carry the helper the fetch uses."""
+    mac, sprite = tmp_path / "mac", tmp_path / "sprite"
+    checkout, directory, config = mac / "checkout", mac / "finder-desk" / "45681-9c366845e1d4", mac / "config"
+    script = mac / "plugin" / "skills" / "long-running" / "scripts" / "finder.py"
+    executable(script, HELPER_JOB)
+    executable(script.parent / "rulings.py", "")
+    executable(mac / "bin" / "sprite", SPRITE)
+    executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", "#!/bin/sh\n")
+    directory.mkdir(parents=True)
+    (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
+    (config / "long-running" / "drives").mkdir(parents=True)
+    (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
+    subprocess.run(["git", "init", "-q", f"{sprite}{checkout}"], check=True)
+
+    env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config), "GIT_CONFIG_GLOBAL": str(tmp_path / "gitconfig"), "GIT_CONFIG_NOSYSTEM": "1"}
+    subprocess.run(["sh", str(SCRIPT), "vet4", str(script), str(directory)], env=env, check=True, capture_output=True, timeout=60)
+
+    assert json.loads((directory / "result.json").read_text())["helpers"] == ["", "!gh auth git-credential"]
+
+
+def test_a_key_command_that_prints_nothing_stops_the_job_before_the_sprite(tmp_path: Path) -> None:
+    """desk-runner GRADER-TOOLING #240605: the GH_TOKEN command printed nothing, the job ran with an empty token, and the finder died later on "no oauth token found"; the job now stops at launch with an error result naming the key."""
+    mac, sprite = tmp_path / "mac", tmp_path / "sprite"
+    checkout, directory, config = mac / "checkout", mac / "finder-desk" / "45784-0ee9abb91343", mac / "config"
+    script = mac / "plugin" / "skills" / "long-running" / "scripts" / "finder.py"
+    executable(script, HELPER_JOB)
+    executable(script.parent / "rulings.py", "")
+    executable(mac / "bin" / "sprite", SPRITE)
+    executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    directory.mkdir(parents=True)
+    (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
+    (config / "long-running" / "drives").mkdir(parents=True)
+    (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
+    subprocess.run(["git", "init", "-q", f"{sprite}{checkout}"], check=True)
+
+    env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config), "SPRITE_JOB_KEYS": json.dumps({"GH_TOKEN": ["true"]})}
+    done = subprocess.run(["sh", str(SCRIPT), "vet4", str(script), str(directory)], env=env, capture_output=True, text=True, timeout=60, check=False)
+
+    assert done.returncode == 1
+    assert json.loads((directory / "result.json").read_text()) == {"error": "the GH_TOKEN command printed nothing, so the job would run without GH_TOKEN"}
+    assert not Path(f"{sprite}{directory}/result.json").exists()

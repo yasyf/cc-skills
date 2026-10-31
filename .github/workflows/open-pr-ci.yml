@@ -3,6 +3,7 @@ name: open-pr CI
 on:
   push:
     branches: [main]
+    tags: ["open-pr--v*"]
     paths:
       - "plugins/open-pr/**"
       - ".github/workflows/open-pr-ci.yml"

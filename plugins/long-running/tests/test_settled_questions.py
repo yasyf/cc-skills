@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -77,21 +78,50 @@ def ask(home: Path, *questions: str) -> PreToolUseEvent:
     return event(home, "AskUserQuestion", {"questions": [{"question": question} for question in questions]})
 
 
-def test_an_unsettled_question_passes_silently(home: Path) -> None:
+class Judge:
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+        self.verdict = "yes"
+        self.failing = False
+
+    def run(self, real):
+        def run(args, **kwargs):
+            if list(args[:2]) != ["claude", "-p"]:
+                return real(args, **kwargs)
+            self.prompts.append(kwargs["input"])
+            if self.failing:
+                raise subprocess.CalledProcessError(1, args, stderr="claude: overloaded")
+            answer = {"verdict": self.verdict, "artifact_phrase": "asked again", "evidence_phrase": "his answer", "sentence": "He already answered this."}
+            return subprocess.CompletedProcess(args, 0, stdout=json.dumps({"structured_output": answer, "total_cost_usd": 0.01, "usage": {}}), stderr="")
+
+        return run
+
+
+@pytest.fixture
+def judge(monkeypatch: pytest.MonkeyPatch) -> Judge:
+    judged = Judge()
+    monkeypatch.setattr(subprocess, "run", judged.run(subprocess.run))
+    return judged
+
+
+def test_an_unsettled_question_is_never_judged(home: Path, judge: Judge) -> None:
     assert settled.check_settled_before_asking(ask(home, UNSETTLED)) is None
+    assert judge.prompts == []
 
 
-def test_a_re_asked_durable_answer_warns_with_its_id_and_no_plan_dump(home: Path) -> None:
+def test_a_re_asked_durable_answer_reaches_the_judge_with_his_pick_and_warns_once(home: Path, judge: Judge) -> None:
     warned = settled.check_settled_before_asking(ask(home, UNSETTLED, RELEASE))
 
     assert warned.message.startswith(settled.GATE_MESSAGE)
-    assert f"{RELEASE}\n  answer 4ffc9a5: {RELEASE}" in warned.message
-    assert UNSETTLED not in warned.message and "Decision 1:" not in warned.message
+    assert f"{RELEASE}\n  He already answered this." in warned.message
+    [prompt, _] = judge.prompts
+    assert f'He picked "Continuously as it merges" on Oct 20, asked "{RELEASE}"' in prompt
+    assert UNSETTLED not in prompt and "Decision 1:" not in prompt
     assert settled.check_settled_before_asking(ask(home, RELEASE)) is None
-    assert settled.check_settled_before_asking(ask(home, UNSETTLED)) is None
+    assert len(judge.prompts) == 2
 
 
-def test_a_board_question_settled_by_a_feedback_memory_warns(home: Path) -> None:
+def test_a_board_question_reaches_the_judge_with_the_feedback_memory_it_touches(home: Path, judge: Judge) -> None:
     memory = home / ".claude" / "projects" / "-repo" / "memory"
     memory.mkdir(parents=True)
     (memory / "owner-clicks.md").write_text(
@@ -104,53 +134,39 @@ def test_a_board_question_settled_by_a_feedback_memory_warns(home: Path) -> None
     warned = settled.check_settled_before_asking(event(home, "Bash", {"command": f"cc-present start --session s --doc {board}"}))
 
     assert warned.message.startswith(settled.GATE_MESSAGE)
-    assert "the owner never owes a review or approval click on a program PR" in warned.message
+    assert "- the owner never owes a review or approval click on a program PR" in judge.prompts[0]
 
 
-def test_a_confirm_block_restating_a_settled_answer_is_not_a_re_ask(home: Path) -> None:
+def test_a_confirm_card_restating_a_settled_answer_is_not_asked(home: Path, judge: Judge) -> None:
     confirm = {"id": "confirms:release", "type": "card", "title": RELEASE, "children": [{"id": "confirms:release-ok", "type": "approval", "prompt": RELEASE}]}
     board = home / "confirm-board.json"
     board.write_text(json.dumps({"blocks": [confirm]}))
 
     assert settled.check_settled_before_asking(event(home, "Bash", {"command": f"cc-present push {board}"})) is None
+    assert judge.prompts == []
     board.write_text(json.dumps({"blocks": [confirm | {"id": "release"}]}))
     assert settled.check_settled_before_asking(event(home, "Bash", {"command": f"cc-present push {board}"})).message.startswith(settled.GATE_MESSAGE)
 
 
-def card(home: Path, body: str = "") -> PreToolUseEvent:
-    return event(home, settled.SLACK_CARD, {"card": UPLOAD_CARD | ({"body": body} if body else {})})
-
-
-def test_a_card_on_something_the_owner_picked_before_warns_with_every_pick_he_made_on_it(home: Path) -> None:
+def test_his_earlier_picks_reach_the_judge_with_what_each_answered_and_which_a_later_answer_replaced(home: Path, judge: Judge) -> None:
     """Root #211144: the Oct 29 card on one upload process per Mac or per chat never showed his Oct 22 picks, one of which pointed the other way."""
     untagged = {key: value for key, value in SOMEONE_ELSES.items() if key != "tags"}
-    (home / "answers.json").write_text(json.dumps([UPLOAD_PICK, PER_CHAT_PICK, SOMEONE_ELSES, untagged]))
+    (home / "answers.json").write_text(json.dumps([UPLOAD_PICK, PER_CHAT_PICK, LIGHTER_JOURNAL, SOMEONE_ELSES, untagged]))
+    judge.verdict = "no"
 
-    warned = settled.check_settled_before_asking(card(home))
+    assert settled.check_settled_before_asking(event(home, settled.SLACK_CARD, {"card": UPLOAD_CARD})) is None
 
-    assert warned.message.startswith(settled.PICKS_MESSAGE)
-    assert "You picked \"Keep it as SandSQL's own\" on Oct 22, asked \"SandSQL starts one litestream process per chat being written" in warned.message
-    assert 'You picked "one per chat" on Oct 22, asked "Does SandSQL run one litestream process per chat' in warned.message
-    assert '"One per Mac" on' not in warned.message
-
-
-def test_a_pick_whose_question_was_general_matches_on_what_he_picked(home: Path) -> None:
-    (home / "answers.json").write_text(json.dumps([LIGHTER_JOURNAL]))
-
-    warned = settled.check_settled_before_asking(card(home))
-
-    assert 'You picked "Lighter writer, one litestream upload process per chat being written" on Oct 22' in warned.message
+    [prompt] = judge.prompts
+    assert "He picked \"Keep it as SandSQL's own\" on Oct 22, asked \"SandSQL starts one litestream process per chat being written" in prompt
+    assert 'He picked "one per chat" on Oct 22, asked "Does SandSQL run one litestream process per chat' in prompt
+    assert 'He picked "Lighter writer, one litestream upload process per chat being written" on Oct 22' in prompt
+    assert "a later answer of his replaced it" in prompt
+    assert '"One per Mac" on' not in prompt
 
 
-def test_a_card_that_shows_each_earlier_pick_passes(home: Path) -> None:
-    (home / "answers.json").write_text(json.dumps([UPLOAD_PICK, PER_CHAT_PICK]))
+def test_a_judge_that_fails_adds_nothing_and_asks_again_next_time(home: Path, judge: Judge) -> None:
+    judge.failing = True
 
-    assert settled.check_settled_before_asking(card(home, "You picked \"Keep it as SandSQL's own\" on Oct 22, and \"one per chat\" on Oct 22.")) is None
-
-
-def test_a_card_missing_one_earlier_pick_names_only_that_one(home: Path) -> None:
-    (home / "answers.json").write_text(json.dumps([UPLOAD_PICK, PER_CHAT_PICK]))
-
-    warned = settled.check_settled_before_asking(card(home, 'You picked "one per chat" on Oct 22.'))
-
-    assert "Keep it as SandSQL's own" in warned.message and 'You picked "one per chat"' not in warned.message
+    assert settled.check_settled_before_asking(ask(home, RELEASE)) is None
+    assert settled.check_settled_before_asking(ask(home, RELEASE)) is None
+    assert len(judge.prompts) == 2

@@ -14,7 +14,7 @@ from long_running import ledger
 import pytest
 from long_running import rulings
 from conftest import gateway
-from test_rulings import DIFF, REPO, RegisterShell, home, package, ran, registered, seeded, state
+from test_rulings import DIFF, REPO, Judge, RegisterShell, home, judged, package, ran, registered, seeded, state
 
 HEAD = "cafef00d"
 CORPUS = "# Tests\n\n- test_drain_on_close: the pool is empty after a run closes.\n"
@@ -534,8 +534,9 @@ def test_the_lane_of_the_head_needs_a_desks_newest_grade_ok_for_its_current_slic
         ("readback: ok lane-a", (0, [])),
         ("readback: ok 7bed615 lane-b all three items match", (1, ["CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back"])),
         ("readback: missing 7bed615 lane-a", (1, ["CONTRACT-MISSING lane-a: the newest grade, #9, is missing: no reason given"])),
+        ("readback ok lane-a: row prompt/1030-212507 now says all search lives in the new tree. Every other row carries #235609.", (0, [])),
     ],
-    ids=["head-then-lane", "lane-without-stamp", "head-then-another-lane", "missing-without-reason"],
+    ids=["head-then-lane", "lane-without-stamp", "head-then-another-lane", "missing-without-reason", "no-colon-after-readback"],
 )
 def test_a_desks_grade_names_the_lane_after_an_optional_head_and_before_an_optional_stamp(package: Path, state: Path, registered: Path, capsys, text: str, expected: tuple[int, list[str]]) -> None:
     rows = pinned(package)
@@ -580,23 +581,13 @@ def test_accepted_names_a_lane_only_once_a_desk_graded_its_current_slice_ok(pack
     assert ran(capsys, CheckShell(rows, reviews=[]), "accepted", "--lane", "lane-a") == (1, "CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n")
 
 
-def test_accepted_refuses_an_ok_that_leaves_a_contract_narrower_than_the_owners_words_unanswered(package: Path, state: Path, registered: Path, capsys) -> None:
+def test_a_numbered_successor_keeps_the_read_back_a_desk_accepted_for_the_lane_it_replaced(package: Path, state: Path, registered: Path, capsys) -> None:
+    """Root #241130: fidelity-desk-11 graded fuzzy-match-4's read-back ok as "readback ok fuzzy-match-4: ...", which no grade form read, and fuzzy-match-4 was rotating to fuzzy-match-5."""
     rows = pinned(package)
-    stamp = current_stamp(rows, None)
-    narrower = "rule/bbbbbbb: the pool drains per destination and key\n"
+    grade = dict(graded(current_stamp(rows, None)), text="readback ok lane-a: every row carries the graded contract")
 
-    def accepted(grade: str) -> tuple[int, str]:
-        shell = CheckShell(rows, reviews=[dict(graded(stamp), text=grade)])
-        body = Path(read_back(stamp)["refs"]["path"])
-        body.write_text(body.read_text() + narrower)
-        return ran(capsys, shell, "accepted", "--lane", "lane-a")
-
-    assert accepted(f"readback: ok lane-a {stamp}") == (
-        1,
-        f"CONTRACT-MISSING lane-a: the newest grade, #9, accepts contract #{CONTRACT_SEQ} without answering where it is narrower than the owner's words: "
-        "NARROWED rule/bbbbbbb: says \"per destination\"; the owner's words say none of them\n",
-    )
-    assert accepted(f"readback: ok lane-a {stamp}; rule/bbbbbbb drains each pool, as his words say") == (0, "accepted lane-a\n")
+    assert ran(capsys, CheckShell(rows, reviews=[grade]), "accepted", "--lane", "lane-a-2") == (0, "accepted lane-a-2\n")
+    assert ran(capsys, CheckShell(rows, reviews=[grade]), "accepted", "--lane", "lane-b-2") == (1, "CONTRACT-MISSING lane-b-2: no fidelity desk has graded a read-back\n")
 
 
 def test_a_pr_citing_a_shape_ruling_adds_a_test_naming_it_or_the_row_records_one(package: Path, state: Path, registered: Path, capsys) -> None:
@@ -615,6 +606,36 @@ def test_a_pr_citing_a_shape_ruling_adds_a_test_naming_it_or_the_row_records_one
     assert check(capsys, CheckShell(rows, diff=named)) == (0, [])
     rows["rule/bbbbbbb"]["shape_tests"] = '["acme/app#11 tests/test_pool_count.py::test_one_pool_process_for_every_run"]'
     assert check(capsys, CheckShell(rows)) == (0, [])
+
+
+def test_a_test_naming_a_shape_ruling_that_the_judge_reads_as_another_invariant_warns_once_per_row_and_test(package: Path, state: Path, registered: Path, capsys, judged: Judge) -> None:
+    """Oct 29: the test that named the upload ruling asserted two processes for two keys, while the owner's words fixed one process for every chat."""
+    rows = pinned(package)
+    rows["rule/bbbbbbb"]["words"] = "One pool process drains every run when it closes."
+    per_run = DIFF + """diff --git a/tests/test_pool_count.py b/tests/test_pool_count.py
+--- /dev/null
++++ b/tests/test_pool_count.py
+@@ -0,0 +1,3 @@
++def test_one_pool_process_per_run():
++    \"\"\"rule/bbbbbbb: one pool process drains every run.\"\"\"
++    assert pool_processes(runs=2) == 2
+"""
+    other = rulings.judge.Verdict("yes", "pool_processes(runs=2) == 2", "One pool process drains every run", "He said one pool process for every run, and this test passes with one process per run.")
+    judged.verdict = lambda kind, artifact: other if kind == "test" else None
+
+    code, lines = check(capsys, CheckShell(rows, diff=per_run))
+
+    assert code == 1 and lines == [
+        "SHAPE-UNTESTED rule/bbbbbbb\ta judge reads the test naming rule/bbbbbbb as asserting a different invariant than his words:"
+        " He said one pool process for every run, and this test passes with one process per run."
+        ' The test: "pool_processes(runs=2) == 2"; his words: "One pool process drains every run". Make it fail whenever his invariant fails, or answer this warning with the owner words it carries'
+    ]
+    [(kind, evidence, artifact, kwargs)] = judged.asked
+    assert (kind, kwargs["drive"]) == ("test", "brook-drive")
+    assert '"One pool process drains every run when it closes."' in evidence
+    assert artifact == 'tests/test_pool_count.py\ndef test_one_pool_process_per_run():\n    """rule/bbbbbbb: one pool process drains every run."""\n    assert pool_processes(runs=2) == 2'
+    assert check(capsys, CheckShell(rows, diff=per_run)) == (1, lines)
+    assert len(judged.asked) == 1
 
 
 def test_a_pr_in_another_checkout_is_graded_against_the_drive_register(package: Path, state: Path, registered: Path, capsys) -> None:

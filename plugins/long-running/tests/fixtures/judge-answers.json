@@ -1,0 +1,514 @@
+{
+ "bar-contract": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.33
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.36
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.33
+    ]
+   }
+  ]
+ },
+ "credential-launch-contract": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.33
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "yes"
+    ],
+    "jev": [
+     0.36
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.36
+    ]
+   }
+  ]
+ },
+ "credential-widen-contract": {
+  "expect": "not-yes",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.49
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.49
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "no"
+    ],
+    "jev": [
+     0.47
+    ]
+   }
+  ]
+ },
+ "idle-card": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "unsure",
+     "yes"
+    ],
+    "jev": [
+     0.83
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "yes"
+    ],
+    "jev": [
+     0.84
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.84
+    ]
+   }
+  ]
+ },
+ "idle-contract": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.7
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.71
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.7
+    ]
+   }
+  ]
+ },
+ "idle-dreamtest": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "unsure"
+    ],
+    "jev": [
+     0.77
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "unsure"
+    ],
+    "jev": [
+     0.72
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.75
+    ]
+   }
+  ]
+ },
+ "idle-early-contract": {
+  "expect": "any",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.49
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "no"
+    ],
+    "jev": [
+     0.49
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.5
+    ]
+   }
+  ]
+ },
+ "idle-pr": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.76
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.81
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.79
+    ]
+   }
+  ]
+ },
+ "idle-test": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.73
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.7
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.74
+    ]
+   }
+  ]
+ },
+ "rep-card": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.46
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "yes"
+    ],
+    "jev": [
+     0.46
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "yes"
+    ],
+    "jev": [
+     0.46
+    ]
+   }
+  ]
+ },
+ "rep-contract": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.29
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.32
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.28
+    ]
+   }
+  ]
+ },
+ "rep-fixed": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.3
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.31
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.29
+    ]
+   }
+  ]
+ },
+ "rep-relay": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.39
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.37
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.38
+    ]
+   }
+  ]
+ },
+ "rep-test": {
+  "expect": "yes",
+  "runs": [
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.41
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.41
+    ]
+   },
+   {
+    "sonnet": [
+     "yes",
+     "yes"
+    ],
+    "jev": [
+     0.37
+    ]
+   }
+  ]
+ },
+ "required-config-contract": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.74
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.74
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.74
+    ]
+   }
+  ]
+ },
+ "resume-contract": {
+  "expect": "no",
+  "runs": [
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.55
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.54
+    ]
+   },
+   {
+    "sonnet": [
+     "no",
+     "no"
+    ],
+    "jev": [
+     0.55
+    ]
+   }
+  ]
+ }
+}
