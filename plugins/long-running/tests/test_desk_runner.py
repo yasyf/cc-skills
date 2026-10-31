@@ -2292,6 +2292,66 @@ def test_a_failing_required_check_posts_one_blocker_per_job_and_cause_and_a_line
     ]
 
 
+
+@pytest.mark.parametrize("receipt", [{"closed": "#41"}, {"resolved": "#42"}], ids=["closed", "resolved"])
+def test_posted_blocker_cause_stays_available_after_verification(shell, config, tmp_path, receipt):
+    landing = landing_of(shell, config, tmp_path)
+    key, cause = "blocker:39050:aaaa111111", "same-cause"
+    with landing.book.store.transaction(runner_module.LANDING, generation=0) as current:
+        current.accept(key, "bus", json.dumps({"kind": "blocker", "pr": "39050", "cause": cause}), "owner", shell.now())
+        current.start(key, shell.now())
+        current.complete(key, {"posted": "#41"})
+    with landing.book.store.reading():
+        assert landing.cause_blocker("39050", cause).response == {"posted": "#41"}
+        at = landing.book.stamp()
+        landing.book.edit(runner_module.LANDING, lambda current: current.verify(key, receipt | {"at": at}))
+        found = landing.cause_blocker("39050", cause)
+        assert found is not None, "verified posted blocker disappeared from cause history"
+        assert found.action_id == key and found.response == {"posted": "#41"}
+        assert found.verification_receipt == receipt | {"at": at}
+
+
+def test_verified_unposted_bus_does_not_hide_a_posted_blocker_cause(shell, config, tmp_path):
+    landing = landing_of(shell, config, tmp_path)
+    target = json.dumps({"kind": "blocker", "pr": "39050", "cause": "same-cause"})
+    with landing.book.store.transaction(runner_module.LANDING, generation=0) as current:
+        current.accept("blocker:39050:unposted", "bus", target, "owner", shell.now())
+        current.verify("blocker:39050:unposted", {"at": landing.book.stamp()})
+        current.accept("blocker:39050:posted", "bus", target, "owner", shell.now())
+        current.start("blocker:39050:posted", shell.now())
+        current.complete("blocker:39050:posted", {"posted": "#41"})
+        current.verify("blocker:39050:posted", {"closed": "#41"})
+    assert landing.cause_blocker("39050", "same-cause").action_id == "blocker:39050:posted"
+
+
+def test_same_red_cause_uses_original_blocker_after_cleanup_wins_the_race(shell, config, tmp_path, monkeypatch):
+    cleanup = runner_module.Landing.resolve_stale_blockers
+    lookup = runner_module.Landing.cause_blocker
+    closed_before_lookup = []
+
+    def after_cleanup(self, pr, cause):
+        cleanup(self, self.ledger_rows)
+        closed_before_lookup.append(pr)
+        return lookup(self, pr, cause)
+
+    monkeypatch.setattr(runner_module.Landing, "resolve_stale_blockers", lambda self, rows: None)
+    monkeypatch.setattr(runner_module.Landing, "cause_blocker", after_cleanup)
+    for sha, number in [("aaaa111111", 8812), ("bbbb222222", 8840)]:
+        shell.combined_statuses[sha] = [{"context": "buildkite/sand-mac-harness-release", "state": "failure", "description": f"Build #{number} failed (3 minutes)"}]
+        shell.rows = [{"pr": "39050", "lane": "hj-rows-fixture", "branch": "j/11", "base": "dev", "state": "open", "head": sha, "reported_head": sha}]
+        shell.gates["39050"] = [gate(f"#39050 BLOCKED {sha} graphite FAILING_REQUIRED")]
+        landing_pass(shell, config)
+        landing_pass(shell, config)
+    first = next(seq for seq, post in enumerate(shell.posts, 1) if post["kind"] == "blocker")
+    posted = [(post["kind"], post.get("re"), post["text"]) for post in shell.posts if post["kind"] in ("blocker", "note")]
+    assert closed_before_lookup
+    assert posted == [
+        ("blocker", None, "#39050 aaaa111111: graphite FAILING_REQUIRED"),
+        ("note", None, "RESOLVED 1 landing-runner blockers whose PR has since landed, closed or moved past the head each names"),
+        ("note", str(first), "#39050 bbbb222222: the same failure again: buildkite/sand-mac-harness-release: Build ## failed (# minutes)"),
+    ], "cleanup-before-cause lookup duplicated original blocker"
+
+
 def test_a_red_by_design_pr_gets_no_failing_required_blocker(shell, config, tmp_path):
     shell.combined_statuses["bbbb222222"] = [{"context": "buildkite/test", "state": "failure"}]
     shell.bodies["39050"] = "**Red by design, per owner tap b61a053.** The rows fail until the fix lands.\n\n## Context\n"
