@@ -1212,25 +1212,51 @@ class Shell:
     spending = threading.Lock()
 
     def run(self, argv: list[str], stdin: str | None = None, env: dict[str, str] | None = None, cwd: str | None = None) -> Done:
-        done = self.run_once(argv, stdin, env, cwd)
+        return self._repeat(argv, lambda: self.run_once(argv, stdin, env, cwd))
+
+    def cci_query(self, argv: list[str], env: dict[str, str] | None = None, cwd: str | None = None) -> Done:
+        return self._repeat(argv, lambda: self._cci_query_once(argv, env, cwd))
+
+    def _repeat(self, argv: list[str], operation: Callable[[], Done]) -> Done:
+        done = operation()
         for wait in MISSING_BACKOFF:
             if done.code != MISSING_BINARY:
                 break
             self.sleep(wait)
-            done = self.run_once(argv, stdin, env, cwd)
+            done = operation()
         for pause in reread_pauses(argv):
             if not done.code or not (done.code == TIMED_OUT or merge_queue.TRANSIENT_FAILURE.search(done.err + done.out)):
                 break
             print(f"RETRIED {command_name(argv)} in {pause}s after: {((done.err or done.out).strip().splitlines() or [f'exit {done.code}'])[-1][:300]}", file=sys.stderr, flush=True)
             self.sleep(pause)
-            done = self.run_once(argv, stdin, env, cwd)
+            done = operation()
         return done
 
-    def run_once(self, argv: list[str], stdin: str | None, env: dict[str, str] | None, cwd: str | None) -> Done:
+    @contextmanager
+    def _measuring(self, argv: list[str]) -> Iterator[float]:
         timeout = time_bound(argv)
         started = time.monotonic()
         self.in_progress[threading.get_ident()] = (command_name(argv), started)
         try:
+            yield timeout
+        finally:
+            self.in_progress.pop(threading.get_ident(), None)
+            with self.spending:
+                self.spent[command_family(argv)] += time.monotonic() - started
+                self.called[command_family(argv)] += 1
+                if threading.current_thread() is threading.main_thread():
+                    self.waited[command_family(argv)] += time.monotonic() - started
+
+    def _cci_query_once(self, argv: list[str], env: dict[str, str] | None, cwd: str | None) -> Done:
+        with self._measuring(argv) as timeout:
+            try:
+                return Done(*cci.native_tail(argv, timeout, env, cwd))
+            except TimeoutError:
+                print(f"TIMED-OUT after {timeout}s, skipped: {command_name(argv)}", file=sys.stderr, flush=True)
+                return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {timeout}s")
+
+    def run_once(self, argv: list[str], stdin: str | None, env: dict[str, str] | None, cwd: str | None) -> Done:
+        with self._measuring(argv) as timeout:
             with tempfile.TemporaryFile("w+") as feed:
                 feed.write(stdin or "")
                 feed.seek(0)
@@ -1243,13 +1269,6 @@ class Shell:
                     return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {timeout}s and was killed")
                 except FileNotFoundError:
                     return Done(MISSING_BINARY, "", f"{argv[0]} is not on PATH")
-        finally:
-            self.in_progress.pop(threading.get_ident(), None)
-            with self.spending:
-                self.spent[command_family(argv)] += time.monotonic() - started
-                self.called[command_family(argv)] += 1
-                if threading.current_thread() is threading.main_thread():
-                    self.waited[command_family(argv)] += time.monotonic() - started
         return Done(proc.returncode, proc.stdout, proc.stderr)
 
     def pass_cost(self) -> str:
@@ -2499,7 +2518,7 @@ class Runner:
         self.escalate(f"cci-tail:{actions.stamp(self.now())[:15]}", "CCI-TAIL-FAILED", "runner", str(failure))
 
     def cci_record(self, seq: int) -> dict | None:
-        out = self.cci_tail(["cci", "tail", "--drive", self.config.drive, "--since", str(seq - 1), "--json", "--budget", str(cci.PAGE_BYTES)])
+        out = self.cci_tail(["cci", "tail", "--drive", self.config.drive, "--since-seq", str(seq - 1), "--json", "--budget", str(cci.PAGE_BYTES)])
         return next((record for line in out.splitlines() if line.strip() and (record := json.loads(line))["seq"] == seq), None)
 
     def root_reply(self, record: dict, closed: dict | None) -> None:
@@ -2532,7 +2551,7 @@ class Runner:
         return written if clipped_by_cci(kept) or kept_by_cci(written) == kept else kept
 
     def cci_read(self, argv: list[str]) -> str:
-        done = self.shell.run(argv)
+        done = self.shell.cci_query(argv)
         if done.code != 0:
             self.read_failed_at = time.monotonic()
             raise CciTailFailed(f"cci tail exited {done.code}: {(done.err or done.out).strip()[:300]}")
@@ -8746,7 +8765,7 @@ class Landing:
         """Answer each open root `hold` posted after an incident fix landed that names its PR or is addressed to the release owner with one RELEASE-HELD-AFTER-LANDING line: its cut is owed now. Only a `hold` record is a hold, and the root's `--resolves` on it ends it."""
         drive, pr, since = self.runner.config.drive, landed["pr"], actions.parse_stamp(landed["landed_at"])
         owner = self.release_owner.removeprefix("peer:")
-        for record in cci.records(self.cci_tail, drive, "--lane", ROOT, "--kind=hold"):
+        for record in cci.current_records(self.cci_tail, drive, "--lane", ROOT, "--kind=hold"):
             if (record["lane"], record["drive"], record["kind"]) != (ROOT, drive, "hold") or record["status"] != "open" or actions.parse_stamp(record["at"]) < since:
                 continue
             if names_pr(record, pr) or any(owner in lane for lane in record.get("to") or []):

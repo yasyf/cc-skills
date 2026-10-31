@@ -56,7 +56,7 @@ class FakeShell(board_rows.Shell):
         return board_rows.Done(0, "".join(json.dumps(record) + "\n" for record in self.tailed(argv)), "")
 
     def tailed(self, argv: list[str]) -> list[dict]:
-        since = argv[argv.index("--since") + 1]
+        since = argv[argv.index("--since-seq" if "--since-seq" in argv else "--since") + 1]
         kinds = [arg.split("=", 1)[1] for arg in argv if arg.startswith("--kind=")]
         lanes = [argv[at + 1] for at, arg in enumerate(argv) if arg == "--lane"]
         pr = argv[argv.index("--pr") + 1] if "--pr" in argv else None
