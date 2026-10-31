@@ -165,3 +165,17 @@ def test_full_text_reads_a_spilled_body_and_keeps_the_record_text_when_the_path_
     tarball.write_bytes(b"\x1f\x8b\x08\x00binary")
     assert grades.full_text({"text": "short", "refs": {"path": str(body)}}) == "the whole body"
     assert grades.full_text({"text": "short", "refs": {"path": str(tarball)}}) == "short"
+
+
+def test_full_text_keeps_multibyte_text_and_translates_newlines_across_decoder_buffers(tmp_path):
+    body = tmp_path / "body.txt"
+    body.write_bytes(b"a" * 8191 + "é\r\n".encode() + b"b" * 65535 + "🧪\rfinal".encode())
+    expected = "a" * 8191 + "é\n" + "b" * 65535 + "🧪\nfinal"
+    assert grades.full_text({"text": "short", "refs": {"path": str(body)}}) == expected
+
+
+@pytest.mark.parametrize("suffix", [b"\xff", b"\xc3", b"\xc3x"])
+def test_full_text_discards_a_valid_prefix_when_a_later_chunk_has_an_actual_decode_error(tmp_path, suffix):
+    body = tmp_path / "body.txt"
+    body.write_bytes(b"valid\r\n" * 32768 + suffix)
+    assert grades.full_text({"text": "original record", "refs": {"path": str(body)}}) == "original record"

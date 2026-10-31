@@ -277,7 +277,8 @@ def full_text(record: dict) -> str:
     if not spilled.is_file():
         return record["text"]
     try:
-        return spilled.read_text()
+        with spilled.open() as body:
+            return "".join(body)
     except UnicodeDecodeError:
         return record["text"]
 
