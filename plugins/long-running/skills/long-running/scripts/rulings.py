@@ -880,6 +880,18 @@ def symbol_lines(fields: dict[str, str], diff: Diff, at_home: bool) -> list[tupl
     return found
 
 
+def deleted_symbols(fields: dict[str, str], diff: Diff) -> list[tuple[str, str, int]]:
+    """Each symbol of `fields` a removed line under its anchors names while no added line of code names it, with the file and base line it left."""
+    homes = anchors(fields)
+    return [
+        (symbol, file, number)
+        for symbol in symbols(fields)
+        if not symbol_hit(symbol, diff)
+        for file, number, text in diff.removed
+        if name_pattern(symbol.rsplit(".", 1)[-1]).search(text) and (not homes or any(fnmatch.fnmatch(file, home) for home in homes))
+    ]
+
+
 def symbol_hit(symbol: str, diff: Diff) -> bool:
     """Whether `symbol`'s last part appears, exactly as written, on an added line of a file that is neither a test nor prose; a symbol is an identifier, so `retire` never matches `Retire`, `retired`, or a word in a doc."""
     name = symbol.rsplit(".", 1)[-1]
@@ -1780,6 +1792,12 @@ def cmd_pr_block(args: argparse.Namespace, shell: ledger.Shell) -> int:
         elif number and (answer := authorizing(loaded, key, number)):
             cited, how = f"authorized by {answer}", f"deleting under your answer {answer}"
             words.append(f"- {sentence}; this change deletes under it, on your answer {answer}.")
+        elif gone := deleted_symbols(fields, diff):
+            symbol, file, line = gone[0]
+            deletes = f"deletes {symbol} at {file}:{line}, and no answer of yours authorizes that"
+            rulings.append(f"- {key} protects {protects}; this change {deletes}" if (protects := fields.get("protects")) else f"- {key}: {deletes}")
+            words.append(f"- {sentence}; this change deletes {symbol}, and none of your answers authorizes that.")
+            continue
         else:
             left = (names_of(fields) or symbols(fields) or anchors(fields))[0]
             cited, how = f"leaves out {left}", f"leaving {left} alone"
