@@ -6987,10 +6987,11 @@ class Landing:
         return False
 
     def check_finder(self, graded: Graded) -> dict[str, merge_queue.State]:
-        """Each head with no finder record, or whose newest names an open major that root has not settled, fails `FINDER-PENDING`, with one blocker to its lane and `finder-desk` per head and failing record (E4.1); a head with no finder record queues a finder pass when none waits or runs on it."""
+        """Each head with no finder record, or whose newest names an open major that root has not settled, fails `FINDER-PENDING`, with one blocker to its lane and `finder-desk` per head and failing record (E4.1); a head with no finder record queues a finder pass when none waits or runs on it. A PR the owner tapped at any head passes, since he merges it as it is and its findings are answered, never block (owner 2:48 AM Oct 31)."""
         states, failed = {}, {}
+        tapped = self.owner_tapped()
         for pr, sha in graded.heads.items():
-            if self.finder_clear(pr, sha):
+            if pr in tapped or self.finder_clear(pr, sha):
                 continue
             verdict = self.finder(pr, sha)
             why = f"{verdict['lane']} posted on cci #{verdict['seq']}: {verdict['text']}" if verdict else f"no `finder:` record from {finder.LANE} names this head, and a lane's own finder record never grades it"
@@ -7128,10 +7129,19 @@ class Landing:
         return self.imported[key]
 
     def check_fidelity(self, graded: Graded) -> dict[str, merge_queue.State]:
-        ungraded = self.ungraded(graded.heads)
+        """Each head the fidelity lane has not graded ok fails with why, and one blocker per grade; a PR the owner tapped at any head passes, since he merges it as it is (owner 2:48 AM Oct 31)."""
+        tapped = self.owner_tapped()
+        ungraded = self.ungraded({pr: sha for pr, sha in graded.heads.items() if pr not in tapped})
         if graded.act and ungraded:
             self.refuse_ungraded(graded.heads, ungraded, graded.rows)
         return {pr: merge_queue.State(merge_queue.FAIL, grade.why) for pr, grade in ungraded.items()}
+
+    def owner_tapped(self) -> set[str]:
+        """The PRs an approval on the root's board names at any head, from its records; none when they do not read, so every grade gate holds that pass."""
+        try:
+            return approved_prs(board_rows.verdicts_of_records(self.runner.board_records()))
+        except CciTailFailed:
+            return set()
 
     def check_merge_mode(self, graded: Graded) -> dict[str, merge_queue.State]:
         if (asks := self.owner_asks(graded.heads)) is None:
@@ -7549,10 +7559,7 @@ class Landing:
 
     def askable(self, heads: dict[str, str], asking: list[str], rows: dict[str, dict]) -> list[str]:
         """The PRs of `asking` the owner can tap now: he has approved no head of the PR, since a PR he tapped never returns to his board (owner 2:48 AM Oct 31), a fidelity ok stands at the head, the finder is clear there, and the root's board holds a row at that head (root #191653). A graded head with no row is told to the board lanes once, so the row goes up in their next pass; an ungraded head already has its grade blocker."""
-        try:
-            tapped = approved_prs(board_rows.verdicts_of_records(self.runner.board_records()))
-        except CciTailFailed:
-            return []
+        tapped = self.owner_tapped()
         graded = [pr for pr in asking if pr not in tapped and self.fidelity(pr, heads[pr]).ok and self.finder_clear(pr, heads[pr])]
         if not graded or (board := self.board_heads()) is None:
             return []
