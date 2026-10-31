@@ -346,6 +346,19 @@ def test_a_head_codex_cannot_settle_goes_to_the_human_fidelity_desks(tmp_path):
     assert reader["--to"] == "p8a-step9,desk-runner,board-refresher-2,fidelity-desk-4,fidelity-desk-5" and touches["--to"] == "p8a-step9,desk-runner,board-refresher-2"
 
 
+def test_a_reply_that_names_missing_rows_under_another_verdict_grades_missing_and_still_reaches_the_readers(tmp_path):
+    """desk-runner GRADER-TOOLING #236750: a reply naming verdict reader beside two `missing` entries failed the job twice; its missing rows are the grade, and its reader reason still goes to the human desks."""
+    broken = ({"key": "rule/949e6be", "line": "follow.go:41 polls the signal"}, {"key": "plan:212", "line": "plan names no retry counter"})
+    directory = job(tmp_path, grades=[], baseline="")
+    shell = Fake(tmp_path, [reply("reader", broken, reader="the eviction path needs a human read")])
+    fidelity.main([str(directory)], shell)
+    assert len(shell.asks()) == 1
+    missing, reader, _ = shell.posted
+    assert missing["--text"] == f"fidelity: missing {HEAD} rule/949e6be,plan:212 follow.go:41 polls the signal; plan names no retry counter"
+    assert reader["--text"] == f"{fidelity.READER} {HEAD} the eviction path needs a human read"
+    assert reader["--to"] == "p8a-step9,desk-runner,board-refresher-2,fidelity-desk-4,fidelity-desk-5"
+
+
 @pytest.mark.parametrize(
     "bad",
     [
