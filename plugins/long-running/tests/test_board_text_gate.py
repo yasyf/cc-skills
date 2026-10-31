@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import subprocess
 import sys
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from captain_hook.events import PostToolUseEvent, PreToolUseEvent
@@ -37,7 +39,7 @@ class Root:
             f"{RULINGS} rows": rows,
             f"{RULINGS} sweep": sweep,
             f"{RULINGS} glossary": GLOSSARY,
-            "cci tail": reviewed,
+            "cci grep": reviewed,
             f"ccn -R {self.home} log list": SWEEPS_LOG,
             f"ccn -R {self.home} log show": sweeps(5),
             f"ccn -R {self.home} answer list": "[]",
@@ -178,3 +180,23 @@ def test_a_worker_recorder_names_its_drive(root: Root, monkeypatch: pytest.Monke
     gate.start_board_watch(worker.event(PostToolUseEvent, "cc-present push doc.json --session b1"))
 
     assert spawned == [[sys.executable, str(compaction_handoff.script("board_watch.py")), "start", "--session", "b1", "--drive", "900424b6"]]
+
+
+def test_the_text_grade_reads_only_the_reviews_naming_the_board_in_one_call(root: Root) -> None:
+    """Root #234837 and #235862: each board push paged every fidelity review since the drive began, one cci tail per page, and held the cc-inbox daemon near a full core. The gate now asks cci once for the reviews that name this board's hash."""
+    name = "clean-card.json"
+    reviewed = json.dumps({"seq": 1, "lane": "fidelity-desk", "kind": "review", "text": f"fidelity: ok text {sha12(name)}"}) + "\n"
+    calls: list[list[str]] = []
+    with stubbed_commands(root.reads(reviewed=reviewed)):
+        stubbed = subprocess.run
+
+        def recording(args, *rest, **kwargs):
+            if list(args)[:1] == ["cci"]:
+                calls.append(list(args))
+            return stubbed(args, *rest, **kwargs)
+
+        with mock.patch.object(subprocess, "run", recording):
+            result = gate.board_text_gate(root.event(PreToolUseEvent, f"cc-present update-block {board(name)}"))
+
+    assert "text grade" not in (result.message or "")
+    assert [call[:3] for call in calls] == [["cci", "grep", f"fidelity: (ok|missing) text {sha12(name)}"]]

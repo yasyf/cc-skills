@@ -58,6 +58,7 @@ SWEEP_LINE = re.compile(r"^(?P<state>open|deleted|authorized)\s+(?P<answer>\S+)\
 FIDELITY_TEXT = re.compile(r"^fidelity: (?P<verdict>ok|missing) text (?P<sha>[0-9a-f]{12})\b\s*(?P<detail>.*)$")
 SUBSTITUTED = re.compile(r'^"?\$\((?P<inner>.*)\)"?$', re.DOTALL)
 OK = "ok"
+REVIEW_BUDGET = 200_000
 SWEEP_CADENCE = timedelta(hours=1)
 QUESTIONS = ("choice", "approval")
 TEXT = "text"
@@ -280,32 +281,22 @@ def swept(reads: Reads, item: Published) -> list[re.Match[str]] | None:
         return sweep(reads, path)
 
 
-def reviews(drive: str, since: int, flags: list[str]) -> list[dict]:
-    argv = ["cci", "tail", "--drive", drive, "--since", str(since), "--json", "--kind", "review", *flags]
-    return [json.loads(line) for line in ran(argv).splitlines() if line.strip()]
-
-
-def grades(reads: Reads, register: dict) -> list[re.Match[str]] | None:
+def grades(reads: Reads, register: dict, sha: str) -> list[re.Match[str]] | None:
     def load() -> list[re.Match[str]] | None:
         if not (config := Path(register["state_dir"]) / "runner.json").exists():
             return None
         runner = json.loads(config.read_text())
         lanes = runner["landing"]["fidelity_lane"]
-        flags = [arg for lane in ([lanes] if isinstance(lanes, str) else lanes) for arg in ("--lane", lane)]
-        named = set(flags[1::2])
-        found: list[re.Match[str]] = []
-        last = 0
-        while page := [record for record in reviews(runner["drive"], last, flags) if record["seq"] > last]:
-            graded = [record for record in page if record.get("kind") == "review" and record.get("lane") in named]
-            found += [hit for record in graded if (hit := FIDELITY_TEXT.match(record["text"]))]
-            last = max(record["seq"] for record in page)
-        return found
+        named = [lanes] if isinstance(lanes, str) else lanes
+        argv = ["cci", "grep", f"fidelity: (ok|missing) text {sha}", "--drive", runner["drive"], "--json", "--kind", "review", "--budget", str(REVIEW_BUDGET), *(arg for lane in named for arg in ("--lane", lane))]
+        records = [json.loads(line) for line in ran(argv).splitlines() if line.strip()]
+        return [hit for record in records if record.get("lane") in named and (hit := FIDELITY_TEXT.match(record["text"])) and hit["sha"] == sha]
 
-    return reads.read("the fidelity reviews", load)
+    return reads.read(f"the fidelity reviews of {sha}", load)
 
 
 def verify_reports(item: Published, reads: Reads, register: dict) -> list[str]:
-    return [f"verify: a fidelity desk lists {hit['detail']}" for hit in grades(reads, register) or [] if hit["sha"] == item.sha12 and hit["verdict"] != OK]
+    return [f"verify: a fidelity desk lists {hit['detail']}" for hit in grades(reads, register, item.sha12) or [] if hit["verdict"] != OK]
 
 
 def notes(repo: str, *args: str) -> object:
@@ -324,7 +315,7 @@ def passes(reads: Reads, program: str) -> list[datetime] | None:
 
 def text_grade(item: Published, reads: Reads, register: dict) -> list[str]:
     problems = []
-    if (graded := grades(reads, register)) is not None and not any(hit["sha"] == item.sha12 and hit["verdict"] == OK for hit in graded):
+    if (graded := grades(reads, register, item.sha12)) is not None and not any(hit["verdict"] == OK for hit in graded):
         problems.append(f"text grade: no fidelity desk review names {item.where} ({item.sha12}); push again once one posts fidelity: ok text {item.sha12}")
     match passes(reads, register["program"]):
         case []:
@@ -367,7 +358,7 @@ def posting(command: str | None = None, *, sweep_out: str = "", reviewed: tuple[
         f"{RULINGS} rows": ROWS,
         f"{RULINGS} sweep": sweep_out,
         f"{RULINGS} glossary": GLOSSARY,
-        "cci tail": fidelity(*reviewed),
+        "cci grep": fidelity(*reviewed),
         "cci post": "#1\n",
         f"ccn -R {REPO} log list": SWEEPS_LOG,
         f"ccn -R {REPO} log show": sweeps(minutes),
@@ -425,12 +416,12 @@ def exits(name: str, **extra: object) -> Input:
         update("r3-titles.pre-grade.json", state=[], env={"CLAUDE_LONG_RUNNING_DRIVE": ""}): Allow(),
         update("clean-card.json", commands={f"{RULINGS} rows": "no register for brook"}): Allow(),
         update("r3-titles.pre-grade.json", commands={f"{RULINGS} rows": "no register for brook"}): Allow(),
-        update("r3-titles.pre-grade.json", commands={"cci tail": "cci: no drive brook"}): Allow(),
-        update("clean-card.json", commands={"cci tail": fidelity(sha12("clean-card.json")) + missing(sha12("clean-card.json"))}): Warn(
+        update("r3-titles.pre-grade.json", commands={"cci grep": "cci: no drive brook"}): Allow(),
+        update("clean-card.json", commands={"cci grep": fidelity(sha12("clean-card.json")) + missing(sha12("clean-card.json"))}): Warn(
             pattern=r"verify: a fidelity desk lists rule/5c0e9a1 the card offers a held copy"
         ),
-        update("clean-card.json", commands={"cci tail": fidelity(sha12("clean-card.json")) + missing(sha12("r3-titles.redraft.json"))}): Allow(),
-        update("clean-card.json", commands={"cci tail": fidelity(sha12("clean-card.json"), lane="another-desk")}): Warn(
+        update("clean-card.json", commands={"cci grep": fidelity(sha12("clean-card.json")) + missing(sha12("r3-titles.redraft.json"))}): Allow(),
+        update("clean-card.json", commands={"cci grep": fidelity(sha12("clean-card.json"), lane="another-desk")}): Warn(
             pattern=r"no fidelity desk review names"
         ),
         posting(f"cc-present push {board('intro-only.json')}", reviewed=(sha12("intro-only.json"),)): Warn(
