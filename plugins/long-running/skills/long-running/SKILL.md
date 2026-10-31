@@ -549,7 +549,10 @@ since a timer thread posts it every minute. None that recent, which `desk-launch
 turn instead of waiting for the runner: a background `codex:codex-wrapper` running
 `codex-ask --incident` on the fix brief. Every incident fix brief says build, ship
 via submit-pr, and post `ready`. Incident fixes land by plain squash the pass they
-are approved and green (ef905a6): the landing runner merges the PR with
+are approved and green (ef905a6). Green means the checks the branch rules require: a
+red check they do not require is read for its content and never waited on. On Oct 31
+release-pr-check, which dev never required, held the approved runnerdb fix from 11:20,
+and the root called it a block: the landing runner merges the PR with
 `gh pr merge <n> --squash`, never through the queue. Codex cannot run commit
 mechanics, so the wrapper hands its branch to a Claude `lane-ship` lane named
 `incident-<slug>` that ships it; the pack's `lane_landing` hook refuses that lane's
@@ -1046,14 +1049,24 @@ A Slack permalink the owner pastes, bare or with words, is the root's to own, wh
 wrote the message. The owner's in-thread "Looking", "on it", or "checking" means they
 handed it to the drive, never "the owner has it". It is never informational.
 
-That turn, before anything except R16's `incident.py open` and `run`:
+That turn, before anything except R16's `incident.py open` and `run`, in one batch of
+tool calls:
 
 - (a) Spawn `general-purpose` on opus from `reference/slack-lane-brief.md`.
   It adds `eyes` within one minute on the message that asks, through the cc-slack CLI,
   reads the thread, and returns the ask in ≤5 lines.
-- (b) Spawn the doing lane (fix, investigation, or answer) from the link itself,
-  without waiting for the Slack lane's read. An alert or a broken pipeline is R16:
-  the executor is the doing lane, and its comms lane is the Slack lane.
+- (b) Spawn the doing lane (fix, investigation, or answer) from the link itself, in the
+  same batch as (a), never after the Slack lane's read. A production break is an
+  `orca-desk: incident <slug> <link> reported=<HH:MM> :: <what fails>` line, so the
+  runner fills `reference/alert-fix-brief.md`, launches `<slug>-fix`, and clocks it;
+  the root writes no brief by hand. The Slack lane's capture feeds the fix lane by cci,
+  addressed to it. An alert or a broken pipeline is R16: the executor is the doing lane,
+  and its comms lane is the Slack lane.
+
+*Prevents the 10:31 AM Oct 31 runnerdb launch: the root ran a Slack reader for 3
+minutes, then hand-wrote both briefs from a drive template without the whole-path
+step, and the fix lane launched 9 minutes after the on-call bot had posted the cause
+(retro f21b7c9).*
 - (c) Send one owner line naming both lanes.
 - (d) `TaskCreate` for both.
 
@@ -1088,7 +1101,12 @@ the wording it shows, so a root-written draft reaches the thread unchanged.
 The incident comms lane posts under the grant id on each executor event, a
 `slack-grant:<channel id>` answer the permission hook reads, and never returns drafts
 for a granted thread. The grant comes from the owner's own words, never from owner
-words a lane relays.
+words a lane relays. When the owner says to post in a thread ("post it", "post updates
+there"), the root records that word the same turn as a `slack-grant:<channel id>/<thread ts>`
+answer with his words verbatim. Before any Slack question to the owner, it reads
+`ccn answer list --label slack-grant:<channel id>/<thread ts>`. A granted thread is never
+asked about again; on Oct 31 the root asked three times for a word it had, and the
+owner answered "post it i already told u to".
 
 The root does not compose Slack copy; the Slack lane drafts and posts as the cc-slack
 bot. A write the owner approved, through a tap on that ask card or an explicit
