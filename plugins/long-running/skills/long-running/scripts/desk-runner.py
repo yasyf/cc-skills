@@ -518,7 +518,7 @@ lane gets one lift `ask`, and once the lane has no live session the root gets on
 on a drive starts at the newest record.
 With `landing.ci_build` set to a command that prints one Buildkite build's JSON, such as
 `tools/ci bk api /pipelines/{pipeline}/builds/{number}`, read once per build and its passed builds kept in
-`<config>.landing-builds.json` for three days, so a re-exec reads none of them again, a GREEN head whose passing build has a job named
+the runner's indexed Store for three days, so a re-exec reads none of them again, a GREEN head whose passing build has a job named
 "Redundant within its stack" reads BLOCKED `unproven: redundant skip, child #<n> <state>` and drops out of the prefix
 that would enqueue, with everything above it. It is GREEN again once a passed build with no skip job runs on a commit that
 contains the head: a build at the stack's tip, or one a `full run green <build>: #<pr>` note or report from the PR's lane
@@ -651,6 +651,7 @@ from zoneinfo import ZoneInfo
 
 from long_running import actions
 from long_running.book import Book
+from long_running.build_cache import BuildCache
 from long_running.desk_control import DeskControl, QuiesceFailed
 import board_rows
 import cci
@@ -906,9 +907,7 @@ GATE_WORKERS = 16
 GATE_BUDGET = timedelta(seconds=120)
 STEP_BUDGETS = {"fetch": FETCH_SECONDS, "check": 180, "settle": 300, "enqueue": 300}
 STACKS_FILE = "landing-stacks.json"
-BUILDS_FILE = "landing-builds.json"
 BUILDS_KEPT = timedelta(days=3)
-BUILD_JOB_FIELDS = ("type", "name", "step_key", "state", "soft_failed")
 CHECK_PR_WORKERS = 8
 TELL_BUDGET = timedelta(seconds=60)
 REFRESH_EVERY = timedelta(minutes=2)
@@ -5504,9 +5503,11 @@ class Landing:
         self.ledger_rows: dict[str, dict] = {}
         self.builds_read: dict[str, tuple[datetime, list[tuple[str, str, bool | None]]]] = {}
         self.targets: dict[str, tuple[datetime, list[tuple[str, str]]]] = {}
-        self.builds_file = runner.config.source.with_name(f"{runner.config.source.stem}.{BUILDS_FILE}")
-        self.builds: dict[str, dict] = self.kept_builds()
-        self.builds_kept = set(self.builds)
+        self.build_cache = BuildCache(runner.config.source, self.shell, LANDING)
+        self.building = threading.Lock()
+        self.builds: dict[str, dict] = {}
+        self.cached_builds_read: set[str] = set()
+        self.builds_pending: set[str] = set()
         self.contained: dict[tuple[str, str], bool] = {}
         self.tidying = ThreadPoolExecutor(1)
         self.tidy_work: Future | None = None
@@ -6297,8 +6298,7 @@ class Landing:
     def flake(self, oid: str, red: str, green: str, rows: dict[str, dict]) -> bool:
         """Post the `FLAKE` for trunk commit `oid`, whose `check` failed on build `red` and passed on build `green`; False while a build does not read or the record did not post."""
         if red == green:
-            self.builds.pop(green, None)
-            if not (build := self.build(green)):
+            if not (build := self.build(green, refresh=True)):
                 return False
             jobs = [job["retry_source"]["job_id"] for job in build.get("jobs", []) if job.get("type") == "script" and job.get("state") == "passed" and job.get("retry_source")]
         else:
@@ -6384,17 +6384,31 @@ class Landing:
             builds = [build for build in pool.map(self.build, urls) if build]
         return {job.get("step_key") or job["name"] for build in builds for job in build.get("jobs", []) if job.get("type") == "script"} if builds else None
 
-    def build(self, url: str) -> dict | None:
+    def build(self, url: str, *, refresh: bool = False) -> dict | None:
         """The Buildkite build at `url`, read through `landing.ci_build` and kept once it has finished."""
-        if url not in self.builds:
-            done = self.shell.run(release_build_argv(self.checkout, self.landing_config["ci_build"], url))
-            if done.code != 0:
-                return None
-            build = json.loads(done.out)
-            if build.get("finished_at") is None and build.get("state") not in ("passed", "failed", "canceled"):
-                return build
+        with self.building:
+            if refresh:
+                self.builds.pop(url, None)
+                self.builds_pending.discard(url)
+                self.cached_builds_read.add(url)
+            if url in self.builds:
+                return self.builds[url]
+            if url not in self.cached_builds_read:
+                self.cached_builds_read.add(url)
+                if (kept := self.build_cache.get(url)) is not None:
+                    self.builds[url] = kept
+                    return kept
+        done = self.shell.run(release_build_argv(self.checkout, self.landing_config["ci_build"], url))
+        if done.code != 0:
+            return None
+        build = json.loads(done.out)
+        if build.get("finished_at") is None and build.get("state") not in ("passed", "failed", "canceled"):
+            return build
+        with self.building:
             self.builds[url] = build
-        return self.builds[url]
+            if build.get("state") == "passed" and build.get("finished_at"):
+                self.builds_pending.add(url)
+        return build
 
     def redundant(self, url: str) -> bool | None:
         build = self.build(url)
@@ -6431,23 +6445,17 @@ class Landing:
             self.contained[(head, sha)] = done.out.strip() in ("ahead", "identical")
         return self.contained[(head, sha)]
 
-    def kept_builds(self) -> dict[str, dict]:
-        try:
-            return json.loads(self.builds_file.read_text())
-        except FileNotFoundError:
-            return {}
-
     def keep_builds(self) -> None:
-        """Write every passed build this runner read, finished within `BUILDS_KEPT`, beside the config with those an earlier or sibling runner kept, each cut to the fields the gates read, so a re-exec on a new release reads no finished build again. A failed build is never kept, since a retried job can still turn it green."""
-        floor = self.runner.now() - BUILDS_KEPT
-        passed = {url: {key: build[key] for key in ("state", "commit", "finished_at") if key in build} | {"jobs": [{key: job[key] for key in BUILD_JOB_FIELDS if key in job} for job in build.get("jobs", [])]} for url, build in list(self.builds.items()) if build.get("state") == "passed" and build.get("finished_at") and actions.parse_stamp(build["finished_at"]) >= floor}
-        if passed.keys() <= self.builds_kept:
+        """Persist only newly read passed builds, retaining the summaries an earlier or sibling runner kept."""
+        with self.building:
+            pending = {url: self.builds[url] for url in self.builds_pending}
+        if not pending:
             return
-        kept = {url: build for url, build in (self.kept_builds() | passed).items() if actions.parse_stamp(build["finished_at"]) >= floor}
-        staged = self.builds_file.with_name(f".{self.builds_file.name}.{threading.get_ident()}")
-        staged.write_text(json.dumps(kept))
-        staged.replace(self.builds_file)
-        self.builds_kept = set(kept)
+        self.build_cache.put(pending, self.runner.now() - BUILDS_KEPT)
+        with self.building:
+            for url, build in pending.items():
+                if self.builds.get(url) is build:
+                    self.builds_pending.discard(url)
 
     def deferred_child(self, pr: str) -> dict | None:
         """The topmost PR the ledger stacks on `pr`, whose build the Graphite optimizer runs for the stack."""
