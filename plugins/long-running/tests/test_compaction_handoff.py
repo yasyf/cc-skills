@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import compact_job
+from long_running import drive
 import pytest
 import standing
 from cc_transcript import Session
@@ -892,6 +893,16 @@ def test_the_roots_first_context_after_a_compaction_carries_every_scope_row_verb
         assert f"\nwords: “{words}”\n" in delivered
         assert all(f"\n{line}\n" in delivered for line in implications)
     assert handoff.deliver_register(bash(session)) is None
+
+
+def test_a_script_a_hook_runs_dies_at_the_hooks_deadline_and_reads_as_a_timeout():
+    waits = f"import sys, time; sys.path.insert(0, {str(Path(drive.__file__).parent)!r}); import drive; drive.end_commands_with_script(); time.sleep(60)"
+
+    with pytest.raises(subprocess.TimeoutExpired) as expired:
+        handoff.run_script([sys.executable, "-c", waits], 3)
+
+    assert (expired.value.timeout, expired.value.stderr.splitlines()[-1]) == (3, "-c reached the deadline its caller set and was killed with every command it started")
+    assert handoff.DEADLINE_ENV == drive.DEADLINE_ENV
 
 
 @pytest.mark.parametrize(

@@ -99,7 +99,7 @@ CAPTURES = "owner-prompts.jsonl"
 OWNER_ANSWERS = ("answer", "list", "--label", "from:owner", "--limit", "0", "--json")
 TOKEN = re.compile(r"[a-z][a-z'-]+")
 NAMED = re.compile(r"[A-Z]|\w[- ]\w")
-PLAIN_FOR = script_module("overview").PLAIN_FOR
+PLAIN_FOR = script_module("long_running.overview").PLAIN_FOR
 CC_PRESENT = CommandSchema(
     "cc-present",
     operands=(Operand("verb"), Operand("words", count="*")),

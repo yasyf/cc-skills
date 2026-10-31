@@ -7,7 +7,7 @@ import subprocess
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, Warn, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState
+from .compaction_handoff import CompactionState, judged
 from .lane_landing import DRIVE_ENV, drive_entry, lane_name
 from .owner_facing import incident_sources, open_incidents
 from .tests.incident_fixtures import BARE_INCIDENT, CLOSED_0820, EARLIER_CLOSEOUT, INCIDENT_CLOSED, SAND_NOT_MIGRATED
@@ -35,6 +35,13 @@ UNORDERED_ROLLBACK = (
     "A release rollback runs only on an owner answer that orders it, and a suspected regression is fixed forward."
     " Cite the answer, as in `tools/ci release rollback <stack> --to <build>  # MECHANISM #<seq> owner <answer id>`."
 )
+MISORDERED = (
+    "Warning, nothing was blocked: a judge reads the owner answer this undo cites as not ordering this exact undo."
+    " Read his words again before it runs, and stop if they order something else."
+)
+CLAUDE = "claude -p"
+ORDERED = {"verdict": "no", "artifact_phrase": "", "evidence_phrase": "", "sentence": "He ordered it."}
+UNORDERED = {"verdict": "yes", "artifact_phrase": "rollback sand --to 905", "evidence_phrase": "Let it finish", "sentence": "He said to let it finish, not to roll it back."}
 FROZEN_TOOLING = (
     "Warning, nothing was blocked: Incident tooling stays as it is while an incident is open."
     " Run `claude plugin update long-running` or `desk-runner.py handoff` once the incident closes."
@@ -72,15 +79,18 @@ def names_target(text: str, target: str) -> bool:
     return bool(ANSWER_REF.fullmatch(target)) and any(target.startswith(ref) or ref.startswith(target) for ref in ANSWER_REF.findall(text))
 
 
-def order_text(evt: BaseHookEvent, ref: str, act: re.Pattern[str]) -> str | bool | None:
+def shown_answer(evt: BaseHookEvent, ref: str) -> dict | bool | None:
     if (entry := drive_entry(evt)) is None:
         return None
     done = run(["ccn", "-R", entry["checkout"], "answer", "show", ref, "--json"])
     if done is None or done.returncode not in (0, CCN_NOT_FOUND):
         return None
-    if done.returncode == CCN_NOT_FOUND:
-        return False
-    answer = json.loads(done.stdout)
+    return False if done.returncode == CCN_NOT_FOUND else json.loads(done.stdout)
+
+
+def order_text(evt: BaseHookEvent, ref: str, act: re.Pattern[str]) -> str | bool | None:
+    if not isinstance(answer := shown_answer(evt, ref), dict):
+        return answer
     body = answer.get("body") or ""
     text = f"{answer.get('title') or ''}\n{body}"
     return text if act.search(text) and not answer.get("superseded_by") and not DECLINED.match(body) else True
@@ -99,9 +109,26 @@ def latest_record(evt: BaseHookEvent) -> str | None:
     return done.stdout if done is not None and done.returncode == 0 else None
 
 
+def cited_refs(text: str, targets: tuple[str, ...]) -> list[str]:
+    return [ref for ref in dict.fromkeys(ANSWER_REF.findall(text)) if not any(target.startswith(ref) or ref.startswith(target) for target in targets)]
+
+
 def order_cited(evt: BaseHookEvent, text: str, act: re.Pattern[str], targets: tuple[str, ...], every: bool = True) -> bool:
-    refs = (ref for ref in dict.fromkeys(ANSWER_REF.findall(text)) if not any(target.startswith(ref) or ref.startswith(target) for target in targets))
-    return any(check is None or check for check in (owner_order(evt, ref, act, targets, every) for ref in refs))
+    return any(check is None or check for check in (owner_order(evt, ref, act, targets, every) for ref in cited_refs(text, targets)))
+
+
+def misordered(evt: BaseHookEvent, calls: list[Call], texts: list[str]) -> HookResult | None:
+    drive = (drive_entry(evt) or {}).get("drive")
+    for call in calls:
+        if not (call.args[1] == "rollback" or open_incidents(evt)):
+            continue
+        for ref in (ref for text in texts for ref in cited_refs(text, undo_targets(call))):
+            if not isinstance(answer := shown_answer(evt, ref), dict):
+                continue
+            said = f"The owner answer the command cites, verbatim:\nQuestion: {answer.get('title') or ''}\nAnswer: {answer.get('body') or ''}"
+            if found := judged("undo", said, str(evt.command), drive):
+                return evt.context(f"{MISORDERED}\n{found}")
+    return None
 
 
 def cause_cited(text: str, target: str | None) -> bool:
@@ -129,8 +156,12 @@ def undo_settled(evt: BaseHookEvent, call: Call, texts: list[str]) -> bool:
     return any(cause_cited(text, targets[0] if targets else None) for text in texts) and undo_ordered(evt, call, texts)
 
 
+def judge_answer(verdict: dict) -> str:
+    return json.dumps({"structured_output": verdict, "total_cost_usd": 0.01, "usage": {"input_tokens": 1000, "output_tokens": 50}})
+
+
 def cancel(command: str, *stored: dict, **extra: object) -> Input:
-    commands = incident_sources(*stored) | extra.pop("commands", {})
+    commands = incident_sources(*stored) | {CLAUDE: judge_answer(ORDERED)} | extra.pop("commands", {})
     return Input(command=command, state=ACTIVE, env=DRIVE_ENV, commands=commands, **extra)
 
 
@@ -145,9 +176,18 @@ def cancel(command: str, *stored: dict, **extra: object) -> Input:
         cancel("tools/ci release cancel 41200  # MECHANISM #500210", commands={"cci grep": BUILD_CAUSE}): Warn(),
         cancel("tools/ci release cancel 4120  # MECHANISM #500210", SAND_NOT_MIGRATED, commands={"cci grep": BUILD_CAUSE}): Warn(),
         cancel("tools/ci release cancel 4120  # MECHANISM #500210 owner a9e1075b", SAND_NOT_MIGRATED, commands={"cci grep": BUILD_CAUSE, "ccn": CANCEL_ANSWER}): Allow(),
+        cancel("tools/ci release cancel 4120  # MECHANISM #500210 owner a9e1075b", SAND_NOT_MIGRATED, commands={"cci grep": BUILD_CAUSE, "ccn": CANCEL_ANSWER, CLAUDE: judge_answer(UNORDERED)}): Warn(
+            pattern=r"not ordering this exact undo"
+        ),
+        cancel("tools/ci release cancel 4120  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": BUILD_CAUSE, "ccn": CANCEL_ANSWER, CLAUDE: judge_answer(UNORDERED)}): Allow(),
         cancel("tools/ci release cancel 4120  # MECHANISM #500210 owner a9e1075b", SAND_NOT_MIGRATED, commands={"cci grep": BUILD_CAUSE, "ccn": PLAN_ANSWER}): Warn(),
         cancel("tools/ci release cancel 4120  # MECHANISM #500210", CLOSED_0820, commands={"cci grep": BUILD_CAUSE}): Allow(),
         cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": ROLLBACK_ANSWER}): Allow(),
+        cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": ROLLBACK_ANSWER, CLAUDE: judge_answer(UNORDERED)}): Warn(
+            pattern=r"^Warning, nothing was blocked: a judge reads the owner answer this undo cites as not ordering this exact undo[\s\S]*let it finish"
+        ),
+        cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": ROLLBACK_ANSWER, CLAUDE: (1, "model unavailable")}): Allow(),
+        cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": DECLINED_ROLLBACK, CLAUDE: judge_answer(ORDERED)}): Block(),
         cancel("tools/ci release rollback sand --to 906  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": ROLLBACK_ANSWER}): Block(),
         cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": DECLINED_ROLLBACK}): Block(),
         cancel("tools/ci release rollback sand --to 905  # MECHANISM #500210 owner a9e1075b", commands={"cci grep": SAND_CAUSE, "ccn": CANCEL_ANSWER}): Block(),
@@ -184,13 +224,13 @@ def release_undo_cites_its_cause(evt: BaseHookEvent) -> HookResult | None:
         return None
     texts = [str(evt.command)]
     if all(undo_settled(evt, call, texts) for call in calls):
-        return None
+        return misordered(evt, calls, texts)
     if (latest := latest_record(evt)) is None:
         return None
     texts.append(latest)
     if any(call.args[1] == "rollback" and not undo_ordered(evt, call, texts) for call in calls):
         return evt.block(UNORDERED_ROLLBACK)
-    return None if all(undo_settled(evt, call, texts) for call in calls) else evt.context(UNCAUSED_UNDO)
+    return misordered(evt, calls, texts) if all(undo_settled(evt, call, texts) for call in calls) else evt.context(UNCAUSED_UNDO)
 
 
 def tooling_change(evt: BaseHookEvent) -> bool:

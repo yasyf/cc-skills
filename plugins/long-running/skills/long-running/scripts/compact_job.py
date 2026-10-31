@@ -67,7 +67,7 @@ def main(handle: str, text: str, transcript: str) -> None:
 
 
 if __name__ == "__main__":
-    import drive
+    from long_running import drive
 
     drive.run_installed(__file__)
     main(*sys.argv[1:])

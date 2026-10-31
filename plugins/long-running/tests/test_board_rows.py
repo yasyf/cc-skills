@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import board_rows
+from long_running import board_rows
 import pytest
 from conftest import gateway
 

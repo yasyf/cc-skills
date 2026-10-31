@@ -100,7 +100,7 @@ def candidate_rows(evt: BaseHookEvent, drive: list[str], text: str) -> tuple[Pat
 def shipped_tests(evt: BaseHookEvent) -> list[tuple[str, str]]:
     if not any((Path(call.name).name, *call.args)[: len(argv)] == argv for call in evt.command.calls() for argv in OPENERS):
         return []
-    tests = script_module("testfiles").TEST_FILE
+    tests = script_module("long_running.testfiles").TEST_FILE
     try:
         base = subprocess.run(
             ["git", "merge-base", "HEAD", "origin/HEAD"],

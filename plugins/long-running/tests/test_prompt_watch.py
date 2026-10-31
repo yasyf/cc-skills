@@ -8,7 +8,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import drive
+from long_running import drive
 import prompt_watch
 import pytest
 

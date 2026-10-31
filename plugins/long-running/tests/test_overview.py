@@ -6,8 +6,8 @@ import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
-import drive
-import overview
+from long_running import drive
+from long_running import overview
 import pytest
 from conftest import DRIVE, LEDGER, FakeShell
 

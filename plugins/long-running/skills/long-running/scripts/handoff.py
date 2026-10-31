@@ -82,13 +82,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import cci
-import drive
+from long_running import cci
+from long_running import drive
 import inboxes
-import ledger
+from long_running import ledger
 import plans
 import progress
-import rulings
+from long_running import rulings
 import standing
 
 DIGEST_BUDGET = 2000

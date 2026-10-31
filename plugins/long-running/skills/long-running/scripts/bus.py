@@ -22,7 +22,7 @@ import json
 import subprocess
 import sys
 
-import cci
+from long_running import cci
 
 KINDS = ("decision", "head", "contract", "blocker", "ask", "answer", "withdraw")
 
@@ -92,7 +92,7 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
 
 
 if __name__ == "__main__":
-    import drive
+    from long_running import drive
 
     drive.run_installed(__file__)
     sys.exit(main())

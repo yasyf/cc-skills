@@ -40,8 +40,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from long_running import judge
-import cci
-import drive
+from long_running import cci
+from long_running import drive
 
 LANE = "judge-watch"
 ROOT = "root"

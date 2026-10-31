@@ -74,10 +74,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import board_rows
-import cci
-import drive
-import rulings
+from long_running import board_rows
+from long_running import cci
+from long_running import drive
+from long_running import rulings
 
 SOURCE = "board"
 CAPTURES = "owner-prompts.jsonl"
@@ -434,7 +434,7 @@ def record(line: str, state: Path, session: str, shell: Shell, seen: set[str], b
 
 
 def cmd_start(args: argparse.Namespace, shell: Shell) -> int:
-    state = Path(args.state_dir) if args.state_dir else rulings.state_dir(args)
+    state = Path(args.state_dir) if args.state_dir else rulings.state_dir(args, drive.drives_dir(), Path.home() / ".claude" / "scratch")
     (state / BOARDS).mkdir(parents=True, exist_ok=True)
     with (state / BOARDS / f"{args.session}.lock").open("a+") as lock:
         if not free(lock):

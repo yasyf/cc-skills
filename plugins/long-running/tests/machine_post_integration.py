@@ -16,7 +16,7 @@ from test_stall_watch import stall_watch
 
 import handoff
 
-import ledger
+from long_running import ledger
 
 
 @pytest.fixture

@@ -427,6 +427,12 @@ class Transaction(ActionState):
             return self._actions.family(base)
         return [action for key, action in self.actions.items() if key == base or key.startswith(base + "#")]
 
+    def fact_keys_before(self, key: str, field: str, before: str) -> list[str]:
+        """Keys of child dictionaries whose named string field sorts before the bound."""
+        parent = _fact_path("", key)
+        selected = self._fact_tree.active().execute("SELECT child.key FROM fact AS leaf JOIN fact AS child ON child.path = leaf.parent WHERE leaf.kind = 'value' AND leaf.key = ? AND leaf.record < ? AND leaf.parent >= ? AND leaf.parent < ? AND child.parent = ? ORDER BY child.ordinal", (field, _encode(before), parent + "/", parent + "0", parent))
+        return [row["key"] for row in selected]
+
     def snapshot(self) -> Incident:
         record = {entry.name: {key: asdict(value) for key, value in self.actions.items()} if entry.name == "actions" else detached(getattr(self, entry.name)) for entry in fields(Incident)}
         return Incident.load(record)

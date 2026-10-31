@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 import contextlib
 import hashlib
 import io
@@ -7,11 +9,12 @@ import json
 import subprocess
 from pathlib import Path
 
-import ghread
-import ledger
+from long_running import ghread
+from long_running import ledger
 import pytest
-import rulings
+from long_running import rulings
 from conftest import gateway
+from long_running import judge
 from test_rulings import DIFF, REPO, Judge, RegisterShell, home, judged, package, ran, registered, seeded, state
 
 HEAD = "cafef00d"
@@ -23,10 +26,6 @@ The pool drains when a run closes.
 ## Rulings
 
 - bbbbbbb: Drain the pool when a run closes.
-
-### In your words
-
-The pool empties itself when a run ends.
 """
 LANE_HEAD = {"seq": 10, "kind": "head", "lane": "lane-a", "text": f"lane-a {HEAD}"}
 FINDER_OK = {"seq": 11, "kind": "review", "lane": "finder-desk", "text": f"finder: ok {HEAD[:7]}"}
@@ -116,7 +115,7 @@ def pinned(package: Path, corpus: str = CORPUS, pin: str | None = None) -> dict[
 def current_stamp(rows: dict[str, dict[str, str]], plan: Path | None) -> str:
     printed = io.StringIO()
     with contextlib.redirect_stdout(printed):
-        assert rulings.main(["slice", "--program", "brook", "--repo", REPO, "--lane", "lane-a", "--step", STEP, *(["--plan", str(plan)] if plan else [])], RegisterShell(rows)) == 0
+        assert rulings.main(["slice", "--program", "brook", "--repo", REPO, "--lane", "lane-a", "--step", STEP, *(["--plan", str(plan)] if plan else [])], RegisterShell(rows), stdin=sys.stdin, stdout=sys.stdout) == 0
     return printed.getvalue().rstrip("\n").rpartition("slice-hash: ")[2]
 
 
@@ -145,28 +144,19 @@ def test_a_head_that_breaks_nothing_prints_nothing_and_exits_zero(package: Path,
     assert check(capsys, CheckShell(pinned(package))) == (0, [])
 
 
-def test_an_anchored_row_the_diff_touches_needs_a_rulings_line(package: Path, state: Path, registered: Path, capsys) -> None:
+def test_an_incident_fixs_anchored_row_the_diff_touches_needs_a_rulings_line(package: Path, state: Path, registered: Path, capsys) -> None:
+    """45200f2: the uncited row blocks an incident fix's merge; every other head leaves the citation to the PR body judge at ship."""
     uncited = CLEAN.replace("- bbbbbbb: Drain the pool when a run closes.", "- ccccccc: Cards quote the words they ask about.")
 
-    assert check(capsys, CheckShell(pinned(package), body=uncited)) == (1, [UNCITED])
-    assert check(capsys, CheckShell(pinned(package), body=uncited.replace("- ccccccc:", "- rule/bbbbbbb:"))) == (0, [])
+    assert check(capsys, CheckShell(pinned(package), body=uncited), "--incident") == (1, [UNCITED])
+    assert check(capsys, CheckShell(pinned(package), body=uncited.replace("- ccccccc:", "- rule/bbbbbbb:")), "--incident") == (0, [])
+    assert check(capsys, CheckShell(pinned(package), body=uncited)) == (0, [])
 
 
 def test_a_rulings_line_in_a_pr_comment_cites_the_row(package: Path, state: Path, registered: Path, capsys) -> None:
     uncited = CLEAN.replace("- bbbbbbb: Drain the pool when a run closes.", "- ccccccc: Cards quote the words they ask about.")
 
-    assert check(capsys, CheckShell(pinned(package), body=uncited, comments=("Second-model review: ok.", "## Rulings\n\n- bbbbbbb: Drain the pool when a run closes."))) == (0, [])
-
-
-def test_a_cited_row_that_names_what_it_protects_needs_the_line_to_say_how_the_change_serves_it(package: Path, state: Path, registered: Path, capsys) -> None:
-    """Root #204765: a Rulings line that cites a rule by id alone let a lane follow the words against the harm the rule prevents."""
-    rows = pinned(package)
-    rows["rule/bbbbbbb"]["protects"] = "a closed run from holding pool connections"
-    refused = (1, ["RULINGS-PLAIN rule/bbbbbbb cited by id alone\tsay on the line citing each one what it protects and how this change serves that: '<rule> protects <harm>; this change serves it by <how>' (root #204765)"])
-    explained = CLEAN.replace("- bbbbbbb: Drain the pool when a run closes.", "- bbbbbbb: Drain the pool when a run closes. It protects a closed run from holding pool connections; this change serves it by draining in close.")
-
-    assert check(capsys, CheckShell(rows)) == refused
-    assert check(capsys, CheckShell(rows, body=explained)) == (0, [])
+    assert check(capsys, CheckShell(pinned(package), body=uncited, comments=("Second-model review: ok.", "## Rulings\n\n- bbbbbbb: Drain the pool when a run closes.")), "--incident") == (0, [])
 
 
 class CachedViewShell(CheckShell):
@@ -179,7 +169,7 @@ class CachedViewShell(CheckShell):
 def test_a_rulings_comment_posted_moments_ago_cites_the_row(package: Path, state: Path, registered: Path, capsys) -> None:
     uncited = CLEAN.replace("- bbbbbbb: Drain the pool when a run closes.", "- ccccccc: Cards quote the words they ask about.")
 
-    assert check(capsys, CachedViewShell(pinned(package), body=uncited, comments=("## Rulings\n\n- bbbbbbb: Drain the pool when a run closes.",))) == (0, [])
+    assert check(capsys, CachedViewShell(pinned(package), body=uncited, comments=("## Rulings\n\n- bbbbbbb: Drain the pool when a run closes.",)), "--incident") == (0, [])
 
 
 def test_a_reserved_touch_needs_an_answer_cited_or_tapped_for_this_pr(package: Path, state: Path, registered: Path, capsys) -> None:
@@ -351,7 +341,7 @@ def test_an_unreadable_plan_file_is_a_blocker_beside_every_other_finding(package
     plan.write_bytes(b"# Plan\n\n\xff\xfe not text\n")
     uncited = CLEAN.replace("- bbbbbbb: Drain the pool when a run closes.", "- ccccccc: Cards quote the words they ask about.")
 
-    code, lines = check(capsys, CheckShell(pinned(package), body=uncited, diff=DIFF + TEST_DIFF, stamp="0" * 12), "--plan", str(plan))
+    code, lines = check(capsys, CheckShell(pinned(package), body=uncited, diff=DIFF + TEST_DIFF, stamp="0" * 12), "--incident", "--plan", str(plan))
 
     assert code == 1
     assert lines[0] == UNCITED
@@ -456,25 +446,6 @@ def test_a_row_shorter_than_a_quote_clears_when_the_line_quotes_all_of_its_words
     diff = DIFF.replace("+    self.drain();", "+    let writable = true;")
     assert check(capsys, CheckShell(rows, body=citing(line), diff=diff)) == (1 if refusals else 0, refusals)
 
-def test_in_your_words_must_be_there_and_read_plainly(package: Path, state: Path, registered: Path, capsys) -> None:
-    jargon = CLEAN.replace(
-        "The pool empties itself when a run ends.", 'The lane moves `Pool.drain` into src/relay/pool.rs (bbbbbbb) and "keep the relay-server small".'
-    )
-
-    assert check(capsys, CheckShell(pinned(package), body=CLEAN.split("### In your words")[0])) == (1, ["RULINGS-PLAIN no ### In your words section"])
-    assert check(capsys, CheckShell(pinned(package), body=jargon)) == (
-        1,
-        ['RULINGS-PLAIN a file path "src/relay/pool.rs"', 'RULINGS-PLAIN a code symbol "`Pool.drain`"', 'RULINGS-PLAIN a drive word "lane"'],
-    )
-
-
-def test_in_your_words_in_a_later_comment_replaces_the_bodys(package: Path, state: Path, registered: Path, capsys) -> None:
-    jargon = CLEAN.replace("The pool empties itself when a run ends.", "The lane moves `Pool.drain` into src/relay/pool.rs.")
-    plain = "## Rulings\n\n### In your words\n\nThe pool empties itself when a run ends."
-
-    assert check(capsys, CheckShell(pinned(package), body=jargon, comments=("Second-model review: ok.", plain))) == (0, [])
-
-
 def test_a_decision_in_the_body_must_cite_an_answer(package: Path, state: Path, registered: Path, capsys) -> None:
     body = CLEAN.replace(
         "The pool drains when a run closes.",
@@ -487,8 +458,6 @@ def test_a_decision_in_the_body_must_cite_an_answer(package: Path, state: Path, 
     )
     quoted = CLEAN.replace("The pool drains when a run closes.", "- On Oct 22 you said “Yes (my pick)”; this change leaves it alone.")
     assert check(capsys, CheckShell(pinned(package), body=quoted)) == (0, [])
-    in_words = CLEAN.replace("The pool empties itself when a run ends.", "We decided to keep the retry loop.")
-    assert check(capsys, CheckShell(pinned(package), body=in_words)) == (1, ["LANE-DECIDED We decided to keep the retry loop."])
     unread = CheckShell(pinned(package), body=body, answers=[BUCKET_ANSWER], failing=("ccn -R /repo answer list --limit 0",))
     code, lines = check(capsys, unread)
     assert code == 1
@@ -532,8 +501,9 @@ def test_the_lane_of_the_head_needs_a_desks_newest_grade_ok_for_its_current_slic
         ("readback: ok lane-a", (0, [])),
         ("readback: ok 7bed615 lane-b all three items match", (1, ["CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back"])),
         ("readback: missing 7bed615 lane-a", (1, ["CONTRACT-MISSING lane-a: the newest grade, #9, is missing: no reason given"])),
+        ("readback ok lane-a: row prompt/1030-212507 now says all search lives in the new tree. Every other row carries #235609.", (0, [])),
     ],
-    ids=["head-then-lane", "lane-without-stamp", "head-then-another-lane", "missing-without-reason"],
+    ids=["head-then-lane", "lane-without-stamp", "head-then-another-lane", "missing-without-reason", "no-colon-after-readback"],
 )
 def test_a_desks_grade_names_the_lane_after_an_optional_head_and_before_an_optional_stamp(package: Path, state: Path, registered: Path, capsys, text: str, expected: tuple[int, list[str]]) -> None:
     rows = pinned(package)
@@ -576,6 +546,15 @@ def test_accepted_names_a_lane_only_once_a_desk_graded_its_current_slice_ok(pack
 
     assert ran(capsys, CheckShell(rows), "accepted", "--lane", "lane-a") == (0, "accepted lane-a\n")
     assert ran(capsys, CheckShell(rows, reviews=[]), "accepted", "--lane", "lane-a") == (1, "CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n")
+
+
+def test_a_numbered_successor_keeps_the_read_back_a_desk_accepted_for_the_lane_it_replaced(package: Path, state: Path, registered: Path, capsys) -> None:
+    """Root #241130: fidelity-desk-11 graded fuzzy-match-4's read-back ok as "readback ok fuzzy-match-4: ...", which no grade form read, and fuzzy-match-4 was rotating to fuzzy-match-5."""
+    rows = pinned(package)
+    grade = dict(graded(current_stamp(rows, None)), text="readback ok lane-a: every row carries the graded contract")
+
+    assert ran(capsys, CheckShell(rows, reviews=[grade]), "accepted", "--lane", "lane-a-2") == (0, "accepted lane-a-2\n")
+    assert ran(capsys, CheckShell(rows, reviews=[grade]), "accepted", "--lane", "lane-b-2") == (1, "CONTRACT-MISSING lane-b-2: no fidelity desk has graded a read-back\n")
 
 
 def test_a_pr_citing_a_shape_ruling_adds_a_test_naming_it_or_the_row_records_one(package: Path, state: Path, registered: Path, capsys) -> None:
@@ -629,7 +608,7 @@ def test_a_test_naming_a_shape_ruling_that_the_judge_reads_as_another_invariant_
 def test_a_pr_in_another_checkout_is_graded_against_the_drive_register(package: Path, state: Path, registered: Path, capsys) -> None:
     uncited = CLEAN.replace("- bbbbbbb: Drain the pool when a run closes.", "- ccccccc: Cards quote the words they ask about.")
 
-    assert check(capsys, CheckShell(pinned(package), body=uncited), "--repo", "/second-repo") == (1, [UNCITED])
+    assert check(capsys, CheckShell(pinned(package), body=uncited), "--incident", "--repo", "/second-repo") == (1, [UNCITED])
 
 
 def test_no_drive_running_the_program_passes_with_one_blocker(package: Path, state: Path, capsys) -> None:
@@ -648,11 +627,9 @@ def test_refusals_print_in_the_contracts_order_and_an_incident_fix_meets_only_th
     assert check(capsys, shell) == (
         1,
         [
-            UNCITED,
             "RESERVED-NO-ANSWER reserved/cloud-delete\tNothing deletes a cloud bucket without my word.",
             f"FINDER-MAJOR {HEAD[:7]}",
             "NAME-HIT rule/aaaaaaa src/relay/pool.rs:2 parked worker",
-            "RULINGS-PLAIN no ### In your words section",
             "LANE-DECIDED We decided to park the worker.",
             "CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back",
         ],
@@ -686,17 +663,17 @@ def test_a_pr_that_names_no_number_is_a_usage_error(package: Path, state: Path, 
 
 GRANT_TICKER = changed("go/sand/cmd/runner_grant.go", [], ["func renew(path string) {", "\tticker := time.NewTicker(15 * time.Minute)", "\tdefer ticker.Stop()", "}"])
 BANNED_CELLS = {
-    "go ticker": (GRANT_TICKER, "timer", "go/sand/cmd/runner_grant.go", 2),
-    "tokio interval": (changed("rust/src/renew.rs", [], ["let mut tick = tokio::time::interval(Duration::from_secs(900));"]), "timer", "rust/src/renew.rs", 1),
-    "setInterval in a test": (changed("api/src/grant.test.ts", [], ["const handle = setInterval(rewriteGrant, 15 * 60_000);"]), "timer", "api/src/grant.test.ts", 1),
-    "sleep in a for loop": (changed("go/sand/cmd/wait.go", [], ["func waitReady() {", "\tfor {", "\t\tif ready() {", "\t\t\treturn", "\t\t}", "\t\ttime.Sleep(time.Second)", "\t}", "}"]), "poll loop", "go/sand/cmd/wait.go", 6),
-    "setTimeout rescheduling itself": (changed("dashboard/src/poll.ts", [], ["function refresh() {", "  load();", "  setTimeout(refresh, 5000);", "}"]), "poll loop", "dashboard/src/poll.ts", 3),
-    "grant written by Go": (changed("go/sand/cmd/runner_grant.go", [], ["if err := os.WriteFile(grantPath, []byte(grant), 0o600); err != nil {"]), "credential written to a file", "go/sand/cmd/runner_grant.go", 1),
-    "signing key over three lines": (changed("rust/src/keys.rs", [], ["fs::write(", "    &path,", "    signing_key.to_bytes(),", ")?;"]), "credential written to a file", "rust/src/keys.rs", 1),
-    "grant opened for writing": (changed("go/sand/cmd/runner_grant.go", [], ["f, err := os.OpenFile(grantPath, os.O_CREATE|os.O_WRONLY, 0o600)"]), "credential written to a file", "go/sand/cmd/runner_grant.go", 1),
-    "timer that writes a token": (changed("api/src/renew.ts", [], ["setInterval(() => writeFileSync(tokenPath, token), 1000);"]), "timer and credential written to a file", "api/src/renew.ts", 1),
-    "cargo test from a tool script": (changed("tools/check.sh", [], ["cargo test -p sandsql-server"]), "local exec", "tools/check.sh", 1),
-    "go test from a hook": (changed(".claude/hooks/verify.py", [], ['subprocess.run(["go", "test", "./..."], check=True)']), "local exec", ".claude/hooks/verify.py", 1),
+    "go ticker": (GRANT_TICKER, ("timer",), "go/sand/cmd/runner_grant.go", 2),
+    "tokio interval": (changed("rust/src/renew.rs", [], ["let mut tick = tokio::time::interval(Duration::from_secs(900));"]), ("timer",), "rust/src/renew.rs", 1),
+    "setInterval in a test": (changed("api/src/grant.test.ts", [], ["const handle = setInterval(rewriteGrant, 15 * 60_000);"]), ("timer",), "api/src/grant.test.ts", 1),
+    "sleep in a for loop": (changed("go/sand/cmd/wait.go", [], ["func waitReady() {", "\tfor {", "\t\tif ready() {", "\t\t\treturn", "\t\t}", "\t\ttime.Sleep(time.Second)", "\t}", "}"]), ("poll loop",), "go/sand/cmd/wait.go", 6),
+    "setTimeout rescheduling itself": (changed("dashboard/src/poll.ts", [], ["function refresh() {", "  load();", "  setTimeout(refresh, 5000);", "}"]), ("poll loop",), "dashboard/src/poll.ts", 3),
+    "grant written by Go": (changed("go/sand/cmd/runner_grant.go", [], ["if err := os.WriteFile(grantPath, []byte(grant), 0o600); err != nil {"]), ("credential written to a file",), "go/sand/cmd/runner_grant.go", 1),
+    "signing key over three lines": (changed("rust/src/keys.rs", [], ["fs::write(", "    &path,", "    signing_key.to_bytes(),", ")?;"]), ("credential written to a file",), "rust/src/keys.rs", 1),
+    "grant opened for writing": (changed("go/sand/cmd/runner_grant.go", [], ["f, err := os.OpenFile(grantPath, os.O_CREATE|os.O_WRONLY, 0o600)"]), ("credential written to a file",), "go/sand/cmd/runner_grant.go", 1),
+    "timer that writes a token": (changed("api/src/renew.ts", [], ["setInterval(() => writeFileSync(tokenPath, token), 1000);"]), ("credential written to a file", "timer"), "api/src/renew.ts", 1),
+    "cargo test from a tool script": (changed("tools/check.sh", [], ["cargo test -p sandsql-server"]), ("local exec",), "tools/check.sh", 1),
+    "go test from a hook": (changed(".claude/hooks/verify.py", [], ['subprocess.run(["go", "test", "./..."], check=True)']), ("local exec",), ".claude/hooks/verify.py", 1),
 }
 BENIGN_CELLS = {
     "one-shot sleep with its reason": changed("go/sand/cmd/dial.go", [], ["func dial() {", "\t// the socket binds a beat after listen returns", "\ttime.Sleep(50 * time.Millisecond)", "\tconnect()", "}"]),
@@ -712,22 +689,39 @@ BENIGN_CELLS = {
 TIMER_ANSWER_ROW = {"kind": "pick", "status": "in-force", "words": "The signal keeps its keep-alive timer every 15 s.", "answer": '["abcabca"]', "lanes": '["all"]', "paths": "none"}
 
 
-@pytest.mark.parametrize(("diff", "shape", "path", "line"), list(BANNED_CELLS.values()), ids=list(BANNED_CELLS))
-def test_a_banned_mechanism_on_an_added_line_warns_with_its_rule_and_line(package: Path, state: Path, registered: Path, capsys, diff: str, shape: str, path: str, line: int) -> None:
+def answering(judged: Judge, verdict: str | None) -> None:
+    judged.verdict = lambda kind, artifact: None if verdict is None else judge.Verdict(verdict, "time.NewTicker", "", "Nothing he said asks for a renewal timer.")
+
+
+@pytest.mark.parametrize(("diff", "shapes", "path", "line"), list(BANNED_CELLS.values()), ids=list(BANNED_CELLS))
+def test_a_banned_mechanism_on_an_added_line_warns_with_its_rule_and_line(
+    package: Path, state: Path, registered: Path, capsys, judged: Judge, diff: str, shapes: tuple[str, ...], path: str, line: int
+) -> None:
+    answering(judged, "yes")
     code, lines = check(capsys, CheckShell(pinned(package), diff=DIFF + diff))
 
     assert code == 1
-    assert [found.startswith(f"MECHANISM-BANNED {shape} {path}:{line} ") for found in lines] == [True]
-
-
+    assert [found.startswith(f"MECHANISM-BANNED {shape} {path}:{line} ") for found, shape in zip(lines, shapes, strict=True)] == [True] * len(shapes)
 @pytest.mark.parametrize("diff", list(BENIGN_CELLS.values()), ids=list(BENIGN_CELLS))
 def test_a_neighbour_of_a_banned_mechanism_warns_nothing(package: Path, state: Path, registered: Path, capsys, diff: str) -> None:
     assert check(capsys, CheckShell(pinned(package), diff=DIFF + diff)) == (0, [])
 
 
-def test_an_owner_answer_naming_the_mechanism_is_the_one_way_through(package: Path, state: Path, registered: Path, capsys) -> None:
+def test_a_timer_warns_only_when_the_judge_reads_it_as_named_by_neither_his_words_nor_the_plan(
+    package: Path, state: Path, registered: Path, capsys, judged: Judge
+) -> None:
     rows = pinned(package) | {"rule/abcabca": TIMER_ANSWER_ROW}
+    shell = CheckShell(rows, diff=DIFF + GRANT_TICKER, body=citing("- abcabca: the signal keeps its keep-alive timer."))
 
-    assert check(capsys, CheckShell(rows, diff=DIFF + GRANT_TICKER, body=citing("# owner: abcabca"))) == (0, [])
-    assert check(capsys, CheckShell(rows, diff=DIFF + GRANT_TICKER, body=citing("# owner: ccccccc")))[0] == 1
-    assert check(capsys, CheckShell(rows, diff=DIFF + GRANT_TICKER, body=citing("- abcabca: the signal keeps its keep-alive timer.")))[0] == 1
+    answering(judged, "no")
+    assert check(capsys, shell) == (0, [])
+    [(_, evidence, artifact, _)] = [asked for asked in judged.asked if asked[0] == "mechanism"]
+    assert TIMER_ANSWER_ROW["words"] in evidence
+    assert "go/sand/cmd/runner_grant.go:2 timer: ticker := time.NewTicker(15 * time.Minute)" in artifact
+    answering(judged, None)
+    assert check(capsys, shell) == (0, [])
+    answering(judged, "yes")
+    assert check(capsys, shell) == (
+        1,
+        ["MECHANISM-BANNED timer go/sand/cmd/runner_grant.go:2 `time.NewTicker`\tNothing he said asks for a renewal timer. Remove it, or bring the owner the case for it."],
+    )

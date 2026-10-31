@@ -77,7 +77,8 @@ per lane, a reply to the lane's latest open question no other reply claims, logg
 `RELAYED` or `RELAY-FAILED`. Each new `orca-desk: launch <lane> [NOW] <model> <effort> [role=<role>] brief=<absolute path>`
 line is the `launch` command under its key, `NOW` meaning `--owner-directed` and `role=` meaning `--role`, refused as
 `LAUNCH-FAILED` while the lane has a live dispatch or a launch in flight, or while its brief has no `Register slice:`
-line and the launch is not an incident lane's; a new lane's brief (`lane_brief.owes_scale`) with no `Scale:` line logs `SCALE-MISSING` and launches. Before any launch the runner refreshes the register slice under that
+line and the launch is not an incident lane's; a new lane's brief (`lane_brief.owes_scale`) with no `Scale:` line logs `SCALE-MISSING` and launches; a non-incident launch whose `Scale:` line a judge reads as missing
+the N its brief's paths run at goes ahead with one `SCALE-MISSED` to the root. Before any launch the runner refreshes the register slice under that
 line with `rulings.py slice --refresh`, first writing `Register slice: lane=<lane> step=incident` into an incident
 brief that has none, and writes the slice into every brief it attaches itself; a slice that does not read logs
 `SLICE-UNREAD` and the launch goes ahead. Every verified
@@ -518,7 +519,7 @@ lane gets one lift `ask`, and once the lane has no live session the root gets on
 on a drive starts at the newest record.
 With `landing.ci_build` set to a command that prints one Buildkite build's JSON, such as
 `tools/ci bk api /pipelines/{pipeline}/builds/{number}`, read once per build and its passed builds kept in
-`<config>.landing-builds.json` for three days, so a re-exec reads none of them again, a GREEN head whose passing build has a job named
+the runner's indexed Store for three days, so a re-exec reads none of them again, a GREEN head whose passing build has a job named
 "Redundant within its stack" reads BLOCKED `unproven: redundant skip, child #<n> <state>` and drops out of the prefix
 that would enqueue, with everything above it. It is GREEN again once a passed build with no skip job runs on a commit that
 contains the head: a build at the stack's tip, or one a `full run green <build>: #<pr>` note or report from the PR's lane
@@ -631,6 +632,7 @@ import os
 import plistlib
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import tempfile
@@ -648,33 +650,34 @@ from fnmatch import fnmatch
 from pathlib import Path, PurePosixPath
 from zoneinfo import ZoneInfo
 
-from long_running import actions
+from long_running import actions, judge
 from long_running.book import Book
+from long_running.build_cache import BuildCache
 from long_running.desk_control import DeskControl, QuiesceFailed
-import board_rows
-import cci
-import drive
+from long_running import board_rows
+from long_running import cci
+from long_running import drive
 import fidelity
 import finder
-import ghread
+from long_running import ghread
 import incident
 import inboxes
 import lane_brief
-import lanes
+from long_running import lanes
 import merge_queue
 import owner_waits
 import prompt_screen
 import judge_watch
 import prompt_watch
 import stall_watch
-import testfiles
-from grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, head_of, head_says, heads_since, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
-from grades import carry_of, delegated, keeps_tap, succeeds, with_successors
-from grades import carries as carry_grade
-from grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
-from grades import WITHDRAWN as WITHDRAWN_OPENING
-from grades import go_state, owes
-from grades import REVIEW_BOT_CHECK, REVIEW_BOT_HELD, VOIDING_KINDS, review_bot_wait, voids, withdrawn
+from long_running import testfiles
+from long_running.grades import ADDS_BEHAVIOR, FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, head_of, head_says, heads_since, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, patch_chain, precondition_sentences, repo_prs, standing
+from long_running.grades import carry_of, delegated, keeps_tap, succeeds, with_successors
+from long_running.grades import carries as carry_grade
+from long_running.grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
+from long_running.grades import WITHDRAWN as WITHDRAWN_OPENING
+from long_running.grades import go_state, owes
+from long_running.grades import REVIEW_BOT_CHECK, REVIEW_BOT_HELD, VOIDING_KINDS, review_bot_wait, voids, withdrawn
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK, latest
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -754,7 +757,7 @@ ADMITTED = BELIEVED_QUEUED | {"dropped", "ejected", MERGED}
 OUT_OF_QUEUE = frozenset({"not queued", "evicted"})
 LANDING_REFUSALS = frozenset({"FOREIGN", "TAP-REQUIRED", "CONTRACT-MISSING", "PARKED", "UNOWNED", "GATE-FAILED", "RULINGS-REFUSED", "ENQUEUE-STRANDED", "ENQUEUE-FAILED", "ENQUEUE-UNSETTLED"})
 OWNER_KINDS = ("head", "opened", "ready", "claim", "report")
-CHECK_PR_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "SHAPE-UNTESTED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS"})
+CHECK_PR_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "SHAPE-UNTESTED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS"})
 INCIDENT_CHECKS = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"})
 RESERVED_TOUCH = "RESERVED-NO-ANSWER"
 CHECK_PR_BLOCKER = "BLOCKER"
@@ -881,7 +884,6 @@ CARD_STEPS = 1000
 CARD_NAME = 80
 CARD_LABEL = 75
 COMMAND_TIMEOUT_SECONDS = 1800
-DEADLINE_ENV = "LONG_RUNNING_DEADLINE"
 ENQUEUE_SECONDS = 300
 LEDGER_SECONDS = 300
 FETCH_SECONDS = 120
@@ -906,9 +908,7 @@ GATE_WORKERS = 16
 GATE_BUDGET = timedelta(seconds=120)
 STEP_BUDGETS = {"fetch": FETCH_SECONDS, "check": 180, "settle": 300, "enqueue": 300}
 STACKS_FILE = "landing-stacks.json"
-BUILDS_FILE = "landing-builds.json"
 BUILDS_KEPT = timedelta(days=3)
-BUILD_JOB_FIELDS = ("type", "name", "step_key", "state", "soft_failed")
 CHECK_PR_WORKERS = 8
 TELL_BUDGET = timedelta(seconds=60)
 REFRESH_EVERY = timedelta(minutes=2)
@@ -1014,6 +1014,7 @@ INSTALL_PARTS = ("reference", "scripts")
 BRIEF_FILES = (MANUAL_TEMPLATE, ALERT_TEMPLATE, UNFIXED_TEMPLATE, finder.TEMPLATE, finder.ROWS_STEP, fidelity.TEMPLATE, fidelity.RUBRIC, incident.TEMPLATE)
 SLICE_LINE = "Register slice:"
 SLICE_HEADER = re.compile(rf"^{SLICE_LINE}", re.MULTILINE)
+SCALE_LINES = re.compile(r"^[ \t>*_-]*Scale:.*$", re.MULTILINE)
 INCIDENT_STEP = "incident"
 UNFIXED = re.compile(r"^[ \t>*-]*(?P<tick>`?)UNFIXED (?P<lane>[\w.-]+):[ \t]*(?P<case>\S.*?)(?P=tick)[ \t]*$", re.MULTILINE)
 UNFIXED_CASES = "unfixed-cases"
@@ -1173,7 +1174,7 @@ def reserved_fingerprint(rows: dict[str, dict]) -> str:
 
 def rulings_digest() -> str:
     """What `rulings.py check-pr` reads its causes with: its source and the sources of the modules that decide a cause, the board rows it parses and the test-file rule, and none of the plumbing it reads through."""
-    return hashlib.sha256(b"".join((SCRIPTS / f"{name}.py").read_bytes() for name in RULINGS_SOURCES)).hexdigest()[:16]
+    return hashlib.sha256(b"".join((SCRIPTS / "long_running" / f"{name}.py").read_bytes() for name in RULINGS_SOURCES)).hexdigest()[:16]
 
 
 def command_name(argv: list[str]) -> str:
@@ -1185,7 +1186,8 @@ class Shell:
     """The single side-effect boundary: every subprocess, the clock, and the load average pass through here.
 
     Input reaches a child from a file, never a pipe the runner writes while the child's output
-    fills, and a child still running after COMMAND_TIMEOUT_SECONDS is killed and fails its pass.
+    fills, and a child still running after COMMAND_TIMEOUT_SECONDS is killed and fails its pass; a child that is one of the
+    plugin's scripts gets that bound less `drive.REAP_SECONDS` as its deadline, kills its own commands at it, and fails the same way.
     Output that is not UTF-8, such as a diff of a binary file, reads with each bad byte replaced.
     A GitHub, cci or ccx read gets QUICK_SECONDS, a `--check` GATE_CHECK_SECONDS, `rulings.py check-pr` CHECK_PR_SECONDS, any other
     `stack-enqueue` and `ccx vcs ship` ENQUEUE_SECONDS, `ledger.py` LEDGER_SECONDS and `git fetch` FETCH_SECONDS; one that times out is logged and
@@ -1225,7 +1227,9 @@ class Shell:
                 feed.write(stdin or "")
                 feed.seek(0)
                 try:
-                    proc = cci.installed(argv, lambda: subprocess.run(argv, stdin=feed, capture_output=True, text=True, errors="replace", env={**os.environ, **(env or {}), DEADLINE_ENV: str(time.time() + timeout)}, cwd=cwd, timeout=timeout))
+                    proc = cci.installed(argv, lambda: subprocess.run(argv, stdin=feed, capture_output=True, text=True, errors="replace", env={**os.environ, **(env or {}), **drive.deadline_env(timeout - drive.REAP_SECONDS)}, cwd=cwd, timeout=timeout))
+                    if proc.returncode == -signal.SIGALRM:
+                        raise subprocess.TimeoutExpired(argv, timeout)
                 except subprocess.TimeoutExpired:
                     print(f"TIMED-OUT after {timeout}s, skipped: {command_name(argv)}", file=sys.stderr, flush=True)
                     return Done(TIMED_OUT, "", f"{' '.join(argv)} timed out after {timeout}s and was killed")
@@ -2521,6 +2525,18 @@ class Runner:
             self.escalate(f"scale:{key}", "SCALE-MISSING", lane, f"{lane_brief.no_scale(brief)}; {lane} launches anyway")
         self.refresh_slice(key, lane, brief)
         self.accept_launch(key, lane, spec["model"], spec["effort"], str(brief), bool(spec["now"]), role=spec["role"] or "")
+        if INCIDENT_MODEL not in (spec["model"], spec["role"]) and not incident_fix(lane, spec["model"], brief, spec["role"] or ""):
+            self.judge_scale(key, lane, brief)
+
+    def judge_scale(self, key: str, lane: str, brief: Path) -> None:
+        """Escalate one `SCALE-MISSED` when a judge reads the brief's `Scale:` line as missing the N its paths run at; the launch goes ahead either way, and a judge call that fails posts nothing."""
+        text = brief.read_text()
+        if not (lines := SCALE_LINES.findall(text)):
+            return
+        said = SLICE_HEADER.split(text, maxsplit=1)[0].strip()
+        found = judge.judge("scale", f"The brief, verbatim:\n{said}", "\n".join(line.strip() for line in lines), backend=judge.backend_from(os.environ), drive=self.config.drive)
+        if found is not None and found.flagged:
+            self.escalate(f"scale:{key}", "SCALE-MISSED", lane, f'{found.sentence} Its line reads "{found.artifact_phrase}"; fix it in {brief} for the next spawn.')
 
     def withdraw_line(self, at: str, key: str, rest: str) -> None:
         spec = WITHDRAW_SPEC.match(rest)
@@ -5501,9 +5517,11 @@ class Landing:
         self.ledger_rows: dict[str, dict] = {}
         self.builds_read: dict[str, tuple[datetime, list[tuple[str, str, bool | None]]]] = {}
         self.targets: dict[str, tuple[datetime, list[tuple[str, str]]]] = {}
-        self.builds_file = runner.config.source.with_name(f"{runner.config.source.stem}.{BUILDS_FILE}")
-        self.builds: dict[str, dict] = self.kept_builds()
-        self.builds_kept = set(self.builds)
+        self.build_cache = BuildCache(runner.config.source, self.shell, LANDING)
+        self.building = threading.Lock()
+        self.builds: dict[str, dict] = {}
+        self.cached_builds_read: set[str] = set()
+        self.builds_pending: set[str] = set()
         self.contained: dict[tuple[str, str], bool] = {}
         self.tidying = ThreadPoolExecutor(1)
         self.tidy_work: Future | None = None
@@ -6294,8 +6312,7 @@ class Landing:
     def flake(self, oid: str, red: str, green: str, rows: dict[str, dict]) -> bool:
         """Post the `FLAKE` for trunk commit `oid`, whose `check` failed on build `red` and passed on build `green`; False while a build does not read or the record did not post."""
         if red == green:
-            self.builds.pop(green, None)
-            if not (build := self.build(green)):
+            if not (build := self.build(green, refresh=True)):
                 return False
             jobs = [job["retry_source"]["job_id"] for job in build.get("jobs", []) if job.get("type") == "script" and job.get("state") == "passed" and job.get("retry_source")]
         else:
@@ -6381,17 +6398,31 @@ class Landing:
             builds = [build for build in pool.map(self.build, urls) if build]
         return {job.get("step_key") or job["name"] for build in builds for job in build.get("jobs", []) if job.get("type") == "script"} if builds else None
 
-    def build(self, url: str) -> dict | None:
+    def build(self, url: str, *, refresh: bool = False) -> dict | None:
         """The Buildkite build at `url`, read through `landing.ci_build` and kept once it has finished."""
-        if url not in self.builds:
-            done = self.shell.run(release_build_argv(self.checkout, self.landing_config["ci_build"], url))
-            if done.code != 0:
-                return None
-            build = json.loads(done.out)
-            if build.get("finished_at") is None and build.get("state") not in ("passed", "failed", "canceled"):
-                return build
+        with self.building:
+            if refresh:
+                self.builds.pop(url, None)
+                self.builds_pending.discard(url)
+                self.cached_builds_read.add(url)
+            if url in self.builds:
+                return self.builds[url]
+            if url not in self.cached_builds_read:
+                self.cached_builds_read.add(url)
+                if (kept := self.build_cache.get(url)) is not None:
+                    self.builds[url] = kept
+                    return kept
+        done = self.shell.run(release_build_argv(self.checkout, self.landing_config["ci_build"], url))
+        if done.code != 0:
+            return None
+        build = json.loads(done.out)
+        if build.get("finished_at") is None and build.get("state") not in ("passed", "failed", "canceled"):
+            return build
+        with self.building:
             self.builds[url] = build
-        return self.builds[url]
+            if build.get("state") == "passed" and build.get("finished_at"):
+                self.builds_pending.add(url)
+        return build
 
     def redundant(self, url: str) -> bool | None:
         build = self.build(url)
@@ -6428,23 +6459,17 @@ class Landing:
             self.contained[(head, sha)] = done.out.strip() in ("ahead", "identical")
         return self.contained[(head, sha)]
 
-    def kept_builds(self) -> dict[str, dict]:
-        try:
-            return json.loads(self.builds_file.read_text())
-        except FileNotFoundError:
-            return {}
-
     def keep_builds(self) -> None:
-        """Write every passed build this runner read, finished within `BUILDS_KEPT`, beside the config with those an earlier or sibling runner kept, each cut to the fields the gates read, so a re-exec on a new release reads no finished build again. A failed build is never kept, since a retried job can still turn it green."""
-        floor = self.runner.now() - BUILDS_KEPT
-        passed = {url: {key: build[key] for key in ("state", "commit", "finished_at") if key in build} | {"jobs": [{key: job[key] for key in BUILD_JOB_FIELDS if key in job} for job in build.get("jobs", [])]} for url, build in list(self.builds.items()) if build.get("state") == "passed" and build.get("finished_at") and actions.parse_stamp(build["finished_at"]) >= floor}
-        if passed.keys() <= self.builds_kept:
+        """Persist only newly read passed builds, retaining the summaries an earlier or sibling runner kept."""
+        with self.building:
+            pending = {url: self.builds[url] for url in self.builds_pending}
+        if not pending:
             return
-        kept = {url: build for url, build in (self.kept_builds() | passed).items() if actions.parse_stamp(build["finished_at"]) >= floor}
-        staged = self.builds_file.with_name(f".{self.builds_file.name}.{threading.get_ident()}")
-        staged.write_text(json.dumps(kept))
-        staged.replace(self.builds_file)
-        self.builds_kept = set(kept)
+        self.build_cache.put(pending, self.runner.now() - BUILDS_KEPT)
+        with self.building:
+            for url, build in pending.items():
+                if self.builds.get(url) is build:
+                    self.builds_pending.discard(url)
 
     def deferred_child(self, pr: str) -> dict | None:
         """The topmost PR the ledger stacks on `pr`, whose build the Graphite optimizer runs for the stack."""
