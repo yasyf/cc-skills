@@ -139,3 +139,20 @@ def test_a_remote_vet_refuses_when_every_vet_sprite_is_over_load_so_the_lane_pus
     assert done.returncode == 3, done.stdout + done.stderr
     assert done.stdout == "remote-vet: every vet Sprite is over load 16 (busy at 16.5); push and let CI grade l1\n"
     assert not (tmp_path / "sprites.log").exists()
+
+
+@pytest.mark.parametrize("vet", [{}, {"vet": {"prepare": "true"}}, {"vet": {"sprite": []}}], ids=["no-vet", "no-sprite", "empty-sprite"])
+def test_a_remote_vet_with_no_build_sprite_refuses_and_never_falls_back_to_a_grading_sprite(tmp_path: Path, vet: dict) -> None:
+    """Root #240536: remote-vet never runs on a grading box, and refuses when no BUILD Sprite is registered."""
+    mac, work = tmp_path / "mac", tmp_path / "work"
+    subprocess.run(["git", "init", "-q", str(work)], check=True)
+    config = tmp_path / "runner.json"
+    config.write_text(json.dumps({"drive": "d1", "landing": {"repo": "o/r", "checkout": str(mac / "clone")}, "finder": {"sprite": ["grader"]}, "fidelity": {"sprite": ["grader"]}} | vet))
+    executable(mac / "bin" / "sprite", SPRITE)
+    env = os.environ | {"PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(tmp_path / "sprite"), "SPRITES_LOG": str(tmp_path / "sprites.log"), "LOADS": json.dumps({"grader": "1"})}
+
+    done = subprocess.run([sys.executable, str(SCRIPT), "--config", str(config), "--lane", "l1", str(work)], env=env, capture_output=True, text=True, check=False)
+
+    assert done.returncode == 3, done.stdout + done.stderr
+    assert done.stdout == f"remote-vet: {config} names no BUILD Sprite under vet.sprite, and a vet never runs on a grading Sprite; pass --sprite or push and let CI grade l1\n"
+    assert not (tmp_path / "sprites.log").exists()
