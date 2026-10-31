@@ -767,6 +767,7 @@ RESERVED_TOUCH = "RESERVED-NO-ANSWER"
 CHECK_PR_BLOCKER = "BLOCKER"
 UNGRADED_AFTER = timedelta(minutes=30)
 GO_TO_QUEUE = timedelta(minutes=5)
+FRESH_HEAD = timedelta(minutes=10)
 ADAPTER_CHECKS = ("approvals", "required-ci")
 OVERFLOW = "overflow"
 OVERFLOW_AFTER = timedelta(minutes=5)
@@ -5334,7 +5335,7 @@ def unheld(target: str) -> str:
 def heads_query(repo: str, shas: list[str]) -> str:
     owner, name = repo.split("/")
     review = f'checkSuites(last: 10, filterBy: {{checkName: "{REVIEW_BOT_CHECK}"}}) {{ nodes {{ checkRuns(last: 1, filterBy: {{checkName: "{REVIEW_BOT_CHECK}"}}) {{ nodes {{ title startedAt }} }} }} }}'
-    fields = " ".join(f'h{index}: object(expression: "{sha}") {{ ... on Commit {{ status {{ contexts {{ context state description targetUrl }} }} {review} }} }}' for index, sha in enumerate(shas))
+    fields = " ".join(f'h{index}: object(expression: "{sha}") {{ ... on Commit {{ committedDate status {{ contexts {{ context state description targetUrl }} }} {review} }} }}' for index, sha in enumerate(shas))
     return f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'
 
 
@@ -5606,6 +5607,7 @@ class Landing:
         self.unchecked: set[str] = set()
         self.settlement = Settlement({}, {})
         self.unproven_why: dict[str, str] = {}
+        self.fresh_why: dict[str, str] = {}
         self.sessions: dict[str, bool] = {}
         self.live: list[dict] | None = None
         self.dead: dict[str, bool] = {}
@@ -5632,6 +5634,7 @@ class Landing:
         self.ledger_rows: dict[str, dict] = {}
         self.builds_read: dict[str, tuple[datetime, list[tuple[str, str, bool | None]]]] = {}
         self.targets: dict[str, tuple[datetime, list[tuple[str, str]]]] = {}
+        self.committed: dict[str, datetime] = {}
         self.build_cache = BuildCache(runner.config.source, self.shell, LANDING)
         self.building = threading.Lock()
         self.builds: dict[str, dict] = {}
@@ -6074,6 +6077,7 @@ class Landing:
             return []
         down = self.down_since() is not None
         read: dict[str, bool] = {}
+        self.read_heads({head: pr for tree in trees for tip in tree for pr in downstack(open_rows, tip) if (head := open_rows[pr].get("head"))})
 
         def landable(pr: str) -> bool:
             if pr not in read:
@@ -6089,13 +6093,16 @@ class Landing:
                 causes.discard("ci-unproven")
             elif causes == {"ci-unproven"}:
                 self.unproven_why[pr] = why
+            if not causes and (why := self.fresh(open_rows.get(pr, {}).get("head", ""))):
+                self.fresh_why[pr] = why
+                return False
             return not causes
 
         def ready(pr: str) -> bool:
             return landable(pr) and all(landable(below) or statuses.get(below, {}).get("verdict") in STATUS_SETTLED for below in downstack(open_rows, pr) - {pr})
 
         def said(pr: str) -> str:
-            return f"#{pr} {statuses.get(pr, {}).get('verdict') or 'unread'}" + (f" ({self.unproven_why[pr]})" if pr in self.unproven_why else "")
+            return f"#{pr} {statuses.get(pr, {}).get('verdict') or 'unread'}" + (f" ({why})" if (why := self.unproven_why.get(pr) or self.fresh_why.get(pr)) else "")
 
         kept = []
         for tree in trees:
@@ -6110,6 +6117,13 @@ class Landing:
                 elif blocked := sorted((below for below in downstack(open_rows, pr) - {pr} if not landable(below) and statuses.get(below, {}).get("verdict") not in STATUS_SETTLED), key=lambda below: len(downstack(open_rows, below))):
                     self.settle({pr: open_rows[pr].get("head", "")}, BelowBlocked(f"#{blocked[0]}", f"stacked on {said(blocked[0])} in the status read, so the pass checked none of its stack"))
         return kept
+
+    def fresh(self, head: str) -> str:
+        """Why `head`, committed under `FRESH_HEAD` ago, waits out of the queue, or empty: until its own `landing.trunk_check` build passes, since enqueueing each push of a lane mid-fix costs a queue slot and a Trunk run for every eviction (root #254954)."""
+        if not (check := self.landing_config.get("trunk_check")) or not (at := self.committed.get(head)) or (age := self.runner.now() - at) >= FRESH_HEAD:
+            return ""
+        state = next((status["state"] for status in self.cached(head) or [] if status["context"] == check), "unreported")
+        return "" if state == "success" else f"fresh: its head {head[:10]} moved {int(age.total_seconds() // 60)} minutes ago and its own {check} reads {state}, so the queue sees it once that build passes"
 
     def settle_tree(self, rows: dict[str, dict], held: list[str], gated: list[tuple[list[str], merge_queue.Gate]]) -> None:
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
@@ -6730,6 +6744,7 @@ class Landing:
                 runs = [run for suite in commit["checkSuites"]["nodes"] for run in suite["checkRuns"]["nodes"]]
                 with self.reading:
                     self.read[sha] = (now, statuses)
+                    self.committed[sha] = datetime.fromisoformat(commit["committedDate"])
                     self.targets[sha] = (now, [(context["targetUrl"] or "", context["state"].lower()) for context in (commit["status"] or {"contexts": []})["contexts"]])
                     self.review_titles[sha] = max(runs, key=lambda run: run["startedAt"] or "", default={"title": ""})["title"] or ""
                 found[sha] = statuses
@@ -9457,7 +9472,7 @@ class Landing:
         self.gate_deadline = time.monotonic() + GATE_BUDGET.total_seconds()
         self.trusted_from, self.pass_began = self.pass_began, time.monotonic()
         self.surface()
-        self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why, self.cleared, self.exempts = None, False, None, None, None, set(), {}, {}, {}
+        self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why, self.fresh_why, self.cleared, self.exempts = None, False, None, None, None, set(), {}, {}, {}, {}
         self.settlement = Settlement({}, {})
         if self.quota_low():
             if rows := self.rows():
