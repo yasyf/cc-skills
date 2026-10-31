@@ -6050,11 +6050,26 @@ def test_a_read_that_fails_on_a_transient_network_error_runs_once_more_and_a_wri
     cci.write_text(f"#!/bin/sh\necho x >> {tries}\nif [ $(wc -l < {tries}) -lt 2 ]; then echo 'Connection reset by peer' >&2; exit 1; fi\necho ok\n")
     cci.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    monkeypatch.setattr(runner_module, "REREAD_PAUSES", (0, 0))
     read = runner_module.Shell().run(["cci", "tail", "--drive", "d1"])
     assert (read.code, read.out, tries.read_text().count("x")) == (0, "ok\n", 2)
     tries.unlink()
     write = runner_module.Shell().run(["cci", "post", "--drive", "d1", "--text", "hi"])
     assert (write.code, tries.read_text().count("x")) == (1, 1)
+
+
+def test_a_read_that_keeps_timing_out_on_tls_runs_three_times_and_logs_each_retry(tmp_path, monkeypatch, capsys):
+    """Root #222205: the GitHub quota read and Trunk calls failed on TLS handshake timeouts at load 31-43, each a bare failure."""
+    bin_dir, tries = tmp_path / "bin", tmp_path / "tries"
+    bin_dir.mkdir()
+    ccx = bin_dir / "ccx"
+    ccx.write_text(f"#!/bin/sh\necho x >> {tries}\nif [ $(wc -l < {tries}) -lt 3 ]; then echo 'net/http: TLS handshake timeout' >&2; exit 1; fi\necho '[]'\n")
+    ccx.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    monkeypatch.setattr(runner_module, "REREAD_PAUSES", (0, 0))
+    read = runner_module.Shell().run(["ccx", "vcs", "auth", "status", "Forge-AI/monorepo", "--json"])
+    assert (read.code, read.out, tries.read_text().count("x")) == (0, "[]\n", 3)
+    assert [line.split(" after: ")[0] for line in capsys.readouterr().err.splitlines() if line.startswith("RETRIED")] == ["RETRIED ccx vcs auth status Forge-AI/monorepo --json in 0s"] * 2
 
 
 def test_heads_no_go_names_are_told_new_heads_first_within_the_pass_budget(shell, config, tmp_path, monkeypatch):
@@ -6324,7 +6339,7 @@ def test_a_drop_blaming_a_pr_outside_the_stack_re_enqueues_the_same_head_on_the_
     assert len(shell.enqueues()) == 1
     root_go(shell, "GO #29020 at cccc3333 standard; a head change is not required", shell.now())
     landing_pass(shell, config)
-    assert len(shell.enqueues()) == 2 and blockers(shell) == [] and len(escalations(shell)) == 1
+    assert len(shell.enqueues()) == 2 and blockers(shell) == [] and [line.split(" ", 1)[0] for line in escalations(shell)] == ["AWAITS-GO", "GO-UNROWED"]
 
 
 def test_a_gate_ejection_blaming_a_pr_outside_the_stack_is_never_routed(shell, config, tmp_path):
@@ -7318,6 +7333,7 @@ def test_a_go_named_green_head_above_a_red_or_conflicting_parent_with_its_own_go
     two_pr_stack(shell)
     shell.rows[0] = dict(shell.rows[0], **broken)
     shell.rows[1] = dict(shell.rows[1], test_state="success")
+    shell.gates["29031"] = [gate("#29020 BLOCKED cccc333333 required check buildkite/test is FAILURE", "#29031 WAITING dddd444444 below BLOCKED #29020")]
     shell.queue["29031"] = "not queued"
     merge_go(shell, "29020", "merge #29020 at cccc333")
     merge_go(shell, "29031", "merge #29031 at dddd444")
@@ -7409,44 +7425,144 @@ def test_a_go_named_head_the_queue_evicted_before_any_enqueue_gets_one_blocker_t
     assert shell.enqueues() == []
 
 
-def skipped(shell: FakeShell) -> list[str]:
-    return [line for line in said(shell) if line.startswith("ADMITTED-SKIPPED")]
+def settled(shell: FakeShell, label: str) -> list[str]:
+    return [line for line in said(shell) if line.startswith(f"{label} ")]
 
 
-def test_an_admitted_head_no_record_accounts_for_draws_one_admitted_skipped_naming_the_branch_ten_minutes_on(shell, config, tmp_path):
-    """Owner 5:16 AM Oct 30 on #45286, admitted and unqueued for two hours with no record: "make a durable fix for this not jsut a done-off" (root #208560). The gate reads a verdict no rule routes, so the pass leaves it out silently."""
+def admitted_heads(config: Path) -> dict[str, dict]:
+    return json.loads((Path(json.loads(config.read_text())["orca"]["desk_inbox"]).expanduser().parent / runner_module.drive.ADMITTED).read_text())["heads"]
+
+
+def go_of(shell: FakeShell, pr: str) -> int:
+    return [record for record in shell.records if record["kind"] == "go" and runner_module.go_heads(record).get(pr)][-1]["seq"]
+
+
+def two_gone_green(shell: FakeShell) -> None:
+    shell.rows = [
+        {"pr": "33001", "lane": LANE, "branch": "g/1", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111", "test_state": "success"},
+        {"pr": "33002", "lane": LANE, "branch": "g/2", "base": "dev", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222", "test_state": "success"},
+    ]
+    for pr, head in (("33001", "aaaa111"), ("33002", "bbbb222")):
+        shell.gates[pr] = [gate(f"#{pr} GREEN {head}111 graphite READY", would=f"#{pr}")]
+        shell.enqueue_out[pr] = (0, f"enqueue #{pr}: {{}}\n")
+        shell.queue[pr] = "not queued"
+        grade(shell, pr, f"ok F307 at {head}.")
+        merge_go(shell, pr, f"merge #{pr} at {head}")
+
+
+def test_an_admitted_head_the_gate_refuses_posts_one_refused_naming_the_gate_line_in_that_pass_and_none_while_it_stands(shell, config, tmp_path):
+    """Root #221701: seven admitted heads drew ADMITTED-SKIPPED fifteen minutes after their gos, with no record in between saying why each sat out."""
     merge_mode(config, "every")
     gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
     shell.queue["33001"] = "not queued"
-    shell.sleep(9 * 60)
     landing_pass(shell, config)
-    assert skipped(shell) == []
-    admitted = Path(json.loads(config.read_text())["orca"]["desk_inbox"]).expanduser().parent / runner_module.drive.ADMITTED
-    assert json.loads(admitted.read_text())["heads"]["33001"]["state"] == "merging"
-    shell.sleep(2 * 60)
+    assert settled(shell, "REFUSED") == [f"REFUSED #33001 at aaaa111111 (go #{go_of(shell, '33001')}): the gate read aaaa111111 BLOCKED: merge conflict (graphite CONFLICT)"]
+    assert admitted_heads(config)["33001"] | {"since": ""} == {"head": "aaaa111111", "since": "", "state": "doing", "why": "the gate read aaaa111111 BLOCKED: merge conflict (graphite CONFLICT)"}
     landing_pass(shell, config)
     landing_pass(shell, config)
-    [line] = skipped(shell)
-    assert json.loads(admitted.read_text())["heads"]["33001"]["state"] == "defect"
-    assert line.startswith("ADMITTED-SKIPPED admitted-skipped:33001 #33001: #33001 is green at aaaa111111 and root go #")
-    assert "yet no record says it is queued, merging or refused: the gate read aaaa111111 BLOCKED: merge conflict (graphite CONFLICT); owner lane api-fix" in line
-    assert "root" in heard(shell, "ADMITTED-SKIPPED")[0].split(",")
+    assert len(settled(shell, "REFUSED")) == 1
 
 
-def test_an_admitted_head_whose_check_keeps_timing_out_draws_admitted_skipped_naming_the_timeout(shell, config, tmp_path):
+def test_an_admitted_head_posts_one_record_per_change_of_its_outcome(shell, config, tmp_path):
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
+    shell.queue["33001"] = "not queued"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    shell.gates["33001"] = [gate("#33001 GREEN aaaa111111 graphite READY", would="#33001")]
+    landing_pass(shell, config)
+    shell.queue["33001"] = "queued"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [line.split(" ", 1)[0] for line in said(shell) if line.startswith(("QUEUED ", "REFUSED ", "BELOW-BLOCKED "))] == ["REFUSED", "QUEUED"]
+    assert admitted_heads(config)["33001"]["state"] == "merging"
+
+
+def test_an_admitted_head_whose_check_keeps_timing_out_is_refused_for_the_timeout_in_that_pass(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
     shell.gates["33001"] = [(runner_module.TIMED_OUT, "", "stack-enqueue 33001 --check timed out after 60s and was killed")]
     shell.queue["33001"] = "not queued"
-    shell.sleep(11 * 60)
     landing_pass(shell, config)
-    landing_pass(shell, config)
-    [line] = skipped(shell)
-    assert f"yet no record says it is queued, merging or refused: GATE-TIMEOUT its graphite-stack-enqueue check ran past {runner_module.GATE_CHECK_SECONDS}s on both tries and was killed, so the next pass checks it again; owner lane api-fix" in line
+    [line] = settled(shell, "REFUSED")
+    assert line.endswith(f": GATE-TIMEOUT its graphite-stack-enqueue check ran past {runner_module.GATE_CHECK_SECONDS}s on both tries and was killed, so the next pass checks it again")
 
 
-def test_a_pr_the_runner_merged_directly_draws_no_admitted_skipped_while_its_ledger_row_stays_open(shell, config, tmp_path):
-    """Root #211747: the runner merged #45389 and #45523 directly at 6:44 AM Oct 30 and posted MERGED for each, then raised ADMITTED-SKIPPED on both at 6:50, since their ledger rows stayed open until the next refresh."""
+def test_an_admitted_head_no_branch_settles_is_refused_unsettled_to_the_root_naming_the_last_branch_that_saw_it(shell, config, tmp_path):
+    """Oct 30 7:52 AM to 12:10 PM: every GREEN gate enqueued nothing and posted nothing, since a GREEN verdict with no prefix was no outcome anyone recorded."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.gates["33001"] = [gate("#33001 GREEN aaaa111111 graphite READY")]
+    shell.queue["33001"] = "not queued"
+    landing_pass(shell, config)
+    [post] = [post for post in shell.posts if post_body(post).startswith("REFUSED ")]
+    assert post["kind"] == "defect" and "root" in post["to"].split(",")
+    assert post_body(post) == f"REFUSED #33001 at aaaa111111 (go #{go_of(shell, '33001')}): unsettled: the stack worker's settle step"
+    assert admitted_heads(config)["33001"]["state"] == "defect"
+
+
+def test_a_stacked_head_on_a_base_the_pass_did_not_admit_reads_below_blocked_never_gate_failed(shell, config, tmp_path):
+    shell.rows = [
+        {"pr": "33000", "lane": LANE, "branch": "g/0", "base": "dev", "head": "aaaa000000", "state": "open", "reported_head": "aaaa000000"},
+        {"pr": "33001", "lane": LANE, "branch": "g/1", "base": "g/0", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111", "test_state": "success"},
+    ]
+    shell.gates["33001"] = [(1, "", "stack-enqueue: error: #33001's native stack contains an unavailable pull request\n")]
+    shell.queue |= {"33000": "not queued", "33001": "not queued"}
+    grade(shell, "33001", "ok F307 at aaaa111.")
+    merge_go(shell, "33001", "merge #33001 at aaaa111")
+    landing_pass(shell, config)
+    assert not [line for line in said(shell) if line.startswith("GATE-FAILED")]
+    [line] = settled(shell, "BELOW-BLOCKED")
+    assert line.startswith(f"BELOW-BLOCKED above #33000: root gos name #33001 at aaaa111111 (go #{go_of(shell, '33001')} by root at ")
+    assert line.endswith("stacked on #33000, which the pass did not admit, so its graphite-stack-enqueue check read no verdict: stack-enqueue: error: #33001's native stack contains an unavailable pull request")
+
+
+def test_a_pass_that_gates_nothing_refuses_every_admitted_head_in_one_record_naming_why(shell, config, tmp_path):
+    two_gone_green(shell)
+    pool(shell, "reads", "core")["remaining"] = runner_module.QUOTA_FLOOR - 1
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert settled(shell, "REFUSED") == [f"REFUSED #33001 at aaaa111111 (go #{go_of(shell, '33001')}), #33002 at bbbb222222 (go #{go_of(shell, '33002')}): gating off: {runner_module.QUOTA_OFF}"]
+    assert shell.enqueues() == []
+
+
+def test_a_head_record_naming_a_pr_with_no_ledger_row_registers_it_the_next_pass_and_a_go_naming_none_says_why(shell, config, tmp_path):
+    """Root #221244: #45756 at 0bdd539 had root gos and no ledger row, so the queue never gated its stack."""
+    lone_green_pr(shell)
+    landing_pass(shell, config)
+    head = "0bdd539" + "a" * 33
+    shell.records.append({"seq": 34990, "drive": "d1", "lane": "p8a-step7", "kind": "head", "to": ["root"], "refs": {"prs": ["Forge-AI/monorepo#45756"]}, "fields": {"commit": head}, "text": f"#45756 {head}", "at": actions.stamp(shell.clock)})
+    merge_go(shell, "45757", "merge #45757 at 1234abc")
+    landing_pass(shell, config)
+    assert registrations(shell) == [["register", "--ledger", "abc", "--repo", "Forge-AI/monorepo", "--lane", "p8a-step7", "--pr", "45756"]]
+    [line] = [line for line in escalations(shell) if line.startswith("GO-UNROWED")]
+    assert f"root go #{go_of(shell, '45757')} names #45757 at 1234abc, which has no ledger row" in line
+    landing_pass(shell, config)
+    assert len(registrations(shell)) == 1 and len([line for line in escalations(shell) if line.startswith("GO-UNROWED")]) == 1
+
+
+def test_a_trunk_merge_the_ledger_reads_closed_posts_landed_in_the_pass_that_reads_it(shell, config, tmp_path):
+    """#220775: GitHub read #45814 merged at 12:22 PM, the ledger read it closed with no squash, and its LANDED came about twenty minutes later."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.queue["33001"] = "not queued"
+    landing_pass(shell, config)
+    shell.rows[0] |= {"state": "closed", "labels": "trunk-merged"}
+    real = shell.run
+
+    def run(argv, *args, **kwargs):
+        if len(argv) > 4 and Path(argv[1]).name == "ledger.py" and argv[4] == "landed" and "--pr=33001" in argv:
+            shell.rows[0] |= {"state": "landed", "landed_sha": "dddd444444"}
+        return real(argv, *args, **kwargs)
+
+    shell.run = run
+    landing_pass(shell, config)
+    [landed] = [post for post in shell.posts if post["text"].startswith("LANDED")]
+    assert landed["text"].startswith("LANDED #33001 as dddd444444: through the merge queue")
+
+
+def test_a_pr_the_runner_merged_directly_is_refused_nothing_while_its_ledger_row_stays_open(shell, config, tmp_path):
+    """Root #211747: the runner merged #45389 and #45523 directly at 6:44 AM Oct 30 and posted MERGED for each, then raised a skip on both at 6:50, since their ledger rows stayed open until the next refresh."""
     lone_green_pr(shell)
     shell.rows[0] |= {"test_state": "success", "green_at": actions.stamp(shell.clock)}
     shell.queue["29020"] = "not queued"
@@ -7458,7 +7574,7 @@ def test_a_pr_the_runner_merged_directly_draws_no_admitted_skipped_while_its_led
     shell.sleep(11 * 60)
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert skipped(shell) == []
+    assert settled(shell, "REFUSED") == []
 
 
 def test_mq_refuses_a_state_file_beside_runner_json_naming_the_block_it_lacks(shell, tmp_path, capsys):
@@ -7469,7 +7585,7 @@ def test_mq_refuses_a_state_file_beside_runner_json_naming_the_block_it_lacks(sh
     assert capsys.readouterr().err == f"mq.py: {builds} is no desk-runner config, since it has no drive or orca or landing block; pass the drive's runner.json\n"
 
 
-def test_while_graphite_is_down_an_admitted_chain_waiting_in_the_serial_merge_queue_draws_no_admitted_skipped(shell, config, tmp_path):
+def test_while_graphite_is_down_an_admitted_chain_waiting_in_the_serial_merge_queue_is_never_unsettled(shell, config, tmp_path):
     """Root #210100: a chain the runner lists in its `QUEUE` record, waiting on its checks to merge directly, is merging with a record, never a silent skip."""
     lone_green_pr(shell)
     shell.rows[0] |= {"test_state": "success", "green_at": actions.stamp(shell.clock)}
@@ -7484,7 +7600,7 @@ def test_while_graphite_is_down_an_admitted_chain_waiting_in_the_serial_merge_qu
     landing_pass(shell, config)
     assert direct_merges(shell) == []
     assert [post for post in shell.posts if post["kind"] == "state" and post["text"].startswith("QUEUE ")]
-    assert skipped(shell) == []
+    assert not [line for line in settled(shell, "REFUSED") if ": unsettled: " in line]
 
 
 def gone_on(shell: FakeShell, *, parent_graded: bool) -> None:
@@ -7506,8 +7622,8 @@ def gone_on(shell: FakeShell, *, parent_graded: bool) -> None:
     ["finder-major", "fidelity-missing", "on-a-fidelity-refused-parent", "on-a-held-parent"],
     ids=["45199-45590-finder-major", "45404-fidelity-missing", "45407-on-45404", "45491-45496-on-held-45488"],
 )
-def test_a_head_a_gate_refuses_or_that_sits_on_one_draws_no_admitted_skipped(shell, config, tmp_path, shape):
-    """Root #210691: the first ADMITTED-SKIPPED pass flagged six heads a finder or fidelity refusal, or a refused or held PR below them, already kept out; each refusal is its own record."""
+def test_a_head_a_gate_refuses_or_that_sits_on_one_is_never_unsettled(shell, config, tmp_path, shape):
+    """Root #210691: the first skip audit flagged six heads a finder or fidelity refusal, or a refused or held PR below them, already kept out; each is settled by the branch that refused it."""
     merge_mode(config, "every")
     if shape == "finder-major":
         gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
@@ -7521,14 +7637,13 @@ def test_a_head_a_gate_refuses_or_that_sits_on_one_draws_no_admitted_skipped(she
         if shape == "on-a-held-parent":
             root_hold(shell, 33000, text="hold #33000 the old-tree memory chain waits on its release")
     shell.queue |= {"33000": "not queued", "33001": "not queued"}
-    shell.sleep(11 * 60)
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert skipped(shell) == []
+    assert not [line for line in said(shell) if ": unsettled: " in line]
 
 
-def test_an_admitted_head_a_check_still_refuses_draws_no_admitted_skipped_and_names_that_check(shell, config, tmp_path):
-    """Root #218731: ADMITTED-SKIPPED on #45814, #45799 and #45427 said no branch recorded why, while `mq.py why` read finder fail FINDER-PENDING."""
+def test_an_admitted_head_a_check_still_refuses_is_refused_naming_that_check(shell, config, tmp_path):
+    """Root #218731: three admitted heads drew a skip saying no branch recorded why, while `mq.py why` read finder fail FINDER-PENDING."""
     merge_mode(config, "every")
     lone_green_pr(shell)
     shell.rows[0] |= {"test_state": "success", "green_at": actions.stamp(shell.clock)}
@@ -7536,22 +7651,20 @@ def test_an_admitted_head_a_check_still_refuses_draws_no_admitted_skipped_and_na
     grade(shell, "29020", "ok cccc333", finder=False)
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
-    shell.sleep(11 * 60)
     landing_pass(shell, config)
-    landing_pass(shell, config)
-    assert shell.enqueues() == [] and skipped(shell) == []
-    landing = landing_of(shell, config, tmp_path)
-    assert landing.unpassed_check("29020", "cccc333333", landing.rows()).startswith("finder fail FINDER-PENDING #29020")
+    assert shell.enqueues() == []
+    [line] = settled(shell, "REFUSED")
+    assert ": the finder check reads " in line and "FINDER-PENDING #29020" in line
 
 
-def test_an_admitted_head_its_lane_was_told_about_draws_no_admitted_skipped(shell, config, tmp_path):
+def test_an_admitted_head_its_lane_was_told_about_is_refused_once_and_never_unsettled(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, EVICTED_GATE)
     shell.queue["33001"] = "evicted"
-    shell.sleep(11 * 60)
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert len(blockers(shell)) == 1 and skipped(shell) == []
+    assert len(blockers(shell)) == 1 and len(settled(shell, "REFUSED")) == 1
+    assert not [line for line in said(shell) if ": unsettled: " in line]
 
 
 def test_a_go_whose_newest_enqueue_shows_it_queued_draws_no_go_unqueued(shell, config, tmp_path):

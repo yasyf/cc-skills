@@ -21,7 +21,7 @@ its ledger row names, it finds:
               or with a red, conflicting or unfinished build, or whose newest ai-review run the review
               bot titles Held or Waiting for restack, else to the lanes the desk runner's newest open
               blocker line for that PR and head newer than the go goes to, naming its reason, such as FINDER-PENDING,
-              TAP-REQUIRED, BELOW-BLOCKED or GO-UNQUEUED, else to the runner when the
+              TAP-REQUIRED, REFUSED, BELOW-BLOCKED or GO-UNQUEUED, else to the runner when the
               `landing-stacks.json` beside the config shows the stack's worker on one step past that step's
               budget, naming the step and the command in flight, else, once the go is older than
               `stall.minutes.silent` (default 15), to the root and the landing desk as the runner's own
@@ -246,7 +246,7 @@ QUEUE_LIVE = frozenset({"accepted", "started"})
 FINDER_PENDING = "FINDER-PENDING"
 REFUSAL_KINDS = frozenset({"blocker", "report", "note", "defect", "urgent"})
 REFUSAL_LABELS = frozenset({"FOREIGN", "TAP-REQUIRED", "CONTRACT-MISSING", "PARKED", "UNOWNED", "NOT-QUEUEABLE", "ENQUEUE-STRANDED", "ENQUEUE-FAILED", "ENQUEUE-UNSETTLED"})
-STACK_NOTES = ("BELOW-BLOCKED", "BELOW-HELD", "QUEUED")
+STACK_NOTES = ("BELOW-BLOCKED", "BELOW-HELD", "QUEUED", "REFUSED")
 WARNS_ONLY = re.compile(r"\bWARNING\b|\bis not held for it\b")
 REFUSAL_CAUSES = (
     ("parent", re.compile(r"\buntracked\b|\b(?:does|do) not track\b|\bnot tracked\b|\blost (?:its )?(?:recorded )?(?:Graphite )?parent\b|\bclosed (?:PR |#\d+)", re.IGNORECASE)),
@@ -271,7 +271,7 @@ CAUSE_COMMANDS = {
 }
 MERGE_ASK = "MERGE-ASK"
 SILENT_STEP = "root routes the tooling lane: "
-HEAD_BLOCKERS = ("GO-UNQUEUED", "ADMITTED-SKIPPED", "BELOW-BLOCKED", "BELOW-HELD", MERGE_ASK, "AWAITS-GO")
+HEAD_BLOCKERS = ("GO-UNQUEUED", "REFUSED", "BELOW-BLOCKED", "BELOW-HELD", MERGE_ASK, "AWAITS-GO")
 GO_KINDS = frozenset({"go", "decide", "decision"})
 BLOCKER_LABEL = re.compile(r"\b[A-Z]+(?:-[A-Z]+)+\b")
 MERGE_WAITS = "merge_waits"
@@ -1218,7 +1218,7 @@ class Pass:
         return pr, (RUNNER,), f"the landing runner's worker for the stack from #{entry['root']} has been on its {entry['step']} step for {int(ran.total_seconds() // 60)} min, past its {entry['budget'] // 60} min budget{command}"
 
     def silent(self, pr: str, head: str, since: datetime) -> tuple[str, tuple[str, ...], str] | None:
-        """A go'd head that no runner record names and no stack worker holds `stall.minutes.silent` after its go is the runner's own defect, raised to the root and the landing desk beside the runner's `ADMITTED-SKIPPED`, so one defect cannot hide itself (owner, 5:16 AM Oct 30; root #208560)."""
+        """A go'd head that no runner record names and no stack worker holds `stall.minutes.silent` after its go is the runner's own defect, raised to the root and the landing desk beside the runner's `REFUSED unsettled`, so one defect cannot hide itself (owner, 5:16 AM Oct 30; root #208560)."""
         if self.now - since < self.watch.age("silent"):
             return None
         return pr, (ROOT, RUNNER), f"{SILENT_STEP}the landing runner wrote no QUEUED, MERGED or blocker record for #{pr} at {short(head)} since the go at {pacific(since)}, and no worker holds its stack, so its loop skipped an admitted head silently"
