@@ -361,6 +361,10 @@ class FakeShell(runner_module.Shell):
     def cci_query(self, argv, env=None, cwd=None):
         return self.run(argv, env=env, cwd=cwd)
 
+    def incident_holds(self, home, drive, prs):
+        assert prs == []
+        raise runner_module.cci.IncidentQueryFailed(503, "scope_not_admitted", "this fixture uses the existing operation")
+
     def run(self, argv, stdin=None, env=None, cwd=None):
         self.raw.append(list(argv))
         argv = gateway(argv)
