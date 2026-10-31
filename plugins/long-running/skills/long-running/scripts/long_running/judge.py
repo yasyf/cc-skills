@@ -14,12 +14,14 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 Backend = Literal["sonnet", "jev", "jev+sonnet", "sonnet+jev"]
 BACKENDS: tuple[Backend, ...] = ("sonnet", "jev", "jev+sonnet", "sonnet+jev")
@@ -32,9 +34,13 @@ JEV_SECONDS = 20
 JEV_YES = 0.5
 ARTIFACT_CHARS = 12000
 CALLS = Path("judge") / "calls.jsonl"
+CARDS = Path("judge") / "cards"
 CARD_SECONDS = 10
 CARD_CHARS = 4000
 BOARD_PROOF = re.compile(r"proof:board:([0-9a-f]{16})\b")
+RECORDS = 40
+RECORD_CHARS = 500
+PACIFIC = ZoneInfo("America/Los_Angeles")
 
 ENGINEERING = frozenset(
     """
@@ -175,6 +181,18 @@ When it does, answer "yes" if it drops, narrows or contradicts any part of his a
         "Does the owner answer fail to order this exact undo: this action, on this stack or release, to this build?"
         " Answer yes when the answer orders a different action, stack or build, only discusses or permits an undo, approves something else, or orders a fix forward.",
     ),
+    "lane-gone": (
+        "the landing runner's alarm that a lane is gone: it stopped answering and needs a ping or a successor",
+        "Is this lane gone, with work owed and nothing to wait on? It owes work when a record asks it to do something, in whatever words, and nothing it or anyone posted since did the work or answered. Answer \"no\" when the records show it is alive and working, finished with nothing owed, a worker or sub-task of another lane rather than a lane of its own, already replaced by a successor or another lane that took its work, or waiting on something its last records name that has not happened yet, such as a build, a review, a reply or another pull request. Answer \"yes\" when it went quiet with work owed and no such reason, so the root must hear the alarm.",
+    ),
+    "red": (
+        "a pull request's failing CI build, with the failing jobs' log lines, that the landing runner sends to the pull request's own lane to fix",
+        "Is this red not caused by this pull request's diff: inherited from the trunk or from the pull request below it, a flaky test, or a failure of the CI infrastructure? Answer \"yes\" only when the evidence shows it: the same job fails the same way on the trunk or the base, the failing code neither is in the diff nor builds against, imports, calls or is generated from anything the diff changes, or the log shows the infrastructure failing. Answer \"no\" when the diff can cause the failure, and \"unsure\" when the logs do not show what failed. Quote the deciding log line as the artifact phrase.",
+    ),
+    "tap-carry": (
+        "what changed on a pull request between the head the owner approved and its new head, as its lane, its fidelity grade and its finder describe it",
+        "Does the new head change any behavior he approved at the old head? Count every change since the head he approved, across each head in between, not only the newest move. Answer \"yes\" when it adds, removes or changes what a user, an operator or a caller sees or gets, including a fix that changes behavior, or when the records do not say what changed. Answer \"no\" only when the records show it changes nothing he approved: a restack or replay onto a newer base, a conflict resolution that keeps both sides, or a review fix to tests, comments or wording.",
+    ),
 }
 
 
@@ -231,16 +249,22 @@ def captures(state: Path) -> dict[str, dict]:
 
 
 def said(row: dict, state: Path, env: Mapping[str, str] | None = None) -> list[dict]:
-    """Every time the owner said a register row, oldest first, as `{at, words, answered}`: `answered` is the board card a tap answered, as the board shows it, else None."""
+    """Every time the owner said a register row, oldest first, as `{at, words, answered}`: `answered` is the board card a tap answered, as the board first showed it after the tap, up to `CARD_CHARS` characters, else None.
+
+    Each tap's card is read from the board once and kept under the state folder's `judge/cards/`, so a grade over hundreds of rows reads only the taps no judge has read before.
+    """
     owner = captures(state)
     items = [{"at": row.get("at", ""), "words": row["words"], "proof": row.get("proof", "")}, *json.loads(row.get("repeats") or "[]")]
-    return [{"at": item.get("at", ""), "words": item["words"], "answered": answered_card(owner, item.get("proof", ""), env)} for item in items if item["words"]]
+    return [{"at": item.get("at", ""), "words": item["words"], "answered": answered_card(state, owner, item.get("proof", ""), env)} for item in items if item["words"]]
 
 
-def answered_card(owner: dict[str, dict], proof: str, env: Mapping[str, str] | None) -> str | None:
+def answered_card(state: Path, owner: dict[str, dict], proof: str, env: Mapping[str, str] | None) -> str | None:
     capture = next((owner[digest] for digest in BOARD_PROOF.findall(proof) if digest in owner), None)
     if capture is None or capture.get("source") != "board" or not capture.get("block"):
         return None
+    kept = state / CARDS / f"{capture['digest']}.txt"
+    if kept.is_file():
+        return kept.read_text()
     try:
         shown = subprocess.run(
             ["cc-present", "block", "show", capture["block"], "--session", capture["session"]],
@@ -252,7 +276,13 @@ def answered_card(owner: dict[str, dict], proof: str, env: Mapping[str, str] | N
         )
     except (subprocess.SubprocessError, OSError):
         return None
-    return shown.stdout.strip()[:CARD_CHARS]
+    card = shown.stdout.strip()
+    card = card if len(card) <= CARD_CHARS else f"{card[:CARD_CHARS]}\n… the rest of the card left out"
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    staged = kept.with_name(f"{kept.name}.{os.getpid()}.{threading.get_ident()}")
+    staged.write_text(card)
+    staged.replace(kept)
+    return card
 
 
 def owner_words(key: str, said: list[dict]) -> str:
@@ -285,6 +315,17 @@ def reader(known: list[str], scopes: list[tuple[list[str], str]], plain_for: Map
     if ids:
         lines.append("A pattern picked these out of the text as possible ids: " + ", ".join(f'"{hit}"' for hit in ids))
     return "\n".join(lines)
+
+
+def bus(records: Iterable[dict]) -> str:
+    """Bus records as a judge reads them, oldest first: one line each, `#<seq> <Pacific time> <KIND> <lane> -> <lanes>: <text>`, the newest `RECORDS` only, each cut at `RECORD_CHARS`."""
+    lines = []
+    for record in sorted(records, key=lambda record: record["seq"])[-RECORDS:]:
+        at = datetime.fromisoformat(record["at"]).astimezone(PACIFIC).strftime("%-I:%M %p %b %-d")
+        text = " ".join(record["text"].split())
+        lines.append(f"#{record['seq']} {at} {record['kind'].upper()} {record['lane']} -> {','.join(record.get('to') or [])}: {text[:RECORD_CHARS]}")
+    return "\n".join(lines)
+
 
 def backend_from(env: Mapping[str, str]) -> Backend:
     chosen = env.get(BACKEND_ENV) or DEFAULT_BACKEND

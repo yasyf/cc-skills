@@ -7,7 +7,6 @@ from livedash import Col, Context, Table, component
 from livedash.components import bus
 
 ASK_PREFIX = "ask/"
-REVIEW_PREFIX = "review/"
 HOLD_SUBJECT = re.compile(r"^#(?P<pr>\d+)\b|\blane:(?P<lane>[\w.-]+)")
 LIFTED = re.compile(r"\bLIFT(?:ED|S)?\b")
 SETTLED_STATES = frozenset({"live", "landed", "done", "backlog"})
@@ -24,13 +23,6 @@ def held(fields: dict) -> bool:
 
 def current_head(fields: dict) -> str:
     return fields.get("head") or fields.get("reported_head", "")
-
-
-def rules_verdict(all_rows: dict[str, dict], pr: str, head: str) -> str:
-    review = all_rows.get(f"{REVIEW_PREFIX}{pr}@{head}")
-    if review is None:
-        return "none"
-    return f"{review['verdict']} (overridden)" if review.get("override") else review["verdict"]
 
 
 def linked(fields: dict) -> list[str]:

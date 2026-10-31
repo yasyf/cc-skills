@@ -66,11 +66,10 @@ head reads approved with every required check passing, it runs
 a release under D20 whatever its label, every `deadlines.incident_release_minutes`
 while an incident clock runs, and settles only on a `release` record with `--build`.
 
-Hold a PR while its current head's review is pending or records an unwaived
-finding. No review, no base, and errored reviews fail open. Clean and overridden
-heads pass. Only the queue's `rules-review` check reads the verdict, as its `hold`
-and `fidelity` checks alone read holds and grades, so a hand `gt merge` or a web-UI
-enqueue bypasses all three; `mq.py why <n>` names each first. The hand enqueue in a
+The queue's `hold` and `fidelity` checks alone read holds and grades, and the
+fidelity grade carries the review of each head against the owner's rulings and the
+repository's AGENTS.md, so a hand `gt merge` or a web-UI enqueue bypasses both;
+`mq.py why <n>` names each first. The hand enqueue in a
 drive is `mq.py enqueue <n>... [--partial]`, which runs the runner's checks, the owner's
 board tap included, and enqueues only when every head passes. A hand `stack-enqueue`
 in a drive runs `mq.py gate <n>...` first and warns with each hold or enqueue check
@@ -78,16 +77,8 @@ that fails a head it would queue, the finder at that exact head included, and is
 outright when the gate names `TAP-REQUIRED`; clear them first. Never wrap `stack-enqueue`
 in a script of your own: the hook never sees the call inside it, and a root go is no tap.
 
-Only the root writes override lines in the root inbox, relaying the owner or
-deciding itself:
-`R<n> rules-override #<pr> <ruling> [<ruling>...] :: <reason>`.
-Override only named rulings. Use a cc-notes answer ID prefix of at least seven
-hex characters or the exact `AGENTS.md:<line>` ID for each ruling. Name every
-finding's ruling to clear the hold. Each ruling waiver applies on every later
-head of that PR too. A verdict clears any override recorded while the review
-was pending; the sweep re-applies overrides from the inbox each pass. Before a
-D3 priority call, read `mq.py why <n>` and leave every PR whose `rules-review`
-line fails held.
+Before a D3 priority call, read `mq.py why <n>` and leave every PR whose
+`fidelity` line fails held.
 
 Follow [Desk inboxes](../SKILL.md#desk-inboxes). The root never `SendMessage`s a
 running desk. If reports show a cursor more than one iteration behind the root's
@@ -160,12 +151,11 @@ Verified facts, do not re-derive:
   repo <owner/name>; base branch <dev>; checkout <absolute path, read-only for you>
   ledger <id from `ledger.py init --title "desk: <drive>"`>
   cci drive <drive>; desk <desk>; cci cursor <desk>
-  rules-override inbox <path, read by rules-review.py>
   team mailbox source `mailbox:<desk>`, resolved by desk-wait; mailbox cursor <path>
   runner config <absolute JSON path>; the orca runner alone consumes the Run mailbox
   standing rules <live scope:durable answer ids, plus the plan's Decisions;
     an id list, never a sequence range>
-  tools: cci, ledger.py, mq.py, rules-review.py, desk-runner.py, and desk-wait.sh, on PATH by name
+  tools: cci, ledger.py, mq.py, desk-runner.py, and desk-wait.sh, on PATH by name
   PRs already ours at spawn: <#n lane head verdict, one per line, or "none">
   stack: <bottom -> top PR list, or "none">
 
@@ -268,28 +258,6 @@ Do, in this order, forever:
      Record labels added by the root on this refresh as "in the queue, labelled
      outside the desk". Never list the repository's pull requests; a PR you cannot
      trace to one of our lanes is not yours, and there is no "unknown" list.
-  2b. Run the rules sweep every iteration:
-     rules-review.py sweep --repo <owner/name> --ledger <id> \
-     --checkout <dir> --inbox <root-inbox>
-     Repeat --inbox for additional root inbox files. The sweep collects finished
-     reviews and dispatches unreviewed heads without waiting. It runs at most six
-     reviews at once by default; use --parallel <n> to change the cap.
-     Hold a PR while its current head's review is pending or records an unwaived
-     finding. No review, no base, and errored reviews fail open. Clean and
-     overridden heads pass. Only the queue's `rules-review` check reads the
-     verdict; no adapter does.
-     The green prefix below a blocked PR can still land.
-     Send each RULES line to the root at once as RULING NEEDED. The root has the
-     lane fix it on a new head or writes an override. Post the RULES line to the
-     bus before routing it to the owning lane with:
-     ledger.py route --pr <n> --job "<the RULES line>"
-     Send REVIEW-ERROR at attempt 2 to the root as information, not RULING NEEDED.
-     Let attempt 1 retry on the next sweep. Neither attempt holds the PR.
-     Take no action on CLEAN, REVIEWING, GENERATED, DELETED or OVERRIDDEN.
-     GENERATED names the paths .gitattributes marks linguist-generated, which the
-     review skips. The review reads only added lines, so DELETED names the files
-     the PR deletes, and a head that adds nothing reads CLEAN with deletion only.
-     Never edit review rows or write override lines.
   3. The merge queue grades and enqueues every stack; this step is reading it.
      `desk-runner.py run --desk landing` gates every tracked tip through the
      adapter in `(priority, root PR)` order, runs the check registry over each
@@ -330,7 +298,7 @@ Do, in this order, forever:
      A new head alone does not close it. A step red on
      the trunk's latest build is held as `dev-red:<step>` for six hours, and `route`
      skips it until the hold expires. Never SendMessage a finished lane.
-     Never post PR comments yourself; rules-review.py posts the rules findings.
+     Never post PR comments yourself.
      Never re-route the same head and job.
   5. Hold. `ledger.py hold --pr <n> --reason "<why>" --hours <h>` for anything
      waiting on a person, a grader, or a parent; `ledger.py lift` when it clears.

@@ -197,7 +197,7 @@ def test_ask_owner_puts_the_card_on_the_root_sessions_board_and_opens_an_ask_for
     }
     post = next(call for call in shell.calls if call[:2] == ["cci", "post"])
     assert post[post.index("--to") + 1] == "release-5,root"
-    assert "--force" in post
+    assert "--force" not in post
     assert [record["kind"] for record in shell.cci] == ["ask"]
     assert shell.cci[0]["text"] == "Owner card card-ship-the-chat-list-fix-tonight is on his board: Ship the chat-list fix tonight? Recommended: Wait for the morning build"
     assert capsys.readouterr().out == f"card card-ship-the-chat-list-fix-tonight is on the owner's board; ask {number} stays open until his tap\n"

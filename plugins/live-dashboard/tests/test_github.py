@@ -43,18 +43,10 @@ def test_the_queue_walks_each_stack_from_its_trunk(tmp_path):
 def test_each_row_carries_size_checks_reviews_and_holds(tmp_path):
     _, table = queue(tmp_path)
     rows = {row["key"]: row for row in table.rows}
-    assert rows["101"].items() >= {"ci": "green", "bot": "green", "rules": "error", "threads": 0, "verdict": "landable", "owner": "waiting", "tone": "warn", "held": "2026-10-06T20:21:59Z"}.items()
-    assert rows["102"]["rules"] == "clean" and rows["102"]["threads"] == 1 and rows["102"]["verdict"] == "blocked:ci-pending"
-    assert rows["103"].items() >= {"ci": "red", "rules": "none", "owner": "reviewed", "tone": "bad", "held": None, "size": "+2,472/-0"}.items()
+    assert rows["101"].items() >= {"ci": "green", "bot": "green", "threads": 0, "verdict": "landable", "owner": "waiting", "tone": "warn", "held": "2026-10-06T20:21:59Z"}.items()
+    assert rows["102"]["threads"] == 1 and rows["102"]["verdict"] == "blocked:ci-pending"
+    assert rows["103"].items() >= {"ci": "red", "owner": "reviewed", "tone": "bad", "held": None, "size": "+2,472/-0"}.items()
     assert table.footer == {"pr": "3 PRs", "size": "+2,515/-7,515", "threads": 2}
-
-
-def test_the_rules_verdict_reads_the_head_github_reports(tmp_path):
-    prs = fixture("graphql-prs.json")
-    text = json.dumps(prs).replace("a" * 40, "f" * 40)
-    ctx = fake(tmp_path, replies={LEDGER: fixture("ledger-rows.json"), PR_STATUS: fixture("pr-status.json")}, graphql=github_api(json.loads(text)))
-    rows = {row["key"]: row for row in github.review_queue(ctx, repo="o/r", ledger="L1").rows}
-    assert rows["101"]["rules"] == "none"
 
 
 def owner_review(state: str, body: str) -> dict:
@@ -63,7 +55,7 @@ def owner_review(state: str, body: str) -> dict:
 
 def test_only_an_owner_approval_or_change_request_counts_as_review(tmp_path):
     prs = fixture("graphql-prs.json")
-    prs["repository"]["pr101"]["reviews"]["nodes"] += [owner_review("COMMENTED", "Rules review of `aaaaaaaaa`. Rulings violated: 1."), owner_review("COMMENTED", "")]
+    prs["repository"]["pr101"]["reviews"]["nodes"] += [owner_review("COMMENTED", "looks fine to me"), owner_review("COMMENTED", "")]
     prs["repository"]["pr102"]["reviews"]["nodes"].append(owner_review("CHANGES_REQUESTED", "split the config change out"))
     ctx = fake(tmp_path, replies={LEDGER: fixture("ledger-rows.json"), PR_STATUS: fixture("pr-status.json")}, graphql=github_api(prs))
     table = github.review_queue(ctx, repo="o/r", ledger="L1", owner_login="yasyf")

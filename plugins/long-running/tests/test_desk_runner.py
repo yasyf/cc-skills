@@ -19,6 +19,7 @@ import threading
 import time
 from collections import Counter
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -162,7 +163,6 @@ class FakeShell(runner_module.Shell):
         self.sender = ""
         self.generation = 3
         self.run_use_error: dict | None = None
-        self.unstarted: set[str] = set()
         self.unregistered: set[str] = set()
         self.checkout_edits = ""
         self.posts: list[dict] = []
@@ -185,6 +185,7 @@ class FakeShell(runner_module.Shell):
         self.successors: list[tuple[list[str], Path, bool]] = []
         self.finder_jobs: list[Path] = []
         self.exited: set[int] = set()
+        self.recycled: set[int] = set()
         self.fidelity_jobs: list[Path] = []
         self.sprite_jobs: list[tuple[str, str]] = []
         self.reexeced: list[list[str]] = []
@@ -303,8 +304,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, f"{target} = {{\n\tstate = running\n\tpid = {self.launchd[label]}\n}}\n", "")
         return runner_module.Done(0, "", "")
 
-    def pid_alive(self, pid):
-        return pid not in self.exited
+    def runs_job(self, pid, directory):
+        return pid not in self.exited and pid not in self.recycled
 
     def spawn(self, argv, out, env, append=False):
         self.calls.append(list(argv))
@@ -324,7 +325,9 @@ class FakeShell(runner_module.Shell):
         if argv[1:2] == [str(runner_module.SCRIPTS / "fidelity.py")]:
             assert argv == [sys.executable, str(runner_module.SCRIPTS / "fidelity.py"), str(out.parent)] and not env
             self.fidelity_jobs.append(out.parent)
-            return Process()
+            process = Process()
+            process.pid = 7000 + len(self.fidelity_jobs)
+            return process
         if Path(argv[0]).name == "sprite-job.sh":
             assert argv[2] in (str(runner_module.SCRIPTS / "finder.py"), str(runner_module.SCRIPTS / "fidelity.py")) and argv[3] == str(out.parent)
             (self.finder_jobs if argv[2].endswith("finder.py") else self.fidelity_jobs).append(out.parent)
@@ -618,12 +621,10 @@ class FakeShell(runner_module.Shell):
             assert argv[2:4] == ["--drive", "d1"] and argv[4] == "--lane" and argv[6:] == ["--json"]
             return runner_module.Done(0, "" if argv[5] in self.gone else json.dumps({"lane": argv[5], "live": True} | ({"seen_at": self.seen[argv[5]]} if argv[5] in self.seen else {})) + "\n", "")
         if argv[:2] == ["cci", "post"]:
-            forced = "--force" in argv
+            assert "--force" not in argv
             as_json = "--json" in argv
-            argv = [arg for arg in argv if arg not in ("--force", "--json")]
+            argv = [arg for arg in argv if arg != "--json"]
             flags = dict(zip(argv[2::2], argv[3::2], strict=True))
-            if not forced and (unstarted := [lane for lane in flags.get("--to", "").split(",") if lane in self.unstarted]):
-                return runner_module.Done(1, "", f"cci: --to {unstarted[0]}: no live session or registered lane on drive {flags['--drive']} is named {unstarted[0]}")
             assert flags["--drive"] in self.drives and flags["--lane"] in ("desk-runner", "root", "finder-desk", "fidelity-desk", "orca-desk") and len(flags["--text"]) <= 400
             if self.post_error:
                 return runner_module.Done(1, "", self.post_error)
@@ -1007,6 +1008,27 @@ def config(tmp_path: Path, shell: FakeShell) -> Path:
         )
     )
     return path
+
+
+REAL_JUDGMENT = runner_module.Runner.judgment
+
+
+@pytest.fixture(autouse=True)
+def judges(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    """The runner's judges, answering in the pass that asks: a failed model call unless a test sets `verdicts[kind]`, which then records what that judge read as `(kind, evidence, artifact)`."""
+    asked = SimpleNamespace(verdicts={}, read=[])
+
+    def judgment(self, key, kind, read):
+        if kind in asked.verdicts:
+            asked.read.append((kind, *read()))
+        return True, asked.verdicts.get(kind)
+
+    monkeypatch.setattr(runner_module.Runner, "judgment", judgment)
+    return asked
+
+
+def judge_says(answer: str, sentence: str = "", phrase: str = "") -> runner_module.judge.Verdict:
+    return runner_module.judge.Verdict(answer, phrase, phrase, sentence)
 
 
 def cli(shell: FakeShell, config: Path, *argv: str) -> int:
@@ -2183,7 +2205,6 @@ def test_a_landed_pr_with_an_unpruned_branch_gets_no_blocker(shell, config, tmp_
         "graphite WAITING_ON_DOWNSTACK",
         "graphite NEEDS_CODEOWNER_APPROVALS; ai-review in progress",
         "graphite REBASING; retry when restacked",
-        "rules-review in progress on head",
         "not approved by poetic-svc",
     ],
 )
@@ -3746,8 +3767,9 @@ def test_an_exempt_change_a_hold_names_stays_out_of_the_queue(shell, config, tmp
     assert shell.enqueues() == []
 
 
-def test_a_kept_tap_waits_for_the_root_go_before_the_queue(shell, config, tmp_path):
-    """Root #195224: TAP-KEPT misread four grades on Oct 29, so a kept tap is never exempt; the head waits for root's go naming the fix."""
+def test_a_kept_tap_waits_for_the_root_go_before_the_queue(shell, config, tmp_path, judges):
+    """Root #195224: a kept tap is never exempt; the head waits for root's go naming the fix."""
+    judges.verdicts["tap-carry"] = judge_says("no", "A review fix with no new behavior.")
     board_surface(config)
     board_lane(config)
     lone_green_pr(shell)
@@ -3759,8 +3781,9 @@ def test_a_kept_tap_waits_for_the_root_go_before_the_queue(shell, config, tmp_pa
     assert not [post for post in shell.posts if "EXEMPT-ADMITTED" in post_body(post)]
 
 
-def test_a_kept_tap_holds_when_a_later_grade_at_the_same_head_omits_the_phrase(shell, config, tmp_path):
-    """Root #205918: #45393 at 389e77a drew TAP-KEPT, then TAP-NOT-CARRIED nine minutes later because a newer grade at the same head lacked the phrase."""
+def test_a_kept_tap_holds_when_a_later_grade_at_the_same_head_omits_the_phrase(shell, config, tmp_path, judges):
+    """Root #205918: #45393 at 389e77a drew TAP-KEPT, then TAP-NOT-CARRIED nine minutes later because a newer grade at the same head lacked the phrase; a head the judge cleared is not judged again."""
+    judges.verdicts["tap-carry"] = judge_says("no", "A review fix with no new behavior.")
     board_surface(config)
     board_lane(config)
     lone_green_pr(shell)
@@ -4114,7 +4137,7 @@ KEPT_GRADE = "ok cccc333333 a review fix: no new behavior since the tap at aaaa1
 
 
 def tap_notes(shell: FakeShell) -> list[dict]:
-    return [post for post in notes(shell) if post["text"].startswith("TAP-")]
+    return [post for post in shell.posts if post["kind"] in ("note", "ask") and post["text"].startswith("TAP-")]
 
 
 def test_a_snapshot_from_an_older_board_watch_with_no_blocks_carries_no_tap_and_the_pass_goes_on(shell, config, tmp_path):
@@ -4194,27 +4217,32 @@ def said_on(shell: FakeShell, said: list[tuple[str, str]]) -> int:
 
 
 @pytest.mark.parametrize(
-    ("said", "quote", "heads"),
+    ("answer", "said"),
     [
-        ([("head", "HEAD #29020 cccc333333 (was aaaa111111): patch-identical except one new behavior: retries the upload")], "HEAD #29020 cccc333333 (was aaaa111111): patch-identical except one new behavior: retries the upload", "cccc333333"),
-        ([("head", "HEAD #29020 cccc333333 (was bbbb222222): adds upload retries; bbbb222222 (was aaaa111111): restack, range-diff patch-identical"), ("fidelity", "ok cccc333333 a fixed version of bbbb222222 that adds new behavior: the upload retries.")], "fidelity: ok cccc333333 a fixed version of bbbb222222 that adds new behavior: the upload retries.", "bbbb222222 -> cccc333333"),
-        ([("fidelity", "ok cccc333333 carried from aaaa111111, patch-identical except one new behavior: retries the upload.")], "fidelity: ok cccc333333 carried from aaaa111111, patch-identical except one new behavior: retries the upload.", "cccc333333"),
-        ([("fidelity", "ok cccc333333 a fixed version of aaaa111111."), ("head", "HEAD #29020 cccc333333: adds new behavior: upload retries")], "HEAD #29020 cccc333333: adds new behavior: upload retries", "cccc333333"),
+        (judge_says("yes", "It now retries the upload."), "the judge reads new behavior since his tap: It now retries the upload."),
+        (judge_says("unsure", "The records do not say."), "the judge is unsure it changes nothing he approved."),
+        (None, "the judge did not answer, so he is asked again."),
     ],
+    ids=["new-behavior", "unsure", "no-answer"],
 )
-def test_a_board_tap_never_carries_to_a_head_that_adds_new_behavior_and_root_and_the_board_lane_hear_once_it_needs_a_new_row(shell, config, tmp_path, said, quote, heads):
-    """Owner 6:59 PM Oct 29 (root #194315): a re-asked row says when he tapped, what changed since, and why it is shown again, so the note carries his tap's Pacific time, the heads since it, and the record naming the new behavior."""
+def test_a_board_tap_never_carries_to_a_graded_head_the_judge_does_not_clear_and_root_and_the_board_lane_hear_once_it_needs_a_new_row(shell, config, tmp_path, judges, answer, said):
+    """Owner 6:59 PM Oct 29 (root #194315): a re-asked row says when he tapped, what changed since, and why it is shown again, so the note carries his tap's Pacific time, the heads since it, and the judge's sentence; a judge that does not clear the head asks him again."""
     board_surface(config)
     board_lane(config)
     lone_green_pr(shell)
     tap(shell, "29020", "aaaa111111")
-    seq = said_on(shell, said)
+    lane_head_record(shell, "29020", "HEAD #29020 cccc333333 (was bbbb222222): adds upload retries; bbbb222222 (was aaaa111111): restack, range-diff patch-identical")
+    grade(shell, "29020", "ok cccc333333 a fixed version of bbbb222222.")
+    judges.verdicts["tap-carry"] = answer
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert shell.carries == [] and shell.board["merge-rows"]["29020"]["head"] == "aaaa111111"
     [note] = tap_notes(shell)
     assert note["to"] == "root,board-refresher"
-    assert post_body(note).strip() == f"TAP-NOT-CARRIED #29020: the owner's tap at aaaa111111 (10:40 AM Oct 1 Pacific) on board block merge-rows does not carry to cccc333333, since cci #{seq} says that head adds new behavior: \"{quote}\". Heads since his tap: {heads}. The board needs a new row for #29020 at cccc333333 opening 'You approved this at 10:40 AM Oct 1. Since then: <what changed>. Shown again because: <the new behavior>.'"
+    assert post_body(note).strip() == f"TAP-NOT-CARRIED #29020: the owner's tap at aaaa111111 (10:40 AM Oct 1 Pacific) on board block merge-rows does not carry to cccc333333: {said} Heads since his tap: bbbb222222 -> cccc333333. The board needs a new row for #29020 at cccc333333 opening 'You approved this at 10:40 AM Oct 1. Since then: <what changed>. Shown again because: <the new behavior>.'"
+    [(kind, evidence, artifact)] = judges.read
+    assert kind == "tap-carry" and evidence == "The owner approved #29020 at head aaaa111111 at 10:40 AM Oct 1 Pacific. Its heads since then: bbbb222222 -> cccc333333. The question is about cccc333333."
+    assert "adds upload retries" in artifact and "fidelity: ok cccc333333 a fixed version of bbbb222222." in artifact
 
 
 @pytest.mark.parametrize("identical", [True, False], ids=["patch-identical", "changed"])
@@ -4245,47 +4273,40 @@ def test_a_successor_fidelity_desk_grade_counts_with_no_config_edit(shell, confi
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
-@pytest.mark.parametrize(
-    "graded",
-    [
-        "ok cccc333333 new-tree fix, stays a tap row: carries bbbb222.",
-        "ok cccc333333 carried from my ok at bbbb222222, a review fix.",
-        "ok cccc333333 a fixed version of aaaa111111: a review fix without new behavior.",
-        "ok cccc333333 no new behavior since the tap at bbbb222222.",
-    ],
-)
-def test_a_tap_keeps_only_on_a_grade_saying_no_new_behavior_since_that_tapped_head(shell, config, tmp_path, graded):
-    """Root #195066: the runner read 'carried from my ok' and 'stays a tap row' as a review fix four times on Oct 29 and admitted new behavior with no tap."""
+def test_a_board_tap_the_judge_clears_over_a_graded_fix_asks_root_once_to_carry_it_and_nothing_lands_meanwhile(shell, config, tmp_path, judges):
+    """Rule 399b5fa: his tap keeps over a review fix with no new behavior, and only a root go carries it, so the judge's no is one proposal to root, never a carry."""
     board_surface(config)
     board_lane(config)
     lone_green_pr(shell)
     tap(shell, "29020", "aaaa111111")
-    grade(shell, "29020", graded)
+    lane_head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): answers the finder's major with a nil check")
+    grade(shell, "29020", "ok cccc333333 a nil check answers the finder's major.")
+    judges.verdicts["tap-carry"] = judge_says("no", "Only a nil check answers the finder.")
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert shell.enqueues() == [] and shell.carries == []
-    assert not [note for note in tap_notes(shell) if note["text"].startswith("TAP-KEPT")]
+    assert shell.carries == [] and shell.enqueues() == []
+    [ask] = tap_notes(shell)
+    assert (ask["kind"], ask["to"]) == ("ask", "root")
+    assert post_body(ask).strip() == "TAP-KEPT #29020: the owner's tap at aaaa111111 (10:40 AM Oct 1 Pacific) on board block merge-rows can carry to cccc333333, a fix the judge reads as changing nothing he approved: Only a nil check answers the finder. Post `go #29020 at cccc333333` to carry it (rule 399b5fa); any other answer puts a fresh row on his board."
+    assert len(judges.read) == 1
 
 
-@pytest.mark.parametrize(
-    "said",
-    [
-        [("head", "HEAD #29020 cccc333333 (was aaaa111111): answers the finder's major with a nil check"), ("fidelity", "ok cccc333333 a nil check answers the finder's major; no new behavior since the tap at aaaa111.")],
-        [("fidelity", KEPT_GRADE)],
-    ],
-)
-def test_a_board_tap_keeps_over_a_graded_review_fix_and_root_hears_once_to_post_its_go(shell, config, tmp_path, said):
+def test_a_root_answer_to_the_carry_proposal_that_is_not_a_go_puts_a_fresh_row_on_his_board(shell, config, tmp_path, judges):
+    """Rule 399b5fa: only a root go carries his tap over a fix the judge clears, so root's other answer to the proposal asks him again."""
     board_surface(config)
     board_lane(config)
     lone_green_pr(shell)
     tap(shell, "29020", "aaaa111111")
-    seq = said_on(shell, said)
+    grade(shell, "29020", "ok cccc333333 a review fix.")
+    judges.verdicts["tap-carry"] = judge_says("no", "A review fix.")
     landing_pass(shell, config)
+    asked = 1 + next(at for at, post in enumerate(shell.posts) if post["text"].startswith("TAP-KEPT"))
+    answer = cci_record(shell, kind="answer", re=asked, text="the retry is new to him; ask again", at=actions.stamp(shell.clock))
     landing_pass(shell, config)
     assert shell.carries == []
-    [note] = tap_notes(shell)
-    assert note["to"] == "root,board-refresher"
-    assert note["text"] == f"TAP-KEPT #29020: the owner's tap at aaaa111111 on board block merge-rows keeps at cccc333333, a review fix with no new behavior per fidelity grade cci #{seq} (rule 399b5fa), so it goes straight to the merge queue with no go (root #194387), and the row lists the fix"
+    notes = tap_notes(shell)
+    assert [post_body(note).split(":")[0] for note in notes] == ["TAP-KEPT #29020", "TAP-NOT-CARRIED #29020"]
+    assert f": root answered the carry proposal with cci #{answer}, not a go. Heads since his tap: cccc333333." in post_body(notes[1])
 
 
 @pytest.mark.parametrize(("graded", "row"), [(True, False), (False, True)], ids=["no-row", "ungraded"])
@@ -4324,24 +4345,29 @@ def test_a_pass_reads_the_board_from_records_alone_for_its_tap_carries_and_its_r
     assert [call for call in shell.calls if call[0] == "cc-present"] == []
 
 
-def test_a_tap_keeps_only_once_the_finder_is_clear_at_the_fixed_head(shell, config, tmp_path):
+def test_a_root_go_carries_a_cleared_tap_only_once_the_finder_is_clear_at_the_fixed_head(shell, config, tmp_path, judges):
     """p8a-step7 #192190: the runner noted TAP-KEPT for #44103 at 78aad32 while finder #191854's major on the head before it stood unanswered, and root's go on it had to be withdrawn."""
     board_surface(config)
     board_lane(config)
     lone_green_pr(shell)
     tap(shell, "29020", "aaaa111111")
     finder_verdict(shell, "29020", "major aaaa111 1 open: go/a.go:12 the retry drops the sealed read")
-    grade(shell, "29020", KEPT_GRADE, finder=False)
+    grade(shell, "29020", "ok cccc333333 a review fix.", finder=False)
+    judges.verdicts["tap-carry"] = judge_says("no", "A review fix.")
+    merge_go(shell, "29020", "go #29020 at cccc333333")
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert tap_notes(shell) == []
+    assert shell.carries == []
+    [line] = [line for line in said(shell) if line.startswith("TAP-CARRY-FAILED")]
+    assert "which a root go names: the finder is not clear at cccc333333;" in line
     finder_verdict(shell, "29020", "ok cccc333 no findings")
     landing_pass(shell, config)
-    assert [note["text"].split(":")[0] for note in tap_notes(shell)] == ["TAP-KEPT #29020"]
+    assert [carry["--head"] for carry in shell.carries] == ["cccc333333"]
 
 
-def test_a_tap_keeps_over_a_pipeline_missing_a_desk_ok_overrides_at_the_same_head(shell, config, tmp_path):
+def test_a_tap_keeps_over_a_pipeline_missing_a_desk_ok_overrides_at_the_same_head(shell, config, tmp_path, judges):
     """p8a-step7 #193454: fidelity-desk-3's ok and root's TAP-KEPT go stood at #45286 c8a6014, but fidelity-pipeline's newer missing at that head kept the runner from noting TAP-KEPT, so it refused the head TAP-REQUIRED."""
+    judges.verdicts["tap-carry"] = judge_says("no", "A review fix with no new behavior.")
     board_surface(config)
     board_lane(config)
     raw = json.loads(config.read_text())
@@ -4356,23 +4382,25 @@ def test_a_tap_keeps_over_a_pipeline_missing_a_desk_ok_overrides_at_the_same_hea
     assert [note["text"].split(":")[0] for note in tap_notes(shell)] == ["TAP-KEPT #29020"]
 
 
-def test_a_root_go_on_a_head_whose_tap_does_not_keep_draws_one_tap_carry_failed_naming_why(shell, config, tmp_path):
+def test_a_root_go_on_a_head_the_judge_reads_as_new_behavior_draws_one_tap_carry_failed_naming_why(shell, config, tmp_path, judges):
     """p8a-step7 #193454: root's TAP-KEPT go named #45286 c8a6014, the runner did not carry the tap there, said nothing, and refused the head TAP-REQUIRED."""
     board_surface(config)
     board_lane(config)
     lone_green_pr(shell)
     tap(shell, "29020", "aaaa111111")
-    seq = grade(shell, "29020", "ok cccc333333 new-tree fix, stays a tap row, carried from aaaa111.")
+    grade(shell, "29020", "ok cccc333333 new-tree fix, stays a tap row, carried from aaaa111.")
+    judges.verdicts["tap-carry"] = judge_says("yes", "It adds a retry.")
     merge_go(shell, "29020", "go #29020 at cccc333333 TAP-KEPT: owner tap at aaaa111 keeps")
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert shell.carries == []
     [line] = [line for line in said(shell) if line.startswith("TAP-CARRY-FAILED")]
-    assert line.endswith(f"#29020: the owner's tap on #29020 at aaaa111111 on board block merge-rows does not carry to cccc333333, which a root go names: fidelity grade cci #{seq} does not say cccc333333 adds no new behavior since the tap at aaaa111111; #29020 at cccc333: not waiting on the owner: the board holds no row for it; the owner approved it at aaaa111, an older head")
+    assert line.endswith("#29020: the owner's tap on #29020 at aaaa111111 on board block merge-rows does not carry to cccc333333, which a root go names: cccc333333 changes behavior since the tap at aaaa111111, so the board asks him again; #29020 at cccc333: not waiting on the owner: the board holds no row for it; the owner approved it at aaaa111, an older head")
 
 
-def test_a_kept_tap_under_a_root_go_lands_the_tap_rule_head_when_the_board_refuses_the_carry(shell, config, tmp_path):
+def test_a_kept_tap_under_a_root_go_lands_the_tap_rule_head_when_the_board_refuses_the_carry(shell, config, tmp_path, judges):
     """Root #192094: the runner noted TAP-KEPT for #44704, root posted the go, and the runner still refused it TAP-REQUIRED because the board named only the old head."""
+    judges.verdicts["tap-carry"] = judge_says("no", "A review fix with no new behavior.")
     board_surface(config)
     board_lane(config)
     raw = json.loads(config.read_text())
@@ -4411,7 +4439,8 @@ def test_a_board_tap_at_an_ungraded_fixed_head_asks_for_nothing_until_its_grade_
     assert shell.carries == [] and tap_notes(shell) == []
 
 
-def test_a_kept_tap_carries_to_the_review_fix_once_root_posts_its_go_and_the_tap_rule_admits_the_head(shell, config, tmp_path):
+def test_a_kept_tap_carries_to_the_review_fix_once_root_posts_its_go_and_the_tap_rule_admits_the_head(shell, config, tmp_path, judges):
+    judges.verdicts["tap-carry"] = judge_says("no", "A review fix with no new behavior.")
     board_surface(config)
     board_lane(config)
     raw = json.loads(config.read_text())
@@ -4421,14 +4450,14 @@ def test_a_kept_tap_carries_to_the_review_fix_once_root_posts_its_go_and_the_tap
     lone_green_pr(shell)
     shell.files["29020"] = ["go/sand/next/vm/run.go"]
     tap(shell, "29020", "aaaa111111")
-    graded = grade(shell, "29020", "ok cccc333333 restacked from aaaa111 (ok #166024) onto #44069 21c80e5. Its one commit changes only context lines. The added and removed lines are the same as at aaaa111. No new behavior since the tap at aaaa111.")
+    grade(shell, "29020", "ok cccc333333 restacked from aaaa111 (ok #166024) onto #44069 21c80e5. Its one commit changes only context lines. The added and removed lines are the same as at aaaa111. No new behavior since the tap at aaaa111.")
     landing_pass(shell, config)
     assert shell.carries == [] and [note["text"].split(":")[0] for note in tap_notes(shell)] == ["TAP-KEPT #29020"]
     merge_go(shell, "29020", "go #29020 at cccc333333: carried from his tap on aaaa111 (go at that head), no new behavior (rule 399b5fa).")
     go = shell.records[-1]["seq"]
     landing_pass(shell, config)
     landing_pass(shell, config)
-    why = f"review fix with no new behavior, per fidelity grade cci #{graded} and root go cci #{go} (rule 399b5fa)"
+    why = f"fix with no new behavior, per the judge's TAP-KEPT and root go cci #{go} (rule 399b5fa)"
     assert shell.carries == [{"--session": "s-root", "--block": "merge-rows", "--row": "29020", "--head": "cccc333333", "--note": why}]
     assert [note["text"] for note in tap_notes(shell)][1:] == [f"TAP-CARRIED #29020: the owner's tap at aaaa111111 on board block merge-rows now stands at cccc333333, a {why}, recorded as a board-write record the board's watch applies; the row asks no new tap"]
     assert not [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
@@ -4489,7 +4518,7 @@ def test_go_tap_missing_goes_to_the_go_lanes_the_desk_and_the_owning_lane_not_ro
     assert heard(shell, "GO-TAP-MISSING") == [f"go-sweep,{DESK},{LANE}"]
 
 
-@pytest.mark.parametrize("settled", ["go", "fidelity carry", "none"])
+@pytest.mark.parametrize("settled", ["go", "none"])
 def test_a_carry_onto_a_merge_block_the_board_dropped_is_nothing_to_carry_settled_or_not(shell, config, tmp_path, settled):
     board_surface(config)
     board_lane(config)
@@ -4499,8 +4528,6 @@ def test_a_carry_onto_a_merge_block_the_board_dropped_is_nothing_to_carry_settle
     lane_head_record(shell, "29020", "HEAD #29020 cccc333333 (was aaaa111111): restack onto dev, range-diff patch-identical (3 commits)")
     if settled == "go":
         root_go(shell, "go #29020 at cccc333 (patch-identical restack of his tap)", shell.now())
-    elif settled == "fidelity carry":
-        grade(shell, "29020", "ok cccc333333 carried from aaaa111111, patch-identical replay onto dev.")
     landing_pass(shell, config)
     landing_pass(shell, config)
     failed = [line for line in escalations(shell) if line.startswith("TAP-CARRY-FAILED")]
@@ -4559,6 +4586,39 @@ def test_on_a_board_surface_a_pr_without_a_go_gets_its_blockers_from_the_status_
         (LANE, "#29020 cccc333333: GitHub reads it as conflicting against its base; run ccx vcs stack submit from the branch's worktree"),
         (LANE, "#29100 dddd444444: CI is red: buildkite/test; changes requested by poetic-svc"),
     ]
+
+
+@pytest.mark.parametrize(
+    ("answer", "rerouted"),
+    [(judge_says("yes", "The same checker test fails on dev.", "--- FAIL: TestCheckerNarrowing (0.01s)"), True), (judge_says("no", "The diff changes the failing code."), False), (None, False)],
+    ids=["inherited", "ours", "no-answer"],
+)
+def test_a_red_the_judge_reads_as_not_caused_by_the_diff_goes_to_root_and_the_watchdog_instead_of_the_lane(shell, config, tmp_path, judges, answer, rerouted):
+    """literal-fixes-landed-1 #221805: the runner sent #45825's inherited reds to its lane, which answered they were its base's; a judge reads the red jobs' logs, the diff and the trunk first."""
+    board_surface(config)
+    with_ci_build(config)
+    shell.rows = [{"pr": "29100", "lane": LANE, "branch": "b/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"}]
+    shell.queue["29100"] = "not queued"
+    shell.pr_status["29100"] = {"verdict": "blocked:ci-red", "ci": {"state": "red", "failing": ["buildkite/test"]}}
+    shell.combined_statuses["dddd444444"] = [{"context": "buildkite/test", "state": "failure", "description": "Build #78299 failed", "target_url": "https://buildkite.com/forge/test/builds/78299"}]
+    shell.builds["78299"] = finished({"jobs": [{"id": "job-1", "type": "script", "state": "failed", "name": "Run sand tests"}]}, "dddd444444", "failed")
+    shell.job_logs["job-1"] = "ok   go/sand/next/vm\n--- FAIL: TestCheckerNarrowing (0.01s)\n    checker_test.go:4620: wrong hint\nFAIL\n"
+    shell.files["29100"] = ["dashboard/src/iris/chat.tsx"]
+    judges.verdicts["red"] = answer
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    to_lane = [post_body(post) for post in blockers(shell) if post["to"] == LANE]
+    reports = [post for post in shell.posts if post_body(post).startswith("RED-NOT-OURS")]
+    if rerouted:
+        assert to_lane == []
+        [report] = reports
+        assert (report["kind"], report["to"]) == ("report", "root,drive-watchdog@d1")
+        assert post_body(report) == 'RED-NOT-OURS #29100 dddd444444: The same checker test fails on dev. Log: "--- FAIL: TestCheckerNarrowing (0.01s)". The runner sends it to root and the watchdog, not to api-fix; red: buildkite/test: Build ## failed'
+    else:
+        assert reports == [] and to_lane == ["#29100 dddd444444: CI is red: buildkite/test"]
+    [(kind, evidence, artifact)] = judges.read
+    assert "#29100 is based on dev." in evidence and "The files #29100's diff changes:\ndashboard/src/iris/chat.tsx" in evidence
+    assert artifact == "#29100 dddd444444: CI is red: buildkite/test\nRed: buildkite/test: Build ## failed\n\nJob Run sand tests failed on https://buildkite.com/forge/test/builds/78299; its log reads:\nok   go/sand/next/vm\n--- FAIL: TestCheckerNarrowing (0.01s)\n    checker_test.go:4620: wrong hint\nFAIL"
 
 
 def test_a_red_head_draws_one_blocker_whether_the_status_read_or_the_gate_names_it_first(shell, config, tmp_path):
@@ -5636,7 +5696,7 @@ def test_a_head_with_no_finder_record_is_refused_finder_pending_once(shell, conf
     assert shell.enqueues() == []
     [blocker] = blockers(shell)
     assert blocker["to"] == f"{LANE},finder-desk" and blocker["topic"] == "29020"
-    assert blocker["text"] == f"#29020 cccc333333: nothing in #29020 was enqueued; FINDER-PENDING #29020: no `finder:` record from finder-desk names this head, and a lane's own finder record never grades it"
+    assert blocker["text"] == "#29020 cccc333333: nothing in #29020 was enqueued; FINDER-PENDING #29020: no `finder:` record from finder-desk names this head, and a lane's own finder record never grades it"
 
 
 def test_a_finder_pending_head_with_no_pass_waiting_queues_one_and_again_once_a_pass_skipped_it_while_closed(shell, config, tmp_path):
@@ -6668,7 +6728,7 @@ def mq(shell: FakeShell, config: Path, *argv: str) -> int:
     return mq_module.main(["--config", str(config), *argv], shell)
 
 
-QUIET_WHY = ["hold pass", "precondition pass", "rules-review pass", "rulings pass", "fidelity pass", "finder pass", "merge-mode pass", "approvals pass", "required-ci pass"]
+QUIET_WHY = ["hold pass", "precondition pass", "rulings pass", "fidelity pass", "finder pass", "merge-mode pass", "approvals pass", "required-ci pass"]
 
 
 @pytest.mark.parametrize(
@@ -6676,11 +6736,10 @@ QUIET_WHY = ["hold pass", "precondition pass", "rules-review pass", "rulings pas
     [
         ("hold", "hold fail open cci hold #{seq}"),
         ("fidelity", "fidelity fail no review from fidelity-desk starting `fidelity: ok` names this head"),
-        ("finder", f"finder fail FINDER-PENDING #29020: no `finder:` record from finder-desk names this head, and a lane's own finder record never grades it"),
-        ("rules-review", "rules-review fail rules-review holds cccc333333: its review is pending or carries a finding no `rules-override` waived"),
+        ("finder", "finder fail FINDER-PENDING #29020: no `finder:` record from finder-desk names this head, and a lane's own finder record never grades it"),
     ],
 )
-def test_a_held_an_ungraded_or_a_rules_blocked_head_is_refused_and_mq_why_names_the_check(shell, config, tmp_path, capsys, blocked, line):
+def test_a_held_or_an_ungraded_head_is_refused_and_mq_why_names_the_check(shell, config, tmp_path, capsys, blocked, line):
     lone_green_pr(shell)
     if blocked == "fidelity":
         finder_verdict(shell, "29020", "ok cccc333 no findings")
@@ -6690,8 +6749,6 @@ def test_a_held_an_ungraded_or_a_rules_blocked_head_is_refused_and_mq_why_names_
         grade_gated_heads_ok(shell)
     if blocked == "hold":
         line = line.format(seq=root_hold(shell, 29020, text="hold #29020 owner review"))
-    if blocked == "rules-review":
-        shell.rows[0]["rules_blocked"] = True
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert shell.enqueues() == []
@@ -6892,7 +6949,7 @@ def test_mq_gate_holds_a_hand_enqueue_to_the_runners_checks_at_githubs_head_of_e
     posts = len(shell.posts)
     assert mq(shell, config, "gate", "29020", *partial) == 1
     assert capsys.readouterr().out.splitlines() == [
-        f"#29020 eeee555555 finder fail FINDER-PENDING #29020: no `finder:` record from finder-desk names this head, and a lane's own finder record never grades it"
+        "#29020 eeee555555 finder fail FINDER-PENDING #29020: no `finder:` record from finder-desk names this head, and a lane's own finder record never grades it"
     ]
     assert viewed_heads(shell)[-len(graded):] == graded and len(shell.posts) == posts
 
@@ -7279,13 +7336,13 @@ def test_a_config_with_no_adapter_on_a_checkout_carrying_stack_enqueue_is_told_t
 
 def test_a_checks_list_without_fidelity_enqueues_an_ungraded_head(shell, config, tmp_path, capsys):
     raw = json.loads(config.read_text())
-    raw["landing"]["checks"] = ["hold", "rules-review", "merge-mode", "approvals", "required-ci"]
+    raw["landing"]["checks"] = ["hold", "merge-mode", "approvals", "required-ci"]
     config.write_text(json.dumps(raw))
     lone_green_pr(shell)
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1 and blockers(shell) == []
     assert mq(shell, config, "checks") == 0
-    assert capsys.readouterr().out.splitlines() == ["hold enqueue", "rules-review accept, enqueue", "merge-mode accept, enqueue", "approvals adapter check", "required-ci adapter check"]
+    assert capsys.readouterr().out.splitlines() == ["hold enqueue", "merge-mode accept, enqueue", "approvals adapter check", "required-ci adapter check"]
 
 
 def old_app_checked(config: Path) -> None:
@@ -7828,6 +7885,37 @@ def test_an_admitted_head_posts_one_record_per_change_of_its_outcome(shell, conf
     landing_pass(shell, config)
     assert [line.split(" ", 1)[0] for line in said(shell) if line.startswith(("QUEUED ", "REFUSED ", "BELOW-BLOCKED "))] == ["REFUSED", "QUEUED"]
     assert admitted_heads(config)["33001"]["state"] == "merging"
+
+
+def test_a_judge_answers_on_a_later_pass_than_the_one_that_asks_and_a_read_that_fails_raises_there(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The landing pass never waits on a model: the first ask starts the call on the judge pool, a later pass collects its verdict, and a failed read reaches the pass that collects it and is asked again."""
+    asked, release = [], threading.Event()
+
+    def judged(kind, evidence, artifact, *, backend, drive):
+        asked.append((kind, evidence, artifact, backend, drive))
+        release.wait(5)
+        return judge_says("no", "It is queued.")
+
+    def read():
+        return "the records", "the alarm"
+
+    def unread():
+        raise runner_module.CciTailFailed("cci: daemon restarting")
+
+    monkeypatch.setattr(runner_module.judge, "judge", judged)
+    runner = SimpleNamespace(judging=threading.Lock(), judgments={}, judges=ThreadPoolExecutor(1), judge_backend="sonnet", config=SimpleNamespace(drive="d1"))
+    assert REAL_JUDGMENT(runner, "k", "red", read) == (False, None)
+    assert REAL_JUDGMENT(runner, "k", "red", read) == (False, None)
+    release.set()
+    runner.judgments["k"].result(5)
+    answered, found = REAL_JUDGMENT(runner, "k", "red", read)
+    assert answered and found.sentence == "It is queued." and "k" not in runner.judgments
+    assert asked == [("red", "the records", "the alarm", "sonnet", "d1")]
+    REAL_JUDGMENT(runner, "j", "lane-gone", unread)
+    runner.judgments["j"].exception(5)
+    with pytest.raises(runner_module.CciTailFailed):
+        REAL_JUDGMENT(runner, "j", "lane-gone", unread)
+    assert "j" not in runner.judgments
 
 
 def test_an_admitted_head_whose_check_keeps_timing_out_is_refused_for_the_timeout_in_that_pass(shell, config, tmp_path):
@@ -9826,7 +9914,7 @@ def test_supervise_install_bootstraps_only_its_own_label_with_the_key_read_from_
     assert plistlib.loads(plist.read_bytes()) == {
         "Label": agent_label("landing"),
         "ProgramArguments": ["/bin/zsh", "-c", f'export TRUNK_MERGE_API_KEY="$(security find-generic-password -s trunk-merge-api-key -w)"; exec {shlex.quote(str(runner_module.RUNNER_BIN))} run --config {shlex.quote(str(config.resolve()))} --desk landing'],
-        "EnvironmentVariables": {"PATH": "/opt/homebrew/bin:/usr/bin:/bin"},
+        "EnvironmentVariables": {"PATH": f"/opt/homebrew/bin:/usr/bin:/bin:{tmp_path / '.claude/plugins/marketplaces/cc-inbox/plugin/bin'}"},
         "KeepAlive": True,
         "ThrottleInterval": 60,
         "SoftResourceLimits": {"NumberOfFiles": 65536},
@@ -9841,6 +9929,17 @@ def test_supervise_install_bootstraps_only_its_own_label_with_the_key_read_from_
     assert shell.launchctl_calls[-1] == ["bootout", agent_target("landing")] and not plist.exists()
     assert cli(shell, config, "supervise", "status", "--desk", "landing") == 1
     assert {arg for call in shell.launchctl_calls for arg in call[1:]} == {agent_target("landing"), f"gui/{os.getuid()}", str(plist)}
+    restarted[0].close()
+
+
+def test_a_supervised_runner_still_finds_cci_while_a_cask_upgrade_has_unlinked_brews_cci(shell, config, tmp_path):
+    """Oct 31 1:30 AM: brew unlinked /opt/homebrew/bin/cci for the six minutes the 0.46.3 cask's preflight took, and every process whose PATH had no other cci lost it."""
+    shell.environ |= {"PATH": "/opt/homebrew/bin:/usr/bin:/bin"}
+    restarted = []
+    shell.on_sleep.append(lambda: restarted.append(launchd_restarts(shell, config, tmp_path, "landing")))
+    assert cli(shell, config, "supervise", "install", "--desk", "landing") == 0
+    agent = plistlib.loads((tmp_path / "Library/LaunchAgents" / f"{agent_label('landing')}.plist").read_bytes())
+    assert agent["EnvironmentVariables"]["PATH"].split(":")[-1] == str(tmp_path / ".claude/plugins/marketplaces/cc-inbox/plugin/bin")
     restarted[0].close()
 
 
@@ -10537,6 +10636,30 @@ def test_with_a_desk_lane_a_repeat_lane_gone_still_reaches_root(shell, config, t
     orca_pass(shell, config)
     orca_pass(shell, config)
     assert heard(shell, "LANE-GONE") == ["root", f"root,{DESK},p8-lane"]
+
+
+@pytest.mark.parametrize("answer", [judge_says("no", "It is a worker of p8-parent, waiting on a build.", "its rebase waits on build 94412"), judge_says("yes", "It went quiet with a rebase owed."), None], ids=["false-alarm", "real", "no-answer"])
+def test_a_lane_gone_the_judge_reads_as_waiting_posts_one_judge_silenced_note_and_no_alarm(shell, config, tmp_path, judges, answer):
+    """Root #217949: p8a7-fast-start was a p8a-step7 worker, not a lane, and its LANE-GONE drew a no-successor answer; the judge reads the orders, the lane's own records and the records naming it first."""
+    last = cci_record(shell, lane="p8-lane", kind="head", text="HEAD #29020 cccc333333", at=actions.stamp(shell.clock - timedelta(minutes=40)))
+    cci_record(shell, kind="decide", to=["p8-lane"], text="p8-lane: rebase onto the new seed", at=actions.stamp(shell.clock - timedelta(minutes=30)))
+    cci_record(shell, lane="p8-parent", kind="note", to=["root"], text="p8-lane is my worker; its rebase waits on build 94412", at=actions.stamp(shell.clock - timedelta(minutes=20)))
+    shell.gone.add("p8-lane")
+    judges.verdicts["lane-gone"] = answer
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    gone = [line for line in escalations(shell) if line.startswith("LANE-GONE")]
+    silenced = [line for line in escalations(shell) if line.startswith("JUDGE-SILENCED")]
+    if answer and answer.verdict == "no":
+        assert gone == [] and silenced == ['JUDGE-SILENCED silenced:lane-gone:p8-lane p8-lane: the LANE-GONE alarm is false, the judge reads: It is a worker of p8-parent, waiting on a build. It rests on: "its rebase waits on build 94412"']
+    else:
+        assert len(gone) == 1 and silenced == []
+    [(kind, evidence, artifact)] = judges.read
+    orders, own, naming = evidence.split("\n\n")
+    assert orders.startswith("The root's orders to p8-lane it has not answered, oldest first:\n") and orders.endswith("DECIDE root -> p8-lane: p8-lane: rebase onto the new seed")
+    assert own.startswith("p8-lane's own last records, oldest first:\n") and f"#{last} " in own
+    assert naming.startswith("Other lanes' records that name p8-lane, oldest first:\n") and naming.endswith("NOTE p8-parent -> root: p8-lane is my worker; its rebase waits on build 94412")
+    assert artifact.startswith("LANE-GONE lane-gone:p8-lane p8-lane: root #")
 
 
 @pytest.mark.parametrize("answer", [{"lane": "p8-lane-2", "kind": "note", "text": "taking over"}, {"kind": "stand-down", "to": ["p8-lane"], "text": "p8-lane: stand down"}])
@@ -14033,25 +14156,33 @@ def test_a_finder_that_fails_or_writes_nothing_by_its_deadline_runs_again_and_es
     ]
 
 
-def test_a_pass_whose_process_exited_with_no_result_frees_its_slot_and_retries_after_the_fix_window(shell, config, tmp_path):
+def test_a_pass_whose_process_exited_with_no_result_frees_its_slot_and_retries_at_once(shell, config, tmp_path):
     finder_config(config, concurrent=1)
     orca_pass(shell, config)
     head_record(shell, "43439", FINDER_HEAD)
-    head_record(shell, "43299", FINDER_OLD)
     orca_pass(shell, config)
     [crashed] = shell.finder_jobs
     shell.exited.add(int((crashed / "pid").read_text()))
     orca_pass(shell, config)
     passes = incident(tmp_path, "desk-finder").actions
     assert passes[f"finder:43439:{FINDER_HEAD}"].reason == "finder.py exited 0 min after it started and wrote no result"
-    assert passes[f"finder:43439:{FINDER_HEAD}#2"].status == "accepted" and passes[f"finder:43299:{FINDER_OLD}"].status == "started"
-    [_, other] = shell.finder_jobs
-    shell.exited.add(int((other / "pid").read_text()))
-    shell.clock += runner_module.GRADER_RETRY_AFTER
-    orca_pass(shell, config)
-    assert shell.finder_jobs[-1] == crashed.with_name(f"{crashed.name}-2")
-    assert incident(tmp_path, "desk-finder").actions[f"finder:43439:{FINDER_HEAD}#2"].status == "started"
+    assert passes[f"finder:43439:{FINDER_HEAD}#2"].status == "started"
+    assert shell.finder_jobs == [crashed, crashed.with_name(f"{crashed.name}-2")]
     assert not finder_failures(shell)
+
+
+def test_a_pass_whose_pid_now_names_another_process_settles_as_exited(shell, config, tmp_path):
+    """Root #241003, 11:40 PM Oct 30: 17 finder and fidelity passes had no result and no live wrapper for 7 to 139 minutes, and the runner counted them running; macOS had handed a dead wrapper's pid to another process."""
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    [ghost] = shell.finder_jobs
+    shell.recycled.add(int((ghost / "pid").read_text()))
+    orca_pass(shell, config)
+    passes = incident(tmp_path, "desk-finder").actions
+    assert passes[f"finder:43439:{FINDER_HEAD}"].reason == "finder.py exited 0 min after it started and wrote no result"
+    assert passes[f"finder:43439:{FINDER_HEAD}#2"].status == "started"
 
 
 def test_a_pass_whose_pid_file_is_empty_settles_as_exited(shell, config, tmp_path):
@@ -14263,13 +14394,27 @@ def test_a_pass_whose_job_directory_is_gone_fails_without_raising(shell, config,
     assert incident(tmp_path, "desk-fidelity").actions[f"fidelity:43439:{FINDER_HEAD}:{seq}"].reason == f"its job directory {shell.fidelity_jobs[0]} is gone"
 
 
+@pytest.mark.parametrize("gone", ["exited", "recycled"])
+def test_a_fidelity_pass_whose_wrapper_is_gone_with_no_result_fails_at_once_and_requeues(shell, config, tmp_path, gone):
+    """Root #241003, 11:40 PM Oct 30: ten fidelity passes had no result and no live wrapper, and the runner counted each running until its 60-minute deadline, since only a finder pass checked its wrapper."""
+    fidelity_config(config)
+    orca_pass(shell, config)
+    seq = head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    [ghost] = shell.fidelity_jobs
+    getattr(shell, gone).add(int((ghost / "pid").read_text()))
+    orca_pass(shell, config)
+    passes = incident(tmp_path, "desk-fidelity").actions
+    assert passes[f"fidelity:43439:{FINDER_HEAD}:{seq}"].reason == "fidelity.py exited 0 min after it started and wrote no result"
+    assert [action.status for action in passes.values()] == ["failed", "started"]
+
+
 def test_a_failed_fidelity_pass_settles_when_a_reader_lane_in_runner_json_has_not_started(shell, config):
     """cci #219230: runner.json named fidelity-desk-14 and -15, which never started, so cci refused every FIDELITY-FAILED post and eight failed passes held every fidelity slot for twelve hours while 168 heads queued."""
     fidelity_config(config, concurrent=1)
     raw = json.loads(config.read_text())
     raw["landing"]["fidelity_lane"] = ["fidelity-desk-4", "fidelity-desk-14", "fidelity-pipeline"]
     config.write_text(json.dumps(raw))
-    shell.unstarted = {"fidelity-desk-14"}
     orca_pass(shell, config)
     head_record(shell, "43439", FINDER_HEAD)
     orca_pass(shell, config)

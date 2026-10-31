@@ -110,7 +110,7 @@
        "login": "yasyf"
       },
       "state": "COMMENTED",
-      "body": "findings\n<!-- rules-review bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -->",
+      "body": "findings",
       "submittedAt": "2026-10-06T18:30:00Z",
       "commit": {
        "oid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
