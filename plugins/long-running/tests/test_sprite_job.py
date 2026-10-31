@@ -181,12 +181,13 @@ def test_a_job_that_dies_with_its_sprite_leaves_an_error_result_so_the_runner_fa
 
 
 
-def test_a_result_the_sprite_kept_empty_leaves_an_error_result_so_the_runner_requeues_the_pass(tmp_path: Path) -> None:
+@pytest.mark.parametrize("kept", ["", '{"verdict": '], ids=["empty", "cut"])
+def test_a_result_the_sprite_kept_empty_or_cut_leaves_an_error_result_so_the_runner_requeues_the_pass(tmp_path: Path, kept: str) -> None:
     """Root #262758, 12:03 PM Oct 31: fidelity #46811 c9e543f wrote result.json on dar-fleet-10, the Sprite hibernated before the write reached its disk, the copy back brought an empty file, and every orca runner pass from 12:02 raised JSONDecodeError reading it."""
     mac, sprite = tmp_path / "mac", tmp_path / "sprite"
     checkout, directory, config = mac / "checkout", mac / "fidelity-pipeline" / "46811-c9e543fabd46-262490", mac / "config"
     script = mac / "plugin" / "skills" / "long-running" / "scripts" / "fidelity.py"
-    executable(script, "import pathlib, sys\n(pathlib.Path(sys.argv[1]) / 'record.md').write_text('graded')\n(pathlib.Path(sys.argv[1]) / 'result.json').write_text('')\n")
+    executable(script, f"import pathlib, sys\n(pathlib.Path(sys.argv[1]) / 'record.md').write_text('graded')\n(pathlib.Path(sys.argv[1]) / 'result.json').write_text({kept!r})\n")
     executable(script.parent / "rulings.py", "")
     executable(mac / "bin" / "sprite", SPRITE)
     executable(mac / "bin" / "cci", "#!/bin/sh\n")

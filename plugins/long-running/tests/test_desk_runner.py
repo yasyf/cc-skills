@@ -14549,6 +14549,21 @@ def test_a_fidelity_pass_whose_wrapper_is_gone_with_no_result_fails_at_once_and_
     assert [action.status for action in passes.values()] == ["failed", "started"]
 
 
+
+def test_an_empty_desk_result_fails_its_pass_instead_of_raising_every_orca_pass(shell, config, tmp_path):
+    """Root #262758, #263581: fidelity #46811 c9e543f came back from dar-fleet-10 with an empty result.json, and every orca pass from 12:02 Oct 31 raised JSONDecodeError reading it."""
+    finder_config(config, concurrent=1)
+    fidelity_config(config)
+    orca_pass(shell, config)
+    seq = head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    for directory in (*shell.finder_jobs, *shell.fidelity_jobs):
+        (directory / "result.json").write_text("")
+    orca_pass(shell, config)
+    why = "its result.json is empty or does not parse, as when its Sprite hibernates before the write reaches its disk"
+    assert incident(tmp_path, "desk-finder").actions[f"finder:43439:{FINDER_HEAD}"].reason == why
+    assert incident(tmp_path, "desk-fidelity").actions[f"fidelity:43439:{FINDER_HEAD}:{seq}"].reason == why
+
 def test_a_failed_fidelity_pass_settles_when_a_reader_lane_in_runner_json_has_not_started(shell, config):
     """cci #219230: runner.json named fidelity-desk-14 and -15, which never started, so cci refused every FIDELITY-FAILED post and eight failed passes held every fidelity slot for twelve hours while 168 heads queued."""
     fidelity_config(config, concurrent=1)

@@ -38,8 +38,9 @@ empty loose refs a Sprite restart leaves, which every fetch reads as the zero
 object, and fetches every remote unless a fetch that began after this job asked for one already
 did, then merges its packs into a geometric progression, so the packs fetches and on-demand blob reads leave stay few, and the job runs there. <dir> is then copied
 back, job.json and pid left as this machine wrote them and result.json last,
-swapped in whole and only when it is not empty, since a Sprite that hibernates
-before a write reaches its disk keeps an empty file, so the runner settles the pass from this process and its files as it does
+swapped in whole and only when it parses, read a second time after the first
+read wakes the Sprite, since a Sprite that hibernates before a write reaches
+its disk keeps an empty file, so the runner settles the pass from this process and its files as it does
 a local one; a job that ends with no result, as when the Sprite restarts
 mid-pass or a copy to it fails to connect, leaves one naming the error, so the runner fails and requeues the
 pass at once instead of waiting out its deadline. The Sprite then pushes the records the job posted to the drive's
@@ -164,7 +165,11 @@ done
 status=0
 wait "$job" || status=$?
 sprite exec -s "$sprite" --no-stdin -- sh -c 'cd "$1" && find . -mindepth 1 ! -path ./job.json ! -path ./pid ! -path ./result.json | tar -cz --no-recursion -T -' sh "$dir" | tar -xz -m -C "$dir" || true
-if sprite exec -s "$sprite" --no-stdin -- cat "$dir/result.json" >"$dir/.result.json" && [ -s "$dir/.result.json" ]; then
+fetch_result() {
+  sprite exec -s "$sprite" --no-stdin -- cat "$dir/result.json" >"$dir/.result.json" &&
+    python3 -c 'import json, sys; json.load(open(sys.argv[1]))' "$dir/.result.json" 2>/dev/null
+}
+if fetch_result || fetch_result; then
   mv "$dir/.result.json" "$dir/result.json"
 fi
 rm -f "$dir/.result.json"
