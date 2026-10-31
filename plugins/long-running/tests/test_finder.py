@@ -668,3 +668,13 @@ def test_a_multi_head_record_names_each_prs_own_head_and_the_head_it_replaced():
     }
     assert finder.heads(record, REPO) == [("43299", HEAD), ("43300", NEWER)]
     assert (finder.previous(record, REPO, "43299"), finder.previous(record, REPO, "43300")) == (OLD, "")
+
+
+def test_every_command_a_pass_runs_logs_its_duration(capsys):
+    """remote-desks-5 #253850: two passes on separate Sprites both waited 16 minutes before codex, and job.log was empty, so nothing named the stage that waited."""
+    finder.Shell().run([sys.executable, "-c", "import time; time.sleep(0.2)"])
+    with pytest.raises(subprocess.CalledProcessError):
+        finder.Shell().run(["false"])
+    lines = capsys.readouterr().err.splitlines()
+    assert [line.split(" took ")[0] for line in lines] == [f"finder: {Path(sys.executable).name} -c import time; time.sleep(0.2)", "finder: false"]
+    assert float(lines[0].split(" took ")[1].rstrip("s")) >= 0.2

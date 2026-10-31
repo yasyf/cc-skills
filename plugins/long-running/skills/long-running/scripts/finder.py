@@ -109,6 +109,7 @@ PLAN_SECONDS = 300
 RETRY_BACKOFF = (2, 5, 10)
 SLICE_SECONDS = 900
 FINDER_SECONDS = 5400
+STAGE_WORDS = 4
 
 
 class JobFailed(RuntimeError):
@@ -117,7 +118,12 @@ class JobFailed(RuntimeError):
 
 class Shell:
     def run(self, argv: list[str], cwd: Path | None = None, timeout: int = READ_SECONDS) -> str:
-        return cci.installed(argv, lambda: subprocess.run(argv, cwd=cwd, capture_output=True, text=True, errors="replace", check=True, timeout=timeout)).stdout
+        started = time.monotonic()
+        try:
+            return cci.installed(argv, lambda: subprocess.run(argv, cwd=cwd, capture_output=True, text=True, errors="replace", check=True, timeout=timeout)).stdout
+        finally:
+            stage = " ".join(Path(word).name if "/" in word else word for word in argv[:STAGE_WORDS])
+            print(f"finder: {stage} took {time.monotonic() - started:.1f}s", file=sys.stderr, flush=True)
 
 
 def heads(record: dict, repo: str) -> list[tuple[str, str]]:
