@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from native_cci_integration import native_cci, observed_commands
-from test_desk_runner import config, runner_module
+from test_desk_runner import config, runner_module, shell
 
 
 def test_actual_landing_selected_blockers_retire_external_closures_without_history(config, tmp_path, monkeypatch, native_cci):

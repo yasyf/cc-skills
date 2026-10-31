@@ -9381,7 +9381,7 @@ class Landing:
                 stale[action.action_id] = (seq, target["lane"])
         if not pending:
             return
-        current = {record["seq"]: record for record in cci.selected_records(self.runner.cci_read, self.config.drive, list(pending.values()))}
+        current = {record["seq"]: record for record in cci.selected_records(self.runner.cci_read, self.runner.config.drive, list(pending.values()))}
         closed: dict[str, int] = {}
         for key, seq in pending.items():
             record = current.get(seq)
