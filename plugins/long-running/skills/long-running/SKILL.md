@@ -2307,6 +2307,15 @@ its text names or its build number, and posts exactly one
 keyed `release:<pr>:live`, to the root alone once every component
 reads live. It is the only publish line the root forwards to the owner.
 
+Before a release lane cuts a component again outside an incident, it reads alert
+state with `pup --read-only --no-agent monitors list --tags release-target:<target>`.
+It then runs `endstate.py grade --prefix r1a|r1b|promoted --reading <path> --cluster <env>...`
+on the release owner's hand reading of one real Mac and one pod per cluster the last
+release shipped to. It also runs `endstate.py watch <component>` from the monorepo checkout. A
+non-zero exit from either stops the cut, and the lane posts the lines it printed as its
+`refuse` record. After each release, one sol finder reads the shipped build's diff
+against the end-state table in `endstate.py` and names each row the build cannot meet.
+
 A cut has a clock too. A cut order is a root `go` or `decision` addressed to a
 release lane that carries `--target <component>` and whose text orders a cut or
 `release start`, or a D20 `release` record with no build yet whose landing names
