@@ -2812,6 +2812,25 @@ def test_a_trunk_enqueue_answered_http_429_is_retried_next_pass_and_fails_nothin
     assert len(shell.enqueues()) == 2
 
 
+def test_a_refused_stack_link_runs_again_only_once_a_head_in_its_chain_moves(shell, config, tmp_path):
+    """drive-watchdog-2 #253760: the old memory chain forks twice, so no gh stack link can succeed, and the runner reran the same refused link every pass."""
+    shell.rows = [
+        {"pr": "29016", "lane": LANE, "branch": "a/2", "base": "dev", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222", "ours": True},
+        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "a/2", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": True},
+    ]
+    shell.gates["29020"] = [(5, "", "stack-enqueue failed: #29020 targets a/2 without a native GitHub stack; link it with gh stack link\n")] * 12
+    shell.link_out = "the chain forks at #29016\n"
+    grade(shell, "29016", "ok F307 at bbbb222.")
+    grade(shell, "29020", "ok F307 at cccc333.")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    links = [call for call in shell.calls if call[:3] == ["gh", "stack", "link"]]
+    assert links == [["gh", "stack", "link", "29016", "29020"]]
+    shell.rows[1] = dict(shell.rows[1], head="eeee555555", reported_head="eeee555555")
+    landing_pass(shell, config)
+    assert len([call for call in shell.calls if call[:3] == ["gh", "stack", "link"]]) == 2
+
+
 def test_a_link_github_refuses_for_leaving_out_part_of_an_existing_stack_names_every_open_member(shell, config, tmp_path):
     """p8a-step7 #227794: the runner linked only the two PRs it would enqueue, GitHub refused with 'Include all existing PRs', and the stack above them never linked."""
     shell.rows = [

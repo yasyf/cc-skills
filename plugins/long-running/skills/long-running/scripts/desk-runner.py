@@ -262,7 +262,7 @@ blockers and restacks. Every queue call goes through the repository adapter `lan
 `trunk-stack-enqueue` and `graphite-stack-enqueue` run the script `landing.adapter.script` names under the landing checkout, and `label` runs
 `ledger.py label`; the landing desk refuses to start with `MQ-CONFIG-INVALID` on an adapter, a check, or a high-risk setting it cannot run.
 A check the script refuses because a stack is no native GitHub stack runs `gh stack link` over each tip's chain, bottom first, posts
-one `STACK-LINK` note to the lanes, and checks again in the same pass; a check that prints a `would enqueue` line the adapter cannot
+one `STACK-LINK` note to the lanes, and checks again in the same pass, once per set of the chain's heads, so a link GitHub refused runs again only after one of them moves; a check that prints a `would enqueue` line the adapter cannot
 read escalates `GATE-FAILED` with that line.
 Each prefix passes the check registry, `landing.checks` in order, every built-in when it names none, and `hold` first whether it names it or not: `hold`, `precondition`,
 `rulings`, `fidelity`, `finder`, and `merge-mode` are the desk's own, and `approvals` and `required-ci` are the adapter's verdict;
@@ -6272,9 +6272,13 @@ class Landing:
         linked = True
         for tip in tips:
             chain = sorted(downstack(open_rows, tip), key=lambda pr: len(downstack(open_rows, pr)))
+            key = f"stack-link:{','.join(f'{pr}@{open_rows[pr].get("head", "")[:10]}' for pr in chain)}"
+            if self.book.known(LANDING, key):
+                linked = False
+                continue
             done = self.link(chain)
-            said = "linked them as one native GitHub stack and checks again" if done.code == 0 else f"gh stack link exited {done.code}: {((done.err or done.out).strip().splitlines() or ['no output'])[-1][:300]}"
-            self.post_record("note", f"stack-link:{','.join(chain)}@{open_rows[tip].get('head', '')}", self.routine_audience(chain, self.ledger_rows), f"STACK-LINK {numbered(chain)}: the {self.adapter.kind} check refused them as no native GitHub stack; the landing runner {said}", tip)
+            said = "linked them as one native GitHub stack and checks again" if done.code == 0 else f"gh stack link exited {done.code}: {((done.err or done.out).strip().splitlines() or ['no output'])[-1][:300]}; it links them again once a head of theirs moves"
+            self.post_record("note", key, self.routine_audience(chain, self.ledger_rows), f"STACK-LINK {numbered(chain)}: the {self.adapter.kind} check refused them as no native GitHub stack; the landing runner {said}", tip)
             linked = linked and done.code == 0
         return linked
 
