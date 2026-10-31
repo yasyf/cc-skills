@@ -430,6 +430,20 @@ def test_a_go_the_runner_refused_names_its_newest_open_blocker_for_that_head_and
     assert post["text"].endswith(f"| owner api-lane, board-refresher | GO-UNQUEUED: the runner's newest blocker for #101 at abc1234, cci #7: #101 {HEAD[:10]}: nothing in #101 was enqueued; GO-UNQUEUED #101: the merge queue refused it at this head")
 
 
+@pytest.mark.parametrize("withdrawn", [False, True])
+def test_a_root_correction_withdrawing_a_go_ends_its_go_stall(config, withdrawn):
+    """#243593: root withdrew go #237906 on #46228 with a correction, not a withdraw, and the stall watch still counted the go."""
+    records = gone("101", HEAD)
+    records.append(record(5, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; GO-UNQUEUED #101: the merge queue refused it at this head", 9, to=["api-lane"], topic="101", status="open"))
+    if withdrawn:
+        records.append(record(6, "root", "correction", "Withdraw the go in #4; the finder clear stands. I had not verified a tap.", 8, re=4))
+    shell = FakeShell(records, [row("101")])
+
+    watch(shell, config)
+
+    assert bool([topic for topic in shell.topics() if topic.startswith("go:101")]) != withdrawn
+
+
 def finder_pass(tmp_path: Path, pr: str, sha: str, status: str) -> None:
     store = actions.Store(tmp_path / "store")
     store.create(actions.Incident("desk-finder", "desk-finder", 0, stamp(30), {}))

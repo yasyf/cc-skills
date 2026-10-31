@@ -13455,8 +13455,8 @@ def test_a_trunk_commit_red_then_green_on_a_retry_posts_one_flake_finding_naming
     red = {"state": "failed", "commit": "b" * 10, "finished_at": "2026-10-01T17:58:00Z", "jobs": [{"id": "job-1", "type": "script", "name": "sand-tests", "state": "failed"}]}
     shell.builds["29019"] = red
     shell.job_logs["job-1"] = FLAKY_LOG
-    shell.test_files["TestADrainedSidecarEndsItsLagSeriesAtZero"] = "go/sand/internal/vm/lag_test.go\n"
-    shell.subjects["go/sand/internal/vm/lag_test.go"] = "vm: 🐛 drain the sidecar's lag series (#29011)"
+    shell.test_files["TestADrainedSidecarEndsItsLagSeriesAtZero"] = "go/sand/next/internal/vm/lag_test.go\n"
+    shell.subjects["go/sand/next/internal/vm/lag_test.go"] = "vm: 🐛 drain the sidecar's lag series (#29011)"
     rows = OPEN_ROWS | {"29011": {"state": "landed", "lane": "lag-lane"}}
     shell.trunk = [trunk_commit("b", "FAILURE", "29019", "2026-10-01T17:50:00Z"), trunk_commit("a", "SUCCESS", "29018", "2026-10-01T17:40:00Z")]
     landing.watch_trunk(rows)
@@ -13472,10 +13472,31 @@ def test_a_trunk_commit_red_then_green_on_a_retry_posts_one_flake_finding_naming
 
     [flake] = [post for post in shell.posts if "FLAKE" in post["text"]]
     assert flake["kind"] == "defect" and flake["to"] == "lag-lane,root,drive-watchdog@d1" and flake["id"] == f"flake:{'b' * 10}"
-    assert flake["text"] == "[finding:desk-runner] - go/sand/internal/vm/lag_test.go flake owner lag-lane: FLAKE TestADrainedSidecarEndsItsLagSeriesAtZero failed on https://buildkite.com/forge/test/builds/29019 at bbbbbbbbbb and passed on retry; #29011 last changed it. Fix due Oct 2 11:30 AM; name this record in the fix's HEAD. It blocks nothing."
+    assert flake["text"] == "[finding:desk-runner] - go/sand/next/internal/vm/lag_test.go flake owner lag-lane: FLAKE TestADrainedSidecarEndsItsLagSeriesAtZero failed on https://buildkite.com/forge/test/builds/29019 at bbbbbbbbbb and passed on retry; #29011 last changed it. Fix due Oct 2 11:30 AM; name this record in the fix's HEAD. It blocks nothing."
     row = findings_module.row_of({"seq": 7, "at": "t", "kind": "defect", "text": flake["text"]})[1]
-    assert (row["owner"], row["line"], row["verdict"], row["state"]) == ("lag-lane", "go/sand/internal/vm/lag_test.go", "flake", "open")
+    assert (row["owner"], row["line"], row["verdict"], row["state"]) == ("lag-lane", "go/sand/next/internal/vm/lag_test.go", "flake", "open")
     assert [kind for kind, _, _ in trunk_posts(shell)] == ["incident", "defect"]
+
+
+def test_an_old_tree_flake_posts_no_finding(shell, config, tmp_path):
+    """Root #248379: an old-tree flake gets one retry and no fix lane (owner row prompt/1030-212507), and the runner still named run-error-size-1 the owner of go/sand/internal/localrun's flake."""
+    with_ci_build(config)
+    landing = trunk_watch(shell, config, tmp_path)
+    built(shell, "aaaa", "29018", script_build("sand-tests"))
+    shell.builds["29019"] = {"state": "failed", "commit": "b" * 10, "finished_at": "2026-10-01T17:58:00Z", "jobs": [{"id": "job-1", "type": "script", "name": "sand-tests", "state": "failed"}]}
+    shell.job_logs["job-1"] = FLAKY_LOG
+    shell.test_files["TestADrainedSidecarEndsItsLagSeriesAtZero"] = "go/sand/internal/vm/lag_test.go\n"
+    shell.subjects["go/sand/internal/vm/lag_test.go"] = "vm: 🐛 drain the sidecar's lag series (#29011)"
+    rows = OPEN_ROWS | {"29011": {"state": "landed", "lane": "lag-lane"}}
+    shell.trunk = [trunk_commit("b", "FAILURE", "29019", "2026-10-01T17:50:00Z"), trunk_commit("a", "SUCCESS", "29018", "2026-10-01T17:40:00Z")]
+    landing.watch_trunk(rows)
+    shell.builds["29019"] = {"state": "passed", "commit": "b" * 10, "finished_at": "2026-10-01T18:20:00Z", "jobs": [{"id": "job-2", "type": "script", "name": "sand-tests", "state": "passed", "retry_source": {"job_id": "job-1", "retry_type": "manual"}}]}
+    shell.trunk = [trunk_commit("b", "SUCCESS", "29019", "2026-10-01T17:50:00Z"), trunk_commit("a", "SUCCESS", "29018", "2026-10-01T17:40:00Z")]
+    shell.clock += timedelta(minutes=30)
+    landing.watch_trunk(rows)
+    shell.clock += timedelta(minutes=30)
+    landing.watch_trunk(rows)
+    assert not [post for post in shell.posts if "FLAKE" in post["text"]]
 
 
 def test_a_trunk_commit_that_stays_red_posts_dev_red_and_no_flake(shell, config, tmp_path):
@@ -13686,11 +13707,10 @@ def test_a_full_pass_request_at_a_head_a_delta_record_graded_starts_a_whole_pass
     [
         ("root", "decide", "re #182756: the carried major on #44114 at {head} is settled"),
         ("root", "decide", "finder: whole #44114, one whole-diff pass at {head}"),
-        ("p8b-step10", "ask", "finder: whole #44114 at {head}"),
     ],
-    ids=["root-decide", "root-decide-saying-whole", "lane-ask"],
+    ids=["root-decide", "root-decide-saying-whole"],
 )
-def test_a_root_decide_or_a_lane_ask_on_a_pr_with_a_finder_record_starts_no_whole_pass(shell, config, lane, kind, text):
+def test_a_root_decide_on_a_pr_with_a_finder_record_starts_no_whole_pass(shell, config, lane, kind, text):
     finder_config(config, concurrent=1)
     orca_pass(shell, config)
     head_record(shell, "44114", FINDER_HEAD)
@@ -13700,6 +13720,19 @@ def test_a_root_decide_or_a_lane_ask_on_a_pr_with_a_finder_record_starts_no_whol
     shell.records.append({"seq": 149000 + len(shell.records), "drive": "d1", "lane": lane, "kind": kind, "to": ["finder-desk"], "refs": {"prs": ["Forge-AI/monorepo#44114"]}, "text": text.format(head=FINDER_HEAD[:7]), "source": "post", "at": actions.stamp(shell.clock)})
     orca_pass(shell, config)
     assert shell.finder_jobs == started and not [job for job in shell.finder_jobs if "-whole-" in job.name]
+
+
+def test_a_lanes_own_ask_for_a_whole_pass_starts_one(shell, config):
+    """#237246: restore-outcome-3 asked finder-desk for a fresh pass on #46228, and the runner queued whole passes only from root's asks, so the ask sat with no record."""
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    head_record(shell, "44114", FINDER_HEAD)
+    finder_review(shell, "44114", f"finder: major {FINDER_HEAD} 1 open over delta {FINDER_OLD[:7]}..{FINDER_HEAD[:7]}: go/a.go:1 drops a write", lane="finder-desk")
+    orca_pass(shell, config)
+    seq = 149000 + len(shell.records)
+    shell.records.append({"seq": seq, "drive": "d1", "lane": "p8b-step10", "kind": "ask", "to": ["finder-desk"], "refs": {"prs": ["Forge-AI/monorepo#44114"]}, "text": f"finder: whole #44114 at {FINDER_HEAD[:7]}", "source": "post", "at": actions.stamp(shell.clock)})
+    orca_pass(shell, config)
+    assert config.resolve().parent / "finder-desk" / f"44114-whole-{seq}" in shell.finder_jobs
 
 
 def test_a_finder_job_carries_each_finder_record_a_root_decide_settled(shell, config):

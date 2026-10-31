@@ -449,8 +449,8 @@ record is graded with no hand requeue. At most `finder.concurrent`
 passes (default 8) run at once and the rest wait queued; each PR's newest queued head starts, a lower ledger `priority` first, then longest waiting, and an older
 queued head of the same PR settles as superseded, and so does a running pass of it: the runner writes its job's `cancelled`
 mark and runs `codex-ask --cancel` on each codex run the pass started. Before it starts any, one fresh GraphQL read of every
-queued PR settles a head whose PR is closed, or no longer at that head, as skipped. A head a `finder:` record of `finder-desk` already names starts nothing. A root
-`ask` to `finder-desk` that names a PR and says `finder: whole` queues one `full` pass of that PR that
+queued PR settles a head whose PR is closed, or no longer at that head, as skipped. A head a `finder:` record of `finder-desk` already names starts nothing. An
+`ask` from any lane of the drive to `finder-desk` that names a PR and says `finder: whole` queues one `full` pass of that PR that
 starts ahead of the rest and wins over its queued heads: it reads the PR's whole own change at its live head even when a record
 names that head, unless a whole-range finder record about the PR is newer than its newest `head` record. A pass
 writes `<config dir>/finder-desk/<pr>-<head12>/job.json` and starts `finder.py` on that directory detached, which runs
@@ -544,7 +544,8 @@ compared with the one before it: a job name that fails or soft-fails more often 
 `landing.desk_lane` and the lanes of the PRs that landed between the two, so a build green only by soft-fail reads red.
 A trunk commit whose check failed and later passes on a retry of a job or of the build posts one `FLAKE`, a
 `[finding:desk-runner]` defect naming the first failing test in the failed job's log, the lane whose PR last changed
-that test's file as its owner, and a fix due 24 hours out; it blocks nothing and stays open until a HEAD names it.
+that test's file as its owner, and a fix due 24 hours out; it blocks nothing and stays open until a HEAD names it. A test file in the old tree,
+under `go/sand/` outside `go/sand/next/`, posts none, since an old-tree flake gets its one retry and no fix lane (owner row prompt/1030-212507).
 A trunk that does not read gates and enqueues nothing that pass and reads again
 the next; `TRUNK-READ-FAILED` posts once per run of such passes, and `TRUNK-READ-RECOVERED` once a read succeeds.
 `landing.release_cli` is the repo's release command line, such as `tools/ci release`, its first word relative to the landing
@@ -700,6 +701,7 @@ TEST_DIRS = frozenset({"__tests__", "testdata", "fixtures", "docs"})
 CI_PREFIXES = (".buildkite/", ".github/", "tools/ci/", "infra/ci/")
 TOOLING_GLOBS = (".agents/skills/*/scripts/*", ".agents/skills/*/tests/*")
 PORT_PREFIXES = ("go/sand/next/",)
+OLD_TREE = "go/sand/"
 OWNER_CITE = re.compile(r"#\s*owner:\s*[0-9a-f]{7,40}\b")
 MERGE_CARD_FIELDS = "title,author,additions,deletions,reviewDecision"
 RULING_ROUNDS = "cards/rounds"
@@ -4579,7 +4581,7 @@ class Runner:
             return
         read = cci.records(self.cci_tail, self.config.drive, "--kind=head", "--kind=opened", "--kind=ask", since=cursor)
         for record in read:
-            if (record["drive"], record["kind"], record["lane"]) == (self.config.drive, "ask", ROOT):
+            if (record["drive"], record["kind"]) == (self.config.drive, "ask"):
                 for pr in finder.requested(record, repo):
                     self.book.accept(FINDER, f"finder:{pr}:whole:{record['seq']}", "finder", json.dumps({"pr": pr, "head": "", "lane": record["lane"], "seq": record["seq"], "full": True}), f"cci#{record['seq']}", None)
         for record, pr, head in self.named_heads(repo, read):
@@ -6438,6 +6440,8 @@ class Landing:
             return True
         test = next(filter(None, (self.failed_test(red, job) for job in jobs)), "")
         path = self.test_file(test) if test else ""
+        if path.startswith(OLD_TREE) and not path.startswith(PORT_PREFIXES):
+            return True
         subject = self.shell.run(["git", "-C", str(self.checkout), "log", "-1", "--format=%s", "--", path]).out.strip() if path else ""
         pr = found[1] if (found := SQUASHED_PR.search(subject)) else ""
         owner = self.successor(lane) if (lane := rows.get(pr, {}).get("lane")) else ROOT
