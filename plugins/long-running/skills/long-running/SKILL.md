@@ -918,16 +918,17 @@ the largest option Recommended before the options lane replied. Four PRs then bu
 second grader beside the Watch, and release 5445 failed its Switch on every env.*
 
 A found violation of an existing owner ruling is applied, never put back to him as a card
-or pick. The pack's `settled_questions` hook matches each question in an asking call
-(`AskUserQuestion`, `cc-present start --doc`, `push`, `update-block`, a Slack status card
-with options, and a root DECIDE sentence that orders a card) against the register's
-in-force rows, the tracked plan's Decisions lines, the `scope:durable` answers, and the
-feedback memories. It runs in lanes too, so the board refresher's pushes are checked. It
-warns on a match and quotes the ruling or answer that settles it; apply that and drop the
-question. A card on something the owner picked before, superseded picks and picks that
-point the other way included, shows him each one as a line `You picked "<pick>" on
-<date>`; the hook warns a card that leaves one out and lists the lines to add. The same
-question re-issued passes, so a wrong match costs one retry.
+or pick. The pack's `settled_questions` hook hands each question in an asking call
+(`AskUserQuestion`, each card of a `cc-present start --doc`, `push` or `update-block`, a
+Slack status card with options, and a root DECIDE sentence that orders a card) to a judge,
+with the owner's words on the register rows the question cites or `rulings.py match`
+finds, and the other in-force rows, the plan's Decisions lines, his picks and the feedback
+memories that share its words, each pick with the question it answered and whether a later
+answer replaced it. The
+judge warns when the card asks what he already ruled, or offers an option that reads him
+narrower or more literally than his words. It runs in lanes too, so the board refresher's
+pushes are checked. A failed judge call adds nothing. The same card re-issued passes, so a
+wrong flag costs one retry.
 
 An owner message that states a standing rule, with "from now on", "always", "never", "I
 told you", or "the plan is", is recorded the turn it arrives, as an `answer_add` with
@@ -1330,9 +1331,11 @@ The pack's `owner_facing` hook reads the root's final reply at `Stop` in a drive
 queues `Next reply to the owner: give times in Pacific with no zone label, never UTC`
 when it carries a UTC clock time (`17:35Z`, `17:3xZ`, `16:52 UTC`). The time nudge, and
 the plain-words nudge on each term in a reply or an owner question, fire at most once
-per hour each, so a term already flagged warns again only an hour later. Its `plain_words_in_owner_questions` hook blocks a drive root's
-`AskUserQuestion` that carries a codename, an inbox or answer id, or a proposed Slack
-reply. Its `authorizing_lines_wait_for_the_owner_question` hook blocks a `GO`, `LIFT`, or
+per hour each, so a term already flagged warns again only an hour later. A judge reads
+each reply, card, board, plan and drive root `AskUserQuestion` and warns when he would need
+the drive's vocabulary to follow it, when it reads as fields instead of sentences, or when
+a question carries a proposed Slack reply; ids a pattern picks out go to the judge as
+candidates, never as the verdict. Its `authorizing_lines_wait_for_the_owner_question` hook blocks a `GO`, `LIFT`, or
 `UNBLOCK` line appended to an `inbox/*.md` file, and a `cci post --kind go|lift|unblock`
 record, that names the PR or routing change an unanswered `AskUserQuestion` or a board
 posted that turn asks about; write it in a later turn, once the owner answers.

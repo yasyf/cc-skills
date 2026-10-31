@@ -21,6 +21,7 @@ from .owner_facing import OWNER_QUOTE, PROGRAM_ACTIVE, RULINGS, STDIN, Reads, bo
 from .register_injection import drive_args
 from .tests.register_fixtures import DRIVE_CONFIG
 from .tests.board_fixtures import (
+    JUDGE,
     BREACHES,
     FAILING,
     GLOSSARY,
@@ -33,6 +34,7 @@ from .tests.board_fixtures import (
     board,
     fidelity,
     held_copy_hit,
+    judged,
     missing,
     redraft,
     sha12,
@@ -42,12 +44,6 @@ from .tests.board_fixtures import (
 GATED = ("push", "update-block", "reply")
 WATCHED = ("start", "push")
 CONFIRM_WORDS = re.compile(r"\bas written\b|\bdecided by you\b|\byour ruling\b", re.IGNORECASE)
-OUTSIDE = re.compile(r"\b(?:also|my) recommend(?:ed|ation)\b|\banswer only to change\b|\bdecided by you\b|\btick nothing\b", re.IGNORECASE)
-IN_OPTION = re.compile(r"\brecommended\b|\bby default\b|\bthe default\b|\bdefaults? to\b|\bmy pick\b", re.IGNORECASE)
-MECHANISM = re.compile(r"\b(?:how|which)\b|^(?:\d+\.\s*)?what\b", re.IGNORECASE)
-NOTHING = re.compile(r"^(?:\(\w\)\s*)?(?:none|nothing)\b", re.IGNORECASE)
-OWN_DESIGN = re.compile(r"(?-i:\bE-?\d+(?:\.\d+)*\b)|\b(?:our|the plan's|the design's)\s+(?:own\s+)?design\b|\bdesign exception\b", re.IGNORECASE)
-WHETHER = re.compile(r"\bwhether\b|^(?:\d+\.\s*)?(?:should|shall|do|does|did|is|are|can|could|will|would|may|must)\b", re.IGNORECASE)
 CAPABILITY = re.compile(r"\b(?:today|already|currently|as built|existing)\b", re.IGNORECASE)
 CITED = re.compile(r"[\w./-]+:\d+(?:[-,]\d+)*`?\s*@\s*`?[0-9a-f]{7,40}\b|\(unverified\b")
 UNVERIFIED = re.compile(r"\(unverified\b")
@@ -60,7 +56,6 @@ SUBSTITUTED = re.compile(r'^"?\$\((?P<inner>.*)\)"?$', re.DOTALL)
 OK = "ok"
 REVIEW_BUDGET = 200_000
 SWEEP_CADENCE = timedelta(hours=1)
-QUESTIONS = ("choice", "approval")
 TEXT = "text"
 REFUSAL = "Warning, nothing was blocked: Owner-facing text passes every check before the owner sees it. Fix each problem below, then run the same command again."
 SKIPPED = "Warning, nothing was blocked: board_text_gate skipped text it could not read."
@@ -186,40 +181,6 @@ def confirms(found: list[tuple[dict, dict | None]], said: list[str]) -> list[str
     return problems
 
 
-def decisions(found: list[tuple[dict, dict | None]]) -> list[str]:
-    problems = []
-    for block, _ in found:
-        if block["type"] in QUESTIONS:
-            texts = [str(option.get(key, "")) for option in block.get("options") or [] for key in ("label", "hint")]
-            problems += [f'{block["id"]}: a default sits in option text, "{hit[0]}"' for text in texts if (hit := IN_OPTION.search(text))]
-            continue
-        texts = [OWNER_QUOTE.sub(" ", text) for text in own_text(block)]
-        problems += [f'{block["id"]}: decision text outside a choice or approval, "{hit[0]}"' for text in texts if (hit := OUTSIDE.search(text))]
-    return problems
-
-
-def mechanisms(found: list[tuple[dict, dict | None]]) -> list[str]:
-    return [
-        f"{block['id']}: a choice of how something works has no none option, nothing does this"
-        for block, _ in found
-        if block["type"] == "choice"
-        and MECHANISM.search(block.get("prompt", ""))
-        and not any(NOTHING.match(str(option.get(key, ""))) for option in block.get("options") or [] for key in ("id", "label"))
-    ]
-
-
-def whethers(found: list[tuple[dict, dict | None]]) -> list[str]:
-    problems = []
-    for block, card in found:
-        if block["type"] not in QUESTIONS:
-            continue
-        context = [text for _, text in shown(card or block)]
-        asked = [block.get("prompt", ""), *([card.get("title", "")] if card else [])]
-        if any(OWN_DESIGN.search(text) for text in context) and not any(WHETHER.search(text.strip()) for text in asked):
-            problems.append(f"{block['id']}: a question resting on our own design is not asked as whether to do it")
-    return problems
-
-
 def capabilities(found: list[tuple[dict, dict | None]]) -> list[str]:
     problems = []
     for block, _ in found:
@@ -331,15 +292,12 @@ def envelope(doc: object) -> list[tuple[dict, dict | None]]:
     return [({"type": "document", "id": "the document", **{key: value for key, value in doc.items() if isinstance(value, str)}}, None)]
 
 
-def graded(evt: BaseHookEvent, reads: Reads, item: Published) -> list[str]:
+def graded(reads: Reads, item: Published) -> list[str]:
     found = [*envelope(item.doc), *blocks(item.doc)]
     register = reads.register()
     words = reads.said() if register else None
     problems = [
         *(confirms(found, words) if words is not None else []),
-        *decisions(found),
-        *mechanisms(found),
-        *whethers(found),
         *capabilities(found),
         *titles(found),
         *strikes(item, found, reads),
@@ -347,7 +305,7 @@ def graded(evt: BaseHookEvent, reads: Reads, item: Published) -> list[str]:
     if register:
         problems += verify_reports(item, reads, register)
         problems += [f'sweep: {hit["where"]} names "{hit["name"]}", which {hit["key"]} rules out' for hit in swept(reads, item) or []]
-    problems += plan_words(evt, item.data.decode(), reads) if item.verb == "plan" else plain_words(evt, list(shown(item.doc)), reads)
+    problems += plan_words(item.data.decode(), reads) if item.verb == "plan" else plain_words([text for _, text in shown(item.doc)], reads)
     if register:
         problems += text_grade(item, reads, register)
     return problems
@@ -364,6 +322,7 @@ def posting(command: str | None = None, *, sweep_out: str = "", reviewed: tuple[
         f"ccn -R {REPO} log show": sweeps(minutes),
         f"ccn -R {REPO} answer list": "[]",
         "cc-present outcomes": json.dumps({"revising": {"blockIds": list(revised)}}),
+        **judged(),
     }
     return Input(
         command=command,
@@ -395,9 +354,7 @@ def exits(name: str, **extra: object) -> Input:
     tests={
         **{update(name, sweep_out=HELD.get(name, "")): Warn(pattern=BREACHES[name]) for name in FAILING},
         **{update(redraft(name)): Allow() for name in FAILING},
-        reply("reply-4ae100d5.md", sweep_out=f"open - rule/5c0e9a1 {board('reply-4ae100d5.md')}:1 held copy\n"): Warn(
-            pattern=r"decision text outside a choice or approval[\s\S]*names \"held copy\""
-        ),
+        reply("reply-4ae100d5.md", sweep_out=f"open - rule/5c0e9a1 {board('reply-4ae100d5.md')}:1 held copy\n"): Warn(pattern=r"names \"held copy\""),
         reply("reply-4ae100d5.redraft.md"): Allow(),
         posting('cc-present reply --block r3-confirm-loops --body "$(cat /nonexistent/fork-refusals-reply.md)"'): Warn(pattern=r"skipped text[\s\S]*/nonexistent/fork-refusals-reply.md does not exist when the hook runs"),
         posting("cc-present push /nonexistent/preview-doc2.json"): Warn(pattern=r"skipped text[\s\S]*the board /nonexistent/preview-doc2.json: /nonexistent/preview-doc2.json does not exist when the hook runs"),
@@ -424,9 +381,10 @@ def exits(name: str, **extra: object) -> Input:
         update("clean-card.json", commands={"cci grep": fidelity(sha12("clean-card.json"), lane="another-desk")}): Warn(
             pattern=r"no fidelity desk review names"
         ),
-        posting(f"cc-present push {board('intro-only.json')}", reviewed=(sha12("intro-only.json"),)): Warn(
-            pattern=r"the document: decision text outside a choice or approval, \"Answer only to change\""
+        update("clean-card.json", commands=judged("read-only", "Say a copy he can open but not change.")): Warn(
+            pattern=r'plain words, "read-only": Say a copy he can open but not change\.'
         ),
+        update("clean-card.json", commands={JUDGE: (1, "claude: overloaded")}): Allow(),
         posting(f"cat <<'EOF' > /tmp/clean.json\n{HEREDOC}EOF\ncc-present update-block - <<'EOF'\n{board('title-not-question.json').read_text()}EOF", reviewed=(HEREDOC_SHA,)): Warn(
             pattern=r"share-open: the title does not end"
         ),
@@ -435,14 +393,12 @@ def exits(name: str, **extra: object) -> Input:
         posting(f"echo '{PIPED_SECTION}' | cc-present update-block -"): Warn(pattern=r"no fidelity desk review names -"),
         posting("python3 gen.py | cc-present update-block -"): Allow(),
         exits("plan.md", reviewed=(sha12("plan.md"),)): Allow(),
-        exits("plan-title.md", reviewed=(sha12("plan-title.md"),), llm={"terms": ["Notes R3b"]}): Warn(pattern=r'the owner would need "Notes R3b" defined'),
+        exits("plan-title.md", reviewed=(sha12("plan-title.md"),), commands=judged("Notes R3b")): Warn(pattern=r'plain words, "Notes R3b"'),
         exits("plan-title.redraft.md", reviewed=(sha12("plan-title.redraft.md"),)): Allow(),
         exits("plan.md"): Warn(pattern=r"no fidelity desk review names the plan"),
-        exits("plan-ids.md", reviewed=(sha12("plan-ids.md"),)): Warn(
-            pattern=r'the plan has a plan row number, "C221"\n[\s\S]*the plan has an answer id, "5c0e9a1"\n[\s\S]*an acronym standing in for words, "OPFS"'
-        ),
+        exits("plan-ids.md", reviewed=(sha12("plan-ids.md"),), commands=judged("C221")): Warn(pattern=r'plain words, "C221"'),
         exits("plan-only-these.md", reviewed=(sha12("plan-only-these.md"),), sweep_out=held_copy_hit("plan-only-these.md")): Warn(
-            pattern=r"decision text outside a choice or approval, \"Also recommended\"[\s\S]*says these changes only"
+            pattern=r"says these changes only"
         ),
     },
 )
@@ -452,7 +408,7 @@ def board_text_gate(evt: BaseHookEvent) -> HookResult | None:
     reads = Reads(evt, which)
     skipped: list[str] = []
     items = published(evt, reads, skipped)
-    problems = [problem for item in items for problem in graded(evt, reads, item)]
+    problems = [problem for item in items for problem in graded(reads, item)]
     reads.report("board_text_gate")
     if problems and not reads.failures:
         return evt.context(fenced(REFUSAL, problems))
