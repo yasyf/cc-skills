@@ -7628,6 +7628,18 @@ def test_an_admitted_pr_on_trunk_whose_branch_carries_another_open_prs_head_is_r
     assert "#33001" in line and "its branch carries #33002, which a squash would land with it; restack it onto dev" in line
 
 
+@pytest.mark.parametrize("kind", ["decide", "decision"])
+def test_a_root_decide_or_decision_that_opens_with_a_go_clause_admits_the_head_as_a_go_record_does(shell, config, tmp_path, kind):
+    """Root #243144: root's 12:14 AM go for #45713 at cfc41ec was a decide, which stall_watch counts as a go, and the runner read no go and wrote nothing for 18 minutes."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.queue["33001"] = "not queued"
+    shell.records[-1] |= {"kind": kind, "text": "12:14 AM go #33001 at aaaa111 on green"}
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+    assert runner_module.is_go(shell.records[-1]) and not runner_module.is_go(shell.records[-1] | {"text": "Withdraw go #33001 at aaaa111"})
+
+
 def test_an_admitted_head_posts_one_record_per_change_of_its_outcome(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")

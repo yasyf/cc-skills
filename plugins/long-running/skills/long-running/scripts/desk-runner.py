@@ -679,7 +679,7 @@ from long_running.grades import carry_of, delegated, succeeds, with_successors
 from long_running.grades import carries as carry_grade
 from long_running.grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
 from long_running.grades import WITHDRAWN as WITHDRAWN_OPENING
-from long_running.grades import go_state, owes
+from long_running.grades import GO_KIND_FLAGS, GO_KINDS, go_state, is_go, owes
 from long_running.grades import REVIEW_BOT_CHECK, REVIEW_BOT_HELD, VOIDING_KINDS, review_bot_wait, voids, withdrawn
 from incident import CLAUDE_FAST_MODE, CLOCK_FALLBACK
 
@@ -1060,7 +1060,6 @@ PR_SILENT = "pr-silent"
 CLASS_UNOWNED = "class-unowned"
 CLASS_TEXT = re.compile(r"^(?:NEW )?CLASS\b")
 CLASS_HEADER = re.compile(r"^(?:(?:NEW )?CLASS\b[^\n]*|\[[^\]\n]+\])")
-FIX_GO_KINDS = frozenset({"go", "decide", "decision"})
 FIX_GO = re.compile(r"\bfix\b", re.IGNORECASE)
 UNPUSHED = frozenset({"not pushed", "no origin branch"})
 PR_NAMED = re.compile(r"(?<![\w/])#(\d{3,})\b|/pull/(\d+)\b")
@@ -4115,7 +4114,7 @@ class Runner:
             self.tail_failed(failure)
             return
         after = timedelta(minutes=self.config.pr_silent_minutes)
-        gos = [record for record in records if record["lane"] == ROOT and record["kind"] in FIX_GO_KINDS and FIX_GO.search(record.get("text") or "")]
+        gos = [record for record in records if record["lane"] == ROOT and record["kind"] in GO_KINDS and FIX_GO.search(record.get("text") or "")]
         for record in records:
             if record["lane"] in (ROOT, RUNNER) or not (record["kind"] == "incident" or CLASS_TEXT.match(record.get("text") or "")):
                 continue
@@ -4646,7 +4645,7 @@ class Runner:
             if (state := live.get(pr)) and (state["state"] in FINDER_SKIPS or job["head"] and state["headRefOid"] != job["head"]):
                 self.finder_settled(action.action_id, {"skipped": FINDER_SKIPS.get(state["state"], "#{pr} moved to {head}").format(pr=pr, repo=repo, head=state["headRefOid"][:12])})
                 del newest[pr]
-        going = self.tapped() | {pr for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, "--kind=go") if (record["lane"], record["kind"]) == (ROOT, "go") for pr in go_heads(record)}
+        going = self.tapped() | {pr for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, *GO_KIND_FLAGS) if record["lane"] == ROOT and is_go(record) for pr in go_heads(record)}
         history: dict[str, list[actions.Action]] = {}
         for action in sorted(self.book.actions(FINDER, kind="finder"), key=lambda action: action.accepted_at):
             history.setdefault(json.loads(action.target)["pr"], []).append(action)
@@ -7379,7 +7378,7 @@ class Landing:
         if not (after := self.landing_config.get("checks_wait_for_go")):
             return False
         drive = self.runner.config.drive
-        if any((record["kind"], record["lane"], record["drive"]) == ("go", ROOT, drive) for record in cci.records(self.cci_tail, drive, "--lane", ROOT, "--kind=go", since=after)):
+        if any((record["lane"], record["drive"]) == (ROOT, drive) and is_go(record) for record in cci.records(self.cci_tail, drive, "--lane", ROOT, *GO_KIND_FLAGS, since=after)):
             return False
         self.runner.escalate(f"gate-paused:{after}", "GATE-PAUSED", "landing", f"landing.checks_wait_for_go is {after}, so the gate runs no stack-enqueue --check until a root go record comes after cci #{after}; ledger refresh, reconcile, head reads and restack routes go on")
         return True
@@ -7388,10 +7387,10 @@ class Landing:
         return lane in (ROOT, RUNNER) or delegated(lane, self.landing_config.get("go_lanes", []))
 
     def go_records(self) -> list[dict]:
-        """Every `go` record on this drive from the root or a `landing.go_lanes` lane or its numbered successor, read by lane when no lane is delegated."""
+        """Every go on this drive, a `go` record or a `decide` or `decision` carrying a go clause, from the root or a `landing.go_lanes` lane or its numbered successor, read by lane when no lane is delegated."""
         drive = self.runner.config.drive
         lanes = () if self.landing_config.get("go_lanes") else ("--lane", ROOT, "--lane", RUNNER)
-        return [record for record in cci.records(self.cci_tail, drive, *lanes, "--kind=go") if (record["drive"], record["kind"]) == (drive, "go") and self.go_lane(record["lane"])]
+        return [record for record in cci.records(self.cci_tail, drive, *lanes, *GO_KIND_FLAGS) if record["drive"] == drive and is_go(record) and self.go_lane(record["lane"])]
 
     def root_gos(self) -> list[dict]:
         """The `go` records of the root and of each `landing.go_lanes` lane or its numbered successor on this drive, read once per pass and again before each enqueue wave, without any that a later root record resolves, answers with a `withdraw`, or names by `#<seq>` or `--re` with the word "withdrawn", plus the gos a fidelity desk's `ok H carried from G` grade carries from G to H. Each carries `voided`, the PRs of its clause that a later root `withdraw` record, or one opening `WITHDRAWN`, names, which it no longer lets merge nor carries to a later head."""
