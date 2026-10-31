@@ -2706,6 +2706,33 @@ def test_a_trunk_enqueue_answered_http_429_is_retried_next_pass_and_fails_nothin
     assert len(shell.enqueues()) == 2
 
 
+def test_a_stack_link_lists_every_open_pr_stacked_above_the_tip_so_gh_never_exits_5(shell, config, tmp_path):
+    """Root #228185: the runner linked #45579 #45796 alone while #45744, #45818 and #45921 sat above them in the native stack, and gh stack link exited 5 twice."""
+    shell.rows = [
+        {"pr": "29016", "lane": LANE, "branch": "a/2", "base": "dev", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222", "ours": True},
+        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "a/2", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": True},
+        {"pr": "29031", "lane": LANE, "branch": "a/4", "base": "a/3", "head": "dddd444444", "state": "open", "reported_head": "dddd444444", "ours": True},
+    ]
+    unlinked = (5, "", "stack-enqueue failed: #29020 targets a/2 without a native GitHub stack; link it with gh stack link\n")
+    shell.gates["29020"] = [unlinked, gate("#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", would="#29016 #29020")]
+    shell.gates["29031"] = [gate("#29016 GREEN bbbb222222 graphite READY", "#29020 GREEN cccc333333 graphite READY", "#29031 BLOCKED dddd444444 CI running")]
+    shell.enqueue_out["29020"] = (0, "enqueue #29016 #29020: {}\n")
+    grade(shell, "29016", "ok F307 at bbbb222.")
+    grade(shell, "29020", "ok F307 at cccc333.")
+    real = shell.run
+
+    def run(argv, *args, **kwargs):
+        if argv[:3] == ["gh", "stack", "link"]:
+            shell.calls.append(argv)
+            return runner_module.Done(0 if argv[3:] == ["29016", "29020", "29031"] else 5, "", "")
+        return real(argv, *args, **kwargs)
+
+    shell.run = run
+    landing_pass(shell, config)
+    assert [call for call in shell.calls if call[:3] == ["gh", "stack", "link"]] == [["gh", "stack", "link", "29016", "29020", "29031"]]
+    assert shell.enqueues() != []
+
+
 def test_a_check_with_no_verdict_on_a_pr_github_reads_merged_escalates_nothing(shell, config, tmp_path):
     """Root #200922: #44828 merged directly, its branch went, and the gate's fetch of that branch read as a GATE-FAILED defect."""
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": True}]
