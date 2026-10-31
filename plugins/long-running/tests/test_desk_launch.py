@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import json
 import re
 import sys
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -92,6 +94,27 @@ def briefs(tmp_path: Path) -> tuple[Path, Path]:
     fix.write_text("fix")
     evidence.write_text("evidence")
     return fix, evidence
+
+
+def test_two_launches_started_together_post_different_keys(drive, tmp_path, monkeypatch):
+    monkeypatch.setattr(desk_launch, "KEY_LOCK", tmp_path / "desk-launch.lock")
+    fix, _ = briefs(tmp_path)
+    together = threading.Barrier(2, timeout=1)
+
+    def racing(name: str, *argv: str) -> str:
+        if argv[0] == "grep" and "--to" in argv:
+            with contextlib.suppress(threading.BrokenBarrierError):
+                together.wait()
+        return drive(name, *argv)
+
+    monkeypatch.setattr(desk_launch, "cci", racing)
+    launches = [threading.Thread(target=desk_launch.main, args=(["lane", lane, "sol", "xhigh", str(fix), "--timeout-seconds", "0"],)) for lane in ("lane-a", "lane-b")]
+    for launch in launches:
+        launch.start()
+    for launch in launches:
+        launch.join()
+
+    assert sorted(text.split()[0] for text in posted(drive)) == ["R2026", "R2027"]
 
 
 def test_an_incident_pair_posts_addressed_launch_lines_under_the_next_keys_and_prints_each_dispatch(drive, tmp_path, capsys):

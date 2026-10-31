@@ -2,12 +2,17 @@
 
 Each tick folds the bus records after the mover's cursor into the `lanes` registry, reads
 once which lanes `cci who` lists live, and acts on each desired lane: one that stopped, or
-went silent past `STALE_AFTER`, is stood down by one record naming its successor and the
-PRs it takes over, and the successor launches from the lane's brief and newest handoff; one
+went silent past `STALE_AFTER`, has its successor launched from the lane's brief and newest
+handoff, and is stood down by one record naming that successor and the PRs it takes over
+once the successor is up; a lane whose newest record is an unanswered ask is waiting, not
+silent, and its clock restarts at the answer; one
 past its context line is asked to rotate, and rotated the same way when no handoff answers
 within the interval. Each live lane beats in the store's worker table, so `stale_workers` is the
-one liveness rule, and a lane it relaunches, holds or retires leaves that table. A fresh store adopts only the lanes live at that moment, and a tick whose
-sources do not all answer acts on nothing. It signals no process: a live lane leaves only
+one liveness rule, and a lane it relaunches, holds or retires leaves that table. A fresh store adopts only the lanes alive at that moment by the same rule, and a tick whose
+sources do not all answer acts on nothing. A numbered successor's `SPAWNED`, a root
+`<new> replaces <old>`, and a `head` or `opened` record that takes a never-launched lane's last
+PR each retire the older lane; a `<lane>-handoff` writer's `handoff <lane>: doc <id>` is the
+lane's newest handoff. It signals no process: a live lane leaves only
 through the record that stands it down.
 """
 
@@ -30,7 +35,12 @@ ADOPT_WINDOW = "72h"
 STRIKES = 2
 LIVE = ("launching", "desired")
 HELPER_ROLES = frozenset({"helper", "reader", "watch", "export", "evidence", "handoff", "comms", "triage"})
-NUMBERED = re.compile(r"^(?P<family>.+)-(?P<n>\d+)$")
+NUMBERED = re.compile(r"^(?P<family>.+)-(?P<n>\d{1,2})$")
+REPLACES = re.compile(r"\b(?P<new>[\w.-]+) replaces (?P<old>[\w.-]+)\b")
+HANDED_OFF = re.compile(r"\bhandoff (?P<lane>[\w.-]+): doc (?P<doc>[0-9a-f]{7,40})\b")
+CARRIES = ("head", "opened")
+WAITS = frozenset({"ask", "blocked", "blocker"})
+SLICE_STEP = re.compile(r"^Register slice: lane=\S+ step=(\S+)", re.MULTILINE)
 OWNER = re.compile(r"\bowner=([\w.-]+)")
 PACIFIC = ZoneInfo("America/Los_Angeles")
 HANDOFF_BRIEF = Path(__file__).parents[3] / "reference" / "handoff-subagent-brief.md"
@@ -59,6 +69,7 @@ class Deps:
     transcript: Callable[[dict], Path | None]
     cci: Callable[[list[str]], str]
     launch: Callable[[str, str, str, Path], None]
+    withdraw: Callable[[str], None]
     rotate_at: int
 
 
@@ -68,6 +79,7 @@ class Outcome:
     asked: list[str] = field(default_factory=list)
     held: list[str] = field(default_factory=list)
     adopted: list[str] = field(default_factory=list)
+    withdrawn: list[str] = field(default_factory=list)
 
 
 def pacific(at: datetime) -> str:
@@ -97,12 +109,28 @@ def spawned(record: dict) -> tuple[str, str, str, str, str] | None:
     return name, brief, attrs.get("model") or "opus", attrs.get("effort") or "xhigh", attrs.get("role") or "lane"
 
 
-def successor_name(name: str, taken: set[str]) -> str:
+def family(name: str) -> tuple[str, int]:
     match = NUMBERED.match(name)
-    family, n = (match["family"], int(match["n"])) if match else (name, 1)
-    while f"{family}-{n + 1}" in taken:
+    return (match["family"], int(match["n"])) if match else (name, 1)
+
+
+def succeeds(name: str, old: str) -> bool:
+    (base, n), (other, later) = family(old), family(name)
+    return other == base and later > n
+
+
+def successor_name(name: str, taken: set[str]) -> str:
+    base, n = family(name)
+    while f"{base}-{n + 1}" in taken:
         n += 1
-    return f"{family}-{n + 1}"
+    return f"{base}-{n + 1}"
+
+
+def newest(store: Store, name: str) -> Lane | None:
+    lane = store.lane(name)
+    while lane and lane.state == "retired" and lane.retired_by and (after := store.lane(lane.retired_by)):
+        lane = after
+    return lane
 
 
 def retire(store: Store, name: str, by: str, at: datetime) -> None:
@@ -115,27 +143,45 @@ def hold(store: Store, name: str, why: str, at: datetime) -> None:
     store.release_worker(name)
 
 
-def fold(store: Store, records: Iterable[dict], live: set[str] | None) -> list[str]:
-    """Apply bus records to the registry; with `live` set, the store is fresh and registers only the spawned lanes in it."""
-    adopted = []
+def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: Path) -> tuple[list[str], list[str]]:
+    """Apply bus records to the registry; with `live` set, the store is fresh and registers only the spawned lanes in it. Returns the lanes adopted, and the lanes this supervisor is launching that someone else spawned from another brief."""
+    adopted, hand = [], []
     for record in records:
         lane, at = record["lane"], at_of(record)
         if found := spawned(record):
             name, brief, model, effort, role = found
+            for old in store.lanes(*LIVE):
+                if succeeds(name, old.name):
+                    retire(store, old.name, name, at)
+            if (mine := store.lane(name)) and mine.state == "launching" and mine.reason and Path(brief).resolve() != (briefs / f"{name}.brief.md").resolve():
+                hand.append(name)
             if live is None or name in live:
                 if store.want_lane(name, brief, model, effort, role, "launching" if live is None else "desired", at):
                     adopted.append(name)
             continue
         row = store.lane(lane)
+        kind, text = record["kind"], record.get("text") or ""
         if row and row.state in LIVE:
             store.lane_heard(lane, at)
-        kind = record["kind"]
+            store.lane_waiting(lane, record["seq"] if kind in WAITS and ROOT in (record.get("to") or []) else None)
+        if answers := {record.get("re"), record.get("resolves")} - {None}:
+            for waiter in store.lanes(*LIVE):
+                if waiter.waiting in answers:
+                    store.lane_waiting(waiter.name, None)
+                    store.lane_heard(waiter.name, at)
         if lane == SELF:
             continue
         if kind == "handoff" and row and (doc := (record.get("refs") or {}).get("ccn")):
             store.lane_handoff(lane, doc, at if row.asked else None)
-        elif kind == "opened" and row:
-            store.lane_prs(lane, {*row.prs, *prs_of(record)})
+        elif (handed := HANDED_OFF.search(text)) and lane == f"{handed['lane']}-handoff" and (owner := newest(store, handed["lane"])):
+            store.lane_handoff(owner.name, handed["doc"], None)
+        elif kind in CARRIES and row and (numbers := set(prs_of(record))):
+            for other in store.all_lanes():
+                if other.name != lane and numbers & set(other.prs):
+                    store.lane_prs(other.name, [n for n in other.prs if n not in numbers])
+                    if other.state == "launching" and set(other.prs) <= numbers:
+                        retire(store, other.name, lane, at)
+            store.lane_prs(lane, {*row.prs, *numbers})
         elif kind == "landed":
             for number in prs_of(record):
                 for owner in store.all_lanes():
@@ -156,7 +202,10 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None) -> list[s
                 if moved & set(other.prs) and other.name != taker.name:
                     store.lane_prs(other.name, [n for n in other.prs if n not in moved])
             store.lane_prs(taker.name, {*taker.prs, *moved})
-    return adopted
+        elif lane == ROOT and (moved := REPLACES.search(text)) and (old := store.lane(moved["old"])) and old.state in LIVE and (taker := store.lane(moved["new"])):
+            retire(store, old.name, taker.name, at)
+            store.lane_prs(taker.name, {*taker.prs, *old.prs})
+    return adopted, hand
 
 
 def peers(rows: Iterable[dict]) -> dict[str, Peer]:
@@ -183,8 +232,12 @@ def successor_brief(old: Lane, new: str, why: str, deps: Deps, transcript: Path 
             f"reference brief {old.brief}, cci drive {drive}, previous handoff none and drive checkout {checkout}; read the doc it returns."
         )
     owned = ", ".join(f"#{n}" for n in old.prs) or "none recorded"
+    body = Path(old.brief).read_text()
+    step = found[1] if (found := SLICE_STEP.search(body)) else "all"
     return "\n".join([
         f"Replaces: {old.name}",
+        "ccx: place=local",
+        f"Register slice: lane={new} step={step}",
         f"You are {new} and take over {old.name}'s work. The lane supervisor launched you because {old.name} {why}; {old.name} is stood down on cci, so never SendMessage it.",
         start,
         f"PRs you now own: {owned}.",
@@ -199,7 +252,7 @@ def successor_brief(old: Lane, new: str, why: str, deps: Deps, transcript: Path 
         "",
         f"When the deliverable is done, post `cci post --drive {drive} --lane {new} --kind done --to root` before your final message. On `ROTATE`, write your state to cc-notes and post `cci post --drive {drive} --lane {new} --kind handoff --ccn <doc id> --re <the ROTATE record>`, then keep working.",
         "",
-        Path(old.brief).read_text(),
+        body,
     ])
 
 
@@ -209,15 +262,21 @@ class Verdict:
     why: str = ""
 
 
+def alive(peer: Peer | None, heard: datetime | None, now: datetime) -> bool:
+    return bool(peer and peer.live and heard and now - heard < STALE_AFTER)
+
+
 def classify_lane(lane: Lane, peer: Peer | None, now: datetime, tokens: int | None = None, rotate_at: int = 0) -> Verdict:
     """One registry row against what `cci who` shows now: `ok`, `came-up`, `no-show`, `dead`, `ask-rotate` or `rotating`."""
     heard = max([t for t in (peer.seen if peer else None, lane.heard) if t], default=None)
-    alive = bool(peer and peer.live and heard and now - heard < STALE_AFTER)
+    alive_now = alive(peer, heard, now)
     if lane.state == "launching":
-        if alive:
+        if alive_now:
             return Verdict("came-up")
         return Verdict("no-show", f"not live {STALE_AFTER.seconds // 60} minutes after its launch") if now - lane.since >= STALE_AFTER else Verdict("ok")
-    if not alive:
+    if not alive_now:
+        if lane.waiting is not None:
+            return Verdict("ok")
         if heard is None:
             return Verdict("dead", "never registered")
         return Verdict("dead", f"went silent at {pacific(heard)}" if peer and peer.live else f"stopped at {pacific(heard)}")
@@ -239,7 +298,11 @@ def escalate(store: Store, deps: Deps, subject: str, cause: str, now: datetime) 
         post(deps, "blocker", ROOT, f"{pacific(now)} {subject}: {cause}", "--lane-ref", subject.removeprefix("lane:"))
 
 
-def relaunch(store: Store, deps: Deps, old: Lane, peer: Peer | None, why: str, taken: set[str], now: datetime, out: Outcome) -> None:
+def relaunch(store: Store, deps: Deps, old: Lane, peers: dict[str, Peer], why: str, taken: set[str], now: datetime, out: Outcome) -> None:
+    if heir := next((p.lane for p in peers.values() if alive(p, p.seen, now) and succeeds(p.lane, old.name)), None):
+        retire(store, old.name, heir, now)
+        return
+    peer = peers.get(old.name)
     strikes = old.strikes + 1 if old.predecessor and now - old.since < STALE_AFTER else 0
     if strikes >= STRIKES or not Path(old.brief).is_file():
         hold(store, old.name, why, now)
@@ -252,7 +315,6 @@ def relaunch(store: Store, deps: Deps, old: Lane, peer: Peer | None, why: str, t
     brief = deps.briefs / f"{new}.brief.md"
     brief.parent.mkdir(parents=True, exist_ok=True)
     brief.write_text(successor_brief(old, new, why, deps, deps.transcript(peer.row) if peer else None))
-    post(deps, "stand-down", old.name, f"{pacific(now)} {old.name} stood down for {new}: it {why}.", "--successor", new, *[arg for n in old.prs for arg in ("--pr", str(n))])
     retire(store, old.name, new, now)
     store.want_lane(new, old.brief, old.model, old.effort, old.role, "launching", now, handoff=old.handoff, prs=old.prs, predecessor=old.name, reason=why, strikes=strikes)
     deps.launch(new, old.model, old.effort, brief)
@@ -284,7 +346,10 @@ def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
         records = deps.records(store.cursor(CURSOR))
     except Unread:
         return out
-    out.adopted = fold(store, records, {lane for lane, peer in found.items() if peer.live} if fresh else None)
+    out.adopted, hand = fold(store, records, {lane for lane, peer in found.items() if alive(peer, peer.seen, now)} if fresh else None, deps.briefs)
+    for name in hand:
+        deps.withdraw(name)
+        out.withdrawn.append(name)
     if records:
         store.advance(CURSOR, max(record["seq"] for record in records))
     taken = {lane.name for lane in store.all_lanes()} | set(found)
@@ -296,12 +361,14 @@ def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
             store.heartbeat(lane.name, generation, max(peer.seen, lane.heard or peer.seen))
         if verdict.kind == "came-up":
             store.lane_state(lane.name, "desired", now)
+            if lane.predecessor and lane.reason and (old := store.lane(lane.predecessor)) and old.retired_by == lane.name:
+                post(deps, "stand-down", old.name, f"{pacific(now)} {old.name} stood down for {lane.name}, now up; {old.name} {lane.reason}.", "--successor", lane.name, *[arg for n in lane.prs for arg in ("--pr", str(n))])
         elif verdict.kind == "no-show":
             hold(store, lane.name, verdict.why, now)
             escalate(store, deps, f"lane:{lane.name}", f"{verdict.why}; brief {deps.briefs / f'{lane.name}.brief.md'}", now)
             out.held.append(lane.name)
         elif verdict.kind in ("dead", "rotating"):
-            relaunch(store, deps, lane, peer, verdict.why, taken, now, out)
+            relaunch(store, deps, lane, found, verdict.why, taken, now, out)
         elif verdict.kind == "ask-rotate":
             post(deps, "ask", lane.name, f"ROTATE: {lane.name} is at {verdict.why}. Write anything not yet in the ledger or cc-notes to a cc-notes doc, post `cci post --lane {lane.name} --kind handoff --ccn <doc id> --re <this record>`, then keep working.")
             store.lane_asked(lane.name, now)

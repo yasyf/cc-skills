@@ -150,12 +150,9 @@ def rotate_at() -> int:
     return usable * ROTATE_PERCENT // 100
 
 
-def launcher(drive: str, briefs: Path):
-    def launch(name: str, model: str, effort: str, brief: Path) -> None:
-        with (briefs / f"{name}.launch.log").open("ab") as log:
-            subprocess.Popen([sys.executable, str(DESK_LAUNCH), "lane", name, model, effort, str(brief), "--drive", drive, "--lane", lanes.SELF], stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
-
-    return launch
+def desk_launch(briefs: Path, name: str, *argv: str) -> None:
+    with (briefs / f"{name}.launch.log").open("ab") as log:
+        subprocess.Popen([sys.executable, str(DESK_LAUNCH), *argv], stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
 
 
 def clock() -> datetime:
@@ -180,7 +177,8 @@ def lanes_deps(config: lr_config.Config, state: Path) -> lanes.Deps:
         tokens=Tokens(clock),
         transcript=transcript,
         cci=lambda argv: run(["cci", *argv]),
-        launch=launcher(config.drive, briefs),
+        launch=lambda name, model, effort, brief: desk_launch(briefs, name, "lane", name, model, effort, str(brief), "--drive", config.drive, "--lane", lanes.SELF),
+        withdraw=lambda name: desk_launch(briefs, name, "withdraw", name, "--drive", config.drive, "--lane", lanes.SELF),
         rotate_at=rotate_at(),
     )
 

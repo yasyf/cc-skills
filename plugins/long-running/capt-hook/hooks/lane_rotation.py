@@ -31,6 +31,7 @@ REPLACES = re.compile(r"^Replaces: `?([\w.-]+)`?\s*$", re.MULTILINE)
 NUMBERED = re.compile(r"(.+)-(\d+)")
 HANDOFF = "-handoff"
 SUCCESSOR_OF = "cci who --successor-of"
+LIVE_LANE = "cci who --lane"
 MAIN = "main"
 SUCCESSOR_TIMEOUT_SECONDS = 10
 
@@ -123,8 +124,20 @@ def stand_down(evt: BaseHookEvent, lane: str) -> tuple[bool, str | None]:
     return found["stood_down"], found["successor"] or None
 
 
-def cci_successor(to: str, chain: list[str]) -> dict:
-    return {SUCCESSOR_OF: json.dumps({"drive": "brook-drive", "lane": to, "stood_down": bool(chain), "successor": chain[-1] if chain else "", "chain": chain})}
+def successor_live(evt: BaseHookEvent, lane: str) -> bool:
+    """Whether `cci who` lists a live session for `lane`; outside a drive there is no registry to ask, so the session's own rotation stands."""
+    if not (entry := drive_entry(evt)):
+        return True
+    argv = [*LIVE_LANE.split(), lane, "--drive", bus_name(entry), "--json"]
+    done = subprocess.run(argv, capture_output=True, text=True, timeout=SUCCESSOR_TIMEOUT_SECONDS, env=dict(reqenv.env_map()), check=True)
+    return bool(done.stdout.strip())
+
+
+def cci_successor(to: str, chain: list[str], live: bool = True) -> dict:
+    return {
+        SUCCESSOR_OF: json.dumps({"drive": "brook-drive", "lane": to, "stood_down": bool(chain), "successor": chain[-1] if chain else "", "chain": chain}),
+        LIVE_LANE: json.dumps({"lane": chain[-1], "live": True}) if chain and live else "",
+    }
 
 
 @on(
@@ -145,6 +158,9 @@ def cci_successor(to: str, chain: list[str]) -> dict:
             tool="SendMessage", tool_input={"to": "desk", "message": "done: #12 merged"}, agent_id="a1b2c3", env=DRIVE_CONFIG, commands=cci_successor("desk", ["desk-2"])
         ): Rewrite(None, to="desk-2"),
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "done: #12 merged"}, agent_id="a1b2c3", env=DRIVE_CONFIG, commands=cci_successor("desk", [])): Allow(),
+        Input(
+            tool="SendMessage", tool_input={"to": "flock-race-1", "message": "pick A"}, env=DRIVE_CONFIG, commands=cci_successor("flock-race-1", ["flock-race-2"], live=False)
+        ): Warn(pattern=r"^Warning, nothing was blocked: `flock-race-1` is stood down for `flock-race-2`, which `cci who` lists no live session for, so this message goes to `flock-race-1` as addressed\.$"),
         Input(
             tool="SendMessage",
             tool_input={"to": "desk", "message": "done: #12 merged"},
@@ -170,6 +186,8 @@ def redirect_retired_lanes(evt: BaseHookEvent) -> HookResult | None:
     retired = RotationState.load(evt).retired
     recorded, successor = stand_down(evt, to)
     successor = successor or (heir(retired, to) if to in retired else None)
+    if successor and not successor_live(evt, successor):
+        return evt.context(f"Warning, nothing was blocked: `{to}` is stood down for `{successor}`, which `cci who` lists no live session for, so this message goes to `{to}` as addressed.")
     if successor and mentions_stand_down(raw.get("message")):
         return evt.context(f"Warning, nothing was blocked: `{to}` is already stood down for `{successor}`, and this message resumes it on its stale brief. `TaskStop` `{to}` instead.")
     if successor:
