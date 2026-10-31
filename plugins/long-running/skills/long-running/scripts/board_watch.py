@@ -74,6 +74,7 @@ import os
 import hashlib
 import json
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -131,6 +132,10 @@ class Shell:
     def reexec(self) -> None:
         os.environ.pop(drive.CALLER_VERSION_ENV, None)
         drive.run_installed(__file__)
+
+    def end_inherited_children(self) -> None:
+        for pid in subprocess.run(["pgrep", "-P", str(os.getpid())], capture_output=True, text=True).stdout.split():
+            os.kill(int(pid), signal.SIGTERM)
 
     def watch(self, session: str) -> Iterator[str]:
         with subprocess.Popen(["cc-present", "watch", "--session", session], stdout=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True) as child:
@@ -498,6 +503,7 @@ def cmd_start(args: argparse.Namespace, shell: Shell) -> int:
         if not free(lock):
             print(f"board-watch {args.session}: another watch holds {lock.name}")
             return 0
+        shell.end_inherited_children()
         seen = recorded(state / CAPTURES)
         events = state / BOARDS / f"{args.session}-events.jsonl"
         bus = Bus(bus_drive(args), events.read_text().count("\n") if events.exists() else 0)
