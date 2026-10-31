@@ -1908,7 +1908,7 @@ class Runner:
         try:
             return cci.PostResult(0, done.out, done.err, cci.posted(done.out))
         except (json.JSONDecodeError, KeyError) as error:
-            return cci.PostResult(1, "", f"cci: invalid post receipt: {error}: {done.out.strip()}", ())
+            return cci.PostResult(1, done.out, f"{done.err}\ncci: invalid post receipt: {error}: {done.out.strip()}", ())
 
     def flush(self) -> bool:
         """Post each accepted escalation to root. While an incident clock runs, a DEADLINE, UNACKED, LIVENESS, STALE-MAIL, or RECLAIM about anything outside the incident waits in the view, and the pass after the last clock ends posts them as one DEFERRED record."""

@@ -14686,3 +14686,16 @@ def test_cci_post_retains_each_internal_json_sequence_and_invalidates_the_tail(s
     assert done.records == (runner_module.cci.Posted(41, "#7"), runner_module.cci.Posted(52, "#100@remote"))
     assert runner.cci_tail.read == {}
     assert shell.raw[-1][-1] == "--json"
+
+
+def test_invalid_post_json_keeps_both_raw_diagnostic_streams(config, tmp_path):
+    class InvalidPostShell(runner_module.Shell):
+        def run(self, argv, **kwargs):
+            return runner_module.Done(0, "not-json\n", "provider warning\n")
+
+    runner = runner_module.Runner(InvalidPostShell(), runner_module.Config.load(config), actions.Store(tmp_path / "invalid-post-book"))
+    done = runner.cci_post("note", "posted", "root", "machine-ci", "machine-ci")
+    assert done.code == 1 and done.records == ()
+    assert done.out == "not-json\n"
+    assert done.err.startswith("provider warning\n")
+    assert "cci: invalid post receipt:" in done.err
