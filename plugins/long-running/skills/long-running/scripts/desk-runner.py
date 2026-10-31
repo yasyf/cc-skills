@@ -1757,8 +1757,9 @@ class Orca:
 
     def show(self, lane: str, dispatch: str | None = None) -> Dispatch | None:
         """The lane's dispatch as Orca shows it, or None when the lane has no receipt or Orca answers that the dispatch is gone; a dispatch whose worker's remote runtime does not answer reads as live, so one unreachable Sprite never stops the pass (root #265048); raises OrcaUnreachable when Orca itself gives no answer."""
-        dispatch = dispatch or self.receipt(lane)
-        shown = self.call("orchestration", "worker-show", "--dispatch", dispatch) if dispatch else {}
+        if not (dispatch := dispatch or self.receipt(lane)):
+            return None
+        shown = self.call("orchestration", "worker-show", "--dispatch", dispatch)
         if not shown.get("ok") and shown["error"]["code"] == REMOTE_UNREACHABLE:
             return Dispatch(lane=lane, id=dispatch, terminal=self.terminal(lane), status=REMOTE_UNREACHABLE, live=True)
         if not shown.get("ok") and shown["error"]["code"] in UNREACHABLE:
@@ -9176,11 +9177,11 @@ class Landing:
             self.statuses_floor = actions.parse_stamp(actions.stamp(self.runner.now() - STATUS_MAX_AGE))
             numbers = sorted((pr for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"), key=int)
             pages = [numbers[start : start + STATUS_PAGE] for start in range(0, len(numbers), STATUS_PAGE)]
-            with ThreadPoolExecutor(len(pages) + 1) as pool:
-                rules = pool.submit(self.shell.run, ghread.read("api", f"repos/{self.repo}/rules/branches/{TRUNK}"))
+            with ThreadPoolExecutor(max(1, len(pages))) as pool:
                 reads = list(pool.map(lambda page: self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", "--max-age", f"{int(STATUS_MAX_AGE.total_seconds())}s", *page]), pages))
-            done = next((read for read in [*reads, rules.result()] if read.code != 0), Done(0, "", ""))
-            required = set() if done.code else {TRUNK_QUEUE_CHECK} | {check["context"] for rule in json.loads(rules.result().out) if rule["type"] == "required_status_checks" for check in rule["parameters"]["required_status_checks"]}
+            rules = self.shell.run(ghread.read("api", f"repos/{self.repo}/rules/branches/{TRUNK}"))
+            done = next((read for read in [*reads, rules] if read.code != 0), Done(0, "", ""))
+            required = set() if done.code else {TRUNK_QUEUE_CHECK} | {check["context"] for rule in json.loads(rules.out) if rule["type"] == "required_status_checks" for check in rule["parameters"]["required_status_checks"]}
             entries = [] if done.code else [required_only(entry, required) for read in reads for entry in json.loads(read.out)]
             statuses = self.statuses = None if done.code else {str(entry["number"]): trunk_labelled(trunk_recorded(entry, self.trunk_states.get(str(entry["number"]))), self.ledger_rows.get(str(entry["number"]), {})) if self.adapter.kind == merge_queue.TrunkStackEnqueue.kind else entry for entry in entries}
             self.queues_read = True
