@@ -155,6 +155,7 @@ class FakeShell(runner_module.Shell):
         self.unregistered: set[str] = set()
         self.checkout_edits = ""
         self.posts: list[dict] = []
+        self.registrations: list[dict] = []
         self.states: list[dict] = []
         self.alive: list[str] = []
         self.beats: list[dict] = []
@@ -582,9 +583,12 @@ class FakeShell(runner_module.Shell):
             flags = dict(zip(argv[2::2], argv[3::2], strict=True))
             if not forced and (unstarted := [lane for lane in flags.get("--to", "").split(",") if lane in self.unstarted]):
                 return runner_module.Done(1, "", f"cci: --to {unstarted[0]}: no live session or registered lane on drive {flags['--drive']} is named {unstarted[0]}")
-            assert flags["--drive"] in self.drives and flags["--lane"] in ("desk-runner", "root", "finder-desk", "fidelity-desk") and len(flags["--text"]) <= 400
+            assert flags["--drive"] in self.drives and flags["--lane"] in ("desk-runner", "root", "finder-desk", "fidelity-desk", "orca-desk") and len(flags["--text"]) <= 400
             if self.post_error:
                 return runner_module.Done(1, "", self.post_error)
+            if flags["--lane"] == runner_module.ORCA_DESK:
+                self.registrations.append({key.lstrip("-"): value for key, value in flags.items()})
+                return runner_module.Done(0, "#0\n", "")
             if (flags["--kind"], flags["--to"]) == ("state", f"{runner_module.WATCHDOG}@{flags['--drive']}"):
                 self.alive.append(flags["--text"])
                 attrs = dict(value.split("=", 1) for flag, value in zip(argv[2::2], argv[3::2], strict=True) if flag == "--attr")
@@ -13064,6 +13068,12 @@ def test_a_head_record_spelling_a_short_sha_queues_the_full_head_its_pr_is_at(sh
     head_record(shell, "43299", FINDER_OLD[:11], fields={})
     orca_pass(shell, config)
     assert [(job["pr"], job["head"]) for job in finder_jobs(shell)] == [("43439", FINDER_HEAD)]
+
+
+def test_the_orca_desk_posts_as_orca_desk_at_start_so_an_order_addressed_to_it_is_not_refused(shell, config):
+    """Root #226844: cci refused a launch order `--to orca-desk` because no session reads that lane and nothing on the drive had posted as it, so an incident lane launched inline."""
+    orca_pass(shell, config)
+    assert [(post["kind"], post["to"]) for post in shell.registrations] == [("note", f"{runner_module.WATCHDOG}@d1")]
 
 
 def test_a_finder_job_asks_at_the_fast_tier_unless_runner_json_turns_it_off(shell, config):
