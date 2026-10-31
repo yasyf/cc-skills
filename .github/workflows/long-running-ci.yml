@@ -50,6 +50,24 @@ jobs:
           REGISTER_READ_ORACLE="$RUNNER_TEMP/register-read-oracle.json" uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_register_reads.py -q -s
       - name: pytest
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q
+      - uses: actions/checkout@v7
+        with:
+          ref: 1af779ed338cf93945678ad33c396f1546d0fda3
+          path: .ci-incident-number-baseline
+      - name: Immutable mixed-origin incident citation negative control
+        run: |
+          test "$(git -C .ci-incident-number-baseline rev-parse HEAD)" = 1af779ed338cf93945678ad33c396f1546d0fda3
+          cp plugins/long-running/tests/test_desk_runner.py .ci-incident-number-baseline/plugins/long-running/tests/test_desk_runner.py
+          for number in '#7' '#100@bbbbbbbb'; do
+            negative="$RUNNER_TEMP/incident-number-negative-$number.log"
+            if uv run --locked --project plugins/long-running pytest -c .ci-incident-number-baseline/plugins/long-running/pyproject.toml ".ci-incident-number-baseline/plugins/long-running/tests/test_desk_runner.py::test_an_open_incident_naming_the_pr_refuses_its_enqueue_naming_the_incident[$number]" -q -s > "$negative" 2>&1; then
+              cat "$negative"
+              exit 1
+            fi
+            cat "$negative"
+            grep -F "origin-qualified incident citation expected $number:" "$negative"
+            grep -F '1 failed' "$negative"
+          done
       - name: Binary attachment actual mq read costs
         run: |
           git fetch --no-tags --depth=1 origin 74d5367232c1636b21615b38946751852f532dfa
