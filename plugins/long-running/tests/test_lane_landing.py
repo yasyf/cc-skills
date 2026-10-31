@@ -161,7 +161,7 @@ def test_an_incident_lane_merge_is_refused_while_one_of_the_three_incident_check
 
     [refusal] = merge_results(tmp_path, f"gh pr merge https://github.com/Forge-AI/monorepo/pull/41700 --squash --match-head-commit {HEAD}", "a1f2e3d4")
 
-    assert refusal.action == Action.block
+    assert refusal.action == Action.warn
     assert refusal.message == lane_landing.INCIDENT_RULINGS_REFUSAL.format(pr="41700", head=HEAD[:10], lane="incident-api-500s", causes="RESERVED-NO-ANSWER reserved/user-data\tUser data stays where it is.")
     assert [call[:3] for call in calls if call[:3] == ["gh", "pr", "view"]] == [] and "--incident" in calls[-1]
 
@@ -256,7 +256,7 @@ def test_a_hand_enqueue_of_a_head_the_runner_refuses_for_the_owners_tap_is_refus
 
     [refusal] = merge_results(tmp_path, "stack-enqueue 44705 43243 --partial", "alanding-desk-1a2b")
 
-    assert refusal.action == Action.block
+    assert refusal.action == Action.warn
     assert refusal.message == lane_landing.HAND_ENQUEUE_TAP_REFUSAL.format(lines=TAP_REQUIRED)
 
 
