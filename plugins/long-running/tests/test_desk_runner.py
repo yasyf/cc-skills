@@ -634,7 +634,7 @@ class FakeShell(runner_module.Shell):
             if flags["--lane"] == runner_module.ORCA_DESK:
                 self.registrations.append({key.lstrip("-"): value for key, value in flags.items()})
                 return runner_module.Done(0, "#0\n", "")
-            if (flags["--kind"], flags["--to"]) == ("state", f"{runner_module.WATCHDOG}@{flags['--drive']}"):
+            if (flags["--kind"], flags["--to"]) == ("state", f"{runner_module.WATCHDOG}@{flags['--drive']}") and " alive " in flags["--text"]:
                 self.alive.append(flags["--text"])
                 attrs = dict(value.split("=", 1) for flag, value in zip(argv[2::2], argv[3::2], strict=True) if flag == "--attr")
                 self.beats.append({"seq": len(self.beats) + 1, "drive": flags["--drive"], "lane": "desk-runner", "kind": "state", "topic": flags["--topic"], "to": [flags["--to"]], "at": actions.stamp(self.clock), "text": flags["--text"], "source": "post", "fields": {"attrs": attrs}})
@@ -1052,6 +1052,14 @@ def said(shell: FakeShell) -> list[str]:
 
 def escalations(shell: FakeShell) -> list[str]:
     return [Path(post["path"]).read_text().splitlines()[0] if "path" in post else post["text"] for post in shell.posts if post["to"] == "root"]
+
+
+def refused_escalations(shell: FakeShell) -> list[str]:
+    return [line for line in said(shell) if line.startswith("REFUSED refused:")]
+
+
+def watchdog_lines(shell: FakeShell) -> list[str]:
+    return [Path(post["path"]).read_text().splitlines()[0] if "path" in post else post["text"] for post in shell.posts if post["to"] == f"{runner_module.WATCHDOG}@d1"]
 
 
 def incident(tmp_path: Path, name: str) -> actions.Incident:
@@ -1699,8 +1707,11 @@ def test_an_incident_launch_on_load_starts_anyway_while_a_normal_launch_beside_i
     assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)]]
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "verified"
     assert incident(tmp_path, "desk-lane-other-lane").actions["R639"].status == "accepted"
-    assert [line.split()[0] for line in escalations(shell)] == ["LOAD-HIGH", "LOAD-INCIDENT", "LAUNCHED"]
-    assert escalations(shell)[1] == f"LOAD-INCIDENT desk-lane-{LANE}/R638:load {LANE}: R638 launches on load 140 above 8 cores: an incident fix lane is never held for load"
+    assert [line.split()[0] for line in escalations(shell)] == ["LAUNCHED"]
+    assert watchdog_lines(shell) == [
+        "LOAD-HIGH load:2026-10-01T18:0 runner: load 140 above 8 cores: Orca launches are refused while it lasts, because a worktree checkout times out under it. drive-watchdog: move the load off this Mac now; a pass, backfill, dry run, or bulk rewrite runs on in-region compute",
+        f"LOAD-INCIDENT desk-lane-{LANE}/R638:load {LANE}: R638 launches on load 140 above 8 cores: an incident fix lane is never held for load",
+    ]
 
 
 def test_an_owner_directed_launch_on_load_fails_at_once_and_tells_the_root_to_move_the_load(shell, config, tmp_path):
@@ -1713,10 +1724,8 @@ def test_an_owner_directed_launch_on_load_fails_at_once_and_tells_the_root_to_mo
     assert launches(shell) == []
     action = incident(tmp_path, f"desk-lane-{LANE}").actions["R638"]
     assert action.status == "failed" and action.reason == "R638 refused on load 140 above 8 cores; nothing was launched, and the root launches it in-process or once the load is moved"
-    assert escalations(shell) == [
-        "LOAD-HIGH load:2026-10-01T18:0 runner: load 140 above 8 cores: Orca launches are refused while it lasts, because a worktree checkout times out under it. root: move the load off this Mac now; a pass, backfill, dry run, or bulk rewrite runs on in-region compute",
-        f"LAUNCH-FAILED desk-lane-{LANE}/R638 {LANE}: {action.reason}",
-    ]
+    assert watchdog_lines(shell) == ["LOAD-HIGH load:2026-10-01T18:0 runner: load 140 above 8 cores: Orca launches are refused while it lasts, because a worktree checkout times out under it. drive-watchdog: move the load off this Mac now; a pass, backfill, dry run, or bulk rewrite runs on in-region compute"]
+    assert escalations(shell) == [f"LAUNCH-FAILED desk-lane-{LANE}/R638 {LANE}: {action.reason}"]
     assert [post["kind"] for post in shell.posts] == ["blocker", "defect"]
 
 
@@ -1728,7 +1737,7 @@ def test_a_launch_held_by_load_starts_nothing_then_fails_loudly_at_the_hold_dead
     for _ in range(4):
         orca_pass(shell, config)
         shell.sleep(60)
-    assert launches(shell) == [] and [line.split()[0] for line in escalations(shell)] == ["LOAD-HIGH", "LAUNCH-STALLED"]
+    assert launches(shell) == [] and [line.split()[0] for line in escalations(shell)] == ["LAUNCH-STALLED"] and [line.split()[0] for line in watchdog_lines(shell)] == ["LOAD-HIGH"]
     assert incident(tmp_path, f"desk-lane-{LANE}").actions["R638"].status == "accepted"
     for _ in range(3):
         shell.sleep(60)
@@ -1736,7 +1745,8 @@ def test_a_launch_held_by_load_starts_nothing_then_fails_loudly_at_the_hold_dead
     assert launches(shell) == []
     action = incident(tmp_path, f"desk-lane-{LANE}").actions["R638"]
     assert action.status == "failed" and "load 40 above 8 cores" in action.reason
-    [load, _, line] = escalations(shell)
+    [_, line] = escalations(shell)
+    [load] = watchdog_lines(shell)
     assert load.startswith("LOAD-HIGH load:") and "LAUNCH-HELD" in line and "R638 launch failed after 5m held" in line
     [mail] = [call for call in shell.sends() if call[call.index("--to") + 1] == "run:run_1"]
     assert mail[mail.index("--subject") + 1] == f"LAUNCH-HELD {LANE}"
@@ -3086,8 +3096,8 @@ def test_a_hold_that_appears_after_the_gate_refuses_the_enqueue_with_one_line_na
     }[source]
     after_call(shell, is_check, appears)
     landing_pass(shell, config)
-    [line] = escalations(shell)
-    assert line.startswith("REFUSED refused:") and f"#29020 is held by {named}" in line
+    [line] = [line for line in said(shell) if line.startswith("REFUSED refused:")]
+    assert f"#29020 is held by {named}" in line
     [action] = enqueues_of(tmp_path).values()
     assert (action.status, action.response["outcome"]) == ("completed", "refused")
     assert shell.enqueues() == []
@@ -3099,7 +3109,7 @@ def test_an_open_incident_naming_the_pr_refuses_its_enqueue_naming_the_incident(
     incident = {"seq": 42, "drive": "d1", "lane": "incident-api-1", "kind": "incident", "status": "open", "to": ["root"], "refs": {}, "text": "INCIDENT api 5xx; the fix is #29020", "source": "post", "at": "2026-10-01T17:59:00Z"}
     after_call(shell, is_check, lambda: incident in shell.records or {**incident, "status": "closed"} in shell.records or shell.records.append(incident))
     landing_pass(shell, config)
-    refused = [line for line in escalations(shell) if line.startswith("REFUSED refused:")]
+    refused = [line for line in said(shell) if line.startswith("REFUSED refused:")]
     assert len(refused) == 1 and "#29020 is held by open INCIDENT #42, whose lane squash-merges it directly" in refused[0]
     assert shell.enqueues() == []
     shell.records[shell.records.index(incident)] = {**incident, "status": "closed"}
@@ -3112,7 +3122,7 @@ def test_a_label_read_github_refuses_holds_the_enqueue(shell, config, tmp_path):
     grade_gated_heads_ok(shell)
     shell.pr_label_error = "HTTP 502"
     landing_pass(shell, config)
-    [line] = escalations(shell)
+    [line] = refused_escalations(shell)
     assert "#29020 is held by GitHub refused the label read: HTTP 502" in line and shell.enqueues() == []
     shell.pr_label_error = ""
     landing_pass(shell, config)
@@ -3125,13 +3135,13 @@ def test_a_ready_record_older_than_a_later_hold_never_enqueues_until_a_newer_rea
     ready_record(shell, 10, 29020, "2026-10-01T16:00:00Z")
     hold_record(shell, 11, 29020, "closed", "2026-10-01T17:00:00Z")
     landing_pass(shell, config)
-    [line] = escalations(shell)
+    [line] = refused_escalations(shell)
     assert "cci ready #10 is older than cci hold #11" in line and shell.enqueues() == []
     landing_pass(shell, config)
-    assert shell.enqueues() == [] and len(escalations(shell)) == 1
+    assert shell.enqueues() == [] and len(refused_escalations(shell)) == 1
     ready_record(shell, 12, 29020, "2026-10-01T17:30:00Z")
     landing_pass(shell, config)
-    assert len(shell.enqueues()) == 1 and len(escalations(shell)) == 1
+    assert len(shell.enqueues()) == 1 and len(refused_escalations(shell)) == 1
 
 
 def test_a_lifted_hold_posted_after_the_enqueue_was_accepted_still_refuses_it(shell, config, tmp_path):
@@ -3139,7 +3149,7 @@ def test_a_lifted_hold_posted_after_the_enqueue_was_accepted_still_refuses_it(sh
     grade_gated_heads_ok(shell)
     after_call(shell, is_check, lambda: hold_record(shell, 20, 29020, "closed", "2026-10-01T18:00:05Z"))
     landing_pass(shell, config)
-    [line] = escalations(shell)
+    [line] = refused_escalations(shell)
     assert "cci hold #20 was posted after this enqueue was accepted" in line and shell.enqueues() == []
 
 
@@ -6026,13 +6036,14 @@ def test_lanes_take_turns_so_one_lanes_many_stacks_never_go_ahead_of_every_other
     assert runner_module.lane_turns([["1"], ["2"], ["3"], ["4"]], open_rows) == [["1"], ["4"], ["2"], ["3"]]
 
 
-def test_every_landing_pass_posts_one_state_line_to_root(shell, config, tmp_path):
+def test_every_landing_pass_posts_one_state_line_to_the_drive_watchdog(shell, config, tmp_path):
+    """Owner, 8:52 PM Oct 30, and root #243447: landing-state lines reach the drive watchdog, never root."""
     lone_green_pr(shell)
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
     landing_pass(shell, config)
     states = shell.states
-    assert len(states) == 2 and all(post["to"] == "root" for post in states)
+    assert len(states) == 2 and all(post["to"] == f"{runner_module.WATCHDOG}@d1" for post in states)
     assert re.fullmatch(r"LANDING queued \d+, waiting \d+, held 0, refused 0, in flight 0; pass \d+s", states[-1]["text"])
 
 
@@ -6070,6 +6081,7 @@ def test_landing_state_reads_one_incident_snapshot(shell, config, tmp_path, monk
     monkeypatch.setattr(actions.Incident, "load", staticmethod(counted))
     monkeypatch.setattr(Path, "read_text", watched)
     landing.post_state(1.0)
+    assert shell.states[-1]["to"] == "drive-watchdog@d1"
     assert shell.states[-1]["text"] == f"LANDING queued {int(count >= 3)}, waiting 0, held {int(count >= 4)}, refused {min(count, 2)}, in flight 0; pass 1s"
     assert decoded == []
     assert opened == []
@@ -7696,7 +7708,7 @@ def test_an_admitted_head_whose_check_keeps_timing_out_is_refused_for_the_timeou
     assert line.endswith(f": GATE-TIMEOUT its graphite-stack-enqueue check ran past {runner_module.GATE_CHECK_SECONDS}s on both tries and was killed, so the next pass checks it again")
 
 
-def test_an_admitted_head_no_branch_settles_is_refused_unsettled_to_the_root_naming_the_last_branch_that_saw_it(shell, config, tmp_path):
+def test_an_admitted_head_no_branch_settles_is_refused_unsettled_to_the_watchdog_never_the_root_naming_the_last_branch_that_saw_it(shell, config, tmp_path):
     """Oct 30 7:52 AM to 12:10 PM: every GREEN gate enqueued nothing and posted nothing, since a GREEN verdict with no prefix was no outcome anyone recorded."""
     merge_mode(config, "every")
     gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
@@ -7704,7 +7716,7 @@ def test_an_admitted_head_no_branch_settles_is_refused_unsettled_to_the_root_nam
     shell.queue["33001"] = "not queued"
     landing_pass(shell, config)
     [post] = [post for post in shell.posts if post_body(post).startswith("REFUSED ")]
-    assert post["kind"] == "defect" and "root" in post["to"].split(",")
+    assert post["kind"] == "defect" and "drive-watchdog@d1" in post["to"].split(",") and "root" not in post["to"].split(",")
     assert post_body(post) == f"REFUSED #33001 at aaaa111111 (go #{go_of(shell, '33001')}): unsettled: the stack worker's settle step"
     assert admitted_heads(config)["33001"]["state"] == "defect"
 
@@ -11838,7 +11850,7 @@ def test_an_opus_fallback_refused_on_load_twice_goes_to_the_root_in_process(shel
     assert [line for line in clock_lines(shell) if " in-process: " in line] == [
         f"INCIDENT-CLOCK {LANE} in-process: the Orca launch of the Opus fallback {backup} failed twice: incident-clock:ctx_{LANE} {refused} | incident-clock:ctx_{LANE}:retry {refused} | root: start {backup} in-process now, an Agent of type long-running:lane-ship named {backup} on opus in fast mode with the brief {fallback}"
     ]
-    assert [line.split()[0] for line in escalations(shell)].count("LOAD-HIGH") == 1
+    assert [line.split()[0] for line in watchdog_lines(shell)].count("LOAD-HIGH") == 1
     for _ in range(2):
         orca_pass(shell, config)
     assert len([line for line in clock_lines(shell) if " in-process: " in line]) == 1
@@ -13854,7 +13866,7 @@ def test_each_listed_sprite_posts_one_heartbeat_every_ten_minutes_naming_its_pas
     finder_config(config, sprite=["sprite-a", "sprite-b"])
     fidelity_config(config, sprite="sprite-b")
     orca_pass(shell, config)
-    beat = ("state", "root,drive-watchdog@d1")
+    beat = ("state", "drive-watchdog@d1")
     assert sprite_records(shell) == [(*beat, "sprite sprite-a: 0 finder and 0 fidelity passes, none running"), (*beat, "sprite sprite-b: 0 finder and 0 fidelity passes, none running")]
     head_record(shell, "43439", FINDER_HEAD)
     orca_pass(shell, config)
@@ -13882,7 +13894,7 @@ def test_a_sprite_running_passes_with_none_settled_in_thirty_minutes_posts_a_def
     orca_pass(shell, config)
     shell.clock += timedelta(minutes=9)
     orca_pass(shell, config)
-    assert sprite_records(shell)[2:] == [("state", "root,drive-watchdog@d1", "sprite sprite-a: 1 finder and 0 fidelity passes, oldest 41 min")]
+    assert sprite_records(shell)[2:] == [("state", "drive-watchdog@d1", "sprite sprite-a: 1 finder and 0 fidelity passes, oldest 41 min")]
 
 
 def test_a_queued_head_whose_pr_a_root_go_names_starts_before_older_heads(shell, config):
