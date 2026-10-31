@@ -40,7 +40,7 @@ def test_a_grade_naming_five_prs_is_refused_with_one_command_per_pr():
         Bus("d", "finder-desk", FakeCci()).post("grade", **{**GRADE, "pr": [1, 2, 3]})
 
 
-@pytest.mark.parametrize("kind, body", [("state", dict(lane="lane-7")), ("done", dict(item=3)), ("grade", GRADE), ("item", dict(item=3, kind="restack", pr=1, head=HEAD, mover="lane", deadline="2026-10-31T06:20:00Z")), ("note", dict(text="landing is slow"))])
+@pytest.mark.parametrize("kind, body", [("state", dict(lane="lane-7")), ("done", dict(item=3)), ("grade", GRADE), ("item", dict(item=3, action="restack", pr=1, head=HEAD, mover="lane", deadline="2026-10-31T06:20:00Z")), ("note", dict(text="landing is slow"))])
 def test_root_hears_only_escalations_asks_and_decisions(kind, body):
     with pytest.raises(Refused, match=rf"a {kind} record never reaches root; .*post an escalation, an ask or a decision"):
         Bus("d", "lane-7", FakeCci()).post(kind, to=["root"], **body)
