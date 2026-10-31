@@ -23,15 +23,19 @@ version_gt() {
 }
 
 if is_version "${ROOT##*/}"; then
-  newest=$ROOT
+  newest=$ROOT whole=$ROOT
   for sibling in "${ROOT%/*}"/*/; do
     sibling=${sibling%/}
     is_version "${sibling##*/}" || continue
-    [ ! -e "$sibling/.orphaned_at" ] && [ -x "$sibling/bin/$TOOL" ] && [ -e "$sibling/skills/long-running/scripts/$TOOL" ] || continue
-    if version_gt "${sibling##*/}" "${newest##*/}"; then
+    [ -x "$sibling/bin/$TOOL" ] && [ -e "$sibling/skills/long-running/scripts/$TOOL" ] || continue
+    if [ ! -e "$sibling/.orphaned_at" ] && version_gt "${sibling##*/}" "${newest##*/}"; then
       newest=$sibling
     fi
+    if version_gt "${sibling##*/}" "${whole##*/}"; then
+      whole=$sibling
+    fi
   done
+  [ "$newest" != "$ROOT" ] || [ ! -e "$ROOT/.orphaned_at" ] || newest=$whole
   [ "$newest" = "$ROOT" ] || exec "$newest/bin/$TOOL" "$@"
 fi
 

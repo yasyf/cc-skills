@@ -108,8 +108,8 @@ def release(path: Path) -> tuple[int, ...]:
 def newest(root: Path) -> Path:
     if not VERSION.fullmatch(root.name):
         return root
-    live = [path for path in root.parent.iterdir() if VERSION.fullmatch(path.name) and not (path / ORPHANED).exists() and (path / SCRIPTS).is_dir()]
-    return max(live, key=release)
+    whole = [path for path in root.parent.iterdir() if VERSION.fullmatch(path.name) and (path / SCRIPTS).is_dir()]
+    return max([path for path in whole if not (path / ORPHANED).exists()] or whole, key=release)
 
 
 def script(name: str) -> Path:
