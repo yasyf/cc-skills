@@ -5985,8 +5985,8 @@ class Landing:
         return self.proven(self.adapter.check(tops, self.whole(), self.row_heads, not self.whole()))
 
     def proven(self, gate: merge_queue.Gate) -> merge_queue.Gate:
-        """`gate` with each GREEN head whose passing build is the Graphite optimizer's redundant-within-its-stack skip read as BLOCKED, and the prefix that would enqueue cut below it, until a full build passes at that head or at the open child it defers to."""
-        unproven = {pr: why for pr, verdict in gate.verdicts.items() if verdict["verdict"] == "GREEN" and (why := self.unproven(pr, self.row_heads.get(pr) or verdict["sha"]))}
+        """`gate` with each GREEN head whose passing build is the Graphite optimizer's redundant-within-its-stack skip read as BLOCKED, and the prefix that would enqueue cut below it, until a full build passes at that head or at the open child it defers to. The head is the one the check read from GitHub, completed from the ledger row only when the row names that same head (root #230508)."""
+        unproven = {pr: why for pr, verdict in gate.verdicts.items() if verdict["verdict"] == "GREEN" and (why := self.unproven(pr, head if (head := self.row_heads.get(pr, "")).startswith(verdict["sha"]) else verdict["sha"]))}
         if not unproven:
             return gate
         verdicts = {pr: dict(verdict, verdict="BLOCKED", detail=unproven[pr]) if pr in unproven else verdict for pr, verdict in gate.verdicts.items()}
