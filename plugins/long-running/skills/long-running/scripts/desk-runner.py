@@ -4552,7 +4552,7 @@ class Runner:
         return stop
 
     def queue_finders(self, repo: str, rows: dict[str, dict]) -> None:
-        """Accept one `finder:<pr>:<head>` action per PR and full head the drive's `head` and `opened` records past the saved sequence name, and per green head of an open ledger row, so a head two records name, or a restack that posted no record, queues once; a first read starts at the newest record."""
+        """Accept one `finder:<pr>:<head>` action per PR and full head the drive's `head` and `opened` records past the saved sequence name, and per green head of an open ledger row, so a head two records name, or a restack that posted no record, queues once; a first read starts at the newest record. A `head` record that names no PR, or a PR and no sha, sends its lane one `HEAD-UNQUEUED`, since no pass of either grader would ever name it (root #225521)."""
         cursor = self.book.fact(FINDER, FINDER_CURSOR, None)
         if cursor is None:
             newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
@@ -4565,6 +4565,9 @@ class Runner:
                     self.book.accept(FINDER, f"finder:{pr}:whole:{record['seq']}", "finder", json.dumps({"pr": pr, "head": "", "lane": record["lane"], "seq": record["seq"], "full": True}), f"cci#{record['seq']}", None)
         for record, pr, head in self.named_heads(repo, read):
             self.book.accept(FINDER, f"finder:{pr}:{head}", "finder", json.dumps({"pr": pr, "head": head, "lane": record["lane"], "seq": record["seq"], "full": False}), f"cci#{record['seq']}", None)
+        for record in read:
+            if (record["drive"], record["kind"]) == (self.config.drive, "head") and (gap := finder.head_gap(record, repo)):
+                self.escalate(f"head-unqueued:{record['seq']}", "HEAD-UNQUEUED", record["lane"], f"head record cci #{record['seq']} {gap}, so no finder or fidelity pass grades it; post it again as `cci post --kind head --pr <n> --head <n>=<sha>`", f"cci#{record['seq']}", record["lane"])
         if read:
             cursor = read[-1]["seq"]
             self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_CURSOR: cursor}))
