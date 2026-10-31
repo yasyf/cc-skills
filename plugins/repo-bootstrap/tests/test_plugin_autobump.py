@@ -322,6 +322,36 @@ def test_non_dry_local_run_is_report_only_without_force(repo, tmp_path, monkeypa
     assert _out(repo, "rev-parse", "HEAD") != before
 
 
+def test_a_bump_pins_its_marketplace_entry_to_the_tag_it_publishes(repo, tmp_path, monkeypatch):
+    """Oct 31 (#257362): Claude Code copied long-running 0.7.729 from main at #1442, past its tag, since the entry named a path on the default branch."""
+    _write(repo, _manifest_path("plugins/a"), _manifest_text("a", "0.1.0"))
+    _write(repo, _manifest_path("plugins/b"), _manifest_text("b", "0.3.0"))
+    marketplace = {"name": "m", "plugins": [{"name": "a", "source": "./plugins/a", "description": "é"}, {"name": "b", "source": "./plugins/b"}]}
+    _write(repo, ".claude-plugin/marketplace.json", json.dumps(marketplace, indent=2, ensure_ascii=False) + "\n")
+    _commit(repo, "create a + b")
+    _write(repo, "plugins/a/src.py", "print('x')\n")
+    _commit(repo, "add a content")
+    remote = tmp_path / "remote.git"
+    _run(tmp_path, "init", "--bare", str(remote))
+    _run(repo, "remote", "add", "origin", str(remote))
+    _run(repo, "push", "-u", "origin", "main")
+
+    _set_env(monkeypatch, repo, dry_run="false", force="1")
+    assert autobump.main() == 0
+
+    pinned = json.loads(_out(remote, "show", "a--v0.1.1:.claude-plugin/marketplace.json"))
+    assert pinned["plugins"] == [
+        {"name": "a", "source": {"source": "git-subdir", "url": str(remote), "path": "plugins/a", "ref": "a--v0.1.1"}, "description": "é", "version": "0.1.1"},
+        {"name": "b", "source": "./plugins/b"},
+    ]
+    assert _out(remote, "rev-parse", "main") == _out(remote, "rev-parse", "a--v0.1.1^{commit}")
+    assert _by_name(autobump.analyze(repo, set(), []), "a").verdict == "clean"
+
+
+def test_a_root_plugin_pins_the_whole_repository_at_its_tag():
+    assert autobump.tagged_source("https://github.com/o/r", ".", "r--v1.0.1") == {"source": "url", "url": "https://github.com/o/r", "ref": "r--v1.0.1"}
+
+
 # 13 — a nested plugin's drift never leaks up to a parent plugin's root
 def test_nested_plugin_drift_does_not_leak_to_parent(repo):
     _write(repo, _manifest_path("."), _manifest_text("root", "0.1.0"))
