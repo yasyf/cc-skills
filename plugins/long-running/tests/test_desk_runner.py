@@ -5709,6 +5709,33 @@ def test_a_root_decision_answering_a_finder_major_or_a_later_root_go_lets_the_he
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
+@pytest.mark.parametrize("cleared", ["names-head", "source-settled"])
+def test_a_root_clear_of_a_carried_finder_major_lets_the_head_enqueue(shell, config, tmp_path, cleared):
+    """Root #231127: root cleared carried majors on #45199, #46081 and #45821 in a DECIDE answering the lane's ask, and the runner kept each FINDER-PENDING."""
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333", finder=False)
+    source = finder_verdict(shell, "29020", "major bbbb222 1 open over whole bbbb222^..bbbb222: go/a.go:12 the unused import breaks the build")
+    if cleared == "source-settled":
+        shell.records.append({"seq": source + 1, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {}, "resolves": [source], "text": "refuted: the import is still used"})
+    carried = finder_verdict(shell, "29020", f"major cccc333 carried from #{source}")
+    landing_pass(shell, config)
+    if cleared == "names-head":
+        assert shell.enqueues() == []
+        shell.records.append({"seq": carried + 1, "drive": "d1", "lane": LANE, "kind": "ask", "to": ["root"], "refs": {"prs": [29020]}, "text": "the carried major is refuted; clear it"})
+        shell.records.append({"seq": carried + 2, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "resolves": [carried + 1], "text": "6:49 PM Clear finder on #29020 cccc333: the carried major (unused import) is refuted."})
+        landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
+def test_a_root_clear_naming_another_head_or_a_negated_clear_settles_nothing(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333", finder=False)
+    seq = finder_verdict(shell, "29020", "major cccc333 1 open: go/a.go:12 the retry drops the sealed read")
+    shell.records.append({"seq": seq + 1, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {}, "text": "Clear finder on #29020 bbbb222. Do not clear the finder on #29020 cccc333 yet."})
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+
+
 def test_a_finder_major_after_a_missing_finder_record_posts_its_own_blocker(shell, config, tmp_path):
     lone_green_pr(shell)
     grade(shell, "29020", "ok cccc333", finder=False)
