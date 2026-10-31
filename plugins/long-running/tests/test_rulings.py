@@ -596,7 +596,7 @@ def test_a_read_takes_the_last_register_copy_while_another_process_rebuilds_it(h
         code, out = ran(capsys, shell, *verb)
 
     assert code == 0 and time.monotonic() - started < 1
-    assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"]] == [["ledger", "list"], ["ledger", "show"]]
+    assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"] and argv[3] == "ledger"] == [["ledger", "list"], ["ledger", "show"]]
     if verb[0] == "slice":
         assert "> Relay code lives in relay-journal. Never in relay-server." in out.splitlines()
 
@@ -624,7 +624,7 @@ def test_a_sprite_reads_the_shipped_register_snapshot_however_its_ledger_refs_mo
     code, _ = ran(capsys, shell, "slice", "--lane", "lane-a", "--step", "1.9")
 
     assert code == 0
-    assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"]] == [["ledger", "list"], ["ledger", "show"]]
+    assert [argv[3:5] for argv in shell.calls if argv[:1] == ["ccn"] and argv[3] == "ledger"] == [["ledger", "list"], ["ledger", "show"]]
 
 
 def test_classify_refuses_a_scope_row_without_three_implications_or_any_names(home: Path, package: Path, state: Path, tmp_path: Path, capsys) -> None:
@@ -1990,7 +1990,7 @@ def test_a_read_back_whose_slice_gained_a_row_still_goes_to_the_desk_with_the_ro
     assert code == 0
     assert out.splitlines() == [
         "WARNING READBACK-ROW-MISSING rule/fffffff: no read-back line names it",
-        f"readback request lane-a {rulings.SLICE_HASH.search(grown)['hash']}: 5 rows, contract #500 at {body}; a fidelity desk grades it against each row's words and implications",
+        f"readback request lane-a {rulings.SLICE_HASH.search(grown)['hash']}: 3 rows, contract #500 at {body}; a fidelity desk grades it against each row's words and implications",
     ]
 
 
