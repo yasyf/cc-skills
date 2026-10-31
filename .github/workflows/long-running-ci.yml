@@ -113,6 +113,47 @@ jobs:
         with:
           name: mailbox-index-linux
           path: mailbox-index-linux.json
+  native-cci-caller:
+    runs-on: ubuntu-latest
+    env:
+      UV_PYTHON: "3.14"
+      GOMAXPROCS: "2"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: yasyf/cc-inbox
+          ref: 2343fc6a5f208ba975fbaf2f960253b8d9352000
+          path: .ci-native-cci
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: 457d96c7ecdf67e3eb2d3b0799df9dd79f9f64d1
+          path: .ci-cci-legacy
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: .ci-native-cci/go.mod
+          cache-dependency-path: .ci-native-cci/go.sum
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: build actual native handler fixture and CLI
+        run: |
+          mkdir -p .ci-native-cci/cmd/landing-native-fixture "$RUNNER_TEMP/native-cci-bin"
+          cp plugins/long-running/tests/fixtures/native_cci/main.go .ci-native-cci/cmd/landing-native-fixture/main.go
+          go -C .ci-native-cci build -p 2 -o "$RUNNER_TEMP/native-cci-fixture" ./cmd/landing-native-fixture
+          go -C .ci-native-cci build -p 2 -o "$RUNNER_TEMP/native-cci-bin/cci" ./cmd/cci
+      - name: actual Landing CCI process counts and freshness
+        env:
+          CCI_NATIVE_FIXTURE: ${{ runner.temp }}/native-cci-fixture
+          CCI_NATIVE_BINARY_DIR: ${{ runner.temp }}/native-cci-bin
+          CCI_NATIVE_PROVIDER_SOURCE: 2343fc6a5f208ba975fbaf2f960253b8d9352000
+          CCI_LEGACY_DESK_RUNNER: ${{ github.workspace }}/.ci-cci-legacy/plugins/long-running/skills/long-running/scripts/desk-runner.py
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/native_cci_integration.py -q -s --junitxml="$RUNNER_TEMP/native-cci.xml"
+      - uses: actions/upload-artifact@v7
+        if: ${{ always() }}
+        with:
+          name: native-cci-caller
+          path: ${{ runner.temp }}/native-cci.xml
+
   machine-cci-post:
     runs-on: ubuntu-latest
     env:

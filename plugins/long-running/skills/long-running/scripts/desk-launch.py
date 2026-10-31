@@ -153,7 +153,7 @@ def wait(drive: str, since: int, lanes: dict[str, str], timeout: float) -> dict[
     settled: dict[str, tuple[str, str]] = {}
     deadline = time.monotonic() + timeout
     while len(settled) < len(lanes) and time.monotonic() < deadline:
-        for record in records(cci(drive, "tail", "--since", str(since), "--lane", RUNNER, "--json", "--budget", BUDGET)):
+        for record in records(cci(drive, "tail", "--since-seq", str(since), "--lane", RUNNER, "--json", "--budget", BUDGET)):
             since = max(since, record["seq"])
             verdict = VERDICT.match(record["text"])
             if verdict and lanes.get(verdict["key"]) == verdict["lane"] and verdict["key"] not in settled:

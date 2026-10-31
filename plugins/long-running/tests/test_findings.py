@@ -35,11 +35,11 @@ class FakeShell:
                     self.rows[row["key"]] = {**self.rows.get(row["key"], {}), **row["fields"]}
                 return ""
         if argv[:2] == ["cci", "tail"]:
-            since = argv[argv.index("--since") + 1]
+            since = argv[argv.index("--since-seq" if "--since-seq" in argv else "--since") + 1]
             kinds = {argv[i + 1] for i, flag in enumerate(argv) if flag == "--kind"}
             return "".join(json.dumps(r) + "\n" for r in self.records if (not since.isdigit() or r["seq"] > int(since)) and r["kind"] in kinds)
         if argv[:2] == ["cci", "grep"]:
-            pattern, since = re.compile(argv[2]), int(argv[argv.index("--since") + 1])
+            pattern, since = re.compile(argv[2]), int(argv[argv.index("--since-seq" if "--since-seq" in argv else "--since") + 1])
             return "".join(json.dumps(r) + "\n" for r in self.records if r["seq"] >= since and pattern.search(f"{r['kind']} {r['text']}" + (f" re #{r['re']}" if r.get("re") else "") + (f" resolves #{r['resolves']}" if r.get("resolves") else "")))
         if argv[:2] == ["cci", "show"]:
             return json.dumps(next(r for r in self.records if r["seq"] == int(argv[2])))

@@ -177,7 +177,7 @@ if args[:2] == ["answer", "list"]:
 FAKE_CCI = """#!/usr/bin/env python3
 import json, os, sys
 args = sys.argv[1:]
-since = args[args.index("--since") + 1]
+since = args[args.index("--since-seq" if "--since-seq" in args else "--since") + 1]
 drive = args[args.index("--drive") + 1]
 path = os.path.join(os.environ["FAKE_CCN"], "cci.jsonl")
 for line in open(path) if os.path.exists(path) else []:
