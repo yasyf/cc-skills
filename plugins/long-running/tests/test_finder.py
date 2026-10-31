@@ -372,11 +372,22 @@ def test_a_reply_that_drops_a_row_key_is_asked_once_more_and_two_such_replies_po
     assert len(shell.posted) == 1
 
     again = job(tmp_path / "again")
-    shell = Fake(tmp_path, [dropped, dropped])
+    shell = Fake(tmp_path, [dropped, dropped, dropped])
     with pytest.raises(finder.JobFailed):
         finder.main([str(again)], shell)
     assert not shell.posted
-    assert result(again) == {"error": "JobFailed: two replies gave no verdict for prompt/1026-105052"}
+    assert result(again) == {"error": "JobFailed: three replies gave no verdict for prompt/1026-105052"}
+
+
+def test_a_second_reply_still_missing_rows_is_asked_for_those_rows_alone_and_posts_the_merged_verdict(tmp_path):
+    """Root #233472: the finder on #45799 failed all three attempts because two replies left five rows without a verdict; it now asks for only those rows."""
+    dropped = reply(swept=REASONS + "rows met: rule/949e6be")
+    directory = job(tmp_path)
+    shell = Fake(tmp_path, [dropped, dropped, reply(swept="n/a: prompt/1026-105052, the change touches no prompt path")])
+    finder.main([str(directory)], shell)
+    assert [ask[-1] for ask, _ in shell.asks()] == [str(directory / f"question-{n}.md") for n in (1, 2, 3)]
+    assert "Answer only those rows" in (directory / "question-3.md").read_text() and "prompt/1026-105052" in (directory / "question-3.md").read_text()
+    assert len(shell.posted) == 1 and "prompt/1026-105052" in (directory / "record.md").read_text()
 
 
 def test_a_reply_with_no_reasoning_is_asked_once_more_and_two_such_replies_post_nothing(tmp_path):
