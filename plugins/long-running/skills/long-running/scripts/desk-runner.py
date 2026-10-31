@@ -934,6 +934,7 @@ TRUNK_FELL = frozenset({"failed", "canceled"})
 TRUNK_UNREAD = frozenset({"unknown", "not queued"})
 CARRIED_FROM = re.compile(r"\bcarried from #(\d+)")
 ROOT_FINDER_CLEAR = r"(?:^|[.;]\s+)(?:\d{{1,2}}:\d\d [AP]M\s+)?(?:root:\s+)?(?:clear(?:ed|s)?\b[^.;]*\bfinder\b[^.;]*|finder-override\s+)#{pr}\s+(?:at\s+)?{sha}"
+ROOT_FIDELITY_OVERRIDE = r"\bfidelity-override\s+#{pr}\s+(?:at\s+)?{sha}"
 QUEUED_VERDICT = "QUEUED"
 WAITING_VERDICT = "WAITING"
 BELOW_BLOCKED = re.compile(r"\bbelow BLOCKED #(\d+)\b")
@@ -6595,8 +6596,10 @@ class Landing:
         newest = self.standing(grades, sha)
         desk_ok = any(grade["lane"] != fidelity.LANE and grade["text"].startswith(FIDELITY_OK) for grade in newest)
         misses = [grade for grade in newest if grade["text"].startswith(FIDELITY_MISSING) and not (desk_ok and grade["lane"] == fidelity.LANE)]
-        accepted = {seq for record in cci.records(self.cci_tail, self.runner.config.drive, "--lane", ROOT, "--pr", f"{self.repo}#{pr}") if record["lane"] == ROOT for seq in closes(record)} if misses else set()
-        if missing := max((grade for grade in misses if grade["seq"] not in accepted), key=lambda record: record["seq"], default=None):
+        rulings = [record for record in cci.records(self.cci_tail, self.runner.config.drive, "--lane", ROOT, "--pr", f"{self.repo}#{pr}") if record["lane"] == ROOT] if misses else []
+        accepted = {seq for record in rulings for seq in closes(record)}
+        overridden = re.compile(ROOT_FIDELITY_OVERRIDE.format(pr=pr, sha=sha[:7]), re.IGNORECASE)
+        if not any(overridden.search(full_text(record)) for record in rulings) and (missing := max((grade for grade in misses if grade["seq"] not in accepted), key=lambda record: record["seq"], default=None)):
             return Grade(False, missing, f"{missing['lane']} graded this head on cci #{missing['seq']}: {missing['text']}")
         if newest:
             oks = [grade for grade in newest if grade["text"].startswith(FIDELITY_OK)] or newest

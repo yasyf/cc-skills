@@ -1626,8 +1626,10 @@ The runner also requires a fidelity ok at every prefix head. It reads the cci
 which cci also matches to a post that named the bare number, and keeps those whose
 text starts `fidelity: ok` or `fidelity: missing` and whose first short sha is the
 PR's current head. Each lane's newest grade of the head stands for that lane, so a
-`missing` blocks until the same lane grades the head ok; a later ok from another
-lane never clears it. An ok counts as posted: rows the register gains after it
+`missing` blocks until the same lane grades the head ok, a root record about the PR
+resolves it, or a root record reads `fidelity-override #<n> at <sha>` for the head;
+a later ok from another lane never clears it. A root `finder-override #<n> at <sha>`
+settles a finder major at that head the same way (root #262497, #264732). An ok counts as posted: rows the register gains after it
 never void it or hold the head (4236611).
 A head graded `missing`, graded ok only at an older head, or never graded gets
 one cci `blocker` per head and grade, sent to the PR's lane and the fidelity

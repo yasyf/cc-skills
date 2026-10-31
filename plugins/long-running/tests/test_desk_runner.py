@@ -3343,14 +3343,16 @@ def test_a_missing_after_an_ok_at_the_same_head_blocks_until_a_newer_ok(shell, c
     assert len(shell.enqueues()) == 1 and len(blockers(shell)) == 1
 
 
-@pytest.mark.parametrize(("lane", "lands"), [("root", True), ("p8a-step7", False)])
-def test_a_missing_a_root_record_resolves_is_accepted_and_the_head_enqueues(shell, config, tmp_path, lane, lands):
+@pytest.mark.parametrize(("lane", "lands", "override"), [("root", True, False), ("p8a-step7", False, False), ("root", True, True), ("p8a-step7", False, True)])
+def test_a_missing_a_root_record_resolves_or_overrides_is_accepted_and_the_head_enqueues(shell, config, tmp_path, lane, lands, override):
+    """Root #264732: root accepted fidelity on #46865 at 94da521 and the runner kept cutting on it until an operator posted the grade."""
     lone_green_pr(shell)
     finder_verdict(shell, "29020", "ok cccc333 no findings")
     seq = grade(shell, "29020", "missing cccc333 plan names no enum `UNLABELLED`")
     landing_pass(shell, config)
     assert shell.enqueues() == []
-    cci_record(shell, lane=lane, kind="decide", resolves=[seq], refs={"prs": [29020]}, at=actions.stamp(shell.now()), text="Accepted at cccc333: a review-tool label, no product path")
+    ruling = {"text": "1:25 PM fidelity-override #29020 at cccc333: fidelity 152216 accepted, a review-tool label"} if override else {"resolves": [seq], "text": "Accepted at cccc333: a review-tool label, no product path"}
+    cci_record(shell, lane=lane, kind="decide", refs={"prs": [29020]}, at=actions.stamp(shell.now()), **ruling)
     landing_pass(shell, config)
     assert len(shell.enqueues()) == int(lands)
 
