@@ -3,6 +3,7 @@ name: live-dashboard CI
 on:
   push:
     branches: [main]
+    tags: ["live-dashboard--v*", "long-running--v*"]
     paths:
       - "plugins/live-dashboard/**"
       - "plugins/long-running/dashboard/**"

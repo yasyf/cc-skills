@@ -190,15 +190,10 @@ match a chunk the desk already graded is not re-read before a push; its earlier 
   until a desk posts a newer one: rows added to the register never void it or
   hold a READY PR, and the lane reads them back in its next PR (4236611). The request
   prints a row the read-back leaves out or a hit it leaves unmarked as a `WARNING`
-  line above it; weigh them and grade. A `READBACK-NARROWED <key>` line is a
-  contract narrower than the owner's ruling it cites: a partition (`per key`,
-  `per destination`, `per chat`) or an exception (`only`, `except`, `unless`)
-  his words lack. Grade it missing against his words, quoting them, unless his
-  own words carry the same scope; then the ok names the key and quotes those
-  words. `rulings.py accepted`, and so the runner, refuses an ok that leaves a
-  narrowed key unnamed (owner, Oct 30 5:21 AM: one primary, one replica,
-  everything a client, after a contract read his one-process pick as one per
-  destination and key). A question the read-back raises stops the
+  line above it; weigh them and grade. A contract narrower than the owner's
+  ruling it cites, or one that applies his words past their purpose, is graded
+  missing against his words, quoting them; the judge watch's `JUDGE contract`
+  flag on the contract names where it reads him so. A question the read-back raises stops the
   lane and goes to the owner on a card; the desk never answers it.
 
 ## Sweep mode

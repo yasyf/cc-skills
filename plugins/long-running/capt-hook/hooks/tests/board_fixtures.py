@@ -35,39 +35,30 @@ ROWS = json.dumps(
 )
 FAILING = (
     "r1-card-op6-ruled.json",
-    "r1-op2-rest.json",
     "r2-card-r1-v1.json",
     "r2-card-r1-v2.json",
     "r2-card-r1-v8.json",
-    "answer-only-to-change.json",
-    "default-in-option.json",
     "confirm-adds-clause.json",
     "title-not-question.json",
     "r3-titles.pre-grade.json",
-    "r3-confirm-row-v1.json",
     "r3-confirm-loops-v1.json",
     "r3-spikes-queue-v1.json",
-    "r3-evict-v2.json",
     "unverified-approval.json",
 )
 
+JUDGE = "claude -p"
 HEREDOC = (BOARDS / "clean-card.json").read_text()
 HEREDOC_SHA = hashlib.sha256(HEREDOC.encode()).hexdigest()[:12]
 BREACHES = {
     "r1-card-op6-ruled.json": r"n6-confirm: the confirm does not quote[\s\S]*card-n6: the title does not end",
-    "r1-op2-rest.json": r"op2-rest: decision text outside a choice or approval",
-    "r2-card-r1-v1.json": r"the title does not end in a question mark[\s\S]*a drive word, \"lane\"",
-    "r2-card-r1-v2.json": r"r2-r1-n3-confirm: the confirm does not quote[\s\S]*r2-r1: a choice of how something works has no none option",
-    "r2-card-r1-v8.json": r"r2-r1-n3-confirm: the confirm does not quote[\s\S]*r2-r1-n11: decision text outside",
-    "answer-only-to-change.json": r"restore-rest: decision text outside a choice or approval, \"Answer only to change\"",
-    "default-in-option.json": r"reader-pick: a default sits in option text",
+    "r2-card-r1-v1.json": r"r2-card-r1: the title does not end in a question mark",
+    "r2-card-r1-v2.json": r"r2-r1-n3-confirm: the confirm does not quote",
+    "r2-card-r1-v8.json": r"r2-r1-n3-confirm: the confirm does not quote",
     "confirm-adds-clause.json": r"update-confirm-ok: the confirm does not quote your words verbatim",
     "title-not-question.json": r"share-open: the title does not end in a question mark",
     "r3-titles.pre-grade.json": r"r3-build: the title does not end[\s\S]*r3-answers: the title does not end",
-    "r3-confirm-row-v1.json": r"r3-confirm-row: a choice of how something works has no none option[\s\S]*not asked as whether",
-    "r3-confirm-loops-v1.json": r"has no none option[\s\S]*names \"held copy\"[\s\S]*a drive word, \"mount lease\"",
-    "r3-spikes-queue-v1.json": r"cites no path:line @ ref[\s\S]*a plan row number, \"C77\"[\s\S]*a PR number, \"#4120\"",
-    "r3-evict-v2.json": r"r3-evict-how: a choice of how something works has no none option",
+    "r3-confirm-loops-v1.json": r"names \"held copy\"",
+    "r3-spikes-queue-v1.json": r"r3-spikes-queue: a claim about what exists cites no path:line @ ref",
     "unverified-approval.json": r"banner-ok: an approval carries an unverified claim",
 }
 HELD = {"r3-confirm-loops-v1.json": f"open - {SCOPE_KEY} {BOARDS / 'r3-confirm-loops-v1.json'}:12 held copy\n"}
@@ -103,3 +94,8 @@ def missing(sha: str, *, seq: int = 90, lane: str = FIDELITY_LANES[1]) -> str:
 def sweeps(minutes_ago: int) -> str:
     stamp = (datetime.now(UTC) - timedelta(minutes=minutes_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
     return json.dumps({"id": "e" * 40, "title": f"sweeps: {PROGRAM}", "entries": [{"ts": stamp, "text": "pass 1: keep 3, delete 0"}]})
+
+
+def judged(phrase: str = "", sentence: str = "Say it in plain words.") -> dict[str, str]:
+    answer = {"verdict": "yes" if phrase else "no", "artifact_phrase": phrase, "evidence_phrase": "", "sentence": sentence if phrase else "It reads in plain words."}
+    return {JUDGE: json.dumps({"structured_output": answer, "total_cost_usd": 0.01, "usage": {"input_tokens": 1000, "output_tokens": 50}})}

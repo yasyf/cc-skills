@@ -458,6 +458,25 @@ def package(home: Path) -> Path:
     return root
 
 
+class Judge:
+    """The drive's judge, scripted: it records each question and answers with `verdict(kind, artifact)`, `None` by default, as a failed call."""
+
+    def __init__(self) -> None:
+        self.asked: list[tuple[str, str, str, dict]] = []
+        self.verdict = lambda kind, artifact: None
+
+    def __call__(self, kind: str, evidence: str, artifact: str, **kwargs) -> rulings.judge.Verdict | None:
+        self.asked.append((kind, evidence, artifact, kwargs))
+        return self.verdict(kind, artifact)
+
+
+@pytest.fixture(autouse=True)
+def judged(monkeypatch: pytest.MonkeyPatch) -> Judge:
+    stub = Judge()
+    monkeypatch.setattr(rulings.judge, "judge", stub)
+    return stub
+
+
 @pytest.fixture
 def state(home: Path) -> Path:
     path = home / ".claude" / "scratch" / "brook"
@@ -911,6 +930,32 @@ def test_classify_writes_a_scope_row_its_card_and_one_record_to_every_live_lane(
     assert "> uploads stay out of the desktop shell. keep them in the journal" in announced
     assert "3. The journal may keep an upload queue. (permits, proposed, waits for the owner's tick)" in announced
     assert [post[index + 1] for index, flag in enumerate(post) if flag == "--to"] == ["lane-a", "lane-b"]
+
+
+def test_classify_warns_of_each_new_implication_the_judge_reads_as_misstating_his_words_and_writes_it_anyway(
+    home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys, judged: Judge
+) -> None:
+    captured(state, capture("4", "uploads stay out of the desktop shell. keep them in the journal"))
+    shell = RegisterShell(seeded(package), records=LIVE)
+    three = [
+        {"text": "The desktop shell gains no uploader.", "direction": "removes"},
+        {"text": "Shell upload code is deleted.", "direction": "removes"},
+        {"text": "The journal may keep an upload queue.", "direction": "permits"},
+    ]
+    binds = rulings.judge.Verdict("yes", "Shell upload code is deleted.", "uploads stay out of the desktop shell", "He keeps uploads out of the shell; he never asked for its code to be deleted.")
+    judged.verdict = lambda kind, artifact: binds if artifact.startswith("Shell upload") else None
+    path = tmp_path / "classified.json"
+    path.write_text(json.dumps([{"digest": "4" * 16, "kind": "scope", "words": "uploads stay out of the desktop shell.", "implications": three, "names": ["desktop shell"], "surfaces": ["desktop app"]}]))
+
+    assert rulings.main(["classify", "--program", "brook", "--repo", REPO, str(path)], shell, stdin=sys.stdin, stdout=sys.stdout) == 0
+
+    assert sorted(artifact for _, _, artifact, _ in judged.asked) == sorted(f"{item['text']} ({item['direction']})" for item in three)
+    assert {(kind, evidence, kwargs["drive"]) for kind, evidence, _, kwargs in judged.asked} == {
+        ("implication", f'His words on ruling {PROMPT_KEY}, verbatim, oldest first:\n- Oct 23 5:30 AM PT: "uploads stay out of the desktop shell. keep them in the journal"', "brook-drive")
+    }
+    [warning] = [line for line in capsys.readouterr().err.splitlines() if line.startswith("WARN")]
+    assert warning.startswith(f"WARN {PROMPT_KEY} implication 2 misstates the owner's words and is written anyway: He keeps uploads out of the shell;")
+    assert len(json.loads(shell.rows[PROMPT_KEY]["implications"])) == 3
 
 
 def test_classify_posts_one_record_per_batch_however_many_rows_and_captures_it_touches(
@@ -1804,38 +1849,6 @@ def test_readback_accepts_a_line_per_slice_row_and_a_verdict_per_hit(home: Path,
     assert ran(capsys, read_back(*header, *rows, *marked, lane="lane-b"), "readback", "--lane", "lane-b", "--contract", "500")[1].startswith("READBACK-NOT-LANES #500: ")
 
 
-def test_readback_warns_where_a_line_scopes_an_owner_row_narrower_than_his_words(home: Path, package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
-    _, sliced = ran(capsys, RegisterShell(seeded(package)), "slice", "--lane", "lane-a", "--step", "1.9")
-    marked = [f"{hit} - keep: the line states the ban" for hit in sliced.splitlines() if hit.startswith(("open ", "authorized "))]
-    rows = ["rule/aaaaaaa: builds nothing in relay-server", "rule/eeeeeee: leaves the outage gate alone", "exception/E1: leaves the pass alone"]
-    body = tmp_path / "readback.md"
-    records = [{"seq": 500, "kind": "contract", "lane": "lane-a", "text": "read-back", "refs": {"path": str(body)}, "at": AT}]
-
-    def warned(line: str) -> list[str]:
-        body.write_text("\n".join(["Register slice: lane=lane-a step=1.9", *rows, line, *marked]) + "\n")
-        code, out = ran(capsys, RegisterShell(seeded(package), records=records), "readback", "--lane", "lane-a", "--contract", "500")
-        assert code == 0
-        return [warning for warning in out.splitlines() if "NARROWED" in warning]
-
-    assert warned("rule/ccccccc: one card per destination and key quotes the words, only on the board") == [
-        'WARNING READBACK-NARROWED rule/ccccccc: says "per destination", "only"; the owner\'s words say none of them'
-    ]
-    assert warned('rule/ccccccc: every card quotes the words, per root #12, as he said: "Cards quote the words they ask about."') == []
-
-
-def test_narrowed_reads_rows_cited_by_key_answer_or_quote_and_exits_one_on_a_narrower_scope(home: Path, package: Path, state: Path, registered: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
-    def narrowed(text: str) -> tuple[int, str]:
-        monkeypatch.setattr("sys.stdin", io.StringIO(text))
-        return ran(capsys, RegisterShell(seeded(package)), "narrowed")
-
-    assert narrowed("Under bbbbbbb the pool drains per run only when it closes.") == (1, 'NARROWED rule/bbbbbbb: says "per run", "only"; the owner\'s words say none of them\n')
-    assert narrowed('He said "Drain the pool when a run closes."\nSo each pool drains, except the shared one.') == (1, 'NARROWED rule/bbbbbbb: says "except"; the owner\'s words say none of them\n')
-    assert narrowed("rule/bbbbbbb: the pool drains when a run closes.") == (0, "")
-    assert narrowed("Pools drain per run, except the shared one.") == (0, "")
-    assert narrowed("Under bbbbbbb a chat's kind is worked out per run and never stored; a separate note says only what the sweep marked.") == (1, 'NARROWED rule/bbbbbbb: says "per run", "only"; the owner\'s words say none of them\n')
-    assert narrowed("rule/bbbbbbb: the pool drains when a run closes.\nrule/ccccccc: cards quote the words they ask about.\nEvery sweep hit is marked, one per line, only in sweep-marked.tsv.") == (0, "")
-
-
 def test_shapes_lists_rows_naming_a_count_or_topology_until_shape_records_a_test_or_no_shape(home: Path, package: Path, state: Path, registered: Path, capsys) -> None:
     rows = seeded(package) | {
         "rule/1111111": {"kind": "order", "status": "in-force", "words": "there is only one local replca along side one local primary and eveyhtni is a client of it", "answer": '["1111111"]'},
@@ -2271,6 +2284,19 @@ def test_pr_block_says_what_a_protecting_row_protects_and_how_the_change_serves_
     assert all(rulings.EXPLAINS.search(line) for line in (met + left).splitlines() if line.startswith("- rule/bbbbbbb"))
 
 
+def test_pr_block_names_a_deletion_of_a_protected_symbol_and_never_calls_it_left_alone(home: Path, package: Path, state: Path, capsys) -> None:
+    """plan-group-b-1 #238453, root #238470: pr-block wrote 'serves it by leaving SessionThreadFollower alone' for a diff that deleted SessionThreadFollower."""
+    diff = DIFF.replace("-    retry_forever(relay-server);\n+    self.drain();", "-    self.drain();\n+    retry_forever(relay-server);")
+    rows = seeded(package)
+    rows["rule/bbbbbbb"] |= {"protects": "runs from holding a closed pool's connections"}
+
+    _, out = ran(capsys, RegisterShell(rows, diff=diff), "pr-block", "--pr", "12", "--head", "cafef00d", "--base", "main", "--lane", "lane-b")
+
+    assert "- rule/bbbbbbb protects runs from holding a closed pool's connections; this change deletes Pool.drain at src/relay/pool.rs:2, and no answer of yours authorizes that" in out.splitlines()
+    assert "- On Oct 20 you said “Drain the pool when a run closes.”; this change deletes Pool.drain, and none of your answers authorizes that." in out.splitlines()
+    assert not any("alone" in line for line in out.splitlines() if "bbbbbbb" in line or "Drain the pool" in line)
+
+
 def test_status_anchor_and_supersede_write_their_fields(home: Path, package: Path, state: Path, capsys) -> None:
     shell = RegisterShell(seeded(package))
 
@@ -2379,7 +2405,7 @@ def test_confirm_takes_an_owner_answer_classified_onto_the_row_or_cited_by_its_i
     assert json.loads(cited.rows["rule/aaaaaaa"]["implications"])[1]["state"] == "ticked"
 
 
-def test_amend_links_an_answer_and_rewrites_one_implication_and_records_both_on_the_row(home: Path, package: Path, state: Path, capsys) -> None:
+def test_amend_links_an_answer_and_rewrites_one_implication_and_records_both_on_the_row(home: Path, package: Path, state: Path, capsys, judged: Judge) -> None:
     shell = RegisterShell(seeded(package), answers=[ROUND_TWO])
     was = json.loads(shell.rows["rule/aaaaaaa"]["implications"])[1]["text"]
 
@@ -2390,6 +2416,7 @@ def test_amend_links_an_answer_and_rewrites_one_implication_and_records_both_on_
     assert ROUND_TWO["id"] in json.loads(row["answer"])
     assert json.loads(row["implications"])[1]["text"] == "Relay cleanup lives in the journal crate."
     assert [(edit.get("answer"), edit.get("implication"), edit.get("was")) for edit in json.loads(row["amends"])] == [([ROUND_TWO["id"]], None, None), (None, 2, was)]
+    assert [(kind, artifact) for kind, _, artifact, _ in judged.asked] == [("implication", "Relay cleanup lives in the journal crate. (removes)")]
 
 
 def test_an_owner_requirement_binds_when_recorded_and_amend_moves_a_permits_line_to_requires(home: Path, package: Path, state: Path, capsys) -> None:
