@@ -1460,6 +1460,13 @@ def job_command(spec: dict, sprite: str, script: str, directory: Path) -> tuple[
     return [sys.executable, str(SCRIPTS / script), str(directory)], {}
 
 
+def desk_outcome(result: Path) -> dict:
+    try:
+        return json.loads(result.read_text())
+    except json.JSONDecodeError:
+        return {"error": f"its {result.name} is empty or does not parse, as when its Sprite hibernates before the write reaches its disk"}
+
+
 def whole_minutes(start: datetime, end: datetime) -> int:
     return int((end - start).total_seconds() // 60)
 
@@ -4500,7 +4507,7 @@ class Runner:
             result = directory / finder.RESULT
             ran = whole_minutes(actions.parse_stamp(action.started_at), self.now())
             if result.is_file():
-                outcome = json.loads(result.read_text())
+                outcome = desk_outcome(result)
                 if "error" in outcome:
                     self.finder_failed(action, outcome["error"])
                 else:
@@ -4779,7 +4786,7 @@ class Runner:
                 elif self.now() >= actions.parse_stamp(action.deadline):
                     self.fidelity_failed(action, f"no result {ran} min after it started")
                 continue
-            outcome = json.loads(result.read_text())
+            outcome = desk_outcome(result)
             if "error" in outcome:
                 self.fidelity_failed(action, outcome["error"])
             else:
