@@ -2430,8 +2430,9 @@ Each runner also posts a cci `state` record to `drive-watchdog` once a minute fr
 thread, whatever its pass is doing. It reads `<desk> alive <time> pass <n>`, plus
 ``running `<command>` for <m>m<s>s`` while a command is in flight, so the watchdog alarms
 within 10 minutes of silence and sees a pass stuck on one command. A GitHub, cci or ccx read
-get 60 seconds each, and a `stack-enqueue --check` and `rulings.py check-pr` 180 each, since a cold
-grade of a copy of thousands of files takes about 30. One that runs over is killed, logged as
+get 60 seconds each, a `rulings.py check-pr` 180, since a cold grade of a copy of thousands of
+files takes about 30, and a `stack-enqueue --check` the enqueue's 300, since both run the merge
+preflight's installs and typecheck on a batch touching `infra/`. One that runs over is killed, logged as
 `TIMED-OUT` in the runner log and read as a failed command; a killed `check-pr` posts the lane
 one `CHECK-PR-TIMEOUT` warning that the head's rulings are unproven, and holds nothing. `check-pr`
 keeps what a diff alone decides, the rows it touches, the reserved rows it hits and the lines naming a
