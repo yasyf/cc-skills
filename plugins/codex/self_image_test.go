@@ -51,7 +51,7 @@ func TestRetainSelfImageSurvivesUnlink(t *testing.T) {
 	if !strings.HasPrefix(image, filepath.Join(home, appDir, "self-images")+string(os.PathSeparator)) {
 		t.Fatalf("retained image outside private state: %s", image)
 	}
-	if got, err := os.ReadFile(image); err != nil || !bytes.Equal(got, data) {
+	if got, err := os.ReadFile(image); err != nil || !bytes.Equal(got, data) { //nolint:gosec // reads the verified retained fixture under the private test state
 		t.Fatalf("retained bytes = %q, %v", got, err)
 	}
 	before, err := os.Stat(image)
@@ -90,7 +90,7 @@ func TestRetainSelfImageSeparatesMetadataGenerations(t *testing.T) {
 		images[image] = true
 	}
 	for image := range images {
-		if got, err := os.ReadFile(image); err != nil || !bytes.Equal(got, data) {
+		if got, err := os.ReadFile(image); err != nil || !bytes.Equal(got, data) { //nolint:gosec // reads the verified retained fixture under the private test state
 			t.Fatalf("retained generation changed: %q, %v", got, err)
 		}
 	}
@@ -190,7 +190,7 @@ func TestRetainSelfImageRefusesChangedCache(t *testing.T) {
 func TestNonforkCLIDoesNotResolveRetainedImage(t *testing.T) {
 	home, runs := selfImageState(t)
 	bin := codexAskBin(t)
-	source, err := os.Open(bin)
+	source, err := os.Open(bin) //nolint:gosec // opens the built binary fixture under the test temp root
 	if err != nil {
 		t.Fatal(err)
 	}
