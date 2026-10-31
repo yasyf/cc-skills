@@ -599,11 +599,11 @@ class FakeShell(runner_module.Shell):
             if flags.get("--topic") == runner_module.board_rows.WRITE_TOPIC:
                 return self.board_write(dict(value.split("=", 1) for flag, value in zip(argv[2::2], argv[3::2], strict=True) if flag == "--attr"), as_json)
             if stored := self.post_ids.get(flags.get("--id", "")):
-                return runner_module.Done(0, json.dumps({"seq": stored, "num": "#7@fixture"}) + "\n" if as_json else f"#{stored} (duplicate)\n", "")
+                return runner_module.Done(0, json.dumps({"seq": stored, "num": f"#{stored}"}) + "\n" if as_json else f"#{stored} (duplicate)\n", "")
             self.posts.append({{"--re-seq": "re", "--resolves-seq": "resolves"}.get(key, key.lstrip("-")): value for key, value in flags.items()})
             if "--id" in flags:
                 self.post_ids[flags["--id"]] = len(self.posts)
-            return runner_module.Done(0, self.post_out or (json.dumps({"seq": len(self.posts), "num": "#7@fixture"}) + "\n" if as_json else f"#{len(self.posts)}\n"), "")
+            return runner_module.Done(0, self.post_out or (json.dumps({"seq": len(self.posts), "num": f"#{len(self.posts)}"}) + "\n" if as_json else f"#{len(self.posts)}\n"), "")
         if argv[:2] == ["gh", "api"] and argv[2].startswith("repos/Forge-AI/monorepo/pulls/") and argv[3:] == ["--jq", ".mergeable"]:
             self.mergeable_reads.append(argv[2].rsplit("/", 1)[1])
             return runner_module.Done(0, "MERGEABLE\n", "")
@@ -657,7 +657,7 @@ class FakeShell(runner_module.Shell):
             self.pr_cards.append({"card": json.loads(write["card"]), "session": write["session"]})
             if self.pr_card_error:
                 return runner_module.Done(1, "", self.pr_card_error)
-            return runner_module.Done(0, json.dumps({"seq": self.board_seq + len(self.pr_cards), "num": "#7@fixture"}) + "\n" if as_json else f"#{self.board_seq + len(self.pr_cards)}\n", "")
+            return runner_module.Done(0, json.dumps({"seq": self.board_seq + len(self.pr_cards), "num": f"#{self.board_seq + len(self.pr_cards)}"}) + "\n" if as_json else f"#{self.board_seq + len(self.pr_cards)}\n", "")
         carry = {"--session": write["session"], "--block": write["block"], "--row": write["row"], "--head": write["head"], "--note": write["note"]}
         if carry not in self.carries:
             self.carries.append(carry)
@@ -9754,7 +9754,7 @@ def test_a_record_cci_imported_from_the_old_desk_inbox_file_relays_once(shell, c
 
 def cci_record(shell: FakeShell, **fields) -> int:
     seq = 34766 + len(shell.records)
-    shell.records.append({"seq": seq, "drive": "d1", "lane": "root", "kind": "go", "to": [], "source": "post", **fields})
+    shell.records.append({"seq": seq, "num": f"#{seq}", "drive": "d1", "lane": "root", "kind": "go", "to": [], "source": "post", **fields})
     return seq
 
 
@@ -12314,6 +12314,7 @@ def lift_asks(shell: FakeShell) -> list[tuple[str, str]]:
 def test_a_freeze_past_its_until_gets_one_lift_ask_to_its_lane(shell, config, tmp_path):
     orca_pass(shell, config)
     frozen(shell, shell.clock + timedelta(minutes=30))
+    shell.records[-1]["num"] = "#7@remote"
     orca_pass(shell, config)
     assert lift_asks(shell) == []
     shell.clock += timedelta(minutes=31)
@@ -12322,6 +12323,7 @@ def test_a_freeze_past_its_until_gets_one_lift_ask_to_its_lane(shell, config, tm
     orca_pass(shell, config)
     [(to, text)] = lift_asks(shell)
     assert to == WALKER and text.startswith("lift freeze frz_77 on api/prod: it ran to its until")
+    assert "close hold #7@remote with `cci post --kind lift --resolves '#7@remote'`" in text
 
 
 def test_a_freeze_whose_lane_is_gone_gets_one_lift_ask_to_root(shell, config, tmp_path):
@@ -14680,6 +14682,7 @@ def test_cci_post_retains_each_internal_json_sequence_and_invalidates_the_tail(s
     runner.cci_tail.read[("d1", (), "0")] = [{"seq": 1}]
     shell.post_out = '{"seq":41,"num":"#7"}\n{"seq":52,"num":"#100@remote"}\n'
     done = runner.cci_post("note", "posted", "root", "machine-ci", "machine-ci")
-    assert done == runner_module.Done(0, "#41\n#52\n", "")
+    assert done.code == 0 and done.err == ""
+    assert done.records == (runner_module.cci.Posted(41, "#7"), runner_module.cci.Posted(52, "#100@remote"))
     assert runner.cci_tail.read == {}
     assert shell.raw[-1][-1] == "--json"

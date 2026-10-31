@@ -672,7 +672,6 @@ TOOLING_GLOBS = (".agents/skills/*/scripts/*", ".agents/skills/*/tests/*")
 PORT_PREFIXES = ("go/sand/next/",)
 OWNER_CITE = re.compile(r"#\s*owner:\s*[0-9a-f]{7,40}\b")
 MERGE_CARD_FIELDS = "title,author,additions,deletions,reviewDecision"
-CCI_SEQ = re.compile(r"^#(\d+)\b", re.MULTILINE)
 RULING_ROUNDS = "cards/rounds"
 RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
@@ -836,7 +835,6 @@ MANUAL_RELEASE = "manual-release-"
 MANUAL_TEMPLATE = SCRIPTS.parent / "reference" / "manual-release-brief.md"
 DEFERRABLE = frozenset({"DEADLINE", "UNACKED", "LIVENESS", "STALE-MAIL", "RECLAIM"})
 DEFERRED = "deferred-escalations"
-POSTED = re.compile(r"#(\d+)")
 SWEEP_EVERY = timedelta(minutes=5)
 PASS_SECONDS = 10
 TRUNK_DEPTH = 50
@@ -882,7 +880,6 @@ REFRESH_EVERY = timedelta(minutes=2)
 GATE_STATUSES = frozenset({"release-pr-check", "emergency-head"})
 RED_STATES = frozenset({"failure", "error"})
 RUN_NUMBERS = re.compile(r"\d+")
-POSTED_SEQ = re.compile(r"#(\d+)")
 HEAD_FLOOR = timedelta(seconds=60)
 BODY_MAX_AGE = timedelta(minutes=5)
 CHECK_PR_REREAD = timedelta(minutes=5)
@@ -1851,7 +1848,7 @@ class Runner:
                 self.escalate(f"refused:{to}", "POSTS-REFUSED", RUNNER, f"{len(self.refused)} cci posts refused in the last minute, the newest to {to}: {(done.err or done.out).strip()[:200]}")
             return
         self.record(action_id, line)
-        self.book.attempt(RUNNER, lambda incident: (incident.start(action_id, self.now()), incident.complete(action_id, {"at": self.book.stamp(), "posted": done.out.strip(), "to": to})))
+        self.book.attempt(RUNNER, lambda incident: (incident.start(action_id, self.now()), incident.complete(action_id, {"at": self.book.stamp(), "posted": cci.receipt(done.records[0].seq), "to": to})))
 
     def raised_before(self, key: str, subject: str) -> bool:
         """Whether an escalation under another key already named `subject`."""
@@ -1862,7 +1859,7 @@ class Runner:
         configured = json.loads(self.config.source.read_text()).get("landing", {}).get(member, [])
         return [configured] if isinstance(configured, str) else list(configured)
 
-    def post_escalation(self, line: str, to: str, action_id: str) -> Done:
+    def post_escalation(self, line: str, to: str, action_id: str) -> cci.PostResult:
         label, topic = line.split()[:2]
         message = self.message_file(topic)
         return self.cci_post(ESCALATION_KINDS.get(label, "defect" if label.endswith("-FAILED") else "report"), line, to, topic, action_id, message.read_text() if message.is_file() else "", flags=["--force"])
@@ -1890,7 +1887,7 @@ class Runner:
     def pass_wait(self) -> float:
         return min(PASS_SECONDS * 2**self.unreachable_passes, UNREACHABLE_WAIT.total_seconds())
 
-    def cci_post(self, kind: str, text: str, to: str, topic: str, key: str, message: str = "", pr: str = "", record_id: str = "", flags: list[str] | None = None, drive: str = "") -> Done:
+    def cci_post(self, kind: str, text: str, to: str, topic: str, key: str, message: str = "", pr: str = "", record_id: str = "", flags: list[str] | None = None, drive: str = "") -> cci.PostResult:
         """Post one cci record, on this drive unless `drive` names another; a body over cci's text limit, or the whole Orca message it relays, goes to a receipts file named by `key` and rides as its path. With `record_id`, cci stores the record once and a repost returns the stored one."""
         argv = ["cci", "post", "--drive", drive or self.config.drive, "--lane", RUNNER, "--kind", kind, "--to", to, "--topic", topic, *(flags or [])]
         if pr:
@@ -1907,11 +1904,11 @@ class Runner:
         self.cci_tail.forget()
         done = self.shell.run([*argv, "--text", text, "--json"])
         if done.code:
-            return done
+            return cci.PostResult(done.code, done.out, done.err, ())
         try:
-            return Done(0, cci.posted(done.out), done.err)
+            return cci.PostResult(0, done.out, done.err, cci.posted(done.out))
         except (json.JSONDecodeError, KeyError) as error:
-            return Done(1, "", f"cci: invalid post receipt: {error}: {done.out.strip()}")
+            return cci.PostResult(1, "", f"cci: invalid post receipt: {error}: {done.out.strip()}", ())
 
     def flush(self) -> bool:
         """Post each accepted escalation to root. While an incident clock runs, a DEADLINE, UNACKED, LIVENESS, STALE-MAIL, or RECLAIM about anything outside the incident waits in the view, and the pass after the last clock ends posts them as one DEFERRED record."""
@@ -1931,7 +1928,7 @@ class Runner:
             if done.code != 0:
                 failures.append(f"cci post exited {done.code}: {(done.err or done.out).strip()[:300]}")
                 continue
-            self.book.attempt(RUNNER, lambda incident, key=action.action_id: (incident.start(key, self.now()), incident.complete(key, {"at": self.book.stamp(), "posted": done.out.strip()})))
+            self.book.attempt(RUNNER, lambda incident, key=action.action_id: (incident.start(key, self.now()), incident.complete(key, {"at": self.book.stamp(), "posted": cci.receipt(done.records[0].seq)})))
         if failures:
             print(f"{len(failures)} escalation(s) left for the next pass; {failures[0]}", file=sys.stderr)
         return not failures
@@ -2872,8 +2869,7 @@ class Runner:
 
     def cut_withdrawn(self, key: str, clock: dict, silent: actions.Action) -> str:
         """Why a silent cut's manual release must not launch: the root resolved its CUT-SILENT, or the order was answered or closed since; empty while none did."""
-        if posted := POSTED.search(silent.response.get("posted", "")):
-            seq = int(posted[1])
+        if (seq := cci.receipt_seq(silent.response.get("posted", ""))) is not None:
             replies = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, since=seq)
             if resolved := next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, self.config.drive) and seq in cci.resolved(record)), None):
                 return f"#{resolved['seq']} resolves CUT-SILENT #{seq}"
@@ -3908,7 +3904,7 @@ class Runner:
     def pr_silent_posts(self, lane: str, seq: int) -> set[int]:
         """The cci seqs of every PR-SILENT the runner posted for this mechanism."""
         prefix = f"escalation:{PR_SILENT}:{lane}:{seq}:"
-        return {int(found[1]) for action in self.book.actions(RUNNER, kind="escalation") if action.action_id.startswith(prefix) and (found := POSTED.search((action.response or {}).get("posted", "")))}
+        return {seq for action in self.book.actions(RUNNER, kind="escalation") if action.action_id.startswith(prefix) and (seq := cci.receipt_seq((action.response or {}).get("posted", ""))) is not None}
 
     def lane_worktrees(self, lane: str) -> list[lanes.Worktree]:
         """What code the lane holds, by `lanes.lane_status` over the runner's launch receipts, the lane's cci records of the last day, and the worktrees of every repository in the pool, never the landing checkout itself."""
@@ -4052,7 +4048,7 @@ class Runner:
         stack = f"{component}/{env}"
         text = f"applying {stack} {commit[:8] or 'at an unread commit'} ({info['release'] or f'build {build}'})"
         posted = self.cci_post("release", text, to, stack, key, record_id=key, flags=["--stack", stack, "--build", build])
-        if posted.code == 0 and POSTED.match(posted.out):
+        if posted.code == 0 and posted.records:
             self.book.accept(RUNNER, key, "applying", json.dumps({"build": build, "stack": stack, "to": to}), info["lane"], None)
         else:
             self.escalate(key, "APPLYING-FAILED", info["lane"], f"{text} was not posted: {' '.join((posted.err or posted.out).split())[:200]}; it is posted again on the next poll that reads the job running")
@@ -4064,7 +4060,7 @@ class Runner:
             if hold is None or hold["status"] != "open":
                 self.book.edit(RUNNER, lambda incident, freeze=freeze: incident.facts[FREEZES].pop(freeze))
                 continue
-            close = f"close hold #{info['hold']} with `cci post --kind lift --resolves {info['hold']}`"
+            close = f"close hold {hold['num']} with `cci post --kind lift --resolves {shlex.quote(hold['num'])}`"
             asks = []
             if (until := parse_until(info["until"])) and self.now() >= until:
                 asks.append(("lapsed", info["lane"], f"lift freeze {freeze} on {info['scope']}: it ran to its until, {info['until']}; {close}, or freeze again to extend it"))
@@ -4075,7 +4071,7 @@ class Runner:
                     continue
                 key = f"lift-ask:{freeze}:{cause}"
                 posted = self.cci_post("ask", text, to, freeze, key, record_id=key, flags=["--target", info["scope"].split("/")[0]])
-                if posted.code == 0 and POSTED.match(posted.out):
+                if posted.code == 0 and posted.records:
                     self.book.edit(RUNNER, lambda incident, freeze=freeze, cause=cause: incident.facts[FREEZES][freeze]["asked"].append(cause))
                 else:
                     self.escalate(key, "LIFT-ASK-FAILED", info["lane"], f"{text} was not posted: {' '.join((posted.err or posted.out).split())[:200]}; it is posted again next pass")
@@ -6378,7 +6374,7 @@ class Landing:
         posted = [action for action in self.book.actions(LANDING, kind="bus") if action.action_id.startswith(f"rulings:{pr}:{sha[:7]}:")]
         named = {line for action in posted for line in json.loads(action.target)["text"].partition("the head is not held for it: ")[2].split("; ")}
         fresh = [line for line in "; ".join(warnings).split("; ") if line and line not in named]
-        seqs = {int(seq[1]) for action in posted if (seq := POSTED.search((action.response or {}).get("posted", "")))}
+        seqs = {seq for action in posted if (seq := cci.receipt_seq((action.response or {}).get("posted", ""))) is not None}
         if not fresh or seqs and any(seqs & ({record.get("re")} | cci.resolved(record)) for record in cci.records(self.cci_tail, self.runner.config.drive, "--kind=answer", since=min(seqs))):
             return []
         return fresh
@@ -6870,13 +6866,13 @@ class Landing:
             return None
         view = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", MERGE_CARD_FIELDS))
         card = "" if view.code else json.dumps(merge_card_block(self.repo, pr, waits, detail, json.loads(view.out)))
-        done = view if view.code else self.runner.cci_post("note", f"board write: ask the merge card {waits}", ",".join(self.board_lanes) or ROOT, board_rows.WRITE_TOPIC, f"board-ask:{waits}:{hashlib.sha1(detail.encode()).hexdigest()[:8]}", pr=pr, flags=board_attrs({"op": "ask", "session": session, "waits": waits, "card": card}))
-        if done.code or not (seq := CCI_SEQ.search(done.out)):
+        done = cci.PostResult(view.code, view.out, view.err, ()) if view.code else self.runner.cci_post("note", f"board write: ask the merge card {waits}", ",".join(self.board_lanes) or ROOT, board_rows.WRITE_TOPIC, f"board-ask:{waits}:{hashlib.sha1(detail.encode()).hexdigest()[:8]}", pr=pr, flags=board_attrs({"op": "ask", "session": session, "waits": waits, "card": card}))
+        if done.code or not done.records:
             why = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
             cause = VOLATILE.sub("", why)
             self.runner.escalate(f"merge-card:{pr}:{head[:7]}:{hashlib.sha1(cause.encode()).hexdigest()[:8]}", "MERGE-CARD-FAILED", f"#{pr}", f"the merge card for #{pr} at {head[:7]} did not post: {why}; the next pass tries again")
             return None
-        ts = f"cci #{seq[1]}"
+        ts = f"cci {done.records[0].num}"
         self.book.edit(LANDING, lambda incident: incident.facts.setdefault(MERGE_CARDS, {}).update({waits: {"ts": ts, "question": detail}}))
         return ts
 
@@ -8056,8 +8052,8 @@ class Landing:
         """Post `landed` for a squash the runner made, under its key so a repost returns the stored record; a post that fails runs again on the next pass."""
         text = f"#{pr} {LANDED_BY_SQUASH} as {commit[:10] or 'an unread squash'}: an incident fix, approved and green at {head[:10]}, merged by the landing runner (ef905a6); its release is owed now"
         done = self.runner.cci_post("landed", text, ",".join(dict.fromkeys([self.owner(pr, row) or ROOT, ROOT])), pr, key, pr=pr, record_id=key)
-        if done.code == 0 and (seq := POSTED.match(done.out)):
-            self.book.attempt(LANDING, lambda incident: incident.action(key).response.update({"posted": int(seq[1])}))
+        if done.code == 0 and done.records:
+            self.book.attempt(LANDING, lambda incident: incident.action(key).response.update({"posted": done.records[0].seq}))
 
     def releases(self, rows: dict[str, dict]) -> None:
         """A PR that lands carrying the merge-fast label and a `Release-With:` line sends the release owner and the root one `release` record in the pass that reads the landing, then one `blocker` each `deadlines.release_start_minutes` until a `release` record names the landing or the root replies. Each landing is judged once, by the first pass that reads it, and the landings read persist across restarts: a desk's first pass records every landing it reads as history, so a restart or an upgrade never judges an old landing again."""
@@ -8180,16 +8176,15 @@ class Landing:
         key = f"release:{landed['pr']}:live"
         flags = [arg for component in components for arg in ("--target", component)] + ["--build", build]
         done = self.runner.cci_post("fix-live", f"RELEASED {versions} ({build})", ROOT, landed["pr"], key, pr=landed["pr"], record_id=key, flags=flags)
-        if done.code == 0 and POSTED.match(done.out):
-            self.book.attempt(LANDING, lambda incident: incident.action(action.action_id).verification_receipt.update({"live": int(POSTED.match(done.out)[1])}))
+        if done.code == 0 and done.records:
+            self.book.attempt(LANDING, lambda incident: incident.action(action.action_id).verification_receipt.update({"live": done.records[0].seq}))
 
     def post_release(self, key: str, kind: str, pr: str, text: str) -> int | None:
         """Post one record about a landing's release to the release owner and the root, with `key` as its cci id so a repost returns the stored record, and return its sequence. A record cci refuses, or a post that prints no sequence, is escalated to root once per `key`, and the next pass posts it again."""
         to = f"{self.release_owner},{ROOT}"
         done = self.runner.cci_post(kind, text, to, pr, key, pr=pr, record_id=key)
-        seq = POSTED.match(done.out)
-        if done.code == 0 and seq:
-            return int(seq[1])
+        if done.code == 0 and done.records:
+            return done.records[0].seq
         why = "refused" if done.code else "printed no sequence for"
         self.runner.escalate(key, "RELEASE-FAILED", f"#{pr}", f"cci {why} the {kind} record to {to}: {(done.err or done.out).strip()[:200]}; {text}")
         return None
@@ -8228,7 +8223,7 @@ class Landing:
     def held_lines(self, pr: str) -> set[int]:
         """The sequences of the RELEASE-HELD-AFTER-LANDING lines the runner posted for `pr`."""
         prefix = f"escalation:release-held:{pr}:"
-        return {int(seq[1]) for action in self.book.actions(RUNNER, kind="escalation") if action.action_id.startswith(prefix) and (seq := POSTED.search((action.response or {}).get("posted", "")))}
+        return {seq for action in self.book.actions(RUNNER, kind="escalation") if action.action_id.startswith(prefix) and (seq := cci.receipt_seq((action.response or {}).get("posted", ""))) is not None}
 
     def believed_queued(self, rows: dict[str, dict]) -> dict[str, list[str]]:
         return {
@@ -8457,9 +8452,9 @@ class Landing:
             self.post_blocker(key, ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])), f"#{pr} {sha}: {blocker.text}; the queue dropped it at {status.get('evicted_at') or 'an unstamped time'}: {status.get('evicted') or 'no reason given'}", pr)
         elif parked:
             self.runner.escalate(f"{PARKED}:{pr}", "PARKED", f"#{pr}", f"{sha}: {owner} has no live dispatch or cci session, so its conflict routes to no one until the lane is back: {blocker.text}")
-        elif earlier and (seq := POSTED_SEQ.match(earlier.response["posted"])):
+        elif earlier and (seq := cci.receipt_seq(earlier.response["posted"])) is not None:
             to = ",".join(self.reach(owner)) if owner else json.loads(earlier.target)["lane"]
-            self.post_record("note", key, to, f"{self.dead_note(owner)}#{pr} {sha}: the same failure again: {red}", pr, re_seq=seq[1])
+            self.post_record("note", key, to, f"{self.dead_note(owner)}#{pr} {sha}: the same failure again: {red}", pr, re_seq=str(seq))
         else:
             self.route(key, owner, f"#{pr} {sha}: {blocker.text}", pr, cause)
 
@@ -8650,7 +8645,7 @@ class Landing:
         self.book.attempt(LANDING, lambda incident: incident.start(key, self.runner.now()))
         done = self.runner.cci_post(kind, text, to, pr, key, pr=pr, flags=["--re-seq", re_seq] if re_seq else None)
         if done.code == 0:
-            self.book.attempt(LANDING, lambda incident: incident.complete(key, {"posted": done.out.strip()[:200], "at": self.book.stamp()}))
+            self.book.attempt(LANDING, lambda incident: incident.complete(key, {"posted": cci.receipt(done.records[0].seq), "at": self.book.stamp()}))
         else:
             self.book.attempt(LANDING, lambda incident: incident.fail(key, (done.err or done.out).strip()[:300]))
 

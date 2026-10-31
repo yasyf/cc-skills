@@ -571,11 +571,11 @@ class Messages:
     shell: Shell
     drive: str
 
-    def post(self, fields: dict[str, str]) -> str:
+    def post(self, fields: dict[str, str]) -> cci.Posted:
         argv = ["cci", "post", "--drive", self.drive, "--lane", fields["lane"], "--kind", MESSAGE_KINDS[fields["kind"]], "--topic", fields["pr"], "--text", fields["text"]]
         argv += ["--pr", fields["pr"]] if PR_KEY.fullmatch(fields["pr"]) else []
         argv += ["--commit", fields["head"]] if FULL_SHA.match(fields["head"]) else []
-        return cci.posted(self.shell.run([*argv, "--json"])).strip()
+        return cci.posted(self.shell.run([*argv, "--json"]))[0]
 
     def answer(self, key: str, fields: dict[str, str], text: str) -> None:
         self.shell.run(["cci", "post", "--drive", self.drive, "--lane", MESSAGE_ANSWERER, "--kind", "answer", "--re-seq", key.lstrip("#"), "--topic", fields["pr"], "--text", f"{text} {key}"])
@@ -1052,9 +1052,9 @@ def enqueue(messages: Messages, fields: dict[str, str]) -> str:
     if seen:
         print(f"duplicate of {seen}; nothing recorded, nothing to answer")
         return seen
-    key = messages.post(fields)
-    print(f"{key} {fields['kind']} {ref(fields['pr'])} {fields['head'][:9]} from {fields['lane']}")
-    return key
+    posted = messages.post(fields)
+    print(f"{posted.num} {fields['kind']} {ref(fields['pr'])} {fields['head'][:9]} from {fields['lane']}")
+    return cci.receipt(posted.seq)
 
 
 def moot_reports(messages: dict[str, dict[str, str]], rows: dict[str, dict[str, str]]) -> frozenset[str]:

@@ -2,13 +2,19 @@ import ast
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from test_bus import bus
 from test_desk_runner import config, runner_module, shell
+from test_stall_watch import stall_watch
+
+import handoff
 
 import ledger
 
@@ -52,29 +58,53 @@ def test_actual_runner_posts_keep_remote_duplicate_and_pairwise_machine_sequence
     previous = legacy.cci_post("note", "duplicate", "root", "machine", "duplicate", record_id="fixture-duplicate")
     assert previous.code == 0 and previous.out == "#7 (duplicate)\n"
     duplicate = runner.cci_post("note", "duplicate", "root", "machine", "duplicate", record_id="fixture-duplicate")
-    assert duplicate == runner_module.Done(0, f"#{machine_bus['owner']}\n", "")
+    assert duplicate.code == 0 and duplicate.records == (runner_module.cci.Posted(machine_bus["owner"], "#7"),)
     owner, remote, local = (str(machine_bus[key]) for key in ("owner", "remote", "local"))
     posted = runner.cci_post("note", "pairwise", "root", "machine", "pairwise", record_id="machine-pairwise", flags=["--pairwise", "--re-seq", owner + "," + local, "--resolves-seq", remote + "," + owner])
     assert posted.code == 0, posted
-    seqs = [int(line.removeprefix("#")) for line in posted.out.splitlines()]
+    seqs = [record.seq for record in posted.records]
     found = {row["seq"]: row for row in all_records(machine_bus)}
     assert len(seqs) == 2
     assert [(found[seq]["re"], found[seq]["resolves"]) for seq in seqs] == [(int(owner), int(remote)), (int(local), int(owner))]
     assert all("@" in found[seq]["num"] for seq in seqs)
     repeated = runner.cci_post("note", "pairwise", "root", "machine", "pairwise", record_id="machine-pairwise", flags=["--pairwise", "--re-seq", owner + "," + local, "--resolves-seq", remote + "," + owner])
-    assert repeated.out == posted.out
-    print(json.dumps({"provider_source": os.environ["CCI_MACHINE_PROVIDER_SOURCE"], "runner_sha256": hashlib.sha256(Path(runner_module.__file__).read_bytes()).hexdigest(), "legacy_duplicate_receipt": previous.out.strip(), "current_duplicate_receipt": duplicate.out.strip(), "remote_duplicate_internal_seq": machine_bus["owner"], "remote_duplicate_display_num": found[machine_bus["owner"]]["num"], "pairwise_internal_receipts": seqs, "pairwise_targets": [(found[seq]["re"], found[seq]["resolves"]) for seq in seqs]}))
+    assert repeated.records == posted.records
+    print(json.dumps({"provider_source": os.environ["CCI_MACHINE_PROVIDER_SOURCE"], "runner_sha256": hashlib.sha256(Path(runner_module.__file__).read_bytes()).hexdigest(), "legacy_duplicate_receipt": previous.out.strip(), "current_duplicate_records": [{"seq": record.seq, "num": record.num} for record in duplicate.records], "remote_duplicate_internal_seq": machine_bus["owner"], "remote_duplicate_display_num": found[machine_bus["owner"]]["num"], "pairwise_internal_receipts": seqs, "pairwise_targets": [(found[seq]["re"], found[seq]["resolves"]) for seq in seqs]}))
 
 
 def test_actual_bus_and_ledger_replies_use_internal_references(machine_bus, capsys):
     owner = str(machine_bus["owner"])
     assert bus.main(["post", "--bus", "d1", "--from", "root", "--kind", "answer", "--re", owner, "--text", "bus reply"], bus.Shell()) == 0
-    bus_receipt = capsys.readouterr().out.strip()
+    bus_receipt = json.loads(capsys.readouterr().out)
     messages = ledger.Messages(ledger.Shell(), "d1")
     posted = messages.post({"lane": "root", "kind": "idle", "pr": "machine", "text": "ledger note", "head": ""})
     messages.answer("#" + owner, {"pr": "machine"}, "ledger reply")
     found = all_records(machine_bus)
     assert next(row for row in found if row["text"] == "bus reply")["re"] == int(owner)
     assert next(row for row in found if row["text"].startswith("ledger reply"))["re"] == int(owner)
-    assert next(row for row in found if row["seq"] == int(bus_receipt.removeprefix("#")))["text"] == "bus reply"
-    assert next(row for row in found if row["seq"] == int(posted.removeprefix("#")))["text"] == "ledger note"
+    assert next(row for row in found if row["seq"] == bus_receipt["seq"])["text"] == "bus reply"
+    assert next(row for row in found if row["seq"] == posted.seq)["text"] == "ledger note"
+
+
+def test_generated_human_and_machine_reference_arguments_target_real_mixed_origin_records(machine_bus):
+    rows = {row["seq"]: row for row in all_records(machine_bus)}
+    owner = rows[machine_bus["owner"]]
+    remote = rows[machine_bus["remote"]]
+    now = datetime.now(timezone.utc) + timedelta(hours=1)
+    caller = SimpleNamespace(now=now, watch=SimpleNamespace(age=lambda kind: timedelta(minutes=1)))
+    refusal = stall_watch.Refusal(owner, "29020", "abcdef1", "unexpected blocker", "")
+    ask = {**remote, "lane": "api-lane", "kind": "ask", "to": ["root"], "status": "open"}
+    waiting = stall_watch.Pass.asks(caller, [ask])[0]
+    missing = stall_watch.Pass.missing(caller, "29020", "grade", "root", SimpleNamespace(grade=owner, answered_at=None))
+    state = handoff.Handoff("d1", "plan", now, standing={"#" + str(owner["seq"]): "every release ships on the owner's word only once"}, sources={"#" + str(owner["seq"]): "cci " + owner["num"]})
+    findings = handoff.uncited_inbox_rules(state, set())
+    cases = [(refusal.command("abcdef1"), "--re", owner["seq"]), (waiting.step, "--re", remote["seq"]), (waiting.step, "--resolves", remote["seq"]), (missing.step, "--re", owner["seq"]), (findings[0], "--re-seq", owner["seq"])]
+    receipts = []
+    for index, (text, flag, target) in enumerate(cases):
+        argument = re.search(re.escape(flag) + r" (?:'[^']+'|[^ `]+)", text)[0]
+        command = f"cci post --drive d1 --lane root --kind note --text guidance-{index} {argument} --json"
+        done = subprocess.run(["sh", "-c", command], text=True, capture_output=True, check=True)
+        posted = json.loads(done.stdout)
+        assert posted["re" if flag.startswith("--re") and flag != "--resolves" else "resolves"] == target
+        receipts.append({"argument": argument, "internal_target": target, "posted_seq": posted["seq"]})
+    print(json.dumps({"provider_source": os.environ["CCI_MACHINE_PROVIDER_SOURCE"], "generated_reference_commands": receipts, "proof": "actual generated formatter output executed by a real shell and official CLI against mixed-origin service Store"}))

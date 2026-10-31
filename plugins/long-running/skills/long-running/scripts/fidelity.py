@@ -224,14 +224,14 @@ def ask(shell: finder.Shell, job: dict, directory: Path, question: Path, attempt
     return json.loads(Path(finder.REPLY_FILE.search(out)[1]).read_text())
 
 
-def post(shell: finder.Shell, job: dict, lines: list[tuple[str, list[str]]], body: Path) -> list[str]:
+def post(shell: finder.Shell, job: dict, lines: list[tuple[str, list[str]]], body: Path) -> list[cci.Posted]:
     pr = f"{job['repo']}#{job['pr']}"
     posted = []
     for index, (text, also) in enumerate(lines):
         to = ",".join(dict.fromkeys(filter(None, [job["lane"], *job["to"], *also])))
         clipped = text if len(text) <= finder.CCI_TEXT else text[: finder.CCI_TEXT - 1] + "…"
         argv = ["cci", "post", "--drive", job["drive"], "--lane", LANE, "--kind", "review", "--pr", pr, "--id", f"fidelity:{pr}:{job['head']}:{index}", "--path", str(body)]
-        posted.append(cci.posted(shell.run(finder.logged(body.parent, [*argv, *(["--to", to, "--force"] if to else []), "--text", clipped, "--json"]))).strip())
+        posted.append(cci.posted(shell.run(finder.logged(body.parent, [*argv, *(["--to", to, "--force"] if to else []), "--text", clipped, "--json"])))[0])
     return posted
 
 

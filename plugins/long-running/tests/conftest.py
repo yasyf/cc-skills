@@ -142,7 +142,7 @@ class FakeShell(ledger.Shell):
                 "text": one["--text"],
                 "topic": one.get("--topic", ""),
                 "re": int(one["--re-seq"]) if "--re-seq" in one else None,
-                "num": f"#{len(self.cci) + 1}@fixture",
+                "num": f"#{len(self.cci) + 1}",
                 "fields": {"commit": one["--commit"]} if "--commit" in one else {},
             }
             assert len(record["text"]) <= 400

@@ -65,9 +65,39 @@ class Tail:
         self.read = None
 
 
-def posted(output: str) -> str:
-    """Project every posted JSON record to its internal sequence receipt."""
-    return "".join(f"#{json.loads(line)['seq']}\n" for line in output.splitlines())
+@dataclass(frozen=True)
+class Posted:
+    seq: int
+    num: str
+
+
+@dataclass(frozen=True)
+class PostResult:
+    code: int
+    out: str
+    err: str
+    records: tuple[Posted, ...]
+
+
+def posted(output: str) -> tuple[Posted, ...]:
+    """Retain the internal sequence and human number of every posted record."""
+    records = (json.loads(line) for line in output.splitlines())
+    return tuple(Posted(record["seq"], record["num"]) for record in records)
+
+
+def receipt(seq: int) -> str:
+    """Encode the existing Book receipt without changing its persisted schema."""
+    return f"#{seq}"
+
+
+def receipt_seq(value: str) -> int | None:
+    """Read an existing internal sequence receipt, including the CLI duplicate suffix."""
+    if not value:
+        return None
+    found = re.fullmatch(r"#([0-9]+)(?: \(duplicate\))?", value)
+    if found is None:
+        raise ValueError(f"invalid internal sequence receipt: {value!r}")
+    return int(found[1])
 
 
 def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: int | str = 0) -> list[dict]:
