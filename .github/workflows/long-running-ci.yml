@@ -33,6 +33,35 @@ jobs:
       - uses: astral-sh/setup-uv@v8.2.0
       - uses: actions/checkout@v7
         with:
+          ref: 2ef339b0d78951d89000b3f012b65905dc852b52
+          path: .ci-verified-cause-baseline
+          persist-credentials: false
+      - name: Immutable closed blocker cause negative controls
+        run: |
+          baseline=.ci-verified-cause-baseline/plugins/long-running
+          cp plugins/long-running/tests/test_desk_runner.py "$baseline/tests/test_desk_runner.py"
+          for receipt in closed resolved; do
+            negative="$RUNNER_TEMP/verified-cause-$receipt-negative.log"
+            if uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_desk_runner.py::test_posted_blocker_cause_stays_available_after_verification[$receipt]" -q >"$negative" 2>&1; then
+              cat "$negative"
+              exit 1
+            fi
+            cat "$negative"
+            grep -F 'verified posted blocker disappeared from cause history' "$negative"
+            grep -F '1 failed' "$negative"
+          done
+          negative="$RUNNER_TEMP/verified-cause-race-negative.log"
+          if uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_desk_runner.py::test_same_red_cause_uses_original_blocker_after_cleanup_wins_the_race" -q >"$negative" 2>&1; then
+            cat "$negative"
+            exit 1
+          fi
+          cat "$negative"
+          grep -F 'cleanup-before-cause lookup duplicated original blocker' "$negative"
+          grep -F '1 failed' "$negative"
+      - name: Posted blocker cause survives cleanup before routing
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py::test_posted_blocker_cause_stays_available_after_verification plugins/long-running/tests/test_desk_runner.py::test_verified_unposted_bus_does_not_hide_a_posted_blocker_cause plugins/long-running/tests/test_desk_runner.py::test_same_red_cause_uses_original_blocker_after_cleanup_wins_the_race plugins/long-running/tests/test_desk_runner.py::test_a_failing_required_check_posts_one_blocker_per_job_and_cause_and_a_line_per_later_head -q -s
+      - uses: actions/checkout@v7
+        with:
           ref: 9d930510a7643fedb6d756055bfc2872979e2c9c
           path: .ci-executor-reader-baseline
           persist-credentials: false
