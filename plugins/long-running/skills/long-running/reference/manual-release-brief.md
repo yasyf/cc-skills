@@ -20,10 +20,10 @@ Do, in order:
    the release id `releases/<id>` in the text the moment the build exists.
 3. When the standard start refuses, post the refusal verbatim as
    `--kind refuse --target {component}`, then run the hand path:
-   `{hand}`. Fill `--env` and each claimed `<component>/<env>` from the release
-   skill's target table when they read `<env>`. A claim that refuses names the
-   owner of an overlapping incident or rollout claim: post it to root as a
-   `blocker`, since only that owner can hand it over with `{release} transfer`.
+   `{hand}`. Fill `--env` from the release skill's target table when it reads
+   `<env>`. Never run `{release} claim`: the owner allows no claim he did not ask
+   for (root #262864). A start that refuses over another release's claim goes to
+   root as a `blocker` naming that claim's owner.
 4. Watch to the publish. `{release} live <id> --json` names the live version;
    post `--kind fix-live --target {component} --build <url>` with
    `RELEASED {component} <version> (<build>)` as its text.

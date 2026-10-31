@@ -20,9 +20,11 @@ every record since its cursor and asks the drive's judge (`long_running/judge.py
 A yes posts one `review` record, `JUDGE <kind> #<seq> <key>: <sentence>`, to the writer and root, in reply to
 the artifact. A recheck yes whose earlier verdict on the same artifact and row was not a yes is a miss: it
 says so, and the case is written to `judge/misses/` in the drive's state folder for `judge-eval.py`.
-The writer disputes a flag by answering on it; the pass then asks the board lane for one owner card,
-`judge-dispute-<flag seq>`, with his words, the judge's reading and the writer's, and his pick on that card
-writes the case to `judge/owner/` with the verdict he chose. A failed judge call posts nothing.
+The writer disputes a flag by answering on it. A root `decide` or `decision` of the last day that replies to
+or resolves the flag, the artifact or the answer, or names one of the artifact's PRs, closes the dispute with
+that ruling. Otherwise the pass asks root alone, never a board lane, with his words, the judge's reading and
+the writer's in `judge/disputes/<flag seq>.md`. An owner pick on a `judge-dispute-<flag seq>` card root puts
+on his board writes the case to `judge/owner/` with the verdict he chose. A failed judge call posts nothing.
 State lives in `judge-watch.json` beside `orca.desk_inbox`, under a lock a second pass meets by exiting.
 """
 
@@ -64,6 +66,7 @@ JUDGE_RIGHT = "1 The judge's reading"
 WRITER_RIGHT = "2 The writer's reading"
 RELAY_KINDS = frozenset({"decide"})
 POSTED = re.compile(r"#(\d+)")
+RULING_CHARS = 200
 SCRIPTS = Path(__file__).resolve().parent
 
 
@@ -73,21 +76,17 @@ class Watch:
     cci: str
     state: Path
     drive_state: Path
-    board_lane: str
     repo: str
 
     @classmethod
     def load(cls, path: Path) -> Watch:
         config = json.loads(path.read_text())
-        landing = config.get("landing") or {}
-        board = landing.get("board_lane") or (config.get("stall") or {}).get("board_lane") or ROOT
         entry = drive.find(config["drive"], None)
         return cls(
             config["drive"],
             entry.get("cci_drive") or config["drive"],
             Path(config["orca"]["desk_inbox"]).expanduser().with_name(STATE),
             Path(entry["state_dir"]),
-            board[0] if isinstance(board, list) else board,
             entry["checkout"],
         )
 
@@ -197,10 +196,14 @@ class Pass:
         to = list(dict.fromkeys([record["lane"], ROOT]))
         posted = self.post("review", line, to, re=record["seq"])
         if posted is not None:
-            self.saved.flags[str(posted)] = {"lane": record["lane"], "kind": kind, "key": key, "said": said, "artifact": text, "reading": verdict.sentence, "seq": record["seq"]}
+            self.saved.flags[str(posted)] = {"lane": record["lane"], "kind": kind, "key": key, "said": said, "artifact": text, "reading": verdict.sentence, "seq": record["seq"], "prs": (record.get("refs") or {}).get("prs", [])}
 
     def dispute(self, reply: dict) -> None:
         flag = self.saved.flags[str(reply["re"])]
+        if ruling := self.ruled(flag, reply):
+            self.post("answer", f"JUDGE dispute on #{reply['re']} closed by root #{ruling['seq']}: {ruling['text'][:RULING_CHARS]}", [flag["lane"], ROOT], re=reply["seq"], resolves=int(reply["re"]))
+            del self.saved.flags[str(reply["re"])]
+            return
         card = self.watch.drive_state / "judge" / "disputes" / f"{reply['re']}.md"
         words = "\n".join(f"- {item['at']}: \"{item['words']}\"" for item in flag["said"])
         card.parent.mkdir(parents=True, exist_ok=True)
@@ -212,7 +215,13 @@ class Pass:
             f"What was posted:\n~~~~\n{flag['artifact'][: judge.ARTIFACT_CHARS // 3]}\n~~~~\n\n"
             f"Buttons: \"{JUDGE_RIGHT}\", \"{WRITER_RIGHT}\", plus a write-in box and Explain more. Neither is preselected.\n"
         )
-        self.post("ask", f"{self.watch.board_lane}: post owner card judge-dispute-{reply['re']} 'Does this {flag['kind']} read your words the way you meant them?' with both readings; text, options and buttons in {card}", [self.watch.board_lane, ROOT], re=reply["seq"])
+        self.post("ask", f"Does {flag['lane']}'s {flag['kind']} #{flag['seq']} read his words the way he meant them? The judge flagged it on #{reply['re']} and the writer disputes it; his words and both readings are in {card}. Rule with a decide in reply to this record.", [ROOT], re=reply["seq"])
+
+    def ruled(self, flag: dict, reply: dict) -> dict | None:
+        since = (datetime.now(timezone.utc) - RECHECK_WINDOW).strftime("%Y-%m-%dT%H:%M:%SZ")
+        answered = {flag["seq"], int(reply["re"]), reply["seq"]}
+        rulings = [record for record in cci.records(self.cli, self.watch.cci, "--lane", ROOT, *(f"--kind={kind}" for kind in sorted(cci.ROOT_RULINGS)), since=since) if record.get("lane") == ROOT and record.get("kind") in cci.ROOT_RULINGS]
+        return next((record for record in reversed(rulings) if answered & ({record.get("re")} | cci.resolved(record)) or any(cci.names_pr(record, str(pr)) for pr in flag.get("prs", []))), None)
 
     def owner_ruled(self, flag_seq: str, label: str) -> None:
         if (flag := self.saved.flags.get(flag_seq)) is None:
@@ -220,11 +229,11 @@ class Pass:
         expect = "yes" if label == JUDGE_RIGHT else "no" if label == WRITER_RIGHT else "any"
         write_case(self.watch.drive_state / "judge" / "owner" / f"{flag_seq}.json", flag["kind"], expect, flag["key"], flag["said"], flag["artifact"])
 
-    def post(self, kind: str, text: str, to: list[str], re: int) -> int | None:
+    def post(self, kind: str, text: str, to: list[str], re: int, resolves: int | None = None) -> int | None:
         if self.dry_run:
             print(f"{kind} -> {','.join(to)}: {text}")
             return None
-        argv = ["cci", "post", "--drive", self.watch.cci, "--lane", LANE, "--kind", kind, "--re", str(re), "--text", text]
+        argv = ["cci", "post", "--drive", self.watch.cci, "--lane", LANE, "--kind", kind, "--re", str(re), "--text", text, *(["--resolves", str(resolves)] if resolves else [])]
         for lane in to:
             argv += ["--to", lane]
         out = self.cli(argv)

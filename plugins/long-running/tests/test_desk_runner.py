@@ -491,6 +491,8 @@ class FakeShell(runner_module.Shell):
                 return runner_module.Done(runner_module.TIMED_OUT, "", self.status_error)
             prs = argv[9:] if argv[7:9] == ["--max-age", "300s"] else argv[7:]
             return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued"), "verdict": "landed" if self.queue.get(pr) == "landed" else "landable"} | self.pr_status.get(pr, {}) for pr in prs]), "")
+        if argv == ["gh", "api", "repos/Forge-AI/monorepo/rules/branches/dev"]:
+            return runner_module.Done(0, json.dumps([{"type": "pull_request"}, {"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "buildkite/test"}]}}]), "")
         if argv[:4] == ["ccx", "vcs", "auth", "status"]:
             assert argv[4:] == ["Forge-AI/monorepo", "--json"]
             return runner_module.Done(1, "", self.quota_error) if self.quota_error else runner_module.Done(0, json.dumps([{"repo": "forge-ai/monorepo", **self.auth}]), "")
@@ -2645,6 +2647,24 @@ def test_a_trunk_drop_reads_as_evicted_where_the_status_read_says_not_queued():
     assert runner_module.trunk_recorded(out, failed | {"outcome": "testing"}) == out
     assert runner_module.trunk_labelled(out, {"labels": "trunk-queued"}) == out
 
+
+
+def test_a_red_check_dev_does_not_require_neither_blocks_nor_refuses_the_head(shell, config):
+    """Root #262156, #263732: buildkite/release-pr-check, never required on dev, went red on #46846, and the runner refused it and told its lane CI was red, though buildkite/test, dev's only required check, passed."""
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    shell.pr_status["29020"] = {"verdict": "blocked:ci-red", "ci": {"state": "red", "failing": ["buildkite/release-pr-check"]}}
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    assert blockers(shell) == []
+
+
+def test_a_red_required_check_beside_an_unrequired_one_still_blocks_the_head(shell, config):
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    shell.pr_status["29020"] = {"verdict": "blocked:ci-red", "ci": {"state": "red", "failing": ["buildkite/release-pr-check", "buildkite/test"]}}
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
 
 def test_a_red_head_trunk_dropped_posts_one_red_to_its_lane_and_root_though_no_check_reads_it(shell, config, monkeypatch):
     """Owner 10:44 PM Oct 30: #45599 fell out of the Trunk merge queue when its queue run failed, its status read red, so no check read it, and the runner told nobody."""
@@ -5755,7 +5775,7 @@ def test_a_root_decide_on_the_rebuttal_chain_that_keeps_the_finding_holds_the_he
     assert shell.enqueues() == []
 
 
-@pytest.mark.parametrize("cleared", ["names-head", "source-settled"])
+@pytest.mark.parametrize("cleared", ["names-head", "override", "source-settled"])
 def test_a_root_clear_of_a_carried_finder_major_lets_the_head_enqueue(shell, config, tmp_path, cleared):
     """Root #231127: root cleared carried majors on #45199, #46081 and #45821 in a DECIDE answering the lane's ask, and the runner kept each FINDER-PENDING."""
     lone_green_pr(shell)
@@ -5765,10 +5785,11 @@ def test_a_root_clear_of_a_carried_finder_major_lets_the_head_enqueue(shell, con
         shell.records.append({"seq": source + 1, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {}, "resolves": [source], "text": "refuted: the import is still used"})
     carried = finder_verdict(shell, "29020", f"major cccc333 carried from #{source}")
     landing_pass(shell, config)
-    if cleared == "names-head":
+    if cleared in ("names-head", "override"):
         assert shell.enqueues() == []
         shell.records.append({"seq": carried + 1, "drive": "d1", "lane": LANE, "kind": "ask", "to": ["root"], "refs": {"prs": [29020]}, "text": "the carried major is refuted; clear it"})
-        shell.records.append({"seq": carried + 2, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "resolves": [carried + 1], "text": "6:49 PM Clear finder on #29020 cccc333: the carried major (unused import) is refuted."})
+        ruling = {"names-head": "6:49 PM Clear finder on #29020 cccc333: the carried major (unused import) is refuted.", "override": "12:35 PM finder-override #29020 at cccc333: finder 150922 accepted (the import is still used)."}[cleared]
+        shell.records.append({"seq": carried + 2, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "resolves": [carried + 1], "text": ruling})
         landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
@@ -5781,6 +5802,37 @@ def test_a_root_clear_naming_another_head_or_a_negated_clear_settles_nothing(she
     landing_pass(shell, config)
     assert shell.enqueues() == []
 
+
+
+@pytest.mark.parametrize("landed", [True, False], ids=["merged", "open"])
+def test_a_pr_already_merged_fails_no_finder_check(shell, config, tmp_path, landed):
+    """Root #262648: #46844 landed at aac02cc2 as an incident squash, and the runner still posted FINDER-PENDING on it."""
+    lone_green_pr(shell)
+    shell.queue["29020"] = "landed" if landed else "not queued"
+    landing = landing_of(shell, config, tmp_path)
+    states = landing.check_finder(runner_module.Graded({"29020": "cccc333333"}, landing.rows(), shell.now(), act=False))
+    assert ("29020" in states) != landed
+
+
+@pytest.mark.parametrize(
+    "named",
+    [{"text": "need a narrow sand stack plan at 5e11a9d; no apply started"}, {"text": "sand dry run", "refs": {"builds": ["https://buildkite.com/forge/release/builds/11496"], "stacks": ["sand/plat-usw2-prod"]}}],
+    ids=["commit", "stack"],
+)
+def test_the_fix_lanes_records_to_the_release_lane_answer_the_landings_cut_clock_and_release_blockers(shell, config, tmp_path, named):
+    """Root #262864, #262961: runnerdb-fix sent release-5 its #46844 release plans from 12:03, and the runner still posted CUT-SILENT at 12:07 and launched a second releaser, then repeated its release blocker at 12:09."""
+    land_fast(shell, config)
+    orca_pass(shell, config)
+    landing_pass(shell, config)
+    orca_pass(shell, config)
+    seq = cci_record(shell, lane="runnerdb-fix", kind="incident", to=["root", "peer:sole-51"], at=actions.stamp(shell.now()), **({"refs": {}} | named))
+    shell.sleep(5 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert cut_silent(shell) == [] and incident(tmp_path, "desk-runner").facts["cut-clocks"]["release:36642"]["ended"] == f"runnerdb-fix owns the release on cci #{seq}"
+    shell.sleep(16 * 60)
+    landing_pass(shell, config)
+    assert blockers(shell) == [] and release_action(tmp_path).verification_receipt["cci"] == seq
 
 def test_a_finder_major_after_a_missing_finder_record_posts_its_own_blocker(shell, config, tmp_path):
     lone_green_pr(shell)
@@ -7806,6 +7858,18 @@ def test_an_admitted_head_no_branch_settles_is_refused_unsettled_to_the_watchdog
     assert post_body(post) == f"REFUSED #33001 at aaaa111111 (go #{go_of(shell, '33001')}): unsettled: the graphite-stack-enqueue check read aaaa111111 GREEN graphite READY and ended `enqueued nothing: the bottom PR is BLOCKED`, and no step of the pass decided it: a runner defect the watchdog hears, its lane owes nothing, and the next pass checks it again"
     assert admitted_heads(config)["33001"]["state"] == "defect"
 
+
+
+def test_a_check_that_reads_no_remote_branch_refuses_the_head_to_its_lane_never_unsettled(shell, config, tmp_path):
+    """Root #262354: origin had no refs/heads/pod-volume-slots for #46738, its stack check ended there, and the runner posted the head unsettled as a runner defect."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 CHECK aaaa111111 merge preflight aaaa111111 with dev 4ab0363d27")
+    shell.gates["33001"] = ["#33001 CHECK aaaa111111 merge preflight aaaa111111 with dev 4ab0363d27\nstack-enqueue failed: git ls-remote origin returned no refs/heads/g/1\n"]
+    shell.queue["33001"] = "not queued"
+    landing_pass(shell, config)
+    [post] = [post for post in shell.posts if post_body(post).startswith("REFUSED ")]
+    assert post["kind"] == "report" and "drive-watchdog@d1" not in post["to"].split(",")
+    assert "origin has no branch g/1, so its stack check cannot run: push the branch under that name or retarget the PR" in post_body(post)
 
 def test_a_green_pr_under_a_queued_native_stack_top_settles_queued_never_unsettled(shell, config, tmp_path):
     """Oct 31 8:35 AM: #45785, #45791 and #46614 read GREEN under a stack top Trunk already held, the check printed no enqueue line, and they posted `unsettled: the stack worker's settle step` until they landed (root #257204)."""
@@ -11512,8 +11576,7 @@ def test_a_cut_order_with_no_cut_for_four_minutes_escalates_once_and_launches_th
     orca_pass(shell, config)
     orca_pass(shell, config)
     [line] = [line for line in escalations(shell) if line.startswith("CUT-SILENT")]
-    until = actions.stamp(shell.now() + timedelta(hours=2))
-    hand = f"tools/ci release claim sand/<env> --purpose incident --reason 'GO #{seq} cut by hand' --until {until} && tools/ci release start --manual sand --env <env> --commit 94d61b91951 --emergency"
+    hand = "tools/ci release start --manual sand --env <env> --commit 94d61b91951 --emergency"
     assert line.startswith(f"CUT-SILENT {WALKER} sand: no CUT or refusal 4 min after GO #{seq}; hand path: {hand} | manual-release-sand launching on opus xhigh, brief ")
     shell.sleep(60)
     orca_pass(shell, config)
