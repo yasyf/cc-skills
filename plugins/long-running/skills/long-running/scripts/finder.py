@@ -98,6 +98,7 @@ ROW_KEY = re.compile(r"^### (\S+) \|", re.MULTILINE)
 COUNTED = re.compile(r"\brows checked:\s*(\d+)")
 BIG_SLICE = 150
 BIG_SLICE_MODEL = "sol"
+OUTPUT_CAP = "max_output_tokens"
 REPLY_FILE = re.compile(r"^REPLY_FILE: (\S+)$", re.MULTILINE)
 MAJORS = frozenset({"blocker", "major"})
 LISTS = re.compile(r"\b(rows met|rows checked|n/a|pending|tests):")
@@ -270,7 +271,15 @@ def rulings(job: dict, verb: str, *argv: str) -> list[str]:
 
 
 def ask(shell: Shell, job: dict, directory: Path, question: Path, attempt: int) -> str:
-    out = shell.run(["codex-ask", "-m", job["model"], *(["--incident"] if job["fast"] else []), "--schema", "findings", "-s", str(directory / f"codex-{attempt}"), str(question)], cwd=Path(job["checkout"]), timeout=FINDER_SECONDS)
+    def asked(model: str, lane: str) -> str:
+        return shell.run(["codex-ask", "-m", model, *(["--incident"] if job["fast"] else []), "--schema", "findings", "-s", str(directory / lane), str(question)], cwd=Path(job["checkout"]), timeout=FINDER_SECONDS)
+
+    try:
+        out = asked(job["model"], f"codex-{attempt}")
+    except subprocess.CalledProcessError as error:
+        if job["model"] == BIG_SLICE_MODEL or OUTPUT_CAP not in f"{error.stdout or ''}{error.stderr or ''}":
+            raise
+        out = asked(BIG_SLICE_MODEL, f"codex-{attempt}-{BIG_SLICE_MODEL}")
     return Path(REPLY_FILE.search(out)[1]).read_text()
 
 

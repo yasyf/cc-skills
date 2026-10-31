@@ -95,8 +95,10 @@ class Fake:
             self.timeouts[argv[2]] = timeout
             return self.rows if argv[2] == "slice" else "/plans/durable/plan/plan.md\n"
         if argv[0] == "codex-ask":
+            if isinstance(answer := self.replies.pop(0), BaseException):
+                raise answer
             reply = self.tmp_path / f"reply-{len(self.calls)}.json"
-            reply.write_text(json.dumps(self.replies.pop(0)))
+            reply.write_text(json.dumps(answer))
             return f"REPLY_FILE: {reply}\nLOG_FILE: {reply}.log\nAWAIT: codex-ask --await {argv[argv.index('-s') + 1]}\n"
         if argv[:2] == ["cci", "post"]:
             assert "--force" not in argv
@@ -678,3 +680,19 @@ def test_every_command_a_pass_runs_logs_its_duration(capsys):
     lines = capsys.readouterr().err.splitlines()
     assert [line.split(" took ")[0] for line in lines] == [f"finder: {Path(sys.executable).name} -c import time; time.sleep(0.2)", "finder: false"]
     assert float(lines[0].split(" took ")[1].rstrip("s")) >= 0.2
+
+
+def test_a_reply_cut_off_at_the_models_output_cap_is_asked_once_more_on_sol(tmp_path):
+    """desk-runner #257303: luna ran out of output tokens on #46731 and the pass died; 35 passes had failed the same way."""
+    capped = subprocess.CalledProcessError(1, ["codex-ask"], output='{"type":"error","message":"Incomplete response returned, reason: max_output_tokens"}')
+    directory = job(tmp_path, model="luna")
+    shell = Fake(tmp_path, [capped, reply()])
+    finder.main([str(directory)], shell)
+    assert [(ask[2], ask[ask.index("-s") + 1]) for ask, _ in shell.asks()] == [("luna", str(directory / "codex-1")), ("sol", str(directory / "codex-1-sol"))]
+    assert len(shell.posted) == 1
+
+    other = job(tmp_path / "other", model="luna")
+    shell = Fake(tmp_path, [subprocess.CalledProcessError(1, ["codex-ask"], output="codex: rate limited")])
+    with pytest.raises(subprocess.CalledProcessError):
+        finder.main([str(other)], shell)
+    assert [ask[2] for ask, _ in shell.asks()] == ["luna"]
