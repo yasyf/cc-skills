@@ -8,7 +8,6 @@ from types import SimpleNamespace
 import pytest
 
 from long_running import actions
-from long_running.book import Book
 from long_running.build_cache import BuildCache
 from test_desk_runner import build_reads, config, landing_of, shell, with_ci_build
 
@@ -18,8 +17,7 @@ NOW = datetime(2026, 10, 30, 20, tzinfo=timezone.utc)
 
 @pytest.fixture
 def cache(tmp_path):
-    book = Book(actions.Store(tmp_path / "store"), SimpleNamespace(now=lambda: NOW))
-    return BuildCache(book, tmp_path / "runner.json", "landing")
+    return BuildCache(tmp_path / "runner.json", SimpleNamespace(now=lambda: NOW), "landing")
 
 
 def passed(finished=NOW):
@@ -34,10 +32,10 @@ def test_exact_url_and_configuration_survive_new_reader(cache, tmp_path):
     url = "https://buildkite.com/forge/test/builds/1"
     build = passed()
     cache.put({url: build}, NOW - timedelta(days=3))
-    resumed = BuildCache(cache.book, tmp_path / "runner.json", "landing")
+    resumed = BuildCache(tmp_path / "runner.json", cache.book.shell, "landing")
     assert resumed.get(url) == lean(build)
     assert resumed.get(url.upper()) is None
-    assert BuildCache(cache.book, tmp_path / "other.json", "landing").get(url) is None
+    assert BuildCache(tmp_path / "other.json", cache.book.shell, "landing").get(url) is None
 
 
 def test_only_finished_passed_builds_persist(cache):
@@ -59,10 +57,43 @@ def test_expiry_keeps_exact_boundary_and_empty_pass_does_not_prune(cache):
 
 
 def test_sibling_writers_preserve_distinct_builds(cache, tmp_path):
-    sibling = BuildCache(cache.book, tmp_path / "runner.json", "landing")
+    sibling = BuildCache(tmp_path / "runner.json", cache.book.shell, "landing")
     with ThreadPoolExecutor(2) as pool:
         list(pool.map(lambda pair: pair[0].put({pair[1]: passed()}, NOW - timedelta(days=3)), [(cache, "one"), (sibling, "two")]))
     assert cache.get("one") == cache.get("two") == lean(passed())
+
+
+def test_config_suffix_aliases_share_the_exact_legacy_cache_owner(cache, tmp_path):
+    alias = BuildCache(tmp_path / "runner.conf", cache.book.shell, "landing")
+    cache.put({"same-url": passed()}, NOW - timedelta(days=3))
+    assert alias.get("same-url") == lean(passed())
+    assert alias.book.store.path(alias.container) == cache.book.store.path(cache.container)
+    assert alias.book.store.root == tmp_path / "runner.landing-builds.store"
+
+
+def test_preimported_cache_is_shared_across_config_suffixes_and_runner_stores(shell, config, tmp_path):
+    with_ci_build(config)
+    alias = config.with_suffix(".conf")
+    alias.write_text(config.read_text())
+    number = "99999999"
+    url = f"https://buildkite.com/forge/test/builds/{number}"
+    stored = passed(shell.now())
+    imported = BuildCache(config, shell, runner_module.LANDING)
+    imported.put({url: stored}, shell.now() - timedelta(days=3))
+    landings = []
+    try:
+        for source, root in [(config, tmp_path / "first-store"), (alias, tmp_path / "second-store")]:
+            runner = runner_module.Runner(shell, runner_module.Config.load(source), actions.Store(root))
+            runner_module.seed_policy(runner)
+            landing = runner_module.Landing(runner, runner.config.landing)
+            landings.append(landing)
+            assert landing.build(url) == lean(stored)
+            assert landing.build_cache.book.store.path(imported.container) == imported.book.store.path(imported.container)
+        assert landings[0].book.store.root != landings[1].book.store.root
+        assert build_reads(shell, number) == []
+    finally:
+        for landing in landings:
+            landing.close()
 
 
 def test_indexed_expiry_does_not_select_another_subtree(cache):

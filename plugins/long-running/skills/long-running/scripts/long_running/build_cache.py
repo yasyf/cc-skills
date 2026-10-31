@@ -1,9 +1,8 @@
-import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 
 from . import actions
-from .book import Book
+from .book import Book, Clock
 
 
 _JOB_FIELDS = ("type", "name", "step_key", "state", "soft_failed")
@@ -16,9 +15,11 @@ def _ordered_time(value: datetime) -> str:
 class BuildCache:
     """Passed build summaries indexed by their exact URL within one runner configuration."""
 
-    def __init__(self, book: Book, config: Path, owner: str):
-        self.book = book
-        self.container = "build-cache-" + hashlib.sha256(str(config.absolute()).encode()).hexdigest()
+    def __init__(self, config: Path, clock: Clock, owner: str):
+        config = config.resolve()
+        legacy = config.with_name(f"{config.stem}.landing-builds.json")
+        self.book = Book(actions.Store(legacy.with_suffix(".store")), clock)
+        self.container = "passed-builds"
         self.book.ensure(self.container, owner)
 
     def get(self, url: str) -> dict | None:

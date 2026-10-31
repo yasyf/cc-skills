@@ -5356,7 +5356,7 @@ class Landing:
         self.ledger_rows: dict[str, dict] = {}
         self.builds_read: dict[str, tuple[datetime, list[tuple[str, str, bool | None]]]] = {}
         self.targets: dict[str, tuple[datetime, list[tuple[str, str]]]] = {}
-        self.build_cache = BuildCache(self.book, runner.config.source, LANDING)
+        self.build_cache = BuildCache(runner.config.source, self.shell, LANDING)
         self.building = threading.Lock()
         self.builds: dict[str, dict] = {}
         self.cached_builds_read: set[str] = set()
