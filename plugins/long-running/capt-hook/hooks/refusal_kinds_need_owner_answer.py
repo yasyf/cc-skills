@@ -3,20 +3,24 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import sys
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
 from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, Tool, Warn, on
+from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState, drive_entry, script_module
+from .compaction_handoff import CompactionState, drive_entry, judged, rulings, script, script_module
 from .lane_landing import DRIVE_ENV, LANDERS, lane_name, named_repo, without_repo
+from .register_injection import drive_args
+from .ruling_misread import CLAUDE, FLAGGED, MATCH, MATCHED, answer, candidate_rows
+from .tests.register_fixtures import register
 from .tests.refusal_fixtures import (
     CARD_TERMS,
     CARD_TERMS_KIND,
     CITED,
     DESK_RUNNER_ON_BASE,
-    DIGIT_ID_BODY,
     DURATION_FIELDS,
     E2E_AND_HARNESS,
     FAILS_OPEN,
@@ -38,10 +42,10 @@ from .tests.refusal_fixtures import (
     TEST_ONLY,
     TREE,
     UNCITED,
-    UNNAMED,
     UPLOAD_BUDGET,
     sources,
 )
+from .tests.rulings_consumers import separate
 
 ACTIVE = [CompactionState(active=True)]
 LANE = "alane-a-0123456789abcdef"
@@ -86,13 +90,23 @@ BUDGET = re.compile(
     re.IGNORECASE,
 )
 ASSIGNED = re.compile(r"""^\s*(?:(?:const|var|let|export|final)\s+)*["']?(?P<name>[A-Za-z_]\w+)["']?\s*(?::[^=\n]*)?(?::=|=|:)(?!=)""")
-RULINGS = re.compile(r"^##\s+Rulings\b.*?(?=^##\s|\Z)", re.MULTILINE | re.DOTALL)
 DECLARING = frozenset(":,]}")
-ANSWER_ID = re.compile(r"\b(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b")
-UNNAMED_KINDS = (
-    "Warning, nothing was blocked: this PR seems to add a refusal kind, quarantine kind, budget, retry, or clock that no `## Rulings` line"
-    " beside an owner answer id names. If one is real, name it there beside the answer that covers it, or post `cci post --kind ask --to root`."
+PLAN_LINES = 12
+PLAN_LINE_CHARS = 300
+NO_RULINGS = "No ruling of his was found that bears on this pull request."
+PLAN_SAID = "The plan's lines that name these mechanisms, verbatim:"
+MECHANISM_WARNING = (
+    "Warning, nothing was blocked: a judge reads this PR as adding a refusal, retry, timer or wait that neither the owner's words nor the plan name."
+    " Remove it, or bring him the case for it with `cci post --kind ask --to root`."
 )
+BODY_WARNING = (
+    "Warning, nothing was blocked: a judge reads this PR's body as leaving out a fix the diff puts off and why, or what the diff builds for the owner in words he follows."
+    " Say both in the body."
+)
+CARRIED = {**FLAGGED, "verdict": "no", "artifact_phrase": "", "evidence_phrase": "", "sentence": "It is named."}
+ROWS = f"{sys.executable} {script('rulings.py')} rows --drive 900424b6"
+PLAN = f"{sys.executable} {script('rulings.py')} plan --drive 900424b6"
+JUDGED = {ROWS: register("quiet"), MATCH: MATCHED, PLAN: "", CLAUDE: answer(FLAGGED)}
 
 
 @dataclass(frozen=True)
@@ -274,10 +288,7 @@ def diff_text(req: Request, base: str) -> str | None:
     return read(["git", "diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "--unified=0", *span], req.cwd) or ""
 
 
-def new_findings(req: Request, view: dict) -> list[Finding]:
-    base = base_ref(req, view)
-    if (diff := diff_text(req, base)) is None:
-        return []
+def new_findings(req: Request, diff: str, base: str) -> list[Finding]:
     root = toplevel(req)
     lines = [*added(diff), *(untracked(req.cwd, root) if root else ())]
     kept = {(path, finding.name) for path, text in removed(diff) for finding in classify(path, 0, text)}
@@ -339,42 +350,86 @@ def evidence(findings: list[Finding]) -> str:
     return "\n".join(["```", *shown, *more, "```"])
 
 
-def verdict(evt: BaseHookEvent, req: Request) -> HookResult | None:
+def owner_evidence(evt: BaseHookEvent, drive: list[str], text: str) -> str:
+    judge, env = script_module("long_running/judge"), reqenv.env_map()
+    state, rows = candidate_rows(evt, drive, text)
+    return "\n\n".join(judge.owner_words(key, judge.said(row, state, env)) for key, row in rows.items()) or NO_RULINGS
+
+
+def plan_lines(evt: BaseHookEvent, drive: list[str], findings: list[Finding]) -> list[str]:
+    found = rulings(str(evt.cwd), "plan", *drive, evt=evt).strip()
+    if not found or not (plan := Path(found)).is_file():
+        return []
+    names = {finding.name for finding in findings} | {Path(finding.path).name for finding in findings}
+    lines = enumerate(plan.read_text(errors="replace").splitlines(), start=1)
+    return [f"{number}: {line.strip()[:PLAN_LINE_CHARS]}" for number, line in lines if any(mentions(line, name) for name in names)][:PLAN_LINES]
+
+
+def changed_files(diff: str) -> str:
+    counts: dict[str, list[int]] = {}
+    path = ""
+    for raw in diff.splitlines():
+        if raw.startswith("+++ "):
+            path = raw[4:].removeprefix("b/")
+            counts.setdefault(path, [0, 0])
+        elif path and raw.startswith(("+", "-")) and not raw.startswith("--- "):
+            counts[path][raw.startswith("-")] += 1
+    return "\n".join(f"{name} +{added} -{gone}" for name, (added, gone) in counts.items())
+
+
+def read_pr(req: Request) -> tuple[str, str, str] | None:
     view = pr_view(req) if req.edit is None and (req.base is None or not (req.bodies or req.texts)) else {}
     if view is None and not (req.bodies or req.texts):
         return None
-    view = view or {}
-    findings = new_findings(req, view)
-    if not findings or (body := body_text(req, view)) is None:
+    base = base_ref(req, view or {})
+    if (diff := diff_text(req, base)) is None or (body := body_text(req, view or {})) is None:
         return None
-    rulings = found.group(0) if (found := RULINGS.search(body)) else ""
-    cited = [line for line in rulings.splitlines() if ANSWER_ID.search(line)]
-    unnamed = [finding for finding in findings if not any(mentions(line, finding.name) for line in cited)]
-    return evt.context(f"{UNNAMED_KINDS}\n\n{evidence(unnamed)}") if unnamed else None
+    return diff, base, body
 
 
-def ship(command: str, **extra: object) -> Input:
-    return Input(**({"command": command, "agent_id": LANE, "state": ACTIVE, "env": DRIVE_ENV, "cwd": str(TREE)} | extra))
+def mechanisms_named(evt: BaseHookEvent, req: Request) -> HookResult | None:
+    if not (drive := drive_args(evt)) or not (read := read_pr(req)) or not (findings := new_findings(req, *read[:2])):
+        return None
+    body, shown = read[2], "\n".join(finding.render() for finding in findings[:SHOWN])
+    plan = plan_lines(evt, drive, findings)
+    said = owner_evidence(evt, drive, f"{shown}\n{body}") + (f"\n\n{PLAN_SAID}\n" + "\n".join(plan) if plan else "")
+    if not (found := judged("mechanism", said, f"The lines it adds:\n{shown}\n\nIts body:\n{body}", drive[1])):
+        return None
+    return evt.context("\n".join([MECHANISM_WARNING, found, evidence(findings)]))
+
+
+def body_names_what_it_defers(evt: BaseHookEvent, req: Request) -> HookResult | None:
+    if not (req.bodies or req.texts) or not (drive := drive_args(evt)) or not (read := read_pr(req)):
+        return None
+    diff, base, body = read
+    findings = new_findings(req, diff, base)
+    stand_ins = "\n\nLines it adds that may stand in for a fix:\n" + "\n".join(finding.render() for finding in findings[:SHOWN]) if findings else ""
+    said = f"{owner_evidence(evt, drive, body)}\n\nWhat the diff changes:\n{changed_files(diff)}{stand_ins}"
+    found = judged("pr-body", said, body, drive[1])
+    return evt.context("\n".join([BODY_WARNING, found])) if found else None
+
+
+def ship(command: str, verdict: dict = FLAGGED, **extra: object) -> Input:
+    commands = JUDGED | {CLAUDE: answer(verdict)} | extra.pop("commands", {})
+    return Input(**({"command": command, "agent_id": LANE, "state": ACTIVE, "env": DRIVE_ENV, "cwd": str(TREE), "commands": commands} | extra))
 
 
 @on(
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     max_fires=1,
-    tests={
+    tests=separate("refusal_kinds_need_owner_answer.refusal_kinds_need_owner_answer", {
         ship(f"ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Warn(
-            pattern=r"^Warning, nothing was blocked: this PR seems to add a refusal kind[\s\S]*desk-runner\.py:369 refusal kind LAUNCH-STALLED[\s\S]*STALL_SECONDS"
+            pattern=r"^Warning, nothing was blocked: a judge reads this PR as adding a refusal, retry, timer or wait[\s\S]*Artifact: \"per destination and key\""
+            r"[\s\S]*desk-runner\.py:369 refusal kind LAUNCH-STALLED[\s\S]*STALL_SECONDS"
         ),
-        ship(f"ccx vcs ship --pr-body-file {CITED}", commands=sources(LAUNCH_STALLED)): Allow(),
-        ship(f"ccx vcs ship --pr-body-file p1-hooks/stall={CITED}", commands=sources(LAUNCH_STALLED)): Allow(),
-        ship(f"gh pr edit 1 --body-file - < {CITED}", commands=sources(LAUNCH_STALLED)): Allow(),
-        ship(f"gh pr edit 1 --body-file - < {UNCITED}", commands=sources(LAUNCH_STALLED)): Warn(pattern=r"LAUNCH-STALLED"),
-        ship(HEREDOC_BODY, commands=sources(LAUNCH_STALLED)): Allow(),
-        ship(DIGIT_ID_BODY, commands=sources(LAUNCH_STALLED)): Allow(),
-        ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(UPLOAD_BUDGET)): Warn(
+        ship(f"ccx vcs ship --pr-body-file {CITED}", CARRIED, commands=sources(LAUNCH_STALLED)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file p1-hooks/stall={CITED}", commands=sources(LAUNCH_STALLED)): Warn(pattern=r"LAUNCH-STALLED"),
+        ship(f"gh pr edit 1 --body-file - < {CITED}", commands=sources(LAUNCH_STALLED)): Warn(pattern=r"LAUNCH-STALLED"),
+        ship(HEREDOC_BODY, commands=sources(LAUNCH_STALLED)): Warn(pattern=r"LAUNCH-STALLED"),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(UPLOAD_BUDGET)): Warn(
             pattern=r"upload\.go:41 clock uploadBudget[\s\S]*upload\.go:44 clock ticker"
         ),
-        ship(f"ccx vcs ship --pr-body-file {UNNAMED}", commands=sources(LAUNCH_STALLED)): Warn(pattern=r"LAUNCH-STALLED"),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(SENTINEL_ONLY)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(RETIRE_AND_RECONVERT)): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(NEW_SENTINEL)): Warn(pattern=r"view\.go:4 refusal kind errReadOnly"),
@@ -409,14 +464,34 @@ def ship(command: str, **extra: object) -> Input:
         ship(f"gh pr edit 101 -R acme/service --body-file {UNCITED}", commands=sources(NEW_SENTINEL)): Warn(),
         ship("gh pr edit 101 --add-label docs", commands=sources(NEW_SENTINEL)): Allow(),
         ship(f"git diff && echo {UNCITED}", commands=sources(LAUNCH_STALLED)): Allow(),
-        Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", env={"CLAUDE_LONG_RUNNING_LANE": "p1-hooks"}, commands=sources(LAUNCH_STALLED)): Warn(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED) | {CLAUDE: (1, "model unavailable")}): Allow(),
         ship(f"ccx vcs ship --pr-body-file {UNCITED}", agent_id="a1b2c3d4e5f60718", transcript=HELPER_TRANSCRIPT, state=[], commands=sources(LAUNCH_STALLED)): Warn(
             pattern=r"LAUNCH-STALLED"
         ),
-        Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", agent_id="a1b2c3d4e5f60718", transcript=HELPER_TRANSCRIPT, commands=sources(LAUNCH_STALLED)): Allow(),
-        Input(command=f"ccx vcs ship --pr-body-file {UNNAMED}", env=NO_DRIVE, commands=sources(LAUNCH_STALLED)): Warn(),
-        Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", agent_id="alanding-desk-0123456789abcdef", state=ACTIVE, commands=sources(LAUNCH_STALLED)): Allow(),
-    },
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", agent_id="alanding-desk-0123456789abcdef", commands=sources(LAUNCH_STALLED)): Allow(),
+        Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", env=NO_DRIVE, commands=sources(LAUNCH_STALLED)): Allow(),
+    }),
 )
 def refusal_kinds_need_owner_answer(evt: BaseHookEvent) -> HookResult | None:
-    return next((result for req in lane_prs(evt) if (result := verdict(evt, req)) is not None), None)
+    return next((result for req in lane_prs(evt) if (result := mechanisms_named(evt, req)) is not None), None)
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash")],
+    max_fires=1,
+    tests=separate("refusal_kinds_need_owner_answer.pr_bodies_name_what_they_defer", {
+        ship(f"ccx vcs ship -m 'long-running: page a stalled launch' --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED)): Warn(
+            pattern=r"^Warning, nothing was blocked: a judge reads this PR's body as leaving out a fix[\s\S]*Artifact: \"per destination and key\""
+        ),
+        ship(f"ccx vcs ship --pr-body-file {CITED}", CARRIED, commands=sources(LAUNCH_STALLED)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(TEST_ONLY)): Warn(pattern=r"body as leaving out a fix"),
+        ship("ccx vcs ship -m 'long-running: page a stalled launch'", commands=sources(LAUNCH_STALLED, pr='{"baseRefName": "main", "body": ""}')): Allow(),
+        ship(f"gh pr edit 1 --body-file - < {CITED}", commands=sources(LAUNCH_STALLED)): Warn(pattern=r"body as leaving out a fix"),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}.missing", commands=sources(LAUNCH_STALLED)): Allow(),
+        ship(f"ccx vcs ship --pr-body-file {UNCITED}", commands=sources(LAUNCH_STALLED) | {CLAUDE: (1, "model unavailable")}): Allow(),
+        Input(command=f"ccx vcs ship --pr-body-file {UNCITED}", env=NO_DRIVE, commands=sources(LAUNCH_STALLED)): Allow(),
+    }),
+)
+def pr_bodies_name_what_they_defer(evt: BaseHookEvent) -> HookResult | None:
+    return next((result for req in lane_prs(evt) if (result := body_names_what_it_defers(evt, req)) is not None), None)

@@ -14,7 +14,7 @@ from captain_hook import Allow, Annotated, BaseHookEvent, Event, FromSubagent, H
 from cc_transcript import UserEvent
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CompactionState, drive_entry, failure_of, post_blocker, register_context, register_of, rulings, script, script_module
+from .compaction_handoff import CompactionState, drive_entry, failure_of, judged, post_blocker, register_context, register_of, rulings, script, script_module
 from .nudges import once_per_hour
 from .session_tree import Subagent, drive_lane
 from .tests.register_fixtures import DRIVE_CONFIG
@@ -33,6 +33,7 @@ ROOT_THREAD = "root"
 INCIDENT_NAME = re.compile(r"^(?:incident|outage)-")
 INCIDENT_BRIEF = re.compile(r"\b(?:incident|outage)\b", re.IGNORECASE)
 SLICE_HEADER = re.compile(r"^Register slice: lane=(\S+) step=\S+", re.MULTILINE)
+SCALE_LINES = re.compile(r"^[ \t>*_-]*Scale:.*$", re.MULTILINE)
 INCIDENT_SLICE = "Register slice: lane={lane} step=incident"
 BRIEF_FILE = re.compile(r"(?<![\w.~/-])[~/][\w./~-]*\.md\b")
 LANE_FLAGS = ("--lane", "-l")
@@ -43,6 +44,11 @@ NO_SLICE = (
     " Add one and run `rulings.py slice --refresh {brief}` for the next spawn."
 )
 STALE_SLICE = "Warning, nothing was blocked: this spawn's register slice is stale or empty. Run `rulings.py slice --refresh {brief}` for the next spawn."
+MISSCALED = "Warning, nothing was blocked: a judge reads the `Scale:` line of {brief} as missing the N its paths run at. Fix the line for the next spawn."
+MISSCALED_STALE = (
+    "Warning, nothing was blocked: a judge reads the `Scale:` line of {brief} as missing the N its paths run at, and its register slice is stale or empty."
+    " Fix the line and run `rulings.py slice --refresh` on the brief for the next spawn."
+)
 INCIDENT_NOTE = "The incident spawn's prompt now carries its register slice and the unclassified owner captures."
 BRIEFS = Path(__file__).parent / "tests" / "fixtures" / "briefs"
 SLICE = f"{sys.executable} {script('rulings.py')} slice"
@@ -50,6 +56,8 @@ FRESH_SLICE = {SLICE: "fresh /tmp/brief.md slice-hash 0123456789ab\n"}
 STALE = {SLICE: "refreshed /tmp/brief.md slice-hash 0123456789ab -> 89abcdef0123\n"}
 SLICED = "Lane lane-a: build the relay.\nScale: chats on one Mac, up to 1,000.\nRegister slice: lane=lane-a step=1.9\nslice-hash: 0123456789ab\n"
 UNSCALED = SLICED.replace("Scale: chats on one Mac, up to 1,000.\n", "")
+SCALED = {"verdict": "no", "artifact_phrase": "", "evidence_phrase": "", "sentence": "It names the N."}
+MISSED = {"verdict": "yes", "artifact_phrase": "chats on one Mac", "evidence_phrase": "every team's relay", "sentence": "The relay runs once per team, not per chat on one Mac."}
 REGISTER = {"id": "c" * 40, "body": "# Register\n\n1. Pulumi state is the only truth.\n"}
 FOUND = {f"{sys.executable} {script('rulings.py')} register": json.dumps(REGISTER)}
 NONE_FOUND = {f"{sys.executable} {script('rulings.py')} register": "null"}
@@ -128,6 +136,13 @@ def why(failed: BaseException) -> str:
     return failure_of(failed) if isinstance(failed, (subprocess.CalledProcessError, subprocess.TimeoutExpired)) else str(failed)
 
 
+def misscaled(which: list[str], spawn: Spawn) -> str | None:
+    if not (lines := SCALE_LINES.findall(spawn.text)):
+        return None
+    brief = SLICE_HEADER.split(spawn.text, maxsplit=1)[0].strip()
+    return judged("scale", f"The brief, verbatim:\n{brief}", "\n".join(line.strip() for line in lines), which[1])
+
+
 def refreshed(evt: BaseHookEvent, which: list[str], spawn: Spawn) -> tuple[str, str]:
     text = spawn.text if SLICE_HEADER.search(spawn.text) else f"{spawn.text.rstrip()}\n\n{INCIDENT_SLICE.format(lane=spawn.lane)}\n"
     with tempfile.TemporaryDirectory() as staging:
@@ -137,19 +152,32 @@ def refreshed(evt: BaseHookEvent, which: list[str], spawn: Spawn) -> tuple[str, 
         return said, copy.read_text()
 
 
-def spawn(name: str, prompt: str, agent_type: str = "long-running:lane", **extra: object) -> Input:
-    return Input(tool="Agent", tool_input={"name": name, "prompt": prompt, "subagent_type": agent_type}, **({"state": [ACTIVE], "env": DRIVE_CONFIG} | extra))
+def spawn(name: str, prompt: str, agent_type: str = "long-running:lane", scale: dict = SCALED, **extra: object) -> Input:
+    commands = {"claude -p": judge_answer(scale)} | extra.pop("commands", {})
+    return Input(tool="Agent", tool_input={"name": name, "prompt": prompt, "subagent_type": agent_type}, **({"state": [ACTIVE], "env": DRIVE_CONFIG, "commands": commands} | extra))
+
+
+def judge_answer(verdict: dict) -> str:
+    return json.dumps({"structured_output": verdict, "total_cost_usd": 0.01, "usage": {"input_tokens": 1000, "output_tokens": 50}})
 
 
 @on(
     Event.PreToolUse,
     only_if=[Tool("Agent", "Bash")],
     skip_if=[Annotated("raw")],
-    tests=separate('register_injection.slice_on_spawn', {
+    tests=separate("register_injection.slice_on_spawn", {
         spawn("lane-a", "Lane lane-a: build the relay."): Warn(pattern=r"has no `Register slice: lane=<name> step=<n>` line"),
         spawn("lane-a", SLICED, commands=FRESH_SLICE): Allow(),
         spawn("lane-a", UNSCALED, commands=FRESH_SLICE): Allow(),
         spawn("lane-a", SLICED, commands=STALE): Warn(pattern=r"stale or empty\. Run `rulings\.py slice --refresh <brief>`"),
+        spawn("lane-a", SLICED, scale=MISSED, commands=FRESH_SLICE): Warn(
+            pattern=r"^Warning, nothing was blocked: a judge reads the `Scale:` line of <brief> as missing the N[\s\S]*once per team"
+        ),
+        spawn("lane-a", SLICED, scale=MISSED, commands=FRESH_SLICE | {"claude -p": (1, "model unavailable")}): Allow(),
+        spawn("lane-a", SLICED, scale=MISSED, commands=STALE): Warn(pattern=r"as missing the N its paths run at, and its register slice is stale or empty[\s\S]*once per team"),
+        Input(command=f"orca-launch.sh lane-a sol xhigh {BRIEFS / 'sliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG, commands=FRESH_SLICE | {"claude -p": judge_answer(MISSED)}): Warn(
+            pattern=r"sliced\.md as missing the N"
+        ),
         spawn("lane-a", f"Your brief is {BRIEFS / 'sliced.md'}; read it.", commands=FRESH_SLICE): Allow(),
         spawn("lane-a", f"Your brief is {BRIEFS / 'unsliced.md'}; read it."): Warn(pattern=r"--refresh \S*unsliced\.md"),
         spawn("lane-a", "Find every caller of drain.", agent_type="Explore"): Allow(),
@@ -160,7 +188,7 @@ def spawn(name: str, prompt: str, agent_type: str = "long-running:lane", **extra
         spawn("lane-a-sub", "Lane lane-a-sub: build the relay's tests.", state=[], env={DRIVE_ENV: "brook-drive"}): Warn(pattern=r"has no `Register slice:"),
         Input(tool="Agent", tool_input={"name": "lane-a", "prompt": "Lane lane-a: build the relay."}): Allow(),
         Input(command=f"orca-launch.sh lane-a sol xhigh {BRIEFS / 'unsliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG): Warn(pattern=r"unsliced\.md"),
-        Input(command=f"orca-launch.sh lane-a sol xhigh {BRIEFS / 'sliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG, commands=FRESH_SLICE): Allow(),
+        Input(command=f"orca-launch.sh lane-a sol xhigh {BRIEFS / 'sliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG, commands=FRESH_SLICE | {"claude -p": judge_answer(SCALED)}): Allow(),
         Input(command=f"orca-launch.sh lane-a-sub sol xhigh {BRIEFS / 'unsliced.md'}", agent_id="a1b2c3", state=[ACTIVE], env=DRIVE_CONFIG): Warn(pattern=r"unsliced\.md"),
         Input(command=f"orca-launch.sh lane-a-sub sol xhigh {BRIEFS / 'unsliced.md'}", env={DRIVE_ENV: "brook-drive"}): Warn(pattern=r"unsliced\.md"),
         Input(command=f"codex-ask --dispatch --lane lane-a {BRIEFS / 'unsliced.md'}", state=[ACTIVE], env=DRIVE_CONFIG): Warn(pattern=r"unsliced\.md"),
@@ -190,7 +218,10 @@ def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
         post_blocker(evt, f"slice_on_spawn: the register slice for {found.lane} did not read: {why(failed)}", key=f"slice-on-spawn:{found.lane}")
         return None
     if not found.incident:
-        return None if said.startswith(FRESH) or not once_per_hour(evt, [STALE_SLICE]) else evt.context(STALE_SLICE.format(brief=found.shown))
+        stale = not said.startswith(FRESH) and once_per_hour(evt, [STALE_SLICE])
+        if judged_scale := misscaled(which, found):
+            return evt.context(f"{(MISSCALED_STALE if stale else MISSCALED).format(brief=found.shown)}\n{judged_scale}")
+        return evt.context(STALE_SLICE.format(brief=found.shown)) if stale else None
     return evt.rewrite(evt._tool_input | {"prompt": fresh}, note=INCIDENT_NOTE) if found.inline else None
 
 
@@ -198,7 +229,7 @@ def slice_on_spawn(evt: BaseHookEvent) -> HookResult | None:
     Event.PreToolUse,
     only_if=[Tool("Agent", "Bash")],
     skip_if=[Annotated("raw")],
-    tests=separate('register_injection.warn_unscaled_spawn', {
+    tests=separate("register_injection.warn_unscaled_spawn", {
         spawn("lane-a", UNSCALED): Warn(pattern=r"^Warning, nothing was blocked: brief <brief> has no `Scale:` line; add one line to it: `Scale: no N`"),
         spawn("lane-a", SLICED): Allow(),
         spawn("lane-a-handoff", UNSCALED): Allow(),
@@ -225,7 +256,7 @@ def warn_unscaled_spawn(evt: BaseHookEvent) -> HookResult | None:
     Event.PreToolUse,
     only_if=[Tool("Agent")],
     skip_if=[Annotated("raw")],
-    tests=separate('register_injection.record_spawn', {
+    tests=separate("register_injection.record_spawn", {
         spawn("lane-a", SLICED, commands={SPAWNED: ""}): Allow(),
         spawn("lane-a", "Lane lane-a: build the relay.", agent_type="general-purpose"): Allow(),
         spawn("lane-a", UNSCALED, commands={SPAWNED: ""}): Allow(),
@@ -282,7 +313,7 @@ ORCA_LANE = {DRIVE_ENV: "brook-drive", LANE_ENV: "lane-a"}
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     skip_if=[Annotated("raw")],
-    tests=separate('register_injection.register_lane_at_first_command', {
+    tests=separate("register_injection.register_lane_at_first_command", {
         Input(command="git status", env=ORCA_LANE): Rewrite("cci post --lane lane-a --kind state --stamp 'lane-a: registered at its first command' >/dev/null\ngit status"),
         Input(command="cci post --lane lane-a --kind state 'lane-a: started'", env=ORCA_LANE): Allow(),
         Input(command="git status", env=ORCA_LANE, state=[LaneRegistrations(threads=[ROOT_THREAD])]): Allow(),
@@ -312,7 +343,7 @@ def register_lane_at_first_command(evt: BaseHookEvent) -> HookResult | None:
 @on(
     Event.PostToolUse,
     only_if=[Tool("Bash")],
-    tests=separate('register_injection.settle_lane_registration', {
+    tests=separate("register_injection.settle_lane_registration", {
         Input(command=f"{registration('lane-a')}\ngit status", env=ORCA_LANE, state=[LaneRegistrations(pending={ROOT_THREAD: "lane-a"})]): Allow(),
         Input(command="git status", env=ORCA_LANE): Allow(),
     }),
@@ -329,7 +360,7 @@ def settle_lane_registration(evt: BaseHookEvent) -> HookResult | None:
 @on(
     Event.SubagentStart,
     skip_planning_agents=False,
-    tests=separate('register_injection.brief_subagent', {
+    tests=separate("register_injection.brief_subagent", {
         Input(agent_type="general-purpose", agent_id="a1b2c3", commands=FOUND, env=DRIVE_CONFIG, state=[ACTIVE]): Warn(
             pattern=r"^Standing rules register `ccccccc`, verbatim; it binds this session and every lane brief, and outranks any summary\.\n"
             r"~{12}\n# Register\n\n1\. Pulumi state is the only truth\.\n~{12}$"
@@ -352,7 +383,7 @@ def brief_subagent(evt: BaseHookEvent) -> HookResult | None:
 @on(
     Event.SessionStart,
     skip_if=[FromSubagent()],
-    tests=separate('register_injection.brief_drive_worker', {
+    tests=separate("register_injection.brief_drive_worker", {
         Input(source="startup", env={DRIVE_ENV: "900424b6"}, commands=FOUND): Warn(pattern=r"^Standing rules register `ccccccc`"),
         Input(source="startup", env={DRIVE_ENV: "900424b6"}, commands=NONE_FOUND): Allow(),
         Input(source="startup"): Allow(),

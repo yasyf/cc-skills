@@ -18,12 +18,13 @@ Above that limit, the hook names it with `ccn doc show <id7>`.
 Read it in full before acting. Codex workers have no hooks, so their briefs paste
 the register body verbatim. A brief carries the register, never full-answer quotes.
 
-At key moments, `ruling_judge.py` searches the five nearest durable answers among this
+At key moments, `ruling_judge.py` searches the two nearest durable answers among this
 drive's: those labelled `program:<slug>` and those anchored to the current branch.
 It excludes answers the register already cites and answers already injected into the lane.
 With no candidate left, it makes no model call.
-Otherwise a small model selects the one answer the action clearly bears on or would violate,
-or none. The hook injects only that answer, verbatim, once per lane per answer.
+Otherwise the drive's judge asks of each whether the action makes the decision that answer
+settled without carrying all of it. The hook injects the first answer it flags, verbatim,
+with the judge's sentence, once per lane per answer.
 
 This covers inbox decisions, pull requests, plan edits, and lane spawns
 in Claude drive sessions. Slack writes are out: each one already carries the owner's approval. The full durable-answer corpus is for retrieval only.

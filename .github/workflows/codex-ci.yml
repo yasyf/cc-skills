@@ -3,6 +3,7 @@ name: codex CI
 on:
   push:
     branches: [main]
+    tags: ["v*", "repo-bootstrap--v*"]
     paths:
       - ".github/workflows/codex-ci.yml"
       - ".goreleaser.yaml"

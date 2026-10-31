@@ -26,7 +26,7 @@ from test_rulings import REPO, RegisterShell, home, registered, state
 
 HOOKS = Path(handoff.__file__).parent
 CALLERS = (
-    "board_text_gate", "narrowed_contracts", "owner_facing", "register_capture",
+    "board_text_gate", "refusal_kinds_need_owner_answer", "owner_facing", "register_capture",
     "register_gates", "register_injection", "ruling_judge", "settled_questions", "ruling_misread",
 )
 
@@ -65,7 +65,7 @@ def test_all_current_hook_call_expressions_reach_real_dispatch_without_a_python_
         "register_of": lambda cwd, *args, **kwargs: (cwd, ("register", *args), kwargs),
         "evt": evt, "reads": reads, "self": reads, "which": which,
         "flags": [] if module == "board_text_gate" else which,
-        "drive": which if module in {"narrowed_contracts", "ruling_misread"} else "brook-drive",
+        "drive": which if module in {"refusal_kinds_need_owner_answer", "ruling_misread"} else "brook-drive",
         "seq": "8", "text": "owner words", "key": "owner words",
         "lane": "lane-a", "copy": brief, "worker": "brook-drive",
         "CANDIDATES": 3, "CANDIDATE_BYTES": 1024, "excluded": [],
@@ -178,31 +178,6 @@ def wait_for_query(path: Path):
     return int(value)
 
 
-def test_removed_python_intermediary_loses_its_sqlite_child_on_owner_exit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    register_drive(tmp_path, monkeypatch, checkout=str(tmp_path))
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / ".claude"))
-    query, database = owned_query(tmp_path, monkeypatch)
-    pid_path = tmp_path / "query.pid"
-    argv = [sys.executable, str(handoff.script("rulings.py")), "register", "--drive", "b7", "--repo", str(tmp_path)]
-    with sqlite3.connect(database) as writer:
-        writer.execute("BEGIN IMMEDIATE")
-        with subprocess.Popen(argv, cwd=tmp_path, env=handoff.deadline_env(20), stdout=subprocess.PIPE, stderr=subprocess.PIPE) as helper:
-            try:
-                pid = wait_for_query(pid_path)
-                identity = subprocess.run(["ps", "-ww", "-p", str(helper.pid), "-o", "pid=,ppid=,pgid=,tty=,lstart=,command="], capture_output=True, text=True, check=True).stdout.strip()
-                fields = identity.split(None, 9)
-                assert int(fields[0]) == helper.pid and int(fields[1]) == os.getpid()
-                assert int(fields[2]) == os.getpgrp() and fields[3]
-                assert len(fields) == 10 and " ".join(fields[4:9])
-                assert str(handoff.script("rulings.py")) in fields[9] and str(tmp_path) in fields[9]
-                assert helper.poll() is None
-                print(f"owned historical intermediary identity: {identity}")
-                helper.terminate()
-                helper.communicate(timeout=5)
-                assert alive(pid), "the fixture did not expose the removed intermediary's orphaning failure"
-            finally:
-                if pid_path.exists():
-                    stop_owned_query(int(pid_path.read_text()), query)
 
 
 def test_concurrent_owned_dispatches_keep_cwd_environment_roots_and_streams_request_local(tmp_path: Path):

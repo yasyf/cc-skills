@@ -3,6 +3,7 @@ name: long-running CI
 on:
   push:
     branches: [main]
+    tags: ["long-running--v*", "live-dashboard--v*"]
     paths:
       - "plugins/long-running/**"
       - "plugins/live-dashboard/skills/live-dashboard/scripts/**"
@@ -48,7 +49,7 @@ jobs:
           REGISTER_READ_ORACLE="$RUNNER_TEMP/register-read-oracle.json" REGISTER_READ_ORACLE_WRITE=1 uv run --locked --project plugins/long-running pytest -c .ci-register-orphan-baseline/plugins/long-running/pyproject.toml .ci-register-orphan-baseline/plugins/long-running/tests/test_register_reads.py -q -s -k test_register_read_cli_oracle
           REGISTER_READ_ORACLE="$RUNNER_TEMP/register-read-oracle.json" uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_register_reads.py -q -s
       - name: pytest
-        run: uv run --locked --with 'capt-hook @ git+https://github.com/yasyf/captain-hook.git@ea593e87727ca085da285f4098bcf346f8254672' --project plugins/long-running pytest plugins/long-running/tests -q
+        run: uv run --locked --project plugins/long-running --with "capt-hook @ git+https://github.com/yasyf/captain-hook.git@ea593e87727ca085da285f4098bcf346f8254672" pytest plugins/long-running/tests -q
       - name: Binary attachment actual mq read costs
         run: |
           git fetch --no-tags --depth=1 origin 74d5367232c1636b21615b38946751852f532dfa
@@ -58,8 +59,10 @@ jobs:
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py -q -s -k 'test_flake_watch_reads_only_remembered_red_builds or test_release_and_cut_polls_decode_only_active_fact_entries'
       - name: historical lane read costs
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py -q -s -k test_orca_historical_lane_read_connection_cost
+      - name: indexed build cache actual caller costs
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_build_cache.py -q -s
       - name: capt-hook pack test
-        run: uvx --isolated --from 'capt-hook @ git+https://github.com/yasyf/captain-hook.git@ea593e87727ca085da285f4098bcf346f8254672' capt-hook pack test plugins/long-running
+        run: uvx --isolated --from "capt-hook @ git+https://github.com/yasyf/captain-hook.git@ea593e87727ca085da285f4098bcf346f8254672" capt-hook pack test plugins/long-running
       - name: installed state package
         run: |
           uv build --project plugins/long-running --wheel --out-dir "$RUNNER_TEMP/long-running-wheel"
@@ -158,8 +161,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
-      - name: native mailbox freshness and lifecycle
-        run: uv run --locked --with 'capt-hook @ git+https://github.com/yasyf/captain-hook.git@ea593e87727ca085da285f4098bcf346f8254672' --project plugins/long-running pytest plugins/long-running/tests/test_rosters.py plugins/long-running/tests/test_inboxes.py plugins/long-running/tests/test_register_reads.py plugins/long-running/tests/test_rulings_owned_hooks.py plugins/long-running/tests/test_rulings_consumers.py plugins/long-running/tests/test_rulings_dispatch.py plugins/long-running/tests/test_rulings_io.py plugins/long-running/tests/test_rulings_package_digest.py -q
+      - name: native mailbox freshness and lifecycle, and the shells' command reaping
+        run: uv run --locked --project plugins/long-running --with "capt-hook @ git+https://github.com/yasyf/captain-hook.git@ea593e87727ca085da285f4098bcf346f8254672" pytest plugins/long-running/tests/test_rosters.py plugins/long-running/tests/test_inboxes.py plugins/long-running/tests/test_register_reads.py plugins/long-running/tests/test_ledger_shell.py plugins/long-running/tests/test_stall_watch.py plugins/long-running/tests/test_build_cache.py plugins/long-running/tests/test_rulings_dispatch.py plugins/long-running/tests/test_rulings_owned_hooks.py plugins/long-running/tests/test_rulings_consumers.py plugins/long-running/tests/test_lane_landing.py -q -s
       - name: mailbox index scaling costs
         run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/mailbox-index.py > mailbox-index-macos.json
       - uses: actions/upload-artifact@v7

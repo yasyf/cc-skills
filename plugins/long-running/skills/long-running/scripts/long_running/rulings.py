@@ -1,3 +1,7 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# ///
 """Read and write the owner's rulings: the standing-rules doc and the register ledger.
 
     rulings.py register     [--program SLUG | --drive ID] [--repo PATH]
@@ -57,6 +61,9 @@ that replaces the one line ``--strike`` names, in that line's direction.
 ``amend`` links answer ids to a row and rewrites one implication's text or direction, keeping its state and proof; each edit
 lands on the row's ``amends`` list with its time and, for an implication, the text or direction it replaced. An implication
 ``removes`` or ``requires`` binds the moment it is recorded; only a ``permits`` line waits for the owner's tick.
+Each implication line ``classify``, ``confirm --implication`` and ``amend`` write goes to the drive's judge with the owner's
+words on its row verbatim; a line it reads as saying other than his words, binding what they only permit, or leaving
+unbound what they demand prints one ``WARN`` line on stderr naming the ``amend`` that rewrites it, and stays written.
 
 ``--program`` uses ``~/.claude/scratch/<program>`` as the state directory. ``--drive``
 resolves the program and the state directory from the drive registry. With neither, the drive is the
@@ -68,10 +75,12 @@ through the registry entry and uses ``--repo`` for the PR's own checkout. ``slic
 ``check-pr`` diff the PR with git in that checkout when its origin is the PR's repository, and
 through the GitHub compare API otherwise. ``--paths`` globs
 resolve under ``--root``, which defaults to ``--repo``; an absolute glob stands alone.
-``check-pr`` and ``sweep --diff`` print one ``MECHANISM-BANNED`` line per added line, in code and tests alike, that starts
-a timer, waits inside a loop, writes a credential to a file, or runs a build or test on this machine, naming the shape,
-the line and the rule. It is a warning like every other cause, and a ``# owner: <answer id>`` line under ``## Rulings``
-citing an owner answer whose words name the shape clears it.
+``check-pr`` and ``sweep --diff`` print one ``MECHANISM-BANNED`` line for the added lines, in code and tests alike, that
+start a timer or wait inside a loop when the drive's judge reads them as named by neither the owner's words nor the plan,
+and one per added line that writes a credential to a file or runs a build or test on this machine, naming the shape,
+the line and the rule; a ``# owner: <answer id>`` line under ``## Rulings`` citing an owner answer whose words name that
+shape clears the second kind. Each is a warning like every other cause. ``RULINGS-UNCITED`` names, for an incident fix
+alone, the anchored rows its diff touches that no ``## Rulings`` line cites.
 ``grade`` writes a fidelity desk's head grade to ``--out``. It lists every mechanism the head adds, one per
 added line that matches a shape in ``MECHANISM_SHAPES`` or opens a migration file, as ``<file>:<line>``, and
 needs each one grounded by ``--ground`` or set aside by ``--not-a-mechanism``; an ``ID`` may be an fnmatch glob.
@@ -94,15 +103,17 @@ import re
 import subprocess
 import sys
 from collections.abc import Callable, Iterable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import cache, cached_property, partial
 from pathlib import Path
-
 from typing import TextIO
+
 from zoneinfo import ZoneInfo
 
+from . import judge
 from . import register_reads
 from .register_reads import BINDING_DIRECTIONS, LEDGER_REFS, NOT_RULINGS, SLICE_LINE, UNANCHORED, binding, digest, hashed, kept_copy, listed, rendered_row, section, write_atomic
 from .ruling_documents import DocumentIndex
@@ -133,6 +144,7 @@ TROUBLE = frozenset({"at-risk", "broken"})
 KIND_ORDER = {kind: rank for rank, kind in enumerate(("reserved", "scope", "exception", "design", "gate", "order", "pick"))}
 CORPUS_KEY = "corpus/b-tests"
 IMPLICATION_COUNTS = range(3, 7)
+JUDGED_AT_ONCE = 6
 DIRECTIONS = ("removes", "requires", "permits")
 ANSWER_SOURCE = "answer"
 CONFIRM_SOURCES = frozenset({"slack-action", "slack-reply", "prompt", "board", ANSWER_SOURCE})
@@ -242,9 +254,7 @@ LOCAL_TOOL = re.compile(r"(?:^|/)(?:scripts|tools|bin|hooks|\.claude|\.agents)/|
 CI_CONFIG = re.compile(r"(?:^|/)(?:\.buildkite|\.github|\.circleci|ci)/|(?:^|/)(?:Dockerfile[^/]*|package\.json|Cargo\.toml|Makefile|[Jj]ustfile|BUCK|pyproject\.toml|mise\.toml)$")
 OWNER_LINE = re.compile(r"#\s*owner:\s*(?P<answer>[0-9a-f]{7,40})\b")
 RULINGS_SECTION = re.compile(r"^## Rulings\b.*?(?=^## |\Z)", re.MULTILINE | re.DOTALL)
-EXPLAINS = re.compile(r"\bprotects\b.+\bserves?\b", re.IGNORECASE)
 RULINGS_LINES = re.compile(r"^## Rulings\b.*?(?=^##+ |\Z)", re.MULTILINE | re.DOTALL)
-IN_YOUR_WORDS = re.compile(r"^### In your words\b.*?(?=^##+ |\Z)", re.MULTILINE | re.DOTALL)
 APPENDIX = re.compile(r"^## Appendix\b", re.MULTILINE)
 RUST_TEST = re.compile(r"^\s*#\[(?:\w+::)?test\b")
 RUST_TEST_FILE = re.compile(r"(?:^|/)tests/[^/]+\.rs$|_test\.rs$")
@@ -258,32 +268,22 @@ TEST_DEFINITION = re.compile(
     r"|(?:pub\s+)?(?:async\s+)?fn\s+(?P<rs>\w+)\s*\(|(?:it|test)\s*\(\s*(?P<quote>[\"'`])(?P<ts>.+?)(?P=quote))"
 )
 FINDER = re.compile(r"^finder: (?P<verdict>\S+) (?P<head>[0-9a-f]{7,40})\b")
-READBACK_GRADE = re.compile(r"^readback: (?P<verdict>ok|missing) (?:[0-9a-f]{7,40} )?(?P<lane>[^\s.,;:]+)[.,;:]?(?: (?P<rest>.*))?$", re.DOTALL)
+READBACK_GRADE = re.compile(r"^readback:? (?P<verdict>ok|missing) (?:[0-9a-f]{7,40} )?(?P<lane>[^\s.,;:]+)[.,;:]?(?: (?P<rest>.*))?$", re.DOTALL)
 READBACK_SAID = re.compile(r"^(?:contract )?read-back (?:#\d+ \()?(?P<lane>[^\s:,()]+)[^:\n]*: (?P<verdict>ok|missing)\b[.:,;]?(?:\s+(?P<rest>.*))?$", re.DOTALL)
 READBACK_KINDS = ("review", "answer")
 READBACK_FLAGS = ("--kind", "review", "--kind", "answer")
-NARROWING = re.compile(r"\b(?:per|for (?:each|every))[- ](?P<noun>[a-z][a-z-]*)|\b(?P<word>only|except|unless|excluding)\b", re.IGNORECASE)
-CLAUSE = re.compile(r"(?<=[.;!?])\s+")
-NOT_PARTITIONS = frozenset({"the", "a", "an", "his", "her", "its", "their", "our", "my", "your", "this", "that", "these", "those", "root", "owner", "plan", "rule", "design", "spec", "se", "cent"})
-ROW_LINE = ("### ", ">")
 SHAPE = re.compile(
     r"\b(?:one|single|exactly one|only one|two|three)\s+(?:[\w-]+\s+){0,3}?(?:process|instance|replica|replca|primar|secondar|follower|writer|reader|server|uploader|replicator|daemon|pair|connection|socket|worker|pod|sidecar|binar|database)\w*"
     r"|\bclients? of\b|\bshares? one\b|\beve\w*\s+(?:is\s+)?a client\b",
     re.IGNORECASE,
 )
-CHECK_PR_ORDER = ("RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "SHAPE-UNTESTED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS")
+CHECK_PR_ORDER = ("RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "SHAPE-UNTESTED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS")
+JUDGED_ROWS = 4
+PLAN_LINES = 12
+NO_RULINGS = "No ruling of his was found that bears on this pull request."
 OWNER_QUOTED = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”")
-PARENTHESIZED = re.compile(r"\([^()\n]*\)")
 FENCED = re.compile(r"```.*?```", re.DOTALL)
 DECISION = re.compile(r"\b(?:I|we)\s+(?:decided|chose|picked|went with|settled on|opted for)\b|\bdecided to\b|\b(?:my|our) (?:pick|choice|decision)\b", re.IGNORECASE)
-UNPLAIN = (
-    ("an internal id", re.compile(r"\b[GRL]\d{3,4}\b|\b(?:answer|grant|ruling|note|doc|log) [0-9a-f]{7}\b|\b(?:ctx|msg)_\w+")),
-    ("a plan row number", re.compile(r"\b(?:C|SI|E|X)-?\d+(?:\.\d+)*\b")),
-    ("an answer id", re.compile(r"\b(?=[a-f]*\d)[0-9a-f]{7,40}\b")),
-    ("a file path", re.compile(r"(?<![\w/.:~-])(?:[\w.-]+(?:/[\w.-]+){2,}|[\w-]+(?:/[\w.-]+)*\.(?:py|go|rs|ts|tsx|js|json|md|toml|ya?ml|sh|sql)\b)")),
-    ("a code symbol", re.compile(r"`[^`\n]+`|\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b|\b[a-z]{2,}(?:[A-Z][a-z0-9]+)+\b|\b\w+\(\)")),
-    ("a drive word", re.compile(r"\b(?:lanes?|desks?|slices?|sidecars?|rosters?|inbox pulls?|mount leases?|adapter lines?|verbs?|primary keys?|orphan(?:s|ed)?)\b", re.IGNORECASE)),
-)
 
 
 @dataclass(frozen=True)
@@ -449,15 +449,6 @@ def repeat_digests(fields: dict[str, str]) -> set[str]:
 
 def proof_digests(fields: dict[str, str]) -> set[str]:
     return set(DIGEST_PROOF.findall(fields.get("proof") or "")) | repeat_digests(fields)
-
-
-def captures(state: Path) -> dict[str, dict]:
-    path = state / "owner-prompts.jsonl"
-    if not path.exists():
-        return {}
-    entries = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-    gone = {digest for entry in entries for digest in entry.get("supersedes", [])}
-    return {entry["digest"]: entry for entry in entries if entry["digest"] not in gone}
 
 
 def ledger_of(shell: ledger.Shell, repo: str, program: str) -> str:
@@ -820,7 +811,7 @@ def lane_slice(loaded: Register, want: Want, plan: Path | None) -> str:
     lines += section("Every global row", global_rows.items())
     if want.step == INCIDENT_STEP:
         done = set(loaded.classified())
-        pending = [capture for item, capture in captures(loaded.state).items() if item not in done]
+        pending = [capture for item, capture in judge.captures(loaded.state).items() if item not in done]
         lines += ["", f"## Owner captures not yet classified ({len(pending)})"]
         for capture in pending:
             lines += ["", f"### {capture['digest']} | {capture.get('source', '')} | {capture.get('at', '')}", *(f"> {line}" for line in capture["text"].splitlines())]
@@ -898,6 +889,18 @@ def symbol_lines(fields: dict[str, str], diff: Diff, at_home: bool) -> list[tupl
             if pattern.search(text) and (not homes or any(fnmatch.fnmatch(file, home) for home in homes))
         ]
     return found
+
+
+def deleted_symbols(fields: dict[str, str], diff: Diff) -> list[tuple[str, str, int]]:
+    """Each symbol of `fields` a removed line under its anchors names while no added line of code names it, with the file and base line it left."""
+    homes = anchors(fields)
+    return [
+        (symbol, file, number)
+        for symbol in symbols(fields)
+        if not symbol_hit(symbol, diff)
+        for file, number, text in diff.removed
+        if name_pattern(symbol.rsplit(".", 1)[-1]).search(text) and (not homes or any(fnmatch.fnmatch(file, home) for home in homes))
+    ]
 
 
 def symbol_hit(symbol: str, diff: Diff) -> bool:
@@ -1339,7 +1342,7 @@ def applied(loaded: Register, captured: dict[str, dict], entry: dict, files: Cal
 
 def classifiable(loaded: Register, args: argparse.Namespace) -> dict[str, dict]:
     if not args.answer:
-        return captures(loaded.state)
+        return judge.captures(loaded.state)
     sourced = answer_capture(loaded, args.answer)
     return {sourced["digest"]: sourced}
 
@@ -1374,6 +1377,7 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
         documents = DocumentIndex(sweep_words, sweep_starts(names))
         touched_rows: dict[str, str] = {}
         repeats: dict[str, list[str]] = {}
+        fresh: dict[str, list[dict]] = {}
         before = {key: dict(fields) for key, fields in loaded.rows.items()}
         for entry in entries:
             result = applied(loaded, captured, entry, files, documents)
@@ -1382,12 +1386,32 @@ def cmd_classify(args: argparse.Namespace, shell: ledger.Shell) -> int:
                 touched_rows.setdefault(result["key"], result["how"])
             if result.get("repeated"):
                 repeats[result["key"]] = result["hits"]
+            if "key" in result and (added := len(entry.get("implications") or [])):
+                fresh.setdefault(result["key"], []).extend(result["implications"][-added:])
         if touched_rows and (drive_entry := entry_of(args)):
             cci = drive.cci_drive(drive_entry)
             announce(loaded, cci, live_lanes(loaded, cci), touched_rows, before)
             for key, hits in repeats.items():
                 post_repeat(loaded, cci, key, hits, args.stderr)
+    for key, items in fresh.items():
+        misstated(args, loaded, key, items)
     return 0
+
+
+def misstated(args: argparse.Namespace, loaded: Register, key: str, items: list[dict]) -> None:
+    """Warn the classifier of each new implication line on `key` that the drive's judge reads as misstating the owner's words; the line stays written."""
+    evidence = judge.owner_words(key, judge.said(loaded.rows[key], loaded.state))
+    backend, entry = judge.backend_from(os.environ), entry_of(args)
+    with ThreadPoolExecutor(JUDGED_AT_ONCE) as pool:
+        verdicts = list(pool.map(lambda item: judge.judge("implication", evidence, f"{item['text']} ({item['direction']})", backend=backend, drive=entry["drive"] if entry else None), items))
+    for item, verdict in zip(items, verdicts):
+        if verdict is not None and verdict.flagged:
+            print(
+                f"WARN {key} implication {item['n']} misstates the owner's words and is written anyway: {verdict.sentence}"
+                f' The line: "{verdict.artifact_phrase}"; his words: "{verdict.evidence_phrase}".'
+                f" Rewrite it with `rulings.py amend {key} --implication {item['n']} --text <line> --direction <removes|requires|permits>`, or keep it.",
+                file=args.stderr,
+            )
 
 
 def implication_lines(fields: dict[str, str]) -> list[str]:
@@ -1408,7 +1432,10 @@ def numbers(value: str | None, implications: list[dict]) -> set[int]:
 
 def cmd_confirm(args: argparse.Namespace, shell: ledger.Shell) -> int:
     with writing(args, shell) as loaded:
-        return confirmed(args, loaded, args.key)
+        code = confirmed(args, loaded, args.key)
+    if code == 0 and args.implication:
+        misstated(args, loaded, args.key, listed(loaded.rows[args.key]["implications"])[-1:])
+    return code
 
 
 def source_answers(fields: dict[str, str]) -> set[str]:
@@ -1422,7 +1449,7 @@ def later_answers(fields: dict[str, str]) -> set[str]:
 
 
 def confirm_capture(loaded: Register, fields: dict[str, str], identity: str) -> dict | None:
-    if local := captures(loaded.state).get(identity):
+    if local := judge.captures(loaded.state).get(identity):
         return local
     return answer_capture(loaded, identity) if identity[:SHORT] in later_answers(fields) else None
 
@@ -1498,6 +1525,8 @@ def cmd_amend(args: argparse.Namespace, shell: ledger.Shell) -> int:
             return 0
         loaded.write(args.key, answer=answers + added, implications=implications, amends=listed(fields.get("amends")) + edits)
         print("\n".join(implication_lines(loaded.rows[args.key])), file=args.stdout)
+    if args.implication is not None:
+        misstated(args, loaded, args.key, named)
     return 0
 
 
@@ -1537,7 +1566,9 @@ def cmd_sweep(args: argparse.Namespace, shell: ledger.Shell) -> int:
         hits = sweeper.files([Path(path) for path in args.artifact])
         hits += sweeper.files(globbed(args.root or args.repo, args.paths), args.root or args.repo)
         diff = parse_diff(Path(args.diff).read_text()) if args.diff else None
-        hits += [*sweeper.diff(diff), *banned_mechanisms(diff)] if diff else []
+        banned = banned_mechanisms(diff) if diff else []
+        hits += [*sweeper.diff(diff), *of_shapes(banned, waits=False)] if diff else []
+        hits += unnamed_waits(loaded, Head("", "", "", "", diff), of_shapes(banned, waits=True), plan_path(args, loaded), (entry_of(args) or {}).get("drive")) if diff else []
     else:
         hits = sweeper.files(default_files(loaded, plan_path(args, loaded)))
     for hit in hits:
@@ -1555,53 +1586,6 @@ def record_of(shell: ledger.Shell, cci: str, seq: int) -> dict:
 def record_body(record: dict) -> str:
     attached = (record.get("refs") or {}).get("path")
     return "\n".join([record.get("text", ""), Path(attached).read_text() if attached and Path(attached).is_file() else ""])
-
-
-def qualifiers(line: str, said: str) -> list[str]:
-    found = []
-    for match in NARROWING.finditer(OWNER_QUOTED.sub(" ", line)):
-        if word := match["word"]:
-            if not re.search(rf"\b{word.lower()}\b", said):
-                found.append(word.lower())
-            continue
-        noun = match["noun"].lower()
-        if noun not in NOT_PARTITIONS and not re.search(rf"\b(?:per|each|every)[- ]{re.escape(noun.removesuffix('s'))}(?:e?s)?\b", said):
-            found.append(f"per {noun}")
-    return found
-
-
-def cited_rows(rows: dict[str, dict[str, str]], answers: dict[str, list[str]], line: str) -> list[str]:
-    keys = [key for key in rows if key in line]
-    keys += [key for token in CITED.findall(line) for key in answers.get(token[:SHORT], [])]
-    spans = [folded(span) for span in QUOTED.findall(line) if len(span.split()) >= QUOTED_WORDS]
-    keys += [key for key, fields in rows.items() if spans and any(span in said for span in spans for said in said_words(fields))]
-    return list(dict.fromkeys(keys))
-
-
-def narrowings(loaded: Register, text: str) -> dict[str, list[str]]:
-    rows = loaded.rulings()
-    answers: dict[str, list[str]] = {}
-    for key, fields in rows.items():
-        for answer in [*listed(fields.get("answer")), *(found for repeat in listed(fields.get("repeats")) for found in repeat_answers(repeat))]:
-            answers.setdefault(str(answer)[:SHORT], []).append(key)
-    lines = [clause for line in text.splitlines() if line.strip() and not line.lstrip().startswith(ROW_LINE) for clause in CLAUSE.split(line)]
-    citing = [(line, cited_rows(rows, answers, line)) for line in lines]
-    everywhere = list(dict.fromkeys(key for _, keys in citing for key in keys))
-    found: dict[str, list[str]] = {}
-    for line, keys in citing:
-        for key in keys or (everywhere if len(everywhere) == 1 else []):
-            if added := qualifiers(line, " ".join(said_words(rows[key]))):
-                found[key] = list(dict.fromkeys([*found.get(key, []), *added]))
-    return found
-
-
-def unanswered(loaded: Register, found: dict[str, list[str]], grade: str) -> dict[str, list[str]]:
-    rows = loaded.rulings()
-    return {key: adds for key, adds in found.items() if key not in grade and not {str(answer)[:SHORT] for answer in listed(rows[key].get("answer"))} & {token[:SHORT] for token in CITED.findall(grade)}}
-
-
-def narrowed_lines(found: dict[str, list[str]], label: str) -> list[str]:
-    return [f"{label} {key}: says {', '.join(f'"{added}"' for added in adds)}; the owner's words say none of them" for key, adds in found.items()]
 
 
 @dataclass
@@ -1660,7 +1644,7 @@ def cmd_readback(args: argparse.Namespace, shell: ledger.Shell) -> int:
         print(f"WARNING READBACK-SLICE-FROM-BRIEF #{args.contract}: {read.sliced_by}", file=args.stdout)
     fresh = lane_slice(loaded, read.want, plan_path(args, loaded))
     posted = datetime.fromisoformat(read.record["at"])
-    later = {digest for digest, capture in captures(loaded.state).items() if captured_at(capture["at"]) > posted}
+    later = {digest for digest, capture in judge.captures(loaded.state).items() if captured_at(capture["at"]) > posted}
     rows = loaded.rulings()
     keys = [key for key in re.findall(r"^### (\S+) \|", fresh, re.MULTILINE) if not (heard := proof_digests(rows[key]) if key in rows else {key}) or not heard <= later]
     lines = read.body.splitlines()
@@ -1669,7 +1653,6 @@ def cmd_readback(args: argparse.Namespace, shell: ledger.Shell) -> int:
     expected = [line for line in fresh.splitlines() if HIT_LINE.match(line)]
     expected += [str(hit) for hit in Sweeper(loaded, loaded.scope()).files(globbed(root, read.want.paths), root)]
     warnings += [f"READBACK-HIT-UNMARKED {hit}" for hit in expected if not any(line.startswith(hit) and VERDICT.search(line[len(hit) :]) for line in lines)]
-    warnings += narrowed_lines(narrowings(loaded, read.body), "READBACK-NARROWED")
     for warning in warnings:
         print(f"WARNING {warning}", file=args.stdout)
     print(f"readback request {args.lane} {SLICE_HASH.search(fresh)['hash']}: {len(keys)} rows, contract #{args.contract}{f' at {read.attached}' if read.attached else ''}; a fidelity desk grades it against each row's words and implications", file=args.stdout)
@@ -1683,20 +1666,18 @@ def fidelity_lanes(loaded: Register) -> set[str]:
     return {lanes} if isinstance(lanes, str) else set(lanes)
 
 
-def unaccepted(loaded: Register, cci: str, lane: str, reviews: list[dict]) -> str | None:
+def unaccepted(loaded: Register, lane: str, reviews: list[dict]) -> str | None:
     desks = fidelity_lanes(loaded)
     graded = [
         (record, found)
         for record in reviews
-        if record.get("kind") in READBACK_KINDS and record.get("lane") in desks and (found := READBACK_GRADE.match(text := record.get("text") or "") or READBACK_SAID.match(text)) and found["lane"] == lane
+        if record.get("kind") in READBACK_KINDS and record.get("lane") in desks and (found := READBACK_GRADE.match(text := record.get("text") or "") or READBACK_SAID.match(text)) and (found["lane"] == lane or grades.succeeds(lane, found["lane"]))
     ]
     if not graded:
         return "no fidelity desk has graded a read-back"
     record, newest = max(graded, key=lambda item: item[0]["seq"])
     if newest["verdict"] != "ok":
         return f"the newest grade, #{record['seq']}, is missing: {newest['rest'] or 'no reason given'}"
-    if record.get("re") and (found := unanswered(loaded, narrowings(loaded, record_body(record_of(loaded.shell, cci, record["re"]))), record.get("text") or "")):
-        return f"the newest grade, #{record['seq']}, accepts contract #{record['re']} without answering where it is narrower than the owner's words: {'; '.join(narrowed_lines(found, 'NARROWED'))}"
     return None
 
 
@@ -1705,7 +1686,7 @@ def cmd_accepted(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if not (entry := entry_of(args)):
         raise SystemExit(f"no drive runs program {loaded.program}; accepted reads the lane's read-back from its cci drive")
     cci = drive.cci_drive(entry)
-    if why := unaccepted(loaded, cci, args.lane, pr_records(shell, cci, *READBACK_FLAGS)):
+    if why := unaccepted(loaded, args.lane, pr_records(shell, cci, *READBACK_FLAGS)):
         print(f"CONTRACT-MISSING {args.lane}: {why}", file=args.stdout)
         return 1
     print(f"accepted {args.lane}", file=args.stdout)
@@ -1722,9 +1703,50 @@ def shape_rows(loaded: Register) -> dict[str, dict[str, str]]:
     return {key: fields for key, fields in loaded.rulings().items() if fields.get("status") == "in-force" and shaped(fields)}
 
 
-def tests_naming(diff: Diff, key: str, fields: dict[str, str]) -> bool:
+def tests_naming(diff: Diff, key: str, fields: dict[str, str]) -> str:
+    """The lines each test file of `diff` adds, for every test file one of whose added lines names `key` or one of its answers; empty when none does."""
     names = {key, *(str(answer)[:SHORT] for answer in listed(fields.get("answer")))}
-    return any(testfiles.test_file(file) and any(name in text for name in names) for file, _, text in diff.added)
+    files = sorted({file for file, _, text in diff.added if testfiles.test_file(file) and any(name in text for name in names)})
+    return "\n\n".join("\n".join([file, *(text for added, _, text in diff.added if added == file)]) for file in files)
+
+
+def shape_untested(loaded: Register, args: argparse.Namespace, head: Head) -> list[str]:
+    """A cited shape row owes a test: one that names it and that the drive's judge does not read as holding a different invariant than his words. A recorded test stands in for a PR that adds none."""
+    found = []
+    for key, fields in shape_rows(loaded).items():
+        if not cites(head, key, fields):
+            continue
+        if not (tests := tests_naming(head.diff, key, fields)):
+            if not listed(fields.get("shape_tests")):
+                found.append(f"SHAPE-UNTESTED {key}\tadd a test that fails on today's code and names {key}, or record the one that does with `rulings.py shape {key} --test <repo>#<pr> <path>::<test>`")
+            continue
+        if (verdict := judged_test(loaded, args, key, fields, tests)) and verdict["verdict"] == "yes":
+            found.append(
+                f"SHAPE-UNTESTED {key}\ta judge reads the test naming {key} as asserting a different invariant than his words: {verdict['sentence']}"
+                f' The test: "{verdict["artifact_phrase"]}"; his words: "{verdict["evidence_phrase"]}".'
+                " Make it fail whenever his invariant fails, or answer this warning with the owner words it carries"
+            )
+    return found
+
+
+def judged_test(loaded: Register, args: argparse.Namespace, key: str, fields: dict[str, str], tests: str) -> dict | None:
+    """The judge's verdict on `tests` against the owner's words on `key`, kept per evidence and test text so a head is judged once, not once a pass; `None` when the call failed, so nothing is added."""
+    evidence = judge.owner_words(key, judge.said(fields, loaded.state))
+    kept = loaded.state / "check-pr" / "judged" / f"{hashlib.sha256(json.dumps([evidence, tests]).encode()).hexdigest()[:24]}.json"
+    if kept.is_file():
+        return json.loads(kept.read_text())
+    entry = entry_of(args)
+    verdict = judge.judge(
+        "test",
+        evidence,
+        tests,
+        backend=judge.backend_from(os.environ),
+        drive=entry["drive"] if entry else None,
+    )
+    if verdict is None:
+        return None
+    write_atomic(kept, json.dumps(asdict(verdict)))
+    return asdict(verdict)
 
 
 def cmd_shapes(args: argparse.Namespace, shell: ledger.Shell) -> int:
@@ -1747,21 +1769,6 @@ def cmd_shape(args: argparse.Namespace, shell: ledger.Shell) -> int:
         loaded.write(args.key, shape="yes", shape_tests=list(dict.fromkeys([*listed(fields.get("shape_tests")), args.test])))
         print(f"{args.key} shape tested by {', '.join(listed(loaded.rows[args.key]['shape_tests']))}", file=args.stdout)
     return 0
-
-
-def cmd_narrowed(args: argparse.Namespace, shell: ledger.Shell) -> int:
-    loaded = Register.load(args, shell)
-    if args.contract is None:
-        found = narrowings(loaded, args.stdin.read())
-    elif not (entry := entry_of(args)):
-        raise SystemExit(f"no drive runs program {loaded.program}; narrowed --contract reads the record from its cci drive")
-    elif (record := record_of(shell, drive.cci_drive(entry), args.contract)).get("kind") != "contract":
-        return 0
-    else:
-        found = unanswered(loaded, narrowings(loaded, record_body(record)), args.stdin.read())
-    for line in (found := narrowed_lines(found, "NARROWED")):
-        print(line, file=args.stdout)
-    return 1 if found else 0
 
 
 def answers_for(loaded: Register, *labels: str) -> list[dict]:
@@ -1800,6 +1807,12 @@ def cmd_pr_block(args: argparse.Namespace, shell: ledger.Shell) -> int:
         elif number and (answer := authorizing(loaded, key, number)):
             cited, how = f"authorized by {answer}", f"deleting under your answer {answer}"
             words.append(f"- {sentence}; this change deletes under it, on your answer {answer}.")
+        elif gone := deleted_symbols(fields, diff):
+            symbol, file, line = gone[0]
+            deletes = f"deletes {symbol} at {file}:{line}, and no answer of yours authorizes that"
+            rulings.append(f"- {key} protects {protects}; this change {deletes}" if (protects := fields.get("protects")) else f"- {key}: {deletes}")
+            words.append(f"- {sentence}; this change deletes {symbol}, and none of your answers authorizes that.")
+            continue
         else:
             left = (names_of(fields) or symbols(fields) or anchors(fields))[0]
             cited, how = f"leaves out {left}", f"leaving {left} alone"
@@ -1873,7 +1886,7 @@ def cmd_table(args: argparse.Namespace, shell: ledger.Shell) -> int:
 
 def cmd_glossary(args: argparse.Namespace, shell: ledger.Shell) -> int:
     loaded = Register.load(args, shell)
-    texts = [capture["text"] for capture in captures(loaded.state).values()]
+    texts = [capture["text"] for capture in judge.captures(loaded.state).values()]
     for fields in loaded.rulings().values():
         texts += [fields.get("words") or "", *(str(repeat.get("words") or "") for repeat in listed(fields.get("repeats")))]
     owner = sorted({word for text in texts for word in WORD.findall(text.lower())} - {noun.lower() for noun in PRODUCT_NOUNS})
@@ -2051,7 +2064,7 @@ def cmd_authorize(args: argparse.Namespace, shell: ledger.Shell) -> int:
         if (found := card_proof(args, loaded, shell, key, fields, owner, entry["sessions"][-1])) is None:
             return 1
     else:
-        capture = captures(loaded.state).get(args.prompt) or {}
+        capture = judge.captures(loaded.state).get(args.prompt) or {}
         board = capture.get("source") == "board"
         if board and (capture.get("verdict") != "approved" or capture.get("row")):
             print(f"AUTHORIZE-NOT-AFFIRMATIVE {key}: board capture {args.prompt} is no approval of a card, which grants nothing", file=args.stdout)
@@ -2159,10 +2172,6 @@ class Head:
         return "\n".join(found[0] for text in (self.body, *self.comments) if (found := RULINGS_SECTION.search(text)))
 
     @cached_property
-    def in_your_words(self) -> str | None:
-        return next((found[0] for text in reversed((self.body, *self.comments)) if (found := IN_YOUR_WORDS.search(text))), None)
-
-    @cached_property
     def cited(self) -> set[str]:
         return {token[:SHORT] for token in CITED.findall(self.rulings)}
 
@@ -2187,11 +2196,6 @@ def acknowledges(line: str, key: str, fields: dict[str, str]) -> bool:
     said = said_words(fields)
     spans = [span for span in QUOTED.finditer(line) if folded(span[1]) in said or len(span[1].split()) >= QUOTED_WORDS and any(folded(span[1]) in words for words in said)]
     return bool(spans) and len(WORD.findall(line[spans[-1].end() :].lower())) >= PLAIN_WORDS
-
-
-def explains(head: Head, key: str, fields: dict[str, str]) -> bool:
-    answers = {str(answer)[:SHORT] for answer in listed(fields.get("answer"))}
-    return any(EXPLAINS.search(line) for line in head.rulings.splitlines() if key in line or answers & {token[:SHORT] for token in CITED.findall(line)})
 
 
 def acknowledged(head: Head, key: str, fields: dict[str, str]) -> bool:
@@ -2305,11 +2309,6 @@ def lane_of(records: list[dict]) -> str | None:
     return max(heads or reports)[1] if heads or reports else None
 
 
-def plain_problems(text: str) -> list[str]:
-    seen = PARENTHESIZED.sub(" ", OWNER_QUOTED.sub(" ", text))
-    return list(dict.fromkeys(f'RULINGS-PLAIN {kind} "{hit[0]}"' for kind, pattern in UNPLAIN for hit in pattern.finditer(seen)))
-
-
 def card_answers(loaded: Register, findings: Findings) -> set[str] | None:
     if (listed_answers := findings.read("the owner's answers", lambda: answers_for(loaded))) is None:
         return None
@@ -2352,11 +2351,8 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
     facts = diff_facts(loaded, head, base)
     cci = drive.cci_drive(entry_of(args))
     records = findings.read("the PR's cci records", lambda: pr_records(loaded.shell, cci, "--pr", f"{head.repo}#{head.number}"))
-    uncited = [key for key in facts["touched"] if not cites(head, key, rulings[key])]
-    if uncited:
+    if args.incident and (uncited := [key for key in facts["touched"] if not cites(head, key, rulings[key])]):
         findings.refusals.append(f"RULINGS-UNCITED {','.join(uncited)}\tcite them under a ## Rulings heading in one PR comment, never by editing the body (427c9c93)")
-    if unexplained := [key for key in facts["touched"] if key not in uncited and rulings[key].get("protects") and not explains(head, key, rulings[key])]:
-        findings.refusals.append(f"RULINGS-PLAIN {','.join(unexplained)} cited by id alone\tsay on the line citing each one what it protects and how this change serves that: '<rule> protects <harm>; this change serves it by <how>' (root #204765)")
     for key, fields in rulings.items():
         if fields.get("kind") == "reserved" and key in facts["reserved"]:
             if findings.read(f"the authorizes:{key} answers", lambda key=key: authorized(loaded, head, key)) is False:
@@ -2364,27 +2360,23 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
     findings.refusals += findings.read("the removed tests", lambda: removed_tests(loaded, head, findings, args.incident, loaded.plan(args.plan))) or []
     if args.incident:
         return
-    findings.refusals += [
-        f"SHAPE-UNTESTED {key}\tadd a test that fails on today's code and names {key}, or record the one that does with `rulings.py shape {key} --test <repo>#<pr> <path>::<test>`"
-        for key, fields in shape_rows(loaded).items()
-        if cites(head, key, fields) and not listed(fields.get("shape_tests")) and not tests_naming(head.diff, key, fields)
-    ]
+    findings.refusals += shape_untested(loaded, args, head)
     if records is not None and (major := finder_major(records, head.sha)):
         findings.refusals.append(f"FINDER-MAJOR {major[:SHORT]}")
     authorizers, scope = loaded.answer_words(), loaded.scope()
-    findings.refusals += [str(hit) for hit in uncleared(banned_mechanisms(head.diff), head, authorizers)]
+    hits = banned_mechanisms(head.diff)
+    findings.refusals += [str(hit) for hit in uncleared(of_shapes(hits, waits=False), head, authorizers)]
+    findings.refusals += unnamed_waits(loaded, head, of_shapes(hits, waits=True), loaded.plan(args.plan), entry_of(args)["drive"])
     for hit in Sweeper(loaded, scope).statuses(facts["named"]):
         if hit.status == "open" and not acknowledged(head, hit.key, scope[hit.key]) and not any(hit.name.lower() not in banned and named(words, hit.name) for cited in head.cited for words, banned in authorizers.get(cited, [])):
             findings.refusals.append(f"NAME-HIT {hit.key} {hit.file}:{hit.line} {hit.name}")
-    words = head.in_your_words
-    findings.refusals += ["RULINGS-PLAIN no ### In your words section"] if words is None else plain_problems(words)
     findings.refusals += decided(head.body, card_answers(loaded, findings))
     if records is None:
         return
     if not (lane := lane_of(records)):
         findings.blockers.append(f"BLOCKER no cci record names the lane of {head.repo}#{head.number}")
     elif (reviews := findings.read("the read-back reviews", lambda: pr_records(loaded.shell, cci, *READBACK_FLAGS))) is not None:
-        why = findings.read(f"the read-back of {lane}", lambda: unaccepted(loaded, cci, lane, reviews))
+        why = findings.read(f"the read-back of {lane}", lambda: unaccepted(loaded, lane, reviews))
         if why:
             findings.refusals.append(f"CONTRACT-MISSING {lane}: {why}")
 
@@ -2393,11 +2385,12 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
 class Banned:
     shape: str
     rows: tuple[str, ...]
-    said: re.Pattern[str]
+    said: re.Pattern[str] | None = None
 
 
-TIMER = Banned("timer", ("rule/949e6be",), re.compile(r"\btimers?\b|\btick|\binterval|\bevery \d|keep-alive", re.IGNORECASE))
-POLL = Banned("poll loop", ("rule/949e6be", "rule/f60345a"), re.compile(r"\bpoll|\bloop|\bbackoff|\bretr", re.IGNORECASE))
+TIMER = Banned("timer", ("rule/949e6be",))
+POLL = Banned("poll loop", ("rule/949e6be", "rule/f60345a"))
+WAITS = (TIMER, POLL)
 CREDENTIAL_FILE = Banned("credential written to a file", ("prompt/1026-105052",), re.compile(r"\bfiles?\b|\bdisk\b", re.IGNORECASE))
 LOCAL_EXEC = Banned("local exec", ("rule/c9b7c87",), re.compile(r"\blocal(?:ly)?\b|\bthis mac\b|\blaptop\b", re.IGNORECASE))
 
@@ -2476,6 +2469,32 @@ def banned_mechanisms(diff: Diff) -> list[BannedHit]:
         if found:
             hits.append(BannedHit(tuple(found), file, number, text.strip()))
     return hits
+
+
+def of_shapes(hits: list[BannedHit], *, waits: bool) -> list[BannedHit]:
+    """Each hit cut to its timer and loop-wait shapes, or to its other shapes, dropping a hit left with none."""
+    kept = [BannedHit(tuple(banned for banned in hit.banned if (banned in WAITS) == waits), hit.file, hit.line, hit.text) for hit in hits]
+    return [hit for hit in kept if hit.banned]
+
+
+def unnamed_waits(loaded: Register, head: Head, hits: list[BannedHit], plan: Path | None, drive_name: str | None) -> list[str]:
+    """One `MECHANISM-BANNED` line for the timers and loop waits `head` adds when a judge reads them as named by neither the owner's words nor the plan; none when it reads them as named or its call fails."""
+    if not hits:
+        return []
+    cited = [key for key, fields in loaded.rulings().items() if cites(head, key, fields)]
+    keys = [key for key in dict.fromkeys([*cited, *(row for hit in hits for banned in hit.banned for row in banned.rows)]) if (loaded.rows.get(key) or {}).get("words")]
+    said = "\n\n".join(judge.owner_words(key, judge.said(loaded.rows[key], loaded.state)) for key in keys[:JUDGED_ROWS]) or NO_RULINGS
+    names = {Path(hit.file).name for hit in hits}
+    lines = enumerate(plan.read_text(errors="replace").splitlines(), start=1) if plan and plan.is_file() else ()
+    named = [f"{number}: {line.strip()[:CCI_TEXT]}" for number, line in lines if any(name in line for name in names)][:PLAN_LINES]
+    evidence = said + ("\n\nThe plan's lines that name these mechanisms, verbatim:\n" + "\n".join(named) if named else "")
+    added = "\n".join(f"{hit.file}:{hit.line} {' and '.join(banned.shape for banned in hit.banned)}: {hit.text}" for hit in hits)
+    found = judge.judge("mechanism", evidence, f"The lines it adds:\n{added}\n\nIts body:\n{head.body}", backend=judge.backend_from(os.environ), drive=drive_name)
+    if found is None or not found.flagged:
+        return []
+    shapes = " and ".join(dict.fromkeys(banned.shape for hit in hits for banned in hit.banned))
+    where = ",".join(f"{hit.file}:{hit.line}" for hit in hits)
+    return [f"MECHANISM-BANNED {shapes} {where} `{found.artifact_phrase[: CCI_TEXT // 4]}`\t{found.sentence} Remove it, or bring the owner the case for it."]
 
 
 def uncleared(hits: list[BannedHit], head: Head, authorizers: dict[str, list[tuple[str, frozenset[str]]]]) -> list[BannedHit]:
@@ -2708,8 +2727,6 @@ def build_parser(parser_type=argparse.ArgumentParser) -> argparse.ArgumentParser
     readback.add_argument("--root", metavar="DIR")
     accepted = verb("accepted", cmd_accepted, "exit 0 when a fidelity desk's newest grade of the lane's read-back is ok")
     accepted.add_argument("--lane", required=True)
-    narrowing = verb("narrowed", cmd_narrowed, "print each owner row the text on stdin cites with the partitions and exceptions it adds to the owner's words, or with --contract each row the contract narrows that the grade on stdin leaves unnamed; exit 1 when any")
-    narrowing.add_argument("--contract", type=int, metavar="SEQ")
     shapes = verb("shapes", cmd_shapes, "print each in-force row naming a count or topology (one process, one primary, everything a client) with the tests recorded for it")
     shapes.add_argument("--untested", action="store_true")
     shapes.add_argument("--json", action="store_true")
@@ -2791,5 +2808,3 @@ def dispatch(argv: list[str] | None, shell: ledger.Shell, runtime: Runtime) -> i
 def main(argv: list[str] | None = None, shell: ledger.Shell | None = None, *, stdin: TextIO, stdout: TextIO) -> int:
     runtime = Runtime(stdin, stdout, sys.stderr, drive.drives_dir(), Path.home() / ".claude" / "scratch", drive.current_drive, ledger.locked, ledger.held, lambda: None)
     return dispatch(argv, shell or ledger.Shell(), runtime)
-
-

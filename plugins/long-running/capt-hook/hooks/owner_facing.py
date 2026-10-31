@@ -32,14 +32,13 @@ from captain_hook import (
 )
 from captain_hook.cmd import Call
 from captain_hook.util import reqenv
-from pydantic import BaseModel
 
 from .compaction_handoff import CompactionState, ccn, drive_entry, post_blocker, rulings, script, script_module
 from .nudges import once_per_hour, queue_nudge
 from .pr_ledger import lane_name
 from .register_injection import drive_args, incident_spawn, prose
 from .root_context import operand_targets, reads_stdin
-from .tests.board_fixtures import ANSWERS, GLOSSARY, REPO, ROWS, board
+from .tests.board_fixtures import ANSWERS, GLOSSARY, JUDGE, REPO, ROWS, board, judged
 from .tests.brief_fixtures import INCIDENT_ADJACENT, INCIDENT_TURN, NOT_AN_INCIDENT
 from .tests.handoff_fixtures import reply_transcript
 from .tests.register_fixtures import DRIVE_CONFIG
@@ -74,16 +73,6 @@ RELEASE_NUMBER = re.compile(r"\b\d{3,}\b|\bv?\d+\.\d+(?:\.\d+)?\b")
 PUBLISH_PROOF = re.compile(r"#\d{3,}\b|buildkite\.com/\S+/builds/\d+")
 PUBLISH_FROM_MEMORY = "Warning, nothing was blocked: quote the RELEASED record or run `tools/ci release live`; never from memory"
 RECORD_IDS = re.compile(r"\b[GRL]\d{3,4}\b|\b(?:answer|grant|ruling|note|doc|log) [0-9a-f]{7}\b|\b(?:ctx|msg)_\w+")
-LETTER_NAMES = re.compile(r"\b[B-HJ-Z]\b")
-DRAFTED_COPY = re.compile(r"\bProposed (?:reply|post|text|message)\b", re.IGNORECASE)
-CODENAME_IN_QUESTION = (
-    "Warning, nothing was blocked: An owner question names the work in plain words, never a codename, inbox id, or answer id."
-    " Rename each one for what it is, such as the release-pipeline cutover stack or the deploy that runs after each merge, and ask again."
-)
-DRAFT_IN_QUESTION = (
-    "Warning, nothing was blocked: The root never composes Slack copy, so a question never carries a proposed reply."
-    " Hand the Slack lane the facts and links, then show its draft verbatim in a Send option's preview."
-)
 PLAIN_WORDS = (
     "Warning, nothing was blocked: Owner-facing text must read in plain words."
     " Replace each term below, or gloss it in the owner's own words, then post again."
@@ -100,70 +89,18 @@ PATH_CITE = re.compile(r"`?[\w./-]+:\d+(?:[-,]\d+)*`?\s*@\s*`?[0-9a-f]{7,40}\b`?
 QUOTE_CITE = re.compile(r"[\"”]\s*\([^)\n]*\)")
 OWNER_QUOTE = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”")
 IN_YOUR_WORDS = re.compile(r"^### In your words\b.*?(?=^#{1,3} |\Z)", re.MULTILINE | re.DOTALL)
-PR_NUMBER = re.compile(r"(?<![\w&#])#\d+\b")
 IDS = (
     ("an internal id", RECORD_IDS),
     ("a plan row number", re.compile(r"\b(?:C|SI|E|X)-?\d+(?:\.\d+)*\b")),
     ("an answer id", re.compile(r"\b(?=[a-f]*\d)[0-9a-f]{7,40}\b")),
 )
-ACRONYM = re.compile(r"\b[A-Z][A-Z0-9]*[A-Z]s?\b")
 CODE = re.compile(r"```.*?```|`[^`\n]+`", re.DOTALL)
 PARENTHESIZED = re.compile(r"\([^()]*\)")
 CAPTURES = "owner-prompts.jsonl"
 OWNER_ANSWERS = ("answer", "list", "--label", "from:owner", "--limit", "0", "--json")
-TOKEN = re.compile(r"[a-z0-9]+")
-PLAIN_ENGLISH = frozenset(
-    """
-    access account admin agent alert api app approval approve auth aws backup batch bot branch break browser bucket bug build
-    cache call canary census change channel check ci claude cli cloud cluster code codex commit config container cookie cpu crash
-    credential cron data database datadog db deploy deployment dev device diff disk dns docker domain download drift email
-    endpoint env environment error fix flag flake fork git github glass grant graphite hook hotfix http iam image in incident
-    install issue job json key kubernetes latency limit linear lint linter log login logout mac machine memory merge metric
-    migration model monitor namespace node oauth on okta outage page password patch permission pipeline plugin pod post pr pre
-    preview prod production pull push quality queue quota rate rebase release repo repository request restore retire retired
-    retry review reviewer revert role rollback rollout run runner schema script secret sentry server service session shell sign
-    slack sprint sso stack staging storage table tag test timeout token trace tracker typecheck ui update upgrade upload url
-    version vm webhook worktree
-    """.split()
-)
+TOKEN = re.compile(r"[a-z][a-z'-]+")
+NAMED = re.compile(r"[A-Z]|\w[- ]\w")
 PLAIN_FOR = script_module("long_running.overview").PLAIN_FOR
-UNREADABLE = (
-    *IDS,
-    (
-        "a file path",
-        re.compile(
-            r"(?<![\w/.:~-])(?:(?:~|\.\.?)?/[\w.-]*[A-Za-z][\w.-]*(?:/[\w.-]+)*|[\w.-]+(?:/[\w.-]+){2,}"
-            r"|[\w-]+(?:/[\w.-]+)*\.(?:py|go|rs|ts|tsx|js|jsx|json|jsonl|md|toml|ya?ml|sh|sql|txt|lock)\b)"
-        ),
-    ),
-    ("a code symbol", re.compile(r"`[^`\n]+`|\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b|\b[a-z]{2,}(?:[A-Z][a-z0-9]+)+\b|\b\w+\(\)|\b\w+::\w+")),
-    (
-        "a drive word",
-        re.compile(
-            r"\b(?:lanes?|desks?|slices?|sidecars?|rosters?|inbox pulls?|mount leases?|adapter lines?|verbs?|primary keys?|orphan(?:s|ed)?"
-            r"|census box(?:es)?|pass box(?:es)?|watchdogs?|finders?|fidelity grades?|read-?backs?|merge cards?|runners?|sweeps?)\b",
-            re.IGNORECASE,
-        ),
-    ),
-)
-READER = """The owner of this work reads the text after the line. He knows plain English, his own words, everyday engineering words such as {engineering}, and the product's nouns in this glossary:
-{glossary}
-
-He ruled on these things; each line gives a thing's names, then his words:
-{scopes}
-
-List each term in the text he would need defined before he could act on it. Only the drive's own names count: a lane's name, a cci or cc-notes record id, a hook, file, or function name, a codename, a bare record number, a PR number with no words beside it saying what it is, and a name from his rulings the text does not explain. A name from his rulings counts as explained only when the text glosses it in his words and follows it with that ruling's words. A bare capital letter that stands in as the name of a stack, gate, lane, or piece of work is a codename; one that labels an option, plan, or list item is not. Engineering words he knows pass, and so does any term made only of words he has used himself: never list either. Return no terms when he needs nothing defined.
----
-{text}"""
-PLAN_READER = """The owner reads the plan after the line before he approves it. He knows plain English, his own words, everyday engineering words such as {engineering}, and the product's nouns in this glossary:
-{glossary}
-
-He ruled on these things; each line gives a thing's names, then his words:
-{scopes}
-
-A path:line @ ref cite, and a real file or code name the plan gives to say where a change goes, are expected and never terms. Any other term counts wherever it sits, in prose, in parentheses, or in backticks. List each term he would need defined before he could approve the plan: an invented name, code name, bare id, or acronym standing in for words the plan does not say, and a name the plan gives something his rulings rule out in place of that ruling's names. If the plan's title, its first heading, does not say in plain words what the plan does, list the title too. Engineering words he knows pass, and so does any term made only of words he has used himself: never list either. Return no terms when he needs nothing defined.
----
-{text}"""
 CC_PRESENT = CommandSchema(
     "cc-present",
     operands=(Operand("verb"), Operand("words", count="*")),
@@ -181,12 +118,8 @@ CC_SLACK = CommandSchema(
     ),
 )
 RULINGS = f"{sys.executable} {script('rulings.py')}"
-PLAIN_READS = {f"{RULINGS} rows": ROWS, f"{RULINGS} glossary": GLOSSARY, "cci post": "#1\n", f"ccn -R {REPO} answer list": ANSWERS}
+PLAIN_READS = {f"{RULINGS} rows": ROWS, f"{RULINGS} glossary": GLOSSARY, "cci post": "#1\n", f"ccn -R {REPO} answer list": ANSWERS, **judged()}
 PROGRAM_ACTIVE = [CompactionState(active=True, slug="brook")]
-OVERZEALOUS = [
-    "break-glass", "grant", "stack", "database table change", "database migration", "batch post", "sprint channel", "quality checks",
-    "reviewer bots", "census", "retired sessions", "device-code sign-in", "error-tracker", "pre-release check", "drift preview", "Sentry", "lint",
-]
 INCIDENT_WINDOW = timedelta(hours=6)
 INCIDENT_STORE = [sys.executable, str(script("actions.py")), "list", "--json"]
 INCIDENT_DIGEST = ["cci", "digest", "--json", "--since", "6h", "--budget", "4000000"]
@@ -274,7 +207,7 @@ def spawn(name: str, prompt: str, **extra: object) -> Input:
     Event.PreToolUse,
     only_if=[Tool("Agent")],
     skip_if=[FromSubagent(), Annotated("incident", "none")],
-    tests=separate('owner_facing.route_incident_fix_lanes_to_sol', {
+    tests=separate("owner_facing.route_incident_fix_lanes_to_sol", {
         spawn("pr-review-pipeline-fix", "CI incident, effort high.", commands={REFUSED: ""}): Warn(
             pattern=r"desk-launch\.py incident <name> <fix-brief>[\s\S]*desk-launch\.py refused <name>-fix"
         ),
@@ -363,7 +296,7 @@ def plan_mode(tool: str, *stored: dict, posted: tuple[dict, ...] = (), **extra: 
     Event.PreToolUse,
     only_if=[Tool("EnterPlanMode", "ExitPlanMode")],
     skip_if=[FromSubagent()],
-    tests=separate('owner_facing.no_plan_mode_in_an_open_incident', {
+    tests=separate("owner_facing.no_plan_mode_in_an_open_incident", {
         plan_mode("EnterPlanMode", OUTAGE_0820): Warn(pattern="forbidden while a customer-visible outage is open"),
         plan_mode("ExitPlanMode", OUTAGE_0820): Warn(pattern="forbidden while a customer-visible outage is open"),
         plan_mode("EnterPlanMode", posted=(OUTAGE_TWO,)): Warn(pattern="replan after fix-live"),
@@ -437,7 +370,7 @@ def last_reply(evt: BaseHookEvent) -> str:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    tests=separate('owner_facing.nudge_utc_in_owner_replies', {
+    tests=separate("owner_facing.nudge_utc_in_owner_replies", {
         Input(transcript=reply_transcript("Fix lane spawned at 17:35Z."), state=ACTIVE): Allow(),
         Input(transcript=reply_transcript("Fix lane spawned at 10:35am."), state=ACTIVE): Allow(),
         Input(transcript=reply_transcript("Lane at 17:35Z.", sidechain=True), state=ACTIVE): Allow(),
@@ -455,7 +388,7 @@ def nudge_utc_in_owner_replies(evt: BaseHookEvent) -> HookResult | None:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    tests=separate('owner_facing.publish_lines_quote_the_released_record', {
+    tests=separate("owner_facing.publish_lines_quote_the_released_record", {
         Input(transcript=reply_transcript("sand 1437 is published."), state=ACTIVE, commands=incident_sources(OUTAGE_0820)): Warn(
             pattern=r"quote the RELEASED record"
         ),
@@ -549,19 +482,6 @@ def readable(text: str) -> str:
     return text
 
 
-def word_list(where: str, text: str, *, pr_block: bool) -> list[str]:
-    seen = readable(text)
-    rules = UNREADABLE if pr_block else (*UNREADABLE, ("a PR number", PR_NUMBER))
-    hits = dict.fromkeys((kind, hit[0]) for kind, pattern in rules for hit in pattern.finditer(seen))
-    return [f'plain words: {where} has {kind}, "{hit}"{instead(hit)}' for kind, hit in hits]
-
-
-def instead(hit: str) -> str:
-    word = hit.lower().replace("readback", "read-back")
-    plain = PLAIN_FOR.get(word) or PLAIN_FOR.get(word.removesuffix("es")) or PLAIN_FOR.get(word.removesuffix("s"))
-    return f'; say "{plain}" instead' if plain else ""
-
-
 def squeeze(text: str) -> str:
     return " ".join(text.split()).strip("\"“”' ").rstrip(".")
 
@@ -577,16 +497,8 @@ def outside_cites(text: str) -> str:
     return seen
 
 
-def plan_words(evt: BaseHookEvent, text: str, reads: Reads) -> list[str]:
-    seen = outside_cites(text)
-    hits = dict.fromkeys((kind, hit[0]) for kind, pattern in IDS for hit in pattern.finditer(seen))
-    found = [f'plain words: the plan has {kind}, "{hit}"' for kind, hit in hits]
-    if (glossary := reads.glossary()) is None:
-        return found
-    known = {line.strip().lower() for line in glossary.splitlines()} | PLAIN_ENGLISH
-    acronyms = dict.fromkeys(word for word in ACRONYM.findall(seen) if not {word.lower(), word.lower().removesuffix("s")} & known)
-    found += [f'plain words: the plan has an acronym standing in for words, "{word}"' for word in acronyms]
-    return found + reader_test(evt, readable(text), reads, PLAN_READER)
+def plan_words(text: str, reads: Reads) -> list[str]:
+    return judged_plain(reads, readable(text), outside_cites(text))
 
 
 def reason(failure: BaseException) -> str:
@@ -598,10 +510,6 @@ def reason(failure: BaseException) -> str:
 
 def fenced(rule: str, problems: list[str]) -> str:
     return f"{rule}\n\n```\n" + "\n".join(problems) + "\n```"
-
-
-class Undefined(BaseModel):
-    terms: list[str] = []
 
 
 @dataclass
@@ -634,11 +542,11 @@ class Reads:
     def glossary(self) -> str | None:
         return self.read("rulings.py glossary", lambda: rulings(self.repo, "glossary", *self.which, evt=self.evt))
 
-    def scopes(self) -> list[str] | None:
+    def scopes(self) -> list[tuple[list[str], str]] | None:
         if (register := self.register()) is None:
             return None
         rows = [row for row in register["rows"].values() if row.get("kind") == "scope"]
-        return self.read("the scope rows", lambda: [f"- {', '.join(json.loads(row.get('names') or '[]'))}: {row.get('words', '')}" for row in rows])
+        return self.read("the scope rows", lambda: [(json.loads(row.get("names") or "[]"), row.get("words", "")) for row in rows])
 
     def said(self) -> list[str] | None:
         if (register := self.register()) is None:
@@ -661,20 +569,26 @@ class Reads:
             post_blocker(self.evt, text, lane=lane_name(self.evt), key=f"{hook}:{hashlib.sha256(text.encode()).hexdigest()[:12]}")
 
 
-def undefined(term: str, known: frozenset[str]) -> bool:
-    return not all(word in known or word.removesuffix("s") in known for word in TOKEN.findall(term.lower()))
-
-
-def reader_test(evt: BaseHookEvent, text: str, reads: Reads, reader: str = READER) -> list[str]:
+def judged_plain(reads: Reads, text: str, picked: str) -> list[str]:
     if not text.strip() or (glossary := reads.glossary()) is None or (scopes := reads.scopes()) is None:
         return []
-    prompt = reader.format(glossary=glossary.strip(), scopes="\n".join(scopes) or "none", engineering=", ".join(sorted(PLAIN_ENGLISH)), text=text)
-    verdict = evt.llm(prompt, Undefined, size="small")
-    named = [term for term in verdict.terms if term in text] if verdict else []
-    if not named or (said := reads.said()) is None:
-        return []
-    known = PLAIN_ENGLISH | {word for text in [*said, *glossary.splitlines()] for word in TOKEN.findall(text.lower())}
-    return [f'plain words: the owner would need "{term}" defined' for term in named if undefined(term, known)]
+    judge, env = script_module("long_running/judge"), reqenv.env_map()
+    lowered = text.lower()
+    tokens = set(TOKEN.findall(lowered))
+    names = dict.fromkeys(line.strip() for line in glossary.splitlines() if NAMED.search(line.strip()))
+    known = [name for name in names if name.lower() not in PLAIN_FOR and (name.lower() in tokens or " " in name and name.lower() in lowered)]
+    ruled = [(names, words) for names, words in scopes if any(name.lower() in lowered for name in names)]
+    ids = list(dict.fromkeys(hit[0] for _, pattern in IDS for hit in pattern.finditer(picked)))
+    verdict = judge.judge(
+        "plain",
+        judge.reader(known, ruled, PLAIN_FOR, ids),
+        text,
+        backend=judge.backend_from(env),
+        drive=reads.which[1],
+        timeout=reqenv.clamp_timeout(judge.JUDGE_SECONDS),
+        env=env,
+    )
+    return [f'plain words, "{verdict.artifact_phrase}": {verdict.sentence}'] if verdict is not None and verdict.flagged else []
 
 
 def term_of(problem: str) -> str:
@@ -686,9 +600,9 @@ def unsaid(evt: BaseHookEvent, problems: list[str]) -> list[str]:
     return [problem for problem in problems if term_of(problem) in due]
 
 
-def plain_words(evt: BaseHookEvent, texts: list[tuple[str, str]], reads: Reads, *, pr_blocks: frozenset[str] = frozenset()) -> list[str]:
-    found = [problem for where, text in texts for problem in word_list(where, text, pr_block=where in pr_blocks)]
-    return found + reader_test(evt, "\n\n".join(readable(text) for _, text in texts), reads)
+def plain_words(texts: list[str], reads: Reads) -> list[str]:
+    text = "\n\n".join(readable(text) for text in texts if text.strip())
+    return judged_plain(reads, text, text)
 
 
 def piped_boards(evt: BaseHookEvent) -> list[str]:
@@ -762,18 +676,18 @@ def owner_strings(evt: BaseHookEvent, reads: Reads) -> list[tuple[str, str]]:
     return [(where, unquoted(text, said)) for where, text in fields if text]
 
 
-def status_card(llm: dict | None = None, **card: object) -> Input:
-    return Input(tool=SLACK_CARD, tool_input={"card": card}, state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS, llm=llm or {})
+def status_card(phrase: str = "", **card: object) -> Input:
+    return Input(tool=SLACK_CARD, tool_input={"card": card}, state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands={**PLAIN_READS, **judged(phrase)})
 
 
-def codenames_in_question(evt: BaseHookEvent) -> HookResult | None:
-    text = question_text(evt)
-    if (incidents := open_incidents(evt)) and not any(names_an_incident(text, names) for names in incidents):
+def drive_ask(question: str, phrase: str = "", **option: str) -> Input:
+    asked = ask(question, **option)
+    return Input(tool="AskUserQuestion", tool_input=asked.tool_input, state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands={**asked.commands, **PLAIN_READS, **judged(phrase)})
+
+
+def off_incident_question(evt: BaseHookEvent) -> HookResult | None:
+    if (incidents := open_incidents(evt)) and not any(names_an_incident(question_text(evt), names) for names in incidents):
         return evt.context(OFF_INCIDENT_ASK.format(names=incident_label(incidents)))
-    if DRAFTED_COPY.search(text):
-        return evt.context(DRAFT_IN_QUESTION)
-    if RECORD_IDS.search(text) or LETTER_NAMES.search(text):
-        return evt.context(CODENAME_IN_QUESTION)
     return None
 
 
@@ -781,39 +695,19 @@ def codenames_in_question(evt: BaseHookEvent) -> HookResult | None:
     Event.PreToolUse,
     only_if=[Tool("AskUserQuestion", "Bash", SLACK_CARD)],
     skip_if=[FromSubagent()],
-    tests=separate('owner_facing.plain_words_in_owner_questions', {
-        ask("D gate: the plan said dry-run before enqueue. Which gate?"): Warn(pattern=r"never a codename"),
-        ask("Lift the hold?", description="walker walks the reverted HEAD after G304 lifts"): Warn(pattern=r"never a codename"),
-        ask("Extend the alert grant?", description="same terms as answer 543e865"): Warn(pattern=r"never a codename"),
-        ask('Proposed reply to Andrew in #platform-squad: "No design conflict." OK to post?'): Warn(pattern=r"never composes Slack copy"),
-        ask("Post the Slack lane's reply to Andrew?", preview="Thanks, no design conflict with anything in flight."): Allow(),
-        ask("Land the release-pipeline cutover stack now, or after the 5pm freeze?", description="Options A and B"): Warn(pattern=r"never a codename"),
-        ask("Land the release-pipeline cutover stack now?", description="B lands after D"): Warn(pattern=r"never a codename"),
-        ask("Apply G327 per R1053?"): Warn(pattern=r"never a codename"),
-        ask("Retry the dispatch?", description="ctx_8f2a1 stalled; log c093750 has the trace"): Warn(pattern=r"never a codename"),
-        ask("Resend the relay?", description="msg_01HXQ never arrived"): Warn(pattern=r"never a codename"),
-        ask(
-            "For Slack releases whose plan shows a delete or replace, should the drive also approve on your behalf without asking, or keep bringing you the delete list first?",
-            description="Safe plans are approved unasked; any delete or replace pauses at Platy's hold until you read the list, as today.",
+    tests=separate("owner_facing.plain_words_in_owner_questions", {
+        drive_ask("D gate: the plan said dry-run before enqueue. Which gate?", "D gate"): Warn(pattern=r'^Warning, nothing was blocked: Owner-facing text must read in plain words[\s\S]*plain words, "D gate"'),
+        drive_ask("Lift the hold?", "G304", description="walker walks the reverted HEAD after G304 lifts"): Warn(pattern=r'plain words, "G304"'),
+        drive_ask('Proposed reply to Andrew in #platform-squad: "No design conflict." OK to post?', "Proposed reply to Andrew"): Warn(pattern=r'plain words, "Proposed reply to Andrew"'),
+        drive_ask("Post the Slack lane's reply to Andrew?", preview="Thanks, no design conflict with anything in flight."): Allow(),
+        Input(
+            tool="AskUserQuestion",
+            tool_input=ask("Lift the hold?").tool_input,
+            state=PROGRAM_ACTIVE,
+            env=DRIVE_CONFIG,
+            commands={**ask("Lift the hold?").commands, **PLAIN_READS, JUDGE: (1, "claude: overloaded")},
         ): Allow(),
-        ask(
-            "For a Slack release whose plan shows a delete or a replace, should the drive also approve it for you without asking, or keep bringing you the list of resources first?",
-            description="The lane approves every Slack release, deletes and replaces included, and reports the counts afterward.",
-        ): Allow(),
-        ask(
-            "Eleven of your older pull requests that predate the release pipeline work are still open and untouched. What should happen to them?",
-            description="They are not part of the release pipeline program; the drive keeps landing only its own pull requests.",
-        ): Allow(),
-        ask(
-            "The 11 older PRs of yours outside the drive (#29147, #28357, #22400–#22402, #17808) are untouched. What should happen to them?",
-            description="Leave them: the drive keeps landing only its own PRs, such as #29976.",
-        ): Allow(),
-        ask(
-            "The AWS single sign-on session expired at about 11:12 PM. The command is `aws sso login --sso-session forge`. Have you signed in?",
-            description="I tell the walker and the release lane to retry their sign-ins now.",
-        ): Allow(),
-        ask("Six Orca lanes (d-land, merge-walker, deploy-scope-fix) show Login expired. How do you want them back?"): Allow(),
-        Input(tool="AskUserQuestion", tool_input={"questions": [{"question": "D gate?", "options": []}]}): Allow(),
+        ask("D gate: the plan said dry-run before enqueue. Which gate?"): Allow(),
         Input(tool="AskUserQuestion", tool_input={"questions": [{"question": "D gate?", "options": []}]}, agent_id="a1b2c3", state=ACTIVE): Allow(),
         ask("Should I extend the backlog deadline to 11:30?", incidents=(SAND_NOT_MIGRATED,)): Warn(pattern=r"the alert is active[\s\S]*sand-not-migrated"),
         ask("sand-not-migrated: approve the 0-delete apply on plat?", incidents=(SAND_NOT_MIGRATED,)): Allow(),
@@ -824,96 +718,49 @@ def codenames_in_question(evt: BaseHookEvent) -> HookResult | None:
         ask("Should I extend the thousand-row backlog?", incidents=(SAND_NOT_MIGRATED,)): Warn(pattern=r"the alert is active"),
         ask("Should I extend the backlog deadline to noon?", posted=(BARE_INCIDENT,)): Warn(pattern=r"names its target, topic, or record number"),
         ask("Hand-publish sand for #103958?", posted=(BARE_INCIDENT,)): Allow(),
-        status_card(title="Merge the slice for lane p1a?", body="Its checks passed.", options=["Merge", "Hold"]): Warn(
-            pattern=r'card title has a drive word, "slice"'
-        ),
+        status_card("slice", title="Merge the slice for lane p1a?", body="Its checks passed.", options=["Merge", "Hold"]): Warn(pattern=r'plain words, "slice"'),
         status_card(title="Merge the chat-list fix?", body="Its checks passed.", options=["Merge #42301", "Hold"]): Allow(),
-        status_card(title="Merge the chat-list fix?", body="It lands after #42298.", options=["Merge", "Hold"]): Warn(
-            pattern=r'card body has a PR number, "#42298"'
-        ),
-        status_card(title="Merge the chat-list fix?", body="Uses `rows_of` (answer 5f0c2e1).", options=["Merge"]): Warn(
-            pattern=r"an internal id[\s\S]*a code symbol"
-        ),
-        status_card({"terms": ["chat-list"]}, title="Merge the chat-list fix?", body="Its checks passed.", options=["Merge"]): Warn(
-            pattern=r'the owner would need "chat-list" defined'
-        ),
-        status_card(
-            {"terms": ["finder-pending", "briefs/tooling-explain-more.md", "#61", "--pr filter", "110800", "codex-wrapper", "slack_dm_status", "rule 23"]},
-            title="Send the loss list to the team?",
-            body="It names every chat that lost its last turn, by person.",
-            options=["Send", "Hold"],
-        ): Allow(),
-        status_card(
-            {"terms": OVERZEALOUS},
-            title="Request break-glass for the database migration?",
-            body=(
-                "The pre-release check, the drift preview and the quality checks passed, and the reviewer bots and lint are green."
-                " The stack needs a grant before the database table change. Sentry's error-tracker lists the retired sessions,"
-                " the census is done, and the Mac needs a device-code sign-in. The batch post goes to the sprint channel."
-            ),
-            options=["Request", "Hold"],
-        ): Allow(),
-        status_card({"terms": ["between edits", "nightly backup", "banner restart"]}, title="Restart only between edits?", body="The banner restart waits for the nightly backup.", options=["Yes", "Hold"]): Allow(),
-        status_card({"terms": ["held copy"]}, title="Drop the held copy?", body="Nothing reads it now.", options=["Drop", "Hold"]): Allow(),
-        status_card(
-            {"terms": ["app PR #42517", "#42517"]},
-            title="Merge the chat fix?",
-            body="It is <https://github.com/acme/app/pull/42517|app PR #42517>, and [the same PR](https://github.com/acme/app/pull/42517) on GitHub.",
-            options=["Merge", "Hold"],
-        ): Allow(),
-        status_card({"terms": ["night-courier"]}, title="Merge the night-courier fix?", body="Its checks passed.", options=["Merge", "Hold"]): Warn(
-            pattern=r'the owner would need "night-courier" defined'
-        ),
-        status_card({"terms": ["p1a-land"]}, title="Merge the chat fix from p1a-land?", body="Its checks passed.", options=["Merge", "Hold"]): Warn(
-            pattern=r'the owner would need "p1a-land" defined'
-        ),
-        status_card({"terms": ["#111518"]}, title="Merge the chat fix?", body="Record #111518 says it passed.", options=["Merge", "Hold"]): Warn(
-            pattern=r'the owner would need "#111518" defined'
-        ),
-        status_card(title="Merge the chat-list fix?", body="Its checks passed.", options=["Merge"], facts=[{"label": "Lane", "value": "the chat-list fix"}]): Warn(
-            pattern=r'card fact has a drive word, "Lane"'
-        ),
-        status_card(title="Merge the chat-list fix?", body="Its checks passed.", options=["Merge"], phase="graded by the desk"): Warn(pattern=r'card phase has a drive word, "desk"'),
-        status_card(title="Count the chats from the database?", body="The census box read every bucket.", options=["Count"]): Warn(
-            pattern=r'card body has a drive word, "census box"; say "a temporary machine we delete afterwards" instead'
-        ),
-        status_card(title="Merge the chat-list fix?", body="The runner posted it.", options=["Merge"]): Warn(pattern=r'"runner"; say "background script" instead'),
         Input(
             command="""cc-slack dm-status --card '{"title": "Ship the sidecar change?", "body": "Ready."}'""",
-            state=PROGRAM_ACTIVE, env=DRIVE_CONFIG,
-            commands=PLAIN_READS,
-        ): Warn(pattern=r'a drive word, "sidecar"'),
-        Input(command=f"cc-present start --session s1 --doc {board('r3-spikes-queue-v1.json')}", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Warn(
-            pattern=r'r3-spikes-queue has a drive word, "lane"'
-        ),
+            state=PROGRAM_ACTIVE,
+            env=DRIVE_CONFIG,
+            commands={**PLAIN_READS, **judged("sidecar")},
+        ): Warn(pattern=r'plain words, "sidecar"'),
         Input(
-            command="cc-present start --session s1 --doc - <<'EOF'\n{\"title\": \"Ship the roster change?\", \"blocks\": []}\nEOF",
-            state=PROGRAM_ACTIVE, env=DRIVE_CONFIG,
-            commands=PLAIN_READS,
-        ): Warn(pattern=r'a drive word, "roster"'),
+            command=f"cc-present start --session s1 --doc {board('r3-spikes-queue-v1.json')}",
+            state=PROGRAM_ACTIVE,
+            env=DRIVE_CONFIG,
+            commands={**PLAIN_READS, **judged("lane")},
+        ): Warn(pattern=r'plain words, "lane"'),
         Input(command=f"cc-present start --session s1 --doc {board('clean-card.json')}", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
-        Input(command=f"cc-present start --session s1 --doc {board('r3-spikes-queue-v1.json')} --dry-run", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
+        Input(
+            command=f"cc-present start --session s1 --doc {board('r3-spikes-queue-v1.json')} --dry-run",
+            state=PROGRAM_ACTIVE,
+            env=DRIVE_CONFIG,
+            commands={**PLAIN_READS, **judged("lane")},
+        ): Allow(),
         Input(
             tool=SLACK_CARD,
             tool_input={"card": {"title": "Merge the chat-list fix?", "body": "Its checks passed.", "options": ["Merge"]}},
-            state=PROGRAM_ACTIVE, env=DRIVE_CONFIG,
-            commands={f"{RULINGS} rows": "no register for brook", f"{RULINGS} glossary": GLOSSARY, "cci post": "#1\n"},
+            state=PROGRAM_ACTIVE,
+            env=DRIVE_CONFIG,
+            commands={f"{RULINGS} rows": "no register for brook", f"{RULINGS} glossary": GLOSSARY, "cci post": "#1\n", **judged("chat-list")},
         ): Allow(),
         Input(command="ls", state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
-        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Merge the slice?"}}, commands=PLAIN_READS): Allow(),
-        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Merge the slice?"}}, agent_id="a1b2c3", state=PROGRAM_ACTIVE, commands=PLAIN_READS): Allow(),
+        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Merge the slice?"}}, commands={**PLAIN_READS, **judged("slice")}): Allow(),
+        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Merge the slice?"}}, agent_id="a1b2c3", state=PROGRAM_ACTIVE, commands={**PLAIN_READS, **judged("slice")}): Allow(),
     }),
 )
 def plain_words_in_owner_questions(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active:
         return None
-    if evt.tool_name == "AskUserQuestion":
-        return codenames_in_question(evt)
+    if evt.tool_name == "AskUserQuestion" and (warned := off_incident_question(evt)):
+        return warned
     if not (which := drive_args(evt)):
         return None
     reads = Reads(evt, which)
-    texts = owner_strings(evt, reads)
-    problems = plain_words(evt, texts, reads, pr_blocks=frozenset({"card option"})) if texts else []
+    texts = [question_text(evt)] if evt.tool_name == "AskUserQuestion" else [text for _, text in owner_strings(evt, reads)]
+    problems = plain_words(texts, reads)
     reads.report("plain_words_in_owner_questions")
     if reads.failures or not (problems := unsaid(evt, problems)):
         return None
@@ -924,8 +771,8 @@ def plain_words_in_owner_questions(evt: BaseHookEvent) -> HookResult | None:
     Event.Stop,
     skip_if=[FromSubagent()],
     transcript_events=REPLY_WINDOW,
-    tests=separate('owner_facing.plain_words_on_reply', {
-        Input(transcript=reply_transcript("The slice for lane p1a is done."), state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
+    tests=separate("owner_facing.plain_words_on_reply", {
+        Input(transcript=reply_transcript("The slice for lane p1a is done."), state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands={**PLAIN_READS, **judged("slice")}): Allow(),
         Input(transcript=reply_transcript("The chat-list fix is live for every team."), state=PROGRAM_ACTIVE, env=DRIVE_CONFIG, commands=PLAIN_READS): Allow(),
         Input(transcript=reply_transcript("The slice for lane p1a is done."), commands=PLAIN_READS): Allow(),
         Input(transcript=reply_transcript("The slice for lane p1a is done."), agent_id="a1b2c3", state=PROGRAM_ACTIVE, commands=PLAIN_READS): Allow(),
@@ -935,7 +782,7 @@ def plain_words_on_reply(evt: BaseHookEvent) -> HookResult | None:
     if not CompactionState.load(evt).active or not (which := drive_args(evt)) or not (reply := last_reply(evt)):
         return None
     reads = Reads(evt, which)
-    if problems := unsaid(evt, plain_words(evt, [("your reply", reply)], reads)):
+    if problems := unsaid(evt, plain_words([reply], reads)):
         queue_nudge(evt, fenced(REPLY_IN_PLAIN_WORDS, problems))
     reads.report("plain_words_on_reply")
     return None
@@ -973,7 +820,7 @@ def probe(command: str, *stored: dict, **extra: object) -> Input:
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     skip_if=[FromSubagent()],
-    tests=separate('owner_facing.root_only_routes_during_an_incident', {
+    tests=separate("owner_facing.root_only_routes_during_an_incident", {
         probe("kubectl -n plat get deploy api", SAND_NOT_MIGRATED): Warn(pattern="only spawns, routes, and acks"),
         probe("curl -s https://api.poetic.com/health", SAND_NOT_MIGRATED): Warn(pattern="only spawns, routes, and acks"),
         probe("pup monitors list", SAND_NOT_MIGRATED): Warn(),
@@ -1032,7 +879,7 @@ def cause(command: str, **extra: object) -> Input:
     only_if=[Tool("Bash")],
     skip_if=[FromSubagent()],
     max_fires=1,
-    tests=separate('owner_facing.root_causes_quote_a_lane_mechanism', {
+    tests=separate("owner_facing.root_causes_quote_a_lane_mechanism", {
         cause("cci post --drive release-v3 --lane root --kind go --to worker-fix --text 'the autoscaler caused the worker crashes; scale the pool'"): Warn(
             pattern=r"^Warning, nothing was blocked: this root record names a cause and quotes no lane record\."
         ),
@@ -1131,7 +978,7 @@ def authorize(*transcript: object, **call: object) -> Input:
     Event.PreToolUse,
     only_if=[Tool("Bash", "Edit", "Write")],
     skip_if=[FromSubagent()],
-    tests=separate('owner_facing.authorizing_lines_wait_for_the_owner_question', {
+    tests=separate("owner_facing.authorizing_lines_wait_for_the_owner_question", {
         authorize(ROUTING_QUESTION, command=ROUTING_GO): Warn(pattern="later turn"),
         authorize(
             T.assistant(T.tool("Bash", command="cc-present push - <<'EOF'\n{\"blocks\": [{\"title\": \"Should acme routing switch?\"}]}\nEOF")),

@@ -17,6 +17,8 @@ import shlex
 import sys
 import threading
 import time
+from collections import Counter
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -43,6 +45,13 @@ RULING = "Requirement: " + "the release holds until the canary reads back green.
 PARAGRAPHS = "Ruling, in three parts:\n\n- hold the release; relay the canary result to walker\n- " + "rebuild each failed head once, " * 15 + "then stop\n\nReport on this thread."
 FAST_SQUASH = "5e11a9d0c2b47f6e8a1d3c5b7f9e0a2c4d6b8e1f"
 FAST_BODY = "Resume uploads a pre-session-rows thread instead of refusing.\n\nRelease-With: sand\n"
+
+
+@pytest.fixture(autouse=True)
+def judged(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
+    asked: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(runner_module.judge, "judge", lambda kind, evidence, artifact, **_: asked.append((kind, evidence, artifact)))
+    return asked
 
 
 class Reexeced(Exception):
@@ -253,6 +262,8 @@ class FakeShell(runner_module.Shell):
         self.missing_prs: set[str] = set()
         self.launchd: dict[str, int] = {}
         self.launchctl_calls: list[list[str]] = []
+        self.keychain: set[str] = set()
+        self.pr_commits: dict[str, list[str]] = {}
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -349,6 +360,8 @@ class FakeShell(runner_module.Shell):
         argv = gateway(argv)
         self.calls.append(argv)
         name = Path(argv[0]).name
+        if argv[:3] == ["security", "find-generic-password", "-s"]:
+            return runner_module.Done(0 if argv[3] in self.keychain else 44, "", "")
         if argv[:2] == ["codex-ask", "--cancel"]:
             return runner_module.Done(0, "", "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == runner_module.MERGE_CARD_FIELDS:
@@ -436,6 +449,8 @@ class FakeShell(runner_module.Shell):
             if self.trunk_error:
                 return runner_module.Done(128, "", self.trunk_error)
             return runner_module.Done(0, f"{self.trunk[0]['oid']}\trefs/heads/dev\n" if self.trunk else "", "")
+        if argv[:6] == ["git", "-C", str(self.root / "checkout"), "--no-lazy-fetch", "cat-file", "--batch-check"]:
+            return runner_module.Done(0, "".join(f"{sha} commit 1\n" if sha in self.local_heads else f"{sha} missing\n" for sha in stdin.split()), "")
         if argv[:5] == ["git", "-C", str(self.root / "checkout"), "cat-file", "-e"]:
             return runner_module.Done(0 if argv[5].removesuffix("^{commit}") in self.local_heads else 128, "", "")
         if argv[:6] == ["git", "-C", str(self.root / "checkout"), "fetch", "-q", "--no-tags"] and argv[6] == "origin" and argv[7:] != ["refs/heads/dev"]:
@@ -670,6 +685,8 @@ class FakeShell(runner_module.Shell):
             errors = [{"type": "NOT_FOUND", "path": ["repository", f"p{pr}"], "message": f"Could not resolve to a PullRequest with the number of {pr}."} for pr in missing]
             data = {"data": {"repository": {f"p{pr}": dict(zip(("state", "headRefOid"), self.pr_heads[pr])) if pr in self.pr_heads else None for pr in pulls}}}
             return runner_module.Done(int(bool(missing)), json.dumps(data | ({"errors": errors} if errors else {})), "".join(f"gh: {error['message']}\n" for error in errors))
+        if carried := re.findall(r"c(\d+): pullRequest\(number: \1\) \{ commits\(last: 100\)", query):
+            return runner_module.Done(0, json.dumps({"data": {"repository": {f"c{pr}": {"commits": {"nodes": [{"commit": {"oid": oid}} for oid in self.pr_commits.get(pr, [])]}} for pr in carried}}}), "")
         if self.trunk and f'object(expression: "{self.trunk[0]["oid"]}") {{ ... on Commit {{ history(' in query:
             return runner_module.Done(0, json.dumps({"data": {"repository": {"object": {"history": {"nodes": self.trunk}}}}}), "")
         heads = re.findall(r'(h\d+): object\(expression: "([0-9a-f]+)"\) \{ \.\.\. on Commit \{ status \{ contexts \{ context state description targetUrl \} \} checkSuites\(last: 10, filterBy: \{checkName: "ai-review"\}\) \{ nodes \{ checkRuns\(last: 1, filterBy: \{checkName: "ai-review"\}\) \{ nodes \{ title startedAt \} \} \} \} \} \}', query)
@@ -2638,6 +2655,33 @@ def test_a_trunk_failed_or_cancelled_label_reads_as_evicted_where_the_status_rea
     assert runner_module.trunk_labelled(unknown, {"labels": "trunk-cancelled"})["evicted"] == "Trunk labelled it trunk-cancelled"
 
 
+def test_a_trunk_drop_reads_as_evicted_where_the_status_read_says_not_queued():
+    """Owner 10:44 PM Oct 30: ccx read #45599, which Trunk's queue run had failed, as not queued, and only an unknown status took Trunk's label, so nothing read it as dropped."""
+    out = {"number": 45599, "queue": "not queued", "verdict": "blocked:ci-red"}
+    failed = {"outcome": "failed", "text": "failed in Trunk's merge queue", "at": "2026-10-31T05:34:00Z"}
+    assert runner_module.trunk_labelled(out, {"labels": "externally-merged,trunk-failed"}) == out | {"queue": "evicted", "evicted": "Trunk labelled it trunk-failed"}
+    assert runner_module.trunk_recorded(out, failed) == out | {"queue": "evicted", "evicted": failed["text"], "evicted_at": failed["at"]}
+    assert runner_module.trunk_recorded(out, failed | {"outcome": "merged"}) == out
+    assert runner_module.trunk_recorded(out, failed | {"outcome": "testing"}) == out
+    assert runner_module.trunk_labelled(out, {"labels": "trunk-queued"}) == out
+
+
+def test_a_red_head_trunk_dropped_posts_one_red_to_its_lane_and_root_though_no_check_reads_it(shell, config, monkeypatch):
+    """Owner 10:44 PM Oct 30: #45599 fell out of the Trunk merge queue when its queue run failed, its status read red, so no check read it, and the runner told nobody."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["adapter"] = {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}
+    config.write_text(json.dumps(raw))
+    monkeypatch.setenv("TRUNK_MERGE_API_KEY", "trunk-secret")
+    shell.rows = [ONE_ROW | {"labels": "externally-merged,trunk-failed"}]
+    shell.queue["29020"] = "not queued"
+    shell.pr_status["29020"] = {"verdict": "blocked:ci-red", "ci": {"state": "red", "failing": ["Trunk Merge Queue (dev)"]}}
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [post] = blockers(shell)
+    assert set(post["to"].split(",")) == {"root", LANE}
+    assert post_body(post) == f"#29020 {ONE_ROW['head']}: CI is red: Trunk Merge Queue (dev); the queue dropped it at an unstamped time: Trunk labelled it trunk-failed"
+
+
 TRUNK_FAILED_GATE = "#33001 BLOCKED aaaa111111 Trunk attempt 2026-10-30T23:10:00Z failed: TEST_RUN_REQUIRED_STATUS_FAILED (verification v1); inspect its verification and push a fix or explicitly name this PR with --flake"
 
 
@@ -3419,6 +3463,7 @@ def test_a_stale_title_in_the_newest_grade_warns_root_and_the_lane_and_still_ask
 def test_merge_mode_every_asks_the_owner_once_per_head_and_enqueues_on_the_merge_answer(shell, config, tmp_path):
     merge_mode(config, "every")
     lone_green_pr(shell)
+    shell.queue["29020"] = "not queued"
     grade(shell, "29020", "ok F307 at cccc333.")
     landing_pass(shell, config)
     landing_pass(shell, config)
@@ -4558,6 +4603,7 @@ def test_on_a_board_surface_no_check_or_enqueue_names_a_pr_without_a_root_go_at_
         merge_go(shell, pr, f"merge #{pr} at {head}")
     merge_go(shell, "29100", "merge #29100 at bbbb222")
     shell.pr_status |= {"29031": {"verdict": "blocked:ci-pending"}, "29100": {"verdict": "blocked:ci-pending"}}
+    shell.queue["29100"] = "not queued"
     landing_pass(shell, config)
     assert stack_named(shell) == {"29020"}
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
@@ -4950,6 +4996,22 @@ def test_a_head_whose_own_build_failed_is_unproven_whatever_build_covers_it(shel
     assert any("#29020 cccc333333: unproven: its own build https://buildkite.com/forge/test/builds/78299 failed at cccc333333" in body for body in bodies)
 
 
+def test_a_head_is_proven_at_the_head_its_check_read_from_github_never_at_a_ledger_head_it_superseded(shell, config, tmp_path):
+    """Root #230508: #45756's check read ddb2d0a from GitHub while the ledger row still held 0c806e9, and the runner refused it on 0c806e9's failed build."""
+    with_ci_build(config)
+    shell.launch(LANE, "ctx_a")
+    lone_green_pr(shell)
+    shell.rows[0] |= {"head": "bbbb222222", "reported_head": "bbbb222222"}
+    grade_gated_heads_ok(shell)
+    shell.commit_statuses["bbbb222222"] = [status("test", "78299", "failure")]
+    shell.builds["78299"] = finished(FULL_BUILD, "bbbb222222", "failed")
+    shell.commit_statuses["cccc333333"] = [status("test", "78301")]
+    shell.builds["78301"] = finished(FULL_BUILD, "cccc333333")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    assert not [call for call in shell.calls if "repos/Forge-AI/monorepo/commits/bbbb222222/status" in call]
+
+
 def test_only_a_full_build_of_the_skipped_pipeline_on_the_stacks_tip_covers_the_heads_below_it(shell, config, tmp_path):
     with_ci_build(config)
     shell.launch(LANE, "ctx_a")
@@ -5275,13 +5337,28 @@ def test_a_pass_fetches_the_trunk_while_the_ledger_refreshes(shell, config):
     def watched(argv, stdin=None, env=None):
         if len(argv) > 4 and Path(argv[1]).name == "ledger.py" and argv[4] == "refresh":
             refreshing.set()
-        if argv[:2] == ["git", "-C"] and argv[3:4] == ["fetch"]:
+        if argv[:2] == ["git", "-C"] and argv[3:4] == ["fetch"] and argv[-1] == "refs/heads/dev":
             overlapped.append(refreshing.wait(5))
         return run(argv, stdin, env)
 
     shell.run = watched
     landing_pass(shell, config)
     assert overlapped == [True]
+
+
+@pytest.mark.parametrize("heads", [["cccc333333"], ["cccc333333", "dddd444444"]], ids=["one-head", "two-heads"])
+def test_a_tree_fetches_the_heads_the_checkout_lacks_in_one_call_before_its_check(shell, config, heads):
+    if len(heads) == 1:
+        lone_green_pr(shell)
+        grade(shell, "29020", "ok F307 at cccc333.")
+    else:
+        two_pr_stack(shell)
+    landing_pass(shell, config)
+    checkout = str(shell.root / "checkout")
+    fetch = ["git", "-C", checkout, "fetch", "-q", "--no-tags", "origin"]
+    assert [call[len(fetch):] for call in shell.calls if call[:len(fetch)] == fetch] == [[*heads, "--no-write-fetch-head"]]
+    checks = [index for index, call in enumerate(shell.calls) if Path(call[0]).name == "stack-enqueue" and "--check" in call]
+    assert checks and shell.calls.index([*fetch, *heads, "--no-write-fetch-head"]) < checks[0]
 
 
 def test_a_checkout_that_cannot_fast_forward_gates_nothing_until_it_can(shell, config, tmp_path):
@@ -5763,6 +5840,33 @@ def test_a_root_decide_on_the_rebuttal_chain_that_keeps_the_finding_holds_the_he
     seq = finder_verdict(shell, "29020", "major cccc333 1 open: go/a.go:12 the migration test seeds write version 1")
     shell.records.append({"seq": seq + 1, "drive": "d1", "lane": LANE, "kind": "note", "to": ["root"], "re": seq, "refs": {"prs": [29020]}, "text": "the seed is a test gap, not a defect"})
     shell.records.append({"seq": seq + 2, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "re": seq + 1, "refs": {}, "text": "Finding not cleared: seed version 2 before it lands."})
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+
+
+@pytest.mark.parametrize("cleared", ["names-head", "source-settled"])
+def test_a_root_clear_of_a_carried_finder_major_lets_the_head_enqueue(shell, config, tmp_path, cleared):
+    """Root #231127: root cleared carried majors on #45199, #46081 and #45821 in a DECIDE answering the lane's ask, and the runner kept each FINDER-PENDING."""
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333", finder=False)
+    source = finder_verdict(shell, "29020", "major bbbb222 1 open over whole bbbb222^..bbbb222: go/a.go:12 the unused import breaks the build")
+    if cleared == "source-settled":
+        shell.records.append({"seq": source + 1, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {}, "resolves": [source], "text": "refuted: the import is still used"})
+    carried = finder_verdict(shell, "29020", f"major cccc333 carried from #{source}")
+    landing_pass(shell, config)
+    if cleared == "names-head":
+        assert shell.enqueues() == []
+        shell.records.append({"seq": carried + 1, "drive": "d1", "lane": LANE, "kind": "ask", "to": ["root"], "refs": {"prs": [29020]}, "text": "the carried major is refuted; clear it"})
+        shell.records.append({"seq": carried + 2, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "resolves": [carried + 1], "text": "6:49 PM Clear finder on #29020 cccc333: the carried major (unused import) is refuted."})
+        landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
+def test_a_root_clear_naming_another_head_or_a_negated_clear_settles_nothing(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok cccc333", finder=False)
+    seq = finder_verdict(shell, "29020", "major cccc333 1 open: go/a.go:12 the retry drops the sealed read")
+    shell.records.append({"seq": seq + 1, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {}, "text": "Clear finder on #29020 bbbb222. Do not clear the finder on #29020 cccc333 yet."})
     landing_pass(shell, config)
     assert shell.enqueues() == []
 
@@ -6614,8 +6718,8 @@ def test_a_rulings_warning_posts_once_per_head_whether_the_pass_names_it_by_full
     ("first", "second", "answered", "warnings"),
     [
         ("NAME-HIT rule/8aeaaff go/x.go:5 writer\nCONTRACT-MISSING lane-a: no fidelity desk has graded a read-back\n", "NAME-HIT rule/8aeaaff go/x.go:5 writer\n", False, 1),
-        ("NAME-HIT rule/8aeaaff go/x.go:5 writer\n", "NAME-HIT rule/8aeaaff go/x.go:5 writer\nRULINGS-PLAIN a code symbol\n", True, 1),
-        ("NAME-HIT rule/8aeaaff go/x.go:5 writer\n", "NAME-HIT rule/8aeaaff go/x.go:5 writer\nRULINGS-PLAIN a code symbol\n", False, 2),
+        ("NAME-HIT rule/8aeaaff go/x.go:5 writer\n", "NAME-HIT rule/8aeaaff go/x.go:5 writer\nLANE-DECIDED We decided to park the worker.\n", True, 1),
+        ("NAME-HIT rule/8aeaaff go/x.go:5 writer\n", "NAME-HIT rule/8aeaaff go/x.go:5 writer\nLANE-DECIDED We decided to park the worker.\n", False, 2),
     ],
 )
 def test_a_rulings_warning_posts_again_at_its_head_only_for_a_new_cause_before_the_lane_answers(shell, config, tmp_path, first, second, answered, warnings):
@@ -6914,6 +7018,39 @@ def test_a_withdrawn_go_leaves_a_pr_queued_that_another_standing_go_admits_at_th
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
     shell.records.append({"seq": 40000, "drive": "d1", "lane": "root", "kind": "correction", "re": first, "to": ["landing-desk"], "refs": {}, "text": f"withdrawing go #{first}; the newer go stands", "at": actions.stamp(shell.clock)})
+    landing_pass(shell, config)
+    assert dequeues(shell) == []
+
+
+def test_a_queued_pr_whose_head_moved_past_its_go_dequeues_and_enqueues_again_on_a_go_at_the_new_head(shell, config):
+    """Root #234005: Trunk merged #45744 at 23c548f, a head no go named, because the queue entry from go #228814 at e147581 survived the lane's force-push."""
+    merge_mode(config, "every")
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    shell.rows[0] |= {"head": "eeee555555", "reported_head": "eeee555555"}
+    landing_pass(shell, config)
+    assert dequeues(shell) == [["29020", "--dequeue"]]
+    shell.clock += runner_module.STATUS_MAX_AGE + timedelta(seconds=1)
+    shell.queue["29020"] = "not queued"
+    landing_pass(shell, config)
+    assert [line.split(": ", 2)[-1] for line in dequeue_lines(shell)] == ["the status read after the dequeue finds it not queued; a go at its new head enqueues it again"]
+    shell.gates["29020"] = [gate("#29020 GREEN eeee555555 graphite READY", would="#29020")]
+    grade(shell, "29020", "ok F307 at eeee555.")
+    merge_go(shell, "29020", "merge #29020 at eeee555")
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 2
+
+
+def test_a_queued_pr_a_go_names_at_its_current_head_stays_queued(shell, config):
+    merge_mode(config, "every")
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    merge_go(shell, "29020", "merge #29020 at aaaa111")
+    merge_go(shell, "29020", "merge #29020 at cccc333")
+    landing_pass(shell, config)
     landing_pass(shell, config)
     assert dequeues(shell) == []
 
@@ -7664,6 +7801,20 @@ def test_an_admitted_head_the_gate_refuses_posts_one_refused_naming_the_gate_lin
     assert len(settled(shell, "REFUSED")) == 1
 
 
+def test_an_admitted_pr_on_trunk_whose_branch_carries_another_open_prs_head_is_refused_and_never_enqueued(shell, config, tmp_path):
+    """Root #239479: #45799 read base dev, so the runner admitted it on its go, but its branch carried the heads of #45629 and #45759, which waited on the owner's taps, and Trunk's squash landed them all at 11:05 PM Oct 30."""
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.rows.append({"pr": "33002", "lane": LANE, "branch": "g/0", "base": "dev", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222"})
+    shell.gates["33002"] = [gate("#33002 BLOCKED bbbb222222 CI running")]
+    shell.pr_commits["33001"] = ["bbbb222222" + "0" * 30, "aaaa111111" + "0" * 30]
+    landing_pass(shell, config)
+    assert len([call for call in graphql_reads(shell) if "commits(last: 100)" in call[4]]) == 1
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [line] = settled(shell, "REFUSED")
+    assert "#33001" in line and "its branch carries #33002, which a squash would land with it; restack it onto dev" in line
+
+
 def test_an_admitted_head_posts_one_record_per_change_of_its_outcome(shell, config, tmp_path):
     merge_mode(config, "every")
     gone_green(shell, "#33001 BLOCKED aaaa111111 merge conflict (graphite CONFLICT)")
@@ -7716,6 +7867,26 @@ def test_a_stacked_head_on_a_base_the_pass_did_not_admit_reads_below_blocked_nev
     [line] = settled(shell, "BELOW-BLOCKED")
     assert line.startswith(f"BELOW-BLOCKED above #33000: root gos name #33001 at aaaa111111 (go #{go_of(shell, '33001')} by root at ")
     assert line.endswith("stacked on #33000, which the pass did not admit, so its graphite-stack-enqueue check read no verdict: stack-enqueue: error: #33001's native stack contains an unavailable pull request")
+
+
+@pytest.mark.parametrize("admitted_by", ["exemption", "go-while-conflicting"])
+def test_an_admitted_head_on_a_parent_no_go_names_settles_below_blocked_never_unsettled(shell, config, tmp_path, admitted_by):
+    """Oct 30 7:18 PM: #45719, #45802 and #45893, admitted as exempt ports or test-only changes, and #45400, go'd while conflicting, each sat on a parent no go named and settled `unsettled: the admission read`."""
+    board_surface(config)
+    two_pr_stack(shell)
+    shell.rows[0] = dict(shell.rows[0], test_state="success")
+    shell.rows[1] = dict(shell.rows[1], test_state="success")
+    if admitted_by == "exemption":
+        shell.files["29031"] = ["go/sand/next/vm/run.go"]
+        grade(shell, "29031", "ok dddd444 pure port, no interaction: it only ports old-tree #43020.")
+    else:
+        shell.rows[1] |= {"mergeable_state": "dirty"}
+        merge_go(shell, "29031", "merge #29031 at dddd444")
+    landing_pass(shell, config)
+    assert not [line for line in said(shell) if "unsettled" in line]
+    assert admitted_heads(config)["29031"]["state"] != "defect"
+    assert admitted_heads(config)["29031"]["why"].startswith("stacked on #29020 at cccc333333")
+    assert shell.enqueues() == []
 
 
 def test_a_pass_that_gates_nothing_refuses_every_admitted_head_in_one_record_naming_why(shell, config, tmp_path):
@@ -9658,6 +9829,7 @@ def test_supervise_install_bootstraps_only_its_own_label_with_the_key_read_from_
         "EnvironmentVariables": {"PATH": "/opt/homebrew/bin:/usr/bin:/bin"},
         "KeepAlive": True,
         "ThrottleInterval": 60,
+        "SoftResourceLimits": {"NumberOfFiles": 65536},
         "StandardOutPath": log,
         "StandardErrorPath": log,
     }
@@ -9670,6 +9842,82 @@ def test_supervise_install_bootstraps_only_its_own_label_with_the_key_read_from_
     assert cli(shell, config, "supervise", "status", "--desk", "landing") == 1
     assert {arg for call in shell.launchctl_calls for arg in call[1:]} == {agent_target("landing"), f"gui/{os.getuid()}", str(plist)}
     restarted[0].close()
+
+
+def test_a_supervised_runner_may_open_as_many_files_as_a_shell_started_one_so_a_full_pass_never_hits_launchds_256(shell, config, tmp_path):
+    """Oct 30 10:00 PM: landing runner 76641 under launchd ended pass 1 with Errno 24, Too many open files, at launchd's 256-file default, where a shell-started runner had 1,048,576."""
+    restarted = []
+    shell.on_sleep.append(lambda: restarted.append(launchd_restarts(shell, config, tmp_path, "landing")))
+    assert cli(shell, config, "supervise", "install", "--desk", "landing") == 0
+    agent = plistlib.loads((tmp_path / "Library/LaunchAgents" / f"{agent_label('landing')}.plist").read_bytes())
+    assert agent["SoftResourceLimits"]["NumberOfFiles"] >= 65536
+    restarted[0].close()
+
+
+def unregistered_fidelity_desk(shell: FakeShell, config: Path) -> None:
+    raw = json.loads(config.read_text())
+    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-desk-14", "fidelity-pipeline"]
+    config.write_text(json.dumps(raw))
+    shell.unregistered = {"fidelity-desk-14"}
+
+
+def test_a_handoff_whose_landing_successor_would_refuse_preflight_stops_no_runner(shell, config, tmp_path, capsys):
+    """Oct 30 9:47 PM: a supervise install stopped landing runner 45623, then launchd's first two starts refused preflight on runner.json's unregistered fidelity desks, so landing was down three minutes."""
+    unregistered_fidelity_desk(shell, config)
+    runner, held = live_runner(shell, config, tmp_path, "landing")
+    with held:
+        assert cli(shell, config, "handoff", "--desk", "landing") == 3
+    assert not runner.stop_marker().exists() and shell.successors == []
+    err = capsys.readouterr().err
+    assert "no runner was stopped" in err and "fidelity-desk-14, which never registered" in err
+
+
+@pytest.mark.parametrize("refusal", ["unregistered", "keychain"])
+def test_supervise_install_whose_runner_would_refuse_preflight_boots_out_nothing_and_bootstraps_nothing(shell, config, tmp_path, monkeypatch, capsys, refusal):
+    keyed(config, key_item="trunk-merge-api-key")
+    monkeypatch.delenv("TRUNK_MERGE_API_KEY", raising=False)
+    shell.launchd[agent_label("landing")] = os.getpid()
+    if refusal == "unregistered":
+        shell.keychain.add("trunk-merge-api-key")
+        unregistered_fidelity_desk(shell, config)
+    assert cli(shell, config, "supervise", "install", "--desk", "landing") == 3
+    assert shell.launchctl_calls == [] and not (tmp_path / "Library/LaunchAgents").exists()
+    err = capsys.readouterr().err
+    assert "no runner was stopped" in err and ("never registered" if refusal == "unregistered" else "no Keychain item trunk-merge-api-key holds TRUNK_MERGE_API_KEY") in err
+
+
+def test_a_supervised_handoff_from_a_shell_without_the_landing_key_reads_it_from_its_keychain_item(shell, config, tmp_path, monkeypatch, capsys):
+    keyed(config, key_item="trunk-merge-api-key")
+    monkeypatch.delenv("TRUNK_MERGE_API_KEY", raising=False)
+    shell.keychain.add("trunk-merge-api-key")
+    shell.launchd[agent_label("landing")] = os.getpid()
+    runner, held = live_runner(shell, config, tmp_path, "landing")
+    restarted = []
+
+    def exits(seconds):
+        runner.stop_marker().unlink()
+        held.close()
+        restarted.append(launchd_restarts(shell, config, tmp_path, "landing"))
+
+    monkeypatch.setattr(shell, "sleep", exits)
+    assert cli(shell, config, "handoff", "--desk", "landing") == 0
+    assert ["security", "find-generic-password", "-s", "trunk-merge-api-key"] in shell.calls
+    restarted[0].close()
+
+
+def test_a_landing_runner_passes_preflight_before_it_holds_the_desk_so_a_refusing_start_never_reads_as_started(shell, config, tmp_path, monkeypatch):
+    """A supervised handoff counts a desk as started once a new pid holds its lock, so a runner that took the lock and then refused preflight read as a successful start."""
+    unregistered_fidelity_desk(shell, config)
+    holders = []
+    checked = runner_module.startup_fault
+
+    def holding(runner, keychain=False):
+        holders.append(runner.desk_holder("landing"))
+        return checked(runner, keychain)
+
+    monkeypatch.setattr(runner_module, "startup_fault", holding)
+    assert cli(shell, config, "run", "--desk", "landing", "--once") == 3
+    assert holders == [None]
 
 
 def test_supervise_install_refuses_a_landing_adapter_whose_key_no_keychain_item_names(shell, config, tmp_path, monkeypatch, capsys):
@@ -9930,6 +10178,21 @@ def test_a_successor_launched_on_its_predecessors_brief_owes_no_scale_line(shell
 
     assert launches(shell) == [[str(runner_module.LAUNCHER), f"{LANE}-2", "sol", "xhigh", str(brief)]]
     assert not [line for line in escalations(shell) if line.startswith("SCALE-MISSING")]
+
+
+def test_a_launch_whose_scale_line_a_judge_reads_as_missing_its_n_launches_and_warns_the_root(shell, config, tmp_path, judged, monkeypatch):
+    brief = launch_brief(tmp_path)
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    missed = runner_module.judge.Verdict("yes", "no N", "every chat on the Mac", "The fix runs once per chat, so the N is the chats on one Mac.")
+    monkeypatch.setattr(runner_module.judge, "judge", lambda kind, evidence, artifact, **_: judged.append((kind, evidence, artifact)) or missed)
+    orca_pass(shell, config)
+    desk_orders(shell, f"R45 orca-desk: launch {LANE} sol xhigh brief={brief}")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "sol", "xhigh", str(brief)]]
+    assert judged == [("scale", "The brief, verbatim:\nccx: place=local\nbrief\nScale: no N", "Scale: no N")]
+    assert f'SCALE-MISSED scale:R45 {LANE}: The fix runs once per chat, so the N is the chats on one Mac. Its line reads "no N"; fix it in {brief} for the next spawn.' in escalations(shell)
 
 
 def test_a_launch_refreshes_its_slice_first_and_a_slice_that_does_not_read_blocks_nothing(shell, config, tmp_path):
@@ -12993,26 +13256,59 @@ def test_the_alive_record_names_the_passs_own_command_over_a_longer_one_a_worker
     assert shell.alive == [f"landing alive {shell.clock.astimezone(runner_module.PACIFIC):%-I:%M %p} pass 1 running `cci tail --drive d1` for 1m05s"]
 
 
-def test_a_pr_query_reads_only_the_records_after_the_newest_it_kept_and_drops_one_that_expired():
-    posted = [{"seq": 4, "text": "a"}, {"seq": 8, "text": "c"}]
-    calls: list[str] = []
-
+def fake_cci(posted: list[dict], calls: list[list[str]]) -> Callable[[list[str]], str]:
     def run(argv: list[str]) -> str:
+        calls.append(argv)
         since = int(argv[argv.index("--since") + 1])
-        calls.append(str(since))
-        return "".join(json.dumps(record) + "\n" for record in posted if record["seq"] > since)
+        pr = argv[argv.index("--pr") + 1] if "--pr" in argv else ""
+        kinds = [arg.partition("=")[2] for arg in argv if arg.startswith("--kind=")]
+        found = [record for record in posted if record["seq"] > since and (not pr or runner_module.cci.names_pr(record, pr)) and (not kinds or record["kind"] in kinds)]
+        return "".join(json.dumps(record) + "\n" for record in (found[-int(argv[argv.index("--limit") + 1]) :] if "--limit" in argv else found))
 
-    tail = runner_module.cci.Tail(run)
+    return run
+
+
+def test_a_pr_query_reads_only_the_records_after_the_newest_it_kept_and_drops_one_that_expired():
+    posted = [{"seq": 4, "kind": "review", "text": "a", "refs": {"prs": ["Forge-AI/monorepo#29020"]}}, {"seq": 8, "kind": "review", "text": "c", "refs": {"prs": [29020]}}]
+    calls: list[list[str]] = []
+    tail = runner_module.cci.Tail(fake_cci(posted, calls))
     tail.remember()
-    query = ("d1", "--pr", "Forge-AI/monorepo#29020")
+    query = ("d1", "--kind=review", "--pr", "Forge-AI/monorepo#29020")
     assert [record["seq"] for record in runner_module.cci.records(tail, *query)] == [4, 8]
     tail.forget()
-    posted.append({"seq": 11, "text": "d"})
+    posted += [{"seq": 11, "kind": "review", "text": "d", "refs": {"prs": ["Forge-AI/monorepo#29020"]}}, {"seq": 12, "kind": "review", "text": "e", "refs": {"prs": ["Forge-AI/monorepo#29031"]}}]
     assert [record["seq"] for record in runner_module.cci.records(tail, *query)] == [4, 8, 11]
     tail.forget()
-    tail.grown[(query[0], query[1:])][0]["expires_at"] = "2000-01-01T00:00:00Z"
+    posted[0]["expires_at"] = "2000-01-01T00:00:00Z"
+    tail.kept[("d1", ("--kind=review",), "Forge-AI/monorepo#29020")].records[0]["expires_at"] = "2000-01-01T00:00:00Z"
     assert [record["seq"] for record in runner_module.cci.records(tail, *query)] == [8, 11]
-    assert calls == ["0", "8", "11"]
+    assert [(argv[argv.index("--since") + 1], "--pr" in argv) for argv in calls] == [("0", False), ("0", True), ("8", False), ("12", False)]
+
+
+def test_pr_queries_share_one_cci_read_a_pass_so_calls_stay_flat_from_10_to_1000_prs():
+    """Root #234903: a landing pass ran about 1,562 cci tail calls in 439 s, one paged read per PR and filter shape, each from the start of the drive."""
+
+    def calls_in_a_later_pass(prs: int) -> int:
+        posted = [{"seq": pr, "kind": "review", "text": "ok", "refs": {"prs": [f"Forge-AI/monorepo#{pr}"]}} for pr in range(1, prs + 1)]
+        calls: list[list[str]] = []
+        tail = runner_module.cci.Tail(fake_cci(posted, calls))
+        tail.remember()
+        for pr in range(1, prs + 1):
+            runner_module.cci.records(tail, "d1", "--kind=review", "--pr", f"Forge-AI/monorepo#{pr}")
+        tail.forget()
+        posted.append({"seq": prs + 1, "kind": "review", "text": "again", "refs": {"prs": ["Forge-AI/monorepo#1"]}})
+        before = len(calls)
+        found = [runner_module.cci.records(tail, "d1", "--kind=review", "--pr", f"Forge-AI/monorepo#{pr}") for pr in range(1, prs + 1)]
+        assert [record["seq"] for record in found[0]] == [1, prs + 1] and [len(records) for records in found[1:]] == [1] * (prs - 1)
+        return len(calls) - before
+
+    assert calls_in_a_later_pass(10) == calls_in_a_later_pass(1000) == 1
+
+
+def test_a_text_pr_ref_matches_only_its_own_repository_and_a_bare_number_matches_any():
+    record = {"refs": {"prs": ["Forge-AI/monorepo#29020", 31000]}}
+    assert runner_module.cci.names_pr(record, "Forge-AI/monorepo#29020") and runner_module.cci.names_pr(record, "yasyf/cc-skills#31000")
+    assert not runner_module.cci.names_pr(record, "yasyf/cc-skills#29020") and runner_module.cci.names_pr(record, "29020")
 
 
 def test_a_cci_page_under_half_the_budget_is_the_last_one_read(monkeypatch):
@@ -13425,6 +13721,24 @@ def test_each_pass_goes_to_the_listed_sprite_running_the_fewest_of_its_desks_pas
     assert [(job["pr"], job["sprite"]) for job in finder_jobs(shell)][3:] == [("43601", "sprite-b")]
     assert shell.sprite_jobs == [("sprite-a", "finder.py"), ("sprite-b", "finder.py"), ("sprite-a", "finder.py"), ("sprite-b", "fidelity.py"), ("sprite-b", "finder.py")]
 
+
+
+def test_no_pass_starts_on_a_sprite_already_running_its_cap_of_finder_and_fidelity_passes_together(shell, config):
+    """tooling-misc-3 #231706, 7:10 PM Oct 30: the finder's 20 passes and fidelity's 16 were each spread over the Sprites alone, so one 8 GB Sprite ran 9 or more at once at load 20 with its RAM full, and its passes timed out."""
+    finder_config(config, concurrent=8, sprite=["sprite-a", "sprite-b"])
+    fidelity_config(config, concurrent=8, sprite=["sprite-a", "sprite-b"])
+    config.write_text(json.dumps(json.loads(config.read_text()) | {"sprite_cap": 2}))
+    orca_pass(shell, config)
+    heads = {pr: hashlib.sha1(pr.encode()).hexdigest() for pr in ("43439", "43299", "42784", "43601")}
+    for pr, head in heads.items():
+        head_record(shell, pr, head)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert sorted(Counter(sprite for sprite, _ in shell.sprite_jobs).items()) == [("sprite-a", 2), ("sprite-b", 2)]
+    assert not any(job["sprite"] == "" for job in [*finder_jobs(shell), *fidelity_jobs(shell)])
+    (shell.finder_jobs[0] / "result.json").write_text(json.dumps({"verdict": "ok", "record": f"finder: ok {heads[finder_jobs(shell)[0]['pr']]}", "posted": "#150001"}))
+    orca_pass(shell, config)
+    assert len(shell.sprite_jobs) == 5 and shell.sprite_jobs[-1][0] == finder_jobs(shell)[0]["sprite"]
 
 def sprite_records(shell: FakeShell) -> list[tuple[str, str, str]]:
     return [(post["kind"], post["to"], post["text"]) for post in shell.posts if post.get("topic", "").startswith("sprite:")]

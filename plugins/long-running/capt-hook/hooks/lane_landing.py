@@ -10,7 +10,7 @@ from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, I
 from captain_hook.annotations import dispatch_prompt, header_lines, session_annotations
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, bus_name, deadline_env, drive_entry, script, script_module
+from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, bus_name, drive_entry, run_script, script, script_module
 from .register_injection import INCIDENT_NAME, INCIDENT_SLICE
 from .session_tree import drive_lane
 
@@ -30,7 +30,7 @@ REPO_FLAGS = frozenset({"-R", "--repo"})
 REPO_IN_ARG = re.compile(r"(?:^|/)repos/(?P<api>[\w.-]+/[\w.-]+)/|github\.com/(?P<url>[\w.-]+/[\w.-]+)/pull/")
 MERGE_VALUE_FLAGS = frozenset({"--match-head-commit", "--body", "-b", "--body-file", "-F", "--subject", "-t", "--author-email", "-A"})
 PULL = re.compile(r"(?:https://github\.com/[\w.-]+/[\w.-]+/pull/)?(?P<pr>\d+)/?")
-CHECK_PR_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "SHAPE-UNTESTED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "RULINGS-PLAIN", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS"})
+CHECK_PR_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "SHAPE-UNTESTED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS"})
 INCIDENT_CAUSES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"})
 CHECK_PR_TIMEOUT_SECONDS = 60
 GREEN_EXCEPT = re.compile(r"\bgreen (?:except|apart from|other than|save for|but for)\b|\bknown[- ]red\b|\bred[- ]by[- ]design\b|\bdesign[- ]red\b", re.IGNORECASE)
@@ -414,7 +414,7 @@ def merged_pr(call: Call, repo: str, cwd: str) -> tuple[str, str] | None:
 
 def run_quietly(argv: list[str], cwd: str) -> subprocess.CompletedProcess[str] | None:
     try:
-        return subprocess.run(argv, capture_output=True, text=True, timeout=CHECK_PR_TIMEOUT_SECONDS, cwd=cwd, env=deadline_env(CHECK_PR_TIMEOUT_SECONDS))
+        return run_script(argv, CHECK_PR_TIMEOUT_SECONDS, cwd)
     except (OSError, subprocess.TimeoutExpired):
         return None
 

@@ -3,11 +3,12 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import importlib.util
-import os
-import json
 import io
+import json
+import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -80,6 +81,7 @@ TURN_WINDOW = 256
 ORCA_UNSET = "The handoff is recorded, but the hook cannot type `/compact` here. Run `/compact` now."
 CCN_TIMEOUT_SECONDS = 20
 DEADLINE_ENV = "LONG_RUNNING_DEADLINE"
+REAP_SECONDS = 5
 COMPACT_RETRY_SECONDS = 33 * 60
 RESTORE_BUDGET = 2000
 SHORT = 7
@@ -127,6 +129,15 @@ def script_module(name: str) -> ModuleType:
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def judged(kind: str, evidence: str, artifact: str, drive: str | None) -> str | None:
+    """The fenced finding a judge returns when it flags `artifact`; None when it clears it or its call fails, so the caller adds nothing."""
+    judge, env = script_module("long_running/judge"), reqenv.env_map()
+    found = judge.judge(kind, evidence, artifact, backend=judge.backend_from(env), drive=drive, timeout=reqenv.clamp_timeout(judge.JUDGE_SECONDS), env=env)
+    if found is None or not found.flagged:
+        return None
+    return f'{REGISTER_FENCE}\n{found.sentence}\nArtifact: "{found.artifact_phrase}"\nEvidence: "{found.evidence_phrase}"\n{REGISTER_FENCE}'
 
 
 @workflow_state("long_running_compaction")
@@ -319,8 +330,13 @@ def register_context(evt: BaseHookEvent, register: dict) -> HookResult:
     return evt.context(*register_parts(register))
 
 
-def deadline_env(timeout: float) -> dict[str, str]:
-    return {**reqenv.env_map(), DEADLINE_ENV: str(time.time() + timeout)}
+def run_script(argv: list[str], timeout: float, cwd: str | None = None, stdin: str | None = None) -> subprocess.CompletedProcess[str]:
+    """Run one of the plugin's scripts in the request's environment, telling it this hook gives up on it in `timeout` seconds: at that deadline the script kills every command it started and dies, which reads as a timeout, so a `ccn` hung on cc-notes never outlives it under PID 1 the way 101 did in an hour on 2026-10-30. The hook's own kill, which reaches the script alone, comes REAP_SECONDS later."""
+    env = {**reqenv.env_map(), DEADLINE_ENV: f"{os.getpid()}:{time.time() + timeout:.3f}"}
+    done = subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=timeout + REAP_SECONDS, cwd=cwd, env=env)
+    if done.returncode == -signal.SIGALRM:
+        raise subprocess.TimeoutExpired(argv, timeout, done.stdout, done.stderr)
+    return done
 
 
 @cache
@@ -340,7 +356,7 @@ def rulings(cwd: str, *args: str, evt: BaseHookEvent, stdin: str = "", timeout: 
         read = HookRead(evt, argv, timeout)
         read.remaining()
         module = rulings_module(script("long_running/__init__.py"))
-        env = deadline_env(timeout)
+        env = {**reqenv.env_map(), DEADLINE_ENV: f"{os.getpid()}:{time.time() + timeout:.3f}"}
         home = Path(env["HOME"]) if env.get("HOME") else Path.home()
         drives = Path(env.get("CLAUDE_CONFIG_DIR") or home / ".claude") / "long-running" / "drives"
 
@@ -364,7 +380,7 @@ def rulings(cwd: str, *args: str, evt: BaseHookEvent, stdin: str = "", timeout: 
             code = 1
         else:
             code = error.code
-    except subprocess.TimeoutExpired:
+    except (subprocess.TimeoutExpired, reqenv.Abandoned):
         raise
     except Exception as error:
         raise subprocess.CalledProcessError(1, argv, output.getvalue(), errors.getvalue() + traceback.format_exc()) from error
@@ -440,6 +456,7 @@ class HookRead:
         except SystemExit as error:
             raise subprocess.CalledProcessError(1, self.argv, stderr=f"{error}\n") from error
 
+
 class RegisterRead(HookRead):
     def __init__(self, evt: BaseHookEvent, entry: dict) -> None:
         super().__init__(evt, [sys.executable, str(script("rulings.py")), "--drive", entry["drive"]], CCN_TIMEOUT_SECONDS)
@@ -463,7 +480,6 @@ class RegisterRead(HookRead):
             result = reads.root_slice(program, identity, rows)
             self.remaining()
             return result
-
 
 def queue_register(state: CompactionState, reader: RegisterRead) -> None:
     if register := reader.register():

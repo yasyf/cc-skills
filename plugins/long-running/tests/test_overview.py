@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,7 +10,6 @@ from long_running import drive
 from long_running import overview
 import pytest
 from conftest import DRIVE, LEDGER, FakeShell
-from hooks.owner_facing import word_list
 
 NOW = datetime(2026, 10, 30, 2, 30, tzinfo=UTC)
 ROOT_SESSION = "900424b6-7393-480c-a26a-f1bd21da6e57"
@@ -81,7 +81,7 @@ def test_a_milestone_is_done_once_live_and_says_what_it_updates(steps):
 
 def test_the_report_names_no_change_number_lane_or_drive_word(steps):
     text = rendered(steps)
-    assert word_list("overview", text, pr_block=False) == []
+    assert overview.DRIVE_WORD.search(text) is None and re.search(r"#\d+", text) is None
     assert "A change was replaced by 3 changes; a worker handed off twice." in text
     assert "The merge worker queues it once the automated code review passes" in text
 

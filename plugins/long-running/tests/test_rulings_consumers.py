@@ -12,7 +12,7 @@ from hooks import compaction_handoff
 from hooks.tests.rulings_consumers import MIGRATED
 
 MODULES = tuple(importlib.import_module(f"hooks.{name}") for name in (
-    "board_text_gate", "narrowed_contracts", "owner_facing", "register_capture",
+    "board_text_gate", "refusal_kinds_need_owner_answer", "owner_facing", "register_capture",
     "register_gates", "register_injection", "ruling_judge", "settled_questions", "ruling_misread",
 ))
 

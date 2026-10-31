@@ -33,6 +33,7 @@ stands: the root spawns `comms-desk` from `reference/comms-desk-brief.md` once p
 the owner gave word for, and it ends after that post. The orca desk is the
 `desk-runner.py run --desk orca` process, not a subagent. Its landing process, the drive's merge queue, shares the store and runs D3, D14, D16, and D20.
 The root spawns a subagent for every task with a body, including its own routine work.
+A lane never spawns one with `Agent`, since a teammate cannot background the call: it writes the brief to a file, posts `cci post --kind ask --to root --text 'spawn <name> brief=<absolute path> model=<opus or sonnet>'`, and keeps working, and the `lanes_never_spawn` hook refuses the call.
 
 This skill is the context-discipline layer over `~/.claude/CLAUDE.md`. Fan-out shape comes
 from §Parallelize Independent Work, lane behavior from §Delegation, per-lane model and
@@ -917,16 +918,17 @@ the largest option Recommended before the options lane replied. Four PRs then bu
 second grader beside the Watch, and release 5445 failed its Switch on every env.*
 
 A found violation of an existing owner ruling is applied, never put back to him as a card
-or pick. The pack's `settled_questions` hook matches each question in an asking call
-(`AskUserQuestion`, `cc-present start --doc`, `push`, `update-block`, a Slack status card
-with options, and a root DECIDE sentence that orders a card) against the register's
-in-force rows, the tracked plan's Decisions lines, the `scope:durable` answers, and the
-feedback memories. It runs in lanes too, so the board refresher's pushes are checked. It
-warns on a match and quotes the ruling or answer that settles it; apply that and drop the
-question. A card on something the owner picked before, superseded picks and picks that
-point the other way included, shows him each one as a line `You picked "<pick>" on
-<date>`; the hook warns a card that leaves one out and lists the lines to add. The same
-question re-issued passes, so a wrong match costs one retry.
+or pick. The pack's `settled_questions` hook hands each question in an asking call
+(`AskUserQuestion`, each card of a `cc-present start --doc`, `push` or `update-block`, a
+Slack status card with options, and a root DECIDE sentence that orders a card) to a judge,
+with the owner's words on the register rows the question cites or `rulings.py match`
+finds, and the other in-force rows, the plan's Decisions lines, his picks and the feedback
+memories that share its words, each pick with the question it answered and whether a later
+answer replaced it. The
+judge warns when the card asks what he already ruled, or offers an option that reads him
+narrower or more literally than his words. It runs in lanes too, so the board refresher's
+pushes are checked. A failed judge call adds nothing. The same card re-issued passes, so a
+wrong flag costs one retry.
 
 An owner message that states a standing rule, with "from now on", "always", "never", "I
 told you", or "the plan is", is recorded the turn it arrives, as an `answer_add` with
@@ -973,30 +975,58 @@ place the earlier narrowing survived, fixes them all that turn, and tells the ow
 was missed and why.
 The root never settles a plan gap by DECIDE. A new column, table, route, field, state,
 timer, or metric that neither the plan nor an owner row names goes on the owner's board
-as a card, and the lane that met the gap stops on it. A root `cci post --kind decide`
-that adds a mechanism the plan file does not name, with no owner row id or plan line
-cited in the same sentence, draws a warning from `root_decide_gate`. The root also reads what
+as a card, and the lane that met the gap stops on it. The root also reads what
 each lane reports it did against the plan before relaying it; "a worker did X" is the
 root's to check, not to pass on.
-A contract, read-back, or DECIDE is never narrower than the owner row it cites. A
-partition (`per key`, `per destination`, `per chat`) or an exception (`only`,
-`except`, `unless`) his words lack is graded missing against his words:
-`rulings.py readback` prints it as `READBACK-NARROWED`, `rulings.py accepted` refuses
-an ok grade that leaves a narrowed key unnamed, and the `narrowed_contracts` hook warns
-the grade or root post that accepts such a contract.
-Those word checks catch only the shapes they name. The `ruling_misread` hook asks Sonnet
-whether each posted contract, root relay, card request, and the tests a pull request
-ships misread the owner's verbatim words on the rows they cite or match, either narrower
-than he said or applied literally past his purpose. A yes comes back to the writer as
-a warning with his words, the phrase that misreads, and one plain sentence; it never
-blocks. The writer fixes the artifact or answers on its record with the ruling that
-carries it.
+A contract, read-back, or DECIDE is never narrower than the owner row it cites, and
+never applies his words past their purpose. `judge_watch.py`, a pass the orca runner
+starts every minute, asks the drive's judge after the post, so no writer waits, whether
+each lane's contract and each root relay misreads his verbatim words on the rows it
+cites, or for a contract the two `rulings.py match` finds; a relay is also asked whether
+it adds a mechanism neither his words nor the plan lines it shares words with name. A yes
+posts one `review` record, `JUDGE <kind> #<seq> <key>: <sentence>`, in reply to the
+artifact, to its writer and root. The writer fixes the artifact or answers on the flag
+with the owner words that carry it; an answer puts one owner card on the board,
+`judge-dispute-<flag>`, with his words and both readings, and his pick becomes an eval
+case under `judge/owner/`. When `rulings.py classify` extends a row with new words, the
+pass judges the ten newest contracts and relays of the last day citing that row again
+under all his words; a yes there that the judge had read as carried before is a miss,
+said so in the flag and written under `judge/misses/` as an eval case. The
+`ruling_misread` hook judges the tests a pull request ships the same way at ship.
+Every small-model question in the pack goes through one library,
+`scripts/long_running/judge.py`; a caller with many questions of its own shape in one pass,
+the stall watch, asks them in one `batch` call on the same command line. A judge reads the owner's words verbatim and what they
+answered, never the register's summaries. A yes is asked a second time, and a split is
+unsure, which never warns. A failed call returns nothing, so the caller keeps the
+behavior it had without a judge. `LONG_RUNNING_JUDGE` picks the model: `sonnet+jev`, the
+default, asks Sonnet at low effort with Claude Code's own system prompt replaced and lets
+TypeSafe Jev settle a first answer of unsure; `sonnet`, `jev` and `jev+sonnet` are the
+others. Each call appends one line to `judge/calls.jsonl` in the drive's state folder,
+and `drive.py digest` prints each judge kind's verdicts, errors and latency over the last
+day. `judge-eval.py <fixtures>` scores every backend on the same answers over fixture
+files kept in the drive's state folder, because they carry the owner's words; it calls
+models, so it runs by hand before a judge ships or a prompt changes, never in CI.
+The same library judges what a lane ships and what the root tells the owner, each as a
+warning beside the check it replaces or fronts. At ship, `refusal_kinds_need_owner_answer`
+reads the refusal kinds, retries, clocks and budgets a pull request adds and asks whether
+the owner's words or the plan name them, and `pr_bodies_name_what_they_defer` asks
+whether a body being opened or edited names the fix its stand-ins put off and why, and
+the rulings the diff builds in plain words. A lane brief's `Scale:` line must be there,
+and a judge asks whether it names the N the brief's paths run at, in the spawn hook and
+as one `SCALE-MISSED` from the orca desk runner. A root reply that admits a defect during
+an open incident is judged on whether the same turn started its fix; a claim about code
+or a review that follows a read is judged on whether it says more than the read showed;
+and a release cancel or rollback that cites an owner answer is judged on whether that
+answer orders this exact undo, beside the block that still refuses an unordered rollback.
 A ruling about system shape (one process, one primary and one replica, everything a
 client, N things sharing one X) gets a CI test that fails on today's code in the same
-turn as the build. `rulings.py shapes` lists the in-force shape rows; `check-pr` refuses
-a PR citing one as `SHAPE-UNTESTED` until the PR adds a test naming the row or
-`rulings.py shape <key> --test <repo>#<pr> <path>::<test>` records one; the stall watch
-posts every shape row still untested 30 minutes after it was written to root.
+turn as the build. `rulings.py shapes` lists the in-force shape rows; `check-pr` warns
+of a PR citing one as `SHAPE-UNTESTED` until the PR adds a test naming the row or
+`rulings.py shape <key> --test <repo>#<pr> <path>::<test>` records one. A test that names
+the row is not enough: the drive's judge reads it beside his words, and a test it reads as
+asserting a different invariant, one that passes while his fails, is `SHAPE-UNTESTED` too,
+with the judge's sentence. The stall watch posts every shape row still untested 30 minutes
+after it was written to root.
 
 *Prevents the release-v3 repeats of 2026-10-22. The owner said for the fifth time that
 starting a session in the cloud and then writing on the Mac is out of scope, and again
@@ -1313,9 +1343,11 @@ The pack's `owner_facing` hook reads the root's final reply at `Stop` in a drive
 queues `Next reply to the owner: give times in Pacific with no zone label, never UTC`
 when it carries a UTC clock time (`17:35Z`, `17:3xZ`, `16:52 UTC`). The time nudge, and
 the plain-words nudge on each term in a reply or an owner question, fire at most once
-per hour each, so a term already flagged warns again only an hour later. Its `plain_words_in_owner_questions` hook blocks a drive root's
-`AskUserQuestion` that carries a codename, an inbox or answer id, or a proposed Slack
-reply. Its `authorizing_lines_wait_for_the_owner_question` hook blocks a `GO`, `LIFT`, or
+per hour each, so a term already flagged warns again only an hour later. A judge reads
+each reply, card, board, plan and drive root `AskUserQuestion` and warns when he would need
+the drive's vocabulary to follow it, when it reads as fields instead of sentences, or when
+a question carries a proposed Slack reply; ids a pattern picks out go to the judge as
+candidates, never as the verdict. Its `authorizing_lines_wait_for_the_owner_question` hook blocks a `GO`, `LIFT`, or
 `UNBLOCK` line appended to an `inbox/*.md` file, and a `cci post --kind go|lift|unblock`
 record, that names the PR or routing change an unanswered `AskUserQuestion` or a board
 posted that turn asks about; write it in a later turn, once the owner answers.
@@ -1658,15 +1690,16 @@ answer id, quotes at least four of the owner's words from it verbatim, and follo
 with a plain sentence of at least three words on how the PR keeps the ruling. The citation
 is the acknowledgment, even for the row's own names (926a89d).
 A row whose `protects` field names the harm it prevents, with `not_when` naming where it
-does not apply, prints both under its words in every slice. A cited row that has one needs
-a `## Rulings` line naming it that says what it protects and how the change serves that,
-`<rule> protects <harm>; this change serves it by <how>`; otherwise check-pr prints
-`RULINGS-PLAIN <rule> cited by id alone` (root #204765).
-A `MECHANISM-BANNED` line names an added line, in code or a test, that starts a timer
-(rule/949e6be), waits inside a loop (rule/f60345a), writes a credential, token, grant or
-pass to a file (prompt/1026-105052), or runs a build or test on this machine
-(rule/c9b7c87). Its lane fixes it before the owner's tap, or cites his answer naming the
-shape as a `# owner: <answer id>` line under `## Rulings`. Lanes see the same lines
+does not apply, prints both under its words in every slice. Whether a body names the
+rulings its diff builds in plain words is the PR body judge's question at ship, so
+check-pr prints `RULINGS-UNCITED` only for an incident fix, whose merge it blocks (45200f2).
+A `MECHANISM-BANNED` line names added lines, in code or a test, that start a timer
+(rule/949e6be) or wait inside a loop (rule/f60345a) when the drive's judge, given the
+owner's words on those rows and the rows the PR cites and the plan's lines naming the
+files, reads them as named by neither; and an added line that writes a credential, token,
+grant or pass to a file (prompt/1026-105052), or runs a build or test on this machine
+(rule/c9b7c87), unless a `# owner: <answer id>` line under `## Rulings` cites his answer
+naming that shape. Its lane fixes it before the owner's tap. Lanes see the same lines
 before a push from `rulings.py sweep --diff <file>` over their own diff.
 A run that exits with a code other than 0 or 1, or prints a line naming no cause, passes the head with nothing
 posted, and so does each `BLOCKER` line it prints: the check fails open (0afd2f6, 4236611).
@@ -2802,14 +2835,15 @@ stalls in one stack post as one record, on the stack's lowest PR.
 | `order` | a root `decide` record relays an owner order, Sonnet reads it as naming a change that ships as a new PR, and no lane it names, or a numbered successor, posts a record citing a PR after it, such as `opened`, `done`, or a `state` with a PR reference; it stops at two hours or when a root record closes it | 3 | root, as `urgent` |
 
 **S2. Python checks the facts, and one Sonnet call answers the judgment.** Sonnet judges
-whether a new head replays the tapped one unchanged, and whether a quiet lane's last
-record explains its silence or promises a time. One `claude -p` call per pass,
-on `claude-sonnet-5-5` at low effort, answers every open question. A verdict is kept
-against the records it read, so no question is asked twice. When the call fails, each
-question takes its mechanical answer.
+whether a new head replays the tapped one unchanged, whether a quiet lane's last
+record explains its silence or promises a time, and whether a relayed owner order ships
+as a new PR. One call per pass through the judge library's `batch`, Sonnet at low effort
+with Claude Code's own system prompt replaced, answers every open question and lands in
+`judge/calls.jsonl` as kind `stall`. A verdict is kept against the records it read, so no
+question is asked twice. When the call fails, each question takes its mechanical answer.
 
-`stall.minutes` overrides any row's minutes, `stall.window_hours` (default 24) bounds the
-records a pass reads, and `stall.model` names the judge. `stall_watch.py --config
+`stall.minutes` overrides any row's minutes, and `stall.window_hours` (default 24) bounds the
+records a pass reads. `stall_watch.py --config
 <runner.json> --dry-run` prints the stalls a pass finds, and posts and saves nothing.
 
 *Prevents approvals that never reached the owner's board, finder reviews nobody
@@ -3087,7 +3121,8 @@ Scale: <the N each path this lane changes runs at: chats, teams, sessions, or ru
   builds the fix. The spawn hook and the orca desk runner warn on a new non-incident
   lane brief with no `Scale:` line and never refuse it; a `<lane>-handoff` writer, a
   successor (`<lane>-<n>` or a `Replaces:` line), and a brief written before the rule pass
-  quietly.
+  quietly. Both also warn when a judge reads a brief's `Scale:` line as missing the N its
+  paths run at.
 Standing rules served: <`#<seq>` ids with their answer ids, each with the owner's
   words and confirmed implications (R19b), or "none">. Your task cites
   them; finishing it never retires them, and no report calls them done.
@@ -3196,9 +3231,12 @@ the Sprite's disk.
 A lane checks its change before it pushes with
 `remote-vet.py --config <runner config> --lane <lane> [<worktree>]`, never a local
 `go build`, `go vet` or `cargo check`. It ships everything the worktree changed since
-its merge base, uncommitted and untracked files included, to the lane's own worktree
-on a Sprite, runs the config's `vet.prepare` code generation, then builds and vets
-only the Go packages and Rust crates the change touches, and exits 1 on any `FAIL`.
+its merge base with the branch below it in its stack, uncommitted and untracked files
+included, to the lane's own worktree on the least loaded Sprite the config's
+`vet.sprite` lists, Sprites no finder or fidelity pass runs on. There it runs the
+config's `vet.prepare` code generation, then builds and vets only the Go packages and
+Rust crates the change touches, and exits 1 on any `FAIL`. When every vet Sprite is
+over load 16 it exits 3 at once, and the lane pushes and lets CI grade the change.
 
 For in-process subagents, use one of this plugin's two lane types with the
 routing table's `model`. Both definitions default to Opus; set a different
