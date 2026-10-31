@@ -301,6 +301,9 @@ class TrunkStackEnqueue(GraphiteStackEnqueue):
         super().__init__(shell, checkout, config, ledger_py, repo)
         self.ci = str(checkout / "tools/ci")
 
+    def run_settled(self, argv: list[str]):
+        return super().run_settled(argv) if "--check" in argv else self.limited(argv)
+
     def check(self, tips: list[str], whole: bool, heads: dict[str, str], partial: bool) -> Gate:
         done = self.run([self.script, *tips, "--check", *(["--whole"] if whole else [])])
         would = TRUNK_WOULD_ENQUEUE.search(done.out)

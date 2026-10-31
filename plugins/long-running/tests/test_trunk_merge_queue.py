@@ -141,11 +141,3 @@ def test_a_tls_handshake_timeout_reaching_trunk_is_retried_instead_of_failing_th
     shell = Shell(timeout, done("#10 GREEN aaaa111111 Trunk notSubmitted\nwould enqueue native stack through #10: #10\n"))
     gate = adapter(shell).check(["10"], False, {}, False)
     assert gate.would == ["10"] and len(shell.calls) == 2 and shell.slept == [merge_queue.TRANSIENT_PAUSE_SECONDS]
-
-
-def test_a_tls_handshake_timeout_reaching_trunk_on_an_enqueue_is_retried_and_reads_its_outcome():
-    """Root #222205: an enqueue that met a TLS handshake timeout reaching Trunk escalated ENQUEUE-FAILED with no retry."""
-    timeout = done(err='stack-enqueue failed: ci trunk: Post "https://api.trunk.io/v2/submitPullRequest": net/http: TLS handshake timeout\n', code=5)
-    shell = Shell(timeout, done("#10 QUEUED aaaa111111 native stack covers #10\n"))
-    outcome, _, _ = adapter(shell).enqueue(["10"], False, {})
-    assert outcome == "enqueued" and len(shell.calls) == 2 and shell.slept == [merge_queue.TRANSIENT_PAUSE_SECONDS]

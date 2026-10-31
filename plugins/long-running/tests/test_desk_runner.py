@@ -6335,7 +6335,7 @@ def test_a_drop_blaming_a_pr_outside_the_stack_re_enqueues_the_same_head_on_the_
     assert len(shell.enqueues()) == 1
     root_go(shell, "GO #29020 at cccc3333 standard; a head change is not required", shell.now())
     landing_pass(shell, config)
-    assert len(shell.enqueues()) == 2 and blockers(shell) == [] and len(escalations(shell)) == 1
+    assert len(shell.enqueues()) == 2 and blockers(shell) == [] and [line.split(" ", 1)[0] for line in escalations(shell)] == ["AWAITS-GO", "GO-UNROWED"]
 
 
 def test_a_gate_ejection_blaming_a_pr_outside_the_stack_is_never_routed(shell, config, tmp_path):
