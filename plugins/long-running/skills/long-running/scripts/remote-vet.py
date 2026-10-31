@@ -190,7 +190,10 @@ def main(argv: list[str] | None = None) -> int:
     config = json.loads(args.config.read_text())
     clone = config["landing"]["checkout"]
     worktree = Path(run("git", "rev-parse", "--show-toplevel", cwd=args.worktree).strip())
-    sprite, load = (args.sprite, 0.0) if args.sprite else idlest(config["vet"]["sprite"])
+    if not args.sprite and not (builds := config.get("vet", {}).get("sprite")):
+        print(f"remote-vet: {args.config} names no BUILD Sprite under vet.sprite, and a vet never runs on a grading Sprite; pass --sprite or push and let CI grade {args.lane}")
+        return 3
+    sprite, load = (args.sprite, 0.0) if args.sprite else idlest(builds)
     if load > MAX_LOAD:
         print(f"remote-vet: every vet Sprite is over load {MAX_LOAD:g} ({sprite} at {load:g}); push and let CI grade {args.lane}")
         return 3
