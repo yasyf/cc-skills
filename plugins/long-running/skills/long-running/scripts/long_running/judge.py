@@ -31,6 +31,7 @@ JEV_YES = 0.5
 ARTIFACT_CHARS = 12000
 CALLS = Path("judge") / "calls.jsonl"
 CARD_SECONDS = 10
+CARD_CHARS = 4000
 BOARD_PROOF = re.compile(r"proof:board:([0-9a-f]{16})\b")
 
 SYSTEM = (
@@ -154,7 +155,7 @@ def answered_card(owner: dict[str, dict], proof: str, env: Mapping[str, str] | N
         )
     except (subprocess.SubprocessError, OSError):
         return None
-    return shown.stdout.strip()
+    return shown.stdout.strip()[:CARD_CHARS]
 
 
 def owner_words(key: str, said: list[dict]) -> str:

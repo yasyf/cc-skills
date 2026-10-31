@@ -132,7 +132,7 @@ def replayed(backend: judge.Backend) -> tuple[int, int, int]:
 def test_the_default_backend_scores_best_on_the_recorded_eval_answers():
     scores = {backend: replayed(backend) for backend in judge.BACKENDS}
 
-    assert scores[judge.DEFAULT_BACKEND] == (45, 3, 0)
+    assert scores[judge.DEFAULT_BACKEND] == (43, 5, 0)
     assert all(scores[judge.DEFAULT_BACKEND][0] > passed for backend, (passed, _, _) in scores.items() if backend != judge.DEFAULT_BACKEND)
 
 
