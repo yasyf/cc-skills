@@ -1649,7 +1649,7 @@ def test_the_required_slice_prints_every_global_pending_and_touched_row_with_its
 def test_the_worded_required_slice_carries_his_words_and_the_card_a_tap_answered_and_never_an_implication(home: Path, package: Path, state: Path, capsys, monkeypatch) -> None:
     card = "card-relay: Where does relay code live?\n  - relay-journal: In relay-journal (recommended)\n  - relay-server: In relay-server"
     taps = {"Relay code lives in relay-journal. Never in relay-server.": card}
-    monkeypatch.setattr(rulings.judge, "said", lambda row, state, env=None: [{"at": row.get("at", ""), "words": row["words"], "answered": taps.get(row["words"])}])
+    monkeypatch.setattr(rulings.judge, "said", lambda row, state, env=None, **_: [{"at": row.get("at", ""), "words": row["words"], "answered": taps.get(row["words"])}])
 
     code, out = ran(capsys, RegisterShell(seeded(package), diff=DIFF), "slice", "--required", "--words", "--pr", "acme/app#12", "--head", "cafef00d", "--base", "main")
     lines = out.splitlines()
