@@ -15,6 +15,36 @@ from pathlib import Path
 
 from .model import Action, ActionState, Incident, StaleGeneration, UnknownAction
 
+_ESCALATION_SCHEMA = """
+CREATE TABLE escalation_pr (
+    pr TEXT NOT NULL,
+    action_ordinal INTEGER NOT NULL,
+    PRIMARY KEY(pr, action_ordinal)
+) WITHOUT ROWID;
+CREATE INDEX escalation_pr_action ON escalation_pr(action_ordinal);
+CREATE TRIGGER escalation_added AFTER INSERT ON action WHEN NEW.kind = 'escalation' BEGIN
+    INSERT INTO escalation_pr(pr, action_ordinal)
+    SELECT DISTINCT substr(part.value, 1, length(part.value) - length(ltrim(part.value, '0123456789'))), NEW.ordinal
+    FROM json_each('[' || replace(json_quote(json_extract(NEW.record, '$.target')), '#', '","') || ']') AS part
+    WHERE part.key > 0 AND part.value GLOB '[0-9]*';
+END;
+CREATE TRIGGER escalation_changed AFTER UPDATE OF kind, record ON action
+WHEN CASE
+    WHEN OLD.kind != 'escalation' AND NEW.kind != 'escalation' THEN 0
+    WHEN OLD.kind IS NOT NEW.kind THEN 1
+    ELSE json_extract(OLD.record, '$.target') IS NOT json_extract(NEW.record, '$.target')
+END BEGIN
+    DELETE FROM escalation_pr WHERE action_ordinal = OLD.ordinal;
+    INSERT INTO escalation_pr(pr, action_ordinal)
+    SELECT DISTINCT substr(part.value, 1, length(part.value) - length(ltrim(part.value, '0123456789'))), NEW.ordinal
+    FROM json_each('[' || replace(json_quote(json_extract(NEW.record, '$.target')), '#', '","') || ']') AS part
+    WHERE NEW.kind = 'escalation' AND part.key > 0 AND part.value GLOB '[0-9]*';
+END;
+CREATE TRIGGER escalation_deleted AFTER DELETE ON action BEGIN
+    DELETE FROM escalation_pr WHERE action_ordinal = OLD.ordinal;
+END;
+"""
+
 _SCHEMA = """
 CREATE TABLE incident (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
@@ -65,7 +95,7 @@ CREATE TRIGGER action_deleted AFTER DELETE ON action BEGIN
     UPDATE incident SET action_count = action_count - 1 WHERE singleton = 1;
 END;
 PRAGMA user_version = 2;
-"""
+""" + _ESCALATION_SCHEMA
 _HEADER = ("incident_id", "owner", "owner_generation", "opened_at", "input_revision", "status", "pending_owner")
 _METADATA = ("decisions", "milestones")
 
@@ -679,6 +709,10 @@ class Store:
     def action_family(self, incident_id: str, base: str) -> list[Action]:
         with self._read(incident_id) as connection:
             return [Action.load(json.loads(row[0])) for row in connection.execute("SELECT record FROM action WHERE action_key = ? OR (action_key >= ? AND action_key < ?) ORDER BY ordinal", (base, base + "#", base + "$"))]
+
+    def escalations_for(self, incident_id: str, pr: str) -> list[Action]:
+        with self._read(incident_id) as connection:
+            return [Action.load(json.loads(row[0])) for row in connection.execute("SELECT a.record FROM escalation_pr AS r CROSS JOIN action AS a ON a.ordinal = r.action_ordinal WHERE r.pr = ? AND a.kind = 'escalation' ORDER BY a.ordinal", (pr,))]
 
     def actions(self, incident_id: str, kind: str | None = None, status: str | None = None, *, statuses=None) -> list[Action]:
         where, parameters = _selected(kind, status, statuses)

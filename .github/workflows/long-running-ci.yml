@@ -101,6 +101,25 @@ jobs:
           grep -F '1 failed' "$negative"
       - name: Actual overflow refusal historical read costs
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/overflow_read_integration.py -q -s
+      - uses: actions/checkout@v7
+        with:
+          ref: 35fa995a3f249a26137b9876a42052b7fd86fde7
+          path: .ci-escalation-writer-baseline
+      - name: Indexed escalation selection and immutable old-writer maintenance
+        run: |
+          test "$(git -C .ci-escalation-writer-baseline rev-parse HEAD)" = 35fa995a3f249a26137b9876a42052b7fd86fde7
+          LR_ESCALATION_OLD_SCRIPTS="$GITHUB_WORKSPACE/.ci-escalation-writer-baseline/plugins/long-running/skills/long-running/scripts" uv run --locked --project plugins/long-running pytest plugins/long-running/tests/escalation_index_old_writer_integration.py plugins/long-running/tests/test_escalation_reference_index.py plugins/long-running/tests/test_action_queries.py::test_full_snapshot_is_detached_and_corruption_is_not_hidden -q -s
+          cp plugins/long-running/tests/overflow_read_integration.py .ci-escalation-writer-baseline/plugins/long-running/tests/overflow_read_integration.py
+          for history in 32 10000; do
+            negative="$RUNNER_TEMP/escalation-selection-negative-$history.log"
+            if uv run --locked --project plugins/long-running pytest -c .ci-escalation-writer-baseline/plugins/long-running/pyproject.toml ".ci-escalation-writer-baseline/plugins/long-running/tests/overflow_read_integration.py::test_actual_overflow_refusal_historical_read_cost[$history]" -q -s > "$negative" 2>&1; then
+              cat "$negative"
+              exit 1
+            fi
+            cat "$negative"
+            grep -F "overflow route history decoded $((history + 3)) actions; expected 3" "$negative"
+            grep -F '1 failed' "$negative"
+          done
       - name: pytest
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q
       - uses: actions/checkout@v7

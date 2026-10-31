@@ -64,7 +64,7 @@ def test_actual_overflow_refusal_historical_read_cost(shell, config, tmp_path, m
     assert result is not None and result[1] == "selected-owner" and "selected newest refusal" in result[0]
     assert counts["opens"] == counts["closes"] == len(lanes) + 2
     assert counts["changed_rows"] == 0
-    assert counts["decoded_actions"] == history + 3, f"overflow route history decoded {counts['decoded_actions']} actions; expected {history + 3}"
+    assert counts["decoded_actions"] == 3, f"overflow route history decoded {counts['decoded_actions']} actions; expected 3"
 
 
 @pytest.mark.parametrize("kind", ["bus", "relay"])

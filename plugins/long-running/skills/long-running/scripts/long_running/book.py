@@ -51,6 +51,9 @@ class Book:
     def containers(self, prefix: str) -> list[str]:
         return [name for name in self.store.ids() if name.startswith(prefix)]
 
+    def escalations_for(self, container: str, pr: str) -> list[actions.Action]:
+        return self.store.escalations_for(container, pr)
+
     def edit(self, container: str, change: Callable[[actions.Transaction], object]) -> object:
         while True:
             try:
