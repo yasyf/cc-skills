@@ -11,7 +11,9 @@ import itertools
 import json
 import shutil
 import os
+import plistlib
 import re
+import shlex
 import sys
 import threading
 import time
@@ -248,6 +250,8 @@ class FakeShell(runner_module.Shell):
         self.board_error = ""
         self.pr_heads: dict[str, tuple[str, str]] = {}
         self.missing_prs: set[str] = set()
+        self.launchd: dict[str, int] = {}
+        self.launchctl_calls: list[list[str]] = []
 
     def env(self, name):
         return self.environ.get(name, "")
@@ -272,6 +276,20 @@ class FakeShell(runner_module.Shell):
     def reexec(self, argv):
         self.reexeced.append(list(argv))
         raise Reexeced
+
+    def launchctl(self, *args):
+        self.launchctl_calls.append(list(args))
+        verb, target = args[0], args[-1]
+        label = Path(target).stem if verb == "bootstrap" else target.rpartition("/")[2]
+        if verb == "bootstrap":
+            self.launchd[label] = 0
+        elif label not in self.launchd:
+            return runner_module.Done(113, "", f'Could not find service "{label}" in domain for user gui: {os.getuid()}\n')
+        elif verb == "bootout":
+            del self.launchd[label]
+        elif verb == "print":
+            return runner_module.Done(0, f"{target} = {{\n\tstate = running\n\tpid = {self.launchd[label]}\n}}\n", "")
+        return runner_module.Done(0, "", "")
 
     def pid_alive(self, pid):
         return pid not in self.exited
@@ -9518,6 +9536,108 @@ def test_handoff_with_no_heartbeat_has_no_runner_to_stop_and_starts_one(shell, c
     assert cli(shell, config, "handoff", "--desk", desk) == 0
     assert not runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store")).stop_marker().exists()
     assert shell.successors == [successor(config, tmp_path, desk)]
+
+
+LAUNCHD_PID = 9001
+
+
+def agent_label(desk: str) -> str:
+    return f"com.long-running.d1.{desk}"
+
+
+def agent_target(desk: str) -> str:
+    return f"gui/{os.getuid()}/{agent_label(desk)}"
+
+
+def launchd_restarts(shell: FakeShell, config: Path, tmp_path: Path, desk: str) -> contextlib.ExitStack:
+    _, held = live_runner(shell, config, tmp_path, desk)
+    config.resolve().with_name(f"{config.resolve().name}.{desk}.lock").write_text(f"{LAUNCHD_PID}\n")
+    shell.launchd[agent_label(desk)] = LAUNCHD_PID
+    return held
+
+
+def keyed(config: Path, **adapter: str) -> None:
+    raw = json.loads(config.read_text())
+    raw["landing"]["adapter"] = {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue", **adapter}
+    config.write_text(json.dumps(raw))
+
+
+@pytest.mark.parametrize("caller", ["waits", "killed"])
+def test_a_supervised_handoff_starts_no_successor_and_waits_for_launchds_restart_so_a_killed_handoff_leaves_launchds_runner(shell, config, tmp_path, monkeypatch, capsys, caller):
+    """Oct 30 7:46 PM: a `handoff --desk landing` under `timeout 150` wrote the stop marker and was killed before it spawned a successor, so landing runner 85161 exited at its next step boundary, logged nothing, and left the desk empty."""
+    shell.launchd[agent_label("landing")] = os.getpid()
+    runner, held = live_runner(shell, config, tmp_path, "landing")
+    restarted = []
+
+    def exits(seconds):
+        assert runner.stop_marker().read_text() == f"{os.getpid()}\n"
+        if caller == "killed":
+            raise Killed
+        runner.stop_marker().unlink()
+        held.close()
+        restarted.append(launchd_restarts(shell, config, tmp_path, "landing"))
+
+    monkeypatch.setattr(shell, "sleep", exits)
+    if caller == "killed":
+        with pytest.raises(Killed):
+            cli(shell, config, "handoff", "--desk", "landing")
+        assert runner.stop_marker().exists()
+        held.close()
+    else:
+        assert cli(shell, config, "handoff", "--desk", "landing") == 0
+        assert f"runner {os.getpid()} exited; launchd started runner {LAUNCHD_PID} as {agent_label('landing')}" in capsys.readouterr().out
+        restarted[0].close()
+    assert shell.successors == []
+    assert shell.launchctl_calls == [["print", agent_target("landing")]]
+
+
+def test_a_supervised_handoff_whose_launchd_restart_never_holds_the_desk_tells_root_and_starts_nothing(shell, config, tmp_path):
+    shell.launchd[agent_label("landing")] = 0
+    started = shell.now()
+    assert cli(shell, config, "handoff", "--desk", "landing") == 1
+    assert shell.successors == [] and shell.now() - started >= timedelta(minutes=3)
+    [line] = [line for line in escalations(shell) if line.startswith("HANDOFF-STALLED ")]
+    assert f"launchd's {agent_label('landing')} started no landing runner within 0:03:00 of the handoff" in line and str(tmp_path / "landing-runner.log") in line
+
+
+def test_supervise_install_bootstraps_only_its_own_label_with_the_key_read_from_its_keychain_item_and_never_its_value(shell, config, tmp_path, monkeypatch, capsys):
+    keyed(config, key_item="trunk-merge-api-key")
+    monkeypatch.setenv("TRUNK_MERGE_API_KEY", "trunk-secret")
+    shell.environ |= {"PATH": "/opt/homebrew/bin:/usr/bin:/bin", "TRUNK_MERGE_API_KEY": "trunk-secret"}
+    restarted = []
+    shell.on_sleep.append(lambda: restarted.append(launchd_restarts(shell, config, tmp_path, "landing")))
+    plist = tmp_path / "Library/LaunchAgents" / f"{agent_label('landing')}.plist"
+    log = str(tmp_path / "landing-runner.log")
+    assert cli(shell, config, "supervise", "install", "--desk", "landing") == 0
+    assert f"launchd started runner {LAUNCHD_PID} as {agent_label('landing')}" in capsys.readouterr().out
+    assert b"trunk-secret" not in plist.read_bytes()
+    assert plistlib.loads(plist.read_bytes()) == {
+        "Label": agent_label("landing"),
+        "ProgramArguments": ["/bin/zsh", "-c", f'export TRUNK_MERGE_API_KEY="$(security find-generic-password -s trunk-merge-api-key -w)"; exec {shlex.quote(str(runner_module.RUNNER_BIN))} run --config {shlex.quote(str(config.resolve()))} --desk landing'],
+        "EnvironmentVariables": {"PATH": "/opt/homebrew/bin:/usr/bin:/bin"},
+        "KeepAlive": True,
+        "ThrottleInterval": 60,
+        "StandardOutPath": log,
+        "StandardErrorPath": log,
+    }
+    assert shell.launchctl_calls == [["print", agent_target("landing")], ["bootstrap", f"gui/{os.getuid()}", str(plist)], ["print", agent_target("landing")]]
+    assert shell.successors == []
+    assert cli(shell, config, "supervise", "status", "--desk", "landing") == 0
+    assert f"pid {LAUNCHD_PID}" in capsys.readouterr().out
+    assert cli(shell, config, "supervise", "uninstall", "--desk", "landing") == 0
+    assert shell.launchctl_calls[-1] == ["bootout", agent_target("landing")] and not plist.exists()
+    assert cli(shell, config, "supervise", "status", "--desk", "landing") == 1
+    assert {arg for call in shell.launchctl_calls for arg in call[1:]} == {agent_target("landing"), f"gui/{os.getuid()}", str(plist)}
+    restarted[0].close()
+
+
+def test_supervise_install_refuses_a_landing_adapter_whose_key_no_keychain_item_names(shell, config, tmp_path, monkeypatch, capsys):
+    keyed(config)
+    monkeypatch.setenv("TRUNK_MERGE_API_KEY", "trunk-secret")
+    assert cli(shell, config, "supervise", "install", "--desk", "landing") == 3
+    err = capsys.readouterr().err
+    assert "TRUNK_MERGE_API_KEY" in err and "landing.adapter.key_item" in err and "trunk-secret" not in err
+    assert shell.launchctl_calls == [] and not (tmp_path / "Library/LaunchAgents").exists()
 
 
 @pytest.mark.parametrize("desk", ["orca", "landing"])
