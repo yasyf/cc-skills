@@ -408,7 +408,7 @@ def journeys(drive, steps, releases, needs, records, prs, progress_now, tree_nam
     for number, pr in prs.items():
         if pr.get("landed_at") and at(pr["landed_at"]) >= since:
             freed = [entry["number"] for entry in drive["prs"] if entry["base"] == int(number) and entry["state"] != "landed"]
-            done = [step["label"] for step in steps if step["tone"] == "done" and number == max((str(item["number"]) for item in step["prs"]), key=lambda n: prs.get(n, {}).get("landed_at") or "")]
+            done = [step["label"] for step in steps if step["tone"] == "done" and number == max((str(item["number"]) for item in step["prs"]), key=lambda n: prs.get(n, {}).get("landed_at") or "", default=None)]
             happened.append((pr["landed_at"], answer_line(
                 f"#{number} {pr.get('title', '')} landed",
                 since=pr["landed_at"], next="; ".join([*(f"#{n} can now land" for n in freed), *(f"finishes step {label}" for label in done)]) or None, href=f"#/review/{number}", label=f"#{number}",
