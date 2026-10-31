@@ -164,17 +164,17 @@ def shipped_tests(evt: BaseHookEvent) -> list[tuple[str, str]]:
     skip_if=[Annotated("raw")],
     tests={
         posted("cci post --lane lane-a --kind contract --text 'One refusal command per destination and key. rule/8b1048a'"): Warn(
-            pattern=r"^Warning, nothing was blocked: A judge reads what this call posted as misreading the owner's words on `rule/8b1048a`\.[\s\S]*contract, rule/8b1048a, narrower: You said"
+            pattern=r"^Warning, nothing was blocked: A judge reads what this call posted as misreading the owner's words on `rule/8b1048a`\.[\s\S]*contract, rule/8b1048a: You said"
         ),
         posted(
             "cci post --lane lane-a --kind contract --text 'One refusal command per destination and key. rule/8b1048a'",
             CARRIED,
         ): Allow(),
-        posted("cci post --lane root --kind decide --text 'Owner picked one command per key. rule/8b1048a'"): Warn(pattern=r"relay, rule/8b1048a, narrower"),
+        posted("cci post --lane root --kind decide --text 'Owner picked one command per key. rule/8b1048a'"): Warn(pattern=r"relay, rule/8b1048a: You said"),
         posted("cci post --lane lane-a --kind decide --text 'One command per key. rule/8b1048a'"): Allow(),
         posted("cci post --lane root --kind decide --text 'Owner picked one command per key.'", commands={MATCH: MATCHED}): Allow(),
         posted("cci post --lane lane-a --kind ask --text 'board-refresher: post card per-key-commands. rule/8b1048a'"): Warn(
-            pattern=r"card, rule/8b1048a, narrower"
+            pattern=r"card, rule/8b1048a: You said"
         ),
         posted("cci post --lane lane-a --kind state --text 'building per key. rule/8b1048a'"): Allow(),
         posted("cci post --lane lane-a --kind contract --text 'per key. rule/8b1048a'  # ccx:raw"): Allow(),
@@ -190,7 +190,7 @@ def shipped_tests(evt: BaseHookEvent) -> list[tuple[str, str]]:
                 "git diff --name-only abc123": "src/refusal_test.go\n",
                 f"{DIFF} abc123": TESTS_DIFF,
             },
-        ): Warn(pattern=r"test, rule/8b1048a, narrower"),
+        ): Warn(pattern=r"test, rule/8b1048a: You said"),
         posted(
             "ccx vcs ship -m 'ci: ✨ x'",
             commands={
