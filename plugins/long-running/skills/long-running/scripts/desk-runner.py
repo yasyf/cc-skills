@@ -4509,7 +4509,7 @@ class Runner:
             if result.is_file():
                 outcome = desk_outcome(result)
                 if "error" in outcome:
-                    self.finder_failed(action, outcome["error"])
+                    self.finder_failed(action, outcome["error"], hold=not outcome.get("no_result"))
                 else:
                     self.repost(directory)
                     self.finder_settled(action.action_id, outcome)
@@ -4788,7 +4788,7 @@ class Runner:
                 continue
             outcome = desk_outcome(result)
             if "error" in outcome:
-                self.fidelity_failed(action, outcome["error"])
+                self.fidelity_failed(action, outcome["error"], hold=not outcome.get("no_result"))
             else:
                 self.repost(result.parent)
                 self.settle(FIDELITY, action.action_id, outcome)

@@ -14141,6 +14141,19 @@ def test_a_pass_whose_process_exited_with_no_result_frees_its_slot_and_retries_a
     assert not finder_failures(shell)
 
 
+def test_a_pass_whose_sprite_left_no_result_retries_at_once(shell, config, tmp_path):
+    """drive-watchdog-2 #264643, 1:20 PM Oct 31: #46882 and #46823 died on Sprites that restarted near 1:00 PM, sprite-job.sh wrote its no-result error, and the runner held both 10 minutes as if a tool had failed."""
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    head_record(shell, "43439", FINDER_HEAD)
+    orca_pass(shell, config)
+    [died] = shell.finder_jobs
+    (died / "result.json").write_text(json.dumps({"error": "the job on Sprite dar-fleet-4 ended with status 1 and no result, as when the Sprite restarts mid-pass or cannot be reached", "no_result": True}))
+    orca_pass(shell, config)
+    passes = incident(tmp_path, "desk-finder").actions
+    assert passes[f"finder:43439:{FINDER_HEAD}#2"].status == "started"
+    assert shell.finder_jobs == [died, died.with_name(f"{died.name}-2")]
+
 def test_a_pass_whose_pid_now_names_another_process_settles_as_exited(shell, config, tmp_path):
     """Root #241003, 11:40 PM Oct 30: 17 finder and fidelity passes had no result and no live wrapper for 7 to 139 minutes, and the runner counted them running; macOS had handed a dead wrapper's pid to another process."""
     finder_config(config, concurrent=1)
