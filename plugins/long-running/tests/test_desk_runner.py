@@ -5479,6 +5479,23 @@ def test_a_head_with_no_finder_record_is_refused_finder_pending_once(shell, conf
     assert blocker["text"] == "#29020 cccc333333: nothing in #29020 was enqueued; FINDER-PENDING #29020: no `finder:` record from finder-desk names this head, and a lane's own finder record never grades it"
 
 
+@pytest.mark.parametrize("display_number", ["#7", "#100@bbbbbbbb"], ids=["owner", "remote"])
+def test_stale_blocker_uses_internal_reference_for_mixed_origin_receipt(shell, config, tmp_path, display_number):
+    landing = landing_of(shell, config, tmp_path)
+    shell.post_out = json.dumps({"seq": 41, "num": display_number}) + "\n"
+    assert landing.post_record("blocker", "stale-origin", LANE, "#29020 cccc333333: pending", "29020")
+    assert landing.book.action(runner_module.LANDING, "stale-origin").response["posted"] == "#41"
+    landing.resolve_stale_blockers({"29020": {"state": "open", "head": "eeee555555"}})
+    [resolution] = [call for call in shell.raw if call[:2] == ["cci", "post"] and "landing-hygiene" in call]
+    assert "--resolves-seq" in resolution, "stale blocker used human reference for internal sequence"
+    assert resolution[resolution.index("--resolves-seq") + 1] == "41"
+    assert "--resolves" not in resolution
+    assert landing.book.action(runner_module.LANDING, "stale-origin").status == "verified"
+    before = len(shell.raw)
+    landing.resolve_stale_blockers({"29020": {"state": "open", "head": "eeee555555"}})
+    assert len(shell.raw) == before
+
+
 def test_a_blocker_the_runner_posted_is_resolved_once_its_pr_moves_past_that_head(shell, config, tmp_path):
     """Root #253512: 1,139 open blockers sat on the bus at 6:26 AM Oct 31, most of them the runner's own for heads long gone."""
     lone_green_pr(shell)

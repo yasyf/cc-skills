@@ -51,6 +51,8 @@ jobs:
       - uses: astral-sh/setup-uv@v8.2.0
       - name: native mailbox freshness and lifecycle, and the shells' command reaping
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_rosters.py plugins/long-running/tests/test_inboxes.py plugins/long-running/tests/test_register_reads.py plugins/long-running/tests/test_ledger_shell.py plugins/long-running/tests/test_stall_watch.py plugins/long-running/tests/test_build_cache.py plugins/long-running/tests/overflow_read_integration.py plugins/long-running/tests/test_rulings_dispatch.py plugins/long-running/tests/test_rulings_owned_hooks.py plugins/long-running/tests/test_rulings_consumers.py plugins/long-running/tests/test_lane_landing.py plugins/long-running/tests/test_judge_request_owned.py plugins/long-running/tests/test_judge.py plugins/long-running/tests/test_fifteenth_check_pr_owned.py plugins/long-running/tests/test_owned_reexec.py plugins/long-running/tests/test_board_watch.py::test_a_reexecuted_watch_ends_the_streams_its_older_image_started -q -s
+      - name: Stale-blocker internal references
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py::test_stale_blocker_uses_internal_reference_for_mixed_origin_receipt -q
       - name: mailbox index scaling costs
         run: uv run --locked --project plugins/long-running python plugins/long-running/benchmarks/mailbox-index.py > mailbox-index-macos.json
       - uses: actions/upload-artifact@v7
