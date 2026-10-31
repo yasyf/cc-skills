@@ -198,5 +198,5 @@ def test_the_text_grade_reads_only_the_reviews_naming_the_board_in_one_call(root
         with mock.patch.object(subprocess, "run", recording):
             result = gate.board_text_gate(root.event(PreToolUseEvent, f"cc-present update-block {board(name)}"))
 
-    assert "text grade" not in (result.message or "")
+    assert result is None
     assert [call[:3] for call in calls] == [["cci", "grep", f"fidelity: (ok|missing) text {sha12(name)}"]]
