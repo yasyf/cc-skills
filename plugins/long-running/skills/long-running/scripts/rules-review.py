@@ -28,8 +28,8 @@ import re
 import subprocess
 from pathlib import Path
 
-import ghread
-import ledger
+from long_running import ghread
+from long_running import ledger
 
 SCHEMA = Path(__file__).resolve().parent / "rules-review.schema.json"
 DIFF_CHARS = 150_000
@@ -399,7 +399,7 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
 
 
 if __name__ == "__main__":
-    import drive
+    from long_running import drive
 
     drive.run_installed(__file__)
     raise SystemExit(main())

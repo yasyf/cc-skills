@@ -74,10 +74,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import board_rows
-import cci
-import drive
-import rulings
+from long_running import board_rows
+from long_running import cci
+from long_running import drive
+from long_running import rulings
 
 SOURCE = "board"
 CAPTURES = "owner-prompts.jsonl"

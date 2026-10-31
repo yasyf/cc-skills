@@ -23,9 +23,9 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import cci
-import drive
-import ledger
+from long_running import cci
+from long_running import drive
+from long_running import ledger
 
 FINDING = re.compile(r"\[finding:(?P<sweep>[\w.-]+)\]\s*(?P<rest>.*)", re.DOTALL)
 CANONICAL = re.compile(r"^(?:#(?P<pr>\d+)|-)\s+(?P<line>\S+)\s+(?P<verdict>\S+)\s+owner\s+(?P<owner>[\w.-]+):\s*(?P<text>.*)$", re.DOTALL)

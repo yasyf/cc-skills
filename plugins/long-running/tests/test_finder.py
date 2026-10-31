@@ -12,7 +12,7 @@ from pathlib import Path
 import finder
 import pytest
 from conftest import gateway
-from grades import FINDER_FAIL, FINDER_PASS, finder_grade, graded_head
+from long_running.grades import FINDER_FAIL, FINDER_PASS, finder_grade, graded_head
 
 REPO = "Forge-AI/monorepo"
 HEAD = "7414944e30bfec89dee45328414dbc1016e35afa"

@@ -16,8 +16,8 @@ from copy import deepcopy
 from pathlib import Path
 from urllib.parse import unquote_plus
 
-import ghread
-import ledger
+from long_running import ghread
+from long_running import ledger
 import pytest
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"

@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import rulings
+from long_running import rulings
 from captain_hook.util import reqenv
 
 from hooks import compaction_handoff as handoff

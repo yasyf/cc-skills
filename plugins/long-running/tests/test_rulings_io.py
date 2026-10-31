@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-import rulings
+from long_running import rulings
 from test_rulings import FLAGS, REPO, FakeShell
 
 

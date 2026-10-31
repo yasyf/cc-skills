@@ -110,7 +110,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import drive
+from long_running import drive
 import prompt_screen
 
 SCRIPT = Path(__file__).resolve()

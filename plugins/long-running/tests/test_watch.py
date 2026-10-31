@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 
-import ledger
+from long_running import ledger
 import pytest
 from conftest import DRIVE, LEDGER, FakeShell
 
