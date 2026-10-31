@@ -23,7 +23,7 @@ class FakeShell(bus.Shell):
         self.calls.append(argv)
         if argv[:2] == ["cci", "post"]:
             return json.dumps({"seq": 41, "num": "#7@remote"}) + "\n"
-        since, budget = int(argv[argv.index("--since") + 1]), int(argv[argv.index("--budget") + 1])
+        since, budget = int(argv[argv.index("--since-seq" if "--since-seq" in argv else "--since") + 1]), int(argv[argv.index("--budget") + 1])
         lines = [json.dumps(record) + "\n" for record in self.records if record["seq"] > since]
         fitting = next((count for count in range(len(lines), 0, -1) if sum(map(len, lines[:count])) <= budget), 0)
         return "".join(lines[:fitting])
@@ -51,8 +51,8 @@ def test_read_pages_every_delivery_into_one_json_list(capsys):
     shell = FakeShell([record(3), record(9, kind="answer", re=3, lane="comms", to=[]), record(12, topic="x2")])
     argv = ["read", "--bus", "d1", "--lane", "incident-x", "--kind", "answer", "--kind", "ask", "--all", "--peek", "--json", "--repo", "/m"]
     assert bus.main(argv, shell) == 0
-    assert [call[call.index("--since") + 1] for call in shell.calls] == ["0"]
-    assert shell.calls[0][2:] == ["--drive", "d1", "--since", "0", "--json", "--budget", "4000000", "--reader", "incident-x", "--kind=answer", "--kind=ask"]
+    assert [call[call.index("--since-seq") + 1] for call in shell.calls] == ["0"]
+    assert shell.calls[0][2:] == ["--drive", "d1", "--since-seq", "0", "--json", "--budget", "4000000", "--reader", "incident-x", "--kind=answer", "--kind=ask"]
     entries = json.loads(capsys.readouterr().out)
     assert [entry["seq"] for entry in entries] == [3, 9, 12]
     assert entries[1] == {"seq": 9, "at": "2026-10-05T09:00:00Z", "kind": "answer", "topic": "", "from": "comms", "to": [], "text": "t", "re": 3}
@@ -73,3 +73,15 @@ def test_read_takes_a_whole_cci_page_of_records_in_one_call(capsys):
 
 def test_posted_receipts_preserve_all_internal_ids_in_multi_record_json():
     assert bus.cci.posted('{"seq":41,"num":"#7"}\n{"seq":52,"num":"#100@remote"}\n') == "#41\n#52\n"
+
+
+@pytest.mark.parametrize("since,expected", [(0, ["--since-seq", "0"]), (41, ["--since-seq", "41"]), ("41", ["--since-seq", "41"]), ("#41", ["--since-seq", "41"]), ("+41", ["--since-seq", "41"]), ("2h", ["--since", "2h"]), ("2026-10-30T22:00:00Z", ["--since", "2026-10-30T22:00:00Z"])])
+def test_record_bounds_keep_internal_sequences_separate_from_times(since, expected):
+    calls = []
+
+    def run(argv):
+        calls.append(argv)
+        return ""
+
+    assert bus.cci.records(run, "d1", since=since) == []
+    assert calls[0][4:6] == expected

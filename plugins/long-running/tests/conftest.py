@@ -149,7 +149,9 @@ class FakeShell(ledger.Shell):
             self.cci.append(record)
             return json.dumps(record) + "\n" if "--json" in one else f"#{record['seq']}\n"
         assert argv[1] == "tail", argv
-        if "--since" in one:
+        if "--since-seq" in one:
+            after = int(one["--since-seq"])
+        elif "--since" in one:
             after = int(one["--since"])
         else:
             after = self.cci_cursors.get(one["--cursor"], 0)
@@ -166,7 +168,7 @@ class FakeShell(ledger.Shell):
                 )
             )
         ]
-        if "--since" not in one and found:
+        if "--since" not in one and "--since-seq" not in one and found:
             self.cci_cursors[one["--cursor"]] = found[-1]["seq"]
         return "".join(json.dumps(record) + "\n" for record in found)
 

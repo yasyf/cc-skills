@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import base64
+import http.client
+import io
 import json
+import os
 import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from time import monotonic
 
 PAGE_BYTES = 4_000_000
 INSTALL_WINDOW_SECONDS = 120
@@ -73,6 +78,67 @@ def posted(output: str) -> str:
     return "".join(f"#{json.loads(line)['seq']}\n" for line in output.splitlines())
 
 
+def native_tail(argv: list[str], timeout: float, env: dict[str, str] | None = None, cwd: str | None = None) -> tuple[int, str, str]:
+    """Read a cursor-free tail through the daemon's native CLI handler."""
+    deadline = monotonic() + timeout
+
+    def remaining():
+        seconds = deadline - monotonic()
+        if seconds <= 0:
+            raise TimeoutError("native tail read budget expired")
+        return seconds
+
+    environment = os.environ | (env or {})
+    home = environment.get("CCI_HOME") or os.path.join(environment["HOME"], ".cc-inbox")
+    request = {
+        "argv": argv,
+        "session": environment.get("CLAUDE_CODE_SESSION_ID") or environment.get("CODEX_THREAD_ID", ""),
+        "agent": environment.get("CCI_AGENT_ID", ""),
+        "home": os.path.abspath(os.path.join(cwd or os.getcwd(), home)),
+    }
+    connection = http.client.HTTPConnection("127.0.0.1", 7377, timeout=remaining())
+    try:
+        connection.request("POST", "/v1/tail", json.dumps(request).encode(), {"Content-Type": "application/json"})
+        wire = connection.sock
+        wire.settimeout(remaining())
+        response = connection.getresponse()
+        chunks = []
+        while not response.isclosed():
+            wire.settimeout(remaining())
+            chunk = response.read1(65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        packet = b"".join(chunks)
+        chunks.clear()
+        if response.length:
+            raise http.client.IncompleteRead(packet, response.length)
+        result = json.loads(packet)
+        del packet
+        if response.status != 200:
+            return 1, "", f"cci: {result['error']}\n"
+        return result["returncode"], _tail_output(result["stdout_b64"]), _tail_output(result["stderr_b64"])
+    except TimeoutError:
+        raise
+    except (OSError, http.client.HTTPException) as error:
+        return 1, "", f"cci: native tail: {error}\n"
+    finally:
+        connection.close()
+
+
+def _tail_output(encoded: str) -> str:
+    with io.TextIOWrapper(io.BytesIO(base64.b64decode(encoded, validate=True)), errors="replace") as output:
+        return output.read()
+
+
+def since_args(since: int | str) -> list[str]:
+    """Select an internal sequence bound or the CLI's time-bound syntax."""
+    value = str(since)
+    if re.fullmatch(r"#?[+-]?[0-9]+", value):
+        return ["--since-seq", str(int(value.removeprefix("#")))]
+    return ["--since", value]
+
+
 def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: int | str = 0) -> list[dict]:
     """Every record on `drive` after `since`, a sequence or any `cci tail --since` time, that matches the `cci tail` filters, paged by sequence; a page is the last when it holds fewer than the `PAGE_ROWS` records cci prints per call and fills under half the byte budget, since cci caps a record far below that; touches no cursor. A `Tail` answers a query it read since its last `forget` without running cci."""
     key = (drive, filters, str(since))
@@ -84,7 +150,7 @@ def records(run: Callable[[list[str]], str], drive: str, *filters: str, since: i
     found = [record for record in (grown or {}).get((drive, filters), []) if not expired(record, now)]
     since = found[-1]["seq"] if found else since
     while True:
-        out = run(["cci", "tail", "--drive", drive, "--since", str(since), "--json", "--budget", str(PAGE_BYTES), *filters])
+        out = run(["cci", "tail", "--drive", drive, *since_args(since), "--json", "--budget", str(PAGE_BYTES), *filters])
         page = [json.loads(line) for line in out.splitlines() if line.strip()]
         found += page
         if len(page) < PAGE_ROWS and len(out.encode()) < PAGE_BYTES // 2:
