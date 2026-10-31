@@ -58,7 +58,7 @@ jobs:
             grep -F '1 failed' "$negative"
           done
       - name: Ruling binary prefix bytes and text parity
-        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_ruling_binary_reader.py -q -s
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_ruling_binary_reader.py plugins/long-running/tests/test_rulings.py::test_classify_reads_each_unchanged_document_once_for_all_rows -q -s
       - uses: actions/checkout@v7
         with:
           ref: 963e964f15a919b6f0588fba2d7dd68de41c4d91

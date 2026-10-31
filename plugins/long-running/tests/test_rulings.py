@@ -1047,15 +1047,15 @@ def test_classify_reads_each_unchanged_document_once_for_all_rows(home: Path, pa
     captured(state, *prompts)
     shell = RegisterShell(seeded(package))
     files = rulings.default_files(rulings.Register(shell, REPO, "brook", state, REGISTER_LEDGER, seeded(package)), package / "plan" / "plan.md")
-    read = Path.read_bytes
+    read = Path.open
     reads: list[Path] = []
 
-    def counted(path: Path) -> bytes:
-        if path in files:
+    def counted(path: Path, mode: str = "r", *args, **kwargs):
+        if path in files and mode == "rb":
             reads.append(path)
-        return read(path)
+        return read(path, mode, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_bytes", counted)
+    monkeypatch.setattr(Path, "open", counted)
     code, out = classify(tmp_path, capsys, shell, *({"digest": prompt["digest"], "extends": "rule/aaaaaaa", "words": prompt["text"]} for prompt in prompts))
 
     print(json.dumps({"rows": count, "corpus_bytes": sum(path.stat().st_size for path in files), "logical_read_bytes": sum(path.stat().st_size for path in reads), "document_reads": len(reads), "legacy_document_reads": count * len(files)}))
