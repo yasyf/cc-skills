@@ -58,8 +58,9 @@ its ledger row names, it finds:
               the PR names (`reassigns #1 and #2 to lane-a; #3 to lane-b`), else its ledger row's lane;
               a red no live lane owns goes to root once per head and never again; a red whose failed
               job logged only Buildkite's benign step-export or meta-data 404 probe posts nothing
-              itself, and one `report` line a Pacific day names every such head to root; a red trunk
-              is the desk runner's DEV-RED, never a stall
+              itself, and one `report` line a Pacific day names every such head to root; a `red`
+              record classing the head inherited, flake or stale silences it until the head moves; a
+              red trunk is the desk runner's DEV-RED, never a stall
     unclassed the head's build has read red for `stall.minutes.unclassed`, counted from `red_at`, and no
               `red` record classifies it: `cci post --kind red --pr N --text "class=<class> head=<sha>
               owner=<lane> <what was done>"`, where class is inherited, flake, real or stale and `head=`
@@ -938,11 +939,12 @@ class Pass:
             readied = [at(record) for record in announced if record["kind"] == "ready" or READY.search(record["text"])]
             tap_at = min([*readied, *([live] if (live := board.live_at(pr, head)) else [])], default=None) if tapping else None
             entries.append(stack_row(pr, row, rows, lane, holding(pr) or pr in self.hold_gates, bool(going), in_queue, tapping) | {"head_at": head_at, "tap_at": tap_at})
-            if red := self.red(pr, row, lane):
+            classed = red_entry(row, lane, [record for record in classes if grades.about_pr(record, repo, pr)]) if row.get("red_at") else None
+            if (classed is None or classed["class"] in ("real", "unclassed")) and (red := self.red(pr, row, lane)):
                 (probes if red.kind == "probe" else stalls).append(red)
-            if row.get("test_state") == "failure" and row.get("red_at"):
-                entries[-1]["red"] = red_entry(row, lane, [record for record in classes if grades.about_pr(record, repo, pr)])
-                if alarm := self.red_alarm(pr, row, entries[-1]["red"]):
+            if row.get("test_state") == "failure" and classed:
+                entries[-1]["red"] = classed
+                if alarm := self.red_alarm(pr, row, classed):
                     stalls.append(alarm)
             if holding(pr):
                 continue
