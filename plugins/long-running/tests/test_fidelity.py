@@ -113,6 +113,7 @@ def job(tmp_path: Path, **changes) -> Path:
         "old_apps": [DESK_OLD_APP],
         "corrected": [],
         "settled": {},
+        "rulings": [],
         "contract": "contract: builds the resubscribe from the fetched position; deletes nothing",
         "exempt": {"port": PORT_PHRASE, "test-only": TEST_ONLY_PHRASE},
         "exempt_grades": [PORT_PHRASE, TEST_ONLY_PHRASE],
@@ -132,7 +133,7 @@ def reply(verdict: str = "ok", missing: tuple[dict, ...] = (), checked: list[str
         "swept": SWEPT,
         "checked": checked,
         "names": ["poll", "resubscribe"],
-        "missing": list(missing),
+        "missing": [{"settled": 0} | entry for entry in missing],
         "touches": list(touches),
         "exempt": exempt,
         "reader": reader,
@@ -280,6 +281,17 @@ def test_a_new_heads_missing_point_that_repeats_a_settled_one_word_for_word_is_d
     if settled:
         assert f"- {SETTLED_POINT} (root #170007)" in (directory / "question-1.md").read_text()
 
+
+
+@pytest.mark.parametrize(("settled", "posted"), [(265587, f"fidelity: ok {HEAD} Resubscribes from the fetched position after a cut. Every missing point is one root settled at #265587."), (999, f"fidelity: missing {HEAD} plan:811 the census route refuses an unproven head")], ids=["a-carried-ruling", "a-number-the-job-never-carried"])
+def test_a_reworded_point_a_root_ruling_settled_is_dropped_by_the_ruling_the_reply_names(tmp_path, settled, posted):
+    """Root #265931: the fidelity pipeline dropped a settled point only on a word-for-word repeat, so the Unproven refusal root settled at #265587 came back reworded on the next head."""
+    ruling = {"seq": 265587, "text": "2:07 PM #43299: the census route refusing an unproven head is the plan's behavior; settled."}
+    directory = job(tmp_path, rulings=[ruling])
+    shell = Fake(tmp_path, [reply(verdict="missing", missing=({"key": "plan:811", "line": "the census route refuses an unproven head", "settled": settled},))], {(f"{OWN}^", HEAD): "5f1e", (f"{OLD}~1", OLD): "77aa"})
+    fidelity.main([str(directory)], shell)
+    assert shell.texts()[0] == posted
+    assert "- root #265587: 2:07 PM #43299: the census route refusing an unproven head is the plan's behavior; settled." in (directory / "question-1.md").read_text()
 
 @pytest.mark.parametrize(
     ("grades", "patches"),

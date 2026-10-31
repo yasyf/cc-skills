@@ -591,17 +591,9 @@ relays to the live lane. The root ratifies from `INCIDENT` in that turn:
 1. Adopt the launched fix lane into `incident.py` with `--adopt fix=<lane>`.
 2. Start or adopt the evidence lane. Beside it, spawn an incident-doc lane as
    `long-running:lane` on opus, named `incident-<id>-retro`.
-3. Claim the target for the fix lane:
-   `tools/ci release claim <component>/<env>... --purpose incident --reason <alert> --until <time>`.
-   Every other release then stops before its next apply there, and no
-   `--emergency` or hotfix goes through it. Whoever ships the fix holds the
-   claim; hand it to them with `tools/ci release transfer <id> --to <email>`,
-   and give it back with `tools/ci release lift <id>` once the alert clears. A
-   claim covers only the stacks that are breaking. Never claim a target because a
-   PR waits on review, a person's or a bot's, and never claim everyone over a
-   dependency your own change created: a change that must ship with another
-   target waits in its own stack. On Oct 14 a `schema-add` freeze set while a PR
-   waited on review refused every release that pulled `schema-add` in.
+3. Claim, freeze and hold nothing: no `tools/ci release claim`, freeze or hold
+   unless the owner asks for that exact one (owner, Oct 26; root #262864).
+   Other releases keep flowing while the fix lands.
 4. Start comms in the affected account channels first, before the mechanism is
    known, under cc-notes answer `5ad4507`. A platform-wide incident also opens
    in `#outage` under `52f4863`.
@@ -990,9 +982,11 @@ cites, or for a contract the two `rulings.py match` finds; a relay is also asked
 it adds a mechanism neither his words nor the plan lines it shares words with name. A yes
 posts one `review` record, `JUDGE <kind> #<seq> <key>: <sentence>`, in reply to the
 artifact, to its writer and root. The writer fixes the artifact or answers on the flag
-with the owner words that carry it; an answer puts one owner card on the board,
-`judge-dispute-<flag>`, with his words and both readings, and his pick becomes an eval
-case under `judge/owner/`. When `rulings.py classify` extends a row with new words, the
+with the owner words that carry it. A root ruling of the last day that replies to the
+flag, the artifact or the answer, or names one of its PRs, closes the answer with that
+ruling; otherwise the answer goes to root alone as an `ask` with his words and both
+readings, never to a board lane. An owner pick on a `judge-dispute-<flag>` card root
+chose to put on his board becomes an eval case under `judge/owner/`. When `rulings.py classify` extends a row with new words, the
 pass judges the ten newest contracts and relays of the last day citing that row again
 under all his words; a yes there that the judge had read as carried before is a miss,
 said so in the flag and written under `judge/misses/` as an eval case. The
@@ -1632,8 +1626,10 @@ The runner also requires a fidelity ok at every prefix head. It reads the cci
 which cci also matches to a post that named the bare number, and keeps those whose
 text starts `fidelity: ok` or `fidelity: missing` and whose first short sha is the
 PR's current head. Each lane's newest grade of the head stands for that lane, so a
-`missing` blocks until the same lane grades the head ok; a later ok from another
-lane never clears it. An ok counts as posted: rows the register gains after it
+`missing` blocks until the same lane grades the head ok, a root record about the PR
+resolves it, or a root record reads `fidelity-override #<n> at <sha>` for the head;
+a later ok from another lane never clears it. A root `finder-override #<n> at <sha>`
+settles a finder major at that head the same way (root #262497, #264732). An ok counts as posted: rows the register gains after it
 never void it or hold the head (4236611).
 A head graded `missing`, graded ok only at an older head, or never graded gets
 one cci `blocker` per head and grade, sent to the PR's lane and the fidelity
@@ -1909,7 +1905,12 @@ included, names it as a top or sweeps it in, and a go'd PR stacked on it waits
 that still needs its go, posted again only when that set of parents changes. After the go'd trees enqueue, the pass's one
 `ccx vcs pr status` read routes those PRs instead: a conflict, red CI, or requested
 changes goes to the lane as that head's blocker, and a landable head runs the
-accept checks, so its `MERGE-ASK` still reaches the root's board. Each tree the pass gates
+accept checks, so its `MERGE-ASK` still reaches the root's board. Red CI counts only
+the checks dev's rulesets require, read with the status read, plus Trunk's own queue
+check; a red check nothing requires, such as `buildkite/release-pr-check`, neither
+blocks nor refuses a head (root #262156). A stack check that ends because origin has
+no branch the PR names refuses that head to its lane, naming the branch to push or
+retarget (root #262354). Each tree the pass gates
 enqueues right after its accept, while the trees after it are still being checked.
 
 Every push of a merge-triage block goes through
@@ -2349,10 +2350,8 @@ root posts `--resolves <seq>` on the order, or once another lane's `release` or
 the release lane's own `release --build` or `refuse` record is answered by it.
 With no `release --build` or `refuse` record from that lane within
 `deadlines.cut_minutes`, 4 by default, the orca runner posts
-`CUT-SILENT <lane> <component>: no CUT or refusal <n> min after GO #<seq>; hand path: tools/ci release claim <component>/<env> --purpose incident --reason '<trigger> cut by hand' --until <now+2h> && tools/ci release start --manual <component> --env <env> --commit <sha> --emergency`
-to the root once. The incident claim makes the manual release the stack's only
-writer and lets it into another release's Watch window; `--emergency` only skips
-red dev checks. The runner posts the line and queues `manual-release-<component>` on opus xhigh from
+`CUT-SILENT <lane> <component>: no CUT or refusal <n> min after GO #<seq>; hand path: tools/ci release start --manual <component> --env <env> --commit <sha> --emergency`
+to the root once. It claims nothing; `--emergency` only skips red dev checks. The runner posts the line and queues `manual-release-<component>` on opus xhigh from
 `reference/manual-release-brief.md`. That launch waits one minute after the
 CUT-SILENT posts. A root record that `--resolves` the CUT-SILENT, or a release
 lane answer or closing record arriving in that minute, fails the launch before

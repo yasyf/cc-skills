@@ -1,4 +1,4 @@
-"""judge_watch.py over scripted bus records and a scripted judge: what it flags, to whom, what a recheck records as a miss, and how a dispute reaches the owner and comes back as an eval case."""
+"""judge_watch.py over scripted bus records and a scripted judge: what it flags, to whom, what a recheck records as a miss, and how a dispute reaches root or closes on root's ruling."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ class Scripted(judge_watch.Pass):
 
 @pytest.fixture
 def watch(tmp_path: Path) -> judge_watch.Watch:
-    return judge_watch.Watch("d1", "d1", tmp_path / "judge-watch.json", tmp_path, "board-refresher", str(tmp_path))
+    return judge_watch.Watch("d1", "d1", tmp_path / "judge-watch.json", tmp_path, str(tmp_path))
 
 
 @pytest.fixture
@@ -91,7 +91,8 @@ def test_new_owner_words_recheck_what_cites_the_row_and_a_new_yes_after_a_no_is_
     assert (case["kind"], case["expect"], case["ruling"]) == ("contract", "yes", "rule/a201ee6")
 
 
-def test_a_writers_answer_on_a_flag_puts_both_readings_on_one_owner_card_and_his_pick_becomes_an_eval_case(watch, run):
+def test_a_writers_answer_on_a_flag_asks_root_alone_with_both_readings_and_an_owner_pick_becomes_an_eval_case(watch, run):
+    """Root #263609: judge-watch ordered board-refresher lanes to post owner cards for contract-reading disputes after four root rulings."""
     first = run(Scripted(watch, [contract(100)], [MISREAD]))
     flag_seq = next(iter(first.saved.flags))
     reply = {"seq": 300, "lane": "lane-a", "kind": "answer", "re": int(flag_seq), "text": "He said one process per Mac; keys still share it.", "refs": {}}
@@ -100,9 +101,24 @@ def test_a_writers_answer_on_a_flag_puts_both_readings_on_one_owner_card_and_his
     second = run(Scripted(watch, [reply, pick], []))
 
     [ask] = posted(second)
-    assert ask["kind"] == "ask" and ask["to"] == ["board-refresher", "root"]
-    assert ask["text"].startswith(f"board-refresher: post owner card judge-dispute-{flag_seq}")
+    assert ask["kind"] == "ask" and ask["to"] == ["root"]
+    assert ask["text"].startswith(f"Does lane-a's contract #100 read his words the way he meant them? The judge flagged it on #{flag_seq}")
     card = (watch.drive_state / "judge" / "disputes" / f"{flag_seq}.md").read_text()
     assert MISREAD.sentence in card and reply["text"] in card
     case = json.loads((watch.drive_state / "judge" / "owner" / f"{flag_seq}.json").read_text())
     assert (case["expect"], case["artifact"]) == ("yes", contract(100)["text"])
+
+
+@pytest.mark.parametrize("ruling", [{"refs": {"prs": [46788]}}, {"re": 300, "refs": {}}], ids=["names-the-pr", "replies-to-the-answer"])
+def test_a_dispute_root_already_ruled_on_closes_with_that_ruling_and_asks_nobody(watch, run, ruling):
+    first = run(Scripted(watch, [contract(100) | {"refs": {"prs": [46788]}}], [MISREAD]))
+    flag_seq = next(iter(first.saved.flags))
+    reply = {"seq": 300, "lane": "lane-a", "kind": "answer", "re": int(flag_seq), "text": "The port keeps the source contract.", "refs": {}}
+    ruled = {"seq": 290, "lane": "root", "kind": "decide", "text": "the port keeps the source contract (ruling #262338)"} | ruling
+
+    second = run(Scripted(watch, [reply], [], cited=[ruled]))
+
+    [closed] = posted(second)
+    assert (closed["kind"], closed["to"]) == ("answer", ["lane-a", "root"])
+    assert closed["text"] == f"JUDGE dispute on #{flag_seq} closed by root #290: the port keeps the source contract (ruling #262338)"
+    assert "--resolves" in second.posts[-1] and flag_seq not in second.saved.flags

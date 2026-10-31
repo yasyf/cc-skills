@@ -491,6 +491,8 @@ class FakeShell(runner_module.Shell):
                 return runner_module.Done(runner_module.TIMED_OUT, "", self.status_error)
             prs = argv[9:] if argv[7:9] == ["--max-age", "300s"] else argv[7:]
             return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued"), "verdict": "landed" if self.queue.get(pr) == "landed" else "landable"} | self.pr_status.get(pr, {}) for pr in prs]), "")
+        if argv == ["gh", "api", "repos/Forge-AI/monorepo/rules/branches/dev"]:
+            return runner_module.Done(0, json.dumps([{"type": "pull_request"}, {"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "buildkite/test"}]}}]), "")
         if argv[:4] == ["ccx", "vcs", "auth", "status"]:
             assert argv[4:] == ["Forge-AI/monorepo", "--json"]
             return runner_module.Done(1, "", self.quota_error) if self.quota_error else runner_module.Done(0, json.dumps([{"repo": "forge-ai/monorepo", **self.auth}]), "")
@@ -830,6 +832,8 @@ class FakeShell(runner_module.Shell):
             if argv[3] not in self.dispatches:
                 return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "dispatch_not_found", "message": f"no dispatch {argv[3]}"}}), "")
             dispatch = self.dispatches[argv[3]]
+            if dispatch.get("remote_down"):
+                return runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "remote_runtime_unavailable", "message": "Could not connect to the remote Orca runtime."}}), "")
             if "settles_in" in dispatch:
                 dispatch["settles_in"] -= 1
                 if not dispatch["settles_in"]:
@@ -2646,6 +2650,24 @@ def test_a_trunk_drop_reads_as_evicted_where_the_status_read_says_not_queued():
     assert runner_module.trunk_labelled(out, {"labels": "trunk-queued"}) == out
 
 
+
+def test_a_red_check_dev_does_not_require_neither_blocks_nor_refuses_the_head(shell, config):
+    """Root #262156, #263732: buildkite/release-pr-check, never required on dev, went red on #46846, and the runner refused it and told its lane CI was red, though buildkite/test, dev's only required check, passed."""
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    shell.pr_status["29020"] = {"verdict": "blocked:ci-red", "ci": {"state": "red", "failing": ["buildkite/release-pr-check"]}}
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    assert blockers(shell) == []
+
+
+def test_a_red_required_check_beside_an_unrequired_one_still_blocks_the_head(shell, config):
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    shell.pr_status["29020"] = {"verdict": "blocked:ci-red", "ci": {"state": "red", "failing": ["buildkite/release-pr-check", "buildkite/test"]}}
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+
 def test_a_red_head_trunk_dropped_posts_one_red_to_its_lane_and_root_though_no_check_reads_it(shell, config, monkeypatch):
     """Owner 10:44 PM Oct 30: #45599 fell out of the Trunk merge queue when its queue run failed, its status read red, so no check read it, and the runner told nobody."""
     raw = json.loads(config.read_text())
@@ -3078,6 +3100,16 @@ def test_a_hold_that_appears_after_the_gate_refuses_the_enqueue_with_one_line_na
     assert shell.enqueues() == []
 
 
+
+def test_a_dev_red_incident_naming_a_pr_in_its_prose_holds_nothing(shell, config, tmp_path):
+    """Root #266270: root's dev-red INCIDENT #263114 said the red class fails 'from #45414 up', and #45414, the chat-open stack base and no incident fix, stayed held for two and a half hours."""
+    lone_green_pr(shell)
+    grade_gated_heads_ok(shell)
+    shell.records.append({"seq": 42, "num": "#42", "drive": "d1", "lane": "root", "kind": "incident", "status": "open", "topic": "dev-red", "to": ["root"], "refs": {"prs": [29019]}, "text": "DEV RED at a420927b, landed by #29019: failing from #29020 up", "source": "post", "at": "2026-10-01T17:59:00Z"})
+    landing_pass(shell, config)
+    assert [line for line in said(shell) if line.startswith("REFUSED refused:")] == []
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
 @pytest.mark.parametrize("number", ["#42", "#7", "#100@bbbbbbbb"])
 def test_an_open_incident_naming_the_pr_refuses_its_enqueue_naming_the_incident(shell, config, tmp_path, number):
     lone_green_pr(shell)
@@ -3323,14 +3355,16 @@ def test_a_missing_after_an_ok_at_the_same_head_blocks_until_a_newer_ok(shell, c
     assert len(shell.enqueues()) == 1 and len(blockers(shell)) == 1
 
 
-@pytest.mark.parametrize(("lane", "lands"), [("root", True), ("p8a-step7", False)])
-def test_a_missing_a_root_record_resolves_is_accepted_and_the_head_enqueues(shell, config, tmp_path, lane, lands):
+@pytest.mark.parametrize(("lane", "lands", "override"), [("root", True, False), ("p8a-step7", False, False), ("root", True, True), ("p8a-step7", False, True)])
+def test_a_missing_a_root_record_resolves_or_overrides_is_accepted_and_the_head_enqueues(shell, config, tmp_path, lane, lands, override):
+    """Root #264732: root accepted fidelity on #46865 at 94da521 and the runner kept cutting on it until an operator posted the grade."""
     lone_green_pr(shell)
     finder_verdict(shell, "29020", "ok cccc333 no findings")
     seq = grade(shell, "29020", "missing cccc333 plan names no enum `UNLABELLED`")
     landing_pass(shell, config)
     assert shell.enqueues() == []
-    cci_record(shell, lane=lane, kind="decide", resolves=[seq], refs={"prs": [29020]}, at=actions.stamp(shell.now()), text="Accepted at cccc333: a review-tool label, no product path")
+    ruling = {"text": "1:25 PM fidelity-override #29020 at cccc333: fidelity 152216 accepted, a review-tool label"} if override else {"resolves": [seq], "text": "Accepted at cccc333: a review-tool label, no product path"}
+    cci_record(shell, lane=lane, kind="decide", refs={"prs": [29020]}, at=actions.stamp(shell.now()), **ruling)
     landing_pass(shell, config)
     assert len(shell.enqueues()) == int(lands)
 
@@ -5819,7 +5853,7 @@ def test_a_root_decide_on_the_rebuttal_chain_that_keeps_the_finding_holds_the_he
     assert shell.enqueues() == []
 
 
-@pytest.mark.parametrize("cleared", ["names-head", "source-settled"])
+@pytest.mark.parametrize("cleared", ["names-head", "override", "source-settled"])
 def test_a_root_clear_of_a_carried_finder_major_lets_the_head_enqueue(shell, config, tmp_path, cleared):
     """Root #231127: root cleared carried majors on #45199, #46081 and #45821 in a DECIDE answering the lane's ask, and the runner kept each FINDER-PENDING."""
     lone_green_pr(shell)
@@ -5829,10 +5863,11 @@ def test_a_root_clear_of_a_carried_finder_major_lets_the_head_enqueue(shell, con
         shell.records.append({"seq": source + 1, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {}, "resolves": [source], "text": "refuted: the import is still used"})
     carried = finder_verdict(shell, "29020", f"major cccc333 carried from #{source}")
     landing_pass(shell, config)
-    if cleared == "names-head":
+    if cleared in ("names-head", "override"):
         assert shell.enqueues() == []
         shell.records.append({"seq": carried + 1, "drive": "d1", "lane": LANE, "kind": "ask", "to": ["root"], "refs": {"prs": [29020]}, "text": "the carried major is refuted; clear it"})
-        shell.records.append({"seq": carried + 2, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "resolves": [carried + 1], "text": "6:49 PM Clear finder on #29020 cccc333: the carried major (unused import) is refuted."})
+        ruling = {"names-head": "6:49 PM Clear finder on #29020 cccc333: the carried major (unused import) is refuted.", "override": "12:35 PM finder-override #29020 at cccc333: finder 150922 accepted (the import is still used)."}[cleared]
+        shell.records.append({"seq": carried + 2, "drive": "d1", "lane": "root", "kind": "decide", "to": [LANE], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "resolves": [carried + 1], "text": ruling})
         landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
@@ -5845,6 +5880,37 @@ def test_a_root_clear_naming_another_head_or_a_negated_clear_settles_nothing(she
     landing_pass(shell, config)
     assert shell.enqueues() == []
 
+
+
+@pytest.mark.parametrize("landed", [True, False], ids=["merged", "open"])
+def test_a_pr_already_merged_fails_no_finder_check(shell, config, tmp_path, landed):
+    """Root #262648: #46844 landed at aac02cc2 as an incident squash, and the runner still posted FINDER-PENDING on it."""
+    lone_green_pr(shell)
+    shell.queue["29020"] = "landed" if landed else "not queued"
+    landing = landing_of(shell, config, tmp_path)
+    states = landing.check_finder(runner_module.Graded({"29020": "cccc333333"}, landing.rows(), shell.now(), act=False))
+    assert ("29020" in states) != landed
+
+
+@pytest.mark.parametrize(
+    "named",
+    [{"text": "need a narrow sand stack plan at 5e11a9d; no apply started"}, {"text": "sand dry run", "refs": {"builds": ["https://buildkite.com/forge/release/builds/11496"], "stacks": ["sand/plat-usw2-prod"]}}],
+    ids=["commit", "stack"],
+)
+def test_the_fix_lanes_records_to_the_release_lane_answer_the_landings_cut_clock_and_release_blockers(shell, config, tmp_path, named):
+    """Root #262864, #262961: runnerdb-fix sent release-5 its #46844 release plans from 12:03, and the runner still posted CUT-SILENT at 12:07 and launched a second releaser, then repeated its release blocker at 12:09."""
+    land_fast(shell, config)
+    orca_pass(shell, config)
+    landing_pass(shell, config)
+    orca_pass(shell, config)
+    seq = cci_record(shell, lane="runnerdb-fix", kind="incident", to=["root", "peer:sole-51"], at=actions.stamp(shell.now()), **({"refs": {}} | named))
+    shell.sleep(5 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert cut_silent(shell) == [] and incident(tmp_path, "desk-runner").facts["cut-clocks"]["release:36642"]["ended"] == f"runnerdb-fix owns the release on cci #{seq}"
+    shell.sleep(16 * 60)
+    landing_pass(shell, config)
+    assert blockers(shell) == [] and release_action(tmp_path).verification_receipt["cci"] == seq
 
 def test_a_finder_major_after_a_missing_finder_record_posts_its_own_blocker(shell, config, tmp_path):
     lone_green_pr(shell)
@@ -7871,6 +7937,36 @@ def test_an_admitted_head_no_branch_settles_is_refused_unsettled_to_the_watchdog
     assert admitted_heads(config)["33001"]["state"] == "defect"
 
 
+
+
+def test_a_pass_a_handoff_stops_mid_gate_posts_no_unsettled_refusal(shell, config, tmp_path):
+    """drive-watchdog-2 #265236: the 0.7.744 landing pass the 1:46 PM Oct 31 handoff stopped mid-gate posted #46657, #46865 and #46882 as unsettled runner defects."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    shell.queue["33001"] = "not queued"
+    marker = landing_of(shell, config, tmp_path).runner.stop_marker()
+    run = shell.run
+
+    def handed_off(argv, *args, **kwargs):
+        if Path(argv[0]).name == "stack-enqueue" and "--check" in argv:
+            marker.write_text(str(os.getpid()))
+        return run(argv, *args, **kwargs)
+
+    shell.run = handed_off
+    landing_pass(shell, config)
+    assert [post for post in shell.posts if post["kind"] == "defect"] == []
+
+def test_a_check_that_reads_no_remote_branch_refuses_the_head_to_its_lane_never_unsettled(shell, config, tmp_path):
+    """Root #262354: origin had no refs/heads/pod-volume-slots for #46738, its stack check ended there, and the runner posted the head unsettled as a runner defect."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 CHECK aaaa111111 merge preflight aaaa111111 with dev 4ab0363d27")
+    shell.gates["33001"] = ["#33001 CHECK aaaa111111 merge preflight aaaa111111 with dev 4ab0363d27\nstack-enqueue failed: git ls-remote origin returned no refs/heads/g/1\n"]
+    shell.queue["33001"] = "not queued"
+    landing_pass(shell, config)
+    [post] = [post for post in shell.posts if post_body(post).startswith("REFUSED ")]
+    assert post["kind"] == "report" and "drive-watchdog@d1" not in post["to"].split(",")
+    assert "origin has no branch g/1, so its stack check cannot run: push the branch under that name or retarget the PR" in post_body(post)
+
 def test_a_green_pr_under_a_queued_native_stack_top_settles_queued_never_unsettled(shell, config, tmp_path):
     """Oct 31 8:35 AM: #45785, #45791 and #46614 read GREEN under a stack top Trunk already held, the check printed no enqueue line, and they posted `unsettled: the stack worker's settle step` until they landed (root #257204)."""
     merge_mode(config, "every")
@@ -8863,6 +8959,19 @@ def test_a_delivered_relay_is_never_failed_or_reported_again_when_its_dispatch_e
     assert len(shell.sends()) == 1
     assert [line for line in escalations(shell) if not line.startswith("RECLAIM")] == [f"RELAY-FAILED R440 {LANE}: no live dispatch (ctx_a is completed); nothing was relayed"]
 
+
+
+def test_a_worker_on_an_unreachable_remote_runtime_stops_no_pass_and_other_lanes_still_get_their_relays(shell, config, tmp_path):
+    """Root #265048: from 12:55 PM Oct 31 seven workers' Sprite runtimes gave no answer, worker-show raised for each, every orca pass stopped before it read cci, and the incident launch R84867 got no verdict for 17 minutes."""
+    shell.launch(LANE, "ctx_a")
+    shell.launch("sprite-lane", "ctx_b")
+    shell.dispatches["ctx_b"]["remote_down"] = True
+    orca_pass(shell, config)
+    cli(shell, config, "relay", "--key", "R440", "--lane", LANE, "--text", "post the status")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [call[call.index("--thread-id") + 1] for call in shell.sends()] == [thread("R440")]
+    assert not any(line.startswith("ORCA-UNREACHABLE") for line in escalations(shell))
 
 UNREACHABLE_FAILURES = [
     runner_module.Done(1, json.dumps({"ok": False, "error": {"code": "runtime_unavailable", "message": "Could not connect to the running Orca app. Restart Orca."}}), ""),
@@ -11576,8 +11685,7 @@ def test_a_cut_order_with_no_cut_for_four_minutes_escalates_once_and_launches_th
     orca_pass(shell, config)
     orca_pass(shell, config)
     [line] = [line for line in escalations(shell) if line.startswith("CUT-SILENT")]
-    until = actions.stamp(shell.now() + timedelta(hours=2))
-    hand = f"tools/ci release claim sand/<env> --purpose incident --reason 'GO #{seq} cut by hand' --until {until} && tools/ci release start --manual sand --env <env> --commit 94d61b91951 --emergency"
+    hand = "tools/ci release start --manual sand --env <env> --commit 94d61b91951 --emergency"
     assert line.startswith(f"CUT-SILENT {WALKER} sand: no CUT or refusal 4 min after GO #{seq}; hand path: {hand} | manual-release-sand launching on opus xhigh, brief ")
     shell.sleep(60)
     orca_pass(shell, config)
@@ -14323,6 +14431,7 @@ def test_each_head_starts_one_fidelity_pass_carrying_the_prs_grades_old_app_line
         "old_apps": [{"seq": graded + 1, "lane": "fidelity-desk-4", "head": FINDER_OLD[:7], "line": f"old-app: unchanged {FINDER_OLD[:7]} baseline {BASELINE}; go/sand/next only"}],
         "corrected": [graded],
         "settled": {str(graded): 149901},
+        "rulings": [{"seq": 149901, "text": f"re #{graded}: class wrong, not a pure port."}, {"seq": 149902, "text": f"re #{graded}: go after the restack."}],
         "contract": "contract: builds the resubscribe; deletes nothing",
         "exempt": {"port": runner_module.PORT_PHRASE, "test-only": runner_module.TEST_ONLY_PHRASE},
         "exempt_grades": [runner_module.PORT_PHRASE, runner_module.TEST_ONLY_PHRASE],
@@ -15288,6 +15397,16 @@ def test_an_approved_green_incident_fix_behind_dev_merges_rebased_onto_the_tip_o
     else:
         assert merges(shell) == [["gh", "pr", "merge", "36650", "--repo", "Forge-AI/monorepo", "--squash", "--match-head-commit", shell.replayed[0][2]]] and asked == []
 
+
+
+def test_an_incident_fix_merged_while_its_squash_waited_is_never_rebased_or_pushed(shell, config, tmp_path):
+    """Root #265100: #46888 merged as 299544d3 at 1:34 PM Oct 31 while the runner's squash waited its turn, and the runner then rebased its branch to 9de73e2, pushed it and waited ten minutes for an approval."""
+    incident_pr(shell)
+    shell.trunk = [{"oid": "9999dddd00"}]
+    shell.behind[INCIDENT_HEAD] = 3
+    shell.pr_states["36650"] = "MERGED"
+    landing_pass(shell, config)
+    assert shell.pushes == [] and merges(shell) == [] and [post for post in blockers(shell) if "lands only rebased" in post_body(post)] == []
 
 @pytest.mark.parametrize("approval", ["dismissed", "old-head"])
 def test_while_graphite_is_down_a_rebased_pr_whose_approval_does_not_come_back_in_ten_minutes_never_merges_and_names_the_bot(shell, config, tmp_path, approval):

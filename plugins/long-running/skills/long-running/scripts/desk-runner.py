@@ -731,6 +731,7 @@ ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED"
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 TRUNK = "dev"
+TRUNK_QUEUE_CHECK = f"Trunk Merge Queue ({TRUNK})"
 INACTIVE = frozenset({"completed", "failed"})
 RECLAIM_NAMED = 10
 CREATED = ".terminal.json"
@@ -822,6 +823,7 @@ IN_QUEUE_SAID = "the merge queue holds it"
 PREFIX_HELD = re.compile(r"^nothing to enqueue: \w+ already holds the green bottom prefix$", re.MULTILINE)
 QUEUE_SAID = "the landing runner put it in the merge queue at {at}"
 UNSETTLED = "unsettled:"
+MISSING_BRANCH = re.compile(r"returned no refs/heads/(\S+)")
 DEQUEUE_ORDERS = "dequeue-orders"
 PULLED_HEADS = "pulled-heads"
 DEQUEUE_ORDER = re.compile(r"(?:\A\s*|\b(?:landing-desk|desk-runner):\s*)dequeue\s+#(\d+)\b", re.IGNORECASE)
@@ -843,7 +845,6 @@ CUT_CLOCKS = "cut-clocks"
 CUT_CURSOR = "cut-cursor"
 CUT_LAUNCH = "cut:"
 CUT_GRACE = timedelta(minutes=1)
-CUT_CLAIM = timedelta(hours=2)
 RELEASE_CURSOR = "release-cursor"
 RELEASE_BUILDS = "release-builds"
 FREEZES = "freezes"
@@ -932,7 +933,8 @@ TRUNK_QUEUE_FACT = "trunk-queue"
 TRUNK_FELL = frozenset({"failed", "canceled"})
 TRUNK_UNREAD = frozenset({"unknown", "not queued"})
 CARRIED_FROM = re.compile(r"\bcarried from #(\d+)")
-ROOT_FINDER_CLEAR = r"(?:^|[.;]\s+)(?:\d{{1,2}}:\d\d [AP]M\s+)?(?:root:\s+)?clear(?:ed|s)?\b[^.;]*\bfinder\b[^.;]*#{pr}\s+{sha}"
+ROOT_FINDER_CLEAR = r"(?:^|[.;]\s+)(?:\d{{1,2}}:\d\d [AP]M\s+)?(?:root:\s+)?(?:clear(?:ed|s)?\b[^.;]*\bfinder\b[^.;]*|finder-override\s+)#{pr}\s+(?:at\s+)?{sha}"
+ROOT_FIDELITY_OVERRIDE = r"\bfidelity-override\s+#{pr}\s+(?:at\s+)?{sha}"
 QUEUED_VERDICT = "QUEUED"
 WAITING_VERDICT = "WAITING"
 BELOW_BLOCKED = re.compile(r"\bbelow BLOCKED #(\d+)\b")
@@ -966,7 +968,8 @@ SEND_ATTEMPTS = 3
 INBOX_PAGE_SIZE = 100
 UNPARSEABLE = "unparseable"
 UNREAD = "unread"
-UNREACHABLE = frozenset({"runtime_unavailable", "remote_runtime_unavailable", "runtime_timeout", "invalid_runtime_response", UNPARSEABLE})
+REMOTE_UNREACHABLE = "remote_runtime_unavailable"
+UNREACHABLE = frozenset({"runtime_unavailable", REMOTE_UNREACHABLE, "runtime_timeout", "invalid_runtime_response", UNPARSEABLE})
 ANSWER_CONFLICT = "answer_conflict"
 UNREACHABLE_FACT = "orca-unreachable"
 TRUNK_UNREAD_FACT = "trunk-unread"
@@ -1753,9 +1756,14 @@ class Orca:
         return next((lane for lane in self.lanes() if handle in (self.terminal(lane), f"dispatch:{self.receipt(lane)}")), handle)
 
     def show(self, lane: str, dispatch: str | None = None) -> Dispatch | None:
-        """The lane's dispatch as Orca shows it, or None when the lane has no receipt or Orca answers that the dispatch is gone; raises OrcaUnreachable when Orca gives no answer."""
-        dispatch = dispatch or self.receipt(lane)
-        shown = self.ask("orchestration", "worker-show", "--dispatch", dispatch) if dispatch else {}
+        """The lane's dispatch as Orca shows it, or None when the lane has no receipt or Orca answers that the dispatch is gone; a dispatch whose worker's remote runtime does not answer reads as live, so one unreachable Sprite never stops the pass (root #265048); raises OrcaUnreachable when Orca itself gives no answer."""
+        if not (dispatch := dispatch or self.receipt(lane)):
+            return None
+        shown = self.call("orchestration", "worker-show", "--dispatch", dispatch)
+        if not shown.get("ok") and shown["error"]["code"] == REMOTE_UNREACHABLE:
+            return Dispatch(lane=lane, id=dispatch, terminal=self.terminal(lane), status=REMOTE_UNREACHABLE, live=True)
+        if not shown.get("ok") and shown["error"]["code"] in UNREACHABLE:
+            raise OrcaUnreachable(": ".join(filter(None, [shown["error"]["code"], shown["error"].get("message")])))
         if not shown.get("ok"):
             return None
         result = shown["result"]
@@ -4356,10 +4364,7 @@ class Runner:
         minutes = whole_minutes(actions.parse_stamp(clock["since"]), self.now())
         if minutes < self.config.cut_minutes:
             return
-        until = actions.stamp(self.now() + CUT_CLAIM)
-        stacks = " ".join(f"{component}/{env}" for env in clock["env"].split(","))
-        release = self.release_command()
-        hand = f"{release} claim {stacks} --purpose incident --reason '{clock['trigger']} cut by hand' --until {until} && {release} start --manual {component} --env {clock['env']} --commit {clock['commit']} --emergency"
+        hand = f"{self.release_command()} start --manual {component} --env {clock['env']} --commit {clock['commit']} --emergency"
         line = f"CUT-SILENT {clock['lane']} {component}: no CUT or refusal {minutes} min after {clock['trigger']}; hand path: {hand}"
         launched = self.manual_release(key, manual, component, clock, hand) if not component.startswith("<") else "no manual release lane launched: the order names no component"
         self.end_cut(key, "silent")
@@ -4375,6 +4380,8 @@ class Runner:
             replies = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, since=seq)
             if resolved := next((record for record in replies if (record["lane"], record["drive"]) == (ROOT, self.config.drive) and seq in cci.resolved(record)), None):
                 return f"#{resolved['seq']} resolves"
+        if clock["pr"] and (owned := self.release_owned(clock["lane"], since, clock["pr"], clock["commit"], clock["components"])):
+            return f"{owned['lane']} owns the release on cci #{owned['seq']}"
         if not prs:
             return ""
         repo = self.config.landing["repo"] if self.config.landing else ""
@@ -4392,6 +4399,17 @@ class Runner:
             None,
         )
         return f"#{named['seq']} {named['kind']}" if named else ""
+
+    def release_owned(self, lane: str, since: datetime, pr: str, commit: str, components: list[str]) -> dict | None:
+        repo = self.config.landing["repo"] if self.config.landing else ""
+
+        def names(record: dict) -> bool:
+            refs = record.get("refs") or {}
+            named = set(refs.get("targets", [])) | {stack.split("/", 1)[0] for stack in refs.get("stacks", [])}
+            return bool(named & set(components)) or names_pr(record, pr) or pr in dict(repo_prs(record, repo)) or commit[:7] in record["text"]
+
+        posted = cci.records(self.cci_tail, self.config.drive, "--to", lane)
+        return next((record for record in posted if record["drive"] == self.config.drive and record["lane"] not in (RUNNER, ROOT) and lane in (record.get("to") or []) and actions.parse_stamp(record["at"]) >= since and names(record)), None)
 
     def release_command(self) -> str:
         """The release CLI as the landing config names it, run from the repo's root, or a placeholder when it names none."""
@@ -4854,6 +4872,7 @@ class Runner:
                 "grades": [{key: grade[key] for key in ("seq", "lane", "text")} for grade in grades],
                 "old_apps": [{"seq": grade["seq"], "lane": grade["lane"], "head": grade["head"], "line": OLD_APP_LINE.search(full_text(grade))[0]} for grade in old_app_grades_in(records, drive_id, lanes, repo, job["pr"])],
                 "settled": self.root_settled(repo, job["pr"], grades),
+                "rulings": [{"seq": record["seq"], "text": full_text(record)} for record in cci.records(self.cci_tail, drive_id, "--kind=decide", "--kind=answer", "--lane", ROOT, "--pr", f"{repo}#{job['pr']}") if record["kind"] in ("decide", "answer") and record["lane"] == ROOT],
                 "corrected": [record["re"] for record in cci.records(self.cci_tail, drive_id, "--kind=decide", "--lane", ROOT, "--pr", f"{repo}#{job['pr']}") if (record["kind"], record["lane"]) == ("decide", ROOT) and record.get("re") and CLASS_WRONG.match(record["text"])],
                 "contract": full_text(contract) if contract else "",
                 "exempt": {"port": landing.get("port_phrase", PORT_PHRASE), "test-only": TEST_ONLY_PHRASE},
@@ -5195,6 +5214,17 @@ def stacked_on(chain: list[str], open_rows: dict[str, dict]) -> list[str]:
 def blocker_key(pr: str, head: str) -> str:
     """One blocker per PR and head, whether the gate's 10-character sha or the ledger's full one names it, so a red build and the Graphite `FAILING_REQUIRED` it causes route once (root #142221)."""
     return f"blocker:{pr}:{head[:10]}"
+
+
+def required_only(entry: dict, required: set[str]) -> dict:
+    causes = entry["verdict"].removeprefix("blocked:").split(",")
+    ci = entry.get("ci") or {}
+    if "ci-red" not in causes or not ci.get("failing") or required & set(ci["failing"]):
+        return entry
+    pending = bool(ci.get("running"))
+    left = [cause for cause in causes if cause != "ci-red"] + (["ci-pending"] if pending else [])
+    rest = {key: value for key, value in ci.items() if key != "failing"}
+    return entry | {"ci": rest | {"state": "pending" if pending else "green", "unrequired": ci["failing"]}, "verdict": f"blocked:{','.join(left)}" if left else LANDABLE}
 
 
 def status_blocker(entry: dict, red: bool = True) -> str:
@@ -6048,6 +6078,10 @@ class Landing:
                     self.settle({pr: match["sha"]}, Refused(f"the gate read {match['sha']} WAITING: {match['detail']}"))
                 if (head := open_rows.get(pr, {}).get("head", "")) and not names_head(match["sha"], head):
                     self.settle({pr: head}, Refused(f"its head moved to {match['sha'][:10]} after the ledger read {head[:10]}, so the next pass gates the new head"))
+            if missing := MISSING_BRANCH.search(done.last):
+                for pr, match in verdicts.items():
+                    if match["verdict"] == "CHECK":
+                        self.settle({pr: match["sha"]}, Refused(f"origin has no branch {missing[1]}, so its stack check cannot run: push the branch under that name or retarget the PR to a branch that exists, then post HEAD"))
             if (would := self.direct_would(done)) is not None:
                 self.accept(tips, would, verdicts, rows, held)
             for pr, match in verdicts.items():
@@ -6569,8 +6603,10 @@ class Landing:
         newest = self.standing(grades, sha)
         desk_ok = any(grade["lane"] != fidelity.LANE and grade["text"].startswith(FIDELITY_OK) for grade in newest)
         misses = [grade for grade in newest if grade["text"].startswith(FIDELITY_MISSING) and not (desk_ok and grade["lane"] == fidelity.LANE)]
-        accepted = {seq for record in cci.records(self.cci_tail, self.runner.config.drive, "--lane", ROOT, "--pr", f"{self.repo}#{pr}") if record["lane"] == ROOT for seq in closes(record)} if misses else set()
-        if missing := max((grade for grade in misses if grade["seq"] not in accepted), key=lambda record: record["seq"], default=None):
+        rulings = [record for record in cci.records(self.cci_tail, self.runner.config.drive, "--lane", ROOT, "--pr", f"{self.repo}#{pr}") if record["lane"] == ROOT] if misses else []
+        accepted = {seq for record in rulings for seq in closes(record)}
+        overridden = re.compile(ROOT_FIDELITY_OVERRIDE.format(pr=pr, sha=sha[:7]), re.IGNORECASE)
+        if not any(overridden.search(full_text(record)) for record in rulings) and (missing := max((grade for grade in misses if grade["seq"] not in accepted), key=lambda record: record["seq"], default=None)):
             return Grade(False, missing, f"{missing['lane']} graded this head on cci #{missing['seq']}: {missing['text']}")
         if newest:
             oks = [grade for grade in newest if grade["text"].startswith(FIDELITY_OK)] or newest
@@ -6952,7 +6988,7 @@ class Landing:
         states, failed = {}, {}
         tapped = self.owner_tapped()
         for pr, sha in graded.heads.items():
-            if pr in tapped or self.finder_clear(pr, sha):
+            if pr in tapped or self.has_landed(pr) or self.finder_clear(pr, sha):
                 continue
             verdict = self.finder(pr, sha)
             why = f"{verdict['lane']} posted on cci #{verdict['seq']}: {verdict['text']}" if verdict else f"no `finder:` record from {finder.LANE} names this head, and a lane's own finder record never grades it"
@@ -6972,7 +7008,7 @@ class Landing:
         return self.finder_carried(pr, sha)
 
     def root_answered(self, pr: str, sha: str, verdict: dict) -> bool:
-        """Whether root settled `verdict`, a failing finder record at `sha`: a root `go` naming `pr` at `sha` posted after it, a root `decide` or `decision` that resolves it or opens a sentence clearing the finder on `#<pr> <sha>`, a root `decision`, or a `decide` that clears it, replying to it directly or along a chain of `--re` replies, since root refutes an edge-case finding in one line, or root settling the record a carried major says it was carried from (rule 2cc5a1f3, root #152572, #194669, #231127, p8a-step7 #234604)."""
+        """Whether root settled `verdict`, a failing finder record at `sha`: a root `go` naming `pr` at `sha` posted after it, a root `decide` or `decision` that resolves it or opens a sentence clearing the finder on `#<pr> <sha>` or reading `finder-override #<pr> at <sha>`, a root `decision`, or a `decide` that clears it, replying to it directly or along a chain of `--re` replies, since root refutes an edge-case finding in one line, or root settling the record a carried major says it was carried from (rule 2cc5a1f3, root #152572, #194669, #231127, #262497, p8a-step7 #234604)."""
         if any(go["seq"] > verdict["seq"] for go in self.head_gos(pr, sha)):
             return True
         if (source := CARRIED_FROM.search(verdict["text"])) and (carried := next((record for record in self.finder_records(pr) if record["seq"] == int(source[1])), None)) and self.root_answered(pr, carried["head"], carried):
@@ -8050,7 +8086,7 @@ class Landing:
                 incident = named[-1] if named else None
             else:
                 incident = indexed.get(pr)
-            if incident:
+            if incident and incident.get("topic") != cci.TRUNK_TOPIC:
                 why[pr] = f"open INCIDENT {incident['num']}, whose lane squash-merges it directly, never through the queue"
             elif reason := self.label_hold(pr) or self.record_hold(pr, accepted_at):
                 why[pr] = reason
@@ -8259,6 +8295,8 @@ class Landing:
             return
         self.check_precondition(Graded({pr: view["headRefOid"]}, {pr: row}, self.runner.now(), act=True))
         with DIRECT_MERGING:
+            if self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "state", "--jq", ".state", max_age=ghread.FRESH)).out.strip() != "OPEN":
+                return
             landing, refused = self.rebased([pr], {pr: view["headRefOid"]}, {pr: row})
             if refused:
                 if not self.book.known(LANDING, ask := f"rebase-direct:{pr}@{view['headRefOid']}"):
@@ -8678,7 +8716,7 @@ class Landing:
             self.book.attempt(LANDING, lambda incident: incident.verify(key, {"cci": self.cleared[landed["pr"]], "cleared": True, "at": self.book.stamp()}))
             return
         closing = set(posted.values()) | self.held_lines(landed["pr"])
-        if settled := self.release_started(landed) or (closing and self.acknowledged(closing, answers=not incident)):
+        if settled := self.release_started(landed) or self.runner.release_owned(self.release_owner, actions.parse_stamp(landed["landed_at"]), landed["pr"], landed["sha"], landed["components"]) or (closing and self.acknowledged(closing, answers=not incident)):
             refs = settled.get("refs") or {}
             receipt = {"cci": settled["seq"], "builds": refs.get("builds", []), "targets": refs.get("targets", []), "release": next(iter(RELEASE_ID.findall(settled["text"])), ""), "at": self.book.stamp()}
             if settled["kind"] == "fix-live":
@@ -9142,8 +9180,11 @@ class Landing:
             pages = [numbers[start : start + STATUS_PAGE] for start in range(0, len(numbers), STATUS_PAGE)]
             with ThreadPoolExecutor(max(1, len(pages))) as pool:
                 reads = list(pool.map(lambda page: self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", "--max-age", f"{int(STATUS_MAX_AGE.total_seconds())}s", *page]), pages))
-            done = next((read for read in reads if read.code != 0), Done(0, "", ""))
-            statuses = self.statuses = None if done.code else {str(entry["number"]): trunk_labelled(trunk_recorded(entry, self.trunk_states.get(str(entry["number"]))), self.ledger_rows.get(str(entry["number"]), {})) if self.adapter.kind == merge_queue.TrunkStackEnqueue.kind else entry for read in reads for entry in json.loads(read.out)}
+            rules = self.shell.run(ghread.read("api", f"repos/{self.repo}/rules/branches/{TRUNK}"))
+            done = next((read for read in [*reads, rules] if read.code != 0), Done(0, "", ""))
+            required = set() if done.code else {TRUNK_QUEUE_CHECK} | {check["context"] for rule in json.loads(rules.out) if rule["type"] == "required_status_checks" for check in rule["parameters"]["required_status_checks"]}
+            entries = [] if done.code else [required_only(entry, required) for read in reads for entry in json.loads(read.out)]
+            statuses = self.statuses = None if done.code else {str(entry["number"]): trunk_labelled(trunk_recorded(entry, self.trunk_states.get(str(entry["number"]))), self.ledger_rows.get(str(entry["number"]), {})) if self.adapter.kind == merge_queue.TrunkStackEnqueue.kind else entry for entry in entries}
             self.queues_read = True
             if statuses is None:
                 last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
@@ -9427,7 +9468,8 @@ class Landing:
         try:
             self.gate_rows(rows, held, not off)
         finally:
-            self.close_settlement(off)
+            if not self.runner.stop_requested():
+                self.close_settlement(off)
         self.runner.overdue(LANDING, "landing")
 
     def gate_rows(self, rows: dict[str, dict], held: list[str] | None, gating: bool) -> None:

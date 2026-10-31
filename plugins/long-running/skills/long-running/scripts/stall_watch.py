@@ -604,6 +604,10 @@ def binds(record: dict, asked: dict) -> bool:
     return (record["kind"] == "claim" or record["lane"] not in NOT_LANES | {BOARD_WATCH}) and bool(names.search(grades.full_text(record)))
 
 
+def ended(record: dict) -> bool:
+    return record["kind"] in ENDED and not (record["kind"] == "handoff" and record.get("re"))
+
+
 def successor_of(lane: str) -> re.Pattern[str]:
     return re.compile(rf"{re.escape(grades.SUCCESSOR_NUMBER.sub('', lane))}(?:-\d{{1,2}})*")
 
@@ -634,7 +638,7 @@ class Pass:
     def live_lane(self, lane: str) -> str | None:
         """`lane` or its numbered successor, whichever posted the newest record in the window, when that record is no end of the lane."""
         last = max((record for name, record in self.lane_newest.items() if successor_of(lane).fullmatch(name)), key=lambda record: record["seq"], default=None)
-        return last["lane"] if last is not None and last["kind"] not in ENDED else None
+        return last["lane"] if last is not None and not ended(last) else None
 
     def warn(self, kinds: frozenset[str] | set[str], why: str) -> None:
         self.unread |= kinds
@@ -1061,7 +1065,7 @@ class Pass:
             return Stall(f"probe:{pr}:{short(row['head'])}", "probe", since, subject, failed["url"], (lane,), "", pr)
         job = f" in job {failed['job']}" if failed.get("job") else ""
         error = f": {clip(failed['error'])}" if failed.get("error") else ""
-        owned = None if lane in ROOT_NAMES or (last := self.lane_newest.get(lane)) is None or last["kind"] in ENDED else lane
+        owned = None if lane in ROOT_NAMES or (last := self.lane_newest.get(lane)) is None or ended(last) else lane
         what = f"{required} has read failed{job} since {pacific(since)}{error} ({failed['url']})" + ("" if owned else f"; {lane} has posted nothing live in {int(self.watch.window.total_seconds() // 3600)} h")
         return Stall(f"red:{pr}:{short(row['head'])}{'' if owned else ':root'}", "red", since, subject, what, (owned,) if owned else (ROOT,), f"fix the red build of {subject} and push" if owned else f"assign the red build of {subject} to a live lane", pr)
 
@@ -1112,7 +1116,7 @@ class Pass:
             since = min(since, tap_at) if tap_at and found["state"] == TAP_WAIT else since
             self.states[pr] = {"signature": signature, "since": actions.stamp(since)}
             last = max((record for name, record in newest.items() if successor_of(found["owner"]).fullmatch(name)), key=lambda record: record["seq"], default=None)
-            live = last is not None and last["kind"] not in ENDED
+            live = last is not None and not ended(last)
             stale = self.now - since >= self.watch.age("stale")
             self.stack.append(found | {"since": actions.stamp(since), "live": live, "stale": stale})
             subject = f"#{pr} at {short(found['head'])}"
