@@ -9825,7 +9825,7 @@ def test_supervise_install_bootstraps_only_its_own_label_with_the_key_read_from_
     assert plistlib.loads(plist.read_bytes()) == {
         "Label": agent_label("landing"),
         "ProgramArguments": ["/bin/zsh", "-c", f'export TRUNK_MERGE_API_KEY="$(security find-generic-password -s trunk-merge-api-key -w)"; exec {shlex.quote(str(runner_module.RUNNER_BIN))} run --config {shlex.quote(str(config.resolve()))} --desk landing'],
-        "EnvironmentVariables": {"PATH": "/opt/homebrew/bin:/usr/bin:/bin"},
+        "EnvironmentVariables": {"PATH": f"/opt/homebrew/bin:/usr/bin:/bin:{tmp_path / '.claude/plugins/marketplaces/cc-inbox/plugin/bin'}"},
         "KeepAlive": True,
         "ThrottleInterval": 60,
         "SoftResourceLimits": {"NumberOfFiles": 65536},
@@ -9840,6 +9840,17 @@ def test_supervise_install_bootstraps_only_its_own_label_with_the_key_read_from_
     assert shell.launchctl_calls[-1] == ["bootout", agent_target("landing")] and not plist.exists()
     assert cli(shell, config, "supervise", "status", "--desk", "landing") == 1
     assert {arg for call in shell.launchctl_calls for arg in call[1:]} == {agent_target("landing"), f"gui/{os.getuid()}", str(plist)}
+    restarted[0].close()
+
+
+def test_a_supervised_runner_still_finds_cci_while_a_cask_upgrade_has_unlinked_brews_cci(shell, config, tmp_path):
+    """Oct 31 1:30 AM: brew unlinked /opt/homebrew/bin/cci for the six minutes the 0.46.3 cask's preflight took, and every process whose PATH had no other cci lost it."""
+    shell.environ |= {"PATH": "/opt/homebrew/bin:/usr/bin:/bin"}
+    restarted = []
+    shell.on_sleep.append(lambda: restarted.append(launchd_restarts(shell, config, tmp_path, "landing")))
+    assert cli(shell, config, "supervise", "install", "--desk", "landing") == 0
+    agent = plistlib.loads((tmp_path / "Library/LaunchAgents" / f"{agent_label('landing')}.plist").read_bytes())
+    assert agent["EnvironmentVariables"]["PATH"].split(":")[-1] == str(tmp_path / ".claude/plugins/marketplaces/cc-inbox/plugin/bin")
     restarted[0].close()
 
 
