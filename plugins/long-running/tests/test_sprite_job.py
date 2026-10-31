@@ -123,3 +123,35 @@ def test_a_job_fetches_only_when_no_fetch_began_after_it_asked_and_repacks_what_
     ran = ["fetch" if " fetch " in line else "repack" for line in log.read_text().splitlines() if " fetch " in line or " repack " in line]
     assert ran == ([] if served else ["fetch", "repack"])
     assert json.loads((directory / "result.json").read_text()) == {"verdict": "ok"}
+
+
+def test_a_sprite_whose_plugin_copy_is_missing_files_gets_the_whole_copy_again(tmp_path: Path) -> None:
+    """Root #234076, tooling-misc-3 #234214: long-running 0.7.701 installed truncated on this machine from 8:04 to 8:14 PM Oct 30, and a Sprite copied the plugin only when it lacked the version's directory, so a Sprite that copied the truncated install kept it after the reinstall."""
+    mac, sprite = tmp_path / "mac", tmp_path / "sprite"
+    checkout, directory, config = mac / "checkout", mac / "finder-desk" / "46075-decdc3400000", mac / "config"
+    script = mac / "plugin" / "skills" / "long-running" / "scripts" / "finder.py"
+    executable(script, RESTARTED_JOB)
+    executable(script.parent / "rulings.py", "")
+    (script.parent / "__pycache__").mkdir()
+    (script.parent / "__pycache__" / "finder.cpython-313.pyc").write_text("")
+    (mac / "plugin" / ".in_use").mkdir()
+    (mac / "plugin" / ".in_use" / "4242").write_text("")
+    executable(Path(f"{sprite}{script.parent}") / "rulings.py", "")
+    executable(mac / "bin" / "sprite", SPRITE)
+    executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    directory.mkdir(parents=True)
+    (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
+    (config / "long-running" / "drives").mkdir(parents=True)
+    (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
+    subprocess.run(["git", "init", "-q", f"{sprite}{checkout}"], check=True)
+
+    env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config)}
+    subprocess.run(["sh", str(SCRIPT), "vet4", str(script), str(directory)], env=env, check=True, capture_output=True, timeout=60)
+
+    assert Path(f"{sprite}{script}").read_text() == RESTARTED_JOB
+    assert not Path(f"{sprite}{script.parent}/__pycache__").exists()
+    assert json.loads((directory / "result.json").read_text()) == {"verdict": "ok"}
+    shipped = Path(f"{sprite}{mac}/plugin.digest").read_text()
+    (mac / "plugin" / ".in_use" / "4343").write_text("")
+    subprocess.run(["sh", str(SCRIPT), "vet4", str(script), str(directory)], env=env, check=True, capture_output=True, timeout=60)
+    assert Path(f"{sprite}{mac}/plugin.digest").read_text() == shipped and not Path(f"{sprite}{mac}/plugin/.in_use").exists()

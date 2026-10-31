@@ -20,9 +20,11 @@ input and its environment only, never a file or an argument. A GH_TOKEN also
 refreshes git's in-memory credential cache on the Sprite for an hour, so
 long-running processes there read GitHub between passes.
 
-The plugin version holding <script> is copied over once, when the Sprite lacks
-it, the drive's registry file on every run with its `checkout` set to the job's
-checkout, since the Sprite holds that clone and not this machine's, the register
+The plugin version holding <script> is copied over whenever a file in it was
+added, removed or changed since the Sprite's copy, so a truncated install or a
+half-finished copy is replaced on the next job, swapped in whole, with caches
+and Claude Code's in-use marks left out; the drive's registry file on every run
+with its `checkout` set to the job's checkout, since the Sprite holds that clone and not this machine's, the register
 copy kept in the drive's state as a snapshot for that checkout, which rulings.py
 on the Sprite reads instead of rebuilding the register cold with ccn, and the plan package the drive's
 register names, the directory holding plan/plan.md, whenever a file in it was
@@ -53,9 +55,29 @@ state=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["state_
 program=$(python3 -c 'import json, sys; from pathlib import Path; entry = json.load(open(sys.argv[1])); print(entry.get("program") or Path(entry["state_dir"]).name)' "$registry")
 plan=$(python3 "$(dirname "$script")/rulings.py" plan --repo "$checkout" --drive "$drive")
 
-if ! sprite exec -s "$sprite" --no-stdin -- test -d "$plugin"; then
-  tar --no-xattrs -C "$plugin" -cz . | sprite exec -s "$sprite" -- sh -c 'mkdir -p "$1" && tar -xz -m -C "$1"' sh "$plugin"
-fi
+digest() {
+  python3 -c '
+import hashlib, os, sys
+seen = hashlib.sha256()
+for here, dirs, names in os.walk(sys.argv[1]):
+    dirs[:] = sorted(name for name in dirs if name not in ("__pycache__", ".in_use"))
+    for name in sorted(set(names) - {".orphaned_at"}):
+        path = os.path.join(here, name)
+        stat = os.stat(path)
+        seen.update(f"{os.path.relpath(path, sys.argv[1])} {stat.st_size} {stat.st_mtime_ns}\n".encode())
+print(seen.hexdigest())' "$1"
+}
+
+ship() {
+  sum=$(digest "$1")
+  if [ "$(sprite exec -s "$sprite" --no-stdin -- sh -c 'mkdir -p "$(dirname "$1")"; cat "$1.digest" 2>/dev/null' sh "$1")" != "$sum" ]; then
+    tar --no-xattrs --exclude=__pycache__ --exclude=.in_use --exclude=.orphaned_at -C "$1" -cz . | sprite exec -s "$sprite" -- flock "$1.lock" sh -c '
+      if [ "$(cat "$1.digest" 2>/dev/null)" = "$2" ]; then exec cat >/dev/null; fi
+      rm -rf "$1.new" && mkdir -p "$1.new" && tar -xz -m -C "$1.new" && rm -rf "$1" && mv "$1.new" "$1" && printf %s "$2" >"$1.digest"' sh "$1" "$sum"
+  fi
+}
+
+ship "$plugin"
 tar --no-xattrs -C "$dir" -cz . | sprite exec -s "$sprite" -- sh -c 'mkdir -p "$1" && tar -xz -m -C "$1"' sh "$dir"
 python3 -c 'import json, sys; entry = json.load(open(sys.argv[1])); entry["checkout"] = sys.argv[2]; print(json.dumps(entry))' "$registry" "$checkout" |
   sprite exec -s "$sprite" -- sh -c 'mkdir -p "$(dirname "$1")" && cat >"$1"' sh "$registry"
@@ -74,21 +96,7 @@ for name, kept in json.load(sys.stdin).items():
     staged.write_text(json.dumps(kept, ensure_ascii=False))
     staged.replace(state / name)' "$state"
 if [ -n "$plan" ]; then
-  package=$(dirname "$(dirname "$plan")")
-  digest=$(python3 -c '
-import hashlib, os, sys
-seen = hashlib.sha256()
-for here, _, names in sorted(os.walk(sys.argv[1])):
-    for name in sorted(names):
-        path = os.path.join(here, name)
-        stat = os.stat(path)
-        seen.update(f"{os.path.relpath(path, sys.argv[1])} {stat.st_size} {stat.st_mtime_ns}\n".encode())
-print(seen.hexdigest())' "$package")
-  if [ "$(sprite exec -s "$sprite" --no-stdin -- sh -c 'mkdir -p "$(dirname "$1")"; cat "$1.digest" 2>/dev/null' sh "$package")" != "$digest" ]; then
-    tar --no-xattrs -C "$package" -cz . | sprite exec -s "$sprite" -- flock "$package.lock" sh -c '
-      if [ "$(cat "$1.digest" 2>/dev/null)" = "$2" ]; then exec cat >/dev/null; fi
-      rm -rf "$1.new" && mkdir -p "$1.new" && tar -xz -m -C "$1.new" && rm -rf "$1" && mv "$1.new" "$1" && printf %s "$2" >"$1.digest"' sh "$package" "$digest"
-  fi
+  ship "$(dirname "$(dirname "$plan")")"
 fi
 
 python3 -c '
