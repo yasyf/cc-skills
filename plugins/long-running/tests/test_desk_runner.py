@@ -17,6 +17,7 @@ import shlex
 import sys
 import threading
 import time
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -13424,6 +13425,24 @@ def test_each_pass_goes_to_the_listed_sprite_running_the_fewest_of_its_desks_pas
     assert [(job["pr"], job["sprite"]) for job in finder_jobs(shell)][3:] == [("43601", "sprite-b")]
     assert shell.sprite_jobs == [("sprite-a", "finder.py"), ("sprite-b", "finder.py"), ("sprite-a", "finder.py"), ("sprite-b", "fidelity.py"), ("sprite-b", "finder.py")]
 
+
+
+def test_no_pass_starts_on_a_sprite_already_running_its_cap_of_finder_and_fidelity_passes_together(shell, config):
+    """tooling-misc-3 #231706, 7:10 PM Oct 30: the finder's 20 passes and fidelity's 16 were each spread over the Sprites alone, so one 8 GB Sprite ran 9 or more at once at load 20 with its RAM full, and its passes timed out."""
+    finder_config(config, concurrent=8, sprite=["sprite-a", "sprite-b"])
+    fidelity_config(config, concurrent=8, sprite=["sprite-a", "sprite-b"])
+    config.write_text(json.dumps(json.loads(config.read_text()) | {"sprite_cap": 2}))
+    orca_pass(shell, config)
+    heads = {pr: hashlib.sha1(pr.encode()).hexdigest() for pr in ("43439", "43299", "42784", "43601")}
+    for pr, head in heads.items():
+        head_record(shell, pr, head)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert sorted(Counter(sprite for sprite, _ in shell.sprite_jobs).items()) == [("sprite-a", 2), ("sprite-b", 2)]
+    assert not any(job["sprite"] == "" for job in [*finder_jobs(shell), *fidelity_jobs(shell)])
+    (shell.finder_jobs[0] / "result.json").write_text(json.dumps({"verdict": "ok", "record": f"finder: ok {heads[finder_jobs(shell)[0]['pr']]}", "posted": "#150001"}))
+    orca_pass(shell, config)
+    assert len(shell.sprite_jobs) == 5 and shell.sprite_jobs[-1][0] == finder_jobs(shell)[0]["sprite"]
 
 def sprite_records(shell: FakeShell) -> list[tuple[str, str, str]]:
     return [(post["kind"], post["to"], post["text"]) for post in shell.posts if post.get("topic", "").startswith("sprite:")]

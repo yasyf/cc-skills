@@ -477,7 +477,7 @@ the other `landing.fidelity_lane` lanes as `fidelity: reader`. A pass whose job 
 `fidelity.timeout_minutes` (default 60), fails at once and logs `FIDELITY-FAILED` to those lanes; the next `head`
 record for the PR queues it again. `show` lists each queued and running pass.
 With `finder.sprite` or `fidelity.sprite` naming a Sprite or a list of them, each pass runs through `sprite-job.sh` on
-the listed Sprite running the fewest of that desk's passes, the first listed on a tie, at the same paths, and posts its
+the listed Sprite running the fewest finder and fidelity passes together, the first listed on a tie, at the same paths, and posts its
 records over the drive's cci relay; the runner still writes the job, naming the Sprite, tracks the local process, and
 settles the pass from the result copied back. Every ten minutes the runner posts one `state` record per listed Sprite
 to root and the drive watchdog naming the finder and fidelity passes it runs and the age of its oldest; a Sprite whose
@@ -4511,7 +4511,7 @@ class Runner:
         graded = {pr for pr, passes in history.items() if any({"verdict", "answered"} & set(action.response or {}) for action in passes)}
         ranks = {pr: int(row.get("priority", DEFAULT_PRIORITY)) for pr, row in rows.items()}
         for action in sorted(newest.values(), key=lambda action: (ranks.get(pr := json.loads(action.target)["pr"], DEFAULT_PRIORITY), not full_pass(action), pr not in going, pr not in graded, queued_since(history[pr], action))):
-            if running >= spec.get("concurrent", FINDER_CONCURRENT):
+            if running >= spec.get("concurrent", FINDER_CONCURRENT) or self.least_busy_sprite(spec) is None:
                 return
             if not self.waiting_on_fix(action):
                 running += self.start_finder(spec, repo, action, rows)
@@ -4599,7 +4599,7 @@ class Runner:
         directory = self.config.source.parent / finder.LANE / ((f"{job['pr']}-whole-{job['seq']}" if full else f"{job['pr']}-{job['head'][:12]}") + (f"-{attempt}" if attempt else ""))
         directory.mkdir(parents=True, exist_ok=True)
         landing = self.config.landing or {}
-        sprite = self.least_busy_sprite(FINDER, spec)
+        sprite = self.least_busy_sprite(spec)
         drive.write_atomic(
             directory / finder.JOB,
             {
@@ -4770,7 +4770,7 @@ class Runner:
                 del newest[pr]
         ranks = {pr: int(row.get("priority", DEFAULT_PRIORITY)) for pr, row in rows.items()}
         for action in sorted(newest.values(), key=lambda action: ranks.get(json.loads(action.target)["pr"], DEFAULT_PRIORITY)):
-            if running >= spec.get("concurrent", FIDELITY_CONCURRENT):
+            if running >= spec.get("concurrent", FIDELITY_CONCURRENT) or self.least_busy_sprite(spec) is None:
                 return
             if not self.waiting_on_fix(action):
                 running += self.start_fidelity(spec, repo, action, rows)
@@ -4790,7 +4790,7 @@ class Runner:
         contract = max((record for record in contracts if about_pr(record, repo, job["pr"])), key=lambda record: record["seq"], default=None) or max(contracts, key=lambda record: record["seq"], default=None)
         directory = self.config.source.parent / fidelity.LANE / (f"{job['pr']}-{job['head'][:12]}-{job['seq']}" + (f"-{attempt}" if (attempt := action.action_id.partition("#")[2]) else ""))
         directory.mkdir(parents=True, exist_ok=True)
-        sprite = self.least_busy_sprite(FIDELITY, spec)
+        sprite = self.least_busy_sprite(spec)
         drive.write_atomic(
             directory / fidelity.JOB,
             {
@@ -4823,10 +4823,15 @@ class Runner:
         self.shell.spawn(argv, directory / fidelity.LOG, env)
         return True
 
-    def least_busy_sprite(self, container: str, spec: dict) -> str:
-        """The Sprite the desk's `sprite` lists that runs the fewest of the desk's passes now, the first listed on a tie, or none when it lists none."""
-        running = Counter(self.pass_sprite(action) for action in self.book.actions(container, status="started"))
-        return min(desk_sprites(spec), key=lambda sprite: running[sprite], default="")
+    def least_busy_sprite(self, spec: dict) -> str | None:
+        """The Sprite the desk's `sprite` lists that runs the fewest finder and fidelity passes together now, the first listed on a tie; none when it lists none, so the pass runs here; and None while that Sprite already runs runner.json's `sprite_cap` passes, so the pass waits queued."""
+        listed = desk_sprites(spec)
+        if not listed:
+            return ""
+        running = Counter(self.pass_sprite(action) for container in (FINDER, FIDELITY) if self.book.exists(container) for action in self.book.actions(container, status="started"))
+        sprite = min(listed, key=lambda name: running[name])
+        cap = json.loads(self.config.source.read_text()).get("sprite_cap")
+        return None if cap is not None and running[sprite] >= cap else sprite
 
     def pass_sprite(self, action: actions.Action) -> str:
         """The Sprite a desk pass ran on, from its job, or none for a pass that ran here."""
