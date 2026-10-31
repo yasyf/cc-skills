@@ -9,7 +9,7 @@ import pytest
 
 from long_running import actions
 from long_running.build_cache import BuildCache
-from test_desk_runner import build_reads, config, landing_of, shell, with_ci_build
+from test_desk_runner import build_reads, config, landing_of, runner_module, shell, with_ci_build
 
 
 NOW = datetime(2026, 10, 30, 20, tzinfo=timezone.utc)
