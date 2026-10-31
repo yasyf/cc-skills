@@ -989,7 +989,8 @@ under all his words; a yes there that the judge had read as carried before is a 
 said so in the flag and written under `judge/misses/` as an eval case. The
 `ruling_misread` hook judges the tests a pull request ships the same way at ship.
 Every small-model question in the pack goes through one library,
-`scripts/long_running/judge.py`. A judge reads the owner's words verbatim and what they
+`scripts/long_running/judge.py`; a caller with many questions of its own shape in one pass,
+the stall watch, asks them in one `batch` call on the same command line. A judge reads the owner's words verbatim and what they
 answered, never the register's summaries. A yes is asked a second time, and a split is
 unsure, which never warns. A failed call returns nothing, so the caller keeps the
 behavior it had without a judge. `LONG_RUNNING_JUDGE` picks the model: `sonnet+jev`, the
@@ -1002,10 +1003,13 @@ files kept in the drive's state folder, because they carry the owner's words; it
 models, so it runs by hand before a judge ships or a prompt changes, never in CI.
 A ruling about system shape (one process, one primary and one replica, everything a
 client, N things sharing one X) gets a CI test that fails on today's code in the same
-turn as the build. `rulings.py shapes` lists the in-force shape rows; `check-pr` refuses
-a PR citing one as `SHAPE-UNTESTED` until the PR adds a test naming the row or
-`rulings.py shape <key> --test <repo>#<pr> <path>::<test>` records one; the stall watch
-posts every shape row still untested 30 minutes after it was written to root.
+turn as the build. `rulings.py shapes` lists the in-force shape rows; `check-pr` warns
+of a PR citing one as `SHAPE-UNTESTED` until the PR adds a test naming the row or
+`rulings.py shape <key> --test <repo>#<pr> <path>::<test>` records one. A test that names
+the row is not enough: the drive's judge reads it beside his words, and a test it reads as
+asserting a different invariant, one that passes while his fails, is `SHAPE-UNTESTED` too,
+with the judge's sentence. The stall watch posts every shape row still untested 30 minutes
+after it was written to root.
 
 *Prevents the release-v3 repeats of 2026-10-22. The owner said for the fifth time that
 starting a session in the cloud and then writing on the Mac is out of scope, and again
@@ -2805,14 +2809,15 @@ stalls in one stack post as one record, on the stack's lowest PR.
 | `order` | a root `decide` record relays an owner order, Sonnet reads it as naming a change that ships as a new PR, and no lane it names, or a numbered successor, posts a record citing a PR after it, such as `opened`, `done`, or a `state` with a PR reference; it stops at two hours or when a root record closes it | 3 | root, as `urgent` |
 
 **S2. Python checks the facts, and one Sonnet call answers the judgment.** Sonnet judges
-whether a new head replays the tapped one unchanged, and whether a quiet lane's last
-record explains its silence or promises a time. One `claude -p` call per pass,
-on `claude-sonnet-5-5` at low effort, answers every open question. A verdict is kept
-against the records it read, so no question is asked twice. When the call fails, each
-question takes its mechanical answer.
+whether a new head replays the tapped one unchanged, whether a quiet lane's last
+record explains its silence or promises a time, and whether a relayed owner order ships
+as a new PR. One call per pass through the judge library's `batch`, Sonnet at low effort
+with Claude Code's own system prompt replaced, answers every open question and lands in
+`judge/calls.jsonl` as kind `stall`. A verdict is kept against the records it read, so no
+question is asked twice. When the call fails, each question takes its mechanical answer.
 
-`stall.minutes` overrides any row's minutes, `stall.window_hours` (default 24) bounds the
-records a pass reads, and `stall.model` names the judge. `stall_watch.py --config
+`stall.minutes` overrides any row's minutes, and `stall.window_hours` (default 24) bounds the
+records a pass reads. `stall_watch.py --config
 <runner.json> --dry-run` prints the stalls a pass finds, and posts and saves nothing.
 
 *Prevents approvals that never reached the owner's board, finder reviews nobody

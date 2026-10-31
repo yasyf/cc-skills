@@ -12,7 +12,7 @@ import ledger
 import pytest
 import rulings
 from conftest import gateway
-from test_rulings import DIFF, REPO, RegisterShell, home, package, ran, registered, seeded, state
+from test_rulings import DIFF, REPO, Judge, RegisterShell, home, judged, package, ran, registered, seeded, state
 
 HEAD = "cafef00d"
 CORPUS = "# Tests\n\n- test_drain_on_close: the pool is empty after a run closes.\n"
@@ -594,6 +594,36 @@ def test_a_pr_citing_a_shape_ruling_adds_a_test_naming_it_or_the_row_records_one
     assert check(capsys, CheckShell(rows, diff=named)) == (0, [])
     rows["rule/bbbbbbb"]["shape_tests"] = '["acme/app#11 tests/test_pool_count.py::test_one_pool_process_for_every_run"]'
     assert check(capsys, CheckShell(rows)) == (0, [])
+
+
+def test_a_test_naming_a_shape_ruling_that_the_judge_reads_as_another_invariant_warns_once_per_row_and_test(package: Path, state: Path, registered: Path, capsys, judged: Judge) -> None:
+    """Oct 29: the test that named the upload ruling asserted two processes for two keys, while the owner's words fixed one process for every chat."""
+    rows = pinned(package)
+    rows["rule/bbbbbbb"]["words"] = "One pool process drains every run when it closes."
+    per_run = DIFF + """diff --git a/tests/test_pool_count.py b/tests/test_pool_count.py
+--- /dev/null
++++ b/tests/test_pool_count.py
+@@ -0,0 +1,3 @@
++def test_one_pool_process_per_run():
++    \"\"\"rule/bbbbbbb: one pool process drains every run.\"\"\"
++    assert pool_processes(runs=2) == 2
+"""
+    other = rulings.judge.Verdict("yes", "pool_processes(runs=2) == 2", "One pool process drains every run", "He said one pool process for every run, and this test passes with one process per run.")
+    judged.verdict = lambda kind, artifact: other if kind == "test" else None
+
+    code, lines = check(capsys, CheckShell(rows, diff=per_run))
+
+    assert code == 1 and lines == [
+        "SHAPE-UNTESTED rule/bbbbbbb\ta judge reads the test naming rule/bbbbbbb as asserting a different invariant than his words:"
+        " He said one pool process for every run, and this test passes with one process per run."
+        ' The test: "pool_processes(runs=2) == 2"; his words: "One pool process drains every run". Make it fail whenever his invariant fails, or answer this warning with the owner words it carries'
+    ]
+    [(kind, evidence, artifact, kwargs)] = judged.asked
+    assert (kind, kwargs["drive"]) == ("test", "brook-drive")
+    assert '"One pool process drains every run when it closes."' in evidence
+    assert artifact == 'tests/test_pool_count.py\ndef test_one_pool_process_per_run():\n    """rule/bbbbbbb: one pool process drains every run."""\n    assert pool_processes(runs=2) == 2'
+    assert check(capsys, CheckShell(rows, diff=per_run)) == (1, lines)
+    assert len(judged.asked) == 1
 
 
 def test_a_pr_in_another_checkout_is_graded_against_the_drive_register(package: Path, state: Path, registered: Path, capsys) -> None:

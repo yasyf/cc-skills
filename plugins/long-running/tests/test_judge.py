@@ -111,6 +111,35 @@ def test_the_digest_counts_each_kinds_verdicts_errors_and_latency():
     ]
 
 
+def test_a_batch_asks_sonnet_once_under_its_own_system_prompt_and_logs_an_answered_call(tmp_path, monkeypatch):
+    monkeypatch.setattr(judge, "state_dir", lambda drive: tmp_path)
+    argv = []
+
+    def claude(args, **kwargs):
+        argv.append(args)
+        return subprocess.CompletedProcess(args, 0, stdout=json.dumps({"structured_output": {"verdicts": [{"id": "q1", "why": "w"}]}, "total_cost_usd": 0.02, "usage": {"input_tokens": 3000}}), stderr="")
+
+    monkeypatch.setattr(judge.subprocess, "run", claude)
+
+    assert judge.batch("stall", "Questions: q1", '{"type": "object"}', drive="d1") == {"verdicts": [{"id": "q1", "why": "w"}]}
+    assert len(argv) == 1 and argv[0][argv[0].index("--system-prompt") + 1] == judge.BATCH_SYSTEM
+    [row] = judge.calls(tmp_path, datetime.now(timezone.utc) - timedelta(minutes=1))
+    assert (row["kind"], row["verdict"], row["asks"], row["tokens"]) == ("stall", "answered", 1, 3000)
+
+
+def test_a_failed_batch_returns_none_and_the_digest_counts_it_beside_the_answered_ones(tmp_path, monkeypatch):
+    monkeypatch.setattr(judge, "state_dir", lambda drive: tmp_path)
+
+    def broken(*args, **kwargs):
+        raise subprocess.TimeoutExpired("claude", 300)
+
+    monkeypatch.setattr(judge.subprocess, "run", broken)
+
+    assert judge.batch("stall", "Questions: q1", '{"type": "object"}', drive="d1") is None
+    rows = [*judge.calls(tmp_path, datetime.now(timezone.utc) - timedelta(minutes=1)), {"kind": "stall", "verdict": "answered", "seconds": 40.0, "cost_usd": 0.02}]
+    assert judge.digest(rows) == ["judge stall: 2 calls, 1 answered, 1 errors; median 40 s, slowest 40 s; $0.02"]
+
+
 def test_an_unknown_backend_in_the_environment_is_refused():
     with pytest.raises(ValueError, match="names no judge backend"):
         judge.backend_from({judge.BACKEND_ENV: "haiku"})
