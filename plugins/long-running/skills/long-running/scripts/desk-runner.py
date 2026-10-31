@@ -6103,6 +6103,10 @@ class Landing:
                     self.settle({pr: match["sha"]}, Refused(f"the gate read {match['sha']} BLOCKED: {match['detail']}"))
                 elif match["verdict"] == WAITING_VERDICT and (below := BELOW_BLOCKED.search(match["detail"])):
                     self.settle({pr: match["sha"]}, BelowBlocked(f"#{below[1]}", f"the gate read {match['sha']} WAITING {match['detail']}"))
+                elif match["verdict"] == WAITING_VERDICT:
+                    self.settle({pr: match["sha"]}, Refused(f"the gate read {match['sha']} WAITING: {match['detail']}"))
+                if (head := open_rows.get(pr, {}).get("head", "")) and not names_head(match["sha"], head):
+                    self.settle({pr: head}, Refused(f"its head moved to {match['sha'][:10]} after the ledger read {head[:10]}, so the next pass gates the new head"))
             if (would := self.direct_would(done)) is not None:
                 self.accept(tips, would, verdicts, rows, held)
             for pr, match in verdicts.items():
