@@ -626,6 +626,19 @@ def test_a_spawned_lane_that_neither_posts_nor_binds_within_three_minutes_stalls
     assert "unregistered:lane-quiet" not in opened(config)
 
 
+def test_a_sub_worker_of_a_live_lane_stalls_to_that_lane_never_to_root(config):
+    """Root #235327: a sub-worker whose name starts with a live lane's name is that lane's own, so its unregistered stall goes to the parent lane, which has it post one state line first; a numbered successor and a lane whose parent ended still go to root."""
+    shell = FakeShell([record(1, "mq-health-4", "state", "supervising", 6), spawn(2, "mq-health-4-supervise", 5), record(3, "mq-health-4", "state", "still supervising", 1), spawn(4, "mq-health-4-2", 5), record(5, "gone-1", "done", "finished", 6), spawn(6, "gone-1-helper", 5)], [])
+    shell.peers = []
+
+    watch(shell, config)
+
+    assert shell.post("unregistered:mq-health-4-supervise")["to"] == "mq-health-4@d1"
+    assert shell.post("unregistered:mq-health-4-supervise")["text"].endswith("| owner mq-health-4 | mq-health-4 has mq-health-4-supervise post one state line as its first act")
+    assert shell.post("unregistered:mq-health-4-2")["to"] == "root"
+    assert shell.post("unregistered:gone-1-helper")["to"] == "root"
+
+
 def test_untested_shape_rulings_stall_to_root_once_they_are_half_an_hour_old(config):
     """Owner, Oct 30 5:21 AM: one local replica alongside one local primary, everything a client of it; 144 chats had started 146 replication processes, and no test held the count."""
     shell = FakeShell([], [])
