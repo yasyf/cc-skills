@@ -93,9 +93,9 @@ class CheckShell(RegisterShell):
         match plain:
             case ["gh", "pr", "view", "12", "--repo", "acme/app", "--json", "body,baseRefName,comments"]:
                 return json.dumps({"body": self.body, "baseRefName": "main", "comments": [{"body": comment} for comment in self.comments]})
-            case ["cci", "tail", "--drive", "brook-cci", "--since", since, "--json", "--budget", _, "--pr", "acme/app#12"]:
+            case ["cci", "tail", "--drive", "brook-cci", "--since-seq", since, "--json", "--budget", _, "--pr", "acme/app#12"]:
                 return "".join(json.dumps(record) + "\n" for record in self.pr_records if record["seq"] > int(since))
-            case ["cci", "tail", "--drive", "brook-cci", "--since", since, "--json", "--budget", _, "--kind", "review", "--kind", "answer"]:
+            case ["cci", "tail", "--drive", "brook-cci", "--since-seq", since, "--json", "--budget", _, "--kind", "review", "--kind", "answer"]:
                 return "".join(json.dumps(record) + "\n" for record in self.reviews if record["seq"] > int(since) and record["kind"] in ("review", "answer"))
         return super().run(argv, stdin, cwd)
 

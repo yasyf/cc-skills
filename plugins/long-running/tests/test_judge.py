@@ -14,6 +14,7 @@ YES = judge.Verdict("yes", "one process per destination and key", "one upload pr
 NO = judge.Verdict("no", "", "", "It carries what he said.")
 UNSURE = judge.Verdict("unsure", "per key", "per Mac", "Cannot tell.")
 ANSWERS = json.loads((Path(__file__).parent / "fixtures" / "judge-answers.json").read_text())
+PLAIN_ANSWERS = json.loads((Path(__file__).parent / "fixtures" / "judge-plain-answers.json").read_text())
 
 
 def scripted(*verdicts: judge.Verdict):
@@ -145,9 +146,9 @@ def test_an_unknown_backend_in_the_environment_is_refused():
         judge.backend_from({judge.BACKEND_ENV: "haiku"})
 
 
-def replayed(backend: judge.Backend) -> tuple[int, int, int]:
+def replayed(backend: judge.Backend, answers: dict = ANSWERS) -> tuple[int, int, int]:
     passed = missed = false_flags = 0
-    for case in ANSWERS.values():
+    for case in answers.values():
         for run in case["runs"]:
             sonnet = iter(judge.Verdict(verdict, "", "", "") for verdict in run["sonnet"])
             jev = iter(judge.Verdict("yes" if p_yes >= judge.JEV_YES else "no", "", "", "") for p_yes in run["jev"])
@@ -163,6 +164,16 @@ def test_the_default_backend_scores_best_on_the_recorded_eval_answers():
 
     assert scores[judge.DEFAULT_BACKEND] == (43, 5, 0)
     assert all(scores[judge.DEFAULT_BACKEND][0] > passed for backend, (passed, _, _) in scores.items() if backend != judge.DEFAULT_BACKEND)
+
+
+def test_the_plain_words_judge_flags_under_one_in_ten_clean_texts_on_its_recorded_answers():
+    clean = sum(len(case["runs"]) for case in PLAIN_ANSWERS.values() if case["expect"] in ("no", "not-yes"))
+    jargon = sum(len(case["runs"]) for case in PLAIN_ANSWERS.values() if case["expect"] == "yes")
+
+    _, missed, false_flags = replayed(judge.DEFAULT_BACKEND, PLAIN_ANSWERS)
+
+    assert false_flags * 10 < clean
+    assert missed * 10 < jargon
 
 
 def test_a_tap_carries_the_card_it_answered_and_a_typed_prompt_carries_none(tmp_path, monkeypatch):
