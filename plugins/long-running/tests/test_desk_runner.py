@@ -693,7 +693,7 @@ class FakeShell(runner_module.Shell):
         if self.tail_error:
             return runner_module.Done(1, "", self.tail_error)
         drive = argv[argv.index("--drive") + 1]
-        assert drive in self.drives and "--json" in argv and "--cursor" not in argv
+        assert drive in [*self.drives, runner_module.TRUNK_QUEUE_DRIVE] and "--json" in argv and "--cursor" not in argv
         if "--to" in argv and argv[argv.index("--to") + 1] == f"{runner_module.WATCHDOG}@{drive}":
             topic = next(arg.partition("=")[2] for arg in argv if arg.startswith("--topic="))
             return runner_module.Done(0, "".join(f"{json.dumps(beat)}\n" for beat in [beat for beat in self.beats if beat["drive"] == drive and beat["topic"] == topic][-1:]), "")
@@ -2639,6 +2639,52 @@ def test_a_head_trunk_failed_posts_one_red_to_its_lane_and_root_and_leaves_the_q
     assert post_body(post).startswith("#33001 aaaa111111: Trunk attempt 2026-10-30T23:10:00Z failed: TEST_RUN_REQUIRED_STATUS_FAILED (verification v1); inspect its verification and push a fix or explicitly name this PR with --flake; the queue dropped it at ")
     assert post_body(post).endswith(": Trunk labelled it trunk-failed")
     assert len(shell.enqueues()) == 1
+
+
+def trunk_queue_record(shell: FakeShell, pr: str, outcome: str, text: str) -> None:
+    shell.records.append(
+        {
+            "seq": 34766 + len(shell.records),
+            "drive": "trunk",
+            "lane": "trunk",
+            "kind": "queue",
+            "id": f"trunk:msg_{len(shell.records)}",
+            "to": [],
+            "refs": {"prs": [f"Forge-AI/monorepo#{pr}"], "url": f"https://app.trunk.io/forge-ai/merge/monorepo/{pr}"},
+            "fields": {"outcome": outcome},
+            "text": text,
+            "at": actions.stamp(shell.clock),
+        }
+    )
+
+
+def test_a_trunk_failed_record_posts_one_red_to_its_lane_and_root_in_the_pass_it_arrives(shell, config, monkeypatch):
+    """Owner pick e2c0820: Trunk's webhook writes a `queue` record per state change, and the runner raises a failed one within one pass instead of waiting on labels."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["adapter"] = {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}
+    config.write_text(json.dumps(raw))
+    monkeypatch.setenv("TRUNK_MERGE_API_KEY", "trunk-secret")
+    shell.rows = [ONE_ROW]
+    shell.gates["29020"] = [gate("#29020 GREEN cccc333333 Trunk notSubmitted")]
+    failed = "Forge-AI/monorepo#29020 failed in Trunk's merge queue: TEST_RUN_REQUIRED_STATUS_FAILED; failing: buildkite/test failure https://buildkite.com/forge/test/builds/9"
+    trunk_queue_record(shell, "29020", "queued", "Forge-AI/monorepo#29020 queued in Trunk's merge queue")
+    trunk_queue_record(shell, "29020", "failed", failed)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [post] = blockers(shell)
+    assert set(post["to"].split(",")) == {"root", LANE}
+    assert post_body(post) == f"#29020 cccc333333: {failed}; https://app.trunk.io/forge-ai/merge/monorepo/29020"
+
+
+def test_a_trunk_queue_record_decides_an_unknown_queue_state_before_the_labels():
+    unknown = {"number": 29020, "queue": "unknown", "verdict": "blocked:queue-unknown"}
+    failed = {"outcome": "failed", "text": "failed in Trunk's merge queue", "at": "2026-10-30T23:10:00Z"}
+    assert runner_module.trunk_recorded(unknown, failed) == unknown | {"queue": "evicted", "evicted": failed["text"], "evicted_at": failed["at"]}
+    assert runner_module.trunk_recorded(unknown, failed | {"outcome": "merged"})["queue"] == "landed"
+    assert runner_module.trunk_recorded(unknown, failed | {"outcome": "testing"})["queue"] == "queued"
+    assert runner_module.trunk_recorded(unknown, None) == unknown
+    queued = unknown | {"queue": "queued"}
+    assert runner_module.trunk_recorded(queued, failed) == queued
 
 
 def test_a_trunk_enqueue_answered_http_429_is_retried_next_pass_and_fails_nothing(shell, config, tmp_path, monkeypatch):

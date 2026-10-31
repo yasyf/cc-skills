@@ -291,6 +291,10 @@ did not read, `checks_wait_for_go` waits or GitHub's quota is low, refuses every
 Each admitted head's state goes to `landing-admitted.json` for the dashboard. A `head` or `opened` record naming a PR with no ledger
 row registers it under that record's lane the next pass, logging `UNROWED` when the register fails and `GO-UNROWED` for a root go
 naming a PR no row or such record holds.
+Under `trunk-stack-enqueue`, each pass folds the `queue` records the Trunk webhook writes on the `trunk` cci drive, one per
+merge-queue state change, from after the newest it folded: a PR whose status read says unknown reads as its newest record says,
+queued, landed or evicted, and only a PR no record names falls back to Trunk's labels. A `failed` or `canceled` record posts one
+blocker to its PR's lane and the root that pass, naming Trunk's reason, the failing checks and Trunk's details link.
 Every text that says a PR has, lacks or lost a go, `GO-UNQUEUED`, `BELOW-BLOCKED` and `MERGE-ASK`, says it through
 `grades.go_state`, citing the newest go at the head, a carried one included, by seq, lane and time, or the newest go at
 an older head when none names it; `go --config PATH PR...` prints the same for any PR, and `drive.py go` runs it.
@@ -911,6 +915,9 @@ QUEUED_STATE = "queued"
 TRUNK_QUEUED_LABELS = frozenset({"trunk-queued", "trunk-not-ready", "trunk-testing", "trunk-tests-passed", "trunk-queued (bisection)", "trunk-testing (bisection)", "trunk-tests-passed (bisection)"})
 TRUNK_MERGED_LABEL = "trunk-merged"
 TRUNK_FELL_LABELS = ("trunk-failed", "trunk-cancelled")
+TRUNK_QUEUE_DRIVE = "trunk"
+TRUNK_QUEUE_FACT = "trunk-queue"
+TRUNK_FELL = frozenset({"failed", "canceled"})
 QUEUED_VERDICT = "QUEUED"
 WAITING_VERDICT = "WAITING"
 BELOW_BLOCKED = re.compile(r"\bbelow BLOCKED #(\d+)\b")
@@ -4899,6 +4906,17 @@ def queue_state(action: actions.Action) -> str:
     return f"blocked: {why}"
 
 
+def trunk_recorded(entry: dict, state: dict | None) -> dict:
+    """`entry` as the newest `queue` record the Trunk webhook wrote for its PR says, where the status read says unknown; the labels read only when no record names the PR."""
+    if entry["queue"] != "unknown" or not state:
+        return entry
+    if state["outcome"] == "merged":
+        return entry | {"queue": "landed", "verdict": "landed"}
+    if state["outcome"] in TRUNK_FELL:
+        return entry | {"queue": "evicted", "evicted": state["text"], "evicted_at": state["at"]}
+    return entry | {"queue": QUEUED_STATE, "verdict": QUEUED_STATE}
+
+
 def trunk_labelled(entry: dict, row: dict) -> dict:
     labels = set(row.get("labels", "").split(","))
     if entry["queue"] == "unknown" and TRUNK_MERGED_LABEL in labels:
@@ -5309,6 +5327,7 @@ class Landing:
         self.side_work: Future | None = None
         self.bodies: dict[str, tuple[datetime, str]] = {}
         self.trunk_read: tuple[str, datetime, bool, dict] | None = None
+        self.trunk_states: dict[str, dict] = {}
         self.unchecked: set[str] = set()
         self.settlement = Settlement({}, {})
         self.unproven_why: dict[str, str] = {}
@@ -8743,6 +8762,28 @@ class Landing:
             text = f"#{landed_pr} landed as {landed.get('landed_sha', '')[:10]}; #{pr} at {row.get('head', '')[:10]} sits on its deleted branch. Restack now: `ccx vcs stack submit` from your worktree."
             self.route(f"restack:{pr}:{landed_pr}", self.owner(pr, row), text, pr)
 
+    def trunk_queue(self, rows: dict[str, dict]) -> None:
+        """Fold the `queue` records the Trunk webhook writes on the `trunk` drive, one per merge-queue state change, into each open row's Trunk state, reading only the records after the newest one folded, and post one blocker per `failed` or `canceled` record to its PR's lane and the root in the pass it arrives (owner pick e2c0820)."""
+        if self.adapter.kind != merge_queue.TrunkStackEnqueue.kind:
+            return
+        folded = self.book.fact(LANDING, TRUNK_QUEUE_FACT, {"seq": 0, "prs": {}})
+        states = {pr: state for pr, state in folded["prs"].items() if pr in rows}
+        seq = folded["seq"]
+        for record in cci.records(self.cci_tail, TRUNK_QUEUE_DRIVE, since=seq):
+            seq = max(seq, record["seq"])
+            if record["kind"] != "queue":
+                continue
+            outcome = record.get("fields", {}).get("outcome", "")
+            for pr in [pr for pr, explicit in repo_prs(record, self.repo) if explicit and pr in rows]:
+                states[pr] = {"outcome": outcome, "text": record["text"], "at": record["at"]}
+                key = f"trunk-queue:{record.get('id') or record['seq']}"
+                owner = self.owner(pr, rows[pr])
+                if outcome in TRUNK_FELL and not self.routed(key, owner):
+                    url = record.get("refs", {}).get("url", "")
+                    self.post_blocker(key, ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])), f"#{pr} {rows[pr].get('head', '')[:10]}: {record['text']}" + (f"; {url}" if url else ""), pr)
+        self.book.edit(LANDING, lambda incident: incident.facts.update({TRUNK_QUEUE_FACT: {"seq": seq, "prs": states}}))
+        self.trunk_states = states
+
     def route_blocker(self, pr: str, sha: str, blocker: merge_queue.Blocker, row: dict, tips: list[str], stack: set[str], gated_red: bool, failing: bool) -> None:
         """Tell the lane once per head, re-reading the gate just before the send so an approval or fix that already arrived is never asked for. A failing required check posts one blocker per PR, refusal, red job and cause: a later head failing the same way adds one line under that blocker, and a changed cause or a new red job opens a new one. A conflict whose lane has no live dispatch and no live cci session routes nothing: the root gets one `PARKED` line per PR, and the head routes once the lane is back."""
         key = blocker_key(pr, sha)
@@ -8868,7 +8909,7 @@ class Landing:
             with ThreadPoolExecutor(max(1, len(pages))) as pool:
                 reads = list(pool.map(lambda page: self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", "--max-age", f"{int(STATUS_MAX_AGE.total_seconds())}s", *page]), pages))
             done = next((read for read in reads if read.code != 0), Done(0, "", ""))
-            statuses = self.statuses = None if done.code else {str(entry["number"]): trunk_labelled(entry, self.ledger_rows.get(str(entry["number"]), {})) if self.adapter.kind == merge_queue.TrunkStackEnqueue.kind else entry for read in reads for entry in json.loads(read.out)}
+            statuses = self.statuses = None if done.code else {str(entry["number"]): trunk_labelled(trunk_recorded(entry, self.trunk_states.get(str(entry["number"]))), self.ledger_rows.get(str(entry["number"]), {})) if self.adapter.kind == merge_queue.TrunkStackEnqueue.kind else entry for read in reads for entry in json.loads(read.out)}
             self.queues_read = True
             if statuses is None:
                 last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
@@ -9099,6 +9140,7 @@ class Landing:
         if not rows:
             return
         self.row_records(rows)
+        self.trunk_queue(rows)
         self.carry_taps(rows)
         holds = self.held(rows)
         held = holds if advanced and read else None
