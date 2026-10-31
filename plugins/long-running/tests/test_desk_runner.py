@@ -5499,7 +5499,7 @@ def test_a_head_with_no_finder_record_is_refused_finder_pending_once(shell, conf
 
 
 @pytest.mark.parametrize("history", [32, 10_000])
-def test_stale_blocker_cleanup_completed_history_cost_baseline(shell, config, tmp_path, monkeypatch, history):
+def test_stale_blocker_cleanup_has_history_bounded_noop_work(shell, config, tmp_path, monkeypatch, history):
     import sqlite3
 
     landing = landing_of(shell, config, tmp_path)
@@ -5555,10 +5555,9 @@ def test_stale_blocker_cleanup_completed_history_cost_baseline(shell, config, tm
         first = counts.copy()
         landing.resolve_stale_blockers({})
     print(json.dumps({"history": history, "first_noop": first, "two_noops": counts, "scope": "actual same-Landing cleanup/Book/Store; caller-thread DTO/target/VM counts, not file-exclusive or physical IO"}))
-    assert first["action_dtos"] == first["target_decodes"] == history
-    assert counts["action_dtos"] == counts["target_decodes"] == 2 * history
-    assert counts["target_bytes"] == 2 * history * len(target.encode())
-    assert first["sql_vm"] >= history and counts["sql_vm"] > first["sql_vm"]
+    assert first["action_dtos"] == 0, f"stale cleanup decoded {first['action_dtos']} historical actions"
+    assert first["target_decodes"] == counts["action_dtos"] == counts["target_decodes"] == counts["target_bytes"] == 0
+    assert 0 < first["sql_vm"] < 256 and first["sql_vm"] < counts["sql_vm"] < 512
     assert counts["read_opens"] == counts["read_closes"] == 1 and counts["sql_changes"] == 0
     assert len(shell.raw) == calls
 
