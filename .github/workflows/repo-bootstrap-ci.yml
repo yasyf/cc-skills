@@ -3,6 +3,7 @@ name: repo-bootstrap CI
 on:
   push:
     branches: [main]
+    tags: ["repo-bootstrap--v*", "v*"]
     paths:
       - "plugins/repo-bootstrap/**"
       - "plugin/guides/**"

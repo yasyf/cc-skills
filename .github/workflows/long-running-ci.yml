@@ -3,6 +3,7 @@ name: long-running CI
 on:
   push:
     branches: [main]
+    tags: ["long-running--v*", "live-dashboard--v*"]
     paths:
       - "plugins/long-running/**"
       - "plugins/live-dashboard/skills/live-dashboard/scripts/**"
