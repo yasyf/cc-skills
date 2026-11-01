@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -97,9 +99,8 @@ def test_the_sprite_reads_the_register_from_the_jobs_checkout_never_the_launchin
     assert json.loads(registry.read_text())["checkout"] == str(mac / "workspaces" / "root-checkout")
 
 
-@pytest.mark.parametrize("served", [False, True], ids=["fetches-and-repacks", "a-newer-fetch-served-it"])
-def test_a_job_fetches_only_when_no_fetch_began_after_it_asked_and_repacks_what_on_demand_fetches_left(tmp_path: Path, served: bool) -> None:
-    """remote-desks-4, 6:20 PM Oct 30: 14 jobs on vet4 waited in line to fetch every remote one after another, and on-demand blob fetches had left 1,186 packs on vet4 and 2,538 on dar-fleet-3, so a git diff timed out at 600 s."""
+@pytest.mark.parametrize(("marker", "queued"), [("", False), ("1", False), ("300", False), ("50", True), ("300", True)], ids=["no-prior-fetch", "an-older-fetch", "a-newer-fetch-served-it", "waited-for-an-older-fetch", "waited-for-a-newer-fetch"])
+def test_a_job_keeps_fetch_start_freshness_without_running_pack_maintenance(tmp_path: Path, marker: str, queued: bool) -> None:
     mac, sprite = tmp_path / "mac", tmp_path / "sprite"
     checkout, directory, config = mac / "checkout", mac / "finder-desk" / "46095-c2cf0bfb3661", mac / "config"
     script = mac / "plugin" / "skills" / "long-running" / "scripts" / "finder.py"
@@ -107,21 +108,42 @@ def test_a_job_fetches_only_when_no_fetch_began_after_it_asked_and_repacks_what_
     executable(script.parent / "rulings.py", "")
     executable(mac / "bin" / "sprite", SPRITE)
     executable(mac / "bin" / "cci", "#!/bin/sh\n")
-    log = tmp_path / "git.log"
-    executable(mac / "bin" / "git", f"#!/bin/sh\necho \"$*\" >> {log}\nexec {shutil.which('git')} \"$@\"\n")
+    log, clock = tmp_path / "git.log", tmp_path / "clock"
+    executable(mac / "bin" / "date", f"#!/usr/bin/env python3\nfrom pathlib import Path\np = Path({str(clock)!r})\nnow = 100 * (len(p.read_text().splitlines()) + 1) if p.exists() else 100\nwith p.open('a') as stream: stream.write(f'{{now}}\\n')\nprint(now)\n")
+    executable(mac / "bin" / "git", f"#!/bin/sh\necho \"$*\" >> {log}\ncase \" $* \" in *' fetch '*) date +%s%N >/dev/null;; esac\nexec {shutil.which('git')} \"$@\"\n")
     directory.mkdir(parents=True)
     (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
     (config / "long-running" / "drives").mkdir(parents=True)
     (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
     subprocess.run([shutil.which("git"), "init", "-q", f"{sprite}{checkout}"], check=True)
-    if served:
-        Path(f"{sprite}{checkout}.fetched").write_text("99999999999999999999")
+    fetched = Path(f"{sprite}{checkout}.fetched")
+    if marker and not queued:
+        fetched.write_text(marker)
 
     env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config)}
-    subprocess.run(["sh", str(SCRIPT), "vet4", str(script), str(directory)], env=env, check=True, capture_output=True, timeout=60)
+    command = ["sh", str(SCRIPT), "vet4", str(script), str(directory)]
+    if queued:
+        with Path(f"{sprite}{checkout}.fetch.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            with subprocess.Popen(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as process:
+                try:
+                    for _ in range(600):
+                        if clock.exists() or process.poll() is not None:
+                            break
+                        time.sleep(0.01)
+                    assert clock.exists(), "job did not reach the fetch-start barrier"
+                    fetched.write_text(marker)
+                finally:
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+                _, error = process.communicate(timeout=60)
+                assert process.returncode == 0, error
+    else:
+        subprocess.run(command, env=env, check=True, capture_output=True, timeout=60)
 
     ran = ["fetch" if " fetch " in line else "repack" for line in log.read_text().splitlines() if " fetch " in line or " repack " in line]
-    assert ran == ([] if served else ["fetch", "repack"])
+    assert ran == ([] if marker == "300" else ["fetch"]), "Sprite startup ran explicit pack maintenance"
+    assert fetched.read_text() == ("300" if marker == "300" else "200")
+    assert clock.read_text().splitlines() == (["100"] if marker == "300" else ["100", "200", "300"])
     assert json.loads((directory / "result.json").read_text()) == {"verdict": "ok"}
 
 

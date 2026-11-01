@@ -1,0 +1,66 @@
+name: long-running remote bootstrap CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["long-running--v*"]
+    paths:
+      - "plugins/long-running/**"
+      - ".github/workflows/lr-remote-bootstrap.yml"
+  pull_request:
+    paths:
+      - "plugins/long-running/**"
+      - ".github/workflows/lr-remote-bootstrap.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    env:
+      UV_PYTHON: "3.14"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: Install remote shell tools on macOS
+        if: runner.os == 'macOS'
+        run: |
+          brew install coreutils flock
+          echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
+      - uses: actions/checkout@v7
+        with:
+          ref: d37c9e67cd6632faa9bd90805188b4a5fb29216e
+          path: .ci-remote-bootstrap-baseline
+          persist-credentials: false
+      - name: Immutable802 negative control
+        shell: bash
+        run: |
+          baseline=.ci-remote-bootstrap-baseline/plugins/long-running
+          test "$(git -C .ci-remote-bootstrap-baseline rev-parse HEAD)" = d37c9e67cd6632faa9bd90805188b4a5fb29216e
+          cp plugins/long-running/tests/test_sprite_job.py "$baseline/tests/test_sprite_job.py"
+          negative="$RUNNER_TEMP/lr-remote-bootstrap-old.log"
+          if uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_sprite_job.py::test_a_job_keeps_fetch_start_freshness_without_running_pack_maintenance[no-prior-fetch]" -q >"$negative" 2>&1; then
+            cat "$negative"
+            exit 1
+          fi
+          cat "$negative"
+          grep -F 'Sprite startup ran explicit pack maintenance' "$negative"
+          grep -F '1 failed' "$negative"
+      - name: Fixed affected cases and preserved behavior
+        shell: bash
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_sprite_job.py -q -s --junitxml="$RUNNER_TEMP/lr-remote-bootstrap-current.xml" | tee "$RUNNER_TEMP/lr-remote-bootstrap-current.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: lr-remote-bootstrap-${{ runner.os }}
+          path: ${{ runner.temp }}/lr-remote-bootstrap-*
+          if-no-files-found: error

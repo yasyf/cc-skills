@@ -36,7 +36,7 @@ register names, the directory holding plan/plan.md, whenever a file in it was
 added, removed or changed since the Sprite's copy. The job's checkout drops the
 empty loose refs a Sprite restart leaves, which every fetch reads as the zero
 object, and fetches every remote unless a fetch that began after this job asked for one already
-did, then merges its packs into a geometric progression, so the packs fetches and on-demand blob reads leave stay few, and the job runs there. <dir> is then copied
+did, and the job runs there. <dir> is then copied
 back, job.json and pid left as this machine wrote them and result.json last,
 swapped in whole and only when it parses, read a second time after the first
 read wakes the Sprite, since a Sprite that hibernates before a write reaches
@@ -142,7 +142,6 @@ sprite exec -s "$sprite" --no-stdin -- sh -c '
   if [ "$(cat "$3.fetched" 2>/dev/null || echo 0)" -lt "$asked" ]; then
     began=$(date +%s%N)
     git -C "$3" fetch --quiet --all
-    git -C "$3" repack --geometric=2 -d -q
     printf %s "$began" >"$3.fetched"
   fi
   exec 9>&-
