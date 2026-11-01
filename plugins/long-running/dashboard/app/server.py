@@ -520,6 +520,17 @@ def handler(drive):
     return Handler
 
 
+def publish(config, home, pid, now):
+    """Write the drive's one dashboard record, `<state>/dashboard/server.json`, naming this server, over any record a retired server left there (root #285830)."""
+    url = f"http://{config['host']}:{config['port']}/"
+    path = home / ".claude" / "scratch" / config["drive"] / "dashboard" / "server.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staged = path.with_name(f".{path.name}.{pid}")
+    staged.write_text(json.dumps({"drive": config["drive"], "pid": pid, "host": config["host"], "port": config["port"], "url": url, "tailnet_url": url, "script": str(Path(__file__).resolve()), "started_at": now.strftime("%Y-%m-%dT%H:%M:%SZ")}, indent=2) + "\n")
+    staged.replace(path)
+    return path
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, type=Path)
@@ -531,6 +542,7 @@ def main():
         threading.Thread(target=target, args=rest, daemon=True).start()
     server = ThreadingHTTPServer((config["host"], config["port"]), handler(drive))
     server.daemon_threads = True
+    publish(config, Path.home(), os.getpid(), dt.datetime.now(dt.timezone.utc))
     print(f"http://{config['host']}:{config['port']}/", flush=True)
     server.serve_forever()
 
