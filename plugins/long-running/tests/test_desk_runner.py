@@ -14108,7 +14108,7 @@ def test_a_red_whose_failed_jobs_all_fail_on_a_dev_red_trunk_is_classed_inherite
         built(shell, head, number, script_build("sanddb-http", "sand-tests", failed=failed))
         shell.queue[pr] = "not queued"
         shell.pr_status[pr] = {"verdict": "blocked:ci-red", "ci": {"state": "red", "failing": ["buildkite/test"]}}
-        shell.combined_statuses[head] = [{"context": "buildkite/test", "state": "failure", "description": f"Build #{number} failed", "target_url": f"https://buildkite.com/forge/test/builds/{number}"}]
+        shell.commit_statuses[head] = shell.combined_statuses[head] = [{"context": "buildkite/test", "state": "failure", "description": f"Build #{number} failed", "target_url": f"https://buildkite.com/forge/test/builds/{number}"}]
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert [(post["to"], post_body(post)) for post in shell.posts if post["kind"] == "red"] == [(LANE, "class=inherited head=cccc333333 owner=api-fix sanddb-http fails on dev too, red since 10:50 AM; it unblocks once dev's fix lands")]
