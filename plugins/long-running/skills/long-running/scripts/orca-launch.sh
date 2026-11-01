@@ -118,7 +118,8 @@ high, xhigh, or max. Orca fails a terminal create with "Terminal creation timed
 out" when its renderer has not answered within a fixed 10 seconds, and the create
 may still open the terminal. A worktree create that fails
 may still have created the worktree, so the script polls orca worktree show for
-up to ORCA_LAUNCH_WORKTREE_SECONDS and creates again only when none registers.
+up to ORCA_LAUNCH_WORKTREE_SECONDS and creates again only when none registers. It looks the worktree up by
+its name, since Orca chooses where it puts it.
 Orca registers a worktree at git worktree add --no-checkout and fills its index
 with a reset --hard that can run past a minute under load, so a worktree found
 that way waits, for the same ceiling, until its index matches HEAD; one that
@@ -332,7 +333,8 @@ set -- --parent-worktree "path:$PARENT"
 [ "$AGENT" != incident ] && [ "${ORCA_LAUNCH_NO_PARENT:-}" != 1 ] || set -- --no-parent
 
 registered() {
-  FOUND=$(orca worktree show --worktree "path:$WT" --json | jq -er '.result.worktree.path') || return 1
+  FOUND=$(orca worktree show --worktree "name:$WORKTREE_NAME" --json | jq -er '.result.worktree.path') || return 1
+  WT=$FOUND
 }
 is_checkout() {
   [ "$(git -C "$WT" rev-parse --show-toplevel 2>/dev/null)" = "$(cd "$WT" 2>/dev/null && pwd -P)" ]
