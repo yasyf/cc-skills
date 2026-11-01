@@ -5825,7 +5825,7 @@ class Landing:
         return {order["pr"] for order in facts.get(DEQUEUE_ORDERS, {}).values()} | {pr for pr, head in latched.items() if rows.get(pr, {}).get("head", "").startswith(head)}
 
     def moved_past_go(self, rows: dict[str, dict], statuses: dict[str, dict]) -> dict[str, dict]:
-        """An order out for each queued PR a go names only at other heads, never at its current one, so Trunk never merges a head nobody gave a go (root #234005), and, while his taps live on the root's board, for each queued go'd PR his newest verdict there does not approve, so a head he rejected never merges (#46446); a board that does not read orders nothing out. Its head is not latched: a go at the new head, or his approval, enqueues it again."""
+        """An order out for each queued PR a go names only at other heads, never at its current one, so Trunk never merges a head nobody gave a go (root #234005), and, while his taps live on the root's board, for each go'd PR this desk queued at its head that his newest verdict there does not approve, so a head he rejected never merges (#46446); a board that does not read orders nothing out. Its head is not latched: a go at the new head, or his approval, enqueues it again."""
         gos = self.root_gos()
         moved = {
             f"moved:{pr}@{head[:12]}": {"pr": pr, "why": f"queued at {head[:10]}, but its go names {named[-1][:10]}", "latch": False}
@@ -5837,10 +5837,12 @@ class Landing:
         }
         if not self.taps_on_board or (tapped := self.board_taps()) is None:
             return moved
+        ours = {pr for prs in self.believed_queued(rows).values() for pr in prs}
         return moved | {
             f"untapped:{pr}@{head[:12]}": {"pr": pr, "why": f"queued at {head[:10]}, but the owner's newest verdict on the root's board does not approve it", "latch": False}
             for pr, entry in statuses.items()
             if entry["queue"] == QUEUED_STATE
+            and pr in ours
             and pr not in tapped
             and (head := rows.get(pr, {}).get("head", ""))
             and gone_at(gos, pr, head)
