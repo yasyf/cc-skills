@@ -579,7 +579,7 @@ def test_read_scope_retires_failed_reads_and_changed_schema_handles(tmp_path, mo
             readers[1].execute("SELECT 1")
 
 
-def test_read_scope_bounds_lru_and_retires_removed_and_replaced_files(tmp_path, monkeypatch):
+def test_read_scope_bounds_connections_and_retires_removed_and_replaced_files(tmp_path, monkeypatch):
     store = actions.Store(tmp_path / "store")
     for index in range(65):
         store.create(actions.Incident(f"lane-{index}", "owner", 0, actions.stamp(NOW), {"value": index}))
@@ -597,20 +597,24 @@ def test_read_scope_bounds_lru_and_retires_removed_and_replaced_files(tmp_path, 
     with store.reading():
         for index in range(64):
             assert store.fact(f"lane-{index}", "value") == index
-        first = readers[store.path("lane-0")]
-        evicted = readers[store.path("lane-1")]
+        cached = dict(store._readers.connections)
         assert store.fact("lane-0", "value") == 0
         assert store.fact("lane-64", "value") == 64
         assert len(store._readers.connections) == 64
+        retired = [connection for path, (_, connection) in cached.items() if path not in store._readers.connections]
+        assert len(retired) == 1
         with pytest.raises(sqlite3.ProgrammingError):
-            evicted.execute("SELECT 1")
-        assert not first.in_transaction
+            retired[0].execute("SELECT 1")
+        assert store.fact("lane-64", "value") == 64
         removed = readers[store.path("lane-64")]
         store.path("lane-64").unlink()
         with pytest.raises(SystemExit, match="no incident lane-64"):
             store.fact("lane-64", "value")
         with pytest.raises(sqlite3.ProgrammingError):
             removed.execute("SELECT 1")
+        assert store.fact("lane-0", "value") == 0
+        first = readers[store.path("lane-0")]
+        assert not first.in_transaction
         writer = connect(store.path("lane-0"), writable=True)
         try:
             assert writer.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0] == 0
