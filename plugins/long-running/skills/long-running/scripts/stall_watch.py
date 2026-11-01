@@ -72,7 +72,7 @@ its ledger row names, it finds:
     tap       the owner's board tap approves the head, and no go names it
     ungraded  a `head` record names the head, its build has read green for `stall.minutes.ungraded`, counted
               from its ledger row's `green_at`, and no finder review or no fidelity grade names it, whatever
-              the desks hold queued; it is the finder or fidelity stall of a green head, posted to the
+              the desks hold queued, read from the PR's whole history when the window holds none; it is the finder or fidelity stall of a green head, posted to the
               graders, or the landing desk when the finder desk holds the pass, naming how long it has
               waited there; root hears every head a pass newly finds ungraded in one urgent line per pass,
               as it hears an unassigned failure, and never one line per head
@@ -473,6 +473,14 @@ def short(sha: str) -> str:
 
 def lanes_of(value: str | list[str]) -> list[str]:
     return [value] if isinstance(value, str) else list(value)
+
+
+def grade_reads(about: list[dict], drive: str, fidelity_lanes: list[str], repo: str, pr: str, head: str) -> tuple[list[dict], list[dict], set[str], list[dict]]:
+    """The fidelity grades `about` holds for `pr`, those standing at `head`, the heads a carry reaches it from, and the finder reviews of those heads."""
+    graded = grades.fidelity_grades_in(about, drive, fidelity_lanes, repo, pr)
+    reached = carried_heads(head, grades.fidelity_carries(graded))
+    finders = [record for record in grades.finder_records(grades.finder_reviews_in(about, drive, repo, pr)) if any(grades.names_head(record["head"], sha) for sha in reached)]
+    return graded, grades.standing(graded, fidelity_lanes, head), reached, finders
 
 
 def carried_heads(head: str, carries: list[tuple[str, str]]) -> set[str]:
@@ -937,10 +945,9 @@ class Pass:
                 continue
             if head_at is None:
                 continue
-            graded = grades.fidelity_grades_in(about, drive_name, fidelity_lanes, repo, pr)
-            standing = grades.standing(graded, fidelity_lanes, head)
-            reached = carried_heads(head, grades.fidelity_carries(graded))
-            finders = [record for record in grades.finder_records(grades.finder_reviews_in(about, drive_name, repo, pr)) if any(grades.names_head(record["head"], sha) for sha in reached)]
+            graded, standing, reached, finders = grade_reads(about, drive_name, fidelity_lanes, repo, pr, head)
+            if not (standing and finders):
+                graded, standing, reached, finders = grade_reads(self.history(repo, pr), drive_name, fidelity_lanes, repo, pr, head)
             green = actions.parse_stamp(row["green_at"]) if row.get("green_at") else None
             ungraded = green is not None and self.now - green >= self.watch.age("ungraded")
             if not finders and ungraded:
@@ -1175,6 +1182,10 @@ class Pass:
         if below := found["waits"]:
             return set() if below in seen else self.waits_on_owner(below, found_by_pr, seen | {below})
         return None
+
+    def history(self, repo: str, pr: str) -> list[dict]:
+        """Every `review` and `head` record about `pr` on the drive, from its first, read only for a head the window shows without a grade, since a grade can be older than the window (root #273068)."""
+        return [record for record in cci.records(self.tail, self.watch.drive, "--kind=review", "--kind=head", "--pr", f"{repo}#{pr}") if record["drive"] == self.watch.drive]
 
     def unqueued(self, pr: str, row: dict, rows: dict[str, dict], below: list[str], gos: list[dict], since: datetime, queued: set[tuple[str, str]], lane: str, records: list[dict], own_row: Callable[[str, str], bool]) -> tuple[str, tuple[str, ...], str] | None:
         """What holds a go'd `pr` out of the queue, with the lanes that own the step, or None when nothing is stuck: a PR below with no go whose next step is its own row's, a grade or the owner's tap, or a runner MERGE-ASK, is a wait its own row reports, never a stall."""

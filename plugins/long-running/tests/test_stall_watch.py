@@ -79,7 +79,7 @@ class FakeShell(stall_watch.Shell):
             topics = {arg.split("=", 1)[1] for arg in argv if arg.startswith("--topic=")}
             lane = argv[argv.index("--lane") + 1] if "--lane" in argv else None
             pool = [*self.records, *self.board_records()] if lane else self.records
-            page = [found for found in pool if (not since.isdigit() or found["seq"] > int(since)) and (not kinds or found["kind"] in kinds) and (not topics or found.get("topic") in topics) and (lane is None or found["lane"] == lane)]
+            page = [found for found in pool if (found["seq"] > int(since) if since.isdigit() else "at" not in found or found["at"] >= since) and (not kinds or found["kind"] in kinds) and (not topics or found.get("topic") in topics) and (lane is None or found["lane"] == lane)]
             return stall_watch.Done(0, "".join(json.dumps(found) + "\n" for found in page), "")
         if argv[:2] == ["cci", "who"]:
             assert argv[2:] == ["--drive", DRIVE, "--all", "--json"]
@@ -302,6 +302,17 @@ def test_a_root_decide_that_opens_with_a_go_at_the_head_counts_as_its_go(config)
     assert shell.topics() == ["go:201:abc1234"]
     assert "#201 at abc1234: no go names this head" not in shell.post("go:201:abc1234")["text"]
     assert "the landing runner wrote no QUEUED, MERGED or blocker record for #201 at abc1234" in shell.post("go:201:abc1234")["text"]
+
+
+def test_a_head_graded_before_the_window_draws_no_ungraded_stall(config):
+    """Root #273068: stall-watch flagged #46082 at f736bb4 ungraded at 8:04 PM Oct 31, though fidelity-desk-4 graded that head ok on Oct 30, outside the 24 h window."""
+    days_ago = 26 * 60
+    records = [head(1, "101", HEAD, 30), finder(2, "101", HEAD, days_ago), fidelity(3, "101", HEAD, days_ago)]
+    shell = FakeShell(records, [row("101", green_at=stamp(20))])
+
+    watch(shell, config)
+
+    assert not [topic for topic in shell.topics() if topic.startswith(("fidelity:", "finder:"))]
 
 
 def test_a_pr_below_a_go_that_waits_only_on_the_owners_tap_is_no_go_stall(config):
