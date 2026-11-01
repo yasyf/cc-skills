@@ -498,7 +498,7 @@ def carried_heads(head: str, carries: list[tuple[str, str]]) -> set[str]:
 downstack = owner_waits.downstack
 
 
-def stack_row(pr: str, row: dict, rows: dict[str, dict], owner: str, held: bool, going: bool, in_queue: bool, tapping: bool, inherited: bool) -> dict:
+def stack_row(pr: str, row: dict, rows: dict[str, dict], owner: str, held: bool, going: bool, in_queue: bool, tapping: bool, inherited: bool, asked: str = "") -> dict:
     named = f"#{pr} at {short(row['head'])}"
     below = next((other for other, parent in rows.items() if parent.get("branch") and parent["branch"] == row.get("base")), "")
     red = ", ".join(check["name"] for check in json.loads(row.get("failing_checks") or "[]")) or "a required check"
@@ -527,6 +527,8 @@ def stack_row(pr: str, row: dict, rows: dict[str, dict], owner: str, held: bool,
         state, step, actor = "green with a go, not queued", f"the landing desk enqueues {named}", RUNNER
     elif tapping:
         state, step = TAP_WAIT, f"the owner taps the merge row for {named} on his board"
+    elif asked:
+        state, step, actor = "green with root's TAP-REQUIRED go, and the owner's board holds no merge row for this head", f"put the merge row for {named} on the owner's board", asked
     else:
         state, step = "green, and no go names this head", f"root posts `go #{pr} at {short(row['head'])}` or puts its merge row on the owner's board"
     return {"pr": pr, "title": row.get("title", ""), "head": row["head"], "base": row.get("base", ""), "below": below, "waits": waits, "state": state, "next": step, "owner": owner, "actor": actor}
@@ -924,7 +926,8 @@ class Pass:
             readied = [at(record) for record in announced if record["kind"] == "ready" or READY.search(record["text"])]
             tap_at = min([*readied, *([live] if (live := board.live_at(pr, head)) else [])], default=None) if tapping else None
             classed = red_entry(row, lane, [record for record in classes if grades.about_pr(record, repo, pr)]) if row.get("red_at") else None
-            entries.append(stack_row(pr, row, rows, lane, holding(pr) or pr in self.hold_gates, bool(going), in_queue, tapping, bool(classed) and classed["class"] == "inherited") | {"head_at": head_at, "tap_at": tap_at})
+            asked = self.watch.board_lane if pr not in approved and any(TAP_REQUIRED.search(grades.full_text(go)) for go in grades.gone_at(gos, pr, head)) else ""
+            entries.append(stack_row(pr, row, rows, lane, holding(pr) or pr in self.hold_gates, bool(going), in_queue, tapping, bool(classed) and classed["class"] == "inherited", asked) | {"head_at": head_at, "tap_at": tap_at})
             if (classed is None or classed["class"] in ("real", "unclassed")) and (red := self.red(pr, row, lane)):
                 (probes if red.kind == "probe" else stalls).append(red)
             if row.get("test_state") == "failure" and classed:

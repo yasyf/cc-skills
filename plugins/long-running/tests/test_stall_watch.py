@@ -1596,3 +1596,20 @@ def test_a_head_move_on_a_pr_the_owner_never_tapped_asks_its_lane_for_roots_go_a
     assert shell.prompts == []
     assert shell.post("carry:101:abc1234")["to"] == "api-lane@d1"
     assert "ask root for a TAP-REQUIRED `go #101 at abc1234`; no owner re-ask is owed" in shell.post("carry:101:abc1234")["text"]
+
+
+def test_a_green_head_with_roots_tap_required_go_and_no_board_row_pages_the_board_lane_never_root_for_a_go(config):
+    """#281189 paged root for a go on #46729 at 2e72eeb that root had posted eight minutes earlier as `go #46729 at 2e72eeb on green [TAP-REQUIRED first-ask row]` (#281030)."""
+    merge_mode(config, "ask")
+    raw = json.loads(config.read_text())
+    raw["landing"]["board_lane"] = "board-refresher-6"
+    config.write_text(json.dumps(raw))
+    shell = FakeShell([*graded(1, "101", HEAD, 150), record(9, "root", "go", f"3:19 AM go #101 at {HEAD[:7]} on green [TAP-REQUIRED first-ask row]", 8, "101")], [row("101")])
+
+    watch(shell, config)
+    shell.clock += timedelta(minutes=40)
+    watch(shell, config)
+
+    stale = [topic for topic in shell.topics() if topic.startswith("stale:101")]
+    assert stale and "root posts `go #101" not in shell.post(stale[0])["text"]
+    assert "| owner board-refresher-6 | put the merge row for #101 at abc1234 on the owner's board" in shell.post(stale[0])["text"]
