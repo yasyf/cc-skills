@@ -28,7 +28,8 @@ and the PR body, and runs
 a row ungraded, keys a `missing` line on anything but a plan line, an owner row or an AGENTS.md line, or gives no
 reasoning in `swept` is asked once more; a second such reply fails the job. A reply with any `missing` entry grades
 `missing` whatever verdict it names, and posts its `reader` reason to the human fidelity desks as well. A head that moved while
-codex read it posts nothing. The question lists every point of a `missing` grade root settled, and a
+codex read it posts nothing, and one whose `Rulings` or `Body addendum` comments changed while codex read it is read once
+more with them (root #276781). The question lists every point of a `missing` grade root settled, and a
 reply's `missing` entry that repeats one word for word, or cites only code lines a settled point at an earlier head
 cites and no change since touched, is dropped; a reply left with none posts ok citing
 the settling decide. Each line is posted under lane `fidelity-pipeline`, kind `review`, to the
@@ -322,17 +323,22 @@ def run(directory: Path, shell: finder.Shell) -> dict:
     rows.write_text((slicing or pool.submit(finder.slice_rows, shell, job, pr, head, view["baseRefName"], "--words")).result())
     keys = finder.ROW_KEY.findall(rows.read_text())
     touched = finder.hunks(finder.git(shell, job, "diff", "--unified=0", "--no-color", "--no-ext-diff", f"{own[0]}^", head))
-    question = directory / "question-1.md"
-    question.write_text(prompt(job, view, base, trunk, rows, plan.result().strip(), touched, finder.scope(job, own, last, pairs, changed)))
-    reply = ask(shell, job, directory, question, 1)
-    if short := shortfalls(keys, reply):
-        retry = directory / "question-2.md"
-        retry.write_text(f"{question.read_text()}\nYour last reply gave {'; and '.join(short)}. Every key in the rows file appears in `checked`.\n")
-        reply = ask(shell, job, directory, retry, 2)
+    scope = finder.scope(job, own, last, pairs, changed)
+    for attempt in (1, 3):
+        question = directory / f"question-{attempt}.md"
+        question.write_text(prompt(job, view, base, trunk, rows, plan.result().strip(), touched, scope))
+        reply = ask(shell, job, directory, question, attempt)
         if short := shortfalls(keys, reply):
-            raise finder.JobFailed(f"two replies gave {'; and '.join(short)}")
-    if (now := finder.view_pr(shell, job)["headRefOid"]) != head:
-        return {"skipped": f"{pr} moved to {now[:12]} while codex read {head[:12]}"}
+            retry = directory / f"question-{attempt + 1}.md"
+            retry.write_text(f"{question.read_text()}\nYour last reply gave {'; and '.join(short)}. Every key in the rows file appears in `checked`.\n")
+            reply = ask(shell, job, directory, retry, attempt + 1)
+            if short := shortfalls(keys, reply):
+                raise finder.JobFailed(f"two replies gave {'; and '.join(short)}")
+        if (now := finder.view_pr(shell, job))["headRefOid"] != head:
+            return {"skipped": f"{pr} moved to {now['headRefOid'][:12]} while codex read {head[:12]}"}
+        if finder.rulings_comments(now) == finder.rulings_comments(view):
+            break
+        view = now
     lines = graded_lines(job, reply := unsettled(job, reply, cache(lambda since: changed_since(shell, job, since))))
     body.write_text("\n".join(text for text, _ in lines) + f"\nchecked {','.join(reply['checked'])} names {'|'.join(reply['names'])}\n\n{json.dumps(reply, indent=2)}\n")
     return {"verdict": reply["verdict"], "posted": post(shell, job, lines, body)}
