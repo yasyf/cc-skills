@@ -26,6 +26,7 @@ on:
       - "plugins/long-running/tests/merge_waits_old_writer_integration.py"
       - "plugins/long-running/tests/direct_merge_old_writer_integration.py"
       - "plugins/long-running/tests/test_release_cursor_noop.py"
+      - "plugins/long-running/tests/test_open_cut_clock_noop.py"
       - "plugins/long-running/skills/long-running/scripts/desk-wait.sh"
       - "plugins/long-running/bin/desk-wait.sh"
       - "plugins/long-running/skills/long-running/scripts/ledger.py"
@@ -152,6 +153,38 @@ jobs:
         with:
           name: release-cursor-${{ runner.os }}
           path: ${{ runner.temp }}/release-cursor-*
+          if-no-files-found: error
+      - uses: actions/checkout@v7
+        with:
+          ref: a99ff7311aa2d4c71ba696cf608f4ee9fb2b8917
+          path: .ci-cut-clock-baseline
+          persist-credentials: false
+      - name: Immutable unchanged cut clock writer negative controls
+        shell: bash
+        run: |
+          baseline=.ci-cut-clock-baseline/plugins/long-running
+          test "$(git -C .ci-cut-clock-baseline rev-parse HEAD)" = a99ff7311aa2d4c71ba696cf608f4ee9fb2b8917
+          cp plugins/long-running/tests/test_open_cut_clock_noop.py "$baseline/tests/test_open_cut_clock_noop.py"
+          for source in empty existing-release; do
+            for history in 32 10000; do
+              negative="$RUNNER_TEMP/cut-clock-old-$source-$history.log"
+              if uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_open_cut_clock_noop.py::test_unchanged_cut_poll_avoids_writer_transaction[$source-open-$history]" -q -s >"$negative" 2>&1; then
+                cat "$negative"
+                exit 1
+              fi
+              cat "$negative"
+              grep -F 'unchanged cut polling opened 32 writers for 32 calls' "$negative"
+              grep -F '1 failed' "$negative"
+            done
+          done
+      - name: Unchanged cut clock writers and clock semantics
+        shell: bash
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_open_cut_clock_noop.py plugins/long-running/tests/test_release_cursor_noop.py plugins/long-running/tests/test_sqlite_action_store.py -q -s --junitxml="$RUNNER_TEMP/cut-clock-current.xml" | tee "$RUNNER_TEMP/cut-clock-current.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: cut-clock-${{ runner.os }}
+          path: ${{ runner.temp }}/cut-clock-*
           if-no-files-found: error
       - uses: actions/checkout@v7
         with:
