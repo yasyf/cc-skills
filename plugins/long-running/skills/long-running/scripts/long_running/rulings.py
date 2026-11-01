@@ -288,6 +288,7 @@ SHAPE = re.compile(
     re.IGNORECASE,
 )
 DELETE_OP = re.compile(r"delete|remove|unlink|\brm\b", re.IGNORECASE)
+INCIDENT_GATES = frozenset({"RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED"})
 CHECK_PR_ORDER = ("RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "SHAPE-UNTESTED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS")
 JUDGED_ROWS = 4
 PLAN_LINES = 12
@@ -2647,10 +2648,10 @@ def cmd_check_pr(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if loaded and view and diff:
         comments = tuple(comment.get("body") or "" for comment in view.get("comments") or [])
         check_pr(loaded, args, Head(repo, number, args.head, view.get("body") or "", diff, comments), findings, args.base or view["baseRefName"])
-    warned = f"WARN incident #{findings.incident['seq']} " if findings.incident else ""
-    for line in [*(warned + refusal for refusal in sorted(findings.refusals, key=lambda line: CHECK_PR_ORDER.index(line.split()[0]))), *findings.blockers]:
+    warned = {refusal for refusal in findings.refusals if findings.incident and refusal.split()[0] not in INCIDENT_GATES}
+    for line in [*(f"WARN incident #{findings.incident['seq']} {refusal}" if refusal in warned else refusal for refusal in sorted(findings.refusals, key=lambda line: CHECK_PR_ORDER.index(line.split()[0]))), *findings.blockers]:
         print(line, file=args.stdout)
-    return 1 if findings.refusals and not findings.incident else 0
+    return 1 if set(findings.refusals) - warned else 0
 
 
 @dataclass(frozen=True)

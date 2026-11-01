@@ -563,7 +563,8 @@ other.
 An open `incident` record that names a PR, by its refs or a `#<n>` in its text, or
 names a lane as its poster or a recipient, puts that PR and lane in incident mode:
 `rulings.py check-pr` prints each refusal as `WARN incident #<seq> <refusal>` and
-exits 0, and the stall watch raises no grader, regrade, missing, carry, or tap stall
+exits 0, except the three ruling checks `check-pr --incident` runs (RULINGS-UNCITED,
+RESERVED-NO-ANSWER, TEST-REMOVED), which still refuse (owner answer 45200f2), and the stall watch raises no grader, regrade, missing, carry, or tap stall
 for the PR. The incident rules stay the only gates: an approving review, green
 required checks, a plain squash, and 0 deletes and 0 replaces. The record that
 resolves the incident ends incident mode. A codex lane with no Claude session names
