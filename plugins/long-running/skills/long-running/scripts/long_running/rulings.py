@@ -97,6 +97,7 @@ Standard library only.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import fnmatch
 import glob
 import hashlib
@@ -938,9 +939,12 @@ def pr_diff(args: argparse.Namespace, shell: ledger.Shell, repo: str, base: str,
     kept = state_dir(args, args.runtime.drives, args.runtime.scratch) / "check-pr" / f"{shell.run([*git, 'merge-base', tip, head]).strip()}-{head}.diff"
     if not kept.is_file():
         kept.parent.mkdir(parents=True, exist_ok=True)
-        staged = kept.with_suffix(f".{os.getpid()}")
-        shell.run([*git, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--find-copies-harder", "-l0", f"-U{LOOKBACK}", "--src-prefix=a/", "--dst-prefix=b/", f"--output={staged}", f"{tip}...{head}"])
-        staged.replace(kept)
+        with kept.with_suffix(".lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if not kept.is_file():
+                staged = kept.with_suffix(f".{os.getpid()}")
+                shell.run([*git, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--find-copies-harder", "-l0", f"-U{LOOKBACK}", "--src-prefix=a/", "--dst-prefix=b/", f"--output={staged}", f"{tip}...{head}"])
+                staged.replace(kept)
     return parse_diff(kept.read_text(errors="replace"))
 
 

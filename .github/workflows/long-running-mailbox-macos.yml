@@ -17,6 +17,7 @@ on:
       - "plugins/long-running/skills/long-running/scripts/long_running/ruling_documents.py"
       - "plugins/long-running/skills/long-running/scripts/long_running/rulings.py"
       - "plugins/long-running/tests/test_ruling_binary_reader.py"
+      - "plugins/long-running/tests/test_rulings_diff_cache.py"
       - "plugins/long-running/skills/long-running/scripts/long_running/sqlite_store.py"
       - "plugins/long-running/tests/test_reader_working_set.py"
       - "plugins/long-running/tests/test_sqlite_action_store.py"
@@ -69,6 +70,42 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
+      - uses: actions/checkout@v7
+        with:
+          ref: 14e26e2b070d27c28d49530cc08ae0a6a4a42d7a
+          path: .ci-rulings-diff-baseline
+          persist-credentials: false
+      - name: Immutable811 concurrent cold copy-diff negatives
+        shell: bash
+        run: |
+          set -o pipefail
+          baseline=.ci-rulings-diff-baseline/plugins/long-running
+          test "$(git -C .ci-rulings-diff-baseline rev-parse HEAD)" = 14e26e2b070d27c28d49530cc08ae0a6a4a42d7a
+          cp plugins/long-running/tests/test_rulings_diff_cache.py "$baseline/tests/test_rulings_diff_cache.py"
+          for size in 32 4096; do
+            negative="$RUNNER_TEMP/rulings-diff-old-$size.log"
+            if uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_rulings_diff_cache.py::test_same_cold_key_computes_one_copy_aware_diff[$size]" -q -s >"$negative" 2>&1; then
+              cat "$negative"
+              exit 1
+            else
+              code=$?
+            fi
+            cat "$negative"
+            test "$code" -eq 1
+            grep -F 'duplicate expensive copy-aware diffs: expected 1, got 2' "$negative"
+            grep -F '1 failed' "$negative"
+          done
+      - name: Concurrent copy-diff cache and existing ruling semantics
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_rulings_diff_cache.py plugins/long-running/tests/test_rulings.py plugins/long-running/tests/test_rulings_dispatch.py plugins/long-running/tests/test_rulings_io.py -q -s --junitxml="$RUNNER_TEMP/rulings-diff-current.xml" | tee "$RUNNER_TEMP/rulings-diff-current.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: rulings-diff-${{ runner.os }}
+          path: ${{ runner.temp }}/rulings-diff-*
+          if-no-files-found: error
       - uses: actions/checkout@v7
         with:
           ref: c01c7aa04559b07ad03983301609163b0a4630d0
