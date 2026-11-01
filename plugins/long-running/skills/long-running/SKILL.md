@@ -4524,8 +4524,13 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   `WAKE` message in its teammate inbox telling it to read its mail and continue. A lane whose
   task is completed, or that posted `done`, is idle on purpose and never woken. A `blocker`
   addressed to a lane about one of its open PRs, arriving after its last record, also wakes it,
-  once per blocker `topic` and with the blocker's text, whatever its task says. If the lane posts
-  nothing within 30 minutes of that wake, the supervisor asks root once to reassign the PR. A lane whose newest record is an
+  once per blocker `topic` and with the blocker's text, whatever its task says. The page drops
+  when a record resolves its blocker, through `--resolves` or `also_resolves`. It also drops when
+  the PR lands, moves to another lane or gets a new head, and a fresh store pages no lane from
+  the records it re-reads. The wake names the blocker's seq. A lane whose newest record is a
+  `handoff`, `done`, `stand-down` or `stopped` is never woken. If the lane posts nothing within 30 minutes of that wake, the supervisor asks root
+  once to reassign the PR. Silence and activity are measured from the lane's own records, never
+  from its `cci who` row. A lane whose newest record is an
   `ask`, `blocked` or `blocker` to root is waiting, not dead, until 15 minutes after a
   record answers it with `--re` or `--resolves`. A live lane beats in the workers table
   each tick.
@@ -4534,9 +4539,12 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   script of its own. Every lane that has posted has a row, `unregistered` when no `SPAWNED`
   record named it, and a lane is `live` when it posted a record within an hour, whatever its
   registry state. Each PR has one owner, the row that lists it: the last lane to post a `head`
-  or `opened` record for it, the lane root names with `--kind decide --pr <n> --text
+  or `opened` record for it that is not addressed to its current owner, so a desk relaying a
+  rebase to the owner leaves it in place, the lane root names with `--kind decide --pr <n> --text
   'owner=<lane>'`, or the successor of a stand-down or an `X replaces Y`. A `landed` record
-  clears it. Root's prose namings are not parsed. A `cci who` row is a process fact only:
+  clears it. Root's prose namings are not parsed. When a root `decide` names an owner the
+  registry reads dead, the supervisor posts one blocker back to root naming the lane, its last
+  record and its live successor, if it has one. A `cci who` row is a process fact only:
   every in-process teammate of a live root session reads live there, however long ago it
   stopped.
 - **Relaunch.** A lane that stopped or went silent, with no live numbered successor in
@@ -4551,8 +4559,9 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   carrying the PRs moves the old name's mail to it. A `SPAWNED` record for that name
   from another brief, a lane the root spawned by hand, withdraws the supervisor's
   launch.
-- **Rotation.** A live lane active within the window and past its context line gets
-  one `ROTATE` ask on cci; an idle lane is never asked, since it cannot flush. The asked lane
+- **Rotation.** A live lane that posted within the window and is past its context line gets
+  one `ROTATE` ask on cci. An idle lane is never asked, since it cannot flush. Neither is a
+  lane whose newest record is a `handoff`, `done`, `stand-down` or `stopped`. The asked lane
   flushes in place: its `handoff --ccn <doc>` reply becomes its newest handoff and the
   lane keeps working. The supervisor never relaunches a lane for its size; the handoff
   only seeds the successor if the lane later dies.
