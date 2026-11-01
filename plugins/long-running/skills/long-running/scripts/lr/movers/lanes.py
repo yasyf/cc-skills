@@ -46,7 +46,7 @@ STOOD_DOWN = r"^(?:\d{{1,2}}:\d{{2}} [AP]M )?{}:? (?:STAND-DOWN|stood down|stand
 TOLD_TO_STAND_DOWN = r"\b{}\b[^.\n]{{0,60}}\bstand[ -]?down\b"
 STRIKE_WINDOW = 2 * STALE_AFTER
 PAGE_ANSWER = 2 * STALE_AFTER
-LIVE_WITHIN = timedelta(hours=1)
+LIVE_WITHIN = 4 * STALE_AFTER
 OWNER = re.compile(r"\bowner=([\w.-]+)")
 PACIFIC = ZoneInfo("America/Los_Angeles")
 HANDOFF_BRIEF = Path(__file__).parents[3] / "reference" / "handoff-subagent-brief.md"
