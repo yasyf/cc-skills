@@ -465,6 +465,23 @@ def test_done_and_a_root_stand_down_retire_a_lane(tmp_path, brief):
     assert [(lane.name, lane.retired_by) for lane in store.all_lanes()] == [("conflicts-2", "done"), ("red-sweep-3", "root")]
 
 
+@pytest.mark.parametrize(("after", "relaunched"), [(None, False), ("head", True)], ids=["silent-after-landing", "worked-after-landing"])
+def test_a_lane_that_stops_after_its_last_pr_landed_is_retired_not_relaunched(tmp_path, brief, after, relaunched):
+    """Root #283488: takeover-500-4-fix stopped once #47214 merged, and the supervisor relaunched it as takeover-500-4-fix-2."""
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store, prs=(47214,))
+    fake.feed.append(record(2, "desk-runner", "landed", T0 - timedelta(minutes=20), "LANDED #47214 as ef104ad", ("root",), {"prs": ["Forge-AI/monorepo#47214"]}))
+    if after:
+        fake.feed.append(record(3, "conflicts-2", after, T0 - timedelta(minutes=19), "HEAD #47300 abc1234", ("root",), {"prs": ["Forge-AI/monorepo#47300"]}))
+    fake.peers = [who("conflicts-2", False, T0 - timedelta(minutes=19))]
+
+    out = lanes.tick(store, fake.deps, T0, 1)
+
+    assert bool(out.relaunched) == relaunched
+    if not relaunched:
+        assert fake.launches == [] and (store.lane("conflicts-2").state, store.lane("conflicts-2").retired_by) == ("retired", "landed")
+
+
 @pytest.mark.parametrize(("kind", "text"), [("stand-down", "2:10 PM conflicts-2: standing down, root owns it"), ("stopped", "stopping at root's word")])
 def test_a_lane_that_records_its_own_stand_down_is_retired_not_relaunched(tmp_path, brief, kind, text):
     store = Store.memory()
