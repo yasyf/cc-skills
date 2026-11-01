@@ -67,11 +67,11 @@ def states(shell: FakeShell) -> dict[str, tuple[str, str]]:
         ([record(20, "answer", "on it", re=10)], ("routed", "20")),
         ([record(20, "answer", "on it", re=10), record(21, "head", "HEAD #45412 abc1234: no sleep in the request path")], ("fixed", "21")),
         ([record(21, "landed", "LANDED #45412 squash 1234567")], ("fixed", "21")),
-        ([record(22, "decide", "not a bug, the loop is the backoff", resolves=10, lane="root")], ("closed", "22")),
+        ([record(22, "answer", "Hold this finding as owner-waiting and do not re-fire it until the card answers.", resolves=10, lane="root")], ("routed", "22")),
         ([record(23, "head", "HEAD #45999 def5678: unrelated")], ("open", "")),
         ([record(24, "opened", "opened #45666 for finding #10", lane="perf-row2-4")], ("routed", "24")),
     ],
-    ids=["unanswered", "answered", "answered-then-head", "landed", "resolved-without-fix", "head-on-another-pr", "opened"],
+    ids=["unanswered", "answered", "answered-then-head", "landed", "resolved-to-wait-on-a-card", "head-on-another-pr", "opened"],
 )
 def test_a_finding_stays_open_until_a_head_or_landed_names_its_pr(entry, later, state):
     """Owner 3:06 AM Oct 30: sweep findings got lost; a finding is fixed only when a HEAD or LANDED names it (root #205185)."""

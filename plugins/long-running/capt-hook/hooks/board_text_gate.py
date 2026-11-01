@@ -16,7 +16,7 @@ from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, T
 from captain_hook.cmd import Cmd
 from captain_hook.util import reqenv
 
-from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, ccn, rulings, script
+from .compaction_handoff import CCN_TIMEOUT_SECONDS, CompactionState, ccn, rulings, script, script_module
 from .owner_facing import OWNER_QUOTE, PROGRAM_ACTIVE, RULINGS, STDIN, Reads, board_bytes, board_sources, fenced, plain_words, plan_words, shown, squeeze
 from .register_injection import drive_args
 from .tests.register_fixtures import DRIVE_CONFIG
@@ -60,6 +60,7 @@ SWEEP_CADENCE = timedelta(hours=1)
 TEXT = "text"
 REFUSAL = "Warning, nothing was blocked: Owner-facing text passes every check before the owner sees it. Fix each problem below, then run the same command again."
 SKIPPED = "Warning, nothing was blocked: board_text_gate skipped text it could not read."
+BREAKAGE = script_module("long_running.breakage")
 PIPED_SECTION = '{"id":"sec-merge-taps","type":"section","title":"Release plan and merges"}'
 
 
@@ -197,6 +198,14 @@ def capabilities(found: list[tuple[dict, dict | None]]) -> list[str]:
     return problems
 
 
+def breaks(found: list[tuple[dict, dict | None]]) -> list[str]:
+    return [
+        f'{block["id"]}: names customer breakage, "{said[:160]}"; a customer break is an incident, never a card: post it with `cci post --kind incident --to root --text "INCIDENT customer-break: <that sentence>"` and leave it off the board'
+        for block, _ in found
+        if (said := BREAKAGE.customer_break("\n".join(own_text(block))))
+    ]
+
+
 def titles(found: list[tuple[dict, dict | None]]) -> list[str]:
     return [
         f'{block["id"]}: the title does not end in a question mark, "{block.get("title", "")}"'
@@ -300,6 +309,7 @@ def graded(reads: Reads, item: Published) -> list[str]:
     problems = [
         *(confirms(found, words) if words is not None else []),
         *capabilities(found),
+        *breaks(found),
         *titles(found),
         *strikes(item, found, reads),
     ]
@@ -360,6 +370,7 @@ def exits(name: str, **extra: object) -> Input:
         posting('cc-present reply --block r3-confirm-loops --body "$(cat /nonexistent/fork-refusals-reply.md)"'): Warn(pattern=r"skipped text[\s\S]*/nonexistent/fork-refusals-reply.md does not exist when the hook runs"),
         posting("cc-present push /nonexistent/preview-doc2.json"): Warn(pattern=r"skipped text[\s\S]*the board /nonexistent/preview-doc2.json: /nonexistent/preview-doc2.json does not exist when the hook runs"),
         posting(f"cc-present push {board('r3-titles.redraft.json')}"): Warn(pattern=r"no fidelity desk review names"),
+        update("customer-break-card.json"): Warn(pattern=r"sand-order: names customer breakage, \"Anubhav's release 11719 ships the sand app ahead of api on three tenant clusters[\s\S]*never a card"),
         update("clean-card.json", minutes=90): Warn(pattern=r"the newest hourly sweep pass is 9\d minutes old"),
         update("clean-card.json", commands={f"ccn -R {REPO} log list": "[]"}): Warn(pattern=r"no hourly sweep pass is logged for brook"),
         update("strike-update.json", revised=("share-open",)): Warn(pattern=r"share-open: an update after a strike names no sweep hit count"),

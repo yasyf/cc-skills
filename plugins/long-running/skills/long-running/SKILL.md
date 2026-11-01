@@ -490,7 +490,9 @@ jobs ... run those on ec2".*
 **R16. An active production alert gets its executor in the same turn.** An active
 alert or outage on any surface counts: a Datadog monitor, a Sentry alert, an
 `#outage` report, an on-call page, a broken CI or review pipeline, or an alert or
-breakage link from the owner. It is P0 from the moment it is seen. That turn,
+breakage link from the owner. A record that says customers are failing, or will fail
+from a change already moving, is one too: the stall watch opens it to root in the pass
+that reads it, never as a card, and no finding waits on a card. It is P0 from the moment it is seen. That turn,
 before anything else, the root runs `incident.py open` and starts `incident.py run`
 as a background command (`reference/active-alert-brief.md`). From then on the
 executor owns the incident, through the final reply:
@@ -2933,7 +2935,7 @@ lane that owns the fix. `findings.py sync` keeps every finding, and every pick o
 write-in the owner gives on a board card, as a row of the drive's findings ledger
 (`findings.json` in the state dir names it). A row is open until a later `head` or
 `landed` record names its PR or seq, or a pick's card, which makes it fixed; an answer
-makes it routed and a resolve without a fix makes it closed. `findings.py open` prints
+or a resolve without a fix makes it routed and still live, since a finding never waits on a card. `findings.py open` prints
 the open and routed rows by sweep, `track <seq>` adds an older record, and `close --why`
 settles a one-shot pick nothing will build. A lane that builds a pick names the pick's
 seq or card in its `HEAD` record. The fidelity pipeline grades a head `missing` with no
@@ -2990,6 +2992,7 @@ stalls in one stack post as one record, on the stack's lowest PR.
 | `lane` | a lane with an in-progress task on root's task list stays silent past the time its last record promised, or past 30 minutes | 30 | the lane, or root when the lane posted nothing in the window |
 | `ask` | a lane's ask to root is open, and no root record answers it | 15 | root |
 | `pick` | board-watch's `needs-lane:<block>` ask for an owner pick or written answer is open, and no record resolves or answers it, and no claim, lane record, spawn record, or spawned brief names the block or the ask's number | 15 | root, once per pick |
+| `customer` | a record the pass reads for the first time says customers or tenants are failing now, or will fail from a change already moving, and no incident record, incident lane, or break it answers covers it; it posts as an `incident` record `--re` that record, and the board text gate refuses a card that says the same | 0 | root, under R16 |
 | `order` | a root `decide` record relays an owner order, Sonnet reads it as naming a change that ships as a new PR, and no lane it names, or a numbered successor, posts a record citing a PR after it, such as `opened`, `done`, or a `state` with a PR reference; it stops at two hours or when a root record closes it | 3 | root, as `urgent` |
 
 **S2. Python checks the facts, and one Sonnet call answers the judgment.** Sonnet judges
