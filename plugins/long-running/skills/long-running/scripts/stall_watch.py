@@ -11,8 +11,9 @@ desk runner reads that object every pass and starts one detached pass every `sta
 (default 5) once the last has exited, logging to `stall-watch.log` beside `orca.desk_inbox`. A pass reads
 the drive's cci records over the last `stall.window_hours` (default 24), the landing ledger's open rows,
 the open `hold` records, the landing desk's store, the board through
-board-watch's records, and the root session's task list. For every open PR no hold covers, at the head
-its ledger row names, it finds:
+board-watch's records, and the root session's task list. A proof PR, whose title says `proof:`, a red,
+green or failing-first proof, or do not merge, never merges, so it draws no stall of any kind (root
+#275597, #275660). For every other open PR no hold covers, at the head its ledger row names, it finds:
 
     go        a root go names the head, no `QUEUED` record names the PR at it, no hold covers a PR
               below it, and the go is older than `stall.minutes.go`; a root `decide` or `decision` whose
@@ -293,6 +294,7 @@ PR_REF = re.compile(r"#(\d+)")
 READY = re.compile(r"\b(?:READY|DONE)\b")
 TAP_REQUIRED = re.compile(r"\bTAP-REQUIRED\b")
 NO_ROW = re.compile(r"\bno row\b", re.IGNORECASE)
+PROOF_TITLE = re.compile(r"\bproof:|\b(?:red|green|failing-first) proof\b|\bdo not merge\b", re.IGNORECASE)
 PULLED = re.compile(r"\bpull(?:s|ed)?\b[^.]*\brows?\b", re.IGNORECASE)
 ASK_WORD = re.compile(r"\b(?:card|pick)\b", re.IGNORECASE)
 BLOCK_WORD = re.compile(r"[\w-]+")
@@ -778,7 +780,7 @@ class Pass:
         if done.code:
             self.warn(PR_KINDS, f"ledger.py list exited {done.code}: {(done.err or done.out).strip()[:200]}")
             return None
-        return {row["pr"]: row for row in json.loads(done.out)}
+        return {row["pr"]: row for row in json.loads(done.out) if not PROOF_TITLE.search(row.get("title", ""))}
 
     def landing_facts(self) -> dict:
         store = actions.Store(self.watch.store)
