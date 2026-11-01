@@ -864,6 +864,23 @@ def test_a_root_stand_down_naming_no_successor_unowns_the_lanes_prs_and_names_to
     assert store.owner_of([45492, 46512]) == {45492: "root", 46512: "root"}
 
 
+def test_a_root_stand_down_after_the_lanes_own_done_still_hands_its_prs_to_root(tmp_path, brief):
+    """#283603: conflicts-10 posted done at 4:06 AM, root's typed stand-down 281801 followed at 4:07 AM, and the supervisor still owned its 24 PRs to it and paged it at 6:20 AM."""
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store, prs=(45492, 46512))
+    fake.feed += [
+        record(2, "conflicts-2", "done", T0 - timedelta(minutes=6), "done: all PRs restacked"),
+        record(3, "root", "stand-down", T0 - timedelta(minutes=5), "4:07 AM stand-down conflicts-2: done. No successor.", ("conflicts-2", "supervisor")),
+    ]
+    fake.states = {45492: "needs-work", 46512: "waiting"}
+
+    lanes.tick(store, fake.deps, T0 + timedelta(hours=1), 1)
+
+    kinds = [(argv[argv.index("--kind") + 1], argv[argv.index("--to") + 1], argv[-1]) for argv in fake.posts]
+    assert not [post for post in kinds if post[1] == "conflicts-2"]
+    assert store.owner_of([45492, 46512]) == {45492: "root", 46512: "root"}
+
+
 def test_a_lane_the_launcher_named_with_a_fix_suffix_is_alive_while_it_posts_under_its_briefs_name(tmp_path, brief):
     """#280837: the launcher registered takeover-500-tooling-fix from takeover-500-tooling/brief.md, the lane posted as takeover-500-tooling, and the supervisor relaunched it as takeover-500-tooling-fix-2."""
     store = Store.memory()
