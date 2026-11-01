@@ -4401,6 +4401,7 @@ class Runner:
             newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
             self.book.edit(RUNNER, lambda incident: incident.facts.update({CUT_CURSOR: max((record["seq"] for record in newest), default=0)}))
             return
+        stored_cursor = cursor
         clocks: dict[str, dict] = {}
         orders = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, *(f"--kind={kind}" for kind in CUT_KINDS), since=cursor)
         for record in orders:
@@ -4417,6 +4418,10 @@ class Runner:
                 landed = json.loads(action.target)
                 if landed["components"]:
                     clocks.setdefault(f"release:{landed['pr']}", {"lane": self.config.landing["release_owner"], "components": landed["components"], "since": action.response["at"], "trigger": f"the release record for #{landed['pr']}", "commit": landed["sha"], "env": "<env>", "pr": landed["pr"], "prs": [landed["pr"]], "ended": ""})
+
+        missing = object()
+        if cursor == stored_cursor and self.book.read_facts(RUNNER, lambda facts: isinstance(held := facts.get(CUT_CLOCKS), Mapping) and all(held.get(key, missing) is not missing for key in clocks) and facts.get(CUT_CURSOR) == cursor):
+            return
 
         def keep(incident: actions.Incident) -> None:
             held = incident.facts.setdefault(CUT_CLOCKS, {})
