@@ -20,6 +20,8 @@ on:
       - "plugins/long-running/skills/long-running/scripts/long_running/sqlite_store.py"
       - "plugins/long-running/tests/test_reader_working_set.py"
       - "plugins/long-running/tests/test_sqlite_action_store.py"
+      - "plugins/long-running/tests/test_admission_direct_merge_cost.py"
+      - "plugins/long-running/tests/direct_merge_old_writer_integration.py"
       - "plugins/long-running/skills/long-running/scripts/desk-wait.sh"
       - "plugins/long-running/bin/desk-wait.sh"
       - "plugins/long-running/skills/long-running/scripts/ledger.py"
@@ -55,6 +57,40 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
+      - uses: actions/checkout@v7
+        with:
+          ref: cd0740efe5bd10b0402bd310126cf566bb53a2c5
+          path: .ci-admission-direct-baseline
+          persist-credentials: false
+      - name: Immutable whole-bus admission negative controls
+        shell: bash
+        run: |
+          baseline=.ci-admission-direct-baseline/plugins/long-running
+          cp plugins/long-running/tests/test_admission_direct_merge_cost.py "$baseline/tests/test_admission_direct_merge_cost.py"
+          for history in 32 10000; do
+            negative="$RUNNER_TEMP/admission-direct-merge-old-$history.log"
+            if uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_admission_direct_merge_cost.py::test_admission_avoids_unrelated_bus_history[$history]" -q -s >"$negative" 2>&1; then
+              cat "$negative"
+              exit 1
+            fi
+            cat "$negative"
+            grep -F "direct-merge admission decoded $((history + 6)) actions instead of 6 candidates" "$negative"
+            grep -F '1 failed' "$negative"
+          done
+      - name: Actual admission bounded history and indexless semantics
+        shell: bash
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_admission_direct_merge_cost.py -q -s --junitxml="$RUNNER_TEMP/admission-direct-merge-current.xml" | tee "$RUNNER_TEMP/admission-direct-merge-current.log"
+      - name: Actual old direct-merge writer and creator compatibility
+        shell: bash
+        env:
+          LR_BLOCKER_OLD_SCRIPTS: ${{ github.workspace }}/.ci-admission-direct-baseline/plugins/long-running/skills/long-running/scripts
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/direct_merge_old_writer_integration.py -q -s --junitxml="$RUNNER_TEMP/admission-direct-merge-old-writer.xml" | tee "$RUNNER_TEMP/admission-direct-merge-old-writer.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: admission-direct-merge-${{ runner.os }}
+          path: ${{ runner.temp }}/admission-direct-merge-*
+          if-no-files-found: error
       - name: Disabled and bounded one-pass native IO diagnostic
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_pass_io.py -q -s --junitxml="$RUNNER_TEMP/one-pass-io.xml"
       - uses: actions/upload-artifact@v7

@@ -32,6 +32,17 @@ CASE WHEN kind = 'bus' AND status = 'completed' THEN
     END
 ELSE 0 END
 """
+_DIRECT_MERGE_CANDIDATES = rf"""
+CASE WHEN kind = 'bus' THEN
+    CASE
+        WHEN NOT json_valid(record) THEN 1
+        WHEN json_type(record, '$.action_id') IS NOT 'text' THEN 1
+        WHEN instr(lower(record), '\u006') OR instr(lower(record), '\u007') OR instr(lower(record), '\u005f') THEN 1
+        WHEN length({_COMPACT_RECORD}) - length(replace({_COMPACT_RECORD}, '"action_id":', '')) > 12 THEN 1
+        ELSE substr(json_extract(record, '$.action_id'), 1, 14) = 'merged-direct:'
+    END
+ELSE 0 END
+"""
 _SCHEMA = f"""
 CREATE TABLE incident (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
@@ -76,6 +87,7 @@ CREATE INDEX action_kind ON action(kind, ordinal);
 CREATE INDEX action_status ON action(status, ordinal);
 CREATE INDEX action_kind_status ON action(kind, status, ordinal);
 CREATE INDEX action_blocker_candidates ON action(ordinal) WHERE {_BLOCKER_CANDIDATES};
+CREATE INDEX action_direct_merge_candidates ON action(ordinal) WHERE {_DIRECT_MERGE_CANDIDATES};
 CREATE TRIGGER action_added AFTER INSERT ON action BEGIN
     UPDATE incident SET action_count = action_count + 1 WHERE singleton = 1;
 END;
@@ -708,6 +720,10 @@ class Store:
     def blocker_candidates(self, incident_id: str) -> list[Action]:
         with self._read(incident_id) as connection:
             return [Action.load(json.loads(row[0])) for row in connection.execute("SELECT record FROM action WHERE " + _BLOCKER_CANDIDATES + " ORDER BY ordinal")]
+
+    def direct_merge_candidates(self, incident_id: str) -> list[Action]:
+        with self._read(incident_id) as connection:
+            return [Action.load(json.loads(row[0])) for row in connection.execute("SELECT record FROM action WHERE " + _DIRECT_MERGE_CANDIDATES + " ORDER BY ordinal")]
 
     def ownership(self, incident_id: str) -> tuple[str, int]:
         with self._read(incident_id) as connection:

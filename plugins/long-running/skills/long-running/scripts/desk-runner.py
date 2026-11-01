@@ -8490,7 +8490,7 @@ class Landing:
         """The pass's `Settlement`: each open row of the drive green at its ledger head, under no hold, neither merged directly by this runner nor read landed by the queue, that a root `go` or an exemption names at that head, since it was both green and named, each settled `Queued` when the queue read holds it."""
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         covered = under_hold(open_rows, held)
-        merged = {action.action_id.removeprefix(MERGED_DIRECT).split("@")[0] for action in self.book.actions(LANDING, kind="bus") if action.action_id.startswith(MERGED_DIRECT)}
+        merged = {action.action_id.removeprefix(MERGED_DIRECT).split("@")[0] for action in self.book.direct_merge_candidates(LANDING) if action.action_id.startswith(MERGED_DIRECT)}
         queues = {pr: entry["queue"] for pr, entry in (statuses or {}).items()}
         gos = self.root_gos()
         heads, since = {}, {}
