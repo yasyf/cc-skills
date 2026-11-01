@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS lanes (
 );
 CREATE TABLE IF NOT EXISTS heard (lane TEXT PRIMARY KEY, at TEXT NOT NULL, kind TEXT);
 CREATE TABLE IF NOT EXISTS owners (pr INTEGER PRIMARY KEY, lane TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS probes (lane TEXT PRIMARY KEY, asked TEXT NOT NULL, dead TEXT);
 """
 
 
@@ -302,6 +303,18 @@ class Store:
 
     def pages(self) -> dict[str, dict]:
         return {row["name"]: json.loads(row["page"]) for row in self.db.execute("SELECT name, page FROM lanes WHERE page IS NOT NULL")}
+
+    def probes(self) -> dict[str, dict]:
+        return {row["lane"]: {"asked": parse(row["asked"]), "dead": parse(row["dead"]) if row["dead"] else None} for row in self.db.execute("SELECT lane, asked, dead FROM probes")}
+
+    def probe(self, name: str, at: datetime) -> None:
+        self.db.execute("INSERT INTO probes (lane, asked) VALUES (?, ?) ON CONFLICT (lane) DO UPDATE SET asked = excluded.asked, dead = NULL", (name, stamp(at)))
+
+    def probe_dead(self, name: str, at: datetime) -> None:
+        self.db.execute("UPDATE probes SET dead = ? WHERE lane = ?", (stamp(at), name))
+
+    def unprobe(self, name: str) -> None:
+        self.db.execute("DELETE FROM probes WHERE lane = ?", (name,))
 
     def own(self, name: str, prs: Iterable[int]) -> None:
         self.db.executemany("INSERT INTO owners (pr, lane) VALUES (?, ?) ON CONFLICT (pr) DO UPDATE SET lane = excluded.lane", [(pr, name) for pr in prs])

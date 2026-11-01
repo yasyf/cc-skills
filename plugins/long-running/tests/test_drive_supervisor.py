@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import drive_supervisor as supervisor
+import pytest
 from lr import config as lr_config
 
 NOW = datetime(2026, 10, 31, 17, 0, tzinfo=UTC)
@@ -102,3 +103,16 @@ def test_a_reinstall_bootstraps_only_once_launchd_has_finished_booting_out_the_o
 
     assert supervisor.cmd_install(config, tmp_path / "lr.json") == 0
     assert calls == ["print", "bootout", "print", "print", "print", "bootstrap"]
+
+
+def pr(state="OPEN", mergeable="MERGEABLE", review="APPROVED", rollup="SUCCESS"):
+    return {"state": state, "mergeable": mergeable, "reviewDecision": review, "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": rollup} if rollup else None}}]}}
+
+
+@pytest.mark.parametrize(
+    ("node", "expected"),
+    [(pr(), "waiting"), (pr(mergeable="CONFLICTING"), "needs-work"), (pr(rollup="FAILURE"), "needs-work"), (pr(review="REVIEW_REQUIRED"), "needs-work"), (pr(rollup="PENDING"), "waiting"), (pr(state="MERGED"), "closed"), (None, "closed")],
+    ids=["tap-row", "conflicting", "red", "unapproved", "ci-running", "merged", "missing"],
+)
+def test_only_a_conflicting_red_or_unapproved_open_pr_needs_work(node, expected):
+    assert supervisor.pr_state(node) == expected
