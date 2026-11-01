@@ -106,7 +106,8 @@ def test_old_ordinal_late_completion_invalidates_proof(shell, config, tmp_path):
             state.start("release:90001", shell.now())
             state.complete("release:90001", {"at": actions.stamp(shell.now())})
             after = state._connection.execute("SELECT ordinal FROM action WHERE action_key = ?", ("release:90001",)).fetchone()[0]
-        assert before == after == 1
+            later = state._connection.execute("SELECT ordinal FROM action WHERE action_key = ?", ("release:1",)).fetchone()[0]
+        assert before == after < later
         runner.open_cut_clocks()
         assert runner.book.fact_path(runner_module.RUNNER, [runner_module.CUT_CLOCKS, "release:90001", "pr"]) == 90001
 
