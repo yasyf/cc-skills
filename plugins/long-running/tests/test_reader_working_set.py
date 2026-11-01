@@ -77,6 +77,7 @@ def test_reader_cache_adapts_after_sustained_disjoint_working_sets(shell, config
         for container in group:
             book.ensure(container, container)
     connect = sqlite3.connect
+    owner = threading.get_ident()
     counts = {"opens": 0, "closes": 0, "live": 0, "peak": 0, "changes": 0}
 
     class Observed(sqlite3.Connection):
@@ -87,7 +88,7 @@ def test_reader_cache_adapts_after_sustained_disjoint_working_sets(shell, config
             super().close()
 
     def observed(database, *args, **kwargs):
-        if not str(database).endswith("?mode=ro"):
+        if threading.get_ident() != owner or not str(database).endswith("?mode=ro"):
             return connect(database, *args, **kwargs)
         connection = connect(database, *args, **kwargs, factory=Observed)
         counts["opens"] += 1
