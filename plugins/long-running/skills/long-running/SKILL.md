@@ -1783,7 +1783,13 @@ claim keeps the tap on a file that is not a test file by `testfiles.py`, under
 and the `TAP-REQUIRED` blocker opens with `TEST-ONLY-MISMATCH` naming the first such file.
 A port claim keeps the tap on a file outside `go/sand/next/`, with `PORT-MISMATCH` naming
 it, unless a PR comment under a `## Rulings` heading has a line that names the interaction
-and cites the owner's answer as `# owner: <answer id>`. The runner posts one `TAP-REQUIRED` blocker per head,
+and cites the owner's answer as `# owner: <answer id>`. A go's `[exempt: <class>]` bracket is
+checked the same way: a test, CI or port class holds only when every changed file fits it;
+otherwise the head waits on the owner's tap, and one `TEST-ONLY-MISMATCH` or `PORT-MISMATCH`
+blocker names the file to the PR's lane, the root and each `landing.board_lane`. Any other
+class is the root's to claim. `desk-runner.py go <pr>` prints the class the files give, so a
+lane writing an exempt go reads it from the files, never from a grade's words (root #232354).
+The runner posts one `TAP-REQUIRED` blocker per head,
 naming the row, to the PR's lane, the root, and each `landing.board_lane`. When the changed
 files, the register, or the board do not read, it never guesses a merge: the head stays
 unqueued, and one `TAP-UNREAD` warning goes to the PR's lane, the root, and each

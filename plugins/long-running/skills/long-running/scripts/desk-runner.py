@@ -698,13 +698,14 @@ RULING_CARDS = "cards"
 MERGE_CARDS = "merge_asks"
 MERGE_WAITS = "merge_waits"
 MERGE_ASK_SURFACES = ("slack", "board")
-EXEMPT_BRACKET = re.compile(r"\[exempt:[^\]]*\]", re.IGNORECASE)
+EXEMPT_BRACKET = re.compile(r"\[exempt:\s*(?P<claim>[^\],;]*)[^\]]*\]", re.IGNORECASE)
 TAP_REQUIRED_WORD = re.compile(r"\bTAP-REQUIRED\b")
 GO_CONDITION = re.compile(r"\[\s*(?:exempt:|TAP-CARRIED\b|TAP-KEPT\b)", re.IGNORECASE)
 GO_CONDITIONS = "exempt:<class>, TAP-REQUIRED, TAP-CARRIED from <sha>, TAP-KEPT"
 EXEMPT_GO = re.compile(r"\bgo\s+(?:port|test-only|ci-only)\s+#\d+|\bpure port\b|\b(?:test|ci)-only\b", re.IGNORECASE)
 CLASS_WRONG = re.compile(r"(?:re #\d+:\s*)?class wrong\b", re.IGNORECASE)
-TEST_ONLY_CLAIM = re.compile(r"\b(?:test|ci)-only\b", re.IGNORECASE)
+TEST_ONLY_CLAIM = re.compile(r"\b(?:tests?|ci|harness|fixtures?)\b", re.IGNORECASE)
+PORT_CLAIM = re.compile(r"\bport\b", re.IGNORECASE)
 TAP_CLAIM = re.compile(r"\bTAP-(?:KEPT|CARRIED)\b|\bowner tapped (?:#\d+ at )?[0-9a-f]{7,40}\b")
 OLD_APP_LINE = re.compile(r"^old-app:\s*(?:unchanged|bug fix|changes)\b.*$", re.IGNORECASE | re.MULTILINE)
 TEST_DIRS = frozenset({"__tests__", "testdata", "fixtures", "docs"})
@@ -7252,6 +7253,9 @@ class Landing:
         waiting = self.unanswered(graded.heads, asks)
         if graded.act:
             self.record_waits(graded.heads, waiting)
+            for pr in waiting:
+                if mismatch := self.exempt_admitted(pr, graded.heads[pr])[1]:
+                    self.refuse_head(f"exempt-mismatch:{pr}:{graded.heads[pr]}", pr, graded, f"{mismatch}so #{pr} waits on the owner's tap like any other change", waiting, also=[ROOT, *self.board_lanes])
         if graded.act and waiting:
             self.ask_owner(graded.heads, waiting, graded.rows)
         untapped, unread, exempt = self.untapped({pr: sha for pr, sha in graded.heads.items() if pr not in waiting}, set(asks))
@@ -7327,20 +7331,40 @@ class Landing:
         return self.exempts[(pr, sha)]
 
     def exemption(self, pr: str, sha: str) -> tuple[str, str]:
-        if marked := next(((go, bracket[0]) for go in self.head_gos(pr, sha) if (bracket := EXEMPT_BRACKET.search(full_text(go)))), None):
-            return f"EXEMPT-ADMITTED #{pr} at {sha[:10]}: go cci #{marked[0]['seq']} marks it {marked[1]}, so no board row or tap holds it (root #253923)", ""
+        if marked := next(((go, bracket) for go in self.head_gos(pr, sha) if (bracket := EXEMPT_BRACKET.search(full_text(go)))), None):
+            go, bracket = marked
+            holds, mismatch = self.claim_holds(pr, sha, bracket["claim"])
+            return (f"EXEMPT-ADMITTED #{pr} at {sha[:10]}: go cci #{go['seq']} marks it {bracket[0]}, so no board row or tap holds it (root #253923)", "") if holds else ("", mismatch)
         if not (found := self.exempt_class(pr, sha)) or (standing := self.fidelity(pr, sha)).record and not standing.ok:
             return "", ""
         grade, said = found
+        holds, mismatch = self.claim_holds(pr, sha, said)
+        return (f"EXEMPT-ADMITTED #{pr} at {sha[:10]}: fidelity grade cci #{grade['seq']} says \"{said}\", so it goes straight to the merge queue with no go or board tap (root #194387)", "") if holds else ("", mismatch)
+
+    def claim_holds(self, pr: str, sha: str, claim: str) -> tuple[bool, str]:
+        """Whether every file `pr` changes against its base at `sha` fits the exempt class `claim` names, a go's `[exempt: <class>]` bracket or a grade's phrase, and why not, so no words decide the class alone (root #182391, #232354): a test or CI class fails on a file outside the test, CI, skill-script and docs set, a port class on a file outside `PORT_PREFIXES` unless a `Rulings` comment clears its interaction, and changed files that do not read fit neither. Any other class is the root's to claim."""
+        test, port = TEST_ONLY_CLAIM.search(claim), PORT_CLAIM.search(claim)
+        if not (test or port):
+            return True, ""
         files, _ = self.changed_files(pr, sha)
         if files is None:
-            return "", ""
-        if TEST_ONLY_CLAIM.search(said):
+            return False, ""
+        if test:
             if offender := next((name for name in files if not is_test_or_ci_file(name)), ""):
-                return "", f"TEST-ONLY-MISMATCH {offender} is neither a test nor CI configuration, so the test-only claim does not hold; "
-        elif (offender := next((name for name in files if not name.startswith(PORT_PREFIXES)), "")) and not self.interaction_cleared(pr):
-            return "", f"PORT-MISMATCH {offender} is outside {','.join(PORT_PREFIXES)} and no Rulings comment clears its interaction, so the port claim does not hold; "
-        return f"EXEMPT-ADMITTED #{pr} at {sha[:10]}: fidelity grade cci #{grade['seq']} says \"{said}\", so it goes straight to the merge queue with no go or board tap (root #194387)", ""
+                return False, f"TEST-ONLY-MISMATCH {offender} is neither a test nor CI configuration, so the test-only claim does not hold; "
+            return True, ""
+        if (offender := next((name for name in files if not name.startswith(PORT_PREFIXES)), "")) and not self.interaction_cleared(pr):
+            return False, f"PORT-MISMATCH {offender} is outside {','.join(PORT_PREFIXES)} and no Rulings comment clears its interaction, so the port claim does not hold; "
+        return True, ""
+
+    def file_class(self, pr: str, sha: str) -> str:
+        """What the files `pr` changes against its base at `sha` make it, read as `claim_holds` reads them, so a lane posting an exempt go reads the class from the files and never from a grade's words."""
+        files, _ = self.changed_files(pr, sha)
+        if files is None:
+            return "its changed files did not read"
+        if offender := next((name for name in files if not is_test_or_ci_file(name)), ""):
+            return f"its files make it code: {offender} is neither a test nor CI configuration"
+        return "its files make it test-only or CI-only"
 
     def interaction_cleared(self, pr: str) -> bool:
         """Whether a comment on `pr` under a `Rulings` heading has a line that names the change's interaction and cites the owner's answer as `# owner: <answer id>`."""
@@ -9940,7 +9964,7 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
         gos = landing.root_gos()
         for pr in (pr.lstrip("#") for pr in args.prs):
             head = rows.get(pr, {}).get("head", "")
-            print(f"#{pr} at {head[:10]}: {go_state(gos, pr, head).said()}" if head else f"#{pr}: no ledger row with a head")
+            print(f"#{pr} at {head[:10]}: {go_state(gos, pr, head).said()}; {landing.file_class(pr, head)}" if head else f"#{pr}: no ledger row with a head")
         return 0
     if args.verb == "rebind":
         return runner.rebind()
