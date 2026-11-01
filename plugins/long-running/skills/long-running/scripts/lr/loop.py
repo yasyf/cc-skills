@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from lr import supervisor
 from lr.machine import Facts
 from lr.movers import grading, landing, lanes
-from lr.store import StaleGeneration, Store
+from lr.store import StaleGeneration, Store, stamp
 
 TICK = timedelta(seconds=30)
 SELF = "supervisor"
@@ -50,7 +50,10 @@ def tick(store: Store, drive: str, generation: int, deps: Deps) -> Tick:
     now = deps.clock()
     store.renew_lease(drive, generation, now)
     store.heartbeat(SELF, generation, now)
-    relaunched = len(lanes.tick(store, deps.lane_deps, now, generation).relaunched) if "lanes" in deps.movers else 0
+    moved = lanes.tick(store, deps.lane_deps, now, generation) if "lanes" in deps.movers else lanes.Outcome()
+    if acted := "; ".join(f"{name} {', '.join(map(str, values))}" for name, values in vars(moved).items() if values):
+        print(f"{stamp(now)} {acted}", flush=True)
+    relaunched = len(moved.relaunched)
     if not deps.movers & {"landing", "grading"}:
         return Tick(now, 0, 0, 0, 0, relaunched)
     snapshot = list(deps.snapshot())
