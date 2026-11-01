@@ -3752,6 +3752,31 @@ def test_a_go_on_a_head_a_tap_rule_names_enqueues_only_on_the_owners_board_tap_a
     assert "root" in blocker["to"].split(",") and "; TAP-REQUIRED rule/82317b0: it lands only once the owner has tapped some head of it, and a root go is no tap; #29020 at cccc333: " in post_body(blocker)
 
 
+@pytest.mark.parametrize("built", [True, False], ids=["green", "building"])
+def test_a_tap_required_stack_draws_one_blocker_to_the_board_lane_and_none_while_its_heads_build(shell, config, built):
+    """Root #285056: each pass posted one 'board holds no row' blocker per PR of an 11-PR stack to root, its lane and five board lanes, while the heads still built."""
+    merge_mode(config, "every")
+    board_lane(config)
+    raw = json.loads(config.read_text())
+    raw["landing"]["trunk_check"] = TRUNK_CHECK
+    config.write_text(json.dumps(raw))
+    two_pr_stack(shell)
+    for head in ("cccc333333", "dddd444444"):
+        shell.combined_statuses[head] = [{"context": TRUNK_CHECK, "state": "success" if built else "pending"}]
+    merge_go(shell, "29020", "go #29020 at cccc333 on green [TAP-REQUIRED first-ask]")
+    merge_go(shell, "29031", "go #29031 at dddd444 on green [TAP-REQUIRED first-ask]")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    refusals = [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    assert shell.enqueues() == []
+    if not built:
+        assert refusals == []
+        return
+    [blocker] = refusals
+    assert blocker["to"].split(",") == ["board-refresher"]
+    assert post_body(blocker).startswith("#29020 cccc333333: ") and "#29031 at dddd444: " in post_body(blocker)
+
+
 @pytest.mark.parametrize("tapped", [False, True], ids=["untapped", "tapped"])
 def test_a_go_whose_bracket_says_tap_required_anywhere_lands_only_on_the_owners_tap_whatever_files_it_changes(shell, config, tapped):
     """Root #274478: go #274104 said `[TAP-REQUIRED; signal stack restacked onto dev 0c3c10b, ...]`, and the runner landed untapped #46752 at 9:10 PM."""

@@ -7078,6 +7078,15 @@ class Landing:
         owner = self.owner(pr, graded.rows.get(pr, {}))
         self.post_blocker(key, ",".join(dict.fromkeys([*(self.reach(owner) if owner else [ROOT]), *also])), f"#{pr} {graded.heads[pr]}: {self.left(list(graded.heads), refused, graded.rows)}; {why}", pr)
 
+    def tap_required(self, graded: Graded, told: dict[str, str], refused: Iterable[str]) -> None:
+        """One blocker per stack, cause and set of heads for the go'd heads that wait on the owner's tap, to the board lanes alone, since only a board row moves them, and none for a head whose own build has not passed, since the board lane puts a row up only on green (root #285056)."""
+        prs = sorted(told, key=lambda pr: (len(downstack(graded.rows, pr)), int(pr)))
+        key = "tap-rule:" + hashlib.sha1(" ".join(f"{pr}:{graded.heads[pr]}:{told[pr].split(':', 1)[0]}" for pr in prs).encode()).hexdigest()[:12]
+        if self.book.known(LANDING, key):
+            return
+        bottom = prs[0]
+        self.post_blocker(key, ",".join(self.board_lanes) or ROOT, f"#{bottom} {graded.heads[bottom]}: {self.left(list(graded.heads), refused, graded.rows)}; {'; '.join(told[pr] for pr in prs)}", bottom)
+
     def warn_head(self, key: str, pr: str, graded: Graded, why: str, also: Iterable[str] = ()) -> None:
         """Post one `note` warning per `key` to the lane that owns `pr` and to each lane of `also`. The lanes of `also` act on it, so it skips a dead owner and never reaches the root; with no `also`, the root stands in for an owner lane with no live session, or for none (root #142931)."""
         if self.book.known(LANDING, key):
@@ -7330,8 +7339,8 @@ class Landing:
             for pr, why in exempt.items():
                 if not self.book.known(LANDING, key := f"port:{pr}:{graded.heads[pr]}"):
                     self.post_record("note", key, ",".join(dict.fromkeys([*self.routine_audience([pr], graded.rows).split(","), *self.board_lanes])), why, pr)
-            for pr, why in untapped.items():
-                self.refuse_head(f"tap-rule:{pr}:{graded.heads[pr]}", pr, graded, why, untapped, also=[ROOT, *self.board_lanes])
+            if told := {pr: why for pr, why in untapped.items() if not self.untested(graded.heads[pr])}:
+                self.tap_required(graded, told, untapped)
             for pr, why in unread.items():
                 self.warn_head(f"tap-unread:{pr}:{graded.heads[pr]}:{why}", pr, graded, why, also=[ROOT, *self.runner.landing_lanes("desk_lane")])
         return {pr: merge_queue.State(merge_queue.PENDING, self.owner_wait(pr, graded.heads[pr])) for pr in waiting} | {pr: merge_queue.State(merge_queue.PENDING, why) for pr, why in (untapped | unread).items()}
