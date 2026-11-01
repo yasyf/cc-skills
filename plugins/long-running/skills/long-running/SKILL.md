@@ -4531,10 +4531,14 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   each tick.
 - **One liveness answer.** Every desk that asks whether a lane is at work reads the
   registry, `drive_supervisor.py lanes --config lr.json --json`, never `cci who` and never a
-  script of its own. In it a lane is `live` when it is not retired and posted a record within
-  an hour, and each row names its PRs, so the owner of a PR is the row that lists it. A `cci
-  who` row is a process fact only: every in-process teammate of a live root session reads
-  live there, however long ago it stopped.
+  script of its own. Every lane that has posted has a row, `unregistered` when no `SPAWNED`
+  record named it, and a lane is `live` when it posted a record within an hour, whatever its
+  registry state. Each PR has one owner, the row that lists it: the last lane to post a `head`
+  or `opened` record for it, the lane root names with `--kind decide --pr <n> --text
+  'owner=<lane>'`, or the successor of a stand-down or an `X replaces Y`. A `landed` record
+  clears it. Root's prose namings are not parsed. A `cci who` row is a process fact only:
+  every in-process teammate of a live root session reads live there, however long ago it
+  stopped.
 - **Relaunch.** A lane that stopped or went silent, with no live numbered successor in
   `cci who`, gets a successor `<lane>-<n+1>`. The supervisor writes its brief: a
   `ccx: place=local` line, so the lane runs on the Mac beside the inputs the brief

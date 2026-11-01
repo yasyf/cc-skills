@@ -62,9 +62,11 @@ CREATE TABLE IF NOT EXISTS cursors (source TEXT PRIMARY KEY, position INTEGER NO
 CREATE TABLE IF NOT EXISTS lanes (
   name TEXT PRIMARY KEY, brief TEXT NOT NULL, model TEXT NOT NULL, effort TEXT NOT NULL, role TEXT NOT NULL,
   state TEXT NOT NULL CHECK (state IN ('launching', 'desired', 'held', 'retired')),
-  since TEXT NOT NULL, heard TEXT, handoff TEXT, prs TEXT NOT NULL DEFAULT '[]',
+  since TEXT NOT NULL, handoff TEXT,
   predecessor TEXT, reason TEXT, strikes INTEGER NOT NULL DEFAULT 0, asked TEXT, flushed TEXT, retired_by TEXT, waiting INTEGER, answered TEXT, page TEXT, awaits TEXT
 );
+CREATE TABLE IF NOT EXISTS heard (lane TEXT PRIMARY KEY, at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS owners (pr INTEGER PRIMARY KEY, lane TEXT NOT NULL);
 """
 
 
@@ -118,9 +120,9 @@ class Lane:
     awaits: str | None
 
     @classmethod
-    def row(cls, row: sqlite3.Row) -> Lane:
-        when = {name: parse(row[name]) if row[name] else None for name in ("heard", "asked", "flushed", "answered")}
-        return cls(row["name"], row["brief"], row["model"], row["effort"], row["role"], row["state"], parse(row["since"]), when["heard"], row["handoff"], tuple(json.loads(row["prs"])), row["predecessor"], row["reason"], row["strikes"], when["asked"], when["flushed"], row["retired_by"], row["waiting"], when["answered"], json.loads(row["page"]) if row["page"] else None, row["awaits"])
+    def row(cls, row: sqlite3.Row, heard: datetime | None, prs: tuple[int, ...]) -> Lane:
+        when = {name: parse(row[name]) if row[name] else None for name in ("asked", "flushed", "answered")}
+        return cls(row["name"], row["brief"], row["model"], row["effort"], row["role"], row["state"], parse(row["since"]), heard, row["handoff"], prs, row["predecessor"], row["reason"], row["strikes"], when["asked"], when["flushed"], row["retired_by"], row["waiting"], when["answered"], json.loads(row["page"]) if row["page"] else None, row["awaits"])
 
 
 @dataclass(frozen=True)
@@ -254,27 +256,54 @@ class Store:
         row = self.db.execute("SELECT position FROM cursors WHERE source = ?", (source,)).fetchone()
         return row["position"] if row else 0
 
-    def want_lane(self, name: str, brief: str, model: str, effort: str, role: str, state: str, at: datetime, **fields) -> bool:
-        columns = {"name": name, "brief": brief, "model": model, "effort": effort, "role": role, "state": state, "since": stamp(at)} | {key: json.dumps(list(value)) if key == "prs" else value for key, value in fields.items()}
+    def want_lane(self, name: str, brief: str, model: str, effort: str, role: str, state: str, at: datetime, prs: Iterable[int] = (), **fields) -> bool:
+        columns = {"name": name, "brief": brief, "model": model, "effort": effort, "role": role, "state": state, "since": stamp(at)} | fields
         cursor = self.db.execute(f"INSERT INTO lanes ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))}) ON CONFLICT (name) DO NOTHING", tuple(columns.values()))
+        self.own(name, prs)
         return cursor.rowcount == 1
 
     def lane(self, name: str) -> Lane | None:
         row = self.db.execute("SELECT * FROM lanes WHERE name = ?", (name,)).fetchone()
-        return Lane.row(row) if row else None
+        if not row:
+            return None
+        heard = self.db.execute("SELECT at FROM heard WHERE lane = ?", (name,)).fetchone()
+        prs = tuple(pr for (pr,) in self.db.execute("SELECT pr FROM owners WHERE lane = ? ORDER BY pr", (name,)))
+        return Lane.row(row, parse(heard["at"]) if heard else None, prs)
 
     def lanes(self, *states: str) -> list[Lane]:
-        rows = self.db.execute(f"SELECT * FROM lanes WHERE state IN ({', '.join('?' * len(states))}) ORDER BY name", states).fetchall()
-        return [Lane.row(row) for row in rows]
+        return self.registered(f"WHERE state IN ({', '.join('?' * len(states))})", states)
 
     def all_lanes(self) -> list[Lane]:
-        return [Lane.row(row) for row in self.db.execute("SELECT * FROM lanes ORDER BY name").fetchall()]
+        return self.registered("", ())
+
+    def registered(self, where: str, params: tuple) -> list[Lane]:
+        heard, owned = self.heard(), self.owners()
+        return [Lane.row(row, heard.get(row["name"]), tuple(owned.get(row["name"], ()))) for row in self.db.execute(f"SELECT * FROM lanes {where} ORDER BY name", params)]
+
+    def heard(self) -> dict[str, datetime]:
+        return {row["lane"]: parse(row["at"]) for row in self.db.execute("SELECT lane, at FROM heard")}
+
+    def owners(self) -> dict[str, list[int]]:
+        owned: dict[str, list[int]] = {}
+        for row in self.db.execute("SELECT pr, lane FROM owners ORDER BY pr"):
+            owned.setdefault(row["lane"], []).append(row["pr"])
+        return owned
+
+    def answered(self, answers: set[int], states: Iterable[str]) -> list[str]:
+        states = tuple(states)
+        return [row["name"] for row in self.db.execute(f"SELECT name FROM lanes WHERE awaits IS NULL AND waiting IN ({', '.join('?' * len(answers))}) AND state IN ({', '.join('?' * len(states))})", (*answers, *states))]
+
+    def own(self, name: str, prs: Iterable[int]) -> None:
+        self.db.executemany("INSERT INTO owners (pr, lane) VALUES (?, ?) ON CONFLICT (pr) DO UPDATE SET lane = excluded.lane", [(pr, name) for pr in prs])
+
+    def disown(self, prs: Iterable[int]) -> None:
+        self.db.executemany("DELETE FROM owners WHERE pr = ?", [(pr,) for pr in prs])
 
     def lane_state(self, name: str, state: str, at: datetime, retired_by: str | None = None, reason: str | None = None) -> None:
         self.db.execute("UPDATE lanes SET state = ?, since = ?, retired_by = coalesce(?, retired_by), reason = coalesce(?, reason) WHERE name = ?", (state, stamp(at), retired_by, reason, name))
 
     def lane_heard(self, name: str, at: datetime) -> None:
-        self.db.execute("UPDATE lanes SET heard = ? WHERE name = ? AND (heard IS NULL OR heard < ?)", (stamp(at), name, stamp(at)))
+        self.db.execute("INSERT INTO heard (lane, at) VALUES (?, ?) ON CONFLICT (lane) DO UPDATE SET at = max(heard.at, excluded.at)", (name, stamp(at)))
 
     def lane_handoff(self, name: str, doc: str, flushed: datetime | None) -> None:
         self.db.execute("UPDATE lanes SET handoff = ?, flushed = coalesce(?, flushed) WHERE name = ?", (doc, stamp(flushed) if flushed else None, name))
@@ -289,7 +318,8 @@ class Store:
         self.db.execute("UPDATE lanes SET page = ? WHERE name = ?", (json.dumps(page) if page else None, name))
 
     def lane_prs(self, name: str, prs: Iterable[int]) -> None:
-        self.db.execute("UPDATE lanes SET prs = ? WHERE name = ?", (json.dumps(sorted(set(prs))), name))
+        self.db.execute("DELETE FROM owners WHERE lane = ?", (name,))
+        self.own(name, prs)
 
     def advance(self, source: str, position: int) -> None:
         self.db.execute("INSERT INTO cursors (source, position) VALUES (?, ?) ON CONFLICT (source) DO UPDATE SET position = max(cursors.position, excluded.position)", (source, position))
