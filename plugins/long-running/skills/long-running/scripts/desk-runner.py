@@ -649,7 +649,7 @@ import time
 import traceback
 from collections import Counter
 from contextlib import contextmanager
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import wait as finished_by
 from dataclasses import dataclass, replace
@@ -4247,6 +4247,7 @@ class Runner:
             newest = cci.records(self.cci_tail, drive, "--limit", "1")
             self.book.edit(RUNNER, lambda incident: incident.facts.update({RELEASE_CURSOR: max((record["seq"] for record in newest), default=0)}))
             return
+        stored_cursor = cursor
         builds: dict[str, dict] = {}
         freezes: dict[str, dict] = {}
         for record in cci.records(self.cci_tail, drive, "--kind=release", "--kind=hold", since=cursor):
@@ -4262,6 +4263,8 @@ class Runner:
         fresh = {build: info for build, info in builds.items() if self.book.fact_path(RUNNER, [RELEASE_BUILDS, build], None) is None}
         for build, info in fresh.items():
             self.claim_release(build, info)
+        if not builds and not freezes and cursor == stored_cursor and self.book.read_facts(RUNNER, lambda facts: isinstance(facts.get(RELEASE_BUILDS), Mapping) and isinstance(facts.get(FREEZES), Mapping) and facts.get(RELEASE_CURSOR) == cursor):
+            return
 
         def keep(incident: actions.Incident) -> None:
             incident.facts.setdefault(RELEASE_BUILDS, {}).update(fresh)

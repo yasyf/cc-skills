@@ -25,6 +25,7 @@ on:
       - "plugins/long-running/tests/test_merge_wait_fact_cost.py"
       - "plugins/long-running/tests/merge_waits_old_writer_integration.py"
       - "plugins/long-running/tests/direct_merge_old_writer_integration.py"
+      - "plugins/long-running/tests/test_release_cursor_noop.py"
       - "plugins/long-running/skills/long-running/scripts/desk-wait.sh"
       - "plugins/long-running/bin/desk-wait.sh"
       - "plugins/long-running/skills/long-running/scripts/ledger.py"
@@ -121,6 +122,36 @@ jobs:
         with:
           name: merge-waits-${{ runner.os }}
           path: ${{ runner.temp }}/merge-waits-*
+          if-no-files-found: error
+      - uses: actions/checkout@v7
+        with:
+          ref: 91c856f8556b4462bb57ca215d34fef8254a92d9
+          path: .ci-release-cursor-baseline
+          persist-credentials: false
+      - name: Immutable no-event release writer negative controls
+        shell: bash
+        run: |
+          baseline=.ci-release-cursor-baseline/plugins/long-running
+          test "$(git -C .ci-release-cursor-baseline rev-parse HEAD)" = 91c856f8556b4462bb57ca215d34fef8254a92d9
+          cp plugins/long-running/tests/test_release_cursor_noop.py "$baseline/tests/test_release_cursor_noop.py"
+          for history in 32 10000; do
+            negative="$RUNNER_TEMP/release-cursor-old-$history.log"
+            if uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_release_cursor_noop.py::test_no_event_release_poll_avoids_writer_transaction[read-$history]" -q -s >"$negative" 2>&1; then
+              cat "$negative"
+              exit 1
+            fi
+            cat "$negative"
+            grep -F 'no-event release polling opened 32 writers for 32 calls' "$negative"
+            grep -F '1 failed' "$negative"
+          done
+      - name: No-event release writer semantics and bounded fact selection
+        shell: bash
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_release_cursor_noop.py plugins/long-running/tests/test_sqlite_action_store.py -q -s --junitxml="$RUNNER_TEMP/release-cursor-current.xml" | tee "$RUNNER_TEMP/release-cursor-current.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: release-cursor-${{ runner.os }}
+          path: ${{ runner.temp }}/release-cursor-*
           if-no-files-found: error
       - uses: actions/checkout@v7
         with:

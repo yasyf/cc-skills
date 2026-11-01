@@ -95,6 +95,36 @@ jobs:
           if-no-files-found: error
       - uses: actions/checkout@v7
         with:
+          ref: 91c856f8556b4462bb57ca215d34fef8254a92d9
+          path: .ci-release-cursor-baseline
+          persist-credentials: false
+      - name: Immutable no-event release writer negative controls
+        shell: bash
+        run: |
+          baseline=.ci-release-cursor-baseline/plugins/long-running
+          test "$(git -C .ci-release-cursor-baseline rev-parse HEAD)" = 91c856f8556b4462bb57ca215d34fef8254a92d9
+          cp plugins/long-running/tests/test_release_cursor_noop.py "$baseline/tests/test_release_cursor_noop.py"
+          for history in 32 10000; do
+            negative="$RUNNER_TEMP/release-cursor-old-$history.log"
+            if uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_release_cursor_noop.py::test_no_event_release_poll_avoids_writer_transaction[read-$history]" -q -s >"$negative" 2>&1; then
+              cat "$negative"
+              exit 1
+            fi
+            cat "$negative"
+            grep -F 'no-event release polling opened 32 writers for 32 calls' "$negative"
+            grep -F '1 failed' "$negative"
+          done
+      - name: No-event release writer semantics and bounded fact selection
+        shell: bash
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_release_cursor_noop.py plugins/long-running/tests/test_sqlite_action_store.py -q -s --junitxml="$RUNNER_TEMP/release-cursor-current.xml" | tee "$RUNNER_TEMP/release-cursor-current.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: release-cursor-${{ runner.os }}
+          path: ${{ runner.temp }}/release-cursor-*
+          if-no-files-found: error
+      - uses: actions/checkout@v7
+        with:
           ref: cd0740efe5bd10b0402bd310126cf566bb53a2c5
           path: .ci-admission-direct-baseline
           persist-credentials: false

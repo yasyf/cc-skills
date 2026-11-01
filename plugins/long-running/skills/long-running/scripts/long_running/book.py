@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Protocol
 
@@ -38,6 +38,9 @@ class Book:
 
     def facts(self, container: str, keys=None) -> dict:
         return self.store.facts(container, keys)
+
+    def read_facts(self, container: str, read: Callable[[Mapping[str, object]], object]) -> object:
+        return self.store.read_facts(container, read)
 
     def fact_children(self, container: str, key: str, keys) -> dict:
         return self.store.fact_children(container, key, keys)
