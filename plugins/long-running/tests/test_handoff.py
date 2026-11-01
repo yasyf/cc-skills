@@ -555,8 +555,9 @@ def test_strict_lints_only_the_newest_hand_written_record_never_the_ones_it_supe
     shell.write("b" * 40, "## Root's next actions\n1. ship sanddb on SoFi on the owner's word", supersedes=("a" * 40,))
     shell.write("c" * 40, "## Root's next actions\n1. land l11", supersedes=("b" * 40,))
 
-    assert strict(drive_home, shell) == 0
-    assert "cites no live answer id" not in capsys.readouterr().out
+    out = generate(drive_home, shell, "--strict", capsys=capsys)
+
+    assert (out["narrative"], out["read_first"]) == ("ccccccc", ["ccn doc show bbbbbbb"])
 
 
 def test_the_handoff_names_the_register_doc_and_never_writes_it(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
