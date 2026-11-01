@@ -247,7 +247,7 @@ FINDER_DESK = "desk-finder"
 FIDELITY_DESK = "desk-fidelity"
 QUEUE_LIVE = frozenset({"accepted", "started"})
 FINDER_PENDING = "FINDER-PENDING"
-REFUSAL_KINDS = frozenset({"blocker", "report", "note", "defect", "urgent"})
+REFUSAL_KINDS = frozenset({"blocker", "report", "defect", "urgent"})
 REFUSAL_LABELS = frozenset({"FOREIGN", "TAP-REQUIRED", "GO-UNPARSED", "CONTRACT-MISSING", "PARKED", "UNOWNED", "NOT-QUEUEABLE", "ENQUEUE-STRANDED", "ENQUEUE-FAILED", "ENQUEUE-UNSETTLED"})
 STACK_NOTES = ("BELOW-BLOCKED", "BELOW-HELD", "QUEUED", "REFUSED")
 WARNS_ONLY = re.compile(r"\bWARNING\b|\bis not held for it\b")
@@ -780,7 +780,7 @@ class Pass:
         if done.code:
             self.warn(PR_KINDS, f"ledger.py list exited {done.code}: {(done.err or done.out).strip()[:200]}")
             return None
-        return {row["pr"]: row for row in json.loads(done.out) if not PROOF_TITLE.search(row.get("title", ""))}
+        return {row["pr"]: row for row in json.loads(done.out) if row.get("head") and not PROOF_TITLE.search(row.get("title", ""))}
 
     def landing_facts(self) -> dict:
         store = actions.Store(self.watch.store)

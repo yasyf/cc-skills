@@ -1357,6 +1357,22 @@ def test_a_board_line_spares_root_and_goes_to_the_board_lane_while_the_board_ref
     assert [shell.post(topic)["to"] for topic in shell.topics() if topic.startswith("board:")] == ["board-refresher-2@d1"]
 
 
+def test_a_landing_desk_note_naming_prs_is_no_refusal(config):
+    desk_lane(config, "landing-desk-3")
+    sweep = "11:57 PM hourly link pass and row sweep: no new links needed; Row sweep added one ledger row: #101 under flake-census-1 (277184). Tap watch over the TAP-REQUIRED gos finds no PR admitted without a verdict; Needs Resubmission 0."
+    shell = FakeShell([*gone("101", HEAD), record(5, "landing-desk-3", "note", sweep, 12, "101", to=["root", "desk-runner", "stall-watch"])], [row("101")])
+    watch(shell, config)
+    assert refusal_topics(shell) == []
+
+
+def test_a_ledger_row_registered_before_its_head_is_read_is_left_out_of_the_pass(config):
+    fresh = {"pr": "102", "repo": REPO, "lane": "flake-census-1", "registered": "flake-census-1", "priority": 0, "ours": True}
+    records = [*gone("101", HEAD), *gone("102", HEAD), record(9, "desk-runner", "blocker", "#102: needs-restack", 11, "102", to=["flake-census-1"])]
+    shell = FakeShell(records, [row("101"), fresh])
+    watch(shell, config)
+    assert not [topic for topic in shell.topics() if ":102:" in topic]
+
+
 def test_a_runner_warning_that_holds_nothing_is_no_refusal(config):
     warning = f"#101 {HEAD[:10]}: WARNING `rulings.py check-pr` warns at {HEAD[:10]}, and the head is not held for it: CONTRACT-MISSING api-lane has no contract"
     shell = FakeShell([*gone("101", HEAD), record(5, "desk-runner", "note", warning, 30, to=["api-lane", "root"])], [row("101")])
