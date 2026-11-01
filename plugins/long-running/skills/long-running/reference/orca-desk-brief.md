@@ -124,10 +124,12 @@ R<n> (<time>) orca-desk: withdraw <lane>
 ```
 
 The runner fails a launch it accepted and has not started, such as one held on load,
-and stops a launched dispatch with worker-stop, as `orca-gc --done` does. It logs
+and stops a launched dispatch with worker-stop, as `orca-gc --done` does. A launch still
+starting logs `WITHDRAW-PENDING` and is stopped the same way the moment it logs `LAUNCHED`,
+so an incident clock's Opus fallback the root withdraws never runs on. It logs
 `WITHDRAWN` and marks the lane withdrawn, so the lane's `UNFIXED` lines launch no case
 lane and Orca's offer to dispatch it again logs `WITHDRAWN`, not `DECIDE`. A launch
-still starting, a settled launch with no dispatch, a key or lane that holds nothing, or
+A settled launch with no dispatch, a key or lane that holds nothing, or
 a worker-stop Orca refuses logs `WITHDRAW-FAILED`. A worker-stop Orca takes but never
 shows settled, with its terminal gone or at an idle prompt, within 30 seconds, such as one
 answering `stop_unknown`, logs `WITHDRAW-UNCONFIRMED` with the dispatch and terminal

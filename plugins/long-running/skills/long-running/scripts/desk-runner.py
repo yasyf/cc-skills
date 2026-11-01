@@ -204,19 +204,19 @@ case launch still pending at the end fails and logs `WITHDRAWN`. A case already 
 such as a case lane's own, launches nothing. A case
 lane is an incident fix lane, so the clock covers it.
 Each cci record addressed to `orca-desk` past the runner's saved sequence is read as one
-`orca-desk:` line, starting at the drive's newest record, except one that carries `--re`; a record that is no directive logs
-`DIRECTIVE-FAILED`, and a failed `cci tail` logs `CCI-TAIL-FAILED` and rereads from the same
+`orca-desk:` line, starting at the drive's newest record, whether or not it carries `--re`; a record that is no directive and answers
+no record the runner can reply to logs `DIRECTIVE-FAILED`, and a failed `cci tail` logs `CCI-TAIL-FAILED` and rereads from the same
 sequence. An `orca-desk: withdraw <target>` line names a launch key, `R<n>` or a case
 launch's `unfixed:<msg>:<n>`, or a lane. It fails each launch under the key, or each of the
 lane's launches, that the runner accepted and has not started, and stops the dispatch the
-key or lane launched with worker-stop, as `orca-gc --done` does. It logs `WITHDRAWN` only once
+key or lane launched with worker-stop, as `orca-gc --done` does. A launch still starting logs `WITHDRAW-PENDING`, and its dispatch is
+stopped the same way the moment it logs `LAUNCHED`, so an incident clock's Opus fallback the root withdraws never runs on. It logs `WITHDRAWN` only once
 Orca shows the dispatch settled and its terminal gone or at an idle prompt within 30 seconds,
 and `WITHDRAW-UNCONFIRMED` with the dispatch and terminal otherwise, as when worker-stop
 answers `stop_unknown`. The
 lane is marked withdrawn: its `UNFIXED` lines launch no case lane, and an Orca question it
 leaves, such as the offer to dispatch it again, logs `WITHDRAWN` instead of `DECIDE`; a
-case lane whose dispatch the root stopped by hand is marked the same way. A launch still
-starting, a settled launch with no dispatch, a key or lane the runner holds nothing under,
+case lane whose dispatch the root stopped by hand is marked the same way. A settled launch with no dispatch, a key or lane the runner holds nothing under,
 or a worker-stop Orca refuses logs `WITHDRAW-FAILED`. Each root cci record carrying `--re`, read in sequence
 order with the records addressed to `orca-desk`, is a reply: one to the runner's `DECIDE` on a worker question replies to that
 question, one to a lane's own record replies to that lane's open Orca question, which the cci
@@ -1109,6 +1109,7 @@ UNHOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*)$")
 WITHDRAW_SPEC = re.compile(r"^ (?P<target>[\w.:-]+)$")
 LAUNCH_KEY = re.compile(r"R\d+|unfixed:[\w-]+:\d+|inbox@\S+")
 WITHDRAWN = "withdrawn"
+WITHDRAW_PENDING = "withdraw-pending"
 FENCED = "dispatch_inactive"
 DECIDE_LINE = re.compile(r"^DECIDE (?P<msg>msg_\S+) (?P<lane>[\w.-]+): ")
 ROOT = "root"
@@ -2690,7 +2691,7 @@ class Runner:
         self.withdraw(at, key, spec["target"])
 
     def withdraw(self, at: str, key: str, target: str) -> None:
-        """Withdraw the launch under a launch key, or every launch of a lane named: a launch not yet started fails, so it never launches, and a launched dispatch is stopped and its lane marked withdrawn."""
+        """Withdraw the launch under a launch key, or every launch of a lane named: a launch not yet started fails, so it never launches, one still starting is stopped the moment it logs LAUNCHED, and a launched dispatch is stopped and its lane marked withdrawn."""
         log = f"escalation:withdraw:{at}"
         keyed = bool(LAUNCH_KEY.fullmatch(target))
         if keyed:
@@ -2706,7 +2707,8 @@ class Runner:
                     self.book.edit(self.lane(lane), lambda incident, action=action: incident.fail(action.action_id, f"withdrawn by {key}"))
                     self.record(f"{log}:{lane}:{action.action_id}", f"WITHDRAWN {action.action_id} {lane}: by {key}; nothing was launched")
                 elif action.status == "started":
-                    self.record(f"{log}:{lane}:{action.action_id}", f"WITHDRAW-FAILED {key} {lane}: launch {action.action_id} is still starting; withdraw it again once it logs LAUNCHED")
+                    self.book.edit(self.lane(lane), lambda incident, action=action: incident.facts.update({WITHDRAW_PENDING: {"launch": action.action_id, "by": key}}))
+                    self.record(f"{log}:{lane}:{action.action_id}", f"WITHDRAW-PENDING {action.action_id} {lane}: by {key}; it is still starting, and the runner stops it once it logs LAUNCHED")
             if keyed:
                 dispatch = launches[0].dispatch_id if launches[0].status == "verified" else None
             else:
@@ -3571,6 +3573,9 @@ class Runner:
         self.transfer(lane)
         if launched and launched["how"] == "unsupervised":
             self.escalate(f"{container}/{key}", "UNSUPERVISED", lane, f"launched without Orca supervision: {proof['line']}")
+        if (pending := self.book.fact(container, WITHDRAW_PENDING, None)) and pending["launch"] == key:
+            self.book.edit(container, lambda incident: incident.facts.pop(WITHDRAW_PENDING))
+            self.stop_withdrawn(f"escalation:withdraw:{container}/{key}", pending["by"], key, lane, proof["dispatch"])
 
     def check(self) -> bool:
         """Read the Run past the persisted cursor, relay any message of the Delivery Orca handed over before that read that holds no relay record, then acknowledge the Delivery; False while no cursor exists, so nothing dispatches before the first read sets one."""
