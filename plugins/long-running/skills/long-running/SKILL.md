@@ -4125,7 +4125,9 @@ asked whether anything else was stuck the same way. Also prevents seven reds sit
 head, failing checks, class, owner, since when, and last action, from the `red` objects
 the stall watch writes into `stack.json` each pass. A lane classes a red head with
 `cci post --kind red --pr <n> --text "class=<inherited|flake|real|stale> head=<sha> owner=<lane> <what was done>"`;
-a head with no such record reads `unclassed`, and a new head starts unclassed. The
+a head with no such record reads `unclassed`, and a new head starts unclassed. While dev reads
+DEV-RED, the landing runner posts that record itself, class `inherited` with dev's fix as the unblock,
+for a red head whose failed Buildkite jobs all fail on dev too, so no lane classes it by hand. The
 dashboard's failing-tests count names the lane holding each red. The standing
 `red-sweep` lane works the register; the stall watch's `unclassed`, `unfixed`, and
 `sweep` stalls reach root when it falls behind or is missing.

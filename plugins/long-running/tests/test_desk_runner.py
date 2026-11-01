@@ -14092,6 +14092,28 @@ def test_a_trunk_job_any_open_rows_build_runs_is_a_landing_red_even_when_the_new
     assert kind == "incident" and text.startswith("DEV-RED since 10:50 AM: dev's buildkite/test fails sanddb-http")
 
 
+def test_a_red_whose_failed_jobs_all_fail_on_a_dev_red_trunk_is_classed_inherited_by_the_runner_and_draws_no_blocker(shell, config, tmp_path):
+    """improve3 (root #277422): at 7:03 PM Oct 30, 19 of 27 red PRs were unclassed while dev was red on one test, and lanes classed the same inherited red one PR at a time (p8a-step7 #229585 for #45765)."""
+    with_ci_build(config)
+    trunk_watch(shell, config, tmp_path)
+    shell.rows = [
+        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
+        {"pr": "29021", "lane": LANE, "branch": "b/1", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
+    ]
+    built(shell, "bbbb", "29019", script_build("sanddb-http", "sand-tests", failed="sanddb-http"))
+    built(shell, "aaaa", "29018", script_build("sanddb-http", "sand-tests"))
+    shell.trunk = [trunk_commit("b", "FAILURE", "29019", "2026-10-01T17:50:00Z"), trunk_commit("a", "SUCCESS", "29018", "2026-10-01T17:40:00Z")]
+    for pr, head, number, failed in (("29020", "cccc333333", "78214", "sanddb-http"), ("29021", "dddd444444", "78286", "sand-tests")):
+        built(shell, head, number, script_build("sanddb-http", "sand-tests", failed=failed))
+        shell.queue[pr] = "not queued"
+        shell.pr_status[pr] = {"verdict": "blocked:ci-red", "ci": {"state": "red", "failing": ["buildkite/test"]}}
+        shell.combined_statuses[head] = [{"context": "buildkite/test", "state": "failure", "description": f"Build #{number} failed", "target_url": f"https://buildkite.com/forge/test/builds/{number}"}]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [(post["to"], post_body(post)) for post in shell.posts if post["kind"] == "red"] == [(LANE, "class=inherited head=cccc333333 owner=api-fix sanddb-http fails on dev too, red since 10:50 AM; it unblocks once dev's fix lands")]
+    assert [post_body(post) for post in blockers(shell) if post["to"] == LANE] == ["#29021 dddd444444: CI is red: buildkite/test"]
+
+
 def test_a_trunk_build_green_only_because_a_job_soft_fails_posts_post_merge_red_once_naming_the_prs_landed_since_the_last_build(shell, config, tmp_path):
     with_ci_build(config)
     desk_lane(config)
