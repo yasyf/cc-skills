@@ -1024,7 +1024,7 @@ INCIDENT_GRAMMAR = "orca-desk: incident <slug> <link> reported=<HH:MM | H:MM AM/
 HOLD_GRAMMAR = "orca-desk: hold <slug> owner=<lane> :: <what is held, and on what>"
 UNHOLD_GRAMMAR = "orca-desk: unhold <slug>"
 WITHDRAW_GRAMMAR = "orca-desk: withdraw <R<n> | unfixed:<msg>:<n> | lane>"
-INBOX_DIRECTIVE = re.compile(r"^(?:-\s+)?(?:(?P<key>R\d+)\s+(?:\([^)]*\)\s+)?)?orca-desk: (?P<verb>relay|launch|alert|incident|hold|unhold|withdraw)\b(?P<rest>.*)$", re.DOTALL)
+INBOX_DIRECTIVE = re.compile(r"^(?:-\s+)?(?:(?:1[0-2]|0?[1-9]):[0-5]\d\s?[AP]M\s+)?(?:(?P<key>R\d+)\s+(?:\([^)]*\)\s+)?)?orca-desk: (?P<verb>relay|launch|alert|incident|hold|unhold|withdraw)\b(?P<rest>.*)$", re.DOTALL)
 RELAY_TO = re.compile(r"^ to (?P<lanes>[\w.-]+(?:(?:, (?:and )?| and )[\w.-]+)*):\s+(?P<text>\S.*)$", re.DOTALL)
 LANE_LIST = re.compile(r", (?:and )?| and ")
 LAUNCH_SPEC = re.compile(r"^ (?P<lane>[\w.-]+)(?P<now> NOW)? (?P<model>\S+) (?P<effort>\S+)(?: role=(?P<role>[\w-]+))? brief=(?P<brief>/\S+)$")
@@ -2525,9 +2525,11 @@ class Runner:
             addressed = cci.records(self.cci_tail, self.config.drive, "--to", ORCA_DESK, since=cursor)
             replies = [record for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, since=cursor) if record.get("re")]
             for record in sorted({record["seq"]: record for record in [*addressed, *replies]}.values(), key=lambda record: record["seq"]):
-                if record.get("re"):
-                    if record["lane"] == ROOT and record["drive"] == self.config.drive:
-                        self.root_reply(record, self.cci_record(record["re"]))
+                desk_line = ORCA_DESK in (record.get("to") or [])
+                if record.get("re") and not (desk_line and INBOX_DIRECTIVE.match(record["text"].strip())):
+                    answered = record["lane"] == ROOT and record["drive"] == self.config.drive and self.root_reply(record, self.cci_record(record["re"]))
+                    if desk_line and not answered:
+                        self.refuse_line(record)
                 else:
                     self.cci_line(record)
                 self.book.edit(RUNNER, lambda incident, at=record["seq"]: incident.facts.update({fact: at}))
@@ -2541,22 +2543,26 @@ class Runner:
         out = self.cci_tail(["cci", "tail", "--drive", self.config.drive, "--since-seq", str(seq - 1), "--json", "--budget", str(cci.PAGE_BYTES)])
         return next((record for line in out.splitlines() if line.strip() and (record := json.loads(line))["seq"] == seq), None)
 
-    def root_reply(self, record: dict, closed: dict | None) -> None:
+    def root_reply(self, record: dict, closed: dict | None) -> bool:
+        """Act on a root reply to the record it answers, and whether it was one this desk acts on: a `withdraw` of a launch line, an answer to this runner's `DECIDE` on a worker question, or an answer to a live lane's open question."""
         at = f"cci#{record['seq']}"
         if not closed:
-            return
+            return False
         if record["kind"] == "withdraw":
             directive = INBOX_DIRECTIVE.match(closed["text"].strip())
             if ORCA_DESK in (closed.get("to") or []) and directive and directive["verb"] == "launch":
                 self.withdraw(at, at, directive["key"] or f"inbox@cci#{closed['seq']}")
-            return
+                return True
+            return False
         if closed["lane"] == RUNNER and (decide := DECIDE_LINE.match(closed["text"])):
             if text := self.whole_text(at, at, decide["lane"], record):
                 self.relay_to(at, at, decide["lane"], text, self.unclaimed(at, decide["lane"], [decide["msg"]]))
-            return
+            return True
         dispatch = self.orca.show(closed["lane"])
         if dispatch and dispatch.status not in INACTIVE and (questions := self.open_questions(dispatch)) and (text := self.whole_text(at, at, closed["lane"], record)):
             self.relay_to(at, at, closed["lane"], f"The root answered on cci #{record['seq']} (re #{closed['seq']}), which supersedes this question: {text}", self.unclaimed(at, closed["lane"], questions))
+            return True
+        return False
 
     def whole_text(self, at: str, key: str, about: str, record: dict) -> str:
         """The record's text in full: the file its `refs.path` names when cci clipped the record or kept that file's first line as the record's text, else the record's own text; empty, logging `RELAY-FAILED`, when that file cannot be read here."""
@@ -2606,7 +2612,13 @@ class Runner:
             self.record(f"escalation:launch:cci#{seq}", f"LAUNCH-EXPIRED {directive['key'] or f'inbox@cci#{seq}'} {lane}: cci #{seq} was posted at {pacific(actions.parse_stamp(record['at']))}, {int(age.total_seconds() // 60)} minutes before this read, and a launch line is valid for {int(LAUNCH_VALID.total_seconds() // 60)}; nothing was launched")
             return
         if not self.inbox_line(f"cci#{seq}", line):
-            self.record(f"escalation:cci:{seq}", f"DIRECTIVE-FAILED cci#{seq} inbox: a record addressed to {ORCA_DESK} is one `orca-desk: <relay|launch|alert|incident|hold|unhold|withdraw> …` line, or a reply with --re; nothing was done")
+            self.refuse_line(record)
+
+    def refuse_line(self, record: dict) -> None:
+        """Answer a record addressed to the orca desk that is neither a desk line nor a reply this desk acts on, quoting how it opens, so no order to the desk goes unanswered (root #279034: #278863 and #278913 carried `--re`, read as replies, and drew nothing)."""
+        seq, line = record["seq"], " ".join(record["text"].split())
+        opening = f"{line[:80]}…" if len(line) > 80 else line
+        self.record(f"escalation:cci:{seq}", f"DIRECTIVE-FAILED cci#{seq} inbox: it opens `{opening}`, and a record addressed to {ORCA_DESK} is one `[<H:MM AM|PM>] [R<n> (<clock>)] orca-desk: <relay|launch|alert|incident|hold|unhold|withdraw> …` line, with or without --re, or a root reply this desk acts on: a withdraw of a launch line or an answer to an open question; nothing was done")
 
     def inbox_line(self, at: str, line: str) -> bool:
         directive = INBOX_DIRECTIVE.match(line)

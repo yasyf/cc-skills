@@ -48,7 +48,8 @@ config field to the drive's `inbox/orca-desk.md`, which anchors its logs and sta
 which it never reads. The orca runner reads each cci record addressed to `orca-desk`
 from a saved sequence that starts at the drive's newest record, so history never
 replays; a record that is no
-directive logs `DIRECTIVE-FAILED`. A line is a relay only in this form, one
+directive logs `DIRECTIVE-FAILED`, quoting how it opens. A directive may open with a
+`H:MM AM|PM` clock label before its key or `orca-desk:`. A line is a relay only in this form, one
 relay per line, its text running to the end of the line:
 
 ```text
@@ -132,10 +133,13 @@ shows settled, with its terminal gone or at an idle prompt, within 30 seconds, s
 answering `stop_unknown`, logs `WITHDRAW-UNCONFIRMED` with the dispatch and terminal
 instead of `WITHDRAWN`.
 A root `cci post --kind withdraw --re <seq>` whose record is a launch line addressed
-to `orca-desk` withdraws that launch the same way. Any other record carrying `--re`
-is a reply, never a directive, so it logs no `DIRECTIVE-FAILED`.
+to `orca-desk` withdraws that launch the same way. A record addressed to `orca-desk`
+whose text is a directive runs as that directive even when it carries `--re`. One that is
+neither a directive nor a root reply this desk acts on logs `DIRECTIVE-FAILED`, so no
+order to the desk goes unanswered (root #279034: two `--re` launch orders for incident
+takeover-500 drew nothing for ten minutes).
 
-Each root cci record carrying `--re` is read as a reply. One to the runner's
+Each other root cci record carrying `--re` is read as a reply. One to the runner's
 `DECIDE` on a worker question is relayed as the reply to that question. One to a
 lane's own record, such as its cci ask, is relayed as the reply to that lane's open
 Orca question, which the cci answer superseded. When another reply, an inbox relay

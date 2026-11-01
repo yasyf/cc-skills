@@ -117,13 +117,15 @@ def test_two_launches_started_together_post_different_keys(drive, tmp_path, monk
     assert sorted(text.split()[0] for text in posted(drive)) == ["R2026", "R2027"]
 
 
-def test_an_incident_pair_posts_addressed_launch_lines_under_the_next_keys_and_prints_each_dispatch(drive, tmp_path, capsys):
+@pytest.mark.parametrize("name", ["inc-app-origin", "inc-app-origin-fix"])
+def test_an_incident_pair_posts_addressed_launch_lines_under_the_next_keys_and_prints_each_dispatch(drive, tmp_path, capsys, name):
+    """Root #279033: `incident takeover-500-fix` launched takeover-500-fix-fix, so the fix lane's name matched no order or brief."""
     fix, evidence = briefs(tmp_path)
     drive.verdicts = {
         "R2026": "LAUNCHED R2026 {lane}: dispatch ctx_fix terminal term_fix",
         "R2027": "LAUNCHED R2027 {lane}: dispatch ctx_ev terminal term_ev",
     }
-    assert desk_launch.main(["incident", "inc-app-origin", str(fix), str(evidence)]) == 0
+    assert desk_launch.main(["incident", name, str(fix), str(evidence)]) == 0
     posts = [call for call in drive.calls if call[1] == "post"]
     assert [flag(call, "--to") for call in posts] == ["orca-desk", "orca-desk"]
     lines = [flag(call, "--text") for call in posts]
