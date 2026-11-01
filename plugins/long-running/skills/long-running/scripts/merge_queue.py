@@ -48,7 +48,7 @@ ENQUEUE_FAILED = 5
 RATE_LIMITED = "rate-limited"
 DEQUEUE_RELEASED = (0, 1)
 TRANSIENT_FAILURE = re.compile(
-    r"handshake operation timed out|TLS handshake timeout|i/o timeout|context deadline exceeded|urlopen error|Connection reset|reset by peer|Remote end closed|Temporary failure in name resolution|nodename nor servname|Name or service not known|HTTP(?: Error)? 5\d\d|Operation timed out|Failed to connect to .* port 443|Recv failure|Could not resolve host"
+    r"handshake operation timed out|TLS handshake timeout|i/o timeout|context deadline exceeded|urlopen error|Connection reset|Connection refused|reset by peer|Remote end closed|Temporary failure in name resolution|nodename nor servname|Name or service not known|HTTP(?: Error)? 5\d\d|Operation timed out|Failed to connect to .* port 443|Recv failure|Could not resolve host"
 )
 TRUNK_CALLS = 2
 TRUNK_LIMITED = re.compile(r"HTTP 429\b")
