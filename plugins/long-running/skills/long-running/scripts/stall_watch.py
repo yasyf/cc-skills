@@ -136,7 +136,8 @@ and, across the drive:
               the earlier of its board row's write and the head's READY record; a PR that waits on the PR
               below it, a red one whose `red` record classes its head inherited included, posts nothing itself and is listed on the stale PR its stack waits on, a PR in
               the merge queue or green with a go goes to the landing desk lanes, whose step it is, and
-              any other PR whose owning lane has no live record in the window goes to root; a changed state on
+              any other PR whose owning lane has no live record in the window goes to root, unless root has
+              posted about the PR since its state began, since root then already answered it; a changed state on
               the same head counts from the pass that saw it change; a held PR whose open `hold` record
               names an open PR the owner has not tapped at its head is never stale, until that PR lands,
               is tapped, or the hold lifts
@@ -1166,8 +1167,15 @@ class Pass:
             if quiet and not live:
                 continue
             owners = (found["actor"],) if live or found["actor"] == RUNNER else (ROOT,)
+            if owners == (ROOT,) and self.root_spoke(records, pr, since):
+                continue
             stalls.append(Stall(f"stale:{pr}:{short(found['head'])}{':quiet' if quiet else ''}", "stale", since, subject, what, owners, found["next"], pr, quiet))
         return stalls
+
+    def root_spoke(self, records: list[dict], pr: str, since: datetime) -> bool:
+        """Whether root posted about `pr` since its state began, so a stale line to root would only repeat root's own answer (root #283203)."""
+        repo = self.watch.landing["repo"]
+        return any(record["lane"] in ROOT_NAMES and at(record) >= since and grades.about_pr(record, repo, pr) for record in records)
 
     def owner_gates(self, pr: str, found_by_pr: dict[str, dict], seen: set[str]) -> set[str] | None:
         named = [gate for gate in self.hold_gates.get(pr, []) if gate in found_by_pr]
