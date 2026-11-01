@@ -4,7 +4,7 @@ import queue
 
 import pytest
 from review_assistant import ReviewAssistant
-from server import Drive, drive_prs, parse_plan, plan_prs, step_rows, verdict_state
+from server import Drive, drive_prs, parse_plan, plan_prs, publish, step_rows, verdict_state
 
 NOW = dt.datetime(2026, 10, 27, 8, 0, tzinfo=dt.timezone.utc)
 TREES = ["New tree", "Old tree", "Shared"]
@@ -257,3 +257,15 @@ def test_a_build_failure_is_a_defect_only_when_the_next_build_fails_the_same_way
     drive.build_failed(missing)
     drive.build_failed(missing)
     assert reported == [missing]
+
+
+def test_the_serving_dashboard_replaces_a_retired_servers_record_with_its_own(tmp_path):
+    """Root #285830: dashboard/server.json still named the retired Oct 23 page on 127.0.0.1:8958 while the launchd dashboard served on 61210."""
+    record = tmp_path / ".claude" / "scratch" / "d1" / "dashboard" / "server.json"
+    record.parent.mkdir(parents=True)
+    record.write_text(json.dumps({"drive": "d1", "pid": 68257, "host": "127.0.0.1", "port": 8958, "url": "http://127.0.0.1:8958/", "token": "old"}))
+
+    assert publish({"drive": "d1", "host": "100.113.56.52", "port": 61210}, tmp_path, 22414, NOW) == record
+
+    assert json.loads(record.read_text()) | {"script": ""} == {"drive": "d1", "pid": 22414, "host": "100.113.56.52", "port": 61210, "url": "http://100.113.56.52:61210/", "tailnet_url": "http://100.113.56.52:61210/", "script": "", "started_at": "2026-10-27T08:00:00Z"}
+    assert [path.name for path in record.parent.iterdir()] == ["server.json"]
