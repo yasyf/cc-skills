@@ -1166,6 +1166,19 @@ def test_a_stale_stack_posts_once_from_its_lowest_stale_pr_a_held_pr_counts_and_
     }
 
 
+@pytest.mark.parametrize("answered", [False, True], ids=["unanswered", "root-answered"])
+def test_a_held_pr_whose_stale_line_root_answered_posts_no_stale_line_until_its_state_moves(config, answered):
+    """Root #283203: root ruled at 5:14 AM that the hold on #46107 stands, and stall-watch paged root with the same STALE line at 5:43."""
+    records = [record(1, "gone-lane", "head", f"HEAD #301 {HEAD}", 200, "301"), *graded(1, "301", HEAD, 200)[1:], record(11, "gone-lane", "stand-down", "standing down", 150), hold(900, "hold #301 waits on the schema release", "301")]
+    if answered:
+        records.append(record(20, "root", "decide", "Hold on #301 stands until the schema release ships; waiting on the owner is not a stall.", 30, "301"))
+    shell = FakeShell(records, [row("301", lane="gone-lane")])
+
+    watch(shell, config)
+
+    assert [topic for topic in shell.topics() if topic.startswith("stale:")] == ([] if answered else ["stale:301:abc1234"])
+
+
 def desk_lane(config: Path, lane: str) -> None:
     raw = json.loads(config.read_text())
     raw["landing"]["desk_lane"] = lane
