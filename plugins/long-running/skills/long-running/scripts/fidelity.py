@@ -22,7 +22,7 @@ fidelity-desk ok grade on the PR says, else each one the carried grade says. Oth
 `reference/fidelity-job-brief.md` with the head's own hunks, the change to read (the whole PR, or, past the newest
 earlier head every lane stands ok at, only what `git range-diff` shows changed since it), its required register rows
 as the owner's words verbatim with the board card each tap answered and none of the register's implications
-(`rulings.py slice --required --words`), the repository's AGENTS.md rules, the plan, the lane's newest contract
+(`rulings.py slice --required --words`), the repository's AGENTS.md rules as the trunk tip has them, the plan, the lane's newest contract
 and the PR body, and runs
 `codex-ask -m <model> --schema fidelity.schema.json`, with `--incident` when the job is `fast`, in the drive's checkout. A reply that leaves
 a row ungraded, keys a `missing` line on anything but a plan line, an owner row or an AGENTS.md line, or gives no
@@ -139,13 +139,14 @@ def carried(shell: finder.Shell, job: dict, found: dict, by: str, proof: str, bo
     return {"verdict": "carried", "from": earlier, "posted": post(shell, job, lines, body)}
 
 
-def prompt(job: dict, view: dict, base: str, rows: Path, plan: str, touched: dict[str, list[tuple[int, int]]], scope: str) -> str:
+def prompt(job: dict, view: dict, base: str, trunk: str, rows: Path, plan: str, touched: dict[str, list[tuple[int, int]]], scope: str) -> str:
     return TEMPLATE.read_text().format(
         repo=job["repo"],
         pr=job["pr"],
         head=job["head"],
         base=view["baseRefName"],
         base_oid=base,
+        trunk_oid=trunk,
         checkout=job["checkout"],
         rubric=RUBRIC,
         fetch=f"{job['head']} {base}",
@@ -322,7 +323,7 @@ def run(directory: Path, shell: finder.Shell) -> dict:
     keys = finder.ROW_KEY.findall(rows.read_text())
     touched = finder.hunks(finder.git(shell, job, "diff", "--unified=0", "--no-color", "--no-ext-diff", f"{own[0]}^", head))
     question = directory / "question-1.md"
-    question.write_text(prompt(job, view, base, rows, plan.result().strip(), touched, finder.scope(job, own, last, pairs, changed)))
+    question.write_text(prompt(job, view, base, trunk, rows, plan.result().strip(), touched, finder.scope(job, own, last, pairs, changed)))
     reply = ask(shell, job, directory, question, 1)
     if short := shortfalls(keys, reply):
         retry = directory / "question-2.md"

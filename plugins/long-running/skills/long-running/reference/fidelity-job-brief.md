@@ -40,8 +40,10 @@ purpose, so the rubric's line on reading implications does not apply to this gra
 every row: every row key in that file goes in `checked`, and every name you searched goes
 in `names`.
 
-The repository's AGENTS.md rules bind the head too: the AGENTS.md at the root of the
-checkout at the head, and any AGENTS.md nearer a changed file. An added line that does what
+The repository's AGENTS.md rules bind the head too, as the trunk has them now, never the
+head's copy: a head whose base predates a rule change is graded by the rule as it stands.
+Read the root AGENTS.md and any AGENTS.md nearer a changed file at the trunk tip {trunk_oid},
+with `git show {trunk_oid}:<path>`, and key a line by its number there. An added line that does what
 one of them forbids, or undoes what one requires, is `missing` keyed by that line; a head that
 only touches a rule's subject breaks nothing, and style, coverage and defects no rule names
 are the finder's.
