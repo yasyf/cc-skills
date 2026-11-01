@@ -701,10 +701,10 @@ class FakeShell(runner_module.Shell):
         assert query.startswith('query { repository(owner: "Forge-AI", name: "monorepo") { ')
         if self.status_read_error:
             return runner_module.Done(1, "", self.status_read_error)
-        if pulls := re.findall(r"p(\d+): pullRequest\(number: \1\) \{ state headRefOid \}", query):
+        if pulls := re.findall(r"p(\d+): pullRequest\(number: \1\) \{ state headRefOid title body \}", query):
             missing = [pr for pr in pulls if pr in self.missing_prs]
             errors = [{"type": "NOT_FOUND", "path": ["repository", f"p{pr}"], "message": f"Could not resolve to a PullRequest with the number of {pr}."} for pr in missing]
-            data = {"data": {"repository": {f"p{pr}": dict(zip(("state", "headRefOid"), self.pr_heads[pr])) if pr in self.pr_heads else None for pr in pulls}}}
+            data = {"data": {"repository": {f"p{pr}": {"title": "", "body": ""} | dict(zip(("state", "headRefOid", "title", "body"), self.pr_heads[pr])) if pr in self.pr_heads else None for pr in pulls}}}
             return runner_module.Done(int(bool(missing)), json.dumps(data | ({"errors": errors} if errors else {})), "".join(f"gh: {error['message']}\n" for error in errors))
         if carried := re.findall(r"c(\d+): pullRequest\(number: \1\) \{ commits\(last: 100\)", query):
             return runner_module.Done(0, json.dumps({"data": {"repository": {f"c{pr}": {"commits": {"nodes": [{"commit": {"oid": oid}} for oid in self.pr_commits.get(pr, [])]}} for pr in carried}}}), "")
@@ -14929,6 +14929,29 @@ def test_a_fidelity_head_bound_to_a_cci_seq_or_a_closed_or_moved_pr_settles_skip
     assert passes[f"fidelity:43299:{FINDER_OLD}:{closed}"].response["skipped"] == "#43299 is closed"
     assert passes[f"fidelity:42784:{FINDER_OLD}:{moved}"].response["skipped"] == f"#42784 moved to {FINDER_HEAD[:12]}"
     assert f"fidelity:43439:{FINDER_OLD}:{live}" in passes and not fidelity_failures(shell)
+
+
+@pytest.mark.parametrize(
+    ("title", "body"),
+    [
+        ("sandsql-signal: 🧪 proof: #47110's ping tests against the writer before the switch", "## Summary\n\nCarries the tests."),
+        ("sandsql-follower: ✅ red proof for #46984, test alone", ""),
+        ("sandsql-server: 🧪 race windows open on dev (proof, do not merge)", None),
+        ("sandsql-signal: 🧪 the ping tests against the writer", "## Context\n\nProof PR for #47110. It is never merged and closes once its build reads red."),
+    ],
+    ids=["proof-colon", "red-proof", "do-not-merge", "body"],
+)
+def test_a_proof_pr_gets_no_finder_or_fidelity_pass_while_a_pr_naming_a_proof_still_does(shell, config, title, body):
+    fidelity_config(config)
+    finder_config(config)
+    orca_pass(shell, config)
+    proof, _ = (head_record(shell, pr, FINDER_OLD) for pr in ("43299", "43439"))
+    shell.pr_heads = {"43299": ("OPEN", FINDER_OLD, title, body), "43439": ("OPEN", FINDER_OLD, "sand: 🔧 let the new-tree proof skip journal copy-up in its transport check", "Its red proof is #47112.")}
+    orca_pass(shell, config)
+    assert [job["pr"] for job in fidelity_jobs(shell)] == ["43439"]
+    assert [job["pr"] for job in finder_jobs(shell)] == ["43439"]
+    assert incident(config.parent, "desk-fidelity").actions[f"fidelity:43299:{FINDER_OLD}:{proof}"].response["skipped"] == "#43299 is a proof PR, which never merges and gets no grade"
+    assert incident(config.parent, "desk-finder").actions[f"finder:43299:{FINDER_OLD}"].response["skipped"] == "#43299 is a proof PR, which never merges and gets no grade"
 
 
 def test_a_runner_with_no_fidelity_config_starts_no_fidelity_pass(shell, config, tmp_path):

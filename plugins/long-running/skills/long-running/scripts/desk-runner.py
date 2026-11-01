@@ -730,6 +730,8 @@ TOOLING_CAUSE = re.compile(r"[0-9a-f]{7,}|\d+|/\S+")
 FINDER_STALLED_AFTER = timedelta(minutes=15)
 FINDER_SETTLED = "settled_at"
 FINDER_SKIPS = {"CLOSED": "#{pr} is closed", "NOT_FOUND": "#{pr} is no pull request in {repo}"}
+PROOF_TITLE = re.compile(r"\bproof:|\b(?:red|green) proof\b|\bproof, do not merge\b", re.IGNORECASE)
+PROOF_BODY = re.compile(r"^proof PR\b", re.IGNORECASE | re.MULTILINE)
 FINDER_STALLED = "stalled"
 FIDELITY = "desk-fidelity"
 REFUSALS_PER_MINUTE = 10
@@ -1476,6 +1478,17 @@ def desk_sprites(spec: dict) -> list[str]:
     """The Sprites a desk's `sprite` names, one or a list."""
     sprite = spec.get("sprite", [])
     return [sprite] if isinstance(sprite, str) else list(sprite)
+
+
+def grading_skip(state: dict, repo: str, pr: str, head: str) -> str | None:
+    """Why a grader skips `pr`'s pass at `head`: the PR is closed or no PR, it is a proof PR whose title or body says so and which never merges (root #275597), or it moved past `head`."""
+    if state["state"] in FINDER_SKIPS:
+        return FINDER_SKIPS[state["state"]].format(pr=pr, repo=repo)
+    if PROOF_TITLE.search(state["title"]) or PROOF_BODY.search(state["body"] or ""):
+        return f"#{pr} is a proof PR, which never merges and gets no grade"
+    if head and state["headRefOid"] != head:
+        return f"#{pr} moved to {state['headRefOid'][:12]}"
+    return None
 
 
 def job_command(spec: dict, sprite: str, script: str, directory: Path) -> tuple[list[str], dict[str, str]]:
@@ -4624,8 +4637,8 @@ class Runner:
         live = self.live_heads(repo, list(newest))
         for pr, action in list(newest.items()):
             job = json.loads(action.target)
-            if (state := live.get(pr)) and (state["state"] in FINDER_SKIPS or job["head"] and state["headRefOid"] != job["head"]):
-                self.finder_settled(action.action_id, {"skipped": FINDER_SKIPS.get(state["state"], "#{pr} moved to {head}").format(pr=pr, repo=repo, head=state["headRefOid"][:12])})
+            if (state := live.get(pr)) and (skipped := grading_skip(state, repo, pr, job["head"])):
+                self.finder_settled(action.action_id, {"skipped": skipped})
                 del newest[pr]
         going = self.tapped() | {pr for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, *GO_KIND_FLAGS) if record["lane"] == ROOT and is_go(record) for pr in go_heads(record)}
         history: dict[str, list[actions.Action]] = {}
@@ -4660,9 +4673,9 @@ class Runner:
         return [(record, pr, full) for record, pr, head in named if (full := head if finder.FULL_SHA.fullmatch(head) else (live.get(pr) or {}).get("headRefOid", "")).startswith(head)]
 
     def live_heads(self, repo: str, prs: list[str]) -> dict[str, dict]:
-        """Each of `prs` GitHub answered for, to its `state` and `headRefOid`, read fresh in one GraphQL query, with state `NOT_FOUND` for a number that names no pull request in `repo`, such as a cci seq a record bound as one (#177997), which GitHub answers beside the rest; a read that answers for none answers none, and each pass then reads its PR itself."""
+        """Each of `prs` GitHub answered for, to its `state`, `headRefOid`, `title` and `body`, read fresh in one GraphQL query, with state `NOT_FOUND` for a number that names no pull request in `repo`, such as a cci seq a record bound as one (#177997), which GitHub answers beside the rest; a read that answers for none answers none, and each pass then reads its PR itself."""
         owner, name = repo.split("/")
-        fields = " ".join(f"p{pr}: pullRequest(number: {pr}) {{ state headRefOid }}" for pr in prs)
+        fields = " ".join(f"p{pr}: pullRequest(number: {pr}) {{ state headRefOid title body }}" for pr in prs)
         done = self.shell.run(ghread.read("api", "graphql", "-f", f'query=query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}', max_age=ghread.FRESH), env={"GH_REPO": repo})
         read = json.loads(done.out) if done.out.lstrip().startswith("{") else {}
         answered = (read.get("data") or {}).get("repository") or {}
@@ -4905,8 +4918,8 @@ class Runner:
             return
         live = self.live_heads(repo, list(newest))
         for pr, action in list(newest.items()):
-            if (state := live.get(pr)) and (state["state"] in FINDER_SKIPS or state["headRefOid"] != json.loads(action.target)["head"]):
-                self.settle(FIDELITY, action.action_id, {"skipped": FINDER_SKIPS.get(state["state"], "#{pr} moved to {head}").format(pr=pr, repo=repo, head=state["headRefOid"][:12])})
+            if (state := live.get(pr)) and (skipped := grading_skip(state, repo, pr, json.loads(action.target)["head"])):
+                self.settle(FIDELITY, action.action_id, {"skipped": skipped})
                 del newest[pr]
         ranks = {pr: int(row.get("priority", DEFAULT_PRIORITY)) for pr, row in rows.items()}
         for action in sorted(newest.values(), key=lambda action: ranks.get(json.loads(action.target)["pr"], DEFAULT_PRIORITY)):
