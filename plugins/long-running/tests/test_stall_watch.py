@@ -226,20 +226,29 @@ def test_a_green_head_with_no_fidelity_grade_for_ten_minutes_alarms_the_graders_
 @pytest.mark.parametrize(
     ("incident", "stalls"),
     [
-        ({"pr": "101"}, ["fidelity:102:abc1234"]),
+        ({"pr": "101"}, ["board:102:abc1234"]),
         ({"lane": "api-lane"}, []),
-        ({"pr": "101", "status": "closed"}, ["fidelity:101:abc1234", "fidelity:102:abc1234"]),
+        ({"pr": "101", "status": "closed"}, ["board:101:abc1234", "board:102:abc1234"]),
     ],
     ids=["names-the-pr", "names-its-lane", "closed"],
 )
-def test_an_open_incident_on_a_pr_or_its_lane_silences_its_grader_stalls(config, tmp_path, incident, stalls):
-    desk_job(tmp_path, "desk-fidelity", "fidelity", "101", HEAD, None)
-    opened = record(5, incident.get("lane", "exec-fix"), "incident", "exec pods crash on start", 30, incident.get("pr", ""), status=incident.get("status", "open"))
-    shell = FakeShell([head(1, "101", HEAD, 20), finder(2, "101", HEAD, 15), head(3, "102", HEAD, 20), finder(4, "102", HEAD, 15), opened], [row("101", green_at=stamp(11)), row("102", green_at=stamp(11))])
+def test_an_open_incident_on_a_pr_or_its_lane_drops_its_tap_row_stalls(config, incident, stalls):
+    opened = record(7, incident.get("lane", "exec-fix"), "incident", "exec pods crash on start", 30, incident.get("pr", ""), status=incident.get("status", "open"))
+    graded = [head(1, "101", HEAD, 40), finder(2, "101", HEAD, 20), fidelity(3, "101", HEAD, 20), head(4, "102", HEAD, 40), finder(5, "102", HEAD, 20), fidelity(6, "102", HEAD, 20)]
+    shell = FakeShell([*graded, opened], [row("101", green_at=stamp(16)), row("102", green_at=stamp(16))])
 
     watch(shell, config)
 
-    assert sorted(topic for topic in shell.topics() if not topic.startswith("ungraded:")) == stalls
+    assert sorted(shell.topics()) == stalls
+
+
+def test_an_open_incident_on_a_pr_keeps_its_fidelity_stall(config, tmp_path):
+    opened = record(5, "exec-fix", "incident", "exec pods crash on start", 30, "101", status="open")
+    shell = FakeShell([head(1, "101", HEAD, 20), finder(2, "101", HEAD, 15), opened], [row("101", green_at=stamp(11))])
+
+    watch(shell, config)
+
+    assert [topic for topic in shell.topics() if not topic.startswith("ungraded:")] == ["fidelity:101:abc1234"]
 
 
 @pytest.mark.parametrize(("named", "stalls"), [(5, []), (40, ["finder:101:abc1234"])])

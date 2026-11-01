@@ -1,4 +1,4 @@
-"""Incident mode: while an open incident record names a PR or a lane, the drive's checks on that PR and lane warn instead of refusing, and the incident rules (approval, green required checks, squash, 0 deletes and 0 replaces) are the only gates (owner, 2:21 PM Nov 1: "you need ti find a way to get your tooling out if you have an incudent")."""
+"""Incident mode: while an open incident record names a PR or a lane, the drive's process gates on that PR and lane (tap rows, class refusals, fallback clocks, identity checks) drop, and the plan check never does (owner, 2:21 PM Nov 1: "you need ti find a way to get your tooling out if you have an incudent"; 3:05 PM: "it is absolutely unacceptable to accumulate drift or diverge from the plan at all in fixing this")."""
 
 from __future__ import annotations
 

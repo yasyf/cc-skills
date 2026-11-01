@@ -561,14 +561,15 @@ and launches the same line, the root keeps the lane further along and stops the
 other.
 
 An open `incident` record that names a PR, by its refs or a `#<n>` in its text, or
-names a lane as its poster or a recipient, puts that PR and lane in incident mode:
-`rulings.py check-pr` prints each refusal as `WARN incident #<seq> <refusal>` and
-exits 0, except the three ruling checks `check-pr --incident` runs (RULINGS-UNCITED,
-RESERVED-NO-ANSWER, TEST-REMOVED), which still refuse (owner answer 45200f2), and the stall watch raises no grader, regrade, missing, carry, or tap stall
-for the PR. The incident rules stay the only gates: an approving review, green
-required checks, a plain squash, and 0 deletes and 0 replaces. The record that
-resolves the incident ends incident mode. A codex lane with no Claude session names
-its drive with `--drive`, and `drive.py` reads that drive without a session id.
+names a lane as its poster or a recipient, puts that PR and lane in incident mode. The
+drive's process gates drop for it: the stall watch raises no tap, board, or carry stall
+for the PR, and `drive.py` reads a drive named by `--drive` with no Claude session id, so a codex lane
+passes the identity checks. The plan check never drops: the finder and fidelity desks
+grade the PR and `rulings.py check-pr` refuses as it does for any PR (owner, 3:05 PM
+Nov 1: "it is absolutely unacceptable to accumulate drift or diverge from the plan at
+all in fixing this"). The other gates are the incident rules: an approving review, green
+required checks, a plain squash, and 0 deletes and 0 replaces. The record that resolves
+the incident ends incident mode.
 
 *Prevents the 2:21 PM Nov 1 block: the drive's own checks held incident fixes the
 owner wanted out ("you need ti find a way to get your tooling out if you have an

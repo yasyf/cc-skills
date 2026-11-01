@@ -99,8 +99,6 @@ class CheckShell(RegisterShell):
                 return "".join(json.dumps(record) + "\n" for record in self.pr_records if record["seq"] > int(since))
             case ["cci", "tail", "--drive", "brook-cci", "--since-seq", since, "--json", "--budget", _]:
                 return "".join(json.dumps(record) + "\n" for record in [*self.pr_records, *self.bus] if record["seq"] > int(since))
-            case ["cci", "tail", "--drive", "brook-cci", "--since-seq", since, "--json", "--budget", _, "--kind=incident"]:
-                return "".join(json.dumps(record) + "\n" for record in self.bus if record["seq"] > int(since) and record["kind"] == "incident")
             case ["cci", "tail", "--drive", "brook-cci", "--since-seq", since, "--json", "--budget", _, "--kind", "review", "--kind", "answer"]:
                 return "".join(json.dumps(record) + "\n" for record in self.reviews if record["seq"] > int(since) and record["kind"] in ("review", "answer"))
         return super().run(argv, stdin, cwd)
@@ -391,31 +389,6 @@ def test_the_newest_finder_verdict_on_the_head_decides(package: Path, state: Pat
     assert check(capsys, CheckShell(pinned(package), records=[LANE_HEAD, FINDER_OK, major])) == (1, [f"FINDER-MAJOR {HEAD[:7]}"])
     assert check(capsys, CheckShell(pinned(package), records=[LANE_HEAD, major, fixed, elsewhere])) == (0, [])
     assert check(capsys, CheckShell(pinned(package), records=[LANE_HEAD, FINDER_OK, major | {"seq": 15, "lane": LANE_HEAD["lane"]}])) == (0, [])
-
-
-@pytest.mark.parametrize(
-    ("incident", "verdict"),
-    [
-        ({"refs": {"prs": ["acme/app#12"]}}, (0, [f"WARN incident #30 FINDER-MAJOR {HEAD[:7]}"])),
-        ({"lane": "lane-a"}, (0, [f"WARN incident #30 FINDER-MAJOR {HEAD[:7]}"])),
-        ({"refs": {"prs": ["acme/app#12"]}, "status": "closed"}, (1, [f"FINDER-MAJOR {HEAD[:7]}"])),
-        ({"refs": {"prs": ["acme/app#13"]}}, (1, [f"FINDER-MAJOR {HEAD[:7]}"])),
-    ],
-    ids=["names-the-pr", "posted-by-its-lane", "closed", "another-pr"],
-)
-def test_an_open_incident_on_the_pr_or_its_lane_turns_refusals_into_warnings(package: Path, state: Path, registered: Path, capsys, incident, verdict) -> None:
-    major = {"seq": 12, "kind": "review", "lane": "finder-desk", "text": f"finder: major {HEAD[:7]} 2 open"}
-    opened = {"seq": 30, "drive": "brook-cci", "kind": "incident", "lane": "exec-fix", "to": ["root"], "text": "exec pods crash on start", "status": "open", "refs": {}} | incident
-
-    assert check(capsys, CheckShell(pinned(package), records=[LANE_HEAD, major], bus=(opened,))) == verdict
-
-
-def test_an_open_incident_keeps_the_three_incident_ruling_checks_refusing(package: Path, state: Path, registered: Path, tmp_path: Path, capsys) -> None:
-    plan = tmp_path / "plan.md"
-    plan.write_text("# Plan\n\n## Appendix\n\n- test_pool_closes_cleanly proves close is clean.\n")
-    opened = {"seq": 30, "drive": "brook-cci", "kind": "incident", "lane": "exec-fix", "to": ["root"], "text": "exec pods crash on start", "status": "open", "refs": {"prs": ["acme/app#12"]}}
-
-    assert check(capsys, CheckShell(pinned(package), diff=TEST_DIFF, plan=plan, bus=(opened,)), "--incident", "--plan", str(plan)) == (1, ["TEST-REMOVED test_pool_closes_cleanly"])
 
 
 def test_a_root_finder_override_after_the_major_clears_it_though_it_names_no_pr(package: Path, state: Path, registered: Path, capsys) -> None:
