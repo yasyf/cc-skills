@@ -45,6 +45,7 @@ SETTLED = frozenset({"handoff", "done", "stand-down", "stopped"})
 SLICE_STEP = re.compile(r"^Register slice: lane=\S+ step=(\S+)", re.MULTILINE)
 STAND_DOWN_LIST = re.compile(r"\bstand[ -]?down\s+(?P<names>[^.(;:\n]+)", re.IGNORECASE)
 CARD = re.compile(r"\bcard-[\w.-]*\w")
+PR_MENTION = re.compile(r"#(\d+)\b")
 STRIKE_WINDOW = 2 * STALE_AFTER
 PAGE_ANSWER = 2 * STALE_AFTER
 LIVE_WITHIN = 4 * STALE_AFTER
@@ -78,6 +79,7 @@ class Deps:
     launch: Callable[[str, str, str, Path], None]
     withdraw: Callable[[str], None]
     wake: Callable[[str, dict, dict | None], bool]
+    open_prs: Callable[[], set[int]]
     rotate_at: int
 
 
@@ -180,11 +182,12 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             card = CARD.search(text) if kind in WAITS else None
             store.lane_waiting(lane, record["seq"] if kind in WAITS and (card or ROOT in (record.get("to") or [])) else None, awaits=card[0] if card else None)
             store.lane_page(lane, None)
-        if kind == "blocker" and live is None:
+        if (kind == "blocker" or (kind == "ask" and lane == ROOT)) and live is None:
+            named = set(prs_of(record)) | ({int(n) for n in PR_MENTION.findall(text)} if kind == "ask" else set())
             for name in addressed(record) - {lane}:
-                if (paged := store.lane(name)) and paged.state in LIVE and (prs := sorted(set(prs_of(record)) & set(paged.prs))):
+                if (paged := store.lane(name)) and paged.state in LIVE and (prs := sorted(named & set(paged.prs))):
                     topic, page = record.get("topic") or str(record["seq"]), paged.page or {}
-                    fresh = {"topic": topic, "why": f"blocker #{record['seq']} on your PR {' '.join(f'#{n}' for n in prs)} arrived after your last record: {text}", "text": text, "prs": prs, "seqs": []}
+                    fresh = {"topic": topic, "why": f"{'blocker' if kind == 'blocker' else 'root ask'} #{record['seq']} on your PR {' '.join(f'#{n}' for n in prs)} arrived after your last record: {text}", "text": text, "prs": prs, "seqs": []}
                     store.lane_page(name, (page if page.get("topic") == topic else fresh) | {"seqs": [*(page.get("seqs", []) if page.get("topic") == topic else []), record["seq"]]})
         resolved = {record.get("resolves"), *(record.get("also_resolves") or [])} - {None}
         if answers := resolved | {record.get("re")} - {None}:
@@ -229,13 +232,30 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             store.own(owner[1], numbers := prs_of(record))
             heard = store.heard()
             if live is None and numbers and (owner[1] not in heard or at - heard[owner[1]] >= LIVE_WITHIN):
-                heir = newest(store, owner[1])
-                successor = f"its live successor is {heir.name}" if heir and heir.name != owner[1] and heir.name in heard and at - heard[heir.name] < LIVE_WITHIN else "it has no live successor"
-                dead.append(f"{owner[1]} for {' '.join(f'#{n}' for n in numbers)}: root named it owner at {pacific(at)}, but its last record is {f'from {pacific(heard[owner[1]])}' if owner[1] in heard else 'none'}; {successor}")
+                dead.append(f"{owner[1]} for {' '.join(f'#{n}' for n in numbers)}: root named it owner at {pacific(at)}, but its last record is {f'from {pacific(heard[owner[1]])}' if owner[1] in heard else 'none'}; {successor_note(store, owner[1], heard, at)}")
         elif lane == ROOT and (moved := REPLACES.search(text)) and (old := store.lane(moved["old"])) and old.state in LIVE and (taker := store.lane(moved["new"])):
             retire(store, old.name, taker.name, at)
             store.own(taker.name, old.prs)
     return adopted, hand, dead
+
+
+def successor_note(store: Store, name: str, heard: dict[str, datetime], at: datetime) -> str:
+    heir = newest(store, name)
+    return f"its live successor is {heir.name}" if heir and heir.name != name and heir.name in heard and at - heard[heir.name] < LIVE_WITHIN else "it has no live successor"
+
+
+def silent_owners(store: Store, deps: Deps, now: datetime) -> None:
+    try:
+        open_prs = deps.open_prs()
+    except Unread:
+        return
+    heard, lines = store.heard(), []
+    for name, prs in store.owners().items():
+        held, since = [n for n in prs if n in open_prs], heard.get(name)
+        if held and (since is None or now - since >= LIVE_WITHIN) and store.escalate(f"silent:{name}", stamp(since) if since else "never", ROOT, now):
+            lines.append(f"{name} ({' '.join(f'#{n}' for n in held)}; last record {pacific(since) if since else 'none'}; {successor_note(store, name, heard, now)})")
+    if lines:
+        post(deps, "blocker", ROOT, f"{pacific(now)} {len(lines)} lane{'s' if len(lines) > 1 else ''} own open PRs and posted nothing for {LIVE_WITHIN.seconds // 3600} h: {'; '.join(lines)}")
 
 
 def peers(rows: Iterable[dict]) -> dict[str, Peer]:
@@ -408,6 +428,7 @@ def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
     out.adopted, hand, dead = fold(store, records, {lane for lane, peer in found.items() if alive(peer, peer.seen, now)} if fresh else None, deps.briefs)
     for line in dead:
         escalate(store, deps, f"lane:{line.split(' ', 1)[0]}", line, now)
+    silent_owners(store, deps, now)
     for name in hand:
         deps.withdraw(name)
         out.withdrawn.append(name)
