@@ -176,6 +176,7 @@ class FakeShell(runner_module.Shell):
         self.trunk: list[dict] = []
         self.trunk_error = ""
         self.trunk_read_error = ""
+        self.launch_process: Running | None = None
         self.tail_error = ""
         self.tail_failures = 0
         self.post_error = ""
@@ -351,7 +352,7 @@ class FakeShell(runner_module.Shell):
             (state / f"{argv[1]}.terminal").write_text(f"{ready['terminal']}\n")
             self.dispatches[ready["dispatch"]] = {"status": "dispatched", "terminal": ready["terminal"]}
         out.write_text(self.launch_line)
-        return Process()
+        return self.launch_process or Process()
 
     def stat(self, path):
         return path.read_text() if path.is_file() else None
@@ -12204,6 +12205,28 @@ def test_an_opus_fallback_lane_is_clocked_and_gets_no_fallback_of_its_own(shell,
     assert [line.split(" | ")[1] for line in clock_lines(shell, backup)] == [f"{backup} is itself an Opus fallback, so none is launched for it"] * 2
     assert len(launches(shell)) == 1 and shell.entries == []
     assert not (tmp_path / "store" / f"desk-lane-{backup}-opus.json").exists()
+
+
+def test_a_root_withdraw_of_the_clocks_opus_fallback_while_it_starts_stops_it_once_it_launches(shell, config, tmp_path):
+    clocked_lane(shell, config, tmp_path)
+    backup = f"{LANE}-opus"
+    shell.launch_process = Running()
+    shell.sleep(10 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert incident(tmp_path, f"desk-lane-{backup}").actions[f"incident-clock:ctx_{LANE}"].status == "started"
+    seq = desk_orders(shell, f"1:05 AM orca-desk: withdraw {backup}")
+    shell.records[-1]["re"] = seq - 1
+    orca_pass(shell, config)
+    assert stops(shell) == []
+    shell.launch(backup, "ctx_opus")
+    shell.launch_process.code = 0
+    orca_pass(shell, config)
+    assert stops(shell) == [["worker-stop", "--dispatch", "ctx_opus"]]
+    assert withdrawals(shell) == [
+        f"WITHDRAW-PENDING incident-clock:ctx_{LANE} {backup}: by inbox@cci#{seq}; it is still starting, and the runner stops it once it logs LAUNCHED",
+        f"WITHDRAWN incident-clock:ctx_{LANE} {backup}: by inbox@cci#{seq}; dispatch ctx_opus stopped (stopped), and no report of it launches a case lane",
+    ]
 
 
 def test_a_lane_whose_opus_sibling_is_already_live_gets_no_second_fallback(shell, config, tmp_path):
