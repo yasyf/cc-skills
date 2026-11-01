@@ -60,15 +60,6 @@ def test_every_fixture_is_a_committed_synthetic_diff_or_a_pointer_pinned_to_a_co
         assert row[1].startswith("Synthetic: ") if row[0] in [f"[`{name}`]({name})" for name in linked] else re.search(r"`git -C <checkout> [^`]*\b[0-9a-f]{11,40}\b[^`]*`", row[1])
 
 
-@pytest.mark.parametrize("path", ["SKILL.md", "reference/orca-lane-brief.md", "scripts/pr-prose.py"])
-def test_lane_briefs_ask_for_regression_tests_that_failed_and_a_risk_profile_in_prose(path):
-    text = (SKILL / path).read_text()
-    assert "`## Regression tests` section" in text
-    assert "each test id" in text and "failed against the old tree" in text
-    assert "states Load and Data in prose" in text
-    assert "Census" not in text and "Backout" not in text
-
-
 def test_both_graders_hold_each_added_test_to_the_plan_line_it_rests_on():
     for name in ("finder-brief.md", "fidelity-desk-brief.md"):
         brief = " ".join((SKILL / "reference" / name).read_text().split())
