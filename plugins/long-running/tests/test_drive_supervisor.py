@@ -59,7 +59,7 @@ def test_a_wake_mails_an_idle_lane_its_page_or_once_per_interval_while_its_root_
     assert waker("flock-race-1", row, None) and not waker("flock-race-1", row, None) and not waker("done-lane", row, None)
     clock[0] = NOW + timedelta(minutes=16)
     assert waker("flock-race-1", row, None)
-    assert waker("done-lane", row, {"topic": "red:46475:89f46c3", "text": "STALL red #46475 at 89f46c3", "prs": [46475]})
+    assert waker("done-lane", row, {"topic": "red:46475:89f46c3", "why": "this blocker on your PR #46475 arrived after your last record: STALL red #46475 at 89f46c3", "text": "STALL red #46475 at 89f46c3", "prs": [46475]})
 
     inbox = json.loads((roster / "inboxes" / "flock-race-1.json").read_text())
     assert [message["from"] for message in inbox] == ["long-running", "long-running"]
@@ -68,7 +68,7 @@ def test_a_wake_mails_an_idle_lane_its_page_or_once_per_interval_while_its_root_
     assert "this blocker on your PR #46475 arrived after your last record: STALL red #46475 at 89f46c3" in paged["text"] and not (roster / "inboxes" / "flock-race-1.json.lock").exists()
 
     (roster / "inboxes" / "held-lane.json.lock").mkdir()
-    assert not waker("held-lane", row, {"topic": "red:1:a", "text": "STALL red #1", "prs": [1]}) and not (roster / "inboxes" / "held-lane.json").exists()
+    assert not waker("held-lane", row, {"topic": "red:1:a", "why": "this blocker on your PR #1 arrived", "text": "STALL red #1", "prs": [1]}) and not (roster / "inboxes" / "held-lane.json").exists()
 
 
 def test_only_active_orca_dispatches_count_as_live(tmp_path: Path, monkeypatch):

@@ -44,6 +44,8 @@ WAITS = frozenset({"ask", "blocked", "blocker"})
 SLICE_STEP = re.compile(r"^Register slice: lane=\S+ step=(\S+)", re.MULTILINE)
 STOOD_DOWN = r"^(?:\d{{1,2}}:\d{{2}} [AP]M )?{}:? (?:STAND-DOWN|stood down|standing down)\b"
 TOLD_TO_STAND_DOWN = r"\b{}\b[^.\n]{{0,60}}\bstand[ -]?down\b"
+STAND_DOWN_LIST = re.compile(r"\bstand[ -]?down\s+(?P<names>[^.(;:\n]+)", re.IGNORECASE)
+CARD = re.compile(r"\bcard-[\w.-]*\w")
 STRIKE_WINDOW = 2 * STALE_AFTER
 PAGE_ANSWER = 2 * STALE_AFTER
 LIVE_WITHIN = 4 * STALE_AFTER
@@ -176,16 +178,22 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
         kind, text = record["kind"], record.get("text") or ""
         if row and row.state in LIVE:
             store.lane_heard(lane, at)
-            store.lane_waiting(lane, record["seq"] if kind in WAITS and ROOT in (record.get("to") or []) else None)
+            card = CARD.search(text) if kind in WAITS else None
+            store.lane_waiting(lane, record["seq"] if kind in WAITS and (card or ROOT in (record.get("to") or [])) else None, awaits=card[0] if card else None)
             store.lane_page(lane, None)
         if kind == "blocker":
             for name in addressed(record) - {lane}:
                 if (paged := store.lane(name)) and paged.state in LIVE and (prs := sorted(set(prs_of(record)) & set(paged.prs))) and (topic := record.get("topic") or str(record["seq"])) != (paged.page or {}).get("topic"):
-                    store.lane_page(name, {"topic": topic, "text": text, "prs": prs})
+                    store.lane_page(name, {"topic": topic, "why": f"this blocker on your PR {' '.join(f'#{n}' for n in prs)} arrived after your last record: {text}", "text": text, "prs": prs})
         if answers := {record.get("re"), record.get("resolves")} - {None}:
             for waiter in store.lanes(*LIVE):
-                if waiter.waiting in answers:
+                if waiter.waiting in answers and waiter.awaits is None:
                     store.lane_waiting(waiter.name, None, at)
+        if kind == "owner":
+            for waiter in store.lanes(*LIVE):
+                if waiter.awaits and {f"({waiter.awaits})", f"({waiter.awaits.removeprefix('card-')})"} & {match[0] for match in re.finditer(r"\([\w.-]+\)", text)}:
+                    store.lane_waiting(waiter.name, None, at)
+                    store.lane_page(waiter.name, {"topic": f"owner:{record['seq']}", "why": f"the owner answered {waiter.awaits}, the card you wait on: {text}", "text": text, "prs": list(waiter.prs)})
         if lane == SELF:
             continue
         if kind == "handoff" and row and (doc := (record.get("refs") or {}).get("ccn")):
@@ -209,9 +217,10 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
         elif row and row.state != "retired" and (kind == "stopped" or re.match(STOOD_DOWN.format(re.escape(lane)), text, re.IGNORECASE)):
             retire(store, lane, "stand-down", at)
         elif kind == "stand-down" and lane == ROOT:
-            for old in record.get("to") or []:
+            successor = attrs_of(record).get("successor")
+            named = {name for listed in STAND_DOWN_LIST.finditer(text) for name in re.findall(r"[\w.-]+", listed["names"])}
+            for old in sorted({*(record.get("to") or []), *named} - {successor}):
                 if (gone := store.lane(old)) and gone.state != "retired":
-                    successor = attrs_of(record).get("successor")
                     retire(store, old, successor or ROOT, at)
                     if successor:
                         store.want_lane(successor, gone.brief, gone.model, gone.effort, gone.role, "launching", at, handoff=gone.handoff, prs=gone.prs, predecessor=old)
@@ -353,8 +362,8 @@ def wake(store: Store, deps: Deps, lane: Lane, peer: Peer, now: datetime, out: O
         return
     if "asked" in page or now - parse(page["woke"]) < PAGE_ANSWER:
         return
-    owned = " ".join(f"#{n}" for n in page["prs"])
-    post(deps, "ask", ROOT, f"{pacific(now)} reassign {owned}: {lane.name} has posted nothing since it was woken at {pacific(parse(page['woke']))} for the blocker \"{page['text'][:200]}\". Post `<lane> replaces {lane.name}` or a decide naming owner=<lane>; it is not woken again for that blocker.", "--lane-ref", lane.name, *[arg for n in page["prs"] for arg in ("--pr", str(n))])
+    owned = " ".join(f"#{n}" for n in page["prs"]) or f"{lane.name}'s work"
+    post(deps, "ask", ROOT, f"{pacific(now)} reassign {owned}: {lane.name} has posted nothing since it was woken at {pacific(parse(page['woke']))} because {page['why'][:240]}. Post `<lane> replaces {lane.name}` or a decide naming owner=<lane>; it is not woken again for that blocker.", "--lane-ref", lane.name, *[arg for n in page["prs"] for arg in ("--pr", str(n))])
     store.lane_page(lane.name, page | {"asked": stamp(now)})
     out.reassign.append(lane.name)
 

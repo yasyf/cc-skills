@@ -603,3 +603,35 @@ def test_liveness_is_a_record_within_the_hour_from_a_lane_that_is_not_retired():
 
     assert {name: row["live"] for name, row in rows.items()} == {"fresh-1": True, "stale-1": False, "gone-1": False, "quiet-1": False}
     assert rows["fresh-1"]["prs"] == [46475] and rows["gone-1"]["retired_by"] == "gone-2" and rows["quiet-1"]["heard"] is None
+
+
+def test_a_root_stand_down_retires_the_lanes_its_text_names_but_not_the_successor_named_after_them(tmp_path, brief):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    store.want_lane("conflicts-8", str(brief), "opus", "xhigh", "lane", "desired", T0 - timedelta(minutes=10))
+    store.want_lane("test-fold-6", str(brief), "opus", "xhigh", "lane", "desired", T0 - timedelta(hours=3))
+    fake.feed.append(record(2, "root", "stand-down", T0 - timedelta(minutes=5), "4:48 PM stand-down conflicts-2 and test-fold-6 (both silent since 2:39 PM). conflicts-8 spawned 4:48 PM owns the restack", ("supervisor", "desk-runner")))
+    fake.peers = [who(name, True, T0 - timedelta(hours=2), roster="/teams/session-d50e80e8") for name in ("conflicts-2", "test-fold-6", "conflicts-8")]
+
+    out = lanes.tick(store, fake.deps, T0, 1)
+
+    assert [store.lane(name).state for name in ("conflicts-2", "test-fold-6", "conflicts-8")] == ["retired", "retired", "desired"]
+    assert fake.wakes == ["conflicts-8"] and out.relaunched == []
+
+
+def test_a_lane_parked_on_an_owner_card_waits_through_roots_reply_and_wakes_once_with_the_owners_pick(tmp_path, brief):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    fake.peers = [who("conflicts-2", True, T0 - timedelta(hours=2), roster="/teams/session-d50e80e8")]
+    fake.feed += [
+        record(2, "conflicts-2", "blocked", T0 - timedelta(hours=2), "parked on the owner's pick on card-cleanup-daemon-restart", ("root",)),
+        record(3, "root", "decide", T0 - timedelta(minutes=90), "conflicts-2 is held on the owner's card by design", ("conflicts-2",)) | {"re": 2},
+    ]
+
+    parked = lanes.tick(store, fake.deps, T0, 1)
+    fake.feed.append(record(4, "board-watch", "owner", T0 + timedelta(minutes=1), "Owner on board d50e80e8, Restart the cleanup daemon? (cleanup-daemon-restart): picked “yes, restart it”", ("all",)))
+    picked = lanes.tick(store, fake.deps, T0 + timedelta(minutes=2), 1)
+    after = lanes.tick(store, fake.deps, T0 + timedelta(minutes=10), 1)
+
+    assert parked.woken == [] and store.lane("conflicts-2").awaits is None and picked.woken == ["conflicts-2"] and after.woken == []
+    assert fake.pages[0]["why"].startswith("the owner answered card-cleanup-daemon-restart, the card you wait on: Owner on board")
