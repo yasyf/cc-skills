@@ -167,3 +167,39 @@ def test_a_missing_grade_root_closed_or_a_desk_ok_outranks_holds_nothing(registr
 
     assert printed(capsys, outranked, "--pr", "45507") == "#45507 at 632c4a5: not waiting on you: the board holds no row for it"
     assert printed(capsys, accepted, "--pr", "45507") == "#45507 at 632c4a5: not waiting on you: the board holds no row for it; its fidelity grade by fidelity-pipeline reads missing since 3:02 AM (cci #11), unanswered"
+
+
+@pytest.mark.parametrize(
+    "settled",
+    [
+        {"text": f"finder-override #45507 at {HEAD[:7]}: 164915. Grounds: an edge case nobody hits"},
+        {"text": "the race costs one reopen", "resolves": 164915},
+        {"text": "the race costs one reopen", "resolves": 30},
+    ],
+    ids=["override-text", "resolves-finder-desk-seq", "resolves-drive-copy"],
+)
+def test_a_finder_major_root_settled_by_either_seq_is_no_wait(registry, capsys, settled):
+    major = record(30, "finder-desk", "review", f"finder: major {HEAD} 1 open over delta: the release races an explicit-id create", 20, origin_seq=164915, num="#164915@f3c89519")
+    records = [
+        record(10, "next-red-tests-1", "head", f"HEAD #45507 {HEAD}", 120),
+        record(11, "fidelity-desk", "review", f"fidelity: ok {HEAD} matches the plan", 98),
+        major,
+        record(31, "root", "decide", settled["text"], 10, **{key: value for key, value in settled.items() if key != "text"}),
+    ]
+
+    out = printed(capsys, Runner({"doc": doc(), "interactions": {}}, [], [ledger("45507")], records), "--pr", "45507")
+
+    assert out == "#45507 at 632c4a5: not waiting on you: the board holds no row for it"
+
+
+def test_an_unsettled_finder_major_still_holds_the_pr(registry, capsys):
+    records = [
+        record(10, "next-red-tests-1", "head", f"HEAD #45507 {HEAD}", 120),
+        record(11, "fidelity-desk", "review", f"fidelity: ok {HEAD} matches the plan", 98),
+        record(30, "finder-desk", "review", f"finder: major {HEAD} 1 open over delta: the release races an explicit-id create", 20, origin_seq=164915),
+        record(31, "root", "decide", "finder-override #45507 at ae16992: 164915", 10),
+    ]
+
+    out = printed(capsys, Runner({"doc": doc(), "interactions": {}}, [], [ledger("45507")], records), "--pr", "45507")
+
+    assert out == "#45507 at 632c4a5: not waiting on you: the board holds no row for it; the finder found majors at 632c4a5 (cci #30)"

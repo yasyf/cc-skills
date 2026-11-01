@@ -680,7 +680,7 @@ import judge_watch
 import prompt_watch
 import stall_watch
 from long_running import testfiles
-from long_running.grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, GO_BRACKET, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, precondition_sentences, repo_prs, standing
+from long_running.grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, GO_BRACKET, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, precondition_sentences, repo_prs, root_settles_finder, standing
 from long_running.grades import carry_of, delegated, with_successors
 from long_running.grades import carries as carry_grade
 from long_running.grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
@@ -801,7 +801,6 @@ ASYNC_POLLS = 60
 ASYNC_RESULT_POLLS = 120
 ASYNC_STATE = '.state + " " + .headRefOid'
 STACK_PARTIAL = "Include all existing PRs"
-FINDER_CLEARED = re.compile(r"(?<!not )(?<!never )\bclear(?:s|ed)?\b|\brebuttal accepted\b|\bland it\b", re.IGNORECASE)
 UNLINKED_STACK = "without a native GitHub stack"
 STACK_MEMBER = "part of a stack"
 SQUASH_POLLS = 12
@@ -954,7 +953,6 @@ TRUNK_QUEUE_FACT = "trunk-queue"
 TRUNK_FELL = frozenset({"failed", "canceled"})
 TRUNK_UNREAD = frozenset({"unknown", "not queued"})
 CARRIED_FROM = re.compile(r"\bcarried from #(\d+)")
-ROOT_FINDER_CLEAR = r"(?:^|[.;]\s+)(?:\d{{1,2}}:\d\d [AP]M\s+)?(?:root:\s+)?(?:clear(?:ed|s)?\b[^.;]*\bfinder\b[^.;]*|finder-override\s+)#{pr}\s+(?:at\s+)?{sha}"
 ROOT_FIDELITY_OVERRIDE = r"\bfidelity-override\s+#{pr}\s+(?:at\s+)?{sha}"
 QUEUED_VERDICT = "QUEUED"
 WAITING_VERDICT = "WAITING"
@@ -7103,17 +7101,7 @@ class Landing:
             return True
         if (source := CARRIED_FROM.search(verdict["text"])) and (carried := next((record for record in self.finder_records(pr) if record["seq"] == int(source[1])), None)) and self.root_answered(pr, carried["head"], carried):
             return True
-        clear = re.compile(ROOT_FINDER_CLEAR.format(pr=pr, sha=sha[:7]), re.IGNORECASE | re.MULTILINE)
-        answered = {verdict["seq"]}
-        for record in cci.records(self.cci_tail, self.runner.config.drive, since=verdict["seq"]):
-            if record["lane"] == ROOT and record["kind"] in cci.ROOT_RULINGS and (verdict["seq"] in closes(record) or clear.search(full_text(record))):
-                return True
-            if record.get("re") not in answered:
-                continue
-            if record["lane"] == ROOT and (record["kind"] == "decision" or record["kind"] == "decide" and FINDER_CLEARED.search(record["text"])):
-                return True
-            answered.add(record["seq"])
-        return False
+        return root_settles_finder(cci.records(self.cci_tail, self.runner.config.drive, since=verdict["seq"]), pr, sha, verdict)
 
     def check_old_app(self, graded: Graded) -> dict[str, merge_queue.State]:
         """No head fails here (4236611, root #142277): each head whose newest `old-app:` grade from a fidelity lane, at that head or carried to it along a chain of fidelity carries, is not `unchanged` or `bug fix` gets one `OLD-APP-PENDING` warning per head and grade to its lane and the fidelity lanes (root #140437)."""

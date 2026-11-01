@@ -32,6 +32,9 @@ FINDER_DESK = "finder-desk"
 FINDER_LINE = "finder:"
 FINDER_PASS = "ok"
 FINDER_FAIL = "major"
+ROOT = "root"
+FINDER_CLEARED = re.compile(r"(?<!not )(?<!never )\bclear(?:s|ed)?\b|\brebuttal accepted\b|\bland it\b", re.IGNORECASE)
+ROOT_FINDER_CLEAR = r"(?:^|[.;]\s+)(?:\d{{1,2}}:\d\d [AP]M\s+)?(?:root:\s+)?(?:clear(?:ed|s)?\b[^.;]*\bfinder\b[^.;]*|finder-override\s+)#{pr}\s+(?:at\s+)?{sha}"
 FINDER_NAMED = re.compile(r"\bfinder\b", re.IGNORECASE)
 FINDER_SAYS = re.compile(r"\bfinder(?:\s*\[\d+\])?:?\s+(ok|lgtm|major|issues)\b", re.IGNORECASE)
 FINDER_ISSUES = "issues"
@@ -408,6 +411,25 @@ def finder_reviews_in(found: list[dict], drive: str, repo: str, pr: str) -> list
 
 def finder_records(reviews: list[dict]) -> list[dict]:
     return [record for record in reviews if record["grade"] and record["head"]]
+
+
+def root_settles_finder(records: list[dict], pr: str, sha: str, verdict: dict) -> bool:
+    """Whether a root ruling in `records` after `verdict`, a failing finder record at `sha`, settles it: a `decide` or `decision` that resolves it, by this drive's seq or the finder desk's own when `verdict` is this drive's copy, or that clears the finder on `#<pr> <sha>` or reads `finder-override #<pr> at <sha>`, or a `decision`, or a `decide` that clears it, replying to it along a chain of `--re` replies (root #277504)."""
+    ids = {verdict["seq"], verdict.get("origin_seq")} - {None}
+    clear = re.compile(ROOT_FINDER_CLEAR.format(pr=pr, sha=sha[:7]), re.IGNORECASE | re.MULTILINE)
+    answered = set(ids)
+    for record in sorted(records, key=lambda record: record["seq"]):
+        if record["seq"] <= verdict["seq"]:
+            continue
+        root = record["lane"] == ROOT
+        if root and record["kind"] in cci.ROOT_RULINGS and (ids & closes(record) or clear.search(full_text(record))):
+            return True
+        if record.get("re") not in answered:
+            continue
+        if root and (record["kind"] == "decision" or record["kind"] == "decide" and FINDER_CLEARED.search(record["text"])):
+            return True
+        answered.add(record["seq"])
+    return False
 
 
 def head_named(record: dict, heads: list[dict], repo: str, pr: str) -> str:
