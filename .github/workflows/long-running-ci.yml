@@ -33,6 +33,26 @@ jobs:
       - uses: astral-sh/setup-uv@v8.2.0
       - uses: actions/checkout@v7
         with:
+          ref: 82ab4e455cca7584000efc44439d74bb15f4b6b0
+          path: .ci-completed-release-history
+          persist-credentials: false
+      - name: Immutable completed release history characterization
+        shell: bash
+        run: |
+          baseline=.ci-completed-release-history/plugins/long-running
+          test "$(git -C .ci-completed-release-history rev-parse HEAD)" = 82ab4e455cca7584000efc44439d74bb15f4b6b0
+          cp plugins/long-running/tests/test_open_cut_release_history_characterization.py "$baseline/tests/test_open_cut_release_history_characterization.py"
+          uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_open_cut_release_history_characterization.py" "$baseline/tests/test_open_cut_clock_noop.py" "$baseline/tests/test_sqlite_action_store.py" -q -s --junitxml="$RUNNER_TEMP/release-action-history-baseline.xml" | tee "$RUNNER_TEMP/release-action-history-baseline.log"
+          grep -F '"action_dtos": 1024' "$RUNNER_TEMP/release-action-history-baseline.log"
+          grep -F '"action_dtos": 320000' "$RUNNER_TEMP/release-action-history-baseline.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: release-action-history-${{ runner.os }}
+          path: ${{ runner.temp }}/release-action-history-*
+          if-no-files-found: error
+      - uses: actions/checkout@v7
+        with:
           ref: 91c856f8556b4462bb57ca215d34fef8254a92d9
           path: .ci-reader-validation-baseline
           persist-credentials: false
