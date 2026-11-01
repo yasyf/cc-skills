@@ -2663,6 +2663,10 @@ class Runner:
             self.record(log, f"LAUNCH-FAILED {key} inbox: one launch per line, in the form `{LAUNCH_GRAMMAR}`; nothing was launched")
             return
         lane, brief = spec["lane"], Path(spec["brief"]).resolve()
+        if brief.name == "brief.md" and brief.parent.name != lane:
+            order = f"launch {brief.parent.name}{spec['now'] or ''} {spec['model']} {spec['effort']}{f' role={spec['role']}' if spec['role'] else ''} brief={brief}"
+            self.record(log, f"LAUNCH-FAILED {key} {lane}: brief {brief} is lane {brief.parent.name}'s, and a lane keeps one name from launch on; post `orca-desk: {order}`; nothing was launched")
+            return
         if refusal := self.launch_refusal(key, lane, spec["model"], spec["effort"], brief, spec["role"] or ""):
             self.record(log, f"LAUNCH-FAILED {key} {lane}: {refusal}; nothing was launched")
             return

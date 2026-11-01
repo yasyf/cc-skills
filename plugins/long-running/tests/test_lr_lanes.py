@@ -896,19 +896,3 @@ def test_a_root_stand_down_after_the_lanes_own_done_still_hands_its_prs_to_root(
     kinds = [(argv[argv.index("--kind") + 1], argv[argv.index("--to") + 1], argv[-1]) for argv in fake.posts]
     assert not [post for post in kinds if post[1] == "conflicts-2"]
     assert store.owner_of([45492, 46512]) == {45492: "root", 46512: "root"}
-
-
-def test_a_lane_the_launcher_named_with_a_fix_suffix_is_alive_while_it_posts_under_its_briefs_name(tmp_path, brief):
-    """#280837: the launcher registered takeover-500-tooling-fix from takeover-500-tooling/brief.md, the lane posted as takeover-500-tooling, and the supervisor relaunched it as takeover-500-tooling-fix-2."""
-    store = Store.memory()
-    fake = adopted(tmp_path, brief, store)
-    lane_brief = tmp_path / "takeover-500-tooling" / "brief.md"
-    lane_brief.parent.mkdir()
-    lane_brief.write_text("# takeover-500-tooling: fix the takeover 500\n")
-    fake.feed += [spawned(2, "takeover-500-tooling-fix", lane_brief, T0 - timedelta(minutes=40)), record(3, "takeover-500-tooling", "state", T0 - timedelta(minutes=2), "dry run converged")]
-    fake.peers = [who("conflicts-2", True, T0), who("takeover-500-tooling", True, T0 - timedelta(minutes=2))]
-
-    out = lanes.tick(store, fake.deps, T0 + timedelta(minutes=30), 1)
-
-    assert out.relaunched == [] and fake.launches == []
-    assert store.lane("takeover-500-tooling-fix").state != "retired" and store.lane("takeover-500-tooling") is None

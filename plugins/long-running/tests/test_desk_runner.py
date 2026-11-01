@@ -10939,6 +10939,28 @@ def test_a_launch_line_whose_brief_has_no_slice_line_is_refused_unless_it_is_an_
     assert not [line for line in escalations(shell) if "R41" in line and "LAUNCH-FAILED" in line]
 
 
+def test_a_launch_named_other_than_its_briefs_directory_is_refused_with_the_order_that_launches_it(shell, config, tmp_path):
+    """Root #279005 launched takeover-500-fix-fix from takeover-500-fix/brief.md, so the lane posted under two names (root #288294)."""
+    brief = tmp_path / "takeover-500-fix" / "brief.md"
+    brief.parent.mkdir()
+    brief.write_text("brief\n\nRegister slice: lane=takeover-500-fix step=incident\n")
+    orca_pass(shell, config)
+    desk_orders(shell, f"R42 orca-desk: launch takeover-500-fix-fix NOW incident xhigh role=fix brief={brief}")
+    orca_pass(shell, config)
+
+    assert launches(shell) == []
+    assert escalations(shell) == [
+        f"LAUNCH-FAILED R42 takeover-500-fix-fix: brief {brief} is lane takeover-500-fix's, and a lane keeps one name from launch on; post `orca-desk: launch takeover-500-fix NOW incident xhigh role=fix brief={brief}`; nothing was launched"
+    ]
+
+    shell.launch_line = "takeover-500-fix ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    desk_orders(shell, f"R43 orca-desk: launch takeover-500-fix NOW incident xhigh role=fix brief={brief}")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+
+    assert [call[1] for call in launches(shell)] == ["takeover-500-fix"]
+
+
 def test_a_launch_line_whose_new_brief_has_no_scale_line_launches_with_one_scale_missing_warning(shell, config, tmp_path):
     brief = tmp_path / "fix-brief.md"
     brief.write_text(f"ccx: place=local\nbrief\n\nRegister slice: lane={LANE} step=1.9\n")
