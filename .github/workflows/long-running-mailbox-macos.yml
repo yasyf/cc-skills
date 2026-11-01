@@ -72,38 +72,6 @@ jobs:
       - uses: astral-sh/setup-uv@v8.2.0
       - uses: actions/checkout@v7
         with:
-          ref: 3a0cf42c873087b50698fcdd43cd9856413ec6f5
-          path: .ci-refusal-history-baseline
-          persist-credentials: false
-      - name: Immutable812 repeated refusal DTO negative controls
-        shell: bash
-        run: |
-          baseline=.ci-refusal-history-baseline/plugins/long-running
-          test "$(git -C .ci-refusal-history-baseline rev-parse HEAD)" = 3a0cf42c873087b50698fcdd43cd9856413ec6f5
-          cp plugins/long-running/tests/test_refusal_history_invocation.py "$baseline/tests/test_refusal_history_invocation.py"
-          for history in 32 10000; do
-            negative="$RUNNER_TEMP/refusal-history-old-$history.log"
-            if uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_refusal_history_invocation.py::test_unchanged_bus_history_is_loaded_once_per_invocation[$history]" -q -s >"$negative" 2>&1; then
-              cat "$negative"
-              exit 1
-            else
-              test "$?" -eq 1
-            fi
-            cat "$negative"
-            grep -F "refusal history materialized $((32 * history)) DTOs; expected $history for 32 eligible PRs" "$negative"
-            grep -F '1 failed' "$negative"
-          done
-      - name: Refusal invocation snapshot freshness parity and costs
-        shell: bash
-        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_refusal_history_invocation.py plugins/long-running/tests/test_read_snapshot_version.py -q -s --junitxml="$RUNNER_TEMP/refusal-history-current.xml" | tee "$RUNNER_TEMP/refusal-history-current.log"
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: refusal-history-${{ runner.os }}
-          path: ${{ runner.temp }}/refusal-history-*
-          if-no-files-found: error
-      - uses: actions/checkout@v7
-        with:
           ref: c01c7aa04559b07ad03983301609163b0a4630d0
           path: .ci-release-generation-baseline
           persist-credentials: false
@@ -137,6 +105,38 @@ jobs:
         with:
           name: release-generation-${{ runner.os }}
           path: ${{ runner.temp }}/release-generation-*
+          if-no-files-found: error
+      - uses: actions/checkout@v7
+        with:
+          ref: 3a0cf42c873087b50698fcdd43cd9856413ec6f5
+          path: .ci-refusal-history-baseline
+          persist-credentials: false
+      - name: Immutable812 repeated refusal DTO negative controls
+        shell: bash
+        run: |
+          baseline=.ci-refusal-history-baseline/plugins/long-running
+          test "$(git -C .ci-refusal-history-baseline rev-parse HEAD)" = 3a0cf42c873087b50698fcdd43cd9856413ec6f5
+          cp plugins/long-running/tests/test_refusal_history_invocation.py "$baseline/tests/test_refusal_history_invocation.py"
+          for history in 32 10000; do
+            negative="$RUNNER_TEMP/refusal-history-old-$history.log"
+            if uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_refusal_history_invocation.py::test_unchanged_bus_history_is_loaded_once_per_invocation[$history]" -q -s >"$negative" 2>&1; then
+              cat "$negative"
+              exit 1
+            else
+              test "$?" -eq 1
+            fi
+            cat "$negative"
+            grep -F "refusal history materialized $((32 * history)) DTOs; expected $history for 32 eligible PRs" "$negative"
+            grep -F '1 failed' "$negative"
+          done
+      - name: Refusal invocation snapshot freshness parity and costs
+        shell: bash
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_refusal_history_invocation.py plugins/long-running/tests/test_read_snapshot_version.py -q -s --junitxml="$RUNNER_TEMP/refusal-history-current.xml" | tee "$RUNNER_TEMP/refusal-history-current.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: refusal-history-${{ runner.os }}
+          path: ${{ runner.temp }}/refusal-history-*
           if-no-files-found: error
       - uses: actions/checkout@v7
         with:
