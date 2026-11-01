@@ -5286,6 +5286,20 @@ def test_the_landing_desk_refuses_to_start_on_a_lane_that_never_registered(shell
     assert line.startswith("PREFLIGHT-FAILED ") and "names fidelity-desk-14, which never registered on drive d1" in line and "fidelity-pipeline" not in line
 
 
+@pytest.mark.parametrize(("lanes", "written"), [(["fidelity-desk", "fidelity-pipeline"], True), (["fidelity-desk", "fidelity-desk-14"], False)], ids=["registered", "unregistered"])
+def test_a_config_edit_is_written_only_when_the_landing_desk_would_start_on_it(shell, config, capsys, lanes, written):
+    """Oct 30 9:47 PM: six fidelity desks went into runner.json before they registered, and the restarted landing desk refused to start for three minutes (mq-health-4 #237301)."""
+    shell.unregistered = {"fidelity-desk-14"}
+    before = config.read_text()
+    code = cli(shell, config, "config", "set", "landing.fidelity_lane", json.dumps(lanes))
+    if written:
+        assert code == 0 and json.loads(config.read_text())["landing"]["fidelity_lane"] == lanes
+        return
+    assert code == 3 and config.read_text() == before
+    assert "names fidelity-desk-14, which never registered on drive d1" in capsys.readouterr().err
+    assert [path.name for path in config.parent.iterdir() if path.name.endswith(".edit")] == []
+
+
 def test_a_landing_checkout_with_local_edits_refuses_to_start(shell, config, tmp_path):
     """Oct 30, cci #219067: stray edits in the runner checkout left every pass gating nothing."""
     shell.checkout_edits = " M infra/ci/src/pipelines/test/product.ts\n"
