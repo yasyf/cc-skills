@@ -2805,6 +2805,28 @@ def test_a_red_head_trunk_dropped_posts_one_red_to_its_lane_and_root_though_no_c
     assert post_body(post) == f"#29020 {ONE_ROW['head']}: CI is red: Trunk Merge Queue (dev); the queue dropped it at an unstamped time: Trunk labelled it trunk-failed"
 
 
+def test_a_pr_this_desk_dequeued_reads_as_dequeued_never_as_a_trunk_eviction(shell, config, tmp_path, monkeypatch):
+    """#257578: landing-desk-3's 8:34 AM Oct 31 dequeue of #46464 and #46478 for a restack read back as two evictions, and root ordered a dequeue it withdrew two minutes later."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["adapter"] = {"kind": "trunk-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"}
+    config.write_text(json.dumps(raw))
+    monkeypatch.setenv("TRUNK_MERGE_API_KEY", "trunk-secret")
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 GREEN aaaa111111 Trunk notSubmitted")
+    shell.gates["33001"] = ["#33001 GREEN aaaa111111 Trunk notSubmitted\nwould enqueue native stack through #33001: #33001\n"]
+    shell.enqueue_out["33001"] = (0, "#33001 QUEUED aaaa111111 native stack covers #33001\n")
+    shell.queue["33001"] = "unknown"
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+    assert mq(shell, config, "dequeue", "33001", "--reason", "pulled for the conflicts-6 restack") == 0
+    shell.rows[0] |= {"labels": "trunk-cancelled"}
+    shell.gates["33001"] = [gate(TRUNK_FAILED_GATE)]
+    shell.clock += runner_module.STATUS_MAX_AGE + timedelta(minutes=1)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [post_body(post) for post in blockers(shell) if "the queue dropped it" in post_body(post)] == []
+
+
 TRUNK_FAILED_GATE = "#33001 BLOCKED aaaa111111 Trunk attempt 2026-10-30T23:10:00Z failed: TEST_RUN_REQUIRED_STATUS_FAILED (verification v1); inspect its verification and push a fix or explicitly name this PR with --flake"
 
 

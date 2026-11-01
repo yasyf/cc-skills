@@ -1601,6 +1601,11 @@ names that drive's root. A dequeue posts a cci `stopped` record to every drive
 whose records name the PR, and the queue leaves that head out until `mq.py requeue <n>`,
 which first has the adapter release its own latch on the head: under `label`, `ledger.py requeue`
 clears the pulled or labelled mark that otherwise refuses the same head.
+The queue's cancel of a PR whose newest enqueue a desk pulled this way reads as that
+dequeue, never as an eviction, so no `the queue dropped it` blocker follows a deliberate
+pull. Every desk dequeues through `mq.py dequeue`; a hand `stack-enqueue --dequeue`
+records nothing and draws a warning that names the verb (#257578: landing-desk-3's two
+hand dequeues for a restack read back as evictions).
 The root can order the same dequeue on the bus: a root record that opens with
 `dequeue #<n>`, or says `landing-desk: dequeue #<n>` outside quotes and code, makes
 the landing runner take the PR out before any enqueue of its next pass. A root
