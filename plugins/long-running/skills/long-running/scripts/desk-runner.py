@@ -710,8 +710,8 @@ PORT_CLAIM = re.compile(r"\bport\b", re.IGNORECASE)
 TAP_CLAIM = re.compile(r"\bTAP-(?:KEPT|CARRIED)\b|\bowner tapped (?:#\d+ at )?[0-9a-f]{7,40}\b")
 OLD_APP_LINE = re.compile(r"^old-app:\s*(?:unchanged|bug fix|changes)\b.*$", re.IGNORECASE | re.MULTILINE)
 TEST_DIRS = frozenset({"__tests__", "testdata", "fixtures", "docs"})
-CI_PREFIXES = (".buildkite/", ".github/", "tools/ci/", "infra/ci/")
-TOOLING_GLOBS = (".agents/skills/*/scripts/*", ".agents/skills/*/tests/*")
+CI_PREFIXES = (".buildkite/", ".github/", "tools/ci/", "go/ci/", "infra/ci/")
+TOOLING_GLOBS = (".agents/skills/*/scripts/*", ".agents/skills/*/tests/*", ".agents/skills/*.md")
 PORT_PREFIXES = ("go/sand/next/",)
 OWNER_CITE = re.compile(r"#\s*owner:\s*[0-9a-f]{7,40}\b")
 MERGE_CARD_FIELDS = "title,author,additions,deletions,reviewDecision"
@@ -7461,7 +7461,7 @@ class Landing:
             return False, ""
         if test:
             if offender := next((name for name in files if not is_test_or_ci_file(name)), ""):
-                return False, f"TEST-ONLY-MISMATCH {offender} is neither a test nor CI configuration, so the test-only claim does not hold; "
+                return False, f"TEST-ONLY-MISMATCH {offender} is neither a test nor CI configuration, so the {claim.split(',')[0].strip()} claim does not hold; "
             return True, ""
         if (offender := next((name for name in files if not name.startswith(PORT_PREFIXES)), "")) and not self.interaction_cleared(pr):
             return False, f"PORT-MISMATCH {offender} is outside {','.join(PORT_PREFIXES)} and no Rulings comment clears its interaction, so the port claim does not hold; "
