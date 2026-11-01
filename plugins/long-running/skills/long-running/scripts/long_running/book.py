@@ -100,3 +100,5 @@ class Book:
     def blocker_candidates(self, container: str) -> list[actions.Action]:
         return self.store.blocker_candidates(container)
 
+    def direct_merge_candidates(self, container: str) -> list[actions.Action]:
+        return self.store.direct_merge_candidates(container)
