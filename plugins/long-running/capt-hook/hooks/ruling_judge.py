@@ -11,6 +11,7 @@ from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, HookResult, 
 from captain_hook.util import reqenv
 
 from .compaction_handoff import REGISTER_FENCE, CompactionState, rulings, script, script_module
+from .judge_metrics import judge_call
 from .register_injection import SLICE_HEADER, drive_args
 from .tests.register_fixtures import DRIVE_CONFIG
 from .tests.rulings_consumers import separate
@@ -132,7 +133,8 @@ def judge_key_moment(evt: BaseHookEvent) -> HookResult | None:
     for block in BLOCK_START.split(candidates):
         if not (cited := BLOCK_ID.match(block)):
             continue
-        verdict = judge.judge(
+        verdict = judge_call(
+            judge,
             "answer",
             EVIDENCE.format(block=block),
             f"{kind}:\n{text}",

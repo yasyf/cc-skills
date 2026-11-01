@@ -123,7 +123,7 @@ wheels = [
 
 [[package]]
 name = "capt-hook"
-version = "12.107.29"
+version = "12.108.39"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ast-grep-py" },
@@ -144,9 +144,9 @@ dependencies = [
     { name = "spawnllm", extra = ["sdk"] },
     { name = "wn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d9/1a/90510f9614cc115e3cc356b98878a5669cd5708b29f141d79f1843b5e01c/capt_hook-12.107.29.tar.gz", hash = "sha256:3d7b5ffeffe78dadd2f5c14089c37fa190899102dbe7c7d4b1cd2e1559f46138", size = 637327, upload-time = "2026-10-31T10:47:01.709Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/aa/9a/16ea1065d9b6741a935bd7f8ee7cc3011e5d5b057effa914792d9bf10849/capt_hook-12.108.39.tar.gz", hash = "sha256:98c3612b1defad448186eb21bffefc80a175d748b961498a4c1d006863637cb4", size = 648415, upload-time = "2026-11-01T21:00:19.154Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4c/62/94291bdd22e0efdfe17d72b77b53ace76598f15dd704274bafce1cc9a9a8/capt_hook-12.107.29-py3-none-any.whl", hash = "sha256:644440d10e59299858283deba66421b8d26352c5b052452a3df199eba748c4b6", size = 759279, upload-time = "2026-10-31T10:46:59.442Z" },
+    { url = "https://files.pythonhosted.org/packages/84/49/0fe6b49b4bf23e9b16c96d5cf536e5fc5a334e43a675c72f244ec673c168/capt_hook-12.108.39-py3-none-any.whl", hash = "sha256:32be16b1754120b84bc78f8505979bdc4346e8c8018c3ac0086aed206c489fcc", size = 772359, upload-time = "2026-11-01T21:00:16.479Z" },
 ]
 
 [[package]]
@@ -160,17 +160,17 @@ wheels = [
 
 [[package]]
 name = "cc-transcript"
-version = "14.45.23"
+version = "14.45.35"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "orjson" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1e/98/cb03038a334147c038d3959efd71a937503b02d9fb892fea9fb473e0acb8/cc_transcript-14.45.23.tar.gz", hash = "sha256:e8f1e7a446e0762a8d09608a3c64e98220e5bb81a3186168ab6db63dfeefc4ee", size = 12770381, upload-time = "2026-10-31T07:31:02.006Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/2c/3b3a693b2b75d16822c504f4d7abdc008de77a3cd09d47e38ab3a6de5004/cc_transcript-14.45.35.tar.gz", hash = "sha256:21227dd79456cb369fecb786fbceaee601ba602d7aedde859271bf5c4145de29", size = 12862404, upload-time = "2026-11-01T10:19:08.214Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cd/f7/94dc532c1c0ad3130a4e693a563259fb890091f5396858679d5af67baab8/cc_transcript-14.45.23-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:0f89a7323e524247da0b6d0cde8aef0d01c786b2dcd9b224b7fa2b3f68f6124b", size = 18930033, upload-time = "2026-10-31T07:30:51.464Z" },
-    { url = "https://files.pythonhosted.org/packages/f2/a9/579724d310714377da7c4288fae99f0911905553045d1edc76677126c0f1/cc_transcript-14.45.23-cp313-abi3-macosx_11_0_x86_64.whl", hash = "sha256:32702ff7fe1714698c1d431b3852c818800fe376d49a5a53164d7f9cfd65e9b3", size = 19518486, upload-time = "2026-10-31T07:30:54.234Z" },
-    { url = "https://files.pythonhosted.org/packages/93/16/c89c0f75758cf66ee1c1d4846beded8616437d77b1bc6f69124eb66caa30/cc_transcript-14.45.23-cp313-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:a22feee54369188191fe78f2abf46a846c9d1c4f126cc13607b4ca83cfcd48c5", size = 19125423, upload-time = "2026-10-31T07:30:56.866Z" },
-    { url = "https://files.pythonhosted.org/packages/10/6d/91ece831037d4434a38cee8395952595cf412fe19f61bf8225d16870f764/cc_transcript-14.45.23-cp313-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:37b3dae8649553b43bb97ba3ffcce6a7a6f376bd6168afad79a6f2272d9400a4", size = 19805278, upload-time = "2026-10-31T07:30:59.41Z" },
+    { url = "https://files.pythonhosted.org/packages/72/a1/b247011aefbea626b80020faf377c6b55f5afea689cfd7d9d2c5940960a5/cc_transcript-14.45.35-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:a9927a2056030a512e4dba9e6a9a945ebe03d0f9d5f678d1fff6d96a0103094f", size = 19182743, upload-time = "2026-11-01T10:18:56.186Z" },
+    { url = "https://files.pythonhosted.org/packages/9b/b2/d599ecca03129f0616de5e8f3ff373cd1e6a0df6e273495693029233a044/cc_transcript-14.45.35-cp313-abi3-macosx_11_0_x86_64.whl", hash = "sha256:06a687ce7c8a60031787a7bbabee70449d28f950f5c4c10e08b27c6893a2761c", size = 19820939, upload-time = "2026-11-01T10:18:59.494Z" },
+    { url = "https://files.pythonhosted.org/packages/8c/eb/5c165d10bc91e383eb6a676e4c07b610ed53b87eb522af3cf981d5f5c840/cc_transcript-14.45.35-cp313-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:8985e0833c035610cf379921114fa396dc0d45133fdf3847ead3d38261bbeacf", size = 19383187, upload-time = "2026-11-01T10:19:02.007Z" },
+    { url = "https://files.pythonhosted.org/packages/88/c4/fb07f1d5349ac33f0593a9ab757c7e991010b51d89232ce31061b9095104/cc_transcript-14.45.35-cp313-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:18498987b26a4ce4650a9b7506351a1f0ee49cd417a06b5ecdf54d2221b3112a", size = 20108451, upload-time = "2026-11-01T10:19:05.566Z" },
 ]
 
 [package.optional-dependencies]
@@ -829,7 +829,7 @@ dev = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "capt-hook", specifier = ">=12.107.29" },
+    { name = "capt-hook", specifier = ">=12.108.39" },
     { name = "pytest", specifier = ">=8" },
 ]
 
