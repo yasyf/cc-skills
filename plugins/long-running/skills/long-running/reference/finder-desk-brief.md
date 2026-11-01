@@ -23,6 +23,16 @@ Read the code around every changed symbol at that sha, its callers and callees i
    retry, or idle wait whose PR body names no fundamental fix it stands in for; local
    state in a JSON file; a branch on whether required configuration is set. Start each
    such defect "slow at N:".
+   A change to a request or response shape between two separately released components
+   (GraphQL inputs and fields, REST bodies, the SandSQL wire, signal payloads) must work against the old and the new peer:
+   the reader ships first and accepts both shapes, and the writer switches a release later
+   (the owner's Oct 29 pick on card-wire-order, rule 7ab71e2). A writer that sends a shape
+   the released reader rejects, such as a new input field sent on every call, is a major,
+   and so is a reader that stops accepting a shape a released writer still sends, such as
+   a resolver that now refuses a call older clients make. A removal of an accepted shape
+   stays a major until every installed client is past it, which the PR body shows by the
+   release that carried the new shape to them. The dual-shape reader the rule asks for is
+   never a compat layer.
 
 {rows_step}
 
