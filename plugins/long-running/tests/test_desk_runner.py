@@ -238,6 +238,7 @@ class FakeShell(runner_module.Shell):
         self.merge_bases: dict[str, str] = {}
         self.local_heads: set[str] = set()
         self.commit_statuses: dict[str, list[dict]] = {}
+        self.status_write_error = ""
         self.grade_refs: dict[str, str] = {}
         self.grade_starts: list[dict] = []
         self.grade_error = ""
@@ -505,6 +506,14 @@ class FakeShell(runner_module.Shell):
             if branch not in self.grade_refs:
                 return runner_module.Done(1, "", "gh: Reference does not exist (HTTP 422)")
             self.grade_refs[branch] = argv[6].removeprefix("sha=")
+            return runner_module.Done(0, "{}", "")
+        if argv[:4] == ["gh", "api", "-X", "POST"] and argv[4].startswith("repos/Forge-AI/monorepo/statuses/"):
+            sha = argv[4].rsplit("/", 1)[1]
+            fields = dict(field.split("=", 1) for field in argv[6::2])
+            if self.status_write_error:
+                return runner_module.Done(1, "", self.status_write_error)
+            held = self.combined_statuses if sha in self.combined_statuses else self.commit_statuses
+            held[sha] = [*(status for status in held.get(sha, []) if status["context"] != fields["context"]), {"context": fields["context"], "state": fields["state"], "description": fields["description"]}]
             return runner_module.Done(0, "{}", "")
         if argv[:5] == ["gh", "api", "-X", "POST", "repos/Forge-AI/monorepo/git/refs"]:
             self.grade_refs[argv[6].removeprefix("ref=refs/heads/")] = argv[8].removeprefix("sha=")
@@ -16255,3 +16264,47 @@ def test_shell_run_keeps_cci_cli_operations(monkeypatch, argv):
     monkeypatch.setattr(runner_module.subprocess, "run", process)
     assert runner_module.Shell().run(argv) == runner_module.Done(0, "probe\n", "")
     assert calls == [argv]
+
+
+def owner_tap_writes(shell: FakeShell) -> list[tuple[str, str]]:
+    return [(call[4].rsplit("/", 1)[1], call[6].removeprefix("state=")) for call in shell.calls if call[:4] == ["gh", "api", "-X", "POST"] and "/statuses/" in call[4] and call[8] == "context=owner-tap"]
+
+
+def test_a_drive_head_carries_owner_tap_pending_until_his_board_approves_it(shell, config):
+    board_surface(config)
+    lone_green_pr(shell)
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert owner_tap_writes(shell) == [("cccc333333", "pending")] and shell.enqueues() == []
+    tap(shell, "29020", "aaaa111111")
+    landing_pass(shell, config)
+    assert owner_tap_writes(shell) == [("cccc333333", "pending"), ("cccc333333", "success")]
+
+
+def test_a_rejection_after_his_approval_puts_owner_tap_back_to_pending(shell, config):
+    board_surface(config)
+    lone_green_pr(shell)
+    tap(shell, "29020", "cccc333333")
+    landing_pass(shell, config)
+    shell.board["merge-rows"]["29020"] = {"verdict": "rejected", "head": "cccc333333", "at": "2026-10-01T17:50:00Z"}
+    landing_pass(shell, config)
+    assert owner_tap_writes(shell) == [("cccc333333", "success"), ("cccc333333", "pending")]
+
+
+def test_a_row_the_drive_does_not_own_gets_no_owner_tap(shell, config):
+    board_surface(config)
+    lone_green_pr(shell)
+    shell.rows[0]["ours"] = False
+    landing_pass(shell, config)
+    assert owner_tap_writes(shell) == []
+
+
+def test_a_refused_owner_tap_write_escalates_and_is_written_again_next_pass(shell, config):
+    board_surface(config)
+    lone_green_pr(shell)
+    shell.status_write_error = "gh: Resource not accessible by integration (HTTP 403)"
+    landing_pass(shell, config)
+    assert any(line.startswith("OWNER-TAP-UNWRITTEN") for line in escalations(shell))
+    shell.status_write_error = ""
+    landing_pass(shell, config)
+    assert owner_tap_writes(shell) == [("cccc333333", "pending"), ("cccc333333", "pending")]

@@ -502,3 +502,26 @@ def test_an_empty_ledger_refreshes_without_reading_the_cache(lock):
 
     assert shell.state_calls() == []
     assert shell.pr_keys() == []
+
+
+def owner_tap_record(status: str, tests: str, tap: str) -> dict:
+    nodes = [
+        {"__typename": "StatusContext", "context": "buildkite/test", "state": tests},
+        {"__typename": "CheckRun", "name": "ai-review", "conclusion": "SUCCESS", "status": "COMPLETED"},
+        {"__typename": "StatusContext", "context": ledger.OWNER_TAP_STATUS, "state": tap},
+    ]
+    return {"status": status, "rollup": {"state": status, "contexts": {"nodes": nodes}}}
+
+
+@pytest.mark.parametrize(
+    ("status", "tests", "tap", "state"),
+    [
+        ("PENDING", "SUCCESS", "PENDING", "success"),
+        ("PENDING", "PENDING", "PENDING", "pending"),
+        ("FAILURE", "FAILURE", "PENDING", "failure"),
+        ("SUCCESS", "SUCCESS", "SUCCESS", "success"),
+    ],
+    ids=["green-waiting-on-the-tap", "tests-still-running", "red", "tapped"],
+)
+def test_a_head_whose_only_unfinished_status_is_the_owner_tap_reads_as_its_tests_say(status, tests, tap, state):
+    assert ledger.tests_state(owner_tap_record(status, tests, tap)) == state

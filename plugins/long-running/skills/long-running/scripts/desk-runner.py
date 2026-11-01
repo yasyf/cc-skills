@@ -672,6 +672,7 @@ import incident
 import inboxes
 import lane_brief
 from long_running import lanes
+from long_running.ledger import OWNER_TAP_STATUS
 from long_running.pass_io import OnePassIO
 import merge_queue
 import owner_waits
@@ -6803,6 +6804,34 @@ class Landing:
                 found[sha] = statuses
         return found
 
+    def mark_owner_taps(self, rows: dict[str, dict]) -> None:
+        if self.read_only or (taps := self.board_taps()) is None:
+            return
+        for pr, row in sorted(rows.items(), key=lambda item: int(item[0])):
+            head = row.get("head") or ""
+            if not row.get("ours") or row.get("state", "open") != "open" or not head or (statuses := self.cached(head)) is None:
+                continue
+            state, description = self.owner_tap(pr, head, taps)
+            if any(status["context"] == OWNER_TAP_STATUS and status["state"] == state for status in statuses):
+                continue
+            done = self.shell.run(["gh", "api", "-X", "POST", f"repos/{self.repo}/statuses/{head}", "-f", f"state={state}", "-f", f"context={OWNER_TAP_STATUS}", "-f", f"description={description}"])
+            if done.code:
+                last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
+                self.runner.escalate(f"owner-tap:{pr}:{head}:{state}", "OWNER-TAP-UNWRITTEN", f"#{pr}", f"GitHub refused the {OWNER_TAP_STATUS} status {state} on {head[:10]}: {last[0]}; the runner writes it again on the next pass")
+                continue
+            with self.reading:
+                if head in self.read:
+                    self.read[head] = (self.read[head][0], [*(status for status in statuses if status["context"] != OWNER_TAP_STATUS), {"context": OWNER_TAP_STATUS, "state": state, "description": description}])
+
+    def owner_tap(self, pr: str, head: str, taps: set[str]) -> tuple[str, str]:
+        if not self.taps_on_board:
+            return "success", "this drive's merge mode asks the owner for no tap"
+        if pr in taps:
+            return "success", "the owner approved this pull request on the board"
+        if self.exempt_admitted(pr, head)[0]:
+            return "success", "its change is exempt from the owner's tap"
+        return "pending", "waits for the owner's tap on the board"
+
     def report_unread(self) -> None:
         """Log one `STATUS-READ-FAILED` per cause for the heads this pass could not read, with their count and each PR and head, once per cause and set of heads, so one GitHub blip across many PRs reads as one event."""
         for why, prs in sorted(self.unread.items()):
@@ -9611,7 +9640,7 @@ class Landing:
         self.refuse_out(rows, carrying, "whose branch carries open PRs a squash would land with it")
         barred = sorted({*(held or []), *self.no_go, *pulled, *carrying}, key=int)
         gone = self.land_gone(rows, barred) if gating else set()
-        self.runner.steps(lambda: self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}), self.reconcile, lambda: self.requeue(rows))
+        self.runner.steps(lambda: self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}), lambda: self.mark_owner_taps(rows), self.reconcile, lambda: self.requeue(rows))
         if not self.side_work:
             def side_steps():
                 with self.book.store.reading(), self.build_cache.book.store.reading():

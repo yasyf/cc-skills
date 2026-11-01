@@ -109,6 +109,8 @@ from . import ghread
 AI_REVIEW_CHECK = "ai-review"
 AI_REVIEW_ABSENT = "absent"
 FAILED_CHECKS = frozenset({"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE", "ACTION_REQUIRED"})
+PASSED_CHECKS = frozenset({"SUCCESS", "NEUTRAL", "SKIPPED"})
+OWNER_TAP_STATUS = "owner-tap"
 STACK_MERGEABILITY_CHECK = "Graphite / mergeability_check"
 APPROVED = "APPROVED"
 REVIEW_DECISIONS = (APPROVED, "CHANGES_REQUESTED", "DISMISSED")
@@ -797,6 +799,14 @@ def with_errors(shell: Shell, checks: str, stored: str | None) -> str:
     return json.dumps(enriched)
 
 
+def tests_state(record: dict) -> str:
+    status = (record.get("status") or "pending").lower()
+    newest = {node.get("name") or node.get("context"): node for node in ((record.get("rollup") or {}).get("contexts") or {}).get("nodes", [])}
+    if status == "pending" and (newest.get(OWNER_TAP_STATUS) or {}).get("state") == "PENDING" and all((node.get("conclusion") or node.get("state") or "").upper() in PASSED_CHECKS for name, node in newest.items() if name != OWNER_TAP_STATUS):
+        return "success"
+    return status
+
+
 def grade(record: dict, repo: str) -> dict[str, str]:
     """A row's graded fields, off one record whose head and verdicts a single poll read together."""
     rollup = record.get("rollup") or {}
@@ -808,7 +818,7 @@ def grade(record: dict, repo: str) -> dict[str, str]:
         "author": record.get("author", ""),
         "title": record["title"],
         "created_at": record["createdAt"],
-        "test_state": (record.get("status") or "pending").lower(),
+        "test_state": tests_state(record),
         "mergeable_state": record["mergeStateStatus"].lower(),
         "labels": ",".join(record.get("labels") or []),
         "ai_review": ai_review(rollup.get("contexts", {}).get("nodes", [])),
