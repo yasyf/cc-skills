@@ -14648,6 +14648,20 @@ def test_a_root_decide_on_a_pr_with_a_finder_record_starts_no_whole_pass(shell, 
     assert shell.finder_jobs == started and not [job for job in shell.finder_jobs if "-whole-" in job.name]
 
 
+def test_a_root_defect_ordering_the_finder_desk_to_regrade_starts_a_whole_pass_instead_of_a_carry(shell, config):
+    """Root #289998: root 289120 ordered finder-desk to regrade #47267 and #47274, and the desk carried the same e20e623 major onto their new heads."""
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    head_record(shell, "44114", FINDER_HEAD)
+    finder_review(shell, "44114", f"finder: major {FINDER_HEAD} 1 open over delta {FINDER_OLD[:7]}..{FINDER_HEAD[:7]}: go/a.go:1 drops a write", lane="finder-desk")
+    orca_pass(shell, config)
+    seq = 149000 + len(shell.records)
+    shell.records.append({"seq": seq, "drive": "d1", "lane": "root", "kind": "defect", "to": ["finder-desk", "fidelity-pipeline"], "refs": {}, "text": f"re #288330 Grader defect. finder-desk: regrade #44114 at {FINDER_HEAD[:7]} with git diff -w; fidelity-pipeline: regrade #43299", "source": "post", "at": actions.stamp(shell.clock)})
+    orca_pass(shell, config)
+    assert config.resolve().parent / "finder-desk" / f"44114-whole-{seq}" in shell.finder_jobs
+    assert not [job for job in shell.finder_jobs if job.name.startswith("43299")]
+
+
 def test_a_lanes_own_ask_for_a_whole_pass_starts_one(shell, config):
     """#237246: restore-outcome-3 asked finder-desk for a fresh pass on #46228, and the runner queued whole passes only from root's asks, so the ask sat with no record."""
     finder_config(config, concurrent=1)

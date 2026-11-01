@@ -454,7 +454,8 @@ passes (default 8) run at once and the rest wait queued; each PR's newest queued
 queued head of the same PR settles as superseded, and so does a running pass of it: the runner writes its job's `cancelled`
 mark and runs `codex-ask --cancel` on each codex run the pass started. Before it starts any, one fresh GraphQL read of every
 queued PR settles a head whose PR is closed, or no longer at that head, as skipped. A head a `finder:` record of `finder-desk` already names starts nothing. An
-`ask` from any lane of the drive to `finder-desk` that names a PR and says `finder: whole` queues one `full` pass of that PR that
+`ask` from any lane of the drive to `finder-desk` that names a PR and says `finder: whole` queues one `full` pass of that PR, as does a
+root `decide` or `defect` to `finder-desk` saying `finder-desk: regrade #N`, for each PR that clause names. A full pass
 starts ahead of the rest and wins over its queued heads: it reads the PR's whole own change at its live head even when a record
 names that head, unless a whole-range finder record about the PR is newer than its newest `head` record. A pass
 writes `<config dir>/finder-desk/<pr>-<head12>/job.json` and starts `finder.py` on that directory detached, which runs
@@ -4626,9 +4627,9 @@ class Runner:
             newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
             self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_CURSOR: max((record["seq"] for record in newest), default=0)}))
             return
-        read = cci.records(self.cci_tail, self.config.drive, "--kind=head", "--kind=opened", "--kind=ask", since=cursor)
+        read = cci.records(self.cci_tail, self.config.drive, "--kind=head", "--kind=opened", "--kind=ask", "--kind=decide", "--kind=defect", since=cursor)
         for record in read:
-            if (record["drive"], record["kind"]) == (self.config.drive, "ask"):
+            if record["drive"] == self.config.drive and record["kind"] in ("ask", "decide", "defect"):
                 for pr in finder.requested(record, repo):
                     self.book.accept(FINDER, f"finder:{pr}:whole:{record['seq']}", "finder", json.dumps({"pr": pr, "head": "", "lane": record["lane"], "seq": record["seq"], "full": True}), f"cci#{record['seq']}", None)
         for record, pr, head in self.named_heads(repo, read):
@@ -4719,7 +4720,7 @@ class Runner:
 
     def named_heads(self, repo: str, read: list[dict]) -> list[tuple[dict, str, str]]:
         """Each `(record, pr, head)` a `head` or `opened` record of this drive names, an abbreviated head spelled whole from the live head of its PR it begins, and left out once that PR has moved past it (#220098)."""
-        named = [(record, pr, head) for record in read if record["drive"] == self.config.drive and record["kind"] != "ask" for pr, head in finder.heads(record, repo)]
+        named = [(record, pr, head) for record in read if record["drive"] == self.config.drive and record["kind"] in ("head", "opened") for pr, head in finder.heads(record, repo)]
         short = sorted({pr for _, pr, head in named if not finder.FULL_SHA.fullmatch(head)})
         live = self.live_heads(repo, short) if short else {}
         return [(record, pr, full) for record, pr, head in named if (full := head if finder.FULL_SHA.fullmatch(head) else (live.get(pr) or {}).get("headRefOid", "")).startswith(head)]
