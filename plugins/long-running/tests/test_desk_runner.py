@@ -2704,7 +2704,7 @@ def test_a_tip_checked_alone_after_a_refused_join_escalates_when_it_has_no_verdi
     shell.rows = fork_rows()[:3]
     shell.gates["36487"] = [gate("#36463 GREEN aaaa111111 graphite READY", "#36487 GREEN bbbb222222 graphite READY", "#36501 GREEN cccc333333 graphite READY")]
     shell.gates["36487 36501"] = [(1, "enqueued nothing: #36501 is not in #36487's stack\n", "")]
-    shell.gates["36501"] = [(5, "", "stack-enqueue failed: <urlopen error timed out>\n")]
+    shell.gates["36501"] = [(5, "stack-enqueue failed: Graphite pull-request-info failed: status error, message nope\n", "")]
     landing_pass(shell, config)
     lines = [line for line in escalations(shell) if "GATE-FAILED" in line]
     assert len(lines) == 1 and "#36501" in lines[0] and "#36487" not in lines[0]
