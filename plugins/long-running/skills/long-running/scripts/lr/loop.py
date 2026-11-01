@@ -5,7 +5,8 @@ runs the lanes mover, then reads the facts, runs the pass, hands the pass's acti
 landing mover and its grade items to the grading mover, and sleeps. Only the movers the
 config names run, so each one cuts over on its own. A renewal that finds a newer generation ends the
 loop on that tick, so two supervisors never act at once and an install that starts the
-successor is all it takes to retire the predecessor.
+successor is all it takes to retire the predecessor. A tick that ends with a newer release
+installed ends the loop too, so the process can re-execute into that release.
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ class Deps:
     restacker: landing.Restacker | None = None
     pool: grading.Pool | None = None
     lane_deps: lanes.Deps | None = None
+    stale: Callable[[], bool] = lambda: False
 
 
 @dataclass
@@ -64,13 +66,15 @@ def tick(store: Store, drive: str, generation: int, deps: Deps) -> Tick:
 
 
 def run(store: Store, drive: str, version: str, pid: int, deps: Deps, ticks: int | None = None) -> list[Tick]:
-    """Hold the lease and tick until a newer generation takes it, or for `ticks` ticks in a test."""
+    """Hold the lease and tick until a newer generation takes it or a newer release is installed, or for `ticks` ticks in a test."""
     lease = store.acquire_lease(drive, version, pid, deps.clock())
     done: list[Tick] = []
     while ticks is None or len(done) < ticks:
         try:
             done.append(tick(store, drive, lease.generation, deps))
         except StaleGeneration:
+            break
+        if deps.stale():
             break
         deps.sleep(TICK.total_seconds())
     return done

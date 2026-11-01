@@ -105,6 +105,17 @@ def test_a_reinstall_bootstraps_only_once_launchd_has_finished_booting_out_the_o
     assert calls == ["print", "bootout", "print", "print", "print", "bootstrap"]
 
 
+def test_a_supervisor_re_executes_into_a_newer_install_at_the_end_of_its_tick(tmp_path: Path, monkeypatch):
+    execs: list[str] = []
+    monkeypatch.setattr(supervisor.lr_drive, "installed_version", lambda: "9999.0.0")
+    monkeypatch.setattr(supervisor.lr_drive, "run_installed", execs.append)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda seconds: pytest.fail("the supervisor slept on a superseded release"))
+    config = lr_config.Config("org/repo", "d1", "/srv/checkout", "bot", "drive", ())
+
+    assert supervisor.cmd_run(config, tmp_path / "lr.json") == 0
+    assert execs == [supervisor.__file__]
+
+
 def pr(state="OPEN", mergeable="MERGEABLE", review="APPROVED", rollup="SUCCESS"):
     return {"state": state, "mergeable": mergeable, "reviewDecision": review, "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": rollup} if rollup else None}}]}}
 

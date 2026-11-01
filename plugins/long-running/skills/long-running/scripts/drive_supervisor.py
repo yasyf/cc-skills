@@ -8,7 +8,8 @@
 
 STDLIB ONLY. `lr.json` sits in the drive's state directory beside the store `lr.sqlite`, and the
 lanes mover writes successor briefs and launch logs under `lanes/` there. `run` takes the drive's
-lease and ticks until a newer generation holds it. Liveness is one `cci who` read and one Orca
+lease and ticks until a newer generation holds it, or until a newer release of the plugin is
+installed, when it re-executes into that release under the same pid at the tick's end. Liveness is one `cci who` read and one Orca
 worker list per tick; a successor launches through `desk-launch.py lane`, detached, so a launch
 never holds the tick. `install` writes `~/Library/LaunchAgents/com.long-running.<drive>.supervisor.plist`
 and bootstraps that one label, booting out only its own earlier copy; launchd restarts the process
@@ -30,6 +31,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from long_running import drive as lr_drive
 from lr import config as lr_config
 from lr import loop
 from lr.movers import lanes
@@ -286,10 +288,15 @@ def label(config: lr_config.Config) -> str:
 
 def cmd_run(config: lr_config.Config, path: Path) -> int:
     store = Store.open(path.parent / "lr.sqlite")
-    deps = loop.Deps(movers=frozenset(config.movers), clock=clock, sleep=time.sleep, lane_deps=lanes_deps(config, path.parent) if "lanes" in config.movers else None)
-    version = SCRIPTS.parents[2].name
-    ticks = loop.run(store, config.drive, version, os.getpid(), deps)
-    print(f"drive_supervisor: generation moved after {len(ticks)} ticks; exiting for the newer supervisor", file=sys.stderr)
+    running = lr_drive.plugin_manifest()["version"]
+    deps = loop.Deps(movers=frozenset(config.movers), clock=clock, sleep=time.sleep, lane_deps=lanes_deps(config, path.parent) if "lanes" in config.movers else None, stale=lambda: lr_drive.behind(running, lr_drive.installed_version()))
+    ticks = loop.run(store, config.drive, SCRIPTS.parents[2].name, os.getpid(), deps)
+    if not deps.stale():
+        print(f"drive_supervisor: generation moved after {len(ticks)} ticks; exiting for the newer supervisor", file=sys.stderr)
+        return 0
+    print(f"drive_supervisor: {lr_drive.installed_version()} is installed after {len(ticks)} ticks on {running}; re-executing into it", file=sys.stderr)
+    os.environ.pop(lr_drive.CALLER_VERSION_ENV, None)
+    lr_drive.run_installed(__file__)
     return 0
 
 
