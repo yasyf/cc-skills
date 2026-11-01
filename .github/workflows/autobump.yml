@@ -1,8 +1,11 @@
 name: Autobump
 
 on:
+  push:
+    branches: [main]
+    paths: ["plugins/**"]
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "23 10 * * 1"
   workflow_dispatch:
     inputs:
       dry_run:
