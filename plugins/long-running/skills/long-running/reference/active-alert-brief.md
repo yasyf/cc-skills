@@ -126,6 +126,15 @@ must carry the `incident.py note` lines below.
 Diagnosis redirects the fix lane; it never precedes it. An owner's "if it is real,
 fix it" means the executor's fix lane plus its evidence lane, not a verdict gate.
 
+**Scope at the spawn and at every check-in.** In the intake turn, and at each check-in
+after it, the root posts two answers on the incident record: is the failure still
+active, meaning customer runs failing now, and does the drive's plan keep this path past
+its next milestone. A no to either ends incident mode that turn: the root closes the
+incident, stands its lanes down, cancels any incident release not yet started, turns
+the open work into an ordinary PR or a card, and tells the owner in one line why. The
+answers never gate the launch. SKILL.md R16 has the record format, and
+`case-studies.md` has the take-over incident that set the rule.
+
 ## What the executor guarantees
 
 - A merge never closes the incident. After landing, the incident stays
@@ -310,7 +319,16 @@ Design rulings on this subsystem, verbatim; the fix calls their entry point:
 If you were launched unsupervised, report through the bus; Orca carries no worker_done for you.
 
 Do:
-  0. NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release
+  0. SCOPE FIRST. Your first record, before the mechanism, answers two
+     questions, kind `incident`: `SCOPE <fix lane name>: active <yes|no: customer runs
+     failing now, from telemetry>; plan keeps path <yes|no: the step of the
+     drive's plan in cc-notes that keeps or deletes this path past its next
+     milestone>`. A no to either ends incident mode: no release, no break-glass
+     apply, no new lane. Post `STOPPED <fix lane name>: out of scope, <the answer that
+     is no, and why>` and leave any candidate as an ordinary PR. A fix that
+     grows into a redesign of a path the plan deletes is the signal to stop,
+     never a reason to widen the fix.
+     NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release
      through the walker. The fence holds only other releases of the target, never
      the fix.
      No brief, lane, or exception grants a rollback or a revert. One runs only when

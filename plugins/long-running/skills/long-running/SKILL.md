@@ -862,6 +862,50 @@ worker through the orca-desk. The repair #28998 landed at 10:49am and the stored
 pr-review configuration stayed old until 11:08am, because merge, sync, canary, and
 rebuild each had a different implied owner and every handoff waited on a root turn.*
 
+**Scope before incident mode.** Incident mode buys speed with authority: fast-tier
+lanes, releases without the owner's word on each step, applies under break-glass. It is
+spent only on a failure that is still happening on a path the plan keeps. The root
+posts two answers on the incident record at the spawn and at every check-in after it.
+A check-in is each lane check, each milestone the executor relays, and each owner
+prompt while the incident is open:
+
+```sh
+cci post --lane root --drive <drive> --kind incident --topic <slug> --to <fix lane>,<evidence lane> \
+  --text "INCIDENT <slug> SCOPE: active <yes|no: customer runs failing now, from telemetry>; plan keeps path <yes|no: the plan step that keeps or deletes it>"
+```
+
+- Active means customer runs are failing now, in telemetry since the last check-in. An
+  error earlier today, a fix still in flight, or a replay that still fails is not active.
+- The plan keeps the path when no step of the drive's plan deletes or replaces it before
+  its next milestone. A path the plan deletes at cutover is a no, however far off the
+  cutover is.
+
+A no to either ends incident mode that turn. The root posts
+`INCIDENT <slug> CLOSED: <the answer that is no, and why>`, stands the incident lanes
+down with `desk-launch.py withdraw <lane>`, cancels any incident release not yet
+started, and stops any replay or pass box the incident started. Fixes already live stay
+live. Work still worth doing becomes an ordinary PR through the landing desk, or a card
+when it needs the owner's pick. The owner hears it in one line: which incident closed,
+which answer was no, and what happens to the open work.
+
+A fix that grows into a redesign of a path the plan deletes is the signal to stop, not
+to add a lane. A second release on the same path, a fix touching code the plan's new
+path shares, or a proper-fix card for a deleted path each asks the two questions again
+before anything launches. When two of the owner's rules pull apart, such as "shipped
+code failing is an incident" and "this path is deleted at cutover", the root pushes
+back: it tells the owner in one line which rule it applies and why, rather than
+applying whichever it read first.
+
+The check never gates the spawn. In the alert's turn the executor and its lanes start
+as above, and the two answers go on the record in that same turn. Every incident fix
+brief asks the fix lane for the same two answers as its step 0.
+
+*Prevents the take-over incident of Oct 31 to Nov 1 (`reference/case-studies.md`):
+five fixes and three releases over 17 hours on an old-tree path the plan deletes at
+cutover, incident mode kept for hours after the failure stopped, and a fifth fix that
+redesigned shared crates the new tree uses. Owner: "we got rid of both takeovers and
+seal step so how are those an incident?"*
+
 **R17. Owner routing applies to the next spawn and to every live lane on that problem.**
 An owner's routing or process instruction applies in the turn it arrives.
 Both "use Orca incident for incident response" and "pass the fast tier flag" count.
@@ -1450,6 +1494,40 @@ run`.
 tables missing from a customer's shared environments, which the owner's own session
 had reset at 3:57 PM the day before on the owner's authorization. No shared record
 said so, and the cause surfaced only from a Kubernetes audit read.*
+
+## Proactive while the owner is away
+
+A card that waits on the owner never waits idle. While any of his cards is open, and
+always when he says he will be away, the drive builds toward his likely answer and
+tests it, so his tap lands on work that is already proven.
+
+- **Build the recommended option.** For every open card with a recommended option, an
+  implementation lane builds that option off fresh trunk as a pushed branch named
+  `options/<card>-<option>`. Never a PR, never enqueued, never released to production.
+  The card's line carries the branch and its head.
+- **His pick decides the branch.** When he picks the recommended option, the branch
+  opens as its PR through the submit skill. When he picks another, the branch is
+  abandoned and his pick is built from scratch, never by editing the recommended one.
+- **Guess the rest.** One lane guesses the cleanup and remaining work he is likely to
+  ask for and builds each guess the same way: a pushed branch, no PR until he approves.
+- **Test every option branch on staging, one at a time.** The release lane deploys one
+  option branch to staging, and the test Mac and perf lanes point at it and run their
+  full scenario and regression tables. Each lane posts its results to the card's line:
+  every number against the current trunk build and the best so far, and every bug
+  found. Only then does the next branch deploy. One branch at a time keeps every
+  number attributable.
+- **A met bar is a waypoint.** The perf and tester lanes never stop at a met bar. They
+  move to the next realistic scenario, such as single-chat latency, idle and peak
+  resources, side chats, forks, attachments, shares, and several windows, and they
+  re-run the whole table on every new build as his taps land and fundamental changes
+  merge. A regression against the previous build or the best so far is a defect with a
+  dev red's weight: the root names the PRs that landed between the two builds and
+  spawns the fix lane, and the number is restored, never accepted.
+
+*Prevents the night of Nov 1: the owner asked at 3:53 and 4:02 AM for option branches
+built while he slept, and at 10:02 AM had to ask whether those branches were deployed
+to staging and tested. Owner: "do more proactive things such as build option branches
+AND test them with the test mac" (`reference/case-studies.md`).*
 
 ## The landing desk and its ledger
 
@@ -4732,7 +4810,7 @@ lanes had died and nothing restarted them until the root noticed hours later
 12. Am I about to create, relaunch, or answer an Orca lane's routine traffic myself? → issue `desk-runner.py relay` or `launch`; read its escalation file, never run a model desk or a second mailbox loop.
 13. Before waiting on a desk relay for a priority PR or an owed item, read the PRs in one batched `ccx vcs pr status` call and dispatch every owed item with no PR now.
 14. Did a tool just refuse, fall back to `# ccx:raw`, or need a step done by hand, or am I running the same command a third time? → spawn its tooling lane this turn (fix, PR, merge, release, install) and keep going.
-15. Is a production alert active? This turn, `incident.py open` with the owner's grants and `incident.py run` in the background, before any verdict, depth mandate, or question. After that, answer only the executor's decisions and relay its `opened`, `live`, and `closed` milestones in Pacific time.
+15. Is a production alert active? This turn, `incident.py open` with the owner's grants and `incident.py run` in the background, before any verdict, depth mandate, or question. After that, answer only the executor's decisions and relay its `opened`, `live`, and `closed` milestones in Pacific time. At the spawn and at every check-in, post the two scope answers (R16); a no to either closes the incident that turn.
 16. Did I just spawn an Agent lane, take an owner ask, or consume its deliverable? → `TaskCreate`/`TaskUpdate` this turn; a lane's word alone completes nothing. Runner actions use their action records under R5, never shadow tasks.
 17. Am I about to ask the owner anything (a question card, a planning-round board, a lane's question list)? → check each question against the plan's decisions, `ccn answer list --label scope:durable`, and memory first; apply what is settled and ask only the rest.
 18. Am I about to swap a lane by hand? The lane supervisor relaunches a dead lane and rotates one past its line; I only move a lane's PRs with `decide ... owner=<lane>` and never open a lane's transcript, receipts, or runtime listings myself.
