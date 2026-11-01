@@ -21,7 +21,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 STALE_AFTER = timedelta(minutes=15)
-ADDED_COLUMNS = (("lanes", "waiting", "INTEGER"), ("lanes", "answered", "TEXT"), ("lanes", "page", "TEXT"))
+ADDED_COLUMNS = (("lanes", "waiting", "INTEGER"), ("lanes", "answered", "TEXT"), ("lanes", "page", "TEXT"), ("lanes", "awaits", "TEXT"))
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS prs (
@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS lanes (
   name TEXT PRIMARY KEY, brief TEXT NOT NULL, model TEXT NOT NULL, effort TEXT NOT NULL, role TEXT NOT NULL,
   state TEXT NOT NULL CHECK (state IN ('launching', 'desired', 'held', 'retired')),
   since TEXT NOT NULL, heard TEXT, handoff TEXT, prs TEXT NOT NULL DEFAULT '[]',
-  predecessor TEXT, reason TEXT, strikes INTEGER NOT NULL DEFAULT 0, asked TEXT, flushed TEXT, retired_by TEXT, waiting INTEGER, answered TEXT, page TEXT
+  predecessor TEXT, reason TEXT, strikes INTEGER NOT NULL DEFAULT 0, asked TEXT, flushed TEXT, retired_by TEXT, waiting INTEGER, answered TEXT, page TEXT, awaits TEXT
 );
 """
 
@@ -115,11 +115,12 @@ class Lane:
     waiting: int | None
     answered: datetime | None
     page: dict | None
+    awaits: str | None
 
     @classmethod
     def row(cls, row: sqlite3.Row) -> Lane:
         when = {name: parse(row[name]) if row[name] else None for name in ("heard", "asked", "flushed", "answered")}
-        return cls(row["name"], row["brief"], row["model"], row["effort"], row["role"], row["state"], parse(row["since"]), when["heard"], row["handoff"], tuple(json.loads(row["prs"])), row["predecessor"], row["reason"], row["strikes"], when["asked"], when["flushed"], row["retired_by"], row["waiting"], when["answered"], json.loads(row["page"]) if row["page"] else None)
+        return cls(row["name"], row["brief"], row["model"], row["effort"], row["role"], row["state"], parse(row["since"]), when["heard"], row["handoff"], tuple(json.loads(row["prs"])), row["predecessor"], row["reason"], row["strikes"], when["asked"], when["flushed"], row["retired_by"], row["waiting"], when["answered"], json.loads(row["page"]) if row["page"] else None, row["awaits"])
 
 
 @dataclass(frozen=True)
@@ -281,8 +282,8 @@ class Store:
     def lane_asked(self, name: str, at: datetime | None) -> None:
         self.db.execute("UPDATE lanes SET asked = ? WHERE name = ?", (stamp(at) if at else None, name))
 
-    def lane_waiting(self, name: str, ask: int | None, answered: datetime | None = None) -> None:
-        self.db.execute("UPDATE lanes SET waiting = ?, answered = ? WHERE name = ?", (ask, stamp(answered) if answered else None, name))
+    def lane_waiting(self, name: str, ask: int | None, answered: datetime | None = None, awaits: str | None = None) -> None:
+        self.db.execute("UPDATE lanes SET waiting = ?, answered = ?, awaits = ? WHERE name = ?", (ask, stamp(answered) if answered else None, awaits, name))
 
     def lane_page(self, name: str, page: dict | None) -> None:
         self.db.execute("UPDATE lanes SET page = ? WHERE name = ?", (json.dumps(page) if page else None, name))
