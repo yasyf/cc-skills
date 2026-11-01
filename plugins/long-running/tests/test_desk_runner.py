@@ -2747,6 +2747,30 @@ def test_a_check_refused_for_a_missing_native_stack_links_the_chain_and_enqueues
     assert [post["text"].split(":", 1)[0] for post in shell.posts if post["text"].startswith("STACK-LINK ")] == ["STACK-LINK #29016 #29020"]
 
 
+def test_a_refused_link_of_a_branched_chain_names_each_fork_to_its_lanes_once_and_links_again_only_once_the_forks_change(shell, config, tmp_path):
+    """improve5 (root #277422): the old memory chain forked at #45496 and #45640, and the runner reran the same refused gh stack link every pass from 2:27 to 6:30 AM Oct 31 while 11 approved PRs waited (#253589, #253760)."""
+    shell.rows = [
+        {"pr": "29016", "lane": LANE, "branch": "a/2", "base": "dev", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222", "ours": True},
+        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "a/2", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": True},
+        {"pr": "29021", "lane": LANE, "branch": "a/4", "base": "a/2", "head": "dddd444444", "state": "open", "reported_head": "dddd444444", "ours": True},
+    ]
+    refused = [(5, "", "stack-enqueue failed: #29020 targets a/2 without a native GitHub stack; link it with gh stack link\n")]
+    shell.gates["29020"] = list(refused)
+    shell.gates["29021"] = list(refused)
+    shell.link_out = "Include all existing PRs in the command to update the stack\n"
+    landing_pass(shell, config)
+    links = len([call for call in shell.calls if call[:3] == ["gh", "stack", "link"]])
+    shell.rows[1] = dict(shell.rows[1], head="eeee555555", reported_head="eeee555555")
+    landing_pass(shell, config)
+    assert len([call for call in shell.calls if call[:3] == ["gh", "stack", "link"]]) == links
+    assert [(post["kind"], post["text"].split(";", 1)[0]) for post in shell.posts if post["text"].startswith("STACK-")] == [
+        ("blocker", "STACK-BRANCHED #29016 #29020 #29021: the graphite-stack-enqueue check refused them as no native GitHub stack, and no gh stack link can join them, since a native stack is one line and #29016 has open children #29020 #29021"),
+    ]
+    shell.rows[2] = dict(shell.rows[2], base="a/3")
+    landing_pass(shell, config)
+    assert len([call for call in shell.calls if call[:3] == ["gh", "stack", "link"]]) > links
+
+
 def test_a_trunk_label_reads_as_queued_or_landed_where_the_status_read_says_unknown():
     """Oct 30: ccx read every Trunk-queued head as queue unknown, so the landing state read queued 0 while Trunk tested seven PRs."""
     unknown = {"number": 45651, "queue": "unknown", "verdict": "blocked:queue-unknown"}
