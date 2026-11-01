@@ -166,13 +166,13 @@ def cci_successor(to: str, chain: list[str], live: bool = True) -> dict:
             tool_input={"to": "desk", "message": "done: #12 merged"},
             agent_id="a1b2c3",
             env=DRIVE_CONFIG,
-            commands={SUCCESSOR_OF: json.dumps({"drive": "brook-drive", "lane": "desk", "stood_down": True, "successor": "", "chain": []})},
+            commands={SUCCESSOR_OF: json.dumps({"drive": "brook-drive", "lane": "desk", "stood_down": True, "successor": "", "chain": []}), LIVE_LANE: ""},
         ): Rewrite(None, to="main"),
         Input(
             tool="SendMessage",
             tool_input={"to": "desk", "message": "status?"},
             env=DRIVE_CONFIG,
-            commands={SUCCESSOR_OF: json.dumps({"drive": "brook-drive", "lane": "desk", "stood_down": True, "successor": "", "chain": []})},
+            commands={SUCCESSOR_OF: json.dumps({"drive": "brook-drive", "lane": "desk", "stood_down": True, "successor": "", "chain": []}), LIVE_LANE: ""},
         ): Warn(pattern=r"^Warning, nothing was blocked: `desk` is stood down with no successor"),
         Input(
             tool="SendMessage",
