@@ -46,6 +46,7 @@ FINDER_LGTM = "lgtm"
 FINDER_MAJOR = re.compile(r"\b[1-9]\d* majors?\b", re.IGNORECASE)
 OLD_APP = re.compile(r"^old-app:\s*(unchanged|bug fix|changes)\b", re.IGNORECASE | re.MULTILINE)
 OLD_APP_PASSES = frozenset({"unchanged", "bug fix"})
+OLD_APP_ANY = re.compile(r"^old-app:.*$", re.IGNORECASE | re.MULTILINE)
 FINDER_CLEAN = re.compile(r"\bno (?:majors?|findings)\b|\b0 majors?\b|\bok\b", re.IGNORECASE)
 SHORT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
 GROUND_KEY = re.compile(r"(?:plan(?::(?:[\w./-]+\.md:)?\d+(?:-\d+)?)?|F\d+|(?!design/)[a-z]+/[\w./-]+)")
@@ -468,6 +469,16 @@ def old_app_grades_in(found: list[dict], drive: str, lanes: list[str], repo: str
         if record["kind"] == "review" and record["lane"] in lanes and (said := OLD_APP.search(full_text(record))) and (head := head_named(record, heads, repo, pr))
     ]
 
+
+
+def unread_old_apps_in(found: list[dict], drive: str, lanes: list[str], repo: str, pr: str) -> list[dict]:
+    """Every review a fidelity lane of `lanes` posted about `pr` whose `old-app:` line `old_app_grades_in` reads as no grade, with that line: a verdict it does not know, or no head it can name."""
+    read = {grade["seq"] for grade in old_app_grades_in(found, drive, lanes, repo, pr)}
+    return [
+        record | {"line": line[0]}
+        for record in found
+        if record["drive"] == drive and record["kind"] == "review" and record["lane"] in lanes and record["seq"] not in read and about_pr(record, repo, pr) and (line := OLD_APP_ANY.search(full_text(record)))
+    ]
 
 def withdrawn(record: dict) -> set[int]:
     """The records `record` withdraws: the one it answers by `--re` when it opens with "withdrawn", and each `#<seq>` it names with "withdrawn" later in the same clause and no "not" between."""

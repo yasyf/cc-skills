@@ -681,7 +681,7 @@ import judge_watch
 import prompt_watch
 import stall_watch
 from long_running import testfiles
-from long_running.grades import FIDELITY_MISSING, FIDELITY_OK, FIDELITY_OVERRIDE, FINDER_PASS, GO_BRACKET, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, overridden, overrides, precondition_sentences, repo_prs, root_settles_finder, standing
+from long_running.grades import FIDELITY_MISSING, FIDELITY_OK, FIDELITY_OVERRIDE, FINDER_PASS, GO_BRACKET, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, overridden, overrides, precondition_sentences, repo_prs, root_settles_finder, standing, unread_old_apps_in
 from long_running.grades import carry_of, delegated, with_successors
 from long_running.grades import carries as carry_grade
 from long_running.grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
@@ -7226,7 +7226,7 @@ class Landing:
         return root_settles_finder(cci.records(self.cci_tail, self.runner.config.drive, since=verdict["seq"]), pr, sha, verdict)
 
     def check_old_app(self, graded: Graded) -> dict[str, merge_queue.State]:
-        """No head fails here (4236611, root #142277): each head whose newest `old-app:` grade from a fidelity lane, at that head or carried to it along a chain of fidelity carries, is not `unchanged` or `bug fix` gets one `OLD-APP-PENDING` warning per head and grade to its lane and the fidelity lanes (root #140437)."""
+        """No head fails here (4236611, root #142277): each head whose newest `old-app:` grade from a fidelity lane, at that head or carried to it along a chain of fidelity carries, is not `unchanged` or `bug fix` gets one `OLD-APP-PENDING` warning per head and grade to its lane and the fidelity lanes (root #140437); with no grade, it quotes the newest `old-app:` line a fidelity lane posted that reads as none, beside the forms the runner reads."""
         if not graded.act:
             return {}
         for pr, sha in graded.heads.items():
@@ -7235,7 +7235,13 @@ class Landing:
                 passes, newest = self.old_app(pr, sha, self.rescanned_reviews())
             if passes:
                 continue
-            why = f"{newest['lane']} graded this head on cci #{newest['seq']}: {newest['text']}" if newest else f"no `old-app:` grade from {self.fidelity_names} names this head; grade it `old-app: unchanged {sha[:7]}`, `old-app: bug fix {sha[:7]}` or `old-app: CHANGES {sha[:7]} <what changes>`"
+            forms = f"`old-app: unchanged {sha[:7]}`, `old-app: bug fix {sha[:7]}` or `old-app: CHANGES {sha[:7]} <what changes>`"
+            if newest:
+                why = f"{newest['lane']} graded this head on cci #{newest['seq']}: {newest['text']}"
+            elif unread := max(unread_old_apps_in(self.scanned_reviews(), self.runner.config.drive, self.fidelity_lanes, self.repo, pr), key=lambda record: record["seq"], default=None):
+                why = f"{unread['lane']}'s `{unread['line']}` on cci #{unread['seq']} reads as no grade; the runner reads only {forms}, the verdict first and then the head"
+            else:
+                why = f"no `old-app:` grade from {self.fidelity_names} names this head; grade it {forms}"
             text = f"OLD-APP-PENDING #{pr}, and the head is not held for it: {why}"
             self.warn_head(f"old-app:{pr}:{sha[:7]}:{hashlib.sha1(text.encode()).hexdigest()[:8]}", pr, graded, text, also=self.fidelity_to)
         return {}
