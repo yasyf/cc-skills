@@ -45,10 +45,10 @@ green or failing-first proof, or do not merge, never merges, so it draws no stal
               computing its mergeability, or the runner says FOREIGN, TAP-REQUIRED, GO-UNPARSED, CONTRACT-MISSING,
               PARKED, UNOWNED, NOT-QUEUEABLE or ENQUEUE-*; it is an open action naming the PR, its head,
               the reason, the lane that must act (the refusal's `owner <lane>` or `<lane>: #<pr>`
-              words, root for FOREIGN, TAP-REQUIRED and GO-UNPARSED, the landing desk for mergeability, else the
-              PR's lane) and the command the refusal quotes; a TAP-REQUIRED refusal whose merge row is
-              on the owner's board at that head is no stall, since only his tap moves it (root
-              #273794); it stands until that lane posts a
+              words, root for FOREIGN and GO-UNPARSED, the landing desk for mergeability, else the
+              PR's lane) and the command the refusal quotes; a TAP-REQUIRED refusal is never a stall,
+              since it waits on the owner's tap, and a merge row still missing at that head past the
+              board window is the board lane's `board` stall (root #273794, #282689); it stands until that lane posts a
               `head` record naming a PR the refusal names or answers it by `--re`, a record closes it,
               a QUEUED record names the PR, or the PR moves off that head or leaves the ledger; at
               `stall.minutes.refusal` it posts to root and the lane, naming the command; a lane that
@@ -268,7 +268,6 @@ CAUSE_COMMANDS = {
     "restack": RESTACK_COMMAND,
     "conflict": RESTACK_COMMAND,
     "mergeability": "enqueue #{pr} again once GitHub has computed its mergeability",
-    "TAP-REQUIRED": "put the merge row for #{pr} at {sha} on the owner's board",
     "CONTRACT-MISSING": "post the contract record #{pr} at {sha} lacks",
     "FOREIGN": "admit or hold the PR the batch for #{pr} would carry",
     "GO-UNPARSED": "post the go for #{pr} at {sha} again with a bracket the runner reads",
@@ -572,7 +571,7 @@ class Refusal:
         cause = self.cause
         if found := REFUSAL_OWNER.search(self.said):
             return found[1]
-        if cause in ("FOREIGN", "TAP-REQUIRED", "GO-UNPARSED"):
+        if cause in ("FOREIGN", "GO-UNPARSED"):
             return ROOT
         if cause == "mergeability":
             return RUNNER
@@ -817,7 +816,7 @@ class Pass:
         started = actions.parse_stamp(job.started_at) if job and job.status == "started" and job.started_at else None
         return started if started and self.now - started >= self.watch.age("running") else None
 
-    def refusals(self, records: list[dict], rows: dict[str, dict], approved: set[str], lanes: dict[str, str], holding: Callable[[str], bool], board: Board | None) -> list[Stall]:
+    def refusals(self, records: list[dict], rows: dict[str, dict], approved: set[str], lanes: dict[str, str], holding: Callable[[str], bool]) -> list[Stall]:
         """Each standing landing refusal, once per PR, head and cause, from its oldest refusal record no later act answered: a `refusal` stall at `stall.minutes.refusal`."""
         repo = self.watch.landing["repo"]
         closed = {seq for record in records for seq in grades.closes(record)}
@@ -835,7 +834,7 @@ class Pass:
                 if self.answered(records, record, refusal.pr, row["head"], named, owner):
                     continue
                 self.refused.add(refusal.pr)
-                if refusal.cause == "TAP-REQUIRED" and board and board.shows(refusal.pr, row["head"]):
+                if refusal.cause == "TAP-REQUIRED":
                     continue
                 key = f"{refusal.pr}:{short(row['head'])}:{refusal.cause.lower()}"
                 if key not in standing:
@@ -1021,7 +1020,7 @@ class Pass:
             quiet = all(stall.quiet for stall in group)
             stalls.append(Stall(first.id + (":quiet" if quiet else ""), first.kind, min(stall.since for stall in group), first.subject, first.what + above, first.owner, first.step + (f", and the rows for {', '.join(stall.subject for stall in rest)}" if rest else ""), first.pr, quiet))
         approved |= {pr for go in gos for pr in grades.go_heads(go)}
-        stalls += self.refusals(records, rows, approved, lanes, holding, board)
+        stalls += self.refusals(records, rows, approved, lanes, holding)
         for bottom, group in waiting.items():
             if any(member in self.refused for pr, *_ in group for member in [pr, *downstack(rows, rows[pr])]):
                 continue
