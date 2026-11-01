@@ -1054,6 +1054,7 @@ UNKNOWN_CAUSE = re.compile(r"\bUNKNOWN\b")
 HANDED_BACK = re.compile(r"^(?:[\w-]+:\s*)?(?:NOT-OURS|stood down|stopped)\b", re.IGNORECASE)
 MONITOR_ID = re.compile(r"(?:monitors/|\bmonitor |\bDatadog )(\d{4,})")
 INCIDENT_ANNOTATION = re.compile(r"^ccx:.*\bincident=([\w.-]+)", re.MULTILINE)
+POSTER = re.compile(r"\bcci post\b[^`\n]*?--lane[= ]['\"]?([\w.-]+)")
 NAMES_NOTHING = "none"
 ROLE = re.compile(r"^ccx:(?:.*[ \t])?role=([\w-]+)", re.MULTILINE)
 FIX_ROLES = frozenset({"fix", INCIDENT_MODEL})
@@ -1366,6 +1367,10 @@ LANE_IDENTITY = ("CCI_AGENT_ID", "CCI_LANE", "CLAUDE_CODE_SESSION_ID", "CODEX_TH
 
 def brief_incidents(brief: Path) -> set[str]:
     return set(INCIDENT_ANNOTATION.findall(brief.read_text())) if brief.is_file() else set()
+
+
+def brief_posters(brief: Path) -> set[str]:
+    return set(POSTER.findall(brief.read_text())) - {ROOT} if brief.is_file() else set()
 
 
 def incident_fix(lane: str, model: str, brief: Path, role: str) -> bool:
@@ -2123,7 +2128,7 @@ class Runner:
         """Post each accepted escalation to root. While an incident clock runs, a DEADLINE, UNACKED, STALE-MAIL, or RECLAIM about anything outside the incident waits in the view, and the pass after the last clock ends posts them as one DEFERRED record."""
         failures = []
         clocks = self.live_clocks()
-        incident = {alias for lane in clocks for name in (lane, *self.siblings(lane)) for alias in lane_aliases(name)}
+        incident = {alias for lane in clocks for name in (lane, *self.siblings(lane)) for alias in self.names(name)}
         if not clocks:
             self.release_deferred()
         held = set(self.book.fact(RUNNER, DEFERRED, {'ids': []})["ids"])
@@ -2926,8 +2931,8 @@ class Runner:
 
     def incident_end(self, first: str, lane: str, reported: datetime | None = None) -> str:
         """The record that ended the incident `first` leads, as `#<seq> <KIND> <lane>`: a `not-ours` or `stand-down` its fix lane or Opus fallback posted, the root's `stand-down` or `stopped` to either of them or to `lane`, or a `stopped` that `lane` posted before `reported`; empty while the incident is open."""
-        owners = {*lane_aliases(first), *lane_aliases(f"{first}{CLOCK_FALLBACK}")}
-        own = set(lane_aliases(lane))
+        owners = {*self.names(first), *self.names(f"{first}{CLOCK_FALLBACK}")}
+        own = set(self.names(lane))
         launch = self.fix_launch(lane_container(first))
         since = actions.parse_stamp(launch.verification_receipt["at"]) if launch else datetime.min.replace(tzinfo=timezone.utc)
         posted = cci.records(self.cci_tail, self.config.drive, *(arg for name in sorted(owners | own | {ROOT}) for arg in ("--lane", name)), *(f"--kind={kind}" for kind in (*INCIDENT_ENDS, STOPPED)))
@@ -2946,7 +2951,7 @@ class Runner:
     def incident_owner(self, slug: str, lane: str) -> str:
         """Who else holds the incident `slug`, as `<lane>@<drive> <kind> #<seq>`, or empty while this drive does: the root's `done` that resolves a record naming the slug, its `stopped` addressed to `lane`, or another drive's root `answer` addressed to `root@<this drive>` that names the slug."""
         named = {record["seq"] for record in cci.records(self.cci_tail, self.config.drive, "--kind=incident") if record["drive"] == self.config.drive and (record.get("topic") == slug or slug in record["text"])}
-        names = set(lane_aliases(lane))
+        names = set(self.names(lane))
         posted = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, "--kind=done", "--kind=stopped", since=min(named, default=0))
         answered = cci.records(self.cci_tail, self.config.drive, "--reader", ROOT, "--kind=answer")
         claims = [
@@ -3021,7 +3026,7 @@ class Runner:
 
     def lane_records(self, lane: str, *kinds: str) -> list[dict]:
         """A lane's own cci records of these kinds, or of every kind when none is named, on this drive, under either of its `lane_aliases`; `cci tail` also returns the caller's peer mail, which is dropped."""
-        names = lane_aliases(lane)
+        names = self.names(lane)
         posted = cci.records(self.cci_tail, self.config.drive, *(arg for name in names for arg in ("--lane", name)), *(f"--kind={kind}" for kind in kinds))
         return [record for record in posted if record["drive"] == self.config.drive and record["lane"] in names and (not kinds or record["kind"] in kinds)]
 
@@ -3169,6 +3174,12 @@ class Runner:
     def landing_policy(self) -> actions.Action | None:
         self.book.ensure(LANDING, LANDING)
         return active_policy(self.book.actions(LANDING, kind="policy", status="verified"))
+
+    def names(self, lane: str) -> tuple[str, ...]:
+        container = lane_container(lane)
+        launch = next(reversed(self.book.actions(container, kind="launch", status="verified")), None) if self.book.exists(container) else None
+        posters = brief_posters(Path(json.loads(launch.target)["brief"])) if launch else set()
+        return tuple(dict.fromkeys((*lane_aliases(lane), *sorted(posters))))
 
     def fix_launch(self, container: str) -> actions.Action | None:
         return fix_launch(container, self.book.actions(container, kind="launch", status="verified"))
@@ -4056,13 +4067,13 @@ class Runner:
 
     def stood_down(self, lane: str, launched: datetime) -> str:
         """The root's `stand-down` or `stopped` addressed to the lane since its launch, as `#<seq>`, or empty."""
-        names = set(lane_aliases(lane))
+        names = set(self.names(lane))
         posted = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, f"--kind={STAND_DOWN}", f"--kind={STOPPED}")
         return next((f"#{record['seq']}" for record in posted if record["drive"] == self.config.drive and record["lane"] == ROOT and names & set(record.get("to") or []) and actions.parse_stamp(record["at"]) >= launched), "")
 
     def held(self, lane: str, launched: datetime) -> str:
         """The root's `hold` since the lane's launch that is addressed to the lane or names it, as `#<seq>`, or empty; a root `decide` steers the lane and leaves its clock running."""
-        names = set(lane_aliases(lane))
+        names = set(self.names(lane))
         posted = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, f"--kind={CLOCK_HOLD}")
         return next((f"#{record['seq']}" for record in posted if record["drive"] == self.config.drive and record["lane"] == ROOT and record["kind"] == CLOCK_HOLD and names_lane(record, names) and actions.parse_stamp(record["at"]) >= launched), "")
 
@@ -4091,7 +4102,7 @@ class Runner:
         siblings = self.siblings(lane)
         if not siblings:
             return []
-        names = {name for sibling in siblings for name in lane_aliases(sibling)}
+        names = {name for sibling in siblings for name in self.names(sibling)}
         posted = cci.records(self.cci_tail, self.config.drive, *(arg for name in sorted(names) for arg in ("--lane", name)))
         stamps = [record["at"] for record in posted if record["drive"] == self.config.drive and record["lane"] in names and clock_mark(record) in CLOCK_MILESTONES]
         for sibling in siblings:
@@ -4226,13 +4237,13 @@ class Runner:
         if lane == ROOT:
             names, answered = set(record.get("to") or []), (cci.resolved(record) | {record.get("re")}) - {None}
             for silent, mechanism in list(pending.items()):
-                if (record["kind"] in (STAND_DOWN, STOPPED) and names & set(lane_aliases(silent))) or answered & self.pr_silent_posts(silent, mechanism["seq"]):
+                if (record["kind"] in (STAND_DOWN, STOPPED) and names & set(self.names(silent))) or answered & self.pr_silent_posts(silent, mechanism["seq"]):
                     pending.pop(silent)
             return
         if (mark := cci.mechanism_mark(record)) and self.pr_silent_lane(lane):
             keys = cci.incident_keys(record)
             if lane not in pending and not keys & set(answered):
-                pending[lane] = {"seq": record["seq"], "at": record["at"], "mark": mark, "keys": sorted({*keys, f"seq:{record['seq']}", *(f"lane:{alias}" for alias in lane_aliases(lane))})}
+                pending[lane] = {"seq": record["seq"], "at": record["at"], "mark": mark, "keys": sorted({*keys, f"seq:{record['seq']}", *(f"lane:{alias}" for alias in self.names(lane))})}
         elif cci.settles_mechanism(record):
             for silent in [silent for silent in pending if pr_family(silent) == pr_family(lane)]:
                 pending.pop(silent)
