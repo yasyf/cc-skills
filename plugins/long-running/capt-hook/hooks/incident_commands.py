@@ -42,7 +42,7 @@ MISORDERED = (
 )
 CLAUDE = "claude -p"
 ORDERED = {"verdict": "no", "artifact_phrase": "", "evidence_phrase": "", "sentence": "He ordered it."}
-UNORDERED = {"verdict": "yes", "artifact_phrase": "rollback sand --to 905", "evidence_phrase": "Let it finish", "sentence": "He said to let it finish, not to roll it back."}
+UNORDERED = {"verdict": "yes", "artifact_phrase": "rollback sand --to 905", "evidence_phrase": "Yes", "sentence": "He said to let it finish, not to roll it back."}
 FROZEN_TOOLING = (
     "Warning, nothing was blocked: Incident tooling stays as it is while an incident is open."
     " Run `claude plugin update long-running` or `desk-runner.py handoff` once the incident closes."

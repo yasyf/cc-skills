@@ -66,7 +66,7 @@ STALE = {SLICE: "refreshed /tmp/brief.md slice-hash 0123456789ab -> 89abcdef0123
 SLICED = "Lane lane-a: build the relay.\nScale: chats on one Mac, up to 1,000.\nRegister slice: lane=lane-a step=1.9\nslice-hash: 0123456789ab\n"
 UNSCALED = SLICED.replace("Scale: chats on one Mac, up to 1,000.\n", "")
 SCALED = {"verdict": "no", "artifact_phrase": "", "evidence_phrase": "", "sentence": "It names the N."}
-MISSED = {"verdict": "yes", "artifact_phrase": "chats on one Mac", "evidence_phrase": "every team's relay", "sentence": "The relay runs once per team, not per chat on one Mac."}
+MISSED = {"verdict": "yes", "artifact_phrase": "chats on one Mac", "evidence_phrase": "build the relay", "sentence": "The relay runs once per team, not per chat on one Mac."}
 REGISTER = {"id": "c" * 40, "body": "# Register\n\n1. Pulumi state is the only truth.\n"}
 FOUND = {f"{sys.executable} {script('rulings.py')} register": json.dumps(REGISTER)}
 NONE_FOUND = {f"{sys.executable} {script('rulings.py')} register": "null"}
