@@ -1652,3 +1652,21 @@ def test_a_stall_first_named_on_an_earlier_day_names_that_date_so_cci_never_read
     watch(shell, config)
 
     assert "no finder review names this head, first named 1:30 PM Oct 26 in #2" in shell.post("finder:101:abc1234")["text"]
+
+
+def test_a_pass_whose_post_cci_refuses_ends_its_output_on_that_refusal(config, capsys):
+    """Root #295909: the 2:37 PM pass exited 1, and the runner's report quoted the pass's last line, a stall, so the refusal that failed it was lost."""
+    shell = FakeShell([head(1, "101", HEAD, 40), fidelity(2, "101", HEAD, 35)], [row("101", test_state="pending")])
+    run = shell.run
+
+    def refuse(argv, stdin=None, env=None, timeout=stall_watch.COMMAND_SECONDS):
+        if argv[:2] == ["cci", "post"]:
+            return stall_watch.Done(1, "", "cci: store locked")
+        return run(argv, stdin, env, timeout)
+
+    shell.run = refuse
+    with pytest.MonkeyPatch.context() as patched:
+        patched.setattr(stall_watch.judge, "batch", shell.batch)
+        assert stall_watch.main(["--config", str(config)], shell) == 1
+    last = capsys.readouterr().err.strip().splitlines()[-1]
+    assert last.startswith("1 cci post failed this pass, first cci post exited 1 for finder:101:abc1234: cci: store locked")
