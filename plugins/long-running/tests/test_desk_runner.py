@@ -7945,8 +7945,10 @@ INCIDENT_SQUASH = "9a8b7c6d5e4f30211203f4e5d6c7b8a9f0e1d2c3"
 WALKER = "release-walker-4"
 
 
-def incident_pr(shell: FakeShell, buckets: tuple[str, ...] = ("pass", "pass")) -> None:
+def incident_pr(shell: FakeShell, buckets: tuple[str, ...] = ("pass", "pass"), graded: bool = True) -> None:
     shell.rows = [{"pr": "36650", "lane": INCIDENT_LANE, "branch": "i/1", "base": "dev", "head": INCIDENT_HEAD, "state": "open", "reported_head": INCIDENT_HEAD}]
+    if graded:
+        grade(shell, "36650", f"ok F307 at {INCIDENT_HEAD[:7]}.", finder=False)
     shell.reviews["36650"] = {"reviewDecision": "APPROVED", "headRefOid": INCIDENT_HEAD, "state": "OPEN"}
     shell.checks["36650"] = [{"name": name, "bucket": bucket} for name, bucket in zip(("test", "build"), buckets, strict=True)]
     shell.merge_commits["36650"] = INCIDENT_SQUASH
@@ -7969,6 +7971,37 @@ def test_an_approved_green_incident_fix_is_merged_by_plain_squash_once_and_never
     assert landed["text"].startswith("#36650 landed by plain squash as 9a8b7c6d5e: an incident fix, approved and green at ffff666666")
     squash = incident(tmp_path, "desk-landing").actions[f"land:36650@{INCIDENT_HEAD}"]
     assert (squash.status, squash.response["sha"]) == ("completed", INCIDENT_SQUASH)
+
+@pytest.mark.parametrize("incident", [True, False], ids=["open-incident", "no-incident"])
+def test_a_hold_on_an_approved_green_incident_fix_warns_and_lands_while_an_open_incident_names_it(shell, config, tmp_path, incident):
+    """Root #295192, owner 2:21 PM Nov 1: "you need ti find a way to get your tooling out if you have an incudent"; a hold record between an incident fix and its landing only warns."""
+    incident_pr(shell)
+    hold_record(shell, 9600, 36650, "open", actions.stamp(shell.clock))
+    if incident:
+        shell.records.append({"seq": 9601, "drive": "d1", "lane": INCIDENT_LANE, "kind": "incident", "status": "open", "to": ["root"], "refs": {}, "text": "SCOPE incident-sand-fix: active yes; #36650 is the fix", "at": actions.stamp(shell.clock)})
+    landing_pass(shell, config)
+    assert len(merges(shell)) == (1 if incident else 0)
+    assert [line.split(" ", 1)[0] for line in escalations(shell) if "INCIDENT-HOLD-WARNED" in line] == (["INCIDENT-HOLD-WARNED"] if incident else [])
+
+
+def test_an_incident_fix_waits_for_the_fidelity_ok_at_its_head_before_its_squash(shell, config, tmp_path):
+    """Owner 3:05 PM Nov 1: "it is absolutely unacceptable to accumulate drift or diverge from the plan at all in fixing this"; root #297607: an incident squash waits for the fidelity ok at that exact head, like a queued PR."""
+    incident_pr(shell, graded=False)
+    landing_pass(shell, config)
+    assert merges(shell) == []
+    grade(shell, "36650", f"ok F307 at {INCIDENT_HEAD[:7]}.", finder=False)
+    landing_pass(shell, config)
+    assert len(merges(shell)) == 1
+
+
+def test_an_open_incident_naming_another_lanes_pr_never_squashes_it(shell, config, tmp_path):
+    """Watchdog #296589: root's INCIDENT #295647 named signal-valkey-2's #47500 as context; only an incident fix row, by its lane or the executor's repair PR, takes the incident squash."""
+    incident_pr(shell)
+    shell.rows[0]["lane"] = "p8a-step7"
+    shell.records.append({"seq": 9602, "drive": "d1", "lane": "root", "kind": "incident", "status": "open", "to": ["p8a-step7"], "refs": {"prs": ["Forge-AI/monorepo#36650"]}, "text": "INCIDENT sand serve 500s; check whether #36650 is the cause", "at": actions.stamp(shell.clock)})
+    landing_pass(shell, config)
+    assert merges(shell) == []
+
 
 def test_a_root_decide_taking_an_incident_fix_off_the_incident_path_stops_its_squash_and_logs_once(shell, config, tmp_path):
     incident_pr(shell)
@@ -8082,7 +8115,6 @@ def test_an_incident_fix_still_ungraded_thirty_minutes_after_its_squash_escalate
     incident_pr(shell)
     landing_pass(shell, config)
     assert len(merges(shell)) == 1
-    finder_verdict(shell, "36650", f"ok {INCIDENT_HEAD[:7]} no findings")
     shell.sleep(29 * 60)
     landing_pass(shell, config)
     assert not [line for line in escalations(shell) if line.startswith("UNGRADED-30")]
@@ -8090,7 +8122,7 @@ def test_an_incident_fix_still_ungraded_thirty_minutes_after_its_squash_escalate
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert [line for line in escalations(shell) if line.startswith("UNGRADED-30")] == [
-        f"UNGRADED-30 ungraded-30:36650@{INCIDENT_HEAD} #36650: #36650 merged as an incident fix at ffff666666 {29 + late} minutes ago and has no fidelity ok at that head; both grades are owed within 30 minutes of the merge (d968e1d)"
+        f"UNGRADED-30 ungraded-30:36650@{INCIDENT_HEAD} #36650: #36650 merged as an incident fix at ffff666666 {29 + late} minutes ago and has no finder ok at that head, owed within 30 minutes of the merge (d968e1d)"
     ]
 
 
@@ -12502,6 +12534,22 @@ def test_a_pr_not_ready_at_the_ready_threshold_gets_the_opus_fallback_and_names_
     assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-opus"] and "had posted no ready" in fallback.read_text()
 
 
+def test_an_open_incident_naming_the_fix_lane_stands_its_opus_fallback_aside(shell, config, tmp_path):
+    """Root #294995: tenant-api-fix had a mechanism and a PR and missed only ready at +20 min, and the clock launched tenant-api-fix-opus; owner 2:21 PM Nov 1, the drive's tooling stands aside during an incident."""
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(4 * 60)
+    lane_record(shell, LANE, "mechanism")
+    scope = cci_record(shell, lane=LANE, kind="incident", status="open", to=["root"], refs={}, text=f"SCOPE {LANE}: active yes", at=actions.stamp(shell.clock))
+    shell.sleep(8 * 60)
+    lane_record(shell, LANE, "opened", prs=[4242])
+    shell.sleep(8 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [call[1] for call in launches(shell)] == [LANE]
+    [line] = clock_lines(shell)
+    assert line.endswith(f"no fallback launched for {LANE}-opus: open incident #{scope} names {LANE}, so the drive's clocks warn and stand aside (owner, 2:21 PM Nov 1); root launches one by hand if the fix lane has missed")
+
+
 def test_an_opus_fallback_lane_is_clocked_and_gets_no_fallback_of_its_own(shell, config, tmp_path):
     backup = f"{LANE}-opus"
     clocked_lane(shell, config, tmp_path, lane=backup, model="opus", header="ccx: role=incident place=local\n")
@@ -15520,6 +15568,17 @@ def test_a_fidelity_head_the_ledger_ranks_first_starts_before_older_heads_and_as
     shell.rows = [{"pr": "45244", "priority": 0}]
     orca_pass(shell, config)
     assert [(job["pr"], job["fast"]) for job in fidelity_jobs(shell)] == [("45244", True)]
+
+
+def test_an_incident_fix_rows_fidelity_head_starts_before_every_ranked_head(shell, config):
+    """Root #297607: an incident squash waits for its fidelity ok, so the fidelity desks grade an incident fix row first in their queue."""
+    fidelity_config(config, concurrent=1)
+    orca_pass(shell, config)
+    for pr in ("43439", "43299", "45244"):
+        head_record(shell, pr, hashlib.sha1(pr.encode()).hexdigest())
+    shell.rows = [{"pr": "45244", "priority": 0}, {"pr": "43299", "lane": "incident-sand-fix"}]
+    orca_pass(shell, config)
+    assert [job["pr"] for job in fidelity_jobs(shell)] == ["43299"]
 
 
 def test_a_green_ledger_head_no_record_named_starts_one_fidelity_pass(shell, config):

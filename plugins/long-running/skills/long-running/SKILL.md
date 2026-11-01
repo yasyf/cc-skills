@@ -2168,13 +2168,16 @@ that build passes. A start that fails logs one `CI-GRADE-FAILED` per head and is
 tried again next pass.
 
 Incident fixes still land by plain squash under every mode, and a `checks_wait_for_go`
-pause never stops them. An approved, green fix merges once no open cci `hold` record, read again
-just before `gh pr merge`, names it and `check-pr --incident` names none of
-`RULINGS-UNCITED`, `RESERVED-NO-ANSWER`, and `TEST-REMOVED`. A head it names one of them
-for is refused: one cci `RULINGS-REFUSED` blocker to the PR's lane and the root, and the
-fix merges in the first pass they clear (45200f2). Neither grade gates it: a fix
-whose head has no counted fidelity ok or no finder ok 30 minutes after it lands
-logs `UNGRADED-30` once (d968e1d).
+pause never stops them. An approved, green fix merges once `check-pr --incident` names none of
+`RULINGS-UNCITED`, `RESERVED-NO-ANSWER`, and `TEST-REMOVED`, the fidelity desk graded that exact
+head ok as for a queued PR, and no open cci `hold` record, read again just before `gh pr merge`,
+names it. While an open incident record names the fix or its lane, a hold logs
+`INCIDENT-HOLD-WARNED` once and the fix merges anyway, and the incident clock launches no Opus
+fallback (owner, 2:21 PM Nov 1). A head `check-pr` names one of the three for is refused: one cci
+`RULINGS-REFUSED` blocker to the PR's lane and the root, and the fix merges in the first pass they
+clear (45200f2). The plan check is never waved (owner, 3:05 PM Nov 1), so the fidelity desks grade
+an incident fix row first in their queue. The finder grade does not gate the merge: a fix whose head
+has no finder ok 30 minutes after it lands logs `UNGRADED-30` once (d968e1d).
 
 *Prevents a fixed landing policy the owner never chose. On 2026-10-21 the owner ruled
 (1fe20ee) that the drive asks at the start which of the three modes it runs in, and
