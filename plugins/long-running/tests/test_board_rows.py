@@ -215,12 +215,13 @@ def test_a_pr_github_no_longer_holds_open_fails(tmp_path: Path, shell: FakeShell
     assert lines(capsys)[0] == f"merge-row-42590 42590 {HEAD[:7]} not open: the PR is {state.lower()} on GitHub"
 
 
-def test_a_root_ruling_that_supersedes_the_pr_fails_it_with_that_seq_until_a_later_go_names_its_head(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_root_ruling_that_supersedes_the_pr_warns_with_that_seq_and_never_refuses_the_row(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
+    """#281149 reopened #47188 after #280149 closed it, and the gate kept refusing its row on the close it parsed from root's prose (board-refresher-6, #281366)."""
     seq = shell.post("go", "root", "withdrawn: go for #42590 35aa930 (#131549). My own #130667 ruled it superseded…", path="/blobs/a.txt")
     shell.blobs["/blobs/a.txt"] = "withdrawn: go for #42590 35aa930 (#131549). My own #130667 ruled it superseded by the repeat list's deletion. p8b-step10 closes #42590 now."
 
-    assert gate(tmp_path, shell, card(row("42590")), "--check") == 1
-    assert lines(capsys)[0] == f"merge-row-42590 42590 {HEAD[:7]} not open: root ruled it superseded or closed on cci #{seq}"
+    assert gate(tmp_path, shell, card(row("42590")), "--check") == 0
+    assert f"WARN merge-row-42590 42590 {HEAD[:7]} root ruled it superseded or closed on cci #{seq}; drop the row unless a later ruling reopened it" in lines(capsys)
 
     shell.post("go", "root", f"go #42590 at {HEAD[:7]} (owner tap 2:10 PM)", "42590")
     shell.verdicts = {"merge-triage": {"merge-row-42590": {"verdict": "approved"}}}
@@ -247,17 +248,6 @@ def test_a_root_ruling_that_supersedes_the_pr_fails_it_with_that_seq_until_a_lat
 )
 def test_a_closing_ruling_must_tie_the_word_to_the_pr(text: str, closed: bool) -> None:
     assert board_rows.closes("42590", text) is closed
-
-
-def test_a_later_root_ruling_that_reopens_a_closed_pr_lifts_the_close() -> None:
-    """#281149 reopened #47188 after #280149 closed it, and the board gate still refused its row as closed."""
-    closed = {"seq": 280149, "kind": "decide", "text": "", "full": "2:13 AM Close #47188: the pool already held about 20 instances"}
-    reopened = {"seq": 281149, "kind": "decide", "text": "", "full": "3:24 AM #47188 is REOPENED under pick 1 (#280311, 2:26 AM): draw its row once graded"}
-    other = {"seq": 281150, "kind": "decide", "text": "", "full": "#47190 is reopened"}
-
-    assert board_rows.closing_ruling([closed, other], "47188", "abc1234") == closed
-    assert board_rows.closing_ruling([closed, reopened], "47188", "abc1234") is None
-    assert board_rows.closing_ruling([reopened, closed | {"seq": 281200}], "47188", "abc1234")["seq"] == 281200
 
 
 def test_a_decided_row_pushed_under_another_block_fails_before_anything_is_sent(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
