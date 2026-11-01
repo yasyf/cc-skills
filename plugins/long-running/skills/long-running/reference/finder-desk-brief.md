@@ -64,5 +64,6 @@ Plan: {plan}; its sub-plans sit beside it.
 PR body, never edited after the PR opens:
 {body}
 
-PR comments under a `Rulings` heading, which correct and extend the body:
+PR comments its author posted, oldest first: Rulings, Body addenda and evidence such as a caller
+trace, which correct and extend the body as part of it:
 {rulings}

@@ -29,7 +29,9 @@ BASELINE = "c57cad26 (release 10435, fleet sand 0.162.1876)"
 DESK_OK = {"seq": 170001, "lane": "fidelity-desk-5", "text": f"fidelity: ok {OLD} {PORT_PHRASE}: ports old-tree 304c1e7ea5e (#41725) line for line."}
 DESK_OLD_APP = {"seq": 170002, "lane": "fidelity-desk-5", "head": OLD[:7], "line": f"old-app: unchanged {OLD[:7]} baseline {BASELINE}; go/sand/next only"}
 SAME = {(f"{OWN}^", HEAD): "5f1e", (f"{OLD}~1", OLD): "5f1e"}
-COMMENTS = [{"body": "### Rulings\n- ports old-tree 304c1e7ea5e (#41725)"}, {"body": "Body addendum\nThe caller trace for GetIrisTeamCreds runs through serve only."}, {"body": "ci is green"}]
+LANE = {"login": "yasyf"}
+BOT = {"login": "forge-pr-reviewer"}
+COMMENTS = [{"author": LANE, "body": "### Rulings\n- ports old-tree 304c1e7ea5e (#41725)"}, {"author": LANE, "body": "Body addendum\nThe caller trace for GetIrisTeamCreds runs through serve only."}, {"author": BOT, "body": "ci is green"}]
 
 
 class Fake:
@@ -52,7 +54,7 @@ class Fake:
         if argv[:3] == ["gh", "pr", "view"]:
             head = self.heads.pop(0) if len(self.heads) > 1 else self.heads[0]
             comments = self.comments.pop(0) if len(self.comments) > 1 else self.comments[0]
-            return json.dumps({"state": self.state, "baseRefName": "dev", "headRefOid": head, "body": "## Summary\nA cut signal resubscribes from the position it fetched.", "comments": comments})
+            return json.dumps({"state": self.state, "baseRefName": "dev", "headRefOid": head, "body": "## Summary\nA cut signal resubscribes from the position it fetched.", "comments": comments, "author": LANE})
         if argv[0] == "git":
             return self.git(argv[1:])
         if argv[:2] == ["sh", "-c"]:
@@ -355,8 +357,20 @@ def test_the_grader_reads_agents_md_rules_at_the_trunk_tip_never_the_heads_copy(
     assert f"at the trunk tip {BASE},\nwith `git show {BASE}:<path>`" in question and "never the\nhead's copy" in question
 
 
+def test_the_grade_reads_every_comment_the_pr_author_posted_and_no_bots(tmp_path):
+    """root #286879, 9:38 AM Nov 1: fidelity 174488 on #47225 graded a caller trace missing that the lane had posted in PR comment 6561051216, which opened no Rulings heading, so the grader never read it."""
+    evidence = {"author": LANE, "body": "Caller trace for the removed path: every caller reads the batched store."}
+    directory = job(tmp_path, grades=[])
+    shell = Fake(tmp_path, [reply()])
+    shell.comments = [[*COMMENTS, evidence]]
+    fidelity.main([str(directory)], shell)
+    question = (directory / "question-1.md").read_text()
+    assert "Caller trace for the removed path: every caller reads the batched store." in question
+    assert "The caller trace for GetIrisTeamCreds runs through serve only." in question
+    assert "ci is green" not in question
+
 def test_a_rulings_comment_posted_while_codex_read_the_head_is_read_once_more_before_the_grade_posts(tmp_path):
-    trace = {"body": "**Rulings and review answers at 7414944**\n\nThe caller trace: every caller of the removed path reads the batched store."}
+    trace = {"author": LANE, "body": "**Rulings and review answers at 7414944**\n\nThe caller trace: every caller of the removed path reads the batched store."}
     directory = job(tmp_path, grades=[])
     shell = Fake(tmp_path, [reply(verdict="missing", missing=({"key": "plan:116", "line": "no caller trace for the removed path"},)), reply()])
     shell.comments = [COMMENTS, [*COMMENTS, trace]]

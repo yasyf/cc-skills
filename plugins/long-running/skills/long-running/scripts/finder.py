@@ -260,8 +260,13 @@ def prompt(job: dict, view: dict, base: str, own: list[str], last: str, pairs: s
         hunks=hunk_lines(touched),
         plan=plan or "none; the register names no plan",
         body=view["body"].strip() or "(empty)",
-        rulings=rulings_comments(view),
+        rulings=author_comments(view),
     )
+
+
+def author_comments(view: dict) -> str:
+    """The comments the PR's author posted, oldest first: the lanes' Rulings, Body addenda and evidence such as a caller trace, which correct and extend a body nobody edits after the PR opens. Reviewer bots and service accounts post under other logins."""
+    return "\n\n---\n\n".join(comment["body"].strip() for comment in view["comments"] if comment["author"]["login"] == view["author"]["login"]) or "(none)"
 
 
 def rulings_comments(view: dict) -> str:
@@ -319,7 +324,7 @@ def retried[T](attempt: Callable[[], T], transient: Callable[[subprocess.CalledP
 
 
 def view_pr(shell: Shell, job: dict) -> dict:
-    argv = ghread.read("pr", "view", job["pr"], "--repo", job["repo"], "--json", "state,baseRefName,headRefOid,body,comments", max_age=ghread.FRESH)
+    argv = ghread.read("pr", "view", job["pr"], "--repo", job["repo"], "--json", "state,baseRefName,headRefOid,body,comments,author", max_age=ghread.FRESH)
     return json.loads(retried(lambda: shell.run(argv)))
 
 

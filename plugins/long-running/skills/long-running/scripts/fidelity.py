@@ -22,8 +22,8 @@ fidelity-desk ok grade on the PR says, else each one the carried grade says. Oth
 `reference/fidelity-job-brief.md` with the head's own hunks, the change to read (the whole PR, or, past the newest
 earlier head every lane stands ok at, only what `git range-diff` shows changed since it), its required register rows
 as the owner's words verbatim with the board card each tap answered and none of the register's implications
-(`rulings.py slice --required --words`), the repository's AGENTS.md rules as the trunk tip has them, the plan, the lane's newest contract
-and the PR body, and runs
+(`rulings.py slice --required --words`), the repository's AGENTS.md rules as the trunk tip has them, the plan, the lane's newest contract,
+the PR body and every comment the PR's author posted, and runs
 `codex-ask -m <model> --schema fidelity.schema.json`, with `--incident` when the job is `fast`, in the drive's checkout. A reply that leaves
 a row ungraded, keys a `missing` line on anything but a plan line, an owner row or an AGENTS.md line, or gives no
 reasoning in `swept` is asked once more; a second such reply fails the job. A reply with any `missing` entry grades
@@ -161,7 +161,7 @@ def prompt(job: dict, view: dict, base: str, trunk: str, rows: Path, plan: str, 
         package=Path(plan).parents[1] if plan else "none; the register names no plan",
         contract=job["contract"].strip() or "(the lane posted none)",
         body=view["body"].strip() or "(empty)",
-        rulings=finder.rulings_comments(view),
+        rulings=finder.author_comments(view),
         settled="".join(f"- {point} (root #{root})\n" for point, root in settled_points(job).items()) or "(none)",
         root_rulings="".join(f"- root #{ruling['seq']}: {' '.join(ruling['text'].split())}\n" for ruling in job["rulings"]) or "(none)",
     )
