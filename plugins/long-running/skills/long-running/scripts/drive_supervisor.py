@@ -113,10 +113,10 @@ def orca_rows(run_id: str, receipts: Path, names: set[str] | None, now: datetime
 
 
 def rostered(rows: list[dict], teams: Path) -> list[dict]:
-    """`cci who` rows with each in-process teammate of a live lead session read as live, since SendMessage resumes it however long it has been idle."""
+    """`cci who` rows with each in-process teammate of a live lead session read as live and tagged with its team, since SendMessage resumes it however long it has been idle; its own `live` flag only echoes the lead session's."""
     leads = {row["session"] for row in rows if row.get("live") and row.get("session") and not row.get("agent")}
     members = {session: {member["name"] for member in json.loads(path.read_text())["members"]} for session in leads if (path := teams / f"session-{session[:8]}" / "config.json").is_file()}
-    return [row | {"live": True, "roster": str(teams / f"session-{row['session'][:8]}")} if row.get("agent") and not row.get("live") and row.get("lane") in members.get(row.get("session"), ()) else row for row in rows]
+    return [row | {"live": True, "roster": str(teams / f"session-{row['session'][:8]}")} if row.get("agent") and row.get("lane") in members.get(row.get("session"), ()) else row for row in rows]
 
 
 def task_open(tasks: Path, lane: str) -> bool:
