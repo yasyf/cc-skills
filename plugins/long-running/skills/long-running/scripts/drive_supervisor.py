@@ -51,6 +51,8 @@ MORE = "resume with --since"
 INACTIVE = frozenset({"completed", "failed"})
 TAIL_BYTES = 1_000_000
 MEASURE_EVERY = timedelta(minutes=5)
+OPEN_EVERY = timedelta(minutes=10)
+OPEN_LIMIT = 2000
 WINDOW = 1_000_000
 OUTPUT_RESERVE = 20_000
 AUTOCOMPACT_BUFFER = 13_000
@@ -187,6 +189,20 @@ def last_tokens(path: Path) -> int | None:
     return None
 
 
+class OpenPrs:
+    """The repo's open PR numbers from one `gh pr list` read, reread every `OPEN_EVERY`."""
+
+    def __init__(self, repo: str, clock):
+        self.repo, self.clock = repo, clock
+        self.read: tuple[datetime, set[int]] | None = None
+
+    def __call__(self) -> set[int]:
+        now = self.clock()
+        if self.read is None or now - self.read[0] >= OPEN_EVERY:
+            self.read = (now, {int(n) for n in run(["gh", "pr", "list", "-R", self.repo, "--state", "open", "--limit", str(OPEN_LIMIT), "--json", "number", "--jq", ".[].number"]).split()})
+        return self.read[1]
+
+
 class Tokens:
     def __init__(self, clock):
         self.clock = clock
@@ -238,6 +254,7 @@ def lanes_deps(config: lr_config.Config, state: Path) -> lanes.Deps:
         launch=lambda name, model, effort, brief: desk_launch(briefs, name, "lane", name, model, effort, str(brief), "--drive", config.drive, "--lane", lanes.SELF),
         withdraw=lambda name: desk_launch(briefs, name, "withdraw", name, "--drive", config.drive, "--lane", lanes.SELF),
         wake=Waker(config.drive, clock),
+        open_prs=OpenPrs(config.repo, clock),
         rotate_at=rotate_at(),
     )
 

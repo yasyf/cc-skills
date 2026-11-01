@@ -41,6 +41,7 @@ class Fake:
         self.withdrawals: list[str] = []
         self.wakes: list[str] = []
         self.pages: list[dict | None] = []
+        self.open: set[int] = set()
         self.deps = lanes.Deps(
             drive=DRIVE,
             checkout=CHECKOUT,
@@ -53,6 +54,7 @@ class Fake:
             launch=lambda name, model, effort, brief: self.launches.append((name, model, effort, brief)),
             withdraw=self.withdrawals.append,
             wake=lambda name, row, page: self.wakes.append(name) is None and self.pages.append(page) is None,
+            open_prs=lambda: self.open,
             rotate_at=600_000,
         )
 
@@ -750,3 +752,30 @@ def test_root_naming_a_dead_lane_as_owner_gets_one_blocker_back(tmp_path, brief,
 
     blockers = [argv[-1] for argv in fake.posts if argv[argv.index("--kind") + 1] == "blocker"]
     assert len(blockers) == 1 and "conflicts-2 for #46731: root named it owner" in blockers[0] and said in blockers[0]
+
+
+def test_a_root_ask_naming_a_silent_lanes_pr_pages_it_once(tmp_path, brief):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store, prs=(46869,))
+    fake.feed.append(record(2, "root", "ask", T0 - timedelta(minutes=30), "agent-construct-build-6: where is #46869's red fix?", ("conflicts-2",)))
+    fake.peers = [who("conflicts-2", True, T0, roster="/teams/session-d50e80e8")]
+
+    out = lanes.tick(store, fake.deps, T0, 1)
+    again = lanes.tick(store, fake.deps, T0 + timedelta(minutes=5), 1)
+
+    assert out.woken == ["conflicts-2"] and again.woken == [] and fake.pages[0]["why"].startswith("root ask #2 on your PR #46869")
+
+
+def test_a_lane_owning_open_prs_silent_for_the_window_gets_one_blocker_to_root(tmp_path, brief):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store, prs=(46869, 47079, 46001))
+    store.lane_heard("conflicts-2", T0 - timedelta(minutes=90), "state")
+    store.own("quiet-desk", [46002])
+    fake.open = {46869, 47079, 46002}
+
+    lanes.tick(store, fake.deps, T0, 1)
+    lanes.tick(store, fake.deps, T0 + timedelta(minutes=5), 1)
+
+    blockers = [argv[-1] for argv in fake.posts if argv[argv.index("--kind") + 1] == "blocker"]
+    assert len(blockers) == 1 and "2 lanes own open PRs and posted nothing for 1 h" in blockers[0]
+    assert "conflicts-2 (#46869 #47079; last record" in blockers[0] and "quiet-desk (#46002; last record none; it has no live successor)" in blockers[0]

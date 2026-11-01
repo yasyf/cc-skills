@@ -4530,7 +4530,11 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   when a record resolves its blocker, through `--resolves` or `also_resolves`. It also drops when
   the PR lands, moves to another lane or gets a new head, and a fresh store pages no lane from
   the records it re-reads. The wake names the blocker's seq. A lane whose newest record is a
-  `handoff`, `done`, `stand-down` or `stopped` is never woken. If the lane posts nothing within 30 minutes of that wake, the supervisor asks root
+  `handoff`, `done`, `stand-down` or `stopped` is never woken. A root `ask` addressed to a
+  lane that names one of its PRs, by `--pr` or as `#<n>` in its text, pages it the same way.
+  A lane that owns open PRs and posted nothing for an hour, whatever its task says, is named
+  to root once in a blocker with its open PRs and its live successor. That check reads the
+  repo's open PRs from one `gh pr list` call every 10 minutes. If the lane posts nothing within 30 minutes of that wake, the supervisor asks root
   once to reassign the PR. Silence and activity are measured from the lane's own records, never
   from its `cci who` row. A lane whose newest record is an
   `ask`, `blocked` or `blocker` to root is waiting, not dead, until 15 minutes after a
