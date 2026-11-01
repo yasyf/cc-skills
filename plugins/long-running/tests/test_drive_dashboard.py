@@ -244,3 +244,16 @@ def test_the_bus_alarm_beside_the_steps_is_the_drive_wide_stop_until_the_runner_
     alarm = {"since": "2026-10-30T13:31:00Z", "text": "BUS-DOWN since 6:31 AM: cci has not answered 2 probes in a row"}
     (tmp_path / "bus-down.json").write_text(json.dumps(alarm))
     assert drive.live(model)["now"] == {"blocker": alarm, "release": {"name": "New code in the cloud"}}
+
+
+def test_a_build_failure_is_a_defect_only_when_the_next_build_fails_the_same_way(monkeypatch):
+    """#278757: brew relinked ccn at 1:33 AM, one build hit the gap, and the dashboard posted a defect for a failure the next build no longer had."""
+    drive = Drive({}, None)
+    reported = []
+    monkeypatch.setattr(drive, "report_defect", reported.append)
+    missing = "FileNotFoundError: [Errno 2] No such file or directory: 'ccn'"
+    drive.build_failed(missing)
+    assert reported == []
+    drive.build_failed(missing)
+    drive.build_failed(missing)
+    assert reported == [missing]
