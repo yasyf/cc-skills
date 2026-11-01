@@ -11,9 +11,7 @@ fails, with one line `<row-id> <pr> <head> <reasons>`, when:
 
     stale     its head is not the PR's head on GitHub; the reason names the new head
     old text  its `textAt` is missing or not newer than its head's commit time
-    not open  the PR is closed or merged on GitHub, or a root go, decide or decision record has it
-              as the subject of superseded, closed or landed, or a verb that closes or supersedes
-              it, naming that record's seq, and no later root go names it at its head
+    not open  the PR is closed or merged on GitHub
     missing   a triage row's label has no words after `#<pr>:`, or a fact in `FIELDS` is absent or
               empty: what it changes for users, how it differs from the plan, its risk, the
               finder's verdict, CI, and what gates its landing; a `pr-groups` row's field in
@@ -690,7 +688,7 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
             row.pull = pulls[row.pr]
             row.reasons += github_reasons(row, pulls[row.pr])
         if rulings is not None and (ruling := closing_ruling(rulings, row.pr, row.head)):
-            row.reasons.append(f"not open: root ruled it superseded or closed on cci #{ruling['seq']}")
+            row.warnings.append(f"root ruled it superseded or closed on cci #{ruling['seq']}; drop the row unless a later ruling reopened it")
         if verdicts is not None:
             row.entry = verdicts.get(row.block, {}).get(row.id)
             row.reasons += tap_reasons(row, row.entry, standing_gos(rulings, withdrawn, row.pr, row.head) if rulings is not None else [], taps or [])
