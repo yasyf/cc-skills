@@ -713,6 +713,12 @@ OLD_APP_LINE = re.compile(r"^old-app:\s*(?:unchanged|bug fix|changes)\b.*$", re.
 TEST_DIRS = frozenset({"__tests__", "testdata", "fixtures", "docs"})
 CI_PREFIXES = (".buildkite/", ".github/", "tools/ci/", "go/ci/", "infra/ci/")
 TOOLING_GLOBS = (".agents/skills/*/scripts/*", ".agents/skills/*/tests/*", ".agents/skills/*.md")
+LINT_CONFIGS = frozenset({"clippy.toml", ".clippy.toml", "deny.toml", "rustfmt.toml", ".rustfmt.toml", ".golangci.yml", ".golangci.yaml", "ruff.toml", ".ruff.toml", "biome.json", ".eslintrc.json", "eslint.config.js", "eslint.config.mjs"})
+MANIFESTS = frozenset({"Cargo.toml", "package.json"})
+LOCKFILES = frozenset({"Cargo.lock", "yarn.lock", "package-lock.json", "pnpm-lock.yaml"})
+TOML_SECTION = re.compile(r"\s*\[+([^\]]+)\]+\s*$")
+JSON_SECTION = re.compile(r'\s*"([^"]+)":\s*\{\s*$')
+JSON_CLOSE = re.compile(r"\s*\},?\s*$")
 PORT_PREFIXES = ("go/sand/next/",)
 OWNER_CITE = re.compile(r"#\s*owner:\s*[0-9a-f]{7,40}\b")
 MERGE_CARD_FIELDS = "title,author,additions,deletions,reviewDecision"
@@ -1461,6 +1467,39 @@ def is_test_or_ci_file(name: str) -> bool:
         or not TEST_DIRS.isdisjoint(path.parts[:-1])
         or (path.suffix in (".yml", ".yaml") and "buildkite" in path.name)
     )
+
+
+def test_only_offender(patches: dict[str, str | None]) -> str:
+    """The first changed file that keeps a change from being test-only or CI-only: a test or CI file, a lint config, a manifest whose patch changes only dev-dependency or lint sections, and a lockfile that removes nothing beside manifests that all do, count; a production dependency never rides a test-only claim (root #290406)."""
+    manifests = [name for name in patches if PurePosixPath(name).name in MANIFESTS and not is_test_or_ci_file(name)]
+    dev_manifests = bool(manifests) and all(dev_only(name, patches[name]) for name in manifests)
+    for name, patch in patches.items():
+        base = PurePosixPath(name).name
+        if is_test_or_ci_file(name) or base in LINT_CONFIGS or name in manifests and dev_only(name, patch):
+            continue
+        if base in LOCKFILES and dev_manifests and patch is not None and not any(line.startswith("-") for line in patch.splitlines()):
+            continue
+        return name
+    return ""
+
+
+def dev_only(name: str, patch: str | None) -> bool:
+    """Whether every line `patch` changes in manifest `name` sits in a section its own hunk names as dev-dependencies or lints."""
+    if patch is None:
+        return False
+    toml, section = name.endswith(".toml"), ""
+    for line in patch.splitlines():
+        if line.startswith("@@"):
+            section = ""
+            continue
+        body = line[1:]
+        if header := (TOML_SECTION if toml else JSON_SECTION).match(body):
+            section = header[1].strip()
+        if line[:1] in ("+", "-") and not (section.endswith("dev-dependencies") or section == "devDependencies" or "lints" in section.split(".")[:2]):
+            return False
+        if not toml and JSON_CLOSE.match(body):
+            section = ""
+    return True
 
 
 def queued_since(passes: list[actions.Action], action: actions.Action) -> tuple[str, int]:
@@ -5653,7 +5692,7 @@ class Landing:
         self.landed: set[str] = set()
         self.patch_ids: dict[tuple[int, str], str] = {}
         self.commit_counts: dict[tuple[str, str], int] = {}
-        self.files: dict[tuple[str, str], list[str]] = {}
+        self.patches: dict[tuple[str, str], dict[str, str | None]] = {}
         self.exempts: dict[tuple[str, str], tuple[str, str]] = {}
         self.annotated: dict[str, dict[str, str]] = {}
         self.imported: dict[tuple[str, str, frozenset[str]], bool] = {}
@@ -7461,7 +7500,7 @@ class Landing:
         if files is None:
             return False, ""
         if test:
-            if offender := next((name for name in files if not is_test_or_ci_file(name)), ""):
+            if offender := test_only_offender(self.patches[(pr, sha)]):
                 return False, f"TEST-ONLY-MISMATCH {offender} is neither a test nor CI configuration, so the {claim.split(',')[0].strip()} claim does not hold; "
             return True, ""
         if (offender := next((name for name in files if not name.startswith(PORT_PREFIXES)), "")) and not self.interaction_cleared(pr):
@@ -7473,7 +7512,7 @@ class Landing:
         files, _ = self.changed_files(pr, sha)
         if files is None:
             return "its changed files did not read"
-        if offender := next((name for name in files if not is_test_or_ci_file(name)), ""):
+        if offender := test_only_offender(self.patches[(pr, sha)]):
             return f"its files make it code: {offender} is neither a test nor CI configuration"
         return "its files make it test-only or CI-only"
 
@@ -7581,13 +7620,13 @@ class Landing:
         return [name for name in files if any(fnmatch(name, glob) for glob in globs)]
 
     def changed_files(self, pr: str, sha: str) -> tuple[list[str] | None, str]:
-        """The changed files of `pr` at `sha`, read once per head, or None with the last line GitHub's refusal printed."""
-        if (pr, sha) not in self.files:
-            done = self.shell.run(ghread.read("api", "--paginate", f"repos/{self.repo}/pulls/{pr}/files", "--jq", ".[].filename"))
+        """The changed files of `pr` at `sha`, read once per head with each file's patch into `patches`, or None with the last line GitHub's refusal printed."""
+        if (pr, sha) not in self.patches:
+            done = self.shell.run(ghread.read("api", "--paginate", f"repos/{self.repo}/pulls/{pr}/files", "--jq", ".[] | [.filename, .patch] | @json"))
             if done.code:
                 return None, ((done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"])[0]
-            self.files[(pr, sha)] = done.out.splitlines()
-        return self.files[(pr, sha)], ""
+            self.patches[(pr, sha)] = dict(json.loads(line) for line in done.out.splitlines())
+        return list(self.patches[(pr, sha)]), ""
 
     def checks_paused(self) -> bool:
         """Whether `landing.checks_wait_for_go` names a cci sequence no root `go` record on this drive has come after yet: until one does, the pass runs no gate, so no `stack-enqueue --check`, MERGE-ASK, or enqueue, and logs one `GATE-PAUSED` per sequence; an approved, green incident fix still lands by plain squash."""
