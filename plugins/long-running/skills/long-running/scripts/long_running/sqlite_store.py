@@ -560,7 +560,7 @@ class Store:
         connection = sqlite3.connect(path.absolute().as_uri() + ("?mode=rw" if writable else "?mode=ro"), uri=True, isolation_level=None)
         connection.row_factory = sqlite3.Row
         try:
-            if connection.execute("PRAGMA user_version").fetchone()[0] != 2:
+            if writable and connection.execute("PRAGMA user_version").fetchone()[0] != 2:
                 raise ValueError(f"unsupported action store version: {path}")
             if writable:
                 connection.execute("PRAGMA synchronous = FULL")
@@ -594,12 +594,6 @@ class Store:
         if existing is not None:
             bound, connection = existing
             if bound == identity:
-                try:
-                    if connection.execute("PRAGMA user_version").fetchone()[0] != 2:
-                        raise ValueError(f"unsupported action store version: {path}")
-                except BaseException:
-                    connection.close()
-                    raise
                 connections[path] = existing
                 return connection
             connection.close()
@@ -622,6 +616,8 @@ class Store:
         try:
             connection.execute("BEGIN")
             try:
+                if connection.execute("PRAGMA user_version").fetchone()[0] != 2:
+                    raise ValueError(f"unsupported action store version: {path}")
                 yield connection
             finally:
                 connection.execute("ROLLBACK")

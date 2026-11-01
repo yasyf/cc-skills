@@ -20,6 +20,7 @@ on:
       - "plugins/long-running/skills/long-running/scripts/long_running/sqlite_store.py"
       - "plugins/long-running/tests/test_reader_working_set.py"
       - "plugins/long-running/tests/test_sqlite_action_store.py"
+      - "plugins/long-running/tests/test_reader_validation_snapshot.py"
       - "plugins/long-running/tests/test_admission_direct_merge_cost.py"
       - "plugins/long-running/tests/test_merge_wait_fact_cost.py"
       - "plugins/long-running/tests/merge_waits_old_writer_integration.py"
@@ -59,6 +60,34 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
+      - uses: actions/checkout@v7
+        with:
+          ref: 91c856f8556b4462bb57ca215d34fef8254a92d9
+          path: .ci-reader-validation-baseline
+          persist-credentials: false
+      - name: Immutable reader validation snapshot negative control
+        shell: bash
+        run: |
+          baseline=.ci-reader-validation-baseline/plugins/long-running
+          test "$(git -C .ci-reader-validation-baseline rev-parse HEAD)" = 91c856f8556b4462bb57ca215d34fef8254a92d9
+          cp plugins/long-running/tests/test_reader_validation_snapshot.py "$baseline/tests/test_reader_validation_snapshot.py"
+          negative="$RUNNER_TEMP/reader-validation-old.log"
+          if uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_reader_validation_snapshot.py::test_every_reader_validation_uses_the_requested_snapshot[fact-scoped-32]" -q -s >"$negative" 2>&1; then
+            cat "$negative"
+            exit 1
+          fi
+          cat "$negative"
+          grep -F 'reader validation opened 32 implicit snapshots' "$negative"
+          grep -F '1 failed' "$negative"
+      - name: Reader validation snapshot semantics and costs
+        shell: bash
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_reader_validation_snapshot.py plugins/long-running/tests/test_sqlite_action_store.py -q -s --junitxml="$RUNNER_TEMP/reader-validation-current.xml" | tee "$RUNNER_TEMP/reader-validation-current.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: reader-validation-${{ runner.os }}
+          path: ${{ runner.temp }}/reader-validation-*
+          if-no-files-found: error
       - uses: actions/checkout@v7
         with:
           ref: 05c2ec4e237c066c76ce3f90ad1e3d2d20db3dd0
