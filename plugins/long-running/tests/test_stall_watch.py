@@ -1632,3 +1632,13 @@ def test_a_green_head_with_roots_tap_required_go_and_no_board_row_pages_the_boar
     stale = [topic for topic in shell.topics() if topic.startswith("stale:101")]
     assert stale and "root posts `go #101" not in shell.post(stale[0])["text"]
     assert "| owner board-refresher-6 | put the merge row for #101 at abc1234 on the owner's board" in shell.post(stale[0])["text"]
+
+
+def test_a_stall_first_named_on_an_earlier_day_names_that_date_so_cci_never_reads_its_clock_as_ahead(config):
+    """Root #290304: carry:45861 said `first named 12:53 PM` of Oct 31 at 11:54 AM Nov 1, cci refused it as 59 minutes ahead, and the pass exited 1."""
+    ready = record(2, "api-lane", "report", f"[101] clean READY #101 at {HEAD[:10]}", 23 * 60 + 30, "101")
+    shell = FakeShell([ready, fidelity(3, "101", HEAD, 1)], [row("101", test_state="pending")])
+
+    watch(shell, config)
+
+    assert "no finder review names this head, first named 1:30 PM Oct 26 in #2" in shell.post("finder:101:abc1234")["text"]
