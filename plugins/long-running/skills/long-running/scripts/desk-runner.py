@@ -4765,7 +4765,7 @@ class Runner:
         return True
 
     def root_settled(self, repo: str, pr: str, named: list[dict]) -> dict[str, int]:
-        """Each finder or fidelity record of `named` root settled, keyed by its seq, with the oldest record that settled it: a root `decide` naming it by `--re` or `--resolves`, or one about `pr` that says settled and came after it (root #182456), or the first root `go` or `decide` about `pr` after a lane's `accept` answer naming it by `--re` (root #273671)."""
+        """Each finder or fidelity record of `named` root settled, keyed by its seq, with the oldest record that settled it: a root `decide` naming it by `--re` or `--resolves`, or one about `pr` that says settled and came after it (root #182456), or a `finder-override` or finder clear naming its head (root #278140), or the first root `go` or `decide` about `pr` after a lane's `accept` answer naming it by `--re` (root #273671)."""
         if not (seqs := {record["seq"] for record in named}):
             return {}
         drive_id = self.config.drive
@@ -4775,7 +4775,8 @@ class Runner:
                 continue
             named_by = ({decide.get("re")} | cci.resolved(decide)) & seqs
             said = {seq for seq in seqs if seq < decide["seq"]} if "settled" in decide["text"].casefold() and about_pr(decide, repo, pr) else set()
-            settled |= {str(seq): decide["seq"] for seq in named_by | said if str(seq) not in settled}
+            overridden = {record["seq"] for record in named if record["text"].startswith("finder:") and root_settles_finder([decide], pr, graded_head(record["text"]), record)}
+            settled |= {str(seq): decide["seq"] for seq in named_by | said | overridden if str(seq) not in settled}
         accepted = [answer for answer in cci.records(self.cci_tail, drive_id, "--kind=answer", "--pr", f"{repo}#{pr}") if answer["drive"] == drive_id and answer.get("re") in seqs and ACCEPTED.match(answer["text"])]
         if not accepted:
             return settled

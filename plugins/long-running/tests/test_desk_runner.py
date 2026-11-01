@@ -14260,6 +14260,22 @@ def test_a_finder_job_carries_each_finder_record_a_root_decide_settled(shell, co
     assert job["settled"] == {str(first): decides[0], str(carried): decides[1]} and str(later) not in job["settled"]
 
 
+def test_a_root_finder_override_at_the_graded_head_settles_the_finder_record_it_answers_through_an_ask(shell, config):
+    """#278140: root #273645 read `finder-override #46541 at 833b8ea: #161197, #273483` resolving the lane's ask, never the finder record, so the restack carried the major unsettled."""
+    finder_config(config)
+    orca_pass(shell, config)
+    major = finder_review(shell, "44114", f"finder: major {FINDER_OLD} 1 open over whole {FINDER_OLD[:7]}^..{FINDER_OLD[:7]}: go/a.go:1 drops a write", lane="finder-desk")
+    ask = 149000 + len(shell.records)
+    shell.records.append({"seq": ask, "drive": "d1", "lane": "p8b-step10", "kind": "ask", "to": ["root"], "re": major, "refs": {"prs": ["Forge-AI/monorepo#44114"]}, "text": f"finder-override #44114 at {FINDER_OLD[:7]}?", "at": actions.stamp(shell.clock)})
+    decide = 149000 + len(shell.records)
+    shell.records.append({"seq": decide, "drive": "d1", "lane": "root", "kind": "decide", "to": ["finder-desk"], "re": ask, "resolves": ask, "refs": {"prs": ["Forge-AI/monorepo#44114"]}, "text": f"8:39 PM finder-override #44114 at {FINDER_OLD[:7]}: #{major}. The write is dropped on purpose.", "at": actions.stamp(shell.clock)})
+    later = finder_review(shell, "44114", f"finder: major {FINDER_OLD[:7]} 1 open over delta: go/b.go:2 a new finding", lane="finder-desk")
+    head_record(shell, "44114", FINDER_HEAD)
+    orca_pass(shell, config)
+    [job] = finder_jobs(shell)
+    assert job["settled"] == {str(major): decide} and str(later) not in job["settled"]
+
+
 def test_a_lanes_accept_answer_settles_its_record_once_a_later_root_go_stands_on_it(shell, config):
     finder_config(config)
     orca_pass(shell, config)
