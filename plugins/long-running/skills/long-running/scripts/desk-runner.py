@@ -8734,52 +8734,58 @@ class Landing:
 
     def unqueued_gos(self, rows: dict[str, dict], held: list[str]) -> None:
         """While Graphite is down nothing enters its queue, so nothing is logged (root #197652). Otherwise, escalate `GO-UNQUEUED` once per head and stack for the lowest open, green, unheld PR of each stack a root `go` names at its ledger head that the pass's queue read still finds out of the queue five minutes after that go, and whose newest enqueue since the go does not show it QUEUED at that head (#185418), or after the fidelity grade that carried it to that head, naming the stack's bottom and the gone PRs above that wait on it (root #151213), whoever enqueued it, unless the adapter's own queue status reads it queued, such as Graphite's `WAITING_TO_MERGE` on a child whose base is still `graphite-base/<n>` (#194272), naming what the review bot's newest `ai-review` run on that head says when it holds the PR or waits for a restack push (root #154137), else the reserved rows below or at it that this runner's check-pr reads still wait on his tap, else the outcome of the newest enqueue at that head accepted since the go, so an attempt that ran before the go never reads as the reason. A head stacked on a parent no go names, one a hold covers, or one red on CI or conflicting with its base, is left to `refuse_ungone_parents`' one `BELOW-BLOCKED` or `BELOW-HELD` note per stack (root #142036, #142931, #145011)."""
-        if self.down_since():
-            return
-        queued = {pr for prs in self.believed_queued(rows).values() for pr in prs}
-        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
-        now = self.runner.now()
-        stuck: dict[str, list[tuple[int, str, str, list[dict], datetime, str]]] = {}
-        for pr, row in rows.items():
-            head = row.get("head", "")
-            if row.get("state", "open") != "open" or row.get("test_state") != "success" or pr in queued or pr in held or not head or (stack := downstack(open_rows, pr)) - {pr} & self.below_blocking:
-                continue
-            if not (gos := self.head_gos(pr, head)) or now - (at := min(max(actions.parse_stamp(go["at"]), actions.parse_stamp(go.get("graded_at") or go["at"])) for go in gos)) < GO_TO_QUEUE:
-                continue
-            if (queue := self.queue_states()) is None or queue.get(pr) not in OUT_OF_QUEUE or self.refused_at_head(stack, open_rows):
-                continue
-            tried = sorted((action for action in self.book.actions(LANDING, kind="enqueue") if head.startswith(enqueued_heads(action.action_id).get(pr) or "-") and actions.parse_stamp(action.accepted_at) >= at), key=lambda action: action.accepted_at)
-            bot = self.review_bot(pr, head, row)
-            evicted = (self.pr_statuses() or {}).get(pr, {}) if queue.get(pr) == "evicted" else {}
-            if not evicted and (not tried or (tried[-1].response or {}).get("outcome") not in GO_UNQUEUED_OUTCOMES):
-                continue
-            if not evicted and any(match["pr"] == pr and match["verdict"] == QUEUED_VERDICT and head.startswith(match["sha"]) for match in merge_queue.VERDICT_LINE.finditer(tried[-1].response.get("out", ""))):
-                continue
-            reserved = [(f"{reserved_row(line)[0]} on #{below}", below) for below in sorted(downstack(open_rows, pr), key=int) if (kept := self.reported.get((below, open_rows[below].get("head", "")[:7], False))) for line in kept[1] if cause(line) == RESERVED_TOUCH]
-            if bot:
-                why = bot
-            elif reserved:
-                board = self.owner_board()
-                why = f"a go never authorizes a reserved row (C224), so it waits on the owner's tap authorizing {', '.join(row for row, _ in reserved)}: {' / '.join(self.owner_state(below, board) for below in dict.fromkeys(below for _, below in reserved))}"
-            elif evicted:
-                after = f" after its newest enqueue since the go ({tried[-1].response['outcome']})" if tried else ", and no enqueue ran since the go"
-                why = f"the queue let it go at {evicted.get('evicted_at') or 'an unstamped time'}{after}: {evicted.get('evicted') or 'no reason given'}"
-            else:
-                why = f"its newest enqueue since the go ended {tried[-1].response['outcome']}: {' '.join(tried[-1].response.get('out', '').split())[-300:]}"
-            bottom = min(stack, key=lambda member: len(downstack(open_rows, member)))
-            stuck.setdefault(bottom, []).append((len(stack), pr, head, gos, at, why))
-        unsure = sorted({member[1] for group in stuck.values() for member in group if (self.queue_states() or {}).get(member[1]) != "evicted"}, key=int)
-        graphite = (self.adapter.queued(unsure) if unsure else None) or {}
-        for bottom, group in stuck.items():
-            if not (group := [member for member in group if not graphite.get(member[1])]):
-                continue
-            _, pr, head, gos, at, why = min(group)
-            owner = self.owner(pr, open_rows[pr]) or ROOT
-            above = [f"#{other}" for _, other, *_ in sorted(group) if other != pr]
-            waits = f"; {', '.join(above)} above it in the stack from #{bottom} wait on it too" if above else ""
-            key, subject = f"go-unqueued:{pr}@{head}", f"go-unqueued:{pr}"
-            to = self.go_audience([pr], rows)
-            self.runner.escalate(key, "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and {go_state(self.root_gos(), pr, head).said()} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}{waits}; owner lane {owner}", subject, to)
+        with self.book.store.reading():
+            if self.down_since():
+                return
+            queued = {pr for prs in self.believed_queued(rows).values() for pr in prs}
+            open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
+            now = self.runner.now()
+            stuck: dict[str, list[tuple[int, str, str, list[dict], datetime, str]]] = {}
+            refusals = None
+            for pr, row in rows.items():
+                head = row.get("head", "")
+                if row.get("state", "open") != "open" or row.get("test_state") != "success" or pr in queued or pr in held or not head or (stack := downstack(open_rows, pr)) - {pr} & self.below_blocking:
+                    continue
+                if not (gos := self.head_gos(pr, head)) or now - (at := min(max(actions.parse_stamp(go["at"]), actions.parse_stamp(go.get("graded_at") or go["at"])) for go in gos)) < GO_TO_QUEUE:
+                    continue
+                if (queue := self.queue_states()) is None or queue.get(pr) not in OUT_OF_QUEUE:
+                    continue
+                if refusals is None or not self.book.store.unchanged(LANDING, refusals[1]):
+                    refusals = self.book.actions_with_version(LANDING, kind="bus")
+                if next(refused_members(refusals[0], stack, open_rows), None) is not None:
+                    continue
+                tried = sorted((action for action in self.book.actions(LANDING, kind="enqueue") if head.startswith(enqueued_heads(action.action_id).get(pr) or "-") and actions.parse_stamp(action.accepted_at) >= at), key=lambda action: action.accepted_at)
+                bot = self.review_bot(pr, head, row)
+                evicted = (self.pr_statuses() or {}).get(pr, {}) if queue.get(pr) == "evicted" else {}
+                if not evicted and (not tried or (tried[-1].response or {}).get("outcome") not in GO_UNQUEUED_OUTCOMES):
+                    continue
+                if not evicted and any(match["pr"] == pr and match["verdict"] == QUEUED_VERDICT and head.startswith(match["sha"]) for match in merge_queue.VERDICT_LINE.finditer(tried[-1].response.get("out", ""))):
+                    continue
+                reserved = [(f"{reserved_row(line)[0]} on #{below}", below) for below in sorted(downstack(open_rows, pr), key=int) if (kept := self.reported.get((below, open_rows[below].get("head", "")[:7], False))) for line in kept[1] if cause(line) == RESERVED_TOUCH]
+                if bot:
+                    why = bot
+                elif reserved:
+                    board = self.owner_board()
+                    why = f"a go never authorizes a reserved row (C224), so it waits on the owner's tap authorizing {', '.join(row for row, _ in reserved)}: {' / '.join(self.owner_state(below, board) for below in dict.fromkeys(below for _, below in reserved))}"
+                elif evicted:
+                    after = f" after its newest enqueue since the go ({tried[-1].response['outcome']})" if tried else ", and no enqueue ran since the go"
+                    why = f"the queue let it go at {evicted.get('evicted_at') or 'an unstamped time'}{after}: {evicted.get('evicted') or 'no reason given'}"
+                else:
+                    why = f"its newest enqueue since the go ended {tried[-1].response['outcome']}: {' '.join(tried[-1].response.get('out', '').split())[-300:]}"
+                bottom = min(stack, key=lambda member: len(downstack(open_rows, member)))
+                stuck.setdefault(bottom, []).append((len(stack), pr, head, gos, at, why))
+            unsure = sorted({member[1] for group in stuck.values() for member in group if (self.queue_states() or {}).get(member[1]) != "evicted"}, key=int)
+            graphite = (self.adapter.queued(unsure) if unsure else None) or {}
+            for bottom, group in stuck.items():
+                if not (group := [member for member in group if not graphite.get(member[1])]):
+                    continue
+                _, pr, head, gos, at, why = min(group)
+                owner = self.owner(pr, open_rows[pr]) or ROOT
+                above = [f"#{other}" for _, other, *_ in sorted(group) if other != pr]
+                waits = f"; {', '.join(above)} above it in the stack from #{bottom} wait on it too" if above else ""
+                key, subject = f"go-unqueued:{pr}@{head}", f"go-unqueued:{pr}"
+                to = self.go_audience([pr], rows)
+                self.runner.escalate(key, "GO-UNQUEUED", f"#{pr}", f"#{pr} is green at {head[:10]} and {go_state(self.root_gos(), pr, head).said()} named it, yet it is not in the queue after {whole_minutes(at, now)} minutes; {why}{waits}; owner lane {owner}", subject, to)
 
     def admission(self, rows: dict[str, dict], held: list[str], statuses: dict[str, dict] | None) -> Settlement:
         """The pass's `Settlement`: each open row of the drive green at its ledger head, under no hold, neither merged directly by this runner nor read landed by the queue, that a root `go` or an exemption names at that head, since it was both green and named, each settled `Queued` when the queue read holds it."""
