@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/design-doc.html + 16 partials sha256:2dd473e9bdb5 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/design-doc.html + 16 partials sha256:edf75ffab425 — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -3577,7 +3577,7 @@ termify($("#main"));
 const COMPONENTS=R.components||{};
 const sysdSvg=()=>$("#sysdHost svg.mmd");
 // @requires COMPONENTS,REF,SVGNS,clearHl,handleOf,heroInit,hlTarget,mdRef,mermaidJob,plain,refChip,setAspect,sysdSvg,wireFullSize,$,el,esc,inline,mdToHtml
-// @defines DD_KINDS,DD_MD,FLOW_LEGEND,FX_CALL_GAP,FX_CALL_H2,FX_COL_H,FX_CONN,FX_GAP,FX_LEG_H,FX_PAD,FX_PADX,LN_BOX_GAP,LN_BOX_H,LN_BOX_H2,LN_BRIDGE_MIN,LN_EYE,LN_FPAD,LN_GAP,LN_MINW,LN_NARROW,LN_ONE_COL,ROUGH_LIB,SVG_ATTRS,SVG_CSS_BAN,SVG_TAGS,SYSMAP_LIB,TEXT_W,TL_PILL,WI_FNS,WI_TOKEN,afterFonts,boxH,callH,callW,cmptBeforeAfter,cmptFigMd,cmptFigure,cmptFlow,cmptFrame,cmptLanes,cmptMatrix,cmptSteps,cmptSystem,cmptTabs,cmptTimeline,cmptWhatIf,flowBy,flowLabel,flowSub,flowSvg,flowTopics,fxCanvas,fxFonts,fxLabelled,fxMarker,fxMeasure,fxMount,fxNum,fxSvg,fxText,fxUid,lanesLabel,lanesSvg,mountedComponents,resetSystemMaps,safeSvg,stackH,systemMd,textWidth,trimZeros,whatifEval,whatifParse,whatifTokens,wiNum,wiUnit
+// @defines ARCH_LIB,DD_KINDS,DD_MD,FLOW_LEGEND,FX_CALL_GAP,FX_CALL_H2,FX_COL_H,FX_CONN,FX_GAP,FX_LEG_H,FX_PAD,FX_PADX,LN_BOX_GAP,LN_BOX_H,LN_BOX_H2,LN_BRIDGE_MIN,LN_EYE,LN_FPAD,LN_GAP,LN_MINW,LN_NARROW,LN_ONE_COL,ROUGH_LIB,SVG_ATTRS,SVG_CSS_BAN,SVG_TAGS,SYSMAP_LIB,TEXT_W,TL_PILL,WI_FNS,WI_TOKEN,afterFonts,boxH,callH,callW,cmptArch,cmptBeforeAfter,cmptFigMd,cmptFigure,cmptFlow,cmptFrame,cmptLanes,cmptMatrix,cmptSteps,cmptSystem,cmptTabs,cmptTimeline,cmptWhatIf,flowBy,flowLabel,flowSub,flowSvg,flowTopics,fxCanvas,fxFonts,fxLabelled,fxMarker,fxMeasure,fxMount,fxNum,fxSvg,fxText,fxUid,lanesLabel,lanesSvg,mountedComponents,resetSystemMaps,safeSvg,stackH,systemMd,textWidth,trimZeros,whatifEval,whatifParse,whatifTokens,wiNum,wiUnit
 const WI_TOKEN=/[0-9]*\.?[0-9]+|[A-Za-z_][A-Za-z0-9_]*|[-+*/(),]|\s+/g;
 const WI_FNS={min:Math.min,max:Math.max};
 function whatifTokens(src){
@@ -4046,7 +4046,7 @@ function cmptLanes(spec,host){
  }).observe(host);
  return box;
 }
-const SYSMAP_LIB="https://cdn.jsdelivr.net/gh/yasyf/cc-present@v0.45.2/plugin/.claude/components/display/src/system-map.min.js";
+const SYSMAP_LIB="https://cdn.jsdelivr.net/gh/yasyf/cc-present@v0.53.0/plugin/.claude/components/display/src/system-map.min.js";
 const ROUGH_LIB="https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.esm.js";
 function cmptSystem(spec,host,jobs){
  const box=el("div","ddc-system");
@@ -4060,6 +4060,25 @@ function cmptSystem(spec,host,jobs){
  },e=>{
   console.error(`system map '${id}' did not load: ${e.message}`);
   throw new Error("the system map needs a network connection to load from cdn.jsdelivr.net");
+ }));
+ return box;
+}
+const ARCH_LIB="https://cdn.jsdelivr.net/gh/yasyf/cc-present@v0.53.0/plugin/.claude/components/display/src/arch-map.min.js";
+function cmptArch(spec,host,jobs){
+ const box=el("div","ddc-system");
+ const id=host.dataset.component;
+ const doc=fetch(new URL(spec.src,document.baseURI)).then(r=>{
+  if(!r.ok)throw new Error(`${spec.src} answered ${r.status}`);
+  return r.json();
+ });
+ jobs.push(Promise.all([import(ARCH_LIB),doc]).then(([lib,d])=>{
+  const handle=lib.mount(box,d,{fill:spec.fill===true,state:spec.focus?{focus:spec.focus}:undefined});
+  if(!handle.problems.length)return;
+  handle.problems.forEach(p=>console.error(`architecture doc '${id}': ${p}`));
+  throw new Error(`architecture doc '${id}' has ${handle.problems.length} problem(s)`);
+ },e=>{
+  console.error(`architecture doc '${id}' did not load: ${e.message}`);
+  throw new Error(`the architecture doc needs a network connection to load ${spec.src} and cdn.jsdelivr.net`);
  }));
  return box;
 }
@@ -4099,7 +4118,7 @@ function systemMd(spec,L){
  }
  if((spec.notes||[]).length){
   L.push("\n_Notes_\n");
-  spec.notes.forEach(n=>L.push(`- **${name[n.on]}**: ${plain(n.text)}`));
+  spec.notes.forEach(n=>L.push(`- **${n.on?name[n.on]:`${name[n.link.from]} to ${name[n.link.to]}`}**: ${plain(n.text)}`));
  }
  L.push("");
 }
@@ -4111,7 +4130,7 @@ function mountedComponents(){
   .map(h=>[h,COMPONENTS[h.dataset.component],h.dataset.component])
   .filter(([,spec])=>spec);
 }
-const DD_KINDS={"dd.tabs":cmptTabs,"dd.before-after":cmptBeforeAfter,"dd.whatif":cmptWhatIf,"dd.steps":cmptSteps,"dd.timeline":cmptTimeline,"dd.matrix":cmptMatrix,"dd.flow":cmptFlow,"dd.lanes":cmptLanes,"dd.system":cmptSystem};
+const DD_KINDS={"dd.tabs":cmptTabs,"dd.before-after":cmptBeforeAfter,"dd.whatif":cmptWhatIf,"dd.steps":cmptSteps,"dd.timeline":cmptTimeline,"dd.matrix":cmptMatrix,"dd.flow":cmptFlow,"dd.lanes":cmptLanes,"dd.system":cmptSystem,"dd.arch":cmptArch};
 const DD_MD={
  "dd.tabs":(spec,L)=>spec.tabs.forEach(t=>{
   L.push(`_${plain(t.label)}_\n`);
@@ -4157,6 +4176,7 @@ const DD_MD={
   L.push("");
  }),
  "dd.system":systemMd,
+ "dd.arch":(spec,L)=>L.push(`[The architecture doc](${spec.src})${spec.focus?`, zoomed into ${plain(spec.focus)}`:""}\n`),
 };
 const CMPT_KINDS={...DD_KINDS};
 const CMPT_MD={...DD_MD};

@@ -193,6 +193,7 @@ Every panel has a figure, and every figure is drawn for this design: a diagram o
 - Mermaid (`<pre class="mermaid">`) for flows and request paths.
 - `dd.flow` or `dd.lanes`, from the Components table, for the compare panel.
 - `dd.system`, the hand-drawn system map, for a thesis or compare panel whose story is a running system: where a request goes, what it waits for, and what happens on a retry or a crash.
+- `dd.arch` when the system already has a published architecture doc: embed it by its `arch.json` rather than drawing a second map of the same system.
 - The poster primitives (`.xs-lane`, `.xs-node`, `.xs-group`, `.xs-connect`, `.xs-legend`) for object hierarchies and today-versus-next structure on a poster.
 - Inline SVG when none fits.
 
@@ -219,6 +220,7 @@ A figure moves when a number or a sequence earns it: a number the reader would w
 | stages in columns, with what each one leaks or fixes hanging off it | `dd.flow` | the compare panel of a change whose story is where the path breaks |
 | today beside proposed, as two stacks of boxes | `dd.lanes` | the compare panel of a change whose story is which parts change |
 | a running system: its processes and stores, the path a request takes, other journeys to walk, and blocks a reader opens to see their parts | `dd.system` | the thesis panel in place of the Mermaid hero; a compare panel; an arch card |
+| a system that already has a published architecture doc, at every zoom level | `dd.arch` | the thesis panel or an arch card, in place of a second map of the same system |
 
 `dd.flow`, `dd.lanes`, and `dd.system` are figures that lay themselves out, not widgets, so they sit outside the one-or-two ceiling above. A doc with a compare panel has one of them, plus one or two of the others where a number or a sequence earns it.
 
