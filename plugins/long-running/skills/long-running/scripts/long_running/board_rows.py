@@ -23,7 +23,7 @@ fails, with one line `<row-id> <pr> <head> <reasons>`, when:
     renamed   the board's outcomes record a verdict on another id for its PR that this push drops,
               none on this id, and no root record that re-keys names this id or its head; a
               `pr-groups` row clears it by `cc-present verdict import` at the head the owner tapped
-    approved  a `go` from root, or from a lane the config's `landing.go_lanes` names, names the PR at its head, no root `withdraw` closes that go, and the board
+    approved  a `go` from root, or from a lane the config's `landing.go_lanes` names, names the PR at its head with no `TAP-REQUIRED` or `TAP-CARRIED` condition, no root `withdraw` closes that go, and the board
               records no approval for the row at that head, so the row asks a tap he already gave;
               listing his approved head in the row's `carried` list (root #139021), `cc-present verdict
               import` at the head, or dropping the row clears it
@@ -53,7 +53,7 @@ checked as at any other time. A topic that does not read prints a `WARN` line an
 A markdown block of the pushed document that lists a PR as a `- #<pr>:` bullet fails as
 `<block>#<pr>`, with `listed`, when GitHub shows that PR merged or closed: a landed PR leaves every
 list the owner reads in the same push. In a markdown block whose id says `approved`, an open listed
-PR also fails, with `unapproved`, when neither a standing root go nor his board approval, a carry
+PR also fails, with `unapproved`, when neither a standing root go with no tap condition nor his board approval, a carry
 included, names its GitHub head, or when no fidelity grade names that head.
 
 A row asks a tap only once a fidelity lane graded its head and its own words settle it: a row
@@ -112,6 +112,7 @@ LABEL_NUMBER = re.compile(r"^#\d+:\s*")
 SAVED_FINDER = re.compile(r"^(?P<pr>\d+)-(?P<sha>[0-9a-f]{7,40})\.md$")
 FINDERS = "finders"
 RULING_KINDS = cci.ROOT_ANSWER_KINDS | {"answer"}
+TAP_GO = re.compile(r"\bTAP-(?:REQUIRED|CARRIED)\b")
 TAP_VERDICT = re.compile(r"^(?P<label>TAP-NOT-CARRIED|TAP-KEPT) #(?P<pr>\d+): the owner's tap at (?P<tapped>[0-9a-f]{7,40}) .*? carry to (?P<head>[0-9a-f]{7,40})\b")
 REKEY = re.compile(r"\bre-?keys?\b|\bre-?keyed\b", re.IGNORECASE)
 ONE_TAP = re.compile(r"\bone tap\b[^.]*?\bapprov(?:es|e)\b|\bapprov(?:es|e) (?:all|both|every)\b(?: (?:\d+|two|three|four|five|six|seven|eight|nine|ten))?", re.IGNORECASE)
@@ -423,7 +424,7 @@ def at_head(entry: dict | None, verdict: str, head: str) -> bool:
 
 
 def standing_gos(rulings: list[dict], withdrawn: set[int], pr: str, head: str) -> list[dict]:
-    return grades.gone_at([record for record in rulings if record["kind"] == "go" and record["seq"] not in withdrawn], pr, head)
+    return grades.gone_at([record for record in rulings if record["kind"] == "go" and record["seq"] not in withdrawn and not TAP_GO.search(record["full"])], pr, head)
 
 
 def tap_reasons(row: Row, entry: dict | None, gos: list[dict], taps: list[dict]) -> list[str]:

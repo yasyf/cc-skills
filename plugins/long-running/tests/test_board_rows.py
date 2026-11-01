@@ -481,6 +481,19 @@ def test_a_root_withdraw_naming_the_go_in_its_text_clears_the_approval_check(tmp
     assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 0
 
 
+@pytest.mark.parametrize("condition", ["[TAP-REQUIRED; signal stack restacked onto dev]", "TAP-CARRIED: the owner's tap at 1a2b3c4 carries to it"])
+def test_a_go_conditioned_on_his_tap_is_no_approval(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], condition: str) -> None:
+    shell.post("go", "root", f"go #42590 at {HEAD[:7]} {condition}", "42590")
+    shell.pull("42740")
+    shell.graded("42740")
+    shell.post("go", "root", f"go #42740 at {HEAD[:7]} {condition}", "42740")
+    block = groups(pr_row("42590"))
+    block["children"].append({"id": "merge-approved-landing", "type": "markdown", "md": "- #42740: One writer per run."})
+
+    assert gate(tmp_path, shell, block, "--check") == 1
+    assert lines(capsys)[0] == f"merge-approved-landing#42740 42740 {HEAD[:7]} unapproved: listed under merge-approved-landing with no go, approval or carry at GitHub's head {HEAD[:7]}"
+
+
 @pytest.mark.parametrize(("verdict_head", "failing"), [(HEAD, 1), (NEW_HEAD, 0)])
 def test_a_row_he_rejected_at_its_head_fails_and_returns_at_a_new_head(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], verdict_head: str, failing: int) -> None:
     shell.verdicts = {"merge-prs": {"42590": rejected("42590", verdict_head)}}
