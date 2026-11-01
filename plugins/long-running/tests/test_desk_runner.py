@@ -3681,6 +3681,42 @@ def test_a_go_on_a_head_a_tap_rule_names_enqueues_only_on_the_owners_board_tap_a
     assert "root" in blocker["to"].split(",") and "; TAP-REQUIRED rule/82317b0: it lands only once the owner has tapped some head of it, and a root go is no tap; #29020 at cccc333: " in post_body(blocker)
 
 
+@pytest.mark.parametrize("tapped", [False, True], ids=["untapped", "tapped"])
+def test_a_go_whose_bracket_says_tap_required_anywhere_lands_only_on_the_owners_tap_whatever_files_it_changes(shell, config, tapped):
+    """Root #274478: go #274104 said `[TAP-REQUIRED; signal stack restacked onto dev 0c3c10b, ...]`, and the runner landed untapped #46752 at 9:10 PM."""
+    merge_mode(config, "every")
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    shell.board["merge-rows"] = {"29020": {"verdict": "approved", "head": "bbbb222222", "at": "2026-10-01T17:40:00Z"}} if tapped else {}
+    merge_go(shell, "29020", "9:09 PM go #29020 at cccc333 on green [TAP-REQUIRED; signal stack restacked onto dev 0c3c10b, green and approved at every head]")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    refusals = [post_body(post) for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    if tapped:
+        assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and refusals == []
+        return
+    assert shell.enqueues() == []
+    [refusal] = refusals
+    assert f"; TAP-REQUIRED go cci #{shell.records[-1]['seq']}: it lands only once the owner has tapped some head of it, and a root go is no tap; " in refusal
+
+
+@pytest.mark.parametrize(("bracket", "lands"), [("[direct tap at head]", False), ("[TAP-KEPT: his tap at bbbb222; a review fix]", True), ("[TAP-CARRIED from bbbb222, conflict-only rebase]", True), ("[exempt: CI-only, the delete-list check]", True)])
+def test_a_go_bracket_the_runner_cannot_read_as_a_condition_refuses_the_pr_with_the_bracket_quoted(shell, config, bracket, lands):
+    merge_mode(config, "every")
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    merge_go(shell, "29020", f"go #29020 at cccc333 on green {bracket}")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    unparsed = [post_body(post) for post in blockers(shell) if "GO-UNPARSED" in post_body(post)]
+    if lands:
+        assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and unparsed == []
+        return
+    assert shell.enqueues() == []
+    [refusal] = unparsed
+    assert f"GO-UNPARSED go cci #{shell.records[-1]['seq']} says {bracket}, which names no condition the runner reads" in refusal
+
+
 @pytest.mark.parametrize(
     ("graded", "go", "admitted"),
     [

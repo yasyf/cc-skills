@@ -46,6 +46,7 @@ GO_PAIR = r"#\d+\s+at\s+[0-9a-f]{7,40}\b"
 GO_CLAUSE = re.compile(rf"(?:^\s*(?:\d{{1,2}}:\d{{2}}\s*[AP]M\s+)?|[.:;!?]\s+)(?:go(?:\s+(?:port|test-only|ci-only))?|merge)\s+({GO_PAIR}(?:(?:\s*,\s*|\s*,?\s+and\s+){GO_PAIR})*)(?:\s+with\s+(#\d+(?:(?:\s*,\s*|\s*,?\s+and\s+|\s+)#\d+)*))?", re.IGNORECASE)
 GO_EXEMPT = re.compile(r"\bgo\s+(port|test-only|ci-only)\b|\bpure (port)\b|\b((?:test|ci)-only)\b", re.IGNORECASE)
 GO_HEAD = re.compile(r"#(\d+)\s+at\s+([0-9a-f]{7,40})\b", re.IGNORECASE)
+GO_BRACKET = re.compile(r"\[[^\]]*\]")
 GO_KINDS = frozenset({"go", "decide", "decision"})
 GO_KIND_FLAGS = tuple(f"--kind={kind}" for kind in sorted(GO_KINDS))
 PRECONDITION = re.compile(r"\b(?:lands?|merges?) only after\b|\bbefore it (?:lands|merges)\b|\bdo not (?:land|merge) until\b|\bnot for landing\b", re.IGNORECASE)
@@ -202,10 +203,11 @@ def carried_gos(gos: list[dict], grades: list[dict], repo: str, lands: Callable[
 
 
 def carried_go(source: dict, pr: str, head: str, graded_at: str) -> dict:
-    """The go `source` makes for `pr` at `head` once a grade posted at `graded_at` carried it there, keeping its exempt word and the PRs it binds `pr` with."""
+    """The go `source` makes for `pr` at `head` once a grade posted at `graded_at` carried it there, keeping its exempt word, its bracketed conditions and the PRs it binds `pr` with."""
     bound = " ".join(f"#{mate}" for mate in sorted(go_batch(source) - {pr}, key=int))
     exempt = f"{next(filter(None, said.groups())).lower()} " if (said := GO_EXEMPT.search(source["text"])) else ""
-    return {"seq": source["seq"], "at": source["at"], "drive": source["drive"], "lane": source["lane"], "kind": "go", "text": f"go {exempt}#{pr} at {head}" + (f" with {bound}" if bound else ""), "refs": {"prs": [int(pr)]}, "voided": set(), "graded_at": graded_at}
+    brackets = "".join(f" {bracket}" for bracket in GO_BRACKET.findall(full_text(source)))
+    return {"seq": source["seq"], "at": source["at"], "drive": source["drive"], "lane": source["lane"], "kind": "go", "text": f"go {exempt}#{pr} at {head}" + (f" with {bound}" if bound else "") + brackets, "refs": {"prs": [int(pr)]}, "voided": set(), "graded_at": graded_at}
 
 
 def fidelity_carries(grades: list[dict]) -> list[tuple[str, str]]:
