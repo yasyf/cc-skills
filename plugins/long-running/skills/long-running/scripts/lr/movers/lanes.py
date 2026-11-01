@@ -166,9 +166,11 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
         lane, at = record["lane"], at_of(record)
         if found := spawned(record):
             name, brief, model, effort, role = found
-            for old in store.lanes(*LIVE):
+            for old in store.all_lanes():
                 if succeeds(name, old.name):
-                    retire(store, old.name, name, at)
+                    store.own(name, old.prs)
+                    if old.state in LIVE or not store.lane(old.retired_by or ""):
+                        retire(store, old.name, name, at)
             if (mine := store.lane(name)) and mine.state == "launching" and mine.reason and Path(brief).resolve() != (briefs / f"{name}.brief.md").resolve():
                 hand.append(name)
             if live is None or name in live:
@@ -222,8 +224,8 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             retire(store, lane, "stand-down", at)
         elif kind == "stand-down" and lane == ROOT:
             successor = attrs_of(record).get("successor")
-            named = {name for listed in STAND_DOWN_LIST.finditer(text) for name in re.findall(r"[\w.-]+", listed["names"])}
-            for old in sorted({*(record.get("to") or []), *named} - {successor}):
+            named = {name for listed in STAND_DOWN_LIST.finditer(text) for name in re.findall(r"[\w.-]+", listed["names"]) if store.lane(name)}
+            for old in sorted((named or set(record.get("to") or [])) - {successor}):
                 if (gone := store.lane(old)) and gone.state != "retired":
                     retire(store, old, successor or ROOT, at)
                     if successor:
