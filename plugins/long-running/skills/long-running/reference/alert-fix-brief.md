@@ -41,7 +41,16 @@ Telemetry, never the reporter. Read what the platform already records about thei
   records it, such as the client version on every request.
 
 Do:
-  0. NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release
+  0. SCOPE FIRST. Your first record, before the mechanism, answers two
+     questions, kind `incident`: `SCOPE {lane}: active <yes|no: customer runs
+     failing now, from telemetry>; plan keeps path <yes|no: the step of the
+     drive's plan in cc-notes that keeps or deletes this path past its next
+     milestone>`. A no to either ends incident mode: no release, no break-glass
+     apply, no new lane. Post `STOPPED {lane}: out of scope, <the answer that
+     is no, and why>` and leave any candidate as an ordinary PR. A fix that
+     grows into a redesign of a path the plan deletes is the signal to stop,
+     never a reason to widen the fix.
+     NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release
      through the walker. The fence holds only other releases of the target, never
      the fix.
      No brief, lane, or exception grants a rollback or a revert. One runs only when

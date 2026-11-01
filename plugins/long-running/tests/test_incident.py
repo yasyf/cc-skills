@@ -508,7 +508,9 @@ def test_brief_writes_the_briefs_run_would_launch_and_prints_their_paths(store, 
         "Any repair pass or backfill runs on in-region EC2 (cc-notes e192288), never on",
         "A tooling failure gets a same-turn tooling lane plus the hand path; it never",
         "which component\n     served the failing request",
-        "0. NO ROLLBACK; find the mechanism and fix forward",
+        "0. SCOPE FIRST. Your first record, before the mechanism, answers two",
+        f"`STOPPED incident-{incident_id}-fix: out of scope, <the answer that\n     is no, and why>`",
+        "     NO ROLLBACK; find the mechanism and fix forward",
     ):
         assert fixed in fix
     assert not incident.PLACEHOLDER.search(fix + paths[1].read_text())

@@ -11651,7 +11651,7 @@ def test_an_incident_line_attaches_the_brief_to_the_briefs_log_and_launches_the_
     assert shell.entries == ["INCIDENT dd-312516332: fix brief for dd-312516332-fix: Datadog OK -> Alert Run assignment starved https://app.datadoghq.com/monitors/312516332"]
     text = brief.read_text()
     assert "Datadog OK -> Alert Run assignment starved" in text and "apply authority: 0 deletes and 0 replaces" in text
-    assert "  0. NO ROLLBACK; find the mechanism and fix forward;" in text and "Rollback first" not in text and "{" not in text
+    assert "  0. SCOPE FIRST." in text and "SCOPE dd-312516332-fix: active <yes|no:" in text and "     NO ROLLBACK; find the mechanism and fix forward;" in text and "Rollback first" not in text and "{" not in text
     assert "  - Reported 23:48 PT. The bar is fixed and live within 20 minutes of the\n    report, by 00:08 PT;" in text
     assert f"ccn -R {tmp_path / 'checkout'} attachment path briefs1 dd-312516332-evidence.md" in text
     assert not (tmp_path / "incidents").exists()
@@ -12951,11 +12951,12 @@ STANDING_ORDERS = """Standing orders, fixed in this template:
 
 
 @pytest.mark.parametrize("template", [runner_module.ALERT_TEMPLATE, runner_module.UNFIXED_TEMPLATE])
-def test_every_desk_incident_brief_template_carries_the_standing_orders_no_rollback_and_no_local_build(template):
+def test_every_desk_incident_brief_template_carries_the_standing_orders_scope_first_no_rollback_and_no_local_build(template):
     text = template.read_text()
     assert STANDING_ORDERS.format("{reported}", "{due}") in text
     assert "go build" not in text and "go vet" not in text and "typecheck otherwise" not in text
-    assert "  0. NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release\n" in text and "Rollback first" not in text
+    assert "  0. SCOPE FIRST. Your first record, before the mechanism, answers two\n" in text and "A no to either ends incident mode" in text
+    assert "     NO ROLLBACK; find the mechanism and fix forward; the fix ships as a new release\n" in text and "Rollback first" not in text
     assert "No brief, lane, or exception grants a rollback or a revert. One runs only when\n     the owner's own word names that act, after your diagnosis has found the issue" in text
     assert "2f6cdcf" not in text and "roll the target back" not in text
 
