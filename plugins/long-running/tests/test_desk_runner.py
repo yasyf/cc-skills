@@ -8121,6 +8121,32 @@ def test_an_admitted_pr_on_trunk_whose_branch_carries_another_open_prs_head_is_r
     assert "#33001" in line and "its branch carries #33002, which a squash would land with it; restack it onto dev" in line
 
 
+def test_a_landing_that_carried_open_prs_lists_every_one_from_its_commits_with_its_tap_and_grades(shell, config, tmp_path):
+    """Root #241554: Trunk's squash of #45799 carried nine PRs, and the hand-written card listed six, leaving out untapped #45470."""
+    board_surface(config)
+    shell.rows = [
+        {"pr": "33001", "lane": LANE, "branch": "g/1", "base": "dev", "head": "aaaa111111", "state": "open", "reported_head": "aaaa111111"},
+        {"pr": "33002", "lane": LANE, "branch": "g/0", "base": "dev", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222"},
+        {"pr": "33003", "lane": LANE, "branch": "h/0", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
+        {"pr": "33004", "lane": LANE, "branch": "k/0", "base": "dev", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
+    ]
+    shell.pr_commits |= {
+        "33001": ["eeee" + "5" * 36, "bbbb222222" + "0" * 30, "aaaa111111" + "0" * 30],
+        "33002": ["bbbb222222" + "0" * 30],
+        "33003": ["eeee" + "5" * 36, "cccc333333" + "0" * 30],
+        "33004": ["dddd444444" + "0" * 30],
+    }
+    tap(shell, "33002", "bbbb222222")
+    grade(shell, "33002", "ok F307 at bbbb222.")
+    landing_pass(shell, config)
+    shell.rows[0] |= {"state": "landed", "landed_sha": "f00d000001"}
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [report] = [post for post in shell.posts if post["kind"] == "report" and post["text"].startswith("CARRIED")]
+    assert report["to"] == "root"
+    assert report["text"] == "CARRIED #33001 landed as f00d000001 and carried #33002, #33003 into dev with it: #33002 at bbbb222222, tapped, fidelity ok, finder clear; #33003 at cccc333333, 1 of its 2 commits, not tapped, no fidelity ok, finder not clear"
+
+
 @pytest.mark.parametrize("kind", ["decide", "decision"])
 def test_a_root_decide_or_decision_that_opens_with_a_go_clause_admits_the_head_as_a_go_record_does(shell, config, tmp_path, kind):
     """Root #243144: root's 12:14 AM go for #45713 at cfc41ec was a decide, which stall_watch counts as a go, and the runner read no go and wrote nothing for 18 minutes."""

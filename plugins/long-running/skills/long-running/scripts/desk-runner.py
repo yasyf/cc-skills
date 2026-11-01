@@ -831,6 +831,7 @@ MERGE_FAST = "merge-fast"
 RELEASE_WITH = re.compile(r"^Release-With:[ \t]*(\S.*)$", re.MULTILINE)
 RELEASE_READ = "release-read"
 LANDED_READ = "landed-read"
+CARRIED_READ = "carried-read"
 LANDED_TIDIED = "landed-tidied"
 LANDED_KEY = "landed:"
 DEQUEUE_READ = "dequeue-read"
@@ -8361,6 +8362,52 @@ class Landing:
         if settled:
             self.book.edit(LANDING, lambda incident: incident.facts[LANDED_READ].extend(settled))
 
+    def announce_carried(self, rows: dict[str, dict]) -> None:
+        """Post one `report` for each newly landed PR whose branch carried open PRs into the trunk with it, read from GitHub's commits of the landed PR against each open PR's head and own commits, listing every carried PR with the owner's tap, its fidelity grade and its finder state at its head, to root and each `landing.board_lane`, so a keep-or-revert card lists every PR the merge landed, never a hand count (#45799's squash carried nine, #241554). A desk's first pass records every landed row as read; a landed PR whose commits did not read is read again next pass."""
+        landed = {pr for pr, row in rows.items() if row.get("state") == "landed"}
+        if (read := self.book.fact(LANDING, CARRIED_READ, None)) is None:
+            self.book.edit(LANDING, lambda incident: incident.facts.update({CARRIED_READ: sorted(landed, key=int)}))
+            return
+        if not (fresh := sorted(landed - set(read), key=int)):
+            return
+        open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}
+        commits, _ = self.read_branch_commits({pr: rows[pr].get("head", "") for pr in fresh} | {pr: row["head"] for pr, row in open_rows.items()})
+        settled = []
+        for pr in fresh:
+            if (mine := commits.get(pr)) is None:
+                continue
+            settled.append(pr)
+            whole = sorted((other for other, row in open_rows.items() if any(oid.startswith(row["head"]) for oid in mine)), key=int)
+            part = sorted((other for other in open_rows if other not in whole and (theirs := commits.get(other)) and set(theirs) & set(mine)), key=int)
+            if not whole and not part:
+                continue
+            states = "; ".join(self.carried_state(other, open_rows[other]["head"], "" if other in whole else f"{len(set(commits[other]) & set(mine))} of its {len(commits[other])} commits, ") for other in [*whole, *part])
+            sha = rows[pr].get("landed_sha", "")[:10] or "an unread squash"
+            self.post_record("report", f"carried:{pr}", ",".join(dict.fromkeys([ROOT, *self.board_lanes])), f"CARRIED #{pr} landed as {sha} and carried {", ".join(f"#{other}" for other in [*whole, *part])} into {TRUNK} with it: {states}", pr)
+        if settled:
+            self.book.edit(LANDING, lambda incident: incident.facts[CARRIED_READ].extend(settled))
+
+    def carried_state(self, pr: str, head: str, part: str) -> str:
+        tapped = "tapped" if pr in self.owner_tapped() else "not tapped"
+        graded = "fidelity ok" if self.fidelity(pr, head).ok else "no fidelity ok"
+        finder_state = "finder clear" if self.finder_clear(pr, head) else "finder not clear"
+        return f"#{pr} at {head[:10]}, {part}{tapped}, {graded}, {finder_state}"
+
+    def read_branch_commits(self, heads: dict[str, str]) -> tuple[dict[str, list[str]], dict[str, str]]:
+        """GitHub's commits of each PR's branch at its head, read in one GraphQL query per `HEADS_PER_QUERY` PRs and kept per head, since a head's commits never change, and the last line GitHub printed for each PR whose read it refused."""
+        due = sorted((pr for pr, head in heads.items() if (pr, head) not in self.branch_commits), key=int)
+        refused: dict[str, str] = {}
+        for start in range(0, len(due), HEADS_PER_QUERY):
+            batch = due[start : start + HEADS_PER_QUERY]
+            done = self.shell.run(ghread.read("api", "graphql", "-f", f"query={commits_query(self.repo, batch)}"), env={"GH_REPO": self.repo})
+            if done.code:
+                refused |= dict.fromkeys(batch, ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1])
+                continue
+            read = json.loads(done.out)["data"]["repository"]
+            for pr in batch:
+                self.branch_commits[(pr, heads[pr])] = [node["commit"]["oid"] for node in read[f"c{pr}"]["commits"]["nodes"]]
+        return {pr: self.branch_commits[(pr, head)] for pr, head in heads.items() if (pr, head) in self.branch_commits}, refused
+
     def remove_landed_worktrees(self, rows: dict[str, dict]) -> None:
         """In a pass whose ledger reads a PR landed that no earlier pass tidied, read the checkout's worktrees once and remove each one whose branch is a landed PR's head branch and no open PR's through `ccx vcs worktree rm --path`, which refuses a dirty tree or one a live process works in; a refusal logs `WORKTREE-KEPT` once per tree, is never forced, and is tried again in the next pass that reads a new landing."""
         landed = {pr for pr, row in rows.items() if row.get("state") == "landed"}
@@ -8627,18 +8674,8 @@ class Landing:
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}
         heads = {row["head"]: pr for pr, row in open_rows.items()}
         admitted = {pr: head for pr, head in self.settlement.heads.items() if open_rows.get(pr, {}).get("base") == TRUNK}
-        due = sorted((pr for pr, head in admitted.items() if (pr, head) not in self.branch_commits), key=int)
-        why: dict[str, str] = {}
-        for start in range(0, len(due), HEADS_PER_QUERY):
-            batch = due[start : start + HEADS_PER_QUERY]
-            done = self.shell.run(ghread.read("api", "graphql", "-f", f"query={commits_query(self.repo, batch)}"), env={"GH_REPO": self.repo})
-            if done.code:
-                refused = ((done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1]
-                why |= {pr: f"GitHub refused the read of its branch's commits: {refused}" for pr in batch}
-                continue
-            read = json.loads(done.out)["data"]["repository"]
-            for pr in batch:
-                self.branch_commits[(pr, admitted[pr])] = [node["commit"]["oid"] for node in read[f"c{pr}"]["commits"]["nodes"]]
+        _, refused = self.read_branch_commits(admitted)
+        why = {pr: f"GitHub refused the read of its branch's commits: {line}" for pr, line in refused.items()}
         for pr, head in admitted.items():
             if pr not in why and (carried := sorted({other for sha, other in heads.items() if other != pr and any(oid.startswith(sha) for oid in self.branch_commits[(pr, head)])}, key=int)):
                 why[pr] = f"its branch carries {numbered(carried)}, which a squash would land with it; restack it onto {TRUNK}"
@@ -9639,7 +9676,7 @@ class Landing:
         if not self.side_work:
             def side_steps():
                 with self.book.store.reading(), self.build_cache.book.store.reading():
-                    self.runner.steps(lambda: self.verify(rows), lambda: self.announce_landings(rows), lambda: self.releases(rows), self.ungraded_after, lambda: self.verify_restacks(rows), lambda: self.resolve_stale_blockers(rows))
+                    self.runner.steps(lambda: self.verify(rows), lambda: self.announce_landings(rows), lambda: self.announce_carried(rows), lambda: self.releases(rows), self.ungraded_after, lambda: self.verify_restacks(rows), lambda: self.resolve_stale_blockers(rows))
 
             self.side_work = self.side.submit(side_steps)
         if not self.tidy_work:
