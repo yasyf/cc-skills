@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "dd.arch",
+  "description": "An architecture doc (arch/v1) embedded from its published arch.json: a system at every zoom level, with labeled lines, sticky notes, the main path and stories.",
+  "type": "object",
+  "required": [
+    "kind",
+    "src"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "const": "dd.arch"
+    },
+    "src": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The arch.json URL, relative to the page or absolute, such as ../../architecture/durable-agents/arch.json."
+    },
+    "focus": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,39}$",
+      "description": "A node id to open zoomed into; defaults to the doc's start or its top level."
+    },
+    "fill": {
+      "type": "boolean",
+      "description": "Draw the whole map at the figure's height instead of the names-only glimpse."
+    }
+  }
+}
