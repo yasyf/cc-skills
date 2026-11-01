@@ -121,10 +121,10 @@
         "source": "git-subdir",
         "url": "https://github.com/yasyf/cc-skills",
         "path": "plugins/design-doc",
-        "ref": "design-doc--v0.18.5"
+        "ref": "design-doc--v0.18.6"
       },
       "description": "Run an assumptions-first architecture design — stable-ID registers, decision-by-question rounds, adversarial review, spikes — and ship it as an interactive HTML doc that opens on a summary deck that runs as one argument, draws its system card with Mermaid under a pan-and-zoom that survives the deck, cites entries by readable handles in parentheses, opens every numbers table on its claim, previews every cited source line from GitHub on hover, twins every entry with plain English, hosts declared interactive components and self-laying-out compare figures, links every decision and open item to the pull requests that land it with live GitHub state, replays the interview, and answers questions from the whole document with grounded follow-ups in a collapsed Ask bar and an inline Cmd-K palette behind a deployed key, plus a PDF printed from the same page, written as a humble proposal.",
-      "version": "0.18.5"
+      "version": "0.18.6"
     },
     {
       "name": "incident-retro",
@@ -132,10 +132,10 @@
         "source": "git-subdir",
         "url": "https://github.com/yasyf/cc-skills",
         "path": "plugins/incident-retro",
-        "ref": "incident-retro--v0.7.36"
+        "ref": "incident-retro--v0.7.37"
       },
       "description": "Write incident retrospectives as an interactive HTML page rendered from one canonical retro.json: outage windows and time-to-detect/mitigate/resolve tiles derived from timestamps, a swimlane timeline with Slack quotes, root and contributing causes with evidence, action items with live GitHub state, committed Datadog notebook and monitor snapshots drawn in the page, reader comments, and an in-page assistant; imports Google Docs postmortems.",
-      "version": "0.7.36"
+      "version": "0.7.37"
     },
     {
       "name": "long-running",
@@ -154,10 +154,10 @@
         "source": "git-subdir",
         "url": "https://github.com/yasyf/cc-skills",
         "path": "plugins/live-dashboard",
-        "ref": "live-dashboard--v0.5.9"
+        "ref": "live-dashboard--v0.5.10"
       },
       "description": "A live dashboard assembled per task from typed components: PRs waiting for review, stack landing previews, Slack test-thread feeds, latency percentiles, design gates, Datadog monitors, cci lanes, and local components written for the job at hand, served on a stable port with a scheduler that caches, backs off, and drops secret-shaped payloads.",
-      "version": "0.5.9"
+      "version": "0.5.10"
     },
     {
       "name": "open-pr",
