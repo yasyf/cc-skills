@@ -359,10 +359,14 @@ def closes(pr: str, text: str) -> bool:
     return re.search(verb, text, re.IGNORECASE) is not None or re.search(ruled, text, re.IGNORECASE) is not None
 
 
+def reopens(pr: str, text: str) -> bool:
+    return re.search(rf"\breopen(?:s|ed|ing)?\s+(?:#\d+(?:\s*,\s*|\s*,?\s+and\s+))*#{pr}\b|#{pr}\b(?:\s+(?:is|was|now|stays|has\s+been))*\s+reopened\b", text, re.IGNORECASE) is not None
+
+
 def closing_ruling(rulings: list[dict], pr: str, head: str) -> dict | None:
-    """The newest root ruling that says `pr` is superseded or closed, unless a later root `go` names it at `head`."""
+    """The newest root ruling that says `pr` is superseded or closed, unless a later root `go` names it at `head` or a later ruling reopens it (board-refresher-6, #281149)."""
     ruling = max((record for record in rulings if closes(pr, record["full"])), key=lambda record: record["seq"], default=None)
-    if ruling is None:
+    if ruling is None or any(record["seq"] > ruling["seq"] and reopens(pr, record["full"]) for record in rulings):
         return None
     revived = [record for record in grades.gone_at([record for record in rulings if record["kind"] == "go" and record["seq"] > ruling["seq"]], pr, head) if not grades.WITHDRAWN.match(record["text"])]
     return None if revived else ruling

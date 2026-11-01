@@ -249,6 +249,17 @@ def test_a_closing_ruling_must_tie_the_word_to_the_pr(text: str, closed: bool) -
     assert board_rows.closes("42590", text) is closed
 
 
+def test_a_later_root_ruling_that_reopens_a_closed_pr_lifts_the_close() -> None:
+    """#281149 reopened #47188 after #280149 closed it, and the board gate still refused its row as closed."""
+    closed = {"seq": 280149, "kind": "decide", "text": "", "full": "2:13 AM Close #47188: the pool already held about 20 instances"}
+    reopened = {"seq": 281149, "kind": "decide", "text": "", "full": "3:24 AM #47188 is REOPENED under pick 1 (#280311, 2:26 AM): draw its row once graded"}
+    other = {"seq": 281150, "kind": "decide", "text": "", "full": "#47190 is reopened"}
+
+    assert board_rows.closing_ruling([closed, other], "47188", "abc1234") == closed
+    assert board_rows.closing_ruling([closed, reopened], "47188", "abc1234") is None
+    assert board_rows.closing_ruling([reopened, closed | {"seq": 281200}], "47188", "abc1234")["seq"] == 281200
+
+
 def test_a_decided_row_pushed_under_another_block_fails_before_anything_is_sent(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
     shell.verdicts = {"merge-triage": {"merge-row-42590": {"verdict": "approved"}}}
 
