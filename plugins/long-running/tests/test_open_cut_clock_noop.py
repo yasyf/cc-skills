@@ -169,6 +169,7 @@ def test_filtered_new_record_still_advances_cursor_through_original_writer(shell
     def unexpected(*args):
         raise AssertionError("advanced cursor must use original writer without guard snapshot")
     monkeypatch.setattr(runner.book, "read_facts", unexpected)
+    monkeypatch.setattr(runner.book, "read_facts_with_version", unexpected)
     runner.open_cut_clocks()
     assert runner.book.fact(runner_module.RUNNER, runner_module.CUT_CURSOR) == 11
     assert runner.book.fact(runner_module.RUNNER, runner_module.CUT_CLOCKS) == {}
@@ -200,7 +201,7 @@ def test_selected_existing_scalar_clock_decode_error_is_not_skipped(shell, confi
 def test_guard_snapshot_and_original_writer_preserve_concurrent_clock_and_cursor(shell, config, tmp_path, monkeypatch):
     runner = clock_runner(shell, config, tmp_path, initialized())
     release_action(runner, shell)
-    read = runner.book.read_facts
+    read = runner.book.read_facts_with_version
     writer = actions.Store(runner.book.store.root)
     kept = {"ended": "external", "since": "outside", "payload": 0}
     def guarded(container, choose):
@@ -213,7 +214,7 @@ def test_guard_snapshot_and_original_writer_preserve_concurrent_clock_and_cursor
             assert facts[runner_module.CUT_CURSOR] == 10
             return choose(facts)
         return read(container, snapshot)
-    monkeypatch.setattr(runner.book, "read_facts", guarded)
+    monkeypatch.setattr(runner.book, "read_facts_with_version", guarded)
     runner.open_cut_clocks()
     assert runner.book.fact(runner_module.RUNNER, runner_module.CUT_CURSOR) == 10
     clocks = runner.book.fact(runner_module.RUNNER, runner_module.CUT_CLOCKS)
@@ -224,7 +225,7 @@ def test_guard_snapshot_and_original_writer_preserve_concurrent_clock_and_cursor
 def test_clock_parent_change_before_guard_keeps_original_initialization_or_error(shell, config, tmp_path, monkeypatch, removed):
     runner = clock_runner(shell, config, tmp_path, initialized())
     release_action(runner, shell)
-    read = runner.book.read_facts
+    read = runner.book.read_facts_with_version
     writer = actions.Store(runner.book.store.root)
     def guarded(container, choose):
         with writer.transaction(container) as state:
@@ -233,7 +234,7 @@ def test_clock_parent_change_before_guard_keeps_original_initialization_or_error
             else:
                 state.facts[runner_module.CUT_CLOCKS] = None
         return read(container, choose)
-    monkeypatch.setattr(runner.book, "read_facts", guarded)
+    monkeypatch.setattr(runner.book, "read_facts_with_version", guarded)
     if removed:
         runner.open_cut_clocks()
         assert runner.book.fact_path(runner_module.RUNNER, [runner_module.CUT_CLOCKS, "release:41", "pr"]) == 41

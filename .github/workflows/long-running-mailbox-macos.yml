@@ -27,6 +27,9 @@ on:
       - "plugins/long-running/tests/direct_merge_old_writer_integration.py"
       - "plugins/long-running/tests/test_release_cursor_noop.py"
       - "plugins/long-running/tests/test_open_cut_clock_noop.py"
+      - "plugins/long-running/tests/test_cut_release_read_proof.py"
+      - "plugins/long-running/tests/test_read_snapshot_version.py"
+      - "plugins/long-running/tests/release_proof_old_writer_integration.py"
       - "plugins/long-running/skills/long-running/scripts/desk-wait.sh"
       - "plugins/long-running/bin/desk-wait.sh"
       - "plugins/long-running/skills/long-running/scripts/ledger.py"
@@ -62,6 +65,41 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
+      - uses: actions/checkout@v7
+        with:
+          ref: 82ab4e455cca7584000efc44439d74bb15f4b6b0
+          path: .ci-release-proof-baseline
+          persist-credentials: false
+      - name: Immutable repeated release materialization negative controls
+        shell: bash
+        run: |
+          baseline=.ci-release-proof-baseline/plugins/long-running
+          test "$(git -C .ci-release-proof-baseline rev-parse HEAD)" = 82ab4e455cca7584000efc44439d74bb15f4b6b0
+          cp plugins/long-running/tests/test_cut_release_read_proof.py "$baseline/tests/test_cut_release_read_proof.py"
+          for history in 32 10000; do
+            negative="$RUNNER_TEMP/release-proof-old-$history.log"
+            if uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_cut_release_read_proof.py::test_warm_release_poll_uses_bounded_unchanged_proof[unchanged-$history]" -q -s >"$negative" 2>&1; then
+              cat "$negative"
+              exit 1
+            fi
+            cat "$negative"
+            grep -F "warm release polling materialized $((32 * history)) DTOs for $history actions in 32 polls" "$negative"
+            grep -F '1 failed' "$negative"
+          done
+      - name: Same-snapshot release proof semantics and costs
+        shell: bash
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_cut_release_read_proof.py plugins/long-running/tests/test_read_snapshot_version.py plugins/long-running/tests/test_open_cut_clock_noop.py plugins/long-running/tests/test_sqlite_action_store.py -q -s --junitxml="$RUNNER_TEMP/release-proof-current.xml" | tee "$RUNNER_TEMP/release-proof-current.log"
+      - name: Immutable old release creator and writer visibility
+        shell: bash
+        env:
+          LR_BLOCKER_OLD_SCRIPTS: ${{ github.workspace }}/.ci-release-proof-baseline/plugins/long-running/skills/long-running/scripts
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/release_proof_old_writer_integration.py -q -s --junitxml="$RUNNER_TEMP/release-proof-old-writer.xml" | tee "$RUNNER_TEMP/release-proof-old-writer.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: release-proof-${{ runner.os }}
+          path: ${{ runner.temp }}/release-proof-*
+          if-no-files-found: error
       - uses: actions/checkout@v7
         with:
           ref: 91c856f8556b4462bb57ca215d34fef8254a92d9
