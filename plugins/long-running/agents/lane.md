@@ -34,9 +34,9 @@ deliverable, your authority, your worktree, and who hears your report. Stay insi
   The harness forwards final text to the root as an idle notification on every stop;
   a hook refuses longer text.
 - On the supervisor's `ROTATE` record, write your state to a cc-notes doc and post
-  `cci post --kind handoff --ccn <doc id> --re <its seq>`. The supervisor then stands
-  you down and launches your numbered successor from your brief and that doc; past 15
-  minutes without it, it rotates you anyway. On a stand-down, stop working and send
+  `cci post --kind handoff --ccn <doc id> --re <its seq>`, then keep working; the
+  supervisor records that doc as your newest handoff. Told to stand down after a task,
+  post `cci post --kind done` once it is finished. On a stand-down, stop working and send
   nothing further.
 - You have no Skill tool. When the work needs a skill, tell your orchestrator,
   which gives that operation to a separately named `long-running:lane-ship` with a

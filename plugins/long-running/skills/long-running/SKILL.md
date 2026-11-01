@@ -4508,9 +4508,11 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   state record that `drive.py spawned` posts at each Orca launch and drive-lane spawn,
   with its brief, model, effort and role. Helper roles and `<lane>-handoff` writers stay
   out. A lane's `head` and `opened` records move their PRs to it, `landed` records drop
-  them, a root `decide ... owner=<lane>` moves them, the lane's own `done`, `stopped`, or
-  `<lane> STAND-DOWN` record retires it, and a root `stand-down` retires it or hands it
-  to the successor it names. A lane is also retired
+  them, a root `decide ... owner=<lane>` moves them, the lane's own `done`, `stopped` or
+  `stand-down` record retires it, and a root `stand-down` retires it or hands it to the
+  successor it names. Only these structured records retire a lane, never prose: a lane
+  told in prose to stand down after a task stays desired until it posts `--kind done`, so
+  a death mid-task still gets a successor. A lane is also retired
   by the `SPAWNED` record of a numbered successor (`desk-4` for `desk-3`), by a root
   `<new> replaces <old>`, and, while it has never come up, by another lane's records
   taking its last PR. A `<lane>-handoff` writer's `handoff <lane>: doc <id>` is the
@@ -4567,8 +4569,9 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   only seeds the successor if the lane later dies.
 - **Holds.** A launch not live 15 minutes later, a lane whose successors die within 30
   minutes of launch twice running, or a lane whose brief is gone is held, with one
-  blocker to root. A name root stood down, by a `stand-down` record or by a record
-  addressed to it that tells it to stand down, is never relaunched.
+  blocker to root. A lane retired by a root `stand-down` record or by its own `done`,
+  `stopped` or `stand-down` is never relaunched. A lane told to stand down after a task
+  posts `cci post --kind done` when it finishes.
 - **Report.** Once an hour, one owner-facing report to root names each lane it restarted
   and why.
 

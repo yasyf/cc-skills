@@ -463,7 +463,7 @@ def test_done_and_a_root_stand_down_retire_a_lane(tmp_path, brief):
     assert [(lane.name, lane.retired_by) for lane in store.all_lanes()] == [("conflicts-2", "done"), ("red-sweep-3", "root")]
 
 
-@pytest.mark.parametrize(("kind", "text"), [("state", "conflicts-2 STAND-DOWN per #265653. Thread names 2 releases"), ("state", "2:10 PM conflicts-2: standing down, root owns it"), ("stopped", "stopping at root's word")])
+@pytest.mark.parametrize(("kind", "text"), [("stand-down", "2:10 PM conflicts-2: standing down, root owns it"), ("stopped", "stopping at root's word")])
 def test_a_lane_that_records_its_own_stand_down_is_retired_not_relaunched(tmp_path, brief, kind, text):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store)
@@ -487,15 +487,16 @@ def test_a_lane_reporting_another_lanes_stand_down_stays_watched(tmp_path, brief
     assert store.lane("conflicts-2").state == "desired"
 
 
-def test_a_lane_root_tells_to_stand_down_is_retired_not_relaunched(tmp_path, brief):
+@pytest.mark.parametrize("text", ["2:24 PM conflicts-2: finish #1478 and the release, then stand down; your successor is spawned from 99c1291", "conflicts-2 STAND-DOWN per #265653. Thread names 2 releases"])
+def test_prose_never_retires_a_lane_so_one_that_dies_mid_task_gets_a_successor(tmp_path, brief, text):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store)
-    fake.feed.append(record(2, "root", "decide", T0, "2:09 PM same incident. conflicts-2: no fix PR, no release; stand down after one record. runnerdb-fix owns 11549.", ("conflicts-2", "runnerdb-fix")))
+    fake.feed.append(record(2, "root", "decide", T0, text, ("conflicts-2", "mq-health-6")))
     fake.peers = [who("conflicts-2", False, T0)]
 
     out = lanes.tick(store, fake.deps, T0 + timedelta(minutes=16), 1)
 
-    assert out.relaunched == [] and store.lane("conflicts-2").retired_by == "root"
+    assert [new for _, new, _ in out.relaunched] == ["conflicts-3"] and store.lane("conflicts-2").retired_by == "conflicts-3"
 
 
 def test_a_root_decide_moves_pr_ownership(tmp_path, brief):
