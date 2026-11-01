@@ -468,7 +468,7 @@ function cmptLanes(spec,host){
  }).observe(host);
  return box;
 }
-const SYSMAP_LIB="https://cdn.jsdelivr.net/gh/yasyf/cc-present@v0.45.2/plugin/.claude/components/display/src/system-map.min.js";
+const SYSMAP_LIB="https://cdn.jsdelivr.net/gh/yasyf/cc-present@v0.53.0/plugin/.claude/components/display/src/system-map.min.js";
 const ROUGH_LIB="https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.esm.js";
 function cmptSystem(spec,host,jobs){
  const box=el("div","ddc-system");
@@ -485,7 +485,7 @@ function cmptSystem(spec,host,jobs){
  }));
  return box;
 }
-const ARCH_LIB="https://cdn.jsdelivr.net/gh/yasyf/cc-present@v0.45.2/plugin/.claude/components/display/src/arch-map.min.js";
+const ARCH_LIB="https://cdn.jsdelivr.net/gh/yasyf/cc-present@v0.53.0/plugin/.claude/components/display/src/arch-map.min.js";
 function cmptArch(spec,host,jobs){
  const box=el("div","ddc-system");
  const id=host.dataset.component;
@@ -540,7 +540,7 @@ function systemMd(spec,L){
  }
  if((spec.notes||[]).length){
   L.push("\n_Notes_\n");
-  spec.notes.forEach(n=>L.push(`- **${name[n.on]}**: ${plain(n.text)}`));
+  spec.notes.forEach(n=>L.push(`- **${n.on?name[n.on]:`${name[n.link.from]} to ${name[n.link.to]}`}**: ${plain(n.text)}`));
  }
  L.push("");
 }
