@@ -166,14 +166,27 @@ def cci_successor(to: str, chain: list[str], live: bool = True) -> dict:
             tool_input={"to": "desk", "message": "done: #12 merged"},
             agent_id="a1b2c3",
             env=DRIVE_CONFIG,
-            commands={SUCCESSOR_OF: json.dumps({"drive": "brook-drive", "lane": "desk", "stood_down": True, "successor": "", "chain": []})},
+            commands={SUCCESSOR_OF: json.dumps({"drive": "brook-drive", "lane": "desk", "stood_down": True, "successor": "", "chain": []}), LIVE_LANE: ""},
         ): Rewrite(None, to="main"),
         Input(
             tool="SendMessage",
             tool_input={"to": "desk", "message": "status?"},
             env=DRIVE_CONFIG,
-            commands={SUCCESSOR_OF: json.dumps({"drive": "brook-drive", "lane": "desk", "stood_down": True, "successor": "", "chain": []})},
+            commands={SUCCESSOR_OF: json.dumps({"drive": "brook-drive", "lane": "desk", "stood_down": True, "successor": "", "chain": []}), LIVE_LANE: ""},
         ): Warn(pattern=r"^Warning, nothing was blocked: `desk` is stood down with no successor"),
+        Input(
+            tool="SendMessage",
+            tool_input={"to": "release-5", "message": "status?"},
+            env=DRIVE_CONFIG,
+            commands={SUCCESSOR_OF: json.dumps({"drive": "brook-drive", "lane": "release-5", "stood_down": True, "successor": "", "chain": []}), LIVE_LANE: json.dumps({"lane": "release-5", "live": True})},
+        ): Allow(),
+        Input(
+            tool="SendMessage",
+            tool_input={"to": "release-5", "message": "status?"},
+            agent_id="a1b2c3",
+            env=DRIVE_CONFIG,
+            commands={SUCCESSOR_OF: json.dumps({"drive": "brook-drive", "lane": "release-5", "stood_down": True, "successor": "", "chain": []}), LIVE_LANE: json.dumps({"lane": "release-5", "live": True})},
+        ): Allow(),
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, agent_id="a1b2c3", state=[RotationState(retired={"desk": None})]): Rewrite(None, to="main"),
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, state=[RotationState(retired={"desk": None})]): Allow(),
         Input(tool="SendMessage", tool_input={"to": "desk-2", "message": "status?"}, state=[RotationState(retired={"desk": "desk-2"})]): Allow(),
@@ -193,6 +206,8 @@ def redirect_retired_lanes(evt: BaseHookEvent) -> HookResult | None:
     if successor:
         stop = f" `TaskStop` `{to}` if it still runs." if evt.agent_id is None else ""
         return evt.rewrite(raw | {"to": successor}, note=f"`{to}` is stood down, so this message went to its successor `{successor}`, which owns its work.{stop}")
+    if recorded and successor_live(evt, to):
+        return None
     if evt.agent_id is not None and (recorded or to in retired):
         return evt.rewrite(raw | {"to": MAIN}, note=f"`{to}` is stood down with no successor, so this message went to `{MAIN}` instead of resuming it on its stale brief.")
     if recorded:
