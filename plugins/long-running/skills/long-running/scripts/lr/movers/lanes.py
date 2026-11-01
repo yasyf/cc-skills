@@ -355,7 +355,7 @@ def classify_lane(lane: Lane, peer: Peer | None, now: datetime, tokens: int | No
 
 
 def post(deps: Deps, kind: str, to: str, text: str, *flags: str) -> None:
-    deps.cci(["post", "--drive", deps.drive, "--lane", SELF, "--kind", kind, "--to", to, *flags, "--text", text])
+    deps.cci(["post", "--drive", deps.drive, "--lane", SELF, "--kind", kind, "--to", to, *flags, "--stamp", "--text", text])
 
 
 def escalate(store: Store, deps: Deps, subject: str, cause: str, now: datetime) -> None:

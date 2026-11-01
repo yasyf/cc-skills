@@ -835,3 +835,13 @@ def test_a_quiet_lane_whose_prs_only_wait_on_the_owners_tap_is_never_asked(tmp_p
     lanes.tick(store, fake.deps, T0 + lanes.STALE_AFTER, 1)
 
     assert fake.posts == [] and store.probes() == {}
+
+
+def test_every_supervisor_post_lets_cci_stamp_its_time_so_a_slow_tick_is_never_refused(tmp_path, brief):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    fake.peers = [who("conflicts-2", False, T0)]
+
+    lanes.tick(store, fake.deps, T0 + timedelta(minutes=16), 1)
+
+    assert fake.posts and all("--stamp" in argv for argv in fake.posts)
