@@ -13907,6 +13907,7 @@ def test_a_trunk_commit_red_then_green_on_a_retry_posts_one_flake_finding_naming
     shell.test_files["TestADrainedSidecarEndsItsLagSeriesAtZero"] = "go/sand/next/internal/vm/lag_test.go\n"
     shell.subjects["go/sand/next/internal/vm/lag_test.go"] = "vm: 🐛 drain the sidecar's lag series (#29011)"
     rows = OPEN_ROWS | {"29011": {"state": "landed", "lane": "lag-lane"}}
+    shell.seen["lag-lane"] = actions.stamp(shell.clock)
     shell.trunk = [trunk_commit("b", "FAILURE", "29019", "2026-10-01T17:50:00Z"), trunk_commit("a", "SUCCESS", "29018", "2026-10-01T17:40:00Z")]
     landing.watch_trunk(rows)
     assert [kind for kind, _, _ in trunk_posts(shell)] == ["incident"]
@@ -13927,25 +13928,40 @@ def test_a_trunk_commit_red_then_green_on_a_retry_posts_one_flake_finding_naming
     assert [kind for kind, _, _ in trunk_posts(shell)] == ["incident", "defect"]
 
 
-def test_an_old_tree_flake_posts_no_finding(shell, config, tmp_path):
-    """Root #248379: an old-tree flake gets one retry and no fix lane (owner row prompt/1030-212507), and the runner still named run-error-size-1 the owner of go/sand/internal/localrun's flake."""
+@pytest.mark.parametrize(
+    ("path", "pr_lane", "flake_lane", "owner"),
+    [
+        ("go/sand/internal/vm/lag_test.go", "lag-lane", None, "lag-lane"),
+        ("go/sand/next/internal/vm/lag_test.go", "gone-lane", "flake-census-1", "flake-census-1-2"),
+        ("go/sand/next/internal/vm/lag_test.go", "gone-lane", None, "root"),
+    ],
+)
+def test_a_flake_goes_to_the_live_lane_that_last_changed_its_test_else_the_flake_lane_else_root(shell, config, tmp_path, path, pr_lane, flake_lane, owner):
+    """improve4-flake-owner (root #277422): a flake reaches a live fixer with no hand-off from root, and an old-tree flake posts too under the owner's 3:22 PM Oct 31 order (root #274853)."""
     with_ci_build(config)
+    if flake_lane:
+        raw = json.loads(config.read_text())
+        raw["landing"]["flake_lane"] = flake_lane
+        config.write_text(json.dumps(raw))
     landing = trunk_watch(shell, config, tmp_path)
+    shell.gone = {"gone-lane", *([flake_lane] if flake_lane else [])}
+    shell.seen["lag-lane"] = shell.seen["flake-census-1-2"] = actions.stamp(shell.clock)
     built(shell, "aaaa", "29018", script_build("sand-tests"))
     shell.builds["29019"] = {"state": "failed", "commit": "b" * 10, "finished_at": "2026-10-01T17:58:00Z", "jobs": [{"id": "job-1", "type": "script", "name": "sand-tests", "state": "failed"}]}
     shell.job_logs["job-1"] = FLAKY_LOG
-    shell.test_files["TestADrainedSidecarEndsItsLagSeriesAtZero"] = "go/sand/internal/vm/lag_test.go\n"
-    shell.subjects["go/sand/internal/vm/lag_test.go"] = "vm: 🐛 drain the sidecar's lag series (#29011)"
-    rows = OPEN_ROWS | {"29011": {"state": "landed", "lane": "lag-lane"}}
+    shell.test_files["TestADrainedSidecarEndsItsLagSeriesAtZero"] = f"{path}\n"
+    shell.subjects[path] = "vm: 🐛 drain the sidecar's lag series (#29011)"
+    rows = OPEN_ROWS | {"29011": {"state": "landed", "lane": pr_lane}}
     shell.trunk = [trunk_commit("b", "FAILURE", "29019", "2026-10-01T17:50:00Z"), trunk_commit("a", "SUCCESS", "29018", "2026-10-01T17:40:00Z")]
     landing.watch_trunk(rows)
     shell.builds["29019"] = {"state": "passed", "commit": "b" * 10, "finished_at": "2026-10-01T18:20:00Z", "jobs": [{"id": "job-2", "type": "script", "name": "sand-tests", "state": "passed", "retry_source": {"job_id": "job-1", "retry_type": "manual"}}]}
     shell.trunk = [trunk_commit("b", "SUCCESS", "29019", "2026-10-01T17:50:00Z"), trunk_commit("a", "SUCCESS", "29018", "2026-10-01T17:40:00Z")]
     shell.clock += timedelta(minutes=30)
     landing.watch_trunk(rows)
-    shell.clock += timedelta(minutes=30)
-    landing.watch_trunk(rows)
-    assert not [post for post in shell.posts if "FLAKE" in post["text"]]
+
+    [flake] = [post for post in shell.posts if "FLAKE" in post["text"]]
+    assert flake["to"] == ",".join(dict.fromkeys([owner, "root", "drive-watchdog@d1"]))
+    assert flake["text"].startswith(f"[finding:desk-runner] - {path} flake owner {owner}: FLAKE TestADrainedSidecarEndsItsLagSeriesAtZero failed on")
 
 
 def test_a_trunk_commit_that_stays_red_posts_dev_red_and_no_flake(shell, config, tmp_path):
