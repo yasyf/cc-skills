@@ -368,10 +368,6 @@ class FakeShell(runner_module.Shell):
     def cci_query(self, argv, env=None, cwd=None):
         return self.run(argv, env=env, cwd=cwd)
 
-    def incident_holds(self, home, drive, prs):
-        assert prs == []
-        raise runner_module.cci.IncidentQueryFailed(503, "scope_not_admitted", "this fixture uses the existing operation")
-
     def run(self, argv, stdin=None, env=None, cwd=None):
         self.raw.append(list(argv))
         argv = gateway(argv)
@@ -3319,20 +3315,14 @@ def test_a_dev_red_incident_naming_a_pr_in_its_prose_holds_nothing(shell, config
     assert [line for line in said(shell) if line.startswith("REFUSED refused:")] == []
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
-@pytest.mark.parametrize("number", ["#42", "#7", "#100@bbbbbbbb"])
-def test_an_open_incident_naming_the_pr_refuses_its_enqueue_naming_the_incident(shell, config, tmp_path, number):
+def test_an_open_incident_naming_another_lanes_pr_as_its_context_holds_nothing(shell, config, tmp_path):
+    """Watchdog #296589: root's INCIDENT #295647 for run-history-fix named signal-valkey-2's #47500 as context, and the runner held #47500 out of the queue as the incident's fix, which no lane would ever squash."""
     lone_green_pr(shell)
     grade_gated_heads_ok(shell)
-    incident = {"seq": 42, "num": number, "drive": "d1", "lane": "incident-api-1", "kind": "incident", "status": "open", "to": ["root"], "refs": {}, "text": "INCIDENT api 5xx; the fix is #29020", "source": "post", "at": "2026-10-01T17:59:00Z"}
-    after_call(shell, is_check, lambda: incident in shell.records or {**incident, "status": "closed"} in shell.records or shell.records.append(incident))
+    shell.records.append({"seq": 42, "num": "#42", "drive": "d1", "lane": "root", "kind": "incident", "status": "open", "to": ["run-history-fix", "signal-valkey-2"], "refs": {"prs": [29020]}, "text": "run-history-fix: check whether the refusal window is the crashloop #29020 fixes", "source": "post", "at": "2026-10-01T17:59:00Z"})
     landing_pass(shell, config)
-    refused = [line for line in said(shell) if line.startswith("REFUSED refused:")]
-    assert len(refused) == 1
-    assert f"#29020 is held by open INCIDENT {number}, whose lane squash-merges it directly" in refused[0], f"origin-qualified incident citation expected {number}: {refused[0]}"
-    assert shell.enqueues() == []
-    shell.records[shell.records.index(incident)] = {**incident, "status": "closed"}
-    landing_pass(shell, config)
-    assert len(shell.enqueues()) == 1
+    assert [line for line in said(shell) if line.startswith("REFUSED refused:")] == []
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
 def test_a_label_read_github_refuses_holds_the_enqueue(shell, config, tmp_path):
