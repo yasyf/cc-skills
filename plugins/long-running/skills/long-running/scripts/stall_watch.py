@@ -1007,6 +1007,8 @@ class Pass:
             ready = max(actions.parse_stamp(row["green_at"]), *(at(record) for record in [*finder_ok, *standing]))
             if board.shows(pr, head) or pr in self.hold_gates or self.now - ready < self.watch.age("board"):
                 continue
+            if any(rows[below].get("test_state") != "success" for below in downstack(rows, row)):
+                continue
             pulls = [record for record in records if record["lane"] in ROOT_NAMES and record["kind"] in ("decide", "decision") and grades.about_pr(record, repo, pr) and PULLED.search(grades.full_text(record))]
             if pulls and not any(record["seq"] > pulls[-1]["seq"] and grades.about_pr(record, repo, pr) and (record["kind"] == "ready" or READY.search(record["text"])) for record in records):
                 continue

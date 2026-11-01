@@ -519,6 +519,16 @@ def test_a_graded_pr_missing_from_the_board_and_a_tap_no_go_follows_each_post_un
     assert opened(config) == {}
 
 
+@pytest.mark.parametrize(("below", "stalls"), [("pending", []), ("failure", []), ("success", ["board:101:abc1234"])])
+def test_a_graded_pr_whose_stacked_parent_is_not_green_draws_no_board_stall(config, below, stalls):
+    """Root #291241: stall-watch paged board-refresher-6 for #47188 and #47326, rows the board held on purpose while the change below each was not green."""
+    shell = FakeShell([head(1, "101", HEAD, 40), finder(2, "101", HEAD, 20), fidelity(3, "101", HEAD, 20)], [row("101", base="b100"), row("100", OTHER, test_state=below)])
+
+    watch(shell, config)
+
+    assert [topic for topic in shell.topics() if topic.startswith("board:")] == stalls
+
+
 def test_a_go_from_a_numbered_successor_of_a_go_lane_settles_the_tap(config):
     raw = json.loads(config.read_text())
     raw["landing"]["go_lanes"] = ["go-sweep-5"]
