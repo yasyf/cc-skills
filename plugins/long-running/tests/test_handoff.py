@@ -549,6 +549,16 @@ def test_strict_names_the_narrative_line_and_its_edit(drive_home: Path, capsys: 
     )
 
 
+def test_strict_lints_only_the_newest_hand_written_record_never_the_ones_it_supersedes(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Root #287923: the Stop hook flagged owner-gate lines in six superseded progress docs from Oct 30 and 31 on every stop."""
+    shell = shell_with()
+    shell.write("b" * 40, "## Root's next actions\n1. ship sanddb on SoFi on the owner's word")
+    shell.write("c" * 40, "## Root's next actions\n1. land l11", supersedes=("b" * 40,))
+
+    assert strict(drive_home, shell) == 0
+    assert "cites no live answer id" not in capsys.readouterr().out
+
+
 def test_the_handoff_names_the_register_doc_and_never_writes_it(drive_home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     shell = shell_with()
     shell.registers.insert(0, "e" * 40)
