@@ -1798,6 +1798,14 @@ exemption, while no approval on the root's board names that head or a head the g
 names, draws one `GO-TAP-MISSING` blocker to the root per go and PR, saying what the board
 holds for the PR instead (root #172682).
 
+With merge mode `every` and `landing.merge_ask_surface` set to `board`, a root `go` is no
+merge answer on its own. A head it names lands only once the owner's newest verdict on the
+root's board, on any block and at any head, approves the PR, or once its change is exempt;
+until then the merge-mode check refuses it `TAP-REQUIRED merge mode every`. A rejection
+after an approval stands: no tap carries over it, a queued head he rejects leaves the queue
+on the next pass, and the read just before a direct merge checks his verdict again (root
+#237906, #46446).
+
 Under `every`, and under `high-risk` for a PR whose changed files match a glob in
 `landing.high_risk_paths`, a prefix that passes every other gate is not enqueued.
 The runner asks the merge card itself, once per waiting PR and head, and logs one
@@ -1946,7 +1954,7 @@ Owner, 2:48 AM Oct 31: "all of these other monorepo PRs have my taps now so do n
 back in front of me no matter what, and dont change their behaviors now, jsut get them
 merged". Take an approval on a `pr-groups` row at an older head of an open PR, with no
 verdict at the PR's current head. The runner moves it to the current head with `cc-present
-verdict carry`, whatever changed between the two, posts one `TAP-CARRIED` note naming both
+verdict carry`, whatever changed between the two, unless his newest verdict on the PR rejects it, posts one `TAP-CARRIED` note naming both
 heads to root and each lane `landing.board_lane` names, one lane or a list, and posts its own
 `go` record for that head when no go names it, so root posts none. A reserved-row tap gate,
 a merge question and a go's tap claim all count his approval at any head of the PR, so a PR
