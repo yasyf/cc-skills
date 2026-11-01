@@ -46,6 +46,7 @@ STOOD_DOWN = r"^(?:\d{{1,2}}:\d{{2}} [AP]M )?{}:? (?:STAND-DOWN|stood down|stand
 TOLD_TO_STAND_DOWN = r"\b{}\b[^.\n]{{0,60}}\bstand[ -]?down\b"
 STRIKE_WINDOW = 2 * STALE_AFTER
 PAGE_ANSWER = 2 * STALE_AFTER
+LIVE_WITHIN = timedelta(hours=1)
 OWNER = re.compile(r"\bowner=([\w.-]+)")
 PACIFIC = ZoneInfo("America/Los_Angeles")
 HANDOFF_BRIEF = Path(__file__).parents[3] / "reference" / "handoff-subagent-brief.md"
@@ -356,6 +357,14 @@ def wake(store: Store, deps: Deps, lane: Lane, peer: Peer, now: datetime, out: O
     post(deps, "ask", ROOT, f"{pacific(now)} reassign {owned}: {lane.name} has posted nothing since it was woken at {pacific(parse(page['woke']))} for the blocker \"{page['text'][:200]}\". Post `<lane> replaces {lane.name}` or a decide naming owner=<lane>; it is not woken again for that blocker.", "--lane-ref", lane.name, *[arg for n in page["prs"] for arg in ("--pr", str(n))])
     store.lane_page(lane.name, page | {"asked": stamp(now)})
     out.reassign.append(lane.name)
+
+
+def liveness(store: Store, now: datetime) -> list[dict]:
+    """Every registered lane as the drive's one liveness answer: live means not retired and heard from within `LIVE_WITHIN`; a `cci who` row is a process fact, never this."""
+    return [
+        {"lane": lane.name, "state": lane.state, "live": lane.state != "retired" and lane.heard is not None and now - lane.heard < LIVE_WITHIN, "heard": stamp(lane.heard) if lane.heard else None, "prs": list(lane.prs), "handoff": lane.handoff, "retired_by": lane.retired_by}
+        for lane in store.all_lanes()
+    ]
 
 
 def hourly(store: Store, deps: Deps, now: datetime) -> None:

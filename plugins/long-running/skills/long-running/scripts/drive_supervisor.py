@@ -4,7 +4,7 @@
     drive_supervisor.py run --config LR_JSON
     drive_supervisor.py install --config LR_JSON
     drive_supervisor.py uninstall --config LR_JSON
-    drive_supervisor.py lanes --config LR_JSON
+    drive_supervisor.py lanes --config LR_JSON [--json]
 
 STDLIB ONLY. `lr.json` sits in the drive's state directory beside the store `lr.sqlite`, and the
 lanes mover writes successor briefs and launch logs under `lanes/` there. `run` takes the drive's
@@ -12,7 +12,8 @@ lease and ticks until a newer generation holds it. Liveness is one `cci who` rea
 worker list per tick; a successor launches through `desk-launch.py lane`, detached, so a launch
 never holds the tick. `install` writes `~/Library/LaunchAgents/com.long-running.<drive>.supervisor.plist`
 and bootstraps that one label, booting out only its own earlier copy; launchd restarts the process
-whenever it exits. `lanes` prints the registry, one line per lane.
+whenever it exits. `lanes` prints the registry, one line per lane, and with `--json` one
+`lanes.liveness` object per lane: the drive's one liveness answer, read by every desk.
 """
 
 from __future__ import annotations
@@ -308,17 +309,19 @@ def cmd_uninstall(config: lr_config.Config, path: Path) -> int:
     return 0
 
 
-def registry_lines(store: Store) -> list[str]:
+def registry_lines(store: Store, now: datetime) -> list[str]:
+    live = {row["lane"] for row in lanes.liveness(store, now) if row["live"]}
     return [
-        f"{lane.name} {lane.state} since {lane.since:%H:%MZ} handoff {lane.handoff or '-'} prs {' '.join(f'#{n}' for n in lane.prs) or '-'}"
+        f"{lane.name} {lane.state} {'live' if lane.name in live else 'silent'} heard {lanes.pacific(lane.heard) if lane.heard else 'never'} since {lane.since:%H:%MZ} handoff {lane.handoff or '-'} prs {' '.join(f'#{n}' for n in lane.prs) or '-'}"
         + (f" after {lane.predecessor}: {lane.reason}" if lane.predecessor else "")
         + (f" retired by {lane.retired_by}" if lane.retired_by else "")
         for lane in store.all_lanes()
     ]
 
 
-def cmd_lanes(config: lr_config.Config, path: Path) -> int:
-    print("\n".join(registry_lines(Store.open(path.parent / "lr.sqlite"))))
+def cmd_lanes(config: lr_config.Config, path: Path, as_json: bool) -> int:
+    store, now = Store.open(path.parent / "lr.sqlite"), clock()
+    print("\n".join(json.dumps(row) for row in lanes.liveness(store, now)) if as_json else "\n".join(registry_lines(store, now)))
     return 0
 
 
@@ -326,9 +329,12 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="drive_supervisor.py")
     parser.add_argument("verb", choices=("run", "install", "uninstall", "lanes"))
     parser.add_argument("--config", required=True, type=Path)
+    parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     path = args.config.resolve()
-    verbs = {"run": cmd_run, "install": cmd_install, "uninstall": cmd_uninstall, "lanes": cmd_lanes}
+    if args.verb == "lanes":
+        return cmd_lanes(lr_config.load(path), path, args.json)
+    verbs = {"run": cmd_run, "install": cmd_install, "uninstall": cmd_uninstall}
     return verbs[args.verb](lr_config.load(path), path)
 
 
