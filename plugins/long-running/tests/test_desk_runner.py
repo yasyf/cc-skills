@@ -14200,6 +14200,21 @@ def test_a_finder_job_carries_each_finder_record_a_root_decide_settled(shell, co
     assert job["settled"] == {str(first): decides[0], str(carried): decides[1]} and str(later) not in job["settled"]
 
 
+def test_a_lanes_accept_answer_settles_its_record_once_a_later_root_go_stands_on_it(shell, config):
+    finder_config(config)
+    orca_pass(shell, config)
+    reviews = [finder_review(shell, "44114", f"finder: major {FINDER_OLD} 1 open over whole {FINDER_OLD[:7]}^..{FINDER_OLD[:7]}: go/{name}.go:1 drops a write", lane="finder-desk") for name in ("a", "b", "c")]
+    for re_seq, text in ((reviews[0], "accept: the write is dropped on purpose"), (reviews[1], "fix: the write lands in a later commit")):
+        shell.records.append({"seq": 149000 + len(shell.records), "drive": "d1", "lane": "p8b-step10", "kind": "answer", "to": ["finder-desk"], "re": re_seq, "refs": {"prs": ["Forge-AI/monorepo#44114"]}, "text": text, "at": actions.stamp(shell.clock)})
+    go = 149000 + len(shell.records)
+    shell.records.append({"seq": go, "drive": "d1", "lane": "root", "kind": "go", "to": ["desk-runner"], "refs": {"prs": ["Forge-AI/monorepo#44114"]}, "text": f"go #44114 at {FINDER_OLD[:7]} on green, finder major accepted", "at": actions.stamp(shell.clock)})
+    shell.records.append({"seq": 149000 + len(shell.records), "drive": "d1", "lane": "p8b-step10", "kind": "answer", "to": ["finder-desk"], "re": reviews[2], "refs": {"prs": ["Forge-AI/monorepo#44114"]}, "text": "accept: after the go", "at": actions.stamp(shell.clock)})
+    head_record(shell, "44114", FINDER_HEAD)
+    orca_pass(shell, config)
+    [job] = finder_jobs(shell)
+    assert job["settled"] == {str(reviews[0]): go}
+
+
 def test_finders_past_the_cap_wait_queued_and_start_as_running_ones_finish(shell, config, capsys):
     finder_config(config, concurrent=2, model="astra", to=["fidelity-desk"])
     orca_pass(shell, config)

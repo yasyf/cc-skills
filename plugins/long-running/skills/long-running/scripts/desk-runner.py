@@ -1110,6 +1110,7 @@ WITHDRAWN = "withdrawn"
 FENCED = "dispatch_inactive"
 DECIDE_LINE = re.compile(r"^DECIDE (?P<msg>msg_\S+) (?P<lane>[\w.-]+): ")
 ROOT = "root"
+ACCEPTED = re.compile(r"\s*accept(?:ed|s)?\b", re.IGNORECASE)
 
 
 @dataclass
@@ -4753,16 +4754,24 @@ class Runner:
         return True
 
     def root_settled(self, repo: str, pr: str, named: list[dict]) -> dict[str, int]:
-        """Each finder record of `named` a root `decide` settled, keyed by its seq, with the oldest such decide: one naming it by `--re` or `--resolves`, or one about `pr` that says settled and came after it (root #182456)."""
+        """Each finder or fidelity record of `named` root settled, keyed by its seq, with the oldest record that settled it: a root `decide` naming it by `--re` or `--resolves`, or one about `pr` that says settled and came after it (root #182456), or the first root `go` or `decide` about `pr` after a lane's `accept` answer naming it by `--re` (root #273671)."""
         if not (seqs := {record["seq"] for record in named}):
             return {}
+        drive_id = self.config.drive
         settled: dict[str, int] = {}
-        for decide in cci.records(self.cci_tail, self.config.drive, "--kind=decide", "--lane", ROOT, since=min(seqs)):
-            if (decide["kind"], decide["lane"], decide["drive"]) != ("decide", ROOT, self.config.drive):
+        for decide in cci.records(self.cci_tail, drive_id, "--kind=decide", "--lane", ROOT, since=min(seqs)):
+            if (decide["kind"], decide["lane"], decide["drive"]) != ("decide", ROOT, drive_id):
                 continue
             named_by = ({decide.get("re")} | cci.resolved(decide)) & seqs
             said = {seq for seq in seqs if seq < decide["seq"]} if "settled" in decide["text"].casefold() and about_pr(decide, repo, pr) else set()
             settled |= {str(seq): decide["seq"] for seq in named_by | said if str(seq) not in settled}
+        accepted = [answer for answer in cci.records(self.cci_tail, drive_id, "--kind=answer", "--pr", f"{repo}#{pr}") if answer["drive"] == drive_id and answer.get("re") in seqs and ACCEPTED.match(answer["text"])]
+        if not accepted:
+            return settled
+        rulings = sorted(record["seq"] for record in cci.records(self.cci_tail, drive_id, "--kind=go", "--kind=decide", "--lane", ROOT, "--pr", f"{repo}#{pr}") if (record["lane"], record["drive"]) == (ROOT, drive_id) and record["kind"] in ("go", "decide"))
+        for answer in accepted:
+            if str(answer["re"]) not in settled and (ruling := next((seq for seq in rulings if seq > answer["seq"]), None)):
+                settled[str(answer["re"])] = ruling
         return settled
 
     def finder_settled(self, key: str, response: dict) -> None:
