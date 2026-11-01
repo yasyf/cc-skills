@@ -178,9 +178,11 @@ def at(record: dict) -> datetime:
     return datetime.fromisoformat(record["at"].replace("Z", "+00:00"))
 
 
-def missing(standing: list[dict], records: list[dict], comments: Callable[[], list[dict]], fidelity_lanes: list[str]) -> Missing | None:
-    """The newest `fidelity: missing` grade among the lanes' `standing` grades of a head that still holds it, as the landing runner reads them: no root record closes it, and a desk's ok outranks the pipeline's missing; with its first answer after it, a record of a lane other than a grader or desk that answers its seq by `--re` or names `#<seq>`, or a PR comment no bot wrote. `comments` is read only when such a grade stands."""
+def missing(standing: list[dict], records: list[dict], comments: Callable[[], list[dict]], fidelity_lanes: list[str], pr: str, head: str) -> Missing | None:
+    """The newest `fidelity: missing` grade among the lanes' `standing` grades of `pr` at `head` that still holds it, as the landing runner reads them: no root record closes it or reads `fidelity-override [#]<pr> [at] <head>`, and a desk's ok outranks the pipeline's missing; with its first answer after it, a record of a lane other than a grader or desk that answers its seq by `--re` or names `#<seq>`, or a PR comment no bot wrote. `comments` is read only when such a grade stands."""
     desk_ok = any(grade["lane"] != PIPELINE and grade["text"].startswith(grades.FIDELITY_OK) for grade in standing)
+    if any(record["lane"] in ROOT_NAMES and grades.overridden(record, grades.FIDELITY_OVERRIDE, pr, head) for record in records):
+        return None
     closed = {seq for record in records if record["lane"] in ROOT_NAMES for seq in grades.closes(record)}
     grade = max((grade for grade in standing if grade["text"].startswith(grades.FIDELITY_MISSING) and grade["seq"] not in closed and not (desk_ok and grade["lane"] == PIPELINE)), key=lambda record: record["seq"], default=None)
     if grade is None:
@@ -226,7 +228,7 @@ def state(pr: str, rows: dict[str, dict], board: Board, records: list[dict], com
     standing = grades.standing(grades.fidelity_grades_in(about, drive_name, fidelity_lanes, repo, pr), fidelity_lanes, head)
     if not standing:
         facts.append(f"no fidelity grade names {head[:7]}")
-    elif found := missing(standing, records, comments, fidelity_lanes):
+    elif found := missing(standing, records, comments, fidelity_lanes, pr, head):
         facts.append(missing_words(found))
     finder = grades.newest_finder(grades.finder_records(grades.finder_reviews_in(about, drive_name, repo, pr)), head)
     if finder is not None and finder["grade"] == grades.FINDER_FAIL and not grades.root_settles_finder(records, pr, head, finder):

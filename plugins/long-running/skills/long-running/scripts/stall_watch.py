@@ -979,7 +979,7 @@ class Pass:
                 elif self.queued(FIDELITY_DESK, pr, head) is None:
                     stalls.append(Stall(f"fidelity:{pr}:{short(head)}", "fidelity", head_at, subject, f"no fidelity grade names this head, and the fidelity desk holds none queued, first named {pacific(head_at)} in #{announced[0]['seq']}", tuple(fidelity_lanes), f"grade {subject} and post its `fidelity: ok` or `fidelity: missing` line", pr))
             try:
-                found = owner_waits.missing(standing, records, lambda pr=pr: self.comments(pr), fidelity_lanes)
+                found = owner_waits.missing(standing, records, lambda pr=pr: self.comments(pr), fidelity_lanes, pr, head)
             except ReadFailed as failed:
                 self.warn({"missing", "regrade"}, str(failed))
                 found = None

@@ -3576,6 +3576,34 @@ def test_a_missing_a_root_record_resolves_or_overrides_is_accepted_and_the_head_
     assert len(shell.enqueues()) == int(lands)
 
 
+@pytest.mark.parametrize("text", ["fidelity-override 29020 at cccc333: 152216", "fidelity-override #29020 at cccc333: 152216@f3c89519", "9:38 AM (a). fidelity-override #29020 cccc333: 34766."])
+def test_a_root_fidelity_override_in_any_id_form_lands_the_head(shell, config, text):
+    """Root #287102 re-posted #286877's `fidelity-override #47225 at 1f99697: 174488` as `174488@f3c89519` because nothing said the first was read."""
+    lone_green_pr(shell)
+    finder_verdict(shell, "29020", "ok cccc333 no findings")
+    grade(shell, "29020", "missing cccc333 plan:116 no caller trace")
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    cci_record(shell, kind="decide", refs={"prs": [29020]}, at=actions.stamp(shell.now()), text=text)
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+    assert not [line for line in escalations(shell) if line.startswith("OVERRIDE-REFUSED")]
+
+
+def test_a_root_override_the_runner_cannot_read_is_refused_back_to_root_once(shell, config):
+    lone_green_pr(shell)
+    finder_verdict(shell, "29020", "ok cccc333 no findings")
+    grade(shell, "29020", "missing cccc333 plan:116 no caller trace")
+    landing_pass(shell, config)
+    seq = cci_record(shell, kind="decide", refs={"prs": [29020]}, at=actions.stamp(shell.now()), text="9:38 AM fidelity-override #29020: 152216. Example: `fidelity-override #<pr> at <sha>`")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [line] = [line for line in escalations(shell) if line.startswith("OVERRIDE-REFUSED")]
+    assert line.startswith(f"OVERRIDE-REFUSED override:{seq} root: cci #{seq} reads `fidelity-override #29020: 152216`")
+    assert [post["kind"] for post in shell.posts if post.get("topic") == f"override:{seq}"] == ["blocker"]
+
+
 def test_an_ungraded_pr_cuts_the_prefix_and_the_graded_pr_below_it_enqueues_alone(shell, config, tmp_path):
     shell.rows = stack_rows()
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 BLOCKED cccc333333 ai-review pending", would="#28997 #29016")]

@@ -681,7 +681,7 @@ import judge_watch
 import prompt_watch
 import stall_watch
 from long_running import testfiles
-from long_running.grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, GO_BRACKET, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, precondition_sentences, repo_prs, root_settles_finder, standing
+from long_running.grades import FIDELITY_MISSING, FIDELITY_OK, FIDELITY_OVERRIDE, FINDER_PASS, GO_BRACKET, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, overridden, overrides, precondition_sentences, repo_prs, root_settles_finder, standing
 from long_running.grades import carry_of, delegated, with_successors
 from long_running.grades import carries as carry_grade
 from long_running.grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
@@ -747,7 +747,7 @@ SPRITE_STALLED_AFTER = timedelta(minutes=30)
 FINDER_TAPS_EVERY = timedelta(minutes=5)
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker", "GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": "blocker", "GO-TAP-MISSING": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker", "GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": "blocker", "GO-TAP-MISSING": "blocker", "OVERRIDE-REFUSED": "blocker"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 TRUNK = "dev"
@@ -836,6 +836,7 @@ CARRIED_READ = "carried-read"
 LANDED_TIDIED = "landed-tidied"
 LANDED_KEY = "landed:"
 DEQUEUE_READ = "dequeue-read"
+OVERRIDE_READ = "override-read"
 SETTLED = "settled"
 ROWED_READ = "rowed-read"
 QUOTA_OFF = "GitHub's read quota is under ccx's floor"
@@ -956,7 +957,6 @@ TRUNK_QUEUE_FACT = "trunk-queue"
 TRUNK_FELL = frozenset({"failed", "canceled"})
 TRUNK_UNREAD = frozenset({"unknown", "not queued"})
 CARRIED_FROM = re.compile(r"\bcarried from #(\d+)")
-ROOT_FIDELITY_OVERRIDE = r"\bfidelity-override\s+#{pr}\s+(?:at\s+)?{sha}"
 QUEUED_VERDICT = "QUEUED"
 WAITING_VERDICT = "WAITING"
 BELOW_BLOCKED = re.compile(r"\bbelow BLOCKED #(\d+)\b")
@@ -4815,7 +4815,7 @@ class Runner:
         return True
 
     def root_settled(self, repo: str, pr: str, named: list[dict]) -> dict[str, int]:
-        """Each finder or fidelity record of `named` root settled, keyed by its seq, with the oldest record that settled it: a root `decide` naming it by `--re` or `--resolves`, or one about `pr` that says settled and came after it (root #182456), or a `finder-override` or finder clear naming its head (root #278140), or the first root `go` or `decide` about `pr` after a lane's `accept` answer naming it by `--re` (root #273671)."""
+        """Each finder or fidelity record of `named` root settled, keyed by its seq, with the oldest record that settled it: a root `decide` naming it by `--re` or `--resolves`, or one about `pr` that says settled and came after it (root #182456), or a `finder-override`, `fidelity-override` or finder clear naming its head (root #278140, #287102), or the first root `go` or `decide` about `pr` after a lane's `accept` answer naming it by `--re` (root #273671)."""
         if not (seqs := {record["seq"] for record in named}):
             return {}
         drive_id = self.config.drive
@@ -4825,8 +4825,13 @@ class Runner:
                 continue
             named_by = ({decide.get("re")} | cci.resolved(decide)) & seqs
             said = {seq for seq in seqs if seq < decide["seq"]} if "settled" in decide["text"].casefold() and about_pr(decide, repo, pr) else set()
-            overridden = {record["seq"] for record in named if record["text"].startswith("finder:") and root_settles_finder([decide], pr, graded_head(record["text"]), record)}
-            settled |= {str(seq): decide["seq"] for seq in named_by | said | overridden if str(seq) not in settled}
+            cleared = {
+                record["seq"]
+                for record in named
+                if record["text"].startswith("finder:") and root_settles_finder([decide], pr, graded_head(record["text"]), record)
+                or record["text"].startswith(FIDELITY_MISSING) and record["seq"] < decide["seq"] and overridden(decide, FIDELITY_OVERRIDE, pr, graded_head(record["text"]))
+            }
+            settled |= {str(seq): decide["seq"] for seq in named_by | said | cleared if str(seq) not in settled}
         accepted = [answer for answer in cci.records(self.cci_tail, drive_id, "--kind=answer", "--pr", f"{repo}#{pr}") if answer["drive"] == drive_id and answer.get("re") in seqs and ACCEPTED.match(answer["text"])]
         if not accepted:
             return settled
@@ -5965,6 +5970,21 @@ class Landing:
                     }
         return orders, max((record["seq"] for record in records), default=read)
 
+    def refuse_unread_overrides(self) -> None:
+        """Post an `OVERRIDE-REFUSED` blocker back to root, once each, for every root `decide` since the newest one read whose `finder-override` or `fidelity-override` outside quotes and code reads as no `<kind>-override [#]<pr> [at] <sha>`, since the runner settles nothing on it and would otherwise ignore it silently (root #287102). The read stops before a refusal whose post failed, so the next pass posts it again."""
+        if OVERRIDE_READ not in self.book.facts(LANDING, [OVERRIDE_READ]):
+            self.book.edit(LANDING, lambda incident: incident.facts.setdefault(OVERRIDE_READ, self.started))
+        read = self.book.fact(LANDING, OVERRIDE_READ, self.started)
+        drive_id = self.runner.config.drive
+        for record in cci.records(self.cci_tail, drive_id, "--kind=decide", "--lane", ROOT, since=read):
+            if (record["kind"], record["lane"], record["drive"]) == ("decide", ROOT, drive_id) and (unread := overrides(QUOTED_SPAN.sub("", QUOTED_BLOCK.sub("", full_text(record))))[1]):
+                key = f"override:{record['seq']}"
+                self.runner.escalate(key, "OVERRIDE-REFUSED", ROOT, f"cci #{record['seq']} reads `{'`, `'.join(unread)}`, which names no `finder-override #<pr> at <sha>: <id>` or `fidelity-override #<pr> at <sha>: <id>`, so it settles no grade; post it again in that form", to=ROOT)
+                if not self.book.known(RUNNER, f"escalation:{key}"):
+                    break
+            read = record["seq"]
+        self.book.edit(LANDING, lambda incident: incident.facts.update({OVERRIDE_READ: read}))
+
     def latch_pulled(self, pr: str, head: str, why: str) -> None:
         """Keep `pr` at `head` out of every check and enqueue until `mq.py requeue`, and mark each finished enqueue that admitted it at that head `pulled`."""
         self.book.edit(LANDING, lambda incident: incident.facts.setdefault(PULLED_HEADS, {}).update({pr: head}))
@@ -6785,8 +6805,7 @@ class Landing:
         misses = [grade for grade in newest if grade["text"].startswith(FIDELITY_MISSING) and not (desk_ok and grade["lane"] == fidelity.LANE)]
         rulings = [record for record in cci.records(self.cci_tail, self.runner.config.drive, "--lane", ROOT, "--pr", f"{self.repo}#{pr}") if record["lane"] == ROOT] if misses else []
         accepted = {seq for record in rulings for seq in closes(record)}
-        overridden = re.compile(ROOT_FIDELITY_OVERRIDE.format(pr=pr, sha=sha[:7]), re.IGNORECASE)
-        if not any(overridden.search(full_text(record)) for record in rulings) and (missing := max((grade for grade in misses if grade["seq"] not in accepted), key=lambda record: record["seq"], default=None)):
+        if not any(overridden(record, FIDELITY_OVERRIDE, pr, sha) for record in rulings) and (missing := max((grade for grade in misses if grade["seq"] not in accepted), key=lambda record: record["seq"], default=None)):
             return Grade(False, missing, f"{missing['lane']} graded this head on cci #{missing['seq']}: {missing['text']}")
         if newest:
             oks = [grade for grade in newest if grade["text"].startswith(FIDELITY_OK)] or newest
@@ -9793,6 +9812,7 @@ class Landing:
         self.no_go = self.unpassed(rows) if gating else set()
         self.refuse_ungone_parents(rows, held or [])
         pulled = self.pull_ordered(rows)
+        self.refuse_unread_overrides()
         self.refuse_out(rows, dict.fromkeys(pulled, "a dequeue keeps it out of the queue until `mq.py requeue`"), "which a dequeue keeps out of the queue until `mq.py requeue`")
         carrying = self.carrying(rows) if gating else {}
         self.refuse_out(rows, carrying, "whose branch carries open PRs a squash would land with it")
