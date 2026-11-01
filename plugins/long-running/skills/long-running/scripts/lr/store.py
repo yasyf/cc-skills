@@ -21,7 +21,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 STALE_AFTER = timedelta(minutes=15)
-ADDED_COLUMNS = (("lanes", "waiting", "INTEGER"), ("lanes", "answered", "TEXT"), ("lanes", "page", "TEXT"), ("lanes", "awaits", "TEXT"))
+ADDED_COLUMNS = (("lanes", "waiting", "INTEGER"), ("lanes", "answered", "TEXT"), ("lanes", "page", "TEXT"), ("lanes", "awaits", "TEXT"), ("heard", "kind", "TEXT"))
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS prs (
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS lanes (
   since TEXT NOT NULL, handoff TEXT,
   predecessor TEXT, reason TEXT, strikes INTEGER NOT NULL DEFAULT 0, asked TEXT, flushed TEXT, retired_by TEXT, waiting INTEGER, answered TEXT, page TEXT, awaits TEXT
 );
-CREATE TABLE IF NOT EXISTS heard (lane TEXT PRIMARY KEY, at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS heard (lane TEXT PRIMARY KEY, at TEXT NOT NULL, kind TEXT);
 CREATE TABLE IF NOT EXISTS owners (pr INTEGER PRIMARY KEY, lane TEXT NOT NULL);
 """
 
@@ -118,11 +118,12 @@ class Lane:
     answered: datetime | None
     page: dict | None
     awaits: str | None
+    last: str | None
 
     @classmethod
-    def row(cls, row: sqlite3.Row, heard: datetime | None, prs: tuple[int, ...]) -> Lane:
+    def row(cls, row: sqlite3.Row, heard: sqlite3.Row | None, prs: tuple[int, ...]) -> Lane:
         when = {name: parse(row[name]) if row[name] else None for name in ("asked", "flushed", "answered")}
-        return cls(row["name"], row["brief"], row["model"], row["effort"], row["role"], row["state"], parse(row["since"]), heard, row["handoff"], prs, row["predecessor"], row["reason"], row["strikes"], when["asked"], when["flushed"], row["retired_by"], row["waiting"], when["answered"], json.loads(row["page"]) if row["page"] else None, row["awaits"])
+        return cls(row["name"], row["brief"], row["model"], row["effort"], row["role"], row["state"], parse(row["since"]), parse(heard["at"]) if heard else None, row["handoff"], prs, row["predecessor"], row["reason"], row["strikes"], when["asked"], when["flushed"], row["retired_by"], row["waiting"], when["answered"], json.loads(row["page"]) if row["page"] else None, row["awaits"], heard["kind"] if heard else None)
 
 
 @dataclass(frozen=True)
@@ -266,9 +267,9 @@ class Store:
         row = self.db.execute("SELECT * FROM lanes WHERE name = ?", (name,)).fetchone()
         if not row:
             return None
-        heard = self.db.execute("SELECT at FROM heard WHERE lane = ?", (name,)).fetchone()
+        heard = self.db.execute("SELECT at, kind FROM heard WHERE lane = ?", (name,)).fetchone()
         prs = tuple(pr for (pr,) in self.db.execute("SELECT pr FROM owners WHERE lane = ? ORDER BY pr", (name,)))
-        return Lane.row(row, parse(heard["at"]) if heard else None, prs)
+        return Lane.row(row, heard, prs)
 
     def lanes(self, *states: str) -> list[Lane]:
         return self.registered(f"WHERE state IN ({', '.join('?' * len(states))})", states)
@@ -277,7 +278,7 @@ class Store:
         return self.registered("", ())
 
     def registered(self, where: str, params: tuple) -> list[Lane]:
-        heard, owned = self.heard(), self.owners()
+        heard, owned = {row["lane"]: row for row in self.db.execute("SELECT lane, at, kind FROM heard")}, self.owners()
         return [Lane.row(row, heard.get(row["name"]), tuple(owned.get(row["name"], ()))) for row in self.db.execute(f"SELECT * FROM lanes {where} ORDER BY name", params)]
 
     def heard(self) -> dict[str, datetime]:
@@ -299,6 +300,9 @@ class Store:
         owned = {row["pr"]: row["lane"] for row in rows}
         return {pr: owned.get(pr) for pr in prs}
 
+    def pages(self) -> dict[str, dict]:
+        return {row["name"]: json.loads(row["page"]) for row in self.db.execute("SELECT name, page FROM lanes WHERE page IS NOT NULL")}
+
     def own(self, name: str, prs: Iterable[int]) -> None:
         self.db.executemany("INSERT INTO owners (pr, lane) VALUES (?, ?) ON CONFLICT (pr) DO UPDATE SET lane = excluded.lane", [(pr, name) for pr in prs])
 
@@ -308,8 +312,8 @@ class Store:
     def lane_state(self, name: str, state: str, at: datetime, retired_by: str | None = None, reason: str | None = None) -> None:
         self.db.execute("UPDATE lanes SET state = ?, since = ?, retired_by = coalesce(?, retired_by), reason = coalesce(?, reason) WHERE name = ?", (state, stamp(at), retired_by, reason, name))
 
-    def lane_heard(self, name: str, at: datetime) -> None:
-        self.db.execute("INSERT INTO heard (lane, at) VALUES (?, ?) ON CONFLICT (lane) DO UPDATE SET at = max(heard.at, excluded.at)", (name, stamp(at)))
+    def lane_heard(self, name: str, at: datetime, kind: str) -> None:
+        self.db.execute("INSERT INTO heard (lane, at, kind) VALUES (?, ?, ?) ON CONFLICT (lane) DO UPDATE SET kind = CASE WHEN excluded.at >= heard.at THEN excluded.kind ELSE heard.kind END, at = max(heard.at, excluded.at)", (name, stamp(at), kind))
 
     def lane_handoff(self, name: str, doc: str, flushed: datetime | None) -> None:
         self.db.execute("UPDATE lanes SET handoff = ?, flushed = coalesce(?, flushed) WHERE name = ?", (doc, stamp(flushed) if flushed else None, name))

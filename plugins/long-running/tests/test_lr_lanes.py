@@ -165,12 +165,13 @@ def test_a_flushed_lane_keeps_working_in_place(tmp_path, brief):
     fake = adopted(tmp_path, brief, store)
     fake.peers = [who("conflicts-2", True, T0)]
     fake.token_counts = {"conflicts-2": 640_000}
+    fake.feed.append(record(2, "conflicts-2", "state", T0 - timedelta(minutes=2), "restacking #46053"))
 
     lanes.tick(store, fake.deps, T0, 1)
 
     assert fake.kinds() == [("ask", "conflicts-2")] and "ROTATE" in fake.posts[0][-1]
     fake.posts.clear()
-    fake.feed.append(record(2, "conflicts-2", "handoff", T0 + timedelta(minutes=4), "flushed 9a1b2c3", ("root",), {"ccn": "9a1b2c3"}))
+    fake.feed.append(record(3, "conflicts-2", "handoff", T0 + timedelta(minutes=4), "flushed 9a1b2c3", ("root",), {"ccn": "9a1b2c3"}))
     out = lanes.tick(store, fake.deps, T0 + timedelta(minutes=5), 1)
 
     assert out.relaunched == [] and fake.launches == [] and fake.posts == []
@@ -197,9 +198,8 @@ def test_an_idle_lane_past_its_line_is_never_asked_to_rotate(tmp_path, brief):
 def test_only_a_silent_roster_lane_not_waiting_on_root_is_woken(tmp_path, brief, roster, seen, waiting, woken):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store)
-    if waiting:
-        fake.feed.append(record(2, "conflicts-2", "ask", T0 - seen, "pick A or B?", ("root",)))
-    fake.peers = [who("conflicts-2", True, T0 - seen, **({"roster": "/teams/session-d50e80e8"} if roster else {}))]
+    fake.feed.append(record(2, "conflicts-2", "ask", T0 - seen, "pick A or B?", ("root",)) if waiting else record(2, "conflicts-2", "state", T0 - seen, "restacking"))
+    fake.peers = [who("conflicts-2", True, T0, **({"roster": "/teams/session-d50e80e8"} if roster else {}))]
 
     out = lanes.tick(store, fake.deps, T0, 1)
 
@@ -551,7 +551,7 @@ def test_classify_lane(tmp_path, brief, state, peer, heard, asked, flushed, toke
     store.want_lane("l-1", str(brief), "opus", "xhigh", "lane", state, T0 - timedelta(minutes=10))
     minutes = lambda n: T0 - timedelta(minutes=n) if n is not None else None
     if heard is not None:
-        store.lane_heard("l-1", minutes(heard))
+        store.lane_heard("l-1", minutes(heard), "state")
     store.lane_asked("l-1", minutes(asked))
     if flushed is not None:
         store.lane_handoff("l-1", "9a1b2c3", minutes(flushed))
@@ -596,7 +596,7 @@ def test_liveness_is_a_record_within_the_hour_whatever_the_registry_says():
     for name, heard in (("fresh-1", T0 - timedelta(minutes=50)), ("stale-1", T0 - timedelta(minutes=70)), ("gone-1", T0 - timedelta(minutes=5)), ("quiet-1", None)):
         store.want_lane(name, "/briefs/x.md", "opus", "xhigh", "lane", "desired", T0 - timedelta(hours=3), prs=(46475,) if name == "fresh-1" else ())
         if heard:
-            store.lane_heard(name, heard)
+            store.lane_heard(name, heard, "state")
     lanes.retire(store, "gone-1", "gone-2", T0)
 
     rows = {row["lane"]: row for row in lanes.liveness(store, T0)}
@@ -627,7 +627,7 @@ def test_every_lane_that_posts_is_in_the_liveness_answer_with_the_prs_it_last_ca
 def test_a_root_stand_down_retires_the_lanes_its_text_names_but_not_the_successor_named_after_them(tmp_path, brief):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store)
-    store.want_lane("conflicts-8", str(brief), "opus", "xhigh", "lane", "desired", T0 - timedelta(minutes=10))
+    store.want_lane("conflicts-8", str(brief), "opus", "xhigh", "lane", "desired", T0 - timedelta(hours=1))
     store.want_lane("test-fold-6", str(brief), "opus", "xhigh", "lane", "desired", T0 - timedelta(hours=3))
     fake.feed.append(record(2, "root", "stand-down", T0 - timedelta(minutes=5), "4:48 PM stand-down conflicts-2 and test-fold-6 (both silent since 2:39 PM). conflicts-8 spawned 4:48 PM owns the restack", ("supervisor", "desk-runner")))
     fake.peers = [who(name, True, T0 - timedelta(hours=2), roster="/teams/session-d50e80e8") for name in ("conflicts-2", "test-fold-6", "conflicts-8")]
@@ -667,3 +667,49 @@ def test_a_head_relayed_to_the_prs_owner_leaves_the_owner_in_place(tmp_path, bri
     lanes.tick(store, fake.deps, T0, 1)
 
     assert store.owner_of([46888, 46889]) == {46888: "conflicts-2", 46889: "desk-runner"}
+
+
+@pytest.mark.parametrize(
+    ("last", "asked"),
+    [(record(2, "conflicts-2", "state", T0 - timedelta(hours=2), "restacking"), []), (record(2, "conflicts-2", "handoff", T0 - timedelta(minutes=3), "flushed", ("root",), {"ccn": "9a1b2c3"}), [])],
+    ids=["in-process-row-fresh-but-records-old", "last-record-a-handoff"],
+)
+def test_rotate_reads_activity_from_the_lanes_own_records_never_its_cci_who_row(tmp_path, brief, last, asked):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    fake.feed.append(last)
+    fake.peers = [who("conflicts-2", True, T0)]
+    fake.token_counts = {"conflicts-2": 640_000}
+
+    out = lanes.tick(store, fake.deps, T0, 1)
+
+    assert out.asked == asked and fake.posts == []
+
+
+@pytest.mark.parametrize(
+    "after",
+    [
+        [record(3, "flake-dash-1", "answer", T0 - timedelta(minutes=20), "nothing to fix") | {"resolves": 9, "also_resolves": [2]}],
+        [record(3, "landing-desk-3", "landed", T0 - timedelta(minutes=20), "#46475 landed", refs={"prs": ["Forge-AI/monorepo#46475"]})],
+        [record(3, "conflicts-8", "head", T0 - timedelta(minutes=20), "#46475 1a2b3c4", ("root",), {"prs": ["Forge-AI/monorepo#46475"]})],
+    ],
+    ids=["blocker-resolved", "pr-landed", "pr-moved"],
+)
+def test_a_page_whose_blocker_resolved_or_whose_pr_left_the_lane_never_wakes_it(tmp_path, brief, after):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store, prs=(46475,))
+    fake.feed += [record(2, "stall-watch", "blocker", T0 - timedelta(minutes=30), "STALL red #46475", ("conflicts-2@d1",), {"prs": ["Forge-AI/monorepo#46475"]}) | {"topic": "red:46475:89f46c3"}, *after]
+    fake.peers = [who("conflicts-2", True, T0, roster="/teams/session-d50e80e8")]
+
+    lanes.tick(store, fake.deps, T0, 1)
+
+    assert all(page is None for page in fake.pages) and store.lane("conflicts-2").page is None
+
+
+def test_a_fresh_store_pages_no_lane_from_the_blockers_it_refolds(tmp_path, brief):
+    store = Store.memory()
+    fake = Fake(tmp_path, [spawned(1, "conflicts-2", brief), record(2, "conflicts-2", "head", T0 - timedelta(hours=3), "#46475 1a2b3c4", ("root",), {"prs": ["Forge-AI/monorepo#46475"]}), record(3, "stall-watch", "blocker", T0 - timedelta(hours=2), "STALL red #46475", ("conflicts-2@d1",), {"prs": ["Forge-AI/monorepo#46475"]})], [who("conflicts-2", True, T0, roster="/teams/session-d50e80e8")])
+
+    lanes.tick(store, fake.deps, T0, 1)
+
+    assert store.lane("conflicts-2").page is None and all(page is None for page in fake.pages)

@@ -41,6 +41,7 @@ REPLACES = re.compile(r"\b(?P<new>[\w.-]+) replaces (?P<old>[\w.-]+)\b")
 HANDED_OFF = re.compile(r"\bhandoff (?P<lane>[\w.-]+): doc (?P<doc>[0-9a-f]{7,40})\b")
 CARRIES = ("head", "opened")
 WAITS = frozenset({"ask", "blocked", "blocker"})
+SETTLED = frozenset({"handoff", "done", "stand-down", "stopped"})
 SLICE_STEP = re.compile(r"^Register slice: lane=\S+ step=(\S+)", re.MULTILINE)
 STOOD_DOWN = r"^(?:\d{{1,2}}:\d{{2}} [AP]M )?{}:? (?:STAND-DOWN|stood down|standing down)\b"
 TOLD_TO_STAND_DOWN = r"\b{}\b[^.\n]{{0,60}}\bstand[ -]?down\b"
@@ -176,23 +177,30 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             continue
         row = store.lane(lane)
         kind, text = record["kind"], record.get("text") or ""
-        store.lane_heard(lane, at)
+        store.lane_heard(lane, at, kind)
         if row and row.state in LIVE:
             card = CARD.search(text) if kind in WAITS else None
             store.lane_waiting(lane, record["seq"] if kind in WAITS and (card or ROOT in (record.get("to") or [])) else None, awaits=card[0] if card else None)
             store.lane_page(lane, None)
-        if kind == "blocker":
+        if kind == "blocker" and live is None:
             for name in addressed(record) - {lane}:
-                if (paged := store.lane(name)) and paged.state in LIVE and (prs := sorted(set(prs_of(record)) & set(paged.prs))) and (topic := record.get("topic") or str(record["seq"])) != (paged.page or {}).get("topic"):
-                    store.lane_page(name, {"topic": topic, "why": f"this blocker on your PR {' '.join(f'#{n}' for n in prs)} arrived after your last record: {text}", "text": text, "prs": prs})
-        if answers := {record.get("re"), record.get("resolves")} - {None}:
+                if (paged := store.lane(name)) and paged.state in LIVE and (prs := sorted(set(prs_of(record)) & set(paged.prs))):
+                    topic, page = record.get("topic") or str(record["seq"]), paged.page or {}
+                    fresh = {"topic": topic, "why": f"this blocker on your PR {' '.join(f'#{n}' for n in prs)} arrived after your last record: {text}", "text": text, "prs": prs, "seqs": []}
+                    store.lane_page(name, (page if page.get("topic") == topic else fresh) | {"seqs": [*(page.get("seqs", []) if page.get("topic") == topic else []), record["seq"]]})
+        resolved = {record.get("resolves"), *(record.get("also_resolves") or [])} - {None}
+        if answers := resolved | {record.get("re")} - {None}:
             for name in store.answered(answers, LIVE):
                 store.lane_waiting(name, None, at)
+        for name, page in store.pages().items():
+            if resolved & set(page.get("seqs", [])):
+                store.lane_page(name, None)
         if kind == "owner":
             for waiter in store.lanes(*LIVE):
                 if waiter.awaits and {f"({waiter.awaits})", f"({waiter.awaits.removeprefix('card-')})"} & {match[0] for match in re.finditer(r"\([\w.-]+\)", text)}:
                     store.lane_waiting(waiter.name, None, at)
-                    store.lane_page(waiter.name, {"topic": f"owner:{record['seq']}", "why": f"the owner answered {waiter.awaits}, the card you wait on: {text}", "text": text, "prs": list(waiter.prs)})
+                    if live is None:
+                        store.lane_page(waiter.name, {"topic": f"owner:{record['seq']}", "why": f"the owner answered {waiter.awaits}, the card you wait on: {text}", "text": text, "prs": list(waiter.prs)})
         if lane == SELF:
             continue
         if kind == "handoff" and row and (doc := (record.get("refs") or {}).get("ccn")):
@@ -344,6 +352,9 @@ def relaunch(store: Store, deps: Deps, old: Lane, peers: dict[str, Peer], why: s
 
 def wake(store: Store, deps: Deps, lane: Lane, peer: Peer, now: datetime, out: Outcome) -> None:
     page = lane.page
+    if page and page["prs"] and not set(page["prs"]) & set(lane.prs):
+        store.lane_page(lane.name, None)
+        return
     if page is None or "woke" not in page:
         if deps.wake(lane.name, peer.row, page):
             out.woken.append(lane.name)
@@ -401,11 +412,12 @@ def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
     taken = {lane.name for lane in store.all_lanes()} | set(found)
     for lane in store.lanes(*LIVE):
         peer = found.get(lane.name)
-        wants_tokens = lane.state == "desired" and lane.asked is None and peer is not None and peer.live and now - max(peer.seen, lane.heard or peer.seen) < STALE_AFTER
+        silent = now - (lane.heard or lane.since)
+        wants_tokens = lane.state == "desired" and lane.asked is None and peer is not None and peer.live and silent < STALE_AFTER and lane.last not in SETTLED
         verdict = classify_lane(lane, peer, now, deps.tokens(peer.row) if wants_tokens else None, deps.rotate_at)
         if peer and (verdict.kind == "came-up" or (lane.state == "desired" and verdict.kind in ("ok", "ask-rotate"))):
             store.heartbeat(lane.name, generation, max(peer.seen, lane.heard or peer.seen))
-        if verdict.kind == "ok" and lane.state == "desired" and lane.waiting is None and peer and peer.row.get("roster") and now - max(peer.seen, lane.heard or peer.seen) >= STALE_AFTER:
+        if verdict.kind == "ok" and lane.state == "desired" and lane.waiting is None and peer and peer.row.get("roster") and silent >= STALE_AFTER:
             wake(store, deps, lane, peer, now, out)
         if verdict.kind == "came-up":
             store.lane_state(lane.name, "desired", now)
