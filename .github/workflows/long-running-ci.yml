@@ -33,6 +33,33 @@ jobs:
       - uses: astral-sh/setup-uv@v8.2.0
       - uses: actions/checkout@v7
         with:
+          ref: 55b1b01654e37be57b7c2d102f5b4492a7fec1a5
+          path: .ci-reader-working-set-baseline
+          persist-credentials: false
+      - name: Immutable cyclic reader working-set negative controls
+        run: |
+          baseline=.ci-reader-working-set-baseline/plugins/long-running
+          cp plugins/long-running/tests/test_reader_working_set.py "$baseline/tests/test_reader_working_set.py"
+          for lanes in 63 64; do
+            negative="$RUNNER_TEMP/reader-working-set-lanes-$lanes-negative.log"
+            if uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_reader_working_set.py::test_actual_refusal_reader_working_set_boundary[lanes-$lanes-seed-0]" -q -s >"$negative" 2>&1; then
+              cat "$negative"
+              exit 1
+            fi
+            cat "$negative"
+            grep -F "cyclic reader working set reopened $(((lanes + 2) * 16)) connections" "$negative"
+            grep -F '1 failed' "$negative"
+          done
+      - name: Actual bounded reader working-set costs and changed-phase adaptation
+        shell: bash
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_reader_working_set.py plugins/long-running/tests/test_sqlite_action_store.py -q -s --junitxml="$RUNNER_TEMP/reader-working-set-current.xml" | tee "$RUNNER_TEMP/reader-working-set-current.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: reader-working-set-${{ runner.os }}
+          path: ${{ runner.temp }}/reader-working-set-*
+      - uses: actions/checkout@v7
+        with:
           ref: 2ef339b0d78951d89000b3f012b65905dc852b52
           path: .ci-verified-cause-baseline
           persist-credentials: false

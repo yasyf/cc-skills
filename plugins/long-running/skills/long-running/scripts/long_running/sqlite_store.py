@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import asdict, fields
 from pathlib import Path
+from random import Random
 
 from .model import Action, ActionState, Incident, StaleGeneration, UnknownAction
 
@@ -522,6 +523,7 @@ def _create_database(root: Path, incident: Incident) -> Incident:
 class _ReadConnections(threading.local):
     def __init__(self):
         self.connections: OrderedDict[Path, tuple[tuple[int, int], sqlite3.Connection]] | None = None
+        self.eviction = Random(0)
 
 
 class Store:
@@ -590,7 +592,7 @@ class Store:
                 return connection
             connection.close()
         if len(connections) == 64:
-            _, (_, retired) = connections.popitem(last=False)
+            _, retired = connections.pop(self._readers.eviction.choice(tuple(connections)))
             retired.close()
         connection = self._connect(path)
         connections[path] = identity, connection
