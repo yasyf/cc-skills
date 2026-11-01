@@ -132,7 +132,7 @@ OVERCLAIMED = (
 )
 ACTION_SHOWN = 300
 READ_SHOWN = 1500
-FLAGGED = {"verdict": "yes", "artifact_phrase": "the runner was broken", "evidence_phrase": "- nothing", "sentence": "It admits the runner broke, and nothing this turn starts the fix."}
+FLAGGED = {"verdict": "yes", "artifact_phrase": "the runner was broken", "evidence_phrase": "", "sentence": "It admits the runner broke, and nothing this turn starts the fix."}
 CLEARED = {"verdict": "no", "artifact_phrase": "", "evidence_phrase": "", "sentence": "Nothing to add."}
 MEASURED = re.compile(
     r"\b\d[\d,]*(?:\.\d+)?\s*(?:%|percent\b|(?:users?|sessions?|runs?|errors?|crashes|failures?|requests?|events?|objects?|rows?|retires?|deletes?|refusals?|chats?|reports?)\b|(?:/|per\s+)(?:min(?:ute)?|hour|sec(?:ond)?|s)\b)",
