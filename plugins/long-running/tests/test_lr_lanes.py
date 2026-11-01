@@ -845,3 +845,20 @@ def test_every_supervisor_post_lets_cci_stamp_its_time_so_a_slow_tick_is_never_r
     lanes.tick(store, fake.deps, T0 + timedelta(minutes=16), 1)
 
     assert fake.posts and all("--stamp" in argv for argv in fake.posts)
+
+
+def test_a_root_stand_down_naming_no_successor_unowns_the_lanes_prs_and_names_to_root_once_only_those_needing_work(tmp_path, brief):
+    """#279797 stood down n-enumeration-11 with no successor, and the supervisor still asked it about #45492 an hour later (#280505)."""
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store, prs=(45492, 46512))
+    fake.feed.append(record(2, "root", "stand-down", T0 - timedelta(minutes=5), "1:44 AM stand-down conflicts-2: done (handoff bc5175a). No successor.", ("conflicts-2", "supervisor")))
+    fake.states = {45492: "needs-work", 46512: "waiting"}
+
+    lanes.tick(store, fake.deps, T0 + timedelta(hours=1), 1)
+    lanes.tick(store, fake.deps, T0 + timedelta(hours=2), 1)
+
+    kinds = [(argv[argv.index("--kind") + 1], argv[argv.index("--to") + 1], argv[-1]) for argv in fake.posts]
+    assert not [post for post in kinds if post[1] == "conflicts-2"]
+    assert [(kind, to) for kind, to, text in kinds if "no lane owns" in text] == [("blocker", "root")]
+    assert "#45492 needs work and no lane owns it" in next(text for _, _, text in kinds if "no lane owns" in text)
+    assert store.owner_of([45492, 46512]) == {45492: "root", 46512: "root"}

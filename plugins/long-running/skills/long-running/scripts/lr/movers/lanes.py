@@ -231,6 +231,8 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
                     retire(store, old, successor or ROOT, at)
                     if successor:
                         store.want_lane(successor, gone.brief, gone.model, gone.effort, gone.role, "launching", at, handoff=gone.handoff, prs=gone.prs, predecessor=old)
+                    else:
+                        store.own(ROOT, gone.prs)
         elif kind == "decide" and lane == ROOT and (owner := OWNER.search(text)):
             store.own(owner[1], numbers := prs_of(record))
             if live is None and numbers and (probe := store.probes().get(owner[1])) and probe["dead"]:
@@ -248,16 +250,26 @@ def successor_note(store: Store, name: str) -> str:
 
 
 def probe_owners(store: Store, deps: Deps, found: dict[str, Peer], now: datetime) -> None:
-    """Ask each lane that has posted nothing for `LIVE_WITHIN` and owns a PR needing work (conflicting, red, or not approved) whether it is there, waking it if it idles on a roster, and name it to root only if the ask goes unanswered for `STALE_AFTER`; a green, approved, conflict-free PR waits only on the owner's tap and needs no live owner."""
+    """Ask each lane that has posted nothing for `LIVE_WITHIN` and owns a PR needing work (conflicting, red, or not approved) whether it is there, waking it if it idles on a roster, and name it to root only if the ask goes unanswered for `STALE_AFTER`; a green, approved, conflict-free PR waits only on the owner's tap and needs no live owner. A PR root holds because it stood down its lane with no successor is named to root once each time it comes to need work (root #280532)."""
     heard, probes, lines = store.heard(), store.probes(), []
     for name in [name for name, probe in probes.items() if name in heard and heard[name] > probe["asked"]]:
         store.unprobe(name)
         probes.pop(name)
-    quiet = {name: prs for name, prs in store.owners().items() if not (since := heard.get(name)) or now - since >= LIVE_WITHIN}
+    owners = store.owners()
+    unowned = owners.pop(ROOT, [])
+    quiet = {name: prs for name, prs in owners.items() if not (since := heard.get(name)) or now - since >= LIVE_WITHIN}
     try:
-        states = deps.pr_states(sorted({n for prs in quiet.values() for n in prs}))
+        states = deps.pr_states(sorted({n for prs in [*quiet.values(), unowned] for n in prs}))
     except Unread:
         return
+    stranded = [n for n in unowned if states.get(n) == NEEDS_WORK]
+    for n in unowned:
+        if n not in stranded:
+            store.unprobe(f"{ROOT}:{n}")
+    if fresh := [n for n in stranded if f"{ROOT}:{n}" not in probes]:
+        post(deps, "blocker", ROOT, f"{pacific(now)} {' '.join(f'#{n}' for n in fresh)} need{'s' if len(fresh) == 1 else ''} work and no lane owns {'it' if len(fresh) == 1 else 'them'}: root stood down the lane that did, naming no successor. Name one with a root decide carrying `owner=<lane>`.")
+        for n in fresh:
+            store.probe(f"{ROOT}:{n}", now)
     for name, prs in quiet.items():
         held, since, probe = [n for n in prs if states.get(n) == NEEDS_WORK], heard.get(name), probes.get(name)
         if not held:
