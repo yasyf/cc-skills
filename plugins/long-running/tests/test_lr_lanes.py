@@ -41,7 +41,7 @@ class Fake:
         self.withdrawals: list[str] = []
         self.wakes: list[str] = []
         self.pages: list[dict | None] = []
-        self.open: set[int] = set()
+        self.states: dict[int, str] = {}
         self.deps = lanes.Deps(
             drive=DRIVE,
             checkout=CHECKOUT,
@@ -54,7 +54,7 @@ class Fake:
             launch=lambda name, model, effort, brief: self.launches.append((name, model, effort, brief)),
             withdraw=self.withdrawals.append,
             wake=lambda name, row, page: self.wakes.append(name) is None and self.pages.append(page) is None,
-            open_prs=lambda: self.open,
+            pr_states=lambda prs: {n: self.states.get(n, "closed") for n in prs},
             rotate_at=600_000,
         )
 
@@ -768,7 +768,7 @@ def test_a_quiet_owner_of_open_prs_is_asked_first_and_named_to_root_only_if_it_n
     fake = adopted(tmp_path, brief, store, prs=(46869, 47079, 46001))
     store.lane_heard("conflicts-2", T0 - timedelta(minutes=90), "state")
     store.own("quiet-desk", [46002])
-    fake.open = {46869, 47079, 46002}
+    fake.states = {46869: "needs-work", 47079: "needs-work", 46002: "needs-work"}
     fake.peers = [who("conflicts-2", True, T0, roster="/teams/session-d50e80e8")]
 
     lanes.tick(store, fake.deps, T0, 1)
@@ -779,17 +779,17 @@ def test_a_quiet_owner_of_open_prs_is_asked_first_and_named_to_root_only_if_it_n
     lanes.tick(store, fake.deps, T0 + lanes.STALE_AFTER, 1)
     lanes.tick(store, fake.deps, T0 + lanes.STALE_AFTER + timedelta(minutes=1), 1)
 
-    assert sorted(to for to, _ in asked) == ["conflicts-2", "quiet-desk"] and "you own open #46869 #47079" in dict(asked)["conflicts-2"]
+    assert sorted(to for to, _ in asked) == ["conflicts-2", "quiet-desk"] and "you own #46869 #47079, which still need work" in dict(asked)["conflicts-2"]
     assert early == [] and "conflicts-2" in fake.wakes
     blockers = [argv[-1] for argv in fake.posts if argv[argv.index("--kind") + 1] == "blocker"]
-    assert len(blockers) == 1 and "2 lanes own open PRs and left the supervisor's direct ask unanswered" in blockers[0] and "quiet-desk (#46002; asked at" in blockers[0]
+    assert len(blockers) == 1 and "2 lanes own PRs that need work and left the supervisor's direct ask unanswered" in blockers[0] and "quiet-desk (#46002; asked at" in blockers[0]
 
 
 def test_an_owner_that_answers_its_ask_is_never_named_to_root(tmp_path, brief):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store, prs=(46869,))
     store.lane_heard("conflicts-2", T0 - timedelta(minutes=90), "state")
-    fake.open = {46869}
+    fake.states = {46869: "needs-work"}
     lanes.tick(store, fake.deps, T0, 1)
     fake.feed.append(record(2, "conflicts-2", "state", T0 + timedelta(minutes=4), "idle: #46869 waits on the owner's tap"))
 
@@ -823,3 +823,15 @@ def test_a_numbered_successor_takes_its_familys_prs_and_becomes_their_successor(
     assert store.owner_of([46932, 47000, 46869]) == {46932: "conflicts-4", 47000: "conflicts-4", 46869: "conflicts-4"}
     assert (store.lane("conflicts-3").retired_by, store.lane("conflicts-2").retired_by) == ("conflicts-4", "conflicts-3")
     assert lanes.newest(store, "conflicts-2").name == "conflicts-4"
+
+
+def test_a_quiet_lane_whose_prs_only_wait_on_the_owners_tap_is_never_asked(tmp_path, brief):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store, prs=(46788, 47021))
+    store.lane_heard("conflicts-2", T0 - timedelta(hours=3), "state")
+    fake.states = {46788: "waiting", 47021: "waiting"}
+
+    lanes.tick(store, fake.deps, T0, 1)
+    lanes.tick(store, fake.deps, T0 + lanes.STALE_AFTER, 1)
+
+    assert fake.posts == [] and store.probes() == {}

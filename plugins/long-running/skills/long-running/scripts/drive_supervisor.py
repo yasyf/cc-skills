@@ -52,7 +52,7 @@ INACTIVE = frozenset({"completed", "failed"})
 TAIL_BYTES = 1_000_000
 MEASURE_EVERY = timedelta(minutes=5)
 OPEN_EVERY = timedelta(minutes=10)
-OPEN_LIMIT = 2000
+PR_BATCH = 50
 WINDOW = 1_000_000
 OUTPUT_RESERVE = 20_000
 AUTOCOMPACT_BUFFER = 13_000
@@ -189,18 +189,39 @@ def last_tokens(path: Path) -> int | None:
     return None
 
 
-class OpenPrs:
-    """The repo's open PR numbers from one `gh pr list` read, reread every `OPEN_EVERY`."""
+class PrStates:
+    """Each PR's state, `needs-work` when it is open and conflicting, red, or not approved, `waiting` when it only waits on the owner's tap, else `closed`, from one GraphQL read per batch, reread every `OPEN_EVERY`."""
 
     def __init__(self, repo: str, clock):
-        self.repo, self.clock = repo, clock
-        self.read: tuple[datetime, set[int]] | None = None
+        self.owner, self.name = repo.split("/")
+        self.clock = clock
+        self.read: dict[int, tuple[datetime, str]] = {}
 
-    def __call__(self) -> set[int]:
+    def __call__(self, prs: list[int]) -> dict[int, str]:
         now = self.clock()
-        if self.read is None or now - self.read[0] >= OPEN_EVERY:
-            self.read = (now, {int(n) for n in run(["gh", "pr", "list", "-R", self.repo, "--state", "open", "--limit", str(OPEN_LIMIT), "--json", "number", "--jq", ".[].number"]).split()})
-        return self.read[1]
+        stale = [n for n in prs if n not in self.read or now - self.read[n][0] >= OPEN_EVERY]
+        for start in range(0, len(stale), PR_BATCH):
+            batch = stale[start : start + PR_BATCH]
+            fields = " ".join(f"p{n}: pullRequest(number: {n}) {{ state mergeable reviewDecision commits(last: 1) {{ nodes {{ commit {{ statusCheckRollup {{ state }} }} }} }} }}" for n in batch)
+            try:
+                done = subprocess.run(["gh", "api", "graphql", "-f", f'query=query {{ repository(owner: "{self.owner}", name: "{self.name}") {{ {fields} }} }}'], capture_output=True, text=True, timeout=TIMEOUT)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                raise lanes.Unread(f"gh api graphql: {error}") from error
+            nodes = ((json.loads(done.stdout or "{}").get("data") or {}).get("repository")) or {}
+            if done.returncode and not nodes:
+                raise lanes.Unread(f"gh api graphql exited {done.returncode}: {(done.stderr or done.stdout).strip()[:300]}")
+            for n in batch:
+                self.read[n] = (now, pr_state(nodes.get(f"p{n}")))
+        return {n: self.read[n][1] for n in prs}
+
+
+def pr_state(node: dict | None) -> str:
+    if not node or node["state"] != "OPEN":
+        return "closed"
+    rollup = (((node["commits"]["nodes"] or [{}])[0].get("commit") or {}).get("statusCheckRollup")) or {}
+    if node["mergeable"] == "CONFLICTING" or rollup.get("state") in ("FAILURE", "ERROR") or node["reviewDecision"] != "APPROVED":
+        return lanes.NEEDS_WORK
+    return "waiting"
 
 
 class Tokens:
@@ -254,7 +275,7 @@ def lanes_deps(config: lr_config.Config, state: Path) -> lanes.Deps:
         launch=lambda name, model, effort, brief: desk_launch(briefs, name, "lane", name, model, effort, str(brief), "--drive", config.drive, "--lane", lanes.SELF),
         withdraw=lambda name: desk_launch(briefs, name, "withdraw", name, "--drive", config.drive, "--lane", lanes.SELF),
         wake=Waker(config.drive, clock),
-        open_prs=OpenPrs(config.repo, clock),
+        pr_states=PrStates(config.repo, clock),
         rotate_at=rotate_at(),
     )
 

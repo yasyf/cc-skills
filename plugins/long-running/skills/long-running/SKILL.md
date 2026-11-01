@@ -4535,12 +4535,13 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   If a paged lane posts nothing within 30 minutes of its wake, the supervisor asks root once
   to reassign the PR. Silence and activity are measured from the lane's own records, never
   from its `cci who` row.
-- **Quiet owners.** Quiet is never dead. A lane that owns open PRs and posted nothing for an
-  hour, whatever its task says, gets one direct `ask` naming those PRs, and a wake when it
-  idles on a roster. Any record from it answers. Only an ask left unanswered for 15 minutes,
-  the stale window, names it to root, once, in a blocker with its PRs and its live
-  successor. The check reads the repo's open PRs from one `gh pr list` call every 10
-  minutes. A lane whose newest record is an
+- **Quiet owners.** Quiet is never dead. A lane that posted nothing for an hour and owns a PR
+  that needs work, meaning open and conflicting, red or not approved, gets one direct `ask`
+  naming those PRs, whatever its task says, and a wake when it idles on a roster. A green,
+  approved, conflict-free PR only waits on the owner's tap and needs no live owner. Any
+  record from the lane answers. Only an ask left unanswered for 15 minutes, the stale
+  window, names it to root, once, in a blocker with its PRs and its live successor. PR
+  states come from one GraphQL read per 50 PRs, reread every 10 minutes. A lane whose newest record is an
   `ask`, `blocked` or `blocker` to root is waiting, not dead, until 15 minutes after a
   record answers it with `--re` or `--resolves`. A live lane beats in the workers table
   each tick.

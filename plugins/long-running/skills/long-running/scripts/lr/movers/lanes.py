@@ -46,6 +46,7 @@ SLICE_STEP = re.compile(r"^Register slice: lane=\S+ step=(\S+)", re.MULTILINE)
 STAND_DOWN_LIST = re.compile(r"\bstand[ -]?down\s+(?P<names>[^.(;:\n]+)", re.IGNORECASE)
 CARD = re.compile(r"\bcard-[\w.-]*\w")
 PR_MENTION = re.compile(r"#(\d+)\b")
+NEEDS_WORK = "needs-work"
 STRIKE_WINDOW = 2 * STALE_AFTER
 PAGE_ANSWER = 2 * STALE_AFTER
 LIVE_WITHIN = 4 * STALE_AFTER
@@ -79,7 +80,7 @@ class Deps:
     launch: Callable[[str, str, str, Path], None]
     withdraw: Callable[[str], None]
     wake: Callable[[str, dict, dict | None], bool]
-    open_prs: Callable[[], set[int]]
+    pr_states: Callable[[list[int]], dict[int, str]]
     rotate_at: int
 
 
@@ -247,22 +248,23 @@ def successor_note(store: Store, name: str) -> str:
 
 
 def probe_owners(store: Store, deps: Deps, found: dict[str, Peer], now: datetime) -> None:
-    """Ask each lane that owns open PRs and has posted nothing for `LIVE_WITHIN` whether it is there, waking it if it idles on a roster, and name it to root only if the ask goes unanswered for `STALE_AFTER`."""
+    """Ask each lane that has posted nothing for `LIVE_WITHIN` and owns a PR needing work (conflicting, red, or not approved) whether it is there, waking it if it idles on a roster, and name it to root only if the ask goes unanswered for `STALE_AFTER`; a green, approved, conflict-free PR waits only on the owner's tap and needs no live owner."""
+    heard, probes, lines = store.heard(), store.probes(), []
+    for name in [name for name, probe in probes.items() if name in heard and heard[name] > probe["asked"]]:
+        store.unprobe(name)
+        probes.pop(name)
+    quiet = {name: prs for name, prs in store.owners().items() if not (since := heard.get(name)) or now - since >= LIVE_WITHIN}
     try:
-        open_prs = deps.open_prs()
+        states = deps.pr_states(sorted({n for prs in quiet.values() for n in prs}))
     except Unread:
         return
-    heard, probes, lines = store.heard(), store.probes(), []
-    for name, prs in store.owners().items():
-        held, since, probe = [n for n in prs if n in open_prs], heard.get(name), probes.get(name)
-        if probe and since and since > probe["asked"]:
-            store.unprobe(name)
-            probe = None
-        if not held or (since and now - since < LIVE_WITHIN):
+    for name, prs in quiet.items():
+        held, since, probe = [n for n in prs if states.get(n) == NEEDS_WORK], heard.get(name), probes.get(name)
+        if not held:
             continue
         owned = " ".join(f"#{n}" for n in held)
         if probe is None:
-            ask = f"{pacific(now)} {name}: you own open {owned} and have posted nothing since {pacific(since) if since else 'you were named'}. Post any record within {STALE_AFTER.seconds // 60} minutes, such as your state, or root is told you are gone."
+            ask = f"{pacific(now)} {name}: you own {owned}, which still need work, and have posted nothing since {pacific(since) if since else 'you were named'}. Post any record within {STALE_AFTER.seconds // 60} minutes, such as your state, or root is told you are gone."
             post(deps, "ask", name, ask)
             store.probe(name, now)
             if (peer := found.get(name)) and peer.row.get("roster"):
@@ -271,7 +273,7 @@ def probe_owners(store: Store, deps: Deps, found: dict[str, Peer], now: datetime
             store.probe_dead(name, now)
             lines.append(f"{name} ({owned}; asked at {pacific(probe['asked'])}; {successor_note(store, name)})")
     if lines:
-        post(deps, "blocker", ROOT, f"{pacific(now)} {len(lines)} lane{'s' if len(lines) > 1 else ''} own open PRs and left the supervisor's direct ask unanswered for {STALE_AFTER.seconds // 60} minutes: {'; '.join(lines)}")
+        post(deps, "blocker", ROOT, f"{pacific(now)} {len(lines)} lane{'s' if len(lines) > 1 else ''} own PRs that need work and left the supervisor's direct ask unanswered for {STALE_AFTER.seconds // 60} minutes: {'; '.join(lines)}")
 
 
 def peers(rows: Iterable[dict]) -> dict[str, Peer]:
