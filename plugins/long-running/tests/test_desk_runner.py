@@ -3757,12 +3757,13 @@ def test_a_tap_required_stack_draws_one_blocker_to_the_board_lane_and_none_while
     """Root #285056: each pass posted one 'board holds no row' blocker per PR of an 11-PR stack to root, its lane and five board lanes, while the heads still built."""
     merge_mode(config, "every")
     board_lane(config)
-    raw = json.loads(config.read_text())
-    raw["landing"]["trunk_check"] = TRUNK_CHECK
-    config.write_text(json.dumps(raw))
     two_pr_stack(shell)
-    for head in ("cccc333333", "dddd444444"):
-        shell.combined_statuses[head] = [{"context": TRUNK_CHECK, "state": "success" if built else "pending"}]
+    if not built:
+        raw = json.loads(config.read_text())
+        raw["landing"]["trunk_check"] = TRUNK_CHECK
+        config.write_text(json.dumps(raw))
+        for head in ("cccc333333", "dddd444444"):
+            shell.combined_statuses[head] = [{"context": TRUNK_CHECK, "state": "pending"}]
     merge_go(shell, "29020", "go #29020 at cccc333 on green [TAP-REQUIRED first-ask]")
     merge_go(shell, "29031", "go #29031 at dddd444 on green [TAP-REQUIRED first-ask]")
     landing_pass(shell, config)
