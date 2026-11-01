@@ -159,6 +159,7 @@ class FakeShell(runner_module.Shell):
         self.gone: set[str] = set()
         self.seen: dict[str, str] = {}
         self.seen_as: dict[str, tuple[str, str]] = {}
+        self.retired: set[str] = set()
         self.announced: dict[str, str] = {}
         self.sender = ""
         self.generation = 3
@@ -629,6 +630,8 @@ class FakeShell(runner_module.Shell):
         if argv[:2] == ["cci", "who"]:
             assert argv[2:4] == ["--drive", "d1"] and argv[4] == "--lane" and argv[6:] == ["--json"]
             return runner_module.Done(0, "" if argv[5] in self.gone else json.dumps({"lane": argv[5], "live": True} | ({"seen_at": self.seen[argv[5]]} if argv[5] in self.seen else {})) + "\n", "")
+        if argv[:3] == [sys.executable, str(runner_module.SCRIPTS / "drive_supervisor.py"), "lanes"]:
+            return runner_module.Done(0, "".join(json.dumps(row) + "\n" for row in self.registry()), "")
         if argv[:2] == ["cci", "post"]:
             assert "--force" not in argv
             as_json = "--json" in argv
@@ -672,6 +675,14 @@ class FakeShell(runner_module.Shell):
                 return self.ship_failure
             return runner_module.Done(0, f"submitted {argv[4]} → PR #1 https://example.com/1\n", "")
         raise AssertionError(f"unexpected call {argv}")
+
+    def registry(self) -> list[dict]:
+        landing = json.loads((self.root / "runner.json").read_text())["landing"]
+        named = [lane for key in runner_module.LANE_KEYS for lane in ([landing[key]] if isinstance(landing.get(key), str) else landing.get(key, []))]
+        posted = [lane for record in self.records for lane in (record["lane"], *(record.get("to") or []))]
+        lanes = {LANE, *named, *(row.get("lane") or "" for row in self.rows), *posted, *self.seen, *(lane for lane, _ in self.seen_as.values())} - self.gone - {""}
+        heard = {lane: self.seen.get(lane, actions.stamp(self.clock)) for lane in lanes}
+        return [{"lane": lane, "live": lane not in self.retired and self.clock - actions.parse_stamp(at) < timedelta(hours=1), "heard": at} for lane, at in heard.items()]
 
     def rulings(self, argv: list[str]) -> runner_module.Done:
         verb, flags = argv[0], argv[1:]
@@ -1018,6 +1029,7 @@ def config(tmp_path: Path, shell: FakeShell) -> Path:
                     "ledger": "abc",
                     "checkout": str(tmp_path / "checkout"),
                     "fidelity_lane": "fidelity-desk",
+                    "supervisor": str(tmp_path / "lr.json"),
                     "merge_mode": "auto",
                     "adapter": {"kind": "graphite-stack-enqueue", "script": ".agents/skills/submit-pr/scripts/stack-enqueue"},
                     "release_owner": "peer:sole-51",
@@ -4364,6 +4376,25 @@ def test_go_tap_missing_goes_to_the_go_lanes_the_desk_and_the_owning_lane_not_ro
     merge_go(shell, "29020", "go #29020 at cccc333333: owner tapped cccc333333 on the board.")
     landing_pass(shell, config)
     assert heard(shell, "GO-TAP-MISSING") == [f"go-sweep,{DESK},{LANE}"]
+
+
+@pytest.mark.parametrize("gone", ["silent", "retired"])
+def test_a_go_lane_the_registry_reads_dead_hands_its_go_asks_to_its_live_successor_or_the_root(shell, config, tmp_path, gone):
+    """Root #269953: the runner kept sending go-carry asks to go-carry-sweep-3, whose session `cci who` listed live though it had posted nothing for an hour, while go-sweep-8 held go-sweep-5's work."""
+    board_surface(config)
+    desk_lane(config)
+    raw = json.loads(config.read_text())
+    raw["landing"]["go_lanes"] = ["go-carry-sweep-3", "go-sweep-5"]
+    config.write_text(json.dumps(raw))
+    if gone == "silent":
+        shell.seen["go-carry-sweep-3"] = shell.seen["go-sweep-5"] = actions.stamp(shell.clock - timedelta(minutes=61))
+    else:
+        shell.retired = {"go-carry-sweep-3", "go-sweep-5"}
+    shell.seen["go-sweep-8"] = actions.stamp(shell.clock)
+    lone_green_pr(shell)
+    merge_go(shell, "29020", "go #29020 at cccc333333: owner tapped cccc333333 on the board.")
+    landing_pass(shell, config)
+    assert heard(shell, "GO-TAP-MISSING") == [f"root,go-sweep-8,{DESK},{LANE}"]
 
 
 @pytest.mark.parametrize("settled", ["go", "none"])
