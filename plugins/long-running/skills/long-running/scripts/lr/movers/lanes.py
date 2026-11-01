@@ -232,32 +232,46 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
                         store.want_lane(successor, gone.brief, gone.model, gone.effort, gone.role, "launching", at, handoff=gone.handoff, prs=gone.prs, predecessor=old)
         elif kind == "decide" and lane == ROOT and (owner := OWNER.search(text)):
             store.own(owner[1], numbers := prs_of(record))
-            heard = store.heard()
-            if live is None and numbers and (owner[1] not in heard or at - heard[owner[1]] >= LIVE_WITHIN):
-                dead.append(f"{owner[1]} for {' '.join(f'#{n}' for n in numbers)}: root named it owner at {pacific(at)}, but its last record is {f'from {pacific(heard[owner[1]])}' if owner[1] in heard else 'none'}; {successor_note(store, owner[1], heard, at)}")
+            if live is None and numbers and (probe := store.probes().get(owner[1])) and probe["dead"]:
+                dead.append(f"{owner[1]} for {' '.join(f'#{n}' for n in numbers)}: root named it owner at {pacific(at)}, but it left the supervisor's {pacific(probe['asked'])} ask unanswered; {successor_note(store, owner[1])}")
         elif lane == ROOT and (moved := REPLACES.search(text)) and (old := store.lane(moved["old"])) and old.state in LIVE and (taker := store.lane(moved["new"])):
             retire(store, old.name, taker.name, at)
             store.own(taker.name, old.prs)
     return adopted, hand, dead
 
 
-def successor_note(store: Store, name: str, heard: dict[str, datetime], at: datetime) -> str:
+def successor_note(store: Store, name: str) -> str:
+    dead = {lane for lane, probe in store.probes().items() if probe["dead"]}
     heir = newest(store, name)
-    return f"its live successor is {heir.name}" if heir and heir.name != name and heir.name in heard and at - heard[heir.name] < LIVE_WITHIN else "it has no live successor"
+    return f"its live successor is {heir.name}" if heir and heir.name != name and heir.state != "retired" and heir.name not in dead else "it has no live successor"
 
 
-def silent_owners(store: Store, deps: Deps, now: datetime) -> None:
+def probe_owners(store: Store, deps: Deps, found: dict[str, Peer], now: datetime) -> None:
+    """Ask each lane that owns open PRs and has posted nothing for `LIVE_WITHIN` whether it is there, waking it if it idles on a roster, and name it to root only if the ask goes unanswered for `STALE_AFTER`."""
     try:
         open_prs = deps.open_prs()
     except Unread:
         return
-    heard, lines = store.heard(), []
+    heard, probes, lines = store.heard(), store.probes(), []
     for name, prs in store.owners().items():
-        held, since = [n for n in prs if n in open_prs], heard.get(name)
-        if held and (since is None or now - since >= LIVE_WITHIN) and store.escalate(f"silent:{name}", stamp(since) if since else "never", ROOT, now):
-            lines.append(f"{name} ({' '.join(f'#{n}' for n in held)}; last record {pacific(since) if since else 'none'}; {successor_note(store, name, heard, now)})")
+        held, since, probe = [n for n in prs if n in open_prs], heard.get(name), probes.get(name)
+        if probe and since and since > probe["asked"]:
+            store.unprobe(name)
+            probe = None
+        if not held or (since and now - since < LIVE_WITHIN):
+            continue
+        owned = " ".join(f"#{n}" for n in held)
+        if probe is None:
+            ask = f"{pacific(now)} {name}: you own open {owned} and have posted nothing since {pacific(since) if since else 'you were named'}. Post any record within {STALE_AFTER.seconds // 60} minutes, such as your state, or root is told you are gone."
+            post(deps, "ask", name, ask)
+            store.probe(name, now)
+            if (peer := found.get(name)) and peer.row.get("roster"):
+                deps.wake(name, peer.row, {"topic": f"probe:{name}", "why": ask, "text": ask, "prs": held})
+        elif probe["dead"] is None and now - probe["asked"] >= STALE_AFTER:
+            store.probe_dead(name, now)
+            lines.append(f"{name} ({owned}; asked at {pacific(probe['asked'])}; {successor_note(store, name)})")
     if lines:
-        post(deps, "blocker", ROOT, f"{pacific(now)} {len(lines)} lane{'s' if len(lines) > 1 else ''} own open PRs and posted nothing for {LIVE_WITHIN.seconds // 3600} h: {'; '.join(lines)}")
+        post(deps, "blocker", ROOT, f"{pacific(now)} {len(lines)} lane{'s' if len(lines) > 1 else ''} own open PRs and left the supervisor's direct ask unanswered for {STALE_AFTER.seconds // 60} minutes: {'; '.join(lines)}")
 
 
 def peers(rows: Iterable[dict]) -> dict[str, Peer]:
@@ -394,11 +408,11 @@ def wake(store: Store, deps: Deps, lane: Lane, peer: Peer, now: datetime, out: O
 
 
 def liveness(store: Store, now: datetime) -> list[dict]:
-    """Every lane that has posted or been registered, as the drive's one liveness answer: live means a record within `LIVE_WITHIN`, whatever the registry state; a `cci who` row is a process fact, never this."""
+    """Every lane that has posted or been registered, as the drive's one liveness answer: a lane is live unless it left the supervisor's direct ask unanswered for its window; quiet is never dead, and a `cci who` row is a process fact, never this."""
     registered = {lane.name: lane for lane in store.all_lanes()}
-    heard, owned = store.heard(), store.owners()
+    heard, owned, probes = store.heard(), store.owners(), store.probes()
     return [
-        {"lane": name, "state": lane.state if lane else "unregistered", "live": name in heard and now - heard[name] < LIVE_WITHIN, "heard": stamp(heard[name]) if name in heard else None, "prs": owned.get(name, []), "handoff": lane.handoff if lane else None, "retired_by": lane.retired_by if lane else None}
+        {"lane": name, "state": lane.state if lane else "unregistered", "live": not (probes.get(name) or {}).get("dead"), "heard": stamp(heard[name]) if name in heard else None, "prs": owned.get(name, []), "handoff": lane.handoff if lane else None, "retired_by": lane.retired_by if lane else None}
         for name in sorted(registered.keys() | heard.keys() | owned.keys())
         for lane in [registered.get(name)]
     ]
@@ -430,7 +444,7 @@ def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
     out.adopted, hand, dead = fold(store, records, {lane for lane, peer in found.items() if alive(peer, peer.seen, now)} if fresh else None, deps.briefs)
     for line in dead:
         escalate(store, deps, f"lane:{line.split(' ', 1)[0]}", line, now)
-    silent_owners(store, deps, now)
+    probe_owners(store, deps, found, now)
     for name in hand:
         deps.withdraw(name)
         out.withdrawn.append(name)

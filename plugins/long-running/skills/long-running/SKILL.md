@@ -4532,25 +4532,30 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   the records it re-reads. The wake names the blocker's seq. A lane whose newest record is a
   `handoff`, `done`, `stand-down` or `stopped` is never woken. A root `ask` addressed to a
   lane that names one of its PRs, by `--pr` or as `#<n>` in its text, pages it the same way.
-  A lane that owns open PRs and posted nothing for an hour, whatever its task says, is named
-  to root once in a blocker with its open PRs and its live successor. That check reads the
-  repo's open PRs from one `gh pr list` call every 10 minutes. If the lane posts nothing within 30 minutes of that wake, the supervisor asks root
-  once to reassign the PR. Silence and activity are measured from the lane's own records, never
-  from its `cci who` row. A lane whose newest record is an
+  If a paged lane posts nothing within 30 minutes of its wake, the supervisor asks root once
+  to reassign the PR. Silence and activity are measured from the lane's own records, never
+  from its `cci who` row.
+- **Quiet owners.** Quiet is never dead. A lane that owns open PRs and posted nothing for an
+  hour, whatever its task says, gets one direct `ask` naming those PRs, and a wake when it
+  idles on a roster. Any record from it answers. Only an ask left unanswered for 15 minutes,
+  the stale window, names it to root, once, in a blocker with its PRs and its live
+  successor. The check reads the repo's open PRs from one `gh pr list` call every 10
+  minutes. A lane whose newest record is an
   `ask`, `blocked` or `blocker` to root is waiting, not dead, until 15 minutes after a
   record answers it with `--re` or `--resolves`. A live lane beats in the workers table
   each tick.
 - **One liveness answer.** Every desk that asks whether a lane is at work reads the
   registry, `drive_supervisor.py lanes --config lr.json --json`, never `cci who` and never a
   script of its own. Every lane that has posted has a row, `unregistered` when no `SPAWNED`
-  record named it, and a lane is `live` when it posted a record within an hour, whatever its
-  registry state. Each PR has one owner, the row that lists it: the last lane to post a `head`
+  record named it, and a lane is `live` unless it left the supervisor's direct ask
+  unanswered, whatever its registry state. Each PR has one owner, the row that lists it: the last lane to post a `head`
   or `opened` record for it that is not addressed to its current owner, so a desk relaying a
   rebase to the owner leaves it in place, the lane root names with `--kind decide --pr <n> --text
   'owner=<lane>'`, or the successor of a stand-down or an `X replaces Y`. A `landed` record
-  clears it. Root's prose namings are not parsed. When a root `decide` names an owner the
-  registry reads dead, the supervisor posts one blocker back to root naming the lane, its last
-  record and its live successor, if it has one. A `cci who` row is a process fact only:
+  clears it. Root's prose namings are not parsed. When a root `decide` names an owner that
+  left the supervisor's ask unanswered, the supervisor posts one blocker back to root naming
+  the lane, the ask's time and its live successor, if it has one. A quiet owner root names is
+  asked first, like any quiet owner. A `cci who` row is a process fact only:
   every in-process teammate of a live root session reads live there, however long ago it
   stopped.
 - **Relaunch.** A lane that stopped or went silent, with no live numbered successor in

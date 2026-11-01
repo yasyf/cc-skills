@@ -594,18 +594,19 @@ def test_a_tick_whose_liveness_source_does_not_answer_acts_on_nothing(tmp_path, 
     assert out == lanes.Outcome() and fake.posts == [] and store.lane("conflicts-2").state == "desired"
 
 
-def test_liveness_is_a_record_within_the_hour_whatever_the_registry_says():
+def test_quiet_is_never_dead_only_an_unanswered_ask_is():
     store = Store.memory()
-    for name, heard in (("fresh-1", T0 - timedelta(minutes=50)), ("stale-1", T0 - timedelta(minutes=70)), ("gone-1", T0 - timedelta(minutes=5)), ("quiet-1", None)):
-        store.want_lane(name, "/briefs/x.md", "opus", "xhigh", "lane", "desired", T0 - timedelta(hours=3), prs=(46475,) if name == "fresh-1" else ())
-        if heard:
-            store.lane_heard(name, heard, "state")
+    for name, heard in (("fresh-1", T0 - timedelta(minutes=50)), ("stale-1", T0 - timedelta(hours=7)), ("gone-1", T0 - timedelta(minutes=5)), ("probed-1", T0 - timedelta(hours=2))):
+        store.want_lane(name, "/briefs/x.md", "opus", "xhigh", "lane", "desired", T0 - timedelta(hours=8), prs=(46475,) if name == "fresh-1" else ())
+        store.lane_heard(name, heard, "state")
     lanes.retire(store, "gone-1", "gone-2", T0)
+    store.probe("probed-1", T0 - timedelta(minutes=40))
+    store.probe_dead("probed-1", T0 - timedelta(minutes=20))
 
     rows = {row["lane"]: row for row in lanes.liveness(store, T0)}
 
-    assert {name: row["live"] for name, row in rows.items()} == {"fresh-1": True, "stale-1": False, "gone-1": True, "quiet-1": False}
-    assert rows["fresh-1"]["prs"] == [46475] and rows["gone-1"]["retired_by"] == "gone-2" and rows["quiet-1"]["heard"] is None
+    assert {name: row["live"] for name, row in rows.items()} == {"fresh-1": True, "stale-1": True, "gone-1": True, "probed-1": False}
+    assert rows["fresh-1"]["prs"] == [46475] and rows["gone-1"]["retired_by"] == "gone-2"
 
 
 def test_every_lane_that_posts_is_in_the_liveness_answer_with_the_prs_it_last_carried(tmp_path, brief):
@@ -733,18 +734,14 @@ def test_a_lane_whose_newest_record_settles_it_is_never_woken(tmp_path, brief):
     assert out.woken == [] and fake.wakes == []
 
 
-@pytest.mark.parametrize(
-    ("heir_heard", "said"),
-    [(T0 - timedelta(minutes=10), "its live successor is conflicts-3"), (T0 - timedelta(hours=3), "it has no live successor")],
-    ids=["live-successor", "no-live-successor"],
-)
-def test_root_naming_a_dead_lane_as_owner_gets_one_blocker_back(tmp_path, brief, heir_heard, said):
+@pytest.mark.parametrize(("heir_state", "said"), [("desired", "its live successor is conflicts-3"), ("retired", "it has no live successor")])
+def test_root_naming_a_lane_that_left_its_ask_unanswered_gets_one_blocker_back(tmp_path, brief, heir_state, said):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store)
-    store.lane_heard("conflicts-2", T0 - timedelta(hours=2), "state")
-    store.want_lane("conflicts-3", str(brief), "opus", "xhigh", "lane", "desired", T0 - timedelta(hours=1))
-    store.lane_heard("conflicts-3", heir_heard, "state")
+    store.want_lane("conflicts-3", str(brief), "opus", "xhigh", "lane", heir_state, T0 - timedelta(hours=1))
     lanes.retire(store, "conflicts-2", "conflicts-3", T0 - timedelta(hours=1))
+    store.probe("conflicts-2", T0 - timedelta(minutes=40))
+    store.probe_dead("conflicts-2", T0 - timedelta(minutes=20))
     fake.feed.append(record(2, "root", "decide", T0 - timedelta(minutes=1), "#46731 owner=conflicts-2", refs={"prs": ["Forge-AI/monorepo#46731"]}))
 
     lanes.tick(store, fake.deps, T0, 1)
@@ -766,19 +763,39 @@ def test_a_root_ask_naming_a_silent_lanes_pr_pages_it_once(tmp_path, brief):
     assert out.woken == ["conflicts-2"] and again.woken == [] and fake.pages[0]["why"].startswith("root ask #2 on your PR #46869")
 
 
-def test_a_lane_owning_open_prs_silent_for_the_window_gets_one_blocker_to_root(tmp_path, brief):
+def test_a_quiet_owner_of_open_prs_is_asked_first_and_named_to_root_only_if_it_never_answers(tmp_path, brief):
     store = Store.memory()
     fake = adopted(tmp_path, brief, store, prs=(46869, 47079, 46001))
     store.lane_heard("conflicts-2", T0 - timedelta(minutes=90), "state")
     store.own("quiet-desk", [46002])
     fake.open = {46869, 47079, 46002}
+    fake.peers = [who("conflicts-2", True, T0, roster="/teams/session-d50e80e8")]
 
     lanes.tick(store, fake.deps, T0, 1)
+    asked = [(argv[argv.index("--to") + 1], argv[-1]) for argv in fake.posts if argv[argv.index("--kind") + 1] == "ask"]
+    fake.posts.clear()
     lanes.tick(store, fake.deps, T0 + timedelta(minutes=5), 1)
+    early = list(fake.posts)
+    lanes.tick(store, fake.deps, T0 + lanes.STALE_AFTER, 1)
+    lanes.tick(store, fake.deps, T0 + lanes.STALE_AFTER + timedelta(minutes=1), 1)
 
+    assert sorted(to for to, _ in asked) == ["conflicts-2", "quiet-desk"] and "you own open #46869 #47079" in dict(asked)["conflicts-2"]
+    assert early == [] and "conflicts-2" in fake.wakes
     blockers = [argv[-1] for argv in fake.posts if argv[argv.index("--kind") + 1] == "blocker"]
-    assert len(blockers) == 1 and "2 lanes own open PRs and posted nothing for 1 h" in blockers[0]
-    assert "conflicts-2 (#46869 #47079; last record" in blockers[0] and "quiet-desk (#46002; last record none; it has no live successor)" in blockers[0]
+    assert len(blockers) == 1 and "2 lanes own open PRs and left the supervisor's direct ask unanswered" in blockers[0] and "quiet-desk (#46002; asked at" in blockers[0]
+
+
+def test_an_owner_that_answers_its_ask_is_never_named_to_root(tmp_path, brief):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store, prs=(46869,))
+    store.lane_heard("conflicts-2", T0 - timedelta(minutes=90), "state")
+    fake.open = {46869}
+    lanes.tick(store, fake.deps, T0, 1)
+    fake.feed.append(record(2, "conflicts-2", "state", T0 + timedelta(minutes=4), "idle: #46869 waits on the owner's tap"))
+
+    lanes.tick(store, fake.deps, T0 + lanes.STALE_AFTER + timedelta(minutes=1), 1)
+
+    assert [argv[argv.index("--kind") + 1] for argv in fake.posts] == ["ask"] and store.probes() == {}
 
 
 def test_a_root_stand_down_retires_only_the_lanes_it_names_never_the_lanes_it_copies(tmp_path, brief):
