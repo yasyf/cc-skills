@@ -77,7 +77,7 @@ class Fake:
         self.base_gone = base_gone
         self.shows = LANDED | ({OLD_OWN[:11]: patch("-poll()", "+stream()"), OWN[:11]: patch("-poll()", "+stream()", "+resubscribe()")} if shows is None else shows)
         self.calls: list[tuple[list[str], Path | None]] = []
-        self.comments = [{"body": "## Rulings\n- the resubscribe test pins finder #150321's fix"}, {"body": "LGTM from the review bot"}]
+        self.comments = [{"author": {"login": "yasyf"}, "body": "## Rulings\n- the resubscribe test pins finder #150321's fix"}, {"author": {"login": "yasyf"}, "body": "The caller trace: every caller of the removed path reads the batched store."}, {"author": {"login": "forge-pr-reviewer"}, "body": "LGTM from the review bot"}]
         self.posted: list[dict] = []
         self.timeouts: dict[str, int] = {}
 
@@ -89,7 +89,7 @@ class Fake:
                 self.failures -= 1
                 raise subprocess.CalledProcessError(1, argv, stderr='Post "https://api.github.com/graphql": net/http: TLS handshake timeout')
             head = self.heads.pop(0) if len(self.heads) > 1 else self.heads[0]
-            return json.dumps({"state": self.state, "baseRefName": "dev", "baseRefOid": STALE_BASE, "headRefOid": head, "body": "## Summary\nA cut signal resubscribes from the position it fetched.", "comments": self.comments})
+            return json.dumps({"state": self.state, "baseRefName": "dev", "baseRefOid": STALE_BASE, "headRefOid": head, "body": "## Summary\nA cut signal resubscribes from the position it fetched.", "comments": self.comments, "author": {"login": "yasyf"}})
         if argv[0] == "git":
             return self.git(argv[1:])
         if argv[:2] == [sys.executable, str(finder.SCRIPTS / "rulings.py")]:
@@ -186,7 +186,7 @@ def test_a_head_with_only_minors_posts_finder_ok_over_its_whole_change_to_the_he
     question = (directory / "question-1.md").read_text()
     assert f"`git diff {OWN}^ {HEAD}`" in question and f"on base dev ({BASE})" in question and STALE_BASE not in question
     assert str(directory / "rows.md") in question and "Open `swept` with your reasoning" in question
-    assert "## Rulings\n- the resubscribe test pins finder #150321's fix" in question and "LGTM from the review bot" not in question
+    assert "## Rulings\n- the resubscribe test pins finder #150321's fix" in question and "The caller trace: every caller of the removed path reads the batched store." in question and "LGTM from the review bot" not in question
     assert result(directory) == {"verdict": "ok", "record": post["--text"], "posted": "#150001"}
 
 

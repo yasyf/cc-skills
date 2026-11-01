@@ -105,8 +105,8 @@ never the standard:
 PR body, never edited after the PR opens:
 {body}
 
-PR comments opening a `Rulings` or `Body addendum` section, which correct and extend the body
-as part of it:
+PR comments its author posted, oldest first: Rulings, Body addenda and evidence such as a caller
+trace, which correct and extend the body as part of it:
 {rulings}
 
 Missing points root settled on this PR. Do not raise one again, in these words or others, unless
