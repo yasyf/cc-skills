@@ -87,6 +87,10 @@ def require_runner(drive: str, fallback: str) -> None:
         sys.exit(f"refused: no orca desk runner has posted an orca alive record on cci drive {registry.cci_drive(entry)} in the last five minutes ({last}), so nothing reads {DESK} lines; {fallback}")
 
 
+def incident_name(name: str) -> str:
+    return name.removesuffix(FIX_ALIAS)
+
+
 def agent_fallback(args: argparse.Namespace) -> str:
     if args.verb == "incident":
         return f"spawn an Agent named `{args.name}-fix`{f' and one named `{args.name}-evidence`' if args.evidence_brief else ''} instead"
@@ -185,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="desk-launch.py", description=__doc__.split("\n", 1)[0])
     verbs = parser.add_subparsers(dest="verb", required=True)
     incident = verbs.add_parser("incident", parents=[common], help="launch <name>-fix and <name>-evidence NOW on incident xhigh")
-    incident.add_argument("name")
+    incident.add_argument("name", type=incident_name, help="the incident's name; a trailing -fix is dropped, so takeover-500-fix launches takeover-500-fix, never takeover-500-fix-fix")
     incident.add_argument("fix_brief", type=Path)
     incident.add_argument("evidence_brief", type=Path, nargs="?")
     lane = verbs.add_parser("lane", parents=[common], help="launch one lane")

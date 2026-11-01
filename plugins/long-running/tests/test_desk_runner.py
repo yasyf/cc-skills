@@ -11070,6 +11070,21 @@ def test_a_launch_posted_to_the_orca_desk_on_cci_launches_once_and_history_never
     assert escalations(shell) == [f"LAUNCHED R1346 {LANE}: dispatch ctx_n terminal term_ctx_n"]
 
 
+@pytest.mark.parametrize("opening", ["R1 (1:43 AM) ", "1:43 AM "], ids=["keyed", "clock-label"])
+def test_a_launch_to_the_orca_desk_that_answers_another_record_or_opens_with_a_clock_launches(shell, config, tmp_path, opening):
+    """Root #279034: root's 1:43 AM launch #278913 carried --re #278905 and was read as a reply, and the 1:38 AM incident #278858 opened with its clock label; neither launched, and the first drew nothing at all."""
+    brief = launch_brief(tmp_path)
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    orca_pass(shell, config)
+    defect = cci_record(shell, lane="drive-watchdog-2", kind="defect", to=["root", "orca-desk"], text="Incident takeover-500 has no fix lane", at=actions.stamp(shell.clock))
+    cci_record(shell, to=["orca-desk"], re=defect, at=actions.stamp(shell.clock), text=f"{opening}orca-desk: launch {LANE} NOW incident xhigh brief={brief}")
+    orca_pass(shell, config)
+    shell.launch(LANE, "ctx_n")
+    orca_pass(shell, config)
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "incident", "xhigh", str(brief)]]
+    assert [line.split(" inbox: ")[0] for line in escalations(shell) if line.startswith("DIRECTIVE-FAILED")] == [f"DIRECTIVE-FAILED cci#{defect}"]
+
+
 def test_a_record_cci_imported_from_the_old_desk_inbox_file_relays_once(shell, config, tmp_path):
     shell.launch(LANE, "ctx_a")
     orca_pass(shell, config)
@@ -11420,7 +11435,7 @@ def test_a_record_to_the_orca_desk_outside_the_grammar_fails_visibly(shell, conf
     orca_pass(shell, config)
     orca_pass(shell, config)
     [line] = escalations(shell)
-    assert line.startswith("DIRECTIVE-FAILED cci#34766 inbox: a record addressed to orca-desk is one `orca-desk: ")
+    assert line.startswith("DIRECTIVE-FAILED cci#34766 inbox: it opens `launch incident-timeout-fix on the incident route now`, and a record addressed to orca-desk is one `[<H:MM AM|PM>] [R<n> (<clock>)] orca-desk: ")
     assert [(post["kind"], post["topic"]) for post in shell.posts] == [("defect", "cci#34766")]
 
 
