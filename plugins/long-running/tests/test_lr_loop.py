@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -110,6 +111,14 @@ def test_run_ends_by_itself_when_its_generation_is_taken():
     ticks = loop.run(store, "d", "0.8.0", 101, loop.Deps(movers=PR_MOVERS, snapshot=snapshot, post=d.post, queue=d.queue, restacker=d.restacker, pool=d.pool, clock=clock, sleep=clock.sleep))
 
     assert len(ticks) == 1
+
+
+def test_run_ends_at_the_tick_boundary_once_a_newer_release_is_installed():
+    store, clock = Store.memory(), Clock()
+
+    ticks = loop.run(store, "d", "0.8.0", 101, replace(deps(clock, [facts(1)]), stale=lambda: True))
+
+    assert len(ticks) == 1 and clock.now == T0
 
 
 def test_a_lanes_only_supervisor_runs_no_pr_pass(monkeypatch):
