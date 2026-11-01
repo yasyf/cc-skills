@@ -130,7 +130,7 @@ def arm(tmp_path, *prs: str) -> None:
 def test_a_landing_settles_the_row_in_the_same_pass(tmp_path):
     arm(tmp_path, PR)
     shell = row_shell()
-    shell.pulls[PR] = {"number": int(PR), "state": "closed", "head": {"sha": HEAD, "ref": "yasyf/v3-phase0/deploy"}, "base": {"ref": "yasyf/v3-phase0/base"}, "created_at": "2026-09-29T00:00:00Z"}
+    shell.pulls[PR] = {"number": int(PR), "state": "closed", "merged_at": "2026-09-30T00:00:00Z", "head": {"sha": HEAD, "ref": "yasyf/v3-phase0/deploy"}, "base": {"ref": "yasyf/v3-phase0/base"}, "created_at": "2026-09-29T00:00:00Z"}
     shell.pull_heads[PR] = HEAD
     shell.pr_files[PR] = ["infra/ci/src/pipelines/deploy/index.ts"]
     shell.trunk_log = [f"{SQUASH} 2026-09-30T05:50:00+00:00 ci: 🐛 deploy index (#{PR})"]

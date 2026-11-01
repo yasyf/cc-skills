@@ -914,7 +914,7 @@ def test_label_refuses_a_parent_whose_branch_is_still_a_base(capsys):
 
 def test_reconcile_refuses_to_grade_from_a_shallow_clone(capsys, tmp_path):
     """Trunk traversal truncates at a depth that moves with every fetch."""
-    shell = desk_shell(state="closed")
+    shell = desk_shell(**MERGED)
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
     shell.pr_files[PR] = ["infra/rows/lightning.ts"]
     shell.shallow = True
@@ -937,7 +937,7 @@ def test_an_unusable_checkout_grades_nothing_rather_than_failing_every_row(capsy
 
 def test_a_failed_fetch_grades_nothing_rather_than_grading_the_previous_state(capsys, tmp_path):
     """A concurrent fetch in another worktree loses the ref lock."""
-    shell = desk_shell(state="closed")
+    shell = desk_shell(**MERGED)
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
     shell.pr_files[PR] = ["infra/rows/lightning.ts"]
     shell.fetch_fails = "cannot lock ref 'refs/remotes/origin/dev'"
@@ -984,7 +984,7 @@ def reconcile_shell() -> FakeShell:
         "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b 2026-10-01T02:00:00+00:00 docs: mention #28349 in passing",
     ]
     for pr, state in (("28302", "closed"), ("28349", "open")):
-        shell.pulls[pr] = {"number": int(pr), "state": state, "head": {"sha": f"{pr[-1]}" * 40, "ref": f"b/{pr}"}, "base": {"ref": "dev"}}
+        shell.pulls[pr] = {"number": int(pr), "state": state, "merged_at": "2026-10-01T05:00:00Z" if state == "closed" else None, "head": {"sha": f"{pr[-1]}" * 40, "ref": f"b/{pr}"}, "base": {"ref": "dev"}}
         shell.pull_heads[pr] = f"{pr[-1]}" * 40
     shell.pr_files["28302"] = ["infra/rows/c2.ts"]
     return shell
@@ -1035,7 +1035,7 @@ def closed_board(count: int) -> FakeShell:
     shell = FakeShell(rows=[{"key": str(28400 + index), "fields": {"lane": LANE, "state": "open"}} for index in range(count)])
     for index in range(count):
         pr, head = str(28400 + index), f"{index:040x}"
-        shell.pulls[pr] = {"number": int(pr), "state": "closed", "head": {"sha": head, "ref": f"b/{pr}"}, "base": {"ref": "dev"}}
+        shell.pulls[pr] = {"number": int(pr), "state": "closed", "merged_at": "2026-10-01T05:00:00Z", "head": {"sha": head, "ref": f"b/{pr}"}, "base": {"ref": "dev"}}
         shell.pull_heads[pr] = head
         shell.pr_files[pr] = [f"infra/rows/{pr}.ts"]
     return shell
