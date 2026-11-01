@@ -1895,7 +1895,11 @@ carries its grade, below) is that gate's record there, and nobody re-grades it.
 lane, each `landing.board_lane`, and the PR's owning lane, each read as its live
 successor, and not to root. A ledger row that settles landed with no enqueue or squash of the
 runner's own, queued by hand or landed in a batch it did not enqueue, gets its own `LANDED`
-record the pass the ledger reads its squash. A `GO-UNQUEUED`, `GO-TAP-MISSING` or `REFUSED` for a PR goes to each
+record the pass the ledger reads its squash. A landed PR whose branch carried other open
+PRs into the trunk gets one `CARRIED` report to root and each `landing.board_lane`, listing
+every carried PR from GitHub's commits of the landed PR, with the owner's tap, its fidelity
+grade and its finder state, so a keep-or-revert card is drawn from that list, never a hand
+count (#45799's squash carried nine PRs). A `GO-UNQUEUED`, `GO-TAP-MISSING` or `REFUSED` for a PR goes to each
 `landing.go_lanes` lane, the desk lanes and the owning lane, and to root only when no lane owns the PR. Without
 `landing.desk_lane` they go to root.
 
