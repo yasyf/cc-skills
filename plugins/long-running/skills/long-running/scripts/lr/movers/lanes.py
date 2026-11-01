@@ -176,8 +176,8 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             continue
         row = store.lane(lane)
         kind, text = record["kind"], record.get("text") or ""
+        store.lane_heard(lane, at)
         if row and row.state in LIVE:
-            store.lane_heard(lane, at)
             card = CARD.search(text) if kind in WAITS else None
             store.lane_waiting(lane, record["seq"] if kind in WAITS and (card or ROOT in (record.get("to") or [])) else None, awaits=card[0] if card else None)
             store.lane_page(lane, None)
@@ -186,9 +186,8 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
                 if (paged := store.lane(name)) and paged.state in LIVE and (prs := sorted(set(prs_of(record)) & set(paged.prs))) and (topic := record.get("topic") or str(record["seq"])) != (paged.page or {}).get("topic"):
                     store.lane_page(name, {"topic": topic, "why": f"this blocker on your PR {' '.join(f'#{n}' for n in prs)} arrived after your last record: {text}", "text": text, "prs": prs})
         if answers := {record.get("re"), record.get("resolves")} - {None}:
-            for waiter in store.lanes(*LIVE):
-                if waiter.waiting in answers and waiter.awaits is None:
-                    store.lane_waiting(waiter.name, None, at)
+            for name in store.answered(answers, LIVE):
+                store.lane_waiting(name, None, at)
         if kind == "owner":
             for waiter in store.lanes(*LIVE):
                 if waiter.awaits and {f"({waiter.awaits})", f"({waiter.awaits.removeprefix('card-')})"} & {match[0] for match in re.finditer(r"\([\w.-]+\)", text)}:
@@ -200,18 +199,13 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             store.lane_handoff(lane, doc, at if row.asked else None)
         elif (handed := HANDED_OFF.search(text)) and lane == f"{handed['lane']}-handoff" and (owner := newest(store, handed["lane"])):
             store.lane_handoff(owner.name, handed["doc"], None)
-        elif kind in CARRIES and row and (numbers := set(prs_of(record))):
-            for other in store.all_lanes():
-                if other.name != lane and numbers & set(other.prs):
-                    store.lane_prs(other.name, [n for n in other.prs if n not in numbers])
-                    if other.state == "launching" and set(other.prs) <= numbers:
-                        retire(store, other.name, lane, at)
-            store.lane_prs(lane, {*row.prs, *numbers})
+        elif kind in CARRIES and (numbers := set(prs_of(record))):
+            for other in store.lanes("launching"):
+                if other.name != lane and other.prs and set(other.prs) <= numbers:
+                    retire(store, other.name, lane, at)
+            store.own(lane, numbers)
         elif kind == "landed":
-            for number in prs_of(record):
-                for owner in store.all_lanes():
-                    if number in owner.prs:
-                        store.lane_prs(owner.name, [n for n in owner.prs if n != number])
+            store.disown(prs_of(record))
         elif kind == "done" and row and row.state != "retired":
             retire(store, lane, "done", at)
         elif row and row.state != "retired" and (kind == "stopped" or re.match(STOOD_DOWN.format(re.escape(lane)), text, re.IGNORECASE)):
@@ -224,15 +218,11 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
                     retire(store, old, successor or ROOT, at)
                     if successor:
                         store.want_lane(successor, gone.brief, gone.model, gone.effort, gone.role, "launching", at, handoff=gone.handoff, prs=gone.prs, predecessor=old)
-        elif kind == "decide" and lane == ROOT and (owner := OWNER.search(record.get("text") or "")) and (taker := store.lane(owner[1])):
-            moved = set(prs_of(record))
-            for other in store.all_lanes():
-                if moved & set(other.prs) and other.name != taker.name:
-                    store.lane_prs(other.name, [n for n in other.prs if n not in moved])
-            store.lane_prs(taker.name, {*taker.prs, *moved})
+        elif kind == "decide" and lane == ROOT and (owner := OWNER.search(text)):
+            store.own(owner[1], prs_of(record))
         elif lane == ROOT and (moved := REPLACES.search(text)) and (old := store.lane(moved["old"])) and old.state in LIVE and (taker := store.lane(moved["new"])):
             retire(store, old.name, taker.name, at)
-            store.lane_prs(taker.name, {*taker.prs, *old.prs})
+            store.own(taker.name, old.prs)
         if lane == ROOT and kind != "stand-down":
             for name in record.get("to") or []:
                 if (told := store.lane(name)) and told.state != "retired" and re.search(TOLD_TO_STAND_DOWN.format(re.escape(name)), text, re.IGNORECASE):
@@ -369,10 +359,13 @@ def wake(store: Store, deps: Deps, lane: Lane, peer: Peer, now: datetime, out: O
 
 
 def liveness(store: Store, now: datetime) -> list[dict]:
-    """Every registered lane as the drive's one liveness answer: live means not retired and heard from within `LIVE_WITHIN`; a `cci who` row is a process fact, never this."""
+    """Every lane that has posted or been registered, as the drive's one liveness answer: live means a record within `LIVE_WITHIN`, whatever the registry state; a `cci who` row is a process fact, never this."""
+    registered = {lane.name: lane for lane in store.all_lanes()}
+    heard, owned = store.heard(), store.owners()
     return [
-        {"lane": lane.name, "state": lane.state, "live": lane.state != "retired" and lane.heard is not None and now - lane.heard < LIVE_WITHIN, "heard": stamp(lane.heard) if lane.heard else None, "prs": list(lane.prs), "handoff": lane.handoff, "retired_by": lane.retired_by}
-        for lane in store.all_lanes()
+        {"lane": name, "state": lane.state if lane else "unregistered", "live": name in heard and now - heard[name] < LIVE_WITHIN, "heard": stamp(heard[name]) if name in heard else None, "prs": owned.get(name, []), "handoff": lane.handoff if lane else None, "retired_by": lane.retired_by if lane else None}
+        for name in sorted(registered.keys() | heard.keys() | owned.keys())
+        for lane in [registered.get(name)]
     ]
 
 

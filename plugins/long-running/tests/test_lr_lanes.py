@@ -591,7 +591,7 @@ def test_a_tick_whose_liveness_source_does_not_answer_acts_on_nothing(tmp_path, 
     assert out == lanes.Outcome() and fake.posts == [] and store.lane("conflicts-2").state == "desired"
 
 
-def test_liveness_is_a_record_within_the_hour_from_a_lane_that_is_not_retired():
+def test_liveness_is_a_record_within_the_hour_whatever_the_registry_says():
     store = Store.memory()
     for name, heard in (("fresh-1", T0 - timedelta(minutes=50)), ("stale-1", T0 - timedelta(minutes=70)), ("gone-1", T0 - timedelta(minutes=5)), ("quiet-1", None)):
         store.want_lane(name, "/briefs/x.md", "opus", "xhigh", "lane", "desired", T0 - timedelta(hours=3), prs=(46475,) if name == "fresh-1" else ())
@@ -601,8 +601,27 @@ def test_liveness_is_a_record_within_the_hour_from_a_lane_that_is_not_retired():
 
     rows = {row["lane"]: row for row in lanes.liveness(store, T0)}
 
-    assert {name: row["live"] for name, row in rows.items()} == {"fresh-1": True, "stale-1": False, "gone-1": False, "quiet-1": False}
+    assert {name: row["live"] for name, row in rows.items()} == {"fresh-1": True, "stale-1": False, "gone-1": True, "quiet-1": False}
     assert rows["fresh-1"]["prs"] == [46475] and rows["gone-1"]["retired_by"] == "gone-2" and rows["quiet-1"]["heard"] is None
+
+
+def test_every_lane_that_posts_is_in_the_liveness_answer_with_the_prs_it_last_carried(tmp_path, brief):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store, prs=(46446,))
+    fake.feed += [
+        record(2, "desk-runner", "state", T0 - timedelta(minutes=10), "tick"),
+        record(3, "p8c-conversion-ship-6", "head", T0 - timedelta(minutes=8), "#46446 3f2a1bc", refs={"prs": ["Forge-AI/monorepo#46446"]}),
+        record(4, "root", "decide", T0 - timedelta(minutes=6), "#46731 owner=signal-valkey-2", refs={"prs": ["Forge-AI/monorepo#46731"]}),
+        record(5, "landing-desk-3", "landed", T0 - timedelta(minutes=4), "#46999 landed", refs={"prs": ["Forge-AI/monorepo#46999"]}),
+    ]
+    store.own("orphan-restack-1", [46999])
+
+    lanes.tick(store, fake.deps, T0, 1)
+    rows = {row["lane"]: row for row in lanes.liveness(store, T0)}
+
+    assert (rows["desk-runner"]["state"], rows["desk-runner"]["live"]) == ("unregistered", True)
+    assert rows["p8c-conversion-ship-6"]["prs"] == [46446] and rows["conflicts-2"]["prs"] == []
+    assert rows["signal-valkey-2"]["prs"] == [46731] and "orphan-restack-1" not in rows
 
 
 def test_a_root_stand_down_retires_the_lanes_its_text_names_but_not_the_successor_named_after_them(tmp_path, brief):
