@@ -547,9 +547,10 @@ fix is the PR the newest record on the topic by any other lane names, an inciden
 compared with the one before it: a job name that fails or soft-fails more often posts one `POST-MERGE-RED` to root, each
 `landing.desk_lane` and the lanes of the PRs that landed between the two, so a build green only by soft-fail reads red.
 A trunk commit whose check failed and later passes on a retry of a job or of the build posts one `FLAKE`, a
-`[finding:desk-runner]` defect naming the first failing test in the failed job's log, the lane whose PR last changed
-that test's file as its owner, and a fix due 24 hours out; it blocks nothing and stays open until a HEAD names it. A test file in the old tree,
-under `go/sand/` outside `go/sand/next/`, posts none, since an old-tree flake gets its one retry and no fix lane (owner row prompt/1030-212507).
+`[finding:desk-runner]` defect naming the first failing test in the failed job's log and a fix due 24 hours out; it
+blocks nothing and stays open until a HEAD names it. Its owner is the live successor of the lane whose PR last changed
+that test's file, else the live successor of the lane `landing.flake_lane` names, which routes it to a fixer, else root.
+An old-tree flake posts too, since a harness fix there falls under the owner's 3:22 PM Oct 31 order (root #274853).
 A trunk that does not read gates and enqueues nothing that pass and reads again
 the next; `TRUNK-READ-FAILED` posts once per run of such passes, and `TRUNK-READ-RECOVERED` once a read succeeds.
 `landing.release_cli` is the repo's release command line, such as `tools/ci release`, its first word relative to the landing
@@ -620,7 +621,7 @@ it waits up to 3 minutes after the runner exits for launchd's restart to hold th
 leaves launchd's runner and two runners never race for the lock. `drive.py digest`
 prints each desk's running and installed versions. Before the landing desk takes its lock it refuses to start, exiting 3 with one
 `PREFLIGHT-FAILED` to root, when an environment variable its adapter needs is unset (`TRUNK_MERGE_API_KEY` for
-`trunk-stack-enqueue`), a lane `fidelity_lane`, `go_lanes`, `desk_lane`, `board_lane` or `restack_lane` names never
+`trunk-stack-enqueue`), a lane `fidelity_lane`, `go_lanes`, `desk_lane`, `board_lane`, `restack_lane` or `flake_lane` names never
 registered on the drive, or the landing checkout has local edits; `preflight` runs the same checks, posts nothing, and exits 0 or 3,
 with `--json` for one object of `ok`, `label` and `why`.
 While ruling cards `rulings.py classify` wrote queue under the drive's `cards/`, the landing runner logs one `RULING-ASK`
@@ -710,14 +711,13 @@ TEST_DIRS = frozenset({"__tests__", "testdata", "fixtures", "docs"})
 CI_PREFIXES = (".buildkite/", ".github/", "tools/ci/", "infra/ci/")
 TOOLING_GLOBS = (".agents/skills/*/scripts/*", ".agents/skills/*/tests/*")
 PORT_PREFIXES = ("go/sand/next/",)
-OLD_TREE = "go/sand/"
 OWNER_CITE = re.compile(r"#\s*owner:\s*[0-9a-f]{7,40}\b")
 MERGE_CARD_FIELDS = "title,author,additions,deletions,reviewDecision"
 RULING_ROUNDS = "cards/rounds"
 RUNNER = "desk-runner"
 ORCA_DESK = "orca-desk"
 RUNNER_LANES = frozenset({RUNNER, ORCA_DESK, finder.LANE, fidelity.LANE, stall_watch.LANE, prompt_watch.LANE, judge_watch.LANE})
-LANE_KEYS = ("fidelity_lane", "go_lanes", "desk_lane", "board_lane", "restack_lane")
+LANE_KEYS = ("fidelity_lane", "go_lanes", "desk_lane", "board_lane", "restack_lane", "flake_lane")
 FINDER = "desk-finder"
 FINDER_CURSOR = "cursor"
 FINDER_CONCURRENT = 8
@@ -6460,7 +6460,7 @@ class Landing:
         return True
 
     def watch_flakes(self, history: list[dict], check: str, rows: dict[str, dict]) -> None:
-        """Remember each trunk commit whose `check` reads failed, and post one `FLAKE` when a remembered commit's `check` passes on a retry of a job or of the whole build: a `[finding:desk-runner]` defect to its owner, root and the watchdog that names the first failing test line of the failed job's log, the lane whose PR last changed that test's file, and a fix due 24 hours out. It blocks nothing, and the finding stays open until a HEAD names it. A commit that leaves the trunk's last `TRUNK_DEPTH` is forgotten, and a flake whose builds do not read or whose record did not post is tried again the next pass."""
+        """Remember each trunk commit whose `check` reads failed, and post one `FLAKE` when a remembered commit's `check` passes on a retry of a job or of the whole build: a `[finding:desk-runner]` defect to its owner, root and the watchdog that names the first failing test line of the failed job's log and a fix due 24 hours out. Its owner is the live successor of the lane whose PR last changed that test's file, else the live successor of the lane `landing.flake_lane` names, which routes it to a fixer, else root, so no flake waits on a hand-off from root (improve4-flake-owner, root #277422). It blocks nothing, and the finding stays open until a HEAD names it. A commit that leaves the trunk's last `TRUNK_DEPTH` is forgotten, and a flake whose builds do not read or whose record did not post is tried again the next pass."""
         if not self.landing_config.get("ci_build"):
             return
         statuses = {commit["oid"]: context for commit in history for context in (commit["status"] or {"contexts": []})["contexts"] if context["context"] == check and context["state"] in FINISHED_STATES}
@@ -6488,11 +6488,10 @@ class Landing:
             return True
         test = next(filter(None, (self.failed_test(red, job) for job in jobs)), "")
         path = self.test_file(test) if test else ""
-        if path.startswith(OLD_TREE) and not path.startswith(PORT_PREFIXES):
-            return True
         subject = self.shell.run(["git", "-C", str(self.checkout), "log", "-1", "--format=%s", "--", path]).out.strip() if path else ""
         pr = found[1] if (found := SQUASHED_PR.search(subject)) else ""
-        owner = self.successor(lane) if (lane := rows.get(pr, {}).get("lane")) else ROOT
+        lanes = [lane for lane in (rows.get(pr, {}).get("lane", ""), *self.runner.landing_lanes("flake_lane")) if lane]
+        owner = next((live for lane in lanes if self.session_live(live := self.successor(lane))), ROOT)
         due = (self.runner.now() + FLAKE_DUE).astimezone(PACIFIC).strftime("%b %-d %-I:%M %p")
         changed = f"; #{pr} last changed it" if pr else ""
         text = f"[finding:{RUNNER}] - {path or '-'} flake owner {owner}: FLAKE {test or 'a test'} failed on {red} at {oid[:10]} and passed on retry{changed}. Fix due {due}; name this record in the fix's HEAD. It blocks nothing."
