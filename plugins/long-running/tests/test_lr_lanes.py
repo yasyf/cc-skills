@@ -896,3 +896,49 @@ def test_a_root_stand_down_after_the_lanes_own_done_still_hands_its_prs_to_root(
     kinds = [(argv[argv.index("--kind") + 1], argv[argv.index("--to") + 1], argv[-1]) for argv in fake.posts]
     assert not [post for post in kinds if post[1] == "conflicts-2"]
     assert store.owner_of([45492, 46512]) == {45492: "root", 46512: "root"}
+
+
+def test_a_held_lane_that_posts_again_is_live_and_a_pr_root_opened_for_it_is_the_lanes(tmp_path, brief):
+    """Root #290371: ssql-sleep-truncation, an Agent lane reading its brief, was held as not live 15 minutes after launch; root's session posted `opened` for #47353, so root owned it and the supervisor said root stood its lane down."""
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    fake.feed.append(spawned(2, "ssql-sleep-truncation", brief, T0))
+    lanes.tick(store, fake.deps, T0, 1)
+    lanes.tick(store, fake.deps, T0 + timedelta(minutes=16), 1)
+    assert store.lane("ssql-sleep-truncation").state == "held"
+    fake.posts.clear()
+    fake.states = {47353: "needs-work"}
+    fake.feed += [
+        record(3, "root", "opened", T0 + timedelta(minutes=28), "root opened #Forge-AI/monorepo#47353", refs={"prs": ["Forge-AI/monorepo#47353"]}),
+        record(4, "ssql-sleep-truncation", "head", T0 + timedelta(minutes=28), "HEAD #47353 at 3c97d53", ("root",), {"prs": ["Forge-AI/monorepo#47353"]}),
+    ]
+
+    lanes.tick(store, fake.deps, T0 + timedelta(minutes=29), 1)
+
+    assert store.lane("ssql-sleep-truncation").state == "desired"
+    assert store.owner_of([47353]) == {47353: "ssql-sleep-truncation"}
+    assert not [argv for argv in fake.posts if "no lane owns" in argv[-1]]
+
+
+def test_a_lane_whose_orca_worker_finished_is_retired_and_never_relaunched(tmp_path, brief):
+    """Root #290966: exec-crash-fix stopped per its brief with worker_done succeeded at 11:50 AM, and the supervisor relaunched it as exec-crash-fix-2 at 12:04 PM."""
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    fake.feed.append(record(2, "desk-runner", "report", T0 - timedelta(minutes=14), "OUTCOME msg_b21ededd168d conflicts-2: worker_done succeeded dispatch=ctx_320e271b3112: Stopped per brief"))
+    fake.peers = [who("conflicts-2", False, T0 - timedelta(minutes=20))]
+
+    out = lanes.tick(store, fake.deps, T0, 1)
+
+    assert out.relaunched == [] and fake.launches == []
+    assert (store.lane("conflicts-2").state, store.lane("conflicts-2").retired_by) == ("retired", "worker-done")
+
+
+def test_a_lane_whose_orca_worker_failed_still_relaunches(tmp_path, brief):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    fake.feed.append(record(2, "desk-runner", "report", T0 - timedelta(minutes=14), "OUTCOME msg_b21ededd168d conflicts-2: worker_done failed dispatch=ctx_320e271b3112: codex exited 1"))
+    fake.peers = [who("conflicts-2", False, T0 - timedelta(minutes=20))]
+
+    out = lanes.tick(store, fake.deps, T0, 1)
+
+    assert [old for old, _, _ in out.relaunched] == ["conflicts-2"]

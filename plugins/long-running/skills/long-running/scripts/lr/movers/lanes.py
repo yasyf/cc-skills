@@ -31,6 +31,7 @@ from lr.store import STALE_AFTER, Lane, Store, parse, stamp
 
 SELF = "supervisor"
 ROOT = "root"
+RUNNER = "desk-runner"
 CURSOR = "lanes"
 HOUR = "lanes.hour"
 ADOPT_WINDOW = "72h"
@@ -45,6 +46,7 @@ WAITS = frozenset({"ask", "blocked", "blocker"})
 SETTLED = frozenset({"handoff", "done", "stand-down", "stopped"})
 LANDED = "landed"
 SLICE_STEP = re.compile(r"^Register slice: lane=\S+ step=(\S+)", re.MULTILINE)
+WORKER_DONE = re.compile(r"^OUTCOME \S+ (?P<lane>[\w.-]+): worker_done succeeded\b")
 STAND_DOWN_LIST = re.compile(r"\bstand[ -]?down\s+(?P<names>[^.(;:\n]+)", re.IGNORECASE)
 CARD = re.compile(r"\bcard-[\w.-]*\w")
 PR_MENTION = re.compile(r"#(\d+)\b")
@@ -183,6 +185,9 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
         row = store.lane(lane)
         kind, text = record["kind"], record.get("text") or ""
         store.lane_heard(lane, at, kind)
+        if row and row.state == "held" and at > row.since:
+            store.lane_state(lane, "desired", at)
+            row = store.lane(lane)
         if row and row.state in LIVE:
             card = CARD.search(text) if kind in WAITS else None
             store.lane_waiting(lane, record["seq"] if kind in WAITS and (card or ROOT in (record.get("to") or [])) else None, awaits=card[0] if card else None)
@@ -210,11 +215,13 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
                         store.lane_page(waiter.name, {"topic": f"owner:{record['seq']}", "why": f"the owner answered {waiter.awaits}, the card you wait on: {text}", "text": text, "prs": list(waiter.prs)})
         if lane == SELF:
             continue
-        if kind == "handoff" and row and (doc := (record.get("refs") or {}).get("ccn")):
+        if lane == RUNNER and (done := WORKER_DONE.match(text)) and (ended := store.lane(done["lane"])) and ended.state != "retired":
+            retire(store, ended.name, "worker-done", at)
+        elif kind == "handoff" and row and (doc := (record.get("refs") or {}).get("ccn")):
             store.lane_handoff(lane, doc, at if row.asked else None)
         elif (handed := HANDED_OFF.search(text)) and lane == f"{handed['lane']}-handoff" and (owner := newest(store, handed["lane"])):
             store.lane_handoff(owner.name, handed["doc"], None)
-        elif kind in CARRIES and (numbers := {n for n, owner in store.owner_of(prs_of(record)).items() if owner not in addressed(record)}):
+        elif kind in CARRIES and lane != ROOT and (numbers := {n for n, owner in store.owner_of(prs_of(record)).items() if owner not in addressed(record)}):
             for other in store.lanes("launching"):
                 if other.name != lane and other.prs and set(other.prs) <= numbers:
                     retire(store, other.name, lane, at)
