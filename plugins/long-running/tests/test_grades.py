@@ -213,3 +213,39 @@ def test_a_multi_head_record_moves_each_pr_by_its_own_entry_and_note():
     review = {"seq": 2, "drive": "d1", "lane": "p8", "kind": "review", "refs": {"prs": ["Forge-AI/monorepo#29021"]}, "text": "the finder found nothing new on the replay"}
     [found] = grades.finder_reviews_in([record, review], "d1", "Forge-AI/monorepo", "29021")
     assert found["head"] == "eeee555555"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "finder-override 46153 at 0fdda4f: 283952 (finder 171507)",
+        "9:38 AM (a). The caller trace counts. finder-override #46153 at 0fdda4f: 171507.",
+        "finder-override #46153 at 0fdda4f: 171507@f3c89519",
+        "finder-override #46153 0fdda4f: 30",
+        "finder-override #46153 at 0fdda4f",
+    ],
+    ids=["bare-pr", "mid-text", "id-at-origin", "drive-copy-seq", "no-id"],
+)
+def test_a_root_finder_override_in_each_accepted_form_settles_the_major_at_its_head(text):
+    """Root posted `finder-override 46153 at 0fdda4f: 283952 (finder 171507)` with no `#` before the PR, and the runner read nothing."""
+    major = {"seq": 30, "origin_seq": 171507, "lane": "finder-desk", "kind": "review", "text": "finder: major 0fdda4f012 1 open over delta"}
+    override = {"seq": 31, "lane": "root", "kind": "decide", "text": text}
+    assert grades.root_settles_finder([major, override], "46153", "0fdda4f0123456", major)
+    assert not grades.root_settles_finder([major, override], "46154", "0fdda4f0123456", major)
+    assert not grades.root_settles_finder([major, override], "46153", "1f99697aab6463", major)
+
+
+@pytest.mark.parametrize(
+    ("text", "read", "unread"),
+    [
+        ("fidelity-override #47225 at 1f99697: 174488", {("fidelity", "47225", "1f99697")}, []),
+        ("fidelity-override 47225 at 1f99697: 174488@f3c89519", {("fidelity", "47225", "1f99697")}, []),
+        ("fidelity-override #47225: 174488", set(), ["fidelity-override #47225: 174488"]),
+        ("fidelity-override at 1f99697: 174488", set(), ["fidelity-override at 1f99697: 174488"]),
+        ("finder-override #46153 at <sha>: 171507", set(), ["finder-override #46153 at <sha>: 171507"]),
+        ("fidelity-override #47225 at 1f99697: 174488. finder-override #47225: 283952", {("fidelity", "47225", "1f99697")}, ["finder-override #47225: 283952"]),
+    ],
+    ids=["hash-pr", "bare-pr-id-at-origin", "no-head", "no-pr", "placeholder-head", "one-of-two"],
+)
+def test_an_override_reads_its_kind_pr_and_head_and_names_each_clause_it_cannot_read(text, read, unread):
+    assert grades.overrides(text) == (read, unread)

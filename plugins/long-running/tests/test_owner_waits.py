@@ -170,13 +170,31 @@ def test_a_missing_grade_root_closed_or_a_desk_ok_outranks_holds_nothing(registr
 
 
 @pytest.mark.parametrize(
+    "text",
+    [f"fidelity-override 45507 at {HEAD[:7]}: 174488", f"fidelity-override #45507 at {HEAD[:7]}: 174488@f3c89519", f"9:38 AM (a). The caller trace counts. fidelity-override #45507 at {HEAD[:7]}: 11."],
+    ids=["bare-pr", "id-at-origin", "mid-text-drive-copy"],
+)
+def test_a_missing_grade_root_overrode_at_the_head_holds_nothing(registry, capsys, text):
+    """Root #286877 posted `fidelity-override #47225 at 1f99697: 174488`, and the stall watch kept raising the missing grade it overrode."""
+    pipeline = record(11, "fidelity-pipeline", "review", f"fidelity: missing {HEAD} plan:116 no caller trace", 98)
+    overridden = record(14, "root", "decide", text, 70)
+    stale = record(15, "root", "decide", "fidelity-override #45507 at ae16992: 11", 60)
+
+    assert printed(capsys, Runner({"doc": doc(), "interactions": {}}, [], [ledger("45507")], [pipeline, overridden]), "--pr", "45507") == "#45507 at 632c4a5: not waiting on you: the board holds no row for it"
+    assert printed(capsys, Runner({"doc": doc(), "interactions": {}}, [], [ledger("45507")], [pipeline, stale]), "--pr", "45507").endswith("reads missing since 3:02 AM (cci #11), unanswered")
+
+
+@pytest.mark.parametrize(
     "settled",
     [
         {"text": f"finder-override #45507 at {HEAD[:7]}: 164915. Grounds: an edge case nobody hits"},
+        {"text": f"finder-override 45507 at {HEAD[:7]}: 283952 (finder 164915)"},
+        {"text": f"finder-override #45507 at {HEAD[:7]}: 164915@f3c89519"},
+        {"text": f"finder-override #45507 at {HEAD[:7]}: 30"},
         {"text": "the race costs one reopen", "resolves": 164915},
         {"text": "the race costs one reopen", "resolves": 30},
     ],
-    ids=["override-text", "resolves-finder-desk-seq", "resolves-drive-copy"],
+    ids=["override-text", "override-bare-pr", "override-id-at-origin", "override-drive-copy", "resolves-finder-desk-seq", "resolves-drive-copy"],
 )
 def test_a_finder_major_root_settled_by_either_seq_is_no_wait(registry, capsys, settled):
     major = record(30, "finder-desk", "review", f"finder: major {HEAD} 1 open over delta: the release races an explicit-id create", 20, origin_seq=164915, num="#164915@f3c89519")

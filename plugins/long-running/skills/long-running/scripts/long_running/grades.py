@@ -34,7 +34,11 @@ FINDER_PASS = "ok"
 FINDER_FAIL = "major"
 ROOT = "root"
 FINDER_CLEARED = re.compile(r"(?<!not )(?<!never )\bclear(?:s|ed)?\b|\brebuttal accepted\b|\bland it\b", re.IGNORECASE)
-ROOT_FINDER_CLEAR = r"(?:^|[.;]\s+)(?:\d{{1,2}}:\d\d [AP]M\s+)?(?:root:\s+)?(?:clear(?:ed|s)?\b[^.;]*\bfinder\b[^.;]*|finder-override\s+)#{pr}\s+(?:at\s+)?{sha}"
+ROOT_FINDER_CLEAR = r"(?:^|[.;]\s+)(?:\d{{1,2}}:\d\d [AP]M\s+)?(?:root:\s+)?clear(?:ed|s)?\b[^.;]*\bfinder\b[^.;]*#{pr}\s+(?:at\s+)?{sha}"
+OVERRIDE_NAMED = re.compile(r"\b(?:finder|fidelity)-override\b[^.;\n]*", re.IGNORECASE)
+OVERRIDE = re.compile(r"(finder|fidelity)-override\s+#?(\d+)\s+(?:at\s+)?([0-9a-f]{7,40})\b", re.IGNORECASE)
+FINDER_OVERRIDE = "finder"
+FIDELITY_OVERRIDE = "fidelity"
 FINDER_NAMED = re.compile(r"\bfinder\b", re.IGNORECASE)
 FINDER_SAYS = re.compile(r"\bfinder(?:\s*\[\d+\])?:?\s+(ok|lgtm|major|issues)\b", re.IGNORECASE)
 FINDER_ISSUES = "issues"
@@ -414,7 +418,7 @@ def finder_records(reviews: list[dict]) -> list[dict]:
 
 
 def root_settles_finder(records: list[dict], pr: str, sha: str, verdict: dict) -> bool:
-    """Whether a root ruling in `records` after `verdict`, a failing finder record at `sha`, settles it: a `decide` or `decision` that resolves it, by this drive's seq or the finder desk's own when `verdict` is this drive's copy, or that clears the finder on `#<pr> <sha>` or reads `finder-override #<pr> at <sha>`, or a `decision`, or a `decide` that clears it, replying to it along a chain of `--re` replies (root #277504)."""
+    """Whether a root ruling in `records` after `verdict`, a failing finder record at `sha`, settles it: a `decide` or `decision` that resolves it, by this drive's seq or the finder desk's own when `verdict` is this drive's copy, or that clears the finder on `#<pr> <sha>` or reads `finder-override [#]<pr> [at] <sha>`, or a `decision`, or a `decide` that clears it, replying to it along a chain of `--re` replies (root #277504)."""
     ids = {verdict["seq"], verdict.get("origin_seq")} - {None}
     clear = re.compile(ROOT_FINDER_CLEAR.format(pr=pr, sha=sha[:7]), re.IGNORECASE | re.MULTILINE)
     answered = set(ids)
@@ -422,7 +426,7 @@ def root_settles_finder(records: list[dict], pr: str, sha: str, verdict: dict) -
         if record["seq"] <= verdict["seq"]:
             continue
         root = record["lane"] == ROOT
-        if root and record["kind"] in cci.ROOT_RULINGS and (ids & closes(record) or clear.search(full_text(record))):
+        if root and record["kind"] in cci.ROOT_RULINGS and (ids & closes(record) or clear.search(full_text(record)) or overridden(record, FINDER_OVERRIDE, pr, sha)):
             return True
         if record.get("re") not in answered:
             continue
@@ -430,6 +434,22 @@ def root_settles_finder(records: list[dict], pr: str, sha: str, verdict: dict) -
             return True
         answered.add(record["seq"])
     return False
+
+
+def overrides(text: str) -> tuple[set[tuple[str, str, str]], list[str]]:
+    """The `(kind, pr, sha)` each `finder-override` or `fidelity-override` in `text` names as `<kind>-override [#]<pr> [at] <sha>`, whatever id follows it, such as `174488`, `174488@f3c89519` or a drive copy's seq, and each such clause that reads as no such form."""
+    read, unread = set(), []
+    for named in OVERRIDE_NAMED.finditer(text):
+        if found := OVERRIDE.match(named[0]):
+            read.add((found[1].lower(), found[2], found[3].lower()))
+        else:
+            unread.append(named[0].strip())
+    return read, unread
+
+
+def overridden(record: dict, kind: str, pr: str, sha: str) -> bool:
+    """Whether `record` reads `<kind>-override [#]<pr> [at] <sha>` for the head `sha` names (root #262497, #287102)."""
+    return any((named, number) == (kind, pr) and names_head(head, sha) for named, number, head in overrides(full_text(record))[0])
 
 
 def head_named(record: dict, heads: list[dict], repo: str, pr: str) -> str:
