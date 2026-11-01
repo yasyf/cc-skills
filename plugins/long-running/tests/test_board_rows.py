@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
 
-from long_running import board_rows
+from long_running import board_rows, grades
 import pytest
 from conftest import gateway
 
@@ -395,6 +396,117 @@ def test_a_saved_codex_finder_reply_counts_only_for_its_pr_and_head(tmp_path: Pa
     assert gate(tmp_path, shell, card(row("42591")), "--check", "--json") == 0
 
     assert warned(capsys) == ungraded
+
+
+@pytest.mark.parametrize("pr", ["12", "13", "012", "123", "999"])
+@pytest.mark.parametrize("head", [HEAD, NEW_HEAD])
+def test_indexed_board_reviews_keep_the_original_grade_finder_and_warning_order(pr: str, head: str) -> None:
+    record = {"seq": 1, "drive": DRIVE, "kind": "review", "lane": "finder-desk", "text": "finder: ok", "refs": {"prs": [f"{REPO}#12"]}}
+    reviews = [
+        record | {"kind": "head", "fields": {"attrs": {f"head:{REPO}#12": HEAD, f"head:{REPO}#13": NEW_HEAD}}, "refs": {"prs": [f"{REPO}#12", f"{REPO}#13"]}},
+        record | {"kind": "head", "text": NEW_HEAD},
+        record | {"seq": 2, "origin_seq": 100},
+        record | {"seq": 3, "refs": {"prs": [f"{REPO}#13"]}},
+        record | {"seq": 4, "lane": "fidelity-desk", "text": f"fidelity: missing {HEAD[:7]} rule/1", "refs": {"prs": [12, 12, f"{REPO.lower()}#13"]}},
+        record | {"seq": 5, "lane": "fidelity-desk-13", "text": f"fidelity: ok {NEW_HEAD[:7]} rule/1"},
+        record | {"seq": 6, "text": f"finder: major {NEW_HEAD[:7]} #12 [13]", "refs": {}},
+        record | {"seq": 7, "text": f"finder: major {HEAD[:7]} #12 [13]", "refs": {"prs": ["other/repo#12"]}},
+        record | {"seq": 8, "text": f"finder: major {HEAD[:7]} #12", "refs": {"prs": ["12"]}},
+        record | {"seq": 9, "text": f"finder: ok {HEAD[:7]} #123a [012] #123", "refs": {}},
+        record | {"seq": 10, "drive": "another-drive", "text": f"finder: major {HEAD[:7]}"},
+        record | {"seq": 11, "lane": "p8", "text": f"finder: major {HEAD[:7]}"},
+        record | {"seq": 12, "text": f"fidelity: ok {HEAD[:7]} finder"},
+        record | {"seq": 13, "lane": "fidelity-desk", "text": f"fidelity: ok {HEAD[:7]} #12 rule/1", "refs": {}},
+    ]
+    reviews.append(reviews[4])
+    encoded = json.dumps(reviews)
+    selected = board_rows.reviews_by_pr(reviews, REPO).get(pr, [])
+    lanes = grades.with_successors(["fidelity-desk"], reviews)
+    saved = [f"12-{HEAD[:7]}.md", f"13-{NEW_HEAD[:7]}.md"]
+    [named] = board_rows.rows_of(card(row(pr, head)))
+
+    assert grades.fidelity_grades_in(selected, DRIVE, lanes, REPO, pr) == grades.fidelity_grades_in(reviews, DRIVE, lanes, REPO, pr)
+    assert grades.finder_reviews_in(selected, DRIVE, REPO, pr) == grades.finder_reviews_in(reviews, DRIVE, REPO, pr)
+    assert board_rows.graded_warnings(selected, saved, DRIVE, lanes, REPO, named) == board_rows.graded_warnings(reviews, saved, DRIVE, lanes, REPO, named)
+    assert json.dumps(reviews) == encoded
+
+
+def test_a_board_review_index_preserves_duplicate_source_records_without_repeating_duplicate_refs() -> None:
+    first = {"seq": 2, "refs": {"prs": [12, f"{REPO}#12", 12]}, "text": "first"}
+    second = {"seq": 1, "refs": {}, "text": "#12 [12] #12"}
+
+    selected = board_rows.reviews_by_pr([first, second, first], REPO)["12"]
+
+    assert len(selected) == 3
+    assert selected[0] is first
+    assert selected[1] is second
+    assert selected[2] is first
+
+
+@pytest.mark.parametrize("count", [1, 91])
+@pytest.mark.parametrize("history", [32, 10000])
+@pytest.mark.parametrize("same_pr", [False, True])
+def test_board_checks_traverse_fetched_review_history_only_twice(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, count: int, history: int, same_pr: bool) -> None:
+    shell = FakeShell()
+    prs = [str(42590 if same_pr else 42590 + at) for at in range(count)]
+    for pr in prs:
+        shell.pull(pr)
+        shell.graded(pr)
+    shell.pull("80000")
+    shell.graded("80000")
+    shell.post("go", "root", f"go #80000 at {HEAD[:7]}", "80000")
+    for _ in range(history):
+        shell.post("review", "unrelated", "a review for another PR", "90000")
+    block = groups(*(pr_row(pr) for pr in prs))
+    block["children"].append({"id": "merge-approved-landing", "type": "markdown", "md": "- #80000: One writer per run."})
+
+    class CountedReviews(list[dict]):
+        visits = 0
+
+        def __iter__(self) -> Iterator[dict]:
+            for record in super().__iter__():
+                self.visits += 1
+                yield record
+
+    fetched = CountedReviews()
+    original = board_rows.cci.records
+
+    def records(run, drive, *filters, **options):
+        found = original(run, drive, *filters, **options)
+        if filters == ("--kind=review", "--kind=head"):
+            fetched.extend(found)
+            return fetched
+        return found
+
+    monkeypatch.setattr(board_rows.cci, "records", records)
+
+    assert gate(tmp_path, shell, block, "--check") == 0
+    assert len(fetched) == history + 2 * count + 2
+    assert fetched.visits == 2 * len(fetched)
+    indexed_visits = fetched.visits
+    fetched.visits = 0
+    for named in board_rows.rows_of(block):
+        assert board_rows.graded_warnings(fetched, [], DRIVE, ["fidelity-desk"], REPO, named) == []
+    assert fetched.visits == 2 * count * len(fetched)
+    print(json.dumps({"rows": count, "same_pr": same_pr, "unrelated_history": history, "fetched_records": len(fetched), "indexed_history_visits": indexed_visits, "baseline_history_visits": fetched.visits}))
+
+
+def test_a_failed_board_review_read_keeps_its_warning_and_does_not_build_an_index(tmp_path: Path, shell: FakeShell, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    original = board_rows.cci.records
+
+    def records(run, drive, *filters, **options):
+        if filters == ("--kind=review", "--kind=head"):
+            raise board_rows.ReadFailed("reviews unavailable")
+        return original(run, drive, *filters, **options)
+
+    def index(reviews, repo):
+        pytest.fail("a failed review read must not build an index")
+
+    monkeypatch.setattr(board_rows.cci, "records", records)
+    monkeypatch.setattr(board_rows, "reviews_by_pr", index)
+
+    assert gate(tmp_path, shell, card(row("42590")), "--check") == 0
+    assert lines(capsys) == ["WARN the grades did not read (reviews unavailable); no row is checked for a grade or finder at its head", "rows 1 failing 0 ungraded 0 flags"]
 
 
 def test_a_fresh_graded_pr_groups_row_pushes_a_copy_without_its_text_time(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
