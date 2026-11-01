@@ -30,20 +30,21 @@ def test_a_compaction_after_the_last_turn_means_no_reading(tmp_path: Path):
     assert supervisor.last_tokens(path) is None
 
 
-def test_an_idle_teammate_of_a_live_lead_session_reads_live(tmp_path: Path):
+def test_every_teammate_of_a_live_lead_session_reads_live_and_carries_its_team(tmp_path: Path):
     (tmp_path / "session-d50e80e8").mkdir()
-    (tmp_path / "session-d50e80e8" / "config.json").write_text(json.dumps({"members": [{"name": "team-lead"}, {"name": "flock-race-1"}]}))
+    (tmp_path / "session-d50e80e8" / "config.json").write_text(json.dumps({"members": [{"name": "team-lead"}, {"name": "flock-race-1"}, {"name": "ci-github-403-1"}]}))
     rows = [
         {"lane": "root", "session": "d50e80e8-7ba3", "live": True},
         {"lane": "flock-race-1", "session": "d50e80e8-7ba3", "agent": "aflock-race-1-01", "live": False},
+        {"lane": "ci-github-403-1", "session": "d50e80e8-7ba3", "agent": "aci-github-403-1-01", "live": True},
         {"lane": "gone-lane", "session": "d50e80e8-7ba3", "agent": "agone-lane-01", "live": False},
         {"lane": "orphan", "session": "0badc0de-1111", "agent": "aorphan-01", "live": False},
     ]
 
     out = supervisor.rostered(rows, tmp_path)
 
-    assert [row["live"] for row in out] == [True, True, False, False]
-    assert [row.get("roster") for row in out] == [None, str(tmp_path / "session-d50e80e8"), None, None]
+    assert [row["live"] for row in out] == [True, True, True, False, False]
+    assert [row.get("roster") for row in out] == [None, *[str(tmp_path / "session-d50e80e8")] * 2, None, None]
 
 
 def test_a_wake_mails_an_idle_lane_its_page_or_once_per_interval_while_its_root_task_is_in_progress(tmp_path: Path):
