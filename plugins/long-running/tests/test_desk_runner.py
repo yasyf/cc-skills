@@ -7891,6 +7891,19 @@ def two_gone_green(shell: FakeShell) -> None:
         merge_go(shell, pr, f"merge #{pr} at {head}")
 
 
+def test_a_gate_blocked_only_on_githubs_unfinished_mergeability_read_waits_ten_minutes_before_it_refuses(shell, config, tmp_path):
+    """Root #269444: #46942 drew REFUSED at a0638fd on `GitHub merge state UNKNOWN`, which GitHub answers until it recomputes mergeability after a base move."""
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 BLOCKED aaaa111111 GitHub merge state UNKNOWN")
+    shell.queue["33001"] = "not queued"
+    landing_pass(shell, config)
+    assert settled(shell, "REFUSED") == []
+    assert admitted_heads(config)["33001"]["state"] == "merging"
+    shell.sleep(11 * 60)
+    landing_pass(shell, config)
+    assert settled(shell, "REFUSED") == [f"REFUSED #33001 at aaaa111111 (go #{go_of(shell, '33001')}): the gate read aaaa111111 BLOCKED: GitHub merge state UNKNOWN for 10 minutes"]
+
+
 def test_an_admitted_head_the_gate_refuses_posts_one_refused_naming_the_gate_line_in_that_pass_and_none_while_it_stands(shell, config, tmp_path):
     """Root #221701: seven admitted heads drew ADMITTED-SKIPPED fifteen minutes after their gos, with no record in between saying why each sat out."""
     merge_mode(config, "every")
