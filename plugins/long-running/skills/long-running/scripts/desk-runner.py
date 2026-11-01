@@ -5647,6 +5647,7 @@ class Landing:
         self.side_work: Future | None = None
         self.bodies: dict[str, tuple[datetime, str]] = {}
         self.trunk_read: tuple[str, datetime, bool, dict] | None = None
+        self.trunk_failing: tuple[str, set[str], str] | None = None
         self.trunk_states: dict[str, dict] = {}
         self.branch_commits: dict[tuple[str, str], list[str]] = {}
         self.unchecked: set[str] = set()
@@ -6476,6 +6477,7 @@ class Landing:
 
     def watch_trunk(self, rows: dict[str, dict]) -> bool:
         """Read `landing.trunk_check` over the trunk's last `TRUNK_DEPTH` commits and post its state on the `dev-red` topic to root and the watchdog. A red run whose failed jobs include one a PR build also runs is DEV-RED, posted as an incident that says no PR can land; one whose failed jobs no PR build runs is POST-MERGE-RED, a report that says landing continues and a fix is owed; each posts the pass it is first read and again every 30 minutes while red, and DEV-GREEN posts once when the check passes again. It bars nothing: the queue's own required checks hold what cannot land, and a hold here would freeze the queue. False when the trunk does not read, so the pass gates nothing: `TRUNK-READ-FAILED` posts once per run of unread passes and `TRUNK-READ-RECOVERED` once a read succeeds."""
+        self.trunk_failing = None
         if not (check := self.landing_config.get("trunk_check")):
             return True
         target, why = self.trunk_target(check)
@@ -6506,6 +6508,7 @@ class Landing:
         origin = f"first red at {red.since[:10]}, landed by #{red.pr}" if red.pr else f"first red at {red.since[:10]}"
         bucket = int((self.runner.now() - red.at) / TRUNK_RED_EVERY)
         if blocking:
+            self.trunk_failing = (since, set(jobs), posted.fix) if jobs else None
             fix = f"nothing lands until #{posted.fix} fixes it" if posted.fix else "nothing lands until a fix lands; name it with `cci post --topic dev-red --pr <n>`"
             text = f"DEV-RED since {since}: {TRUNK}'s {check} {failing}, {origin}. No PR can land until this is fixed; {fix}."
             self.runner.cci_post("incident", text, f"{ROOT},{self.runner.watchdog}", cci.TRUNK_TOPIC, f"dev-red:{red.since}:{bucket}", record_id=f"dev-red:{red.since}:{bucket}")
@@ -9430,7 +9433,7 @@ class Landing:
         return None if statuses is None else {pr: entry["queue"] for pr, entry in statuses.items()}
 
     def tell_unpassed(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Tell each PR `unpassed` keeps out of every check, and each PR of a tree `landable_trees` left unchecked, what the pass's one status read says, after the go'd trees enqueue: red CI or requested changes goes to its lane as that head's blocker, red CI alone once `red_ours` finds the PR's diff may have caused it, and a red the open PR below shares, the same jobs failing the same way, folds into the blocker of the lowest PR of the chain that shares it, which goes to that PR's lane and names every PR above it the red covers, and to root as well when the merge queue dropped it (owner, 10:44 PM Oct 30), a conflict alone once per base, since a restack that keeps its base on purpose stays conflicting at every head, after the runner restacks a conflicting head a root go names on a Sprite itself and routes it only when that replay moved nothing, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM), `GATE_WORKERS` heads at a time, heads not yet told at their head first and then the longest untold, starting none once `TELL_BUDGET` has passed, so a later pass tells the rest. It reads the root's gos again first, so a go posted while the pass ran asks nothing (root #143360)."""
+        """Tell each PR `unpassed` keeps out of every check, and each PR of a tree `landable_trees` left unchecked, what the pass's one status read says, after the go'd trees enqueue: red CI or requested changes goes to its lane as that head's blocker, red CI alone once `red_ours` finds the PR's diff may have caused it, a red whose failed jobs all fail on a DEV-RED trunk gets the runner's own `red` record classing it inherited, with the trunk's fix as its unblock, and no blocker, a red the open PR below shares, the same jobs failing the same way, folds into the blocker of the lowest PR of the chain that shares it, which goes to that PR's lane and names every PR above it the red covers, and to root as well when the merge queue dropped it (owner, 10:44 PM Oct 30), a conflict alone once per base, since a restack that keeps its base on purpose stays conflicting at every head, after the runner restacks a conflicting head a root go names on a Sprite itself and routes it only when that replay moved nothing, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM), `GATE_WORKERS` heads at a time, heads not yet told at their head first and then the longest untold, starting none once `TELL_BUDGET` has passed, so a later pass tells the rest. It reads the root's gos again first, so a go posted while the pass ran asks nothing (root #143360)."""
         if not (self.no_go or self.unchecked) or (statuses := self.pr_statuses()) is None:
             return
         self.reread()
@@ -9465,6 +9468,11 @@ class Landing:
             if not (why := status_blocker(entry, "ci-red" not in entry["verdict"] or not self.red_by_design(pr)) or self.unproven_why.get(pr, "")):
                 continue
             plain_red = status_blocker({"verdict": "blocked:ci-red", "ci": entry.get("ci") or {}})
+            if why == plain_red and (inherited := self.inherited_red(pr, head, self.owner(pr, open_rows[pr]))):
+                if not self.book.known(LANDING, key := f"red-inherited:{pr}:{head[:10]}"):
+                    lanes = self.reach(self.owner(pr, open_rows[pr])) if pr not in below else list(map(self.successor, self.runner.landing_lanes("desk_lane")))
+                    self.post_record("red", key, ",".join(lanes) or ROOT, inherited, pr)
+                continue
             if pr in below and why == plain_red:
                 continue
             above = f"; {numbered(riders[pr])} above it {'fails' if len(riders[pr]) == 1 else 'fail'} the same way, so this is the one red to fix" if pr in riders else ""
@@ -9481,6 +9489,17 @@ class Landing:
                     self.route(key, owner, f"#{pr} {head}: {why}{above}", pr)
             elif not self.routed(key := blocker_key(pr, head), owner):
                 self.post_blocker(key, ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])), f"#{pr} {head}: {why}; the queue dropped it at {entry.get('evicted_at') or 'an unstamped time'}: {entry.get('evicted') or 'no reason given'}", pr)
+
+    def inherited_red(self, pr: str, head: str, lane: str) -> str:
+        """The `red` class record for `pr` at `head` when the trunk reads DEV-RED and every job its red Buildkite builds failed also fails on the trunk, so the red is the trunk's and no lane classes it by hand (improve3); empty otherwise, or when no build of the head reads."""
+        if not self.trunk_failing or not self.landing_config.get("ci_build"):
+            return ""
+        since, jobs, fix = self.trunk_failing
+        failed = {step for url, state, _ in self.ci_builds(head) or [] if state in RED_STATES and (build := self.build(url)) for step in failed_steps(build)}
+        if not failed or not failed <= jobs:
+            return ""
+        unblock = f"#{fix}" if fix else f"{TRUNK}'s fix"
+        return f"class=inherited head={head} owner={lane or ROOT} {', '.join(sorted(failed))} {'fails' if len(failed) == 1 else 'fail'} on {TRUNK} too, red since {since}; it unblocks once {unblock} lands"
 
     def restacked(self, pr: str, head: str, lane: str) -> str:
         """Restack a PR a root go names at `head` and GitHub reads as conflicting, with its stack below it, on a Sprite through `remote-restack.py` under its lane's name, as the lane would, once per head: empty when the replay moved the stack, whose new heads carry the go when patch-identical, else what the replay printed, so only a real conflict or a stack already on its base reaches the lane."""
