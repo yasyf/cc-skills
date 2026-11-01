@@ -1257,7 +1257,7 @@ def test_a_head_record_from_the_refused_lane_clears_its_refusal(config):
     assert not [topic for topic in shell.topics() if topic.startswith(("refusal:", "successor:"))]
 
 
-@pytest.mark.parametrize("cause", ["needs-restack", "conflicting against its base", "GitHub is computing mergeability", "TAP-REQUIRED rule/82317b0", "FOREIGN #44999"])
+@pytest.mark.parametrize("cause", ["needs-restack", "conflicting against its base", "GitHub is computing mergeability", "TAP-REQUIRED rule/82317b0", "FOREIGN #44999", "GO-UNPARSED go cci #274104 says [direct tap at head]"])
 def test_each_landing_refusal_cause_is_tracked_and_routed_to_the_lane_that_acts(config, cause):
     desk_lane(config, "landing-desk-3")
     records = [*gone("101", HEAD), record(5, "desk-runner", "blocker", f"#101 {HEAD[:10]}: {cause}", 11, to=["api-lane", "root"])]
@@ -1265,7 +1265,7 @@ def test_each_landing_refusal_cause_is_tracked_and_routed_to_the_lane_that_acts(
     watch(shell, config)
     [topic] = [topic for topic in shell.topics() if topic.startswith("refusal:")]
     to = shell.post(topic)["to"]
-    expected = {"computing": "landing-desk-3@d1", "TAP": "root", "FOREIGN": "root"}
+    expected = {"computing": "landing-desk-3@d1", "TAP": "root", "FOREIGN": "root", "GO-UNPARSED": "root"}
     assert to == next((lanes for word, lanes in expected.items() if word in cause), "api-lane@d1")
 
 

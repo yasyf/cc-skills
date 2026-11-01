@@ -41,10 +41,10 @@ its ledger row names, it finds:
     refusal   the desk runner or a landing desk lane refused to queue a PR a root go or the owner's
               tap names, at the head the refusal names: it needs a restack, conflicts with its base,
               sits on an untracked or closed parent or lost its Graphite parent, GitHub is still
-              computing its mergeability, or the runner says FOREIGN, TAP-REQUIRED, CONTRACT-MISSING,
+              computing its mergeability, or the runner says FOREIGN, TAP-REQUIRED, GO-UNPARSED, CONTRACT-MISSING,
               PARKED, UNOWNED, NOT-QUEUEABLE or ENQUEUE-*; it is an open action naming the PR, its head,
               the reason, the lane that must act (the refusal's `owner <lane>` or `<lane>: #<pr>`
-              words, root for FOREIGN and TAP-REQUIRED, the landing desk for mergeability, else the
+              words, root for FOREIGN, TAP-REQUIRED and GO-UNPARSED, the landing desk for mergeability, else the
               PR's lane) and the command the refusal quotes; a TAP-REQUIRED refusal whose merge row is
               on the owner's board at that head is no stall, since only his tap moves it (root
               #273794); it stands until that lane posts a
@@ -247,7 +247,7 @@ FIDELITY_DESK = "desk-fidelity"
 QUEUE_LIVE = frozenset({"accepted", "started"})
 FINDER_PENDING = "FINDER-PENDING"
 REFUSAL_KINDS = frozenset({"blocker", "report", "note", "defect", "urgent"})
-REFUSAL_LABELS = frozenset({"FOREIGN", "TAP-REQUIRED", "CONTRACT-MISSING", "PARKED", "UNOWNED", "NOT-QUEUEABLE", "ENQUEUE-STRANDED", "ENQUEUE-FAILED", "ENQUEUE-UNSETTLED"})
+REFUSAL_LABELS = frozenset({"FOREIGN", "TAP-REQUIRED", "GO-UNPARSED", "CONTRACT-MISSING", "PARKED", "UNOWNED", "NOT-QUEUEABLE", "ENQUEUE-STRANDED", "ENQUEUE-FAILED", "ENQUEUE-UNSETTLED"})
 STACK_NOTES = ("BELOW-BLOCKED", "BELOW-HELD", "QUEUED", "REFUSED")
 WARNS_ONLY = re.compile(r"\bWARNING\b|\bis not held for it\b")
 REFUSAL_CAUSES = (
@@ -270,6 +270,7 @@ CAUSE_COMMANDS = {
     "TAP-REQUIRED": "put the merge row for #{pr} at {sha} on the owner's board",
     "CONTRACT-MISSING": "post the contract record #{pr} at {sha} lacks",
     "FOREIGN": "admit or hold the PR the batch for #{pr} would carry",
+    "GO-UNPARSED": "post the go for #{pr} at {sha} again with a bracket the runner reads",
 }
 MERGE_ASK = "MERGE-ASK"
 SILENT_STEP = "root routes the tooling lane: "
@@ -567,7 +568,7 @@ class Refusal:
         cause = self.cause
         if found := REFUSAL_OWNER.search(self.said):
             return found[1]
-        if cause in ("FOREIGN", "TAP-REQUIRED"):
+        if cause in ("FOREIGN", "TAP-REQUIRED", "GO-UNPARSED"):
             return ROOT
         if cause == "mergeability":
             return RUNNER

@@ -679,7 +679,7 @@ import judge_watch
 import prompt_watch
 import stall_watch
 from long_running import testfiles
-from long_running.grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, precondition_sentences, repo_prs, standing
+from long_running.grades import FIDELITY_MISSING, FIDELITY_OK, FINDER_PASS, GO_BRACKET, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, precondition_sentences, repo_prs, standing
 from long_running.grades import carry_of, delegated, with_successors
 from long_running.grades import carries as carry_grade
 from long_running.grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
@@ -698,6 +698,9 @@ MERGE_CARDS = "merge_asks"
 MERGE_WAITS = "merge_waits"
 MERGE_ASK_SURFACES = ("slack", "board")
 EXEMPT_BRACKET = re.compile(r"\[exempt:[^\]]*\]", re.IGNORECASE)
+TAP_REQUIRED_WORD = re.compile(r"\bTAP-REQUIRED\b")
+GO_CONDITION = re.compile(r"\[\s*(?:exempt:|TAP-CARRIED\b|TAP-KEPT\b)", re.IGNORECASE)
+GO_CONDITIONS = "exempt:<class>, TAP-REQUIRED, TAP-CARRIED from <sha>, TAP-KEPT"
 EXEMPT_GO = re.compile(r"\bgo\s+(?:port|test-only|ci-only)\s+#\d+|\bpure port\b|\b(?:test|ci)-only\b", re.IGNORECASE)
 CLASS_WRONG = re.compile(r"(?:re #\d+:\s*)?class wrong\b", re.IGNORECASE)
 TEST_ONLY_CLAIM = re.compile(r"\b(?:test|ci)-only\b", re.IGNORECASE)
@@ -7232,41 +7235,51 @@ class Landing:
         return f"merge mode {self.merge_mode} waits for the owner's Merge answer at {sha[:7]}"
 
     def untapped(self, heads: dict[str, str]) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
-        """Each PR of `heads` whose changed files a glob of a `landing.tap_rules` row names, while that row is in the register in force, and no approval on the root's board names any head of the PR, with why it waits, since a root `go` never stands in for the owner's tap (rule/82317b0); each PR whose changed files, register, or board did not read, with what did not, which the runner leaves unqueued for the landing desk rather than guess a merge (4236611); and each such PR the owner's port and test-only rulings admit with no tap, with its `EXEMPT-ADMITTED` note (06288326)."""
-        if not (rules := self.landing_config.get("tap_rules")):
-            return {}, {}, {}
+        """Each PR of `heads` whose changed files a glob of a `landing.tap_rules` row names, while that row is in the register in force, and no approval on the root's board names any head of the PR, with why it waits, since a root `go` never stands in for the owner's tap (rule/82317b0); each PR whose changed files, register, or board did not read, with what did not, which the runner leaves unqueued for the landing desk rather than guess a merge (4236611); and each such PR the owner's port and test-only rulings admit with no tap, with its `EXEMPT-ADMITTED` note (06288326). A go at the head whose bracket says `TAP-REQUIRED` anywhere holds its PR for the owner's tap whatever files it changes, and a bracket that names no condition the runner reads refuses the PR `GO-UNPARSED` with the bracket quoted, never reading it as no condition (root #274478)."""
+        unparsed, required = {}, {}
+        for pr, sha in heads.items():
+            for go in self.head_gos(pr, sha):
+                for bracket in GO_BRACKET.findall(full_text(go)):
+                    if TAP_REQUIRED_WORD.search(bracket):
+                        required.setdefault(pr, f"go cci #{go['seq']}")
+                    elif not GO_CONDITION.match(bracket):
+                        unparsed.setdefault(pr, f"GO-UNPARSED go cci #{go['seq']} says {bracket}, which names no condition the runner reads ({GO_CONDITIONS}), so it lands on no such go; post it again in one of those forms")
+        rules = self.landing_config.get("tap_rules") or {}
         touching, unread = {}, {}
         for pr, sha in heads.items():
+            if pr in unparsed or not rules:
+                continue
             files, _ = self.changed_files(pr, sha)
             if files is None:
                 unread[pr] = f"TAP-UNREAD #{pr}: its changed files did not read, so the runner leaves it unqueued for the landing desk"
             elif found := [rule for rule, globs in rules.items() if any(fnmatch(name, glob) for name in files for glob in globs)]:
                 touching[pr] = found
         exempt, mismatched = {}, {}
-        for pr in touching:
+        for pr in touching.keys() - required.keys():
             exempt[pr], mismatched[pr] = self.exempt_admitted(pr, heads[pr])
         exempt = {pr: why for pr, why in exempt.items() if why}
         touching = {pr: found for pr, found in touching.items() if pr not in exempt}
-        if not touching:
-            return {}, unread, exempt
-        done = self.rulings_py("rows")
-        register = json.loads(done.out)["rows"] if done.code == 0 else None
+        if not touching and not required:
+            return unparsed, unread, exempt
+        done = self.rulings_py("rows") if touching else None
+        register = (json.loads(done.out)["rows"] if done.code == 0 else None) if done else {}
         try:
             verdicts = board_rows.verdicts_of_records(self.runner.board_records())
         except CciTailFailed:
             verdicts = None
         waits, board = {}, None
-        for pr, found in touching.items():
-            if register is not None and not (found := [rule for rule in found if register.get(rule, {}).get("status") == "in-force"]):
+        needs = {pr: [*([required[pr]] if pr in required else []), *(rule for rule in touching.get(pr, []) if register is None or register.get(rule, {}).get("status") == "in-force")] for pr in heads if pr in touching or pr in required}
+        for pr, found in needs.items():
+            if not found:
                 continue
-            if register is None or verdicts is None:
+            if register is None and pr in touching or verdicts is None:
                 unread[pr] = f"TAP-UNREAD #{pr}: {'the register' if register is None else 'the root board'} did not read, so the runner leaves it unqueued for the landing desk"
                 continue
             if pr in approved_prs(verdicts):
                 continue
             board = board or self.owner_board()
-            waits[pr] = f"{mismatched[pr]}TAP-REQUIRED {','.join(found)}: it lands only once the owner has tapped some head of it, and a root go is no tap; {self.owner_state(pr, board)}"
-        return waits, unread, exempt
+            waits[pr] = f"{mismatched.get(pr, '')}TAP-REQUIRED {','.join(found)}: it lands only once the owner has tapped some head of it, and a root go is no tap; {self.owner_state(pr, board)}"
+        return unparsed | waits, unread, exempt
 
     def exempt_admitted(self, pr: str, sha: str) -> tuple[str, str]:
         """The `EXEMPT-ADMITTED` note for `pr` at `sha` when its change is exempt and goes straight to Graphite's queue with no go and no board tap, and why its whole diff breaks the class its grade claims, read once per pass (root #194387, 06288326, owner Oct 28 8:45 PM). The head grades ok by `fidelity`'s rule and `exempt_class` finds one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first) in its grades. Both classes are checked against every file the PR changes against its base, never the grade's words alone (root #182391): a test-only or CI-only class fails on a file outside the test, CI, skill-script and docs set, and a port class on a file outside `PORT_PREFIXES` unless a `Rulings` comment clears its interaction; changed files that do not read admit nothing that pass."""

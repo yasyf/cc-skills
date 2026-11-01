@@ -30,12 +30,12 @@ def test_a_go_that_opens_with_its_clock_time_names_its_heads():
     assert grades.go_heads({"text": "1:19 AM no go #43421 at e63e524 until the finder reads it"}) == {}
 
 
-def test_a_carried_go_keeps_the_port_or_test_only_claim_of_the_go_it_carries():
+def test_a_carried_go_keeps_the_port_or_test_only_claim_and_the_bracketed_conditions_of_the_go_it_carries():
     def go(text: str) -> dict:
         return {"seq": 5, "at": "2026-10-29T08:00:00Z", "drive": "d1", "lane": "root", "kind": "go", "text": text}
 
     grade = {"seq": 9, "at": "2026-10-29T08:05:00Z", "refs": {"prs": ["Forge-AI/monorepo#44672"]}, "text": "fidelity: ok 7161713 pure port, no interaction: carried from 1ec2d0a (cci #5), patch-identical by git patch-id over its own commits."}
-    for source, carried in [("go port #44672 at 1ec2d0a", "go port #44672 at 7161713"), ("go #44672 at 1ec2d0a, a Test-only change", "go test-only #44672 at 7161713"), ("go #44672 at 1ec2d0a", "go #44672 at 7161713")]:
+    for source, carried in [("go port #44672 at 1ec2d0a", "go port #44672 at 7161713"), ("go #44672 at 1ec2d0a, a Test-only change", "go test-only #44672 at 7161713"), ("go #44672 at 1ec2d0a", "go #44672 at 7161713"), ("go #44672 at 1ec2d0a on green [TAP-REQUIRED; restacked onto dev]", "go #44672 at 7161713 [TAP-REQUIRED; restacked onto dev]")]:
         [moved] = grades.carried_gos([go(source)], [grade], "Forge-AI/monorepo", lambda pr, head: True)
         assert moved["text"] == carried and grades.go_heads(moved) == {"44672": "7161713"}
 
