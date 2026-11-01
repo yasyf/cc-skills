@@ -969,6 +969,7 @@ TOP_CALLERS = 5
 ROTATE_EVERY = timedelta(hours=1)
 STALL_WATCH = SCRIPTS / "stall_watch.py"
 JUDGE_WATCH = SCRIPTS / "judge_watch.py"
+REMOTE_RESTACK = SCRIPTS / "remote-restack.py"
 STALL_EVERY_MINUTES = 5
 WATCHDOG = drive.WATCHDOG
 ALIVE_EVERY = timedelta(minutes=1)
@@ -9421,7 +9422,7 @@ class Landing:
         return None if statuses is None else {pr: entry["queue"] for pr, entry in statuses.items()}
 
     def tell_unpassed(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Tell each PR `unpassed` keeps out of every check, and each PR of a tree `landable_trees` left unchecked, what the pass's one status read says, after the go'd trees enqueue: red CI or requested changes goes to its lane as that head's blocker, red CI alone once `red_ours` finds the PR's diff may have caused it, and to root as well when the merge queue dropped it (owner, 10:44 PM Oct 30), a conflict alone once per base, since a restack that keeps its base on purpose stays conflicting at every head, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM), `GATE_WORKERS` heads at a time, heads not yet told at their head first and then the longest untold, starting none once `TELL_BUDGET` has passed, so a later pass tells the rest. It reads the root's gos again first, so a go posted while the pass ran asks nothing (root #143360)."""
+        """Tell each PR `unpassed` keeps out of every check, and each PR of a tree `landable_trees` left unchecked, what the pass's one status read says, after the go'd trees enqueue: red CI or requested changes goes to its lane as that head's blocker, red CI alone once `red_ours` finds the PR's diff may have caused it, and to root as well when the merge queue dropped it (owner, 10:44 PM Oct 30), a conflict alone once per base, since a restack that keeps its base on purpose stays conflicting at every head, after the runner restacks a conflicting head a root go names on a Sprite itself and routes it only when that replay moved nothing, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM), `GATE_WORKERS` heads at a time, heads not yet told at their head first and then the longest untold, starting none once `TELL_BUDGET` has passed, so a later pass tells the rest. It reads the root's gos again first, so a go posted while the pass ran asks nothing (root #143360)."""
         if not (self.no_go or self.unchecked) or (statuses := self.pr_statuses()) is None:
             return
         self.reread()
@@ -9451,10 +9452,24 @@ class Landing:
                 key = f"conflict:{pr}:{open_rows[pr].get('base', '')}" if why == CONFLICT_BLOCKER else blocker_key(pr, head)
                 if self.routed(key, owner):
                     continue
+                if why == CONFLICT_BLOCKER and owner and self.head_gos(pr, head):
+                    if not (replay := self.restacked(pr, head, owner)):
+                        continue
+                    why = f"{why}; remote-restack did not move it: {replay}"
                 if why != status_blocker({"verdict": "blocked:ci-red", "ci": entry.get("ci") or {}}) or self.red_ours(key, pr, head, why, self.red_cause(pr, head) or why, open_rows[pr], owner):
                     self.route(key, owner, f"#{pr} {head}: {why}", pr)
             elif not self.routed(key := blocker_key(pr, head), owner):
                 self.post_blocker(key, ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])), f"#{pr} {head}: {why}; the queue dropped it at {entry.get('evicted_at') or 'an unstamped time'}: {entry.get('evicted') or 'no reason given'}", pr)
+
+    def restacked(self, pr: str, head: str, lane: str) -> str:
+        """Restack a PR a root go names at `head` and GitHub reads as conflicting, with its stack below it, on a Sprite through `remote-restack.py` under its lane's name, as the lane would, once per head: empty when the replay moved the stack, whose new heads carry the go when patch-identical, else what the replay printed, so only a real conflict or a stack already on its base reaches the lane."""
+        key = f"restack:{pr}:{head[:10]}"
+        if (said := self.book.fact(LANDING, key, None)) is None:
+            done = self.shell.run([str(REMOTE_RESTACK), "--config", str(self.runner.config.source), "--lane", lane, pr])
+            printed = f"{done.out}\n{done.err}"
+            said = "" if done.code == 0 and any(line.startswith("MOVED ") for line in printed.splitlines()) else " ".join(printed.split())[:300] or f"exit {done.code}"
+            self.book.edit(LANDING, lambda incident: incident.facts.update({key: said}))
+        return said
 
     def review_bot(self, pr: str, head: str, row: dict) -> str:
         """What the review bot's newest `ai-review` run on `head`, from the pass's head read, says `pr` waits on, or empty; a Held verdict tells the owning lane once per head (root #154137)."""

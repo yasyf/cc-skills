@@ -177,6 +177,8 @@ class FakeShell(runner_module.Shell):
         self.trunk_error = ""
         self.trunk_read_error = ""
         self.launch_process: Running | None = None
+        self.restacks: list[list[str]] = []
+        self.restack_done = (0, "", "")
         self.tail_error = ""
         self.tail_failures = 0
         self.post_error = ""
@@ -377,6 +379,9 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0 if argv[3] in self.keychain else 44, "", "")
         if argv[:2] == ["codex-ask", "--cancel"]:
             return runner_module.Done(0, "", "")
+        if name == "remote-restack.py":
+            self.restacks.append(argv[1:])
+            return runner_module.Done(*self.restack_done)
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == runner_module.MERGE_CARD_FIELDS:
             return runner_module.Done(0, json.dumps({"title": "Record each run's owner", "author": {"login": "dana"}, "additions": 12, "deletions": 3, "reviewDecision": "APPROVED"}), "")
         if argv[:3] == ["cc-slack", "dm-status", "--root-only"]:
@@ -13773,6 +13778,27 @@ def test_a_tree_waiting_on_github_alone_is_not_checked_and_its_lane_hears_what_i
     shell.pr_status["29020"] = {"queue": "not queued", "verdict": "landable"}
     landing_pass(shell, config)
     assert len(checks(shell)) == 1
+
+
+@pytest.mark.parametrize(
+    ("done", "told"),
+    [
+        ((0, "MOVED a/3 cccc333333 dddd444444\nBASE dev 1234567890\n", ""), []),
+        ((1, "CONFLICT replaying a/3 onto dev at cccc333 vm: run steps\n  go/sand/next/vm/run.go\n", "remote-restack: #29020 on dar-fleet-4 pushed nothing"), [f"#29020 cccc333333: {runner_module.CONFLICT_BLOCKER}; remote-restack did not move it: CONFLICT replaying a/3 onto dev at cccc333 vm: run steps go/sand/next/vm/run.go remote-restack: #29020 on dar-fleet-4 pushed nothing"]),
+        ((0, "BASE dev 1234567890\n", ""), [f"#29020 cccc333333: {runner_module.CONFLICT_BLOCKER}; remote-restack did not move it: BASE dev 1234567890"]),
+    ],
+    ids=["clean", "conflict", "on-base"],
+)
+def test_a_go_d_head_github_reads_as_conflicting_is_restacked_by_the_runner_and_only_a_replay_that_moved_nothing_reaches_its_lane(shell, config, tmp_path, done, told):
+    """improve14 (root #277422): five approved PRs conflicted with dev by 11:33 AM Oct 31 because dev moved, and each waited for its lane to restack it; the runner replays such a head itself."""
+    shell.rows = single_row()
+    shell.pr_status["29020"] = {"queue": "not queued", "verdict": "blocked:conflict"}
+    shell.restack_done = done
+    merge_go(shell, "29020", "go #29020 at cccc333 on green")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.restacks == [["--config", str(config.resolve()), "--lane", LANE, "29020"]]
+    assert [post_body(post) for post in blockers(shell) if post["to"] != "root"] == told
 
 
 def test_a_pr_graphite_asks_to_restack_hears_it_from_the_status_read_without_a_check(shell, config, tmp_path):
