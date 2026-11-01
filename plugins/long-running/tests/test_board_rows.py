@@ -491,6 +491,14 @@ def test_a_root_withdraw_naming_the_go_in_its_text_clears_the_approval_check(tmp
     assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 0
 
 
+def test_a_newer_tap_required_go_at_the_same_head_overrides_an_older_exempt_go(tmp_path: Path, shell: FakeShell) -> None:
+    """#46598 at bcf89da failed on an Oct 31 exempt go (#251254) though root's newer go #281042 at that head was TAP-REQUIRED (board-refresher-6, #282335)."""
+    shell.post("go", "root", f"go #42590 at {HEAD[:7]} on green [exempt: ci-tooling]", "42590")
+    assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 1
+    shell.post("go", "root", f"go #42590 at {HEAD[:7]} on green [TAP-REQUIRED first-ask row]", "42590")
+    assert gate(tmp_path, shell, groups(pr_row("42590")), "--check") == 0
+
+
 @pytest.mark.parametrize("condition", ["[TAP-REQUIRED; signal stack restacked onto dev]", "TAP-CARRIED: the owner's tap at 1a2b3c4 carries to it"])
 def test_a_go_conditioned_on_his_tap_is_no_approval(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str], condition: str) -> None:
     shell.post("go", "root", f"go #42590 at {HEAD[:7]} {condition}", "42590")
