@@ -660,7 +660,7 @@ from pathlib import Path, PurePosixPath
 from zoneinfo import ZoneInfo
 
 from long_running import actions, judge
-from long_running.book import Book, ReadVersion
+from long_running.book import Book, ReadVersion, ReleaseActionVersion
 from long_running.build_cache import BuildCache
 from long_running.desk_control import DeskControl, QuiesceFailed
 from long_running import board_rows
@@ -5676,6 +5676,7 @@ class Landing:
         self.pass_began = self.trusted_from = time.monotonic()
         self.side = ThreadPoolExecutor(1)
         self.side_work: Future | None = None
+        self.release_action_proof: tuple[ReleaseActionVersion, tuple[int, ...]] | None = None
         self.bodies: dict[str, tuple[datetime, str]] = {}
         self.trunk_read: tuple[str, datetime, bool, dict] | None = None
         self.trunk_failing: tuple[str, set[str], str] | None = None
@@ -6118,6 +6119,7 @@ class Landing:
         """Let every running stack worker, the side work and the worktree removal finish and start nothing queued, so no worker of this runner acts after it hands off."""
         self.workers.shutdown(cancel_futures=True)
         self.side.shutdown(cancel_futures=True)
+        self.release_action_proof = None
         self.tidying.shutdown(cancel_futures=True)
 
     def surface(self) -> None:
@@ -8940,6 +8942,7 @@ class Landing:
 
     def releases(self, rows: dict[str, dict]) -> None:
         """A PR that lands carrying the merge-fast label and a `Release-With:` line sends the release owner and the root one `release` record in the pass that reads the landing, then one `blocker` each `deadlines.release_start_minutes` until a `release` record names the landing or the root replies. Each landing is judged once, by the first pass that reads it, and the landings read persist across restarts: a desk's first pass records every landing it reads as history, so a restart or an upgrade never judges an old landing again."""
+        proof, self.release_action_proof = self.release_action_proof, None
         read = self.book.fact(LANDING, RELEASE_READ, None)
         landed = {pr for pr, row in rows.items() if row.get("state") == "landed" and row.get("landed_at")}
         if read is None:
@@ -8954,11 +8957,18 @@ class Landing:
             judged.append(pr)
         if judged:
             self.book.edit(LANDING, lambda incident: incident.facts[RELEASE_READ].extend(judged))
-        for action in self.book.actions(LANDING, kind="release"):
+        previous, active_ordinals = proof if proof is not None else (None, ())
+        selected, version = self.book.release_action_changes(LANDING, previous, active_ordinals)
+        active = []
+        for ordinal, action in selected:
             if action.status in ("accepted", "completed"):
+                active.append(ordinal)
                 self.press_release(action)
             elif action.status == "verified" and (action.verification_receipt or {}).get("builds") and not (action.verification_receipt or {}).get("live"):
+                active.append(ordinal)
                 self.publish_line(action)
+
+        self.release_action_proof = version, tuple(active)
 
     def squashed(self, pr: str) -> bool:
         """Whether this runner merged the PR by plain squash, so its landing owes a release however the PR's incident reads now, unless a root record clears its incident tag."""

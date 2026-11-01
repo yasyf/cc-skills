@@ -43,6 +43,67 @@ CASE WHEN kind = 'bus' THEN
     END
 ELSE 0 END
 """
+_RELEASE_ACTION_DDL = (
+    """CREATE TABLE release_action_clock (
+    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+    epoch BLOB NOT NULL,
+    revision INTEGER NOT NULL CHECK(typeof(revision) = 'integer' AND revision >= 1)
+)""",
+    """CREATE TABLE release_action_version (
+    action_key TEXT PRIMARY KEY,
+    ordinal INTEGER NOT NULL UNIQUE,
+    revision INTEGER NOT NULL
+) WITHOUT ROWID""",
+    """CREATE INDEX release_action_changed ON release_action_version(revision, ordinal)""",
+    """INSERT INTO release_action_clock(singleton, epoch, revision) VALUES (1, randomblob(16), 1)""",
+    """INSERT INTO release_action_version(action_key, ordinal, revision)
+SELECT action_key, ordinal, 1 FROM action WHERE kind = 'release'""",
+    """CREATE TRIGGER release_action_insert AFTER INSERT ON action
+WHEN NEW.kind = 'release' OR EXISTS (
+    SELECT 1 FROM release_action_version WHERE action_key = NEW.action_key OR ordinal = NEW.ordinal
+)
+BEGIN
+    UPDATE release_action_clock SET revision = revision + 1 WHERE singleton = 1;
+    DELETE FROM release_action_version WHERE action_key = NEW.action_key OR ordinal = NEW.ordinal;
+    INSERT INTO release_action_version(action_key, ordinal, revision)
+    SELECT NEW.action_key, NEW.ordinal, revision FROM release_action_clock
+    WHERE singleton = 1 AND NEW.kind = 'release';
+END""",
+    """CREATE TRIGGER release_action_update AFTER UPDATE ON action
+WHEN (
+    OLD.kind = 'release' OR NEW.kind = 'release' OR EXISTS (
+        SELECT 1 FROM release_action_version
+        WHERE action_key IN (OLD.action_key, NEW.action_key) OR ordinal IN (OLD.ordinal, NEW.ordinal)
+    )
+) AND (
+    OLD.action_key IS NOT NEW.action_key OR OLD.ordinal IS NOT NEW.ordinal OR OLD.kind IS NOT NEW.kind
+    OR OLD.status IS NOT NEW.status OR OLD.record IS NOT NEW.record
+)
+BEGIN
+    UPDATE release_action_clock SET revision = revision + 1 WHERE singleton = 1;
+    DELETE FROM release_action_version
+    WHERE action_key IN (OLD.action_key, NEW.action_key) OR ordinal IN (OLD.ordinal, NEW.ordinal);
+    INSERT INTO release_action_version(action_key, ordinal, revision)
+    SELECT NEW.action_key, NEW.ordinal, revision FROM release_action_clock
+    WHERE singleton = 1 AND NEW.kind = 'release';
+END""",
+    """CREATE TRIGGER release_action_delete AFTER DELETE ON action
+WHEN OLD.kind = 'release' OR EXISTS (
+    SELECT 1 FROM release_action_version WHERE action_key = OLD.action_key OR ordinal = OLD.ordinal
+)
+BEGIN
+    UPDATE release_action_clock SET revision = revision + 1 WHERE singleton = 1;
+    DELETE FROM release_action_version WHERE action_key = OLD.action_key OR ordinal = OLD.ordinal;
+END""",
+)
+_RELEASE_ACTION_SCHEMA = {
+    'release_action_clock': _RELEASE_ACTION_DDL[0],
+    'release_action_version': _RELEASE_ACTION_DDL[1],
+    'release_action_changed': _RELEASE_ACTION_DDL[2],
+    'release_action_insert': _RELEASE_ACTION_DDL[5],
+    'release_action_update': _RELEASE_ACTION_DDL[6],
+    'release_action_delete': _RELEASE_ACTION_DDL[7],
+}
 _SCHEMA = f"""
 CREATE TABLE incident (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
@@ -96,6 +157,8 @@ CREATE TRIGGER action_deleted AFTER DELETE ON action BEGIN
 END;
 PRAGMA user_version = 2;
 """
+_SCHEMA += "\n" + ";\n".join(_RELEASE_ACTION_DDL) + ";\n"
+
 _HEADER = ("incident_id", "owner", "owner_generation", "opened_at", "input_revision", "status", "pending_owner")
 _METADATA = ("decisions", "milestones")
 
@@ -538,6 +601,15 @@ class ReadVersion:
     _value: int
 
 
+@dataclass(frozen=True)
+class ReleaseActionVersion:
+    device: int
+    inode: int
+    epoch: bytes
+    revision: int
+    schema_version: int
+
+
 def _read_version(connection: sqlite3.Connection) -> ReadVersion:
     return ReadVersion(connection, connection.execute("PRAGMA data_version").fetchone()[0])
 
@@ -758,6 +830,40 @@ class Store:
         with self._read(incident_id) as connection:
             version = _read_version(connection)
             return [Action.load(json.loads(row[0])) for row in connection.execute("SELECT record FROM action" + index + where + " ORDER BY ordinal", parameters)], version
+
+    def release_action_changes(self, incident_id: str, previous: ReleaseActionVersion | None, active_ordinals: tuple[int, ...]) -> tuple[list[tuple[int, Action]], ReleaseActionVersion]:
+        path = self.path(incident_id)
+        with self._read(incident_id) as connection:
+            state = path.stat()
+            identity = state.st_dev, state.st_ino
+            schema_version = connection.execute("PRAGMA schema_version").fetchone()[0]
+            if previous is None or (previous.device, previous.inode) != identity or previous.schema_version != schema_version:
+                placeholders = ", ".join("?" for _ in _RELEASE_ACTION_SCHEMA)
+                definitions = {name: sql.strip().rstrip(";") for name, sql in connection.execute(f"SELECT name, sql FROM sqlite_schema WHERE name IN ({placeholders})", tuple(_RELEASE_ACTION_SCHEMA))}
+                if definitions != _RELEASE_ACTION_SCHEMA:
+                    raise ValueError(f"unsupported release action tracking schema: {path}")
+            epoch, revision = connection.execute("SELECT epoch, revision FROM release_action_clock WHERE singleton = 1").fetchone()
+            version = ReleaseActionVersion(*identity, epoch, revision, schema_version)
+            bound = previous if previous is not None and (previous.device, previous.inode, previous.epoch) == (*identity, epoch) else None
+            if bound is not None and bound.revision > revision:
+                raise ValueError(f"release action revision moved backwards: {path}")
+            if bound is not None and bound.schema_version == schema_version:
+                query = """SELECT ordinal, record FROM action
+WHERE kind = 'release' AND ordinal IN (
+    SELECT ordinal FROM release_action_version WHERE revision > ?
+    UNION ALL
+    SELECT value FROM json_each(?)
+)
+ORDER BY ordinal"""
+                parameters = bound.revision, json.dumps(active_ordinals)
+            else:
+                query = "SELECT ordinal, record FROM action WHERE kind = 'release' ORDER BY ordinal"
+                parameters = ()
+            selected = [(ordinal, Action.load(json.loads(record))) for ordinal, record in connection.execute(query, parameters)]
+            after = path.stat()
+            if identity != (after.st_dev, after.st_ino):
+                raise ValueError(f"action store changed during release snapshot: {path}")
+            return selected, version
 
     def blocker_candidates(self, incident_id: str) -> list[Action]:
         with self._read(incident_id) as connection:

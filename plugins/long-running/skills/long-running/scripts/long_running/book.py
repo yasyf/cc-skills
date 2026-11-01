@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Protocol
 
 from . import actions
-from .sqlite_store import ReadVersion
+from .sqlite_store import ReadVersion, ReleaseActionVersion
 
 
 class Clock(Protocol):
@@ -109,6 +109,9 @@ class Book:
 
     def actions(self, container: str, kind: str | None = None, status: str | None = None, *, statuses=None) -> list[actions.Action]:
         return self.store.actions(container, kind, status, statuses=statuses)
+
+    def release_action_changes(self, container: str, previous: ReleaseActionVersion | None, active_ordinals: tuple[int, ...]) -> tuple[list[tuple[int, actions.Action]], ReleaseActionVersion]:
+        return self.store.release_action_changes(container, previous, active_ordinals)
 
     def blocker_candidates(self, container: str) -> list[actions.Action]:
         return self.store.blocker_candidates(container)
