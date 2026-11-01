@@ -673,6 +673,13 @@ class Store:
             facts = _Facts(_FactTree(connection))
             return {key: detached(facts[key]) for key in (facts if keys is None else keys) if key in facts}
 
+    def fact_children(self, incident_id: str, key: str, keys) -> dict:
+        """Named child values of a fact, detached from one fresh read snapshot."""
+        with self._read(incident_id) as connection:
+            children = _Facts(_FactTree(connection)).get(key) or {}
+            available = children.keys()
+            return {child: detached(children[child]) for child in keys if child in available}
+
     def fact_entries(self, incident_id: str, key: str, field: str, values) -> dict:
         parent = _fact_path("", key)
         encoded = [_encode(value) for value in values]

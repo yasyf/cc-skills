@@ -21,6 +21,8 @@ on:
       - "plugins/long-running/tests/test_reader_working_set.py"
       - "plugins/long-running/tests/test_sqlite_action_store.py"
       - "plugins/long-running/tests/test_admission_direct_merge_cost.py"
+      - "plugins/long-running/tests/test_merge_wait_fact_cost.py"
+      - "plugins/long-running/tests/merge_waits_old_writer_integration.py"
       - "plugins/long-running/tests/direct_merge_old_writer_integration.py"
       - "plugins/long-running/skills/long-running/scripts/desk-wait.sh"
       - "plugins/long-running/bin/desk-wait.sh"
@@ -57,6 +59,40 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
+      - uses: actions/checkout@v7
+        with:
+          ref: 05c2ec4e237c066c76ce3f90ad1e3d2d20db3dd0
+          path: .ci-merge-waits-baseline
+          persist-credentials: false
+      - name: Immutable whole-map merge-wait negative controls
+        shell: bash
+        run: |
+          baseline=.ci-merge-waits-baseline/plugins/long-running
+          cp plugins/long-running/tests/test_merge_wait_fact_cost.py "$baseline/tests/test_merge_wait_fact_cost.py"
+          for history in 32 10000; do
+            negative="$RUNNER_TEMP/merge-waits-old-$history.log"
+            if uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_merge_wait_fact_cost.py::test_unchanged_merge_wait_reads_only_graded_children[$history]" -q -s >"$negative" 2>&1; then
+              cat "$negative"
+              exit 1
+            fi
+            cat "$negative"
+            grep -F "unchanged merge waits decoded $((2 * (history + 1))) fact values instead of 2" "$negative"
+            grep -F '1 failed' "$negative"
+          done
+      - name: Actual selected-child merge-wait semantics and costs
+        shell: bash
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_merge_wait_fact_cost.py -q -s --junitxml="$RUNNER_TEMP/merge-waits-current.xml" | tee "$RUNNER_TEMP/merge-waits-current.log"
+      - name: Actual old fact creator and writer compatibility
+        shell: bash
+        env:
+          LR_BLOCKER_OLD_SCRIPTS: ${{ github.workspace }}/.ci-merge-waits-baseline/plugins/long-running/skills/long-running/scripts
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/merge_waits_old_writer_integration.py -q -s --junitxml="$RUNNER_TEMP/merge-waits-old-writer.xml" | tee "$RUNNER_TEMP/merge-waits-old-writer.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: merge-waits-${{ runner.os }}
+          path: ${{ runner.temp }}/merge-waits-*
+          if-no-files-found: error
       - uses: actions/checkout@v7
         with:
           ref: cd0740efe5bd10b0402bd310126cf566bb53a2c5

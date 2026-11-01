@@ -39,6 +39,9 @@ class Book:
     def facts(self, container: str, keys=None) -> dict:
         return self.store.facts(container, keys)
 
+    def fact_children(self, container: str, key: str, keys) -> dict:
+        return self.store.fact_children(container, key, keys)
+
     def fact_entries(self, container: str, key: str, field: str, values) -> dict:
         return self.store.fact_entries(container, key, field, values)
 

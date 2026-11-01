@@ -7341,8 +7341,8 @@ class Landing:
         def merged(kept: dict) -> dict:
             return {pr: wait for pr, wait in kept.items() if pr not in heads} | fresh
 
-        kept = self.book.fact(LANDING, MERGE_WAITS, None) or {}
-        if merged(kept) != kept:
+        kept = self.book.fact_children(LANDING, MERGE_WAITS, heads)
+        if fresh != kept:
             self.book.edit(LANDING, lambda incident: incident.facts.update({MERGE_WAITS: merged(incident.facts.get(MERGE_WAITS) or {})}))
 
     def check_precondition(self, graded: Graded) -> dict[str, merge_queue.State]:
