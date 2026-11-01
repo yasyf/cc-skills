@@ -30,8 +30,11 @@ with open(os.path.join(state, "calls"), "a") as calls:
     calls.write(json.dumps(sys.argv[1:]) + "\\n")
 key = "_".join(sys.argv[1:3])
 queue = os.path.join(state, key)
+names = os.path.join(state, "names.json")
 if key == "worktree_show" and not os.path.exists(queue):
-    path = sys.argv[sys.argv.index("--worktree") + 1].removeprefix("path:")
+    selector = sys.argv[sys.argv.index("--worktree") + 1]
+    named = json.load(open(names)) if os.path.exists(names) else {}
+    path = named.get(selector.removeprefix("name:"), os.path.join(os.environ["FAKE_ROOT"], selector.removeprefix("name:"))) if selector.startswith("name:") else selector.removeprefix("path:")
     found = os.path.isdir(path)
     sys.stdout.write(json.dumps({"ok": True, "result": {"worktree": {"path": path}}}) if found else "")
     sys.exit(0 if found else 1)
@@ -39,6 +42,9 @@ replies = json.load(open(queue)) if os.path.exists(queue) else [{"rc": 1, "out":
 reply = replies.pop(0) if len(replies) > 1 else replies[0]
 json.dump(replies, open(queue, "w"))
 if reply.get("mkdir"):
+    if key == "worktree_create":
+        named = json.load(open(names)) if os.path.exists(names) else {}
+        json.dump(named | {sys.argv[sys.argv.index("--name") + 1]: reply["mkdir"]}, open(names, "w"))
     os.makedirs(reply["mkdir"], exist_ok=True)
     if not os.path.exists(os.path.join(reply["mkdir"], ".git")):
         subprocess.run(["git", "init", "-q", reply["mkdir"]], check=True)
@@ -73,6 +79,7 @@ class Orca:
             **os.environ,
             "PATH": f"{bin_dir}:{os.environ['PATH']}",
             "FAKE_STATE": str(self.state),
+            "FAKE_ROOT": str(self.parent.parent),
             "ORCA_LAUNCH_RUN": "run_1",
             "ORCA_LAUNCH_REPO": "repo-1",
             "ORCA_LAUNCH_PARENT": str(self.parent),
@@ -724,6 +731,18 @@ def test_a_worktree_create_that_lost_its_response_is_awaited_not_repeated(orca, 
     assert len(orca.calls("worktree create")) == 1
     assert orca.sleeps()[:2] == ["4", "4"]
     assert result.stdout.strip().endswith(f"worktree={orca.worktree}")
+
+
+def test_a_worktree_orca_made_elsewhere_after_its_create_timed_out_is_found_by_its_name(orca):
+    """Root #291085: exec-crash-fix-2's create timed out, Orca made dar-exec-crash-fix-2-base under its own workspace root at 12:07:54 PM, and the launch looked for it beside the parent until it failed at 184 s."""
+    orca.healthy()
+    elsewhere = orca.root / "orca-workspaces" / "monorepo" / "v3-lane-a-base"
+    orca.reply("worktree create", {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_timeout", "message": "Timed out waiting for the Orca runtime to respond."}}, "mkdir": str(elsewhere)})
+    result = orca.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert len(orca.calls("worktree create")) == 1
+    assert flag(orca.calls("terminal create")[0], "--worktree") == f"path:{elsewhere}"
+    assert result.stdout.strip().endswith(f"worktree={elsewhere}")
 
 
 def test_a_worktree_whose_create_lost_its_response_waits_for_orca_to_fill_its_index(orca):
