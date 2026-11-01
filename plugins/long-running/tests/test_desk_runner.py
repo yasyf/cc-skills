@@ -3006,6 +3006,21 @@ def test_a_link_github_refuses_for_leaving_out_part_of_an_existing_stack_names_e
     assert not [line for line in escalations(shell) if "GATE-FAILED" in line]
 
 
+def test_a_link_never_splices_a_native_stack_that_parts_ways_with_the_chain(shell, config, tmp_path):
+    """Root #285634: the native stack held #45638's fork child #46720, and the runner's relink spliced it between #45638 and #46077, the chain's own next PR."""
+    shell.rows = [
+        {"pr": "29016", "lane": LANE, "branch": "a/2", "base": "dev", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222", "ours": True},
+        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "a/2", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": True},
+        {"pr": "29025", "lane": LANE, "branch": "a/4", "base": "a/3", "head": "dddd444444", "state": "open", "reported_head": "dddd444444", "ours": True},
+    ]
+    shell.native = ["29016", "29020", "29044"]
+    shell.gates["29025"] = [(5, "", "stack-enqueue failed: #29025 targets a/3 without a native GitHub stack; link it with gh stack link\n")]
+    landing_pass(shell, config)
+    assert [call for call in shell.calls if call[:3] == ["gh", "stack", "link"]] == [["gh", "stack", "link", "29016", "29020", "29025"]]
+    [note] = [post["text"] for post in shell.posts if post["text"].startswith("STACK-LINK ")]
+    assert "the native stack #29016 #29020 #29044 and the chain #29016 #29020 #29025 part ways" in note
+
+
 def test_a_check_with_no_verdict_on_a_pr_github_reads_merged_escalates_nothing(shell, config, tmp_path):
     """Root #200922: #44828 merged directly, its branch went, and the gate's fetch of that branch read as a GATE-FAILED defect."""
     shell.rows = [{"pr": "29020", "lane": LANE, "branch": "a/3", "base": "dev", "head": "cccc333333", "state": "open", "reported_head": "cccc333333", "ours": True}]
