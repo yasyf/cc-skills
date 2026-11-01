@@ -29,6 +29,7 @@ BASELINE = "c57cad26 (release 10435, fleet sand 0.162.1876)"
 DESK_OK = {"seq": 170001, "lane": "fidelity-desk-5", "text": f"fidelity: ok {OLD} {PORT_PHRASE}: ports old-tree 304c1e7ea5e (#41725) line for line."}
 DESK_OLD_APP = {"seq": 170002, "lane": "fidelity-desk-5", "head": OLD[:7], "line": f"old-app: unchanged {OLD[:7]} baseline {BASELINE}; go/sand/next only"}
 SAME = {(f"{OWN}^", HEAD): "5f1e", (f"{OLD}~1", OLD): "5f1e"}
+COMMENTS = [{"body": "### Rulings\n- ports old-tree 304c1e7ea5e (#41725)"}, {"body": "Body addendum\nThe caller trace for GetIrisTeamCreds runs through serve only."}, {"body": "ci is green"}]
 
 
 class Fake:
@@ -39,6 +40,7 @@ class Fake:
         self.patches = SAME if patches is None else patches
         self.state = state
         self.heads = list(heads)
+        self.comments = [COMMENTS]
         self.calls: list[list[str]] = []
         self.range_diff = f"1:  {OLD_OWN[:7]} ! 1:  {OWN[:7]} resubscribe\n"
         self.shows = {OLD_OWN[:7]: "diff --git a/f.go b/f.go\n+old\n", OWN[:7]: "diff --git a/f.go b/f.go\n+new\n"}
@@ -49,7 +51,8 @@ class Fake:
         self.calls.append(argv)
         if argv[:3] == ["gh", "pr", "view"]:
             head = self.heads.pop(0) if len(self.heads) > 1 else self.heads[0]
-            return json.dumps({"state": self.state, "baseRefName": "dev", "headRefOid": head, "body": "## Summary\nA cut signal resubscribes from the position it fetched.", "comments": [{"body": "### Rulings\n- ports old-tree 304c1e7ea5e (#41725)"}, {"body": "Body addendum\nThe caller trace for GetIrisTeamCreds runs through serve only."}, {"body": "ci is green"}]})
+            comments = self.comments.pop(0) if len(self.comments) > 1 else self.comments[0]
+            return json.dumps({"state": self.state, "baseRefName": "dev", "headRefOid": head, "body": "## Summary\nA cut signal resubscribes from the position it fetched.", "comments": comments})
         if argv[0] == "git":
             return self.git(argv[1:])
         if argv[:2] == ["sh", "-c"]:
@@ -350,6 +353,17 @@ def test_the_grader_reads_agents_md_rules_at_the_trunk_tip_never_the_heads_copy(
     fidelity.main([str(directory)], shell)
     question = (directory / "question-1.md").read_text()
     assert f"at the trunk tip {BASE},\nwith `git show {BASE}:<path>`" in question and "never the\nhead's copy" in question
+
+
+def test_a_rulings_comment_posted_while_codex_read_the_head_is_read_once_more_before_the_grade_posts(tmp_path):
+    trace = {"body": "**Rulings and review answers at 7414944**\n\nThe caller trace: every caller of the removed path reads the batched store."}
+    directory = job(tmp_path, grades=[])
+    shell = Fake(tmp_path, [reply(verdict="missing", missing=({"key": "plan:116", "line": "no caller trace for the removed path"},)), reply()])
+    shell.comments = [COMMENTS, [*COMMENTS, trace]]
+    fidelity.main([str(directory)], shell)
+    assert len(shell.asks()) == 2
+    assert "every caller of the removed path reads the batched store" in (directory / "question-3.md").read_text()
+    assert shell.texts()[0].startswith(f"fidelity: ok {HEAD} Resubscribes")
 
 
 def test_a_codex_ok_posts_the_grade_with_its_exempt_phrase_then_touches_and_old_app(tmp_path):
