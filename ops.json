@@ -1,1 +1,1 @@
-{"v":1,"lamport":6,"ops":[{"kind":"link_commit","sha":"7a9f0fa3a5f5470fbb31bd350180a398de85e5d3"}]}
+{"v":1,"lamport":7,"ops":[{"kind":"set_criterion_status","id":"0c5fc76e4ab0eaf38a4a2d3e380bc0bc","status":"met","note":"BothOS genuine46-case suites and intended802 negative controls passed; installed804 private36case run passed with inherited/configured override and20local exception cases. Proof fbc171c4af9977e90edb1759b0cb21fc44b2d018975c5f8b4aaa83269fe94d01; exact source unchanged."}]}
