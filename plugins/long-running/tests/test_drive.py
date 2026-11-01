@@ -339,8 +339,8 @@ def test_a_failed_write_names_the_ledger_and_the_command_to_run(repo, capsys):
     )
 
 
-def closed_pull(shell: FakeShell, pr: str) -> None:
-    shell.pulls[pr] = {"number": int(pr), "state": "closed", "head": {"sha": HEAD, "ref": "lane/x"}, "base": {"ref": "dev"}, "created_at": "2026-10-06T00:00:00Z"}
+def merged_pull(shell: FakeShell, pr: str) -> None:
+    shell.pulls[pr] = {"number": int(pr), "state": "closed", "merged_at": "2026-10-07T03:53:00Z", "head": {"sha": HEAD, "ref": "lane/x"}, "base": {"ref": "dev"}, "created_at": "2026-10-06T00:00:00Z"}
     shell.pull_heads[pr] = HEAD
     shell.pr_files[pr] = ["go/ci/release.go"]
     shell.delivered[HEAD] = ("f2f8393f0000", "2026-10-07T03:53:00+00:00")
@@ -349,8 +349,8 @@ def closed_pull(shell: FakeShell, pr: str) -> None:
 def test_a_landing_settles_the_rows_the_ledger_tracks_and_adds_none(repo, capsys):
     started(repo)
     shell = FakeShell(rows=[{"key": "31390", "fields": {"lane": "app-build-speed", "registered": "app-build-speed"}}])
-    closed_pull(shell, "31390")
-    closed_pull(shell, "296")
+    merged_pull(shell, "31390")
+    merged_pull(shell, "296")
 
     assert drive.main(["landed", "--session", ROOT_SESSION, "--pr", "31390", "--pr", "296"], shell) == 0
 

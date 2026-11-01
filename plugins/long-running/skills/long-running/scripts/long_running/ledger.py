@@ -2138,18 +2138,23 @@ def pull_records(gh: Github, prs: list[str]) -> dict[str, dict]:
     except subprocess.CalledProcessError as failure:
         raise ForgeUnreachable(f"gh api pulls: {(failure.stderr or '').strip() or failure}") from failure
     return {
-        pr: {"state": pull["state"].upper(), "headRefOid": pull["head"]["sha"], "baseRefName": pull["base"]["ref"], "createdAt": pull["created_at"]} for pr, pull in zip(prs, pulls, strict=True)
+        pr: {"state": "MERGED" if pull["merged_at"] else pull["state"].upper(), "headRefOid": pull["head"]["sha"], "baseRefName": pull["base"]["ref"], "createdAt": pull["created_at"]} for pr, pull in zip(prs, pulls, strict=True)
     }
 
 
-def settle_row(trunk: str, pr: str, record: dict, read: Future, squashes: Callable[[], dict[str, tuple[str, str]]]) -> tuple[dict[str, str], str]:
-    """One row's settled fields and line, against the trunk, never against the PR's own base: the queue deletes a stacked PR's base branch when it lands, so that ref is often gone."""
+def settle_row(trunk: str, pr: str, record: dict, read: Future | None, squashes: Callable[[], dict[str, tuple[str, str]]]) -> tuple[dict[str, str], str]:
+    """One row's settled fields and line, against the trunk, never against the PR's own base: the queue deletes a stacked PR's base branch when it lands, so that ref is often gone. Only a PR GitHub reads merged lands; a closed one whose files match the trunk delivered nothing (root #283091)."""
     if record["state"] == "OPEN":
         ejected = read.result()
         if not ejected:
             return {}, ""
         return {"ejected_at": ejected}, f"#{pr} was EJECTED by the queue at {ejected} and still reads open; the label is gone exactly as a landing would leave it"
     cleared = {"settle_error": "", "settle_failed_at": ""}
+    if record["state"] != "MERGED":
+        return (
+            {"state": CLOSED_WITHOUT_SQUASH, "base": record["baseRefName"], **cleared},
+            f"#{pr} is {CLOSED_WITHOUT_SQUASH} on {trunk}: GitHub reads it closed unmerged, so the row stays until its lane answers",
+        )
     if (payload := read.result()):
         sha, landed_at = payload
         return {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": trunk, **cleared}, f"landed #{pr}, payload delivered by {sha[:9]} on {trunk} at {landed_at}"
@@ -2158,7 +2163,7 @@ def settle_row(trunk: str, pr: str, record: dict, read: Future, squashes: Callab
         return {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": trunk, **cleared}, f"landed #{pr} as {sha[:9]} on {trunk} at {landed_at}, which has moved on its files since"
     return (
         {"state": CLOSED_WITHOUT_SQUASH, "base": record["baseRefName"], **cleared},
-        f"#{pr} is {CLOSED_WITHOUT_SQUASH} on {trunk}: a human closed it and its payload is absent, so the row stays until its lane answers",
+        f"#{pr} is {CLOSED_WITHOUT_SQUASH} on {trunk}: GitHub reads it merged, yet its payload is absent from {trunk}, so the row stays until its lane answers",
     )
 
 
@@ -2173,11 +2178,12 @@ def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, records: dict
     trunk = gh.default_branch()
     git = ["git", "-C", str(checkout)]
     closed = {pr: record for pr, record in records.items() if record["state"] != "OPEN"}
+    merged = {pr: record for pr, record in closed.items() if record["state"] == "MERGED"}
     failures: dict[str, subprocess.CalledProcessError] = {}
-    if closed:
+    if merged:
         sync_trunk(shell, checkout, trunk)
-        absent = absent_heads(shell, checkout, [record["headRefOid"] for record in closed.values()])
-        for pr, record in closed.items():
+        absent = absent_heads(shell, checkout, [record["headRefOid"] for record in merged.values()])
+        for pr, record in merged.items():
             if record["headRefOid"] in absent:
                 try:
                     shell.run(git + ["fetch", "-q", "origin", f"+refs/pull/{pr}/head:refs/desk/pr{pr}"])
@@ -2187,12 +2193,12 @@ def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, records: dict
 
     @cache
     def squashes() -> dict[str, tuple[str, str]]:
-        return trunk_squashes(shell, checkout, trunk, closed, min(record["createdAt"] for record in closed.values())) if searched is None else searched
+        return trunk_squashes(shell, checkout, trunk, merged, min(record["createdAt"] for record in merged.values())) if searched is None else searched
 
     moved = 0
     with ThreadPoolExecutor(SETTLE_WORKERS) as pool:
         reads = {
-            pr: pool.submit(landed_on_base, shell, gh, checkout, f"refs/desk/base/{trunk}", pr, record["headRefOid"]) if pr in closed else pool.submit(queue_ejected, gh, pr)
+            pr: pool.submit(landed_on_base, shell, gh, checkout, f"refs/desk/base/{trunk}", pr, record["headRefOid"]) if pr in merged else None if pr in closed else pool.submit(queue_ejected, gh, pr)
             for pr, record in records.items()
             if pr not in failures
         }

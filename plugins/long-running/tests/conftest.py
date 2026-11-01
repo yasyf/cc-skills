@@ -266,7 +266,7 @@ class FakeShell(ledger.Shell):
         checks = read(f"commits/{head}/check-runs")["check_runs"]
         return {
             "number": int(number),
-            "state": pull["state"].upper(),
+            "state": "MERGED" if pull.get("merged_at") else pull["state"].upper(),
             "title": pull.get("title", ""),
             "author": pull.get("user", {}).get("login", ""),
             "createdAt": pull.get("created_at", ""),

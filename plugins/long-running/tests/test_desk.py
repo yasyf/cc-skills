@@ -137,6 +137,7 @@ def desk_shell(kind: type[FakeShell] = FakeShell, **pull) -> FakeShell:
 
 
 ADMITTED = {"lane": LANE, "registered": LANE}
+MERGED = {"state": "closed", "merged": True, "merged_at": "2026-09-16T08:00:00Z"}
 
 
 def admitted(shell: FakeShell, pr: str = PR) -> FakeShell:
@@ -487,8 +488,8 @@ def test_a_new_head_after_a_pull_may_be_labelled(capsys):
     assert shell.fields(PR)["label_pulled_at"] == ""
 
 
-def test_landed_is_read_from_the_base_tree_never_from_merged(capsys, tmp_path):
-    shell = desk_shell(state="closed")
+def test_a_merged_prs_landing_commit_is_read_from_the_base_tree(capsys, tmp_path):
+    shell = desk_shell(**MERGED)
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
     shell.pr_files[PR] = ["infra/rows/lightning.ts"]
     shell.delivered[HEAD] = (SQUASH, "2026-09-16T08:00:00+00:00")
@@ -506,7 +507,7 @@ def test_landed_is_read_from_the_base_tree_never_from_merged(capsys, tmp_path):
 
 def test_a_stacked_child_lands_the_parents_payload_under_another_number(capsys, tmp_path):
     """The parent merges as a no-op, so no commit on the base ever carries its number."""
-    shell = desk_shell(state="closed")
+    shell = desk_shell(**MERGED)
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
     shell.pr_files[PR] = ["infra/rows/storage/vpc-flow-logs-bucket.ts"]
     shell.delivered[HEAD] = (SQUASH, "2026-09-17T01:55:07+00:00")
@@ -515,6 +516,21 @@ def test_a_stacked_child_lands_the_parents_payload_under_another_number(capsys, 
 
     assert shell.fields(PR)["state"] == "landed"
     assert not [argv for argv in shell.calls if argv[3:4] == ["log"] and argv[-1] == "--format=%H %cI %s"], "the base log is never searched by number"
+
+
+def test_a_closed_unmerged_pr_whose_files_match_the_trunk_is_not_a_landing(capsys, tmp_path):
+    """Root #283091: proof #47211 closed unmerged, its diff restored dev's mint.rs, and the ledger read it landed."""
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.pr_files[PR] = ["rust/crates/sandsql-journal/src/mint.rs"]
+    shell.delivered[HEAD] = (SQUASH, "2026-11-01T13:29:00+00:00")
+    shell.trunk_log = [f"{SQUASH} 2026-11-01T13:29:00+00:00 journal: ✨ mint (#{PR})"]
+
+    run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
+
+    assert shell.fields(PR)["state"] == "closed-without-squash"
+    assert "landed_sha" not in shell.fields(PR)
+    assert "GitHub reads it closed unmerged" in capsys.readouterr().out
 
 
 def test_a_diff_against_the_base_is_not_a_landing(tmp_path):
@@ -530,7 +546,7 @@ def test_a_diff_against_the_base_is_not_a_landing(tmp_path):
 
 def test_the_base_moving_on_a_file_after_the_squash_is_still_a_landing(capsys, tmp_path):
     """A squash onto a moved base equals neither side, so content cannot see it."""
-    shell = desk_shell(state="closed")
+    shell = desk_shell(**MERGED)
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
     shell.pr_files[PR] = ["infra/ci/src/buildkite-api.ts"]
     shell.trunk_log = [f"{SQUASH} 2026-09-17T03:04:05+02:00 ci: 🐛 retry buildkite reads (#{PR})"]
@@ -545,7 +561,7 @@ def test_the_base_moving_on_a_file_after_the_squash_is_still_a_landing(capsys, t
 
 def test_a_squash_hundreds_of_commits_down_the_trunk_still_lands_its_row(capsys, tmp_path):
     """#41136, #41113 and #41133 on Oct 22: 786 commits reached dev after their squashes, past the 400 the base log was read to."""
-    shell = desk_shell(state="closed", created_at="2026-10-20T18:00:00Z")
+    shell = desk_shell(**MERGED, created_at="2026-10-20T18:00:00Z")
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
     shell.pr_files[PR] = ["go/ci/release.go"]
     shell.trunk_log = [f"{index:040x} 2026-10-22T12:00:00+00:00 ci: later (#{50000 + index})" for index in range(800)]
@@ -561,7 +577,7 @@ def test_a_squash_hundreds_of_commits_down_the_trunk_still_lands_its_row(capsys,
 
 
 def test_a_later_squash_whose_body_cites_the_pr_is_not_its_landing(capsys, tmp_path):
-    shell = desk_shell(state="closed")
+    shell = desk_shell(**MERGED)
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
     shell.pr_files[PR] = ["rust/crates/sandsql-sql/migrations/journal/0002_steplog.rs"]
     shell.trunk_log = [
@@ -578,7 +594,7 @@ def test_a_later_squash_whose_body_cites_the_pr_is_not_its_landing(capsys, tmp_p
 
 def test_a_stacked_row_whose_base_the_queue_deleted_settles_by_its_squash_on_the_trunk(capsys, tmp_path):
     parent = "yasyf/eh-v2/dns-into-box"
-    shell = desk_shell(state="closed", base={"ref": parent})
+    shell = desk_shell(**MERGED, base={"ref": parent})
     shell.deleted_refs.add(f"refs/heads/{parent}")
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE, "base": parent}})
     shell.pr_files[PR] = ["infra/rows/escape-hatch/dns.ts"]
@@ -595,7 +611,7 @@ def test_a_stacked_row_whose_base_the_queue_deleted_settles_by_its_squash_on_the
 
 def test_one_row_the_forge_cannot_answer_is_recorded_and_the_pass_settles_the_rest(capsys, tmp_path):
     broken = "21220"
-    shell = desk_shell(state="closed")
+    shell = desk_shell(**MERGED)
     shell.pulls[broken] = {**shell.pulls[PR], "number": int(broken)}
     shell.pull_heads[broken] = HEAD
     shell.deleted_refs.add(f"refs/pull/{broken}/head")
@@ -616,7 +632,7 @@ def test_one_row_the_forge_cannot_answer_is_recorded_and_the_pass_settles_the_re
 
 
 def test_a_settled_row_clears_its_earlier_failure(tmp_path):
-    shell = desk_shell(state="closed")
+    shell = desk_shell(**MERGED)
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE, "settle_error": "x", "settle_failed_at": "y"}})
     shell.pr_files[PR] = ["infra/rows/lightning.ts"]
     shell.delivered[HEAD] = (SQUASH, "2026-09-16T08:00:00+00:00")
@@ -754,7 +770,7 @@ def test_init_creates_the_ledger_and_prints_its_id(capsys):
 
 
 def test_reconcile_settles_a_row_nobody_touched(capsys, tmp_path):
-    shell = desk_shell(state="closed")
+    shell = desk_shell(**MERGED)
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE, "state": "labelled"}})
     shell.pr_files[PR] = ["infra/rows/lightning.ts"]
     shell.delivered[HEAD] = (SQUASH, "2026-09-16T08:00:00+00:00")
@@ -776,7 +792,7 @@ def test_reconcile_rereads_no_terminal_row(tmp_path):
 
 
 def test_summary_reconciles_first_when_given_a_checkout(capsys, tmp_path):
-    shell = desk_shell(state="closed")
+    shell = desk_shell(**MERGED)
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE, "state": "labelled"}})
     shell.pr_files[PR] = ["infra/rows/lightning.ts"]
     shell.delivered[HEAD] = (SQUASH, "2026-09-16T08:00:00+00:00")
@@ -789,7 +805,7 @@ def test_summary_reconciles_first_when_given_a_checkout(capsys, tmp_path):
 
 
 def test_summary_settles_landings_from_the_working_directory_and_its_origin(capsys, tmp_path, monkeypatch):
-    shell = desk_shell(state="closed")
+    shell = desk_shell(**MERGED)
     shell.origin = "https://github.com/Forge-AI/monorepo.git"
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE, "state": "labelled"}})
     shell.pr_files[PR] = ["infra/rows/lightning.ts"]
@@ -898,7 +914,7 @@ def test_label_refuses_a_parent_whose_branch_is_still_a_base(capsys):
 
 def test_reconcile_refuses_to_grade_from_a_shallow_clone(capsys, tmp_path):
     """Trunk traversal truncates at a depth that moves with every fetch."""
-    shell = desk_shell(state="closed")
+    shell = desk_shell(**MERGED)
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
     shell.pr_files[PR] = ["infra/rows/lightning.ts"]
     shell.shallow = True
@@ -921,7 +937,7 @@ def test_an_unusable_checkout_grades_nothing_rather_than_failing_every_row(capsy
 
 def test_a_failed_fetch_grades_nothing_rather_than_grading_the_previous_state(capsys, tmp_path):
     """A concurrent fetch in another worktree loses the ref lock."""
-    shell = desk_shell(state="closed")
+    shell = desk_shell(**MERGED)
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
     shell.pr_files[PR] = ["infra/rows/lightning.ts"]
     shell.fetch_fails = "cannot lock ref 'refs/remotes/origin/dev'"
@@ -946,7 +962,7 @@ class RacingShell(FakeShell):
 
 def test_a_settle_that_loses_the_base_ref_lock_to_a_concurrent_fetch_retries_and_lands(capsys, tmp_path, monkeypatch):
     monkeypatch.setattr(ledger, "REF_LOCK_BACKOFF_SECONDS", 0)
-    shell = desk_shell(RacingShell, state="closed")
+    shell = desk_shell(RacingShell, **MERGED)
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
     shell.pr_files[PR] = ["infra/rows/lightning.ts"]
     shell.delivered[HEAD] = (SQUASH, "2026-09-16T08:00:00+00:00")
@@ -968,7 +984,7 @@ def reconcile_shell() -> FakeShell:
         "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b 2026-10-01T02:00:00+00:00 docs: mention #28349 in passing",
     ]
     for pr, state in (("28302", "closed"), ("28349", "open")):
-        shell.pulls[pr] = {"number": int(pr), "state": state, "head": {"sha": f"{pr[-1]}" * 40, "ref": f"b/{pr}"}, "base": {"ref": "dev"}}
+        shell.pulls[pr] = {"number": int(pr), "state": state, "merged_at": "2026-10-01T05:00:00Z" if state == "closed" else None, "head": {"sha": f"{pr[-1]}" * 40, "ref": f"b/{pr}"}, "base": {"ref": "dev"}}
         shell.pull_heads[pr] = f"{pr[-1]}" * 40
     shell.pr_files["28302"] = ["infra/rows/c2.ts"]
     return shell
@@ -1019,7 +1035,7 @@ def closed_board(count: int) -> FakeShell:
     shell = FakeShell(rows=[{"key": str(28400 + index), "fields": {"lane": LANE, "state": "open"}} for index in range(count)])
     for index in range(count):
         pr, head = str(28400 + index), f"{index:040x}"
-        shell.pulls[pr] = {"number": int(pr), "state": "closed", "head": {"sha": head, "ref": f"b/{pr}"}, "base": {"ref": "dev"}}
+        shell.pulls[pr] = {"number": int(pr), "state": "closed", "merged_at": "2026-10-01T05:00:00Z", "head": {"sha": head, "ref": f"b/{pr}"}, "base": {"ref": "dev"}}
         shell.pull_heads[pr] = head
         shell.pr_files[pr] = [f"infra/rows/{pr}.ts"]
     return shell
@@ -2192,7 +2208,7 @@ def test_summary_lists_every_tracked_pr_without_a_labelable_head_by_reason(capsy
 
 
 def test_summary_never_reports_a_landed_row_as_waiting(capsys):
-    shell = desk_shell(state="closed")
+    shell = desk_shell(**MERGED)
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"lane": LANE, "registered": LANE, "head": HEAD, "state": "open"}})
     shell.pr_files[PR] = ["infra/rows/lightning.ts"]
     shell.delivered[HEAD] = (SQUASH, stamp(timedelta(minutes=-5)))
