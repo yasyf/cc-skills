@@ -2410,10 +2410,10 @@ def pr_records(shell: ledger.Shell, bus: str, *flags: str) -> list[dict]:
     return cci.records(shell.run, bus, *flags)
 
 
-def finder_major(records: list[dict], sha: str) -> str | None:
-    verdicts = [(record["seq"], found) for record in records if grades.finder_desk_line(record) and (found := FINDER.match(record["text"])) and sha.startswith(found["head"])]
-    newest = max(verdicts, key=lambda item: item[0])[1] if verdicts else None
-    return newest["head"] if newest and newest["verdict"] == "major" else None
+def finder_major(records: list[dict], sha: str) -> dict | None:
+    verdicts = [(record, found) for record in records if grades.finder_desk_line(record) and (found := FINDER.match(record["text"])) and sha.startswith(found["head"])]
+    newest, found = max(verdicts, key=lambda item: item[0]["seq"]) if verdicts else (None, None)
+    return newest if found and found["verdict"] == "major" else None
 
 
 def lane_of(records: list[dict]) -> str | None:
@@ -2462,8 +2462,8 @@ def diff_facts(loaded: Register, head: Head, base: str) -> dict[str, list]:
 def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: Findings, base: str) -> None:
     rulings = loaded.rulings()
     facts = diff_facts(loaded, head, base)
-    cci = drive.cci_drive(entry_of(args))
-    records = findings.read("the PR's cci records", lambda: pr_records(loaded.shell, cci, "--pr", f"{head.repo}#{head.number}"))
+    bus = drive.cci_drive(entry_of(args))
+    records = findings.read("the PR's cci records", lambda: pr_records(loaded.shell, bus, "--pr", f"{head.repo}#{head.number}"))
     if args.incident and (uncited := [key for key in facts["touched"] if not cites(head, key, rulings[key])]):
         findings.refusals.append(f"RULINGS-UNCITED {','.join(uncited)}\tcite them under a ## Rulings heading in one PR comment, never by editing the body (427c9c93)")
     for key, fields in rulings.items():
@@ -2475,7 +2475,9 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
         return
     findings.refusals += shape_untested(loaded, args, head)
     if records is not None and (major := finder_major(records, head.sha)):
-        findings.refusals.append(f"FINDER-MAJOR {major[:SHORT]}")
+        later = findings.read("root's rulings after the finder major", lambda: cci.records(loaded.shell.run, bus, since=major["seq"]))
+        if later is None or not grades.root_settles_finder(later, head.number, head.sha, major):
+            findings.refusals.append(f"FINDER-MAJOR {head.sha[:SHORT]}")
     authorizers, scope = loaded.answer_words(), loaded.scope()
     hits = banned_mechanisms(head.diff)
     findings.refusals += [str(hit) for hit in uncleared(of_shapes(hits, waits=False), head, authorizers)]
@@ -2488,7 +2490,7 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
         return
     if not (lane := lane_of(records)):
         findings.blockers.append(f"BLOCKER no cci record names the lane of {head.repo}#{head.number}")
-    elif (reviews := findings.read("the read-back reviews", lambda: pr_records(loaded.shell, cci, *READBACK_FLAGS))) is not None:
+    elif (reviews := findings.read("the read-back reviews", lambda: pr_records(loaded.shell, bus, *READBACK_FLAGS))) is not None:
         why = findings.read(f"the read-back of {lane}", lambda: unaccepted(loaded, lane, reviews))
         if why:
             findings.refusals.append(f"CONTRACT-MISSING {lane}: {why}")
