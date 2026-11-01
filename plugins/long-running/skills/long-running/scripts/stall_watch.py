@@ -980,7 +980,7 @@ class Pass:
             except ReadFailed as failed:
                 self.warn({"missing", "regrade"}, str(failed))
                 found = None
-            if found and (stall := self.missing(pr, subject, lane, found)):
+            if found and (stall := self.missing(pr, subject, lane, found, fidelity_lanes)):
                 stalls.append(stall)
             if board is None:
                 continue
@@ -1057,8 +1057,8 @@ class Pass:
             raise ReadFailed(f"gh pr view {pr} exited {done.code}: {(done.err or done.out).strip()[:200]}")
         return json.loads(done.out)["comments"]
 
-    def missing(self, pr: str, subject: str, lane: str, found: owner_waits.Missing) -> Stall | None:
-        """A `fidelity: missing` grade standing at the head: unanswered for `stall.minutes.missing`, a stall to root and the PR's lane like a red build; answered by a lane record or a PR comment with no grade since for `stall.minutes.regrade`, a stall to the lane that graded it, or the runner's desks for the fidelity pipeline."""
+    def missing(self, pr: str, subject: str, lane: str, found: owner_waits.Missing, fidelity_lanes: list[str]) -> Stall | None:
+        """A `fidelity: missing` grade standing at the head: unanswered for `stall.minutes.missing`, a stall to root and the PR's lane like a red build; answered by a lane record or a PR comment with no grade since for `stall.minutes.regrade`, a stall to the PR's lane and the lane that graded it, or each live fidelity desk for the fidelity pipeline, never the landing desk (root #280150)."""
         grade = found.grade
         graded_at = at(grade)
         said = f"fidelity grade cci {grade['num']} by {grade['lane']} reads missing since {pacific(graded_at)}: {clip(grade['text'])}"
@@ -1068,8 +1068,8 @@ class Pass:
             return Stall(f"missing:{pr}:{grade['seq']}", "missing", graded_at, subject, f"{said}; nobody has answered it", (lane,), f"answer it: push the fix and post HEAD, or post `cci post --re {shlex.quote(grade['num'])}` saying why the plan holds", pr)
         if self.now - found.answered_at < self.watch.age("regrade"):
             return None
-        grader = RUNNER if grade["lane"] == owner_waits.PIPELINE else grade["lane"]
-        return Stall(f"regrade:{pr}:{grade['seq']}", "regrade", found.answered_at, subject, f"{said}; {found.answer} answered it at {pacific(found.answered_at)}, and no grade has followed", (grader,), f"grade {subject} again against that answer and post its `fidelity: ok` or `fidelity: missing` line", pr)
+        graders = dict.fromkeys(desk for named in fidelity_lanes if named != owner_waits.PIPELINE and (desk := self.live_lane(named))) if grade["lane"] == owner_waits.PIPELINE else {grade["lane"]: None}
+        return Stall(f"regrade:{pr}:{grade['seq']}", "regrade", found.answered_at, subject, f"{said}; {found.answer} answered it at {pacific(found.answered_at)}, and no grade has followed", (lane, *graders), f"grade {subject} again against that answer and post its `fidelity: ok` or `fidelity: missing` line", pr)
 
     def red(self, pr: str, row: dict, lane: str) -> Stall | None:
         """The red stall of `pr`'s head: its live owning lane's alone, reposted every `REPEAT`, or root's once per head when no live lane owns it; a red whose failed job logged only Buildkite's benign 404 probe is a `probe` stall the pass folds into one daily line."""
