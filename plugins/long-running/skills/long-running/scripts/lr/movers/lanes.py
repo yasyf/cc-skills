@@ -159,9 +159,9 @@ def hold(store: Store, name: str, why: str, at: datetime) -> None:
     store.release_worker(name)
 
 
-def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: Path) -> tuple[list[str], list[str]]:
-    """Apply bus records to the registry; with `live` set, the store is fresh and registers only the spawned lanes in it. Returns the lanes adopted, and the lanes this supervisor is launching that someone else spawned from another brief."""
-    adopted, hand = [], []
+def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: Path) -> tuple[list[str], list[str], list[str]]:
+    """Apply bus records to the registry; with `live` set, the store is fresh and registers only the spawned lanes in it. Returns the lanes adopted, the lanes this supervisor is launching that someone else spawned from another brief, and one line per PR owner root named that the registry reads dead."""
+    adopted, hand, dead = [], [], []
     for record in records:
         lane, at = record["lane"], at_of(record)
         if found := spawned(record):
@@ -228,7 +228,12 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
                     if successor:
                         store.want_lane(successor, gone.brief, gone.model, gone.effort, gone.role, "launching", at, handoff=gone.handoff, prs=gone.prs, predecessor=old)
         elif kind == "decide" and lane == ROOT and (owner := OWNER.search(text)):
-            store.own(owner[1], prs_of(record))
+            store.own(owner[1], numbers := prs_of(record))
+            heard = store.heard()
+            if live is None and numbers and (owner[1] not in heard or at - heard[owner[1]] >= LIVE_WITHIN):
+                heir = newest(store, owner[1])
+                successor = f"its live successor is {heir.name}" if heir and heir.name != owner[1] and heir.name in heard and at - heard[heir.name] < LIVE_WITHIN else "it has no live successor"
+                dead.append(f"{owner[1]} for {' '.join(f'#{n}' for n in numbers)}: root named it owner at {pacific(at)}, but its last record is {f'from {pacific(heard[owner[1]])}' if owner[1] in heard else 'none'}; {successor}")
         elif lane == ROOT and (moved := REPLACES.search(text)) and (old := store.lane(moved["old"])) and old.state in LIVE and (taker := store.lane(moved["new"])):
             retire(store, old.name, taker.name, at)
             store.own(taker.name, old.prs)
@@ -236,7 +241,7 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             for name in record.get("to") or []:
                 if (told := store.lane(name)) and told.state != "retired" and re.search(TOLD_TO_STAND_DOWN.format(re.escape(name)), text, re.IGNORECASE):
                     retire(store, name, ROOT, at)
-    return adopted, hand
+    return adopted, hand, dead
 
 
 def peers(rows: Iterable[dict]) -> dict[str, Peer]:
@@ -406,7 +411,9 @@ def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
         records = deps.records(store.cursor(CURSOR))
     except Unread:
         return out
-    out.adopted, hand = fold(store, records, {lane for lane, peer in found.items() if alive(peer, peer.seen, now)} if fresh else None, deps.briefs)
+    out.adopted, hand, dead = fold(store, records, {lane for lane, peer in found.items() if alive(peer, peer.seen, now)} if fresh else None, deps.briefs)
+    for line in dead:
+        escalate(store, deps, f"lane:{line.split(' ', 1)[0]}", line, now)
     for name in hand:
         deps.withdraw(name)
         out.withdrawn.append(name)

@@ -728,3 +728,24 @@ def test_a_lane_whose_newest_record_settles_it_is_never_woken(tmp_path, brief):
     out = lanes.tick(store, fake.deps, T0, 1)
 
     assert out.woken == [] and fake.wakes == []
+
+
+@pytest.mark.parametrize(
+    ("heir_heard", "said"),
+    [(T0 - timedelta(minutes=10), "its live successor is conflicts-3"), (T0 - timedelta(hours=3), "it has no live successor")],
+    ids=["live-successor", "no-live-successor"],
+)
+def test_root_naming_a_dead_lane_as_owner_gets_one_blocker_back(tmp_path, brief, heir_heard, said):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    store.lane_heard("conflicts-2", T0 - timedelta(hours=2), "state")
+    store.want_lane("conflicts-3", str(brief), "opus", "xhigh", "lane", "desired", T0 - timedelta(hours=1))
+    store.lane_heard("conflicts-3", heir_heard, "state")
+    lanes.retire(store, "conflicts-2", "conflicts-3", T0 - timedelta(hours=1))
+    fake.feed.append(record(2, "root", "decide", T0 - timedelta(minutes=1), "#46731 owner=conflicts-2", refs={"prs": ["Forge-AI/monorepo#46731"]}))
+
+    lanes.tick(store, fake.deps, T0, 1)
+    lanes.tick(store, fake.deps, T0 + timedelta(minutes=1), 1)
+
+    blockers = [argv[-1] for argv in fake.posts if argv[argv.index("--kind") + 1] == "blocker"]
+    assert len(blockers) == 1 and "conflicts-2 for #46731: root named it owner" in blockers[0] and said in blockers[0]

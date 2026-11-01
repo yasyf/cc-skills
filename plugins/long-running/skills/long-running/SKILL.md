@@ -4542,7 +4542,9 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   or `opened` record for it that is not addressed to its current owner, so a desk relaying a
   rebase to the owner leaves it in place, the lane root names with `--kind decide --pr <n> --text
   'owner=<lane>'`, or the successor of a stand-down or an `X replaces Y`. A `landed` record
-  clears it. Root's prose namings are not parsed. A `cci who` row is a process fact only:
+  clears it. Root's prose namings are not parsed. When a root `decide` names an owner the
+  registry reads dead, the supervisor posts one blocker back to root naming the lane, its last
+  record and its live successor, if it has one. A `cci who` row is a process fact only:
   every in-process teammate of a live root session reads live there, however long ago it
   stopped.
 - **Relaunch.** A lane that stopped or went silent, with no live numbered successor in
