@@ -696,6 +696,16 @@ def test_a_held_pr_draws_no_stall(config, tmp_path):
     assert shell.topics() == []
 
 
+@pytest.mark.parametrize(("title", "stalls"), [("sandsql-signal: 🧪 proof: #47110's ping tests against the writer before the switch", []), ("sandsql-server: 🧪 race windows open on dev (proof, do not merge)", []), ("sandsql-follower: ✅ red proof for #46984, test alone", []), ("sand: 🔧 let the new-tree proof skip journal copy-up in its transport check", ["red:101:abc1234"])])
+def test_a_proof_pr_draws_no_stall_since_it_never_merges(config, title, stalls):
+    """Root #275597, #275660: #47112 is a failing-first proof PR whose red run is the evidence for #47005's test, and the stall watch paged its red build."""
+    red = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/9", "job": "Run sandsql tests", "error": "assertion failed: ping reached the writer", "probe": False}
+    shell = FakeShell([record(1, "api-lane", "state", "working on #101", 5)], [row("101", title=title, test_state="failure", red_at=stamp(1), failing_checks=json.dumps([red]))])
+    shell.clock = NOW + timedelta(minutes=2)
+    watch(shell, config)
+    assert [topic for topic in shell.topics() if not topic.startswith("probe:")] == stalls
+
+
 def test_a_red_head_goes_to_its_live_lane_every_half_hour_to_root_once_when_no_live_lane_owns_it_and_probe_reds_fold_into_one_daily_line(config, tmp_path):
     red = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/9", "job": "Lint (fmt, clippy)", "error": "error: used `expect()` on a `Result` value", "probe": False}
     probe = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/8", "job": "Run api tests", "error": "buildkite-agent: fatal: failed to get step: 404 Not Found", "probe": True}
