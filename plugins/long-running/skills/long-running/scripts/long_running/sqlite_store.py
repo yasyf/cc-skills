@@ -851,7 +851,7 @@ class Store:
                 query = """SELECT ordinal, record FROM action
 WHERE kind = 'release' AND ordinal IN (
     SELECT ordinal FROM release_action_version WHERE revision > ?
-    UNION
+    UNION ALL
     SELECT value FROM json_each(?)
 )
 ORDER BY ordinal"""
