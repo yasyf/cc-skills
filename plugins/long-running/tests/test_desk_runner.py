@@ -14094,6 +14094,7 @@ def test_a_trunk_job_any_open_rows_build_runs_is_a_landing_red_even_when_the_new
 
 def test_a_red_whose_failed_jobs_all_fail_on_a_dev_red_trunk_is_classed_inherited_by_the_runner_and_draws_no_blocker(shell, config, tmp_path):
     """improve3 (root #277422): at 7:03 PM Oct 30, 19 of 27 red PRs were unclassed while dev was red on one test, and lanes classed the same inherited red one PR at a time (p8a-step7 #229585 for #45765)."""
+    board_surface(config)
     with_ci_build(config)
     trunk_watch(shell, config, tmp_path)
     shell.rows = [
