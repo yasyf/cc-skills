@@ -319,7 +319,7 @@ a changed patch or an approval that does not come back gets one blocker per head
 through `ledger.py landed`, so a PR another lane merged directly is never enqueued. The queue read is one `ccx vcs pr status` call over every open row a pass,
 allowed 300 s, which the gate, the requeue and the landed check share. A PR body is read at most once per five minutes, a head's
 `check-pr` that waits on an owner answer runs again at most once per five minutes, and the trunk's statuses are read only when
-`git ls-remote` shows the trunk moved or its newest check was unfinished five minutes ago (root #146561).
+the pass's fetch moved the landing checkout to a new trunk tip or its newest check was unfinished five minutes ago (root #146561).
 A prefix `ccx vcs pr status` reads out of the queue at the heads it admitted is classified from the adapter's verdict on each dropped
 PR, never from comment text. A `conflict` stays out at that head and its ejection goes to the lane as the gate's blocker. An `own-red`
 is gated again, and the adapter blocks it until a new head. A `batch-mate-red` the adapter retries is gated again; one blaming a PR outside the
@@ -394,7 +394,7 @@ Each pass reads the commit statuses of every open row's head in one GraphQL quer
 head's statuses for 60 s and the Buildkite builds they name for five minutes; a head read that fails counts as unread for that pass, and the pass ends with one
 `STATUS-READ-FAILED` per cause naming the count and each PR and head, once per cause and set of heads. Every GitHub read goes through
 `ccx vcs gh --max-age 5m`, which answers a read made in the last five minutes from ccx's machine-wide cache; the incident squash's
-precondition reads pass `--max-age 0s`, and the trunk's tip is read with `git ls-remote`. Each pass starts with one `ccx vcs auth status --json`
+precondition reads pass `--max-age 0s`, and the trunk's tip is the landing checkout's `HEAD` after the pass's one fetch. Each pass starts with one `ccx vcs auth status --json`
 read of every GitHub quota, the user's and the GitHub App installation's, REST and GraphQL. Any quota with under 1500 calls left posts
 one `urgent` `GITHUB-QUOTA-LOW` to root per reset, naming the calls left, the reset and the five callers that spent the most. With a
 quota of the identity the desk reads through under ccx's 1000-call floor, the pass reads nothing from GitHub and
@@ -6584,12 +6584,12 @@ class Landing:
         return bool(self.book.known(RUNNER, f"escalation:trunk-jobs:{number}"))
 
     def trunk_target(self, check: str) -> tuple[dict | None, str]:
-        """The trunk's last `TRUNK_DEPTH` commits with their statuses, read from GitHub only when `git ls-remote` shows the trunk moved since the last read, or when the head's `check` had not passed at that read and `TRUNK_REREAD` has passed, so a rerun that turns a red head green is read within that interval, so a settled trunk costs no API read a pass (root #146561); with the cause when it did not read."""
-        listed = self.shell.run(["git", "-C", str(self.checkout), "ls-remote", "origin", f"refs/heads/{TRUNK}"])
-        head = listed.out.split()[0] if listed.code == 0 and listed.out.strip() else ""
+        """The trunk's last `TRUNK_DEPTH` commits with their statuses, read from GitHub only when the landing checkout's `HEAD`, which `advance` fast-forwarded to the trunk's tip this pass, moved since the last read, or when the head's `check` had not passed at that read and `TRUNK_REREAD` has passed, so a rerun that turns a red head green is read within that interval, so a settled trunk costs no API read a pass (root #146561) and no network call beyond the pass's one fetch; with the cause when it did not read."""
+        listed = self.shell.run(["git", "-C", str(self.checkout), "rev-parse", "HEAD"])
+        head = listed.out.strip() if listed.code == 0 else ""
         now = self.runner.now()
         if not head:
-            return None, (((listed.err or listed.out).strip().splitlines()[-1:] or [f"exit {listed.code}"])[0] if listed.code else f"GitHub knows no {TRUNK} branch in {self.repo}")
+            return None, ((listed.err or listed.out).strip().splitlines()[-1:] or [f"exit {listed.code}"])[0]
         if (kept := self.trunk_read) and kept[0] == head and (kept[2] or now - kept[1] < TRUNK_REREAD):
             return kept[3], ""
         done = self.shell.run(ghread.read("api", "graphql", "-f", f"query={trunk_query(self.repo, head)}"), env={"GH_REPO": self.repo})
