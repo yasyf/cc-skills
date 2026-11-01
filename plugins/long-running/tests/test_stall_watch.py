@@ -1267,7 +1267,7 @@ def test_a_head_record_from_the_refused_lane_clears_its_refusal(config):
     assert not [topic for topic in shell.topics() if topic.startswith(("refusal:", "successor:"))]
 
 
-@pytest.mark.parametrize("cause", ["needs-restack", "conflicting against its base", "GitHub is computing mergeability", "TAP-REQUIRED rule/82317b0", "FOREIGN #44999", "GO-UNPARSED go cci #274104 says [direct tap at head]"])
+@pytest.mark.parametrize("cause", ["needs-restack", "conflicting against its base", "GitHub is computing mergeability", "FOREIGN #44999", "GO-UNPARSED go cci #274104 says [direct tap at head]"])
 def test_each_landing_refusal_cause_is_tracked_and_routed_to_the_lane_that_acts(config, cause):
     desk_lane(config, "landing-desk-3")
     records = [*gone("101", HEAD), record(5, "desk-runner", "blocker", f"#101 {HEAD[:10]}: {cause}", 11, to=["api-lane", "root"])]
@@ -1275,17 +1275,23 @@ def test_each_landing_refusal_cause_is_tracked_and_routed_to_the_lane_that_acts(
     watch(shell, config)
     [topic] = [topic for topic in shell.topics() if topic.startswith("refusal:")]
     to = shell.post(topic)["to"]
-    expected = {"computing": "landing-desk-3@d1", "TAP": "root", "FOREIGN": "root", "GO-UNPARSED": "root"}
+    expected = {"computing": "landing-desk-3@d1", "FOREIGN": "root", "GO-UNPARSED": "root"}
     assert to == next((lanes for word, lanes in expected.items() if word in cause), "api-lane@d1")
 
 
-@pytest.mark.parametrize(("board_head", "stalls"), [(HEAD, []), (OTHER, ["refusal:101:" + HEAD[:7] + ":tap-required"])])
-def test_a_tap_required_refusal_whose_merge_row_is_on_the_board_at_that_head_is_no_stall(config, board_head, stalls):
+@pytest.mark.parametrize(("board_head", "stalls"), [(HEAD, []), (OTHER, ["board:101:" + HEAD[:7]])], ids=["row-up", "no-row-at-head"])
+def test_a_tap_required_refusal_waits_on_the_owner_and_only_a_missing_row_pages_the_board_lane(config, board_head, stalls):
+    """Root #282689: stall-watch paged root every 10 minutes for #45714 and #47164, whose TAP-REQUIRED refusals waited on the owner's tap."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["board_lane"] = "board-refresher-2"
+    config.write_text(json.dumps(raw))
     records = [*gone("101", HEAD), record(5, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; TAP-REQUIRED rule/82317b0", 11, to=["root"])]
     shell = FakeShell(records, [row("101")])
     shell.doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": 101, "head": board_head[:7]}]}]}]}
     watch(shell, config)
-    assert refusal_topics(shell) == stalls
+    assert [topic for topic in shell.topics() if topic.startswith(("refusal:", "board:"))] == stalls
+    for topic in stalls:
+        assert "| owner board-refresher-2 |" in shell.post(topic)["text"]
 
 
 def test_a_refusal_for_a_pr_no_go_or_tap_names_is_not_tracked(config):
