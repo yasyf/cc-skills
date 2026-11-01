@@ -280,7 +280,7 @@ Model gpt-6.1-sol, effort xhigh, service tier fast; Orca codex worker.
 Owner: the incident executor <root agent name> for incident <incident id>.
 Authority: implement the fix and open its PR through <submit skill>.
   While the alert is active, release or apply the fix to production at once,
-  through <release skill> or <break-glass skill>, never after a dry run, a
+  through the release skill or <break-glass skill>, never after a dry run, a
   `--plan` or a preview: the apply's own approve hold or prompt is the only gate,
   and 0 deletes and 0 replaces apply without asking (owner, Nov 1 2026, 2:29 PM).
   Log the apply in <runbook>, and append one line to the production-operations
