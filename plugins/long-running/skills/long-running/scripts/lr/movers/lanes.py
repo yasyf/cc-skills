@@ -160,11 +160,17 @@ def hold(store: Store, name: str, why: str, at: datetime) -> None:
     store.release_worker(name)
 
 
+def posting_names(store: Store) -> dict[str, str]:
+    """Each registered lane's name on the bus where the launcher added a `-fix` its brief's lane lacks, such as `takeover-500-tooling-fix` launched from `takeover-500-tooling/brief.md`, which posts as `takeover-500-tooling` (root #280837)."""
+    return {posts: lane.name for lane in store.all_lanes() if lane.name.endswith("-fix") and (posts := Path(lane.brief).parent.name) == lane.name.removesuffix("-fix") and store.lane(posts) is None}
+
+
 def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: Path) -> tuple[list[str], list[str], list[str]]:
     """Apply bus records to the registry; with `live` set, the store is fresh and registers only the spawned lanes in it. Returns the lanes adopted, the lanes this supervisor is launching that someone else spawned from another brief, and one line per PR owner root named that the registry reads dead."""
     adopted, hand, dead = [], [], []
+    posts_as = posting_names(store)
     for record in records:
-        lane, at = record["lane"], at_of(record)
+        lane, at = posts_as.get(record["lane"], record["lane"]), at_of(record)
         if found := spawned(record):
             name, brief, model, effort, role = found
             for old in store.all_lanes():
@@ -174,7 +180,7 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
                         retire(store, old.name, name, at)
             if (mine := store.lane(name)) and mine.state == "launching" and mine.reason and Path(brief).resolve() != (briefs / f"{name}.brief.md").resolve():
                 hand.append(name)
-            if live is None or name in live:
+            if live is None or name in live or name.endswith("-fix") and Path(brief).parent.name == name.removesuffix("-fix") and Path(brief).parent.name in live:
                 if store.want_lane(name, brief, model, effort, role, "launching" if live is None else "desired", at):
                     adopted.append(name)
             continue
@@ -451,10 +457,12 @@ def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
     now = parse(stamp(now))
     fresh = store.cursor(CURSOR) == 0
     try:
-        found = peers(deps.who(None if fresh else {lane.name for lane in store.lanes(*LIVE)}))
+        posts_as = posting_names(store)
+        found = peers(deps.who(None if fresh else {lane.name for lane in store.lanes(*LIVE)} | set(posts_as)))
         records = deps.records(store.cursor(CURSOR))
     except Unread:
         return out
+    found |= {name: found[posts] for posts, name in posts_as.items() if posts in found and name not in found}
     out.adopted, hand, dead = fold(store, records, {lane for lane, peer in found.items() if alive(peer, peer.seen, now)} if fresh else None, deps.briefs)
     for line in dead:
         escalate(store, deps, f"lane:{line.split(' ', 1)[0]}", line, now)
