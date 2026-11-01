@@ -3837,7 +3837,7 @@ def test_a_go_marked_test_only_admits_its_head_only_when_every_changed_file_is_a
         return
     assert shell.enqueues() == []
     [mismatch] = mismatches
-    assert "TEST-ONLY-MISMATCH go/sand/next/vm/run.go is neither a test nor CI configuration, so the test-only claim does not hold; so #29020 waits on the owner's tap like any other change" in mismatch
+    assert "TEST-ONLY-MISMATCH go/sand/next/vm/run.go is neither a test nor CI configuration, so the test-only claim does not hold; TAP-REQUIRED merge mode every: it lands only once the owner has tapped some head of it" in mismatch
 
 
 
