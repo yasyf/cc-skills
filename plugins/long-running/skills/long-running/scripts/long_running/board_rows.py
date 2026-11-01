@@ -422,7 +422,9 @@ def at_head(entry: dict | None, verdict: str, head: str) -> bool:
 
 
 def standing_gos(rulings: list[dict], withdrawn: set[int], pr: str, head: str) -> list[dict]:
-    return grades.gone_at([record for record in rulings if record["kind"] == "go" and record["seq"] not in withdrawn and not TAP_GO.search(record["full"])], pr, head)
+    """Root's newest go naming `pr` at `head`, unless it waits on his tap; an older go at that head never stands over a newer one (board-refresher-6, #282335)."""
+    newest = max(grades.gone_at([record for record in rulings if record["kind"] == "go" and record["seq"] not in withdrawn], pr, head), key=lambda record: record["seq"], default=None)
+    return [] if newest is None or TAP_GO.search(newest["full"]) else [newest]
 
 
 def tap_reasons(row: Row, entry: dict | None, gos: list[dict], taps: list[dict]) -> list[str]:
