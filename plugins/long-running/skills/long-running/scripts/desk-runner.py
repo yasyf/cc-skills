@@ -9430,7 +9430,7 @@ class Landing:
         return None if statuses is None else {pr: entry["queue"] for pr, entry in statuses.items()}
 
     def tell_unpassed(self, rows: dict[str, dict], held: list[str]) -> None:
-        """Tell each PR `unpassed` keeps out of every check, and each PR of a tree `landable_trees` left unchecked, what the pass's one status read says, after the go'd trees enqueue: red CI or requested changes goes to its lane as that head's blocker, red CI alone once `red_ours` finds the PR's diff may have caused it, and to root as well when the merge queue dropped it (owner, 10:44 PM Oct 30), a conflict alone once per base, since a restack that keeps its base on purpose stays conflicting at every head, after the runner restacks a conflicting head a root go names on a Sprite itself and routes it only when that replay moved nothing, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM), `GATE_WORKERS` heads at a time, heads not yet told at their head first and then the longest untold, starting none once `TELL_BUDGET` has passed, so a later pass tells the rest. It reads the root's gos again first, so a go posted while the pass ran asks nothing (root #143360)."""
+        """Tell each PR `unpassed` keeps out of every check, and each PR of a tree `landable_trees` left unchecked, what the pass's one status read says, after the go'd trees enqueue: red CI or requested changes goes to its lane as that head's blocker, red CI alone once `red_ours` finds the PR's diff may have caused it, and a red the open PR below shares, the same jobs failing the same way, folds into the blocker of the lowest PR of the chain that shares it, which goes to that PR's lane and names every PR above it the red covers, and to root as well when the merge queue dropped it (owner, 10:44 PM Oct 30), a conflict alone once per base, since a restack that keeps its base on purpose stays conflicting at every head, after the runner restacks a conflicting head a root go names on a Sprite itself and routes it only when that replay moved nothing, and a landable head runs the accept checks, whose merge-mode check logs its `MERGE-ASK` for the root's board (root, Oct 26 1:38 PM), `GATE_WORKERS` heads at a time, heads not yet told at their head first and then the longest untold, starting none once `TELL_BUDGET` has passed, so a later pass tells the rest. It reads the root's gos again first, so a go posted while the pass ran asks nothing (root #143360)."""
         if not (self.no_go or self.unchecked) or (statuses := self.pr_statuses()) is None:
             return
         self.reread()
@@ -9450,11 +9450,24 @@ class Landing:
         due = sorted(landable, key=lambda pr: (self.told.get(pr, ("", never))[0] == landable[pr], self.told.get(pr, ("", never))[1]))
         with ThreadPoolExecutor(GATE_WORKERS) as pool:
             list(pool.map(lambda pr: tell(pr, landable[pr]), due))
+        by_branch = {row["branch"]: pr for pr, row in open_rows.items() if row.get("branch")}
+        causes = {pr: cause for pr, (head, entry) in told.items() if "ci-red" in entry["verdict"] and (cause := self.red_cause(pr, head))}
+        below = {pr: parent for pr in causes if causes.get(parent := by_branch.get(open_rows[pr].get("base", ""), "")) == causes[pr]}
+        riders: dict[str, list[str]] = {}
+        for pr in sorted(below, key=int):
+            lowest = pr
+            while lowest in below:
+                lowest = below[lowest]
+            riders.setdefault(lowest, []).append(pr)
         for pr, (head, entry) in told.items():
             self.runner.checkpoint()
             self.review_bot(pr, head, open_rows[pr])
             if not (why := status_blocker(entry, "ci-red" not in entry["verdict"] or not self.red_by_design(pr)) or self.unproven_why.get(pr, "")):
                 continue
+            plain_red = status_blocker({"verdict": "blocked:ci-red", "ci": entry.get("ci") or {}})
+            if pr in below and why == plain_red:
+                continue
+            above = f"; {numbered(riders[pr])} above it {'fails' if len(riders[pr]) == 1 else 'fail'} the same way, so this is the one red to fix" if pr in riders else ""
             owner = self.owner(pr, open_rows[pr])
             if entry["queue"] != "evicted":
                 key = f"conflict:{pr}:{open_rows[pr].get('base', '')}" if why == CONFLICT_BLOCKER else blocker_key(pr, head)
@@ -9464,8 +9477,8 @@ class Landing:
                     if not (replay := self.restacked(pr, head, owner)):
                         continue
                     why = f"{why}; remote-restack did not move it: {replay}"
-                if why != status_blocker({"verdict": "blocked:ci-red", "ci": entry.get("ci") or {}}) or self.red_ours(key, pr, head, why, self.red_cause(pr, head) or why, open_rows[pr], owner):
-                    self.route(key, owner, f"#{pr} {head}: {why}", pr)
+                if why != plain_red or self.red_ours(key, pr, head, why, self.red_cause(pr, head) or why, open_rows[pr], owner):
+                    self.route(key, owner, f"#{pr} {head}: {why}{above}", pr)
             elif not self.routed(key := blocker_key(pr, head), owner):
                 self.post_blocker(key, ",".join(dict.fromkeys([ROOT, *(self.reach(owner) if owner else [])])), f"#{pr} {head}: {why}; the queue dropped it at {entry.get('evicted_at') or 'an unstamped time'}: {entry.get('evicted') or 'no reason given'}", pr)
 

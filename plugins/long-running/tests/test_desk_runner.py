@@ -4697,6 +4697,28 @@ def test_a_red_the_judge_reads_as_not_caused_by_the_diff_goes_to_root_and_the_wa
     assert artifact == "#29100 dddd444444: CI is red: buildkite/test\nRed: buildkite/test: Build ## failed\n\nJob Run sand tests failed on https://buildkite.com/forge/test/builds/78299; its log reads:\nok   go/sand/next/vm\n--- FAIL: TestCheckerNarrowing (0.01s)\n    checker_test.go:4620: wrong hint\nFAIL"
 
 
+def test_a_chain_red_from_one_cause_draws_one_blocker_to_the_lowest_red_prs_lane_naming_the_prs_above_it(shell, config, tmp_path):
+    """improve8 and improve9 (root #277422): ten reds for one chain went to n-enumeration-11 one PR at a time (#256947 to #257019), and #46686's red, its lower change's, went to root and the watchdog, who routed it by hand to that change's lane (#255930, #256119)."""
+    board_surface(config)
+    shell.rows = [
+        {"pr": "29016", "lane": "lower-fix", "branch": "a/2", "base": "dev", "head": "bbbb222222", "state": "open", "reported_head": "bbbb222222"},
+        {"pr": "29020", "lane": LANE, "branch": "a/3", "base": "a/2", "head": "cccc333333", "state": "open", "reported_head": "cccc333333"},
+        {"pr": "29021", "lane": LANE, "branch": "a/4", "base": "a/3", "head": "dddd444444", "state": "open", "reported_head": "dddd444444"},
+        {"pr": "29022", "lane": LANE, "branch": "a/5", "base": "a/4", "head": "eeee555555", "state": "open", "reported_head": "eeee555555"},
+    ]
+    for pr, head, build in (("29016", "bbbb222222", 78301), ("29020", "cccc333333", 78302), ("29021", "dddd444444", 78303), ("29022", "eeee555555", 78304)):
+        shell.queue[pr] = "not queued"
+        shell.pr_status[pr] = {"verdict": "blocked:ci-red", "ci": {"state": "red", "failing": ["buildkite/test"]}}
+        shell.combined_statuses[head] = [{"context": "buildkite/test", "state": "failure", "description": f"Build #{build} failed", "target_url": f"https://buildkite.com/forge/test/builds/{build}"}]
+    shell.combined_statuses["eeee555555"] = [{"context": "buildkite/lint", "state": "failure", "description": "Build #78305 failed", "target_url": "https://buildkite.com/forge/lint/builds/78305"}]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [(post["to"], post_body(post)) for post in blockers(shell) if post["to"] != "root"] == [
+        ("lower-fix", "#29016 bbbb222222: CI is red: buildkite/test; #29020 #29021 above it fail the same way, so this is the one red to fix"),
+        (LANE, "#29022 eeee555555: CI is red: buildkite/test"),
+    ]
+
+
 def test_a_red_head_draws_one_blocker_whether_the_status_read_or_the_gate_names_it_first(shell, config, tmp_path):
     board_surface(config)
     head = "c" * 40
