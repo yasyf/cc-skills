@@ -7,7 +7,7 @@ import sqlite3
 import tempfile
 import threading
 from collections import OrderedDict
-from collections.abc import Iterator, Mapping, MutableMapping
+from collections.abc import Callable, Iterator, Mapping, MutableMapping
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import asdict, fields
@@ -668,6 +668,15 @@ class Store:
         with self._read(incident_id) as connection:
             facts = _Facts(_FactTree(connection))
             return {key: detached(facts[key]) for key in (facts if keys is None else keys) if key in facts}
+
+    def read_facts(self, incident_id: str, read: Callable[[Mapping[str, object]], object]) -> object:
+        """Detach a selection from a single fresh view of the lazy facts."""
+        with self._read(incident_id) as connection:
+            tree = _FactTree(connection)
+            try:
+                return detached(read(_Facts(tree)))
+            finally:
+                tree.closed = True
 
     def fact_children(self, incident_id: str, key: str, keys) -> dict:
         """Named child values of a fact, detached from one fresh read snapshot."""
