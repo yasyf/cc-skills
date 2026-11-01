@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import drive_supervisor as supervisor
+from lr import config as lr_config
 
 NOW = datetime(2026, 10, 31, 17, 0, tzinfo=UTC)
 
@@ -83,3 +84,20 @@ def test_only_active_orca_dispatches_count_as_live(tmp_path: Path, monkeypatch):
     assert rows == [{"lane": "sol-fix", "live": True, "seen_at": "2026-10-31T17:00:00Z", "dispatch": "ctx_1"}]
     assert len(calls) == 1
     assert supervisor.orca_rows("run_1", tmp_path, {"sol-done"}, NOW) == []
+
+
+def test_a_reinstall_bootstraps_only_once_launchd_has_finished_booting_out_the_old_copy(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(supervisor.Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda seconds: None)
+    calls: list[str] = []
+    loaded = iter([0, 0, 0, 113])
+
+    def launchctl(*argv: str):
+        calls.append(argv[0])
+        return supervisor.subprocess.CompletedProcess(argv, next(loaded) if argv[0] == "print" else 0, "", "")
+
+    monkeypatch.setattr(supervisor, "launchctl", launchctl)
+    config = lr_config.Config("org/repo", "d1", "/srv/checkout", "bot", "drive", ("lanes",))
+
+    assert supervisor.cmd_install(config, tmp_path / "lr.json") == 0
+    assert calls == ["print", "bootout", "print", "print", "print", "bootstrap"]
