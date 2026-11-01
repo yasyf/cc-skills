@@ -233,12 +233,15 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             successor = attrs_of(record).get("successor")
             named = {name for listed in STAND_DOWN_LIST.finditer(text) for name in re.findall(r"[\w.-]+", listed["names"]) if store.lane(name)}
             for old in sorted((named or set(record.get("to") or [])) - {successor}):
-                if (gone := store.lane(old)) and gone.state != "retired":
+                if not (gone := store.lane(old)):
+                    continue
+                if gone.state != "retired":
                     retire(store, old, successor or ROOT, at)
                     if successor:
                         store.want_lane(successor, gone.brief, gone.model, gone.effort, gone.role, "launching", at, handoff=gone.handoff, prs=gone.prs, predecessor=old)
-                    else:
-                        store.own(ROOT, gone.prs)
+                        continue
+                if not successor:
+                    store.own(ROOT, gone.prs)
         elif kind == "decide" and lane == ROOT and (owner := OWNER.search(text)):
             store.own(owner[1], numbers := prs_of(record))
             if live is None and numbers and (probe := store.probes().get(owner[1])) and probe["dead"]:
