@@ -328,7 +328,9 @@ PR's own stack is the batch's failure: it routes no blocker, logs one `AWAITS-GO
 failed only in a queue draft holding nothing but its stack, stays out at that head after its first ejection: one `blocker` naming the failing
 job goes to the live lanes `landing.restack_lane` names, else the root, and the desk enqueues the PR again only at a new head. The lane a PR's blocker or restack goes to is the poster of the newest cci `head`, `opened`, `ready`,
 or `claim` record naming the PR, else the lane that registered its ledger row; a blocker posted on cci goes to that lane's live
-successor, which the lane supervisor keeps alive. A `BLOCKED` verdict naming only GitHub's unfinished mergeability read, merge state
+successor, which the lane supervisor keeps alive. Who is live is that supervisor's registry, `drive_supervisor.py lanes --json`
+over the `landing.supervisor` config, never `cci who`; a `go_lanes` lane none of whose family is live hands its go asks to the root.
+A `BLOCKED` verdict naming only GitHub's unfinished mergeability read, merge state
 `UNKNOWN` or mergeability still computing, is a wait the next pass gates again, refused only once it has held that head for ten
 minutes (root #269444). A gate's `BLOCKED` verdict goes to the lane at most once per head, as the blocker its adapter names, and only for red CI,
 a merge conflict, a changes-requested review or fidelity grade, or a queue ejection, never for a pending or running check or a
@@ -5595,7 +5597,6 @@ class Landing:
         self.settlement = Settlement({}, {})
         self.unproven_why: dict[str, str] = {}
         self.untested_why: dict[str, str] = {}
-        self.sessions: dict[str, bool] = {}
         self.live: list[dict] | None = None
         self.statuses: dict[str, dict] | None = None
         self.queues_read = False
@@ -7513,8 +7514,9 @@ class Landing:
         return self.runner.landing_lanes("board_lane")
 
     def go_audience(self, prs: list[str], rows: dict[str, dict]) -> str:
-        """Who hears that a go is stuck or unproven: each `landing.go_lanes` lane as its live successor, then the `routine_audience` (owner, Oct 29 2:06 PM)."""
-        return ",".join(dict.fromkeys([*map(self.successor, self.landing_config.get("go_lanes", [])), *self.routine_audience(prs, rows).split(",")]))
+        """Who hears that a go is stuck or unproven: each `landing.go_lanes` lane as its live successor, or the root when the registry reads none of its family live (root #269953), then the `routine_audience` (owner, Oct 29 2:06 PM)."""
+        lanes = [self.successor(lane) for lane in self.landing_config.get("go_lanes", [])]
+        return ",".join(dict.fromkeys([*(lane if self.session_live(lane) else ROOT for lane in lanes), *self.routine_audience(prs, rows).split(",")]))
 
     def routine_audience(self, prs: list[str], rows: dict[str, dict]) -> str:
         """Who hears a routine landing record: each `landing.desk_lane` and each PR's owning lane as its live successor, and the root only for a PR with no owning lane (root, Oct 29 2:10 PM)."""
@@ -9207,28 +9209,25 @@ class Landing:
         """The live successors of the lanes `landing.restack_lane` names, or the root while none is named."""
         return [*map(self.successor, self.runner.landing_lanes("restack_lane"))] or [ROOT]
 
+    def registry(self) -> list[dict]:
+        """The live lanes of the lane supervisor's registry, `drive_supervisor.py lanes --json` over the `landing.supervisor` config, read once a pass: the drive's one liveness answer, where `cci who` is only a process fact (root #270077)."""
+        if self.live is None:
+            done = self.shell.run([sys.executable, str(SCRIPTS / "drive_supervisor.py"), "lanes", "--config", str(Path(self.landing_config["supervisor"]).expanduser()), "--json"])
+            if done.code != 0:
+                raise CciTailFailed(f"drive_supervisor.py lanes exited {done.code}: {(done.err or done.out).strip()[:300]}")
+            self.live = [row for line in done.out.splitlines() if line.strip() and (row := json.loads(line))["live"]]
+        return self.live
+
     def session_live(self, lane: str) -> bool:
-        """Whether `cci who` lists a live session for `lane`, read once per lane a pass; a read that times out reads as no session."""
-        sessions = self.sessions
-        if lane not in sessions:
-            done = self.shell.run(["cci", "who", "--drive", self.runner.config.drive, "--lane", lane, "--json"])
-            if done.code not in (0, TIMED_OUT):
-                raise CciTailFailed(f"cci who exited {done.code}: {(done.err or done.out).strip()[:300]}")
-            sessions[lane] = done.code == 0 and bool(done.out.strip())
-        return sessions[lane]
+        return any(row["lane"] == lane for row in self.registry())
 
     def successor(self, lane: str) -> str:
-        """`lane` while `cci who` lists a live session for it, else the newest live lane of its `successors`, so mail for a rotated lane reaches the one holding its work; `lane` when none is live."""
+        """`lane` while the registry reads it live, else the live lane of its `successors` heard from last, so mail for a rotated lane reaches the one holding its work; `lane` when none is live."""
         if self.session_live(lane):
             return lane
-        if (live := self.live) is None:
-            done = self.shell.run(["cci", "who", "--drive", self.runner.config.drive, "--json"])
-            if done.code not in (0, TIMED_OUT):
-                raise CciTailFailed(f"cci who exited {done.code}: {(done.err or done.out).strip()[:300]}")
-            live = self.live = [entry for line in done.out.splitlines() if line.strip() and (entry := json.loads(line)).get("live")] if done.code == 0 else []
         family = successors(lane)
-        found = [entry for entry in live if family.fullmatch(entry.get("lane") or "")]
-        return max(found, key=lambda entry: entry["announced_at"])["lane"] if found else lane
+        found = [row for row in self.registry() if family.fullmatch(row["lane"])]
+        return max(found, key=lambda row: row["heard"])["lane"] if found else lane
 
     def has_landed(self, pr: str) -> bool:
         """A PR the merge queue already landed keeps its ledger row open until the branch is pruned, and the gate still reads its stale branch as conflicted; it gets no blocker."""
@@ -9495,7 +9494,7 @@ class Landing:
         self.cci_tail.forget()
 
     def gate_pass(self) -> None:
-        self.sessions, self.live, self.designed_red, self.full_runs_read, self.said_preconditions, self.resolved_preconditions = {}, None, {}, {}, {}, {}
+        self.live, self.designed_red, self.full_runs_read, self.said_preconditions, self.resolved_preconditions = None, {}, {}, {}, {}
         self.grading, self.grade_tried = True, set()
         self.gate_deadline = time.monotonic() + GATE_BUDGET.total_seconds()
         self.trusted_from, self.pass_began = self.pass_began, time.monotonic()
