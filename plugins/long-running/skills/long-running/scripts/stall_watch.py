@@ -984,12 +984,12 @@ class Pass:
                 stalls.append(stall)
             if board is None:
                 continue
-            taps = [(grades.go_heads(older)[pr], f"go #{older['seq']} by {older['lane']} at {grades.clock(older['at'])}")] if (older := state.older) else []
-            if tapped:
-                taps.append((tapped, "his board tap"))
-            if taps:
+            if tapped or (older := state.older):
                 if not board.shows(pr, head) and self.now - head_at >= self.watch.age("carry") and not any(named == pr and grades.names_head(sha, head) for named, sha in carried):
-                    questions.append(self.carry(pr, head, head_at, taps[-1], about, announced[-1], fidelity_lanes))
+                    if tapped:
+                        questions.append(self.carry(pr, head, head_at, (tapped, "his board tap"), about, announced[-1], fidelity_lanes))
+                    else:
+                        stalls.append(Stall(f"carry:{pr}:{short(head)}", "carry", head_at, subject, f"go #{older['seq']} by {older['lane']} at {grades.clock(older['at'])} names {short(grades.go_heads(older)[pr])}, the owner never tapped it, and no go names this head, first named {pacific(head_at)}", (lane,), f"ask root for a TAP-REQUIRED `go #{pr} at {short(head)}`; no owner re-ask is owed", pr))
                 continue
             if not row.get("green_at") or not (landing.get("merge_mode") == "every" or waits.get(pr) == f"merge:{pr}:{short(head)}"):
                 continue

@@ -1584,3 +1584,15 @@ def test_a_finder_fidelity_or_gate_stall_posts_ten_minutes_on(config, tmp_path, 
     assert ("finder:101:abc1234" in finderless.topics()) is stalls
     assert ("fidelity:102:fedcba9" in ungraded.topics()) is stalls
     assert ("gate:p8a-step7-2:43736:0" in landed.topics()) is stalls
+
+
+def test_a_head_move_on_a_pr_the_owner_never_tapped_asks_its_lane_for_roots_go_and_never_re_asks_the_owner(config):
+    """#280947: #47164 had only root's TAP-REQUIRED go at 433ef62, moved to 7c7628e, and the watch told root to re-ask the owner, who had never tapped it."""
+    fixed = f"HEAD #101 {HEAD} (was {OLD}): answers the reviewer bot's finding with a nil check and its test"
+    shell = FakeShell([record(1, "root", "go", f"go #101 at {OLD[:7]} on green", 90, "101"), head(2, "101", OLD, 95), head(3, "101", HEAD, 40, fixed)], [row("101")])
+
+    watch(shell, config)
+
+    assert shell.prompts == []
+    assert shell.post("carry:101:abc1234")["to"] == "api-lane@d1"
+    assert "ask root for a TAP-REQUIRED `go #101 at abc1234`; no owner re-ask is owed" in shell.post("carry:101:abc1234")["text"]
