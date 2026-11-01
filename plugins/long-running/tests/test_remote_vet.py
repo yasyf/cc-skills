@@ -31,6 +31,12 @@ printf '%s wrapper=%s %s\\n' "$(pwd)" "${{RUSTC_WRAPPER-unset}}" "$*" >> {log}
 """
 
 
+GOFMT = """#!/bin/sh
+printf '%s gofmt %s\\n' "$(pwd)" "$*" >> {log}
+for f in "$@"; do case "$f" in -*) ;; *) printf '// gofmt\\n' >> "$f" ;; esac; done
+"""
+
+
 def git(repo: Path, *argv: str) -> str:
     return subprocess.run(["git", "-C", str(repo), *argv], check=True, capture_output=True, text=True).stdout.strip()
 
@@ -89,6 +95,7 @@ def lane_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str, p
     executable(mac / "bin" / "ccx", '#!/bin/sh\necho \'{"branches": [{"branch": "below"}, {"branch": "lane"}]}\'\n')
     executable(mac / "bin" / "go", TOOL.format(log=log, failing=failing))
     executable(mac / "bin" / "cargo", TOOL.format(log=log, failing=failing))
+    executable(mac / "bin" / "gofmt", GOFMT.format(log=log))
     env = os.environ | {"PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "SPRITE_VET_ROOT": str(mac / "vet"), "RUSTC_WRAPPER": "sccache", "SPRITES_LOG": str(tmp_path / "sprites.log"), "LOADS": json.dumps({"busy": "21.5", "vetbox": "3.2"})}
     return mac, sprite, work, config, log, env
 
@@ -104,17 +111,31 @@ def test_a_remote_vet_builds_the_lanes_uncommitted_change_on_the_sprite_for_only
 
     vetted = Path(f"{sprite}{mac}/vet/vet-l1")
     assert done.returncode == (1 if failing else 0), done.stdout + done.stderr
-    assert (vetted / "go/m/a/a.go").read_text() == "package a\n\nfunc A() {}\n"
-    assert (vetted / "go/m/a/new.go").read_text() == "package a\n\nfunc New() {}\n"
+    assert (vetted / "go/m/a/a.go").read_text() == "package a\n\nfunc A() {}\n// gofmt\n"
+    assert (vetted / "go/m/a/new.go").read_text() == "package a\n\nfunc New() {}\n// gofmt\n"
     assert (vetted / "rust/c/src/lib.rs").read_text() == "pub fn c() -> u8 { 1 }\n"
     assert (vetted / "prepared.txt").read_text() == "generated\n"
     assert (vetted / "helper.txt").read_text().splitlines()[-1] == '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
-    assert log.read_text().splitlines() == [f"{vetted}/go/m wrapper=sccache build -p 3 ./a", f"{vetted}/go/m wrapper=sccache vet -p 3 ./a", f"{vetted}/rust wrapper= check --quiet --tests -j 3 -p cee"]
+    assert log.read_text().splitlines() == [f"{vetted}/go/m gofmt -w a/a.go a/new.go", f"{vetted}/rust wrapper= fmt -p cee", f"{vetted}/go/m wrapper=sccache build -p 3 ./a", f"{vetted}/go/m wrapper=sccache vet -p 3 ./a", f"{vetted}/rust wrapper= check --quiet --tests -j 3 -p cee"]
     assert [line for line in done.stdout.splitlines() if line.startswith("START ")][:5] == ["START lock", "START fetch", "START checkout", "START apply", "START prepare"]
     assert ("FAIL cd go/m" in done.stdout) == bool(failing)
     assert "PASS cd rust" in done.stdout
     assert (tmp_path / "sprites.log").read_text() == "vetbox\n"
-    assert git(work, "status", "--porcelain") == "M README.md\n M rust/c/src/lib.rs\n?? go/m/a/new.go".lstrip()
+    assert git(work, "status", "--porcelain") == "M README.md\n M go/m/a/a.go\n M rust/c/src/lib.rs\n?? go/m/a/new.go".lstrip()
+
+
+def test_a_remote_vet_formats_the_touched_go_and_rust_on_the_sprite_and_brings_the_formatting_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Owner card improve7-format-on-sprite (root #277422): a worker formats and lints its Rust and Go changes on a build machine before it pushes, never with a local toolchain. The Sprite formats the touched files, and the formatting comes back as a patch applied to the lane's worktree, so the lane commits formatted code without gofmt or cargo fmt on the Mac."""
+    mac, sprite, work, config, log, env = lane_change(tmp_path, monkeypatch, "", "")
+
+    done = subprocess.run([sys.executable, str(SCRIPT), "--config", str(config), "--lane", "l1", str(work)], env=env, capture_output=True, text=True)
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert (work / "go/m/a/a.go").read_text() == "package a\n\nfunc A() {}\n// gofmt\n"
+    assert (work / "go/m/a/new.go").read_text() == "package a\n\nfunc New() {}\n// gofmt\n"
+    assert (work / "go/m/b/b.go").read_text() == "package b\n\nfunc B() {}\n"
+    assert "remote-vet: formatted 2 files in" in done.stdout
+    assert "FORMAT-BEGIN" not in done.stdout
 
 
 def test_a_remote_vet_that_hangs_stops_at_its_timeout_and_names_the_stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

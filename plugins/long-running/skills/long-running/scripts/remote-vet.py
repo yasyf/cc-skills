@@ -15,11 +15,14 @@ directory) that differs from its merge base with `--base`, default the branch be
 remote's default branch, so a stacked lane vets only its own commits; committed or not, untracked files included. On the Sprite, the lane's own
 worktree `<root>/vet-<lane>` beside the clone, kept between runs so later checkouts read local objects, moves to that
 merge base, takes the change as one binary patch, runs `vet.prepare` from the config when it names one (the
-repository's code generation), then runs `go build` and `go vet` on each Go package the change touches, from its
+repository's code generation), formats the change with `gofmt -w` over its Go files and `cargo fmt -p` over its
+crates, then runs `go build` and `go vet` on each Go package the change touches, from its
 module's root, and `cargo check` on each Rust crate it touches, from its workspace's root, with the lane's own
 `target-vet-<lane>`, with no `RUSTC_WRAPPER` and with `--tests`, so a test-only change compiles, and at most three
 compile jobs at once, since a Sprite has 8 GB and no swap and restarts when a wider build runs it out of memory. Every command runs
 even after one fails; each prints a `PASS` or `FAIL` line with its seconds, and the script exits 1 when any failed.
+The formatting the Sprite applied to the changed files comes back as a patch applied to the lane's worktree, so the
+lane commits formatted code with no `gofmt` or `cargo fmt` on the Mac.
 Each stage prints a `START` line as it begins, streamed as it happens, and a run with no result after `--timeout`
 seconds (default 1800) stops and names the stage it was in. One run per lane holds the worktree at a time. The GitHub
 token reaches the Sprite on standard input only, and every git command there, the partial clone's lazy object fetches
@@ -46,7 +49,7 @@ set -eu
 IFS= read -r GH_TOKEN
 export GH_TOKEN GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper
 export GIT_CONFIG_VALUE_1='!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
-clone=$1 work=$2 base=$3 prepare=$4 commands=$5
+clone=$1 work=$2 base=$3 prepare=$4 commands=$5 formatted=$6
 mkdir -p "$(dirname "$work")"
 echo "START lock"
 exec 9>"$work.lock"
@@ -63,6 +66,8 @@ else
 fi
 echo "START apply"
 git -C "$work" apply --binary --whitespace=nowarn
+git -C "$work" add -A
+git -C "$work" -c user.name=vet -c user.email=vet@sprite commit -q --allow-empty -m vet </dev/null
 cd "$work"
 if [ -n "$prepare" ]; then
   echo "START prepare"
@@ -88,6 +93,11 @@ while IFS= read -r line; do
 done <<EOF
 $commands
 EOF
+if [ -n "$formatted" ]; then
+  echo "FORMAT-BEGIN"
+  printf '%s\n' "$formatted" | tr '\n' '\0' | xargs -0 git diff --binary --no-renames --
+  echo "FORMAT-END"
+fi
 exit $failed
 """
 
@@ -131,9 +141,10 @@ def workspace(worktree: Path, tree: str, crate: PurePosixPath) -> PurePosixPath:
     return crate
 
 
-def commands(worktree: Path, tree: str, changed: list[str], lane: str, root: str) -> list[str]:
-    """One `go build` and `go vet` per Go module over the packages the change leaves Go files in, and one `cargo check` per Cargo workspace over the crates it touches."""
+def commands(worktree: Path, tree: str, changed: list[str], lane: str, root: str) -> tuple[list[str], list[str]]:
+    """`gofmt -w` over the change's Go files per module and `cargo fmt -p` per touched crate, then one `go build` and `go vet` per Go module over the packages the change leaves Go files in and one `cargo check` per Cargo workspace over the crates it touches; with the files the formatting may rewrite."""
     packages: dict[PurePosixPath, set[str]] = {}
+    sources: dict[PurePosixPath, list[str]] = {}
     crates: dict[PurePosixPath, set[str]] = {}
     for name in changed:
         path = PurePosixPath(name)
@@ -147,6 +158,8 @@ def commands(worktree: Path, tree: str, changed: list[str], lane: str, root: str
                 packages.setdefault(module, set()).add("./...")
             elif any(entry.endswith(".go") for entry in listed):
                 packages.setdefault(module, set()).add("./" + os.path.relpath(directory, module))
+                if exists(worktree, tree, path):
+                    sources.setdefault(module, []).append(os.path.relpath(path, module))
         elif path.suffix == ".rs" or path.name == "Cargo.toml":
             crate = enclosing(worktree, tree, path, "Cargo.toml") if path.name != "Cargo.toml" else path.parent
             if crate is None or not exists(worktree, tree, crate / "Cargo.toml"):
@@ -154,13 +167,18 @@ def commands(worktree: Path, tree: str, changed: list[str], lane: str, root: str
             if package := manifest(worktree, tree, crate / "Cargo.toml").get("package"):
                 crates.setdefault(workspace(worktree, tree, crate), set()).add(package["name"])
     lines = []
+    for module, files in sorted(sources.items()):
+        lines.append(f"cd {shlex.quote(str(module))} && gofmt -w {' '.join(shlex.quote(file) for file in sorted(files))}")
+    for space, names in sorted(crates.items()):
+        lines.append(f"cd {shlex.quote(str(space))} && RUSTC_WRAPPER= cargo fmt {' '.join(f'-p {shlex.quote(name)}' for name in sorted(names))}")
     for module, names in sorted(packages.items()):
         listed = " ".join(sorted(names))
         lines.append(f"cd {shlex.quote(str(module))} && go build -p {JOBS} {listed} && go vet -p {JOBS} {listed}")
     for space, names in sorted(crates.items()):
         listed = " ".join(f"-p {shlex.quote(name)}" for name in sorted(names))
         lines.append(f"cd {shlex.quote(str(space))} && RUSTC_WRAPPER= CARGO_TARGET_DIR={shlex.quote(f'{root}/target-vet-{lane}')} cargo check --quiet --tests -j {JOBS} {listed}")
-    return lines
+    formatted = [name for name in changed if PurePosixPath(name).suffix in (".go", ".rs") and exists(worktree, tree, PurePosixPath(name))]
+    return lines, formatted
 
 
 MAX_LOAD = 16.0
@@ -213,17 +231,18 @@ def main(argv: list[str] | None = None) -> int:
     tree = snapshot(worktree)
     changed = run("git", "diff", "--name-only", "--no-renames", base, tree, cwd=worktree).splitlines()
     root = os.environ.get("SPRITE_VET_ROOT", "/work")
-    lines = commands(worktree, tree, changed, args.lane, root)
+    lines, formatted = commands(worktree, tree, changed, args.lane, root)
     if not lines:
         print(f"remote-vet: {len(changed)} changed files touch no Go package or Rust crate")
         return 0
     patch = run("git", "diff", "--binary", "--no-renames", base, tree, cwd=worktree)
     token = run("gh", "auth", "token", "--hostname", "github.com").strip()
     work = f"{root}/vet-{args.lane}"
-    sprited = subprocess.Popen(["sprite", "exec", "-s", sprite, "--", "sh", "-c", SPRITE_SCRIPT, "sh", clone, work, base, config.get("vet", {}).get("prepare", ""), "\n".join(lines)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    sprited = subprocess.Popen(["sprite", "exec", "-s", sprite, "--", "sh", "-c", SPRITE_SCRIPT, "sh", clone, work, base, config.get("vet", {}).get("prepare", ""), "\n".join(lines), "\n".join(formatted)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     stage = ["connect"]
     errors: list[str] = []
-    readers = [threading.Thread(target=relay, args=(sprited.stdout, stage), daemon=True), threading.Thread(target=errors.extend, args=(sprited.stderr,), daemon=True)]
+    formatting: list[str] = []
+    readers = [threading.Thread(target=relay, args=(sprited.stdout, stage, formatting), daemon=True), threading.Thread(target=errors.extend, args=(sprited.stderr,), daemon=True)]
     for reader in readers:
         reader.start()
     sprited.stdin.write(f"{token}\n{patch}")
@@ -236,17 +255,28 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     for reader in readers:
         reader.join()
+    if patch := "".join(formatting):
+        subprocess.run(["git", "apply", "--binary", "--whitespace=nowarn"], cwd=worktree, input=patch, text=True, check=True)
+        print(f"remote-vet: formatted {sum(line.startswith('diff --git ') for line in formatting)} files in {worktree}; commit them before you push")
     if sprited.returncode:
         print(f"remote-vet: {args.lane} at {base[:10]} on {sprite} failed in stage {stage[0]}: {''.join(errors).strip()[-400:] or 'see the FAIL lines above'}", file=sys.stderr)
         return 1
     return 0
 
 
-def relay(stream, stage: list[str]) -> None:
+def relay(stream, stage: list[str], formatting: list[str]) -> None:
+    inside = False
     for line in stream:
-        print(line, end="", flush=True)
-        if line.startswith("START "):
-            stage[0] = line.removeprefix("START ").strip()
+        if line.rstrip("\n") == "FORMAT-BEGIN":
+            inside = True
+        elif line.rstrip("\n") == "FORMAT-END":
+            inside = False
+        elif inside:
+            formatting.append(line)
+        else:
+            print(line, end="", flush=True)
+            if line.startswith("START "):
+                stage[0] = line.removeprefix("START ").strip()
 
 if __name__ == "__main__":
     sys.exit(main())

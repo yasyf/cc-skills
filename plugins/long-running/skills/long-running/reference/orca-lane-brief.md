@@ -156,8 +156,15 @@ Worktree and VCS:
   command>. Load <the repo's submit skill> before opening a PR. <title and body format>.
   A PR without a body, or left as a draft, is forbidden.
 - <the repo's forbidden commands, verbatim>
+- Before every push run `remote-vet.py --config <runner config> --lane <lane>` from your
+  worktree: it formats the Go and Rust you changed on a build machine, applies the
+  formatting back into your worktree, then builds and vets only the packages and crates
+  you touched; never a local `go build`, `go vet`, `cargo check`, `gofmt` or `cargo fmt`.
+  Exit 3 means every build machine is busy: push and let CI grade.
 - Commit and push every coherent checkpoint. Open a non-draft PR with a body for
   finished changes in the same turn. Drive it through landing under D1.
+- When a PR's title no longer says what its diff does, rewrite it yourself with the
+  ship command's `--pr-title`, without asking.
 - When your stack depends on another lane's unlanded branch, stack on top of it and
   say so in the PR body; never copy their diff.
 - Shape the stack so it lands beside every other stack under D19: put each shared-file
