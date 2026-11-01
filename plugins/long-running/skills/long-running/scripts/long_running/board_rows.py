@@ -116,6 +116,7 @@ TAP_VERDICT = re.compile(r"^(?P<label>TAP-NOT-CARRIED|TAP-KEPT) #(?P<pr>\d+): th
 REKEY = re.compile(r"\bre-?keys?\b|\bre-?keyed\b", re.IGNORECASE)
 ONE_TAP = re.compile(r"\bone tap\b[^.]*?\bapprov(?:es|e)\b|\bapprov(?:es|e) (?:all|both|every)\b(?: (?:\d+|two|three|four|five|six|seven|eight|nine|ten))?", re.IGNORECASE)
 PR_REF = re.compile(r"#(\d+)\b")
+BRACKETED_PR = re.compile(r"\[(\d+)\]")
 APPROVED_LIST = "approved"
 TITLE_WORD = 4
 UNSETTLED = re.compile(r"\bpending\b|\bbeing reworked\b", re.IGNORECASE)
@@ -597,6 +598,18 @@ def claim_reason(members: set[str], newest: dict[str, dict], pulls: dict[str, Pu
     return f"one tap: its words say one tap approves {len(members)} PRs, but {' and '.join(parts)}"
 
 
+def reviews_by_pr(reviews: list[dict], repo: str) -> dict[str, list[dict]]:
+    found: dict[str, list[dict]] = {}
+    for record in reviews:
+        prs = {pr for pr, _ in grades.repo_prs(record, repo)}
+        if not record.get("refs", {}).get("prs"):
+            prs.update(PR_REF.findall(record["text"]))
+            prs.update(BRACKETED_PR.findall(record["text"]))
+        for pr in prs:
+            found.setdefault(pr, []).append(record)
+    return found
+
+
 def graded_warnings(reviews: list[dict], saved: list[str], drive: str, lanes: list[str], repo: str, row: Row) -> list[str]:
     warnings = []
     if not grades.standing(grades.fidelity_grades_in(reviews, drive, lanes, repo, row.pr), lanes, row.head):
@@ -675,6 +688,7 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
     except ReadFailed as failed:
         reviews = None
         warnings.append(f"WARN the grades did not read ({failed}); no row is checked for a grade or finder at its head")
+    indexed_reviews = reviews_by_pr(reviews, repo) if reviews is not None else {}
     try:
         ours = admitted(shell, drive, landing)
     except ReadFailed as failed:
@@ -699,7 +713,7 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
                 row.reasons += since_reasons(row, row.entry)
                 row.pure = tap_verdict(taps or [], row, row.entry, "TAP-KEPT")
         if reviews is not None:
-            gaps = graded_warnings(reviews, saved, drive, lanes, repo, row)
+            gaps = graded_warnings(indexed_reviews.get(row.pr, []), saved, drive, lanes, repo, row)
             row.reasons += [gap for gap in gaps if "fidelity" in gap]
             row.warnings += [gap for gap in gaps if "fidelity" not in gap]
         if unsettled := sorted({found.lower() for sentence in SENTENCE.split(row.words) for found in UNSETTLED.findall(sentence) if not any(not grades.names_head(sha, row.head) for sha in grades.SHORT_SHA.findall(sentence))}):
@@ -723,7 +737,7 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
             continue
         if pull.state != OPEN:
             rows.append(Row(f"{block_id}#{pr}", block_id, pr, pull.head[:7], "", "", "", {}, reasons=[f"listed: the PR is {pull.state.lower()} on GitHub and still listed under {block_id}"]))
-        elif APPROVED_LIST in block_id and rulings is not None and reviews is not None and (missing := approval_gaps(pull.head, pr, newest.get(pr), rulings, withdrawn, reviews, drive, lanes, repo)):
+        elif APPROVED_LIST in block_id and rulings is not None and reviews is not None and (missing := approval_gaps(pull.head, pr, newest.get(pr), rulings, withdrawn, indexed_reviews.get(pr, []), drive, lanes, repo)):
             rows.append(Row(f"{block_id}#{pr}", block_id, pr, pull.head[:7], "", "", "", {}, reasons=[f"unapproved: listed under {block_id} with {' and '.join(missing)} at GitHub's head {pull.head[:7]}"]))
     return rows, found, warnings
 
