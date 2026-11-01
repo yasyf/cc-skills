@@ -268,7 +268,7 @@ RUST_TEST = re.compile(r"^\s*#\[(?:\w+::)?test\b")
 RUST_TEST_FILE = re.compile(r"(?:^|/)tests/[^/]+\.rs$|_test\.rs$")
 IDENTIFIER = re.compile(r"\w+")
 WORD_RUN = re.compile(r"[\w-]+")
-FACTS_VERSION = 2
+FACTS_VERSION = 3
 PROSE_SUFFIXES = frozenset({".md", ".mdx", ".txt", ".rst"})
 MERGE_CARD = re.compile(r"merge:(?P<pr>\d+):(?P<head>[0-9a-f]{7,40})")
 TEST_DEFINITION = re.compile(
@@ -285,6 +285,7 @@ SHAPE = re.compile(
     r"|\bclients? of\b|\bshares? one\b|\beve\w*\s+(?:is\s+)?a client\b",
     re.IGNORECASE,
 )
+DELETE_OP = re.compile(r"delete|remove|unlink|\brm\b", re.IGNORECASE)
 CHECK_PR_ORDER = ("RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "SHAPE-UNTESTED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "LANE-DECIDED", "CONTRACT-MISSING", "TESTS-CORPUS")
 JUDGED_ROWS = 4
 PLAN_LINES = 12
@@ -2341,10 +2342,11 @@ def op_count(op: str, text: str) -> int:
 
 
 def reserved_hit(fields: dict[str, str], diff: Diff) -> bool:
-    """Whether the diff newly does what one of the row's ops names. A path glob never hits on its own: it scopes the row's identifier ops to the files it names."""
+    """Whether the diff newly does what one of the row's ops names. A path glob never hits on its own: it scopes the row's identifier ops to the files it names. A row any of whose ops names a delete reserves that delete, so only those ops hit and a domain word beside them, such as `retire` or `Decommission`, never does (root #270259)."""
     ops = [op for op in map(str, listed(fields.get("ops"))) if op not in UNANCHORED]
     paths = [op for op in ops if "/" in op and not any(char.isspace() for char in op)]
-    return any(op_hits(op, diff, paths) for op in ops if op not in paths)
+    named = [op for op in ops if op not in paths]
+    return any(op_hits(op, diff, paths) for op in [op for op in named if DELETE_OP.search(op)] or named)
 
 
 def untouched(args: argparse.Namespace, shell: ledger.Shell, fields: dict[str, str], card: str) -> str:
