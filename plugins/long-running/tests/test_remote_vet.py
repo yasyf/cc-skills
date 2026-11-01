@@ -111,8 +111,8 @@ def test_a_remote_vet_builds_the_lanes_uncommitted_change_on_the_sprite_for_only
 
     vetted = Path(f"{sprite}{mac}/vet/vet-l1")
     assert done.returncode == (1 if failing else 0), done.stdout + done.stderr
-    assert (vetted / "go/m/a/a.go").read_text() == "package a\n\nfunc A() {}\n"
-    assert (vetted / "go/m/a/new.go").read_text() == "package a\n\nfunc New() {}\n"
+    assert (vetted / "go/m/a/a.go").read_text() == "package a\n\nfunc A() {}\n// gofmt\n"
+    assert (vetted / "go/m/a/new.go").read_text() == "package a\n\nfunc New() {}\n// gofmt\n"
     assert (vetted / "rust/c/src/lib.rs").read_text() == "pub fn c() -> u8 { 1 }\n"
     assert (vetted / "prepared.txt").read_text() == "generated\n"
     assert (vetted / "helper.txt").read_text().splitlines()[-1] == '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
