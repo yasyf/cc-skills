@@ -548,7 +548,8 @@ fix is the PR the newest record on the topic by any other lane names, an inciden
 `cci post --topic dev-red --pr <n>`. With `landing.ci_build` set too, each newer finished trunk build is read once and
 compared with the one before it: a job name that fails or soft-fails more often posts one `POST-MERGE-RED` to root, each
 `landing.desk_lane` and the lanes of the PRs that landed between the two, so a build green only by soft-fail reads red.
-A trunk commit whose check failed and later passes on a retry of a job or of the build posts one `FLAKE`, a
+A trunk commit whose check failed and later passes on a retry of a job or of the build, or whose build passed only
+after a job's automatic retry, posts one `FLAKE`, a
 `[finding:desk-runner]` defect naming the first failing test in the failed job's log and a fix due 24 hours out; it
 blocks nothing and stays open until a HEAD names it. Its owner is the live successor of the lane whose PR last changed
 that test's file, else the live successor of the lane `landing.flake_lane` names, which routes it to a fixer, else root.
@@ -6681,11 +6682,13 @@ class Landing:
             self.book.edit(LANDING, lambda incident, url=urls[position]: incident.facts.update({TRUNK_JOBS_FACT: url}))
 
     def compare_builds(self, history: list[dict], newer: tuple[int, str], older: tuple[int, str], rows: dict[str, dict]) -> bool:
-        """Post one `POST-MERGE-RED` for the jobs that fail more often in the newer trunk build than in the older one; False while either build does not read finished or the record did not post."""
+        """Post one `POST-MERGE-RED` for the jobs that fail more often in the newer trunk build than in the older one, and one `FLAKE` when a job of the newer build passed on a retry, an automatic one included, whose commit status never read failed; False while either build does not read finished or a record did not post."""
         (since, newest), (until, previous) = newer, older
         for url in (newest, previous):
             self.build(url)
         if newest not in self.builds or previous not in self.builds:
+            return False
+        if any(job.get("type") == "script" and job.get("state") == "passed" and job.get("retry_source") for job in self.builds[newest].get("jobs", [])) and not self.flake(history[since]["oid"], newest, newest, rows):
             return False
         if not (new := job_failures(self.builds[newest]) - job_failures(self.builds[previous])):
             return True

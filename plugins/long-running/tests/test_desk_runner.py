@@ -14342,6 +14342,28 @@ def test_a_red_whose_failed_jobs_all_fail_on_a_dev_red_trunk_is_classed_inherite
     assert [post_body(post) for post in blockers(shell) if post["to"] == LANE] == ["#29021 dddd444444: CI is red: buildkite/test"]
 
 
+def test_a_trunk_build_green_only_after_an_automatic_job_retry_posts_one_flake_to_the_flake_lane(shell, config, tmp_path):
+    """Dev builds 99718 and 99852 passed Run api tests on an automatic retry; their commit status never read failed, so no FLAKE posted (improve4-flake-owner)."""
+    with_ci_build(config)
+    raw = json.loads(config.read_text())
+    raw["landing"]["flake_lane"] = "flake-census-1"
+    config.write_text(json.dumps(raw))
+    landing = trunk_watch(shell, config, tmp_path)
+    built(shell, "aaaa", "29018", script_build("sand-tests"))
+    built(shell, "cccc", "29020", {"state": "passed", "commit": "c" * 10, "finished_at": "2026-10-01T17:58:00Z", "jobs": [{"id": "job-2", "type": "script", "name": "sand-tests", "state": "passed", "retry_source": {"job_id": "job-1", "retry_type": "automatic"}}]})
+    shell.job_logs["job-1"] = FLAKY_LOG
+    shell.test_files["TestADrainedSidecarEndsItsLagSeriesAtZero"] = "go/sand/next/internal/vm/lag_test.go\n"
+    shell.subjects["go/sand/next/internal/vm/lag_test.go"] = "vm: 🐛 drain the sidecar's lag series (#29011)"
+    shell.trunk = [trunk_commit("c", "SUCCESS", "29020", "2026-10-01T17:55:00Z"), trunk_commit("a", "SUCCESS", "29018", "2026-10-01T17:40:00Z")]
+
+    landing.watch_trunk(OPEN_ROWS)
+    landing.watch_trunk(OPEN_ROWS)
+
+    [flake] = [post for post in shell.posts if "FLAKE" in post["text"]]
+    assert flake["to"] == "flake-census-1,root,drive-watchdog@d1" and flake["id"] == f"flake:{'c' * 10}"
+    assert flake["text"].startswith("[finding:desk-runner] - go/sand/next/internal/vm/lag_test.go flake owner flake-census-1: FLAKE TestADrainedSidecarEndsItsLagSeriesAtZero failed on https://buildkite.com/forge/test/builds/29020 at cccccccccc and passed on retry")
+
+
 def test_a_trunk_build_green_only_because_a_job_soft_fails_posts_post_merge_red_once_naming_the_prs_landed_since_the_last_build(shell, config, tmp_path):
     with_ci_build(config)
     desk_lane(config)
