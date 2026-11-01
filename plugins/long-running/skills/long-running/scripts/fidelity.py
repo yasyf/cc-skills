@@ -28,7 +28,7 @@ the PR body and every comment the PR's author posted, and runs
 a row ungraded, keys a `missing` line on anything but a plan line, an owner row or an AGENTS.md line, or gives no
 reasoning in `swept` is asked once more; a second such reply fails the job. A reply with any `missing` entry grades
 `missing` whatever verdict it names, and posts its `reader` reason to the human fidelity desks as well. A head that moved while
-codex read it posts nothing, and one whose `Rulings` or `Body addendum` comments changed while codex read it is read once
+codex read it posts nothing, and one whose `Rulings`, `Regression tests` or `Body addendum` comments changed while codex read it is read once
 more with them (root #276781). The question lists every point of a `missing` grade root settled, and a
 reply's `missing` entry that repeats one word for word, or cites only code lines a settled point at an earlier head
 cites and no change since touched, is dropped; a reply left with none posts ok citing

@@ -1797,7 +1797,7 @@ head (4236611). Each cause it prints but `RESERVED-NO-ANSWER` is a warning: one 
 none of its earlier warnings named, and never once an `answer` replies to or resolves
 one of them. A reserved touch is merge mode's
 to settle, because merge mode sends the card whose tap authorizes it.
-A `NAME-HIT` clears once a line of the body's `## Rulings` cites the hit's row by key or
+A `NAME-HIT` clears once a line under `## Rulings`, in the body or a PR comment, cites the hit's row by key or
 answer id, quotes at least four of the owner's words from it verbatim, and follows the quote
 with a plain sentence of at least three words on how the PR keeps the ruling. The citation
 is the acknowledgment, even for the row's own names (926a89d).
@@ -3303,10 +3303,12 @@ Codex: call `Skill(codex)` or `codex:codex-wrapper`; a one-off question goes to 
 Run subagents and codex in the foreground (blocking), or poll the reply file in a foreground loop to a terminal state; never background-and-end-turn.
 Record each sub-dispatch with `ledger.py ask` before dispatch and `ledger.py answer` when its reply lands.
 Verification: no local test runs, builds, typechecks or lint; CI grades; a red CI step is read from its log, fixed, and pushed.
-PR body: beside `## Rulings`, a `## Regression tests` section lists each test id the
-  change adds or edits and links one CI run where that test failed against the old tree.
-  Nothing checks the link; the fidelity desk reads each named test against the failure
-  it claims (784f1ab). The `## Risk profile` states Load and Data in prose.
+PR comments: nobody edits a PR body after it opens, so the evidence goes in two comments
+  the lane posts: one opening with `## Rulings`, and one opening with `## Regression tests`
+  that lists each test id the change adds or edits and links one CI run where that test
+  failed against the old tree. Nothing checks the link; the fidelity desk reads each named
+  test against the failure it claims (784f1ab). The body's `## Risk profile` states Load
+  and Data in prose.
 Deletion: a change that deletes a code path, proposed or in a PR, carries its caller
   trace before the root GOs it: every caller of the removed path, each one read, and what
   the path deletes or changes for each (cc-notes 83695d86 is the worked example). The

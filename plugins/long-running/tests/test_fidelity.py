@@ -380,6 +380,17 @@ def test_a_rulings_comment_posted_while_codex_read_the_head_is_read_once_more_be
     assert shell.texts()[0].startswith(f"fidelity: ok {HEAD} Resubscribes")
 
 
+def test_a_regression_tests_comment_posted_while_codex_read_the_head_is_read_once_more_before_the_grade_posts(tmp_path):
+    """Root #290650: a lane's evidence lives in its `## Regression tests` comment, never a body section nobody edits after open."""
+    tests = {"author": LANE, "body": "## Regression tests\n\n- test_resubscribes_after_a_cut failed at 0f1e2d3 on the old tree."}
+    directory = job(tmp_path, grades=[])
+    shell = Fake(tmp_path, [reply(verdict="missing", missing=({"key": "plan:116", "line": "no regression test for the cut"},)), reply()])
+    shell.comments = [COMMENTS, [*COMMENTS, tests]]
+    fidelity.main([str(directory)], shell)
+    assert len(shell.asks()) == 2
+    assert "test_resubscribes_after_a_cut failed at 0f1e2d3" in (directory / "question-3.md").read_text()
+
+
 def test_a_codex_ok_posts_the_grade_with_its_exempt_phrase_then_touches_and_old_app(tmp_path):
     directory = job(tmp_path, grades=[])
     shell = Fake(tmp_path, [reply(exempt="test-only", touches=("prompt/1026-105052",), old_app="changes")])

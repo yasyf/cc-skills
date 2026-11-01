@@ -36,8 +36,8 @@ Follow this repository's conventions exactly: its CLAUDE.md and AGENTS.md, and t
 read that spec in full before writing (in Forge-AI/monorepo it is .agents/skills/submit-pr/references/pr-body.md).
 Read the change with `git log {base}..HEAD` and `git diff {base}...HEAD`.
 {brief}{notes}
-The body carries a `## Regression tests` section that lists each test id the change adds or edits
-and links one CI run where that test failed against the old tree, and its Risk profile states Load and Data in prose.
+The body's Risk profile states Load and Data in prose. The body carries no Rulings or Regression tests section:
+the lane posts those as PR comments after the PR opens.
 State only what the diff, the brief, and the notes support. Return the title, the whole markdown body, and the whole commit message,
 subject line first, as the structured output.
 """
