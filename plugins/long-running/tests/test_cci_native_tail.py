@@ -50,7 +50,10 @@ def native_endpoint(monkeypatch, request):
         def log_message(self, *args):
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    class Server(ThreadingHTTPServer):
+        request_queue_size = 64
+
+    server = Server(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})
     thread.start()
     original = http.client.HTTPConnection
