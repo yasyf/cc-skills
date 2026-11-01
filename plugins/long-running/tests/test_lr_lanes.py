@@ -589,3 +589,17 @@ def test_a_tick_whose_liveness_source_does_not_answer_acts_on_nothing(tmp_path, 
     out = lanes.tick(store, gone, T0 + timedelta(hours=1), 1)
 
     assert out == lanes.Outcome() and fake.posts == [] and store.lane("conflicts-2").state == "desired"
+
+
+def test_liveness_is_a_record_within_the_hour_from_a_lane_that_is_not_retired():
+    store = Store.memory()
+    for name, heard in (("fresh-1", T0 - timedelta(minutes=50)), ("stale-1", T0 - timedelta(minutes=70)), ("gone-1", T0 - timedelta(minutes=5)), ("quiet-1", None)):
+        store.want_lane(name, "/briefs/x.md", "opus", "xhigh", "lane", "desired", T0 - timedelta(hours=3), prs=(46475,) if name == "fresh-1" else ())
+        if heard:
+            store.lane_heard(name, heard)
+    lanes.retire(store, "gone-1", "gone-2", T0)
+
+    rows = {row["lane"]: row for row in lanes.liveness(store, T0)}
+
+    assert {name: row["live"] for name, row in rows.items()} == {"fresh-1": True, "stale-1": False, "gone-1": False, "quiet-1": False}
+    assert rows["fresh-1"]["prs"] == [46475] and rows["gone-1"]["retired_by"] == "gone-2" and rows["quiet-1"]["heard"] is None
