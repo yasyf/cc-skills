@@ -179,6 +179,7 @@ class Drive:
         self.slow_at = 0.0
         self.dirty_at = time.monotonic()
         self.errors = {}
+        self.reported_build = None
         self.paths = {}
         self.reported = set()
         self.pr_facts = {}
@@ -306,13 +307,11 @@ class Drive:
                 model = self.build(refresh_slow=stale)
                 self.assistant.refresh([(r["number"], r["head"]) for r in self.board()["rows"] if verdict_state(r) == "you"])
             except Exception as error:
-                failure = f"{type(error).__name__}: {error}"
-                if self.errors.get("build") != failure:
-                    self.report_defect(failure)
-                self.errors["build"] = failure
+                self.build_failed(f"{type(error).__name__}: {error}")
                 self.slow_at = time.monotonic()
                 continue
             self.errors.pop("build", None)
+            self.reported_build = None
             with self.changed:
                 self.model = model
                 self.version += 1
@@ -356,6 +355,12 @@ class Drive:
         alarm = self.bus_alarm()
         headline = progress.get("now", {}) | ({"blocker": json.loads(alarm.read_text())} if alarm.is_file() else {})
         return {**model, "board": board, "drive": drive, "steps": steps, "now": headline, "steps_at": progress["updated"], "live": LIVE_SOURCES, "needs": {"taps": waiting, "questions": len(board["cards"])}}
+
+    def build_failed(self, failure):
+        if self.errors.get("build") == failure != self.reported_build:
+            self.report_defect(failure)
+            self.reported_build = failure
+        self.errors["build"] = failure
 
     def report_defect(self, text):
         subprocess.run(["cci", "post", "--drive", self.config["drive"], "--lane", self.config["keeper_lane"], "--to", f"{self.config['keeper_lane']},root", "--kind", "defect", "--text", f"drive dashboard build failed: {text}"[:390]], capture_output=True)
