@@ -862,3 +862,19 @@ def test_a_root_stand_down_naming_no_successor_unowns_the_lanes_prs_and_names_to
     assert [(kind, to) for kind, to, text in kinds if "no lane owns" in text] == [("blocker", "root")]
     assert "#45492 needs work and no lane owns it" in next(text for _, _, text in kinds if "no lane owns" in text)
     assert store.owner_of([45492, 46512]) == {45492: "root", 46512: "root"}
+
+
+def test_a_lane_the_launcher_named_with_a_fix_suffix_is_alive_while_it_posts_under_its_briefs_name(tmp_path, brief):
+    """#280837: the launcher registered takeover-500-tooling-fix from takeover-500-tooling/brief.md, the lane posted as takeover-500-tooling, and the supervisor relaunched it as takeover-500-tooling-fix-2."""
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    lane_brief = tmp_path / "takeover-500-tooling" / "brief.md"
+    lane_brief.parent.mkdir()
+    lane_brief.write_text("# takeover-500-tooling: fix the takeover 500\n")
+    fake.feed += [spawned(2, "takeover-500-tooling-fix", lane_brief, T0 - timedelta(minutes=40)), record(3, "takeover-500-tooling", "state", T0 - timedelta(minutes=2), "dry run converged")]
+    fake.peers = [who("conflicts-2", True, T0), who("takeover-500-tooling", True, T0 - timedelta(minutes=2))]
+
+    out = lanes.tick(store, fake.deps, T0 + timedelta(minutes=30), 1)
+
+    assert out.relaunched == [] and fake.launches == []
+    assert store.lane("takeover-500-tooling-fix").state != "retired" and store.lane("takeover-500-tooling") is None
