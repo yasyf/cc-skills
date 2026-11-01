@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -258,6 +260,119 @@ def test_a_root_ruling_that_supersedes_the_pr_warns_with_that_seq_and_never_refu
 )
 def test_a_closing_ruling_must_tie_the_word_to_the_pr(text: str, closed: bool) -> None:
     assert board_rows.closes("42590", text) is closed
+
+
+@pytest.mark.parametrize(
+    ("separator", "accepted"),
+    [(",", True), (", ", True), (",\n", True), (" and ", True), ("  and ", True), ("\tand\n", True), (", and ", True), (" ,  and ", True), ("\u00a0and\u00a0", True), (",and ", False), (" and", False), (" & ", False), ("  ", False)],
+)
+@pytest.mark.parametrize("verb", ["close", "closes", "closed", "closing", "supersedes", "superseding"])
+def test_closing_lists_keep_their_reference_separator_language(separator: str, accepted: bool, verb: str) -> None:
+    assert board_rows.closes("42590", f"root {verb} #42519{separator}#42590{separator}#42706") is accepted
+
+
+def test_multispace_closing_list_has_linear_cpu_growth() -> None:
+    code = """
+import json
+import sys
+import time
+sys.path.insert(0, sys.argv[1])
+from long_running import board_rows
+def measure(size):
+    text = 'root closes ' + '  and '.join(f'#{1000 + at}' for at in range(size)) + '. Separately #1 remains open.'
+    assert not board_rows.closes('1', text)
+    start = time.process_time_ns()
+    for _ in range(16):
+        assert not board_rows.closes('1', text)
+    return time.process_time_ns() - start
+print(json.dumps({'small_cpu_ns': measure(8), 'large_cpu_ns': measure(16)}))
+"""
+    done = subprocess.run([sys.executable, "-I", "-B", "-c", code, str(Path(board_rows.__file__).resolve().parents[1])], stdin=subprocess.DEVNULL, capture_output=True, text=True, check=True)
+    cost = json.loads(done.stdout)
+    print(json.dumps(cost))
+    assert cost["large_cpu_ns"] <= 8 * cost["small_cpu_ns"] + 1_000_000, f"closing-list CPU grew superlinearly: {cost}"
+
+
+@pytest.mark.parametrize("pr", ["12", "13", "123", "0012", "999"])
+@pytest.mark.parametrize("head", [HEAD, NEW_HEAD])
+@pytest.mark.parametrize("withdrawn", [set(), {7}, {2, 7}])
+def test_indexed_rulings_preserve_closures_revivals_and_standing_go_provenance(pr: str, head: str, withdrawn: set[int]) -> None:
+    record = {"seq": 1, "kind": "decision", "text": "summary", "full": "root closes #12"}
+    rulings = [
+        record,
+        record | {"seq": 2, "kind": "go", "text": f"go #12 at {HEAD[:7]}", "full": "the body does not repeat the reference"},
+        record | {"seq": 3, "kind": "go", "text": f"go #13 at {HEAD[:7]}", "full": "no repeated reference", "voided": ["13"]},
+        record | {"seq": 4, "text": "summary #13", "full": "root supersedes #12"},
+        record | {"seq": 5, "kind": "go", "text": f"withdrawn: go #12 at {HEAD[:7]}", "full": f"go #12 at {HEAD[:7]}"},
+        record | {"seq": 6, "text": "summary #123", "full": "root closes #123"},
+        record | {"seq": 7, "kind": "go", "text": f"go #12 at {HEAD[:7]}", "full": "the body does not repeat the reference"},
+        record | {"seq": 8, "kind": "go", "text": f"go #12 at {NEW_HEAD[:7]}", "full": "TAP-REQUIRED without repeating the reference"},
+        record | {"seq": 9, "text": "no go clause", "full": f"go #13 at {HEAD[:7]}"},
+        record | {"seq": 10, "text": "summary", "full": "root closes #0012"},
+    ]
+    rulings.append(record)
+    encoded = json.dumps(rulings)
+    selected = board_rows.rulings_by_pr(rulings).get(pr, [])
+
+    assert board_rows.closing_ruling(selected, pr, head) == board_rows.closing_ruling(rulings, pr, head)
+    assert board_rows.standing_gos(selected, withdrawn, pr, head) == board_rows.standing_gos(rulings, withdrawn, pr, head)
+    assert json.dumps(rulings) == encoded
+
+
+def test_ruling_index_keeps_duplicate_source_identity_and_order() -> None:
+    first = {"seq": 2, "text": "#12 #12", "full": "closes #12 #12"}
+    second = {"seq": 1, "text": "#12", "full": "no reference in the body"}
+    selected = board_rows.rulings_by_pr([first, second, first])["12"]
+    assert len(selected) == 3
+    assert selected[0] is first
+    assert selected[1] is second
+    assert selected[2] is first
+
+
+@pytest.mark.parametrize("count", [1, 91])
+@pytest.mark.parametrize("history", [32, 10000])
+def test_board_ruling_predicates_visit_only_the_requested_pr_records(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, count: int, history: int) -> None:
+    shell = FakeShell()
+    prs = [str(42590 + at) for at in range(count)]
+    for pr in prs:
+        shell.pull(pr)
+        shell.graded(pr)
+    shell.post("decision", "root", "closes #42590", "42590")
+    shell.post("go", "root", f"go #42590 at {HEAD[:7]}", "42590")
+    shell.verdicts = {"merge-prs": {"42590": {"verdict": "approved", "head": HEAD}}}
+    for _ in range(history):
+        shell.post("go", "root", f"go #90000 at {HEAD[:7]}", "90000")
+    calls = {"closes": 0, "go_heads": 0}
+    original_closes, original_heads = board_rows.closes, grades.go_heads
+
+    def closes(pr, text):
+        calls["closes"] += 1
+        return original_closes(pr, text)
+
+    def heads(record):
+        calls["go_heads"] += 1
+        return original_heads(record)
+
+    monkeypatch.setattr(board_rows, "closes", closes)
+    monkeypatch.setattr(grades, "go_heads", heads)
+
+    assert gate(tmp_path, shell, groups(*(pr_row(pr) for pr in prs)), "--check") == 0
+    assert calls == {"closes": 2, "go_heads": 2}, f"unrelated ruling predicates were evaluated: {calls}"
+    print(json.dumps({"rows": count, "unrelated_rulings": history, "predicate_calls": calls}))
+
+
+def test_a_failed_ruling_read_keeps_its_warning_and_builds_no_index(tmp_path: Path, shell: FakeShell, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    def read(shell, drive, lanes):
+        raise board_rows.ReadFailed("rulings unavailable")
+
+    def index(rulings):
+        pytest.fail("a failed ruling read must not build an index")
+
+    monkeypatch.setattr(board_rows, "root_rulings", read)
+    monkeypatch.setattr(board_rows, "rulings_by_pr", index)
+
+    assert gate(tmp_path, shell, card(row("42590")), "--check") == 0
+    assert lines(capsys) == ["WARN the root rulings did not read (rulings unavailable); no row is checked for a closing ruling or a root go at its head, and no renamed row is excused by a re-key", "rows 1 failing 0 ungraded 0 flags 0"]
 
 
 def test_a_decided_row_pushed_under_another_block_fails_before_anything_is_sent(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:

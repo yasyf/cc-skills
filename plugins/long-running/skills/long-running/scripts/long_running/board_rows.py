@@ -354,7 +354,7 @@ def root_rulings(shell: Shell, drive: str, lanes: list[str]) -> list[dict]:
 
 
 def closes(pr: str, text: str) -> bool:
-    verb = rf"\b(?:clos(?:e|es|ed|ing)|supersed(?:es|ing))\s+(?:#\d+(?:\s*,\s*|\s*,?\s+and\s+))*#{pr}\b"
+    verb = rf"\b(?:clos(?:e|es|ed|ing)|supersed(?:es|ing))\s+(?:#\d+(?:\s*,\s*|(?:\s*,)?\s+and\s+))*#{pr}\b"
     ruled = rf"(?<!\bon )(?<!\bof )(?<!\bin )#{pr}\b(?:\s+\(?[0-9a-f]{{7,40}}\)?)?(?:\s+(?:is|was|now|stays|has\s+been))*\s+(?:superseded|closed|landed)\b"
     return re.search(verb, text, re.IGNORECASE) is not None or re.search(ruled, text, re.IGNORECASE) is not None
 
@@ -610,6 +610,14 @@ def reviews_by_pr(reviews: list[dict], repo: str) -> dict[str, list[dict]]:
     return found
 
 
+def rulings_by_pr(rulings: list[dict]) -> dict[str, list[dict]]:
+    found: dict[str, list[dict]] = {}
+    for record in rulings:
+        for pr in set(PR_REF.findall(record["full"])) | set(PR_REF.findall(record["text"])):
+            found.setdefault(pr, []).append(record)
+    return found
+
+
 def graded_warnings(reviews: list[dict], saved: list[str], drive: str, lanes: list[str], repo: str, row: Row) -> list[str]:
     warnings = []
     if not grades.standing(grades.fidelity_grades_in(reviews, drive, lanes, repo, row.pr), lanes, row.head):
@@ -676,6 +684,7 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
     except ReadFailed as failed:
         rulings, withdrawn = None, set()
         warnings.append(f"WARN the root rulings did not read ({failed}); no row is checked for a closing ruling or a root go at its head, and no renamed row is excused by a re-key")
+    indexed_rulings = rulings_by_pr(rulings) if rulings is not None else {}
     try:
         verdicts = verdicts_of(shell.run(outcomes))
     except ReadFailed as failed:
@@ -704,11 +713,11 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
         if row.pr in pulls:
             row.pull = pulls[row.pr]
             row.reasons += github_reasons(row, pulls[row.pr])
-        if rulings is not None and (ruling := closing_ruling(rulings, row.pr, row.head)):
+        if rulings is not None and (ruling := closing_ruling(indexed_rulings.get(row.pr, []), row.pr, row.head)):
             row.warnings.append(f"root ruled it superseded or closed on cci #{ruling['seq']}; drop the row unless a later ruling reopened it")
         if verdicts is not None:
             row.entry = verdicts.get(row.block, {}).get(row.id)
-            row.reasons += tap_reasons(row, row.entry, standing_gos(rulings, withdrawn, row.pr, row.head) if rulings is not None else [], taps or [])
+            row.reasons += tap_reasons(row, row.entry, standing_gos(indexed_rulings.get(row.pr, []), withdrawn, row.pr, row.head) if rulings is not None else [], taps or [])
             if moved_tap(row, row.entry):
                 row.reasons += since_reasons(row, row.entry)
                 row.pure = tap_verdict(taps or [], row, row.entry, "TAP-KEPT")
@@ -737,7 +746,7 @@ def check(shell: Shell, config: dict, block: dict, outcomes: list[str], finders:
             continue
         if pull.state != OPEN:
             rows.append(Row(f"{block_id}#{pr}", block_id, pr, pull.head[:7], "", "", "", {}, reasons=[f"listed: the PR is {pull.state.lower()} on GitHub and still listed under {block_id}"]))
-        elif APPROVED_LIST in block_id and rulings is not None and reviews is not None and (missing := approval_gaps(pull.head, pr, newest.get(pr), rulings, withdrawn, indexed_reviews.get(pr, []), drive, lanes, repo)):
+        elif APPROVED_LIST in block_id and rulings is not None and reviews is not None and (missing := approval_gaps(pull.head, pr, newest.get(pr), indexed_rulings.get(pr, []), withdrawn, indexed_reviews.get(pr, []), drive, lanes, repo)):
             rows.append(Row(f"{block_id}#{pr}", block_id, pr, pull.head[:7], "", "", "", {}, reasons=[f"unapproved: listed under {block_id} with {' and '.join(missing)} at GitHub's head {pull.head[:7]}"]))
     return rows, found, warnings
 
