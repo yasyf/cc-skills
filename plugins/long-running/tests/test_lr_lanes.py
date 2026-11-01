@@ -482,6 +482,23 @@ def test_a_lane_that_stops_after_its_last_pr_landed_is_retired_not_relaunched(tm
         assert fake.launches == [] and (store.lane("conflicts-2").state, store.lane("conflicts-2").retired_by) == ("retired", "landed")
 
 
+def test_a_root_stand_down_naming_a_lanes_bus_name_retires_its_fix_suffixed_registry_lane(tmp_path):
+    """Root #287495: root stood down takeover-500-fix at 9:59 AM, the registry held it as takeover-500-fix-fix, and the supervisor relaunched it at 10:20 AM."""
+    store = Store.memory()
+    brief = tmp_path / "takeover-500-fix" / "brief.md"
+    brief.parent.mkdir()
+    brief.write_text("# takeover-500-fix: prove the 500 fix\n")
+    fake = Fake(tmp_path, [spawned(1, "takeover-500-fix-fix", brief)], [who("takeover-500-fix-fix", True, T0 - timedelta(minutes=30))])
+    lanes.tick(store, fake.deps, T0 - timedelta(minutes=30), 1)
+    fake.feed.append(record(2, "root", "stand-down", T0 - timedelta(minutes=25), "9:59 AM stand-down takeover-proper-fix-1, takeover-500-fix: incident closed by the owner", ("takeover-proper-fix-1", "takeover-500-fix", "supervisor")))
+    fake.peers = [who("takeover-500-fix-fix", False, T0 - timedelta(minutes=20))]
+
+    out = lanes.tick(store, fake.deps, T0, 1)
+
+    assert out.relaunched == [] and fake.launches == []
+    assert (store.lane("takeover-500-fix-fix").state, store.lane("takeover-500-fix-fix").retired_by) == ("retired", "root")
+
+
 @pytest.mark.parametrize(("kind", "text"), [("stand-down", "2:10 PM conflicts-2: standing down, root owns it"), ("stopped", "stopping at root's word")])
 def test_a_lane_that_records_its_own_stand_down_is_retired_not_relaunched(tmp_path, brief, kind, text):
     store = Store.memory()

@@ -238,8 +238,8 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             retire(store, lane, "stand-down", at)
         elif kind == "stand-down" and lane == ROOT:
             successor = attrs_of(record).get("successor")
-            named = {name for listed in STAND_DOWN_LIST.finditer(text) for name in re.findall(r"[\w.-]+", listed["names"]) if store.lane(name)}
-            for old in sorted((named or set(record.get("to") or [])) - {successor}):
+            named = {posts_as.get(name, name) for listed in STAND_DOWN_LIST.finditer(text) for name in re.findall(r"[\w.-]+", listed["names"]) if store.lane(posts_as.get(name, name))}
+            for old in sorted((named or {posts_as.get(name, name) for name in record.get("to") or []}) - {successor}):
                 if not (gone := store.lane(old)):
                     continue
                 if gone.state != "retired":
