@@ -6407,7 +6407,7 @@ class Landing:
         return linked
 
     def link(self, chain: list[str]) -> Done:
-        """`gh stack link` of `chain`, bottom first, and once more naming every open PR of the native stack a member of `chain` already belongs to, in its order, when GitHub refuses a link that names only part of that stack (cci #227794)."""
+        """`gh stack link` of `chain`, bottom first, and once more naming every open PR of the native stack a member of `chain` already belongs to, in its order, when GitHub refuses a link that names only part of that stack (cci #227794). That second link runs only where the native stack and `chain` agree: a native stack that carries other PRs between, below or above the shared ones where `chain` carries its own would splice them into the chain, so it links nothing (root #285634)."""
         done = self.shell.run(["gh", "stack", "link", *chain], env={"GH_REPO": self.repo}, cwd=str(self.checkout))
         if done.code == 0 or STACK_PARTIAL not in done.out + done.err:
             return done
@@ -6416,6 +6416,9 @@ class Landing:
         if not shared:
             return done
         below, above = chain[: chain.index(shared[0])], [pr for pr in chain[chain.index(shared[-1]) + 1 :] if pr not in members]
+        lower, middle, upper = members[: members.index(shared[0])], members[members.index(shared[0]) : members.index(shared[-1]) + 1], members[members.index(shared[-1]) + 1 :]
+        if middle != shared or lower and below or upper and above:
+            return Done(done.code, "", f"the native stack {numbered(members)} and the chain {numbered(chain)} part ways, so linking them would splice one into the other; nothing links until they agree")
         return self.shell.run(["gh", "stack", "link", *below, *members, *above], env={"GH_REPO": self.repo}, cwd=str(self.checkout))
 
     def native_stack(self, chain: list[str]) -> list[str]:
