@@ -506,7 +506,7 @@ def test_a_failed_board_review_read_keeps_its_warning_and_does_not_build_an_inde
     monkeypatch.setattr(board_rows, "reviews_by_pr", index)
 
     assert gate(tmp_path, shell, card(row("42590")), "--check") == 0
-    assert lines(capsys) == ["WARN the grades did not read (reviews unavailable); no row is checked for a grade or finder at its head", "rows 1 failing 0 ungraded 0 flags"]
+    assert lines(capsys) == ["WARN the grades did not read (reviews unavailable); no row is checked for a grade or finder at its head", "rows 1 failing 0 ungraded 0 flags 0"]
 
 
 def test_a_fresh_graded_pr_groups_row_pushes_a_copy_without_its_text_time(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
