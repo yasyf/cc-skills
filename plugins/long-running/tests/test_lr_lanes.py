@@ -787,6 +787,7 @@ def test_a_root_stand_down_retires_only_the_lanes_it_names_never_the_lanes_it_co
     for name in ("conflicts-3", "lane-supervisor-2"):
         store.want_lane(name, str(brief), "opus", "xhigh", "lane", "desired", T0 - timedelta(hours=1))
     fake.feed.append(record(2, "root", "stand-down", T0 - timedelta(minutes=5), "11:14 PM stand-down conflicts-2: conflicts-3 owns the stack from 11:13 PM", ("conflicts-2", "conflicts-3", "lane-supervisor-2")))
+    fake.peers = [who(name, True, T0) for name in ("conflicts-2", "conflicts-3", "lane-supervisor-2")]
 
     lanes.tick(store, fake.deps, T0, 1)
 
