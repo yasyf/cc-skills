@@ -5205,6 +5205,11 @@ def trunk_labelled(entry: dict, row: dict) -> dict:
     return entry
 
 
+def pulled_out(entry: dict, why: str) -> dict:
+    """`entry` as not queued when the queue dropped a PR this desk pulled out itself, saying why it pulled it."""
+    return entry | {"queue": "not queued", "pulled": why} if why and entry["queue"] == "evicted" else entry
+
+
 def numbered(prs: list[str]) -> str:
     return " ".join(f"#{pr}" for pr in prs)
 
@@ -9368,6 +9373,14 @@ class Landing:
             self.landed.add(pr)
         return pr in self.landed
 
+    def pulled_last(self) -> dict[str, str]:
+        """Why this desk took each PR out of the queue, for each PR whose newest enqueue of this desk it pulled, through `mq.py dequeue` or a dequeue order, so the queue's cancel of it reads as that dequeue and never as an eviction (landing-desk-3's 8:34 AM Oct 31 dequeue of #46464 and #46478 read back as two evictions, #257578)."""
+        newest: dict[str, actions.Action] = {}
+        for action in sorted(self.book.actions(LANDING, kind="enqueue", status="completed"), key=lambda action: action.accepted_at):
+            for pr in enqueued_heads(action.action_id):
+                newest[pr] = action
+        return {pr: action.response["pulled"]["why"] for pr, action in newest.items() if action.response.get("outcome") == PULLED}
+
     def pr_statuses(self) -> dict[str, dict] | None:
         """Every open ledger row's `ccx vcs pr status` entry, from one read a pass in parallel calls of `STATUS_PAGE` PRs, each with its own deadline, served from the poll the pass's ledger refresh made when it is under `STATUS_MAX_AGE` old, so no entry is older than `statuses_floor`, that the requeue read, the landed check, and the routing of PRs no go names share; None when a call fails, which logs one `STATUS-READ-FAILED` per cause an hour, and then none of them acts that pass."""
         if not self.queues_read:
@@ -9380,7 +9393,8 @@ class Landing:
             done = next((read for read in [*reads, rules] if read.code != 0), Done(0, "", ""))
             required = set() if done.code else {TRUNK_QUEUE_CHECK} | {check["context"] for rule in json.loads(rules.out) if rule["type"] == "required_status_checks" for check in rule["parameters"]["required_status_checks"]}
             entries = [] if done.code else [required_only(entry, required) for read in reads for entry in json.loads(read.out)]
-            statuses = self.statuses = None if done.code else {str(entry["number"]): trunk_labelled(trunk_recorded(entry, self.trunk_states.get(str(entry["number"]))), self.ledger_rows.get(str(entry["number"]), {})) if self.adapter.kind == merge_queue.TrunkStackEnqueue.kind else entry for entry in entries}
+            pulled = self.pulled_last() if not done.code else {}
+            statuses = self.statuses = None if done.code else {str(entry["number"]): pulled_out(trunk_labelled(trunk_recorded(entry, self.trunk_states.get(str(entry["number"]))), self.ledger_rows.get(str(entry["number"]), {})) if self.adapter.kind == merge_queue.TrunkStackEnqueue.kind else entry, pulled.get(str(entry["number"]), "")) for entry in entries}
             self.queues_read = True
             if statuses is None:
                 last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
