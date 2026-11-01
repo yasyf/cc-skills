@@ -77,6 +77,7 @@ class CheckShell(RegisterShell):
         failing: tuple[str, ...] = (),
         plan: Path | None = None,
         stamp: str | None = None,
+        bus: tuple[dict, ...] = (),
     ) -> None:
         stamp = stamp or current_stamp(rows, plan)
         super().__init__(rows, answers=answers, diff=diff, records=[read_back(stamp)])
@@ -85,6 +86,7 @@ class CheckShell(RegisterShell):
         self.pr_records = [LANE_HEAD, FINDER_OK] if records is None else records
         self.reviews = [graded(stamp)] if reviews is None else reviews
         self.failing = failing
+        self.bus = bus
 
     def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
         plain = gateway(argv)
@@ -95,6 +97,8 @@ class CheckShell(RegisterShell):
                 return json.dumps({"body": self.body, "baseRefName": "main", "comments": [{"body": comment} for comment in self.comments]})
             case ["cci", "tail", "--drive", "brook-cci", "--since-seq", since, "--json", "--budget", _, "--pr", "acme/app#12"]:
                 return "".join(json.dumps(record) + "\n" for record in self.pr_records if record["seq"] > int(since))
+            case ["cci", "tail", "--drive", "brook-cci", "--since-seq", since, "--json", "--budget", _]:
+                return "".join(json.dumps(record) + "\n" for record in [*self.pr_records, *self.bus] if record["seq"] > int(since))
             case ["cci", "tail", "--drive", "brook-cci", "--since-seq", since, "--json", "--budget", _, "--kind", "review", "--kind", "answer"]:
                 return "".join(json.dumps(record) + "\n" for record in self.reviews if record["seq"] > int(since) and record["kind"] in ("review", "answer"))
         return super().run(argv, stdin, cwd)
@@ -385,6 +389,15 @@ def test_the_newest_finder_verdict_on_the_head_decides(package: Path, state: Pat
     assert check(capsys, CheckShell(pinned(package), records=[LANE_HEAD, FINDER_OK, major])) == (1, [f"FINDER-MAJOR {HEAD[:7]}"])
     assert check(capsys, CheckShell(pinned(package), records=[LANE_HEAD, major, fixed, elsewhere])) == (0, [])
     assert check(capsys, CheckShell(pinned(package), records=[LANE_HEAD, FINDER_OK, major | {"seq": 15, "lane": LANE_HEAD["lane"]}])) == (0, [])
+
+
+def test_a_root_finder_override_after_the_major_clears_it_though_it_names_no_pr(package: Path, state: Path, registered: Path, capsys) -> None:
+    major = {"seq": 12, "kind": "review", "lane": "finder-desk", "text": f"finder: major {HEAD[:7]} 2 open"}
+    override = {"seq": 20, "kind": "decide", "lane": "root", "text": f"finder-override #12 at {HEAD[:7]}: the race needs a reorder the queue never makes"}
+    other = {"seq": 21, "kind": "decide", "lane": "root", "text": f"finder-override #13 at {HEAD[:7]}: another PR"}
+
+    assert check(capsys, CheckShell(pinned(package), records=[LANE_HEAD, major], bus=(override,))) == (0, [])
+    assert check(capsys, CheckShell(pinned(package), records=[LANE_HEAD, major], bus=(other,))) == (1, [f"FINDER-MAJOR {HEAD[:7]}"])
 
 
 def test_an_added_scope_name_needs_a_cited_answer_whose_words_name_it(package: Path, state: Path, registered: Path, capsys) -> None:
