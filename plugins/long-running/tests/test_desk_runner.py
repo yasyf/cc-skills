@@ -3821,6 +3821,25 @@ def test_a_go_marked_exempt_admits_a_tap_ruled_head_whose_stale_board_row_waits(
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
     assert not [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
 
+@pytest.mark.parametrize(("files", "lands"), [(["go/sand/next/vm/run_test.go", ".buildkite/test.yml"], True), (["go/sand/next/vm/run_test.go", "go/sand/next/vm/run.go"], False)], ids=["tests", "code"])
+def test_a_go_marked_test_only_admits_its_head_only_when_every_changed_file_is_a_test_or_ci_file(shell, config, files, lands):
+    """Root #232354: the words test-only let #46294 into the queue with no tap while its diff held non-test code; the class is read from the files, never the words."""
+    board_surface(config)
+    lone_green_pr(shell)
+    shell.files["29020"] = files
+    grade(shell, "29020", "ok F307 at cccc333.")
+    merge_go(shell, "29020", "go #29020 at cccc333 on green [exempt: test-only, the vm suite]")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    mismatches = [post_body(post) for post in blockers(shell) if "TEST-ONLY-MISMATCH" in post_body(post)]
+    if lands:
+        assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and mismatches == []
+        return
+    assert shell.enqueues() == []
+    [mismatch] = mismatches
+    assert "TEST-ONLY-MISMATCH go/sand/next/vm/run.go is neither a test nor CI configuration, so the test-only claim does not hold; TAP-REQUIRED merge mode every: it lands only once the owner has tapped some head of it" in mismatch
+
+
 
 @pytest.mark.parametrize(
     "go",
