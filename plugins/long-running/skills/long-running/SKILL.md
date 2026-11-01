@@ -4534,7 +4534,8 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   script of its own. Every lane that has posted has a row, `unregistered` when no `SPAWNED`
   record named it, and a lane is `live` when it posted a record within an hour, whatever its
   registry state. Each PR has one owner, the row that lists it: the last lane to post a `head`
-  or `opened` record for it, the lane root names with `--kind decide --pr <n> --text
+  or `opened` record for it that is not addressed to its current owner, so a desk relaying a
+  rebase to the owner leaves it in place, the lane root names with `--kind decide --pr <n> --text
   'owner=<lane>'`, or the successor of a stand-down or an `X replaces Y`. A `landed` record
   clears it. Root's prose namings are not parsed. A `cci who` row is a process fact only:
   every in-process teammate of a live root session reads live there, however long ago it

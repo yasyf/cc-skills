@@ -199,7 +199,7 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             store.lane_handoff(lane, doc, at if row.asked else None)
         elif (handed := HANDED_OFF.search(text)) and lane == f"{handed['lane']}-handoff" and (owner := newest(store, handed["lane"])):
             store.lane_handoff(owner.name, handed["doc"], None)
-        elif kind in CARRIES and (numbers := set(prs_of(record))):
+        elif kind in CARRIES and (numbers := {n for n, owner in store.owner_of(prs_of(record)).items() if owner not in addressed(record)}):
             for other in store.lanes("launching"):
                 if other.name != lane and other.prs and set(other.prs) <= numbers:
                     retire(store, other.name, lane, at)

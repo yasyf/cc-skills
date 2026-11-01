@@ -293,6 +293,12 @@ class Store:
         states = tuple(states)
         return [row["name"] for row in self.db.execute(f"SELECT name FROM lanes WHERE awaits IS NULL AND waiting IN ({', '.join('?' * len(answers))}) AND state IN ({', '.join('?' * len(states))})", (*answers, *states))]
 
+    def owner_of(self, prs: Iterable[int]) -> dict[int, str | None]:
+        prs = list(prs)
+        rows = self.db.execute(f"SELECT pr, lane FROM owners WHERE pr IN ({', '.join('?' * len(prs))})", prs)
+        owned = {row["pr"]: row["lane"] for row in rows}
+        return {pr: owned.get(pr) for pr in prs}
+
     def own(self, name: str, prs: Iterable[int]) -> None:
         self.db.executemany("INSERT INTO owners (pr, lane) VALUES (?, ?) ON CONFLICT (pr) DO UPDATE SET lane = excluded.lane", [(pr, name) for pr in prs])
 

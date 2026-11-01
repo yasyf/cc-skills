@@ -654,3 +654,16 @@ def test_a_lane_parked_on_an_owner_card_waits_through_roots_reply_and_wakes_once
 
     assert parked.woken == [] and store.lane("conflicts-2").awaits is None and picked.woken == ["conflicts-2"] and after.woken == []
     assert fake.pages[0]["why"].startswith("the owner answered card-cleanup-daemon-restart, the card you wait on: Owner on board")
+
+
+def test_a_head_relayed_to_the_prs_owner_leaves_the_owner_in_place(tmp_path, brief):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store, prs=(46888,))
+    fake.feed += [
+        record(2, "desk-runner", "head", T0 - timedelta(minutes=5), "HEAD #46888 9de73e2: the landing runner rebased it", ("conflicts-2", "fidelity-desk-3"), {"prs": [46888]}),
+        record(3, "desk-runner", "head", T0 - timedelta(minutes=4), "HEAD #46889 1a2b3c4: rebased", ("fidelity-desk-3",), {"prs": [46889]}),
+    ]
+
+    lanes.tick(store, fake.deps, T0, 1)
+
+    assert store.owner_of([46888, 46889]) == {46888: "conflicts-2", 46889: "desk-runner"}
