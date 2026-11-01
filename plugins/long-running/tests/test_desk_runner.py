@@ -15836,7 +15836,9 @@ def test_unchanged_actual_overflow_pass_changes_no_sql_rows(shell, config, tmp_p
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux process write accounting")
-def test_orca_historical_lane_read_connection_cost(shell, config, tmp_path, monkeypatch):
+def test_orca_historical_lane_read_connection_cost(shell, config, tmp_path, monkeypatch, record_property):
+    reader_owners = []
+    fixture_owner = {"thread": threading.current_thread().name, "ident": threading.get_ident(), "native_id": threading.get_native_id()}
     store = actions.Store(tmp_path / "store")
     runner = runner_module.Runner(shell, runner_module.Config.load(config), store)
     lanes = [runner_module.lane_container(f"history-{index}") for index in range(56)]
@@ -15872,6 +15874,8 @@ def test_orca_historical_lane_read_connection_cost(shell, config, tmp_path, monk
 
     def opened(database, *args, **kwargs):
         connection = connect(database, *args, factory=ObservedConnection, **kwargs)
+        current = threading.current_thread()
+        reader_owners.append((current.name, current.ident, threading.get_native_id(), str(database)))
         connection.observed_path = Path(database.removeprefix("file:").partition("?")[0])
         paths.add(connection.observed_path.name)
         costs["opens"] += 1
@@ -15890,6 +15894,8 @@ def test_orca_historical_lane_read_connection_cost(shell, config, tmp_path, monk
             runner.in_process()
             receipts.append({**costs, "process_write_bytes": write_bytes() - initial})
     print(json.dumps({"fixture_lanes": len(lanes), "callers": ["deadlines_orca", "incident_clock", "in_process"], "passes": receipts}))
+    record_property("reader_fixture_owner", json.dumps(fixture_owner))
+    record_property("reader_connection_owners", json.dumps([{"thread": name, "ident": ident, "native_id": native_id, "raw_database": database, "opens": opens} for (name, ident, native_id, database), opens in Counter(reader_owners).items()]))
     assert paths == {store.path(lane).name for lane in lanes}
     assert [receipt["opens"] for receipt in receipts] == [56, 56]
     assert costs["closes"] == costs["opens"]

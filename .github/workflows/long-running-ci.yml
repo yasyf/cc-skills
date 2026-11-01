@@ -388,7 +388,13 @@ jobs:
       - name: Actual overflow refusal historical read costs
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/overflow_read_integration.py -q -s
       - name: pytest
-        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q --junitxml="$RUNNER_TEMP/ci-reader-owner.xml" -o junit_family=xunit1
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ci-reader-owner
+          path: ${{ runner.temp }}/ci-reader-owner.xml
+          if-no-files-found: error
       - uses: actions/checkout@v7
         with:
           ref: 1af779ed338cf93945678ad33c396f1546d0fda3
