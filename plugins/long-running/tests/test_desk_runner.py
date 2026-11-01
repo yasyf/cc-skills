@@ -1063,6 +1063,43 @@ def landing_pass(shell: FakeShell, config: Path) -> None:
     assert cli(shell, config, "run", "--desk", "landing", "--once") == 0
 
 
+@pytest.mark.parametrize("desk", ["orca", "landing"])
+def test_repeated_once_calls_leave_real_heartbeat_threads(shell, config, monkeypatch, record_property, desk):
+    threads, stops = [], []
+    start, keep_alive = threading.Thread.start, runner_module.Runner.keep_alive
+    owner = threading.get_ident()
+
+    def started(thread):
+        start(thread)
+        if threading.get_ident() == owner and thread.name == f"{desk}-alive":
+            threads.append(thread)
+
+    def keeping(runner, name):
+        stop = keep_alive(runner, name)
+        stops.append(stop)
+        return stop
+
+    monkeypatch.setattr(threading.Thread, "start", started)
+    monkeypatch.setattr(runner_module.Runner, "keep_alive", keeping)
+    try:
+        for _ in range(3):
+            assert cli(shell, config, "run", "--desk", desk, "--once") == 0
+        live = threading.enumerate()
+        observed = [{"name": thread.name, "ident": thread.ident, "native_id": thread.native_id, "alive": thread.is_alive(), "enumerated": thread in live} for thread in threads]
+        record_property("heartbeat_threads", json.dumps(observed))
+        print(json.dumps({"desk": desk, "heartbeat_threads": observed}))
+        assert len(threads) == len(stops) == 3
+        assert len({thread.native_id for thread in threads}) == 3
+        assert all(thread.native_id is not None and thread.is_alive() and thread in live for thread in threads)
+        assert not any(stop.is_set() for stop in stops)
+    finally:
+        for stop in stops:
+            stop.set()
+        for thread in threads:
+            thread.join(timeout=2)
+    assert all(not thread.is_alive() for thread in threads)
+
+
 def said(shell: FakeShell) -> list[str]:
     return [(Path(post["path"]).read_text() if "path" in post else post["text"]).splitlines()[0] for post in shell.posts]
 

@@ -31,6 +31,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
+      - name: Actual controller heartbeat thread lifecycle characterization
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py::test_repeated_once_calls_leave_real_heartbeat_threads -q -s --junitxml="$RUNNER_TEMP/controller-heartbeat-lifecycle.xml" -o junit_family=xunit1
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: controller-heartbeat-lifecycle
+          path: ${{ runner.temp }}/controller-heartbeat-lifecycle.xml
+          if-no-files-found: error
       - uses: actions/checkout@v7
         with:
           ref: 55b1b01654e37be57b7c2d102f5b4492a7fec1a5
