@@ -3961,6 +3961,29 @@ def test_a_go_marked_exempt_admits_a_tap_ruled_head_whose_stale_board_row_waits(
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
     assert not [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
 
+@pytest.mark.parametrize(
+    "files",
+    [
+        [".agents/skills/buildkite-cli/SKILL.md", "go/ci/bkverb.go", "go/ci/bkverb_test.go"],
+        ["scripts/vcr/with-vcr.sh"],
+        ["go/sand/.test-timings.json", "go/sand/next/cmd/iris_serve_fork_test.go"],
+        ["api/src/modules/redisForTest/util/RedisInstance.ts", "scripts/vcr/withVcr.test.ts"],
+    ],
+    ids=["ci-skill-and-verb", "vcr-harness", "timings", "test-helper-module"],
+)
+def test_a_go_marked_ci_tooling_admits_a_head_of_harness_scripts_timing_manifests_and_ci_skill_docs(shell, config, files):
+    """Root #288692: go #288068 marked #47254 [exempt: ci-tooling], and the runner refused it because the buildkite-cli skill doc was not CI configuration; #47255, #47257 and #47266 waited on the owner's tap the same way."""
+    board_surface(config)
+    lone_green_pr(shell)
+    shell.files["29020"] = files
+    grade(shell, "29020", "ok F307 at cccc333.")
+    merge_go(shell, "29020", "go #29020 at cccc333 on green [exempt: ci-tooling]")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    assert not [post for post in blockers(shell) if "MISMATCH" in post_body(post)]
+
+
 @pytest.mark.parametrize(("files", "lands"), [(["go/sand/next/vm/run_test.go", ".buildkite/test.yml"], True), (["go/sand/next/vm/run_test.go", "go/sand/next/vm/run.go"], False)], ids=["tests", "code"])
 def test_a_go_marked_test_only_admits_its_head_only_when_every_changed_file_is_a_test_or_ci_file(shell, config, files, lands):
     """Root #232354: the words test-only let #46294 into the queue with no tap while its diff held non-test code; the class is read from the files, never the words."""
@@ -4081,6 +4104,15 @@ def test_the_legacy_port_phrase_key_still_sets_the_port_grade_phrase(shell, conf
         ("api/src/testing.ts", False),
         ("infra/pipelines/dev.yml", False),
         ("go/sand/mytestdata_test_helper.go", False),
+        ("go/sand/.test-timings.json", True),
+        ("api/.restate-test-timings.json", True),
+        ("scripts/vcr/with-vcr.sh", True),
+        ("api/test-scripts/nodeTestFileTimings.mjs", True),
+        ("api/src/modules/redisForTest/util/RedisInstance.ts", True),
+        ("go/ci/bkverb.go", True),
+        (".agents/skills/buildkite-cli/SKILL.md", True),
+        ("go/sand/scripts/build.sh", False),
+        ("api/src/modules/redis/RedisInstance.ts", False),
     ],
 )
 def test_only_test_files_and_ci_configuration_count_as_exempt(name, exempt):
