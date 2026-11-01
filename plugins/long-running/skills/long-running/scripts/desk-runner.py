@@ -4708,7 +4708,7 @@ class Runner:
             verdicts = board_rows.verdicts_of_records(self.board_records())
         except CciTailFailed:
             verdicts = {}
-        taps = {pr for rows in verdicts.values() for row, entry in rows.items() if entry["verdict"] == "approved" and (pr := board_rows.pr_of(row))}
+        taps = approved_prs(verdicts)
         self.taps = (self.now(), taps)
         return taps
 
@@ -5329,7 +5329,8 @@ def status_blocker(entry: dict, red: bool = True) -> str:
 
 
 def approved_prs(verdicts: dict[str, dict[str, dict]]) -> set[str]:
-    return {pr for by_row in verdicts.values() for row, entry in by_row.items() if entry["verdict"] == "approved" and (pr := board_rows.pr_of(row))}
+    """The PRs whose newest verdict on the board, on any block and at any head, approves them: a rejection after an approval stands, so the PR is no longer tapped (#46446, rejected at 6ac5c56 at 2:32 AM Oct 31)."""
+    return {pr for pr, entry in board_rows.newest_by_pr(verdicts).items() if entry["verdict"] == "approved"}
 
 
 def prefix_tops(prefix: list[str], rows: dict[str, dict]) -> list[str]:
@@ -5637,8 +5638,10 @@ class Landing:
         self.resolved_preconditions: dict[str, set[int]] = {}
         self.successor_lanes: tuple[tuple[int, tuple[str, ...]], list[str]] = ((-1, ()), [])
         self.gos: list[dict] | None = None
+        self.owner_taps: tuple[set[str] | None] | None = None
         self.cleared: dict[str, int] = {}
         self.going = threading.Lock()
+        self.tapping = threading.Lock()
         self.read: dict[str, tuple[datetime, list[dict]]] = {}
         self.review_titles: dict[str, str] = {}
         self.unread: dict[str, dict[str, str]] = {}
@@ -5822,15 +5825,16 @@ class Landing:
         return {order["pr"] for order in facts.get(DEQUEUE_ORDERS, {}).values()} | {pr for pr, head in latched.items() if rows.get(pr, {}).get("head", "").startswith(head)}
 
     def moved_past_go(self, rows: dict[str, dict], statuses: dict[str, dict]) -> dict[str, dict]:
-        """An order out for each queued PR a go names only at other heads, never at its current one, so Trunk never merges a head nobody gave a go (root #234005). Its head is not latched: a go at the new head enqueues it again."""
+        """An order out for each queued PR a go names only at other heads, never at its current one, or whose go at its head the owner's newest board verdict no longer backs, so Trunk never merges a head nobody gave a go or he rejected (root #234005, #46446). Its head is not latched: a go at the new head, or his approval, enqueues it again."""
         gos = self.root_gos()
         return {
-            f"moved:{pr}@{head[:12]}": {"pr": pr, "why": f"queued at {head[:10]}, but its go names {named[-1][:10]}", "latch": False}
+            f"moved:{pr}@{head[:12]}": {"pr": pr, "why": f"queued at {head[:10]}, but the owner's newest verdict on the root's board does not approve it" if gone_at(gos, pr, head) else f"queued at {head[:10]}, but its go names {named[-1][:10]}", "latch": False}
             for pr, entry in statuses.items()
             if entry["queue"] == QUEUED_STATE
             and (head := rows.get(pr, {}).get("head", ""))
             and (named := [go_heads(go)[pr] for go in gos if pr in go_heads(go)])
             and not self.free_to_land(gos, pr, head)
+            and (self.board_taps() is not None or not gone_at(gos, pr, head))
         }
 
     def settle_order(self, key: str, order: dict, rows: dict[str, dict], statuses: dict[str, dict]) -> None:
@@ -5903,14 +5907,23 @@ class Landing:
 
     def unpassed(self, rows: dict[str, dict]) -> set[str]:
         """The open rows no root `go` names at their ledger head and whose change there is not exempt, when merge mode `every` leaves every ask to the root's board: the pass bars each like a held PR from every `--check` and enqueue call, never a top and never swept in (root #131119, #131287), and `tell_unpassed` routes them from the status read instead. Empty in every other mode, where the gate's check is what asks the owner."""
-        if self.merge_mode != "every" or self.landing_config.get("merge_ask_surface", "slack") != "board" or self.lands_green:
+        if not self.taps_on_board:
             return set()
         gos = self.root_gos()
         return {pr for pr, row in rows.items() if row.get("state", "open") == "open" and not self.free_to_land(gos, pr, row.get("head", ""))}
 
+    @property
+    def taps_on_board(self) -> bool:
+        """Whether merge mode `every` leaves every PR to the owner and his taps live on the root's board."""
+        return self.merge_mode == "every" and self.landing_config.get("merge_ask_surface", "slack") == "board" and not self.lands_green
+
     def free_to_land(self, gos: list[dict], pr: str, head: str) -> bool:
-        """Whether a go of `gos` names `pr` at `head`, or its change there is exempt and goes straight to Graphite's queue with no go or tap (root #194387)."""
-        return bool(head) and bool(gone_at(gos, pr, head) or self.exempt_admitted(pr, head)[0])
+        """Whether a go of `gos` names `pr` at `head` and, while his taps live on the root's board, the owner's newest verdict there approves the PR, since a root go never stands in for his tap (rule/82317b0, owner 2:48 AM Oct 31), or its change there is exempt and goes straight to the merge queue with no go or tap (root #194387). Every landing path reads this one answer: the admission, the bar on unpassed rows, the dequeue of a queued head, and the read just before a direct merge."""
+        if not head:
+            return False
+        if gone_at(gos, pr, head) and (not self.taps_on_board or pr in self.owner_tapped()):
+            return True
+        return bool(self.exempt_admitted(pr, head)[0])
 
     def refuse_ungone_parents(self, rows: dict[str, dict], held: list[str]) -> None:
         """Settle each admitted row, by a root `go` at its head or an exemption, red or conflicting itself or not, above a parent nothing can land past as `BelowBlocked` on the lowest such parent, saying the stack below it lands without them (root #152548): one `unpassed` keeps out, one a hold covers, one red on CI, or one that conflicts with its base. The rows the pass did not admit, those a hold covers among them, get one note per lowest parent instead, posted again only when that stack's set of such parents changes, never for a head that moves: the whole stack waits, `unqueued_gos` never reads it as an unqueued go, and the root hears, in the words `cci owner-waits` prints, what each parent with no go really waits on, which wait on a hold, and which need their lane; it never says a parent waits on the owner's tap unless a board row at its head does (root #207532). A stack whose every such parent is held reads `BELOW-HELD` (root #142036, #142931, #145011)."""
@@ -7224,11 +7237,18 @@ class Landing:
         return {pr: merge_queue.State(merge_queue.FAIL, grade.why) for pr, grade in ungraded.items()}
 
     def owner_tapped(self) -> set[str]:
-        """The PRs an approval on the root's board names at any head, from its records; none when they do not read, so every grade gate holds that pass."""
-        try:
-            return approved_prs(board_rows.verdicts_of_records(self.runner.board_records()))
-        except CciTailFailed:
-            return set()
+        """The PRs whose newest verdict on the root's board approves them at any head; none when the records do not read, so every grade gate and every go waiting on a tap holds that pass."""
+        return self.board_taps() or set()
+
+    def board_taps(self) -> set[str] | None:
+        """The PRs whose newest verdict on the root's board approves them at any head, read once per pass and again with the gos, or None when the board's records do not read."""
+        with self.tapping:
+            if self.owner_taps is None:
+                try:
+                    self.owner_taps = (approved_prs(board_rows.verdicts_of_records(self.runner.board_records())),)
+                except CciTailFailed:
+                    self.owner_taps = (None,)
+            return self.owner_taps[0]
 
     def check_merge_mode(self, graded: Graded) -> dict[str, merge_queue.State]:
         if (asks := self.owner_asks(graded.heads)) is None:
@@ -7567,7 +7587,7 @@ class Landing:
         return ",".join(dict.fromkeys(map(self.successor, [*desks, *self.board_lanes, *owners])))
 
     def carry_taps(self, rows: dict[str, dict]) -> None:
-        """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head whatever changed between the two, since a PR he tapped never returns to his board (owner 2:48 AM Oct 31): `cc-present verdict carry` records it, so the row shows his tap and asks nothing, one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads, and the runner posts its own go at the new head. A carry onto a merge block the board no longer holds has nothing to carry, so it logs no `TAP-CARRY-FAILED` (root #151003, #151839)."""
+        """With `landing.merge_ask_surface` set to `board`, carry each approval the owner tapped on a `pr-groups` row of the root's board at an older head of an open PR, which no verdict names at its ledger head, to that head whatever changed between the two, since a PR he tapped never returns to his board (owner 2:48 AM Oct 31), unless his newest verdict on the PR, on any block, rejects it: `cc-present verdict carry` records it, so the row shows his tap and asks nothing, one `TAP-CARRIED` note to root and each `landing.board_lane` lane names both heads, and the runner posts its own go at the new head. A carry onto a merge block the board no longer holds has nothing to carry, so it logs no `TAP-CARRY-FAILED` (root #151003, #151839)."""
         if self.landing_config.get("merge_ask_surface", "slack") != "board":
             return
         try:
@@ -7577,7 +7597,8 @@ class Landing:
             return
         heads = {pr: row["head"] for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}
         self.question_tap_claims(heads, verdicts, rows)
-        entries = [(block, pr, entry) for block, by_row in verdicts.items() for pr, entry in by_row.items() if pr in heads and entry.get("head")]
+        tapped = approved_prs(verdicts)
+        entries = [(block, pr, entry) for block, by_row in verdicts.items() for pr, entry in by_row.items() if pr in heads and pr in tapped and entry.get("head")]
         decided = {pr for _, pr, entry in entries if names_head(entry["head"], heads[pr])}
         to = ",".join([ROOT, *self.board_lanes])
         for _, pr, entry in entries:
@@ -7924,9 +7945,9 @@ class Landing:
     def go_lost(self, chain: list[str], rows: dict[str, dict]) -> str:
         """Which PRs of `chain` a root record withdrew or resolved the go of since the pass read the gos, read fresh just before the merge, since the checks wait can run for minutes; a later root `go` grants it again (root #199069)."""
         with self.going:
-            self.gos = None
+            self.gos = self.owner_taps = None
         barred = self.unpassed(rows)
-        return f"{numbered([pr for pr in chain if pr in barred])} has no go at its head any more, read just before the merge" if any(pr in barred for pr in chain) else ""
+        return f"{numbered([pr for pr in chain if pr in barred])} has no go at its head or no owner tap any more, read just before the merge" if any(pr in barred for pr in chain) else ""
 
     def checks_settled(self, chain: list[str], heads: dict[str, str]) -> str:
         """Why `chain` may not merge yet, or empty: the checks the trunk requires, named by the bottom PR's required checks, must pass on every head first, read every `CHECK_POLL_SECONDS` up to `CHECK_POLLS` times, since GitHub refuses a merge while one is pending and the runner's own rebase push restarts them (#198874); a handoff ends the wait, so the runner exits at once and its successor reads the checks again."""
@@ -8661,10 +8682,10 @@ class Landing:
             self.runner.escalate(f"overflow-stalled:{now:%Y%m%d%H}", "OVERFLOW-STALLED", "landing", f"the overflow thread has finished no run in {int(quiet // 60)} minutes{'' if alive else ' and is dead'}, so a stack the passes leave out waits on them alone; `desk-runner.py handoff` restarts the runner")
 
     def overflow(self, gate: "Landing") -> None:
-        """Hand to a stack worker of `gate`, the passes' Landing, each stack that has stayed landable for `OVERFLOW_AFTER` since an overflow first found it so: every unqueued PR of it green at its ledger head, named at that head by a root go, under no hold, pull, or incident fix, with no enqueue of it running and nothing the runner decided against it at that head, which is a refusal `last_refusal` finds since the go, an enqueue outcome outside `OVERFLOW_RETRIES` other than a `blocked` one five minutes old, a drop still waiting on a go, or a reserved row no answer authorizes (C224). A stack is due once any PR of it is, so a restack that restarted an upper PR's clock never sends the bottom in alone for Graphite to hold the rest on. Each goes to `land_tree` as its stack's top, so the overflow runs every check, admission and merge-mode gate a pass runs and refuses a batch carrying a PR the drive did not admit (root #245808)."""
+        """Hand to a stack worker of `gate`, the passes' Landing, each stack that has stayed landable for `OVERFLOW_AFTER` since an overflow first found it so: every unqueued PR of it green at its ledger head, named at that head by a root go and free to land there, under no hold, pull, or incident fix, with no enqueue of it running and nothing the runner decided against it at that head, which is a refusal `last_refusal` finds since the go, an enqueue outcome outside `OVERFLOW_RETRIES` other than a `blocked` one five minutes old, a drop still waiting on a go, or a reserved row no answer authorizes (C224). A stack is due once any PR of it is, so a restack that restarted an upper PR's clock never sends the bottom in alone for Graphite to hold the rest on. Each goes to `land_tree` as its stack's top, so the overflow runs every check, admission and merge-mode gate a pass runs and refuses a batch carrying a PR the drive did not admit (root #245808)."""
         self.cci_tail.remember()
         try:
-            self.statuses, self.queues_read, self.gos, self.cleared = None, False, None, {}
+            self.statuses, self.queues_read, self.gos, self.owner_taps, self.cleared = None, False, None, None, {}
             if self.quota_low() or (rows := self.rows()) is None or self.checks_paused() or (queue := self.queue_states()) is None:
                 return
             held = self.held(rows)
@@ -8696,7 +8717,7 @@ class Landing:
         ready = {
             pr
             for pr, row in open_rows.items()
-            if row.get("ours") and row.get("head") and row.get("test_state") == "success" and pr not in covered and pr not in pulled and queue.get(pr) in OUT_OF_QUEUE and gone_at(gos, pr, row["head"])
+            if row.get("ours") and row.get("head") and row.get("test_state") == "success" and pr not in covered and pr not in pulled and queue.get(pr) in OUT_OF_QUEUE and gone_at(gos, pr, row["head"]) and self.free_to_land(gos, pr, row["head"])
         }
         landable = {pr for pr in ready if all(below in ready or queue.get(below) in STATUS_SETTLED for below in downstack(open_rows, pr) - {pr})}
         enqueues = self.book.actions(LANDING, kind="enqueue")
@@ -9530,8 +9551,8 @@ class Landing:
         )
 
     def reread(self) -> None:
-        """Drop the pass's root gos and cci reads, so the next read sees records posted since."""
-        self.gos = None
+        """Drop the pass's root gos, owner taps and cci reads, so the next read sees records posted since."""
+        self.gos = self.owner_taps = None
         self.cci_tail.forget()
 
     def gate_pass(self) -> None:
@@ -9541,7 +9562,7 @@ class Landing:
             self.gate_deadline = time.monotonic() + GATE_BUDGET.total_seconds()
             self.trusted_from, self.pass_began = self.pass_began, time.monotonic()
             self.surface()
-            self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why, self.untested_why, self.cleared, self.exempts = None, False, None, None, None, set(), {}, {}, {}, {}
+            self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.owner_taps, self.unchecked, self.unproven_why, self.untested_why, self.cleared, self.exempts = None, False, None, None, None, None, set(), {}, {}, {}, {}
             self.settlement = Settlement({}, {})
             if self.quota_low():
                 if rows := self.rows():

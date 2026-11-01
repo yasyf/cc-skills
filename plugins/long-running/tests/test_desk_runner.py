@@ -4318,6 +4318,41 @@ def test_a_pr_the_owner_tapped_lands_on_its_go_with_no_fidelity_grade_and_an_ope
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
+REJECTED_AFTER_TAP = {
+    "merge-rows": {"29020": {"verdict": "approved", "head": "aaaa111111", "at": "2026-10-01T17:40:00Z"}},
+    "reasks": {"merge-row-29020-bbbb222": {"verdict": "rejected", "head": "bbbb222222", "at": "2026-10-01T18:10:00Z"}},
+}
+
+
+@pytest.mark.parametrize("board", [{}, REJECTED_AFTER_TAP], ids=["untapped", "rejected-after-a-tap"])
+def test_a_root_go_lands_a_board_pr_only_once_the_owners_newest_verdict_approves_it(shell, config, board):
+    """Root #237906: a go on a head he never tapped was a landing order under merge mode every; #46446: his 2:32 AM rejection after an earlier approval still read as a tap that carried."""
+    board_surface(config)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    shell.board = json.loads(json.dumps(board))
+    merge_go(shell, "29020", "go #29020 at cccc333")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == [] and shell.carries == [] and [post for post in shell.posts if post["kind"] == "go"] == []
+    shell.board.setdefault("merge-rows", {})["29020"] = {"verdict": "approved", "head": "cccc333333", "at": "2026-10-01T18:30:00Z"}
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+
+
+def test_a_queued_board_pr_the_owner_rejects_leaves_the_queue_and_its_go_lands_nothing(shell, config):
+    board_surface(config)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    tap(shell, "29020", "cccc333333")
+    merge_go(shell, "29020", "go #29020 at cccc333")
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    shell.board["reasks"] = {"merge-row-29020-cccc333": {"verdict": "rejected", "head": "cccc333333", "at": "2026-10-01T18:10:00Z"}}
+    landing_pass(shell, config)
+    assert dequeues(shell) == [["29020", "--dequeue"]]
+
+
 def test_a_snapshot_from_an_older_board_watch_with_no_blocks_carries_no_tap_and_the_pass_goes_on(shell, config, tmp_path):
     board_surface(config)
     board_lane(config)
@@ -4527,6 +4562,7 @@ def test_a_board_surface_asks_from_the_status_read_with_no_check_until_a_root_go
     assert checks(shell) == [] and shell.pr_cards == []
     [line] = escalations(shell)
     assert line == "MERGE-ASK merge-ask:29020 #29020: #29020 cccc333 waits on the owner's tap on `merge:29020:cccc333` on the root's board (merge mode every); no go names this head"
+    tap(shell, "29020", "cccc333333")
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and len(escalations(shell)) == 1
@@ -4622,6 +4658,7 @@ def test_on_a_board_surface_no_check_or_enqueue_names_a_pr_without_a_root_go_at_
     shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
     for pr, head in (("29020", "cccc333"), ("29101", "ffff666")):
         grade(shell, pr, f"ok F307 at {head}.")
+        tap(shell, pr, f"{head}333" if pr == "29020" else f"{head}666")
         merge_go(shell, pr, f"merge #{pr} at {head}")
     merge_go(shell, "29100", "merge #29100 at bbbb222")
     shell.pr_status |= {"29031": {"verdict": "blocked:ci-pending"}, "29100": {"verdict": "blocked:ci-pending"}}
@@ -4688,6 +4725,8 @@ def test_on_a_board_surface_a_root_go_naming_a_parent_in_passing_never_sweeps_it
     landing_pass(shell, config)
     assert stack_named(shell) == set() and shell.enqueues() == []
     assert ungone_parents("29020", went(shell, ("29031", "dddd444444")), ungone("#29020 at cccc333333"), NO_ROW_29020) in [post_body(post) for post in notes(shell) if post["to"] == "root"]
+    tap(shell, "29020", "cccc333333")
+    tap(shell, "29031", "dddd444444")
     merge_go(shell, "29020", "GO #29020 AT CCCC333 and #29031 at dddd444 (owner taps 3:10 PM)")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29031", "--partial"]]
@@ -8228,6 +8267,7 @@ def test_an_admitted_head_on_a_parent_no_go_names_settles_below_blocked_never_un
         grade(shell, "29031", "ok dddd444 pure port, no interaction: it only ports old-tree #43020.")
     else:
         shell.rows[1] |= {"mergeable_state": "dirty"}
+        tap(shell, "29031", "dddd444444")
         merge_go(shell, "29031", "merge #29031 at dddd444")
     landing_pass(shell, config)
     assert not [line for line in said(shell) if "unsettled" in line]
