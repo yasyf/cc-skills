@@ -324,6 +324,14 @@ def test_a_head_past_one_every_lane_graded_ok_is_graded_on_its_range_diff_delta_
     assert shell.texts()[0].startswith(f"fidelity: ok {HEAD} Resubscribes")
 
 
+def test_the_grader_reads_agents_md_rules_at_the_trunk_tip_never_the_heads_copy(tmp_path):
+    directory = job(tmp_path, grades=[])
+    shell = Fake(tmp_path, [reply()])
+    fidelity.main([str(directory)], shell)
+    question = (directory / "question-1.md").read_text()
+    assert f"at the trunk tip {BASE},\nwith `git show {BASE}:<path>`" in question and "never the\nhead's copy" in question
+
+
 def test_a_codex_ok_posts_the_grade_with_its_exempt_phrase_then_touches_and_old_app(tmp_path):
     directory = job(tmp_path, grades=[])
     shell = Fake(tmp_path, [reply(exempt="test-only", touches=("prompt/1026-105052",), old_app="changes")])
