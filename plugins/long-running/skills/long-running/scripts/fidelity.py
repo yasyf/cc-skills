@@ -29,7 +29,8 @@ a row ungraded, keys a `missing` line on anything but a plan line, an owner row 
 reasoning in `swept` is asked once more; a second such reply fails the job. A reply with any `missing` entry grades
 `missing` whatever verdict it names, and posts its `reader` reason to the human fidelity desks as well. A head that moved while
 codex read it posts nothing. The question lists every point of a `missing` grade root settled, and a
-reply's `missing` entry that repeats one word for word is dropped; a reply left with none posts ok citing
+reply's `missing` entry that repeats one word for word, or cites only code lines a settled point at an earlier head
+cites and no change since touched, is dropped; a reply left with none posts ok citing
 the settling decide. Each line is posted under lane `fidelity-pipeline`, kind `review`, to the
 head's lane and every `to` address: `fidelity: ok`, one `fidelity: missing` per broken row, or
 `fidelity: reader` to the human fidelity desks as well, then one `touches <key>` per reserved row and
@@ -43,7 +44,9 @@ import argparse
 import json
 import re
 import sys
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from functools import cache
 from pathlib import Path
 
 from long_running import drive
@@ -68,6 +71,7 @@ OLD_APP_LINE = re.compile(r"^old-app:\s*(unchanged|bug fix|changes)\b:?\s*(?:[0-
 CODEX_SECONDS = 3600
 PLAN_LINE = re.compile(r"plan:(?:[\w./-]+\.md:)?\d+(?:-\d+)?")
 AGENTS_LINE = re.compile(r"(?:[\w.-]+/)*AGENTS\.md:\d+(?:-\d+)?")
+SPAN_DASH = re.compile(r"[–—]")
 
 
 def patch_id(shell: finder.Shell, job: dict, start: str, end: str) -> str:
@@ -161,18 +165,55 @@ def prompt(job: dict, view: dict, base: str, rows: Path, plan: str, touched: dic
     )
 
 
+def settled_grades(job: dict) -> Iterator[tuple[str, list[str], int]]:
+    """Each `fidelity: missing` grade on the PR that a root record settled: its head, its points, and that record."""
+    for grade in job["grades"]:
+        if grade["text"].startswith(FIDELITY_MISSING) and (root := job["settled"].get(str(grade["seq"]))):
+            head, _, points = grade["text"][len(FIDELITY_MISSING) :].split(maxsplit=2)
+            yield head, points.split("; "), root
+
+
 def settled_points(job: dict) -> dict[str, int]:
-    """Each point of a `fidelity: missing` grade on the PR that a root `decide` settled, with that decide."""
-    return {point: root for grade in job["grades"] if grade["text"].startswith(FIDELITY_MISSING) and (root := job["settled"].get(str(grade["seq"]))) for point in grade["text"][len(FIDELITY_MISSING) :].split(maxsplit=2)[2].split("; ")}
+    """Each point of a `fidelity: missing` grade on the PR that a root record settled, with that record."""
+    return {point: root for _, points, root in settled_grades(job) for point in points}
 
 
-def unsettled(job: dict, reply: dict) -> dict:
-    """`reply` less each `missing` entry that repeats a settled point word for word or that the reply marks `settled` by a root record the job carries (root #265931), read as ok citing the settling records when none is left."""
+def places(line: str) -> list[tuple[str, int, int]]:
+    """The code lines a point cites as `<path>:<line>` or `<path>:<first>-<last>`, a rule's AGENTS.md line aside."""
+    return [(path, int(first), int(last or first)) for path, first, last in finder.CITE.findall(SPAN_DASH.sub("-", line)) if "." in path.rpartition("/")[2] and not AGENTS_LINE.fullmatch(f"{path}:{first}")]
+
+
+def same_file(one: str, other: str) -> bool:
+    return one == other or one.endswith(f"/{other}") or other.endswith(f"/{one}")
+
+
+def settled_place(job: dict, line: str, moved: Callable[[str], dict[str, list[tuple[int, int]]] | None]) -> int | None:
+    """The root record that settled a point at an earlier head citing each code line `line` cites, when no change since that head touches those lines (root #271977, #273671)."""
+    if not (cited := places(line)):
+        return None
+    roots = []
+    for path, first, last in cited:
+        root = next((root for head, points, root in settled_grades(job) for named, start, end in places("; ".join(points)) if same_file(path, named) and start <= last and first <= end and (touched := moved(head)) is not None and not finder.in_diff(f"{path}:{first}-{last}", touched)), None)
+        if root is None:
+            return None
+        roots.append(root)
+    return min(roots)
+
+
+def changed_since(shell: finder.Shell, job: dict, since: str) -> dict[str, list[tuple[int, int]]] | None:
+    """The new-side lines each file changed from `since` to the job's head, None when `since` no longer resolves."""
+    if not (full := finder.fetched(shell, job, since)):
+        return None
+    return finder.hunks(finder.git(shell, job, "diff", "--unified=0", "--no-color", "--no-ext-diff", full, job["head"]))
+
+
+def unsettled(job: dict, reply: dict, moved: Callable[[str], dict[str, list[tuple[int, int]]] | None]) -> dict:
+    """`reply` less each `missing` entry that repeats a settled point word for word, cites only code lines a settled point at an earlier head cites and no change since touched, or that the reply marks `settled` by a root record the job carries (root #265931), read as ok citing the settling records when none is left."""
     points = settled_points(job)
     roots = set(points.values()) | {ruling["seq"] for ruling in job["rulings"]}
     if reply["verdict"] != "missing":
         return reply
-    settling = {id(entry): points.get(" ".join(entry["line"].split())) or (entry["settled"] if entry["settled"] in roots else None) for entry in reply["missing"]}
+    settling = {id(entry): points.get(" ".join(entry["line"].split())) or settled_place(job, entry["line"], moved) or (entry["settled"] if entry["settled"] in roots else None) for entry in reply["missing"]}
     if kept := [entry for entry in reply["missing"] if settling[id(entry)] is None]:
         return reply | {"missing": kept}
     cited = ", ".join(f"#{root}" for root in sorted(set(settling.values())))
@@ -291,7 +332,7 @@ def run(directory: Path, shell: finder.Shell) -> dict:
             raise finder.JobFailed(f"two replies gave {'; and '.join(short)}")
     if (now := finder.view_pr(shell, job)["headRefOid"]) != head:
         return {"skipped": f"{pr} moved to {now[:12]} while codex read {head[:12]}"}
-    lines = graded_lines(job, reply := unsettled(job, reply))
+    lines = graded_lines(job, reply := unsettled(job, reply, cache(lambda since: changed_since(shell, job, since))))
     body.write_text("\n".join(text for text, _ in lines) + f"\nchecked {','.join(reply['checked'])} names {'|'.join(reply['names'])}\n\n{json.dumps(reply, indent=2)}\n")
     return {"verdict": reply["verdict"], "posted": post(shell, job, lines, body)}
 

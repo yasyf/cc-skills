@@ -283,6 +283,26 @@ def test_a_new_heads_missing_point_that_repeats_a_settled_one_word_for_word_is_d
 
 
 
+PERMISSIONS = "dashboard/src/iris/lib/IrisPermissionsContext.tsx"
+
+
+@pytest.mark.parametrize(
+    ("raised", "posted"),
+    [
+        (f"{PERMISSIONS}:123–153 adds copying Relay's isPlatformPreviewer result into provider state through an effect", f"fidelity: ok {HEAD} Resubscribes from the fetched position after a cut. Every missing point is one root settled at #170007."),
+        ("go/sand/next/replica/follow.go:41 still resubscribes from zero", f"fidelity: missing {HEAD} dashboard/AGENTS.md:37 go/sand/next/replica/follow.go:41 still resubscribes from zero"),
+        ("dashboard/src/iris/lib/IrisShell.tsx:126 copies the flag into state", f"fidelity: missing {HEAD} dashboard/AGENTS.md:37 dashboard/src/iris/lib/IrisShell.tsx:126 copies the flag into state"),
+    ],
+    ids=["same-lines-reworded", "lines-the-change-touched", "another-file"],
+)
+def test_a_reworded_point_on_code_lines_a_settled_point_cites_is_dropped_unless_the_change_since_touched_them(tmp_path, raised, posted):
+    settled = f"{PERMISSIONS}:126 newly copies Relay's isPlatformPreviewer into the provider's useState; go/sand/next/replica/follow.go:41 resubscribes from zero"
+    directory = job(tmp_path, grades=[PIPELINE_MISSING | {"text": f"fidelity: missing {OLD} dashboard/AGENTS.md:42 {settled}"}], settled={"170006": 170007})
+    shell = Fake(tmp_path, [reply(verdict="missing", missing=({"key": "dashboard/AGENTS.md:37", "line": raised},))], {(f"{OWN}^", HEAD): "5f1e", (f"{OLD}~1", OLD): "77aa"})
+    fidelity.main([str(directory)], shell)
+    assert shell.texts()[0] == posted
+
+
 @pytest.mark.parametrize(("settled", "posted"), [(265587, f"fidelity: ok {HEAD} Resubscribes from the fetched position after a cut. Every missing point is one root settled at #265587."), (999, f"fidelity: missing {HEAD} plan:811 the census route refuses an unproven head")], ids=["a-carried-ruling", "a-number-the-job-never-carried"])
 def test_a_reworded_point_a_root_ruling_settled_is_dropped_by_the_ruling_the_reply_names(tmp_path, settled, posted):
     """Root #265931: the fidelity pipeline dropped a settled point only on a word-for-word repeat, so the Unproven refusal root settled at #265587 came back reworded on the next head."""
