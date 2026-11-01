@@ -26,7 +26,10 @@ Read the code around every changed symbol at that sha, its callers and callees i
 
 {rows_step}
 
-3. Read every test the change adds or changes. A test may assert only behavior a line of
+3. Read every test the change adds or changes. A test the change adds is one the base lacks,
+   so run `git grep -n '<test name>' {base_oid} -- <path>` before calling it added. A test the base
+   already has is a changed test, and when `git diff -w` shows only its timing or wording
+   changed, grade only that change. A test may assert only behavior a line of
    the plan, a sub-plan, or an owner row names. Cite that line for each test in `swept` as
    "tests: <test> <- <plan cite>; ...". A test that pins drive-era behavior the plan
    removes, or behavior nothing names, is one finding, severity major, defect starting

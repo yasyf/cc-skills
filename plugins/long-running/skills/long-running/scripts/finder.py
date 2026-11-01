@@ -79,6 +79,7 @@ PID = "pid"
 POSTS = "posts.jsonl"
 CANCELLED = "cancelled"
 WHOLE_ASKED = "finder: whole"
+REGRADE_ORDER = re.compile(rf"\b{re.escape(LANE)}:\s*re-?grade\b([^;.]*)", re.IGNORECASE)
 CARRIED_FROM = re.compile(r"\bcarried from #(\d+)")
 WHOLE_READ = "over whole "
 HEAD_SHA = re.compile(r"(?<!was )\b[0-9a-f]{40}\b")
@@ -159,8 +160,12 @@ def text_prs(text: str, repo: str) -> list[str]:
 
 
 def requested(record: dict, repo: str) -> list[str]:
-    """The PRs an `ask` to the finder desk asks a whole pass over by saying `finder: whole`, every one it names; a `decide` asks none, since root settles findings in one (root #182759)."""
-    if record["kind"] != "ask" or LANE not in (record.get("to") or []) or WHOLE_ASKED not in record["text"].casefold():
+    """The PRs an `ask` to the finder desk asks a whole pass over by saying `finder: whole`, every one it names, and those a root `decide` or `defect` orders regraded as `finder-desk: regrade #N ...` up to the clause's end (root #289998); any other `decide` asks none, since root settles findings in one (root #182759)."""
+    if LANE not in (record.get("to") or []):
+        return []
+    if record["kind"] in ("decide", "defect"):
+        return list(dict.fromkeys(pr for order in REGRADE_ORDER.findall(record["text"]) for pr in text_prs(order, repo))) if record.get("lane") == "root" else []
+    if record["kind"] != "ask" or WHOLE_ASKED not in record["text"].casefold():
         return []
     return [pr for pr, _ in repo_prs(record, repo)] if (record.get("refs") or {}).get("prs") else text_prs(record["text"], repo)
 

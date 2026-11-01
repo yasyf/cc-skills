@@ -281,13 +281,19 @@ def test_a_requested_full_pass_at_a_head_a_delta_record_graded_reads_the_whole_c
         ("ask", ["finder-desk"], "finder-desk: one whole-diff pass on #44114", []),
         ("decide", ["finder-desk"], "re #182756: the carried major on #44764 8b4019d is settled", []),
         ("decide", ["finder-desk"], "finder: whole #44114", []),
+        ("defect", ["finder-desk", "fidelity-pipeline"], "re #288330 Grader defect: the finder reads a re-timed test as added under e20e623 on #47267, #47274 and #47281. finder-desk: regrade #47267 and #47274 at their current heads with git diff -w; fidelity-pipeline: regrade #47275", ["47267", "47274"]),
+        ("decide", ["finder-desk"], "finder-desk: re-grade #44114 at 7d13a98", ["44114"]),
         ("ask", ["p8b-step10"], "finder: whole #44114", []),
         ("ask", ["finder-desk"], f"finder: whole pr:{REPO}#77 after yasyf/cc-skills#9940", ["77"]),
         ("ask", ["finder-desk"], "finder: whole yasyf/cc-skills#9940", []),
     ],
 )
-def test_only_an_ask_to_the_finder_desk_saying_finder_whole_requests_a_full_pass(kind, to, text, prs):
-    assert finder.requested({"kind": kind, "to": to, "text": text, "refs": {}}, REPO) == prs
+def test_an_ask_saying_finder_whole_or_a_root_regrade_order_requests_a_full_pass(kind, to, text, prs):
+    assert finder.requested({"kind": kind, "lane": "root", "to": to, "text": text, "refs": {}}, REPO) == prs
+
+
+def test_a_regrade_order_from_a_lane_other_than_root_requests_nothing():
+    assert finder.requested({"kind": "decide", "lane": "speed-ts-1", "to": ["finder-desk"], "text": "finder-desk: regrade #47267", "refs": {}}, REPO) == []
 
 
 def test_a_head_that_carries_no_commit_the_base_lacks_runs_no_finder(tmp_path):
