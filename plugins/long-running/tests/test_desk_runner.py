@@ -1064,7 +1064,7 @@ def landing_pass(shell: FakeShell, config: Path) -> None:
 
 
 @pytest.mark.parametrize("desk", ["orca", "landing"])
-def test_repeated_once_calls_leave_real_heartbeat_threads(shell, config, monkeypatch, record_property):
+def test_repeated_once_calls_leave_real_heartbeat_threads(shell, config, monkeypatch, record_property, desk):
     threads, stops = [], []
     start, keep_alive = threading.Thread.start, runner_module.Runner.keep_alive
     owner = threading.get_ident()
