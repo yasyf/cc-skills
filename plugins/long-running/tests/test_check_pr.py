@@ -226,7 +226,19 @@ def test_a_reserved_row_matches_its_identifiers_inside_its_paths_never_a_path_al
     assert check(capsys, CheckShell(rows, diff=DIFF + added("go/sand/cmd/evict_chats.go", "return nil"))) == (0, [])
     assert check(capsys, CheckShell(rows, diff=DIFF + added("go/sand/cmd/serve.go", "os.RemoveAll(dir)"))) == (0, [])
     assert check(capsys, CheckShell(rows, diff=DIFF + added("go/sand/cmd/evict_chats.go", "os.RemoveAll(dir)"))) == refused
-    assert check(capsys, CheckShell(rows, diff=DIFF + added("go/sand/cmd/evict_chats.go", "evict(session)"))) == refused
+    assert check(capsys, CheckShell(rows, diff=DIFF + added("go/sand/cmd/evict_chats.go", "evict(session)"))) == (0, [])
+
+
+ADMIN_RETIRE = dict(RESERVED, words="Your tap on the eviction release's merge card is also its authorization to delete chat files on Macs.", ops='["rust/crates/sandsql-server/src/admin.rs", "*retire*", "*Decommission*", "*Remove*", "*remove_file*", "*evict*"]')
+
+
+def test_a_reserved_delete_row_matches_a_delete_in_its_paths_never_a_domain_word_beside_it(package: Path, state: Path, registered: Path, capsys) -> None:
+    """Root #270259: #46994 named pinned or busy in a refused decommission's 503 in admin.rs and drew RESERVED-NO-ANSWER for rule/812d4c5, which reserves deleting chat files on Macs; it deletes nothing."""
+    rows = pinned(package) | {"rule/812d4c5": ADMIN_RETIRE}
+    refused = (1, ["RESERVED-NO-ANSWER rule/812d4c5\tYour tap on the eviction release's merge card is also its authorization to delete chat files on Macs."])
+
+    assert check(capsys, CheckShell(rows, diff=DIFF + added("rust/crates/sandsql-server/src/admin.rs", "Err(DecommissionError::Pinned) => refused_retirement(\"pinned\"),"))) == (0, [])
+    assert check(capsys, CheckShell(rows, diff=DIFF + added("rust/crates/sandsql-server/src/admin.rs", "std::fs::remove_file(&path)?;"))) == refused
 
 
 def test_a_head_graded_again_after_a_new_reserved_row_reads_the_row_though_its_diff_facts_are_kept(package: Path, state: Path, registered: Path, capsys) -> None:
