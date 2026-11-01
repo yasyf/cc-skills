@@ -10,7 +10,7 @@ from collections import OrderedDict
 from collections.abc import Callable, Iterator, Mapping, MutableMapping
 from contextlib import contextmanager
 from copy import deepcopy
-from dataclasses import asdict, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from random import Random
 
@@ -532,6 +532,24 @@ def _create_database(root: Path, incident: Incident) -> Incident:
     return incident
 
 
+@dataclass(frozen=True)
+class ReadVersion:
+    _connection: sqlite3.Connection = field(repr=False)
+    _value: int
+
+
+def _read_version(connection: sqlite3.Connection) -> ReadVersion:
+    return ReadVersion(connection, connection.execute("PRAGMA data_version").fetchone()[0])
+
+
+def _read_facts(connection: sqlite3.Connection, read: Callable[[Mapping[str, object]], object]) -> object:
+    tree = _FactTree(connection)
+    try:
+        return detached(read(_Facts(tree)))
+    finally:
+        tree.closed = True
+
+
 class _ReadConnections(threading.local):
     def __init__(self):
         self.connections: OrderedDict[Path, tuple[tuple[int, int], sqlite3.Connection]] | None = None
@@ -672,11 +690,16 @@ class Store:
     def read_facts(self, incident_id: str, read: Callable[[Mapping[str, object]], object]) -> object:
         """Detach a selection from a single fresh view of the lazy facts."""
         with self._read(incident_id) as connection:
-            tree = _FactTree(connection)
-            try:
-                return detached(read(_Facts(tree)))
-            finally:
-                tree.closed = True
+            return _read_facts(connection, read)
+
+    def read_facts_with_version(self, incident_id: str, read: Callable[[Mapping[str, object]], object]) -> tuple[object, ReadVersion]:
+        with self._read(incident_id) as connection:
+            version = _read_version(connection)
+            return _read_facts(connection, read), version
+
+    def unchanged(self, incident_id: str, version: ReadVersion) -> bool:
+        with self._read(incident_id) as connection:
+            return connection is version._connection and connection.execute("PRAGMA data_version").fetchone()[0] == version._value
 
     def fact_children(self, incident_id: str, key: str, keys) -> dict:
         """Named child values of a fact, detached from one fresh read snapshot."""
@@ -728,6 +751,13 @@ class Store:
         index = " INDEXED BY action_kind_status" if kind is not None and statuses is not None else ""
         with self._read(incident_id) as connection:
             return [Action.load(json.loads(row[0])) for row in connection.execute("SELECT record FROM action" + index + where + " ORDER BY ordinal", parameters)]
+
+    def actions_with_version(self, incident_id: str, kind: str | None = None, status: str | None = None, *, statuses=None) -> tuple[list[Action], ReadVersion]:
+        where, parameters = _selected(kind, status, statuses)
+        index = " INDEXED BY action_kind_status" if kind is not None and statuses is not None else ""
+        with self._read(incident_id) as connection:
+            version = _read_version(connection)
+            return [Action.load(json.loads(row[0])) for row in connection.execute("SELECT record FROM action" + index + where + " ORDER BY ordinal", parameters)], version
 
     def blocker_candidates(self, incident_id: str) -> list[Action]:
         with self._read(incident_id) as connection:

@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Protocol
 
 from . import actions
+from .sqlite_store import ReadVersion
 
 
 class Clock(Protocol):
@@ -41,6 +42,12 @@ class Book:
 
     def read_facts(self, container: str, read: Callable[[Mapping[str, object]], object]) -> object:
         return self.store.read_facts(container, read)
+
+    def read_facts_with_version(self, container: str, read: Callable[[Mapping[str, object]], object]) -> tuple[object, ReadVersion]:
+        return self.store.read_facts_with_version(container, read)
+
+    def unchanged(self, container: str, version: ReadVersion) -> bool:
+        return self.store.unchanged(container, version)
 
     def fact_children(self, container: str, key: str, keys) -> dict:
         return self.store.fact_children(container, key, keys)
@@ -108,3 +115,6 @@ class Book:
 
     def direct_merge_candidates(self, container: str) -> list[actions.Action]:
         return self.store.direct_merge_candidates(container)
+
+    def actions_with_version(self, container: str, kind: str | None = None, status: str | None = None, *, statuses=None) -> tuple[list[actions.Action], ReadVersion]:
+        return self.store.actions_with_version(container, kind, status, statuses=statuses)

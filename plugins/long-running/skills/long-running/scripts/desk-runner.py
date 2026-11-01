@@ -660,7 +660,7 @@ from pathlib import Path, PurePosixPath
 from zoneinfo import ZoneInfo
 
 from long_running import actions, judge
-from long_running.book import Book
+from long_running.book import Book, ReadVersion
 from long_running.build_cache import BuildCache
 from long_running.desk_control import DeskControl, QuiesceFailed
 from long_running import board_rows
@@ -1963,6 +1963,7 @@ class Runner:
         self.unreachable_passes = 0
         self.pr_silent_skipped: set[str] = set()
         self.release_polled = datetime.min.replace(tzinfo=timezone.utc)
+        self.cut_clock_proof: tuple[int, ReadVersion, ReadVersion, bool] | None = None
         self.passes: Counter[str] = Counter()
         self.raised: dict[str, tuple[str, int]] = {}
         self.alive_posted: dict[str, datetime] = {}
@@ -4396,6 +4397,7 @@ class Runner:
             self.tail_failed(failure)
 
     def open_cut_clocks(self) -> None:
+        proof, self.cut_clock_proof = self.cut_clock_proof, None
         cursor = self.book.fact(RUNNER, CUT_CURSOR, None)
         if cursor is None:
             newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
@@ -4412,16 +4414,35 @@ class Runner:
                 continue
             commit = refs.get("commit") or next(iter(SHORT_SHA.findall(record["text"])), "<sha>")
             clocks[f"go:{record['seq']}"] = {"lane": lanes[0], "components": refs["targets"], "since": record["at"], "trigger": f"GO #{record['seq']}", "commit": commit, "env": ",".join(refs.get("envs") or []) or "<env>", "pr": "", "prs": [str(pr).rsplit("#", 1)[-1] for pr in refs.get("prs", [])], "resolves": record.get("resolves"), "ended": ""}
+        release_version, owner_required = None, False
         if self.config.landing:
             self.book.ensure(LANDING, LANDING)
-            for action in self.book.actions(LANDING, kind="release", status="completed"):
+            if proof is not None and not clocks and cursor == stored_cursor:
+                prior_cursor, action_version, clock_version, required_owner = proof
+                configured = not required_owner or isinstance(self.config.landing, dict) and "release_owner" in self.config.landing
+                if cursor == prior_cursor and configured and self.book.unchanged(LANDING, action_version) and self.book.unchanged(RUNNER, clock_version):
+                    self.cut_clock_proof = proof
+                    return
+            release_actions, release_version = self.book.actions_with_version(LANDING, kind="release", status="completed")
+            for action in release_actions:
                 landed = json.loads(action.target)
                 if landed["components"]:
                     clocks.setdefault(f"release:{landed['pr']}", {"lane": self.config.landing["release_owner"], "components": landed["components"], "since": action.response["at"], "trigger": f"the release record for #{landed['pr']}", "commit": landed["sha"], "env": "<env>", "pr": landed["pr"], "prs": [landed["pr"]], "ended": ""})
+                    owner_required = True
 
         missing = object()
-        if cursor == stored_cursor and self.book.read_facts(RUNNER, lambda facts: isinstance(held := facts.get(CUT_CLOCKS), Mapping) and all(held.get(key, missing) is not missing for key in clocks) and facts.get(CUT_CURSOR) == cursor):
-            return
+        if cursor == stored_cursor:
+            def unchanged(facts):
+                return isinstance(held := facts.get(CUT_CLOCKS), Mapping) and all(held.get(key, missing) is not missing for key in clocks) and facts.get(CUT_CURSOR) == cursor
+            if release_version is None:
+                if self.book.read_facts(RUNNER, unchanged):
+                    return
+            else:
+                held, clock_version = self.book.read_facts_with_version(RUNNER, unchanged)
+                if held:
+                    if isinstance(cursor, int):
+                        self.cut_clock_proof = cursor, release_version, clock_version, owner_required
+                    return
 
         def keep(incident: actions.Incident) -> None:
             held = incident.facts.setdefault(CUT_CLOCKS, {})
