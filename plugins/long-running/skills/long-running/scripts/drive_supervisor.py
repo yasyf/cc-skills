@@ -9,7 +9,8 @@
 STDLIB ONLY. `lr.json` sits in the drive's state directory beside the store `lr.sqlite`, and the
 lanes mover writes successor briefs and launch logs under `lanes/` there. `run` takes the drive's
 lease and ticks until a newer generation holds it, or until a newer release of the plugin is
-installed, when it re-executes into that release under the same pid at the tick's end. Liveness is one `cci who` read and one Orca
+installed and `replay.py gate` passes it on the drive's last 24 hours, when it re-executes into
+that release under the same pid at the tick's end. Liveness is one `cci who` read and one Orca
 worker list per tick; a successor launches through `desk-launch.py lane`, detached, so a launch
 never holds the tick. `install` writes `~/Library/LaunchAgents/com.long-running.<drive>.supervisor.plist`
 and bootstraps that one label, booting out only its own earlier copy; launchd restarts the process
@@ -40,6 +41,7 @@ from lr.store import Store
 SCRIPTS = Path(__file__).resolve().parent
 BIN = SCRIPTS.parents[2] / "bin" / "drive_supervisor.py"
 DESK_LAUNCH = SCRIPTS / "desk-launch.py"
+REPLAY = SCRIPTS / "replay.py"
 PROJECTS = Path.home() / ".claude" / "projects"
 TEAMS = Path.home() / ".claude" / "teams"
 TASKS = Path.home() / ".claude" / "tasks"
@@ -112,8 +114,12 @@ def orca_rows(run_id: str, receipts: Path, names: set[str] | None, now: datetime
         if not (after := (page["result"].get("page") or {}).get("nextCursor")):
             break
         cursor = ["--cursor", after]
-    seen = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-    return [{"lane": lane, "live": True, "seen_at": seen, "dispatch": dispatch} for lane, dispatch in dispatches.items() if statuses.get(dispatch, "completed") not in INACTIVE]
+    return [
+        {"lane": lane, "live": live, "seen_at": (now if live else datetime.fromtimestamp((receipts / f"{lane}.json").stat().st_mtime, UTC)).strftime("%Y-%m-%dT%H:%M:%SZ"), "dispatch": dispatch}
+        for lane, dispatch in dispatches.items()
+        if dispatch in statuses
+        for live in [statuses[dispatch] not in INACTIVE]
+    ]
 
 
 def rostered(rows: list[dict], teams: Path) -> list[dict]:
@@ -282,6 +288,26 @@ def lanes_deps(config: lr_config.Config, state: Path) -> lanes.Deps:
     )
 
 
+class Upgrade:
+    """Whether the supervisor re-executes into the newest install: only when it is newer than `running` and `replay.py gate` passes it against `running` on the drive's last 24 hours, read once per version. A refusal keeps this version serving, and the gate posts why; a gate that did not finish keeps it too, posting one blocker."""
+
+    def __init__(self, config: lr_config.Config, running: str):
+        self.config, self.running = config, running
+        self.passed: dict[str, bool] = {}
+
+    def __call__(self) -> bool:
+        installed = lr_drive.installed_version()
+        if not lr_drive.behind(self.running, installed):
+            return False
+        if installed not in self.passed:
+            done = subprocess.run([sys.executable, str(REPLAY), "gate", "--drive", self.config.drive, "--repo", self.config.repo, "--old", self.running, "--new", installed], capture_output=True, text=True)
+            self.passed[installed] = done.returncode == 0
+            if done.returncode not in (0, 3):
+                why = ((done.stderr or done.stdout).strip().splitlines() or [f"exit {done.returncode}"])[-1][:300]
+                run(["cci", "post", "--drive", self.config.drive, "--lane", lanes.SELF, "--kind", "blocker", "--to", "root", "--id", f"replay-failed:{installed}", "--stamp", "--text", f"the supervisor stays on {self.running}: its replay gate against {installed} exited {done.returncode}: {why}"])
+        return self.passed[installed]
+
+
 def label(config: lr_config.Config) -> str:
     return f"com.long-running.{config.drive}.supervisor"
 
@@ -289,7 +315,7 @@ def label(config: lr_config.Config) -> str:
 def cmd_run(config: lr_config.Config, path: Path) -> int:
     store = Store.open(path.parent / "lr.sqlite")
     running = lr_drive.plugin_manifest()["version"]
-    deps = loop.Deps(movers=frozenset(config.movers), clock=clock, sleep=time.sleep, lane_deps=lanes_deps(config, path.parent) if "lanes" in config.movers else None, stale=lambda: lr_drive.behind(running, lr_drive.installed_version()))
+    deps = loop.Deps(movers=frozenset(config.movers), clock=clock, sleep=time.sleep, lane_deps=lanes_deps(config, path.parent) if "lanes" in config.movers else None, stale=Upgrade(config, running))
     ticks = loop.run(store, config.drive, SCRIPTS.parents[2].name, os.getpid(), deps)
     if not deps.stale():
         print(f"drive_supervisor: generation moved after {len(ticks)} ticks; exiting for the newer supervisor", file=sys.stderr)

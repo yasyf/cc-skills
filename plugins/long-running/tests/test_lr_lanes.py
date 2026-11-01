@@ -311,7 +311,8 @@ def test_a_lane_that_ended_its_turn_on_an_ask_to_root_waits_until_the_answer_goe
     assert out.relaunched == [("conflicts-2", "conflicts-3", "stopped at 10:00 AM")]
 
 
-def test_a_lane_waiting_on_root_whose_session_cci_no_longer_lists_is_gone(tmp_path, brief):
+def test_a_lane_no_process_row_lists_is_held_for_root_and_never_relaunched(tmp_path, brief):
+    """Retro C8, Nov 1: #1559, #1575 and #1606 each fixed one way a live or finished lane read dead; only a process row that reads not live proves a death."""
     store = Store.memory()
     fake = adopted(tmp_path, brief, store)
     fake.feed.append(record(2, "conflicts-2", "ask", T0, "pick A or B?", ("root",)))
@@ -319,7 +320,18 @@ def test_a_lane_waiting_on_root_whose_session_cci_no_longer_lists_is_gone(tmp_pa
 
     out = lanes.tick(store, fake.deps, T0 + timedelta(minutes=16), 1)
 
-    assert [old for old, *_ in out.relaunched] == ["conflicts-2"]
+    assert out.relaunched == [] and fake.launches == [] and out.held == ["conflicts-2"]
+    assert fake.kinds() == [("blocker", "root")] and "nothing proves it died" in fake.posts[0][-1]
+
+
+def test_a_lane_whose_process_row_cci_marks_stood_down_retires_without_a_successor(tmp_path, brief):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    fake.peers = [who("conflicts-2", False, T0 - timedelta(minutes=20), stood_down=True)]
+
+    out = lanes.tick(store, fake.deps, T0, 1)
+
+    assert out.relaunched == [] and fake.launches == [] and store.lane("conflicts-2").state == "retired"
 
 
 def test_a_desk_whose_last_record_is_a_blocker_to_another_lane_is_not_waiting(tmp_path, brief):
@@ -557,7 +569,7 @@ def test_the_owner_hears_one_line_an_hour_and_only_when_a_lane_restarted(tmp_pat
         ("desired", (False, 1), None, None, None, None, "ok"),
         ("desired", (False, 20), None, None, None, None, "dead"),
         ("desired", (False, 20), 2, None, None, None, "ok"),
-        ("desired", None, None, None, None, None, "dead"),
+        ("desired", None, None, None, None, None, "unproven"),
         ("desired", (True, 1), None, None, None, 700_000, "ask-rotate"),
         ("desired", (True, 1), None, 5, None, None, "ok"),
         ("desired", (True, 1), None, 15, None, None, "ok"),

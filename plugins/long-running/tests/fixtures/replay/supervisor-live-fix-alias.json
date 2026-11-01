@@ -1,0 +1,1639 @@
+{
+ "class": "supervisor-live-fix-alias",
+ "defect": 280837,
+ "expect": {
+  "relaunched": []
+ },
+ "fix": "yasyf/cc-skills#1559",
+ "input": {
+  "records": [
+   {
+    "at": "2026-11-01T10:39:10.685Z",
+    "fields": {
+     "attrs": {
+      "brief": "/scratch/takeover-500-tooling/brief.md",
+      "effort": "xhigh",
+      "model": "incident"
+     }
+    },
+    "kind": "state",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280433,
+    "text": "SPAWNED takeover-500-tooling-fix /scratch/takeover-500-tooling/brief.md",
+    "topic": "spawn:takeover-500-tooling-fix"
+   },
+   {
+    "at": "2026-11-01T10:39:15.948Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "takeover-500-tooling-fix",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280435,
+    "text": ""
+   },
+   {
+    "at": "2026-11-01T10:39:16.198Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280436,
+    "text": "LAUNCHED R84878 takeover-500-tooling-fix: dispatch ctx_ea33b9fa3728",
+    "to": [
+     "root"
+    ],
+    "topic": "R84878"
+   },
+   {
+    "at": "2026-11-01T10:39:27.165Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "resolves": 280423,
+    "seq": 280439,
+    "text": "",
+    "to": [
+     "drive-watchdog-2",
+     "release-5",
+     "takeover-500-fix-fix"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:39:58.278Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "decide",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "resolves": 280440,
+    "seq": 280446,
+    "text": "",
+    "to": [
+     "release-5",
+     "board-refresher-6",
+     "takeover-500-tooling-fix",
+     "takeover-500-fix-fix",
+     "drive-watchdog-2"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:40:23.49Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "evidence",
+    "lane": "takeover-500-fix",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280451,
+    "text": "#279691; #280243",
+    "to": [
+     "takeover-500-tooling-fix"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:40:29.259Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "mechanism",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280452,
+    "text": "",
+    "to": [
+     "root",
+     "release-5"
+    ],
+    "topic": "takeover-500"
+   },
+   {
+    "at": "2026-11-01T10:40:49.983Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "decide",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280461,
+    "text": "",
+    "to": [
+     "root"
+    ],
+    "topic": "msg_ca9ce763de56"
+   },
+   {
+    "at": "2026-11-01T10:40:56.156Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "note",
+    "lane": "release-5",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280467,
+    "text": "#47177",
+    "to": [
+     "progress-desk-2",
+     "stall-watch"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:41:09.999Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "answer",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "resolves": 280461,
+    "seq": 280470,
+    "text": "",
+    "to": [
+     "takeover-500-tooling-fix",
+     "desk-runner"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:42:36.31Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "mechanism",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280487,
+    "text": "",
+    "to": [
+     "root",
+     "release-5"
+    ],
+    "topic": "takeover-500"
+   },
+   {
+    "at": "2026-11-01T10:42:52.347Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "decide",
+    "lane": "root",
+    "re": 280487,
+    "refs": {
+     "prs": []
+    },
+    "seq": 280491,
+    "text": "",
+    "to": [
+     "takeover-500-tooling-fix",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:43:41.929Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "decide",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280500,
+    "text": "",
+    "to": [
+     "root"
+    ],
+    "topic": "msg_8cd6e356def8"
+   },
+   {
+    "at": "2026-11-01T10:43:59.071Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "decide",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "resolves": 280500,
+    "seq": 280502,
+    "text": "",
+    "to": [
+     "takeover-500-tooling-fix",
+     "desk-runner",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:44:58.489Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "takeover-500-tooling",
+    "re": 280502,
+    "refs": {
+     "prs": []
+    },
+    "seq": 280510,
+    "text": "",
+    "to": [
+     "root",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:45:35.195Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "note",
+    "lane": "release-5",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280519,
+    "text": "#47177",
+    "to": [
+     "progress-desk-2",
+     "stall-watch"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:45:57.119Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280524,
+    "text": "#280502",
+    "to": [
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:46:31.001Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280530,
+    "text": "",
+    "to": [
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:47:02.923Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "decide",
+    "lane": "root",
+    "re": 280530,
+    "refs": {
+     "prs": []
+    },
+    "seq": 280547,
+    "text": "#279011; #279325; #280530",
+    "to": [
+     "takeover-500-tooling-fix",
+     "tooling-misc-5",
+     "mq-health-8"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:47:09.486Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "opened",
+    "lane": "takeover-500-tooling-fix",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280548,
+    "text": "#47195"
+   },
+   {
+    "at": "2026-11-01T10:47:26.794Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "opened",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280553,
+    "text": "#47195",
+    "to": [
+     "root",
+     "release-5",
+     "landing-desk-3"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:47:26.836Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "opened",
+    "lane": "takeover-500-tooling-fix",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280554,
+    "text": "#47195"
+   },
+   {
+    "at": "2026-11-01T10:48:11.26Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "decide",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280564,
+    "text": "",
+    "to": [
+     "root"
+    ],
+    "topic": "msg_1b4abd96636d"
+   },
+   {
+    "at": "2026-11-01T10:48:27.651Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "decide",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "resolves": 280564,
+    "seq": 280576,
+    "text": "",
+    "to": [
+     "takeover-500-tooling-fix",
+     "desk-runner",
+     "tooling-misc-5",
+     "board-refresher-6"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:48:48.754Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "red",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280580,
+    "text": "#47195",
+    "to": [
+     "root",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:49:37.097Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280590,
+    "text": "#280576; #280502",
+    "to": [
+     "root",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:50:08.037Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "note",
+    "lane": "release-5",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280592,
+    "text": "#47177",
+    "to": [
+     "progress-desk-2",
+     "stall-watch"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:50:10.038Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "head",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280593,
+    "text": "#47195",
+    "to": [
+     "root",
+     "release-5",
+     "landing-desk-3"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:50:47.367Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "handoff",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280599,
+    "text": "#47195",
+    "to": [
+     "release-5",
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:52:22.555Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "review",
+    "lane": "fidelity-desk-19",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280618,
+    "text": "",
+    "to": [
+     "desk-runner",
+     "board-refresher-3",
+     "landing-desk-3",
+     "takeover-500-tooling",
+     "board-refresher-4",
+     "board-refresher-5",
+     "board-refresher-6"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:52:25.755Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "review",
+    "lane": "fidelity-desk-19",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280620,
+    "text": "#168284; #47195",
+    "to": [
+     "desk-runner",
+     "board-refresher-3",
+     "landing-desk-3",
+     "takeover-500-tooling",
+     "board-refresher-4",
+     "board-refresher-5",
+     "board-refresher-6"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:52:33.473Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "evidence",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280624,
+    "text": "",
+    "to": [
+     "root",
+     "release-5",
+     "landing-desk-3"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:52:56.98Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "review",
+    "lane": "fidelity-pipeline",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280634,
+    "text": "",
+    "to": [
+     "takeover-500-tooling",
+     "desk-runner",
+     "takeover-500-tooling-fix",
+     "board-refresher-3",
+     "go-sweep-5",
+     "landing-desk-3",
+     "fidelity-desk-10",
+     "board-refresher-4",
+     "board-refresher-5",
+     "board-refresher-6"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:52:57.062Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "review",
+    "lane": "fidelity-pipeline",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280635,
+    "text": "",
+    "to": [
+     "takeover-500-tooling",
+     "desk-runner",
+     "takeover-500-tooling-fix",
+     "board-refresher-3",
+     "go-sweep-5",
+     "landing-desk-3",
+     "fidelity-desk-10",
+     "board-refresher-4",
+     "board-refresher-5",
+     "board-refresher-6"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:53:07.086Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "ready",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280636,
+    "text": "#168284; #280491; #280502",
+    "to": [
+     "root",
+     "release-5",
+     "landing-desk-3"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:53:48.997Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "evidence",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280639,
+    "text": "#168305",
+    "to": [
+     "fidelity-pipeline",
+     "fidelity-desk-19",
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:54:05.259Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "blocker",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280643,
+    "text": "#47195",
+    "to": [
+     "takeover-500-tooling",
+     "root"
+    ],
+    "topic": "47195"
+   },
+   {
+    "at": "2026-11-01T10:54:05.573Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "decide",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280644,
+    "text": "#47195",
+    "to": [
+     "root"
+    ],
+    "topic": "msg_813e696b1c03"
+   },
+   {
+    "at": "2026-11-01T10:54:15.743Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "evidence",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280647,
+    "text": "",
+    "to": [
+     "root",
+     "fidelity-pipeline",
+     "fidelity-desk-19"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:54:15.696Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "review",
+    "lane": "fidelity-desk-19",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280648,
+    "text": "#280639; #168284",
+    "to": [
+     "desk-runner",
+     "board-refresher-3",
+     "landing-desk-3",
+     "takeover-500-tooling",
+     "fidelity-pipeline",
+     "board-refresher-4",
+     "board-refresher-5",
+     "board-refresher-6"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:54:21.146Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "decide",
+    "lane": "root",
+    "re": 280643,
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "resolves": 280644,
+    "seq": 280650,
+    "text": "#47195",
+    "to": [
+     "takeover-500-tooling-fix",
+     "desk-runner",
+     "fidelity-pipeline",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:54:37.027Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "takeover-500-tooling",
+    "re": 280650,
+    "refs": {
+     "prs": []
+    },
+    "seq": 280655,
+    "text": "#168305; #280502",
+    "to": [
+     "root",
+     "desk-runner"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:54:52.586Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "review",
+    "lane": "perf-sweep-1",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280659,
+    "text": "",
+    "to": [
+     "desk-runner",
+     "board-refresher-2",
+     "takeover-500-tooling-fix",
+     "board-refresher-3",
+     "board-refresher-4",
+     "board-refresher-5",
+     "board-refresher-6"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:54:55.215Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280664,
+    "text": "#280650",
+    "to": [
+     "root",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:55:03.226Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "note",
+    "lane": "release-5",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280665,
+    "text": "#47177",
+    "to": [
+     "progress-desk-2",
+     "stall-watch"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:55:15.538Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "evidence",
+    "lane": "takeover-500-tooling",
+    "re": 280650,
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280668,
+    "text": "#168305",
+    "to": [
+     "root",
+     "desk-runner",
+     "fidelity-pipeline"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:57:28.469Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "review",
+    "lane": "finder-desk",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280696,
+    "text": "",
+    "to": [
+     "takeover-500-tooling",
+     "desk-runner",
+     "takeover-500-tooling-fix"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:57:49.525Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "note",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280702,
+    "text": "#47195",
+    "to": [
+     "takeover-500-tooling"
+    ],
+    "topic": "47195"
+   },
+   {
+    "at": "2026-11-01T10:57:49.765Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "blocker",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280703,
+    "text": "#47195; #280696",
+    "to": [
+     "takeover-500-tooling",
+     "finder-desk"
+    ],
+    "topic": "47195"
+   },
+   {
+    "at": "2026-11-01T10:58:29.286Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "evidence",
+    "lane": "takeover-500-tooling",
+    "re": 280696,
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280713,
+    "text": "#280650",
+    "to": [
+     "root",
+     "finder-desk",
+     "desk-runner"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:58:36.522Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "decide",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280715,
+    "text": "#168367; #280650",
+    "to": [
+     "root"
+    ],
+    "topic": "msg_0f9cf43e2089"
+   },
+   {
+    "at": "2026-11-01T10:58:51.426Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280722,
+    "text": "",
+    "to": [
+     "root",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:58:53.267Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "decide",
+    "lane": "root",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "resolves": 280715,
+    "seq": 280723,
+    "text": "#47195",
+    "to": [
+     "finder-desk",
+     "fidelity-pipeline",
+     "desk-runner",
+     "takeover-500-tooling-fix",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:59:18.273Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "takeover-500-tooling",
+    "re": 280723,
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280725,
+    "text": "",
+    "to": [
+     "root",
+     "landing-desk-3",
+     "desk-runner"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:59:32.725Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "note",
+    "lane": "release-5",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280726,
+    "text": "#47177",
+    "to": [
+     "progress-desk-2",
+     "stall-watch"
+    ]
+   },
+   {
+    "at": "2026-11-01T10:59:50.262Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "queue",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280729,
+    "text": "#47195",
+    "to": [
+     "root",
+     "release-5",
+     "landing-desk-3"
+    ]
+   },
+   {
+    "at": "2026-11-01T11:00:18.039Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "landed",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280732,
+    "text": "#47195",
+    "to": [
+     "root",
+     "release-5",
+     "landing-desk-3"
+    ]
+   },
+   {
+    "at": "2026-11-01T11:00:48.366Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "evidence",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280736,
+    "text": "",
+    "to": [
+     "root",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T11:01:24.044Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280743,
+    "text": "#280736",
+    "to": [
+     "root",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T11:01:57.895Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "correction",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280758,
+    "text": "#280745; #47195; #280723; #280732",
+    "to": [
+     "desk-runner",
+     "root",
+     "board-refresher-6"
+    ]
+   },
+   {
+    "at": "2026-11-01T11:02:09.578Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "evidence",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280762,
+    "text": "#47154; #47178; #47177",
+    "to": [
+     "root",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T11:02:55.374Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "handoff",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280774,
+    "text": "#47195",
+    "to": [
+     "release-5",
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-01T11:03:26.326Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "evidence",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280788,
+    "text": "Both replaces are",
+    "to": [
+     "root",
+     "release-5"
+    ]
+   },
+   {
+    "also_resolves": [
+     280643,
+     280703
+    ],
+    "at": "2026-11-01T11:03:37.895Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "note",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "resolves": 280600,
+    "seq": 280792,
+    "text": "",
+    "to": [
+     "ssql-replicator-1",
+     "takeover-500-tooling",
+     "root",
+     "finder-desk"
+    ],
+    "topic": "landing-hygiene"
+   },
+   {
+    "at": "2026-11-01T11:03:42.678Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "decide",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280793,
+    "text": "#47195",
+    "to": [
+     "root"
+    ],
+    "topic": "msg_5b7b685fea8b"
+   },
+   {
+    "at": "2026-11-01T11:04:10.808Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "decide",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "resolves": 280793,
+    "seq": 280800,
+    "text": "0 replaces exactly; card-incident-takeover",
+    "to": [
+     "takeover-500-tooling-fix",
+     "desk-runner",
+     "release-5",
+     "board-refresher-6"
+    ]
+   },
+   {
+    "at": "2026-11-01T11:04:16.237Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "handoff",
+    "lane": "takeover-500-tooling",
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280803,
+    "text": "",
+    "to": [
+     "root",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T11:04:36.935Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "ask",
+    "lane": "release-5",
+    "re": 280774,
+    "refs": {
+     "prs": []
+    },
+    "seq": 280809,
+    "text": "#47177; #47195",
+    "to": [
+     "root",
+     "takeover-500-tooling"
+    ]
+   },
+   {
+    "at": "2026-11-01T11:04:53.464Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "answer",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "resolves": 280809,
+    "seq": 280812,
+    "text": "card-incident-takeover; #280800",
+    "to": [
+     "release-5",
+     "takeover-500-tooling-fix"
+    ]
+   },
+   {
+    "at": "2026-11-01T11:05:28.191Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "done",
+    "lane": "takeover-500-tooling",
+    "re": 280800,
+    "refs": {
+     "prs": [
+      47195
+     ]
+    },
+    "seq": 280814,
+    "text": "#47195; #280800",
+    "to": [
+     "root",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T11:06:19.076Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "supervisor",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280832,
+    "text": "RELAUNCHED takeover-500-tooling-fix as takeover-500-tooling-fix-2",
+    "to": [
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-01T11:06:20.136Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "go",
+    "lane": "supervisor",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280833,
+    "text": "",
+    "to": [
+     "orca-desk"
+    ],
+    "topic": "takeover-500-tooling-fix-2"
+   },
+   {
+    "at": "2026-11-01T11:07:04.664Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "defect",
+    "lane": "drive-watchdog-2",
+    "re": 280832,
+    "refs": {
+     "prs": []
+    },
+    "seq": 280836,
+    "text": "stand down takeover-500-tooling-fix-2 before it duplicates live incident work; #280832",
+    "to": [
+     "root",
+     "tooling-misc-5",
+     "supervisor"
+    ]
+   },
+   {
+    "at": "2026-11-01T11:07:15.756Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "stand-down",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "resolves": 280836,
+    "seq": 280837,
+    "text": "stand-down takeover-500-tooling-fix-2; it replaces is",
+    "to": [
+     "takeover-500-tooling-fix-2",
+     "supervisor",
+     "tooling-misc-5",
+     "drive-watchdog-2"
+    ]
+   },
+   {
+    "at": "2026-11-01T11:07:45.729Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280853,
+    "text": "OUTCOME msg_585d13326c58 takeover-500-tooling-fix: worker_done succeeded dispatch=ctx_ea33b9fa3728",
+    "to": [
+     "root"
+    ],
+    "topic": "msg_585d13326c58"
+   },
+   {
+    "at": "2026-11-01T11:07:45.752Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280854,
+    "text": "",
+    "to": [
+     "root"
+    ],
+    "topic": "reclaim:ctx_ea33b9fa3728"
+   },
+   {
+    "at": "2026-11-01T11:08:25.644Z",
+    "fields": {
+     "attrs": {
+      "brief": "/scratch/lanes/takeover-500-tooling-fix-2.brief.md",
+      "effort": "xhigh",
+      "model": "incident"
+     }
+    },
+    "kind": "state",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280863,
+    "text": "SPAWNED takeover-500-tooling-fix-2 /scratch/lanes/takeover-500-tooling-fix-2.brief.md",
+    "topic": "spawn:takeover-500-tooling-fix-2"
+   },
+   {
+    "at": "2026-11-01T11:08:30.656Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280865,
+    "text": "LAUNCHED R84879 takeover-500-tooling-fix-2: dispatch ctx_863a2bb7c5b4",
+    "to": [
+     "root"
+    ],
+    "topic": "R84879"
+   },
+   {
+    "at": "2026-11-01T11:08:35.043Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "takeover-500-tooling-fix-2",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280868,
+    "text": ""
+   },
+   {
+    "at": "2026-11-01T11:09:18.223Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "decide",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280875,
+    "text": "",
+    "to": [
+     "root"
+    ],
+    "topic": "msg_9c8442ad6c7a"
+   },
+   {
+    "at": "2026-11-01T11:09:27.287Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "stand-down",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "resolves": 280875,
+    "seq": 280876,
+    "text": "stand-down takeover-500-tooling-fix-2 ; told replaces is; #280837; #47195",
+    "to": [
+     "takeover-500-tooling-fix-2",
+     "desk-runner",
+     "supervisor"
+    ]
+   },
+   {
+    "at": "2026-11-01T11:09:54.073Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "blocker",
+    "lane": "takeover-500-tooling-fix-2",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280890,
+    "text": "",
+    "to": [
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-01T11:10:05.669Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "decide",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280895,
+    "text": "",
+    "to": [
+     "root"
+    ],
+    "topic": "msg_76ea9cfc0a9e"
+   },
+   {
+    "at": "2026-11-01T11:10:05.691Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 280896,
+    "text": "OUTCOME msg_577168404bfe takeover-500-tooling-fix-2: worker_done failed dispatch=ctx_863a2bb7c5b4",
+    "to": [
+     "root"
+    ],
+    "topic": "msg_577168404bfe"
+   },
+   {
+    "at": "2026-11-01T11:10:13.506Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "answer",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "resolves": 280895,
+    "seq": 280897,
+    "text": "#280837; #280876",
+    "to": [
+     "takeover-500-tooling-fix-2",
+     "desk-runner"
+    ]
+   }
+  ],
+  "who": [
+   {
+    "announced_at": "1970-01-01T00:00:00Z",
+    "lane": "takeover-500-tooling-fix",
+    "live": false,
+    "seen_at": "1970-01-01T00:00:00Z",
+    "stood_down": null
+   },
+   {
+    "announced_at": "1970-01-01T00:00:00Z",
+    "lane": "takeover-500-tooling-fix-2",
+    "live": false,
+    "seen_at": "1970-01-01T00:00:00Z",
+    "stood_down": true
+   }
+  ]
+ },
+ "recurs": {
+  "kinds": [
+   "stand-down",
+   "defect"
+  ],
+  "text": "false relaunch"
+ }
+}

@@ -180,6 +180,9 @@ class FakeShell(runner_module.Shell):
         self.launch_process: Running | None = None
         self.restacks: list[list[str]] = []
         self.restack_done = (0, "", "")
+        self.replays: list[list[str]] = []
+        self.replay_done = (0, "", "")
+        self.recur_passes: list[list[str]] = []
         self.queue_from_checkout = False
         self.tail_error = ""
         self.tail_failures = 0
@@ -324,6 +327,9 @@ class FakeShell(runner_module.Shell):
             return Process()
         if argv[1:2] == [str(runner_module.STALL_WATCH)]:
             return self.stall_pass
+        if argv[1:2] == [str(runner_module.REPLAY)]:
+            self.recur_passes.append(argv[2:])
+            return Process()
         if argv[1:2] == [str(runner_module.SCRIPTS / "finder.py")]:
             assert argv == [sys.executable, str(runner_module.SCRIPTS / "finder.py"), str(out.parent)] and not env
             self.finder_jobs.append(out.parent)
@@ -385,6 +391,9 @@ class FakeShell(runner_module.Shell):
         if name == "remote-restack.py":
             self.restacks.append(argv[1:])
             return runner_module.Done(*self.restack_done)
+        if argv[1:2] == [str(runner_module.REPLAY)]:
+            self.replays.append(argv[2:])
+            return runner_module.Done(*self.replay_done)
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == runner_module.MERGE_CARD_FIELDS:
             return runner_module.Done(0, json.dumps({"title": "Record each run's owner", "author": {"login": "dana"}, "additions": 12, "deletions": 3, "reviewDecision": "APPROVED"}), "")
         if argv[:2] == ["cc-slack", "history"]:
@@ -4066,6 +4075,17 @@ def test_a_test_only_claim_over_a_pr_that_changes_non_test_code_is_refused_namin
     assert len(refusals) == 1 and "TEST-ONLY-MISMATCH go/sand/next/vm/run.go is neither a test nor CI configuration" in refusals[0] and "other.go" not in refusals[0]
 
 
+def test_a_test_only_claim_over_a_file_no_class_rule_reads_lands_with_an_unclassed_warning(shell, config):
+    """Retro C8, Nov 1: Cargo.lock, biome.json and go.mod each refused a test-only claim until a rule named them (#1599, #1604); a file the check cannot classify warns and the claim stands."""
+    tap_ruled_pr(shell, config, ["go/sand/next/vm/run_test.go", "go/go.mod"])
+    seq = grade(shell, "29020", TEST_ONLY_GRADE)
+    merge_go(shell, "29020", "go test-only #29020 at cccc333")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and not [post for post in blockers(shell) if "MISMATCH" in post_body(post)]
+    assert [post_body(post) for post in notes(shell) if "EXEMPT-ADMITTED" in post_body(post)] == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "test-only or CI-only, no non-test code", so it goes straight to the merge queue with no go or board tap (root #194387); UNCLASSED go/go.mod: no class rule reads it, so the check warns and the test-only or CI-only claim stands']
+
+
 @pytest.mark.parametrize(
     ("comments", "admitted"),
     [
@@ -4166,6 +4186,20 @@ BUMPED_LOCK = '@@ -2905,7 +2905,7 @@\n name = "mio"\n-version = "1.0.3"\n+versio
 def test_a_manifest_or_lockfile_counts_as_test_configuration_only_when_it_adds_dev_dependencies(patches, offender):
     """Root #290406 on #47314: manifests, lockfiles and lint configs count as test configuration only when every dependency they add is a dev-dependency or sits in a test crate."""
     assert runner_module.test_only_offender(patches) == offender
+
+
+@pytest.mark.parametrize(
+    ("patches", "offender", "unclassed"),
+    [
+        ({"go/go.mod": "@@ -3 +3 @@\n-go 1.24\n+go 1.25\n", "go/sand/a_test.go": None}, "", ["go/go.mod"]),
+        ({"README.md": None, "biome.jsonc": None}, "", ["README.md", "biome.jsonc"]),
+        ({"go/go.mod": None, "api/src/a.ts": None}, "api/src/a.ts", ["go/go.mod"]),
+        ({"rust/a/tests.rs": None, ".buildkite/test.yml": None}, "", []),
+    ],
+    ids=["go-mod", "docs-and-config", "source-refuses", "all-tests"],
+)
+def test_the_class_check_refuses_only_code_and_lists_what_no_rule_reads(patches, offender, unclassed):
+    assert (runner_module.test_only_offender(patches), runner_module.unclassed_files(patches)) == (offender, unclassed)
 
 
 @pytest.mark.parametrize(
@@ -10613,6 +10647,22 @@ def test_handoff_to_a_released_version_whose_preflight_passes_pins_it_and_starts
     assert pinned(config) == version
     assert shell.successors == [successor(config, tmp_path, "orca")]
     assert preflights == [[str(runner_module.drive.install_bin(version, "desk-runner.py")), "preflight", "--config", str(config.resolve()), "--desk", "orca", "--json"]]
+
+
+def test_handoff_to_a_version_the_replay_gate_refuses_stops_no_runner_and_keeps_the_pin(shell, config, tmp_path, monkeypatch, capsys):
+    """Retro C8, Nov 1: fixes installed into the live drive unreplayed; a newer version that relaunches a lane or refuses a PR on the drive's last day never takes a desk."""
+    version = newer(runner_module.RUNNING_VERSION)
+    pin(config, runner_module.RUNNING_VERSION)
+    monkeypatch.setattr(runner_module.drive, "release_faults", lambda target: [])
+    run = shell.run
+    monkeypatch.setattr(shell, "run", lambda argv, stdin=None, env=None, cwd=None: runner_module.Done(0, json.dumps({"ok": True}), "") if argv[1:2] == ["preflight"] else run(argv, stdin, env, cwd))
+    shell.replay_done = (3, f"{version} replayed 812 records and 3 class-checked PRs of the last 24 hours against {runner_module.RUNNING_VERSION} and relaunches conflicts-2, which {runner_module.RUNNING_VERSION} did not, so it is not installed\n", "")
+    runner, held = live_runner(shell, config, tmp_path, "orca")
+    with held:
+        assert cli(shell, config, "handoff", "--desk", "orca", "--version", version) == 3
+    assert shell.replays == [["gate", "--drive", runner.config.drive, *(["--repo", runner.config.landing["repo"]] if runner.config.landing else []), "--old", runner_module.RUNNING_VERSION, "--new", version]]
+    assert "relaunches conflicts-2" in capsys.readouterr().err
+    assert not runner.stop_marker().exists() and shell.successors == [] and pinned(config) == runner_module.RUNNING_VERSION
 
 
 @pytest.mark.parametrize("desk", ["orca", "landing"])

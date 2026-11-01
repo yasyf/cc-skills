@@ -1,0 +1,83 @@
+{
+ "class": "class-check-production-dependency",
+ "defect": 290045,
+ "expect": {
+  "refused": [
+   47314
+  ]
+ },
+ "fix": "yasyf/cc-skills#1604",
+ "input": {
+  "prs": [
+   {
+    "patches": {
+     "rust/Cargo.lock": "@@\n x\n x\n x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n x\n x\n x\n@@\n x\n x\n x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n x\n x\n x\n@@\n x\n x\n x\n+x\n x\n x\n x\n@@\n x\n x\n x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n x\n x\n x\n@@\n x\n x\n x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n+x\n x\n x\n x\n@@\n x\n x\n x\n+x\n x\n x\n x\n",
+     "rust/Cargo.toml": "@@\n x\n x\n x\n+x\n x\n x\n x\n@@\n x\n x\n x\n+x\n x\n x\n x\n",
+     "rust/clippy.toml": null,
+     "rust/crates/sandsql-server/src/auth/tests.rs": null,
+     "rust/crates/sandsql-server/src/blob_migration/tests.rs": null,
+     "rust/crates/sandsql-server/src/blob_reclaim/tests.rs": null,
+     "rust/crates/sandsql-server/src/chain/tests.rs": null,
+     "rust/crates/sandsql-server/src/config/tests.rs": null,
+     "rust/crates/sandsql-server/src/data/schema_cache/tests.rs": null,
+     "rust/crates/sandsql-server/src/data/sizes/tests.rs": null,
+     "rust/crates/sandsql-server/src/data/spill/tests.rs": null,
+     "rust/crates/sandsql-server/src/directory/tests.rs": null,
+     "rust/crates/sandsql-server/src/grants/tests.rs": null,
+     "rust/crates/sandsql-server/src/handover/tests.rs": null,
+     "rust/crates/sandsql-server/src/host_memory/tests.rs": null,
+     "rust/crates/sandsql-server/src/lineage/tests.rs": null,
+     "rust/crates/sandsql-server/src/membership/tests.rs": null,
+     "rust/crates/sandsql-server/src/objects/tests.rs": null,
+     "rust/crates/sandsql-server/src/objects/transport/tests.rs": null,
+     "rust/crates/sandsql-server/src/parking/tests.rs": null,
+     "rust/crates/sandsql-server/src/reaper/tests.rs": null,
+     "rust/crates/sandsql-server/src/refusal/tests.rs": null,
+     "rust/crates/sandsql-server/src/repair/tests.rs": null,
+     "rust/crates/sandsql-server/src/replica/sealed/budget/tests.rs": null,
+     "rust/crates/sandsql-server/src/replica/sealed/tests.rs": null,
+     "rust/crates/sandsql-server/src/replication/tests.rs": null,
+     "rust/crates/sandsql-server/src/restore/tests.rs": null,
+     "rust/crates/sandsql-server/src/routes/tests.rs": null,
+     "rust/crates/sandsql-server/src/signal/tests.rs": null,
+     "rust/crates/sandsql-server/src/supervisor/epoch_gc/tests.rs": null,
+     "rust/crates/sandsql-server/src/supervisor/federation/tests.rs": null,
+     "rust/crates/sandsql-server/src/supervisor/follower/native/lanes/tests.rs": null,
+     "rust/crates/sandsql-server/src/supervisor/follower/native/tests.rs": null,
+     "rust/crates/sandsql-server/src/supervisor/found/tests.rs": null,
+     "rust/crates/sandsql-server/src/supervisor/handover/tests.rs": null,
+     "rust/crates/sandsql-server/src/supervisor/manifest/tests.rs": null,
+     "rust/crates/sandsql-server/src/supervisor/process/tests.rs": null,
+     "rust/crates/sandsql-server/src/supervisor/wanted/tests.rs": null,
+     "rust/crates/sandsql-server/src/team_lag/tests.rs": null,
+     "rust/crates/sandsql-server/src/teams/tests.rs": null,
+     "rust/crates/sandsql-server/src/telemetry/tests.rs": null,
+     "rust/crates/sandsql-server/src/warm/tests.rs": null,
+     "rust/crates/sandsql-server/tests/auth_smoke.rs": null,
+     "rust/crates/sandsql-server/tests/azure_smoke.rs": null,
+     "rust/crates/sandsql-server/tests/blob_routes.rs": null,
+     "rust/crates/sandsql-server/tests/cors_smoke.rs": null,
+     "rust/crates/sandsql-server/tests/create_e2e.rs": null,
+     "rust/crates/sandsql-server/tests/foreign_attach_e2e.rs": null,
+     "rust/crates/sandsql-server/tests/fork_e2e.rs": null,
+     "rust/crates/sandsql-server/tests/full_volume_e2e.rs": null,
+     "rust/crates/sandsql-server/tests/local_smoke.rs": null,
+     "rust/crates/sandsql-server/tests/logical_e2e.rs": null,
+     "rust/crates/sandsql-server/tests/read_only_token_e2e.rs": null,
+     "rust/crates/sandsql-server/tests/spill_e2e.rs": null,
+     "rust/crates/sandsql-testkit/Cargo.toml": "@@\n x\n x\n x\n+x\n x\n x\n x\n",
+     "rust/crates/sandsql-testkit/src/files.rs": null,
+     "rust/crates/sandsql-testkit/src/lib.rs": null,
+     "rust/deny.toml": null
+    },
+    "pr": 47314
+   }
+  ]
+ },
+ "recurs": {
+  "kinds": [
+   "defect"
+  ],
+  "text": "production dependency"
+ }
+}

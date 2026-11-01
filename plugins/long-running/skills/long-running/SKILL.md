@@ -432,6 +432,15 @@ Only a tooling lane installs a cci or long-running release under a live drive, a
 once `drive.py digest --quiet-point` exits 0, so no runner pass or merge runs through
 the swap.
 
+A tooling fix is proven on the record that reported it. A PR that fixes a reported
+defect in the lanes mover or the landing runner's class check carries a fixture that
+`replay.py capture` writes from that record into `tests/fixtures/replay/`, and CI replays
+every fixture. The install replays the drive's last 24 hours through the old and new
+pack: `desk-runner.py handoff --version` and the supervisor's move to a newer install
+refuse when the new pack relaunches a lane or refuses a PR the old one did not. The orca
+desk posts, per fixture class, how many times the defect recurred in the 24 hours after
+its install.
+
 A lesson is a process fix. When the root, a lane, or a retro names a lesson, a rule,
 or a "fix for next time", the skill or tool PR that encodes it opens in that same turn,
 from a lane spawned for it, unprompted. A lesson that lives in a status, a memory file,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -73,19 +74,21 @@ def test_a_wake_mails_an_idle_lane_its_page_or_once_per_interval_while_its_root_
     assert not waker("held-lane", row, {"topic": "red:1:a", "why": "this blocker on your PR #1 arrived", "text": "STALL red #1", "prs": [1]}) and not (roster / "inboxes" / "held-lane.json").exists()
 
 
-def test_only_active_orca_dispatches_count_as_live(tmp_path: Path, monkeypatch):
+def test_an_ended_orca_dispatch_is_a_process_row_that_reads_not_live_since_its_launch(tmp_path: Path, monkeypatch):
+    launched = (NOW - timedelta(hours=2)).timestamp()
     for lane, dispatch in (("sol-fix", "ctx_1"), ("sol-done", "ctx_2"), ("sol-gone", "ctx_3")):
         (tmp_path / f"{lane}.json").write_text(json.dumps({"result": {"dispatchId": dispatch}}))
         (tmp_path / f"{lane}.terminal").write_text("term_1\n")
+        os.utime(tmp_path / f"{lane}.json", (launched, launched))
     workers = [{"dispatchId": "ctx_1", "dispatchStatus": "dispatched"}, {"dispatchId": "ctx_2", "dispatchStatus": "completed"}]
     calls = []
     monkeypatch.setattr(supervisor, "run", lambda argv: calls.append(argv) or json.dumps({"ok": True, "result": {"workers": workers, "page": {}}}))
 
     rows = supervisor.orca_rows("run_1", tmp_path, None, NOW)
 
-    assert rows == [{"lane": "sol-fix", "live": True, "seen_at": "2026-10-31T17:00:00Z", "dispatch": "ctx_1"}]
+    assert rows == [{"lane": "sol-fix", "live": True, "seen_at": "2026-10-31T17:00:00Z", "dispatch": "ctx_1"}, {"lane": "sol-done", "live": False, "seen_at": "2026-10-31T15:00:00Z", "dispatch": "ctx_2"}]
     assert len(calls) == 1
-    assert supervisor.orca_rows("run_1", tmp_path, {"sol-done"}, NOW) == []
+    assert supervisor.orca_rows("run_1", tmp_path, {"sol-gone"}, NOW) == []
 
 
 def test_a_reinstall_bootstraps_only_once_launchd_has_finished_booting_out_the_old_copy(tmp_path: Path, monkeypatch):
@@ -127,3 +130,19 @@ def pr(state="OPEN", mergeable="MERGEABLE", review="APPROVED", rollup="SUCCESS")
 )
 def test_only_a_conflicting_red_or_unapproved_open_pr_needs_work(node, expected):
     assert supervisor.pr_state(node) == expected
+
+
+def test_the_supervisor_moves_to_a_newer_install_only_once_its_replay_gate_passes(monkeypatch):
+    config = lr_config.Config("org/repo", "d1", "/srv/checkout", "bot", "drive", ("lanes",))
+    installed = iter(["0.7.820", "0.7.821", "0.7.821", "0.7.822", "0.7.823"])
+    monkeypatch.setattr(supervisor.lr_drive, "installed_version", lambda: next(installed))
+    gates, posts = [], []
+    codes = {"0.7.821": 3, "0.7.822": 0, "0.7.823": 1}
+    monkeypatch.setattr(supervisor.subprocess, "run", lambda argv, **kwargs: gates.append(argv[2:]) or supervisor.subprocess.CompletedProcess(argv, codes[argv[-1]], "", "Traceback: boom"))
+    monkeypatch.setattr(supervisor, "run", lambda argv: posts.append(argv) or "")
+    upgrade = supervisor.Upgrade(config, "0.7.820")
+
+    assert [upgrade() for _ in range(5)] == [False, False, False, True, False]
+    assert gates == [["gate", "--drive", "d1", "--repo", "org/repo", "--old", "0.7.820", "--new", version] for version in ("0.7.821", "0.7.822", "0.7.823")]
+    [post] = posts
+    assert post[post.index("--id") + 1] == "replay-failed:0.7.823" and post[-1] == "the supervisor stays on 0.7.820: its replay gate against 0.7.823 exited 1: Traceback: boom"

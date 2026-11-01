@@ -1,0 +1,1158 @@
+{
+ "class": "supervisor-finished-lane",
+ "defect": 283488,
+ "expect": {
+  "relaunched": []
+ },
+ "fix": "yasyf/cc-skills#1575",
+ "input": {
+  "records": [
+   {
+    "at": "2026-11-01T13:33:13.881Z",
+    "fields": {
+     "attrs": {
+      "brief": "/scratch/takeover-500-fix-4/brief.md",
+      "effort": "xhigh",
+      "model": "incident"
+     }
+    },
+    "kind": "state",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283043,
+    "text": "SPAWNED takeover-500-4-fix /scratch/takeover-500-fix-4/brief.md",
+    "topic": "spawn:takeover-500-4-fix"
+   },
+   {
+    "at": "2026-11-01T13:33:20.264Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283044,
+    "text": "LAUNCHED R84881 takeover-500-4-fix: dispatch ctx_f5c2152748c7",
+    "to": [
+     "root"
+    ],
+    "topic": "R84881"
+   },
+   {
+    "at": "2026-11-01T13:33:20.307Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "takeover-500-4-fix",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283045,
+    "text": ""
+   },
+   {
+    "at": "2026-11-01T13:33:21.64Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "incident",
+    "lane": "root",
+    "re": 283014,
+    "refs": {
+     "prs": []
+    },
+    "seq": 283046,
+    "text": "",
+    "to": [
+     "takeover-500-fix",
+     "takeover-proper-fix-1",
+     "pod-volume-5",
+     "release-5",
+     "board-refresher-6",
+     "drive-watchdog-2"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:34:33.919Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "mechanism",
+    "lane": "takeover-500-4-fix",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283061,
+    "text": "",
+    "to": [
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:34:36.997Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "decide",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283062,
+    "text": "",
+    "to": [
+     "root"
+    ],
+    "topic": "msg_0086a9230495"
+   },
+   {
+    "at": "2026-11-01T13:34:56.836Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "answer",
+    "lane": "root",
+    "re": 283062,
+    "refs": {
+     "prs": []
+    },
+    "resolves": 283061,
+    "seq": 283066,
+    "text": "",
+    "to": [
+     "takeover-500-4-fix",
+     "takeover-500-fix"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:35:09.762Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283070,
+    "text": "#283066",
+    "to": [
+     "root"
+    ],
+    "topic": "cci#283066"
+   },
+   {
+    "at": "2026-11-01T13:37:59.435Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "evidence",
+    "lane": "takeover-500-fix",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283103,
+    "text": "",
+    "to": [
+     "takeover-500-4-fix",
+     "root",
+     "pod-volume-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:38:42.42Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "takeover-500-4-fix",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283107,
+    "text": "#283103",
+    "to": [
+     "root",
+     "takeover-500-fix"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:38:49.052Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "opened",
+    "lane": "takeover-500-4-fix",
+    "refs": {
+     "prs": [
+      47214
+     ]
+    },
+    "seq": 283108,
+    "text": "#47214"
+   },
+   {
+    "at": "2026-11-01T13:39:07.325Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "opened",
+    "lane": "takeover-500-4-fix",
+    "refs": {
+     "prs": [
+      47214
+     ]
+    },
+    "seq": 283122,
+    "text": "#47214"
+   },
+   {
+    "at": "2026-11-01T13:39:22.782Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "head",
+    "lane": "takeover-500-4-fix",
+    "refs": {
+     "prs": [
+      47214
+     ]
+    },
+    "seq": 283124,
+    "text": "#47214",
+    "to": [
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:39:31.618Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "takeover-500-4-fix",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283126,
+    "text": "",
+    "to": [
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:40:25.686Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "head",
+    "lane": "takeover-500-4-fix",
+    "refs": {
+     "prs": [
+      47214
+     ]
+    },
+    "seq": 283135,
+    "text": "#47214",
+    "to": [
+     "root",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:41:39.132Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "takeover-500-4-fix",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283160,
+    "text": "#47208",
+    "to": [
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:42:21.51Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "not-live",
+    "lane": "takeover-500-4-fix",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283177,
+    "text": "#47208",
+    "to": [
+     "root",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:42:21.744Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "mechanism",
+    "lane": "takeover-500-fix",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283178,
+    "text": "",
+    "to": [
+     "root",
+     "takeover-500-4-fix",
+     "pod-volume-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:43:00.971Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "head",
+    "lane": "takeover-500-4-fix",
+    "refs": {
+     "prs": [
+      47214
+     ]
+    },
+    "seq": 283184,
+    "text": "#47214; #47208",
+    "to": [
+     "root",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:43:20.673Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "decide",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283187,
+    "text": "",
+    "to": [
+     "root"
+    ],
+    "topic": "msg_579cb61d131c"
+   },
+   {
+    "at": "2026-11-01T13:43:30.479Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "review",
+    "lane": "perf-sweep-1",
+    "refs": {
+     "prs": [
+      47214
+     ]
+    },
+    "seq": 283193,
+    "text": "",
+    "to": [
+     "desk-runner",
+     "board-refresher-2",
+     "takeover-500-4-fix",
+     "board-refresher-3",
+     "board-refresher-4",
+     "board-refresher-5",
+     "board-refresher-6"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:43:46.098Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "go",
+    "lane": "root",
+    "refs": {
+     "prs": [
+      47214
+     ]
+    },
+    "seq": 283197,
+    "text": "#47214",
+    "to": [
+     "takeover-500-4-fix",
+     "landing-desk-3",
+     "desk-runner",
+     "go-sweep-8",
+     "board-refresher-6",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:43:46.167Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "answer",
+    "lane": "root",
+    "re": 283187,
+    "refs": {
+     "prs": [
+      47214
+     ]
+    },
+    "seq": 283198,
+    "text": "",
+    "to": [
+     "takeover-500-4-fix",
+     "takeover-500-fix",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:43:52.426Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283199,
+    "text": "#283198",
+    "to": [
+     "root"
+    ],
+    "topic": "cci#283198"
+   },
+   {
+    "at": "2026-11-01T13:45:38.432Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "takeover-500-4-fix",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283220,
+    "text": "#283198",
+    "to": [
+     "root",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:46:06.915Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "takeover-500-4-fix",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283224,
+    "text": "",
+    "to": [
+     "root",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:46:09.136Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "correction",
+    "lane": "drive-watchdog-2",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283226,
+    "text": "#283205; #283046",
+    "to": [
+     "progress-desk-2"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:46:37.576Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "mechanism",
+    "lane": "takeover-500-fix",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283231,
+    "text": "",
+    "to": [
+     "root",
+     "takeover-500-4-fix",
+     "pod-volume-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:47:24.733Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "head",
+    "lane": "takeover-500-4-fix",
+    "refs": {
+     "prs": [
+      47214
+     ]
+    },
+    "seq": 283236,
+    "text": "#47214",
+    "to": [
+     "root",
+     "release-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:47:31.116Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "mechanism",
+    "lane": "takeover-500-fix",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283238,
+    "text": "",
+    "to": [
+     "root",
+     "release-5",
+     "takeover-proper-fix-1",
+     "takeover-500-4-fix"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:48:43.947Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "blocker",
+    "lane": "takeover-500-fix",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283251,
+    "text": "",
+    "to": [
+     "root",
+     "release-5",
+     "takeover-500-4-fix"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:48:58.231Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "answer",
+    "lane": "root",
+    "re": 283251,
+    "refs": {
+     "prs": []
+    },
+    "seq": 283253,
+    "text": "",
+    "to": [
+     "takeover-500-fix",
+     "release-5",
+     "takeover-500-4-fix"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:49:08.871Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "takeover-500-4-fix",
+    "refs": {
+     "prs": [
+      47214
+     ]
+    },
+    "seq": 283266,
+    "text": "",
+    "to": [
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:50:06.169Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "review",
+    "lane": "fidelity-pipeline",
+    "refs": {
+     "prs": [
+      47214
+     ]
+    },
+    "seq": 283269,
+    "text": "",
+    "to": [
+     "takeover-500-4-fix",
+     "desk-runner",
+     "board-refresher-3",
+     "go-sweep-5",
+     "landing-desk-3",
+     "fidelity-desk-10",
+     "board-refresher-4",
+     "board-refresher-5",
+     "board-refresher-6"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:50:06.258Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "review",
+    "lane": "fidelity-pipeline",
+    "refs": {
+     "prs": [
+      47214
+     ]
+    },
+    "seq": 283270,
+    "text": "",
+    "to": [
+     "takeover-500-4-fix",
+     "desk-runner",
+     "board-refresher-3",
+     "go-sweep-5",
+     "landing-desk-3",
+     "fidelity-desk-10",
+     "board-refresher-4",
+     "board-refresher-5",
+     "board-refresher-6"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:50:16.094Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "blocker",
+    "lane": "takeover-500-fix",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283272,
+    "text": "",
+    "to": [
+     "root",
+     "takeover-500-4-fix"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:50:48.245Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "takeover-500-fix",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283279,
+    "text": "",
+    "to": [
+     "root",
+     "takeover-500-4-fix"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:51:14.261Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "landed",
+    "lane": "takeover-500-4-fix",
+    "refs": {
+     "prs": [
+      47214
+     ]
+    },
+    "seq": 283282,
+    "text": "#47214; #283198",
+    "to": [
+     "root",
+     "release-5",
+     "takeover-500-fix"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:51:16.161Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "answer",
+    "lane": "root",
+    "re": 283272,
+    "refs": {
+     "prs": []
+    },
+    "seq": 283283,
+    "text": "",
+    "to": [
+     "takeover-500-fix",
+     "takeover-500-4-fix"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:52:51.473Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "handoff",
+    "lane": "takeover-500-4-fix",
+    "refs": {
+     "prs": [
+      47214
+     ]
+    },
+    "seq": 283303,
+    "text": "#47214; #283198",
+    "to": [
+     "root",
+     "release-5",
+     "takeover-500-fix"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:53:18.629Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283310,
+    "text": "OUTCOME msg_704aa44059c7 takeover-500-4-fix: worker_done succeeded dispatch=ctx_f5c2152748c7",
+    "to": [
+     "root"
+    ],
+    "topic": "msg_704aa44059c7"
+   },
+   {
+    "at": "2026-11-01T13:55:32.449Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "review",
+    "lane": "finder-desk",
+    "refs": {
+     "prs": [
+      47214
+     ]
+    },
+    "seq": 283336,
+    "text": "",
+    "to": [
+     "takeover-500-4-fix",
+     "desk-runner"
+    ]
+   },
+   {
+    "at": "2026-11-01T13:57:13.008Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283353,
+    "text": "",
+    "to": [
+     "root"
+    ],
+    "topic": "reclaim:ctx_f5c2152748c7"
+   },
+   {
+    "at": "2026-11-01T13:57:31.861Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "answer",
+    "lane": "release-5",
+    "re": 283282,
+    "refs": {
+     "prs": [
+      47214
+     ]
+    },
+    "seq": 283358,
+    "text": "#47214",
+    "to": [
+     "root",
+     "takeover-500-fix",
+     "takeover-500-4-fix"
+    ]
+   },
+   {
+    "at": "2026-11-01T14:06:06.799Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "done",
+    "lane": "release-5",
+    "re": 283282,
+    "refs": {
+     "prs": [
+      47214
+     ]
+    },
+    "seq": 283419,
+    "text": "#47214; #47177; #47208",
+    "to": [
+     "root",
+     "takeover-500-fix",
+     "takeover-500-4-fix"
+    ]
+   },
+   {
+    "at": "2026-11-01T14:08:12.519Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "supervisor",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283440,
+    "text": "RELAUNCHED takeover-500-4-fix as takeover-500-4-fix-2",
+    "to": [
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-01T14:08:13.066Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "go",
+    "lane": "supervisor",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283441,
+    "text": "",
+    "to": [
+     "orca-desk"
+    ],
+    "topic": "takeover-500-4-fix-2"
+   },
+   {
+    "at": "2026-11-01T14:09:05.018Z",
+    "fields": {
+     "attrs": {
+      "brief": "/scratch/lanes/takeover-500-4-fix-2.brief.md",
+      "effort": "xhigh",
+      "model": "incident"
+     }
+    },
+    "kind": "state",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283451,
+    "text": "SPAWNED takeover-500-4-fix-2 /scratch/lanes/takeover-500-4-fix-2.brief.md",
+    "topic": "spawn:takeover-500-4-fix-2"
+   },
+   {
+    "at": "2026-11-01T14:09:09.753Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "takeover-500-4-fix-2",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283453,
+    "text": ""
+   },
+   {
+    "at": "2026-11-01T14:09:11.103Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283464,
+    "text": "LAUNCHED R84882 takeover-500-4-fix-2: dispatch ctx_3d07a421b30b",
+    "to": [
+     "root"
+    ],
+    "topic": "R84882"
+   },
+   {
+    "at": "2026-11-01T14:09:57.952Z",
+    "fields": {
+     "attrs": {
+      "successor": "takeover-500-4-fix-2"
+     }
+    },
+    "kind": "stand-down",
+    "lane": "supervisor",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283472,
+    "text": "",
+    "to": [
+     "takeover-500-4-fix"
+    ]
+   },
+   {
+    "at": "2026-11-01T14:09:59.798Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "blocker",
+    "lane": "takeover-500-4-fix-2",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283474,
+    "text": "",
+    "to": [
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-01T14:10:11.527Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283479,
+    "text": "OUTCOME msg_e69586a7e56f takeover-500-4-fix-2: worker_done failed dispatch=ctx_3d07a421b30b",
+    "to": [
+     "root"
+    ],
+    "topic": "msg_e69586a7e56f"
+   },
+   {
+    "at": "2026-11-01T14:10:35.729Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "stand-down",
+    "lane": "root",
+    "re": 283474,
+    "refs": {
+     "prs": []
+    },
+    "seq": 283487,
+    "text": "stand-down takeover-500-4-fix; stand-down takeover-500-4-fix-2",
+    "to": [
+     "takeover-500-4-fix",
+     "takeover-500-4-fix-2",
+     "supervisor",
+     "orca-desk",
+     "drive-watchdog-2"
+    ]
+   },
+   {
+    "at": "2026-11-01T14:10:35.758Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "defect",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283488,
+    "text": "stand-down exists is never relaunched",
+    "to": [
+     "tooling-misc-5",
+     "mq-health-8"
+    ]
+   },
+   {
+    "at": "2026-11-01T14:10:40.874Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "defect",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283490,
+    "text": "stand-down takeover-500-4-fix; #283487",
+    "to": [
+     "root"
+    ],
+    "topic": "cci#283487"
+   },
+   {
+    "at": "2026-11-01T14:12:32.185Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "note",
+    "lane": "mq-health-8",
+    "re": 283488,
+    "refs": {
+     "prs": []
+    },
+    "seq": 283505,
+    "text": "",
+    "to": [
+     "root",
+     "tooling-misc-5"
+    ]
+   },
+   {
+    "at": "2026-11-01T14:12:42.071Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283507,
+    "text": "",
+    "to": [
+     "root"
+    ],
+    "topic": "reclaim:ctx_3d07a421b30b"
+   },
+   {
+    "at": "2026-11-01T14:16:15.13Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "head",
+    "lane": "mq-health-8",
+    "re": 283488,
+    "refs": {
+     "prs": [
+      1575
+     ]
+    },
+    "seq": 283527,
+    "text": "#1575; #283488; #1573",
+    "to": [
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-01T14:19:44.307Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "defect",
+    "lane": "drive-watchdog-2",
+    "re": 283440,
+    "refs": {
+     "prs": []
+    },
+    "seq": 283573,
+    "text": "#283440; #47214; #283487",
+    "to": [
+     "tooling-misc-5",
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-01T14:20:09.653Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "note",
+    "lane": "drive-watchdog-2",
+    "re": 283505,
+    "refs": {
+     "prs": []
+    },
+    "seq": 283583,
+    "text": "#283505; #283573; #47214",
+    "to": [
+     "mq-health-8"
+    ]
+   },
+   {
+    "at": "2026-11-01T14:20:23.261Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "answer",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "resolves": 283474,
+    "seq": 283586,
+    "text": "",
+    "to": [
+     "takeover-500-4-fix-2",
+     "supervisor"
+    ]
+   }
+  ],
+  "who": [
+   {
+    "announced_at": "1970-01-01T00:00:00Z",
+    "lane": "takeover-500-4-fix",
+    "live": false,
+    "seen_at": "1970-01-01T00:00:00Z",
+    "stood_down": true
+   },
+   {
+    "announced_at": "1970-01-01T00:00:00Z",
+    "lane": "takeover-500-4-fix-2",
+    "live": false,
+    "seen_at": "1970-01-01T00:00:00Z",
+    "stood_down": true
+   }
+  ]
+ },
+ "recurs": {
+  "kinds": [
+   "stand-down",
+   "defect"
+  ],
+  "text": "false relaunch|relaunched the finished"
+ }
+}
