@@ -6421,6 +6421,20 @@ def test_a_read_that_fails_on_a_transient_network_error_runs_once_more_and_a_wri
     assert (write.code, tries.read_text().count("x")) == (1, 1)
 
 
+def test_a_cci_read_the_daemon_refuses_once_is_read_again_inside_the_pass(monkeypatch):
+    """Root #270608: at 5:36 PM Oct 31 one `cci tail` failed on `cci: native tail: [Errno 61] Connection refused`, and the landing runner posted CCI-TAIL-FAILED twice and refused nothing for two passes."""
+    calls = []
+
+    def native_tail(argv, timeout, env, cwd):
+        calls.append(argv)
+        return (1, "", "cci: native tail: [Errno 61] Connection refused\n") if len(calls) == 1 else (0, "ok\n", "")
+
+    monkeypatch.setattr(runner_module.cci, "native_tail", native_tail)
+    monkeypatch.setattr(runner_module, "REREAD_PAUSES", (0, 0))
+    read = runner_module.Shell().cci_query(["cci", "tail", "--drive", "d1", "--json"])
+    assert (read.code, read.out, len(calls)) == (0, "ok\n", 2)
+
+
 def test_a_read_that_keeps_timing_out_on_tls_runs_three_times_and_logs_each_retry(tmp_path, monkeypatch, capsys):
     """Root #222205: the GitHub quota read and Trunk calls failed on TLS handshake timeouts at load 31-43, each a bare failure."""
     bin_dir, tries = tmp_path / "bin", tmp_path / "tries"
