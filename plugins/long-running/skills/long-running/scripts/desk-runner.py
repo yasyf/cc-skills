@@ -671,6 +671,7 @@ import incident
 import inboxes
 import lane_brief
 from long_running import lanes
+from long_running.pass_io import OnePassIO
 import merge_queue
 import owner_waits
 import prompt_screen
@@ -1933,6 +1934,7 @@ class Runner:
         self.shell = shell
         self.config = config
         self.control = DeskControl(config.source, shell)
+        self.pass_io = OnePassIO((config.landing or {}).get("trace_pass_io", False))
         self.book = Book(store, shell)
         self.orca = Orca(shell, config)
         self.launching: dict[str, subprocess.Popen] = {}
@@ -8597,7 +8599,8 @@ class Landing:
                         if self.down_since():
                             mine.overflowed_at = time.monotonic()
                         else:
-                            mine.overflow(self)
+                            with self.runner.pass_io.phase("overflow"):
+                                mine.overflow(self)
                     except Exception:
                         traceback.print_exc()
                     time.sleep(max(0.0, OVERFLOW_EVERY.total_seconds() - (time.monotonic() - started)))
@@ -8692,22 +8695,25 @@ class Landing:
         found: list[tuple[datetime, str, str]] = []
         keys = {key for member in members for key in (f"blocker:{member}:{open_rows[member].get('head', '')[:10]}", f"bot-held:{member}:{open_rows[member].get('head', '')[:10]}", f"conflict:{member}:{open_rows[member].get('base', '')}")}
         containers = [(LANDING, "bus"), *((name, "relay") for name in self.book.containers(LANE_PREFIX))]
-        with self.book.store.reading():
-            routes = [action for container, kind in containers for key in keys if (action := self.book.store.find_action(container, key)) is not None and action.kind == kind]
-        for member in members:
-            row = open_rows[member]
-            current = (f"blocker:{member}:{row.get('head', '')[:10]}", f"bot-held:{member}:{row.get('head', '')[:10]}", f"conflict:{member}:{row.get('base', '')}")
-            found += [(actions.parse_stamp(action.accepted_at), member, f"the blocker routed at {pacific(actions.parse_stamp(action.accepted_at))}: {json.loads(action.target)['text']}") for action in routes if action.action_id in current]
-            found += [
-                (when, member, f"{action.target.split()[0]} at {pacific(when)}: {action.target}")
-                for action in self.book.actions(RUNNER, kind="escalation")
-                if action.target.split()[0] in LANDING_REFUSALS and re.search(rf"#{member}\b", action.target) and (when := actions.parse_stamp(action.accepted_at)) >= since
-            ]
-        if desks := self.runner.landing_lanes("desk_lane"):
-            for record in cci.records(self.cci_tail, self.runner.config.drive, "--kind=blocker", *(arg for desk in desks for arg in ("--lane", desk)), since=actions.stamp(since)):
-                if record["drive"] != self.runner.config.drive or record["kind"] != "blocker" or record["lane"] not in desks or record.get("status") == "closed":
-                    continue
-                found += [(actions.parse_stamp(record["at"]), member, f"{record['lane']}'s blocker #{record['seq']} at {pacific(actions.parse_stamp(record['at']))}: {full_text(record)}") for member in members if re.search(rf"#{member}\b", full_text(record))]
+        with self.runner.pass_io.phase("overflow-routes"):
+            with self.book.store.reading():
+                routes = [action for container, kind in containers for key in keys if (action := self.book.store.find_action(container, key)) is not None and action.kind == kind]
+        with self.runner.pass_io.phase("overflow-members-and-escalations"):
+            for member in members:
+                row = open_rows[member]
+                current = (f"blocker:{member}:{row.get('head', '')[:10]}", f"bot-held:{member}:{row.get('head', '')[:10]}", f"conflict:{member}:{row.get('base', '')}")
+                found += [(actions.parse_stamp(action.accepted_at), member, f"the blocker routed at {pacific(actions.parse_stamp(action.accepted_at))}: {json.loads(action.target)['text']}") for action in routes if action.action_id in current]
+                found += [
+                    (when, member, f"{action.target.split()[0]} at {pacific(when)}: {action.target}")
+                    for action in self.book.actions(RUNNER, kind="escalation")
+                    if action.target.split()[0] in LANDING_REFUSALS and re.search(rf"#{member}\b", action.target) and (when := actions.parse_stamp(action.accepted_at)) >= since
+                ]
+        with self.runner.pass_io.phase("overflow-cci-blockers"):
+            if desks := self.runner.landing_lanes("desk_lane"):
+                for record in cci.records(self.cci_tail, self.runner.config.drive, "--kind=blocker", *(arg for desk in desks for arg in ("--lane", desk)), since=actions.stamp(since)):
+                    if record["drive"] != self.runner.config.drive or record["kind"] != "blocker" or record["lane"] not in desks or record.get("status") == "closed":
+                        continue
+                    found += [(actions.parse_stamp(record["at"]), member, f"{record['lane']}'s blocker #{record['seq']} at {pacific(actions.parse_stamp(record['at']))}: {full_text(record)}") for member in members if re.search(rf"#{member}\b", full_text(record))]
         if not found:
             return None
         _, member, said = max(found)
@@ -9468,9 +9474,10 @@ class Landing:
             try:
                 self.gate_pass()
             finally:
-                self.cci_tail.stop()
-                self.report_unread()
-                self.keep_builds()
+                with self.runner.pass_io.phase("pass-cleanup"):
+                    self.cci_tail.stop()
+                    self.report_unread()
+                    self.keep_builds()
 
     def ask_rulings(self) -> None:
         """Log one `RULING-ASK` per board round while ruling cards `rulings.py classify` wrote queue under the drive's `cards/`; the root puts the round on the cc-present board with `rulings.py round`, never one card per ruling."""
@@ -9494,46 +9501,48 @@ class Landing:
         self.cci_tail.forget()
 
     def gate_pass(self) -> None:
-        self.live, self.designed_red, self.full_runs_read, self.said_preconditions, self.resolved_preconditions = None, {}, {}, {}, {}
-        self.grading, self.grade_tried = True, set()
-        self.gate_deadline = time.monotonic() + GATE_BUDGET.total_seconds()
-        self.trusted_from, self.pass_began = self.pass_began, time.monotonic()
-        self.surface()
-        self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why, self.untested_why, self.cleared, self.exempts = None, False, None, None, None, set(), {}, {}, {}, {}
-        self.settlement = Settlement({}, {})
-        if self.quota_low():
-            if rows := self.rows():
-                self.settlement = self.admission(rows, self.held(rows), None)
-                self.close_settlement(QUOTA_OFF)
-            return
-        with ThreadPoolExecutor(1) as pool:
-            advancing = pool.submit(self.advance)
-            if not (self.refresher and self.refresher.is_alive()):
-                self.refresh()
-            advanced = advancing.result()
+        with self.runner.pass_io.phase("gate-setup"):
+            self.live, self.designed_red, self.full_runs_read, self.said_preconditions, self.resolved_preconditions = None, {}, {}, {}, {}
+            self.grading, self.grade_tried = True, set()
+            self.gate_deadline = time.monotonic() + GATE_BUDGET.total_seconds()
+            self.trusted_from, self.pass_began = self.pass_began, time.monotonic()
+            self.surface()
+            self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.unchecked, self.unproven_why, self.untested_why, self.cleared, self.exempts = None, False, None, None, None, set(), {}, {}, {}, {}
+            self.settlement = Settlement({}, {})
+            if self.quota_low():
+                if rows := self.rows():
+                    self.settlement = self.admission(rows, self.held(rows), None)
+                    self.close_settlement(QUOTA_OFF)
+                return
+            with ThreadPoolExecutor(1) as pool:
+                advancing = pool.submit(self.advance)
+                if not (self.refresher and self.refresher.is_alive()):
+                    self.refresh()
+                advanced = advancing.result()
         self.runner.checkpoint()
-        rows = self.rows()
-        read = self.watch_trunk(rows or {})
-        if rows is None:
-            return
-        if self.status_card:
-            self.draw_card(rows)
-        if not rows:
-            return
-        self.row_records(rows)
-        self.trunk_queue(rows)
-        self.carry_taps(rows)
-        holds = self.held(rows)
-        held = holds if advanced and read else None
-        self.held_now = held or []
-        off = self.gating_off(advanced, read)
-        self.settlement = self.admission(rows, holds, None if off else self.pr_statuses())
-        try:
-            self.gate_rows(rows, held, not off)
-        finally:
-            if not self.runner.stop_requested():
-                self.close_settlement(off)
-        self.runner.overdue(LANDING, "landing")
+        with self.runner.pass_io.phase("rows-and-gating"):
+            rows = self.rows()
+            read = self.watch_trunk(rows or {})
+            if rows is None:
+                return
+            if self.status_card:
+                self.draw_card(rows)
+            if not rows:
+                return
+            self.row_records(rows)
+            self.trunk_queue(rows)
+            self.carry_taps(rows)
+            holds = self.held(rows)
+            held = holds if advanced and read else None
+            self.held_now = held or []
+            off = self.gating_off(advanced, read)
+            self.settlement = self.admission(rows, holds, None if off else self.pr_statuses())
+            try:
+                self.gate_rows(rows, held, not off)
+            finally:
+                if not self.runner.stop_requested():
+                    self.close_settlement(off)
+            self.runner.overdue(LANDING, "landing")
 
     def gate_rows(self, rows: dict[str, dict], held: list[str] | None, gating: bool) -> None:
         self.no_go = self.unpassed(rows) if gating else set()
@@ -9732,6 +9741,7 @@ def run_landing(runner: Runner, once: bool) -> int:
                 if once:
                     landing.drain()
             except StopRequested:
+                runner.pass_io.finish()
                 landing.close()
                 runner.flush()
                 runner.stop_marker().unlink()
@@ -9747,10 +9757,13 @@ def run_landing(runner: Runner, once: bool) -> int:
             runner.passing.discard("landing")
             behind = runner.moved()
             took = (runner.now() - started).total_seconds()
-            landing.post_state(took)
-            runner.flush()
-            print(f"PASS landing {runner.passes['landing'] + 1} on {RUNNING_VERSION} took {took:.0f}s: {runner.shell.pass_cost()}", file=sys.stderr, flush=True)
-            runner.beat("landing")
+            with runner.pass_io.phase("post-state"):
+                landing.post_state(took)
+            with runner.pass_io.phase("flush-and-beat"):
+                runner.flush()
+                print(f"PASS landing {runner.passes['landing'] + 1} on {RUNNING_VERSION} took {took:.0f}s: {runner.shell.pass_cost()}", file=sys.stderr, flush=True)
+                runner.beat("landing")
+            runner.pass_io.finish()
             if once:
                 return 0
             if runner.rest(max(0.0, interval - (runner.now() - started).total_seconds())):
