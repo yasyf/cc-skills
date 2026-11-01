@@ -30,6 +30,11 @@ applies, releases, and enqueues into its `release-target:*`
 targets. The fence never blocks the fix lane's own apply under R16. A recovery line,
 or a diagnosis that clears the alert, lifts the fence. A mute does not resolve it.
 
+Pages in the on-call channels reach the root from the orca runner, not this desk: with
+`landing.pages` set, each top-level page posted while a drive release runs, or within
+30 minutes of its end, becomes one `incident` record to the root (`release-lanes.md`).
+The root handles it as it handles a transition this desk reports.
+
 The desk never gets a fix, a ruling to carry, or a Slack post. The root owns a
 monitors file: one `--tag <glob>` or `--id <monitor id>` per line. To change the set,
 the root rewrites that file. The desk reads it at its next watch rerun, keeping

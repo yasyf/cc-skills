@@ -881,6 +881,11 @@ RELEASE_BUILDS = "release-builds"
 FREEZES = "freezes"
 FROZE = re.compile(r"\bfroze (?P<scope>\S+) until (?P<until>\S+) as freeze (?P<id>[\w.-]*\w)")
 BUILD_URL = re.compile(r"/(?P<pipeline>[\w.-]+)/builds/(?P<number>\d+)/?$")
+BUILD_LINK = re.compile(r"https://buildkite\.com/[\w.-]+/[\w.-]+/builds/\d+")
+PAGES_SEEN = "pages-seen"
+PAGE_TAIL = timedelta(minutes=30)
+PAGE_READ = 20
+SLACK_LINK = re.compile(r"<[^|>]+\|([^>]+)>")
 LIST_ITEM = re.compile(r"<li>(.*?)</li>", re.DOTALL)
 HTML_TAG = re.compile(r"<[^>]+>")
 CONFLICT_BLOCKER = "GitHub reads it as conflicting against its base; run ccx vcs stack submit from the branch's worktree"
@@ -4301,6 +4306,7 @@ class Runner:
                 return
             self.release_polled = self.now()
             self.watch_applies()
+            self.watch_pages()
             self.ask_lifts()
         except CciTailFailed as failure:
             self.tail_failed(failure)
@@ -4322,8 +4328,8 @@ class Runner:
                 continue
             if record["kind"] == "release":
                 release = found[0] if (found := RELEASE_ID.search(record["text"])) else ""
-                for build in (record.get("refs") or {}).get("builds") or []:
-                    builds.setdefault(str(build), {"lane": record["lane"], "release": release, "seq": record["seq"], "done": False})
+                for build in [*((record.get("refs") or {}).get("builds") or []), *BUILD_LINK.findall(record["text"])]:
+                    builds.setdefault(str(build), {"lane": record["lane"], "release": release, "seq": record["seq"], "at": record["at"], "done": False})
             elif record["kind"] == "hold" and (froze := FROZE.search(record["text"])):
                 freezes.setdefault(froze["id"], {"lane": record["lane"], "scope": froze["scope"], "until": froze["until"], "hold": record["seq"], "asked": []})
         fresh = {build: info for build, info in builds.items() if self.book.fact_path(RUNNER, [RELEASE_BUILDS, build], None) is None}
@@ -4357,16 +4363,17 @@ class Runner:
             self.escalate(f"release-claim:{build}", "RELEASE-CLAIM-FAILED", info["lane"], f"build {build} started by {owner}: {'; '.join(failures)}")
 
     def watch_applies(self) -> None:
-        """Read each tracked build through `landing.applying.build` and post one `applying <component>/<env> <commit> (<release>)` release record to every live drive root for each job whose step key `landing.applying.step` matches, of a component `landing.applying.components` names, the first pass it reads running; a finished build is no longer read."""
+        """Read each tracked build through `landing.applying.build`, or `landing.pages.build` without it, until it finishes, and record when it did; with `landing.applying`, post one `applying <component>/<env> <commit> (<release>)` release record to every live drive root for each job whose step key `landing.applying.step` matches, of a component `landing.applying.components` names, the first pass it reads running."""
         applying = self.config.landing.get("applying")
-        if not applying:
+        template = (applying or self.config.landing.get("pages") or {}).get("build")
+        if not template:
             return
         for build, info in self.book.fact_entries(RUNNER, RELEASE_BUILDS, "done", [False]).items():
             if info["done"]:
                 continue
-            argv = release_build_argv(Path(self.config.landing["checkout"]).expanduser(), applying["build"], build)
+            argv = release_build_argv(Path(self.config.landing["checkout"]).expanduser(), template, build)
             if argv is None:
-                self.escalate(f"applying-read:{build}", "APPLYING-UNREAD", info["lane"], f"build {build} is no Buildkite build URL, and landing.applying.build names its pipeline; no apply of it is announced")
+                self.escalate(f"applying-read:{build}", "APPLYING-UNREAD", info["lane"], f"build {build} is no Buildkite build URL, and the build reader `{template}` names its pipeline; no apply of it is announced and it opens no page watch")
                 self.book.edit(RUNNER, lambda incident, build=build: incident.facts[RELEASE_BUILDS][build].update({"done": True}))
                 continue
             done = self.shell.run(argv)
@@ -4378,12 +4385,44 @@ class Runner:
             except json.JSONDecodeError:
                 self.escalate(f"applying-read:{build}", "APPLYING-UNREAD", info["lane"], f"`{' '.join(argv)}` printed no JSON: {' '.join(done.out.split())[:200]}; it is read again next pass")
                 continue
-            for job in shown.get("jobs") or []:
+            for job in (shown.get("jobs") or []) if applying else []:
                 step = re.fullmatch(applying["step"], job.get("step_key") or "")
                 if step and job.get("state") == "running" and any(fnmatch(step["component"], glob) for glob in applying["components"]):
                     self.announce_apply(build, info, step["component"], step["env"], job["id"], shown.get("commit") or "")
-            if shown.get("finished_at"):
-                self.book.edit(RUNNER, lambda incident, build=build: incident.facts[RELEASE_BUILDS][build].update({"done": True}))
+            if finished := shown.get("finished_at"):
+                self.book.edit(RUNNER, lambda incident, build=build, finished=finished: incident.facts[RELEASE_BUILDS][build].update({"done": True, "finished": finished}))
+
+    def watch_pages(self) -> None:
+        """While a release build a lane's record names runs, and for `PAGE_TAIL` after it finishes, post each new top-level message of each `landing.pages.channels` channel to root as one `incident` record, so the drive treats every page during its releases as its incident on sight (owner ruling, Nov 1 2026 2:31 PM)."""
+        pages = self.config.landing.get("pages")
+        if not pages:
+            return
+        now = self.now()
+        opened = [
+            datetime.fromisoformat(info["at"])
+            for info in self.book.fact(RUNNER, RELEASE_BUILDS, {}).values()
+            if info.get("at") and (not info["done"] or info.get("finished") and now - datetime.fromisoformat(info["finished"]) < PAGE_TAIL)
+        ]
+        if not opened:
+            return
+        since = min(opened).timestamp()
+        seen = self.book.fact(RUNNER, PAGES_SEEN, {})
+        for channel in pages["channels"]:
+            done = self.shell.run(["cc-slack", "history", "--channel", channel, "--json", "--limit", str(PAGE_READ)])
+            if done.code != 0:
+                self.escalate(f"pages-unread:{channel}:{now:%Y%m%d%H}", "PAGES-UNREAD", "runner", f"`cc-slack history --channel {channel}` exited {done.code}: {' '.join((done.err or done.out).split())[:200]}; no page in it reaches root until it reads, and the next pass reads it again")
+                continue
+            after = max(since, float(seen.get(channel, "0")))
+            for message in sorted((m for m in json.loads(done.out)["messages"] if float(m["ts"]) > after), key=lambda m: float(m["ts"])):
+                key = f"page:{channel}:{message['ts']}"
+                headline = " ".join(SLACK_LINK.sub(r"\1", message["text"].split("\n", 1)[0]).split())[:160]
+                at = pacific(datetime.fromtimestamp(float(message["ts"]), timezone.utc))
+                text = f"PAGE {at} {message.get('user_name') or 'someone'}: {headline} {message['permalink']} | a release of this drive is live: open the incident, launch its fix lane and reply in the page thread now, with no owner round-trip"
+                posted = self.cci_post("incident", text, ROOT, key, key, record_id=key, flags=["--url", message["permalink"]])
+                if posted.code != 0:
+                    self.escalate(f"page-post:{key}", "PAGE-POST-FAILED", "runner", f"the page {message['permalink']} did not post: {' '.join((posted.err or posted.out).split())[:200]}; the next pass posts it again")
+                    break
+                self.book.edit(RUNNER, lambda incident, channel=channel, ts=message["ts"]: incident.facts.setdefault(PAGES_SEEN, {}).update({channel: ts}))
 
     def announce_apply(self, build: str, info: dict, component: str, env: str, job: str, commit: str) -> None:
         key = f"applying:{job}"

@@ -236,6 +236,7 @@ class FakeShell(runner_module.Shell):
         self.registered: list[list[str]] = []
         self.root_drives: list[str] = ["d1"]
         self.builds: dict[str, dict] = {}
+        self.slack_history: dict[str, list[dict]] = {}
         self.annotations: dict[str, list[dict]] = {}
         self.job_logs: dict[str, str] = {}
         self.test_files: dict[str, str] = {}
@@ -386,6 +387,9 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(*self.restack_done)
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == runner_module.MERGE_CARD_FIELDS:
             return runner_module.Done(0, json.dumps({"title": "Record each run's owner", "author": {"login": "dana"}, "additions": 12, "deletions": 3, "reviewDecision": "APPROVED"}), "")
+        if argv[:2] == ["cc-slack", "history"]:
+            channel = argv[argv.index("--channel") + 1]
+            return runner_module.Done(0, json.dumps({"channel_id": channel, "messages": sorted(self.slack_history.get(channel, []), key=lambda m: -float(m["ts"]))}), "")
         if argv[:3] == ["cc-slack", "dm-status", "--root-only"]:
             self.cards.append(json.loads(argv[argv.index("--card") + 1]))
             return runner_module.Done(1 if self.card_error else 0, "", self.card_error)
@@ -13850,6 +13854,61 @@ def test_a_finished_build_is_read_no_more(shell, config, tmp_path):
     orca_pass(shell, config)
     reads = [call for call in shell.calls if call[1:3] == ["bk", "api"]]
     assert len(reads) == 1
+
+
+def with_pages(config: Path) -> None:
+    raw = json.loads(config.read_text())
+    raw["landing"]["pages"] = {"channels": ["C0ONCALL"], "build": "tools/ci bk api /pipelines/{pipeline}/builds/{number}"}
+    config.write_text(json.dumps(raw))
+
+
+def page(shell: FakeShell, title: str) -> dict:
+    message = {"ts": f"{shell.now().timestamp():.6f}", "user_name": "Wadsworth", "text": f":rotating_light: *{title}* <https://app.datadoghq.com/monitors/1|monitor>\nmore detail", "permalink": f"https://poetic-technology.slack.com/archives/C0ONCALL/p{int(shell.now().timestamp() * 1e6)}"}
+    shell.slack_history.setdefault("C0ONCALL", []).append(message)
+    return message
+
+
+def page_posts(shell: FakeShell) -> list[dict]:
+    return [post for post in shell.posts if post["kind"] == "incident" and post["id"].startswith("page:")]
+
+
+def test_each_page_during_a_release_and_its_tail_reaches_root_once_as_an_incident(shell, config, tmp_path):
+    """Owner ruling, Nov 1 2026 2:31 PM: the drive watches the ai-oncall channel whenever it runs a release; every page is its incident on sight."""
+    with_pages(config)
+    shell.builds["8748"] = {"commit": "94d61b91951aa", "jobs": [], "finished_at": None}
+    page(shell, "Before any release")
+    shell.sleep(60)
+    orca_pass(shell, config)
+    assert page_posts(shell) == []
+    release_started(shell)
+    shell.sleep(60)
+    first = page(shell, "Iris chat list broken")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    [post] = page_posts(shell)
+    assert post["to"] == "root" and post["url"] == first["permalink"] and post["id"] == f"page:C0ONCALL:{first['ts']}"
+    assert post["text"].startswith("PAGE 11:02 Wadsworth: :rotating_light: *Iris chat list broken* monitor https://")
+    shell.builds["8748"]["finished_at"] = actions.stamp(shell.now())
+    orca_pass(shell, config)
+    shell.sleep(29 * 60)
+    page(shell, "Team Run Failure Rate")
+    orca_pass(shell, config)
+    shell.sleep(2 * 60)
+    page(shell, "After the tail")
+    orca_pass(shell, config)
+    assert [post["text"].split("*")[1] for post in page_posts(shell)] == ["Iris chat list broken", "Team Run Failure Rate"]
+
+
+def test_a_release_build_named_only_in_its_record_text_opens_the_page_watch(shell, config, tmp_path):
+    with_pages(config)
+    shell.builds["8748"] = {"commit": "94d61b91951aa", "jobs": [], "finished_at": None}
+    orca_pass(shell, config)
+    cci_record(shell, lane=WALKER, kind="release", at=actions.stamp(shell.now()), text=f"Dry run 11785 started 2:25 PM: api only. {BUILD}.")
+    shell.sleep(60)
+    page(shell, "Run history failing")
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert len(page_posts(shell)) == 1
 
 
 def test_an_applying_config_without_named_groups_refuses_to_start(shell, config, tmp_path):

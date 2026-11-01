@@ -427,6 +427,11 @@ expression with `component` and `env` named groups that a job's step key must ma
 whole; and `components` lists the fnmatch globs of the components whose applies peer
 drives watch. `run --desk orca` posts `APPLYING-CONFIG-INVALID` and exits on a partial one.
 `reference/release-lanes.md` has what the runner claims, announces, and asks.
+`landing.pages`, optional, turns on the orca runner's page watch during releases:
+`channels` lists the Slack channel ids whose top-level messages are pages, and `build`
+is the release build reader, as `landing.applying.build` is; with `landing.applying`
+set, the runner reads builds through that one. `reference/release-lanes.md` has the
+window and the record each page becomes.
 `landing.merge_mode` is required too: the owner's pick of `every`, `high-risk`, or
 `auto`, which the root asks once at execution start and records as a cc-notes answer.
 Without one of those values the landing runner exits and posts `MERGE-MODE-UNSET`. It
@@ -544,6 +549,7 @@ the launch. The worker's brief then ends with the command and the path of its lo
     "release_owner": "peer:<release session>",
     "release_cli": "tools/ci release",
     "applying": {"build": "tools/ci bk api /pipelines/{pipeline}/builds/{number}", "step": "apply-(?P<component>.+?)--(?P<env>.+)", "components": ["sandsql", "api", "executor", "rsw-*"]},
+    "pages": {"channels": ["C0C5SEUJK5L", "C0BGGNU2C76"], "build": "tools/ci bk api /pipelines/{pipeline}/builds/{number}"},
     "interval_seconds": 180,
     "status_card": true,
     "policy": {

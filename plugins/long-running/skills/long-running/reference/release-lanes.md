@@ -32,6 +32,17 @@ names, it posts one `release` record, keyed by the job id, to the root of every 
 drive: `applying <project>/<env> <commit, 8 chars> (<release id>)`. A peer drive pauses
 its own watch on it. Post no `applying` record yourself.
 
+## Hear every page while a release runs
+
+With `landing.pages` set, the orca runner reads each release build a lane's `release`
+record names, by `--build` or as a Buildkite URL in its text, until the build finishes.
+From the record's time until 30 minutes after the last such build finishes, it reads
+the newest top-level messages of each channel `landing.pages.channels` lists every 15
+seconds and posts each new one to the root once, as an `incident` record carrying its
+permalink as `--url`. The root takes each one as the Incident Turn's alert link: the
+incident, its fix lane, and a reply in the page's thread, that turn, with no owner
+round-trip. Outside that window the runner reads no channel.
+
 ## Own every freeze you set
 
 A freeze records its setter and nothing else, so a person who hits it cannot tell
