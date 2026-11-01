@@ -280,6 +280,13 @@ def cmd_install(config: lr_config.Config, path: Path) -> int:
         if (out := launchctl("bootout", target)).returncode:
             print(f"drive_supervisor: launchctl bootout {target} failed: {(out.stderr or out.stdout).strip()}", file=sys.stderr)
             return 1
+        for _ in range(TIMEOUT):
+            if launchctl("print", target).returncode:
+                break
+            time.sleep(1)
+        else:
+            print(f"drive_supervisor: {target} was still loaded {TIMEOUT} s after its bootout", file=sys.stderr)
+            return 1
     plist.parent.mkdir(parents=True, exist_ok=True)
     plist.write_bytes(agent)
     if (out := launchctl("bootstrap", f"gui/{os.getuid()}", str(plist))).returncode:
