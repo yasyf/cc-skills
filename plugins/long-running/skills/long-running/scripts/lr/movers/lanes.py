@@ -12,7 +12,8 @@ leaves that table. A fresh store adopts only the lanes alive at that moment by t
 rule, and a tick whose sources do not all answer acts on nothing. A numbered successor's
 `SPAWNED`, a root `<new> replaces <old>`, a root record telling a lane to stand down, the
 lane's own stand-down, and a `head` or `opened` record that takes a never-launched lane's
-last PR each retire a lane; a `<lane>-handoff` writer's `handoff <lane>: doc <id>` is the
+last PR each retire a lane, and so does a lane that stops with nothing posted after its last owned
+PR landed, since its deliverable is merged (root #283488); a `<lane>-handoff` writer's `handoff <lane>: doc <id>` is the
 lane's newest handoff. It signals no process: a live lane leaves only
 through the record that stands it down.
 """
@@ -42,6 +43,7 @@ HANDED_OFF = re.compile(r"\bhandoff (?P<lane>[\w.-]+): doc (?P<doc>[0-9a-f]{7,40
 CARRIES = ("head", "opened")
 WAITS = frozenset({"ask", "blocked", "blocker"})
 SETTLED = frozenset({"handoff", "done", "stand-down", "stopped"})
+LANDED = "landed"
 SLICE_STEP = re.compile(r"^Register slice: lane=\S+ step=(\S+)", re.MULTILINE)
 STAND_DOWN_LIST = re.compile(r"\bstand[ -]?down\s+(?P<names>[^.(;:\n]+)", re.IGNORECASE)
 CARD = re.compile(r"\bcard-[\w.-]*\w")
@@ -224,7 +226,12 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
                     retire(store, other.name, lane, at)
             store.own(lane, numbers)
         elif kind == "landed":
-            store.disown(prs_of(record))
+            numbers = prs_of(record)
+            owners = {owner for owner in store.owner_of(numbers).values() if owner} if numbers else set()
+            store.disown(numbers)
+            for owner in owners:
+                if (owned := store.lane(owner)) and owned.state in LIVE and not owned.prs:
+                    store.lane_heard(owner, at, LANDED)
         elif kind == "done" and row and row.state != "retired":
             retire(store, lane, "done", at)
         elif row and row.state != "retired" and kind in ("stopped", "stand-down"):
@@ -493,6 +500,8 @@ def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
             hold(store, lane.name, verdict.why, now)
             escalate(store, deps, f"lane:{lane.name}", f"{verdict.why}; brief {deps.briefs / f'{lane.name}.brief.md'}", now)
             out.held.append(lane.name)
+        elif verdict.kind == "dead" and lane.last == LANDED:
+            retire(store, lane.name, LANDED, now)
         elif verdict.kind == "dead":
             relaunch(store, deps, lane, found, verdict.why, taken, now, out)
         elif verdict.kind == "ask-rotate":
