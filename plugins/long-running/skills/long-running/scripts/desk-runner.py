@@ -9805,6 +9805,43 @@ def mq_config_fault(landing: dict) -> str:
     return f"{'; '.join(faults)}; add to the \"landing\" object of runner.json, replacing any member of the same name: {', '.join(members)}"
 
 
+def config_faults(runner: Runner) -> list[str]:
+    """Every reason the landing desk would refuse to start on `runner`'s config, its Keychain item read as a launchd-supervised runner reads it."""
+    landing = runner.config.landing
+    if "fidelity_lane" not in landing:
+        return ["it names no landing.fidelity_lane, so no fidelity grade would count"]
+    if landing.get("merge_mode") not in MERGE_MODES:
+        return [f"it names no landing.merge_mode of {', '.join(MERGE_MODES)}"]
+    return [*filter(None, [mq_config_fault(landing)]), *preflight_faults(runner, keychain=True)]
+
+
+def edit_config(runner: Runner, action: str, key: str, value: str | None) -> int:
+    """Set or unset the member of runner.json at the dotted `key`, writing it only when the landing desk would start on the result with no fault the current file lacks, since a hand edit that names an unregistered lane or a check the runner no longer knows takes the desk down at its next start (mq-health-4 #237301, #250223)."""
+    source = runner.config.source
+    raw = json.loads(source.read_text())
+    *parents, leaf = key.split(".")
+    node = raw
+    for part in parents:
+        node = node.setdefault(part, {}) if action == "set" else node[part]
+    if action == "set":
+        node[leaf] = json.loads(value)
+    else:
+        node.pop(leaf)
+    staged = source.with_name(f".{source.name}.edit")
+    staged.write_text(json.dumps(raw, indent=2) + "\n")
+    try:
+        before = set(config_faults(runner))
+        added = [fault for fault in config_faults(Runner(runner.shell, replace(Config.load(staged), source=source), actions.Store(runner.config.store))) if fault not in before]
+        if added:
+            print(f"desk-runner config: {source} is unchanged, since the landing desk would refuse to start on the edit: {'; '.join(added)}", file=sys.stderr)
+            return 3
+        staged.replace(source)
+    finally:
+        staged.unlink(missing_ok=True)
+    print(f"desk-runner config: {action} {key} in {source}; the landing desk would start on it")
+    return 0
+
+
 def startup_fault(runner: Runner, keychain: bool = False) -> tuple[str, str, str] | None:
     source, landing = runner.config.source, runner.config.landing
     if "fidelity_lane" not in landing:
@@ -9942,7 +9979,11 @@ def build_parser() -> argparse.ArgumentParser:
     gc.add_argument("--dry-run", action="store_true")
     go = verbs.add_parser("go", help="each PR's ledger head and the newest go naming it, else the newest go at an older head, read as the landing runner reads them")
     go.add_argument("prs", nargs="+")
-    for sub in (relay, launch, policy, loop, rebind, handoff, supervise, preflight, quiesce, show, gc, go):
+    edit = verbs.add_parser("config", help="set or unset one member of runner.json, written only when the landing desk would start on the result")
+    edit.add_argument("action", choices=("set", "unset"))
+    edit.add_argument("key", help="the member's dotted path, such as landing.fidelity_lane")
+    edit.add_argument("value", nargs="?", default="null", help="the member's JSON value, for set")
+    for sub in (relay, launch, policy, loop, rebind, handoff, supervise, preflight, quiesce, show, gc, go, edit):
         sub.add_argument("--config", type=Path, required=True)
     return parser
 
@@ -9993,6 +10034,8 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
     if args.verb == "show":
         sys.stdout.write(runner.render())
         return 0
+    if args.verb == "config":
+        return edit_config(runner, args.action, args.key, args.value)
     if args.verb == "go":
         landing = Landing(runner, config.landing)
         if (rows := landing.rows()) is None:

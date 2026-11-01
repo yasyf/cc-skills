@@ -1640,6 +1640,14 @@ name or a list of lane names when grading is sharded. The runner re-reads the la
 `runner.json` on every use, so adding a desk needs no restart. The landing desk refuses
 to start without `landing.fidelity_lane` and posts `FIDELITY-LANE-UNSET` to the root.
 
+Change `runner.json` only with `desk-runner.py config set <dotted.key> '<json>' --config
+<runner.json>` or `desk-runner.py config unset <dotted.key> --config <runner.json>`. It
+writes the edit only when the landing desk would start on the result with no fault the
+current file lacks, such as a lane that never registered on the drive, and otherwise leaves
+the file as it was and prints why. A hand edit of `runner.json` draws a warning that names
+the verb. Six fidelity desks added by hand before they registered kept landing down from
+9:47 to 9:50 PM Oct 30 (mq-health-4 #237301).
+
 The `finder` check needs the newest `finder:` review record naming the head, from
 `finder-desk` or a numbered successor, to read `finder: ok`; a lane's own record or a
 reply naming a finder record never grades a head. A head with none, or whose newest is `finder: major`,
