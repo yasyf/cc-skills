@@ -7791,6 +7791,20 @@ def test_a_drive_naming_the_old_app_check_enqueues_every_head_and_warns_once_on_
     assert all(note["to"] == f"{LANE},fidelity-desk" for note in pending)
 
 
+def test_an_old_app_line_the_runner_cannot_read_draws_one_warning_quoting_it_with_the_forms_it_reads(shell, config, tmp_path):
+    """Oct 29 #44843: fidelity-desk-4 posted eleven `old-app: #<pr> <sha> ...` lines, each read as no grade, and the warning said only that no grade named the head."""
+    old_app_checked(config)
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "fidelity-desk", "kind": "review", "to": ["root"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": "old-app: #29020 cccc333 unchanged"})
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    [pending] = [note for note in notes(shell) if "OLD-APP-PENDING #29020" in post_body(note)]
+    assert pending["to"] == f"{LANE},fidelity-desk"
+    assert "fidelity-desk's `old-app: #29020 cccc333 unchanged` on cci #" in post_body(pending)
+    assert "reads as no grade; the runner reads only `old-app: unchanged cccc333`, `old-app: bug fix cccc333` or `old-app: CHANGES cccc333 <what changes>`" in post_body(pending)
+
+
 def test_an_old_app_grade_posted_after_the_pass_scanned_its_reviews_draws_no_warning(shell, config, tmp_path):
     """Oct 27 #156087: a fidelity desk's old-app line landed while a long landing pass ran, after its one review scan, and the pass still warned OLD-APP-PENDING on that head."""
     old_app_checked(config)
