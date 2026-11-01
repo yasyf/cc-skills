@@ -31,6 +31,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
+      - name: Disabled and bounded one-pass native IO diagnostic
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_pass_io.py -q -s --junitxml="$RUNNER_TEMP/one-pass-io.xml"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: one-pass-io-${{ runner.os }}
+          path: ${{ runner.temp }}/one-pass-io.xml
+          if-no-files-found: error
       - uses: actions/checkout@v7
         with:
           ref: 72a91ecd4a1a26a4666e39a7f0f8237444359c53
@@ -380,7 +388,13 @@ jobs:
       - name: Actual overflow refusal historical read costs
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/overflow_read_integration.py -q -s
       - name: pytest
-        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q --junitxml="$RUNNER_TEMP/ci-reader-owner.xml" -o junit_family=xunit1
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ci-reader-owner
+          path: ${{ runner.temp }}/ci-reader-owner.xml
+          if-no-files-found: error
       - uses: actions/checkout@v7
         with:
           ref: 1af779ed338cf93945678ad33c396f1546d0fda3

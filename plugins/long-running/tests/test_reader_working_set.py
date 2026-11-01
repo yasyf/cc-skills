@@ -1,3 +1,4 @@
+from collections import Counter
 import json
 import sqlite3
 import threading
@@ -68,7 +69,9 @@ def test_actual_refusal_reader_working_set_boundary(shell, config, tmp_path, mon
 
 
 @pytest.mark.parametrize("seed", [0, 1, 7])
-def test_reader_cache_adapts_after_sustained_disjoint_working_sets(shell, config, tmp_path, monkeypatch, seed):
+def test_reader_cache_adapts_after_sustained_disjoint_working_sets(shell, config, tmp_path, monkeypatch, seed, record_property):
+    reader_owners = []
+    fixture_owner = {"thread": threading.current_thread().name, "ident": threading.get_ident(), "native_id": threading.get_native_id()}
     monkeypatch.setattr(sqlite_store, "Random", lambda _: Random(seed), raising=False)
     landing = landing_of(shell, config, tmp_path)
     book = landing.book
@@ -90,6 +93,8 @@ def test_reader_cache_adapts_after_sustained_disjoint_working_sets(shell, config
         if not str(database).endswith("?mode=ro"):
             return connect(database, *args, **kwargs)
         connection = connect(database, *args, **kwargs, factory=Observed)
+        current = threading.current_thread()
+        reader_owners.append((current.name, current.ident, threading.get_native_id(), str(database)))
         counts["opens"] += 1
         counts["live"] += 1
         counts["peak"] = max(counts["peak"], counts["live"])
@@ -107,6 +112,8 @@ def test_reader_cache_adapts_after_sustained_disjoint_working_sets(shell, config
                 costs.append(counts["opens"] - before)
             phases.append(costs)
     print(json.dumps({"seed": seed, "phase_costs": phases, "counts": counts}))
+    record_property("reader_fixture_owner", json.dumps(fixture_owner))
+    record_property("reader_connection_owners", json.dumps([{"thread": name, "ident": ident, "native_id": native_id, "raw_database": database, "opens": opens} for (name, ident, native_id, database), opens in Counter(reader_owners).items()]))
     for costs in phases[1:]:
         assert sum(costs) < 64 * 8 and sum(costs[-4:]) <= 64, f"reader cache kept an obsolete working set: {costs}"
     assert counts["peak"] <= 64 and counts["live"] == 0

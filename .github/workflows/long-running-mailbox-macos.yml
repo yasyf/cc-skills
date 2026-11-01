@@ -55,6 +55,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
+      - name: Disabled and bounded one-pass native IO diagnostic
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_pass_io.py -q -s --junitxml="$RUNNER_TEMP/one-pass-io.xml"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: one-pass-io-${{ runner.os }}
+          path: ${{ runner.temp }}/one-pass-io.xml
+          if-no-files-found: error
       - uses: actions/checkout@v7
         with:
           ref: 72a91ecd4a1a26a4666e39a7f0f8237444359c53
