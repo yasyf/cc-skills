@@ -12000,7 +12000,7 @@ def test_a_silent_incident_lane_gets_one_opus_fallback_and_one_blocker_per_thres
     assert len(launches(shell)) == 2 and len(shell.entries) == 1
 
 
-@pytest.mark.parametrize("source", ["status", "cci", "base-name", "any-kind-text"])
+@pytest.mark.parametrize("source", ["status", "cci", "base-name", "doubled-suffix", "any-kind-text"])
 def test_a_mechanism_from_the_run_or_from_cci_stops_the_mechanism_threshold(shell, config, tmp_path, capsys, source):
     clocked_lane(shell, config, tmp_path)
     shell.sleep(4 * 60)
@@ -12008,6 +12008,8 @@ def test_a_mechanism_from_the_run_or_from_cci_stops_the_mechanism_threshold(shel
         shell.receive({"subject": "mechanism: wrong selector", "from_handle": f"term_ctx_{LANE}"})
     elif source == "base-name":
         lane_record(shell, LANE.removesuffix("-fix"), "incident", text="MECHANISM d121062c confirmed")
+    elif source == "doubled-suffix":
+        lane_record(shell, f"{LANE}-fix", "mechanism")
     elif source == "any-kind-text":
         lane_record(shell, LANE, "state", text="Found the mechanism: the release smoke reads a missing next.json")
     else:

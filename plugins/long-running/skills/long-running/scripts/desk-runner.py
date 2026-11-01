@@ -1437,10 +1437,10 @@ def names_lane(record: dict, names: set[str]) -> bool:
     return bool(names & set(record.get("to") or [])) or any(re.search(rf"(?<![\w.-]){re.escape(name)}(?![\w-]|\.\w)", record.get("text") or "") for name in names)
 
 
-def lane_aliases(lane: str) -> tuple[str, str]:
-    """The names one incident lane posts under: the desk launches `<name>-fix`, and its lane may post as `<name>`."""
-    base = lane.removesuffix(FIX_ALIAS)
-    return base, f"{base}{FIX_ALIAS}"
+def lane_aliases(lane: str) -> tuple[str, str, str]:
+    """The names one incident lane posts under: the desk launches `<name>-fix`, its lane may post as `<name>`, and a brief rendered from a slug that already ended in `-fix` names it `<name>-fix-fix` (root #296051)."""
+    base = re.sub(rf"(?:{FIX_ALIAS})+$", "", lane)
+    return base, f"{base}{FIX_ALIAS}", f"{base}{FIX_ALIAS}{FIX_ALIAS}"
 
 
 def successors(lane: str) -> re.Pattern[str]:
@@ -2812,7 +2812,7 @@ class Runner:
             self.record(log, f"ALERT-FAILED {key} inbox: one alert per line, in the form `{ALERT_GRAMMAR}`; nothing was recorded")
             return
         slug, link, what = spec["slug"], spec["link"], spec["what"]
-        lane = f"{slug}-fix"
+        lane = f"{slug.removesuffix(FIX_ALIAS)}{FIX_ALIAS}"
         dispatch = self.orca.show(lane)
         if dispatch and dispatch.status not in INACTIVE:
             self.relay_to(at, f"{key}:again", lane, f"The alert fired again at {pacific(self.now())}: {what} {link}")
@@ -2827,7 +2827,7 @@ class Runner:
             self.record(log, f"INCIDENT-FAILED {key} inbox: one incident per line, in the form `{INCIDENT_GRAMMAR}`; nothing was launched")
             return
         slug, link, what = spec["slug"], spec["link"], spec["what"]
-        lane = f"{slug}-fix"
+        lane = f"{slug.removesuffix(FIX_ALIAS)}{FIX_ALIAS}"
         dispatch = self.orca.show(lane)
         if dispatch and dispatch.status not in INACTIVE:
             self.relay_to(at, f"{key}:again", lane, f"The alert fired again at {pacific(self.now())}: {what} {link}")
