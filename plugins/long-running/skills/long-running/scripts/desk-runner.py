@@ -9597,50 +9597,53 @@ def run_orca(runner: Runner, once: bool) -> int:
     if failure := runner.resolve_briefs_log():
         runner.escalate(f"briefs-log:{runner.config.briefs_log or 'unset'}", "BRIEFS-LOG-FAILED", "runner", f"the briefs log did not resolve at start: {failure}; each brief attach retries it")
     swept = rotated = datetime.min.replace(tzinfo=timezone.utc)
-    runner.keep_alive("orca")
-    runner.register_lane(ORCA_DESK)
-    if not once:
-        runner.keep_finding()
-        runner.keep_probing()
-    while True:
-        if runner.now() - rotated >= ROTATE_EVERY:
-            runner.rotate_inboxes()
-            rotated = runner.now()
-        runner.follow_coordinator()
-        try:
-            if runner.check():
-                runner.steps(runner.reap, runner.read_cci, runner.deliver)
-                if runner.now() - swept >= SWEEP_EVERY:
-                    runner.steps(runner.sweep)
-                    swept = runner.now()
-            runner.steps(runner.deadlines_orca, runner.incident_clock, runner.pr_silent, runner.class_unowned, runner.in_process, runner.cut_clock, runner.release_coupling, runner.finders, runner.fidelities, runner.sprite_beats)
-        except StopRequested:
+    alive = runner.keep_alive("orca")
+    try:
+        runner.register_lane(ORCA_DESK)
+        if not once:
+            runner.keep_finding()
+            runner.keep_probing()
+        while True:
+            if runner.now() - rotated >= ROTATE_EVERY:
+                runner.rotate_inboxes()
+                rotated = runner.now()
+            runner.follow_coordinator()
+            try:
+                if runner.check():
+                    runner.steps(runner.reap, runner.read_cci, runner.deliver)
+                    if runner.now() - swept >= SWEEP_EVERY:
+                        runner.steps(runner.sweep)
+                        swept = runner.now()
+                runner.steps(runner.deadlines_orca, runner.incident_clock, runner.pr_silent, runner.class_unowned, runner.in_process, runner.cut_clock, runner.release_coupling, runner.finders, runner.fidelities, runner.sprite_beats)
+            except StopRequested:
+                runner.flush()
+                runner.stop_marker().unlink()
+                return 0
+            except OrcaUnreachable as down:
+                runner.orca_down(down)
+            except Exception as error:
+                if runner.pass_raised("orca", error):
+                    runner.shell.sleep(RAISED_BACKOFF.total_seconds())
+                    runner.reexec("orca")
+            else:
+                runner.orca_back()
+            runner.aged_holds()
+            runner.stalled_launches()
+            runner.stall_watch()
+            runner.judge_watch()
+            behind = runner.moved()
             runner.flush()
-            runner.stop_marker().unlink()
-            return 0
-        except OrcaUnreachable as down:
-            runner.orca_down(down)
-        except Exception as error:
-            if runner.pass_raised("orca", error):
-                runner.shell.sleep(RAISED_BACKOFF.total_seconds())
+            runner.beat("orca")
+            if once:
+                return 0
+            runner.idle(runner.pass_wait())
+            if runner.stop_requested():
+                runner.stop_marker().unlink()
+                return 0
+            if behind:
                 runner.reexec("orca")
-        else:
-            runner.orca_back()
-        runner.aged_holds()
-        runner.stalled_launches()
-        runner.stall_watch()
-        runner.judge_watch()
-        behind = runner.moved()
-        runner.flush()
-        runner.beat("orca")
-        if once:
-            return 0
-        runner.idle(runner.pass_wait())
-        if runner.stop_requested():
-            runner.stop_marker().unlink()
-            return 0
-        if behind:
-            runner.reexec("orca")
+    finally:
+        alive.set()
 
 
 def mq_config_fault(landing: dict) -> str:
@@ -9720,43 +9723,46 @@ def run_landing(runner: Runner, once: bool) -> int:
         landing.keep_fresh()
         landing.keep_overflowing()
     interval = runner.config.landing.get("interval_seconds", 180)
-    runner.keep_alive("landing")
-    while True:
-        started = runner.now()
-        runner.passing.add("landing")
-        try:
-            landing.run()
-            if once:
-                landing.drain()
-        except StopRequested:
-            landing.close()
+    alive = runner.keep_alive("landing")
+    try:
+        while True:
+            started = runner.now()
+            runner.passing.add("landing")
+            try:
+                landing.run()
+                if once:
+                    landing.drain()
+            except StopRequested:
+                landing.close()
+                runner.flush()
+                runner.stop_marker().unlink()
+                return 0
+            except CciTailFailed as failure:
+                runner.tail_failed(failure)
+            except OrcaUnreachable as down:
+                runner.orca_down(down)
+            except Exception as error:
+                if runner.pass_raised("landing", error):
+                    runner.shell.sleep(RAISED_BACKOFF.total_seconds())
+                    runner.reexec("landing")
+            runner.passing.discard("landing")
+            behind = runner.moved()
+            took = (runner.now() - started).total_seconds()
+            landing.post_state(took)
             runner.flush()
-            runner.stop_marker().unlink()
-            return 0
-        except CciTailFailed as failure:
-            runner.tail_failed(failure)
-        except OrcaUnreachable as down:
-            runner.orca_down(down)
-        except Exception as error:
-            if runner.pass_raised("landing", error):
-                runner.shell.sleep(RAISED_BACKOFF.total_seconds())
+            print(f"PASS landing {runner.passes['landing'] + 1} on {RUNNING_VERSION} took {took:.0f}s: {runner.shell.pass_cost()}", file=sys.stderr, flush=True)
+            runner.beat("landing")
+            if once:
+                return 0
+            if runner.rest(max(0.0, interval - (runner.now() - started).total_seconds())):
+                landing.close()
+                runner.stop_marker().unlink()
+                return 0
+            if behind:
+                landing.close()
                 runner.reexec("landing")
-        runner.passing.discard("landing")
-        behind = runner.moved()
-        took = (runner.now() - started).total_seconds()
-        landing.post_state(took)
-        runner.flush()
-        print(f"PASS landing {runner.passes['landing'] + 1} on {RUNNING_VERSION} took {took:.0f}s: {runner.shell.pass_cost()}", file=sys.stderr, flush=True)
-        runner.beat("landing")
-        if once:
-            return 0
-        if runner.rest(max(0.0, interval - (runner.now() - started).total_seconds())):
-            landing.close()
-            runner.stop_marker().unlink()
-            return 0
-        if behind:
-            landing.close()
-            runner.reexec("landing")
+    finally:
+        alive.set()
 
 
 def launch_model(model: str) -> str:

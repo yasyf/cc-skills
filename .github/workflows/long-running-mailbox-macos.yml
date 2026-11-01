@@ -57,6 +57,35 @@ jobs:
       - uses: astral-sh/setup-uv@v8.2.0
       - uses: actions/checkout@v7
         with:
+          ref: 72a91ecd4a1a26a4666e39a7f0f8237444359c53
+          path: .ci-heartbeat-lifecycle-baseline
+          persist-credentials: false
+      - name: Immutable returned heartbeat worker negative controls
+        run: |
+          baseline=.ci-heartbeat-lifecycle-baseline/plugins/long-running
+          cp plugins/long-running/tests/test_desk_runner.py "$baseline/tests/test_desk_runner.py"
+          for desk in orca landing; do
+            negative="$RUNNER_TEMP/heartbeat-lifecycle-old-$desk.log"
+            if uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_desk_runner.py" -k "test_controller_return_stops_its_real_heartbeat and once and $desk" -q >"$negative" 2>&1; then
+              cat "$negative"
+              exit 1
+            fi
+            cat "$negative"
+            grep -F 'returned controller left its heartbeat stop event unset' "$negative"
+            grep -F '1 failed' "$negative"
+          done
+      - name: Actual controller heartbeat success and error teardown
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_desk_runner.py::test_controller_return_stops_its_real_heartbeat -q -s --junitxml="$RUNNER_TEMP/controller-heartbeat-lifetime.xml" -o junit_family=xunit1
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: controller-heartbeat-lifetime-${{ runner.os }}
+          path: |
+            ${{ runner.temp }}/controller-heartbeat-lifetime.xml
+            ${{ runner.temp }}/heartbeat-lifecycle-old-*.log
+          if-no-files-found: error
+      - uses: actions/checkout@v7
+        with:
           ref: 55b1b01654e37be57b7c2d102f5b4492a7fec1a5
           path: .ci-reader-working-set-baseline
           persist-credentials: false

@@ -1063,6 +1063,53 @@ def landing_pass(shell: FakeShell, config: Path) -> None:
     assert cli(shell, config, "run", "--desk", "landing", "--once") == 0
 
 
+@pytest.mark.parametrize("desk", ["orca", "landing"])
+@pytest.mark.parametrize("exit_mode", ["once", "exception"])
+def test_controller_return_stops_its_real_heartbeat(shell, config, monkeypatch, desk, exit_mode):
+    threads, stops, active = [], [], []
+    start, keep_alive, moved = threading.Thread.start, runner_module.Runner.keep_alive, runner_module.Runner.moved
+    owner = threading.get_ident()
+
+    def started(thread):
+        start(thread)
+        if threading.get_ident() == owner and thread.name == f"{desk}-alive":
+            threads.append(thread)
+
+    def keeping(runner, name):
+        stop = keep_alive(runner, name)
+        stops.append(stop)
+        return stop
+
+    def moving(runner):
+        active.append(threads[-1].is_alive() and not stops[-1].is_set())
+        if exit_mode == "exception":
+            raise RuntimeError("heartbeat pass failure")
+        return moved(runner)
+
+    monkeypatch.setattr(threading.Thread, "start", started)
+    monkeypatch.setattr(runner_module.Runner, "keep_alive", keeping)
+    monkeypatch.setattr(runner_module.Runner, "moved", moving)
+    try:
+        for _ in range(3):
+            if exit_mode == "exception":
+                with pytest.raises(RuntimeError, match="heartbeat pass failure"):
+                    cli(shell, config, "run", "--desk", desk, "--once")
+            else:
+                assert cli(shell, config, "run", "--desk", desk, "--once") == 0
+            assert stops[-1].is_set(), "returned controller left its heartbeat stop event unset"
+            threads[-1].join(timeout=2)
+            assert not threads[-1].is_alive(), "returned controller left a live heartbeat thread"
+        assert len(threads) == len(stops) == 3
+        assert active == [True, True, True]
+        assert all(thread.native_id is not None for thread in threads)
+    finally:
+        for stop in stops:
+            stop.set()
+        for thread in threads:
+            thread.join(timeout=2)
+    assert all(not thread.is_alive() for thread in threads)
+
+
 def said(shell: FakeShell) -> list[str]:
     return [(Path(post["path"]).read_text() if "path" in post else post["text"]).splitlines()[0] for post in shell.posts]
 
