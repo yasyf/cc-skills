@@ -175,6 +175,7 @@ class FakeShell(runner_module.Shell):
         self.peer_mail: list[dict] = []
         self.trunk: list[dict] = []
         self.trunk_error = ""
+        self.trunk_read_error = ""
         self.tail_error = ""
         self.tail_failures = 0
         self.post_error = ""
@@ -456,6 +457,8 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(0, json.dumps({"status": "queued"}), "")
         if argv[:3] == ["gh", "api", "graphql"] and "pullRequests(headRefName: " in argv[4]:
             return runner_module.Done(0, json.dumps({"data": {"repository": {}}}), "")
+        if argv == ["git", "-C", str(self.root / "checkout"), "rev-parse", "HEAD"]:
+            return runner_module.Done(0, f"{self.trunk[0]['oid']}\n", "") if self.trunk else runner_module.Done(128, "", "fatal: ambiguous argument 'HEAD': unknown revision or path not in the working tree.")
         if argv[:3] == ["git", "-C", str(self.root / "checkout")] and argv[3:] == ["ls-remote", "origin", "refs/heads/dev"]:
             if self.trunk_error:
                 return runner_module.Done(128, "", self.trunk_error)
@@ -709,6 +712,8 @@ class FakeShell(runner_module.Shell):
         if carried := re.findall(r"c(\d+): pullRequest\(number: \1\) \{ commits\(last: 100\)", query):
             return runner_module.Done(0, json.dumps({"data": {"repository": {f"c{pr}": {"commits": {"nodes": [{"commit": {"oid": oid}} for oid in self.pr_commits.get(pr, [])]}} for pr in carried}}}), "")
         if self.trunk and f'object(expression: "{self.trunk[0]["oid"]}") {{ ... on Commit {{ history(' in query:
+            if self.trunk_read_error:
+                return runner_module.Done(1, "", self.trunk_read_error)
             return runner_module.Done(0, json.dumps({"data": {"repository": {"object": {"history": {"nodes": self.trunk}}}}}), "")
         heads = re.findall(r'(h\d+): object\(expression: "([0-9a-f]+)"\) \{ \.\.\. on Commit \{ status \{ contexts \{ context state description targetUrl \} \} checkSuites\(last: 10, filterBy: \{checkName: "ai-review"\}\) \{ nodes \{ checkRuns\(last: 1, filterBy: \{checkName: "ai-review"\}\) \{ nodes \{ title startedAt \} \} \} \} \} \}', query)
         commits = {
@@ -13672,7 +13677,7 @@ def test_a_red_trunk_posts_dev_red_every_half_hour_naming_its_fix_once_named(she
     ]
 
 
-def test_a_settled_trunk_is_read_from_github_again_only_once_ls_remote_shows_it_moved(shell, config, tmp_path):
+def test_a_settled_trunk_is_read_from_github_again_only_once_the_checkouts_fetched_tip_moved(shell, config, tmp_path):
     landing = trunk_watch(shell, config, tmp_path)
     shell.trunk = [trunk_commit("b", "SUCCESS", "29019", "2026-10-01T17:50:00Z")]
     landing.watch_trunk(OPEN_ROWS)
@@ -13693,17 +13698,30 @@ def test_a_trunk_that_does_not_read_gates_nothing_and_posts_once_per_streak(shel
     trunk_watch(shell, config, tmp_path)
     shell.trunk = [trunk_commit("b", "SUCCESS", "29019", "2026-10-01T17:50:00Z")]
     shell.combined_statuses["cccc333333"] = [{"context": TRUNK_CHECK, "state": "success"}]
-    shell.trunk_error = "fatal: expected flush after ref listing"
+    shell.trunk_read_error = "gh: Something went wrong while executing your query. (HTTP 502)"
     landing_pass(shell, config)
     shell.clock += timedelta(hours=2)
     landing_pass(shell, config)
     assert shell.enqueues() == [] and not [call for call in shell.calls if Path(call[0]).name == "stack-enqueue"]
     assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["TRUNK-READ-FAILED"]
-    shell.trunk_error = ""
+    shell.trunk_read_error = ""
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert len(shell.enqueues()) == 1
     assert [line.split(" ", 1)[0] for line in escalations(shell)] == ["TRUNK-READ-FAILED", "TRUNK-READ-RECOVERED"]
+
+
+def test_a_trunk_tip_read_needs_no_git_connection_beyond_the_passs_fetch_so_a_timed_out_ls_remote_gates_on(shell, config, tmp_path):
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    trunk_watch(shell, config, tmp_path)
+    shell.trunk = [trunk_commit("b", "SUCCESS", "29019", "2026-10-01T17:50:00Z")]
+    shell.combined_statuses["cccc333333"] = [{"context": TRUNK_CHECK, "state": "success"}]
+    shell.trunk_error = "fatal: unable to access 'https://github.com/Forge-AI/monorepo/': Recv failure: Operation timed out"
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+    assert not [line for line in escalations(shell) if line.startswith("TRUNK-READ")]
 
 
 def test_a_pr_body_is_read_once_per_five_minutes_across_passes(shell, config, tmp_path):
