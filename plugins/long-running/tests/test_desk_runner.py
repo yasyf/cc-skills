@@ -8545,6 +8545,38 @@ def test_a_moved_head_or_a_waiting_verdict_settles_refused_with_its_reason_never
     assert line.endswith(why)
 
 
+def test_a_stack_worker_that_settles_in_one_pass_and_ends_in_the_next_leaves_its_heads_settled_never_unsettled(shell, config, tmp_path, monkeypatch):
+    """Root #296026: #47306 and #47326 read `unsettled: the gate's status read` on every pass from 2:28 PM Nov 1, since their stack's worker settled them in one pass, the next pass skipped the stack while that worker still ran, and the worker ended before that pass closed."""
+    monkeypatch.setattr(runner_module, "GATE_BUDGET", timedelta(seconds=1))
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 WAITING aaaa111111 CI running")
+    shell.queue["33001"] = "not queued"
+    release = threading.Event()
+    settle_tree, dispatch = runner_module.Landing.settle_tree, runner_module.Landing.dispatch
+
+    def settled_then_stuck(self, rows, held, gated):
+        settle_tree(self, rows, held, gated)
+        release.wait(10)
+
+    def skipped(self, key, members, work):
+        future = dispatch(self, key, members, work)
+        if future is None:
+            release.set()
+            for _, running in list(self.inflight.values()):
+                running.result()
+        return future
+
+    monkeypatch.setattr(runner_module.Landing, "settle_tree", settled_then_stuck)
+    monkeypatch.setattr(runner_module.Landing, "dispatch", skipped)
+    landing = landing_of(shell, config, tmp_path)
+    landing.run()
+    landing.run()
+    landing.drain()
+    assert release.is_set()
+    assert not [line for line in said(shell) if "unsettled" in line]
+    assert settled(shell, "REFUSED")[-1].endswith("the gate read aaaa111111 WAITING: CI running")
+
+
 def test_a_stacked_head_on_a_base_the_pass_did_not_admit_reads_below_blocked_never_gate_failed(shell, config, tmp_path):
     shell.rows = [
         {"pr": "33000", "lane": LANE, "branch": "g/0", "base": "dev", "head": "aaaa000000", "state": "open", "reported_head": "aaaa000000"},
