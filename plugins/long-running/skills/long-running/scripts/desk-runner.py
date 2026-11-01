@@ -272,7 +272,7 @@ Each prefix passes the check registry, `landing.checks` in order, every built-in
 `(priority, root PR)` order, a tree's priority the lowest ledger `priority` among its PRs, and accepted enqueues run one parallel
 wave per priority, lower first. A check that reads no verdict first settles its tips through `ledger.py landed`, which
 reads each tip's squash on the freshly fetched trunk, and drops every tip whose row then reads landed; only the tips left
-log `GATE-FAILED`. A check killed at its cap, the enqueue's 300 seconds since both run the merge preflight, on both tries has no verdict yet, runs again next pass, and refuses its heads for `GATE-TIMEOUT` meanwhile. `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
+log `GATE-FAILED`. A check killed at its cap, the enqueue's 300 seconds since both run the merge preflight, on both tries has no verdict yet, runs again next pass, and refuses its heads for `GATE-TIMEOUT` meanwhile; a check that still fails on a network error after the adapter's tries has no verdict either, runs again next pass, and refuses its heads for `GATE-UNREACHED`, never `GATE-FAILED` (root #281769). `mq.py` reads and steers the same queue. Each landing pass first fast-forwards the landing checkout to the remote trunk, so every
 adapter call runs the trunk's script; a checkout its repository no longer lists as a worktree, or one on a branch with no commit, is rebuilt at the fetched trunk head with a clean tree,
 re-registered through `git worktree add --no-checkout` and `git worktree repair` when git lost it, logs `MIRROR-REBUILT` to root, and the pass goes on;
 a checkout that still cannot fast-forward logs `CHECKOUT-STALE` to root and gates nothing that pass.
@@ -6203,6 +6203,8 @@ class Landing:
             if not done.verdicts or done.unparsed:
                 if done.code == TIMED_OUT:
                     self.settle({pr: open_rows[pr].get("head", "") for tip in tips for pr in downstack(open_rows, tip)}, Refused(f"GATE-TIMEOUT its {self.adapter.kind} check ran past {GATE_CHECK_SECONDS}s on both tries and was killed, so the next pass checks it again"))
+                elif merge_queue.network_failure(done):
+                    self.settle({pr: open_rows[pr].get("head", "") for tip in tips for pr in downstack(open_rows, tip)}, Refused(f"GATE-UNREACHED its {self.adapter.kind} check failed on a network error on each of its {merge_queue.TRANSIENT_ATTEMPTS} tries, so the next pass checks it again: {done.last}"))
                 else:
                     self.gate_failed(tips, done, open_rows)
                 continue
