@@ -3450,7 +3450,7 @@ class Runner:
         spec = json.loads(action.target)
         sprite = self.config.sprite or {}
         argv = [sprite["launcher"], lane, sprite_model(spec["model"]), spec["effort"], spec["brief"]]
-        env = {**self.config.launch_env, **self.orca.sender, "WORKER_RUN": self.config.run, **sprite.get("env", {})}
+        env = {**self.config.launch_env, **self.orca.sender, "WORKER_RUN": self.config.run, **sprite.get("env", {}), "WORKER_LOCAL": ""}
         key = f"{container}/{action.action_id}"
         self.launching[key] = self.shell.spawn(argv, self.sprite_log(container, action.action_id), env)
         self.sprites.add(key)

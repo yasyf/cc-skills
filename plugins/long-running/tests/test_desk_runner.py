@@ -13102,6 +13102,32 @@ def test_an_ordinary_lane_launches_on_a_sprite_whatever_the_mac_load(shell, conf
     assert (shell.receipts / f"{LANE}.terminal").read_text() == "term_s\n"
 
 
+
+@pytest.mark.parametrize("override", ["inherited", "launch_env", "sprite_env"])
+def test_a_selected_remote_lane_clears_only_the_local_route_override(shell, config, tmp_path, monkeypatch, override):
+    with_sprites(config)
+    monkeypatch.setenv("WORKER_LOCAL", "1")
+    raw = json.loads(config.read_text())
+    if override == "launch_env":
+        raw["orca"]["launch_env"]["WORKER_LOCAL"] = "1"
+    elif override == "sprite_env":
+        raw["orca"]["sprite"]["env"]["WORKER_LOCAL"] = "1"
+    config.write_text(json.dumps(raw))
+    brief = lane_brief(tmp_path, "ccx: role=build")
+    cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", "opus", "--effort", "xhigh", "--brief", str(brief))
+    orca_pass(shell, config)
+    assert sprite_launches(shell) == [[LAUNCHER, LANE, "claude-opus-5-5", "xhigh", str(brief)]]
+    assert launches(shell) == []
+    env = shell.spawned_env["worker-launch.sh"]
+    assert env.get("WORKER_LOCAL") == "", "selected remote route retained local override"
+    assert (env["WORKER_LOCAL"], env["WORKER_RUN"], env["WORKER_REF"], env["WORKER_CC_REMOTE"]) == ("", "run_1", "dev", "/repo/tools/cc-remote/bin/cc-remote")
+    spawned = []
+    monkeypatch.setattr(runner_module.cci, "installed", lambda argv, spawn: spawn())
+    monkeypatch.setattr(runner_module.subprocess, "Popen", lambda argv, **kwargs: spawned.append(kwargs["env"]["WORKER_LOCAL"]) or Process())
+    runner_module.Shell().spawn(sprite_launches(shell)[0], tmp_path / "route.log", env)
+    assert spawned == [""]
+
+
 def sprite_passes(shell: FakeShell, config: Path, tmp_path: Path, restarted: bool) -> None:
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     for _ in range(3):
@@ -13279,11 +13305,15 @@ def test_an_ordinary_lane_with_no_sprite_config_fails_at_once_and_never_launches
 def test_a_lane_placed_or_forced_local_never_leaves_the_mac(shell, config, tmp_path, header, model, sprites):
     if sprites:
         with_sprites(config)
+    raw = json.loads(config.read_text())
+    raw["orca"]["launch_env"] = {**raw["orca"].get("launch_env", {}), "WORKER_LOCAL": "1"}
+    config.write_text(json.dumps(raw))
     brief = lane_brief(tmp_path, header)
     cli(shell, config, "launch", "--key", "R638", "--lane", LANE, "--model", model, "--effort", "xhigh", "--brief", str(brief), "--owner-directed")
     orca_pass(shell, config)
     assert sprite_launches(shell) == []
     assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, model, "xhigh", str(brief)]]
+    assert shell.spawned_env[runner_module.LAUNCHER.name]["WORKER_LOCAL"] == "1"
     assert not [call for call in shell.calls if call[0] == "sprite"]
 
 
