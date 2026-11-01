@@ -1285,7 +1285,7 @@ def test_a_tap_required_refusal_waits_on_the_owner_and_only_a_missing_row_pages_
     raw = json.loads(config.read_text())
     raw["landing"]["board_lane"] = "board-refresher-2"
     config.write_text(json.dumps(raw))
-    records = [*gone("101", HEAD), record(5, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; TAP-REQUIRED rule/82317b0", 11, to=["root"])]
+    records = [*gone("101", HEAD)[:3], record(4, "root", "go", f"go #101 at {HEAD[:7]} on green [TAP-REQUIRED first-ask]", 12), record(5, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; TAP-REQUIRED go cci #4,rule/82317b0", 11, to=["root"])]
     shell = FakeShell(records, [row("101")])
     shell.doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": 101, "head": board_head[:7]}]}]}]}
     watch(shell, config)
