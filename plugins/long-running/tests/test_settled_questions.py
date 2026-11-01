@@ -91,7 +91,7 @@ class Judge:
             self.prompts.append(kwargs["input"])
             if self.failing:
                 raise subprocess.CalledProcessError(1, args, stderr="claude: overloaded")
-            answer = {"verdict": self.verdict, "artifact_phrase": "asked again", "evidence_phrase": "his answer", "sentence": "He already answered this."}
+            answer = {"verdict": self.verdict, "artifact_phrase": "asked again", "evidence_phrase": "", "sentence": "He already answered this."}
             return subprocess.CompletedProcess(args, 0, stdout=json.dumps({"structured_output": answer, "total_cost_usd": 0.01, "usage": {}}), stderr="")
 
         return run
