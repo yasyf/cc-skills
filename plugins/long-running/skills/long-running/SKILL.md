@@ -2693,8 +2693,7 @@ launches failed one by one, the clock's Opus fallback among them, before the roo
 started that fallback in its own session by hand. Owner: "stop failing on broken
 tooling".*
 
-**O15. Preserve the codex and incident launch routes.** `sol`, `codex`, and
-`gpt-*` use `orca-launch.sh` on Orca's codex agent, on the standard tier.
+**O15. Preserve the incident launch routes.**
 Incident launches name `--model incident --effort xhigh`: `gpt-6.1-sol`, a
 `--no-parent` worktree, and an explicit terminal command with
 `--dangerously-bypass-approvals-and-sandbox` and `-c service_tier=fast`. Keep Orca's runtime defaults unchanged. An unsupervised
