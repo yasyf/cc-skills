@@ -1,1 +1,1 @@
-{"v":1,"lamport":3,"ops":[{"kind":"set_status","status":"in_progress"},{"kind":"set_assignee","assignee":"/root/lr801_pin_peer"}]}
+{"v":1,"lamport":4,"ops":[{"kind":"set_branch","branch":"fix/lr-remote-bootstrap-routing"}]}
