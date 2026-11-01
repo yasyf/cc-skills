@@ -229,7 +229,7 @@ def state(pr: str, rows: dict[str, dict], board: Board, records: list[dict], com
     elif found := missing(standing, records, comments, fidelity_lanes):
         facts.append(missing_words(found))
     finder = grades.newest_finder(grades.finder_records(grades.finder_reviews_in(about, drive_name, repo, pr)), head)
-    if finder is not None and finder["grade"] == grades.FINDER_FAIL:
+    if finder is not None and finder["grade"] == grades.FINDER_FAIL and not grades.root_settles_finder(records, pr, head, finder):
         facts.append(f"the finder found majors at {head[:7]} (cci #{finder['seq']})")
     if parents := downstack(rows, row):
         facts.append(f"it is stacked on open {' and '.join(f'#{parent}' for parent in parents)}")
