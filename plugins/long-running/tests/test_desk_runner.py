@@ -179,6 +179,7 @@ class FakeShell(runner_module.Shell):
         self.launch_process: Running | None = None
         self.restacks: list[list[str]] = []
         self.restack_done = (0, "", "")
+        self.queue_from_checkout = False
         self.tail_error = ""
         self.tail_failures = 0
         self.post_error = ""
@@ -500,6 +501,8 @@ class FakeShell(runner_module.Shell):
             if self.status_error:
                 return runner_module.Done(runner_module.TIMED_OUT, "", self.status_error)
             prs = argv[9:] if argv[7:9] == ["--max-age", "300s"] else argv[7:]
+            if self.queue_from_checkout and cwd != str(self.root / "checkout"):
+                return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": "not queued", "verdict": "landable"} for pr in prs]), "")
             return runner_module.Done(0, json.dumps([{"number": int(pr), "queue": self.queue.get(pr, "queued"), "verdict": "landed" if self.queue.get(pr) == "landed" else "landable"} | self.pr_status.get(pr, {}) for pr in prs]), "")
         if argv == ["gh", "api", "repos/Forge-AI/monorepo/rules/branches/dev"]:
             return runner_module.Done(0, json.dumps([{"type": "pull_request"}, {"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "buildkite/test"}]}}]), "")
@@ -2769,6 +2772,15 @@ def test_a_refused_link_of_a_branched_chain_names_each_fork_to_its_lanes_once_an
     shell.rows[2] = dict(shell.rows[2], base="a/3")
     landing_pass(shell, config)
     assert len([call for call in shell.calls if call[:3] == ["gh", "stack", "link"]]) > links
+
+
+def test_the_status_read_runs_in_the_landing_checkout_so_a_pr_trunk_queued_reads_queued(shell, config, tmp_path):
+    """Root #281591: the landing runner ran under launchd in /, where ccx vcs pr status reads GitHub's own merge queue, so #46927 read not queued at 3:52 AM Nov 1 while Trunk tested it."""
+    landing = landing_of(shell, config, tmp_path)
+    shell.rows = single_row()
+    landing.ledger_rows = {row["pr"]: row for row in shell.rows}
+    shell.queue_from_checkout = True
+    assert landing.queue_states() == {"29020": "queued"}
 
 
 def test_a_trunk_label_reads_as_queued_or_landed_where_the_status_read_says_unknown():

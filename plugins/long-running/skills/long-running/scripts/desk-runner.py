@@ -9403,13 +9403,13 @@ class Landing:
         return {pr: action.response["pulled"]["why"] for pr, action in newest.items() if action.response.get("outcome") == PULLED}
 
     def pr_statuses(self) -> dict[str, dict] | None:
-        """Every open ledger row's `ccx vcs pr status` entry, from one read a pass in parallel calls of `STATUS_PAGE` PRs, each with its own deadline, served from the poll the pass's ledger refresh made when it is under `STATUS_MAX_AGE` old, so no entry is older than `statuses_floor`, that the requeue read, the landed check, and the routing of PRs no go names share; None when a call fails, which logs one `STATUS-READ-FAILED` per cause an hour, and then none of them acts that pass."""
+        """Every open ledger row's `ccx vcs pr status` entry, from one read a pass in parallel calls of `STATUS_PAGE` PRs run in the landing checkout, so ccx reads the queue the repository's `ccx.queue` names rather than GitHub's default, each with its own deadline, served from the poll the pass's ledger refresh made when it is under `STATUS_MAX_AGE` old, so no entry is older than `statuses_floor`, that the requeue read, the landed check, and the routing of PRs no go names share; None when a call fails, which logs one `STATUS-READ-FAILED` per cause an hour, and then none of them acts that pass."""
         if not self.queues_read:
             self.statuses_floor = actions.parse_stamp(actions.stamp(self.runner.now() - STATUS_MAX_AGE))
             numbers = sorted((pr for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"), key=int)
             pages = [numbers[start : start + STATUS_PAGE] for start in range(0, len(numbers), STATUS_PAGE)]
             with ThreadPoolExecutor(max(1, len(pages))) as pool:
-                reads = list(pool.map(lambda page: self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", "--max-age", f"{int(STATUS_MAX_AGE.total_seconds())}s", *page]), pages))
+                reads = list(pool.map(lambda page: self.shell.run(["ccx", "vcs", "pr", "status", "-R", self.repo, "--json", "--max-age", f"{int(STATUS_MAX_AGE.total_seconds())}s", *page], cwd=str(self.checkout)), pages))
             rules = self.shell.run(ghread.read("api", f"repos/{self.repo}/rules/branches/{TRUNK}"))
             done = next((read for read in [*reads, rules] if read.code != 0), Done(0, "", ""))
             required = set() if done.code else {TRUNK_QUEUE_CHECK} | {check["context"] for rule in json.loads(rules.out) if rule["type"] == "required_status_checks" for check in rule["parameters"]["required_status_checks"]}
