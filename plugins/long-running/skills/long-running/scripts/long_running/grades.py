@@ -123,6 +123,9 @@ def newest_naming(grades: list[dict], sha: str) -> dict | None:
     return max((record for record in grades if (head := graded_head(record["text"])) and names_head(head, sha)), key=lambda record: record["seq"], default=None)
 
 
+PR_NAMED = re.compile(r"#(\d+)\b|\[(\d+)\]")
+
+
 def repo_prs(record: dict, repo: str) -> list[tuple[str, bool]]:
     """Each PR `record` names that may be in `repo`, with whether its ref says so: `owner/repo#N` refs to `repo`, and bare numbers, which name no repo."""
     return [named for ref in record.get("refs", {}).get("prs", []) if (named := repo_pr(ref, repo))]
@@ -388,6 +391,13 @@ def fidelity_grades_in(reviews: list[dict], drive: str, lanes: list[str], repo: 
 def standing(grades: list[dict], lanes: list[str], sha: str) -> list[dict]:
     """Each fidelity lane's newest grade naming `sha`."""
     return [grade for lane in lanes if (grade := newest_naming([record for record in grades if record["lane"] == lane], sha))]
+
+
+def about_prs(record: dict, repo: str) -> list[str]:
+    """Every PR `record` is about, as `about_pr` reads it: the PRs its refs name, else each `#<n>` or `[<n>]` its text names."""
+    if record.get("refs", {}).get("prs"):
+        return list(dict(repo_prs(record, repo)))
+    return list(dict.fromkeys(hashed or bracketed for hashed, bracketed in PR_NAMED.findall(record["text"])))
 
 
 def about_pr(record: dict, repo: str, pr: str) -> bool:

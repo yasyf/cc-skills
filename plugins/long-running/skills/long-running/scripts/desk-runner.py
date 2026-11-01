@@ -682,7 +682,7 @@ import judge_watch
 import prompt_watch
 import stall_watch
 from long_running import testfiles
-from long_running.grades import FIDELITY_MISSING, FIDELITY_OK, FIDELITY_OVERRIDE, FINDER_PASS, GO_BRACKET, OLD_APP_PASSES, SHORT_SHA, about_pr, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, overridden, overrides, precondition_sentences, repo_prs, root_settles_finder, standing, unread_old_apps_in
+from long_running.grades import FIDELITY_MISSING, FIDELITY_OK, FIDELITY_OVERRIDE, FINDER_PASS, GO_BRACKET, OLD_APP_PASSES, SHORT_SHA, about_pr, about_prs, carried_go, closes, fidelity_carries, fidelity_grades_in, finder_records, finder_reviews_in, carried_gos, go_batch, go_heads, gone_at, goes, full_text, graded_head, head_moves, missing_grounds, owner_grounded, names_head, names_pr, newest_finder, newest_naming, old_app_grades_in, overridden, overrides, precondition_sentences, repo_prs, root_settles_finder, standing, unread_old_apps_in
 from long_running.grades import carry_of, delegated, with_successors
 from long_running.grades import carries as carry_grade
 from long_running.grades import PORT_PHRASE, QUOTED_BLOCK, QUOTED_SPAN, TEST_ONLY_PHRASE, TEST_ONLY_PHRASES
@@ -5735,6 +5735,7 @@ class Landing:
         self.queues_read = False
         self.statuses_floor = datetime.min.replace(tzinfo=timezone.utc)
         self.reviews: list[dict] | None = None
+        self.review_index: tuple[list[dict] | None, int, dict[str, list[dict]]] = (None, 0, {})
         self.claims_read: list[dict] | None = None
         self.scanning = threading.Lock()
         self.designed_red: dict[str, bool] = {}
@@ -6830,7 +6831,7 @@ class Landing:
         return " or ".join(self.fidelity_lanes)
 
     def grades(self, pr: str) -> list[dict]:
-        return fidelity_grades_in(self.scanned_reviews(), self.runner.config.drive, self.fidelity_lanes, self.repo, pr)
+        return fidelity_grades_in(self.reviews_about(pr), self.runner.config.drive, self.fidelity_lanes, self.repo, pr)
 
     def standing(self, grades: list[dict], sha: str) -> list[dict]:
         return standing(grades, self.fidelity_lanes, sha)
@@ -6841,7 +6842,7 @@ class Landing:
         grade = self.fidelity_in(grades, pr, sha)
         if grade.ok:
             return grade
-        fresh = fidelity_grades_in(self.rescanned_reviews(), self.runner.config.drive, self.fidelity_lanes, self.repo, pr)
+        fresh = fidelity_grades_in(self.reviews_about(pr, fresh=True), self.runner.config.drive, self.fidelity_lanes, self.repo, pr)
         return grade if len(fresh) == len(grades) else self.fidelity_in(fresh, pr, sha)
 
     def fidelity_in(self, grades: list[dict], pr: str, sha: str) -> Grade:
@@ -7201,9 +7202,22 @@ class Landing:
             reviews = self.reviews = [*scanned, *cci.records(self.cci_tail.run, self.runner.config.drive, "--kind=review", "--kind=head", since=max((record["seq"] for record in scanned), default=0))]
         return reviews
 
+    def reviews_about(self, pr: str, fresh: bool = False) -> list[dict]:
+        """The scanned `review` and `head` records about `pr`, rescanned first when `fresh`, from an index each scan extends, so a pass reads each record once rather than once per PR."""
+        reviews = self.rescanned_reviews() if fresh else self.scanned_reviews()
+        with self.scanning:
+            source, indexed, index = self.review_index
+            if source is not reviews and not (source and len(reviews) >= indexed and reviews[indexed - 1] is source[indexed - 1]):
+                indexed, index = 0, {}
+            for record in reviews[indexed:]:
+                for named in about_prs(record, self.repo):
+                    index.setdefault(named, []).append(record)
+            self.review_index = (reviews, len(reviews), index)
+        return index.get(pr, [])
+
     def finder_records(self, pr: str) -> list[dict]:
         """Every finder grade about `pr`: the finder desk's own `finder:` records."""
-        return finder_records(finder_reviews_in(self.scanned_reviews(), self.runner.config.drive, self.repo, pr))
+        return finder_records(finder_reviews_in(self.reviews_about(pr), self.runner.config.drive, self.repo, pr))
 
     def finder(self, pr: str, sha: str) -> dict | None:
         """The newest finder desk record about `pr` naming `sha`."""
@@ -7274,9 +7288,9 @@ class Landing:
         if not graded.act:
             return {}
         for pr, sha in graded.heads.items():
-            passes, newest = self.old_app(pr, sha, self.scanned_reviews())
+            passes, newest = self.old_app(pr, sha, self.reviews_about(pr))
             if not passes:
-                passes, newest = self.old_app(pr, sha, self.rescanned_reviews())
+                passes, newest = self.old_app(pr, sha, self.reviews_about(pr, fresh=True))
             if passes:
                 continue
             forms = f"`old-app: unchanged {sha[:7]}`, `old-app: bug fix {sha[:7]}` or `old-app: CHANGES {sha[:7]} <what changes>`"
@@ -7525,7 +7539,7 @@ class Landing:
         """The standing ok grade at `sha`, a desk's before the pipeline's, newest first, that says one of `landing.exempt_grades`, with that phrase; a patch-identical carry grade with none, or a head a `head` record calls patch-identical to an older one, is read back along the heads it carries from, the way a tap carries (root #205918)."""
         phrases = self.landing_config.get("exempt_grades", [self.landing_config.get("port_phrase", PORT_PHRASE), *TEST_ONLY_PHRASES])
         grades = self.grades(pr)
-        moves = [(new, old) for new, old, identical, _ in head_moves(self.scanned_reviews(), self.runner.config.drive, self.fidelity_lanes, self.repo, pr) if identical]
+        moves = [(new, old) for new, old, identical, _ in head_moves(self.reviews_about(pr), self.runner.config.drive, self.fidelity_lanes, self.repo, pr) if identical]
         heads, seen = [sha], set()
         while heads:
             if (head := heads.pop(0)) in seen:
@@ -7691,7 +7705,7 @@ class Landing:
 
         def lands(pr: str, head: str) -> bool:
             if pr not in graded:
-                graded[pr] = old_app_grades_in(self.scanned_reviews(), self.runner.config.drive, self.fidelity_lanes, self.repo, pr)
+                graded[pr] = old_app_grades_in(self.reviews_about(pr), self.runner.config.drive, self.fidelity_lanes, self.repo, pr)
             newest = newest_finder(graded[pr], head)
             return newest is not None and newest["grade"] in OLD_APP_PASSES
 

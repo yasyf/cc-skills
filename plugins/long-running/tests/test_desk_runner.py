@@ -3502,6 +3502,22 @@ def test_a_fidelity_ok_posted_after_the_pass_scanned_reviews_counts_before_the_p
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
+def test_a_prs_reviews_are_those_its_refs_name_or_whose_text_names_it_when_they_carry_no_refs(shell, config, tmp_path):
+    """Root #291576: the landing pass ran old_app_grades_in over every scanned review once per PR, 10 million about_pr calls a pass, and held a core at 88%."""
+    landing = landing_of(shell, config, tmp_path)
+    shell.records += [
+        {"seq": 101, "drive": "d1", "lane": "fidelity-desk", "kind": "review", "to": ["root"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": "fidelity: ok cccc333 for #29021"},
+        {"seq": 102, "drive": "d1", "lane": "lane-a", "kind": "head", "to": ["root"], "refs": {}, "text": "HEAD #29020 cccc333 and [29021] dddd444"},
+        {"seq": 103, "drive": "d1", "lane": "lane-a", "kind": "review", "to": ["root"], "refs": {"prs": ["other/repo#29020"]}, "text": "finder: ok #29020"},
+        {"seq": 104, "drive": "d1", "lane": "lane-a", "kind": "review", "to": ["root"], "refs": {}, "text": "#290201 is unrelated"},
+    ]
+    assert [record["seq"] for record in landing.reviews_about("29020")] == [101, 102]
+    assert [record["seq"] for record in landing.reviews_about("29021")] == [102]
+    shell.records.append({"seq": 105, "drive": "d1", "lane": "fidelity-desk", "kind": "review", "to": ["root"], "refs": {"prs": ["Forge-AI/monorepo#29021"]}, "text": "fidelity: ok dddd444"})
+    assert [record["seq"] for record in landing.reviews_about("29021")] == [102]
+    assert [record["seq"] for record in landing.reviews_about("29021", fresh=True)] == [102, 105]
+
+
 def test_a_failed_cci_read_stops_every_refusal_until_a_pass_reads_cleanly(shell, config, tmp_path):
     """Oct 29 4:43 PM: while cci reads timed out, stack workers kept refusing heads on what the failed reads left out."""
     landing = landing_of(shell, config, tmp_path)
