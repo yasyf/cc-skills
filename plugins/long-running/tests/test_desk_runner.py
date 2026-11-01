@@ -4348,6 +4348,8 @@ def test_a_queued_board_pr_the_owner_rejects_leaves_the_queue_and_its_go_lands_n
     merge_go(shell, "29020", "go #29020 at cccc333")
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
+    landing_pass(shell, config)
+    assert dequeues(shell) == []
     shell.board["reasks"] = {"merge-row-29020-cccc333": {"verdict": "rejected", "head": "cccc333333", "at": "2026-10-01T18:10:00Z"}}
     landing_pass(shell, config)
     assert dequeues(shell) == [["29020", "--dequeue"]]
@@ -6805,6 +6807,8 @@ OWN_RED = (
 def test_an_enqueue_a_root_go_makes_is_judged_against_the_queue_only_once_a_status_read_postdates_it(shell, config, tmp_path):
     board_surface(config)
     two_pr_stack(shell)
+    tap(shell, "29020", "cccc333333")
+    tap(shell, "29031", "dddd444444")
     merge_go(shell, "29020", "merge #29020 at cccc333")
     merge_go(shell, "29031", "merge #29031 at dddd444")
     shell.queue["29020"] = shell.queue["29031"] = "not queued"

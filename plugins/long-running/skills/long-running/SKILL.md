@@ -1800,11 +1800,11 @@ holds for the PR instead (root #172682).
 
 With merge mode `every` and `landing.merge_ask_surface` set to `board`, a root `go` is no
 merge answer on its own. A head it names lands only once the owner's newest verdict on the
-root's board, on any block and at any head, approves the PR, or once its change is exempt.
-A rejection after an approval stands: no tap carries over it, and a queued head he rejects
-leaves the queue. The admission, the bar on unpassed rows, the overflow, the dequeue of a
-queued head and the read just before a direct merge all read this one answer (root #237906,
-#46446).
+root's board, on any block and at any head, approves the PR, or once its change is exempt;
+until then the merge-mode check refuses it `TAP-REQUIRED merge mode every`. A rejection
+after an approval stands: no tap carries over it, a queued head he rejects leaves the queue
+on the next pass, and the read just before a direct merge checks his verdict again (root
+#237906, #46446).
 
 Under `every`, and under `high-risk` for a PR whose changed files match a glob in
 `landing.high_risk_paths`, a prefix that passes every other gate is not enqueued.
