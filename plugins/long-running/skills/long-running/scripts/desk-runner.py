@@ -328,7 +328,9 @@ PR's own stack is the batch's failure: it routes no blocker, logs one `AWAITS-GO
 failed only in a queue draft holding nothing but its stack, stays out at that head after its first ejection: one `blocker` naming the failing
 job goes to the live lanes `landing.restack_lane` names, else the root, and the desk enqueues the PR again only at a new head. The lane a PR's blocker or restack goes to is the poster of the newest cci `head`, `opened`, `ready`,
 or `claim` record naming the PR, else the lane that registered its ledger row; a blocker posted on cci goes to that lane's live
-successor, which the lane supervisor keeps alive. A gate's `BLOCKED` verdict goes to the lane at most once per head, as the blocker its adapter names, and only for red CI,
+successor, which the lane supervisor keeps alive. A `BLOCKED` verdict naming only GitHub's unfinished mergeability read, merge state
+`UNKNOWN` or mergeability still computing, is a wait the next pass gates again, refused only once it has held that head for ten
+minutes (root #269444). A gate's `BLOCKED` verdict goes to the lane at most once per head, as the blocker its adapter names, and only for red CI,
 a merge conflict, a changes-requested review or fidelity grade, or a queue ejection, never for a pending or running check or a
 missing approval or an ejection blaming a PR outside its stack, and never for a PR that is held, carries GitHub's `hold` label, or is
 stacked above such a PR until that hold lifts. A PR whose base is another open row's branch gets no failing-required-check blocker
@@ -828,6 +830,9 @@ SETTLED = "settled"
 ROWED_READ = "rowed-read"
 QUOTA_OFF = "GitHub's read quota is under ccx's floor"
 IN_QUEUE_SAID = "the merge queue holds it"
+MERGEABILITY_PENDING = frozenset({"GitHub merge state UNKNOWN", "GitHub still computing mergeability"})
+MERGEABILITY_WAIT = timedelta(minutes=10)
+MERGEABILITY_FACT = "mergeability-pending"
 PREFIX_HELD = re.compile(r"^nothing to enqueue: \w+ already holds the green bottom prefix$", re.MULTILINE)
 QUEUE_SAID = "the landing runner put it in the merge queue at {at}"
 UNSETTLED = "unsettled:"
@@ -6122,6 +6127,12 @@ class Landing:
             for pr, match in verdicts.items():
                 if match["verdict"] == QUEUED_VERDICT or match["verdict"] == "GREEN" and held_prefix:
                     self.settle({pr: match["sha"]}, Queued(IN_QUEUE_SAID))
+                elif match["verdict"] == "BLOCKED" and set(match["detail"].split("; ")) <= MERGEABILITY_PENDING:
+                    since = actions.parse_stamp(self.book.edit(LANDING, lambda incident, key=f"{pr}:{match['sha']}": incident.facts.setdefault(MERGEABILITY_FACT, {}).setdefault(key, self.book.stamp())))
+                    if self.runner.now() - since < MERGEABILITY_WAIT:
+                        self.settle({pr: match["sha"]}, InFlight("mergeability", actions.stamp(since)))
+                    else:
+                        self.settle({pr: match["sha"]}, Refused(f"the gate read {match['sha']} BLOCKED: {match['detail']} for {int(MERGEABILITY_WAIT.total_seconds() // 60)} minutes"))
                 elif match["verdict"] == "BLOCKED":
                     self.settle({pr: match["sha"]}, Refused(f"the gate read {match['sha']} BLOCKED: {match['detail']}"))
                 elif match["verdict"] == WAITING_VERDICT and (below := BELOW_BLOCKED.search(match["detail"])):
