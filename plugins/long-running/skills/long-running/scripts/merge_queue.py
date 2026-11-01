@@ -48,7 +48,7 @@ ENQUEUE_FAILED = 5
 RATE_LIMITED = "rate-limited"
 DEQUEUE_RELEASED = (0, 1)
 TRANSIENT_FAILURE = re.compile(
-    r"handshake operation timed out|TLS handshake timeout|i/o timeout|context deadline exceeded|urlopen error|Connection reset|Connection refused|reset by peer|Remote end closed|Temporary failure in name resolution|nodename nor servname|Name or service not known|HTTP(?: Error)? 5\d\d|Operation timed out|Failed to connect to .* port 443|Recv failure|Could not resolve host"
+    r"TLS handshake timeout|i/o timeout|context deadline exceeded|urlopen error|Connection reset|Connection refused|reset by peer|Remote end closed|Temporary failure in name resolution|nodename nor servname|Name or service not known|HTTP(?: Error)? 5\d\d|[Oo]peration timed out|Failed to connect to .* port 443|Recv failure|Could not resolve host"
 )
 TRUNK_CALLS = 2
 TRUNK_LIMITED = re.compile(r"HTTP 429\b")
@@ -141,6 +141,11 @@ def repo_queue(checkout: Path) -> str:
     return tomllib.loads(config.read_text()).get("vcs", {}).get("queue", "") if config.is_file() else ""
 
 
+def network_failure(done) -> bool:
+    """Whether `done` is a failed enqueue script run with no verdict on a transient network error, which grades nothing."""
+    return done.code == ENQUEUE_FAILED and not VERDICT_LINE.search(done.out) and TRANSIENT_FAILURE.search(done.err + done.out) is not None
+
+
 def unread_would(out: str) -> str:
     said = SAID_WOULD.search(out)
     return said.group(0) if said else ""
@@ -197,7 +202,7 @@ class GraphiteStackEnqueue:
                 print(f"RETRIED {' '.join(argv)} after: {((done.err or done.out).strip().splitlines() or [f'exit {done.code}'])[-1][:300]}", flush=True)
                 self.shell.sleep(TRANSIENT_PAUSE_SECONDS)
             done = self.limited(argv)
-            if done.code != ENQUEUE_FAILED or VERDICT_LINE.search(done.out) or not TRANSIENT_FAILURE.search(done.err + done.out):
+            if not network_failure(done):
                 break
         return done
 

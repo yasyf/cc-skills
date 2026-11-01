@@ -3060,14 +3060,16 @@ def test_a_check_killed_at_its_cap_logs_nothing_and_the_next_pass_enqueues_on_it
     assert escalations(shell) == [] and len(shell.enqueues()) == 1
 
 
-def test_a_check_that_keeps_failing_transiently_escalates_once_after_three_attempts(shell, config, tmp_path):
+@pytest.mark.parametrize("error", [HANDSHAKE, 'stack-enqueue failed: required checks for #29020: Post "https://api.github.com/graphql": dial tcp 172.182.252.137:443: connect: operation timed out\n'], ids=["tls-handshake", "graphql-dial"])
+def test_a_check_that_keeps_failing_on_a_network_error_is_no_verdict_and_runs_again_next_pass(shell, config, tmp_path, error):
+    """Root #281769: #47107's check failed on a GraphQL dial timeout three times and the runner escalated GATE-FAILED."""
     shell.rows = single_row()
-    shell.gates["29020"] = [(5, HANDSHAKE, "")]
+    shell.gates["29020"] = [(5, error, "")]
     landing_pass(shell, config)
     assert len(checks(shell)) == runner_module.merge_queue.TRANSIENT_ATTEMPTS
     landing_pass(shell, config)
-    lines = escalations(shell)
-    assert len(lines) == 1 and "GATE-FAILED" in lines[0] and "#29020" in lines[0] and "handshake operation timed out" in lines[0]
+    assert len(checks(shell)) == 2 * runner_module.merge_queue.TRANSIENT_ATTEMPTS
+    assert not [line for line in escalations(shell) if "GATE-FAILED" in line]
 
 
 @pytest.mark.parametrize("failure", [(1, "", "stack-enqueue: error: could not resolve the head ref of #29020: the branch a/3 is gone\n"), (5, HANDSHAKE, "")], ids=["queue-deleted-branch", "network-timeout"])
