@@ -78,7 +78,8 @@ tap decides each at its own head; its `change` opens with one line for the stack
 change, and each other fact reads as one line when every PR shares it, else one clause per PR. It runs its command with a copy of the block, `textAt` removed and each failing
 row left out (its triage item, its `pr-groups` entry, or its `- #<pr>:` line, and a triage or `pr-groups` block
 left empty), as its last argument, so one refused row never holds the rest of the board, and exits 1 when it left a
-row out, else with the command's status. When every row fails it pushes nothing. A one-tap claim that fails marks
+row out, else with the command's status. A push the command refuses, such as a card past cc-present's group cap, ends
+the output with a `PUSH-FAILED` line, since the count line above it describes rows the board never received. When every row fails it pushes nothing. A one-tap claim that fails marks
 every row it covers. `--json` prints it all as one object.
 """
 
@@ -867,5 +868,8 @@ def main(argv: list[str], shell: Shell | None = None) -> int:
         folds = {row.pr for chain in chains for row in chain}
         json.dump(stripped(withheld(opened(folded(bannered(block, banner) if banner else block, chains), [row for row in rows if row.pr not in folds]), failing)), copy, indent=1)
         copy.flush()
+        sys.stdout.flush()
         pushed = shell.push([*command, copy.name])
+    if pushed:
+        print(f"PUSH-FAILED {' '.join(command[:2])} exited {pushed}: the board kept its last revision, so no row above reached it")
     return 1 if failing else pushed

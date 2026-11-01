@@ -31,6 +31,7 @@ class FakeShell(board_rows.Shell):
         self.pushed: list[tuple[list[str], dict]] = []
         self.ledger: set[str] | None = None
         self.ledger_fails = False
+        self.push_code = 0
 
     def run(self, argv: list[str], env: dict[str, str] | None = None) -> board_rows.Done:
         argv = gateway(argv)
@@ -73,7 +74,7 @@ class FakeShell(board_rows.Shell):
 
     def push(self, argv: list[str]) -> int:
         self.pushed.append((argv, json.loads(Path(argv[-1]).read_text())))
-        return 0
+        return self.push_code
 
     def read(self, path: str) -> str | None:
         return self.blobs.get(path)
@@ -155,6 +156,14 @@ def test_a_fresh_graded_open_row_pushes_a_copy_without_its_text_time(tmp_path: P
     assert argv[:4] == ["cc-present", "update-block", "--session", "s1"]
     assert pushed == card(row("42590", text_at=None))
     assert lines(capsys) == ["rows 1 failing 0 ungraded 0 flags 0"]
+
+
+def test_a_push_the_command_refuses_ends_with_a_push_failed_line_and_its_exit_code(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
+    shell.push_code = 1
+
+    assert gate(tmp_path, shell, card(row("42590")), "--", "cc-present", "update-block", "--session", "s1") == 1
+
+    assert lines(capsys) == ["rows 1 failing 0 ungraded 0 flags 0", "PUSH-FAILED cc-present update-block exited 1: the board kept its last revision, so no row above reached it"]
 
 
 def test_a_row_behind_its_prs_head_fails_naming_the_new_head_and_pushes_nothing(tmp_path: Path, shell: FakeShell, capsys: pytest.CaptureFixture[str]) -> None:
