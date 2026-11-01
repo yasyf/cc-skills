@@ -12209,19 +12209,22 @@ def test_an_opus_fallback_lane_is_clocked_and_gets_no_fallback_of_its_own(shell,
 
 def test_a_root_withdraw_of_the_clocks_opus_fallback_while_it_starts_stops_it_once_it_launches(shell, config, tmp_path):
     clocked_lane(shell, config, tmp_path)
-    backup = f"{LANE}-opus"
+    backup, key = f"{LANE}-opus", f"incident-clock:ctx_{LANE}"
     shell.launch_process = Running()
     shell.sleep(10 * 60)
     orca_pass(shell, config)
     orca_pass(shell, config)
-    assert incident(tmp_path, f"desk-lane-{backup}").actions[f"incident-clock:ctx_{LANE}"].status == "started"
+    assert incident(tmp_path, f"desk-lane-{backup}").actions[key].status == "started"
+    runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    runner.launching[f"desk-lane-{backup}/{key}"] = shell.launch_process
     seq = desk_orders(shell, f"1:05 AM orca-desk: withdraw {backup}")
     shell.records[-1]["re"] = seq - 1
-    orca_pass(shell, config)
+    runner.steps(runner.reap, runner.read_cci)
     assert stops(shell) == []
     shell.launch(backup, "ctx_opus")
     shell.launch_process.code = 0
-    orca_pass(shell, config)
+    runner.steps(runner.reap)
+    runner.flush()
     assert stops(shell) == [["worker-stop", "--dispatch", "ctx_opus"]]
     assert withdrawals(shell) == [
         f"WITHDRAW-PENDING incident-clock:ctx_{LANE} {backup}: by inbox@cci#{seq}; it is still starting, and the runner stops it once it logs LAUNCHED",
