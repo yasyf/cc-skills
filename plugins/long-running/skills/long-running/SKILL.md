@@ -4526,8 +4526,9 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   addressed to a lane about one of its open PRs, arriving after its last record, also wakes it,
   once per blocker `topic` and with the blocker's text, whatever its task says. The page drops
   when a record resolves its blocker, through `--resolves` or `also_resolves`. It also drops when
-  the PR lands or moves to another lane, and a fresh store pages no lane from the records it
-  re-reads. If the lane posts nothing within 30 minutes of that wake, the supervisor asks root
+  the PR lands, moves to another lane or gets a new head, and a fresh store pages no lane from
+  the records it re-reads. The wake names the blocker's seq. A lane whose newest record is a
+  `handoff`, `done`, `stand-down` or `stopped` is never woken. If the lane posts nothing within 30 minutes of that wake, the supervisor asks root
   once to reassign the PR. Silence and activity are measured from the lane's own records, never
   from its `cci who` row. A lane whose newest record is an
   `ask`, `blocked` or `blocker` to root is waiting, not dead, until 15 minutes after a

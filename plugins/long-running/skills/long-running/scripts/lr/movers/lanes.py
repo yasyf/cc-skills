@@ -186,14 +186,15 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             for name in addressed(record) - {lane}:
                 if (paged := store.lane(name)) and paged.state in LIVE and (prs := sorted(set(prs_of(record)) & set(paged.prs))):
                     topic, page = record.get("topic") or str(record["seq"]), paged.page or {}
-                    fresh = {"topic": topic, "why": f"this blocker on your PR {' '.join(f'#{n}' for n in prs)} arrived after your last record: {text}", "text": text, "prs": prs, "seqs": []}
+                    fresh = {"topic": topic, "why": f"blocker #{record['seq']} on your PR {' '.join(f'#{n}' for n in prs)} arrived after your last record: {text}", "text": text, "prs": prs, "seqs": []}
                     store.lane_page(name, (page if page.get("topic") == topic else fresh) | {"seqs": [*(page.get("seqs", []) if page.get("topic") == topic else []), record["seq"]]})
         resolved = {record.get("resolves"), *(record.get("also_resolves") or [])} - {None}
         if answers := resolved | {record.get("re")} - {None}:
             for name in store.answered(answers, LIVE):
                 store.lane_waiting(name, None, at)
+        moved = set(prs_of(record)) if kind == "head" else set()
         for name, page in store.pages().items():
-            if resolved & set(page.get("seqs", [])):
+            if resolved & set(page.get("seqs", [])) or moved & set(page["prs"]):
                 store.lane_page(name, None)
         if kind == "owner":
             for waiter in store.lanes(*LIVE):
@@ -351,6 +352,8 @@ def relaunch(store: Store, deps: Deps, old: Lane, peers: dict[str, Peer], why: s
 
 
 def wake(store: Store, deps: Deps, lane: Lane, peer: Peer, now: datetime, out: Outcome) -> None:
+    if lane.last in SETTLED:
+        return
     page = lane.page
     if page and page["prs"] and not set(page["prs"]) & set(lane.prs):
         store.lane_page(lane.name, None)

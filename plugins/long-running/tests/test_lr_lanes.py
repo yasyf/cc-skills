@@ -692,8 +692,9 @@ def test_rotate_reads_activity_from_the_lanes_own_records_never_its_cci_who_row(
         [record(3, "flake-dash-1", "answer", T0 - timedelta(minutes=20), "nothing to fix") | {"resolves": 9, "also_resolves": [2]}],
         [record(3, "landing-desk-3", "landed", T0 - timedelta(minutes=20), "#46475 landed", refs={"prs": ["Forge-AI/monorepo#46475"]})],
         [record(3, "conflicts-8", "head", T0 - timedelta(minutes=20), "#46475 1a2b3c4", ("root",), {"prs": ["Forge-AI/monorepo#46475"]})],
+        [record(3, "desk-runner", "head", T0 - timedelta(minutes=20), "HEAD #46475 5d6e7f8: the landing runner rebased it", ("conflicts-2",), {"prs": [46475]})],
     ],
-    ids=["blocker-resolved", "pr-landed", "pr-moved"],
+    ids=["blocker-resolved", "pr-landed", "pr-moved", "pr-at-a-new-head"],
 )
 def test_a_page_whose_blocker_resolved_or_whose_pr_left_the_lane_never_wakes_it(tmp_path, brief, after):
     store = Store.memory()
@@ -713,3 +714,17 @@ def test_a_fresh_store_pages_no_lane_from_the_blockers_it_refolds(tmp_path, brie
     lanes.tick(store, fake.deps, T0, 1)
 
     assert store.lane("conflicts-2").page is None and all(page is None for page in fake.pages)
+
+
+def test_a_lane_whose_newest_record_settles_it_is_never_woken(tmp_path, brief):
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store, prs=(46475,))
+    fake.feed += [
+        record(2, "conflicts-2", "handoff", T0 - timedelta(hours=2), "flushed", ("root",), {"ccn": "9a1b2c3"}),
+        record(3, "stall-watch", "blocker", T0 - timedelta(hours=1), "STALL red #46475", ("conflicts-2@d1",), {"prs": ["Forge-AI/monorepo#46475"]}),
+    ]
+    fake.peers = [who("conflicts-2", True, T0, roster="/teams/session-d50e80e8")]
+
+    out = lanes.tick(store, fake.deps, T0, 1)
+
+    assert out.woken == [] and fake.wakes == []
