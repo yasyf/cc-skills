@@ -607,9 +607,10 @@ def cmd_landed(args: argparse.Namespace, shell: ledger.Shell) -> int:
 
 
 def resolve(args: argparse.Namespace) -> dict | None:
-    entry = find(args.drive or current_drive(), getattr(args, "session", None) or session_id())
+    drive = args.drive or current_drive() or orca_run_drive()
+    entry = find(drive, None if drive else getattr(args, "session", None) or session_id())
     if entry is None:
-        print("this session belongs to no drive", file=sys.stderr)
+        print(f"no drive {drive} is registered" if drive else "this session belongs to no drive; name it with --drive", file=sys.stderr)
     return entry
 
 

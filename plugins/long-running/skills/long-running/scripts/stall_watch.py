@@ -207,6 +207,7 @@ from long_running import cci
 from long_running import drive
 from long_running import ghread
 from long_running import grades
+from long_running import incidents
 import owner_waits
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -216,6 +217,7 @@ RUNNER = "desk-runner"
 LANDING_DESK = "landing-desk"
 ROOT_NAMES = frozenset({ROOT, "main"})
 NOT_LANES = frozenset({*ROOT_NAMES, "team-lead", LANE, RUNNER})
+INCIDENT_EXEMPT = frozenset({"tap", "board", "carry"})
 PACIFIC = ZoneInfo("America/Los_Angeles")
 WINDOW_HOURS = 24
 MINUTES = {"go": 10, "silent": 15, "refusal": 10, "red": 2, "unclassed": 20, "unfixed": 60, "sweep": 20, "order": 3, "tap": 10, "ungraded": 10, "finder": 10, "fidelity": 10, "missing": 20, "regrade": 15, "running": 25, "board": 15, "carry": 20, "ask": 15, "pick": 15, "gate": 10, "stale": 120, "desk": 10, "shape": 10}
@@ -878,6 +880,8 @@ class Pass:
         gos += grades.carried_gos(gos, fidelity, repo, lambda pr, head: True)
         queued = {(pr, sha) for record in records if (record["lane"] == RUNNER or record["lane"].startswith(LANDING_DESK)) and record["kind"] == "report" and QUEUED.match(record["text"]) for pr, sha in grades.GO_HEAD.findall(record["text"])}
         held: set[str] = set()
+        incident_records = incidents.open_incidents(self.tail, drive_name)
+        in_incident: set[str] = set()
         for record in cci.open_holds(self.tail, drive_name):
             for named in cci.held_by(record):
                 held.add(named)
@@ -923,6 +927,8 @@ class Pass:
             going = [go for go in grades.gone_at(gos, pr, head) if pr in approved or not TAP_REQUIRED.search(grades.full_text(go))]
             in_queue = any(named == pr and grades.names_head(sha, head) for named, sha in queued)
             lane = lanes[pr] = self.handed_to(next((record["lane"] for record in reversed(records) if record["kind"] == "head" and record["lane"] not in NOT_LANES and grades.about_pr(record, repo, pr)), None) or reassigned.get(pr) or row.get("lane") or ROOT)
+            if incidents.incident_scope(incident_records, drive_name, repo, pr, lane):
+                in_incident.add(pr)
             tapping = board is not None and board.shows(pr, head) and not board_rows.at_head(board.taps.get(pr), "rejected", head)
             readied = [at(record) for record in announced if record["kind"] == "ready" or READY.search(record["text"])]
             tap_at = min([*readied, *([live] if (live := board.live_at(pr, head)) else [])], default=None) if tapping else None
@@ -1042,7 +1048,7 @@ class Pass:
             named = [f"#{found['pr']} ({found['red']['class']})" for found in reds]
             listed = ", ".join(named[:LISTED]) + (f" and {len(named) - LISTED} more" if len(named) > LISTED else "")
             stalls.append(Stall(f"sweep:{RED_SWEEP}", "sweep", oldest, f"{len(reds)} red PR{'' if len(reds) == 1 else 's'}", f"no live {RED_SWEEP} lane holds them: {listed}", (ROOT,), f"root spawns {RED_SWEEP} from the long-running skill's reference/red-sweep-brief.md"))
-        return stalls, questions, entries
+        return [stall for stall in stalls if not (stall.pr in in_incident and stall.kind in INCIDENT_EXEMPT)], questions, entries
 
     def red_alarm(self, pr: str, row: dict, red: dict) -> Stall | None:
         """The `unclassed` stall of a red head no `red` record classifies after `stall.minutes.unclassed`, or the `unfixed` stall of one classed real whose PR has kept that head for `stall.minutes.unfixed` since."""
