@@ -43,8 +43,6 @@ CARRIES = ("head", "opened")
 WAITS = frozenset({"ask", "blocked", "blocker"})
 SETTLED = frozenset({"handoff", "done", "stand-down", "stopped"})
 SLICE_STEP = re.compile(r"^Register slice: lane=\S+ step=(\S+)", re.MULTILINE)
-STOOD_DOWN = r"^(?:\d{{1,2}}:\d{{2}} [AP]M )?{}:? (?:STAND-DOWN|stood down|standing down)\b"
-TOLD_TO_STAND_DOWN = r"\b{}\b[^.\n]{{0,60}}\bstand[ -]?down\b"
 STAND_DOWN_LIST = re.compile(r"\bstand[ -]?down\s+(?P<names>[^.(;:\n]+)", re.IGNORECASE)
 CARD = re.compile(r"\bcard-[\w.-]*\w")
 STRIKE_WINDOW = 2 * STALE_AFTER
@@ -217,7 +215,7 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             store.disown(prs_of(record))
         elif kind == "done" and row and row.state != "retired":
             retire(store, lane, "done", at)
-        elif row and row.state != "retired" and (kind == "stopped" or re.match(STOOD_DOWN.format(re.escape(lane)), text, re.IGNORECASE)):
+        elif row and row.state != "retired" and kind in ("stopped", "stand-down"):
             retire(store, lane, "stand-down", at)
         elif kind == "stand-down" and lane == ROOT:
             successor = attrs_of(record).get("successor")
@@ -237,10 +235,6 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
         elif lane == ROOT and (moved := REPLACES.search(text)) and (old := store.lane(moved["old"])) and old.state in LIVE and (taker := store.lane(moved["new"])):
             retire(store, old.name, taker.name, at)
             store.own(taker.name, old.prs)
-        if lane == ROOT and kind != "stand-down":
-            for name in record.get("to") or []:
-                if (told := store.lane(name)) and told.state != "retired" and re.search(TOLD_TO_STAND_DOWN.format(re.escape(name)), text, re.IGNORECASE):
-                    retire(store, name, ROOT, at)
     return adopted, hand, dead
 
 
@@ -286,7 +280,7 @@ def successor_brief(old: Lane, new: str, why: str, deps: Deps, transcript: Path 
         f"  3. If any line printed, write nothing: post `cci post --drive {drive} --lane {new} --kind blocker --to root --text \"LIVE {old.name}: <worktree> pids <pids>\"` and stop. Never stop or signal those processes.",
         f"  4. With no live process in any worktree, continue in {old.name}'s worktree and branch from the state lane-status shows.",
         "",
-        f"When the deliverable is done, post `cci post --drive {drive} --lane {new} --kind done --to root` before your final message. On `ROTATE`, write your state to cc-notes and post `cci post --drive {drive} --lane {new} --kind handoff --ccn <doc id> --re <the ROTATE record>`, then keep working.",
+        f"When the deliverable is done, post `cci post --drive {drive} --lane {new} --kind done --to root` before your final message; told to stand down after a task, post that `done` when the task is finished. On `ROTATE`, write your state to cc-notes and post `cci post --drive {drive} --lane {new} --kind handoff --ccn <doc id> --re <the ROTATE record>`, then keep working.",
         "",
         body,
     ])
