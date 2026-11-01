@@ -131,7 +131,13 @@ incident reached, a clocked fix lane sharing the lane's incident name, its name 
 `-<part>` such as `-fix`, `-fix-2`, or `-cred`, or its `incident=` slug, or the executor's Opus backup
 for one of them, counts as the lane's mechanism, so no mechanism fallback launches; the PR and ready thresholds stay the
 lane's own. A lane the root withdrew, or sent `stand-down` or `stopped`, ends its clock as `withdrawn by <who>` and logs
-nothing. While any clock runs, a DEADLINE, UNACKED, STALE-MAIL, or RECLAIM about anything outside
+nothing. A lane's own stop that scopes a release gate out, a `stopped` or a text `STOPPED` naming a release smoke
+team, a release check, or dev red beside `active no`, no or zero customer, or false alarm, is refused, settled
+dispatch or not: a failing release gate is active always and no customer impact is only its scope. The runner
+launches `<lane>-opus` at once as the fix owner and posts one `REFUSED-STOP` incident record to root. Any
+incident, mechanism, report, answer, stopped, or not-ours record of the last hour, root's aside, that proposes a
+mute, a false alarm, or a monitor that skips the failing teams gets one `MUTE-PUSHBACK` incident record to root,
+which pushes back where it was proposed and names the fix owner; a mute never closes an unfixed mechanism. While any clock runs, a DEADLINE, UNACKED, STALE-MAIL, or RECLAIM about anything outside
 the incident waits in the view, and the pass after the last clock ends posts them as one `DEFERRED <n> escalations held
 during <lanes>` record. A root `go` or `decision` to a release lane that orders a cut or `release start`, or a landing's
 `release` record this runner posted, opens a cut clock only when it names components: the order's `--target` refs, or the
@@ -755,7 +761,7 @@ SPRITE_STALLED_AFTER = timedelta(minutes=30)
 FINDER_TAPS_EVERY = timedelta(minutes=5)
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker", "GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": "blocker", "GO-TAP-MISSING": "blocker", "OVERRIDE-REFUSED": "blocker"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker", "GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": "blocker", "GO-TAP-MISSING": "blocker", "OVERRIDE-REFUSED": "blocker", "REFUSED-STOP": "incident", "MUTE-PUSHBACK": "incident"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 TRUNK = "dev"
@@ -1071,6 +1077,13 @@ STOPPED = "stopped"
 TEXT_MARK = re.compile(r"^(?P<mark>MECHANISM|READY)\b")
 TEXT_MARK_KINDS = ("report", "incident")
 SAYS_MECHANISM = re.compile(r"\bmechanism\b", re.IGNORECASE)
+RELEASE_GATE = re.compile(r"\b(?:smoke[- ]?(?:teams?|tests?|runs?|checks?)|release[- ](?:checks?|smokes?|gates?)|dev[- ]red|dev is red)\b", re.IGNORECASE)
+SCOPED_OUT = re.compile(r"\bactive no\b|\b(?:no|zero) customer\b|\bfalse alarm\b", re.IGNORECASE)
+STOPPED_TEXT = re.compile(r"^STOPPED\b")
+MUTE = re.compile(r"\bmut(?:e|ed|es|ing)\b|\bfalse alarm\b|\b(?:skips?|leaves? out|stops? counting|excludes?)\b[^.\n]{0,60}\b(?:smoke|release[- ]check|teams?)\b", re.IGNORECASE)
+REFUSED_STOP = "refused-stop"
+MUTE_KINDS = ("incident", "mechanism", "report", "answer", STOPPED, "not-ours")
+MUTE_PUSHBACK = "mute-pushback"
 CLOCK_HOLD = "hold"
 FIX_ALIAS = "-fix"
 CASE = "-case"
@@ -4023,12 +4036,11 @@ class Runner:
                 clock["ended"] = f"{WITHDRAWN} by {withdrawn}"
             elif dispatch.id != launch.dispatch_id:
                 clock["ended"] = f"relaunched as dispatch {dispatch.id}"
-            elif dispatch.status in INACTIVE:
-                clock["ended"] = f"dispatch {dispatch.status}"
             else:
                 try:
                     stood_down = self.stood_down(lane, launched)
                     held = self.held(lane, launched)
+                    stop = self.gate_stop(lane, launched)
                     clock["reached"] = self.reached(container, lane, launched)
                 except CciTailFailed as failure:
                     self.tail_failed(failure)
@@ -4037,6 +4049,10 @@ class Runner:
                     clock["ended"] = f"{WITHDRAWN} by {stood_down}"
                 elif held:
                     clock["ended"] = f"held by {held}"
+                elif stop:
+                    clock["ended"] = self.refuse_stop(lane, launch, launched, stop)
+                elif dispatch.status in INACTIVE:
+                    clock["ended"] = f"dispatch {dispatch.status}"
                 else:
                     clock["ended"] = next((name for name in (*CLOCK_ENDS, "ready") if name in clock["reached"]), "")
                 if not clock["ended"]:
@@ -4060,6 +4076,23 @@ class Runner:
         names = set(lane_aliases(lane))
         posted = cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, f"--kind={STAND_DOWN}", f"--kind={STOPPED}")
         return next((f"#{record['seq']}" for record in posted if record["drive"] == self.config.drive and record["lane"] == ROOT and names & set(record.get("to") or []) and actions.parse_stamp(record["at"]) >= launched), "")
+
+    def gate_stop(self, lane: str, launched: datetime) -> dict | None:
+        """The lane's own stop since `launched` that scopes a failing release gate out for want of customer impact: a `stopped`, or an `incident` starting STOPPED, naming a release smoke team, a release check, or dev red beside `active no`, no or zero customer, or false alarm."""
+        return next((record for record in self.lane_records(lane, STOPPED, "incident") if actions.parse_stamp(record["at"]) >= launched and (record["kind"] == STOPPED or STOPPED_TEXT.match(record["text"])) and RELEASE_GATE.search(record["text"]) and SCOPED_OUT.search(record["text"])), None)
+
+    def refuse_stop(self, lane: str, launch: actions.Action, launched: datetime, stop: dict) -> str:
+        """Refuse a release-gate stop: a failing smoke team, release check, or dev red is active always and no customer impact is only its scope, so the Opus fallback takes the fix at once and root hears REFUSED-STOP; the clock's end names the refusal."""
+        gate = RELEASE_GATE.search(stop["text"])[0]
+        owner = self.fallback(lane, launch, "fix", whole_minutes(launched, self.now()))
+        self.escalate(
+            f"{REFUSED_STOP}:{stop['seq']}",
+            "REFUSED-STOP",
+            lane,
+            f"#{stop['seq']} scoped the incident out, but a failing {gate} is the release gate and the earliest canary: active yes always, and no customer impact is its scope, never a stop (owner, Nov 1 3:04 PM) | {owner}; root: keep the incident open and name its fix owner",
+            to=ROOT,
+        )
+        return f"stop #{stop['seq']} refused: {gate} is a release gate"
 
     def held(self, lane: str, launched: datetime) -> str:
         """The root's `hold` since the lane's launch that is addressed to the lane or names it, as `#<seq>`, or empty; a root `decide` steers the lane and leaves its clock running."""
@@ -4179,6 +4212,25 @@ class Runner:
             self.record(
                 log,
                 f"CLASS-UNOWNED {label} {record['lane']}: #{record['seq']} at {pacific(at)}, {whole_minutes(at, self.now())} min with no fix-lane GO naming {named} | root: GO a fix lane for this class",
+            )
+
+    def mute_pushback(self) -> None:
+        """Post one MUTE-PUSHBACK to root for each incident, mechanism, report, answer, stopped, or not-ours record of the last hour that proposes a mute, a false alarm, or a monitor that skips the failing teams: a mute never closes an unfixed mechanism."""
+        try:
+            records = cci.records(self.cci_tail, self.config.drive, *(f"--kind={kind}" for kind in MUTE_KINDS), since=actions.stamp(self.now() - PR_SILENT_HORIZON))
+        except CciTailFailed as failure:
+            self.tail_failed(failure)
+            return
+        for record in records:
+            text = record.get("text") or ""
+            if record["drive"] != self.config.drive or record["lane"] == ROOT or text.startswith("MUTE-PUSHBACK") or not (said := MUTE.search(text)):
+                continue
+            self.escalate(
+                f"{MUTE_PUSHBACK}:{record['seq']}",
+                "MUTE-PUSHBACK",
+                record["lane"],
+                f"#{record['seq']} proposes \"{said[0]}\" while its mechanism is unfixed; a mute or a monitor that skips the failing teams is never a close, and smoke teams are the canary (owner, Nov 1 3:04 PM) | root: push back where it was proposed, keep the incident open, and name its fix owner",
+                to=ROOT,
             )
 
     def pr_silent_escalate(self, pending: dict[str, dict]) -> None:
@@ -9964,7 +10016,7 @@ def run_orca(runner: Runner, once: bool) -> int:
                     if runner.now() - swept >= SWEEP_EVERY:
                         runner.steps(runner.sweep)
                         swept = runner.now()
-                runner.steps(runner.deadlines_orca, runner.incident_clock, runner.pr_silent, runner.class_unowned, runner.in_process, runner.cut_clock, runner.release_coupling, runner.finders, runner.fidelities, runner.sprite_beats)
+                runner.steps(runner.deadlines_orca, runner.incident_clock, runner.pr_silent, runner.class_unowned, runner.mute_pushback, runner.in_process, runner.cut_clock, runner.release_coupling, runner.finders, runner.fidelities, runner.sprite_beats)
             except StopRequested:
                 runner.flush()
                 runner.stop_marker().unlink()

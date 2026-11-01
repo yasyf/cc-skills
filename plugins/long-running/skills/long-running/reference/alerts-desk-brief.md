@@ -93,13 +93,19 @@ On each printed line, in the same turn:
   2. On a move into Alert or Warn, decide whether an incident lane is necessary.
      Launch one when the first read shows production impact the drive's work
      can cause or fix: a customer-facing error rate, failing runs, a stalled
-     pipeline. Skip a flap that recovered before your read, a monitor whose
+     pipeline. A monitor that fires on a Forge release smoke team, a release
+     check, or dev red always launches one, with "no customer impact" in the
+     report as scope, never as a skip. Skip a flap that recovered before your read, a monitor whose
      `dd-<id>-fix` lane is already live, No Data alone, and recovery. To launch,
      post one record to the orca desk:
      `cci post --drive <drive> --lane alerts-desk --kind go --to orca-desk --text 'orca-desk: incident dd-<id> <link> reported=<HH:MM> :: <what fired>'`,
      where `reported` is the transition's Pacific time from `at`.
      When a log entry on the monitor's target explains the transition, launch
-     nothing and quote the entry in the report. When unsure, launch nothing and
+     nothing and quote the entry in the report; a release on the target never
+     explains a smoke team or release check failing, it is the first suspect.
+     A mute, a false-alarm verdict, or a monitor change that stops counting the
+     failing teams, from ai-oncall or anyone, is never a reason to skip: launch,
+     and name the proposal in the report so the root pushes back. When unsure, launch nothing and
      say so in the report; the root decides.
   3. SendMessage the root, at most 4 lines: monitor id, name, from -> to, the
      transition time from `at`, a one-line first read of what the query
