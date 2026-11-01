@@ -90,8 +90,10 @@ The runner does what `launch --key R<n>` does with the same model, effort, and
 brief; `NOW` is `--owner-directed`, so under load the launch fails at once instead of
 waiting out the hold, and `role=<role>` is `--role`, the launch's role for the incident
 clock. An incident
-fix lane is `R<n> (<time>) orca-desk: launch <name>-fix NOW incident xhigh role=fix brief=<path>`;
-only `incident` runs on the fast tier, and plain `sol` is the standard tier. A record without `R<n>` takes the key
+fix lane is `R<n> (<time>) orca-desk: launch <dir> NOW incident xhigh role=fix brief=<state>/<dir>/brief.md`,
+since a lane launched from a `brief.md` takes its directory's name. The runner refuses any other name
+with `LAUNCH-FAILED` and the order that launches the lane under that name. Only
+`incident` runs on the fast tier, and plain `sol` is the standard tier. A record without `R<n>` takes the key
 `inbox@cci#<seq>`. A verified launch logs `LAUNCHED <key> <lane>: dispatch
 <ctx> terminal <handle>`. The runner logs `LAUNCH-FAILED <key> <lane>: <reason>`
 and launches nothing for a lane with a live dispatch or a launch still in flight,

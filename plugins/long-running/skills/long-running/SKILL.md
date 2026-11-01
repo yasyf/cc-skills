@@ -2993,7 +2993,10 @@ The orca desk reads its launch, relay, and hold lines only from cci records addr
 to `orca-desk`, in the `R<n>` form the owner's CLAUDE.md
 Incident Turn names. The root posts each one with `desk-launch.py`, which mints the
 `R<n>` and the clock; by hand, an incident fix lane is
-`cci post --drive <drive> --lane root --kind go --to orca-desk --text 'R<n> (<h:mm AM|PM>) orca-desk: launch <name>-fix NOW incident xhigh role=fix brief=<absolute path>'`.
+`cci post --drive <drive> --lane root --kind go --to orca-desk --text 'R<n> (<h:mm AM|PM>) orca-desk: launch <dir> NOW incident xhigh role=fix brief=<state>/<dir>/brief.md'`.
+A lane launched from a `brief.md` takes its directory's name, and keeps that one name from
+launch on. The runner refuses any other name with `LAUNCH-FAILED` and prints the order
+that launches the lane under its directory's name.
 The root never `SendMessage`s a desk.
 
 **I1. A desk's inbox is the set of cci records addressed to it.** The root posts each ruling

@@ -190,7 +190,7 @@ def main(argv: list[str] | None = None) -> int:
     verbs = parser.add_subparsers(dest="verb", required=True)
     incident = verbs.add_parser("incident", parents=[common], help="launch <name>-fix and <name>-evidence NOW on incident xhigh")
     incident.add_argument("name", type=incident_name, help="the incident's name; a trailing -fix is dropped, so takeover-500-fix launches takeover-500-fix, never takeover-500-fix-fix")
-    incident.add_argument("fix_brief", type=Path)
+    incident.add_argument("fix_brief", type=Path, help="the fix lane's brief, <state>/<name>-fix/brief.md; the runner refuses a brief.md in a directory named for another lane")
     incident.add_argument("evidence_brief", type=Path, nargs="?")
     lane = verbs.add_parser("lane", parents=[common], help="launch one lane")
     lane.add_argument("target", metavar="lane")
