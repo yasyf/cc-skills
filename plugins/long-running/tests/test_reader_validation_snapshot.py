@@ -1,6 +1,7 @@
 from contextlib import nullcontext
 from datetime import datetime, timezone
 import sqlite3
+import threading
 
 import pytest
 
@@ -21,6 +22,7 @@ def store(tmp_path):
 def connections(monkeypatch):
     opened = []
     connect = sqlite3.connect
+    owner = threading.get_ident()
 
     class ObservedConnection(sqlite3.Connection):
         def execute(self, statement, parameters=()):
@@ -35,6 +37,8 @@ def connections(monkeypatch):
             return result
 
     def observed(*args, **kwargs):
+        if threading.get_ident() != owner:
+            return connect(*args, **kwargs)
         connection = connect(*args, **kwargs, factory=ObservedConnection)
         connection.statements = []
         connection.before_execute = None
