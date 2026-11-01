@@ -116,7 +116,7 @@ def test_stateless_claude_reuses_private_plugin_state_without_changing_auth_or_c
 
 def test_a_sonnet_yes_is_asked_twice_and_both_calls_are_counted(tmp_path, monkeypatch):
     monkeypatch.setattr(judge, "state_dir", lambda drive, env=None: tmp_path)
-    answer = {"structured_output": {"verdict": "yes", "artifact_phrase": "a", "evidence_phrase": "b", "sentence": "c"}, "total_cost_usd": 0.01, "usage": {"input_tokens": 900, "output_tokens": 60}}
+    answer = {"structured_output": {"verdict": "yes", "artifact_phrase": "a", "evidence_phrase": "words", "sentence": "c"}, "total_cost_usd": 0.01, "usage": {"input_tokens": 900, "output_tokens": 60}}
     argv = []
 
     def claude(args, **kwargs):
@@ -132,6 +132,25 @@ def test_a_sonnet_yes_is_asked_twice_and_both_calls_are_counted(tmp_path, monkey
     assert all(args.count("--safe-mode") == 1 and "--bare" not in args for args in argv), "stateless review must skip plugin startup while retaining OAuth"
     [row] = judge.calls(tmp_path, datetime.now(timezone.utc) - timedelta(minutes=1))
     assert (row["asks"], row["tokens"], row["cost_usd"]) == (2, 1920, 0.02)
+
+
+@pytest.mark.parametrize(
+    ("quote", "flagged"),
+    [
+        ("\u201cone upload process\u201d \u2026 per Mac", True),
+        ("hold all of these and hand them off to the other session doing fundamental fixes", False),
+    ],
+    ids=["his-words-with-curly-quotes-and-an-ellipsis", "words-no-record-carries"],
+)
+def test_a_yes_stands_only_on_a_quote_the_evidence_holds(tmp_path, monkeypatch, quote, flagged):
+    monkeypatch.setattr(judge, "state_dir", lambda drive, env=None: tmp_path)
+    answer = {"structured_output": {"verdict": "yes", "artifact_phrase": "one process per key", "evidence_phrase": quote, "sentence": "This reads him narrower."}, "total_cost_usd": 0.0, "usage": {}}
+    monkeypatch.setattr(judge.subprocess, "run", lambda args, **kwargs: subprocess.CompletedProcess(args, 0, stdout=json.dumps(answer), stderr=""))
+
+    verdict = judge.judge("relay", "His words, verbatim: \"One upload process for each destination, per Mac.\"", "one process per key", backend="sonnet")
+
+    assert verdict.flagged is flagged
+    assert verdict.evidence_phrase == (quote if flagged else "")
 
 
 def test_the_digest_counts_each_kinds_verdicts_errors_and_latency():
