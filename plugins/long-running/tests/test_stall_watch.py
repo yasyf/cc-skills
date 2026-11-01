@@ -1469,8 +1469,23 @@ def test_a_missing_grade_a_lane_answered_with_no_regrade_for_fifteen_minutes_goe
 
     assert shell.topics() == stalls
     for topic in stalls:
-        assert shell.post(topic)["to"] == "fidelity-desk@d1"
+        assert shell.post(topic)["to"] == "api-lane@d1,fidelity-desk@d1"
         assert "api-lane in cci #4 answered it at" in shell.post(topic)["text"]
+
+
+def test_an_answered_pipeline_grade_with_no_regrade_goes_to_the_prs_lane_and_the_live_fidelity_desk_never_the_landing_desk(config):
+    """#280131: the pipeline's missing grade on #47174 was answered by a PR comment, and the regrade stall went to landing-desk-3 alone, who cannot regrade."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-pipeline"]
+    config.write_text(json.dumps(raw))
+    grade = record(3, "fidelity-pipeline", "review", f"fidelity: missing {HEAD[:7]} plan:44 adds only a 64-file container", 50, "101")
+    reply = record(4, "api-lane", "report", "the container size is the plan's; see plan:44", 20, "101", re=3)
+    desk = record(5, "fidelity-desk-11", "review", f"fidelity: ok {'d' * 7} carried", 10, "102")
+    shell = FakeShell([head(1, "101", HEAD, 60), finder(2, "101", HEAD, 59), grade, reply, desk], [row("101", test_state="pending")])
+
+    watch(shell, config)
+
+    assert shell.post("regrade:101:3")["to"] == "api-lane@d1,fidelity-desk-11@d1"
 
 
 def test_a_pr_comment_answers_a_missing_grade_and_a_bot_comment_does_not(config):
