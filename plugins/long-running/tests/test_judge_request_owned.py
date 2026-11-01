@@ -21,7 +21,7 @@ from test_rulings_dispatch import runtime
 
 DIGEST = "a" * 16
 PROOF = f"proof:board:{DIGEST}"
-YES = {"verdict": "yes", "artifact_phrase": "changed invariant", "evidence_phrase": "owner words", "sentence": "It changes his invariant."}
+YES = {"verdict": "yes", "artifact_phrase": "changed invariant", "evidence_phrase": "", "sentence": "It changes his invariant."}
 SHAPE = DIFF + '''diff --git a/tests/test_pool_count.py b/tests/test_pool_count.py
 --- /dev/null
 +++ b/tests/test_pool_count.py

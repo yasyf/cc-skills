@@ -56,6 +56,8 @@ ENGINEERING = frozenset(
     typecheck ui update upgrade upload url version vm webhook worktree
     """.split()
 )
+PLAIN_MARKS = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u2013": "-", "\u2014": "-"})
+QUOTE_EDGES = " '\".,;:"
 SYSTEM = (
     "You review one artifact a coding agent wrote, for an owner who is a terse engineer and types fast."
     " Read his words for what he means, the way a careful colleague would."
@@ -378,11 +380,25 @@ def ask(kind: str, evidence: str, artifact: str, *, backend: Backend, timeout: f
         return answer.verdict
 
     try:
-        call.verdict = decide(backend, lambda: asked(sonnet(prompt, timeout, env, run=run, checkpoint=checkpoint)), lambda: asked(jev(state, question, timeout, env, run=run, checkpoint=checkpoint)))
+        call.verdict = grounded(decide(backend, lambda: asked(sonnet(prompt, timeout, env, run=run, checkpoint=checkpoint)), lambda: asked(jev(state, question, timeout, env, run=run, checkpoint=checkpoint))), evidence)
     except (subprocess.SubprocessError, OSError, ValueError, KeyError) as exc:
         checkpoint()
         call.error = f"{type(exc).__name__}: {exc}"[:300]
     return call
+
+
+def grounded(verdict: Verdict, evidence: str) -> Verdict:
+    """`verdict`, or unsure with its quote dropped when it flags on a phrase of the evidence that the evidence does not hold, such as owner words no record carries (root #271041)."""
+    if not verdict.flagged or not verdict.evidence_phrase.strip():
+        return verdict
+    held = plain_text(evidence)
+    if all(quote in held for piece in plain_text(verdict.evidence_phrase).split("...") if (quote := piece.strip(QUOTE_EDGES))):
+        return verdict
+    return Verdict("unsure", verdict.artifact_phrase, "", verdict.sentence)
+
+
+def plain_text(text: str) -> str:
+    return " ".join(text.translate(PLAIN_MARKS).casefold().split()).replace("…", "...")
 
 
 def decide(backend: Backend, sonnet_ask: Callable[[], Verdict], jev_ask: Callable[[], Verdict]) -> Verdict:
