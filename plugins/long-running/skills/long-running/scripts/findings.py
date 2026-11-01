@@ -10,7 +10,7 @@
     findings.py track [--drive ID] SEQ...
     findings.py close [--drive ID] --why TEXT SEQ...
 
-`post` writes a finding as a cci `defect` that opens `[finding:<sweep>] #<pr> <path:line> <verdict> owner <lane>: <text>`, addressed to the owner lane. `sync` adds each new finding and each owner pick (`picked` or `wrote` on a board card) after its cursor as a ledger row, then moves each open or routed row to `fixed` when a later `head` or `landed` record names its PR or seq (or a pick's card), to `closed` when a record resolves it without one, and to `routed` when a record answers it. `open` syncs, then prints the open and routed rows by sweep. `track` adds the records it names, such as a pick from before the ledger began, and `close` closes rows no HEAD will ever name, such as a one-shot pick already carried out, with the reason. A lane that builds a pick names its seq or card in its HEAD record.
+`post` writes a finding as a cci `defect` that opens `[finding:<sweep>] #<pr> <path:line> <verdict> owner <lane>: <text>`, addressed to the owner lane. `sync` adds each new finding and each owner pick (`picked` or `wrote` on a board card) after its cursor as a ledger row, then moves each open or routed row to `fixed` when a later `head` or `landed` record names its PR or seq (or a pick's card), to `closed` when a record resolves it without one, to `routed` when a record answers it, and to `routed` under the opening lane as its owner when an `opened` record names it. `open` syncs, then prints the open and routed rows by sweep. `track` adds the records it names, such as a pick from before the ledger began, and `close` closes rows no HEAD will ever name, such as a one-shot pick already carried out, with the reason. A lane that builds a pick names its seq or card in its HEAD record.
 """
 
 from __future__ import annotations
@@ -88,6 +88,9 @@ class Findings:
                 return {**row, "state": "fixed", "by": str(record["seq"])}
             if seq in cci.resolved(record):
                 return {**row, "state": "closed", "by": str(record["seq"])}
+            if record["kind"] == "opened":
+                row = {**row, "state": "routed", "by": str(record["seq"]), "owner": record["lane"]}
+                continue
             if record.get("re") == seq and row["state"] == "open":
                 row = {**row, "state": "routed", "by": str(record["seq"])}
         return row

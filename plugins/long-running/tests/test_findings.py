@@ -69,8 +69,9 @@ def states(shell: FakeShell) -> dict[str, tuple[str, str]]:
         ([record(21, "landed", "LANDED #45412 squash 1234567")], ("fixed", "21")),
         ([record(22, "decide", "not a bug, the loop is the backoff", resolves=10, lane="root")], ("closed", "22")),
         ([record(23, "head", "HEAD #45999 def5678: unrelated")], ("open", "")),
+        ([record(24, "opened", "opened #45666 for finding #10", lane="perf-row2-4")], ("routed", "24")),
     ],
-    ids=["unanswered", "answered", "answered-then-head", "landed", "resolved-without-fix", "head-on-another-pr"],
+    ids=["unanswered", "answered", "answered-then-head", "landed", "resolved-without-fix", "head-on-another-pr", "opened"],
 )
 def test_a_finding_stays_open_until_a_head_or_landed_names_its_pr(entry, later, state):
     """Owner 3:06 AM Oct 30: sweep findings got lost; a finding is fixed only when a HEAD or LANDED names it (root #205185)."""
@@ -80,7 +81,8 @@ def test_a_finding_stays_open_until_a_head_or_landed_names_its_pr(entry, later, 
 
     assert states(shell) == {"finding/10": state}
     row = shell.rows["finding/10"]
-    assert (row["sweep"], row["pr"], row["line"], row["verdict"], row["owner"]) == ("merge-audit-1", "45412", "go/sand/vm/run.go:88", "major", "port-runtime-3")
+    owner = "perf-row2-4" if later and later[-1]["kind"] == "opened" else "port-runtime-3"
+    assert (row["sweep"], row["pr"], row["line"], row["verdict"], row["owner"]) == ("merge-audit-1", "45412", "go/sand/vm/run.go:88", "major", owner)
 
 
 def test_an_owner_pick_is_open_until_a_head_names_its_card_and_a_merge_tap_is_no_pick(entry):
