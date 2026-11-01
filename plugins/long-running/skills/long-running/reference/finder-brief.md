@@ -21,7 +21,8 @@ Codex reads neither the hooks nor the register, so the prompt carries everything
   prints (every global, pending, and matched row), each with its key, the owner's
   words verbatim, its implications with their `removes`, `requires` or `permits` mark and
   status, and its names. Paste them as the register holds them, never summarized.
-- The PR body, `## Rulings` and `## Regression tests` included, as claims to check.
+- The PR body and its author's comments, the `## Rulings` and `## Regression tests`
+  comments included, as claims to check.
 - The plan's path and the paths of the sub-plans the slice names, so the finder can
   cite the line each added or changed test rests on.
 

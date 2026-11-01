@@ -95,7 +95,7 @@ HUNK = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@")
 CITE = re.compile(r"([\w./@+-]+):(\d+)(?:-(\d+))?")
 CENSUS = "census:"
 RULINGS_HEADING = re.compile(r"^#{1,6}\s*Rulings\b", re.IGNORECASE | re.MULTILINE)
-BODY_COMMENT = re.compile(r"^(?:#{1,6}\s*|\*\*)?(?:Rulings|Body addendum)\b", re.IGNORECASE | re.MULTILINE)
+BODY_COMMENT = re.compile(r"^(?:#{1,6}\s*|\*\*)?(?:Rulings|Regression tests|Caller trace|Body addendum)\b", re.IGNORECASE | re.MULTILINE)
 ROW_KEY = re.compile(r"^### (\S+) \|", re.MULTILINE)
 COUNTED = re.compile(r"\brows checked:\s*(\d+)")
 BIG_SLICE = 150
@@ -275,7 +275,7 @@ def author_comments(view: dict) -> str:
 
 
 def rulings_comments(view: dict) -> str:
-    """The PR's comments that open a `Rulings` or `Body addendum` section, where a lane corrects or extends a body it may not edit, oldest first."""
+    """The PR's comments that open a `Rulings`, `Regression tests`, `Caller trace` or `Body addendum` section, where a lane corrects or extends a body it may not edit, oldest first."""
     return "\n\n---\n\n".join(comment["body"].strip() for comment in view["comments"] if BODY_COMMENT.search(comment["body"])) or "(none)"
 
 

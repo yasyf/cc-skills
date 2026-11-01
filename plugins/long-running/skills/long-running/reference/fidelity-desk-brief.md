@@ -43,7 +43,7 @@ Per row, a desk reads three things:
 - The names, every alias the thing has in the plan, the boards, and the code.
 
 It never reads our readings. The census's "Reading" lines, a brief's summary of a
-ruling, a lane's read-back, and a PR body's `## Rulings` and `### In your words`
+ruling, a lane's read-back, and a PR's `## Rulings` and `### In your words`
 lines are claims to check, never the standard to check them against.
 
 A `pending-owner` row goes in the checked set and gets no grade of its own. Until
@@ -74,8 +74,8 @@ whether the code, as it runs after the change, does what the words say.
 - Drive-era code is never a requirement; it is "what the drive-era code does
   today." A reply, brief, or PR body that cites drive-era code as something
   the rebuild must keep or match reads `missing`.
-- The PR body's `## Regression tests` lists each test id and links one failing
-  run against the old tree; nothing checks a CI receipt (E4.2). Read each named
+- The PR's `## Regression tests` comment, or a body section on a PR opened before
+  that rule, lists each test id and links one failing run against the old tree; nothing checks a CI receipt (E4.2). Read each named
   test against standing rule 34 (784f1ab): every change needs a regression test
   that would actually have failed, never a trivial one. A test the old
   tree also passes, or one that asserts nothing the failure broke, reads `missing`.
