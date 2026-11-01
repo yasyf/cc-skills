@@ -130,6 +130,7 @@ class FakeShell(runner_module.Shell):
         self.compare_errors: dict[str, str] = {}
         self.pr_commits: dict[str, int] = {}
         self.files: dict[str, list[str]] = {}
+        self.patches: dict[str, dict[str, str]] = {}
         self.files_error = ""
         self.auth = {"reads": identity("app", core=15000, graphql=10000), "writes": identity("user", core=5000, graphql=5000)}
         self.raw: list[list[str]] = []
@@ -543,10 +544,11 @@ class FakeShell(runner_module.Shell):
         if argv[:2] == ["gh", "api"] and argv[2].startswith("repos/Forge-AI/monorepo/pulls/") and argv[3:] == ["--jq", ".commits"]:
             return runner_module.Done(0, f"{self.pr_commits.get(argv[2].rsplit('/', 1)[1], 1)}\n", "")
         if argv[:3] == ["gh", "api", "--paginate"]:
-            assert argv[3].startswith("repos/Forge-AI/monorepo/pulls/") and argv[3].endswith("/files") and argv[4:] == ["--jq", ".[].filename"]
+            assert argv[3].startswith("repos/Forge-AI/monorepo/pulls/") and argv[3].endswith("/files") and argv[4:] == ["--jq", ".[] | [.filename, .patch] | @json"]
             if self.files_error:
                 return runner_module.Done(1, "", self.files_error)
-            return runner_module.Done(0, "".join(f"{name}\n" for name in self.files[argv[3].split("/")[4]]), "")
+            pr = argv[3].split("/")[4]
+            return runner_module.Done(0, "".join(json.dumps([name, self.patches.get(pr, {}).get(name)]) + "\n" for name in self.files[pr]), "")
         if argv == ["git", "patch-id", "--stable"]:
             return runner_module.Done(0, f"{hashlib.sha1(stdin.encode()).hexdigest()} {'0' * 40}\n" if stdin else "", "")
         if argv[:3] == ["gh", "pr", "view"] and argv[-1] == "reviewDecision,headRefOid,state":
@@ -4117,6 +4119,33 @@ def test_the_legacy_port_phrase_key_still_sets_the_port_grade_phrase(shell, conf
 )
 def test_only_test_files_and_ci_configuration_count_as_exempt(name, exempt):
     assert runner_module.is_test_or_ci_file(name) is exempt
+
+
+DEV_MANIFEST = '@@ -12,6 +12,7 @@ edition = "2024"\n [dev-dependencies]\n tempfile = "3"\n+notify = "8"\n'
+WORKSPACE_DEPENDENCY = '@@ -34,6 +34,7 @@ jiff = "0.2"\n lru = "0.16"\n md-5 = "0.11"\n+notify = "8"\n parking_lot = "0.12"\n'
+WORKSPACE_LINT = '@@ -133,6 +134,7 @@ dbg_macro = "deny"\n [workspace.lints.clippy]\n dbg_macro = "deny"\n+disallowed_methods = "allow"\n'
+DEV_PACKAGE = '@@ -20,6 +20,7 @@\n   "devDependencies": {\n     "jest": "29",\n+    "vitest": "catalog:",\n   },\n'
+ADDED_LOCK = '@@ -2308,6 +2308,16 @@ dependencies = [\n+[[package]]\n+name = "notify"\n+version = "8.2.0"\n'
+BUMPED_LOCK = '@@ -2905,7 +2905,7 @@\n name = "mio"\n-version = "1.0.3"\n+version = "1.0.4"\n'
+
+
+@pytest.mark.parametrize(
+    ("patches", "offender"),
+    [
+        ({"rust/crates/sandsql-server/Cargo.toml": DEV_MANIFEST, "rust/Cargo.lock": ADDED_LOCK, "rust/crates/sandsql-server/src/a/tests.rs": None}, ""),
+        ({"dashboard/package.json": DEV_PACKAGE, "yarn.lock": ADDED_LOCK, "dashboard/src/a.test.ts": None}, ""),
+        ({"rust/Cargo.toml": WORKSPACE_LINT, "rust/clippy.toml": "@@ -1 +1,2 @@\n+disallowed-methods = []\n", "rust/deny.toml": None, "rust/a/tests.rs": None}, ""),
+        ({"rust/Cargo.toml": WORKSPACE_DEPENDENCY, "rust/crates/sandsql-testkit/Cargo.toml": WORKSPACE_DEPENDENCY, "rust/Cargo.lock": ADDED_LOCK}, "rust/Cargo.toml"),
+        ({"rust/crates/sandsql-server/Cargo.toml": DEV_MANIFEST, "rust/Cargo.lock": BUMPED_LOCK}, "rust/Cargo.lock"),
+        ({"rust/Cargo.lock": ADDED_LOCK, "rust/a/tests.rs": None}, "rust/Cargo.lock"),
+        ({"rust/crates/sandsql-server/Cargo.toml": None, "rust/a/tests.rs": None}, "rust/crates/sandsql-server/Cargo.toml"),
+        ({"rust/crates/sandsql-server/Cargo.toml": '@@ -40,6 +40,7 @@ name = "x"\n+notify = "8"\n'}, "rust/crates/sandsql-server/Cargo.toml"),
+    ],
+    ids=["cargo-dev-dependency", "package-dev-dependency", "lint-configs", "workspace-dependency", "lock-bumps-a-version", "lock-without-manifest", "manifest-patch-unread", "section-not-in-hunk"],
+)
+def test_a_manifest_or_lockfile_counts_as_test_configuration_only_when_it_adds_dev_dependencies(patches, offender):
+    """Root #290406 on #47314: manifests, lockfiles and lint configs count as test configuration only when every dependency they add is a dev-dependency or sits in a test crate."""
+    assert runner_module.test_only_offender(patches) == offender
 
 
 @pytest.mark.parametrize(
