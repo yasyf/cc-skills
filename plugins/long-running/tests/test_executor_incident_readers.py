@@ -1,5 +1,7 @@
+from collections import Counter
 import json
 import sqlite3
+import threading
 
 import pytest
 
@@ -31,7 +33,7 @@ def selected(connections, store):
 
 
 @pytest.mark.parametrize("history", [32, 256])
-def test_executor_scan_reuses_each_incident_reader(shell, config, tmp_path, monkeypatch, readonly_connections, history):
+def test_executor_scan_reuses_each_incident_reader(shell, config, tmp_path, monkeypatch, readonly_connections, history, record_property):
     landing = landing_of(shell, config, tmp_path)
     store = global_store(tmp_path, monkeypatch)
     assert landing.book.store.root != store.root
@@ -41,9 +43,16 @@ def test_executor_scan_reuses_each_incident_reader(shell, config, tmp_path, monk
     monkeypatch.setattr(landing, "incident_cleared", lambda pr: cleared.append(pr))
     try:
         assert landing.is_incident("33001", {"lane": "ordinary-fix"}) is False
-        first = len(selected(readonly_connections, store))
+        first_opened = selected(readonly_connections, store)
+        first = len(first_opened)
+        record_property("caller_thread", threading.get_ident())
+        record_property("first_reader_owners", json.dumps(dict(Counter(connection.owner for connection in first_opened))))
+        record_property("first_database_count", len({connection.database for connection in first_opened}))
+        record_property("open_readers_by_owner", json.dumps(dict(Counter(connection.owner for connection in first_opened if not connection.closed))))
         assert landing.is_incident("33001", {"lane": "ordinary-fix"}) is False
         opened = selected(readonly_connections, store)
+        record_property("second_reader_owners", json.dumps(dict(Counter(connection.owner for connection in opened))))
+        record_property("thread_names", json.dumps({thread.ident: thread.name for thread in threading.enumerate()}))
         print(json.dumps({"history": history, "first_readers": first, "two_pr_reads": len(opened), "closed": sum(connection.closed for connection in opened), "scope": "actual is_incident/private default Store; corpus scan remains linear"}))
         assert first == history, f"executor scan opened {first} readers for {history} incidents"
         assert len(opened) == 2 * history and all(connection.closed for connection in opened)
