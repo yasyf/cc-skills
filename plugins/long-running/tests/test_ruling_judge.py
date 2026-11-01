@@ -51,6 +51,7 @@ def test_an_orca_launch_reads_its_brief(tmp_path: Path) -> None:
 
 
 class Judged:
+    __name__ = "ruling_judge_fixture"
     JUDGE_SECONDS = 90
 
     def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tool_name: str, tool_input: dict) -> None:

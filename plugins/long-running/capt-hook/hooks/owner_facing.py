@@ -35,6 +35,7 @@ from captain_hook.cmd import Call
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState, ccn, drive_entry, post_blocker, rulings, script, script_module
+from .judge_metrics import judge_call
 from .nudges import once_per_hour, queue_nudge
 from .pr_ledger import lane_name
 from .register_injection import drive_args, incident_spawn, prose
@@ -651,7 +652,8 @@ def judged_plain(reads: Reads, text: str, picked: str) -> list[str]:
     known = [name for name in names if name.lower() not in PLAIN_FOR and (name.lower() in tokens or " " in name and name.lower() in lowered)]
     ruled = [(names, words) for names, words in scopes if any(name.lower() in lowered for name in names)]
     ids = list(dict.fromkeys(hit[0] for _, pattern in IDS for hit in pattern.finditer(picked)))
-    verdict = judge.judge(
+    verdict = judge_call(
+        judge,
         "plain",
         judge.reader(known, ruled, PLAIN_FOR, ids),
         text,

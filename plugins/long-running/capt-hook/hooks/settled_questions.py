@@ -32,6 +32,7 @@ from captain_hook import (
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState, ccn, rulings, script, script_module
+from .judge_metrics import judge_call
 from .owner_facing import CCI_POST, SLACK_CARD, posted_text, shown
 from .register_gates import fenced
 from .register_injection import drive_args
@@ -274,7 +275,8 @@ def ruled(evt: BaseHookEvent, judge: ModuleType, flags: list[str] | None, settle
     if not rows and not decisions:
         return None
     env = reqenv.env_map()
-    verdict = judge.judge(
+    verdict = judge_call(
+        judge,
         "ruled",
         judge.settled([judge.owner_words(key, judge.said(row, state, env)) for key, row in rows.items()], [item.text for item in decisions]),
         card,

@@ -602,11 +602,11 @@ jobs:
       - name: Owned rulings caller regressions
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_board_text_gate.py plugins/long-running/tests/test_owner_facing.py plugins/long-running/tests/test_register_capture.py plugins/long-running/tests/test_register_gates.py plugins/long-running/tests/test_ruling_judge.py plugins/long-running/tests/test_rulings_consumers.py plugins/long-running/tests/test_rulings_owned_hooks.py plugins/long-running/tests/test_compaction_handoff.py -q -s
       - name: Request-owned judge regressions
-        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_judge_request_owned.py plugins/long-running/tests/test_judge.py plugins/long-running/tests/test_rulings_dispatch.py -q -s
+        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_judge_metrics.py plugins/long-running/tests/test_judge_request_owned.py plugins/long-running/tests/test_judge.py plugins/long-running/tests/test_rulings_dispatch.py -q -s
       - name: Owned fifteenth check-pr regressions
         run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/test_fifteenth_check_pr_owned.py plugins/long-running/tests/test_lane_landing.py -q -s
       - name: capt-hook pack test
-        run: uvx --isolated --from 'capt-hook==12.108.4' capt-hook pack test plugins/long-running
+        run: uvx --isolated --from 'capt-hook==12.108.39' capt-hook pack test plugins/long-running
       - uses: actions/checkout@v7
         with:
           ref: f37dde3a53da2f13404a3417cbfb611d963f9531
