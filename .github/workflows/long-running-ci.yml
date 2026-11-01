@@ -33,6 +33,24 @@ jobs:
       - uses: astral-sh/setup-uv@v8.2.0
       - uses: actions/checkout@v7
         with:
+          ref: c01c7aa04559b07ad03983301609163b0a4630d0
+          path: .ci-landing-release-history-801
+          persist-credentials: false
+      - name: Immutable801 Landing release history characterization
+        shell: bash
+        run: |
+          baseline=.ci-landing-release-history-801/plugins/long-running
+          test "$(git -C .ci-landing-release-history-801 rev-parse HEAD)" = c01c7aa04559b07ad03983301609163b0a4630d0
+          cp plugins/long-running/tests/landing_release_history_characterization.py "$baseline/tests/landing_release_history_characterization.py"
+          uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/landing_release_history_characterization.py" -q -s --junitxml="$RUNNER_TEMP/landing-release-history-801.xml" | tee "$RUNNER_TEMP/landing-release-history-801.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: landing-release-history-${{ runner.os }}
+          path: ${{ runner.temp }}/landing-release-history-801.*
+          if-no-files-found: error
+      - uses: actions/checkout@v7
+        with:
           ref: 82ab4e455cca7584000efc44439d74bb15f4b6b0
           path: .ci-release-proof-baseline
           persist-credentials: false
