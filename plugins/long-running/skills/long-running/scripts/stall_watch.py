@@ -45,7 +45,9 @@ its ledger row names, it finds:
               PARKED, UNOWNED, NOT-QUEUEABLE or ENQUEUE-*; it is an open action naming the PR, its head,
               the reason, the lane that must act (the refusal's `owner <lane>` or `<lane>: #<pr>`
               words, root for FOREIGN and TAP-REQUIRED, the landing desk for mergeability, else the
-              PR's lane) and the command the refusal quotes, and it stands until that lane posts a
+              PR's lane) and the command the refusal quotes; a TAP-REQUIRED refusal whose merge row is
+              on the owner's board at that head is no stall, since only his tap moves it (root
+              #273794); it stands until that lane posts a
               `head` record naming a PR the refusal names or answers it by `--re`, a record closes it,
               a QUEUED record names the PR, or the PR moves off that head or leaves the ledger; at
               `stall.minutes.refusal` it posts to root and the lane, naming the command; a lane that
@@ -810,7 +812,7 @@ class Pass:
         started = actions.parse_stamp(job.started_at) if job and job.status == "started" and job.started_at else None
         return started if started and self.now - started >= self.watch.age("running") else None
 
-    def refusals(self, records: list[dict], rows: dict[str, dict], approved: set[str], lanes: dict[str, str], holding: Callable[[str], bool]) -> list[Stall]:
+    def refusals(self, records: list[dict], rows: dict[str, dict], approved: set[str], lanes: dict[str, str], holding: Callable[[str], bool], board: Board | None) -> list[Stall]:
         """Each standing landing refusal, once per PR, head and cause, from its oldest refusal record no later act answered: a `refusal` stall at `stall.minutes.refusal`."""
         repo = self.watch.landing["repo"]
         closed = {seq for record in records for seq in grades.closes(record)}
@@ -828,6 +830,8 @@ class Pass:
                 if self.answered(records, record, refusal.pr, row["head"], named, owner):
                     continue
                 self.refused.add(refusal.pr)
+                if refusal.cause == "TAP-REQUIRED" and board and board.shows(refusal.pr, row["head"]):
+                    continue
                 key = f"{refusal.pr}:{short(row['head'])}:{refusal.cause.lower()}"
                 if key not in standing:
                     standing[key] = (refusal, owner, row["head"])
@@ -1011,7 +1015,7 @@ class Pass:
             quiet = all(stall.quiet for stall in group)
             stalls.append(Stall(first.id + (":quiet" if quiet else ""), first.kind, min(stall.since for stall in group), first.subject, first.what + above, first.owner, first.step + (f", and the rows for {', '.join(stall.subject for stall in rest)}" if rest else ""), first.pr, quiet))
         approved |= {pr for go in gos for pr in grades.go_heads(go)}
-        stalls += self.refusals(records, rows, approved, lanes, holding)
+        stalls += self.refusals(records, rows, approved, lanes, holding, board)
         for bottom, group in waiting.items():
             if any(member in self.refused for pr, *_ in group for member in [pr, *downstack(rows, rows[pr])]):
                 continue

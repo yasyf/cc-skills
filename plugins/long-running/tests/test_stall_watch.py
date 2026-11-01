@@ -1269,6 +1269,15 @@ def test_each_landing_refusal_cause_is_tracked_and_routed_to_the_lane_that_acts(
     assert to == next((lanes for word, lanes in expected.items() if word in cause), "api-lane@d1")
 
 
+@pytest.mark.parametrize(("board_head", "stalls"), [(HEAD, []), (OTHER, ["refusal:101:" + HEAD[:7] + ":tap-required"])])
+def test_a_tap_required_refusal_whose_merge_row_is_on_the_board_at_that_head_is_no_stall(config, board_head, stalls):
+    records = [*gone("101", HEAD), record(5, "desk-runner", "blocker", f"#101 {HEAD[:10]}: nothing in #101 was enqueued; TAP-REQUIRED rule/82317b0", 11, to=["root"])]
+    shell = FakeShell(records, [row("101")])
+    shell.doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": 101, "head": board_head[:7]}]}]}]}
+    watch(shell, config)
+    assert refusal_topics(shell) == stalls
+
+
 def test_a_refusal_for_a_pr_no_go_or_tap_names_is_not_tracked(config):
     shell = FakeShell([head(1, "101", HEAD, 30), finder(2, "101", HEAD, 25), fidelity(3, "101", HEAD, 25), record(5, "desk-runner", "blocker", f"#101 {HEAD[:10]}: needs-restack", 11, to=["api-lane"])], [row("101")])
     watch(shell, config)
