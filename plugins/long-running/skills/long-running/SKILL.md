@@ -560,6 +560,19 @@ mechanics, so the wrapper hands its branch to a Claude `lane-ship` lane named
 and launches the same line, the root keeps the lane further along and stops the
 other.
 
+An open `incident` record that names a PR, by its refs or a `#<n>` in its text, or
+names a lane as its poster or a recipient, puts that PR and lane in incident mode:
+`rulings.py check-pr` prints each refusal as `WARN incident #<seq> <refusal>` and
+exits 0, and the stall watch raises no grader, regrade, missing, carry, or tap stall
+for the PR. The incident rules stay the only gates: an approving review, green
+required checks, a plain squash, and 0 deletes and 0 replaces. The record that
+resolves the incident ends incident mode. A codex lane with no Claude session names
+its drive with `--drive`, and `drive.py` reads that drive without a session id.
+
+*Prevents the 2:21 PM Nov 1 block: the drive's own checks held incident fixes the
+owner wanted out ("you need ti find a way to get your tooling out if you have an
+incudent").*
+
 *Prevents the 4:45 AM Oct 12 incident launch: R2030 hit `LAUNCH-FAILED: orca desk
 runner not running`, the inline codex fallback stopped for an owner choice instead
 of building, the restarted runner launched the same lane at 4:48, and two lanes ran

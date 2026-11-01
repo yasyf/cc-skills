@@ -232,6 +232,18 @@ def test_a_sessionless_process_resolves_the_drive_of_its_orca_run(repo, monkeypa
     assert capsys.readouterr().out == "900424b6\n"
 
 
+def test_a_sessionless_codex_lane_resolves_the_drive_it_names(repo, monkeypatch, capsys):
+    started(repo)
+    capsys.readouterr()
+    monkeypatch.delenv(drive.SESSION_ENV)
+
+    assert drive.main(["reds", "--drive", "elsewhere"]) == 1
+    assert capsys.readouterr().err == "no drive elsewhere is registered\n"
+
+    assert drive.main(["reds", "--drive", "900424b6"]) == 1
+    assert capsys.readouterr().out.endswith("the stall watch has not run a pass for this drive\n")
+
+
 def test_orca_run_prints_the_run_of_the_session_drive(repo, monkeypatch, capsys):
     started(repo)
     capsys.readouterr()

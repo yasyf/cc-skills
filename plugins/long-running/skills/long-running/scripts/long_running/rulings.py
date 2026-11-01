@@ -127,6 +127,7 @@ from . import cci
 from . import drive
 from . import ghread
 from . import grades
+from . import incidents
 from . import testfiles
 from . import ledger
 
@@ -2264,6 +2265,7 @@ def cmd_supersede(args: argparse.Namespace, shell: ledger.Shell) -> int:
 class Findings:
     refusals: list[str]
     blockers: list[str]
+    incident: dict | None = None
 
     def read(self, what: str, load: Callable[[], object]) -> object:
         try:
@@ -2468,6 +2470,8 @@ def check_pr(loaded: Register, args: argparse.Namespace, head: Head, findings: F
     facts = diff_facts(loaded, head, base)
     bus = drive.cci_drive(entry_of(args))
     records = findings.read("the PR's cci records", lambda: pr_records(loaded.shell, bus, "--pr", f"{head.repo}#{head.number}"))
+    open_incidents = findings.read("the drive's open incidents", lambda: incidents.open_incidents(loaded.shell.run, bus)) or []
+    findings.incident = incidents.incident_scope(open_incidents, bus, head.repo, head.number, lane_of(records or []))
     if args.incident and (uncited := [key for key in facts["touched"] if not cites(head, key, rulings[key])]):
         findings.refusals.append(f"RULINGS-UNCITED {','.join(uncited)}\tcite them under a ## Rulings heading in one PR comment, never by editing the body (427c9c93)")
     for key, fields in rulings.items():
@@ -2643,9 +2647,10 @@ def cmd_check_pr(args: argparse.Namespace, shell: ledger.Shell) -> int:
     if loaded and view and diff:
         comments = tuple(comment.get("body") or "" for comment in view.get("comments") or [])
         check_pr(loaded, args, Head(repo, number, args.head, view.get("body") or "", diff, comments), findings, args.base or view["baseRefName"])
-    for line in [*sorted(findings.refusals, key=lambda line: CHECK_PR_ORDER.index(line.split()[0])), *findings.blockers]:
+    warned = f"WARN incident #{findings.incident['seq']} " if findings.incident else ""
+    for line in [*(warned + refusal for refusal in sorted(findings.refusals, key=lambda line: CHECK_PR_ORDER.index(line.split()[0]))), *findings.blockers]:
         print(line, file=args.stdout)
-    return 1 if findings.refusals else 0
+    return 1 if findings.refusals and not findings.incident else 0
 
 
 @dataclass(frozen=True)
