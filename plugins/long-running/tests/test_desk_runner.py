@@ -11637,6 +11637,24 @@ def test_an_inbox_launch_line_launches_once_and_now_marks_it_urgent(shell, confi
     assert [(post["kind"], post["topic"]) for post in shell.posts] == [("report", "R1907")]
 
 
+def test_an_order_posted_mid_pass_launches_and_reaches_root_before_the_pass_ends(shell, config, tmp_path, monkeypatch):
+    """cci 311079: an order posted at 1:54 AM was read at 2:05 AM, a whole pass later, and its refusal then waited for that pass to end."""
+    brief = launch_brief(tmp_path)
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    orca_pass(shell, config)
+    clock = runner_module.Runner.incident_clock
+
+    def order_arrives(runner):
+        if not launches(shell):
+            desk_orders(shell, f"R1909 (1:54 AM PT) orca-desk: launch {LANE} NOW opus xhigh brief={brief}")
+        return clock(runner)
+
+    monkeypatch.setattr(runner_module.Runner, "incident_clock", order_arrives)
+    orca_pass(shell, config)
+    assert launches(shell) == [[str(runner_module.LAUNCHER), LANE, "opus", "xhigh", str(brief)]]
+    assert escalations(shell) == [f"LAUNCHED R1909 {LANE}: dispatch ctx_n terminal term_ctx_n"]
+
+
 def test_a_launch_that_exits_mid_pass_reaches_root_in_that_pass(shell, config, tmp_path):
     """cci 310384: two incident launches exited at 1:27 AM, but their LAUNCHED records reached root at 1:31 AM, after the rest of a long pass."""
     brief = launch_brief(tmp_path)
