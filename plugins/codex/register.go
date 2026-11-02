@@ -50,12 +50,23 @@ func registerOutcome(sdir string) string {
 	if bin == "" {
 		return "skipped: capt-hook not found"
 	}
-	return invokeRegister(bin, prefix, sid, tid, filepath.Base(sdir))
+	return invokeRegister(bin, prefix, sid, agentFromMeta(sdir), tid, filepath.Base(sdir))
 }
 
 // sessionFromMeta pulls the Claude Code session id off meta's info line (line 3,
 // written dispatch.go from $CLAUDE_CODE_SESSION_ID). Absent outside Claude Code.
 func sessionFromMeta(sdir string) string {
+	return metaInfo(sdir, "session")
+}
+
+// agentFromMeta pulls the dispatching subagent's or teammate's id off meta's info
+// line (written dispatch.go from $CCI_AGENT_ID). Absent for a root dispatch, whose
+// lane then folds into the root session's deep view.
+func agentFromMeta(sdir string) string {
+	return metaInfo(sdir, "agent")
+}
+
+func metaInfo(sdir, key string) string {
 	info := lineAt(metaLines(join(sdir, "meta")), 2)
 	if info == "" {
 		return ""
@@ -64,7 +75,7 @@ func sessionFromMeta(sdir string) string {
 	if json.Unmarshal([]byte(info), &m) != nil {
 		return ""
 	}
-	if s, ok := m["session"].(string); ok {
+	if s, ok := m[key].(string); ok {
 		return s
 	}
 	return ""
@@ -128,7 +139,7 @@ func resolveCaptHook() (bin string, prefix []string) {
 
 // invokeRegister runs the capt-hook registration under a bounded context. An old
 // capt-hook without the command is a recorded failure, not a compat branch.
-func invokeRegister(bin string, prefix []string, sid, tid, label string) string {
+func invokeRegister(bin string, prefix []string, sid, agent, tid, label string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), registerTimeout)
 	defer cancel()
 	args := append(
@@ -139,6 +150,9 @@ func invokeRegister(bin string, prefix []string, sid, tid, label string) string 
 		"--thread-id", tid,
 		"--label", label,
 	)
+	if agent != "" {
+		args = append(args, "--agent", agent)
+	}
 	c := exec.CommandContext(ctx, bin, args...) //nolint:gosec // bin is the resolved capt-hook launcher; args are the fixed registration contract
 	// A hung uvx grandchild inheriting the stderr pipe would block Wait to EOF; own
 	// process group + group-SIGKILL on timeout + bounded pipe drain keep it finite.

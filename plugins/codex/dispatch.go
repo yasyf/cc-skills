@@ -307,6 +307,9 @@ loop:
 	if sid := os.Getenv("CLAUDE_CODE_SESSION_ID"); sid != "" {
 		info["session"] = sid
 	}
+	if agent := os.Getenv("CCI_AGENT_ID"); agent != "" {
+		info["agent"] = agent
+	}
 	ib, _ := json.Marshal(info)
 	if err := atomicWrite(join(sdir, "meta"), reply+"\n"+logf+"\n"+string(ib)+"\n"); err != nil {
 		die(fmt.Sprintf("codex-ask: %s is in use by a concurrent run; pass a unique -l/-s lane or omit both", sdir), 1)

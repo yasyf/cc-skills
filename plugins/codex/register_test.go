@@ -115,6 +115,22 @@ func TestRegisterTranscript(t *testing.T) {
 		}
 	})
 
+	t.Run("ok from a subagent", func(t *testing.T) {
+		sdir := lane(t, `{"session":"s-test","agent":"alane-1"}`, "banner\n"+started)
+		argsOut := filepath.Join(t.TempDir(), "args")
+		t.Setenv("REGISTER_ARGS_OUT", argsOut)
+		shimPath(t, "capt-hook", "printf '%s\\n' \"$@\" > \"$REGISTER_ARGS_OUT\"\nexit 0\n")
+
+		registerTranscript(sdir)
+		if got := outcome(t, sdir); got != "ok "+tid {
+			t.Fatalf("outcome = %q, want %q", got, "ok "+tid)
+		}
+		if got := strings.Split(strings.TrimSpace(readFile(argsOut)), "\n"); !equalArgs(got,
+			[]string{"transcripts", "register", "--session", "s-test", "--provider", "codex", "--thread-id", tid, "--label", filepath.Base(sdir), "--agent", "alane-1"}) {
+			t.Errorf("shim args = %v", got)
+		}
+	})
+
 	t.Run("skipped no session", func(t *testing.T) {
 		sdir := lane(t, `{"model":"gpt-6.1-sol"}`, "banner\n"+started)
 		shimPath(t, "capt-hook", "exit 0\n")
