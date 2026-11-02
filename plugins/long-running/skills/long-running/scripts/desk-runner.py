@@ -10946,8 +10946,8 @@ def main(argv: list[str] | None = None, shell: Shell | None = None) -> int:
             with runner.desk_lock(args.desk) as holder:
                 if holder is None:
                     runner.shell.adopt(dict.fromkeys(LANE_IDENTITY, "") | config.desk_env[args.desk])
-                    runner.adopt_cursors()
                     with runner.book.store.reading():
+                        runner.adopt_cursors()
                         return (run_orca if args.desk == "orca" else run_landing)(runner, args.once)
             if not runner.stop_marker(holder).exists() or runner.now() >= deadline:
                 print(f"desk-runner run: runner {holder} already runs the {args.desk} desk on {config.source}; `desk-runner.py handoff --config {config.source} --desk {args.desk}` replaces it", file=sys.stderr)
