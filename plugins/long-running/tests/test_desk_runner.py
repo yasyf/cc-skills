@@ -8743,6 +8743,17 @@ def test_a_child_whose_native_stack_starts_above_its_open_parent_waits_on_it_and
     assert any(line.startswith("REFUSED #33000") and line.endswith("the gate read aaaa000000 WAITING: CI running") for line in settled(shell, "REFUSED"))
 
 
+def test_an_unsettled_heads_trace_keeps_every_step_that_saw_it_and_each_settle_at_another_head():
+    """Root #303609: #47306 and #47326 read `unsettled: the gate's status read` on 0.7.838 at 7:23 PM Nov 1 with only the last step named, so nothing showed which read raced the slow merge-mode check."""
+    settlement = runner_module.Settlement({"33001": "aaaa111111"}, {"33001": "2026-11-01T00:00:00Z"})
+    settlement.saw(["33001", "33002"], "the gate's status read")
+    settlement.settle("33001", "bbbb222222", runner_module.Refused("stale"))
+    settlement.saw(["33001"], "the dispatch, which skipped it since worker `33001` still holds it")
+    trace = settlement.seen["33001"]
+    assert [entry.rsplit(" at ", 1)[0] for entry in trace] == ["the gate's status read", "a settle at bbbb222222, not its admitted head", "the dispatch, which skipped it since worker `33001` still holds it"]
+    assert "33002" not in settlement.seen and not settlement.settled("33001")
+
+
 def test_a_check_that_dies_after_its_preflight_lines_settles_every_admitted_head_it_read(shell, config, tmp_path):
     """Root #300098, 7:19 PM Nov 1 on 0.7.838: #47496, #47498 and #47499 read `unsettled: the stack worker's settle step`, since a check that printed only its `CHECK` preflight lines before it failed reads as a verdict no rule of the pass settles."""
     shell.rows = [{"pr": "33000", "lane": LANE, "branch": "g/0", "base": "dev", "head": "aaaa000000", "state": "open", "reported_head": "aaaa000000", "test_state": "success"}]
