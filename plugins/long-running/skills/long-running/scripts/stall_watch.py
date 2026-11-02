@@ -900,7 +900,7 @@ class Pass:
         gos += grades.carried_gos(gos, fidelity, repo, lambda pr, head: True)
         queued = {(pr, sha) for record in records if (record["lane"] == RUNNER or record["lane"].startswith(LANDING_DESK)) and record["kind"] == "report" and QUEUED.match(record["text"]) for pr, sha in grades.GO_HEAD.findall(record["text"])}
         held: set[str] = set()
-        incident_records = incidents.open_incidents(self.tail, drive_name)
+        incident_records = incidents.open_incidents(incidents.incident_records(self.tail, drive_name))
         in_incident: set[str] = set()
         for record in cci.open_holds(self.tail, drive_name):
             for named in cci.held_by(record):

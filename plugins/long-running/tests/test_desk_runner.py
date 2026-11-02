@@ -8056,6 +8056,15 @@ def test_an_open_incident_naming_another_lanes_pr_never_squashes_it(shell, confi
     assert merges(shell) == []
 
 
+def test_an_incident_fix_whose_incident_root_closed_is_never_squashed(shell, config, tmp_path):
+    """Root #301886: the runner squash-merged #47627 from run-queue-fix at 6:01 PM Nov 1, after root's 301284 `INCIDENT run-queue-backlog CLOSED` addressed that lane at 5:45 PM."""
+    incident_pr(shell)
+    shell.records.append({"seq": 9502, "drive": "d1", "lane": "root", "kind": "incident", "status": "open", "to": [INCIDENT_LANE, "desk-runner"], "text": "INCIDENT run-queue-backlog CLOSED 5:45 PM: fix live on plat, both monitors unmuted", "at": actions.stamp(shell.clock)})
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert merges(shell) == []
+
+
 def test_a_root_decide_taking_an_incident_fix_off_the_incident_path_stops_its_squash_and_logs_once(shell, config, tmp_path):
     incident_pr(shell)
     shell.records.append({"seq": 9500, "drive": "d1", "lane": "root", "kind": "decide", "to": ["desk-runner"], "refs": {"prs": ["Forge-AI/monorepo#36650"]}, "text": "#36650 is NOT an incident fix; take it off the incident path; it lands only on his tap", "at": actions.stamp(shell.clock)})
