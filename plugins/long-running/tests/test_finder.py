@@ -746,13 +746,13 @@ LEDGER_ROWS = [
     {"key": "47003", "fields": {"title": "api: 🐛 the parent read retries", "landed_sha": OTHER_AREA}},
     {"key": "47004", "fields": {"title": "sand: 🐛 the open replica fix", "state": "open"}},
 ]
-LANDED_FILES = f"@{FIXED_AREA}\n\ngo/sand/internal/replica/marker.go\ngo/sand/internal/replica/marker_test.go\n@{OTHER_AREA}\n\napi/parent.go\n"
+LANDED_FILES = f"@{FIXED_AREA}\n\ngo/sand/internal/replica/follow.go\ngo/sand/internal/replica/follow_test.go\n@{OTHER_AREA}\n\napi/parent.go\n"
 
 
 class AreaFake(Fake):
-    def __init__(self, tmp_path: Path, title: str, body: str = "## Summary\nA cut signal resubscribes from the position it fetched.") -> None:
+    def __init__(self, tmp_path: Path, title: str, body: str = "## Summary\nA cut signal resubscribes from the position it fetched.", landed: str = LANDED_FILES) -> None:
         super().__init__(tmp_path, [reply()])
-        self.title, self.body = title, body
+        self.title, self.body, self.landed = title, body, landed
 
     def run(self, argv: list[str], cwd: Path | None = None, timeout: int = finder.READ_SECONDS) -> str:
         if gateway(argv)[:3] == ["gh", "pr", "view"]:
@@ -766,7 +766,7 @@ class AreaFake(Fake):
     def git(self, argv: list[str]) -> str:
         if argv[:2] == ["log", "--ignore-missing"]:
             assert argv[-2:] == [FIXED_AREA, OTHER_AREA]
-            return LANDED_FILES
+            return self.landed
         return super().git(argv)
 
 
@@ -788,7 +788,7 @@ def test_a_second_bug_fix_in_an_area_the_drive_already_fixed_posts_a_blocking_po
     [post] = shell.posted
     assert post["--text"].startswith(f"finder: major {HEAD} 1 open over whole {OWN[:7]}^..{HEAD[:7]}: go/sand/internal/replica/follow.go:40 {finder.SECOND_FIX}.")
     record = (directory / "record.md").read_text()
-    assert "#47001 (sand: 🐛 the replica keeps its held marker) fixed go/sand/internal/replica" in record
+    assert "#47001 (sand: 🐛 the replica keeps its held marker) fixed go/sand/internal/replica/follow.go" in record
     assert "#47002" not in record and "#47003" not in record and "#47004" not in record
 
 
@@ -807,6 +807,16 @@ def test_a_second_fix_whose_body_names_the_class_it_removes_or_the_cutover_delet
 
     [post] = shell.posted
     assert post["--text"].startswith(f"finder: ok {HEAD} ")
+
+
+def test_a_fix_beside_an_earlier_fix_in_one_flat_directory_is_no_second_fix(tmp_path, registry):
+    """Root #318757: #48005 drew SECOND_FIX majors against #46899, #47601 and #47759, unrelated fixes that only shared api/src/modules."""
+    directory = job(tmp_path)
+    shell = AreaFake(tmp_path, "sand: 🐛 the replica resubscribes from its fetched position", landed=f"@{FIXED_AREA}\n\ngo/sand/internal/replica/marker.go\n@{OTHER_AREA}\n\napi/parent.go\n")
+
+    assert finder.main([str(directory)], shell) == 0
+
+    assert shell.posted[0]["--text"].startswith(f"finder: ok {HEAD} ")
 
 
 def test_a_change_that_is_no_bug_fix_reads_no_landed_area(tmp_path, registry):
