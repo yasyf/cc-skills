@@ -5720,6 +5720,25 @@ def landing_of(shell: FakeShell, config: Path, tmp_path: Path) -> runner_module.
     return runner_module.Landing(runner, runner.config.landing)
 
 
+def test_a_tree_a_worker_holds_in_part_runs_once_that_worker_ends_and_one_it_holds_whole_is_left_to_it(shell, config, tmp_path):
+    """Root #303609, trace #307066: the pass skipped #47306 and #47326 because `overflow:47305` held their bottom, and nothing ever decided them."""
+    landing = landing_of(shell, config, tmp_path)
+    landing.settlement = runner_module.Settlement({"29020": "cccc333333", "29031": "dddd444444"}, {})
+    holder: runner_module.Future = runner_module.Future()
+    landing.inflight["overflow:29020"] = ({"29020"}, holder)
+    ran: list[str] = []
+    assert landing.dispatch("29020-only", {"29020"}, lambda: ran.append("whole")) is None
+    behind = landing.dispatch("29031", {"29020", "29031"}, lambda: ran.append("part"))
+    assert behind is not None and not behind.done() and ran == []
+    with landing.dispatching:
+        busy = {pr for members, future in landing.inflight.values() if not future.done() for pr in members}
+    assert busy == {"29020", "29031"}
+    holder.set_result(None)
+    behind.result(timeout=10)
+    assert ran == ["part"]
+    assert [entry.rsplit(" at ", 1)[0] for entry in landing.settlement.seen["29031"]] == ["the dispatch, which queued it behind worker `overflow:29020`, which holds part of it"]
+
+
 def test_a_pass_fetches_the_trunk_while_the_ledger_refreshes(shell, config):
     lone_green_pr(shell)
     refreshing, overlapped = threading.Event(), []
@@ -8786,9 +8805,9 @@ def test_an_unsettled_heads_trace_keeps_every_step_that_saw_it_and_each_settle_a
     settlement = runner_module.Settlement({"33001": "aaaa111111"}, {"33001": "2026-11-01T00:00:00Z"})
     settlement.saw(["33001", "33002"], "the gate's status read")
     settlement.settle("33001", "bbbb222222", runner_module.Refused("stale"))
-    settlement.saw(["33001"], "the dispatch, which skipped it since worker `33001` still holds it")
+    settlement.saw(["33001"], "the dispatch, which left it to worker `33001`, which holds it all")
     trace = settlement.seen["33001"]
-    assert [entry.rsplit(" at ", 1)[0] for entry in trace] == ["the gate's status read", "a settle at bbbb222222, not its admitted head,", "the dispatch, which skipped it since worker `33001` still holds it"]
+    assert [entry.rsplit(" at ", 1)[0] for entry in trace] == ["the gate's status read", "a settle at bbbb222222, not its admitted head,", "the dispatch, which left it to worker `33001`, which holds it all"]
     assert "33002" not in settlement.seen and not settlement.settled("33001")
 
 
