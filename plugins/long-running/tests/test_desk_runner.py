@@ -8750,7 +8750,7 @@ def test_an_unsettled_heads_trace_keeps_every_step_that_saw_it_and_each_settle_a
     settlement.settle("33001", "bbbb222222", runner_module.Refused("stale"))
     settlement.saw(["33001"], "the dispatch, which skipped it since worker `33001` still holds it")
     trace = settlement.seen["33001"]
-    assert [entry.rsplit(" at ", 1)[0] for entry in trace] == ["the gate's status read", "a settle at bbbb222222, not its admitted head", "the dispatch, which skipped it since worker `33001` still holds it"]
+    assert [entry.rsplit(" at ", 1)[0] for entry in trace] == ["the gate's status read", "a settle at bbbb222222, not its admitted head,", "the dispatch, which skipped it since worker `33001` still holds it"]
     assert "33002" not in settlement.seen and not settlement.settled("33001")
 
 
