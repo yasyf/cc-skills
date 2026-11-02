@@ -72,9 +72,7 @@ green or failing-first proof, or do not merge, never merges, so it draws no stal
               `stall.minutes.unfixed` since; a blocker to root and the class's owner, once per PR and head
     sweep     a red head has stood `stall.minutes.sweep` and no lane named `red-sweep` or `red-sweep-<n>`
               is live; one blocker to root naming every red PR, until a red-sweep lane posts
-    tap       the owner's board tap approves the head, and no go names it; this stall, `carry` and
-              `go` judge only a ledger head GitHub still reads as the PR's head, never one the PR has
-              moved past (root #324772, #326064)
+    tap       the owner's board tap approves the head, and no go names it
     ungraded  a `head` record names the head, its build has read green for `stall.minutes.ungraded`, counted
               from its ledger row's `green_at`, and no finder review or no fidelity grade names it, whatever
               the desks hold queued, read from the PR's whole history when the window holds none; it is the finder or fidelity stall of a green head, posted to the
@@ -186,7 +184,9 @@ A lane's own liveness, whether it stopped, went silent or outgrew its context, i
 (`lr/movers/lanes.py`), which relaunches it with no root action; no stall names a lane for its silence.
 
 Each kind counts once it is as old as `stall.minutes` says: go 10, refusal 10, red 2, unclassed 20, unfixed 60, sweep 20, order 3, tap 10, ungraded 10, finder 30,
-fidelity 30, running 25, board 15, carry 20 (one fidelity pass), ask 15, pick 15, gate 30, stale 120, desk 10, shape 30. A PR's head is as old as the first record about the
+fidelity 30, running 25, board 15, carry 20 (one fidelity pass), ask 15, pick 15, gate 30, stale 120, desk 10, shape 30. A PR's stalls and reds
+judge only a ledger head that its newest `head` record and, for a tapped or go'd PR, GitHub still read as its head, never one the PR
+left (root #324772, #326064, #328647), and a stall whose post a record resolved is not posted again at that head (#329080). A PR's head is as old as the first record about the
 PR whose whole text names its short sha: its `head` record, a ready report, or a finder or fidelity record. A board
 stall counts from the latest of its finder ok, its fidelity ok, and its ledger row's `green_at`, the refresh that
 first read the head's build green, since the board refresher puts a row up only once the build is green.
@@ -710,6 +710,7 @@ class Pass:
         self.now = shell.now()
         self.unread: set[str] = set()
         self.lane_newest: dict[str, dict] = {}
+        self.resolved: set[int] = set()
         self.states: dict[str, dict] = {}
         self.stack: list[dict] | None = None
         self.tap_waits: dict[str, tuple[str, str]] | None = None
@@ -765,6 +766,7 @@ class Pass:
         self.probe_day = saved.get("probe_day", "")
         records = [record for record in cci.records(self.tail, self.watch.drive, since=actions.stamp(self.now - self.watch.window)) if record["drive"] == self.watch.drive]
         self.lane_newest = {record["lane"]: record for record in records}
+        self.resolved = {seq for record in records for seq in cci.resolved(record)}
         stalls, questions, entries = self.prs(records)
         acked = self.acked(records)
         stalls += self.asks(records) + self.picks(records) + self.unfinished() + self.gates(records) + self.desks(records) + self.shapes() + self.customers(records, saved.get("customer_seq")) + [stall for stall, _ in acked.values()]
@@ -792,6 +794,10 @@ class Pass:
                 continue
             if stall.id in last:
                 print(f"held {stall.line(self.now)}: posted at {pacific(actions.parse_stamp(last[stall.id]), self.now)}")
+                continue
+            if (posted := POSTED_SEQ.search(saved["open"].get(stall.id, {}).get("posted", ""))) and int(posted[1]) in self.resolved:
+                kept[stall.id] = saved["open"][stall.id]
+                print(f"resolved {stall.line(self.now)}: a record resolved its post #{posted[1]}")
                 continue
             print(f"{'again' if stall.id in saved['open'] else 'new'} {stall.line(self.now)}")
             if dry_run:
@@ -1045,6 +1051,9 @@ class Pass:
             classed = red_entry(row, lane, [record for record in classes if grades.about_pr(record, repo, pr)]) if row.get("red_at") else None
             asked = self.watch.board_lane if pr not in approved and any(TAP_REQUIRED.search(grades.full_text(go)) for go in grades.gone_at(gos, pr, head)) else ""
             entries.append(stack_row(pr, row, rows, lane, holding(pr) or pr in self.hold_gates, bool(going), in_queue, tapping, bool(classed) and classed["class"] == "inherited", asked) | {"head_at": head_at, "tap_at": tap_at})
+            moved = next((named for record in reversed(records) if record["kind"] == "head" and grades.about_pr(record, repo, pr) and (named := grades.head_of(record, repo, pr))), "")
+            if moved and not grades.names_head(moved, head) or pr in github_heads and not grades.names_head(github_heads[pr], head):
+                continue
             if (classed is None or classed["class"] in ("real", "unclassed")) and (red := self.red(pr, row, lane)):
                 (probes if red.kind == "probe" else stalls).append(red)
             if row.get("test_state") == "failure" and classed:
@@ -1055,12 +1064,11 @@ class Pass:
                 continue
             subject = f"#{pr} at {short(head)}"
             about = [record for record in reviews if grades.about_pr(record, repo, pr)]
-            behind = pr in github_heads and not grades.names_head(github_heads[pr], head)
             if going:
                 below = downstack(rows, row)
                 ready = min(max(at(go), actions.parse_stamp(go.get("graded_at") or go["at"])) for go in going)
                 since = max(ready, head_at) if head_at else ready
-                if not behind and not any(holding(parent) for parent in below) and (waits_on := self.unqueued(pr, row, rows, below, gos, since, queued, lane, records, own_row)):
+                if not any(holding(parent) for parent in below) and (waits_on := self.unqueued(pr, row, rows, below, gos, since, queued, lane, records, own_row)):
                     waiting.setdefault(below[-1] if below else pr, []).append((pr, since, len(below), waits_on))
                 continue
             state = grades.go_state(gos, pr, head)
@@ -1068,7 +1076,7 @@ class Pass:
             tapped = tap["head"] if tap.get("verdict") == "approved" and tap.get("head") and tap.get("at") else ""
             if tapped and grades.names_head(tapped, head):
                 tapped_at = actions.parse_stamp(tap["at"])
-                if not behind and self.now - tapped_at >= self.watch.age("tap"):
+                if self.now - tapped_at >= self.watch.age("tap"):
                     stalls.append(Stall(f"tap:{pr}:{short(head)}", "tap", tapped_at, subject, f"the owner approved it on the board at {pacific(tapped_at, self.now)}, and {state.said()}", tuple(dict.fromkeys((self.watch.board_lane, *go_owners))), f"post `go #{pr} at {short(head)}`", pr))
                 continue
             if head_at is None:
@@ -1107,7 +1115,7 @@ class Pass:
             if board is None:
                 continue
             if tapped or (older := state.older):
-                if not behind and not board.shows(pr, head) and self.now - head_at >= self.watch.age("carry") and not any(named == pr and grades.names_head(sha, head) for named, sha in carried):
+                if not board.shows(pr, head) and self.now - head_at >= self.watch.age("carry") and not any(named == pr and grades.names_head(sha, head) for named, sha in carried):
                     if tapped:
                         stalls.append(Stall(f"carry:{pr}:{short(head)}", "carry", head_at, subject, f"his board tap names {short(tapped)}, and no go names this head, first named {pacific(head_at, self.now)}", tuple(dict.fromkeys((self.watch.board_lane, *go_owners))), f"post `go #{pr} at {short(head)}`: his tap at {short(tapped)} carries to every later head of this PR (owner, Oct 31 2:48 AM); it never goes back to his board", pr))
                     else:
