@@ -38,7 +38,7 @@ def cases():
 @pytest.mark.parametrize("entry,inp,expected", cases())
 def test_rulings_consumer_outcomes(entry, inp, expected, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     if inp.commands and "claude -p" in inp.commands:
-        commands = inp.commands | {"uv run --no-project --quiet": json.dumps({"p_yes": 0.9, "tokens": 2})}
+        commands = {"uv run --no-project --quiet": json.dumps({"p_yes": 0.9, "tokens": 2})} | inp.commands
         inp = replace(inp, commands=commands)
     fixtures = Path(compaction_handoff.__file__).parent / "tests" / "fixtures"
     env = inp.env or {}
