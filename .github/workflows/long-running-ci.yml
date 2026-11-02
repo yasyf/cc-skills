@@ -452,6 +452,7 @@ jobs:
         run: |
           baseline=.ci-executor-reader-baseline/plugins/long-running
           cp plugins/long-running/tests/test_executor_incident_readers.py "$baseline/tests/test_executor_incident_readers.py"
+          cp plugins/long-running/tests/test_build_cache.py "$baseline/tests/test_build_cache.py"
           for history in 32 256; do
             negative="$RUNNER_TEMP/executor-readers-$history-negative.log"
             if uv run --locked --project "$baseline" pytest -c "$baseline/pyproject.toml" "$baseline/tests/test_executor_incident_readers.py::test_executor_scan_reuses_each_incident_reader[$history]" -q -s >"$negative" 2>&1; then
