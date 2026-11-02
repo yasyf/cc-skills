@@ -5654,6 +5654,14 @@ class Settlement:
         with self.lock:
             self.seen |= {pr: branch for pr in prs if pr in self.heads}
 
+    def carry(self, earlier: "Settlement", prs: set[str]) -> None:
+        with earlier.lock:
+            kept = {pr: (earlier.heads[pr], outcome) for pr, outcome in earlier.outcomes.items() if pr in prs}
+        with self.lock:
+            for pr, (head, outcome) in kept.items():
+                if pr in self.heads and pr not in self.outcomes and names_head(head, self.heads[pr]):
+                    self.outcomes[pr] = outcome
+
     def settled(self, pr: str) -> bool:
         return pr in self.outcomes
 
@@ -9864,6 +9872,7 @@ class Landing:
             self.gate_deadline = time.monotonic() + GATE_BUDGET.total_seconds()
             self.trusted_from, self.pass_began = self.pass_began, time.monotonic()
             self.surface()
+            earlier = self.settlement
             self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.owner_taps, self.unchecked, self.unproven_why, self.untested_why, self.cleared, self.exempts = None, False, None, None, None, None, set(), {}, {}, {}, {}
             self.settlement = Settlement({}, {})
             if self.quota_low():
@@ -9894,6 +9903,9 @@ class Landing:
             self.held_now = held or []
             off = self.gating_off(advanced, read)
             self.settlement = self.admission(rows, holds, None if off else self.pr_statuses())
+            with self.dispatching:
+                running = {pr for members, future in self.inflight.values() if not future.done() for pr in members}
+            self.settlement.carry(earlier, running)
             try:
                 self.gate_rows(rows, held, not off)
             finally:
