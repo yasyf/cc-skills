@@ -291,7 +291,7 @@ Rotation flushes a lane in place, as described in
 [reference/watchers.md](reference/watchers.md#supervise-and-rotate-lanes).
 
 **R5. Write it down, do not hold it.** Findings go to cc-notes from the lane that found
-them, never into the root's window. Lanes carry no MCP tools beyond cc-slack's, so they
+them, never into the root's window. Lanes carry no cc-notes MCP tools, so they
 write with `ccn log append`,
 `ccn investigation open` and `append`, `ccn note add`, `ccn doc add` and `ccn task add`;
 the root may use the cc-notes MCP tools. Pass record ids to lanes:

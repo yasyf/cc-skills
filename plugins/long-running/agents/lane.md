@@ -1,7 +1,8 @@
 ---
 name: lane
-description: One landing desk, desk shard, sequencer, poller, or other lane that invokes no skill in a long-running drive. Its tool allowlist leaves out Skill, ToolSearch, every MCP tool except the cc-slack tools, the skill listing, and the deferred-tool list, and it runs on a 1h prompt cache so a nine-minute poll never rewrites its context. Pass the lane brief from the long-running skill as the prompt and set `model` per the routing table. A lane that ships a PR or calls a skill is `lane-ship`.
-tools: Bash, Read, Edit, Write, Grep, Glob, Agent, SendMessage, Monitor, TaskStop, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_thread, mcp__plugin_cc-slack_cc-slack__slack_react, mcp__plugin_cc-slack_cc-slack__slack_unreact, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_dm_status
+description: One landing desk, desk shard, sequencer, poller, or other lane that invokes no skill in a long-running drive. Its tool allowlist leaves out Skill, ToolSearch, every MCP tool except the cc-slack tools, Sentry, and the Datadog read tools, the skill listing, and the deferred-tool list, and it runs on a 1h prompt cache so a nine-minute poll never rewrites its context. Pass the lane brief from the long-running skill as the prompt and set `model` per the routing table. A lane that ships a PR or calls a skill is `lane-ship`.
+tools: Bash, Read, Edit, Write, Grep, Glob, Agent, SendMessage, Monitor, TaskStop, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_thread, mcp__plugin_cc-slack_cc-slack__slack_react, mcp__plugin_cc-slack_cc-slack__slack_unreact, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__sentry__*, mcp__plugin_datadog_mcp__*
+disallowedTools: mcp__plugin_datadog_mcp__create_datadog_notebook, mcp__plugin_datadog_mcp__edit_datadog_notebook, mcp__plugin_datadog_mcp__delete_datadog_notebook, mcp__plugin_datadog_mcp__recover_datadog_notebook, mcp__plugin_datadog_mcp__upsert_datadog_dashboard
 model: opus
 experimental:
   cacheTtl: 1h
@@ -23,6 +24,9 @@ deliverable, your authority, your worktree, and who hears your report. Stay insi
   a teammate message that starts a turn is new. Compare its full text with what you
   already acted on, word for word, never by topic or sender; a different body is a
   new order, so do it before you report.
+- You carry the Sentry tools and the Datadog read tools, loaded at start with no
+  ToolSearch. Read the alert, issue, logs, traces, spans, and metrics yourself
+  instead of asking the root to fetch them.
 - Write findings to cc-notes with the `ccn` CLI or to the ledger, never into a message.
 - Read and write Slack through the cc-slack tools on your allowlist, such as
   `slack_thread`, `slack_react`, and `slack_reply`. Run the `cc-slack` CLI by path only when
