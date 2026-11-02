@@ -823,6 +823,8 @@ SQUASH_POLLS = 12
 APPROVAL_POLL_SECONDS = 60
 APPROVAL_POLLS = 10
 REVIEW_BOT = "forge-pr-reviewer[bot]"
+REVIEW_REQUEST = "@forge-pr-reviewer review"
+BOT_REVIEWED = "bot-reviewed"
 DIRECT_MERGING = threading.Lock()
 UNGRADED_READ = "ungraded_read"
 DIFF_MEDIA = "Accept: application/vnd.github.diff"
@@ -5841,6 +5843,8 @@ class Landing:
         self.tapping = threading.Lock()
         self.read: dict[str, tuple[datetime, list[dict]]] = {}
         self.review_titles: dict[str, str] = {}
+        self.unreviewed: set[str] = set()
+        self.bot_reviewed: set[str] = set()
         self.unread: dict[str, dict[str, str]] = {}
         self.reading = threading.Lock()
         self.labels_read: dict[str, bool] = {}
@@ -7031,6 +7035,11 @@ class Landing:
                     self.read[sha] = (now, statuses)
                     self.targets[sha] = (now, [(context["targetUrl"] or "", context["state"].lower()) for context in (commit["status"] or {"contexts": []})["contexts"]])
                     self.review_titles[sha] = max(runs, key=lambda run: run["startedAt"] or "", default={"title": ""})["title"] or ""
+                    if runs:
+                        self.unreviewed.discard(sha)
+                        self.bot_reviewed.add(heads[sha])
+                    else:
+                        self.unreviewed.add(sha)
                 found[sha] = statuses
         return found
 
@@ -9734,6 +9743,18 @@ class Landing:
             self.book.edit(LANDING, lambda incident: incident.facts.update({key: said}))
         return said
 
+    def rerequest_reviews(self, rows: dict[str, dict]) -> None:
+        kept = set(self.book.fact(LANDING, BOT_REVIEWED, []))
+        reviewed = (kept | self.bot_reviewed) & {pr for pr, row in rows.items() if row.get("state", "open") == "open"}
+        if reviewed != kept:
+            self.book.edit(LANDING, lambda incident: incident.facts.update({BOT_REVIEWED: sorted(reviewed, key=int)}))
+        for pr, head in sorted(self.settlement.heads.items(), key=lambda item: int(item[0])):
+            if pr not in reviewed or head not in self.unreviewed or self.book.known(LANDING, key := f"review-rerequest:{pr}:{head}"):
+                continue
+            if self.shell.run(["gh", "api", "-X", "POST", f"repos/{self.repo}/issues/{pr}/comments", "-f", f"body={REVIEW_REQUEST}"]).code != 0:
+                continue
+            self.post_record("note", key, self.routine_audience([pr], rows), f"REVIEW-REREQUESTED #{pr} at {head[:10]}: green and admitted with no {REVIEW_BOT_CHECK} run on its head, which {REVIEW_BOT} reviewed at an earlier head, so the landing runner asked it to review this one", pr)
+
     def review_bot(self, pr: str, head: str, row: dict) -> str:
         """What the review bot's newest `ai-review` run on `head`, from the pass's head read, says `pr` waits on, or empty; a Held verdict tells the owning lane once per head (root #154137)."""
         title = self.review_titles.get(head, "")
@@ -9986,7 +10007,7 @@ class Landing:
         self.refuse_out(rows, carrying, "whose branch carries open PRs a squash would land with it")
         barred = sorted({*(held or []), *self.no_go, *pulled, *carrying}, key=int)
         gone = self.land_gone(rows, barred) if gating else set()
-        self.runner.steps(lambda: self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}), self.reconcile, lambda: self.requeue(rows))
+        self.runner.steps(lambda: self.read_heads({row["head"]: pr for pr, row in rows.items() if row.get("state", "open") == "open" and row.get("head")}), lambda: self.rerequest_reviews(rows), self.reconcile, lambda: self.requeue(rows))
         if not self.side_work:
             def side_steps():
                 with self.book.store.reading(), self.build_cache.book.store.reading():

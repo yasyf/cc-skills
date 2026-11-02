@@ -519,6 +519,8 @@ class FakeShell(runner_module.Shell):
                 return runner_module.Done(1, "", "gh: Reference does not exist (HTTP 422)")
             self.grade_refs[branch] = argv[6].removeprefix("sha=")
             return runner_module.Done(0, "{}", "")
+        if argv[:4] == ["gh", "api", "-X", "POST"] and argv[4].endswith("/comments"):
+            return runner_module.Done(0, "{}", "")
         if argv[:5] == ["gh", "api", "-X", "POST", "repos/Forge-AI/monorepo/git/refs"]:
             self.grade_refs[argv[6].removeprefix("ref=refs/heads/")] = argv[8].removeprefix("sha=")
             return runner_module.Done(0, "{}", "")
@@ -2096,7 +2098,7 @@ def test_an_open_pr_skipped_as_not_ours_escalates_once_per_head(shell, config, t
     landing_pass(shell, config)
     lines = escalations(shell)
     assert len(lines) == 1 and "NOT-OURS" in lines[0] and "#29020" in lines[0] and "ledger.py register --lane <lane> --branch-prefix <its branch> or --pr 29020" in lines[0]
-    shell.rows[0] |= {"head": "dddd444444", "reported_head": "dddd444444"}
+    shell.rows[0] |= {"head": "dddd444444", "reported_head": "dddd444444", "test_state": "success"}
     landing_pass(shell, config)
     assert len(escalations(shell)) == 2
 
@@ -6735,6 +6737,23 @@ def test_a_stack_worker_past_the_gate_budget_runs_on_after_the_pass_while_the_ot
 def test_lanes_take_turns_so_one_lanes_many_stacks_never_go_ahead_of_every_other_lane():
     open_rows = {pr: {"lane": lane, "branch": f"b/{pr}", "base": "dev"} for pr, lane in (("1", "a"), ("2", "a"), ("3", "a"), ("4", "b"))}
     assert runner_module.lane_turns([["1"], ["2"], ["3"], ["4"]], open_rows) == [["1"], ["4"], ["2"], ["3"]]
+
+
+def test_a_green_admitted_head_the_review_bot_never_ran_on_is_re_requested_once(shell, config, tmp_path):
+    """Root #299364: #46720 and #47447 were restacked and #47299 sat green with no forge-pr-reviewer run on their heads, and nothing asked the bot again."""
+    lone_green_pr(shell)
+    grade(shell, "29020", "ok F307 at cccc333.")
+    shell.review_runs["cccc333333"] = ["Approved"]
+    landing_pass(shell, config)
+    shell.rows[0] |= {"head": "dddd444444", "reported_head": "dddd444444", "test_state": "success"}
+    shell.gates["29020"] = [gate("#29020 BLOCKED dddd444444 ai-review pending")]
+    grade(shell, "29020", "ok F307 at dddd444.")
+    merge_go(shell, "29020", "go #29020 at dddd444 on green")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert [call for call in shell.calls if call[:2] == ["gh", "api"] and "comments" in " ".join(call)] == [["gh", "api", "-X", "POST", "repos/Forge-AI/monorepo/issues/29020/comments", "-f", "body=@forge-pr-reviewer review"]]
+    [line] = [line for line in said(shell) if line.startswith("REVIEW-REREQUESTED ")]
+    assert line == "REVIEW-REREQUESTED #29020 at dddd444444: green and admitted with no ai-review run on its head, which forge-pr-reviewer[bot] reviewed at an earlier head, so the landing runner asked it to review this one"
 
 
 def test_every_landing_pass_posts_one_state_line_to_the_drive_watchdog(shell, config, tmp_path):
@@ -15743,7 +15762,7 @@ def test_a_head_whose_build_cannot_compile_a_package_it_changes_is_held_until_a_
     [blocker] = blockers(shell)
     assert blocker["to"] == LANE and blocker["topic"] == "29020"
     assert blocker["text"] == f"#29020 cccc333333: nothing in #29020 was enqueued; BUILD-FAILED #29020: sand/next/internal/localrun fails to build at cccc333 on https://buildkite.com/forge/test/builds/85356: {LOCALRUN_ERROR}"
-    shell.rows[0] |= {"head": "dddd444444", "reported_head": "dddd444444"}
+    shell.rows[0] |= {"head": "dddd444444", "reported_head": "dddd444444", "test_state": "success"}
     shell.gates["29020"] = [gate("#29020 GREEN dddd444444 graphite READY", would="#29020")]
     grade(shell, "29020", "ok F307 at dddd444.")
     shell.files["29020"] = ["go/sand/next/internal/localrun/localrun.go"]

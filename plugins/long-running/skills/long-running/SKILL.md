@@ -1991,7 +1991,9 @@ merge queue within five minutes of that go. A stack the passes leave out that lo
 unrefused, goes to a stack worker through the runner's overflow (owner 9524276), which runs
 the same check, admission and merge-mode gates a pass runs, so it never enqueues a batch
 carrying a PR the drive did not admit (root #245808). The overflow sends a stack in whole once
-any PR of it is due, and a blocked enqueue five minutes old no longer keeps the stack out. The runner logs one `GO-UNQUEUED` per head still
+any PR of it is due, and a blocked enqueue five minutes old no longer keeps the stack out. A green admitted head with no
+`ai-review` run, on a PR the review bot reviewed at an earlier head, gets one `@forge-pr-reviewer review` comment from the
+landing pass that finds it and one `REVIEW-REREQUESTED` note, once per head (root #299364). The runner logs one `GO-UNQUEUED` per head still
 out only when its own newest enqueue of that head since the go ended blocked, failed,
 stranded or unsettled, or went in and the queue then evicted it, never for backlog, naming that
 outcome or the eviction's time and reason. A head the queue evicted before any enqueue gets one
