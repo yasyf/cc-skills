@@ -41,7 +41,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
           path: lr-current
           persist-credentials: false
       - uses: actions/checkout@v7
