@@ -2284,9 +2284,27 @@ def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, records: dict
             if line:
                 print(line)
             moved += pr in closed
+    for pr in sorted(updates, key=int):
+        if updates[pr].get("state") == CLOSED_WITHOUT_SQUASH and rows[pr].get("state") != CLOSED_WITHOUT_SQUASH and (line := leave_stack(shell, gh, checkout, pr)):
+            print(line)
     if updates:
         notes.sync([{"key": pr, "fields": fields} for pr, fields in updates.items()])
     return moved
+
+
+def leave_stack(shell: Shell, gh: Github, checkout: Path, pr: str) -> str:
+    """Take closed `pr` out of its native GitHub stack: unstack it and link its open PRs again, bottom first, since GitHub refuses a plain squash of a PR whose stack still lists a closed one (switch-drive-1 316521: #47979 and its closed child #47981)."""
+    number, opened = None, []
+    try:
+        if not (number := (gh.api(f"pulls/{pr}").get("stack") or {}).get("number")):
+            return ""
+        opened = [str(member["number"]) for member in gh.api(f"stacks/{number}")["pull_requests"] if member["state"] == "open"]
+        shell.run(["gh", "stack", "unstack", str(number)], cwd=checkout)
+        if len(opened) > 1:
+            shell.run(["gh", "stack", "link", *opened], cwd=checkout)
+    except subprocess.CalledProcessError as failure:
+        return f"#{pr} STACK-KEPT: closed, but leaving native stack {number or 'unread'} failed, so its open PRs {', '.join(f'#{n}' for n in opened) or 'unread'} may still list it: {(failure.stderr or str(failure)).strip()}"
+    return f"#{pr} left native stack {number}" + (f"; #{', #'.join(opened)} linked again" if len(opened) > 1 else "")
 
 
 def cmd_landed(args: argparse.Namespace, shell: Shell) -> int:
