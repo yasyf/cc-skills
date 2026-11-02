@@ -60,7 +60,7 @@ SETTLED = frozenset({"handoff", "done", "stand-down", "stopped"})
 SPAWN = "spawn"
 REQUEST = "decide"
 VERBS = frozenset({"stand-down", "park", "unpark", "owner", "done"})
-VERB_NAMED = re.compile(r"\b(?:closed|complete|done|park|retired|stop waking|unpark)\b|\bowner\b(?!=)|\bstand-down\b(?!\s+\w)")
+VERB_NAMED = re.compile(r"\b(?:closed|complete|done|park|retired|stop waking|unpark)\b|\bstand-down\b(?!\s+\w)")
 LANDED = "landed"
 SLICE_STEP = re.compile(r"^Register slice: lane=\S+ step=(\S+)", re.MULTILINE)
 WORKER_DONE = re.compile(r"^OUTCOME \S+ (?P<lane>[\w.-]+): worker_done succeeded\b")
