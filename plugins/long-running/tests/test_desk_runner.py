@@ -8626,6 +8626,20 @@ def test_a_go_named_green_head_above_a_parent_no_go_names_draws_one_below_blocke
     assert [post_body(post) for post in notes(shell) if post["to"] == "root"] == [ungone_parents("29020", went(shell, ("29031", "dddd444444")), ungone("#29020 at cccc333333"), ROW_29020)]
 
 
+def test_a_go_named_head_whose_check_would_also_land_an_ungone_parent_the_ledger_does_not_link_is_refused_prefix(shell, config, tmp_path):
+    """Root #328204, landing-desk-3 #328195: stack-enqueue #48157 on its go queued the six PRs below it, none with a go at its head."""
+    board_surface(config)
+    two_pr_stack(shell)
+    shell.rows[1] = dict(shell.rows[1], base="dev", test_state="success")
+    shell.queue["29031"] = "not queued"
+    merge_go(shell, "29031", "merge #29031 at dddd444")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [line] = [line for line in escalations(shell) if line.startswith("PREFIX ")]
+    assert "would land #29020 #29031, and #29020 at cccc333333: no go names this head" in line
+
+
 @pytest.mark.parametrize("broken", [{"test_state": "failure"}, {"test_state": "success", "mergeable_state": "dirty"}])
 def test_a_go_named_green_head_above_a_red_or_conflicting_parent_with_its_own_go_draws_one_below_blocked_note_and_no_go_unqueued(shell, config, tmp_path, broken):
     board_surface(config)
