@@ -6333,18 +6333,45 @@ class Landing:
         self.post_record("note", f"{GRAPHITE_BASE}{pr}@{row['head']}", ",".join(self.runner.landing_lanes("desk_lane")) or ROOT, text, pr)
 
     def dispatch(self, key: str, members: set[str], work: Callable[[], None]) -> Future | None:
-        """Queue `work` on a stack worker under `key`, unless a worker that still runs or waits holds any PR of `members`, so two workers never enqueue one PR."""
+        """Queue `work` on a stack worker under `key`, so two workers never enqueue one PR: a worker that still runs or waits and holds every PR of `members` decides them itself, and one that holds only some, such as an overflow worker on a stack's bottom, has `work` queued behind it, in flight until it runs once that worker ends, so no PR of `members` it does not hold goes undecided (root #303609: #47306 and #47326 sat behind `overflow:47305`)."""
         with self.dispatching:
-            if holder := next((key for key, (others, future) in self.inflight.items() if not future.done() and members & others), None):
-                self.settlement.saw(members, f"the dispatch, which skipped it since worker `{holder}` still holds it")
+            held = [(holder, others, future) for holder, (others, future) in self.inflight.items() if not future.done() and members & others]
+            if any(members <= others for _, others, _ in held):
+                self.settlement.saw(members, f"the dispatch, which left it to worker `{held[0][0]}`, which holds it all")
                 return None
+
             def read():
                 with self.book.store.reading(), self.build_cache.book.store.reading():
                     work()
 
-            future = self.workers.submit(read)
-            self.inflight[key] = (members, future)
-            return future
+            if not held:
+                future = self.workers.submit(read)
+                self.inflight[key] = (members, future)
+                return future
+            self.settlement.saw(members, f"the dispatch, which queued it behind worker `{held[0][0]}`, which holds part of it")
+            behind: Future = Future()
+
+            def finished(done: Future) -> None:
+                if done.exception():
+                    behind.set_exception(done.exception())
+                else:
+                    behind.set_result(None)
+
+            starting = threading.Lock()
+
+            def start(_: Future) -> None:
+                with starting:
+                    if not all(future.done() for _, _, future in held) or behind.running() or behind.done() or not behind.set_running_or_notify_cancel():
+                        return
+                try:
+                    self.workers.submit(read).add_done_callback(finished)
+                except RuntimeError as stopped:
+                    behind.set_exception(stopped)
+
+            self.inflight[key] = (members, behind)
+            for _, _, future in held:
+                future.add_done_callback(start)
+            return behind
 
     def await_workers(self, futures: list[Future]) -> None:
         """Wait for `futures` until the pass's gate budget runs out, then raise what a finished one raised, dropping each finished one so no later pass raises it again; the rest run on into later passes."""
