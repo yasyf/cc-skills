@@ -1,5 +1,6 @@
 import datetime as dt
 import json
+import subprocess
 
 import brief
 from brief import Curator, digest
@@ -169,3 +170,19 @@ def test_a_headline_without_how_long_the_blocker_has_waited_is_sent_back(tmp_pat
     curator.dir, curator.path = tmp_path, tmp_path / "brief.json"
     curator.curate()
     assert "headline: say the one thing in the way and how long it has waited" in prompts[1]
+
+
+def test_the_curator_model_starts_in_an_empty_directory_with_a_private_plugin_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "profile"))
+    monkeypatch.setenv("CLAUDE_CODE_PLUGIN_CACHE_DIR", str(tmp_path / "shared-plugins"))
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(kwargs)
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"structured_output": {"headline": "ok"}}), "")
+
+    monkeypatch.setattr(brief.subprocess, "run", run)
+    assert brief.run_model("claude-opus-5-5", "prompt", {}, "system") == {"headline": "ok"}
+    [kwargs] = calls
+    assert kwargs["cwd"] == tmp_path / "profile" / "long-running" / "headless-cwd" and not any(kwargs["cwd"].iterdir())
+    assert kwargs["env"]["CLAUDE_CODE_PLUGIN_CACHE_DIR"] == str(tmp_path / "profile" / "long-running" / "headless-plugins")
