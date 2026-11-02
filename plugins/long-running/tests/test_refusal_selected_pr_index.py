@@ -20,7 +20,7 @@ def test_refusal_projection_indexless_then_manual_index_with_old_writer(shell, c
         assert not called(landing, route)
         with sqlite3.connect(path) as writer:
             before = writer.execute("PRAGMA user_version").fetchone()[0]
-            writer.execute(f"CREATE INDEX action_refusal_pr ON action(({sqlite_store._REFUSAL_PR_KEY}), ordinal) WHERE kind = 'bus'")
+            writer.execute(f"CREATE INDEX action_refusal_pr ON action((coalesce(({sqlite_store._REFUSAL_PR_KEY}), X'00')), ordinal) WHERE kind = 'bus'")
             record = json.loads(writer.execute("SELECT record FROM action WHERE action_key='generic:1:aaaaaaa'").fetchone()[0])
             record["target"] = '{"kind":"blocker","pr":"1"}'
             writer.execute("UPDATE action SET record=? WHERE action_key='generic:1:aaaaaaa'", (json.dumps(record),))
@@ -78,5 +78,5 @@ def test_refusal_projection_natural_plan_is_indexed(shell, config, tmp_path, mon
         plan = [tuple(row) for row in reader.execute("EXPLAIN QUERY PLAN " + query)]
     print(json.dumps({"history": history, "plan": plan}))
     searches = [row[3] for row in plan if "SEARCH action USING INDEX action_refusal_pr" in row[3]]
-    assert len(searches) == 2, plan
+    assert len(searches) == 1, plan
     assert not any("SCAN action" in row[3] for row in plan), plan
