@@ -1104,7 +1104,7 @@ RELEASE_GATE = re.compile(r"\b(?:smoke[- ]?(?:teams?|tests?|runs?|checks?)|relea
 SCOPED_OUT = re.compile(r"\bactive no\b|\b(?:no|zero) customer\b|\bfalse alarm\b", re.IGNORECASE)
 STOPPED_TEXT = re.compile(r"^(?:\d{1,2}:\d{2} [AP]M )?STOPPED\b")
 LANE_ENDED_TEXT = re.compile(r"^(?:\d{1,2}:\d{2} [AP]M )?(?:STOPPED|DONE)\b")
-MUTE = re.compile(r"(?<![\w/-])mut(?:e|ed|es|ing)(?![\w/-])[^.;\n]{0,40}?\b(?:smoke|teams?|monitors?|alerts?|pages?|runs?|failures?|checks?)\b|\bfalse alarm\b|\b(?:skips?|leaves? out|stops? counting|excludes?|scopes? out)\b[^.\n]{0,60}\b(?:smoke|release[- ]check|teams?)\b", re.IGNORECASE)
+MUTE = re.compile(r"(?<![\w/-])mut(?:e|ed|es|ing)(?![\w/-])[^.;\n]{0,40}?\b(?:smoke|teams?|monitors?|alerts?|pages?|runs?|failures?|checks?)\b|\bfalse alarm\b|\b(?:skips?|excludes?|scopes? out)\b[^.\n]{0,60}\b(?:smoke|release[- ]check|teams?)\b", re.IGNORECASE)
 WATCHED = re.compile(r"\b(?:mut\w*|monitors?|alerts?|pages?|false alarm)\b", re.IGNORECASE)
 UNMUTE = re.compile(r"\b(?:delet|remov|lift|expir|unmut|drop|clear)\w*", re.IGNORECASE)
 REFUSED_STOP = "refused-stop"
@@ -4316,7 +4316,7 @@ class Runner:
             )
 
     def mute_pushback(self) -> None:
-        """Post one MUTE-PUSHBACK to root for each incident, mechanism, report, answer, stopped, or not-ours record of the last hour that proposes to mute a failing group, calls it a false alarm, or skips or scopes out the failing teams: a mute never closes an unfixed mechanism. A typed `MUTE <lane>: monitors <ids> until fix-live: <proof>` line on a page proved false is the window, never a close, and passes unless it names a release gate. The word inside a name such as `open-mute/first-week`, or a clause that deletes, lifts or expires a mute, proposes nothing (root #298621). A mute by a lane a root incident order names, posted after that lane's fix landed, is the order's window, not a close (root #300304)."""
+        """Post one MUTE-PUSHBACK to root for each incident, mechanism, report, answer, stopped, or not-ours record of the last hour that proposes to mute a failing group, calls it a false alarm, or skips, excludes or scopes out the failing teams: a mute never closes an unfixed mechanism. A count that leaves teams out proposes nothing (root #304583). A typed `MUTE <lane>: monitors <ids> until fix-live: <proof>` line on a page proved false is the window, never a close, and passes unless it names a release gate. The word inside a name such as `open-mute/first-week`, or a clause that deletes, lifts or expires a mute, proposes nothing (root #298621). A mute by a lane a root incident order names, posted after that lane's fix landed, is the order's window, not a close (root #300304)."""
         try:
             records = cci.records(self.cci_tail, self.config.drive, *(f"--kind={kind}" for kind in (*MUTE_KINDS, "landed")), since=actions.stamp(self.now() - PR_SILENT_HORIZON))
         except CciTailFailed as failure:
