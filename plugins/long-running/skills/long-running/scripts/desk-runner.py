@@ -412,7 +412,8 @@ An incident fix PR on the trunk, one whose ledger lane is an `incident-` or `out
 number an open executor incident names as its `repair_pr`, and no root go, hold, lift, decide or release naming it says it is not an incident fix, takes it
 off the incident path, or owes no release, which also settles any release its landing owes, which logs `INCIDENT-TAG-CLEARED` once and gates it as a normal row, is never enqueued: in the pass its head reads `APPROVED` and every
 required check passes, `rulings.py check-pr --incident` names none of `RULINGS-UNCITED`, `RESERVED-NO-ANSWER`, or `TEST-REMOVED`,
-and no open cci `hold` record, read again just before, names it,
+the fidelity desk graded that exact head ok, as for a queued PR (owner 3:05 PM Nov 1, root #297607),
+and no open cci `hold` record, read again just before, names it, unless an open `incident` record names it too, when the hold logs `INCIDENT-HOLD-WARNED` once and does not stop the merge,
 the runner runs `gh pr merge <n> --squash --match-head-commit <head>` once per head, recorded as
 `land:<pr>@<head>`, and posts `landed` to the PR's lane and the root; a merge GitHub refuses logs `SQUASH-FAILED`. A head
 those checks name is not merged: it draws one `RULINGS-REFUSED` blocker to the PR's lane and the root per head and set of causes,
@@ -420,8 +421,8 @@ and merges in the first pass they clear (45200f2). Every other cause `check-pr` 
 In a pass whose ledger reads a PR newly landed, the runner reads `git worktree list --porcelain` of the checkout once and runs
 `ccx vcs worktree rm --path <tree>` on each worktree whose branch is a landed PR's head branch and no open PR's; a refusal, such as a
 dirty tree or one a live process works in, logs `WORKTREE-KEPT` once per tree, is never forced, and is tried again in the next pass that reads a new landing.
-Neither grade
-gates the merge: a landed fix whose head has no counted fidelity ok or no finder ok 30 minutes on logs `UNGRADED-30` once (d968e1d). A PR whose ledger row lands carrying the `merge-fast`
+The finder grade
+does not gate the merge: a landed fix whose head has no finder ok 30 minutes on logs `UNGRADED-30` once (d968e1d). A PR whose ledger row lands carrying the `merge-fast`
 label, and whose body has a `Release-With:` line, or an incident fix's PR whatever its label and body, a PR this runner
 merged by plain squash among them however its incident reads by then, sends one cci `release` record to `landing.release_owner` and the root in the pass
 that reads the landing, with `--topic <pr> --pr <pr>`, naming the squash, the components, and the release to start. Until a cci
@@ -680,7 +681,7 @@ from long_running import ghread
 import incident
 import inboxes
 import lane_brief
-from long_running import lanes
+from long_running import incidents, lanes
 from long_running.pass_io import OnePassIO
 import merge_queue
 import owner_waits
@@ -4153,6 +4154,8 @@ class Runner:
         key = f"{CLOCK}:{launch.dispatch_id}"
         if lane.endswith(CLOCK_FALLBACK):
             return f"{lane} is itself an Opus fallback, so none is launched for it"
+        if incident := incidents.incident_scope(incidents.open_incidents(self.cci_tail.run, self.config.drive), self.config.drive, "", None, lane):
+            return f"no fallback launched for {backup}: open incident #{incident['seq']} names {lane}, so the drive's clocks warn and stand aside (owner, 2:21 PM Nov 1); root launches one by hand if the fix lane has missed"
         if self.book.known(lane_container(backup), key):
             return f"the Opus fallback {backup} is already launched"
         if rival := self.executor_backup(lane):
@@ -5085,7 +5088,7 @@ class Runner:
                 print(f"{directory.name}: reposting a desk record failed: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
 
     def start_fidelities(self, spec: dict, repo: str, rows: dict[str, dict]) -> None:
-        """Start the newest queued head of each PR, a lower ledger `priority` first, then oldest PR first, while fewer than `fidelity.concurrent` passes run; an older queued head of the same PR settles as superseded, and a queued head whose PR is closed, no longer at that head, or whose number names no PR, such as a cci seq a record bound as one, settles as skipped without a pass."""
+        """Start the newest queued head of each PR, an incident fix row first, then a lower ledger `priority`, then oldest PR first, while fewer than `fidelity.concurrent` passes run; an older queued head of the same PR settles as superseded, and a queued head whose PR is closed, no longer at that head, or whose number names no PR, such as a cci seq a record bound as one, settles as skipped without a pass."""
         newest: dict[str, actions.Action] = {}
         for action in sorted(self.book.actions(FIDELITY, kind="fidelity", status="accepted"), key=lambda action: json.loads(action.target)["seq"]):
             if (older := newest.get(pr := json.loads(action.target)["pr"])) is not None:
@@ -5099,12 +5102,16 @@ class Runner:
             if (state := live.get(pr)) and (skipped := grading_skip(state, repo, pr, json.loads(action.target)["head"])):
                 self.settle(FIDELITY, action.action_id, {"skipped": skipped})
                 del newest[pr]
-        ranks = {pr: int(row.get("priority", DEFAULT_PRIORITY)) for pr, row in rows.items()}
-        for action in sorted(newest.values(), key=lambda action: ranks.get(json.loads(action.target)["pr"], DEFAULT_PRIORITY)):
+        ranks = {pr: (not self.incident_fix_row(row), int(row.get("priority", DEFAULT_PRIORITY))) for pr, row in rows.items()}
+        for action in sorted(newest.values(), key=lambda action: ranks.get(json.loads(action.target)["pr"], (True, DEFAULT_PRIORITY))):
             if running >= spec.get("concurrent", FIDELITY_CONCURRENT) or self.least_busy_sprite(spec) is None:
                 return
             if not self.waiting_on_fix(action):
                 running += self.start_fidelity(spec, repo, action, rows)
+
+    def incident_fix_row(self, row: dict) -> bool:
+        lane = row.get("lane", "")
+        return bool(INCIDENT_NAME.match(lane) or (self.book.exists(lane_container(lane)) and self.fix_launch(lane_container(lane))))
 
     def start_fidelity(self, spec: dict, repo: str, action: actions.Action, rows: dict[str, dict]) -> bool:
         """Settle a head a fidelity lane already graded or sent to a reader, or write the pass's job, with every fidelity grade and `old-app:` line on the PR, the grades a root `class wrong` decision answers, and the lane's newest contract, and start fidelity.py on it detached."""
@@ -5828,6 +5835,7 @@ class Landing:
         self.queues_read = False
         self.statuses_floor = datetime.min.replace(tzinfo=timezone.utc)
         self.reviews: list[dict] | None = None
+        self.incidents: list[dict] | None = None
         self.review_index: tuple[list[dict] | None, int, dict[str, list[dict]]] = (None, 0, {})
         self.claims_read: list[dict] | None = None
         self.scanning = threading.Lock()
@@ -8688,6 +8696,11 @@ class Landing:
                         break
         return bool(tagged) and not self.incident_cleared(pr)
 
+    def in_incident(self, pr: str, lane: str) -> dict | None:
+        if self.incidents is None:
+            self.incidents = incidents.open_incidents(self.cci_tail.run, self.runner.config.drive)
+        return incidents.incident_scope(self.incidents, self.runner.config.drive, self.repo, pr, lane)
+
     def incident_cleared(self, pr: str) -> bool:
         """Whether a root go, hold, lift, decide or release naming `pr` says it is not an incident fix, takes it off the incident path, or owes no release, read once a pass; the runner then gates it as a normal row and logs `INCIDENT-TAG-CLEARED` once per record."""
         cleared = self.cleared
@@ -8706,7 +8719,7 @@ class Landing:
         open_rows = {pr: row for pr, row in rows.items() if row.get("state", "open") == "open"}
         covered = under_hold(open_rows, held)
         for pr in sorted(self.incident_rows(open_rows), key=int):
-            if pr not in covered:
+            if pr not in covered or self.in_incident(pr, open_rows[pr].get("lane", "")):
                 self.squash(pr, open_rows[pr])
 
     def squash(self, pr: str, row: dict) -> None:
@@ -8733,8 +8746,12 @@ class Landing:
                 owner = self.owner(pr, row)
                 self.post_blocker(refusal, ",".join(dict.fromkeys([*(self.reach(owner) if owner else []), ROOT])), text, pr)
             return
-        if pr in cci.held_prs(self.cci_tail.run, self.runner.config.drive):
+        if self.check_fidelity(Graded({pr: view["headRefOid"]}, {pr: row}, self.runner.now(), act=True)):
             return
+        if (hold := cci.held_prs(self.cci_tail.run, self.runner.config.drive).get(pr)) and not (incident := self.in_incident(pr, row.get("lane", ""))):
+            return
+        if hold:
+            self.runner.escalate(f"incident-hold:{pr}:{view['headRefOid']}:{hold}", "INCIDENT-HOLD-WARNED", f"#{pr}", f"hold record #{hold} names the approved, green incident fix #{pr} at {view['headRefOid'][:10]}, and open incident #{incident['seq']} names it, so the hold warns and the runner merges it (owner, 2:21 PM Nov 1)")
         self.check_precondition(Graded({pr: view["headRefOid"]}, {pr: row}, self.runner.now(), act=True))
         with DIRECT_MERGING:
             if self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "state", "--jq", ".state", max_age=ghread.FRESH)).out.strip() != "OPEN":
@@ -8758,21 +8775,19 @@ class Landing:
         self.announce(pr, row, key, view["headRefOid"], commit)
 
     def ungraded_after(self) -> None:
-        """Escalate `UNGRADED-30` once for each incident fix this runner squashed whose head, 30 minutes after it landed, has no counted fidelity ok or no finder ok (d968e1d). Each landing is read once, on the first pass at or after the mark."""
+        """Escalate `UNGRADED-30` once for each incident fix this runner squashed whose head, 30 minutes after it landed, has no finder ok (d968e1d); its fidelity ok gated the squash. Each landing is read once, on the first pass at or after the mark."""
         for action in self.book.actions(LANDING, kind="squash", status="completed"):
             age = self.runner.now() - actions.parse_stamp(action.response["at"])
             if UNGRADED_READ in action.response or age < UNGRADED_AFTER:
                 continue
             landed = json.loads(action.target)
             pr, head = landed["pr"], landed["head"]
-            verdict = self.finder(pr, head)
-            owed = [name for name, ok in (("fidelity ok", self.fidelity(pr, head).ok), ("finder ok", bool(verdict and verdict["grade"] == FINDER_PASS))) if not ok]
-            if owed:
+            if not ((verdict := self.finder(pr, head)) and verdict["grade"] == FINDER_PASS):
                 self.runner.escalate(
                     f"ungraded-30:{pr}@{head}",
                     "UNGRADED-30",
                     f"#{pr}",
-                    f"#{pr} merged as an incident fix at {head[:10]} {int(age.total_seconds() // 60)} minutes ago and has no {' and no '.join(owed)} at that head; both grades are owed within 30 minutes of the merge (d968e1d)",
+                    f"#{pr} merged as an incident fix at {head[:10]} {int(age.total_seconds() // 60)} minutes ago and has no finder ok at that head, owed within 30 minutes of the merge (d968e1d)",
                 )
             self.book.attempt(LANDING, lambda incident, key=action.action_id: incident.action(key).response.update({UNGRADED_READ: self.book.stamp()}))
 
@@ -9938,6 +9953,7 @@ class Landing:
             self.trusted_from, self.pass_began = self.pass_began, time.monotonic()
             self.surface()
             earlier = self.settlement
+            self.incidents = None
             self.statuses, self.queues_read, self.reviews, self.claims_read, self.gos, self.owner_taps, self.unchecked, self.unproven_why, self.untested_why, self.cleared, self.exempts = None, False, None, None, None, None, set(), {}, {}, {}, {}
             self.settlement = Settlement({}, {})
             if self.quota_low():
