@@ -357,7 +357,7 @@ def test_the_prevention_table_lists_broken_rows_first_then_open_ones_and_folds_l
     assert page.locator(".nw-prevent .pt-row.broken .chip").all_text_contents() == ["Broken row"]
     assert page.locator(".nw-prevent .pt-row.broken .pv-why").inner_text() == "no mechanism; no state"
     assert "undefined" not in page.locator(".nw-prevent").inner_text().lower()
-    assert page.locator(".nw-prevent .nw-h .pg-n").inner_text() == "3 not live"
+    assert page.locator(".nw-prevent .nw-h .pg-n").text_content() == "3 not live"
     assert page.locator(".nw-notlive").inner_text() == "3 failures with no live fix yet, listed under What failed."
     assert not page.locator(".nw-prevent details .pt-row").first.is_visible()
 
