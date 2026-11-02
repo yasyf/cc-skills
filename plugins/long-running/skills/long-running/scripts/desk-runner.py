@@ -5312,7 +5312,8 @@ class Runner:
 
     def fidelity_sources(self, spec: dict, drive_id: str, lane: str, live: dict) -> str:
         """The plan grounds root accepted outside the plan package for a head of `lane` whose PR GitHub reads as `live`, in full: each cc-notes doc and cci record `fidelity.sources.docs` and `records` list under a shell pattern `lane` matches, such as `*` or `s*-class-*`, each root defect, decide or answer the PR body cites as `#<seq>`, and, on an `options/<card>-<option>` branch, the root board's card the branch builds an option of, as `cc-present block show` prints it."""
-        docs = [json.loads(self.briefs("doc", "show", ident, "--json").out) for ident in lane_sources(spec.get("docs", {}), lane)]
+        shown = [self.briefs("doc", "show", ident, "--json") for ident in lane_sources(spec.get("docs", {}), lane)]
+        docs = [json.loads(done.out) for done in shown if done.code == 0 and done.out.strip()]
         named = lane_sources(spec.get("records", {}), lane)
         cited = {int(seq) for seq in CITED_RECORD.findall(live.get("body") or "")} - set(named)
         records = [record for record in cci.selected_records(self.cci_tail, drive_id, [*named, *cited]) if record["seq"] not in cited or (record["lane"] == ROOT and record["kind"] in CITED_ROOT_KINDS)]
