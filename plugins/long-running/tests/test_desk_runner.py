@@ -1729,6 +1729,7 @@ def test_a_relayed_question_carries_its_whole_body_by_path(shell, config, tmp_pa
 
 
 def test_a_worker_done_report_carries_its_body_by_path(shell, config, tmp_path):
+    """cc-skills#1606: a finished Orca worker is terminal, so the runner asks the supervisor to retire it with a typed done request as well as reporting it."""
     orca_pass(shell, config)
     shell.launch(LANE, "ctx_a")
     shell.receive({"id": "msg_d1", "type": "worker_done", "subject": "shipped", "body": "PR #12 open; " + "y" * 1_000, "payload": json.dumps({"dispatchId": "ctx_a", "outcome": "succeeded"})})
@@ -1736,6 +1737,8 @@ def test_a_worker_done_report_carries_its_body_by_path(shell, config, tmp_path):
     [post] = [post for post in shell.posts if post["to"] == "root"]
     assert post["text"] == f"OUTCOME msg_d1 {LANE}: worker_done succeeded dispatch=ctx_a: shipped"
     assert Path(post["path"]).read_text().endswith("shipped\n\nPR #12 open; " + "y" * 1_000 + "\n")
+    [done] = [post for post in shell.posts if post["to"] == "supervisor"]
+    assert (done["kind"], done["attr"], done["id"]) == ("decide", f"lane={LANE}", "done:msg_d1")
 
 
 def test_a_launch_runs_detached_once_and_its_relays_wait_for_the_dispatch(shell, config, tmp_path):

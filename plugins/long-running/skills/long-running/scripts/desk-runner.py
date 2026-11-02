@@ -742,6 +742,7 @@ MERGE_CARD_FIELDS = "title,author,additions,deletions,reviewDecision"
 RULING_ROUNDS = "cards/rounds"
 RUNNER = "desk-runner"
 SUPERVISOR = "supervisor"
+REGISTRY_REQUEST = "decide"
 ORCA_DESK = "orca-desk"
 RUNNER_LANES = frozenset({RUNNER, ORCA_DESK, finder.LANE, fidelity.LANE, stall_watch.LANE, prompt_watch.LANE, judge_watch.LANE})
 LANE_KEYS = ("fidelity_lane", "go_lanes", "desk_lane", "board_lane", "restack_lane", "flake_lane")
@@ -3818,6 +3819,8 @@ class Runner:
         elif message["type"] == "worker_done":
             self.keep(message)
             self.escalate(message["id"], "OUTCOME", lane, f"worker_done {payload.get('outcome', '?')} dispatch={sender}: {message.get('subject', '')}")
+            if payload.get("outcome") == "succeeded":
+                self.cci_post(REGISTRY_REQUEST, f"registry request: done {lane}, its Orca worker finished", SUPERVISOR, f"done:{lane}", f"done:{message['id']}", record_id=f"done:{message['id']}", flags=["--attr", "verb=done", "--attr", f"lane={lane}"])
         elif message["type"] == "status" and subject.lower().startswith(MILESTONE_SUBJECTS):
             kind = subject.split(":", 1)[0].upper()
             self.keep(message)
