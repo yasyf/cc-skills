@@ -160,6 +160,11 @@ def network_failure(done) -> bool:
     return done.code == ENQUEUE_FAILED and not VERDICT_LINE.search(done.out) and TRANSIENT_FAILURE.search(done.err + done.out) is not None
 
 
+def rate_limited(done) -> bool:
+    """Whether Trunk answered `done`'s run with HTTP 429 before it printed a verdict."""
+    return not VERDICT_LINE.search(done.out) and TRUNK_LIMITED.search(done.err + done.out) is not None
+
+
 def each_sections(done, keys: list[str]) -> dict[str, Section]:
     """Each of `keys`' section of a `--check --each` run, or none when the run itself failed before it printed one."""
     if done.code:
@@ -283,7 +288,7 @@ class GraphiteStackEnqueue:
                 if self.resume_at and (wait := (self.resume_at - self.shell.now()).total_seconds()) > 0:
                     self.shell.sleep(wait)
                 done = self.fleet.run(argv) if self.fleet else self.shell.run(argv)
-            if pause is None or VERDICT_LINE.search(done.out) or not TRUNK_LIMITED.search(done.err + done.out):
+            if pause is None or not rate_limited(done):
                 return done
             self.resume_at = max(filter(None, (self.resume_at, self.shell.now() + timedelta(seconds=pause))))
         return done
@@ -384,20 +389,20 @@ class TrunkStackEnqueue(GraphiteStackEnqueue):
         return trunk_gate(self.run([self.script, *tips, "--check", *(["--whole"] if whole else [])]))
 
     def check_each(self, targets: list[list[str]], whole: bool) -> dict[str, Gate]:
-        """Each target's gate, keyed by its PRs comma-joined, as its own `check` reads it, from one `--check --each` run over every target: a target whose section reads GitHub still computing mergeability has that PR read once over REST, and only those targets run again every `COMPUTE_POLL_SECONDS` for `COMPUTE_ROUNDS` rounds, as `run` does for one check. A target the run gave no section is left out, for its own `check` to read."""
+        """Each target's gate, keyed by its PRs comma-joined, as its own `check` reads it, from one `--check --each` run over every target: a target whose section reads GitHub still computing mergeability has that PR read once over REST, and only those targets run again every `COMPUTE_POLL_SECONDS` for `COMPUTE_ROUNDS` rounds, as `run` does for one check. A target a run gave no section, or whose section Trunk answered with HTTP 429, is left out, for its own `check` to read under the shared Trunk backoff."""
         sections = self.each([",".join(tips) for tips in targets], whole)
         computing = sorted(key for key, section in sections.items() if COMPUTING.search(section.out))
         for pr in dict.fromkeys(pr for key in computing for pr in COMPUTING.findall(sections[key].out)):
             self.shell.run(ghread.read("api", f"repos/{self.repo}/pulls/{pr}", "--jq", ".mergeable", max_age="0s"))
         for _ in range(COMPUTE_ROUNDS if computing else 0):
             self.shell.sleep(COMPUTE_POLL_SECONDS)
-            sections |= self.each(computing, whole)
-            if not (computing := [key for key in computing if COMPUTING.search(sections[key].out)]):
+            sections = {key: section for key, section in sections.items() if key not in computing} | self.each(computing, whole)
+            if not (computing := [key for key in computing if key in sections and COMPUTING.search(sections[key].out)]):
                 break
-        return {key: trunk_gate(section) for key, section in sections.items()}
+        return {key: trunk_gate(section) for key, section in sections.items() if not rate_limited(section)}
 
     def each(self, keys: list[str], whole: bool) -> dict[str, Section]:
-        """The sections of one `--check --each` run over `keys`, the targets whose section or whole run failed on a transient network error and no verdict run again after a pause, as `run_settled` repeats one check, up to `TRANSIENT_ATTEMPTS` runs; a run that fails any other way gives no section."""
+        """The sections of one `--check --each` run over `keys`, the targets whose section or whole run failed on a transient network error and no verdict run again after a pause, as `run_settled` repeats one check, up to `TRANSIENT_ATTEMPTS` runs; a run that fails any other way gives none of the targets it ran a section."""
         sections: dict[str, Section] = {}
         pending = keys
         for attempt in range(TRANSIENT_ATTEMPTS):
@@ -406,7 +411,7 @@ class TrunkStackEnqueue(GraphiteStackEnqueue):
                 self.shell.sleep(TRANSIENT_PAUSE_SECONDS)
             done = self.limited([self.script, "--check", *(["--whole"] if whole else []), "--each", *pending])
             if done.code and not network_failure(done):
-                break
+                return {key: section for key, section in sections.items() if key not in pending}
             sections |= each_sections(done, pending)
             if not (pending := [key for key in pending if key not in sections or network_failure(sections[key])]):
                 break

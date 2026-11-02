@@ -82,9 +82,31 @@ def test_an_each_run_that_fails_whole_gives_no_target_a_gate():
     assert len(shell.calls) == 1
 
 
+def test_an_each_target_trunk_answered_with_http_429_is_left_to_its_own_check():
+    limited = "stack-enqueue failed: ci trunk: Trunk GET /v2/pull-requests/20/history answered HTTP 429 (): "
+    shell = Shell(done(each_out(("10", GREEN_TEN, 0, ""), ("20", "", 5, limited))))
+    gates = adapter(shell).check_each([["10"], ["20"]], False)
+    assert list(gates) == ["10"]
+    assert len(shell.calls) == 1 and shell.slept == []
+
+
+def test_a_network_rerun_that_fails_whole_leaves_its_targets_to_their_own_checks():
+    timeout = 'stack-enqueue failed: required checks for #20: Post "https://api.github.com/graphql": net/http: TLS handshake timeout'
+    shell = Shell(done(each_out(("10", GREEN_TEN, 0, ""), ("20", "", 5, timeout))), done(code=124, err="timed out after 300s and was killed"))
+    assert list(adapter(shell).check_each([["10"], ["20"]], False)) == ["10"]
+
+
+COMPUTING_TWENTY = "#20 BLOCKED bbbb222222 GitHub still computing mergeability; GitHub merge state UNKNOWN\nenqueued nothing: no approved green bottom prefix\n"
+
+
+def test_a_computing_rerun_that_fails_whole_leaves_its_targets_to_their_own_checks():
+    shell = Shell(done(each_out(("10", GREEN_TEN, 0, ""), ("20", COMPUTING_TWENTY, 1, ""))), done("true\n"), done(code=124, err="timed out after 300s and was killed"))
+    assert list(adapter(shell).check_each([["10"], ["20"]], False)) == ["10"]
+    assert len(shell.calls) == 3
+
+
 def test_only_the_targets_github_still_computes_run_again():
-    computing = "#20 BLOCKED bbbb222222 GitHub still computing mergeability; GitHub merge state UNKNOWN\nenqueued nothing: no approved green bottom prefix\n"
-    shell = Shell(done(each_out(("10", GREEN_TEN, 0, ""), ("20", computing, 1, ""))), done("true\n"), done(each_out(("20", BLOCKED_TWENTY, 1, ""))))
+    shell = Shell(done(each_out(("10", GREEN_TEN, 0, ""), ("20", COMPUTING_TWENTY, 1, ""))), done("true\n"), done(each_out(("20", BLOCKED_TWENTY, 1, ""))))
     gates = adapter(shell).check_each([["10"], ["20"]], False)
     assert "repos/Forge-AI/monorepo/pulls/20" in shell.calls[1]
     assert shell.calls[2] == ["/repo/stack-enqueue", "--check", "--each", "20"]
