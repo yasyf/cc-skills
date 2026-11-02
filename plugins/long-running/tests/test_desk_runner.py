@@ -3707,7 +3707,19 @@ def test_a_missing_a_root_record_resolves_or_overrides_is_accepted_and_the_head_
     assert len(shell.enqueues()) == int(lands)
 
 
-@pytest.mark.parametrize("text", ["fidelity-override 29020 at cccc333: 152216", "fidelity-override #29020 at cccc333: 152216@f3c89519", "9:38 AM (a). fidelity-override #29020 cccc333: 34766."])
+def test_a_missing_root_resolves_by_the_number_its_origin_gave_it_is_accepted_on_a_machine_numbering_it_apart(shell, config, tmp_path):
+    """Root #334925: on dar-desk-1 the `missing` on #48388 faf25cd was local seq 70877, and root names records by the Mac's numbers, such as 333555."""
+    lone_green_pr(shell)
+    finder_verdict(shell, "29020", "ok cccc333 no findings")
+    grade(shell, "29020", "missing cccc333 plan names no enum `UNLABELLED`")
+    shell.records[-1] |= {"origin": "node-home", "origin_seq": 333555}
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    cci_record(shell, lane="root", kind="decide", refs={"prs": [29020]}, at=actions.stamp(shell.now()), resolves=[333555], text="Accepted at cccc333: a review-tool label, no product path")
+    landing_pass(shell, config)
+    assert len(shell.enqueues()) == 1
+
+@pytest.mark.parametrize("text", ["fidelity-override 29020 at cccc333: 152216", "fidelity-override #29020 at cccc333: 152216@f3c89519", "9:38 AM (a). fidelity-override #29020 cccc333: 34766.", "12:51 PM root: fidelity-override #29020 at cccc333: 333555. Reason: the contract is root record 333479"])
 def test_a_root_fidelity_override_in_any_id_form_lands_the_head(shell, config, text):
     """Root #287102 re-posted #286877's `fidelity-override #47225 at 1f99697: 174488` as `174488@f3c89519` because nothing said the first was read."""
     lone_green_pr(shell)

@@ -7460,7 +7460,7 @@ class Landing:
         misses = [grade for grade in newest if grade["text"].startswith(FIDELITY_MISSING) and not (desk_ok and grade["lane"] == fidelity.LANE)]
         rulings = [record for record in cci.records(self.cci_tail, self.runner.config.drive, "--lane", ROOT, "--pr", f"{self.repo}#{pr}") if record["lane"] == ROOT] if misses else []
         accepted = {seq for record in rulings for seq in closes(record)}
-        if not any(overridden(record, FIDELITY_OVERRIDE, pr, sha) for record in rulings) and (missing := max((grade for grade in misses if grade["seq"] not in accepted), key=lambda record: record["seq"], default=None)):
+        if not any(overridden(record, FIDELITY_OVERRIDE, pr, sha) for record in rulings) and (missing := max((grade for grade in misses if not {grade["seq"], grade.get("origin_seq")} & accepted), key=lambda record: record["seq"], default=None)):
             return Grade(False, missing, f"{missing['lane']} graded this head on cci #{missing['seq']}: {missing['text']}")
         if newest:
             oks = [grade for grade in newest if grade["text"].startswith(FIDELITY_OK)] or newest
