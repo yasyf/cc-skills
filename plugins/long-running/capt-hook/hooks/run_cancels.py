@@ -13,7 +13,7 @@ SCOPED_REPO = "yasyf/cc-skills"
 OTHER_REPO = re.compile(r"\byasyf/(?!cc-skills\b)(?:[\w.-]+|\$)")
 PULL_REQUEST = "pull_request"
 SCOPE = (
-    "A run canceller cancels only yasyf/cc-skills pull_request runs, since another repository's runs and every push run grade work that already merged (root #316587)."
+    "A run canceller cancels only yasyf/cc-skills pull_request runs, since another repository's runs and every push run grade work that already merged."
     " Name `-R yasyf/cc-skills` and keep only `pull_request` events, or drop the cancel."
 )
 
