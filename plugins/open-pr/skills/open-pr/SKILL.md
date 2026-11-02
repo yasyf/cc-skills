@@ -160,7 +160,8 @@ One watcher per PR — a second on the same PR would push over the first. Every 
 ### After a ready-to-merge report: `open-pr.on-ready`
 
 A `ready-to-merge` report means the PR is green, mergeable, and approved:
-every check passed, `mergeable` is true, queue state was read cleanly (never
+every check passed, every GitHub Actions check suite on the head has
+completed, `mergeable` is true, queue state was read cleanly (never
 `QUEUE unknown`), and the PR is neither queued nor evicted on its current head.
 No reviewer's latest review is `CHANGES_REQUESTED`, and REST `mergeable_state`
 is not `blocked` (the state for a missing required approval). A
