@@ -16078,6 +16078,37 @@ def test_a_queued_head_whose_pr_closed_or_moved_settles_skipped_and_starts_no_pa
     assert finder[f"finder:43299:{heads['43299']}"].response["skipped"] == f"#43299 moved to {FINDER_HEAD[:12]}"
 
 
+
+def test_a_queued_head_a_lagging_live_read_answers_with_its_older_head_waits_and_starts_once_the_read_catches_up(shell, config):
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    head_record(shell, "48102", FINDER_OLD)
+    orca_pass(shell, config)
+    head_record(shell, "48102", FINDER_HEAD)
+    shell.pr_heads = {"48102": ("OPEN", FINDER_OLD)}
+    orca_pass(shell, config)
+    assert incident(config.parent, "desk-finder").actions[f"finder:48102:{FINDER_HEAD}"].status == "accepted"
+    shell.pr_heads = {"48102": ("OPEN", FINDER_HEAD)}
+    orca_pass(shell, config)
+    assert [job["head"] for job in finder_jobs(shell)] == [FINDER_OLD, FINDER_HEAD]
+
+
+def test_a_pr_that_really_moved_back_to_a_superseded_head_skips_the_newer_head_and_grades_the_live_one(shell, config):
+    finder_config(config, concurrent=1)
+    orca_pass(shell, config)
+    head_record(shell, "48182", FINDER_OLD)
+    orca_pass(shell, config)
+    newer = head_record(shell, "48182", FINDER_HEAD)
+    shell.pr_heads = {"48182": ("OPEN", FINDER_OLD)}
+    orca_pass(shell, config)
+    shell.clock += runner_module.STALE_READ_WAIT
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    finder = incident(config.parent, "desk-finder").actions
+    assert finder[f"finder:48182:{FINDER_HEAD}"].response["skipped"] == f"#48182 moved to {FINDER_OLD[:12]}"
+    assert finder[f"finder:48182:{FINDER_OLD}:live:{newer}"].status == "started"
+    assert [job["head"] for job in finder_jobs(shell)] == [FINDER_OLD, FINDER_OLD]
+
 def test_a_head_bound_to_a_cci_seq_as_its_pr_settles_skipped_and_the_real_prs_live_read_still_holds(shell, config):
     finder_config(config)
     orca_pass(shell, config)
@@ -16705,6 +16736,22 @@ def test_a_fidelity_head_bound_to_a_cci_seq_or_a_closed_or_moved_pr_settles_skip
     assert passes[f"fidelity:42784:{FINDER_OLD}:{moved}"].response["skipped"] == f"#42784 moved to {FINDER_HEAD[:12]}"
     assert f"fidelity:43439:{FINDER_OLD}:{live}" in passes and not fidelity_failures(shell)
 
+
+
+def test_a_fidelity_head_a_lagging_live_read_answers_with_its_older_head_waits_instead_of_settling_skipped(shell, config):
+    fidelity_config(config)
+    orca_pass(shell, config)
+    older = head_record(shell, "48102", FINDER_OLD)
+    shell.pr_heads = {"48102": ("OPEN", FINDER_OLD)}
+    orca_pass(shell, config)
+    newer = head_record(shell, "48102", FINDER_HEAD)
+    orca_pass(shell, config)
+    passes = incident(config.parent, "desk-fidelity").actions
+    assert passes[f"fidelity:48102:{FINDER_HEAD}:{newer}"].status == "accepted"
+    shell.pr_heads = {"48102": ("OPEN", FINDER_HEAD)}
+    orca_pass(shell, config)
+    assert [job["head"] for job in fidelity_jobs(shell)] == [FINDER_OLD, FINDER_HEAD]
+    assert f"fidelity:48102:{FINDER_OLD}:{older}" in passes
 
 @pytest.mark.parametrize(
     ("title", "body"),
