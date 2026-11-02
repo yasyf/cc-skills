@@ -261,33 +261,36 @@ def test_oversized_mcp_response_warns_on_its_next_call(root: Root) -> None:
     assert "fetch is too large" in (root.pre("mcp__linear__get_issue", {"id": "ENG-2"}) or "")
 
 
+def recorded(answer: dict) -> str:
+    return f"Recorded this standing rule as cc-notes answer `{answer['id'][:7]}`; never record it again by hand."
+
+
 def test_a_titled_standing_rule_records_itself(root: Root, notes: Notes) -> None:
     root.verdict["title"] = "When does a merged PR get released?"
     prompt = "From now on, release everything as it merges.\n  Every target."
 
-    message = root.say(prompt)
+    assert root.say(prompt) is None
 
     [answer] = notes.answers
-    assert message == f"Recorded this standing rule as cc-notes answer `{answer['id'][:7]}`; never record it again by hand."
     assert answer["title"] == "When does a merged PR get released?"
     assert {"scope:durable", "owner-ruling", "program:brook"} <= set(answer["tags"])
     assert re.fullmatch(
         re.escape(prompt) + r"\n\nOwner, \d{4}-\d{2}-\d{2} \d{1,2}:\d{2} [AP]M PT, session 0123456789abcdef",
         answer["body"],
     )
-    assert root.stop() == []
+    assert root.stop() == [recorded(answer)]
 
 
 def test_a_rerun_of_one_message_records_one_answer(root: Root, notes: Notes) -> None:
     root.verdict["title"] = "When does a merged PR get released?"
 
-    first = root.say("from now on, release everything as it merges")
-    second = root.say("from now on, release everything as it merges")
-    root.say("never skip review")
+    assert root.say("from now on, release everything as it merges") is None
+    assert root.say("from now on, release everything as it merges") is None
+    assert root.say("never skip review") is None
 
-    assert first == second
     assert len(notes.adds) == 2
-    assert root.stop() == []
+    first, second = notes.answers
+    assert root.stop() == [recorded(first), recorded(first), recorded(second)]
 
 
 @pytest.mark.parametrize(
