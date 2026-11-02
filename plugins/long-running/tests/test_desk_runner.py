@@ -8818,6 +8818,20 @@ def test_an_admitted_pr_on_trunk_whose_branch_carries_another_open_prs_head_is_r
     assert "#33001" in line and "its branch carries #33002, which a squash would land with it; restack it onto dev" in line
 
 
+def test_a_retargeted_child_with_two_open_parents_is_refused_with_one_carries_blocker(shell, config, tmp_path):
+    """Root #327820, uploads-to-replicator-1 #327808: #48050, retargeted onto dev, carried open #47225 and #47245, so a queue landing would have squashed them untapped."""
+    gone_green(shell, "#33001 GREEN aaaa111111 graphite READY")
+    for pr, branch, head in (("33002", "g/0", "bbbb222222"), ("33003", "g/00", "cccc333333")):
+        shell.rows.append({"pr": pr, "lane": LANE, "branch": branch, "base": "dev", "head": head, "state": "open", "reported_head": head})
+        shell.gates[pr] = [gate(f"#{pr} BLOCKED {head} CI running")]
+    shell.pr_commits["33001"] = ["cccc333333" + "0" * 30, "bbbb222222" + "0" * 30, "aaaa111111" + "0" * 30]
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    [post] = [post for post in blockers(shell) if post_body(post).startswith("CARRIES ")]
+    assert "its branch carries #33002 #33003, which a squash would land with it" in post_body(post)
+
+
 def test_a_landing_that_carried_open_prs_lists_every_one_from_its_commits_with_its_tap_and_grades(shell, config, tmp_path):
     """Root #241554: Trunk's squash of #45799 carried nine PRs, and the hand-written card listed six, leaving out untapped #45470."""
     board_surface(config)
