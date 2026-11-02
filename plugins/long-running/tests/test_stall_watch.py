@@ -438,6 +438,17 @@ def test_a_desk_runner_tap_note_about_another_head_leaves_the_carry_stall_standi
     assert shell.post("carry:101:abc1234")["to"] == "root"
 
 
+@pytest.mark.parametrize(("live", "stalls"), [(HEAD, ["go:101:abc1234"]), (OTHER, [])])
+def test_a_go_at_a_ledger_head_the_pr_has_moved_past_draws_no_go_stall(config, live, stalls):
+    """root #326064: stall 326044 called go 325468 at 54c36ff a silent skip; #48166 had moved to 543ad64 and landed there on the owner's tap."""
+    shell = FakeShell(gone("101", HEAD), [row("101")])
+    shell.live = {"101": live}
+
+    watch(shell, config)
+
+    assert [topic for topic in shell.topics() if topic.startswith("go:")] == stalls
+
+
 def test_no_carry_stall_asks_for_a_go_at_a_ledger_head_the_pr_has_moved_past(config):
     """root #324772 and #326064: carry stalls asked for gos on ledger heads the PRs had left, #48166 at 54c36ff after it moved to the 543ad64 the owner tapped, with no head record for the move."""
     fixed = f"HEAD #101 {HEAD} (was {OLD}): answers the reviewer bot's finding with a nil check and its test"

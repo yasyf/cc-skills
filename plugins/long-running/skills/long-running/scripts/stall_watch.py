@@ -72,8 +72,8 @@ green or failing-first proof, or do not merge, never merges, so it draws no stal
               `stall.minutes.unfixed` since; a blocker to root and the class's owner, once per PR and head
     sweep     a red head has stood `stall.minutes.sweep` and no lane named `red-sweep` or `red-sweep-<n>`
               is live; one blocker to root naming every red PR, until a red-sweep lane posts
-    tap       the owner's board tap approves the head, and no go names it; this stall and `carry`
-              judge only a ledger head GitHub still reads as the PR's head, never one the PR has
+    tap       the owner's board tap approves the head, and no go names it; this stall, `carry` and
+              `go` judge only a ledger head GitHub still reads as the PR's head, never one the PR has
               moved past (root #324772, #326064)
     ungraded  a `head` record names the head, its build has read green for `stall.minutes.ungraded`, counted
               from its ledger row's `green_at`, and no finder review or no fidelity grade names it, whatever
@@ -1055,17 +1055,17 @@ class Pass:
                 continue
             subject = f"#{pr} at {short(head)}"
             about = [record for record in reviews if grades.about_pr(record, repo, pr)]
+            behind = pr in live and not grades.names_head(live[pr], head)
             if going:
                 below = downstack(rows, row)
                 ready = min(max(at(go), actions.parse_stamp(go.get("graded_at") or go["at"])) for go in going)
                 since = max(ready, head_at) if head_at else ready
-                if not any(holding(parent) for parent in below) and (waits_on := self.unqueued(pr, row, rows, below, gos, since, queued, lane, records, own_row)):
+                if not behind and not any(holding(parent) for parent in below) and (waits_on := self.unqueued(pr, row, rows, below, gos, since, queued, lane, records, own_row)):
                     waiting.setdefault(below[-1] if below else pr, []).append((pr, since, len(below), waits_on))
                 continue
             state = grades.go_state(gos, pr, head)
             tap = (board.taps.get(pr) if board else None) or {}
             tapped = tap["head"] if tap.get("verdict") == "approved" and tap.get("head") and tap.get("at") else ""
-            behind = pr in live and not grades.names_head(live[pr], head)
             if tapped and grades.names_head(tapped, head):
                 tapped_at = actions.parse_stamp(tap["at"])
                 if not behind and self.now - tapped_at >= self.watch.age("tap"):
