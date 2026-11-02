@@ -12596,6 +12596,48 @@ def test_a_record_from_before_the_launch_does_not_stop_the_clock(shell, config, 
     assert [line.split(":", 1)[0] for line in clock_lines(shell)] == [f"INCIDENT-CLOCK {LANE} mechanism"]
 
 
+@pytest.mark.parametrize(("dispatch", "text", "refused"), [
+    ("completed", "STOPPED {lane}: out of scope, active no: all 60 events belong to internal smoke teams, zero customer refusals", True),
+    ("dispatched", "STOPPED {lane}: out of scope, the release check failures are a false alarm", True),
+    ("dispatched", "STOPPED {lane}: out of scope, dev red on a flaky test, no customer impact", True),
+    ("completed", "STOPPED {lane}: out of scope, active no: the customer error rate recovered at 11:02", False),
+    ("completed", "STOPPED {lane}: out of scope, plan keeps path no: smoke teams run on the old app, which step 9 deletes", False),
+])
+def test_a_lane_stopping_a_failing_release_gate_for_no_customer_impact_is_refused_and_its_opus_fallback_takes_the_fix(shell, config, tmp_path, dispatch, text, refused):
+    """Nov 1, 2:33 PM: run-history-fix-fix stopped 'active no' on the three tenant smoke teams, and customer runs failed the same way at 2:56 PM."""
+    clocked_lane(shell, config, tmp_path)
+    shell.sleep(2 * 60)
+    lane_record(shell, LANE, "stopped", text.format(lane=LANE))
+    shell.dispatches[f"ctx_{LANE}"]["status"] = dispatch
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    pushed = [line for line in escalations(shell) if line.startswith("REFUSED-STOP ")]
+    assert len(pushed) == refused
+    assert [call[1] for call in launches(shell)] == [LANE, f"{LANE}-opus"][: 1 + refused]
+    if refused:
+        assert "active yes always, and no customer impact is its scope, never a stop" in pushed[0] and f"the Opus fallback {LANE}-opus is launching" in pushed[0]
+        orca_pass(shell, config)
+        assert len([line for line in escalations(shell) if line.startswith("REFUSED-STOP ")]) == 1
+
+
+@pytest.mark.parametrize(("lane", "text", "pushed"), [
+    ("run-history-fix", "MECHANISM journal refusals only on the smoke teams; ai-oncall's #47507 makes the monitor skip the smoke teams", True),
+    ("desk-runner", "PAGE ai-oncall: Muted: smoke-team run-failure pages until 6:30pm", True),
+    ("run-history-fix", "MECHANISM False alarm: Runner refusing runs whose journal cannot open on HSBC", True),
+    ("run-history-fix", "MECHANISM sandsql-primary resets connections at each api roll", False),
+    ("root", "INCIDENT That is a mute, not a fix", False),
+])
+def test_a_mute_or_monitor_skip_on_an_unfixed_mechanism_gets_one_pushback_to_root(shell, config, lane, text, pushed):
+    """Nov 1, 2:17-2:59 PM: ai-oncall called the smoke-team journal refusals a false alarm, muted them and opened a monitor skip, and customer runs failed the same way at 2:56 PM."""
+    lane_record(shell, lane, "mechanism" if lane != "root" else "incident", text)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    pushes = [line for line in escalations(shell) if line.startswith("MUTE-PUSHBACK ")]
+    assert len(pushes) == pushed
+    if pushed:
+        assert f" {lane}: #" in pushes[0] and "is never a close, and smoke teams are the canary" in pushes[0]
+
+
 @pytest.mark.parametrize(("model", "header", "clocked"), [
     ("opus", "ccx: place=local\n", False),
     ("opus", "ccx: incident=none role=fix place=local\n", False),

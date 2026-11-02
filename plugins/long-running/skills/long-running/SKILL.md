@@ -891,6 +891,19 @@ cci post --lane root --drive <drive> --kind incident --topic <slug> --to <fix la
 
 - Active means customer runs are failing now, in telemetry since the last check-in. An
   error earlier today, a fix still in flight, or a replay that still fails is not active.
+- A failing Forge release smoke team, a red dev build, and a failing release check are
+  active always. They are the release gate and the earliest canary: a customer run in the
+  same window fails the same way, and the release that preceded the failure is the first
+  suspect. "No customer impact" is recorded as scope, who is hit so far, and never
+  downgrades the incident. On Nov 1 the tenant smoke teams could not open run history from
+  2:07 PM; the fix lane stopped at 2:33 PM on "zero customer refusals", ai-oncall called it
+  a false alarm, and the same refusal paged on AIG, SoFi and HSBC at 2:56 PM.
+- A mute, a false-alarm verdict, or a monitor change that stops counting the failing teams,
+  proposed by ai-oncall or anyone while the mechanism is unfixed, is never a close. The
+  root posts the pushback where it was proposed, keeps the incident open, and names the
+  fix owner in that turn. The desk runner refuses a fix lane's stop that scopes a release
+  gate out (`REFUSED-STOP`, with the lane's Opus fallback launched at once) and flags every
+  proposed mute (`MUTE-PUSHBACK`).
 - The plan keeps the path when no step of the drive's plan deletes or replaces it before
   its next milestone. A path the plan deletes at cutover is a no, however far off the
   cutover is.

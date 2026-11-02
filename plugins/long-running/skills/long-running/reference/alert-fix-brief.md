@@ -45,7 +45,16 @@ Do:
      questions, kind `incident`: `SCOPE {lane}: active <yes|no: customer runs
      failing now, from telemetry>; plan keeps path <yes|no: the step of the
      drive's plan in cc-notes that keeps or deletes this path past its next
-     milestone>`. A no to either ends incident mode: no release, no break-glass
+     milestone>`. A failing Forge release smoke team, a red dev build, and a
+     failing release check are `active yes` always: they are the release gate
+     and the earliest canary, and a customer run in the same window fails the
+     same way, with the release that preceded it as the first suspect. "No
+     customer impact" goes on the SCOPE line as who is hit so far, never as a
+     no. An on-call bot's false alarm, a mute, or a monitor change that stops
+     counting the failing teams is neither the mechanism nor the fix: post it
+     to root as `PUSHBACK {lane}: <who proposed what, and the unfixed mechanism>`
+     and keep fixing.
+     A no to either ends incident mode: no release, no break-glass
      apply, no new lane. Post `STOPPED {lane}: out of scope, <the answer that
      is no, and why>` and leave any candidate as an ordinary PR. A fix that
      grows into a redesign of a path the plan deletes is the signal to stop,
