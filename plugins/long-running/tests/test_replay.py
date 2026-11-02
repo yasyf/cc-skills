@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -72,13 +73,33 @@ def test_a_row_reads_as_it_stood_at_each_tick():
     assert replay.who_at(rows, orca, {"a": NOW - timedelta(minutes=10)}, NOW)[1]["stood_down"] is True
 
 
+def test_a_check_hashes_alike_until_code_it_reads_changes(tmp_path: Path):
+    pack = tmp_path / replay.INSTALLED_SCRIPTS
+    shutil.copytree(replay.SCRIPTS, pack)
+    shutil.copytree(replay.drive.PLUGIN / ".claude-plugin", tmp_path / ".claude-plugin")
+    runner, store = pack / "desk-runner.py", pack / "lr" / "store.py"
+    before = replay.pack_reads(pack)
+
+    runner.write_text(runner.read_text().replace("def unclassed_files(", "def unread() -> int:\n    return 1\n\n\ndef unclassed_files(", 1))
+    assert replay.pack_reads(pack) == before
+
+    runner.write_text(runner.read_text().replace('LOCKFILES = frozenset({"Cargo.lock", ', "LOCKFILES = frozenset({", 1))
+    lockfile_dropped = replay.pack_reads(pack)
+    assert lockfile_dropped[replay.CLASS_CHECK] != before[replay.CLASS_CHECK] and lockfile_dropped[replay.LANES] == before[replay.LANES]
+
+    store.write_text(store.read_text() + "\n\ndef unread() -> int:\n    return 1\n")
+    store_grown = replay.pack_reads(pack)
+    assert store_grown[replay.LANES] != lockfile_dropped[replay.LANES] and store_grown[replay.CLASS_CHECK] == lockfile_dropped[replay.CLASS_CHECK]
+
+
 def gate_args(**fields) -> argparse.Namespace:
     return argparse.Namespace(**{"drive": "d1", "repo": "o/r", "old": "0.7.820", "new": "0.7.821"} | fields)
 
 
-def stub_gate(monkeypatch, old: dict, new: dict, added: dict[str, dict]) -> list[tuple]:
+def stub_gate(monkeypatch, old: dict, new: dict, added: dict[str, dict], moved: tuple[str, ...] = (replay.LANES, replay.CLASS_CHECK)) -> list[tuple]:
     posts: list[tuple] = []
     record = {"seq": 9, "lane": "desk-runner", "kind": "note", "at": iso(datetime.now(UTC)), "text": 'EXEMPT-ADMITTED #47425 at a1b2c3d4e5: fidelity grade cci #9 says "test-only or CI-only, no non-test code"', "refs": {"prs": [47425]}}
+    monkeypatch.setattr(replay, "pack_reads", lambda scripts: {check: str(scripts) if check in moved else "unchanged" for check in (replay.LANES, replay.CLASS_CHECK)})
     monkeypatch.setattr(replay.cci, "paged", lambda run, drive, filters, since: [record])
     monkeypatch.setattr(replay, "who_rows", lambda drive: [])
     monkeypatch.setattr(replay, "changed_files", lambda repo, pr: {"go/go.mod": None})
@@ -108,6 +129,35 @@ def test_the_gate_passes_a_version_that_decides_no_more_and_names_the_classes_it
     [(drive, kind, key, text, *attrs)] = posts
     assert (kind, key) == ("state", "replay-passed:0.7.821") and text.startswith(replay.PASSED)
     assert "class-check-unclassed-file (defect #293707, yasyf/cc-skills#1)" in text and attrs == ["--attr", "version=0.7.821", "--attr", "classes=class-check-unclassed-file"]
+
+
+def test_the_gate_replays_only_the_check_whose_code_moved(monkeypatch):
+    posts = stub_gate(monkeypatch, {"relaunched": [], "refused": []}, {"relaunched": [], "refused": [47425]}, {}, moved=(replay.CLASS_CHECK,))
+    windows, inputs = [], []
+    paged = replay.cci.paged
+    monkeypatch.setattr(replay.cci, "paged", lambda run, drive, filters, since: windows.append(since) or paged(run, drive, filters, since))
+    monkeypatch.setattr(replay, "who_rows", lambda drive: pytest.fail("the lanes mover did not move, so no row is read"))
+    run_pack = replay.run_pack
+    monkeypatch.setattr(replay, "run_pack", lambda scripts, given: inputs.append(json.loads(given.read_text())) or run_pack(scripts, given))
+
+    assert replay.cmd_gate(gate_args()) == replay.REFUSED
+
+    assert windows == [replay.WINDOW]
+    assert [(given["records"], given["who"], given["prs"]) for given in inputs] == [([], [], [{"pr": 47425, "patches": {"go/go.mod": None}}])] * 2
+    [(_, _, _, text, *_)] = posts
+    assert "replayed 1 test-only class checks of the last 24 hours against 0.7.820" in text
+
+
+def test_the_gate_reads_nothing_when_neither_check_moved(monkeypatch):
+    posts = stub_gate(monkeypatch, {}, {}, {}, moved=())
+    monkeypatch.setattr(replay.cci, "paged", lambda run, drive, filters, since: pytest.fail("no check moved, so no record is read"))
+    monkeypatch.setattr(replay, "run_pack", lambda scripts, given: pytest.fail("no check moved, so neither pack runs"))
+
+    assert replay.cmd_gate(gate_args()) == 0
+
+    [(_, kind, key, text, *_)] = posts
+    assert (kind, key) == ("state", "replay-passed:0.7.821")
+    assert text == f"{replay.PASSED} 0.7.821 reads what 0.7.820 reads in its lanes mover and class check, so it replays nothing; it installs no new fixture class"
 
 
 def test_recurrences_are_counted_once_the_24_hours_after_an_install_have_run(monkeypatch):
