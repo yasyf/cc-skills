@@ -213,7 +213,7 @@ def records(state: CompactionState, cwd: str) -> list[str]:
 
 
 def session_json(evt: BaseHookEvent, state: CompactionState) -> str:
-    tasks = [{"id": task.id, "status": task.status, "subject": task.subject} for task in evt.tasks.open]
+    tasks = [{"id": task.id, "status": task.status, "subject": task.subject, "owner": task.owner} for task in evt.tasks.open]
     return json.dumps({"session_id": evt.session_id, "tasks": tasks, "background": state.background})
 
 
@@ -535,6 +535,9 @@ def queue_root_slice(state: CompactionState, evt: BaseHookEvent, reader: Registe
     state.root_slice = f"{sliced}\n{SWEEP_FIRST.format(drive=entry['drive'])}" if sliced else None
 
 
+DELIVERED_NUDGE = "Each lane below delivered since the last progress doc. Name every one in the progress doc's narrative:\n```\n{lines}\n```"
+
+
 def handoff_nudge(state: CompactionState) -> str:
     if state.store == "folder":
         write = f"Write the drive's execution state to a new file in `{progress_folder(Path(state.plan_path or ''))}/`."
@@ -786,6 +789,7 @@ def label_progress_records(evt: BaseHookEvent) -> HookResult | None:
     },
 )
 def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
+    since = None
     with CompactionState.mutate(evt) as state:
         if (
             not state.active
@@ -807,7 +811,20 @@ def nudge_at_threshold(evt: BaseHookEvent) -> HookResult | None:
         state.prior = records(state, evt.cwd)
         state.phase = "due"
         queue_nudge(evt, handoff_nudge(state))
+        since = (newest_doc(state, evt.cwd) or {}).get("updated_at") if state.store == "ccn" else None
+    if since and (entry := drive_entry(evt)) and (lines := delivered_since(bus_name(entry), since)):
+        queue_nudge(evt, DELIVERED_NUDGE.format(lines="\n".join(lines)))
     return None
+
+
+def delivered_since(drive: str, since: str) -> list[str]:
+    kinds = [arg for kind in ("report", "head", "handoff", "done", "fix-live") for arg in ("--kind", kind)]
+    argv = [sys.executable, str(script("owner_update.py")), "--drive", drive, "--json", "--only", "delivered", "--since", since, *kinds]
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=GENERATE_TIMEOUT_SECONDS, env=dict(reqenv.env_map()), check=True)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [item["line"] for item in json.loads(done.stdout)["delivered"]]
 
 
 @on(

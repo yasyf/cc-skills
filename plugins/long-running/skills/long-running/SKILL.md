@@ -194,9 +194,13 @@ turn every owner ask arrives, including a queued message delivered mid-turn.
 
 Only the root completes a task, and only after consuming the deliverable: route the PR
 to the desk/ledger, record the ruling, relay the answer to the owner. A lane saying
-done, READY, GREEN, or landed completes nothing. Lanes report through `SendMessage`
-and leave the root's task open; a hook denies a lane's `TaskUpdate` to `completed` on a
-lane-owned task.
+done, READY, GREEN, or landed completes nothing. Lanes report through a cci record
+first, a `report`, `head`, `handoff`, `fix-live` or `done`, then `SendMessage`, and leave the
+root's task open; a hook denies a lane's `TaskUpdate` to `completed` on a lane-owned
+task. A report sent only by `SendMessage` is a defect: the pack's stop hook refuses a
+lane's stop while its last 10 minutes hold a `SendMessage` to root and none of those
+records, and names the `cci post` to run. A message is lost across a compaction; a
+record is in the next handoff.
 
 At every handoff, milestone report, and compaction, the root reconciles the list:
 every `in_progress` task has a working lane, and every running lane has an open task.
@@ -1593,8 +1597,8 @@ AND test them with the test mac" (`reference/case-studies.md`).*
 **Updates come from the ledger, never memory.** Before any status or update reply to
 the owner, the root runs `owner_update.py --drive <drive>`. It prints every open owner
 ask with its state and its lane's last record, every in-progress task with its lane's
-last record time, every delivery (a `report`, `done` or `fix-live` from a lane owning an
-open task) since the last update, every PR row on his board, and every open incident.
+last record time, every delivery (a `report`, `done`, `fix-live` or `handoff` from a lane
+owning an open task) since the last update, every PR row on his board, and every open incident.
 The reply covers each delivery and calls nothing in flight "not started". The pack's
 Stop hook refuses a reply to his status or update ask that drops a delivery or says
 "not started" of a lane that posted in the last 30 minutes, and hands back the lines
@@ -3405,9 +3409,9 @@ GitHub budget: read GitHub only through ccx, with `ccx vcs pr status`, `vcs pr s
 Report short deltas with pointers (file:line, PR number, sha, Slack ts, disk path); never
   paste a diff, log, PR body, or thread into a message. Write it to disk and send the path.
 Finish: a lane with a PR finishes only once its squash `(#N)` is on the base branch.
-  Drive to a terminal state, then SendMessage <orchestrator> exactly one report,
-  ≤10 lines: verdict | ids | what changed | what is next. That message is your last
-  action. Do not end a turn waiting. Every push to a reported PR re-reports the new
+  Drive to a terminal state, post the report as a cci `report` record, then
+  SendMessage <orchestrator> exactly one report, ≤10 lines: verdict | ids | what
+  changed | what is next. That message is your last action. Do not end a turn waiting. Every push to a reported PR re-reports the new
   head with `ledger.py report --drive <drive>` in the same turn; the desk grades without waiting for it.
 ```
 
@@ -4325,7 +4329,10 @@ as context on its next tool call or prompt. It asks for a new progress doc with 
 root's narrative when convenient. The hook fills the
 handoff from the owner-approved register, live standing cci rules, open asks, tasks,
 lanes, monitors, inbox heads and cursors, and lint findings. The root writes only what
-those sources lack. The slug comes from `progress:<slug>` in the plan's existing
+those sources lack. It lists every open task whose lane posted a `report`, `head`,
+`handoff`, `done` or `fix-live` record since the newest progress doc, and the handoff
+carries the same list under `## Delivered since the last progress record`, so nothing a
+lane delivered is missing from the next update. The slug comes from `progress:<slug>` in the plan's existing
 progress pointer line, or from the plan's file stem if that line has no slug. The nudge is not repeated,
 and the nudge never holds the turn.
 
