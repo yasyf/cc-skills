@@ -289,7 +289,7 @@ def open_findings(job: dict) -> list[dict[str, str]]:
 
 
 def ask(shell: finder.Shell, job: dict, directory: Path, question: Path, attempt: int) -> dict:
-    out = shell.run(["codex-ask", "-m", job["model"], *(["--incident"] if job["fast"] else []), "--schema", str(SCHEMA), "-s", str(directory / f"codex-{attempt}"), str(question)], cwd=Path(job["checkout"]), timeout=CODEX_SECONDS)
+    out = finder.rate_limited(lambda retry: shell.run(["codex-ask", "-m", job["model"], *(["--incident"] if job["fast"] else []), "--schema", str(SCHEMA), "-s", str(directory / (f"codex-{attempt}-r{retry}" if retry else f"codex-{attempt}")), str(question)], cwd=Path(job["checkout"]), timeout=CODEX_SECONDS))
     reply = json.loads(Path(finder.REPLY_FILE.search(out)[1]).read_text())
     return reply | {"verdict": "missing"} if reply["missing"] else reply
 
