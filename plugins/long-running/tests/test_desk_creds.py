@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import threading
 import urllib.error
 import urllib.request
@@ -57,20 +58,62 @@ def test_the_host_reads_landing_with_its_overrides_merged_one_level_down():
     assert landing["env"] == {"AWS_PROFILE": "release-operator"} and landing["status_card"] is False
 
 
-def test_run_keeps_the_user_token_out_of_the_environment_and_points_reads_at_the_app(tmp_path, monkeypatch):
+def test_a_pushed_secret_reads_back_until_it_expires(port):
+    ahead = (datetime.now(timezone.utc) + timedelta(minutes=45)).isoformat()
+    assert put(port, "secret/GH_TOKEN", {"Value": "gho_user", "Expiration": ahead}) == 204
+    assert desk_creds.fetch("secret/GH_TOKEN", port) == {"Value": "gho_user", "Expiration": ahead}
+    assert put(port, "secret/GH_TOKEN", {"Value": "gho_old", "Expiration": (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()}) == 400
+    assert put(port, "secret/BUILDKITE_TOKEN", {"Expiration": ahead}) == 400
+    with pytest.raises(urllib.error.HTTPError):
+        desk_creds.fetch("secret/BUILDKITE_TOKEN", port)
+
+
+def test_push_hands_each_secret_over_standard_input_with_an_expiry_three_pushes_out(tmp_path, monkeypatch):
     config = tmp_path / "runner.json"
-    config.write_text(json.dumps({"drive": "d", "host": {"aws_profiles": ["core-auto"], "region": "us-west-2", "github_app": {"name": "app", "client_id": "Iv1", "private_key_command": ["aws", "ssm", "get-parameter"]}, "gh_user": "yasyf", "tz": "America/Los_Angeles"}}))
+    config.write_text(json.dumps({"host": {"sprite": "dar-desk-1", "aws_profiles": ["core-auto"], "secrets": {"GH_TOKEN": ["gh", "auth", "token"]}}}))
+    calls = []
+
+    def fake(argv, input=None, **_):
+        calls.append((argv, input))
+        if argv[:2] == ["aws", "configure"]:
+            return subprocess.CompletedProcess(argv, 0, json.dumps(credentials(1)), "")
+        if argv[0] == "gh":
+            return subprocess.CompletedProcess(argv, 0, "gho_user\n", "")
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(desk_creds.subprocess, "run", fake)
+    assert desk_creds.push(config, 9181) == 0
+    sent = {argv[-1].split("9181/")[1]: json.loads(body) for argv, body in calls if argv[0] == "sprite"}
+    assert sent["core-auto"]["AccessKeyId"] == "AKIA"
+    assert sent["secret/GH_TOKEN"]["Value"] == "gho_user"
+    left = datetime.fromisoformat(sent["secret/GH_TOKEN"]["Expiration"]) - datetime.now(timezone.utc)
+    assert timedelta(minutes=44) < left <= timedelta(minutes=45)
+    assert not any("gho_user" in part for argv, _ in calls for part in argv)
+
+
+def test_run_keeps_the_user_token_out_of_the_environment_and_exports_the_rest(tmp_path, monkeypatch):
+    config = tmp_path / "runner.json"
+    config.write_text(json.dumps({
+        "drive": "d",
+        "landing": {"env": {"AWS_PROFILE": "release-operator"}},
+        "host": {"aws_profiles": ["core-auto"], "region": "us-west-2", "github_app": {"name": "app", "client_id": "Iv1", "private_key_command": ["aws", "ssm", "get-parameter"]}, "gh_user": "yasyf", "tz": "America/Los_Angeles", "secrets": {"GH_TOKEN": ["gh", "auth", "token"]}, "ssm_profile": "core-auto", "ssm": {"BUILDKITE_TOKEN": "/ci/tools/buildkite-read-token"}},
+    }))
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("DESK_GH_USER_TOKEN", "gho_user")
-    monkeypatch.setenv("GH_TOKEN", "gho_user")
     monkeypatch.setattr(desk_creds, "SHM", tmp_path / "shm")
     monkeypatch.setattr(desk_creds.os, "environ", dict(desk_creds.os.environ))
+    monkeypatch.setattr(desk_creds, "fetch", lambda key, port: {"Value": {"secret/GH_TOKEN": "gho_user"}[key]})
+    reads = []
+    monkeypatch.setattr(desk_creds.subprocess, "run", lambda argv, **_: reads.append(argv) or subprocess.CompletedProcess(argv, 0, "bk-read\n", ""))
+    monkeypatch.setattr(desk_creds.os, "dup2", lambda fd, to: None)
     execs = []
     monkeypatch.setattr(desk_creds.os, "execv", lambda path, argv: execs.append(argv))
     desk_creds.run(config, "landing")
-    assert "DESK_GH_USER_TOKEN" not in desk_creds.os.environ and "GH_TOKEN" not in desk_creds.os.environ
+    assert "GH_TOKEN" not in desk_creds.os.environ
     assert "oauth_token: gho_user" in (tmp_path / "shm/d-gh/hosts.yml").read_text()
     assert desk_creds.os.environ["GH_CONFIG_DIR"] == str(tmp_path / "shm/d-gh")
+    assert desk_creds.os.environ["BUILDKITE_TOKEN"] == "bk-read" and desk_creds.os.environ["AWS_PROFILE"] == "release-operator"
+    assert reads == [["aws", "ssm", "get-parameter", "--profile", "core-auto", "--region", "us-west-2", "--name", "/ci/tools/buildkite-read-token", "--with-decryption", "--query", "Parameter.Value", "--output", "text"]]
     assert "credential_process = " in (tmp_path / ".aws/config").read_text() and " get core-auto\n" in (tmp_path / ".aws/config").read_text()
     assert 'private_key_command = ["aws", "ssm", "get-parameter"]' in (tmp_path / ".config/ccx/github-app.toml").read_text()
+    assert (tmp_path / "landing-runner.log").exists()
     assert execs[0][-4:] == ["--config", str(config), "--desk", "landing"]
