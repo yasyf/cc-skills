@@ -394,7 +394,7 @@ if dropped and dropped.exists():
     print("Error: failed to connect", file=sys.stderr)
     sys.exit(255)
 code = subprocess.run([sprite + arg if arg.startswith(mac) else arg for arg in args[1:]], stdin=stdin).returncode
-if dropped and any("exec python3" in arg for arg in args):
+if dropped and any("exec flock -s" in arg for arg in args):
     dropped.touch()
     sys.exit(255)
 sys.exit(code)
