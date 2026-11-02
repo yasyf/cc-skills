@@ -609,7 +609,7 @@ def red_entry(row: dict, lane: str, classes: list[dict]) -> dict:
 
 def blocks_head(record: dict, pr: str, head: str) -> bool:
     return (
-        record["lane"] == RUNNER
+        (record["lane"] == RUNNER or record["lane"].startswith(LANDING_DESK))
         and record.get("status") != "closed"
         and (record["kind"] == "blocker" or record["text"].startswith(HEAD_BLOCKERS))
         and re.search(rf"#{pr}\b", text := grades.full_text(record)) is not None
@@ -1328,7 +1328,7 @@ class Pass:
         if reason == MERGE_ASK or reason == FINDER_PENDING and self.finder_holds(pr, row["head"]):
             return None
         owners = tuple(dict.fromkeys(ROOT if to in ROOT_NAMES else to for to in (address.split("@", 1)[0] for address in blocker.get("to") or [ROOT])))
-        return pr, owners, f"{reason}: the runner's newest blocker for #{pr} at {short(row['head'])}, cci #{blocker['seq']}: {clip(said)}"
+        return pr, owners, f"{reason}: {'the runner' if blocker['lane'] == RUNNER else blocker['lane']}'s newest blocker for #{pr} at {short(row['head'])}, cci #{blocker['seq']}: {clip(said)}"
 
     def worker(self, pr: str, head: str) -> dict | None:
         """The landing runner's stack worker entry that holds `pr` at `head`, from the `landing-stacks.json` the runner rewrites at every step."""

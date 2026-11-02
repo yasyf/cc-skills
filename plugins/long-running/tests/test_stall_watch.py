@@ -481,6 +481,20 @@ def gone(pr: str, sha: str) -> list[dict]:
     return [head(1, pr, sha, 30), finder(2, pr, sha, 25), fidelity(3, pr, sha, 25), record(4, "root", "go", f"go #{pr} at {sha[:7]}", 12)]
 
 
+def test_a_go_the_landing_desk_saw_trunk_evict_cites_the_eviction_and_goes_to_its_lanes_never_reads_as_a_silent_runner(config):
+    """Root #311014: #47206's go stall said the runner wrote no QUEUED, MERGED or blocker record, while landing-desk-3 had posted Trunk's eviction (#310614) 10 minutes before."""
+    records = gone("101", HEAD)
+    records.append(record(5, "landing-desk-3", "blocker", f"Trunk evicted #101 at {HEAD[:9]} (failed, no Trunk comment). admitted head unchanged, fix the failing build then resubmit.", 9, to=["root", "api-lane"]))
+    shell = FakeShell(records, [row("101")])
+
+    watch(shell, config)
+
+    post = shell.post("go:101:abc1234")
+    assert post["to"] == "root,api-lane@d1"
+    assert f"landing-desk-3's newest blocker for #101 at abc1234, cci #5: Trunk evicted #101 at {HEAD[:9]}" in post["text"]
+    assert "wrote no QUEUED, MERGED or blocker record" not in post["text"]
+
+
 def test_a_go_the_runner_refused_names_its_newest_open_blocker_for_that_head_and_goes_to_that_blockers_lanes(config):
     records = gone("101", HEAD)
     records.append(record(5, "desk-runner", "blocker", f"#101 {OLD[:10]}: nothing in #101 was enqueued; BUILD-FAILED #101: an older head", 11, to=["api-lane"], topic="101"))
