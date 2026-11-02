@@ -288,6 +288,13 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
         row = store.lane(lane)
         kind, text = record["kind"], record.get("text") or ""
         store.lane_heard(lane, at, kind, record["seq"])
+        if lane in (ROOT, "main"):
+            store.order(record["seq"])
+            for name in addressed(record):
+                if store.lane(name):
+                    store.lane_stopped_on(name, record["seq"])
+        elif row:
+            store.lane_stopped_on(lane, max(store.orders({record.get("re"), record.get("resolves"), *(record.get("also_resolves") or [])} - {None}), default=None))
         if row and row.state == "held" and at > row.since:
             store.lane_state(lane, "desired", at)
             row = store.lane(lane)
@@ -501,7 +508,7 @@ def alive(peer: Peer | None, heard: datetime | None, now: datetime) -> bool:
 
 
 def classify_lane(lane: Lane, peer: Peer | None, now: datetime, tokens: int | None = None, rotate_at: int = 0) -> Verdict:
-    """One registry row against what `cci who` shows now: `ok`, `came-up`, `no-show`, `dead`, `unproven`, `stood-down` or `ask-rotate`; only a process row that reads not live proves a death, and a flushed lane keeps working in place."""
+    """One registry row against what `cci who` shows now: `ok`, `came-up`, `no-show`, `dead`, `unproven`, `stood-down` or `ask-rotate`; only a process row that reads not live proves a death, a flushed lane keeps working in place, and a lane that stopped with root's record to it or its own answer to root's record as its newest word stopped on root's order, of any kind (root #311668)."""
     heard = max([t for t in (peer.seen if peer else None, lane.heard) if t], default=None)
     alive_now = alive(peer, heard, now)
     if lane.state == "launching":
@@ -509,6 +516,8 @@ def classify_lane(lane: Lane, peer: Peer | None, now: datetime, tokens: int | No
             return Verdict("came-up")
         return Verdict("no-show", f"not live {STALE_AFTER.seconds // 60} minutes after its launch") if now - lane.since >= STALE_AFTER else Verdict("ok")
     if not alive_now:
+        if lane.stopped_on is not None:
+            return Verdict("stood-down", f"stopped on root's #{lane.stopped_on}")
         if peer is None:
             return Verdict("unproven", f"has no process row in cci who or Orca and was last heard {f'at {pacific(heard)}' if heard else 'never'}, so nothing proves it died")
         if peer.row.get("stood_down"):
