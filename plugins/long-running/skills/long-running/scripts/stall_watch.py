@@ -1513,7 +1513,8 @@ class Pass:
 
     def acked(self, records: list[dict]) -> dict[str, tuple[Stall, list[tuple[dict, dict]]]]:
         """Each defect class root acknowledged `ACKS["urgent"]` or more times in the last `ACK_WINDOW` with no fix PR, as its stall and its (defect, acknowledgement) pairs, oldest first; a root record naming `owner=<lane>` or `GO fix lane` routes the defect and is no acknowledgement, and a per-PR queue eviction (`REFUSED by`) is never one class (root #311841)."""
-        targets = {record["seq"]: record for record in records if record["kind"] in ACK_TARGETS and record["lane"] not in NOT_LANES - {RUNNER} and DEFECT_TAG.match(record.get("text") or "") and defect_class(record) not in PER_PR}
+        heads = [record for record in records if record["kind"] == "head"]
+        targets = {record["seq"]: record for record in records if record["kind"] in ACK_TARGETS and record["lane"] not in NOT_LANES - {RUNNER} and DEFECT_TAG.match(record.get("text") or "") and defect_class(record) not in PER_PR and not superseded(record, heads, self.watch.landing["repo"] if self.watch.landing else "")}
         pairs: dict[str, list[tuple[dict, dict]]] = {}
         for ack in records:
             if ack["lane"] not in ROOT_NAMES or ack["kind"] not in ACK_KINDS or self.now - at(ack) > ACK_WINDOW or FIX_PR.search(said := grades.full_text(ack)) or ROUTED.search(said):
@@ -1585,6 +1586,12 @@ def defect_class(record: dict) -> str:
     found = DEFECT_TAG.match(text := record.get("text") or "")
     reason = REFUSAL_REASON.search(text) if found["tag"] == "REFUSED" else None
     return " ".join(part for part in (found["tag"], reason["reason"] if reason else found["word"]) if part)
+
+
+def superseded(refusal: dict, heads: list[dict], repo: str) -> bool:
+    """Whether `refusal` is a REFUSED record whose every `#<pr> at <sha>` names a head a later `head` record about that PR moved past, so it refuses a head the lane already replaced and is no defect (root #312758)."""
+    refused = grades.GO_HEAD.findall(refusal.get("text") or "") if DEFECT_TAG.match(refusal.get("text") or "")["tag"] == "REFUSED" else []
+    return bool(refused) and all(any(head["seq"] > refusal["seq"] and grades.about_pr(head, repo, pr) and (moved := grades.graded_head(head.get("text") or "")) and not grades.names_head(moved, sha) for head in heads) for pr, sha in refused)
 
 
 def fix_lane(name: str) -> str:
