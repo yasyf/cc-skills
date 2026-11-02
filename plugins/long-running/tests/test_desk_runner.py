@@ -3630,6 +3630,31 @@ def test_a_root_override_the_runner_cannot_read_is_refused_back_to_root_once(she
     assert [post["kind"] for post in shell.posts if post.get("topic") == f"override:{seq}"] == ["blocker"]
 
 
+@pytest.mark.parametrize(
+    ("kind", "to", "text", "refused"),
+    [
+        ("decide", [], "owner=n-enumeration-13 for #45492. n-enumeration-12 stands down: no record since 4:45 PM", "n-enumeration-12 down citing no last-read"),
+        ("decide", [], "n-enumeration-12 stands down: no record since 4:45 PM last-read={older}", "n-enumeration-12 down citing last-read={older}, older than n-enumeration-12's #{lane}"),
+        ("decide", [], "n-enumeration-12 stands down: done last-read={lane}", None),
+        ("stand-down", ["n-enumeration-12", "board-refresher-6"], "n-enumeration-12 rotated", "n-enumeration-12 down citing no last-read"),
+        ("stand-down", ["n-enumeration-12", "board-refresher-6"], "n-enumeration-12 rotated last-read=#{lane}", None),
+        ("decide", [], "dashboard-now-fix-1: finish the payload split, then stand down.", None),
+    ],
+)
+def test_a_root_stand_down_that_did_not_read_the_lane_is_refused_back_to_root_once(shell, config, kind, to, text, refused):
+    """Root #304715: n-enumeration-12 was stood down at 8:02 PM as silent from a budgeted drive tail that dropped its own records."""
+    lone_green_pr(shell)
+    landing_pass(shell, config)
+    older = cci_record(shell, lane="board-refresher-6", kind="state", at=actions.stamp(shell.now()), text="board up")
+    lane = cci_record(shell, lane="n-enumeration-12", kind="state", at=actions.stamp(shell.now()), text="still on #45492")
+    seq = cci_record(shell, kind=kind, to=to, at=actions.stamp(shell.now()), text=text.format(older=older, lane=lane))
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    lines = [line for line in escalations(shell) if line.startswith("STAND-DOWN-REFUSED")]
+    assert lines == ([f"STAND-DOWN-REFUSED stand-down:{seq} root: cci #{seq} stands {refused.format(older=older, lane=lane)}. Read the lane with `cci tail --lane <lane> --since <its wake seq> --oldest` and post the stand-down again citing last-read=<the newest seq read>"] if refused else [])
+    assert [post["kind"] for post in shell.posts if post.get("topic") == f"stand-down:{seq}"] == (["defect"] if refused else [])
+
+
 def test_an_ungraded_pr_cuts_the_prefix_and_the_graded_pr_below_it_enqueues_alone(shell, config, tmp_path):
     shell.rows = stack_rows()
     shell.gates["29020"] = [gate("#28997 GREEN aaaa111111 graphite READY", "#29016 GREEN bbbb222222 graphite READY", "#29020 BLOCKED cccc333333 ai-review pending", would="#28997 #29016")]

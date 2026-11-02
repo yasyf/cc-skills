@@ -767,7 +767,7 @@ SPRITE_STALLED_AFTER = timedelta(minutes=30)
 FINDER_TAPS_EVERY = timedelta(minutes=5)
 LAUNCH_STATE = Path(".claude/scratch/orca-launch")
 CCI_TEXT = 400
-ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker", "GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": "blocker", "GO-TAP-MISSING": "blocker", "OVERRIDE-REFUSED": "blocker", "REFUSED-STOP": "incident", "MUTE-PUSHBACK": "incident"}
+ESCALATION_KINDS = {"DECIDE": "decide", "INCIDENT": "incident", "INCIDENT-OWNED": "state", "UNBOUND": "blocker", "UNOWNED": "blocker", "CLASS-UNOWNED": "blocker", "UNACKED": "blocker", "INCIDENT-CLOCK": "blocker", "LOAD-HIGH": "blocker", "CUT-SILENT": "blocker", "PR-SILENT": "blocker", "RELEASE-HELD-AFTER-LANDING": "blocker", "LAUNCH-STALLED": "blocker", "LAUNCH-DUPLICATE": "blocker", "UNGRADED-30": "blocker", "SLICE-UNREAD": "blocker", "GITHUB-QUOTA-LOW": "urgent", "FINDER-DESK-STALLED": "blocker", "GO-TAP-MISSING": "blocker", "OVERRIDE-REFUSED": "blocker", "STAND-DOWN-REFUSED": "defect", "REFUSED-STOP": "incident", "MUTE-PUSHBACK": "incident"}
 UNLAUNCHED = "unlaunched"
 BINDING = "binding"
 TRUNK = "dev"
@@ -859,6 +859,9 @@ LANDED_TIDIED = "landed-tidied"
 LANDED_KEY = "landed:"
 DEQUEUE_READ = "dequeue-read"
 OVERRIDE_READ = "override-read"
+STAND_DOWN_READ = "stand-down-read"
+STOOD_DOWN = re.compile(r"\b([a-z][a-z0-9]*(?:-[a-z0-9]+)+) stands down\b|\bstand[- ]down:? ([a-z][a-z0-9]*(?:-[a-z0-9]+)+)")
+LAST_READ = re.compile(r"\blast-read=#?(\d+)")
 SETTLED = "settled"
 ROWED_READ = "rowed-read"
 QUOTA_OFF = "GitHub's read quota is under ccx's floor"
@@ -6216,6 +6219,34 @@ class Landing:
             read = record["seq"]
         self.book.edit(LANDING, lambda incident: incident.facts.update({OVERRIDE_READ: read}))
 
+    def refuse_unread_stand_downs(self) -> None:
+        """Bounce to root as a `STAND-DOWN-REFUSED` defect, once each, every root `stand-down` and every root `decide` that stands a lane down, since the newest one read, that cites no `last-read=<seq>` or cites one older than a record that lane posted before it: root reads a lane whole before calling it silent, standing it down or naming its successor (root #304721). A stand-down names its first `--to` lane, a decide each lane it says stands down."""
+        if STAND_DOWN_READ not in self.book.facts(LANDING, [STAND_DOWN_READ]):
+            self.book.edit(LANDING, lambda incident: incident.facts.setdefault(STAND_DOWN_READ, self.started))
+        read = self.book.fact(LANDING, STAND_DOWN_READ, self.started)
+        drive_id = self.runner.config.drive
+        for record in cci.records(self.cci_tail, drive_id, f"--kind={STAND_DOWN}", "--kind=decide", "--lane", ROOT, since=read):
+            if record["lane"] == ROOT and record["drive"] == drive_id and (unread := self.unread_stand_downs(record)):
+                key = f"stand-down:{record['seq']}"
+                self.runner.escalate(key, "STAND-DOWN-REFUSED", ROOT, f"cci #{record['seq']} stands {'; '.join(unread)}. Read the lane with `cci tail --lane <lane> --since <its wake seq> --oldest` and post the stand-down again citing last-read=<the newest seq read>", to=ROOT)
+                if not self.book.known(RUNNER, f"escalation:{key}"):
+                    break
+            read = record["seq"]
+        self.book.edit(LANDING, lambda incident: incident.facts.update({STAND_DOWN_READ: read}))
+
+    def unread_stand_downs(self, record: dict) -> list[str]:
+        """Why `record` stands each of its lanes down unread: no `last-read`, or a record the lane posted after the newest `last-read` it cites and before `record`."""
+        text = QUOTED_SPAN.sub("", QUOTED_BLOCK.sub("", full_text(record)))
+        lanes = record.get("to", [])[:1] if record["kind"] == STAND_DOWN else [lane for match in STOOD_DOWN.finditer(text) for lane in match.groups() if lane]
+        cited = max(map(int, LAST_READ.findall(text)), default=None)
+        unread = []
+        for lane in dict.fromkeys(lane for lane in lanes if lane != ROOT):
+            if cited is None:
+                unread.append(f"{lane} down citing no last-read")
+            elif newer := [later for later in cci.records(self.cci_tail, self.runner.config.drive, "--lane", lane, since=cited) if later["lane"] == lane and later["seq"] < record["seq"]]:
+                unread.append(f"{lane} down citing last-read={cited}, older than {lane}'s #{newer[-1]['seq']}")
+        return unread
+
     def latch_pulled(self, pr: str, head: str, why: str) -> None:
         """Keep `pr` at `head` out of every check and enqueue until `mq.py requeue`, and mark each finished enqueue that admitted it at that head `pulled`."""
         self.book.edit(LANDING, lambda incident: incident.facts.setdefault(PULLED_HEADS, {}).update({pr: head}))
@@ -10126,6 +10157,7 @@ class Landing:
         self.refuse_ungone_parents(rows, held or [])
         pulled = self.pull_ordered(rows)
         self.refuse_unread_overrides()
+        self.refuse_unread_stand_downs()
         self.refuse_out(rows, dict.fromkeys(pulled, "a dequeue keeps it out of the queue until `mq.py requeue`"), "which a dequeue keeps out of the queue until `mq.py requeue`")
         carrying = self.carrying(rows) if gating else {}
         self.refuse_out(rows, carrying, "whose branch carries open PRs a squash would land with it")

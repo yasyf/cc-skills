@@ -4759,6 +4759,11 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   carrying the PRs moves the old name's mail to it. A `SPAWNED` record for that name
   from another brief, a lane the root spawned by hand, withdraws the supervisor's
   launch.
+- **Root stand-downs.** A root `stand-down`, or a root `decide` saying `<lane> stands
+  down`, cites `last-read=<seq>`, the newest record of that lane root read whole with
+  `cci tail --lane <lane> --since <its wake seq> --oldest`. The landing runner bounces
+  one that cites none, or cites a seq older than a record the lane posted before it,
+  to root as one `STAND-DOWN-REFUSED` defect (root #304721).
 - **Rotation.** A live lane that posted within the window and is past its context line gets
   one `ROTATE` ask on cci. An idle lane is never asked, since it cannot flush. Neither is a
   lane whose newest record is a `handoff`, `done`, `stand-down` or `stopped`. The asked lane
