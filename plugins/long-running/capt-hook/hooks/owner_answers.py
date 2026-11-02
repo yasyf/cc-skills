@@ -4,12 +4,13 @@ import json
 import re
 import subprocess
 from datetime import UTC, datetime, timedelta
+from functools import partial
 
 from captain_hook import Allow, Annotated, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, Tool, on
 from captain_hook.util import reqenv
 
-from .compaction_handoff import ROOT_LANE, CompactionState, bus_name, drive_entry
-from .owner_facing import CCI_POST, posted_text
+from .compaction_handoff import ROOT_LANE, CompactionState, bus_name, drive_entry, script_module
+from .owner_facing import CCI_POST, board_bytes, board_sources, posted_text
 from .root_replies import DRIVE_ACTIVE, OWNER_WAITS, PACIFIC, owner_waits
 from .tests.register_fixtures import DRIVE_CONFIG
 
@@ -27,7 +28,18 @@ UNANSWERED = (
     "These owner board notes have waited over 10 minutes with no reply on the board. "
     "Answer each with `cc-present reply --block <block> --body '<answer>'`, then stop again.\n```\n{lines}\n```"
 )
+UNROWED = (
+    "These cards carry the owner's answer with no ccn answer row, so they stay on the board until each answer has one. "
+    "board-watch writes the row as it posts the OWNER record; run `board_watch.py backfill --session {session} --program {drive}` to write any it missed, then run this again.\n```\n{lines}\n```"
+)
 APPROVED = "The owner already approved these PRs at their current heads, so they get no new board row. Drop them from the order and post it again.\n```\n{lines}\n```"
+
+ANSWER_ROWS = script_module("long_running.answer_rows")
+CARD_SHOWN = "cc-present outcomes --block card-a --session s"
+LIVE = "cc-present outcomes --all --no-doc --session s"
+ROW_LIST = "ccn -R /repo answer list"
+WRITE_IN = {"type": "choice.selected", "origin": "human", "at": "2026-11-02T04:44:04-08:00", "round": 3, "payload": {"blockId": "q1", "optionIds": [], "other": "flush them at startup", "type": "choice.selected"}}
+CARD_A = {"id": "card-a", "type": "card", "title": "Cache?", "children": [{"id": "q1", "type": "choice"}]}
 
 NOW = datetime.now(UTC)
 NOTE = "why is the relay slot here at all?"
@@ -65,6 +77,40 @@ def waits(line: str) -> str:
 def read(argv: list[str]) -> str | None:
     done = subprocess.run(argv, capture_output=True, text=True, timeout=READ_SECONDS, env=dict(reqenv.env_map()))
     return None if done.returncode else done.stdout
+
+
+class Unread(Exception):
+    pass
+
+
+def ran(prefix: list[str], argv: list[str]) -> str:
+    if (out := read([*prefix, *argv])) is None:
+        raise Unread(prefix[0])
+    return out
+
+
+def shown_card(answers: list[dict], on_board: bool = True) -> str:
+    return json.dumps({"doc": {"blocks": [CARD_A]}, "onBoard": on_board, "answers": answers})
+
+
+def leaving(values: dict[str, tuple], read_board, session: str) -> list[tuple[str, set[str] | None]]:
+    """Each card this cc-present call takes off the board, with the children it drops when the card stays: a remove-block's block, the top-level blocks a push leaves out, and the children an update-block of a card on the board leaves out."""
+    match next(iter(values.get("verb", ())), None), values.get("words", ()):
+        case "remove-block", (block, *_):
+            return [(block, None)]
+        case "push", _:
+            live = json.loads(ran(["cc-present"], ["outcomes", "--all", "--no-doc", "--session", session]))["rounds"]["blockRounds"]
+            pushed = {block["id"] for block in json.loads(read_board())["blocks"]}
+            return [(top, None) for top in sorted(set(live) - pushed)]
+        case "update-block", _:
+            block = json.loads(read_board())
+            if block.get("type") != "card":
+                return []
+            shown = json.loads(ran(["cc-present"], ["outcomes", "--block", block["id"], "--session", session]))
+            old = (shown.get("doc") or {}).get("blocks") or [{}]
+            dropped = {child["id"] for child in old[0].get("children") or []} - {child["id"] for child in block.get("children") or []}
+            return [(block["id"], dropped)] if shown.get("onBoard") and dropped else []
+    return []
 
 
 def records(drive: str, lane: str, *extra: str) -> list[dict] | None:
@@ -173,3 +219,50 @@ def board_rows_skip_approved_prs(evt: BaseHookEvent) -> HookResult | None:
         return None
     lines = [item["line"] for item in found if item.get("head") and f"approved it at {item['head'][:7]}" in item["line"]]
     return evt.block(APPROVED.format(lines="\n".join(lines))) if lines else None
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash")],
+    skip_if=[Annotated("raw")],
+    tests={
+        Input(command="cc-present remove-block card-a --session s", env=DRIVE_CONFIG, commands={CARD_SHOWN: shown_card([WRITE_IN]), ROW_LIST: "[]"}): Block(pattern=r"card-a: q1 answered .*flush them at startup"),
+        Input(command="cc-present remove-block card-a --session s", env=DRIVE_CONFIG, commands={CARD_SHOWN: shown_card([WRITE_IN]), ROW_LIST: json.dumps([{"tags": ["board-answer", "board-block:q1"]}])}): Allow(),
+        Input(command="cc-present remove-block card-a --session s", env=DRIVE_CONFIG, commands={CARD_SHOWN: shown_card([])}): Allow(),
+        Input(command="cc-present remove-block card-a --session s", env=DRIVE_CONFIG, commands={CARD_SHOWN: (1, "cc-present: daemon down")}): Allow(),
+        Input(
+            command="""echo '{"version":1,"title":"T","blocks":[{"id":"m1","type":"markdown","md":"next"}]}' | cc-present push - --session s""",
+            env=DRIVE_CONFIG,
+            commands={LIVE: json.dumps({"rounds": {"blockRounds": {"card-a": 3, "m1": 3}}}), CARD_SHOWN: shown_card([WRITE_IN]), ROW_LIST: "[]"},
+        ): Block(pattern=r"card-a: q1 answered"),
+        Input(
+            command="""echo '{"id":"card-a","type":"card","title":"Cache?","children":[]}' | cc-present update-block - --session s""",
+            env=DRIVE_CONFIG,
+            commands={CARD_SHOWN: shown_card([WRITE_IN]), ROW_LIST: "[]"},
+        ): Block(pattern=r"card-a: q1 answered"),
+        Input(
+            command="""echo '{"id":"card-a","type":"card","title":"Cache?","children":[{"id":"q1","type":"choice"}]}' | cc-present update-block - --session s""",
+            env=DRIVE_CONFIG,
+            commands={CARD_SHOWN: shown_card([WRITE_IN])},
+        ): Allow(),
+        Input(command="cc-present remove-block card-a --session s", commands={CARD_SHOWN: shown_card([WRITE_IN]), ROW_LIST: "[]"}): Allow(),
+    },
+)
+def answered_cards_keep_their_rows(evt: BaseHookEvent) -> HookResult | None:
+    """A card carrying the owner's answer leaves the board, by a remove-block, a push that leaves it out, or an update-block that drops an answered child, only once each answer has its ccn answer row (owner, 2:25 PM Nov 2: "fic the cc-present tooling so this issue doesnt happen agakn"). A read that fails passes the call."""
+    if not (entry := drive_entry(evt)):
+        return None
+    ccn, present = partial(ran, ["ccn", "-R", entry["checkout"]]), partial(ran, ["cc-present"])
+    lines, sessions = [], []
+    try:
+        for call, values, source, piped in board_sources(evt):
+            if values.get("dry-run"):
+                continue
+            session = next(iter(values.get("session", ())), None) or evt.session_id
+            for card, dropped in leaving(values, partial(board_bytes, evt, call, source, piped), session):
+                owed = ANSWER_ROWS.unrowed(present, ccn, session, card, dropped)
+                lines += [f"{card}: {answer['payload']['blockId']} answered {answer['at']}: {answer['payload'].get('other') or answer['payload'].get('text') or ', '.join(answer['payload'].get('optionIds') or ()) or answer['payload'].get('verdict') or ''}" for answer in owed]
+                sessions += [session] if owed else []
+    except (Unread, OSError, ValueError, KeyError, subprocess.SubprocessError):
+        return None
+    return evt.block(UNROWED.format(session=sessions[0], drive=bus_name(entry), lines="\n".join(lines))) if lines else None

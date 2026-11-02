@@ -8,7 +8,7 @@
     board_cards.py missing [--drive ID] [--session S] [CARD ...]
     board_cards.py sweep [--drive ID] [--session S] --lane LANE
 
-COND is at:TIME, pr:N, release:STACK@ENV:COMMIT or record:SEQ (long_running/ends.py, the check retro rows share). `until` records a card's end before it is pushed, and refuses a missing, malformed or past condition; board_text_gate warns on a card pushed with none. `missing` prints each named card, or each card on the board, that has no recorded end, one id per line. `sweep` removes every card whose end has happened and posts one cci withdraw record per card naming the outcome, and prints PROBLEM for each card on the board with no end; the board lane runs it every cycle.
+COND is at:TIME, pr:N, release:STACK@ENV:COMMIT or record:SEQ (long_running/ends.py, the check retro rows share). `until` records a card's end before it is pushed, and refuses a missing, malformed or past condition; board_text_gate warns on a card pushed with none. `missing` prints each named card, or each card on the board, that has no recorded end, one id per line. `sweep` removes every card whose end has happened and posts one cci withdraw record per card naming the outcome, and prints PROBLEM for each card on the board with no end; the board lane runs it every cycle. A card whose owner answer has no ccn answer row stays up, with a PROBLEM line naming the answer, until `board_watch.py backfill` writes the row.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import json
 import sys
 from pathlib import Path
 
-from long_running import drive, ends, ledger
+from long_running import answer_rows, drive, ends, ledger
 
 PREFIX = "card/"
 STATE_FILE = "board_cards.json"
@@ -133,6 +133,10 @@ def withdraw(board: Board, lane: str) -> None:
     facts = ends.Facts.read(list(waiting.values()), board.shell, board.checkout)
     for card, end in waiting.items():
         if not (outcome := facts.reached(end, moment)):
+            continue
+        if owed := answer_rows.unrowed(lambda argv: board.shell.run(["cc-present", *argv]), lambda argv: board.ccn(*argv), board.session, card):
+            blocks = ", ".join(answer["payload"]["blockId"] for answer in owed)
+            print(f"PROBLEM {card}: the owner's answer on {blocks} has no ccn answer row; run board_watch.py backfill --session {board.session} --program {board.cci} before it leaves the board")
             continue
         board.present("remove-block", card)
         board.shell.run(

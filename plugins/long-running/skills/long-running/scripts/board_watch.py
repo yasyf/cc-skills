@@ -27,8 +27,8 @@ so a burst that returns to an earlier pick keeps all its taps and the last one s
 capture, so no option id or bare verdict stands in for the owner's words; its event line stays. The state directory resolves as `rulings.py` resolves it; `--state-dir`
 overrides it. A second watch of the same board exits at once.
 
-Each decision.created, choice.selected, input.submitted, feedback.created, triage.decided and
-submit also reaches the drive's bus the moment it arrives, so no lane waits on a root to relay a
+Each decision.created, choice.selected, input.submitted, feedback.created, pack.interaction,
+triage.decided and submit also reaches the drive's bus the moment it arrives, so no lane waits on a root to relay a
 tap: one `cci post --kind owner --to all` from lane `board-watch` names the card title and block
 id, the verdict, picked option labels or the owner's text verbatim, each merge row's head, and the
 time, and resolves every open `ask`, `blocker` or `hold` whose text names the block, its card, or
@@ -38,6 +38,18 @@ never posts an event twice. Each record carries attributes a reader takes withou
 text: `event`, `session` and `block`; a decision's `verdict`; a pick's `picked` option ids and
 `other` for a write-in; and a triage.decided posts one record per row, with that row's `row`,
 `verdict` and `head`, keyed by the row as well.
+
+Each of those records that carries the owner's answer, every one but a triage row and a submit,
+also writes one `ccn answer add` in the drive's checkout as it posts: the card's title as the
+question, and as the body the owner's words verbatim, the card and block ids, the board and the
+Pacific time, labelled `from:owner`, `board-answer`, `program:<program>`, `board-session:<session>`,
+`board-card:<card>`, `board-block:<block>` and a `proof:board-watch:<key>` that keeps it to one row
+per record. A card whose answer has no row stays on the board: the long-running hooks refuse a
+remove-block, push or update-block that takes it off, and `board_cards.py sweep` leaves it up.
+
+A pick, write-in or pack pick that no `decide` or `claim` names by block id 30 minutes after its
+owner record is posted again as an `ask` to all on topic `uncited:<block>`, and at 60 minutes as a
+`blocker` to root, each once, keyed `uncited:<seq>` and `uncited-blocker:<seq>`.
 
 Each pick and write-in on the drive root's newest board, a choice.selected with option ids or
 `other` and an input.submitted with text, also asks root for a lane at once, unless it answers an
@@ -64,7 +76,9 @@ its `card` attribute holds on the board with `cc-present ask`. Each write is ans
 `backfill` posts one `owner` record, to `desk-runner`, for each verdict and pick `cc-present
 outcomes --all` holds for the session that no record carries the same way, at the time the
 owner made it, then reads the records again and exits 1, naming each, while any verdict or pick
-still differs: the landing runner reads taps only from records once this prints `verified`.
+still differs: the landing runner reads taps only from records once this prints `verified`. It also
+writes the ccn answer row for each answered block that has none, from the newest answer
+`cc-present outcomes --block` lists, and exits 1 naming each block still without one.
 
 `blanket` records an owner word that approves the whole board, such as "every pending PR on the
 board is approved", as one approved `owner` record per row of the newest `board-rows` snapshot
@@ -89,6 +103,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from long_running import answer_rows
 from long_running import board_rows
 from long_running import cci
 from long_running import drive
@@ -107,7 +122,13 @@ CREDENTIAL = re.compile(
 )
 REDACTED = "[credential redacted]"
 BOARDS = "boards"
-OWNER_EVENTS = frozenset({"decision.created", "choice.selected", "input.submitted", "feedback.created", "triage.decided", "submit"})
+OWNER_EVENTS = frozenset({"decision.created", "choice.selected", "input.submitted", "feedback.created", "pack.interaction", "triage.decided", "submit"})
+PICKS = frozenset({"choice.selected", "input.submitted", "pack.interaction"})
+CITING = ("decide", "claim")
+REPOST_AFTER = timedelta(minutes=30)
+ESCALATE_AFTER = timedelta(minutes=60)
+PICK_WINDOW = "3h"
+UNCITED = "uncited"
 OPEN_KINDS = ("ask", "blocker", "hold")
 BUS_LANE = board_rows.OWNER_LANE
 RUNNER = board_rows.RUNNER_LANE
@@ -173,9 +194,11 @@ class Shell:
         yield from self._watch(["cc-present", "watch", "--session", session])
 
     def document(self, session: str, block: str) -> dict | None:
-        argv = ["cc-present", "outcomes", "--session", session, "--block", block]
-        done = subprocess.run(argv, capture_output=True, text=True)
-        return json.loads(done.stdout).get("doc") if done.returncode == 0 else None
+        return (self.shown(session, block) or {}).get("doc")
+
+    def shown(self, session: str, block: str) -> dict | None:
+        done = subprocess.run(["cc-present", "outcomes", "--session", session, "--block", block], capture_output=True, text=True)
+        return json.loads(done.stdout) if done.returncode == 0 else None
 
     def outcomes(self, session: str) -> dict | None:
         done = subprocess.run(["cc-present", "outcomes", "--all", "--session", session], capture_output=True, text=True)
@@ -317,9 +340,17 @@ def told(event: dict, doc: dict | None) -> str:
             words = [*(["picked", quoted(labels) if (labels := picked(found, ids)) else "option " + ", ".join(ids)] if ids else []), *said("wrote", event.get("other"))]
         case {"type": "input.submitted"}:
             words = said("wrote", event.get("text"))
+        case {"type": "pack.interaction"}:
+            words = said("picked", packed(event.get("payload")))
         case _:
             words = said("noted", event.get("text"))
     return " ".join(words)
+
+
+def packed(payload: object) -> str | None:
+    if not payload:
+        return None
+    return payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
 
 def place(doc: dict | None, block: str) -> str:
@@ -372,6 +403,7 @@ def announce(event: dict, line: str, session: str, doc: dict | None, shell: Shel
     if event["type"] == "choice.selected":
         fields |= {"picked": ",".join(event.get("optionIds") or []), "other": "1" if event.get("other") else ""}
     answered = post_owner(shell, bus, key, announced(event, session, doc), block, named(event, doc), [], fields)
+    register(event, key, session, doc, shell, bus.drive)
     if wants_lane(event) and shell.root_session(bus.drive) in (None, session) and all(record["lane"] in ROOT_LANES for record in answered):
         ask_lane(event, key, session, doc, shell, bus)
 
@@ -382,7 +414,27 @@ def wants_lane(event: dict) -> bool:
             return bool(event.get("optionIds") or event.get("other"))
         case {"type": "input.submitted"}:
             return bool(event.get("text"))
+        case {"type": "pack.interaction"}:
+            return bool(event.get("payload"))
     return False
+
+
+def register(event: dict, key: str, session: str, doc: dict | None, shell: Shell, drive_name: str, moment: datetime | None = None) -> None:
+    if not answer_rows.answered(event):
+        return
+    if (entry := shell.entry(drive_name)) is None:
+        print(f"board-watch {session}: no drive registry entry names {drive_name}, so the answer on {event.get('blockId')} gets no ccn row", flush=True)
+        return
+    block = event["blockId"]
+    top = card_of(doc, block) or {}
+    title = top.get("title") or (find(doc, block) or {}).get("prompt") or block
+    proof = f"proof:board-watch:{key}"
+    listed = shell.ccn(entry["checkout"], ["answer", "list", "--label", proof, "--json"])
+    if listed.returncode == 0 and json.loads(listed.stdout or "[]"):
+        return
+    argv = answer_rows.add_argv(drive.program_of(entry), session, top.get("id") or block, block, title, CREDENTIAL.sub(REDACTED, told(event, doc)), moment or shell.now(), proof)
+    if (done := shell.ccn(entry["checkout"], argv)).returncode:
+        print(f"board-watch {session}: the ccn answer row for {block} did not write: {done.stderr.strip()}", flush=True)
 
 
 def ask_lane(event: dict, key: str, session: str, doc: dict | None, shell: Shell, bus: Bus) -> None:
@@ -427,14 +479,14 @@ def post_owner(shell: Shell, bus: Bus, key: str, text: str, block: str, names: l
     return resolves
 
 
-def bus_records(shell: Shell, drive_name: str, *filters: str) -> list[dict]:
+def bus_records(shell: Shell, drive_name: str, *filters: str, since: int | str = 0) -> list[dict]:
     def run(argv: list[str]) -> str:
         done = shell.cci(argv[1:])
         if done.returncode:
             raise RuntimeError(f"cci {' '.join(argv[1:3])} exited {done.returncode}: {done.stderr.strip()[:200]}")
         return done.stdout
 
-    return cci.records(run, drive_name, *filters)
+    return cci.records(run, drive_name, *filters, since=since)
 
 
 def board_records(shell: Shell, drive_name: str) -> list[dict]:
@@ -459,12 +511,45 @@ def post_snapshot(shell: Shell, bus: Bus, session: str, posted: dict) -> None:
 
 def keep_snapshot(shell: Shell, bus: Bus, session: str, stop: threading.Event) -> None:
     posted: dict = {}
+    reposted: set[str] = set()
     while True:
         if shell.stale():
             shell.reexec()
         post_snapshot(shell, bus, session, posted)
+        repost_uncited(shell, bus, session, reposted)
         if stop.wait(SNAPSHOT_SECONDS):
             return
+
+
+def repost_uncited(shell: Shell, bus: Bus, session: str, reposted: set[str]) -> None:
+    now = shell.now()
+    for record in bus_records(shell, bus.drive, "--lane", BUS_LANE, "--kind=owner", since=PICK_WINDOW):
+        fields = board_rows.attrs(record)
+        age = now - datetime.fromisoformat(record["at"])
+        if fields.get("session") != session or fields.get("event") not in PICKS or age < REPOST_AFTER:
+            continue
+        if fields["event"] == "choice.selected" and not (fields.get("picked") or fields.get("other")):
+            continue
+        kind, to, tag = ("blocker", "root", f"{UNCITED}-blocker") if age >= ESCALATE_AFTER else ("ask", "all", UNCITED)
+        key = f"{tag}:{record['seq']}"
+        if key in reposted or cited(shell, bus, fields["block"], record["seq"]):
+            continue
+        minutes = int(age.total_seconds() // 60)
+        text = f"UNCITED owner pick #{record['seq']} on board {session[:8]}: no decide or claim names {fields['block']} {minutes} minutes after it. {record['text']}"
+        argv = ["post", "--drive", bus.drive, "--lane", BUS_LANE, "--kind", kind, "--to", to, "--id", key, "--topic", f"{UNCITED}:{fields['block']}", "--re-seq", str(record["seq"]), *attr_args({"session": session, "block": fields["block"]}), "--text", CREDENTIAL.sub(REDACTED, text)]
+        if (done := shell.cci(argv)).returncode:
+            print(f"board-watch {session}: the uncited re-post of #{record['seq']} did not post: {done.stderr.strip()}", flush=True)
+            continue
+        reposted.add(key)
+
+
+def cited(shell: Shell, bus: Bus, block: str, after: int) -> bool:
+    pattern = re.compile(rf"(?<![\w-]){re.escape(block)}(?![\w-])", re.IGNORECASE)
+    done = shell.cci(["grep", block, "--fixed-strings", "--drive", bus.drive, "--json", "--budget", str(GREP_BYTES), *(f"--kind={kind}" for kind in CITING)])
+    if done.returncode:
+        return True
+    found = [json.loads(line) for line in done.stdout.splitlines() if line.strip()]
+    return any(record["seq"] > after and record["kind"] in CITING and record["drive"] == bus.drive and pattern.search(record["text"]) for record in found)
 
 
 def reopened(shell: Shell, session: str, block: str) -> bool:
@@ -589,7 +674,10 @@ def cmd_backfill(args: argparse.Namespace, shell: Shell) -> int:
         print(f"UNRECORDED {block} {row} {entry['verdict']} at {entry.get('head') or 'no head'}")
     for block, _ in picks:
         print(f"UNRECORDED {block} pick")
-    if verdicts or picks:
+    gaps = backfill_rows(shell, drive_name, args.session, outcomes)
+    for gap in gaps:
+        print(f"UNROWED {gap}")
+    if verdicts or picks or gaps:
         return 1
     triage = (outcomes.get("interactions") or {}).get("triage") or {}
     print(f"verified: every one of {sum(1 for rows in triage.values() for entry in rows.values() if entry.get('verdict'))} verdicts on board {args.session[:8]} stands in cci records")
@@ -613,6 +701,29 @@ def cmd_blanket(args: argparse.Namespace, shell: Shell) -> int:
         backfilled(shell, drive_name, f"blanket:{args.word}:{block}:{pr}:{head}", text, [pr], fields)
     print(f"blanket {args.word}: approved {', '.join(f'#{pr} at {head}' for pr, head, _ in shown['rows']) or 'no rows'}, the rows board {args.session[:8]} showed by {args.at}")
     return 0
+
+
+def backfill_rows(shell: Shell, drive_name: str, session: str, outcomes: dict) -> list[str]:
+    if (entry := shell.entry(drive_name)) is None:
+        return [f"no drive registry entry names {drive_name}, so no answer gets a ccn row"]
+
+    def ccn(argv: list[str]) -> str:
+        done = shell.ccn(entry["checkout"], argv)
+        if done.returncode:
+            raise RuntimeError(f"ccn {' '.join(argv[:2])} exited {done.returncode}: {done.stderr.strip()[:200]}")
+        return done.stdout
+
+    interactions = outcomes.get("interactions") or {}
+    blocks = {block for group in ("decisions", "choices", "inputs", "packs", "feedback") for block in interactions.get(group) or {}} - answer_rows.rowed(ccn, session)
+    owed = []
+    for block in sorted(blocks):
+        shown = shell.shown(session, block) or {}
+        if (found := answer_rows.newest(shown, {block}).get(block)) is None:
+            continue
+        owed.append(block)
+        register(found["payload"], f"backfill:{session}:{block}:{found['at']}", session, shown.get("doc"), shell, drive_name, datetime.fromisoformat(found["at"]))
+    have = answer_rows.rowed(ccn, session)
+    return [f"{block}: the owner's answer has no ccn answer row" for block in owed if block not in have]
 
 
 def backfilled(shell: Shell, drive_name: str, key: str, text: str, prs: list[str], fields: dict[str, str]) -> None:

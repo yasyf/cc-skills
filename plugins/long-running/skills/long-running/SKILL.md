@@ -717,11 +717,22 @@ every open ask, blocker or hold that names the block, its card or the merge row
 (`merge-row-<pr>`, `merge:<pr>`). A lane parked on a card names the block or card id in
 its ask and unparks on the `owner` record or its own closed ask, never on a root relay.
 
+Every answer the recorder posts, all but merge-row verdicts and round closes, is also a
+cc-notes answer in the drive's checkout as it posts: the card's title as the question,
+his words, the card and block ids, the board and the time as the body, labelled
+`board-answer` and `board-block:<block>`. A lane that asks whether he answered a card
+searches those rows (`ccn answer search`), not only the board, since a card leaves the
+board after he answers it. The hooks refuse a remove-block, push or update-block that
+takes an answered card off the board while an answer has no row, and
+`board_watch.py backfill` writes any row the recorder missed.
+
 Each pick and written answer on the root's board also gets a lane at once. The recorder
 files a `needs-lane` task on the drive's cc-notes backlog and posts an `ask` to root on
 topic `needs-lane:<block>`, unless the pick answers an open ask a lane posted. The root
 binds a lane by spawning one whose brief names the block or the ask, or by a lane's
-`claim` naming it; the stall watch raises any such ask unbound at 15 minutes. The
+`claim` naming it; the stall watch raises any such ask unbound at 15 minutes. A pick no
+`decide` or `claim` names by block id is posted again as an `ask` to all at 30 minutes and
+as a `blocker` to root at 60. The
 recorder also posts the board's rows as a `board-rows` record and applies the landing
 runner's `board-write` records, so the runner and the stall watch read the board only
 from cci. `board_watch.py backfill --session <id>` records every verdict the board already

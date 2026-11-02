@@ -7,7 +7,7 @@ import hashlib
 import json
 import subprocess
 import threading
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import board_watch
@@ -27,6 +27,8 @@ class RecordedShell(board_watch.Shell):
         self.refused = refused
         self.posts: list[list[str]] = []
         self.tasks: list[tuple[str, list[str]]] = []
+        self.rows: list[dict] = []
+        self.answers: dict[str, list[dict]] = {}
         self.root = SESSION
 
     def watch(self, session: str):
@@ -35,6 +37,9 @@ class RecordedShell(board_watch.Shell):
 
     def document(self, session: str, block: str) -> dict | None:
         return self.doc
+
+    def shown(self, session: str, block: str) -> dict | None:
+        return {"doc": self.doc, "onBoard": True, "answers": self.answers.get(block, [])}
 
     def spawn(self, target, *args) -> None:
         self.spawned = [*getattr(self, "spawned", []), target.__name__]
@@ -55,6 +60,12 @@ class RecordedShell(board_watch.Shell):
         return {"drive": drive_name, "program": drive_name, "checkout": "/checkouts/brook", "sessions": [SESSION]}
 
     def ccn(self, checkout: str, argv: list[str]) -> subprocess.CompletedProcess:
+        if argv[:2] == ["answer", "list"]:
+            wanted = {value for flag, value in zip(argv, argv[1:]) if flag == "--label"}
+            return subprocess.CompletedProcess(argv, 0, json.dumps([row for row in self.rows if wanted <= set(row["tags"])]), "")
+        if argv[:2] == ["answer", "add"]:
+            self.rows.append({"checkout": checkout, "title": argv[2], "body": argv[argv.index("--body") + 1], "tags": [value for flag, value in zip(argv, argv[1:]) if flag == "--label"]})
+            return subprocess.CompletedProcess(argv, 0, "{}", "")
         self.tasks.append((checkout, argv))
         return subprocess.CompletedProcess(argv, 0, json.dumps({"id": f"task{len(self.tasks)}abcdef", "title": argv[2]}), "")
 
@@ -501,3 +512,88 @@ def test_blanket_approves_the_rows_the_board_showed_at_the_owners_word_and_leave
     assert {row: (entry["verdict"], entry["head"], entry["at"]) for row, entry in verdicts.items()} == {"202": ("approved", "413b38e", "2026-10-30T07:00:00Z")}
     assert [attrs(post)["word"] for post in shell.posts] == ["312144"]
     assert capsys.readouterr().out.splitlines() == ["blanket 312144: approved #202 at 413b38e, the rows board board-1 showed by 2026-10-30T07:00:00Z"] * 2
+
+
+def test_each_owner_answer_gets_a_ccn_answer_row_with_his_words_card_and_time(tmp_path: Path) -> None:
+    """Owner 2:25 PM Nov 2: a write-in on a card later removed read as unanswered to two lanes; every OWNER record now writes its ccn answer row at once."""
+    shell = RecordedShell()
+    run(tmp_path, shell)
+
+    assert [row["tags"][-2].removeprefix("board-block:") for row in shell.rows] == ["share-open-pick", "share-open-pick", "board-notes", "share-open-pick", "update-confirm-ok", "banner-ok", "share-open-pick"]
+    first = shell.rows[0]
+    assert first["checkout"] == "/checkouts/brook"
+    assert first["body"].splitlines()[0] == "wrote \u201conly for the team, and only read-only\u201d"
+    assert first["body"].splitlines()[-1].endswith(f"block share-open-pick, board {SESSION}, Jan 1 7:04 PM PT.")
+    assert {"from:owner", "board-answer", "program:brook", f"board-session:{SESSION}"} <= set(first["tags"])
+    assert len({row["tags"][-1] for row in shell.rows}) == 7
+
+
+def test_an_answer_row_is_written_once_per_owner_record(tmp_path: Path) -> None:
+    shell = RecordedShell()
+    event = {"type": "choice.selected", "blockId": "share-open-pick", "optionIds": [], "other": "only read-only"}
+    for _ in range(2):
+        board_watch.register(event, "board:board-1:3:abcd1234", SESSION, shell.doc, shell, "brook")
+
+    assert len(shell.rows) == 1
+
+
+def test_a_pack_pick_reaches_the_bus_and_gets_a_row(tmp_path: Path) -> None:
+    shell = RecordedShell()
+    shell.watch = lambda session: iter(['{"blockId":"doc-fork","payload":{"fork":"b"},"schemaVersion":1,"type":"pack.interaction"}\n'])
+    run(tmp_path, shell)
+
+    assert shell.posted("--text") == ['Owner on board board-1, doc-fork: picked \u201c{"fork":"b"}\u201d, at {at}']
+    assert shell.posted("--topic", "ask") == ["needs-lane:doc-fork"]
+    assert [row["body"].splitlines()[0] for row in shell.rows] == ['picked \u201c{"fork":"b"}\u201d']
+
+
+class CiteShell(RecordedShell):
+    def __init__(self, owners: list[dict], cites: list[dict]) -> None:
+        super().__init__()
+        self.owners, self.cites = owners, cites
+
+    def cci(self, argv: list[str]) -> subprocess.CompletedProcess:
+        if argv[0] == "tail":
+            return subprocess.CompletedProcess(argv, 0, "".join(json.dumps(record) + "\n" for record in self.owners), "")
+        if argv[0] == "grep":
+            return subprocess.CompletedProcess(argv, 0, "".join(json.dumps(record) + "\n" for record in self.cites if argv[1] in record["text"]), "")
+        self.posts.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "#40\n", "")
+
+
+def pick(seq: int, block: str, minutes: int, event: str = "choice.selected", session: str = SESSION) -> dict:
+    at = (ARRIVED - timedelta(minutes=minutes)).isoformat()
+    return {"seq": seq, "drive": "brook", "lane": "board-watch", "kind": "owner", "at": at, "text": f"Owner on board {session[:8]}, {block}: picked \u201cYes\u201d, at {at}", "fields": {"attrs": {"event": event, "session": session, "block": block, "picked": "yes"}}}
+
+
+def test_an_owner_pick_no_decide_or_claim_cites_is_reposted_at_30_minutes_and_escalated_at_60() -> None:
+    """Root 2:42 PM Nov 2 (board-audit-1): a pick no lane picks up is re-posted at 30 minutes and goes to root as a blocker at 60."""
+    owners = [pick(5, "q-thirty", 35), pick(6, "q-sixty", 65), pick(7, "q-cited", 65), pick(8, "q-fresh", 10), pick(9, "q-other", 65, session="other-board"), pick(10, "q-pack", 40, event="pack.interaction")]
+    cites = [{"seq": 12, "drive": "brook", "kind": "decide", "lane": "root", "text": "api-lane: build q-cited as picked"}, {"seq": 3, "drive": "brook", "kind": "claim", "lane": "api-lane", "text": "claim q-thirty"}]
+    shell, reposted = CiteShell(owners, cites), set()
+    bus = board_watch.Bus("brook", 0)
+    board_watch.repost_uncited(shell, bus, SESSION, reposted)
+    board_watch.repost_uncited(shell, bus, SESSION, reposted)
+
+    assert [(post[post.index("--kind") + 1], post[post.index("--to") + 1], post[post.index("--id") + 1], post[post.index("--re-seq") + 1]) for post in shell.posts] == [
+        ("ask", "all", "uncited:5", "5"),
+        ("blocker", "root", "uncited-blocker:6", "6"),
+        ("ask", "all", "uncited:10", "10"),
+    ]
+    assert shell.posts[1][shell.posts[1].index("--text") + 1].startswith("UNCITED owner pick #6 on board board-1: no decide or claim names q-sixty 65 minutes after it.")
+
+
+TIMED = {"type": "choice.selected", "origin": "human", "at": "2026-10-27T02:00:00-07:00", "round": 3, "payload": {"blockId": "eviction-route-choice", "optionIds": ["eviction-route-app"], "type": "choice.selected", "schemaVersion": 1}}
+
+
+def test_backfill_writes_a_row_for_each_answered_block_that_lacks_one(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    shell = BoardShell(SNAPSHOT_DOC, interactions={"choices": {"eviction-route-choice": {"optionIds": ["eviction-route-app"]}}})
+    shell.answers = {"eviction-route-choice": [TIMED]}
+
+    assert board_watch.main(["backfill", "--session", SESSION, "--program", "brook"], shell) == 0
+
+    [row] = shell.rows
+    assert "board-card:card-eviction" in row["tags"] and "board-block:eviction-route-choice" in row["tags"]
+    assert row["body"].splitlines()[-1] == f"Card card-eviction, block eviction-route-choice, board {SESSION}, Oct 27 2:00 AM PT."
+    assert board_watch.main(["backfill", "--session", SESSION, "--program", "brook"], shell) == 0
+    assert len(shell.rows) == 1
