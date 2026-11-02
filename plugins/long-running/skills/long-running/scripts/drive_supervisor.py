@@ -37,6 +37,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from long_running import cci
 from long_running import drive as lr_drive
 from long_running import release
 from lr import config as lr_config
@@ -290,6 +291,7 @@ def lanes_deps(config: lr_config.Config, state: Path) -> lanes.Deps:
         withdraw=lambda name: desk_launch(briefs, name, "withdraw", name, "--drive", config.drive, "--lane", lanes.SELF),
         wake=Waker(config.drive, clock),
         pr_states=PrStates(config.repo, clock),
+        held=lambda: {int(pr) for pr in cci.held_prs(run, config.drive)},
         rotate_at=rotate_at(),
     )
 

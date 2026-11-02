@@ -47,6 +47,7 @@ class Fake:
         self.wakes: list[str] = []
         self.pages: list[dict | None] = []
         self.states: dict[int, str] = {}
+        self.holds: set[int] = set()
         self.deps = lanes.Deps(
             drive=DRIVE,
             checkout=CHECKOUT,
@@ -60,6 +61,7 @@ class Fake:
             withdraw=self.withdrawals.append,
             wake=lambda name, row, page: self.wakes.append(name) is None and self.pages.append(page) is None,
             pr_states=lambda prs: {n: self.states.get(n, "closed") for n in prs},
+            held=lambda: self.holds,
             rotate_at=600_000,
         )
 
@@ -979,6 +981,29 @@ def test_a_root_stand_down_after_the_lanes_own_done_still_hands_its_prs_to_root(
     kinds = [(argv[argv.index("--kind") + 1], argv[argv.index("--to") + 1], argv[-1]) for argv in fake.posts]
     assert not [post for post in kinds if post[1] == "conflicts-2" and post[0] != "stand-down"]
     assert store.owner_of([45492, 46512]) == {45492: "root", 46512: "root"}
+
+
+@pytest.mark.parametrize("shown", [(), ("hold",), ("decide",), ("done",), ("hold", "decide", "done")])
+def test_a_needs_work_wake_skips_a_held_pr_a_pr_root_moved_and_a_lane_that_posted_done(tmp_path, brief, shown):
+    """Root #328888, devbox-explore-7 #328884: the supervisor asked devbox-explore-7 about #46107 at 5:32, 6:46, 7:47 and 8:48 AM under root hold 322779, root's 324090 moving it to root, and the lane's done 327447."""
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store, prs=(46107,))
+    said = {
+        "hold": record(2, "root", "hold", T0 - timedelta(minutes=99), "hold #46107: held per its earlier root decide; no work owed by any lane until the hold lifts", ("supervisor", "conflicts-2"), {"prs": ["o/r#46107"]}),
+        "decide": record(3, "root", "decide", T0 - timedelta(minutes=98), "root: #47491 moves to p8a-step7 under its existing typed hold; #46107 stays under its typed hold with root as owner until a lane needs it. conflicts-2 is done (registry request filed).", ("conflicts-2",)),
+        "done": record(4, "conflicts-2", "done", T0 - timedelta(minutes=97), "conflicts-2 retired per root 324090: #46107 is root-owned under typed hold 322779", ("root", "supervisor")),
+    }
+    fake.feed += [said[kind] for kind in shown]
+    fake.holds = {46107} if "hold" in shown else set()
+    fake.states = {46107: "needs-work"}
+    store.lane_heard("conflicts-2", T0 - timedelta(minutes=90), "state")
+    fake.peers = [who("conflicts-2", True, T0, roster="/teams/session-d50e80e8")]
+
+    lanes.tick(store, fake.deps, T0, 1)
+
+    asked = [argv for argv in fake.posts if argv[argv.index("--to") + 1] == "conflicts-2" and argv[argv.index("--kind") + 1] == "ask"]
+    assert bool(asked) == (shown == ())
+    assert store.owner_of([46107])[46107] == ("root" if "decide" in shown else "conflicts-2")
 
 
 def test_a_held_lane_that_posts_again_is_live_and_a_pr_root_opened_for_it_is_the_lanes(tmp_path, brief):

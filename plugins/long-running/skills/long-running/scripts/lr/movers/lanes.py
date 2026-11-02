@@ -72,6 +72,7 @@ STRIKE_WINDOW = 2 * STALE_AFTER
 PAGE_ANSWER = 2 * STALE_AFTER
 LIVE_WITHIN = 4 * STALE_AFTER
 OWNER = re.compile(r"\bowner=([\w.-]+)")
+OWNER_CLAUSE = re.compile(r"#(?P<pr>\d+)\b[^.;#]*?\b(?:moves to (?P<to>[\w.-]+)|with (?P<named>[\w.-]+) as owner)")
 LAST_READ = re.compile(r"\blast-read=#?(?P<seq>\d+)\b")
 UNREAD = " down or hand its PRs on, but it "
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -104,6 +105,7 @@ class Deps:
     withdraw: Callable[[str], None]
     wake: Callable[[str, dict, dict | None], bool]
     pr_states: Callable[[list[int]], dict[int, str]]
+    held: Callable[[], set[int]]
     rotate_at: int
 
 
@@ -385,6 +387,12 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             store.own(owner[1], numbers := prs_of(record))
             if live is None and numbers and (probe := store.probes().get(owner[1])) and probe["dead"]:
                 dead.append(f"{owner[1]} for {' '.join(f'#{n}' for n in numbers)}: root named it owner at {pacific(at)}, but it left the supervisor's {pacific(probe['asked'])} ask unanswered; {successor_note(store, owner[1])}")
+        elif kind == "decide" and lane == ROOT and (moves := [(int(found["pr"]), found["to"] or found["named"]) for found in OWNER_CLAUSE.finditer(text)]):
+            running = {other.name for other in store.lanes(*LIVE)}
+            for number, name in moves:
+                held_by = store.owner_of([number]).get(number)
+                if name == ROOT or store.lane(name) and not (live is None and held_by in running and held_by != name and unread_by(store, record, held_by, cited_in(record))):
+                    store.own(name, [number])
         elif lane == ROOT and (moved := REPLACES.search(text)) and (old := store.lane(moved["old"])) and old.state in LIVE and (taker := store.lane(moved["new"])):
             if live is None and (why := unread_by(store, record, old.name, cited_in(record))):
                 unread.append((old.name, why))
@@ -415,13 +423,17 @@ def successor_note(store: Store, name: str) -> str:
 
 
 def probe_owners(store: Store, deps: Deps, found: dict[str, Peer], now: datetime) -> None:
-    """Ask each lane that has posted nothing for `LIVE_WITHIN` and owns a PR needing work (conflicting, red, or not approved) whether it is there, waking it if it idles on a roster, and name it to root only if the ask goes unanswered for `STALE_AFTER`; a green, approved, conflict-free PR waits only on the owner's tap and needs no live owner. A PR root holds because it stood down its lane with no successor is named to root once each time it comes to need work (root #280532)."""
+    """Ask each lane that has posted nothing for `LIVE_WITHIN` and owns a PR needing work (conflicting, red, or not approved) whether it is there, waking it if it idles on a roster, and name it to root only if the ask goes unanswered for `STALE_AFTER`; a green, approved, conflict-free PR waits only on the owner's tap and needs no live owner. A PR root holds because it stood down its lane with no successor, or whose owner retired, is named to root once each time it comes to need work (root #280532). A PR an open typed hold covers owes no work and is asked about nowhere (root #328888)."""
     heard, probes, lines = store.heard(), store.probes(), []
     for name in [name for name, probe in probes.items() if name in heard and heard[name] > probe["asked"]]:
         store.unprobe(name)
         probes.pop(name)
-    owners = store.owners()
-    unowned = owners.pop(ROOT, [])
+    try:
+        holds = deps.held()
+    except Unread:
+        return
+    owners = {name: [n for n in prs if n not in holds] for name, prs in store.owners().items()}
+    unowned = [n for name in {ROOT, *(lane.name for lane in store.lanes("retired"))} & owners.keys() for n in owners.pop(name)]
     quiet = {name: prs for name, prs in owners.items() if not (since := heard.get(name)) or now - since >= LIVE_WITHIN}
     try:
         states = deps.pr_states(sorted({n for prs in [*quiet.values(), unowned] for n in prs}))
