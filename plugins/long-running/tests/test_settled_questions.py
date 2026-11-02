@@ -99,6 +99,7 @@ class Judge:
 
 @pytest.fixture
 def judge(monkeypatch: pytest.MonkeyPatch) -> Judge:
+    monkeypatch.setenv("LONG_RUNNING_JUDGE", "sonnet+jev")
     judged = Judge()
     monkeypatch.setattr(subprocess, "run", judged.run(subprocess.run))
     return judged
