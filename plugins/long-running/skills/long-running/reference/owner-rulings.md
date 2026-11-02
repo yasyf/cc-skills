@@ -133,11 +133,11 @@ JUDGE <kind> #<seq> <key>: <sentence>
 
 ## Run `judge.py` and `judge-eval.py`
 
-**All small-model judge calls go through `scripts/long_running/judge.py`.** Callers with multiple questions of the same shape in a single pass, such as the stall watch, pass them in one `batch` call on the command line.
+**All small-model judge calls go through `scripts/long_running/judge.py`.** Callers with multiple questions of the same shape in a single pass, such as the stall watch, pass them in one `batch` call on the command line. That `batch` call calls Sonnet once, whatever `LONG_RUNNING_JUDGE` says.
 
 Core `judge.py` behaviors:
 - Verbatim input: Every judge reads the owner's verbatim words and the question those words answered, never the register's summaries.
-- Double-check on `yes`: When the first model call returns `yes`, `judge.py` asks a second time. A split between the two calls resolves to `unsure`, which never warns.
+- Disagreement stays `unsure`, which never warns.
 - Fail-open on errors: A failed model call returns nothing, preserving the caller's non-judge behavior.
 - Logging and digests: Each call appends one JSON line to `judge/calls.jsonl` in the drive's state folder. `drive.py digest` prints each judge kind's verdicts, errors, and latency over the last 24 hours.
 
@@ -145,10 +145,10 @@ Core `judge.py` behaviors:
 
 | `LONG_RUNNING_JUDGE` value | Behavior |
 | --- | --- |
-| `sonnet+jev` (default) | Asks Sonnet at low effort with Claude Code's system prompt replaced; uses `TypeSafe` Jev to settle a first answer of `unsure`. |
+| `jev+sonnet` (default) | Asks Jev first and returns a nonflagged verdict without calling Sonnet. A flagged Jev verdict gets one confirmation from Sonnet at low effort with Claude Code's system prompt replaced. |
+| `sonnet+jev` | Sonnet answers first, and Jev settles a first answer of `unsure`. |
 | `sonnet` | Uses Sonnet only. |
-| `jev` | Uses `TypeSafe` Jev only. |
-| `jev+sonnet` | Asks `TypeSafe` Jev first and uses Sonnet to settle `unsure`. |
+| `jev` | Uses Jev only. |
 
 **`judge-eval.py <fixtures>` benchmarks backends offline.** It scores every backend against fixture files stored in the drive's state folder, which stays local because the fixtures contain the owner's words. Because `judge-eval.py` makes live model calls, operators or lanes run it by hand before shipping a judge or changing a prompt, and never run it in CI.
 
