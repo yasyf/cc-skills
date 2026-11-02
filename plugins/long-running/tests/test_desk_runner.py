@@ -15857,6 +15857,23 @@ def test_a_lanes_accept_answer_settles_its_record_once_a_later_root_go_stands_on
     assert job["settled"] == {str(reviews[0]): go}
 
 
+
+def test_a_rebuttal_citing_a_root_decide_about_the_pr_settles_the_record_it_answers(shell, config):
+    """#330745: p8a-step7 rebutted a fidelity missing on #47794 citing root decision #329552, and the restack's patch-identical head graded the same missing again."""
+    finder_config(config)
+    orca_pass(shell, config)
+    decide = 149000 + len(shell.records)
+    shell.records.append({"seq": decide, "drive": "d1", "lane": "root", "kind": "decide", "to": ["p8b-step10"], "text": "9:28 AM root: (1) #44114 lands as is with the two launch tests moved, not dropped.", "at": actions.stamp(shell.clock)})
+    unrelated = 149000 + len(shell.records)
+    shell.records.append({"seq": unrelated, "drive": "d1", "lane": "root", "kind": "decide", "to": ["p8b-step10"], "text": "9:30 AM root: #45000 waits on its owner.", "at": actions.stamp(shell.clock)})
+    reviews = [finder_review(shell, "44114", f"finder: major {FINDER_OLD} 1 open over whole {FINDER_OLD[:7]}^..{FINDER_OLD[:7]}: go/{name}.go:1 drops a write", lane="finder-desk") for name in ("a", "b")]
+    for re_seq, cited in ((reviews[0], decide), (reviews[1], unrelated)):
+        shell.records.append({"seq": 149000 + len(shell.records), "drive": "d1", "lane": "p8b-step10", "kind": "note", "to": ["finder-desk"], "re": re_seq, "refs": {"prs": ["Forge-AI/monorepo#44114"]}, "text": f"Rebut: the tests moved, not dropped, by root decision #{cited}.", "at": actions.stamp(shell.clock)})
+    head_record(shell, "44114", FINDER_HEAD)
+    orca_pass(shell, config)
+    [job] = finder_jobs(shell)
+    assert job["settled"] == {str(reviews[0]): decide}
+
 def test_finders_past_the_cap_wait_queued_and_start_as_running_ones_finish(shell, config, capsys):
     finder_config(config, concurrent=2, model="astra", to=["fidelity-desk"])
     orca_pass(shell, config)

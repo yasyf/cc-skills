@@ -5161,7 +5161,7 @@ class Runner:
         return True
 
     def root_settled(self, repo: str, pr: str, named: list[dict]) -> dict[str, int]:
-        """Each finder or fidelity record of `named` root settled, keyed by its seq, with the oldest record that settled it: a root `decide` naming it by `--re` or `--resolves`, or one about `pr` that says settled and came after it (root #182456), or a `finder-override`, `fidelity-override` or finder clear naming its head (root #278140, #287102), or the first root `go` or `decide` about `pr` after a lane's `accept` answer naming it by `--re` (root #273671)."""
+        """Each finder or fidelity record of `named` root settled, keyed by its seq, with the oldest record that settled it: a root `decide` naming it by `--re` or `--resolves`, or one about `pr` that says settled and came after it (root #182456), or a `finder-override`, `fidelity-override` or finder clear naming its head (root #278140, #287102), or the first root `go` or `decide` about `pr` after a lane's `accept` answer naming it by `--re` (root #273671), or a root `decide` about `pr` that a lane's `note` or `answer` rebutting it by `--re` cites, so a restack that carries a rebutted `missing` carries the rebuttal too (root #330745)."""
         if not (seqs := {record["seq"] for record in named}):
             return {}
         drive_id = self.config.drive
@@ -5178,6 +5178,12 @@ class Runner:
                 or record["text"].startswith(FIDELITY_MISSING) and record["seq"] < decide["seq"] and overridden(decide, FIDELITY_OVERRIDE, pr, graded_head(record["text"]))
             }
             settled |= {str(seq): decide["seq"] for seq in named_by | said | cleared if str(seq) not in settled}
+        rebuttals = [record for record in cci.records(self.cci_tail, drive_id, "--kind=note", "--kind=answer", "--pr", f"{repo}#{pr}", since=min(seqs)) if record["drive"] == drive_id and record.get("re") in seqs and str(record["re"]) not in settled]
+        if cited := sorted({int(seq) for record in rebuttals for seq in CITED_RECORD.findall(full_text(record))}):
+            rulings = {record["seq"] for record in cci.selected_records(self.cci_tail, drive_id, cited) if (record["kind"], record["lane"], record["drive"]) == ("decide", ROOT, drive_id) and about_pr(record, repo, pr)}
+            for record in rebuttals:
+                if str(record["re"]) not in settled and (ruling := next((int(seq) for seq in CITED_RECORD.findall(full_text(record)) if int(seq) in rulings), None)):
+                    settled[str(record["re"])] = ruling
         accepted = [answer for answer in cci.records(self.cci_tail, drive_id, "--kind=answer", "--pr", f"{repo}#{pr}") if answer["drive"] == drive_id and answer.get("re") in seqs and ACCEPTED.match(answer["text"])]
         if not accepted:
             return settled
