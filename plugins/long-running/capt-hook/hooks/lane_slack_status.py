@@ -16,14 +16,14 @@ CLI = CommandSchema(
     operands=(Operand("words", count="*"),),
     options=tuple(Option(name, (f"--{name}",)) for name in ("agent", "blocks", "card", "channel", "cwd", "file", "session", "text", "thread", "ts", "url", "user")),
 )
-STATUS_TOPIC = re.compile(r"\b(?:releas(?:e[sd]?|ing)|smoke|flak(?:e[sy]?|iness)|progress)\b", re.IGNORECASE)
+STATUS_TOPIC = re.compile(r"\b(?:releas(?:e[sd]?|ing)|smoke|flak(?:e[sy]?|y|iness)|progress)\b", re.IGNORECASE)
 CITED = re.compile(r"#(\d{5,})\b")
 READ_SECONDS = 10
 ACTIVE = [CompactionState(active=True)]
 LANE = {"CLAUDE_LONG_RUNNING_LANE": "release-5"}
 STATUS_REFUSED = (
-    "A drive lane writes nothing to Slack about a release, smoke run, flake or progress unless the owner asked for that write, cited by his record's seq."
-    " Report it to root on cci instead, or cite the owner record that asks for this post."
+    "A drive lane writes nothing to Slack about a release, smoke run, flake or progress unless an owner record requests that post."
+    " Report it to root on cci instead, or cite that owner record's seq in the post."
 )
 
 
@@ -60,7 +60,7 @@ def owner_asked(text: str) -> bool:
     only_if=[Tool("Bash", *WRITE_TOOLS)],
     tests={
         Input(tool=f"{CC_SLACK}slack_send", tool_input={"channel_id": "C0RELEASES1", "text": "Release 11927 converged on every cluster"}, env=LANE): Block(pattern=r"^A drive lane writes nothing to Slack about a release"),
-        Input(tool=f"{CC_SLACK}slack_reply", tool_input={"channel_id": "C0RELEASES1", "thread_ts": "1.2", "text": "smoke passed on staging"}, agent_id="a1b2c3", state=ACTIVE): Block(pattern=r"cite the owner record"),
+        Input(tool=f"{CC_SLACK}slack_reply", tool_input={"channel_id": "C0RELEASES1", "thread_ts": "1.2", "text": "smoke passed on staging"}, agent_id="a1b2c3", state=ACTIVE): Block(pattern=r"cite that owner record"),
         Input(tool=f"{CC_SLACK}slack_dm_status", tool_input={"card": {"title": "Progress: 4 of 9 PRs landed", "body": "on track"}}, env=LANE): Block(),
         Input(command="cc-slack send --channel C0RELEASES1 --text 'flaky test quarantined'", env=LANE): Block(),
         Input(tool=f"{CC_SLACK}slack_send", tool_input={"channel_id": "C0RELEASES1", "text": "Release 11927 converged on every cluster"}, state=ACTIVE): Allow(),
