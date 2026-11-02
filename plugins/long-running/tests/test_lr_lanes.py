@@ -395,8 +395,8 @@ def test_a_fresh_store_adopts_a_live_lane_silent_for_hours_and_never_relaunches_
     assert out.adopted == ["conflicts-2"] and fake.launches == [] and store.lane("conflicts-9") is None
 
 
-def test_a_numbered_spawn_that_names_no_predecessor_retires_nothing(tmp_path, brief):
-    """The name-matching successor lookup is gone: `conflicts-7` launching says nothing about `conflicts-2` unless its launch names it."""
+def test_a_numbered_spawn_that_names_no_predecessor_still_takes_its_familys_older_lane(tmp_path, brief):
+    """cc-skills#1737: until no record in the replay window predates `successor-of`, `conflicts-7` launching retires `conflicts-2` and takes its PRs, so a replay keeps the lanes those launches retired."""
     store = Store.memory()
     fake = adopted(tmp_path, brief, store, prs=(46001,))
     fake.feed.append(spawned(2, "conflicts-7", brief, at=T0 - timedelta(minutes=1)))
@@ -404,7 +404,7 @@ def test_a_numbered_spawn_that_names_no_predecessor_retires_nothing(tmp_path, br
 
     lanes.tick(store, fake.deps, T0, 1)
 
-    assert store.lane("conflicts-2").state == "desired" and store.owner_of([46001]) == {46001: "conflicts-2"}
+    assert store.lane("conflicts-2").retired_by == "conflicts-7" and store.owner_of([46001]) == {46001: "conflicts-7"}
 
 
 def test_a_handoff_writers_record_is_the_newest_handoff_of_the_lane_holding_the_work(tmp_path, brief):
