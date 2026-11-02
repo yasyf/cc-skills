@@ -53,6 +53,7 @@ class Root:
             f"ccn -R {self.home} log show": sweeps(5),
             f"ccn -R {self.home} answer list": "[]",
             "cc-present outcomes": json.dumps({"revising": {"blockIds": []}}),
+            gate.BOARD_CARDS: "",
         }
 
 
