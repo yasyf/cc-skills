@@ -282,6 +282,8 @@ REASSIGNS = re.compile(r"\breassign", re.IGNORECASE)
 CLAUSE = re.compile(r"[;\n]|\.\s")
 REASSIGNED_TO = re.compile(r"\bto\s+([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b")
 QUIET = timedelta(minutes=10)
+ROUTED = re.compile(r"\bowner=[\w.-]+|\bGO fix lane\b")
+PER_PR = frozenset({"REFUSED by"})
 PR_KINDS = frozenset({"go", "refusal", "red", "unclassed", "unfixed", "tap", "ungraded", "finder", "fidelity", "missing", "regrade", "board", "carry", "stale"})
 BOARD_KINDS = frozenset({"tap", "board", "carry"})
 REVIEW_HELD = frozenset({"neutral", "failure"})
@@ -1537,11 +1539,11 @@ class Pass:
         return stalls
 
     def acked(self, records: list[dict]) -> dict[str, tuple[Stall, list[tuple[dict, dict]]]]:
-        """Each defect class root acknowledged `ACKS["urgent"]` or more times in the last `ACK_WINDOW` with no fix PR, as its stall and its (defect, acknowledgement) pairs, oldest first."""
-        targets = {record["seq"]: record for record in records if record["kind"] in ACK_TARGETS and record["lane"] not in NOT_LANES - {RUNNER} and DEFECT_TAG.match(record.get("text") or "")}
+        """Each defect class root acknowledged `ACKS["urgent"]` or more times in the last `ACK_WINDOW` with no fix PR, as its stall and its (defect, acknowledgement) pairs, oldest first; a root record naming `owner=<lane>` or `GO fix lane` routes the defect and is no acknowledgement, and a per-PR queue eviction (`REFUSED by`) is never one class (root #311841)."""
+        targets = {record["seq"]: record for record in records if record["kind"] in ACK_TARGETS and record["lane"] not in NOT_LANES - {RUNNER} and DEFECT_TAG.match(record.get("text") or "") and defect_class(record) not in PER_PR}
         pairs: dict[str, list[tuple[dict, dict]]] = {}
         for ack in records:
-            if ack["lane"] not in ROOT_NAMES or ack["kind"] not in ACK_KINDS or self.now - at(ack) > ACK_WINDOW or FIX_PR.search(grades.full_text(ack)):
+            if ack["lane"] not in ROOT_NAMES or ack["kind"] not in ACK_KINDS or self.now - at(ack) > ACK_WINDOW or FIX_PR.search(said := grades.full_text(ack)) or ROUTED.search(said):
                 continue
             named = {ack.get("re"), *cci.resolved(ack), *(int(seq) for seq in SEQ_NAMED.findall(ack.get("text") or ""))}
             for seq in sorted(named & targets.keys()):
