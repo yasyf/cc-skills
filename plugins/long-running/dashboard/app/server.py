@@ -44,6 +44,7 @@ LEDGER_KINDS = {"landed", "go", "opened", "head", "hold", "lift"}
 LIVE_SOURCES = ["cc-present store: taps and questions", "cci bus: records and workers", "drive ledger in cc-notes: pull request states, re-read on every landing, go, head, opened, hold or lift record", "progress-desk steps.json: the step rows", "findings ledger in cc-notes: open sweep findings and owner picks, re-read every 5 minutes", "retro table in cc-notes through retro.py: what failed and what stops it, re-read every 5 minutes"]
 REBUILD_AFTER = 2.0
 LIVE_REFRESH = 5.0
+SNAPSHOT_EVERY = 60.0
 DELTAS_KEPT = 30
 LAZY_KEYS = ("prs", "history", "drive", "records", "pr_state", "lanes")
 NOW_DRAWS = ("needs", "board", "brief", "milestone_state", "pages", "workers", "now", "status_now")
@@ -264,14 +265,19 @@ def now_view(view):
     }
 
 
-def digests_of(view):
-    return {key: hashlib.sha1(json.dumps(value).encode()).digest() for key, value in view.items()}
+def encoded(value):
+    piece = json.dumps(value).encode()
+    return value, piece, hashlib.sha1(piece).digest()
 
 
-def changed_since(version, view, digests, past):
-    if not past or past.keys() != digests.keys():
+def joined(pieces, keys):
+    return b"{" + b", ".join(json.dumps(key).encode() + b": " + pieces[key][1] for key in keys) + b"}"
+
+
+def changed_since(version, pieces, past):
+    if not past or past.keys() != pieces.keys():
         return None
-    return {"version": version, "changed": {key: view[key] for key, digest in digests.items() if past[key] != digest}}
+    return b'{"version": %d, "changed": %s}' % (version, joined(pieces, [key for key, (_, _, digest) in pieces.items() if past[key] != digest]))
 
 
 def part_of(title, parts):
@@ -321,6 +327,10 @@ def drive_prs(prs, rows, gos, records, trees, tree_names, steps, parts, holds, n
         for number in {*PR_MENTION.findall(record["text"]), *([record["topic"]] if re.fullmatch(r"\d{5}", record.get("topic") or "") else [])}:
             said[(record["lane"], number)] = {"seq": record["seq"], "at": record["at"], "text": record["text"][:600]}
     by_branch = {pr["branch"]: number for number, pr in prs.items() if pr.get("state") == "open" and pr.get("branch")}
+    step_of = {}
+    for step in steps:
+        for n in step["prs"]:
+            step_of.setdefault(n, step["id"])
     listed = []
     for number, pr in sorted(prs.items()):
         if pr.get("state") not in ("open", "landed", None):
@@ -339,7 +349,7 @@ def drive_prs(prs, rows, gos, records, trees, tree_names, steps, parts, holds, n
             "base_failing": bool(base) and prs[base].get("test_state") == "failure",
             "tree": next((name for name in tree_names if name in found), tree_names[-1]),
             "part": part_of(pr.get("title"), parts),
-            "step": next((step["id"] for step in steps if int(number) in step["prs"]), None),
+            "step": step_of.get(int(number)),
             "worker": active.get(number),
             "head": (pr.get("head") or "")[:7],
             "owner": owner,
@@ -527,11 +537,18 @@ def journeys(drive, steps, releases, needs, records, prs, progress_now, tree_nam
     red_missing = [f"#{entry['number']} {check['name']}: its first error line (ledger writer failing_checks error)" for entry in red_entries for check in entry["checks"] if not check.get("error")]
 
     since = now - dt.timedelta(hours=6)
+    freed_by, finished_by = {}, {}
+    for entry in drive["prs"]:
+        if entry["state"] != "landed":
+            freed_by.setdefault(entry["base"], []).append(entry["number"])
+    for step in steps:
+        if step["tone"] == "done":
+            finished_by.setdefault(max((str(item["number"]) for item in step["prs"]), key=lambda n: prs.get(n, {}).get("landed_at") or "", default=None), []).append(step["label"])
     happened = []
     for number, pr in prs.items():
         if pr.get("landed_at") and at(pr["landed_at"]) >= since:
-            freed = [entry["number"] for entry in drive["prs"] if entry["base"] == int(number) and entry["state"] != "landed"]
-            done = [step["label"] for step in steps if step["tone"] == "done" and number == max((str(item["number"]) for item in step["prs"]), key=lambda n: prs.get(n, {}).get("landed_at") or "", default=None)]
+            freed = freed_by.get(int(number), [])
+            done = finished_by.get(number, [])
             happened.append((pr["landed_at"], answer_line(
                 f"#{number} {pr.get('title', '')} landed",
                 since=pr["landed_at"], next="; ".join([*(f"#{n} can now land" for n in freed), *(f"finishes step {label}" for label in done)]) or None, href=f"#/review/{number}", label=f"#{number}",
@@ -853,6 +870,13 @@ class Drive:
         self.serving = threading.Condition()
         self.served = None
         self.live_model = None
+        self.watchers = 0
+        self.asked_at = 0.0
+        self.live_at = 0.0
+        self.snapshot_at = 0.0
+        self.pieces = {}
+        self.files = {}
+        self.merged_history = None
         self.digests = deque(maxlen=DELTAS_KEPT)
         self.slow = {}
         self.slow_at = 0.0
@@ -867,7 +891,7 @@ class Drive:
         self.gos = {}
         self.carried = {}
         self.ci_fixes = set()
-        self.board_raw = None
+        self.board_doc = None
         self.curator = Curator(config, self.curator_model, self.bump)
         self.status_now = None
         self.status_rejected = None
@@ -876,10 +900,11 @@ class Drive:
         self.stories = Stories(config, self.lane_names, self.worker_reports)
 
     def curator_model(self):
-        while "prs" not in self.model:
-            time.sleep(1)
         with self.serving:
-            self.serving.wait_for(lambda: self.live_model is not None)
+            self.watchers += 1
+            asked = self.asked_at = time.monotonic()
+            self.serving.wait_for(lambda: self.live_model is not None and self.live_at >= asked)
+            self.watchers -= 1
             live = self.live_model
         return {**live, "fetch": self.fetch}
 
@@ -1133,45 +1158,85 @@ class Drive:
 
     def restore(self, snapshot):
         if snapshot.exists():
-            lean = gzip.decompress(snapshot.read_bytes())
-            cut = json.dumps(now_view(json.loads(lean))).encode()
-            self.served = {"version": json.loads(lean)["version"], "full": None, "lean": (lean, snapshot.read_bytes()), "now": (cut, gzip.compress(cut, 5))}
+            zipped = snapshot.read_bytes()
+            lean = gzip.decompress(zipped)
+            view = json.loads(lean)
+            cut = json.dumps(now_view(view)).encode()
+            self.served = {"version": view["version"], "sig": None, "live": None, "views": {}, "bodies": {("lean",): (lean, zipped), ("now",): (cut, gzip.compress(cut, 5))}}
 
-    def serve_loop(self, snapshot):
+    def refresh_loop(self, snapshot):
         seen = None
         while True:
-            with self.changed:
-                self.changed.wait_for(lambda: self.version != seen, timeout=LIVE_REFRESH)
-                seen = self.version
-                model = dict(self.model)
-            if "prs" not in model or (live := self.live_or_report(model)) is None:
-                continue
-            sig = hashlib.sha256(json.dumps({**browser_view(live), "version": None}).encode()).hexdigest()
-            if self.served and self.served.get("sig") == sig:
-                continue
-            version = (self.served["version"] if self.served else 0) + 1
-            live = {**live, "version": version}
-            view = browser_view(live)
-            now = now_view(view)
-            full, lean, cut = json.dumps(live).encode(), json.dumps(view).encode(), json.dumps(now).encode()
-            zipped = gzip.compress(lean, 5)
-            views = {"lean": (view, digests_of(view)), "now": (now, digests_of(now))}
+            time.sleep(0.5)
             with self.serving:
-                self.live_model = live
-                self.served = {"version": version, "sig": sig, "full": (full, gzip.compress(full, 5)), "lean": (lean, zipped), "now": (cut, gzip.compress(cut, 5)), "views": views}
-                self.digests.append((version, {kind: digests for kind, (_, digests) in views.items()}))
-                self.serving.notify_all()
+                asked = self.asked_at > self.live_at
+                if not (asked or self.watchers):
+                    continue
+            self.rebuild()
+            with self.changed:
+                moved, seen = self.version != seen, self.version
+            if moved or asked or time.monotonic() - self.live_at >= LIVE_REFRESH:
+                self.serve(snapshot)
+
+    def serve(self, snapshot):
+        started = time.monotonic()
+        with self.changed:
+            model = dict(self.model)
+        if "prs" in model and (live := self.live_or_report(model)) is not None:
+            self.publish(live, snapshot)
+        with self.serving:
+            self.live_at = started
+            self.serving.notify_all()
+
+    def publish(self, live, snapshot):
+        view = browser_view(live)
+        lean = self.encode("lean", view)
+        sig = hashlib.sha256(b"".join(key.encode() + digest for key, (_, _, digest) in lean.items())).hexdigest()
+        if self.served and self.served["sig"] == sig:
+            return
+        version = (self.served["version"] if self.served else 0) + 1
+        live = {**live, "version": version}
+        lean = {**lean, "version": encoded(version)}
+        views = {"lean": lean, "now": self.encode("now", now_view({**view, "version": version}), lean)}
+        served = {"version": version, "sig": sig, "live": live, "views": views, "bodies": {}}
+        with self.serving:
+            self.live_model = live
+            self.served = served
+            self.digests.append((version, {kind: {key: digest for key, (_, _, digest) in pieces.items()} for kind, pieces in views.items()}))
+            self.serving.notify_all()
+        if time.monotonic() - self.snapshot_at >= SNAPSHOT_EVERY:
+            self.snapshot_at = time.monotonic()
+            with self.serving:
+                _, zipped = self.built(served, ("lean",), lambda: joined(lean, lean))
             snapshot.with_suffix(".tmp").write_bytes(zipped)
             snapshot.with_suffix(".tmp").replace(snapshot)
 
-    def delta(self, since, kind):
+    def encode(self, kind, view, reuse=None):
+        kept = self.pieces.get(kind, {})
+        pieces = {}
+        for key, value in view.items():
+            pieces[key] = next((found for found in ((reuse or {}).get(key), kept.get(key)) if found and found[0] is value), None) or encoded(value)
+        self.pieces[kind] = pieces
+        return pieces
+
+    def body(self, kind, since=None):
         with self.serving:
+            if not self.watchers:
+                self.asked_at = time.monotonic()
+            self.serving.wait_for(lambda: self.served and (kind != "full" or self.served["live"]), timeout=60)
+            served = self.served
+            if not served or (kind == "full" and not served["live"]):
+                return None
             past = dict(self.digests).get(since)
-            answer = past and changed_since(self.served["version"], *self.served["views"][kind], past[kind])
-        if answer is None:
-            return None
-        body = json.dumps(answer).encode()
-        return body, gzip.compress(body, 5)
+            if past and (delta := self.built(served, (kind, since), lambda: changed_since(served["version"], served["views"][kind], past[kind]))):
+                return delta
+            return self.built(served, (kind,), lambda: json.dumps(served["live"]).encode() if kind == "full" else joined(served["views"][kind], served["views"][kind]))
+
+    def built(self, served, key, raw):
+        if key not in served["bodies"]:
+            body = raw()
+            served["bodies"][key] = body and (body, gzip.compress(body, 5))
+        return served["bodies"][key]
 
     def live_or_report(self, model):
         try:
@@ -1186,11 +1251,6 @@ class Drive:
             return None
         self.reported_live = None
         return live
-
-    def rebuild_loop(self):
-        while True:
-            time.sleep(0.5)
-            self.rebuild()
 
     def rebuild(self):
         with self.lock:
@@ -1262,21 +1322,22 @@ class Drive:
     def board(self):
         seq = self.store_seq()
         if seq != self.board_seq:
-            self.board_raw = run(["cc-present", "outcomes", "--all", "--session", self.config["board_session"]])
+            self.board_doc = json.loads(run(["cc-present", "outcomes", "--all", "--session", self.config["board_session"]]))
             self.board_times = self.answer_times()
             self.board_seq = seq
-        read = self.read_board(json.loads(self.board_raw))
+        read = self.read_board(self.board_doc)
         answered = {card: {"picked": answer["picked"], "at": max(self.board_times[ask] for ask in answer["asks"])} for card, answer in read["answered"].items()}
         return {**read, "answered": answered, "seq": seq}
 
     def live(self, model):
         board = self.board()
         self.check_gos(board["rows"])
-        board["rows"] = awaiting_reply(at_live_head(with_conflicts(board["rows"], model["prs"]), model["prs"], model["records"]), model["asks"])
+        pushes = [record for record in model["records"] if record["kind"] in ("head", "opened")]
+        board["rows"] = awaiting_reply(at_live_head(with_conflicts(board["rows"], model["prs"]), model["prs"], pushes), model["asks"])
         board["cards"] = unanswered(board["cards"], model["words"])
         stamp(board)
         now = dt.datetime.now(dt.timezone.utc)
-        progress = json.loads(Path(self.config["steps"]).read_text())
+        progress = self.read(self.config["steps"])
         activity_records = [*model["records"], *model["lanes"]]
         gated = {row["number"] for row in board["rows"] if not row["go_head"]}
         drive = drive_prs(model["prs"], board["rows"], {number: head for number, head in self.gos.items() if number not in gated}, activity_records, model["trees"], model["tree_names"], progress["steps"], self.config["parts"], hold_reasons(holds.read(Path(self.config["holds"])), model["prs"]), now)
@@ -1296,7 +1357,7 @@ class Drive:
             "parts": self.config["parts"],
             "now": {**progress.get("now", {}), "releases": releases},
             "steps_at": progress["updated"],
-            "history": with_releases(progress.get("history", {}), self.milestone_cache[2]),
+            "history": self.history(progress, self.milestone_cache[2]),
             "pr_state": progress.get("pr_state", {}),
             "live": LIVE_SOURCES,
             "needs": need_items,
@@ -1305,17 +1366,29 @@ class Drive:
             "brief_error": self.curator.error,
             "status_now": self.status_now,
             "status_rejected": self.status_rejected,
-            "stack": json.loads(Path(self.config["stack"]).read_text())["prs"],
-            "status_table": Path(self.config["status_table"]).read_text(),
+            "stack": self.read(self.config["stack"])["prs"],
+            "status_table": self.read(self.config["status_table"], str),
             "register_log": "register" in self.config,
             "latest_words": self.words(),
-            "evidence": live_evidence(self.evidences(), model["prs"], progress.get("pr_state", {}), model["records"]),
+            "evidence": live_evidence(self.evidences(), model["prs"], progress.get("pr_state", {}), pushes),
             "pages": without_finished_prs({name: curator.brief for name, curator in self.pages.items()}, model["prs"], progress.get("pr_state", {})),
             "milestone_state": milestone_rows,
             "milestones": [m["name"] for m in self.config["milestones"]],
             "milestones_label": self.config["milestones_label"],
             "views": self.config.get("views", {}),
         }
+
+    def read(self, path, parse=json.loads):
+        stat = os.stat(path)
+        stamp = (stat.st_mtime_ns, stat.st_size)
+        if (found := self.files.get(path)) is None or found[0] != stamp:
+            found = self.files[path] = (stamp, parse(Path(path).read_text()))
+        return found[1]
+
+    def history(self, progress, releases):
+        if not (self.merged_history and self.merged_history[0] is progress and self.merged_history[1] is releases):
+            self.merged_history = (progress, releases, with_releases(progress.get("history", {}), releases))
+        return self.merged_history[2]
 
     def flag_stale(self, milestone_rows, steps, answered, now):
         for key, lanes, text in stale_waits(milestone_rows, steps, answered, now):
@@ -1471,13 +1544,10 @@ def handler(drive):
                 return self.send(200, kind, body.encode())
             if path == "/api/model":
                 kind = "full" if "full=1" in self.path else "now" if "tab=now" in self.path else "lean"
-                with drive.serving:
-                    drive.serving.wait_for(lambda: drive.served and drive.served[kind], timeout=60)
-                    served = drive.served and drive.served[kind]
-                if not served:
-                    return self.send(503, "text/plain", b"The dashboard is building its first view.")
                 since = kind != "full" and re.search(r"since=(\d+)", self.path)
-                return self.send_built(*(since and drive.delta(int(since[1]), kind) or served))
+                if not (body := drive.body(kind, int(since[1]) if since else None)):
+                    return self.send(503, "text/plain", b"The dashboard is building its first view.")
+                return self.send_built(*body)
             if path == "/api/words":
                 with drive.lock:
                     words = drive.model.get("words", [])
@@ -1513,7 +1583,7 @@ def handler(drive):
                     while len(chain) < 4 and (parent := (chain[-1] if chain else record).get("re")) and not (chain and chain[-1]["lane"] in OWNER_LANES):
                         chain.append(json.loads(run(["cci", "show", str(parent), "--json"])))
                     said = json.loads(Path(drive.config["steps"]).read_text()).get("said", {}).get(found[1])
-                    titles = {n: pr["title"] for n, pr in ((drive.served or {}).get("view") or {}).get("prs", {}).items() if pr.get("title")}
+                    titles = {n: pr["title"] for n, pr in (drive.live_model or {}).get("prs", {}).items() if pr.get("title")}
                     return self.send(200, "text/html; charset=utf-8", record_page(record, chain, said, titles).encode())
                 except subprocess.CalledProcessError as error:
                     return self.send(502, "text/plain; charset=utf-8", error.stderr.encode())
@@ -1623,24 +1693,37 @@ def handler(drive):
             self.end_headers()
             self.wfile.write(f"event: build\ndata: {BUILD}\n\n".encode())
             seen = -1
-            while True:
-                with drive.serving:
-                    drive.serving.wait_for(lambda: drive.served and drive.served["version"] != seen, timeout=15)
-                    version = drive.served and drive.served["version"]
-                try:
+            with drive.serving:
+                drive.watchers += 1
+            try:
+                while True:
+                    with drive.serving:
+                        drive.serving.wait_for(lambda: drive.served and drive.served["version"] != seen, timeout=15)
+                        version = drive.served and drive.served["version"]
                     if version in (None, seen):
                         self.wfile.write(b": keep-alive\n\n")
                     else:
                         self.wfile.write(f"event: version\ndata: {version}\n\n".encode())
                         seen = version
                     self.wfile.flush()
-                except OSError:
-                    return
+            except OSError:
+                return
+            finally:
+                with drive.serving:
+                    drive.watchers -= 1
 
     return Handler
 
 
+def reap_inherited():
+    lister = subprocess.Popen(["ps", "-A", "-o", "pid=,ppid="], stdout=subprocess.PIPE, text=True)
+    rows = [line.split() for line in lister.communicate()[0].splitlines()]
+    for pid in {int(pid) for pid, ppid in rows if int(ppid) == os.getpid()} - {lister.pid}:
+        threading.Thread(target=os.waitpid, args=(pid, 0), daemon=True).start()
+
+
 def main():
+    reap_inherited()
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, type=Path)
     args = parser.parse_args()
@@ -1651,7 +1734,7 @@ def main():
     after = drive.load_records()
     drive.load_gos()
     writers = [(drive.follow_mirror, ())] if "mirror" in config else [(curator.loop, ()) for curator in drive.curators]
-    for target, rest in ((drive.follow_code, ()), *writers, (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.follow_status, ()), (drive.rebuild_loop, ()), (drive.serve_loop, (snapshot,)), (drive.follow_paths, ())):
+    for target, rest in ((drive.follow_code, ()), *writers, (drive.follow_records, (after,)), (drive.follow_board, ()), (drive.follow_steps, ()), (drive.follow_status, ()), (drive.refresh_loop, (snapshot,)), (drive.follow_paths, ())):
         threading.Thread(target=target, args=rest, daemon=True).start()
     server = ThreadingHTTPServer((config["host"], config["port"]), handler(drive))
     server.daemon_threads = True

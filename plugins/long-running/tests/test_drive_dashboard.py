@@ -1118,10 +1118,58 @@ def test_the_retro_table_reads_through_the_installed_retro_py_drops_duplicates_a
 
 
 def test_a_refresh_carries_only_the_parts_that_changed_since_the_version_the_browser_holds():
-    view, digests = {"version": 8, "prs": {"1": "big"}, "brief": "new"}, {"version": b"8", "prs": b"p", "brief": b"n"}
-    assert changed_since(8, view, digests, {"version": b"7", "prs": b"p", "brief": b"o"}) == {"version": 8, "changed": {"version": 8, "brief": "new"}}
-    assert changed_since(8, view, digests, None) is None
-    assert changed_since(8, view, digests, {"version": b"7", "prs": b"p"}) is None
+    pieces = {key: server.encoded(value) for key, value in {"version": 8, "prs": {"1": "big"}, "brief": "new"}.items()}
+    past = {"version": server.encoded(7)[2], "prs": pieces["prs"][2], "brief": server.encoded("old")[2]}
+    assert json.loads(changed_since(8, pieces, past)) == {"version": 8, "changed": {"version": 8, "brief": "new"}}
+    assert changed_since(8, pieces, None) is None
+    assert changed_since(8, pieces, {"version": past["version"], "prs": past["prs"]}) is None
+
+
+def test_a_view_joined_from_its_encoded_parts_is_the_view_encoded_whole():
+    view = {"version": 8, "prs": {"1": {"title": "a \u201cquote\u201d"}}, "records": [{"seq": 1}], "words_at": None}
+    assert server.joined({key: server.encoded(value) for key, value in view.items()}, view) == json.dumps(view).encode()
+
+
+def test_nothing_builds_the_view_while_no_page_curator_or_request_reads_it(monkeypatch):
+    drive = Drive({"board_url": "http://board/p/x"}, None)
+    drive.rebuild = lambda: (_ for _ in ()).throw(AssertionError("built with no reader"))
+    naps = []
+
+    class Idle(Exception):
+        pass
+
+    def nap(seconds):
+        naps.append(seconds)
+        if len(naps) > 3:
+            raise Idle
+
+    monkeypatch.setattr(server.time, "sleep", nap)
+    with pytest.raises(Idle):
+        drive.refresh_loop(None)
+
+
+def test_a_curator_waits_for_a_view_built_after_it_asked(monkeypatch, tmp_path):
+    drive = Drive({"board_url": "http://board/p/x"}, None)
+    drive.live_model, drive.live_at = {"built_at": "old"}, 1.0
+    drive.model = {"prs": {}}
+    drive.rebuild = lambda: None
+    drive.live = lambda model: {"built_at": "fresh", "words": [], "records": [], "lanes": [], "prs": {}, "pr_state": {}, "history": {}, "drive": {"prs": []}, **{key: {} for key in server.NOW_DRAWS}}
+    got = []
+
+    class Served(Exception):
+        pass
+
+    def nap(seconds):
+        if got:
+            raise Served
+
+    monkeypatch.setattr(server.time, "sleep", nap)
+    curator = threading.Thread(target=lambda: got.append(drive.curator_model()))
+    curator.start()
+    with pytest.raises(Served):
+        drive.refresh_loop(tmp_path / "served.json.gz")
+    curator.join()
+    assert got[0]["built_at"] == "fresh" and drive.watchers == 0
 
 
 def test_the_first_load_carries_what_the_now_tab_draws_and_leaves_the_rest_for_a_later_request():
