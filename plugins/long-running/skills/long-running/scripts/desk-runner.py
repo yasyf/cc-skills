@@ -9238,7 +9238,7 @@ class Landing:
         """Post the pass's one `state` record to root on topic `landing-state`, which cci delivers newest-only, so root never asks what the runner is doing (owner 9524276): the open rows the queue holds, the green ones a root go names at their heads that are out of it and neither held nor refused, with the oldest stack step in flight, the held, the refused at their heads, the stack workers running, and the pass's seconds. It logs `OVERFLOW-STALLED` once an hour while the overflow thread has finished no run in `OVERFLOW_STALLED`."""
         open_rows = {pr: row for pr, row in self.ledger_rows.items() if row.get("state", "open") == "open"}
         statuses, gos, held = self.statuses or {}, self.gos or [], set(self.held_now)
-        refused = set(refused_members(self.book.actions(LANDING, kind="bus"), set(open_rows), open_rows)) if open_rows else set()
+        refused = set(refused_members(self.book.refusal_candidates(LANDING, set(open_rows)), set(open_rows), open_rows)) if open_rows else set()
         queued = {pr for pr in open_rows if statuses.get(pr, {}).get("queue") == QUEUED_STATE}
         waiting = [pr for pr, row in open_rows.items() if pr not in queued | held | refused and row.get("test_state") == "success" and row.get("head") and gone_at(gos, pr, row["head"])]
         now = self.runner.now()
@@ -9314,7 +9314,7 @@ class Landing:
 
     def refused_at_head(self, members: set[str], open_rows: dict[str, dict]) -> bool:
         """Whether this runner posted a `blocker` for a PR of `members` at its current head: that refusal is the record, so no `GO-UNQUEUED` repeats it (root, Oct 29 10:35 AM)."""
-        return next(refused_members(self.book.actions(LANDING, kind="bus"), members, open_rows), None) is not None
+        return next(refused_members(self.book.refusal_candidates(LANDING, members), members, open_rows), None) is not None
 
     def last_refusal(self, members: set[str], open_rows: dict[str, dict], since: datetime) -> tuple[str, str] | None:
         """The newest refusal any PR of `members` stands under, with the lane that owns that PR: a blocker this runner routed for its current head or base, a refusal it escalated since `since`, or a `blocker` record a `landing.desk_lane` lane posted naming it since then (root, Oct 29 2:37 AM)."""
