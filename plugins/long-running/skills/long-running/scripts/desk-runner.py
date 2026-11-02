@@ -662,7 +662,6 @@ import argparse
 import hashlib
 import html
 import itertools
-import fnmatch
 import json
 import os
 import plistlib
@@ -682,7 +681,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import wait as finished_by
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
-from fnmatch import fnmatch
+from fnmatch import fnmatch, fnmatchcase
 from pathlib import Path, PurePosixPath
 from zoneinfo import ZoneInfo
 
@@ -2088,7 +2087,7 @@ def sentence(text: str, found: re.Match) -> str:
 
 def lane_sources[T](table: dict[str, list[T]], lane: str) -> list[T]:
     """Every entry `table` lists under a shell pattern `lane` matches, in the table's order, each once."""
-    return list(dict.fromkeys(entry for pattern, entries in table.items() if fnmatch.fnmatchcase(lane, pattern) for entry in entries))
+    return list(dict.fromkeys(entry for pattern, entries in table.items() if fnmatchcase(lane, pattern) for entry in entries))
 
 class Runner:
     def __init__(self, shell: Shell, config: Config, store: actions.Store):
