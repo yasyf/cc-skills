@@ -1081,7 +1081,7 @@ ALERT_GRAMMAR = "orca-desk: alert <slug> <link> :: <what fired>"
 INCIDENT_GRAMMAR = "orca-desk: incident <slug> <link> reported=<HH:MM | H:MM AM/PM, Pacific> :: <what fired>"
 HOLD_GRAMMAR = "orca-desk: hold <slug> owner=<lane> :: <what is held, and on what>"
 UNHOLD_GRAMMAR = "orca-desk: unhold <slug>"
-WITHDRAW_GRAMMAR = "orca-desk: withdraw <R<n> | unfixed:<msg>:<n> | lane>"
+WITHDRAW_GRAMMAR = "orca-desk: withdraw <R<n> | unfixed:<msg>:<n> | incident-clock:<dispatch> | lane>"
 INBOX_DIRECTIVE = re.compile(r"^(?:-\s+)?(?:(?:1[0-2]|0?[1-9]):[0-5]\d\s?[AP]M\s+)?(?:(?P<key>R\d+)\s+(?:\([^)]*\)\s+)?)?orca-desk: (?P<verb>relay|launch|alert|incident|hold|unhold|withdraw)\b(?P<rest>.*)$", re.DOTALL)
 RELAY_TO = re.compile(r"^ to (?P<lanes>[\w.-]+(?:(?:, (?:and )?| and )[\w.-]+)*):\s+(?P<text>\S.*)$", re.DOTALL)
 LANE_LIST = re.compile(r", (?:and )?| and ")
@@ -1180,7 +1180,7 @@ LAUNCHER = SCRIPTS.parents[2] / "bin" / "orca-launch.sh"
 HOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*) owner=(?P<owner>[\w.-]+) :: (?P<what>\S.*)$")
 UNHOLD_SPEC = re.compile(r"^ (?P<slug>[a-z0-9][a-z0-9.-]*)$")
 WITHDRAW_SPEC = re.compile(r"^ (?P<target>[\w.:-]+)$")
-LAUNCH_KEY = re.compile(r"R\d+|unfixed:[\w-]+:\d+|inbox@\S+")
+LAUNCH_KEY = re.compile(rf"R\d+|unfixed:[\w-]+:\d+|inbox@\S+|{CLOCK}:ctx_\w+")
 WITHDRAWN = "withdrawn"
 WITHDRAW_PENDING = "withdraw-pending"
 FENCED = "dispatch_inactive"
@@ -4167,7 +4167,8 @@ class Runner:
             self.overdue(container, container.removeprefix(LANE_PREFIX))
 
     def incident_clock(self) -> None:
-        """Hold each live incident fix lane the runner launched to its budget from the verified launch: past a threshold without its milestone, launch the Opus fallback and log INCIDENT-CLOCK, once per launch; `ready`, a closing record, or a settled dispatch stops the clock."""
+        """Hold each live incident fix lane the runner launched to its budget from the verified launch: past a threshold without its milestone, launch the Opus fallback and log INCIDENT-CLOCK, once per launch; `ready`, a closing record, or a settled dispatch stops the clock, and a root close of the lane's incident also withdraws its Opus fallback (root 311353)."""
+        closes = [record for record in incidents.incident_records(self.cci_tail.run, self.config.drive) if incidents.closes(record)]
         for container in self.book.containers(LANE_PREFIX):
             lane = container.removeprefix(LANE_PREFIX)
             launch = self.fix_launch(container)
@@ -4177,6 +4178,14 @@ class Runner:
                 continue
             launched = actions.parse_stamp(launch.verification_receipt["at"])
             clock = {"key": launch.action_id, "launched": launch.verification_receipt["at"], "reached": kept["reached"] if current else {}, "ended": ""}
+            closed = next((f"#{record['seq']}" for record in closes if names_lane(record, set(self.names(lane))) and actions.parse_stamp(record["at"]) >= launched), "")
+            if closed:
+                clock["ended"] = f"incident closed by {closed}"
+                if self.book.known(lane_container(f"{lane}{CLOCK_FALLBACK}"), fallback := f"{CLOCK}:{launch.dispatch_id}"):
+                    self.withdraw(f"close{closed}", closed, fallback)
+                if clock != kept:
+                    self.book.edit(container, lambda incident, clock=clock: incident.facts.update({CLOCK: clock}))
+                continue
             withdrawn = self.withdrawn_by(lane)
             if not withdrawn and not (dispatch := self.orca.show(lane)):
                 continue
