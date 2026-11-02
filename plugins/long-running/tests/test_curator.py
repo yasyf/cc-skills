@@ -82,12 +82,12 @@ def test_the_ledger_owner_and_active_lanes_a_ruling_names_are_the_fixers():
 def test_a_blocker_on_a_change_with_fixers_never_reads_no_one_assigned(tmp_path, monkeypatch):
     prompts = []
 
-    def stubborn(name, prompt, schema, system):
+    def stubborn(sprite, name, prompt, schema, system):
         prompts.append(prompt)
         return blocked("nobody")
 
     monkeypatch.setattr(brief, "run_model", stubborn)
-    curator = Curator({"brief_dir": str(tmp_path), "milestones": []}, model, lambda: None)
+    curator = Curator({"brief_dir": str(tmp_path), "milestones": [], "llm_sprite": "dar-fleet-14"}, model, lambda: None)
     curator.dir, curator.path = tmp_path, tmp_path / "brief.json"
     curator.curate()
     assert len(prompts) == 2
@@ -100,12 +100,12 @@ def test_an_open_blocker_or_work_row_without_its_start_time_is_sent_back(tmp_pat
     undated = blocked("fixing")
     undated["work"] = [{"item": "viewer", "workers": ["p8a-step7"], "title": "Cloud viewer reads chats", "status": "Fixing", "latest": "Moving the callers off the deleted store.", "unblocks": "viewer", "since": ""}]
 
-    def reply(name, prompt, schema, system):
+    def reply(sprite, name, prompt, schema, system):
         prompts.append(prompt)
         return undated
 
     monkeypatch.setattr(brief, "run_model", reply)
-    curator = Curator({"brief_dir": str(tmp_path), "milestones": []}, model, lambda: None)
+    curator = Curator({"brief_dir": str(tmp_path), "milestones": [], "llm_sprite": "dar-fleet-14"}, model, lambda: None)
     curator.dir, curator.path = tmp_path, tmp_path / "brief.json"
     curator.curate()
     assert len(prompts) == 2
@@ -118,12 +118,12 @@ def test_nothing_waits_on_the_owner_when_his_board_asks_nothing(tmp_path, monkey
     phantom = blocked("you")
     phantom["work"] = [{"item": "replica-release", "workers": ["release-5"], "title": "Release of the chat replica changes", "status": "Ready for you", "latest": "Waits on your release-order choice.", "unblocks": "", "since": "3:55 PM", "asks": ["card-release-order"]}]
 
-    def reply(name, prompt, schema, system):
+    def reply(sprite, name, prompt, schema, system):
         prompts.append(prompt)
         return json.loads(json.dumps(phantom))
 
     monkeypatch.setattr(brief, "run_model", reply)
-    curator = Curator({"brief_dir": str(tmp_path), "milestones": []}, model, lambda: None)
+    curator = Curator({"brief_dir": str(tmp_path), "milestones": [], "llm_sprite": "dar-fleet-14"}, model, lambda: None)
     curator.dir, curator.path = tmp_path, tmp_path / "brief.json"
     curator.curate()
     written = json.loads(curator.path.read_text())
@@ -161,28 +161,28 @@ def test_each_change_carries_the_newest_records_about_it():
 def test_a_headline_without_how_long_the_blocker_has_waited_is_sent_back(tmp_path, monkeypatch):
     prompts = []
 
-    def reply(name, prompt, schema, system):
+    def reply(sprite, name, prompt, schema, system):
         prompts.append(prompt)
         return blocked("fixing")
 
     monkeypatch.setattr(brief, "run_model", reply)
-    curator = Curator({"brief_dir": str(tmp_path), "milestones": []}, model, lambda: None)
+    curator = Curator({"brief_dir": str(tmp_path), "milestones": [], "llm_sprite": "dar-fleet-14"}, model, lambda: None)
     curator.dir, curator.path = tmp_path, tmp_path / "brief.json"
     curator.curate()
     assert "headline: say the one thing in the way and how long it has waited" in prompts[1]
 
 
-def test_the_curator_model_starts_in_an_empty_directory_with_a_private_plugin_cache(tmp_path, monkeypatch):
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "profile"))
-    monkeypatch.setenv("CLAUDE_CODE_PLUGIN_CACHE_DIR", str(tmp_path / "shared-plugins"))
+def test_the_curator_model_runs_on_the_sprite_in_an_empty_directory_with_the_key_only_on_stdin(monkeypatch):
     calls = []
 
     def run(argv, **kwargs):
-        calls.append(kwargs)
+        calls.append((argv, kwargs))
         return subprocess.CompletedProcess(argv, 0, json.dumps({"structured_output": {"headline": "ok"}}), "")
 
+    monkeypatch.setattr(brief, "api_key", lambda: "sk-test")
     monkeypatch.setattr(brief.subprocess, "run", run)
-    assert brief.run_model("claude-opus-5-5", "prompt", {}, "system") == {"headline": "ok"}
-    [kwargs] = calls
-    assert kwargs["cwd"] == tmp_path / "profile" / "long-running" / "headless-cwd" and not any(kwargs["cwd"].iterdir())
-    assert kwargs["env"]["CLAUDE_CODE_PLUGIN_CACHE_DIR"] == str(tmp_path / "profile" / "long-running" / "headless-plugins")
+    assert brief.run_model("dar-fleet-14", "claude-opus-5-5", "prompt", {}, "system") == {"headline": "ok"}
+    [(argv, kwargs)] = calls
+    assert argv[:5] == ["sprite", "exec", "-s", "dar-fleet-14", "--"] and argv[9] == "claude"
+    assert 'cd "$HOME/.dashboard-headless/cwd"' in argv[7] and 'CLAUDE_CODE_PLUGIN_CACHE_DIR="$HOME/.dashboard-headless/plugins"' in argv[7]
+    assert kwargs["input"] == "sk-test\nprompt" and not any("sk-test" in arg for arg in argv)

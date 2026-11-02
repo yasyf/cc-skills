@@ -13,7 +13,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import plainwords
-from brief import QUIET, headless
+from brief import QUIET, api_key, on_sprite
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
 CATCH_UP = dt.timedelta(minutes=30)
@@ -84,23 +84,22 @@ def is_beat(event):
 
 
 class Sidecar:
-    def __init__(self, item, title, goal, changes, saved_path, publish, lanes, model, raw_log):
+    def __init__(self, item, title, goal, changes, saved_path, publish, lanes, model, sprite, raw_log):
         self.item = item
         self.raw_log = raw_log
         self.saved_path = saved_path
         self.publish = publish
         self.lanes = lanes
         self.chars = 0
-        env, cwd = headless()
         self.proc = subprocess.Popen(
-            ["claude", "-p", *QUIET, "--model", model, "--effort", "low", "--input-format", "stream-json", "--output-format", "stream-json", "--include-partial-messages", "--verbose", "--system-prompt", WRITER.format(title=title, goal=goal, changes=", ".join(f"#{n}" for n in changes) or "none yet")],
+            on_sprite(sprite, ["claude", "-p", *QUIET, "--model", model, "--effort", "low", "--input-format", "stream-json", "--output-format", "stream-json", "--include-partial-messages", "--verbose", "--system-prompt", WRITER.format(title=title, goal=goal, changes=", ".join(f"#{n}" for n in changes) or "none yet")]),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
-            env=env,
-            cwd=cwd,
         )
+        self.proc.stdin.write(api_key() + "\n")
+        self.proc.stdin.flush()
         self.turn_done = threading.Event()
         self.turn_done.set()
         threading.Thread(target=self.read, daemon=True).start()
@@ -202,7 +201,7 @@ class Story:
         meta = json.loads(self.meta_path.read_text()) if self.meta_path.exists() else {}
         resume = fresh and meta.get("file") == str(transcript) and self.saved.exists()
         offset = meta["offset"] if resume else 0
-        self.sidecar = Sidecar(self.item, self.work["title"], self.work.get("goal", self.work["latest"]), self.work.get("changes", []), self.saved, self.publish, self.stories.lanes(), self.stories.model, self.stories.dir / f"{self.item}.raw.log")
+        self.sidecar = Sidecar(self.item, self.work["title"], self.work.get("goal", self.work["latest"]), self.work.get("changes", []), self.saved, self.publish, self.stories.lanes(), self.stories.model, self.stories.config["llm_sprite"], self.stories.dir / f"{self.item}.raw.log")
         self.stories.started(self)
         self.status = "Catching up on the last 30 minutes"
         self.publish({"type": "status", "text": self.status})
@@ -267,7 +266,7 @@ class Story:
                     self.meta_path.write_text(json.dumps({"file": str(transcript), "offset": offset}))
                 if self.sidecar.chars > MAX_CONTEXT_CHARS:
                     self.sidecar.stop()
-                    self.sidecar = Sidecar(self.item, self.work["title"], self.work.get("goal", self.work["latest"]), self.work.get("changes", []), self.saved, self.publish, self.stories.lanes(), self.stories.model, self.stories.dir / f"{self.item}.raw.log")
+                    self.sidecar = Sidecar(self.item, self.work["title"], self.work.get("goal", self.work["latest"]), self.work.get("changes", []), self.saved, self.publish, self.stories.lanes(), self.stories.model, self.stories.config["llm_sprite"], self.stories.dir / f"{self.item}.raw.log")
                     self.sidecar.send("The story so far:\n" + "\n".join(f"{e['at']} | {e['mark']} | {e['line']}" for e in self.lines()[-20:]) + "\n\nAnswer SKIP to this message.")
         finally:
             os.close(fd)
