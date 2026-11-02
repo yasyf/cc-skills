@@ -297,7 +297,9 @@ def rows_section(rows: Rows) -> list[str]:
         line
         for key, fields in touched.items()
         for line in (
-            quoted_words(key, fields, f"{fields['kind']}, touched {fields['updated_at']}")
+            [f"- `{key}` (no ruling, touched {fields['updated_at']}): {fields['no']}"]
+            if "no" in fields
+            else quoted_words(key, fields, f"{fields['kind']}, touched {fields['updated_at']}")
             if fields.get("words")
             else [f"- `{key}` ({fields['kind']}, touched {fields['updated_at']}): no words"]
         )
@@ -308,7 +310,7 @@ def rows_section(rows: Rows) -> list[str]:
     out += [
         line
         for key, fields in rows.rows.items()
-        if fields.get("status") != IN_FORCE
+        if fields.get("status") != IN_FORCE and "no" not in fields
         for line in [
             *(quoted_words(key, fields, fields.get("status") or "no status") if fields.get("words") else [f"- `{key}` ({fields.get('status') or 'no status'}): no words"]),
             child_lines(fields)[-1],

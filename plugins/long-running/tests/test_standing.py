@@ -334,3 +334,16 @@ def test_the_blocker_post_never_waits_and_passes_when_cci_cannot_start(tmp_path:
     monkeypatch.undo()
     monkeypatch.setenv("PATH", str(tmp_path))
     standing.post_blocker("brook", "rows did not load")
+
+
+def test_a_touched_no_ruling_row_renders_its_reason_in_the_rows_section() -> None:
+    """Root #312798: the 2:23 AM PreCompact handoff died on KeyError 'kind', since a `no/` row, a capture classified as carrying no ruling, has no kind and was touched within 24 hours."""
+    rows = standing.Rows(
+        rows=ROWS.rows | {"no/e7f38c625a2e68f9": {"at": "2026-10-23T09:45:46Z", "no": 'a status question ("overall status since i went to sleep?"); it carries no ruling', "updated_at": "2026-10-23T11:58:20Z"}},
+        read_at=ROWS.read_at,
+    )
+
+    rendered = standing.section_of(REGISTER, [], "", rows)
+
+    assert '- `no/e7f38c625a2e68f9` (no ruling, touched 2026-10-23T11:58:20Z): a status question ("overall status since i went to sleep?"); it carries no ruling' in rendered
+    assert "`no/e7f38c625a2e68f9` (no status)" not in rendered
