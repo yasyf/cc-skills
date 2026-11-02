@@ -8569,7 +8569,13 @@ class Landing:
             return
         tops = prefix_tops(prefix, rows)
         fresh = self.exact(tops)
-        current = enqueue_key(would, fresh.verdicts) if (would := self.direct_would(fresh)) is not None else ""
+        if (would := self.direct_would(fresh)) and (blocking := self.prefix_blocking({pr: fresh.verdicts[pr]["sha"] for pr in would}, rows)):
+            text = f"stack-enqueue --check would land {numbered(would)}, and " + "; ".join(blocking.values())
+            self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "blocked", "out": text, "at": self.book.stamp()}))
+            self.runner.escalate(f"prefix:{enqueue_key(would, fresh.verdicts)}", "PREFIX", numbered(tops), f"{text}, so nothing was enqueued; the enqueue lands every PR the check lists, never only the PR it names")
+            self.settle(heads, Refused(f"its enqueue would also land {numbered(list(blocking))}: " + "; ".join(blocking.values())))
+            return
+        current = enqueue_key(would, fresh.verdicts) if would is not None else ""
         if current != key.split("#")[0]:
             self.book.attempt(LANDING, lambda incident: incident.complete(key, {"outcome": "superseded", "out": fresh.out[-800:], "at": self.book.stamp()}))
             self.settle(heads, Queued(IN_QUEUE_SAID) if PREFIX_HELD.search(fresh.out) else Refused(f"its accepted enqueue was superseded, since the check now reads: {fresh.last}"))
@@ -8595,6 +8601,18 @@ class Landing:
             self.settle(heads, ended(outcome, last))
         if outcome in ("stranded", "failed", "unsettled"):
             self.runner.escalate(key, f"{'DIRECT-MERGE' if down else 'ENQUEUE'}-{outcome.upper()}", numbered(tops), last)
+
+    def prefix_blocking(self, heads: dict[str, str], rows: dict[str, dict]) -> dict[str, str]:
+        """Each PR of `heads`, every PR `stack-enqueue --check` would land at the head it read, that a hold covers or, while the owner's taps live on the root's board, that no root `go` names at that head and whose change there is not exempt, with why: the queue lands the whole green prefix below the PR it names, so each one needs its own go (root #328204)."""
+        held = set(self.held(rows))
+        gos = self.root_gos()
+        blocking = {}
+        for pr, sha in heads.items():
+            if pr in held:
+                blocking[pr] = f"#{pr} at {sha[:10]} is held ({self.hold_sources([pr], rows)})"
+            elif self.taps_on_board and not self.free_to_land(gos, pr, sha):
+                blocking[pr] = f"#{pr} at {sha[:10]}: {go_state(gos, pr, sha).said()}"
+        return blocking
 
     def queue_line(self, heads: dict[str, str]) -> str:
         """Each PR the runner enqueued, at the head it enqueued, with the root `go` that names that head or `no go at this head`."""
@@ -9921,7 +9939,8 @@ class Landing:
         heads = {pr: self.current_head(pr) or open_rows[pr].get("head", "") for pr in sorted(taken, key=int)}
         graded = Graded(heads, rows, self.runner.now(), act=False)
         failed = [(name, pr, state) for name in self.checks if name in HOLD_CHECKS + ENQUEUE_CHECKS for pr, state in self.check(name, graded).items() if state.state != merge_queue.PASS]
-        return heads, [f"#{pr} {heads[pr][:10]} {name} {state.state} {state.reason}".rstrip() for name, pr, state in failed], [pr for name, pr, _ in failed if name in HOLD_CHECKS]
+        ungone = [f"PREFIX {why}" for pr, why in self.prefix_blocking(heads, rows).items() if pr not in {pr for _, pr, _ in failed}]
+        return heads, [*(f"#{pr} {heads[pr][:10]} {name} {state.state} {state.reason}".rstrip() for name, pr, state in failed), *ungone], [pr for name, pr, _ in failed if name in HOLD_CHECKS]
 
     def current_head(self, pr: str) -> str:
         done = self.shell.run(ghread.read("pr", "view", pr, "--repo", self.repo, "--json", "headRefOid", "--jq", ".headRefOid"))
