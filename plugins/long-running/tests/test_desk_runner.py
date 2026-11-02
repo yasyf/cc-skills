@@ -4010,6 +4010,25 @@ def test_a_go_marked_ci_tooling_admits_a_head_of_harness_scripts_timing_manifest
     assert not [post for post in blockers(shell) if "MISMATCH" in post_body(post)]
 
 
+@pytest.mark.parametrize(
+    ("files", "said"),
+    [
+        (["go/sand/next/vm/run_test.go", "go/sand/next/testdata/a.json"], ["[exempt: test-only] admits it", "[exempt: port] admits it"]),
+        (
+            ["tools/reach.ts", ".buildkite/test.yml"],
+            ["[exempt: test-only] is refused: TEST-ONLY-MISMATCH tools/reach.ts is neither a test nor CI configuration, so the test-only claim does not hold", "[exempt: port] is refused: PORT-MISMATCH tools/reach.ts is outside go/sand/next/ and no Rulings comment clears its interaction, so the port claim does not hold"],
+        ),
+    ],
+    ids=["tests", "code"],
+)
+def test_the_class_verb_prints_what_each_exempt_bracket_makes_of_the_changed_files(shell, config, capsys, files, said):
+    """Root #306404: root's exempt classes for #47568 (Cargo.toml), #47581, #47560 and #47617 were refused four times because the class rule lived only in the runner."""
+    lone_green_pr(shell)
+    shell.files["29020"] = files
+    assert cli(shell, config, "class", "#29020") == 0
+    assert capsys.readouterr().out.splitlines() == [f"#29020 at cccc333333: {verdict}" for verdict in said]
+
+
 @pytest.mark.parametrize(("files", "lands"), [(["go/sand/next/vm/run_test.go", ".buildkite/test.yml"], True), (["go/sand/next/vm/run_test.go", "go/sand/next/vm/run.go"], False)], ids=["tests", "code"])
 def test_a_go_marked_test_only_admits_its_head_only_when_every_changed_file_is_a_test_or_ci_file(shell, config, files, lands):
     """Root #232354: the words test-only let #46294 into the queue with no tap while its diff held non-test code; the class is read from the files, never the words."""
