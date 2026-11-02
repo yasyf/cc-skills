@@ -12705,11 +12705,18 @@ def test_a_mute_or_monitor_skip_on_an_unfixed_mechanism_gets_one_pushback_to_roo
         assert f" {lane}: #" in pushes[0] and "is never a close, and smoke teams are the canary" in pushes[0]
 
 
-@pytest.mark.parametrize(("order_kind", "pushed"), [("incident", False), ("go", True)])
-def test_a_mute_that_answers_a_root_incident_order_gets_no_pushback(shell, config, order_kind, pushed):
-    """Root #300304: MUTE-PUSHBACK fired twice in two minutes at 5:06 PM Nov 1 on run-queue-fix's mute of page 13321, the window root's incident order authorized with the fix merged and releasing."""
-    order = cci_record(shell, lane="root", kind=order_kind, to=["run-queue-fix"], text="INCIDENT run-queue-fix: mute monitor 339599887 as the window until fix-live", at=actions.stamp(shell.clock))
-    cci_record(shell, lane="run-queue-fix", kind="incident", to=["root"], re=order, text="Step 2 muting monitor 339599887 with the ai-oncall mute verb until fix-live", at=actions.stamp(shell.clock))
+@pytest.mark.parametrize(("order_kind", "answers", "landed", "pushed"), [
+    ("incident", False, True, False),
+    ("incident", True, True, False),
+    ("incident", False, False, True),
+    ("go", False, True, True),
+])
+def test_a_mute_by_a_root_ordered_fix_lane_after_its_fix_landed_gets_no_pushback(shell, config, order_kind, answers, landed, pushed):
+    """Root #300304: MUTE-PUSHBACK fired eight times from 5:06 PM Nov 1 on run-queue-fix's mutes of page 13321, posted with no --re after its fix #47601 landed at 5:04 PM under root's incident order 299804."""
+    order = cci_record(shell, lane="root", kind=order_kind, to=["run-queue-fix"], text="INCIDENT run-queue-backlog: fix lane run-queue-fix with incident apply authority", at=actions.stamp(shell.clock))
+    if landed:
+        cci_record(shell, lane="run-queue-fix", kind="landed", to=["root"], text="MERGED #47601 as 3975fbea5ec, verified on fresh dev", at=actions.stamp(shell.clock))
+    cci_record(shell, lane="run-queue-fix", kind="incident", to=["root"], **({"re": order} if answers else {}), text="Step 2 muting monitor 339599887 with the ai-oncall mute verb until fix-live", at=actions.stamp(shell.clock))
     orca_pass(shell, config)
     assert len([line for line in escalations(shell) if line.startswith("MUTE-PUSHBACK ")]) == pushed
 
