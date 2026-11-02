@@ -379,7 +379,7 @@ def test_a_job_outlives_a_dropped_connection_since_only_the_short_key_exec_forwa
 
 
 FLAKY_SPRITE = """#!/usr/bin/env python3
-import os, pathlib, subprocess, sys
+import os, pathlib, re, subprocess, sys
 args = sys.argv[4:]
 way, mac, sprite = os.environ["WAY"], os.environ["MAC_ROOT"], os.environ["SPRITE_ROOT"]
 if way == "unreachable":
@@ -388,7 +388,7 @@ if way == "unreachable":
 stdin = None
 if args[0] == "--no-stdin":
     args, stdin = args[1:], subprocess.DEVNULL
-dirs = [arg for arg in args if "/finder-desk/job-" in arg]
+dirs = [match[0] for arg in args if (match := re.search(r".*/finder-desk/job-[0-9]+", arg))]
 dropped = pathlib.Path(dirs[0] + ".dropped") if way == "dropped" and dirs else None
 if dropped and dropped.exists():
     print("Error: failed to connect", file=sys.stderr)
