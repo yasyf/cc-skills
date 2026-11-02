@@ -605,6 +605,19 @@ def test_a_graded_pr_missing_from_the_board_belongs_to_the_drives_board_lane_not
     assert "| owner board-refresher-2 |" in shell.post("board:101:abc1234")["text"]
 
 
+def test_a_pr_after_one_on_the_board_is_still_judged_against_its_live_head(config):
+    """root #326463: on 0.7.901 the pass crashed with TypeError on the PR after a board row, since the board's `live` walrus rebound the live-head map."""
+    records = [head(1, "101", HEAD, 40), finder(2, "101", HEAD, 20), fidelity(3, "101", HEAD, 20), head(4, "102", OTHER, 40), finder(5, "102", OTHER, 30), fidelity(6, "102", OTHER, 30), record(7, "root", "go", f"go #102 at {OTHER[:7]}", 30)]
+    shell = FakeShell(records, [row("101"), row("102", OTHER)])
+    shell.doc = {"blocks": [{"id": "merge-prs", "type": "pr-groups", "groups": [{"id": "g", "prs": [{"number": 101, "head": HEAD[:7]}]}]}]}
+    shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": HEAD[:7], "at": stamp(12)}}}
+    shell.live = {"102": HEAD}
+
+    watch(shell, config)
+
+    assert "tap:101:abc1234" in shell.topics() and not [topic for topic in shell.topics() if topic.startswith("go:102:")]
+
+
 def test_a_graded_pr_missing_from_the_board_and_a_tap_no_go_follows_each_post_until_the_board_and_root_catch_up(config):
     records = [head(1, "101", HEAD, 40), finder(2, "101", HEAD, 20), fidelity(3, "101", HEAD, 20), head(4, "102", OTHER, 40), finder(5, "102", OTHER, 30), fidelity(6, "102", OTHER, 30)]
     shell = FakeShell(records, [row("101"), row("102", OTHER)])
