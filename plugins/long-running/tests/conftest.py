@@ -96,6 +96,15 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     items[:] = kept
 
 
+def gateway(argv: list[str]) -> list[str]:
+    """The plain `gh` command behind `argv`, failing the test on a GitHub read outside ccx's gateway or a write through it, which ccx refuses."""
+    through = argv[:3] == ghread.GATEWAY
+    plain = ghread.gh_args(argv)
+    if plain[0] == "gh":
+        assert through != ("-X" in plain or "--method" in plain or plain[1:3] == ["pr", "merge"] or plain[1] == "stack"), f"a GitHub {'write through' if through else 'read outside'} ccx's gateway: {argv}"
+    return plain
+
+
 def fixture(name: str) -> str:
     return (FIXTURES / name).read_text()
 
