@@ -24,7 +24,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-from long_running import actions, desk_result, sqlite_store
+from long_running import actions, sqlite_store
 import findings as findings_module
 import mq as mq_module
 import owner_waits
@@ -16017,6 +16017,8 @@ def end_pass(shell: FakeShell, directory: Path, ending: str) -> None:
     elif ending == "tooling-error":
         (directory / "result.json").write_text(json.dumps({"error": "codex-ask exited 1: quota exhausted"}))
     elif ending == "wrapper-lost":
+        from long_running import desk_result
+
         desk_result.lost(directory, "the job on Sprite dar-fleet-4 ended with status 255 and no result")
     elif ending == "empty":
         (directory / "result.json").write_text("")

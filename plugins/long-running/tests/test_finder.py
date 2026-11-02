@@ -12,7 +12,6 @@ from pathlib import Path
 import finder
 import pytest
 from conftest import gateway
-from long_running import desk_result
 from long_running.grades import FINDER_FAIL, FINDER_PASS, finder_grade, graded_head
 
 REPO = "Forge-AI/monorepo"
@@ -171,7 +170,7 @@ def finding(severity: str, cite: str = "go/sand/internal/replica/follow.go:42", 
 
 
 def result(directory: Path) -> dict:
-    return json.loads((directory / desk_result.RESULT).read_text())
+    return json.loads((directory / "result.json").read_text())
 
 
 @pytest.mark.parametrize("state", ["OPEN", "MERGED"])

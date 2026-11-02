@@ -12,7 +12,6 @@ import fidelity
 import finder
 import pytest
 from conftest import gateway
-from long_running import desk_result
 from long_running.grades import OLD_APP, PORT_PHRASE, TEST_ONLY_PHRASE, carries, graded_head, owner_grounded
 
 REPO = "Forge-AI/monorepo"
@@ -148,7 +147,7 @@ def reply(verdict: str = "ok", missing: tuple[dict, ...] = (), checked: list[str
 
 
 def result(directory: Path) -> dict:
-    return json.loads((directory / desk_result.RESULT).read_text())
+    return json.loads((directory / "result.json").read_text())
 
 
 def test_a_restack_patch_identical_to_a_graded_ok_head_carries_its_port_phrase_and_old_app_line_with_no_model_call(tmp_path):
