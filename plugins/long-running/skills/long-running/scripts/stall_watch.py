@@ -944,7 +944,8 @@ class Pass:
                 continue
             announced = [record for record in records if grades.about_pr(record, repo, pr) and short(head) in grades.full_text(record)]
             head_at = at(announced[0]) if announced else None
-            going = [go for go in grades.gone_at(gos, pr, head) if pr in approved or not TAP_REQUIRED.search(grades.full_text(go))]
+            newest = max(grades.gone_at(gos, pr, head), key=lambda go: go["seq"], default=None)
+            going = [newest] if newest and (pr in approved or not TAP_REQUIRED.search(grades.full_text(newest))) else []
             in_queue = any(named == pr and grades.names_head(sha, head) for named, sha in queued)
             lane = lanes[pr] = self.handed_to(next((record["lane"] for record in reversed(records) if record["kind"] == "head" and record["lane"] not in NOT_LANES and grades.about_pr(record, repo, pr)), None) or reassigned.get(pr) or row.get("lane") or ROOT)
             if incidents.incident_scope(incident_records, drive_name, repo, pr, lane):
