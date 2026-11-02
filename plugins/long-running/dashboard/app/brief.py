@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import re
 import subprocess
 import threading
@@ -30,6 +31,16 @@ CHANGE_KINDS = {"decide", "decision", "hold", "lift", "blocker", "go", "landed",
 CHANGE_WINDOW = dt.timedelta(hours=12)
 FINDING = re.compile(r"finding|defect|blocker|must|fails?\b", re.I)
 QUIET = ("--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--tools", "", "--no-session-persistence")
+
+
+def headless():
+    """The environment and working directory a stateless `claude -p` starts in.
+
+    Claude Code sweeps its plugin cache for orphans and indexes its working directory before it reads the prompt, so a call that inherits the shared plugin cache or a large working directory spends minutes of disk I/O at startup. A private plugin cache and an empty directory under the profile's `long-running` folder leave both walks nothing to read."""
+    root = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "long-running"
+    cwd = root / "headless-cwd"
+    cwd.mkdir(parents=True, exist_ok=True)
+    return os.environ | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(root / "headless-plugins")}, cwd
 PACIFIC = ZoneInfo("America/Los_Angeles")
 IDENTITY = ("key", "id", "item", "number", "title")
 SLOTS = {
@@ -392,7 +403,8 @@ def twin(old, value, index):
 
 
 def run_model(model_name, prompt, schema, system):
-    out = subprocess.run(["claude", "-p", *QUIET, "--model", model_name, "--effort", "medium", "--output-format", "json", "--json-schema", json.dumps(schema), "--system-prompt", system], input=prompt, capture_output=True, text=True, timeout=600, check=True)
+    env, cwd = headless()
+    out = subprocess.run(["claude", "-p", *QUIET, "--model", model_name, "--effort", "medium", "--output-format", "json", "--json-schema", json.dumps(schema), "--system-prompt", system], input=prompt, capture_output=True, text=True, timeout=600, check=True, env=env, cwd=cwd)
     result = json.loads(out.stdout)
     return result.get("structured_output") or json.loads(result["result"])
 

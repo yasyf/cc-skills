@@ -13,7 +13,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import plainwords
-from brief import QUIET
+from brief import QUIET, headless
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
 CATCH_UP = dt.timedelta(minutes=30)
@@ -91,12 +91,15 @@ class Sidecar:
         self.publish = publish
         self.lanes = lanes
         self.chars = 0
+        env, cwd = headless()
         self.proc = subprocess.Popen(
             ["claude", "-p", *QUIET, "--model", model, "--effort", "low", "--input-format", "stream-json", "--output-format", "stream-json", "--include-partial-messages", "--verbose", "--system-prompt", WRITER.format(title=title, goal=goal, changes=", ".join(f"#{n}" for n in changes) or "none yet")],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
+            env=env,
+            cwd=cwd,
         )
         self.turn_done = threading.Event()
         self.turn_done.set()
