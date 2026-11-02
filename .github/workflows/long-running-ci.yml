@@ -64,7 +64,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     env:
       UV_PYTHON: "3.14"
       LR_CONTROLS_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
