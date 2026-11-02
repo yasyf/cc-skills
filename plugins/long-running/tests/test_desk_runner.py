@@ -11138,7 +11138,7 @@ def test_supervise_install_bootstraps_only_its_own_label_with_the_key_read_from_
     assert b"trunk-secret" not in plist.read_bytes()
     assert plistlib.loads(plist.read_bytes()) == {
         "Label": agent_label("landing"),
-        "ProgramArguments": ["/bin/zsh", "-c", f'export TRUNK_MERGE_API_KEY="$(security find-generic-password -s trunk-merge-api-key -w)"; exec {shlex.quote(str(runner_module.RUNNER_BIN))} run --config {shlex.quote(str(config.resolve()))} --desk landing'],
+        "ProgramArguments": ["/bin/zsh", "-c", f'export TRUNK_MERGE_API_KEY="$(security find-generic-password -s trunk-merge-api-key -w)"; exec {shlex.quote(str(runner_module.release.link() / 'bin' / 'desk-runner.py'))} run --config {shlex.quote(str(config.resolve()))} --desk landing'],
         "EnvironmentVariables": {"PATH": "/opt/homebrew/bin:/usr/bin:/bin"},
         "KeepAlive": True,
         "ThrottleInterval": 60,

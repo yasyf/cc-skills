@@ -38,13 +38,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from long_running import drive as lr_drive
+from long_running import release
 from lr import config as lr_config
 from lr import loop
 from lr.movers import lanes
 from lr.store import Store
 
 SCRIPTS = Path(__file__).resolve().parent
-BIN = SCRIPTS.parents[2] / "bin" / "drive_supervisor.py"
 DESK_LAUNCH = SCRIPTS / "desk-launch.py"
 REPLAY = SCRIPTS / "replay.py"
 PROJECTS = Path.home() / ".claude" / "projects"
@@ -72,7 +72,7 @@ OPEN_FILES = 65536
 
 def run(argv: list[str]) -> str:
     try:
-        done = subprocess.run(argv, capture_output=True, text=True, timeout=TIMEOUT)
+        done = subprocess.run(release.command(argv), capture_output=True, text=True, timeout=TIMEOUT)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise lanes.Unread(f"{argv[0]} {argv[1]}: {error}") from error
     if done.returncode:
@@ -85,7 +85,7 @@ def records(drive: str):
         rows: list[dict] = []
         start = str(since) if since else lanes.ADOPT_WINDOW
         while True:
-            done = subprocess.run(["cci", "tail", "--drive", drive, "--since", start, "--json", "--budget", str(PAGE_BYTES)], capture_output=True, text=True, timeout=TIMEOUT)
+            done = subprocess.run(release.command(["cci", "tail", "--drive", drive, "--since", start, "--json", "--budget", str(PAGE_BYTES)]), capture_output=True, text=True, timeout=TIMEOUT)
             if done.returncode:
                 raise lanes.Unread(f"cci tail exited {done.returncode}: {done.stderr.strip()[:300]}")
             page = [json.loads(line) for line in done.stdout.splitlines() if line.startswith("{")]
@@ -341,7 +341,7 @@ def cmd_install(config: lr_config.Config, path: Path) -> int:
     log = str(path.parent / "supervisor.log")
     agent = plistlib.dumps({
         "Label": name,
-        "ProgramArguments": [str(BIN), "run", "--config", str(path)],
+        "ProgramArguments": [str(release.link() / "bin" / "drive_supervisor.py"), "run", "--config", str(path)],
         "EnvironmentVariables": {"PATH": os.environ["PATH"], "CLAUDE_LONG_RUNNING_DRIVE": config.drive},
         "KeepAlive": True,
         "ThrottleInterval": THROTTLE_SECONDS,
