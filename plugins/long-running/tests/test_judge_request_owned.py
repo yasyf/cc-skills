@@ -70,12 +70,14 @@ def test_default_cli_transport_and_explicit_capability_keep_the_same_cards_verdi
     def cli(argv, **kwargs):
         cli_calls.append((argv, kwargs.get("input"), kwargs["timeout"]))
         assert kwargs["capture_output"] and kwargs["text"] and kwargs["check"]
-        assert kwargs["env"] == (selected | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(tmp_path / "config" / "long-running" / "judge-plugins")} if argv[0] == "claude" else None)
+        assert kwargs["env"] == (selected | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(tmp_path / "config" / "long-running" / "headless-plugins")} if argv[0] == "claude" else None)
+        assert kwargs["cwd"] == (tmp_path / "config" / "long-running" / "headless-cwd" if argv[0] == "claude" else None)
         return subprocess.CompletedProcess(argv, 0, response(argv), "ignored diagnostic")
 
-    def owned(argv, *, input=None, timeout, env=None):
+    def owned(argv, *, input=None, timeout, env=None, cwd=None):
         owned_calls.append((argv, input, timeout))
-        assert env == (selected | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(tmp_path / "config" / "long-running" / "judge-plugins")} if argv[0] == "claude" else selected)
+        assert env == (selected | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(tmp_path / "config" / "long-running" / "headless-plugins")} if argv[0] == "claude" else selected)
+        assert cwd == (tmp_path / "config" / "long-running" / "headless-cwd" if argv[0] == "claude" else None)
         return response(argv)
 
     monkeypatch.setattr(judge.subprocess, "run", cli)
@@ -112,8 +114,8 @@ def test_check_pr_reaches_real_cold_and_warm_board_and_model_paths_with_request_
     shell = CheckShell(rows, diff=SHAPE if branch == "shape" else DIFF + GRANT_TICKER, body=citing("- abcabca: the signal keeps its timer."))
     calls = []
 
-    def run(argv, *, input=None, timeout, env=None):
-        assert env == (selected | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(Path(selected["CLAUDE_CONFIG_DIR"]) / "long-running" / "judge-plugins")} if argv[0] == "claude" else selected)
+    def run(argv, *, input=None, timeout, env=None, cwd=None):
+        assert env == (selected | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(Path(selected["CLAUDE_CONFIG_DIR"]) / "long-running" / "headless-plugins")} if argv[0] == "claude" else selected)
         calls.append((argv, input, timeout))
         return response(argv, f"request {branch} card")
 
@@ -148,8 +150,8 @@ def test_concurrent_judgments_keep_cards_backends_environment_and_record_roots_l
         selected = environment(tmp_path / str(index), state, "sonnet" if index == 0 else "jev")
         calls = []
 
-        def run(argv, *, input=None, timeout, env=None):
-            assert env == (selected | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(Path(selected["CLAUDE_CONFIG_DIR"]) / "long-running" / "judge-plugins")} if argv[0] == "claude" else selected)
+        def run(argv, *, input=None, timeout, env=None, cwd=None):
+            assert env == (selected | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(Path(selected["CLAUDE_CONFIG_DIR"]) / "long-running" / "headless-plugins")} if argv[0] == "claude" else selected)
             calls.append(argv[0])
             if argv[0] == "cc-present":
                 barrier.wait(timeout=5)
@@ -205,7 +207,7 @@ def test_cards_and_confirmation_calls_share_one_owner_budget_and_do_not_commit_a
         if clock[0] >= 60:
             raise expired
 
-    def run(argv, *, input=None, timeout, env=None):
+    def run(argv, *, input=None, timeout, env=None, cwd=None):
         checkpoint()
         limits.append(min(timeout, 60 - clock[0]))
         clock[0] += 9 if argv[0] == "cc-present" else min(36, 60 - clock[0])
@@ -273,9 +275,9 @@ def test_owned_card_and_model_commands_are_reaped_on_owner_timeout_or_abandonmen
     def checkpoint():
         remaining()
 
-    def run(argv, *, input=None, timeout, env=None):
+    def run(argv, *, input=None, timeout, env=None, cwd=None):
         checkpoint()
-        result = evt.ctx.call_cli(argv, input=input, cwd=str(tmp_path), env=dict(env), timeout=min(timeout, remaining()))
+        result = evt.ctx.call_cli(argv, input=input, cwd=str(cwd or tmp_path), env=dict(env), timeout=min(timeout, remaining()))
         checkpoint()
         return result
 

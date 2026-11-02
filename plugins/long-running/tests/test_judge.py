@@ -82,7 +82,7 @@ def test_a_failed_call_fails_open_and_is_logged_as_an_error(tmp_path, monkeypatc
 
 @pytest.mark.parametrize("explicit", [False, True])
 @pytest.mark.parametrize("custom_config", [False, True])
-def test_stateless_claude_reuses_private_plugin_state_without_changing_auth_or_caller_environment(tmp_path, monkeypatch, explicit, custom_config):
+def test_stateless_claude_starts_in_an_empty_directory_with_private_plugin_state_without_changing_auth_or_caller_environment(tmp_path, monkeypatch, explicit, custom_config):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "auth-sentinel")
     monkeypatch.setenv("CLAUDE_CODE_PLUGIN_CACHE_DIR", str(tmp_path / "ordinary-plugins"))
@@ -93,7 +93,7 @@ def test_stateless_claude_reuses_private_plugin_state_without_changing_auth_or_c
     inherited = dict(os.environ)
     selected = dict(inherited) if explicit else None
     config = tmp_path / "profile" if custom_config else tmp_path / "home" / ".claude"
-    plugins = config / "long-running" / "judge-plugins"
+    plugins = config / "long-running" / "headless-plugins"
     plugins.mkdir(parents=True)
     kept = plugins / "kept"
     kept.write_text("persistent helper state")
@@ -103,6 +103,7 @@ def test_stateless_claude_reuses_private_plugin_state_without_changing_auth_or_c
         calls.append(argv)
         assert kwargs["env"] == inherited | {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(plugins)}
         assert kwargs["input"] == "prompt" and kwargs["timeout"] == 7
+        assert kwargs["cwd"] == config / "long-running" / "headless-cwd" and not any(kwargs["cwd"].iterdir())
         assert kept.read_text() == "persistent helper state"
         return subprocess.CompletedProcess(argv, 0, json.dumps({"structured_output": {"verdict": "no"}}), "")
 

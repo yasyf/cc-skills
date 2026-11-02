@@ -196,11 +196,24 @@ When it does, answer "yes" if it drops, narrows or contradicts any part of his a
 
 
 class Run(Protocol):
-    def __call__(self, argv: list[str], *, input: str | None = None, timeout: float, env: Mapping[str, str] | None = None) -> str: ...
+    def __call__(self, argv: list[str], *, input: str | None = None, timeout: float, env: Mapping[str, str] | None = None, cwd: Path | None = None) -> str: ...
 
 
-def command(argv: list[str], *, input: str | None = None, timeout: float, env: Mapping[str, str] | None = None) -> str:
-    return subprocess.run(argv, input=input, capture_output=True, text=True, timeout=timeout, check=True, env=dict(env) if env is not None else None).stdout
+def command(argv: list[str], *, input: str | None = None, timeout: float, env: Mapping[str, str] | None = None, cwd: Path | None = None) -> str:
+    return subprocess.run(argv, input=input, capture_output=True, text=True, timeout=timeout, check=True, env=dict(env) if env is not None else None, cwd=cwd).stdout
+
+
+def headless(env: Mapping[str, str] | None) -> tuple[dict[str, str], Path]:
+    """The environment and working directory a stateless `claude -p` starts in.
+
+    Claude Code sweeps its plugin cache for orphans and indexes its working directory before it reads the prompt, so a call that inherits the shared plugin cache or a large caller directory, such as a hook worker's `$TMPDIR`, spends minutes of disk I/O at startup. A private plugin cache and an empty directory under the profile's `long-running` folder leave both walks nothing to read."""
+    child_env = dict(os.environ if env is None else env)
+    home = Path(child_env.get("HOME") or Path.home())
+    root = Path(child_env.get("CLAUDE_CONFIG_DIR") or home / ".claude") / "long-running"
+    child_env["CLAUDE_CODE_PLUGIN_CACHE_DIR"] = str(root / "headless-plugins")
+    cwd = root / "headless-cwd"
+    cwd.mkdir(parents=True, exist_ok=True)
+    return child_env, cwd
 
 
 @dataclass(frozen=True)
@@ -439,10 +452,7 @@ def batch(kind: str, prompt: str, schema: str, *, drive: str | None = None, time
 def claude(prompt: str, system: str, schema: str, timeout: float, env: Mapping[str, str] | None, *, run: Run | None = None, checkpoint: Callable[[], None] = lambda: None) -> tuple[dict, float, float, int]:
     began = time.monotonic()
     checkpoint()
-    child_env = dict(os.environ if env is None else env)
-    home = Path(child_env.get("HOME") or Path.home())
-    config = Path(child_env.get("CLAUDE_CONFIG_DIR") or home / ".claude")
-    child_env["CLAUDE_CODE_PLUGIN_CACHE_DIR"] = str(config / "long-running" / "judge-plugins")
+    child_env, cwd = headless(env)
     done = (command if run is None else run)(
         [
             "claude", "-p", "--model", SONNET, "--effort", "low", "--system-prompt", system,
@@ -453,6 +463,7 @@ def claude(prompt: str, system: str, schema: str, timeout: float, env: Mapping[s
         input=prompt,
         timeout=timeout,
         env=child_env,
+        cwd=cwd,
     )
     checkpoint()
     payload = json.loads(done)
