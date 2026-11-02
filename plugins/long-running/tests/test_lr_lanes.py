@@ -1006,6 +1006,22 @@ def test_a_needs_work_wake_skips_a_held_pr_a_pr_root_moved_and_a_lane_that_poste
     assert store.owner_of([46107])[46107] == ("root" if "decide" in shown else "conflicts-2")
 
 
+@pytest.mark.parametrize("text", ["root: truncate-folds-1 retired; gos posted for the four (stack order on #48190).", "root: #47491 moves to p8a-step7; conflicts-2 is done (registry request filed)."])
+def test_a_lane_a_root_decide_calls_retired_or_done_is_retired_and_never_asked(tmp_path, brief, text):
+    """Root #330025: the supervisor asked truncate-folds-1 about #48283 at 9:50 AM although root's decide 328869 said it was retired."""
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store, prs=(48283,))
+    fake.feed.append(record(2, "root", "decide", T0 - timedelta(minutes=95), text.replace("truncate-folds-1", "conflicts-2"), ("conflicts-2",)))
+    fake.states = {48283: "needs-work"}
+    store.lane_heard("conflicts-2", T0 - timedelta(minutes=90), "state")
+    fake.peers = [who("conflicts-2", True, T0, roster="/teams/session-d50e80e8")]
+
+    lanes.tick(store, fake.deps, T0, 1)
+
+    assert store.lane("conflicts-2").state == "retired"
+    assert not [argv for argv in fake.posts if argv[argv.index("--to") + 1] == "conflicts-2" and argv[argv.index("--kind") + 1] == "ask"]
+
+
 def test_a_held_lane_that_posts_again_is_live_and_a_pr_root_opened_for_it_is_the_lanes(tmp_path, brief):
     """Root #290371: ssql-sleep-truncation, an Agent lane reading its brief, was held as not live 15 minutes after launch; root's session posted `opened` for #47353, so root owned it and the supervisor said root stood its lane down."""
     store = Store.memory()
