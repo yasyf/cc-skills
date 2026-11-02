@@ -241,6 +241,8 @@ class FakeShell(runner_module.Shell):
         self.ships: list[tuple[list[str], str | None]] = []
         self.ship_envs: list[dict | None] = []
         self.drives: list[str] = ["d1"]
+        self.node = "node-here"
+        self.numbered: dict[str, int] = {}
         self.claims: list[list[str]] = []
         self.claim_error = ""
         self.registered: list[list[str]] = []
@@ -647,6 +649,10 @@ class FakeShell(runner_module.Shell):
             return runner_module.Done(self.ledger_code, json.dumps([{"ours": row.get("state", "open") == "open", **row} for row in self.rows]), "")
         if argv[:2] == ["cci", "tail"]:
             return self.cci_tail(argv)
+        if argv == ["cci", "node"]:
+            return runner_module.Done(0, f"id {self.node}\nfingerprint {self.node}\n", "")
+        if argv[:2] == ["cci", "show"] and argv[3:] == ["--json"]:
+            return runner_module.Done(0, json.dumps({"seq": self.numbered[argv[2]]}), "") if argv[2] in self.numbered else runner_module.Done(1, "", f"cci: show: {argv[2]}: no record has this number")
         if argv == ["cci", "drive", "ls", "--json"]:
             return runner_module.Done(0, json.dumps([{"drive": drive} for drive in self.drives]), "")
         if argv[:2] == ["cci", "claim"]:
@@ -9193,6 +9199,29 @@ def test_a_head_record_naming_a_pr_with_no_ledger_row_registers_it_the_next_pass
     assert f"root go #{go_of(shell, '45757')} names #45757 at 1234abc, which has no ledger row" in line
     landing_pass(shell, config)
     assert len(registrations(shell)) == 1 and len([line for line in escalations(shell) if line.startswith("GO-UNROWED")]) == 1
+
+
+def test_a_store_moved_to_a_machine_numbering_records_apart_rows_and_queues_the_pr_a_later_go_names(shell, config, tmp_path):
+    """Root #333826: the landing desk moved to dar-desk-1 kept `rowed-read` at the Mac's 309100, past every seq dar-desk-1 numbers, so no go it read from 12:16 PM had a ledger row and nothing landed."""
+    shell.rows = [dict(ONE_ROW, pr="29021", branch="a/4", head="dddd444444", reported_head="dddd444444")]
+    shell.gates["29021"] = [gate("#29021 GREEN dddd444444 graphite READY", would="#29021")]
+    shell.records.append({"seq": 34766, "drive": "d1", "lane": "p8a-step7", "kind": "head", "to": ["root"], "refs": {"prs": ["Forge-AI/monorepo#29020"]}, "text": "#29020 cccc333333", "at": actions.stamp(shell.clock)})
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    shell.node = "node-there"
+    for record in shell.records:
+        shell.numbered[f"{record['seq']}@node-here"] = record["seq"] - 30000
+        record["seq"] -= 30000
+    shell.records.append({"seq": 4767, "drive": "d1", "lane": "root", "kind": "go", "to": ["landing-desk"], "refs": {}, "text": "GO #29020 at cccc3333 standard", "at": actions.stamp(shell.now())})
+    landing_pass(shell, config)
+    assert registrations(shell) == [["register", "--ledger", "abc", "--repo", "Forge-AI/monorepo", "--lane", "p8a-step7", "--pr", "29020"]]
+    assert not [line for line in escalations(shell) if line.startswith("GO-UNROWED")]
+    shell.rows.append(ONE_ROW)
+    shell.gates["29020"] = [gate("#29020 GREEN cccc333333 graphite READY", would="#29020")]
+    grade_gated_heads_ok(shell)
+    shell.enqueue_out["29020"] = (0, "enqueue #29020: {}\n")
+    landing_pass(shell, config)
+    assert [enqueue for enqueue in shell.enqueues() if "29020" in enqueue]
 
 
 def test_a_trunk_merge_the_ledger_reads_closed_posts_landed_in_the_pass_that_reads_it(shell, config, tmp_path):
