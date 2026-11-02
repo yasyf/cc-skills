@@ -1672,6 +1672,23 @@ def test_a_green_head_with_roots_tap_required_go_and_no_board_row_pages_the_boar
     assert "| owner board-refresher-6 | put the merge row for #101 at abc1234 on the owner's board" in shell.post(stale[0])["text"]
 
 
+def test_a_head_whose_newest_go_is_tap_required_is_no_go_for_the_landing_desk_though_an_older_go_names_it(config):
+    """Landing-desk-3 #300028, root #300034: #47284's newest go 294881 at 2593520 was TAP-REQUIRED, an older go named the same head, and the watch paged the landing desk STALE 'green with a go, not queued' though only the owner's tap could move it."""
+    merge_mode(config, "ask")
+    raw = json.loads(config.read_text())
+    raw["landing"]["board_lane"] = "board-refresher-6"
+    config.write_text(json.dumps(raw))
+    shell = FakeShell([*graded(1, "101", HEAD, 150), record(8, "root", "go", f"go #101 at {HEAD[:7]} on green", 9, "101"), record(9, "root", "go", f"go #101 at {HEAD[:7]} on green [TAP-REQUIRED]", 8, "101")], [row("101")])
+
+    watch(shell, config)
+    shell.clock += timedelta(minutes=40)
+    watch(shell, config)
+
+    stale = [topic for topic in shell.topics() if topic.startswith("stale:101")]
+    assert stale and "green with a go, not queued" not in shell.post(stale[0])["text"]
+    assert "| owner board-refresher-6 | put the merge row for #101 at abc1234 on the owner's board" in shell.post(stale[0])["text"]
+
+
 def test_a_stall_first_named_on_an_earlier_day_names_that_date_so_cci_never_reads_its_clock_as_ahead(config):
     """Root #290304: carry:45861 said `first named 12:53 PM` of Oct 31 at 11:54 AM Nov 1, cci refused it as 59 minutes ahead, and the pass exited 1."""
     ready = record(2, "api-lane", "report", f"[101] clean READY #101 at {HEAD[:10]}", 23 * 60 + 30, "101")
