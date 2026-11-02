@@ -7751,6 +7751,15 @@ def test_mq_gate_holds_a_hand_enqueue_to_the_runners_checks_at_githubs_head_of_e
     assert viewed_heads(shell)[-len(graded):] == graded and len(shell.posts) == posts
 
 
+def test_mq_gate_with_checks_prints_only_the_named_checks_so_a_hand_path_holds_ungraded_heads(shell, config, capsys):
+    two_pr_stack(shell)
+    shell.current_heads["29020"] = "eeee555555"
+    grade(shell, "29020", "ok F307 at eeee555.", finder=False)
+    assert mq(shell, config, "gate", "29020", "--partial", "--checks", "fidelity,finder") == 1
+    assert capsys.readouterr().out.splitlines() == ["#29020 eeee555555 finder fail FINDER-PENDING #29020: no `finder:` record from finder-desk names this head, and a lane's own finder record never grades it"]
+    assert mq(shell, config, "gate", "29020", "--partial", "--checks", "hold") == 0
+
+
 def other_drive_opened(shell: FakeShell, pr: str) -> None:
     shell.drives = ["d1", "d2"]
     shell.records.append({"seq": 9100 + len(shell.records), "drive": "d2", "lane": "billing-fix", "kind": "opened", "to": ["root"], "refs": {"prs": [f"Forge-AI/monorepo#{pr}"]}, "text": f"opened #{pr}", "at": "2026-10-01T17:00:00Z"})
