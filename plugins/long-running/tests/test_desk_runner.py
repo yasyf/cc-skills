@@ -196,6 +196,7 @@ class FakeShell(runner_module.Shell):
         self.post_ids: dict[str, int] = {}
         self.sprite_line = ""
         self.sprite_receipts: dict[str, str] = {}
+        self.sprite_process: type[Process] | type[Running] = Process
         self.spawned_env: dict[str, dict] = {}
         self.successors: list[tuple[list[str], Path, bool]] = []
         self.finder_jobs: list[Path] = []
@@ -363,7 +364,7 @@ class FakeShell(runner_module.Shell):
             for name, text in self.sprite_receipts.items():
                 attempt.mkdir(exist_ok=True)
                 (attempt / name).write_text(text)
-            return Process()
+            return self.sprite_process()
         if Path(argv[0]).name == "orca-launch.sh" and (ready := runner_module.LAUNCHED.search(self.launch_line)):
             state = Path(env.get("ORCA_LAUNCH_STATE") or self.root / ".claude/scratch/orca-launch" / env.get("ORCA_LAUNCH_RUN", "run_1"))
             state.mkdir(parents=True, exist_ok=True)
@@ -13885,6 +13886,8 @@ def test_a_selected_remote_lane_clears_only_the_local_route_override(shell, conf
 
 def sprite_passes(shell: FakeShell, config: Path, tmp_path: Path, restarted: bool) -> None:
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
+    if restarted:
+        shell.sprite_process = Running
     for _ in range(3):
         if restarted:
             orca_pass(shell, config)
