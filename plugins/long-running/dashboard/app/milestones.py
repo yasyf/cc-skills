@@ -63,12 +63,15 @@ def release_events(releases, pattern):
     return done, running
 
 
-def blockers_of(blockers, release, answered):
+def newest_blockers(blockers):
     newest = {}
     for record in blockers:
         attrs = (record.get("fields") or {}).get("attrs") or {}
-        if attrs.get("milestone") == release:
-            newest[attrs.get("topic", "")] = record
+        newest.setdefault(attrs.get("milestone"), {})[attrs.get("topic", "")] = record
+    return newest
+
+
+def blockers_of(newest, answered):
     found, picked = [], []
     for record in newest.values():
         attrs = record["fields"]["attrs"]
@@ -93,10 +96,11 @@ def blockers_of(blockers, release, answered):
 
 def compute(config_milestones, drive_prs, blockers, releases, answered):
     states = {entry["number"]: entry["state"] for entry in drive_prs}
+    newest = newest_blockers(blockers)
     result = []
     for index, milestone in enumerate(config_milestones):
         release = milestone.get("release")
-        found, picked = blockers_of(blockers, release, answered)
+        found, picked = blockers_of(newest.get(release, {}), answered)
         row = {"name": milestone["name"], "release": release, "waits": "", "next": "", "since": None, "changed": None, "why": "", "owners": [], "blockers": [], "picked": picked}
         shipped, shipping = release_events(releases, milestone.get("live_match"))
         tested, testing = release_events(releases, milestone.get("testing_match"))

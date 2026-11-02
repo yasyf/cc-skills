@@ -132,6 +132,7 @@ class Sidecar:
                 pending = ""
                 self.publish({"type": "idle"})
                 self.turn_done.set()
+        self.proc.wait()
         self.turn_done.set()
 
     def finish(self, line):

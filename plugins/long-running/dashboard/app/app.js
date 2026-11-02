@@ -543,15 +543,22 @@ for (const type of ['pointerup', 'pointercancel']) {
     if (state.owed) { state.owed = false; setTimeout(render); }
   }, true);
 }
+let stream = null;
 function connect() {
-  const es = new EventSource('/api/stream');
+  if (document.hidden || stream) return;
+  const es = stream = new EventSource('/api/stream');
   es.addEventListener('build', (e) => { if (e.data !== $('meta[name="build"]').content) reloadWhenIdle(); });
   es.addEventListener('version', (e) => {
     state.wanted = Number(e.data);
     if (state.wanted !== state.version) load();
   });
-  es.onerror = () => { es.close(); setTimeout(connect, 3000); };
+  es.onerror = () => { es.close(); stream = null; setTimeout(connect, 3000); };
 }
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) return connect();
+  stream?.close();
+  stream = null;
+});
 document.addEventListener('toggle', (e) => {
   const id = e.target.dataset?.id;
   if (!id) return;
