@@ -203,3 +203,32 @@ def test_retro_due_times_read_through_the_same_check():
     assert ends.refusal("at:90m", NOW, kinds=("at",)) is None
     assert "is a pr condition" in ends.refusal("pr:1", NOW, kinds=("at",))
     assert "no end condition" in ends.refusal("", NOW)
+
+
+class AnsweredShell(FakeShell):
+    def __init__(self, cards: list[str], rowed: set[str]):
+        super().__init__(cards, prs={"1": "MERGED"})
+        self.rowed = rowed
+
+    def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
+        match argv:
+            case ["cc-present", "outcomes", "--block", card, *_]:
+                answer = {"type": "choice.selected", "origin": "human", "at": "2026-11-02T04:44:04-08:00", "round": 3, "payload": {"blockId": f"{card}-choice", "optionIds": [], "other": "flush them at startup", "type": "choice.selected"}}
+                return json.dumps({"doc": {"blocks": [{"id": card, "type": "card"}]}, "onBoard": True, "answers": [answer]})
+            case ["ccn", "-R", _, "answer", "list", *labels]:
+                card = next(label.removeprefix("board-card:") for label in labels if label.startswith("board-card:"))
+                return json.dumps([{"tags": [f"board-block:{card}-choice"]}] if card in self.rowed else [])
+        return super().run(argv, stdin, cwd)
+
+
+def test_sweep_keeps_an_answered_card_whose_answer_has_no_ccn_row(capsys):
+    """Owner 2:25 PM Nov 2: an answered card left the board and lanes read its question as unanswered; a card leaves only once its answer has a row."""
+    shell = AnsweredShell(["card-rowed", "card-unrowed"], rowed={"card-rowed"})
+    for card in ("card-rowed", "card-unrowed"):
+        board_cards.main(["until", card, "--until", "pr:1"], shell)
+    capsys.readouterr()
+
+    board_cards.main(["sweep", "--lane", "board-lane"], shell)
+
+    assert shell.removed == ["card-rowed"]
+    assert "PROBLEM card-unrowed: the owner's answer on card-unrowed-choice has no ccn answer row" in capsys.readouterr().out
