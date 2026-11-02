@@ -10633,7 +10633,7 @@ def edit_config(runner: Runner, action: str, key: str, value: str | None) -> int
         staged.replace(source)
     finally:
         staged.unlink(missing_ok=True)
-    print(f"desk-runner config: {action} {key} in {source}; the landing desk would start on it")
+    print(f"desk-runner config: {action} {key} in {source}; the landing desk would start on it. A running desk keeps the config it started with, so the edit reaches it only at its next `desk-runner.py handoff`")
     return 0
 
 
