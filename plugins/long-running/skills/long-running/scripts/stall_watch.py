@@ -717,6 +717,7 @@ class Pass:
         self.hold_gates: dict[str, list[str]] = {}
         self.hold_asks: dict[str, set[str]] = {}
         self.tapped: set[str] = set()
+        self.moved: set[str] = set()
         self.refused: set[str] = set()
         self.queues: dict[str, list[actions.Action]] = {}
         self.probe_day = ""
@@ -1003,6 +1004,7 @@ class Pass:
                 if board:
                     self.hold_asks.setdefault(named, set()).update(board.open_asks(named, record["text"]))
         approved = {pr for pr, tap in (board.taps if board else {}).items() if tap.get("verdict") == "approved"}
+        self.moved = set()
         self.tapped = {pr for pr, row in rows.items() if board and (tap := board.taps.get(pr) or {}).get("verdict") == "approved" and tap.get("head") and grades.names_head(tap["head"], row.get("head", ""))}
         facts = self.landing_facts()
         waits = {pr: wait["key"] for pr, wait in facts.get(MERGE_WAITS, {}).items()}
@@ -1053,6 +1055,7 @@ class Pass:
             entries.append(stack_row(pr, row, rows, lane, holding(pr) or pr in self.hold_gates, bool(going), in_queue, tapping, bool(classed) and classed["class"] == "inherited", asked) | {"head_at": head_at, "tap_at": tap_at})
             moved = next((named for record in reversed(records) if record["kind"] == "head" and grades.about_pr(record, repo, pr) and (named := grades.head_of(record, repo, pr))), "")
             if moved and not grades.names_head(moved, head) or pr in github_heads and not grades.names_head(github_heads[pr], head):
+                self.moved.add(pr)
                 continue
             if holding(pr):
                 continue
@@ -1282,6 +1285,8 @@ class Pass:
             live = last is not None and not ended(last)
             stale = self.now - since >= self.watch.age("stale")
             self.stack.append(found | {"since": actions.stamp(since), "live": live, "stale": stale})
+            if pr in self.moved:
+                continue
             subject = f"#{pr} at {short(found['head'])}"
             if stale and found["state"] == TAP_WAIT:
                 self.tap_waits[f"{pr}:{short(found['head'])}"] = (pr, f"{subject} {TAP_WAIT} since {pacific(since, self.now)}")
