@@ -861,3 +861,15 @@ def test_a_change_that_is_no_bug_fix_reads_no_landed_area(tmp_path, registry):
 
     assert shell.posted[0]["--text"].startswith(f"finder: ok {HEAD} ")
     assert not [argv for argv, _ in shell.calls if argv[0] == "ccn"]
+
+
+def test_a_model_rate_limit_is_asked_again_after_the_delay_it_names_never_failing_the_pass(tmp_path, monkeypatch):
+    """root #310196: 20 passes hit the organization's tokens-per-minute cap at 1:14 AM Nov 2, each told to retry in about 100 ms, and each failed into the runner's 10-minute hold."""
+    slept: list[float] = []
+    monkeypatch.setattr(finder.time, "sleep", slept.append)
+    limited = subprocess.CalledProcessError(1, ["codex-ask"], output='{"error":{"message":"rate limit exceeded: Rate limit reached for gpt-6.1-sol in organization org-x on tokens per min (TPM): Limit 40000000, Used 39876988, Requested 180914. Please try again in 86ms. Visit https://platform.openai.com/account/rate-limits"}}')
+    directory = job(tmp_path)
+    shell = Fake(tmp_path, [limited, limited, reply()])
+    finder.main([str(directory)], shell)
+    assert [ask[ask.index("-s") + 1] for ask, _ in shell.asks()] == [str(directory / "codex-1"), str(directory / "codex-1-r1"), str(directory / "codex-1-r2")]
+    assert slept == [5, 10] and len(shell.posted) == 1

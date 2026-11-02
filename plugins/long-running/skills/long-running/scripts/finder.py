@@ -120,6 +120,8 @@ CCI_TEXT = 400
 READ_SECONDS = 120
 PLAN_SECONDS = 300
 RETRY_BACKOFF = (2, 5, 10)
+RATE_LIMIT = re.compile(r"Rate limit reached .*?Please try again in (\d+(?:\.\d+)?)(ms|s)\b")
+RATE_LIMIT_FLOORS = (5, 10, 20, 40, 60, 60)
 SLICE_SECONDS = 900
 BLOB_FETCH = ("-c", "fetch.negotiationAlgorithm=noop", "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none", "origin")
 FINDER_SECONDS = 5400
@@ -315,7 +317,7 @@ def rulings(job: dict, verb: str, *argv: str) -> list[str]:
 
 def ask(shell: Shell, job: dict, directory: Path, question: Path, attempt: int) -> str:
     def asked(model: str, lane: str) -> str:
-        return shell.run(["codex-ask", "-m", model, *(["--incident"] if job["fast"] else []), "--schema", "findings", "-s", str(directory / lane), str(question)], cwd=Path(job["checkout"]), timeout=FINDER_SECONDS)
+        return rate_limited(lambda retry: shell.run(["codex-ask", "-m", model, *(["--incident"] if job["fast"] else []), "--schema", "findings", "-s", str(directory / (f"{lane}-r{retry}" if retry else lane)), str(question)], cwd=Path(job["checkout"]), timeout=FINDER_SECONDS))
 
     try:
         out = asked(job["model"], f"codex-{attempt}")
@@ -347,6 +349,18 @@ def retried[T](attempt: Callable[[], T], transient: Callable[[subprocess.CalledP
                 raise
         time.sleep(pause)
     return attempt()
+
+
+def rate_limited[T](attempt: Callable[[int], T]) -> T:
+    """`attempt(0)`, then `attempt(n)` after each model rate limit, waiting the delay the limit names or the `RATE_LIMIT_FLOORS` pause before it, whichever is longer, so a burst past the organization's tokens-per-minute cap costs seconds instead of failing the pass."""
+    for retry, floor in enumerate(RATE_LIMIT_FLOORS):
+        try:
+            return attempt(retry)
+        except subprocess.CalledProcessError as error:
+            if not (limit := RATE_LIMIT.search(f"{error.stdout or ''}{error.stderr or ''}")):
+                raise
+            time.sleep(max(float(limit[1]) / (1000 if limit[2] == "ms" else 1), floor))
+    return attempt(len(RATE_LIMIT_FLOORS))
 
 
 def view_pr(shell: Shell, job: dict) -> dict:
