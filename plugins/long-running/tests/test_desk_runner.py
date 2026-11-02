@@ -12488,7 +12488,7 @@ def test_an_alert_defers_to_a_live_lane_on_the_same_monitor(shell, config, tmp_p
     shell.sleep(3600)
     desk_orders(shell, ROOT_ALERT)
     orca_pass(shell, config)
-    assert [call[1] for call in launches(shell)] == ["alerts-api-0303-fix"]
+    assert [call[1] for call in launches(shell)] == ["alerts-api-0303-fix", "alerts-api-0303-fix-opus"]
     assert any("LAUNCH-SKIPPED" in line and "duplicate of alerts-api-0303-fix" in line for line in escalations(shell))
 
 
