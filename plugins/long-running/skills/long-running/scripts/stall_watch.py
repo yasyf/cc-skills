@@ -124,7 +124,8 @@ and, across the drive:
               naming a change that ships as a new PR, no record from a lane it names or a numbered
               successor cites a PR after it (an `opened` record, or any record with a PR reference),
               and no root record closes it; it goes to root alone,
-              from `stall.minutes.order` until the order is two hours old
+              from `stall.minutes.order` until the order is two hours old, and a named lane
+              spawned with no record since waits for its first record or `NEW_LANE_WAIT` (root #314916)
     gate      a lane's `state` or `report` record says work waits on PR N (`waits on #N`, `waits only
               on #N`, `blocked on #N`, `when #N lands`), the desk runner or a landing desk lane posted
               N landed or QUEUED, and neither that lane nor a numbered successor of it has posted an
@@ -283,6 +284,7 @@ RED_SWEEP = "red-sweep"
 RED_SWEEPS = re.compile(rf"{RED_SWEEP}(?:-\d{{1,2}})*")
 OWNER_ORDER = re.compile(r"\bowner\b.{0,80}\bverbatim\b", re.IGNORECASE | re.DOTALL)
 ORDER_WINDOW = timedelta(hours=2)
+NEW_LANE_WAIT = timedelta(minutes=45)
 REASSIGNS = re.compile(r"\breassign", re.IGNORECASE)
 CLAUSE = re.compile(r"[;\n]|\.\s")
 REASSIGNED_TO = re.compile(r"\bto\s+([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b")
@@ -673,6 +675,12 @@ def refuses(record: dict, desks: list[str]) -> bool:
 
 def cites_pr(record: dict) -> bool:
     return record["kind"] == "opened" or bool((record.get("refs") or {}).get("prs"))
+
+
+def spawned_lane(record: dict) -> str | None:
+    if record["kind"] == "spawn":
+        return next(iter((record.get("refs") or {}).get("lanes") or []), None)
+    return spawn["lane"] if record["kind"] == "state" and (spawn := SPAWNED.match(record["text"])) else None
 
 
 def binds(record: dict, asked: dict) -> bool:
@@ -1367,6 +1375,7 @@ class Pass:
     def orders(self, records: list[dict]) -> list[Question]:
         """A question for each root decide record relaying an owner order, `stall.minutes.order` to `ORDER_WINDOW` old, unclosed, that no lane it names, or a numbered successor, has answered since with a record citing a PR: one Sonnet verdict says whether the order names a change that ships as a new PR, and a yes is root's urgent stall."""
         closed = {seq for record in records if record["lane"] in ROOT_NAMES for seq in grades.closes(record)}
+        spawns = {lane: record["seq"] for record in records if (lane := spawned_lane(record))}
         questions = []
         for order in records:
             text = grades.full_text(order)
@@ -1377,6 +1386,9 @@ class Pass:
             lanes = [lane for lane in order.get("to") or [] if lane not in NOT_LANES]
             named = {name for lane in lanes for name in self.registry().lineage(lane)}
             if any(record["seq"] > order["seq"] and cites_pr(record) and record["lane"] in named for record in records):
+                continue
+            unheard = [lane for lane in named if lane in spawns and not any(record["lane"] == lane and record["seq"] > spawns[lane] for record in records)]
+            if unheard and self.now - at(order) < NEW_LANE_WAIT:
                 continue
             questions.append(self.order(order, text, lanes))
         return questions

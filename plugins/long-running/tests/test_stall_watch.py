@@ -965,6 +965,20 @@ def test_an_owner_order_naming_a_pr_no_named_lane_cites_a_pr_for_three_minutes_p
     assert "order:1" not in opened(config)
 
 
+@pytest.mark.parametrize(("first_record", "minutes", "stalls"), [(False, 8, False), (True, 8, True), (False, 46, True)], ids=["unheard", "first-record", "past-wait"])
+def test_an_owner_order_to_a_lane_spawned_for_it_waits_for_its_first_record_or_forty_five_minutes(config, first_record, minutes, stalls):
+    """Root #314916: order:314180 paged root 7 minutes after it named log-verbosity-1, spawned at 2:57 AM and still reading its brief."""
+    order = record(1, "root", "decide", "Owner 2:54 AM, verbatim: 'audit and make the logs less verbose'. log-verbosity-1 audits and ships the cut.", minutes, to=["log-verbosity-1", "all"])
+    spawn = record(2, "root", "spawn", "SPAWNED log-verbosity-1", minutes - 1, refs={"lanes": ["log-verbosity-1"], "prs": []})
+    heard = [record(3, "log-verbosity-1", "state", "auditing the executor's log lines", 1)] if first_record else []
+    shell = FakeShell([order, spawn, *heard], [])
+    shell.answer = lambda question: {"pr": True} if question["kind"] == "order" else {}
+
+    watch(shell, config)
+
+    assert ("order:1" in shell.topics()) is stalls
+
+
 def graded(seq: int, pr: str, sha: str, minutes_ago: float) -> list[dict]:
     return [head(seq, pr, sha, minutes_ago), finder(seq + 1, pr, sha, minutes_ago - 1), fidelity(seq + 2, pr, sha, minutes_ago - 1)]
 
