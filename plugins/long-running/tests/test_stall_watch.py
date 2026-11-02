@@ -1779,7 +1779,7 @@ release: 70 release builds in 6h, 1 failing steps"""
 )
 def test_a_dev_health_line_opens_a_customer_break_only_on_crashes_apm_errors_or_a_customer_count_no_open_finding_covers(config, line, opens):
     """Root #305535: three dev-health state lines in 17 minutes opened customer-breaks that root closed on scope (305119, 305171, 305361), since `HSBC` and the zero-crash clause `run crashes 1h none` shared one sentence."""
-    shell = FakeShell([], [])
+    shell = FakeShell([record(4, "dev-health-desk-1", "note", "dev-health-desk-1 up", 30)], [])
     watch(shell, config)
     shell.records.append(record(5, "dev-health-desk-1", "state", line, 1))
     watch(shell, config)
