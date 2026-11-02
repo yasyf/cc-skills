@@ -1509,6 +1509,19 @@ def test_a_head_in_the_fidelity_queue_draws_no_fidelity_stall_until_its_grade_ru
         assert "root" not in shell.post(topic)["to"].split(",")
 
 
+@pytest.mark.parametrize(("claims", "owner"), [([], "fidelity-pipeline"), (["fidelity-desk-13"], "fidelity-desk-13"), (["fidelity-desk-3", "fidelity-desk-13"], "fidelity-desk-13"), (["api-lane"], "fidelity-pipeline")])
+def test_a_grade_past_25_minutes_goes_to_the_fidelity_lane_that_claimed_the_head_never_the_landing_desk(config, tmp_path, claims, owner):
+    raw = json.loads(config.read_text())
+    raw["landing"]["fidelity_lane"] = ["fidelity-desk-3", "fidelity-desk-13", "fidelity-pipeline"]
+    config.write_text(json.dumps(raw))
+    desk_lane(config, "landing-desk-3")
+    desk_job(tmp_path, "desk-fidelity", "fidelity", "101", HEAD, 30)
+    claimed = [record(3 + index, lane, "claim", f"{lane} grading #101 at {HEAD}", 40 - index, "101") for index, lane in enumerate(claims)]
+    shell = FakeShell([head(1, "101", HEAD, 50), finder(2, "101", HEAD, 45), *claimed], [row("101", test_state="pending")])
+    watch(shell, config)
+    assert shell.post("fidelity:101:abc1234")["to"] == f"{owner}@d1"
+
+
 def test_a_board_line_spares_root_and_goes_to_the_board_lane_while_the_board_refresher_posted_about_the_pr_in_the_last_ten_minutes(config):
     raw = json.loads(config.read_text())
     raw["landing"]["board_lane"] = "board-refresher"
