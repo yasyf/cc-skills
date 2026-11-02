@@ -14011,8 +14011,8 @@ def with_pages(config: Path) -> None:
     config.write_text(json.dumps(raw))
 
 
-def page(shell: FakeShell, title: str) -> dict:
-    message = {"ts": f"{shell.now().timestamp():.6f}", "user_name": "Wadsworth", "text": f":rotating_light: *{title}* <https://app.datadoghq.com/monitors/1|monitor>\nmore detail", "permalink": f"https://poetic-technology.slack.com/archives/C0ONCALL/p{int(shell.now().timestamp() * 1e6)}"}
+def page(shell: FakeShell, title: str, header: str = ":rotating_light: *{title}*", user: str = "") -> dict:
+    message = {"ts": f"{shell.now().timestamp():.6f}", "user": user, "user_name": "Wadsworth", "text": header.format(title=title) + " <https://app.datadoghq.com/monitors/1|monitor>\nmore detail", "permalink": f"https://poetic-technology.slack.com/archives/C0ONCALL/p{int(shell.now().timestamp() * 1e6)}"}
     shell.slack_history.setdefault("C0ONCALL", []).append(message)
     return message
 
@@ -14036,7 +14036,8 @@ def test_each_page_during_a_release_and_its_tail_reaches_root_once_as_an_inciden
     orca_pass(shell, config)
     [post] = page_posts(shell)
     assert post["to"] == "root" and post["url"] == first["permalink"] and post["id"] == f"page:C0ONCALL:{first['ts']}"
-    assert post["text"].startswith("PAGE 11:02 Wadsworth: :rotating_light: *Iris chat list broken* monitor https://")
+    assert post["text"].startswith(f"PAGE 11:02 {first['permalink']} | ") and post["text"].endswith("| Wadsworth:")
+    assert post["quoted"] == ":rotating_light: *Iris chat list broken* monitor"
     shell.builds["8748"]["finished_at"] = actions.stamp(shell.now())
     orca_pass(shell, config)
     shell.sleep(29 * 60)
@@ -14045,7 +14046,27 @@ def test_each_page_during_a_release_and_its_tail_reaches_root_once_as_an_inciden
     shell.sleep(2 * 60)
     page(shell, "After the tail")
     orca_pass(shell, config)
-    assert [post["text"].split("*")[1] for post in page_posts(shell)] == ["Iris chat list broken", "Team Run Failure Rate"]
+    assert [post["quoted"].split("*")[1] for post in page_posts(shell)] == ["Iris chat list broken", "Team Run Failure Rate"]
+
+
+def test_only_open_page_cards_and_peoples_messages_reach_root_as_pages(shell, config, tmp_path):
+    """Root, Nov 1 2026 5:21 PM: ai-oncall's retro, merged and resolved posts are not pages."""
+    with_pages(config)
+    shell.builds["8748"] = {"commit": "94d61b91951aa", "jobs": [], "finished_at": None}
+    orca_pass(shell, config)
+    release_started(shell)
+    shell.sleep(60)
+    for title, header, user in [
+        ("Run queue backlog not draining", ":repeat: Retro: {title}", ""),
+        ("Runner refusing runs", ":link: *{title}* Same problem as", ""),
+        ("Iris chat list failing", ":white_check_mark: *{title}*", ""),
+        ("Run history failing", ":hammer_and_wrench: *{title}*", ""),
+        ("run assignment is broken for single tenant teams", "{title}", "U0BDK3X2QSD"),
+    ]:
+        page(shell, title, header=header, user=user)
+        shell.sleep(1)
+    orca_pass(shell, config)
+    assert [post["quoted"] for post in page_posts(shell)] == [":hammer_and_wrench: *Run history failing* monitor", "run assignment is broken for single tenant teams monitor"]
 
 
 def test_a_release_build_named_only_in_its_record_text_opens_the_page_watch(shell, config, tmp_path):

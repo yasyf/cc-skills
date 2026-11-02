@@ -307,11 +307,14 @@ channel, with no Monitor. Launch the root with
 uses, and at drive start run once:
 
 ```bash
-cci subscribe --drive <drive> --reader root --kind incident,decide,ask,defect,blocker
+cci subscribe --drive <drive> --reader root --kind incident,decide,ask,defect,blocker --follow oncall=incident
 ```
 
 Records addressed to `root` or `main` arrive regardless of kind, along with other
-lanes' broadcasts of each `--kind`. Each record arrives as a
+lanes' broadcasts of each `--kind`. `--follow oncall=incident` adds ai-oncall's
+broadcasts on the `oncall` drive: one `incident` record per page open, state change
+and close, carrying the page permalink, the alert, the affected teams and the state,
+each handled under R16. Each record arrives as a
 `<channel source="plugin:cc-inbox:cci">` tag whose body is
 `#<seq> <time> <KIND> <lane> -> <to>: <text> [path]`. Skip a seq you have already
 handled. The subscription belongs to the Claude Code window. Compaction and `/clear`
@@ -327,7 +330,9 @@ and managed settings must list every plugin the flag names in
 `allowedChannelPlugins`.
 
 After compaction, a resume, or a relaunch, catch up with
-`cci digest --drive <drive>`, then `cci tail --drive <drive> --cursor root`.
+`cci digest --drive <drive>`, then `cci tail --drive <drive> --cursor root`, then
+`cci tail --drive oncall --kind incident --cursor root-oncall` for pages that opened
+meanwhile. A root whose subscription predates `--follow` re-runs the subscribe line.
 The tail resumes from the root's cursor and ends with a resume trailer when capped.
 Never tail, sed, or grep whole inbox files. A new lane orients with
 `cci digest --drive <drive>`.
@@ -490,9 +495,14 @@ jobs ... run those on ec2".*
 **R16. An active production alert gets its executor in the same turn.** An active
 alert or outage on any surface counts: a Datadog monitor, a Sentry alert, an
 `#outage` report, an on-call page, a broken CI or review pipeline, or an alert or
-breakage link from the owner. A record that says customers are failing, or will fail
-from a change already moving, is one too: the stall watch opens it to root in the pass
-that reads it, never as a card, and no finding waits on a card. It is P0 from the moment it is seen. That turn,
+breakage link from the owner, an `incident` record from the `oncall` drive (ai-oncall's
+page feed), or a runner `PAGE` record relayed from an on-call channel during a drive
+release. An oncall or `PAGE` record is the owner's alert link: the root opens the
+incident, the executor launches the fix lane and the comms lane replies in the page's
+thread, with no owner round-trip and no wait on ai-oncall (owner, Nov 1 2026, 2:31 PM).
+A record that says customers are failing, or will fail from a change already moving, is
+one too: the stall watch opens it to root in the pass that reads it, never as a card, and
+no finding waits on a card. It is P0 from the moment it is seen. That turn,
 before anything else, the root runs `incident.py open` and starts `incident.py run`
 as a background command (`reference/active-alert-brief.md`). From then on the
 executor owns the incident, through the final reply:
