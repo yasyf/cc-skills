@@ -4254,6 +4254,8 @@ def test_the_legacy_port_phrase_key_still_sets_the_port_grade_phrase(shell, conf
         ("api/src/modules/redisForTest/util/RedisInstance.ts", True),
         ("go/ci/bkverb.go", True),
         (".agents/skills/buildkite-cli/SKILL.md", True),
+        ("rust/.config/nextest-setup.sh", True),
+        ("rust/.config/nextest.toml", True),
         ("go/sand/scripts/build.sh", False),
         ("api/src/modules/redis/RedisInstance.ts", False),
     ],
