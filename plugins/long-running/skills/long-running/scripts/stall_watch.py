@@ -1287,7 +1287,7 @@ class Pass:
                 self.tap_waits[f"{pr}:{short(found['head'])}"] = (pr, f"{subject} {TAP_WAIT} since {pacific(since, self.now)}")
             elif stale and found["state"].startswith(HELD) and (gates := self.owner_gates(pr, found_by_pr, {pr})):
                 self.tap_waits[f"{pr}:{short(found['head'])}"] = (pr, f"{subject} is held on {', '.join(sorted(gates))}, each waiting on the owner's tap, his board answer, or the merge queue, since {pacific(since, self.now)}")
-            elif stale and pr not in stalled and not (found["state"].startswith(HELD) and any(gate in found_by_pr and gate not in self.tapped for gate in self.hold_gates.get(pr, []))):
+            elif stale and pr not in stalled and not found["state"].startswith(HELD):
                 standing[pr] = (found, since, live)
         rows = {found["pr"]: found for found in self.stack}
         above: dict[str, list[str]] = {}
