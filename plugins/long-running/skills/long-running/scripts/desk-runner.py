@@ -159,12 +159,13 @@ saved cursor, the last hour on a first read. A `mechanism` record, or a `report`
 `ready`, `blocker`, `blocked`, or closing record, or such a text record starting `OPENED`, `BLOCKER`,
 `READY`, or `NOT-OURS`, from the lane or the other of its `<name>` and `<name>-opus` pair, under
 either `-fix` alias, stops it, as do a root `stand-down` or `stopped` addressed to the lane and a
-root `--re` or `--resolves` naming one of its PR-SILENT records. So does any lane's `opened`, `head`,
+root `--re` or `--resolves` naming the mechanism or one of its PR-SILENT records. So does any lane's `opened`, `head`,
 `ready`, or `fix-live`, or a root `go` or `decision`, that answers the mechanism: one that names its
 seq with `--re`, shares its topic, or names one of its incident tags, where `SAND-5A`, `[SAND-5A]`, and
 `SAND5A` are one tag. An answer posted before the mechanism counts, so that mechanism starts no clock.
-A root `decide` or `decision` addressed to the lane, and the lane's own `done`, or a text record
-starting `DONE` or `STOPPED`, settle it too. At
+A root `decide` or `decision` addressed to the lane, and the lane's own `stopped` or `done`, or a text
+record starting `DONE` or `STOPPED` after any `--stamp` clock, settle it too, and once the lane has
+ended so, a later mechanism of its own starts no clock. At
 `deadlines.pr_silent_minutes` (default 10) after the mechanism, and every
 `deadlines.pr_silent_every_minutes` (default 5) after that, the runner logs
 `PR-SILENT <lane> #<seq>: MECHANISM at <time>, <n> min with no OPENED or BLOCKER record; <lane status> | <lane>: …`,
@@ -1096,7 +1097,8 @@ TEXT_MARK_KINDS = ("report", "incident")
 SAYS_MECHANISM = re.compile(r"\bmechanism\b", re.IGNORECASE)
 RELEASE_GATE = re.compile(r"\b(?:smoke[- ]?(?:teams?|tests?|runs?|checks?)|release[- ](?:checks?|smokes?|gates?)|dev[- ]red|dev is red)\b", re.IGNORECASE)
 SCOPED_OUT = re.compile(r"\bactive no\b|\b(?:no|zero) customer\b|\bfalse alarm\b", re.IGNORECASE)
-STOPPED_TEXT = re.compile(r"^STOPPED\b")
+STOPPED_TEXT = re.compile(r"^(?:\d{1,2}:\d{2} [AP]M )?STOPPED\b")
+LANE_ENDED_TEXT = re.compile(r"^(?:\d{1,2}:\d{2} [AP]M )?(?:STOPPED|DONE)\b")
 MUTE = re.compile(r"(?<![\w/-])mut(?:e|ed|es|ing)(?![\w/-])[^.;\n]{0,40}?\b(?:smoke|teams?|monitors?|alerts?|pages?|runs?|failures?|checks?)\b|\bfalse alarm\b|\b(?:skips?|leaves? out|stops? counting|excludes?|scopes? out)\b[^.\n]{0,60}\b(?:smoke|release[- ]check|teams?)\b", re.IGNORECASE)
 WATCHED = re.compile(r"\b(?:mut\w*|monitors?|alerts?|pages?|false alarm)\b", re.IGNORECASE)
 UNMUTE = re.compile(r"\b(?:delet|remov|lift|expir|unmut|drop|clear)\w*", re.IGNORECASE)
@@ -1112,8 +1114,8 @@ INCIDENT_PART = re.compile(r"-[^-]+(?:-\d+)?$")
 CLAUDE_ARGS = "ORCA_LAUNCH_CLAUDE_ARGS"
 PR_SILENT = "pr-silent"
 CLASS_UNOWNED = "class-unowned"
-CLASS_TEXT = re.compile(r"^(?:NEW )?CLASS\b")
-CLASS_HEADER = re.compile(r"^(?:(?:NEW )?CLASS\b[^\n]*|\[[^\]\n]+\])")
+CLASS_TEXT = re.compile(r"^(?:NEW )?CLASS(?![\w-])")
+CLASS_HEADER = re.compile(r"^(?:(?:NEW )?CLASS(?![\w-])[^\n]*|\[[^\]\n]+\])")
 FIX_GO = re.compile(r"\bfix\b", re.IGNORECASE)
 UNPUSHED = frozenset({"not pushed", "no origin branch"})
 PR_NAMED = re.compile(r"(?<![\w/])#(\d{3,})\b|/pull/(\d+)\b")
@@ -2636,7 +2638,7 @@ class Runner:
         return self.book.accept(self.lane(lane), key, "reply" if reply_to else "relay", target, key, self.now() + timedelta(minutes=minutes))
 
     def read_cci(self) -> None:
-        """Act in sequence order on each cci record past the saved sequence that is addressed to the orca desk, as one `orca-desk:` line, or that this drive's root posted with `--re`, as a reply; a peer drive's root reply relays nothing. A reply to the runner's `DECIDE` on a worker question answers that question, a reply to a lane's own record answers that lane's open question, which the cci reply superseded, and a `withdraw` of a launch record withdraws that launch. A first read starts at the newest record."""
+        """Act in sequence order on each cci record past the saved sequence that names the orca desk in its `--to`, as one `orca-desk:` line, or that this drive's root posted with `--re`, as a reply; a peer drive's root reply relays nothing, and a broadcast to `all`, such as board-watch's owner taps, is no directive (root #306118). A reply to the runner's `DECIDE` on a worker question answers that question, a reply to a lane's own record answers that lane's open question, which the cci reply superseded, and a `withdraw` of a launch record withdraws that launch. A first read starts at the newest record."""
         fact = f"cci:{self.config.drive}:{ORCA_DESK}"
         cursor = self.book.fact(RUNNER, fact, None)
         try:
@@ -2647,12 +2649,12 @@ class Runner:
             addressed = cci.records(self.cci_tail, self.config.drive, "--to", ORCA_DESK, since=cursor)
             replies = [record for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, since=cursor) if record.get("re")]
             for record in sorted({record["seq"]: record for record in [*addressed, *replies]}.values(), key=lambda record: record["seq"]):
-                desk_line = ORCA_DESK in (record.get("to") or [])
+                desk_line = ORCA_DESK in {to.split("@", 1)[0] for to in record.get("to") or []}
                 if record.get("re") and not (desk_line and INBOX_DIRECTIVE.match(record["text"].strip())):
                     answered = record["lane"] == ROOT and record["drive"] == self.config.drive and self.root_reply(record, self.cci_record(record["re"]))
                     if desk_line and not answered:
                         self.refuse_line(record)
-                else:
+                elif desk_line:
                     self.cci_line(record)
                 self.book.edit(RUNNER, lambda incident, at=record["seq"]: incident.facts.update({fact: at}))
         except CciTailFailed as failure:
@@ -4244,7 +4246,7 @@ class Runner:
         return bool(self.orca.receipt(lane) and (shown := self.orca.show(lane)) and shown.status not in INACTIVE)
 
     def class_unowned(self) -> None:
-        """Log one `CLASS-UNOWNED` for each class record that names an incident key and, `deadlines.pr_silent_minutes` after it, has no later root GO, decide, or decision naming one of its keys."""
+        """Log one `CLASS-UNOWNED` for each class record that names an incident key and, `deadlines.pr_silent_minutes` after it, has no later root GO, decide, or decision naming one of its keys, unless a record resolved it, as root's close on scope does (root #305535)."""
         try:
             records = [record for record in cci.records(self.cci_tail, self.config.drive, since=actions.stamp(self.now() - PR_SILENT_HORIZON)) if record["drive"] == self.config.drive]
         except CciTailFailed as failure:
@@ -4252,8 +4254,9 @@ class Runner:
             return
         after = timedelta(minutes=self.config.pr_silent_minutes)
         gos = [record for record in records if record["lane"] == ROOT and record["kind"] in GO_KINDS and FIX_GO.search(record.get("text") or "")]
+        closed = {seq for record in records for seq in cci.resolved(record)}
         for record in records:
-            if record["lane"] == ROOT or not (record["kind"] == "incident" or CLASS_TEXT.match(record.get("text") or "")):
+            if record["lane"] == ROOT or record["seq"] in closed or not (record["kind"] == "incident" or CLASS_TEXT.match(record.get("text") or "")):
                 continue
             if not (keys := class_keys(record)):
                 continue
@@ -4342,14 +4345,16 @@ class Runner:
                 if answers & set(mechanism.get("keys") or [f"seq:{mechanism['seq']}"]):
                     pending.pop(silent)
         if lane == ROOT:
-            names, answered = set(record.get("to") or []), (cci.resolved(record) | {record.get("re")}) - {None}
+            names, named = set(record.get("to") or []), (cci.resolved(record) | {record.get("re")}) - {None}
             for silent, mechanism in list(pending.items()):
-                if (record["kind"] in (STAND_DOWN, STOPPED) and names & set(self.names(silent))) or answered & self.pr_silent_posts(silent, mechanism["seq"]):
+                if (record["kind"] in (STAND_DOWN, STOPPED) and names & set(self.names(silent))) or mechanism["seq"] in named or named & self.pr_silent_posts(silent, mechanism["seq"]):
                     pending.pop(silent)
             return
+        if record["kind"] in (STOPPED, "done") or (record["kind"] in cci.TEXT_KINDS and LANE_ENDED_TEXT.match(record.get("text") or "")):
+            answered[f"ended:{lane}"] = record["seq"]
         if (mark := cci.mechanism_mark(record)) and self.pr_silent_lane(lane):
             keys = cci.incident_keys(record)
-            if lane not in pending and not keys & set(answered):
+            if lane not in pending and f"ended:{lane}" not in answered and not keys & set(answered):
                 pending[lane] = {"seq": record["seq"], "at": record["at"], "mark": mark, "keys": sorted({*keys, f"seq:{record['seq']}", *(f"lane:{alias}" for alias in self.names(lane))})}
         elif cci.settles_mechanism(record):
             for silent in [silent for silent in pending if pr_family(silent) == pr_family(lane)]:

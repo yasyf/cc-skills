@@ -805,7 +805,7 @@ class FakeShell(runner_module.Shell):
             record
             for record in self.records
             if (record["seq"] > int(since) if since.isdigit() else "at" in record and actions.parse_stamp(record["at"]) >= actions.parse_stamp(since))
-            and ("--to" not in argv or argv[argv.index("--to") + 1] in record["to"])
+            and ("--to" not in argv or argv[argv.index("--to") + 1] in record["to"] or bool({"all", "owner"} & set(record["to"])))
             and (not lanes or record.get("lane") in lanes)
             and ("--pr" not in argv or cci_names(record, argv[argv.index("--pr") + 1]))
             and (not kinds or record.get("kind") in kinds)
@@ -11554,6 +11554,17 @@ def test_a_cli_launch_on_a_live_lanes_incident_is_refused_unless_owner_directed(
     assert cli(shell, config, "launch", "--key", "launch-three", "--lane", "inc-sand-fix-2", "--model", "opus", "--effort", "xhigh", "--brief", str(brief), "--owner-directed") == 0
 
 
+def test_a_class_record_root_closed_on_scope_raises_no_class_unowned(shell, config):
+    """Root #305535: CLASS-UNOWNED fired three times on customer-break incidents root had already closed on scope (305119, 305246, 305361)."""
+    orca_pass(shell, config)
+    seq = cci_record(shell, lane="stall-watch", kind="incident", topic="customer:305039", text="INCIDENT customer-break #305039 from dev-health-desk-1, 3 min", at=actions.stamp(shell.clock))
+    cci_record(shell, lane="root", kind="incident", resolves=seq, text="8:43 PM Not an incident, closed on scope", at=actions.stamp(shell.clock))
+    shell.sleep(11 * 60)
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [line for line in escalations(shell) if line.startswith("CLASS-UNOWNED")] == []
+
+
 @pytest.mark.parametrize(
     ("kind", "text", "go", "minutes", "unowned"),
     [
@@ -11566,6 +11577,7 @@ def test_a_cli_launch_on_a_live_lanes_incident_is_refused_unless_owner_directed(
         ("report", "SAND-5A uploads fail on retry", "", 11, False),
         ("incident", "[SAND-5A] uploads fail on retry", "", 11, True),
         ("incident", "STEP1+2: sand/latest.json is 5273 bytes, SHA256 3588023a49a1516e, and SAND-5A logs match", "", 11, False),
+        ("blocker", "CLASS-UNOWNED [SAND-5A] stall-watch: #305144 at 20:45, 10 min with no fix-lane GO naming tag:SAND5A", "", 11, False),
     ],
 )
 def test_a_class_record_with_no_fix_lane_go_in_ten_minutes_raises_one_blocker(shell, config, tmp_path, kind, text, go, minutes, unowned):
@@ -11970,6 +11982,15 @@ def test_a_record_to_the_orca_desk_outside_the_grammar_fails_visibly(shell, conf
     [line] = escalations(shell)
     assert line.startswith("DIRECTIVE-FAILED cci#34766 inbox: it opens `launch incident-timeout-fix on the incident route now`, and a record addressed to orca-desk is one `[<H:MM AM|PM>] [R<n> (<clock>)] orca-desk: ")
     assert [(post["kind"], post["topic"]) for post in shell.posts] == [("defect", "cci#34766")]
+
+
+def test_an_owner_tap_broadcast_to_all_is_no_orca_desk_directive(shell, config, tmp_path):
+    """Root #306118: the orca desk answered each board-watch owner tap broadcast to `all` with a DIRECTIVE-FAILED, about 120 a night."""
+    orca_pass(shell, config)
+    shell.records.append({"seq": 34766 + len(shell.records), "drive": "d1", "lane": "board-watch", "kind": "owner", "text": "Owner on board d50e80e8, Which open pull requests may merge now, at the versions shown? (merge-prs): 47302 approved at d0e8262, at 9:43 PM", "to": ["all"], "source": "post", "at": actions.stamp(shell.clock)})
+    orca_pass(shell, config)
+    orca_pass(shell, config)
+    assert [line for line in escalations(shell) if line.startswith("DIRECTIVE-FAILED")] == []
 
 
 def test_a_failed_cci_read_escalates_and_rereads_from_the_same_sequence(shell, config, tmp_path):
@@ -13916,7 +13937,7 @@ def test_a_dirty_worktree_names_its_branch_and_files_and_a_missing_one_says_so(s
 
 @pytest.mark.parametrize(
     "ending",
-    ["blocker", "blocked", "opened-by-sibling", "ready", "not-ours", "root-stand-down", "root-stopped", "text-blocker"],
+    ["blocker", "blocked", "opened-by-sibling", "ready", "not-ours", "root-stand-down", "root-stopped", "text-blocker", "stamped-stopped"],
 )
 def test_a_blocker_a_sibling_pr_or_an_end_of_the_lane_stops_the_pr_silent_clock(shell, config, tmp_path, ending):
     orca_pass(shell, config)
@@ -13928,8 +13949,30 @@ def test_a_blocker_a_sibling_pr_or_an_end_of_the_lane_stops_the_pr_silent_clock(
         cci_record(shell, lane="root", kind=ending.removeprefix("root-"), text="stand down", at=actions.stamp(shell.clock), to=[SILENT_LANE])
     elif ending == "text-blocker":
         lane_record(shell, SILENT_LANE, "state", text="BLOCKER the grant needs an owner ruling")
+    elif ending == "stamped-stopped":
+        lane_record(shell, SILENT_LANE, "incident", text=f"8:49 PM STOPPED {SILENT_LANE}: out of scope, active no")
     else:
         lane_record(shell, SILENT_LANE, ending)
+    shell.sleep(20 * 60)
+    orca_pass(shell, config)
+    assert silent_lines(shell) == []
+
+
+def test_a_lane_stopped_before_its_mechanism_gets_no_pr_silent(shell, config, tmp_path):
+    """Root #306141: rsw-k8s-reads-fix posted STOPPED (305971) a record before its MECHANISM (305972), and PR-SILENT still fired ten minutes later."""
+    orca_pass(shell, config)
+    lane_record(shell, SILENT_LANE, "stopped", text=f"9:34 PM STOPPED {SILENT_LANE}: out of scope for incident mutation, active no")
+    cci_record(shell, lane=SILENT_LANE, kind="mechanism", text="both bursts are EKS API socket resets", at=actions.stamp(shell.clock))
+    shell.sleep(20 * 60)
+    orca_pass(shell, config)
+    assert silent_lines(shell) == []
+
+
+def test_a_root_record_closing_the_mechanism_stops_the_pr_silent_clock(shell, config, tmp_path):
+    """Root #306141: root's incident record 305973, posted --re the mechanism 305972, closed the incident on it, and PR-SILENT still fired."""
+    orca_pass(shell, config)
+    seq = cci_record(shell, lane=SILENT_LANE, kind="mechanism", text="both bursts are EKS API socket resets", at=actions.stamp(shell.clock))
+    cci_record(shell, lane="root", kind="incident", re=seq, text="incident rsw-k8s-reads closed on the mechanism", at=actions.stamp(shell.clock))
     shell.sleep(20 * 60)
     orca_pass(shell, config)
     assert silent_lines(shell) == []
