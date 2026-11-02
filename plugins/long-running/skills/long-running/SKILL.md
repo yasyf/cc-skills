@@ -863,7 +863,8 @@ version started it.
 
 - When a lane could return the answer in ten lines, or when it is raw data, delegate it (R1, R2).
   Never open a lane's transcript, launch receipts or runtime listings; the supervisor
-  relaunches dead lanes, and the root moves a lane's PRs only with `decide ... owner=<lane>`.
+  relaunches dead lanes, and the root moves a lane's PRs only with
+  `drive_supervisor.py request owner <lane>`.
 - When a lane already owns the question, use a scoped resume and do not look.
 - When about to wait, fold the wait into the lane that acts (R3).
 - When about to restate status, send nothing.
