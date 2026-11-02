@@ -154,6 +154,16 @@ def test_full_text_reads_a_spilled_body_and_keeps_the_record_text_when_the_path_
     assert grades.full_text({"text": "short", "refs": {"path": str(tarball)}}) == "short"
 
 
+def test_full_text_keeps_the_record_text_once_its_lane_rewrote_the_body_cci_clipped_it_from(tmp_path):
+    """#304302: stall-watch read a 3:47 PM count's body after a later count rewrote the file, and dated a 7:53 PM head to 3:47 PM."""
+    body = tmp_path / "count.txt.stamped"
+    body.write_text("fidelity-desk-3 3:47 PM count: #45638 68b1ebb ok and the rest of the count")
+    clipped = {"text": "fidelity-desk-3 3:47 PM count: #45638 68b1ebb ok…", "refs": {"path": str(body)}}
+    assert grades.full_text(clipped) == "fidelity-desk-3 3:47 PM count: #45638 68b1ebb ok and the rest of the count"
+    body.write_text("fidelity-desk-3 8:02 PM count: #45638 d740b78 ok and the rest of the count")
+    assert grades.full_text(clipped) == clipped["text"]
+
+
 def test_full_text_keeps_multibyte_text_and_translates_newlines_across_decoder_buffers(tmp_path):
     body = tmp_path / "body.txt"
     body.write_bytes(b"a" * 8191 + "é\r\n".encode() + b"b" * 65535 + "🧪\rfinal".encode())

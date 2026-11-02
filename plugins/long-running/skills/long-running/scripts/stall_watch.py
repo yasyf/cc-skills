@@ -259,6 +259,7 @@ JUDGE_SECONDS = 300
 JUDGE_KIND = "stall"
 LANDING = "desk-landing"
 FINDER_DESK = "desk-finder"
+FINDER_LANE = "finder-desk"
 FIDELITY_DESK = "desk-fidelity"
 QUEUE_LIVE = frozenset({"accepted", "started"})
 FINDER_PENDING = "FINDER-PENDING"
@@ -991,12 +992,12 @@ class Pass:
             if not finders and ungraded:
                 job = self.queued(FINDER_DESK, pr, head)
                 step = f"run the finder desk's pass on {subject}, {'running' if job.status == 'started' else 'queued'} since {pacific(actions.parse_stamp(job.started_at or job.accepted_at), self.now)}, or say in `desk-runner.py show` why the queue holds it" if job else f"ask finder-desk for `finder: whole` on {subject}"
-                stalls.append(Stall(f"finder:{pr}:{short(head)}", "ungraded", green, subject, f"its build has read green since {pacific(green, self.now)}, and no finder review names this head", (RUNNER if self.desk_runs(FINDER_DESK) else lane,), step, pr))
+                stalls.append(Stall(f"finder:{pr}:{short(head)}", "ungraded", green, subject, f"its build has read green since {pacific(green, self.now)}, and no finder review names this head", (FINDER_LANE if self.desk_runs(FINDER_DESK) else lane,), step, pr))
             elif not finders and self.now - head_at >= self.watch.age("finder"):
                 if started := self.overran(FINDER_DESK, pr, head):
-                    stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", started, subject, f"the finder desk's pass on this head has run since {pacific(started, self.now)}", (RUNNER,), f"read `desk-runner.py show`, then stop and requeue the finder pass on {subject}", pr))
+                    stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", started, subject, f"the finder desk's pass on this head has run since {pacific(started, self.now)}", (FINDER_LANE,), f"read `desk-runner.py show`, then stop and requeue the finder pass on {subject}", pr))
                 elif not self.finder_holds(pr, head) and self.desk_runs(FINDER_DESK):
-                    stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", head_at, subject, f"no finder review names this head, and the finder desk holds no pass on it, first named {pacific(head_at, self.now)} in #{announced[0]['seq']}", (RUNNER,), f"read `desk-runner.py show` for why the finder desk queued no pass on {subject} from its head record", pr))
+                    stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", head_at, subject, f"no finder review names this head, and the finder desk holds no pass on it, first named {pacific(head_at, self.now)} in #{announced[0]['seq']}", (FINDER_LANE,), f"read `desk-runner.py show` for why the finder desk queued no pass on {subject} from its head record", pr))
                 elif not self.finder_holds(pr, head):
                     stalls.append(Stall(f"finder:{pr}:{short(head)}", "finder", head_at, subject, f"no finder review names this head, first named {pacific(head_at, self.now)} in #{announced[0]['seq']}", (lane,), f"run the finder (reference/finder-brief.md) on {subject} and post its review", pr))
             if not standing and fidelity_lanes and ungraded:

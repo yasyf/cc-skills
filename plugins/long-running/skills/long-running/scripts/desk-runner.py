@@ -458,7 +458,8 @@ past the saved sequence that names a PR of `finder.repo`, default `landing.repo`
 the first full sha of its text that no `was` precedes, queues one `finder:<pr>:<head>` action in the `desk-finder`
 container, so a head two records name queues once; a first read starts at the newest record. Each pass also reads the ledger once
 and queues the green head of every open drive row whose PR has no pass waiting or running, so a restack that posted no `head`
-record is graded with no hand requeue. At most `finder.concurrent`
+record is graded with no hand requeue. A stall-watch `finder:<pr>:<head>` stall, which stall-watch sends to `finder-desk`,
+queues that head while the PR's ledger row is still at it. At most `finder.concurrent`
 passes (default 8) run at once and the rest wait queued; each PR's newest queued head starts, a lower ledger `priority` first, then longest waiting, and an older
 queued head of the same PR settles as superseded, and so does a running pass of it: the runner writes its job's `cancelled`
 mark and runs `codex-ask --cancel` on each codex run the pass started. Before it starts any, one fresh GraphQL read of every
@@ -748,6 +749,7 @@ FINDER_ATTEMPTS = 3
 GRADER_RETRY_AFTER = timedelta(minutes=10)
 TOOLING_CAUSE = re.compile(r"[0-9a-f]{7,}|\d+|/\S+")
 FINDER_STALLED_AFTER = timedelta(minutes=15)
+FINDER_STALL = re.compile(r"finder:(?P<pr>\d+):(?P<head>[0-9a-f]{7,40})(?::quiet)?")
 FINDER_SETTLED = "settled_at"
 FINDER_SKIPS = {"CLOSED": "#{pr} is closed", "NOT_FOUND": "#{pr} is no pull request in {repo}"}
 PROOF_TITLE = re.compile(r"\bproof:|\b(?:red|green) proof\b|\bproof, do not merge\b", re.IGNORECASE)
@@ -4810,19 +4812,22 @@ class Runner:
         return stop
 
     def queue_finders(self, repo: str, rows: dict[str, dict]) -> None:
-        """Accept one `finder:<pr>:<head>` action per PR and full head the drive's `head` and `opened` records past the saved sequence name, and per green head of an open ledger row, so a head two records name, or a restack that posted no record, queues once; a first read starts at the newest record. A `head` record that names no PR, or a PR and no sha, sends its lane one `HEAD-UNQUEUED`, since no pass of either grader would ever name it (root #225521)."""
+        """Accept one `finder:<pr>:<head>` action per PR and full head the drive's `head` and `opened` records past the saved sequence name, per stall-watch `finder:<pr>:<head>` stall naming an open ledger row's head (root #304381), and per green head of an open ledger row, so a head two records name, or a restack that posted no record, queues once; a first read starts at the newest record. A `head` record that names no PR, or a PR and no sha, sends its lane one `HEAD-UNQUEUED`, since no pass of either grader would ever name it (root #225521)."""
         cursor = self.book.fact(FINDER, FINDER_CURSOR, None)
         if cursor is None:
             newest = cci.records(self.cci_tail, self.config.drive, "--limit", "1")
             self.book.edit(FINDER, lambda incident: incident.facts.update({FINDER_CURSOR: max((record["seq"] for record in newest), default=0)}))
             return
-        read = cci.records(self.cci_tail, self.config.drive, "--kind=head", "--kind=opened", "--kind=ask", "--kind=decide", "--kind=defect", since=cursor)
+        read = cci.records(self.cci_tail, self.config.drive, "--kind=head", "--kind=opened", "--kind=ask", "--kind=decide", "--kind=defect", "--kind=urgent", since=cursor)
         for record in read:
             if record["drive"] == self.config.drive and record["kind"] in ("ask", "decide", "defect"):
                 for pr in finder.requested(record, repo):
                     self.book.accept(FINDER, f"finder:{pr}:whole:{record['seq']}", "finder", json.dumps({"pr": pr, "head": "", "lane": record["lane"], "seq": record["seq"], "full": True}), f"cci#{record['seq']}", None)
         for record, pr, head in self.named_heads(repo, read):
             self.book.accept(FINDER, f"finder:{pr}:{head}", "finder", json.dumps({"pr": pr, "head": head, "lane": record["lane"], "seq": record["seq"], "full": False}), f"cci#{record['seq']}", None)
+        for record in read:
+            if record["drive"] == self.config.drive and record["lane"] == stall_watch.LANE and (stalled := FINDER_STALL.fullmatch(record.get("topic") or "")) and (row := rows.get(stalled["pr"])) and row.get("head", "").startswith(stalled["head"]):
+                self.book.accept(FINDER, f"finder:{stalled['pr']}:{row['head']}", "finder", json.dumps({"pr": stalled["pr"], "head": row["head"], "lane": row.get("lane") or ROOT, "seq": record["seq"], "full": False}), f"cci#{record['seq']}", None)
         for record in read:
             if (record["drive"], record["kind"]) == (self.config.drive, "head") and (gap := finder.head_gap(record, repo)):
                 self.escalate(f"head-unqueued:{record['seq']}", "HEAD-UNQUEUED", record["lane"], f"head record cci #{record['seq']} {gap}, so no finder or fidelity pass grades it; post it again as `cci post --kind head --pr <n> --head <n>=<sha>`", f"cci#{record['seq']}", record["lane"])
