@@ -317,7 +317,10 @@ def told(event: dict, doc: dict | None) -> str:
 
 def place(doc: dict | None, block: str) -> str:
     title = (card_of(doc, block) or {}).get("title")
-    return f"{title} ({block})" if title else block or "the board"
+    found = find(doc, block) or {}
+    item = found.get("prompt") if found.get("type") == "choice" and found.get("prompt") != title else None
+    named = ", ".join(filter(None, [title, item]))
+    return f"{named} ({block})" if named else block or "the board"
 
 
 def announced(event: dict, session: str, doc: dict | None) -> str:

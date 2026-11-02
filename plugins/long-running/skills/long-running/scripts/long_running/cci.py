@@ -32,6 +32,9 @@ TRUNK_TOPIC = "dev-red"
 TRUNK_RUNNER = "desk-runner"
 TRUNK_STATE = re.compile(r"^(?P<state>DEV-RED|POST-MERGE-RED|DEV-GREEN)\b(?: since (?P<since>\d{1,2}:\d{2} [AP]M))?")
 NAMED_PR = re.compile(r"#(\d+)\b")
+NOT_OWNERS = frozenset({"root", "main", "all", ""})
+ENDED_KINDS = frozenset({"stand-down", "handoff", "stopped", "done"})
+OWNER_WINDOW = "2h"
 LEADING_HOLD = re.compile(r"^\W*hold\s+#(\d+)\b", re.IGNORECASE)
 
 
@@ -282,6 +285,17 @@ def resolved(record: dict) -> set[int]:
     """Every seq `record` resolves: its `resolves` and each of its `also_resolves`, which a `--resolves a,b` post stores past the first."""
     first = record.get("resolves") or []
     return (set(first) if isinstance(first, list) else {first}) | set(record.get("also_resolves") or [])
+
+
+def dead_owner(run: Callable[[list[str]], str], drive: str, lane: str) -> str:
+    """Why `lane` cannot own work on `drive`, or "" when it posted there within OWNER_WINDOW and its newest record ends nothing."""
+    if lane in NOT_OWNERS:
+        return f"{lane or 'no lane'} is the coordinator, not a worker; name the worker that builds it, or ask root to spawn one"
+    out = run(["cci", "grep", ".", "--drive", drive, "--lane", lane, "--since", OWNER_WINDOW, "-n", "1", "--json"])
+    newest = next((json.loads(line) for line in out.splitlines() if line.startswith("{")), None)
+    if newest is None or newest["kind"] in ENDED_KINDS:
+        return f"{lane} has posted nothing on {drive} in {OWNER_WINDOW}{' since its ' + newest['kind'] if newest else ''}; name a live worker, or ask root to spawn one"
+    return ""
 
 
 def expired(record: dict, now: datetime) -> bool:

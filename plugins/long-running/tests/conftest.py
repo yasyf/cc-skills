@@ -126,7 +126,7 @@ class FakeShell(ledger.Shell):
 
     def _cci(self, argv):
         flags: dict[str, list[str]] = {}
-        rest = list(argv[2:])
+        rest = list(argv[3:] if argv[1] == "grep" else argv[2:])
         while rest:
             flag = rest.pop(0)
             name, _, value = flag.partition("=")
@@ -149,6 +149,8 @@ class FakeShell(ledger.Shell):
             assert len(record["text"]) <= 400
             self.cci.append(record)
             return json.dumps(record) + "\n" if "--json" in one else f"#{record['seq']}\n"
+        if argv[1] == "grep":
+            return "".join(json.dumps(record) + "\n" for record in reversed(self.cci) if record["lane"] in flags["--lane"])
         assert argv[1] == "tail", argv
         if "--since-seq" in one:
             after = int(one["--since-seq"])

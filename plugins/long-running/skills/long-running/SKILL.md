@@ -326,7 +326,7 @@ every desk.
 its lane dispatch, the root runs:
 
 ```sh
-ledger.py ask --ledger <id> --text "<verbatim>" --lane <lane> --accept "<acceptance check>"
+ledger.py ask --ledger <id> --text "<verbatim>" --lane <lane> --accept "<acceptance check>" --due <time>
 ```
 
 - Each new ask gets its own lane (R6). A PR carrying an `IN-PR` ask takes no second ask,

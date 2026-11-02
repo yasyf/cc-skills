@@ -11,8 +11,13 @@ ASK = "one post and one approval per release"
 CHECK = "the next release posts once and holds once"
 
 
+def heard(shell, lane=LANE) -> None:
+    shell.cci.append({"seq": len(shell.cci) + 1, "drive": DRIVE, "lane": lane, "kind": "state", "at": "2026-10-05T09:00:00Z", "text": "working", "topic": ""})
+
+
 def ask(shell, text=ASK, lane=LANE) -> int:
-    return run(shell, "ask", "--ledger", LEDGER, "--text", text, "--lane", lane, "--accept", CHECK)
+    heard(shell, lane)
+    return run(shell, "ask", "--ledger", LEDGER, "--drive", DRIVE, "--text", text, "--lane", lane, "--accept", CHECK, "--due", "4h")
 
 
 def report(shell, pr=PR, ask_id="ask/000001") -> int:
@@ -308,7 +313,7 @@ def test_ask_state_needs_an_ask_id():
 
 
 def test_ask_without_a_state_still_needs_text_lane_and_accept():
-    with pytest.raises(SystemExit, match="--text, --lane and --accept"):
+    with pytest.raises(SystemExit, match="--text, --lane, --accept and --due"):
         run(desk_shell(), "ask", "--ledger", LEDGER, "--text", ASK)
 
 
@@ -411,7 +416,8 @@ def test_progress_refuses_an_ask_the_ledger_does_not_hold():
 def standing(shell, *hours, ask_id=None) -> int:
     if ask_id:
         return run(shell, "ask", "--ledger", LEDGER, "--ask", ask_id, "--standing", *hours)
-    return run(shell, "ask", "--ledger", LEDGER, "--text", ASK, "--lane", LANE, "--accept", CHECK, "--standing", *hours)
+    heard(shell)
+    return run(shell, "ask", "--ledger", LEDGER, "--drive", DRIVE, "--text", ASK, "--lane", LANE, "--accept", CHECK, "--due", "4h", "--standing", *hours)
 
 
 def test_a_standing_ask_reads_in_progress_through_its_window_and_never_lost(capsys):
@@ -459,3 +465,28 @@ def test_standing_with_an_ask_id_turns_an_existing_lost_ask_standing(capsys):
 def test_standing_refuses_an_ask_the_ledger_does_not_hold():
     with pytest.raises(SystemExit, match="no ask ask/000009"):
         standing(desk_shell(), ask_id="ask/000009")
+
+
+def test_a_repeat_of_an_open_ask_is_a_progress_entry_on_it_not_a_second_row(capsys):
+    """Owner 10:21 PM Nov 1: eight identical rows on his ask table; one text is one row."""
+    shell = desk_shell()
+    assert ask(shell) == 0
+    assert ask(shell, text=f"  {ASK.upper()} ", lane="other") == 0
+
+    assert [key for key in shell.keys() if key.startswith("ask/")] == ["ask/000001"]
+    assert "already holds this ask" in capsys.readouterr().err
+    assert json.loads(shell.fields("ask/000001")["progress_000001"])["note"] == "asked again for other"
+
+
+@pytest.mark.parametrize(
+    ("lane", "said"),
+    [("root", "is the coordinator"), ("silent-lane", "has posted nothing")],
+)
+def test_an_ask_needs_a_live_worker_as_its_owner(lane, said):
+    """Owner 10:26 PM Nov 1: no ask without a live owner lane; root owning it is no owner."""
+    shell = desk_shell()
+
+    with pytest.raises(SystemExit, match=said):
+        run(shell, "ask", "--ledger", LEDGER, "--drive", DRIVE, "--text", ASK, "--lane", lane, "--accept", CHECK, "--due", "4h")
+
+    assert shell.keys() == []
