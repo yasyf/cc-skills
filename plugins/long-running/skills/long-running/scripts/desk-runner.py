@@ -271,6 +271,9 @@ however many times the PR entered the queue, and routes
 blockers and restacks. Every queue call goes through the repository adapter `landing.adapter` names, from `merge_queue.py`:
 `trunk-stack-enqueue` and `graphite-stack-enqueue` run the script `landing.adapter.script` names under the landing checkout, and `label` runs
 `ledger.py label`; the landing desk refuses to start with `MQ-CONFIG-INVALID` on an adapter, a check, or a high-risk setting it cannot run.
+With `landing.adapter.sprite` listing Sprites, each script and `tools/ci` call runs there as a `sprite-job.sh` job of `merge_task.py`, in the
+`.merge` worktree of that Sprite's clone at the landing checkout's head, with `landing.adapter.sprite_keys` mapping each environment name
+the call needs to the command here that prints it, as many calls at once as the list names Sprites, each on the one running the fewest.
 A check the script refuses because a stack is no native GitHub stack runs `gh stack link` over each tip's chain, bottom first, posts
 one `STACK-LINK` note to the lanes, and checks again in the same pass, once per set of the chain's heads, so a link GitHub refused runs again only after one of them moves;
 a refused link of a chain with a PR that has two open children posts one `STACK-BRANCHED` blocker to the tree's lanes naming each fork, and links no chain through those forks again until they change; a check that prints a `would enqueue` line the adapter cannot
@@ -937,6 +940,8 @@ CARD_NAME = 80
 CARD_LABEL = 75
 COMMAND_TIMEOUT_SECONDS = 1800
 ENQUEUE_SECONDS = 300
+MERGE_TASK_SECONDS = 2 * ENQUEUE_SECONDS
+MERGE_TASKS = "merge-tasks"
 LEDGER_SECONDS = 300
 FETCH_SECONDS = 120
 GRAPHITE_BASE = "graphite-base/"
@@ -1186,6 +1191,8 @@ def quick(argv: list[str]) -> bool:
 
 
 def time_bound(argv: list[str]) -> float:
+    if Path(argv[0]).name == "sprite-job.sh" and Path(argv[2]).name == "merge_task.py":
+        return MERGE_TASK_SECONDS
     if argv[:4] == BUS_PROBE:
         return BUS_PROBE_SECONDS
     if len(argv) > 2 and Path(argv[1]).name == "rulings.py" and argv[2] == "check-pr":
@@ -5962,7 +5969,7 @@ class Landing:
         self.no_go: set[str] = set()
         self.below_blocking: set[str] = set()
         self.started = self.book.stamp()
-        self.adapter = merge_queue.adapter(self.shell, self.checkout, config["adapter"], self.ledger_py, self.repo, self.ledger)
+        self.adapter = merge_queue.adapter(self.shell, self.checkout, config["adapter"], self.ledger_py, self.repo, self.ledger, self.runner.config.drive, self.runner.config.source.parent / MERGE_TASKS)
         self.book.ensure(LANDING, LANDING)
 
     def ledger_py(self, *argv: str) -> Done:
