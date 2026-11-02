@@ -674,6 +674,16 @@ def _read_facts(connection: sqlite3.Connection, read: Callable[[Mapping[str, obj
         tree.closed = True
 
 
+def _on_disk(path: Path) -> tuple[int, ...]:
+    """The size and modification time of a database and of its write-ahead log, which every commit changes."""
+    database = path.stat()
+    try:
+        log = Path(f"{path}-wal").stat()
+    except FileNotFoundError:
+        return database.st_size, database.st_mtime_ns
+    return database.st_size, database.st_mtime_ns, log.st_size, log.st_mtime_ns
+
+
 class _ReadConnections(threading.local):
     def __init__(self):
         self.connections: OrderedDict[Path, tuple[tuple[int, int], sqlite3.Connection]] | None = None
@@ -686,6 +696,7 @@ class Store:
     def __init__(self, root: Path | None = None):
         self.root = root if root is not None else Path.home() / ".claude" / "long-running" / "incidents"
         self._readers = _ReadConnections()
+        self._keys: dict[tuple[Path, str], tuple[tuple[int, ...], frozenset[str]]] = {}
 
     def path(self, incident_id: str) -> Path:
         return _incident_path(self.root, incident_id)
@@ -869,6 +880,22 @@ class Store:
     def action_family(self, incident_id: str, base: str) -> list[Action]:
         with self._read(incident_id) as connection:
             return [Action.load(json.loads(row[0])) for row in connection.execute("SELECT record FROM action WHERE action_key = ? OR (action_key >= ? AND action_key < ?) ORDER BY ordinal", (base, base + "#", base + "$"))]
+
+    def actions_prefixed(self, incident_id: str, kind: str, prefix: str) -> list[Action]:
+        """The actions of `kind` whose key starts with `prefix`, in order, read through the key index."""
+        with self._read(incident_id) as connection:
+            return [Action.load(json.loads(row[0])) for row in connection.execute("SELECT record FROM action WHERE action_key >= ? AND action_key < ? AND kind = ? ORDER BY ordinal", (prefix, prefix[:-1] + chr(ord(prefix[-1]) + 1), kind))]
+
+    def action_keys(self, incident_id: str, kind: str) -> frozenset[str]:
+        """The keys of every action of `kind`, read again only once the database or its write-ahead log changed on disk, so a caller probing a hundred idle incidents opens none of them."""
+        path = self.path(incident_id)
+        signature = _on_disk(path)
+        if (kept := self._keys.get((path, kind))) and kept[0] == signature:
+            return kept[1]
+        with self._read(incident_id) as connection:
+            keys = frozenset(row[0] for row in connection.execute("SELECT action_key FROM action WHERE kind = ?", (kind,)))
+        self._keys[(path, kind)] = (signature, keys)
+        return keys
 
     def escalations_for(self, incident_id: str, pr: str) -> list[Action]:
         with self._read(incident_id) as connection:

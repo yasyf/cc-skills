@@ -7534,7 +7534,7 @@ class Landing:
         """The lines of `warnings` no warning `check_rulings` posted for `pr` at `sha` named yet, or none once an `answer` replies to or resolves one of those warnings."""
         if not warnings:
             return []
-        posted = [action for action in self.book.actions(LANDING, kind="bus") if action.action_id.startswith(f"rulings:{pr}:{sha[:7]}:")]
+        posted = self.book.actions_prefixed(LANDING, "bus", f"rulings:{pr}:{sha[:7]}:")
         named = {line for action in posted for line in json.loads(action.target)["text"].partition("the head is not held for it: ")[2].split("; ")}
         fresh = [line for line in "; ".join(warnings).split("; ") if line and line not in named]
         seqs = {seq for action in posted if (seq := cci.receipt_seq((action.response or {}).get("posted", ""))) is not None}
@@ -8822,7 +8822,7 @@ class Landing:
         if closed := sorted({pr for action in self.book.actions(LANDING, kind="enqueue", status="completed") if action.response["outcome"] in ADMITTED for pr in action.target.split(",") if rows.get(pr, {}).get("state") == "closed" and TRUNK_MERGED_LABEL in rows[pr].get("labels", "").split(",")}, key=int):
             self.landed_now(closed)
             rows = self.rows() or rows
-        announced = {landing for action in self.book.actions(LANDING, kind="bus") if action.action_id.startswith(LANDED_KEY) for landing in action.action_id.removeprefix(LANDED_KEY).split(",")}
+        announced = {landing for action in self.book.actions_prefixed(LANDING, "bus", LANDED_KEY) for landing in action.action_id.removeprefix(LANDED_KEY).split(",")}
         for action in sorted(self.book.actions(LANDING, kind="enqueue", status="completed"), key=lambda action: action.accepted_at, reverse=True):
             prefix = action.target.split(",")
             if action.response["outcome"] not in ADMITTED or not all(rows.get(pr, {}).get("state") == "landed" for pr in prefix):
@@ -9336,7 +9336,7 @@ class Landing:
         """The newest refusal any PR of `members` stands under, with the lane that owns that PR: a blocker this runner routed for its current head or base, a refusal it escalated since `since`, or a `blocker` record a `landing.desk_lane` lane posted naming it since then (root, Oct 29 2:37 AM)."""
         found: list[tuple[datetime, str, str]] = []
         keys = {key for member in members for key in (f"blocker:{member}:{open_rows[member].get('head', '')[:10]}", f"bot-held:{member}:{open_rows[member].get('head', '')[:10]}", f"conflict:{member}:{open_rows[member].get('base', '')}")}
-        containers = [(LANDING, "bus"), *((name, "relay") for name in self.book.containers(LANE_PREFIX))]
+        containers = [(LANDING, "bus"), *((name, "relay") for name in self.book.containers(LANE_PREFIX) if keys & self.book.action_keys(name, "relay"))]
         with self.runner.pass_io.phase("overflow-routes"):
             with self.book.store.reading():
                 routes = [action for container, kind in containers for key in keys if (action := self.book.store.find_action(container, key)) is not None and action.kind == kind]

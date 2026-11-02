@@ -140,3 +140,21 @@ def test_original_actions_script_keeps_installed_version_routing(monkeypatch):
         runpy.run_path(str(script), run_name="__main__")
     assert exited.value.code == 0
     assert routed == [str(script)]
+
+
+def test_action_keys_reread_only_after_a_commit_and_prefixed_actions_use_the_key_range(tmp_path, monkeypatch):
+    store = history(tmp_path, 3)
+    with store.transaction("runner") as state:
+        state.accept("landed:1,2", "bus", "a", "owner", Clock().now())
+        state.accept("landed;3", "bus", "b", "owner", Clock().now())
+        state.accept("landed:4", "send", "c", "owner", Clock().now())
+    reads = []
+    connect = store._connect
+    monkeypatch.setattr(store, "_connect", lambda *args, **kwargs: reads.append(args) or connect(*args, **kwargs))
+    assert store.action_keys("runner", "bus") == {"landed:1,2", "landed;3"}
+    assert store.action_keys("runner", "bus") == {"landed:1,2", "landed;3"}
+    assert len(reads) == 1
+    with store.transaction("runner") as state:
+        state.accept("landed:5", "bus", "d", "owner", Clock().now())
+    assert "landed:5" in store.action_keys("runner", "bus")
+    assert [action.action_id for action in store.actions_prefixed("runner", "bus", "landed:")] == ["landed:1,2", "landed:5"]
