@@ -573,6 +573,8 @@ after a job's automatic retry, posts one `FLAKE`, a
 blocks nothing and stays open until a HEAD names it. Its owner is the live successor of the lane whose PR last changed
 that test's file, else the live successor of the lane `landing.flake_lane` names, which routes it to a fixer, else root.
 An old-tree flake posts too, since a harness fix there falls under the owner's 3:22 PM Oct 31 order (root #274853).
+Each release-bot notice in `landing.flaky_channel` that a trunk step failed while nothing it reads changed posts the same
+`FLAKE` to the same owner, so a flaky-test report in Slack reaches a fixer without a forward (retro/000057).
 A trunk that does not read gates and enqueues nothing that pass and reads again
 the next; `TRUNK-READ-FAILED` posts once per run of such passes, and `TRUNK-READ-RECOVERED` once a read succeeds.
 `landing.release_cli` is the repo's release command line, such as `tools/ci release`, its first word relative to the landing
@@ -1050,6 +1052,9 @@ TRUNK_UNREAD_FACT = "trunk-unread"
 TRUNK_JOBS_FACT = "trunk-jobs"
 TRUNK_REDS_FACT = "trunk-reds"
 FLAKE_DUE = timedelta(hours=24)
+FLAKY_SEEN_FACT = "flaky-notices-seen"
+FLAKY_NOTICE = re.compile(r"> failed (?:`([^`]+)`.*? )?on <(https://buildkite\.com/[^|>]+)\|[^>]*> at <[^|>]*/commit/([0-9a-f]+)\|.*?(?:it looks flaky and|touches what it reads, so) nobody was told")
+TEST_NAME = re.compile(r"(?:Test\w+|\w+(?:::\w+)+)")
 FAILED_TEST = re.compile(r"--- FAIL: (?P<go>[\w.-]+)|^test (?P<cargo>\S+) \.\.\. FAILED|^\s*FAIL \[\s*[\d.]+s\] \S+ (?P<nextest>\S+)", re.MULTILINE)
 LOG_CONTROL = re.compile(r"\x1b(?:_[^\x07]*\x07|\[[0-9;]*[A-Za-z])|\r")
 UNREACHABLE_WAIT = timedelta(minutes=2)
@@ -6958,6 +6963,7 @@ class Landing:
             self.runner.escalate(f"trunk-read-recovered:{streak['since']}", "TRUNK-READ-RECOVERED", "landing", f"{TRUNK}'s {check} statuses read again; from {pacific(since)} for {whole_minutes(since, self.runner.now())} min no pass gated ({streak['error']})")
         self.compare_trunk_builds(target["history"]["nodes"], check, rows)
         self.watch_flakes(target["history"]["nodes"], check, rows)
+        self.watch_flaky_notices(rows)
         posted = cci.trunk(cci.records(self.cci_tail, self.runner.config.drive, f"--topic={cci.TRUNK_TOPIC}"))
         red = trunk_red(target["history"]["nodes"], check)
         if red is False:
@@ -7014,6 +7020,28 @@ class Landing:
         if not jobs:
             return True
         test = next(filter(None, (self.failed_test(red, job) for job in jobs)), "")
+        return self.post_flake(test, f"failed on {red} at {oid[:10]} and passed on retry", f"flake:{oid}", rows)
+
+    def watch_flaky_notices(self, rows: dict[str, dict]) -> None:
+        """Post one `FLAKE` for each notice in `landing.flaky_channel` that says a trunk step failed while nothing changed in what it reads, the release bot's flaky-test report, so a report in Slack reaches a fixer as a retry's flake does (retro/000057: four went unfixed until the owner forwarded them at 10:40 PM Oct 30). The first read starts `FLAKE_DUE` back; a notice whose record did not post is read again the next pass."""
+        if not (channel := self.landing_config.get("flaky_channel")):
+            return
+        now = self.runner.now()
+        done = self.shell.run(["cc-slack", "history", "--channel", channel, "--json", "--limit", str(PAGE_READ)])
+        if done.code != 0:
+            self.runner.escalate(f"flaky-unread:{channel}:{now:%Y%m%d%H}", "FLAKY-UNREAD", "landing", f"`cc-slack history --channel {channel}` exited {done.code}: {' '.join((done.err or done.out).split())[:200]}; no flaky-test report in it reaches a fixer until it reads, and the next pass reads it again")
+            return
+        after = float(self.book.fact(LANDING, FLAKY_SEEN_FACT, str((now - FLAKE_DUE).timestamp())))
+        for message in sorted((m for m in json.loads(done.out)["messages"] if float(m["ts"]) > after), key=lambda m: float(m["ts"])):
+            if found := FLAKY_NOTICE.search(message["text"]):
+                tests, build, commit = found.groups()
+                test = name if tests and TEST_NAME.fullmatch(name := tests.split()[-1]) else ""
+                if not self.post_flake(test, f"failed on {build} at {commit[:10]} while nothing it reads changed, per {message['permalink']}", f"flake-notice:{message['ts']}", rows):
+                    return
+            self.book.edit(LANDING, lambda incident, ts=message["ts"]: incident.facts.update({FLAKY_SEEN_FACT: ts}))
+
+    def post_flake(self, test: str, failed: str, key: str, rows: dict[str, dict]) -> bool:
+        """Post the `FLAKE` finding for `test` under `key`: its owner is the live successor of the lane whose PR last changed the test's file, else of the lane `landing.flake_lane` names, else root; False when the record did not post."""
         path = self.test_file(test) if test else ""
         subject = self.shell.run(["git", "-C", str(self.checkout), "log", "-1", "--format=%s", "--", path]).out.strip() if path else ""
         pr = found[1] if (found := SQUASHED_PR.search(subject)) else ""
@@ -7021,8 +7049,8 @@ class Landing:
         owner = next((live for lane in lanes if self.session_live(live := self.successor(lane))), ROOT)
         due = (self.runner.now() + FLAKE_DUE).astimezone(PACIFIC).strftime("%b %-d %-I:%M %p")
         changed = f"; #{pr} last changed it" if pr else ""
-        text = f"[finding:{RUNNER}] - {path or '-'} flake owner {owner}: FLAKE {test or 'a test'} failed on {red} at {oid[:10]} and passed on retry{changed}. Fix due {due}; name this record in the fix's HEAD. It blocks nothing."
-        return self.runner.cci_post("defect", text, ",".join(dict.fromkeys([owner, ROOT, self.runner.watchdog])), cci.TRUNK_TOPIC, f"flake:{oid}", record_id=f"flake:{oid}").code == 0
+        text = f"[finding:{RUNNER}] - {path or '-'} flake owner {owner}: FLAKE {test or 'a test'} {failed}{changed}. Fix due {due}; name this record in the fix's HEAD. It blocks nothing."
+        return self.runner.cci_post("defect", text, ",".join(dict.fromkeys([owner, ROOT, self.runner.watchdog])), cci.TRUNK_TOPIC, key, record_id=key).code == 0
 
     def failed_test(self, build: str, job: str) -> str:
         """The first failing test the log of `job` in `build` names, Go or Rust; empty when the log does not read or names none."""
