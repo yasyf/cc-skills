@@ -172,8 +172,10 @@ and, across the drive:
               `REFUSED`, the reason after the PR list, such as `REFUSED unsettled`; an urgent to root and
               the drive watchdog names the class and every acknowledgement and orders one fix lane for
               it; at `stall.acks.spawn` (default 4) the pass writes that lane's brief from the records to
-              `<state dir>/class-fix-<class>/brief.md` and launches it with `desk-launch.py lane`, once a
-              day per class (owner 9:55 PM Nov 1, cc-notes answer 1f77471)
+              `<state dir>/class-fix-<class>/brief.md` with its `Scale:`, `ccx: incident=none` and
+              `Register slice:` lines, refreshes the slice with `rulings.py slice --refresh` and only then
+              launches it with `desk-launch.py lane`, once a day per class (owner 9:55 PM Nov 1, cc-notes
+              answer 1f77471; root #313385)
 
 A lane's own liveness, whether it stopped, went silent or outgrew its context, is the lane supervisor's
 (`lr/movers/lanes.py`), which relaunches it with no root action; no stall names a lane for its silence.
@@ -1542,6 +1544,10 @@ class Pass:
             brief = Path(self.entry["state_dir"]).expanduser() / lane / "brief.md"
             brief.parent.mkdir(parents=True, exist_ok=True)
             brief.write_text(fix_brief(self.watch.drive, lane, name, found, self.now))
+            sliced = self.shell.run([sys.executable, str(SCRIPTS / "rulings.py"), "slice", "--refresh", str(brief), "--drive", self.watch.drive])
+            if sliced.code:
+                print(f"rulings.py slice --refresh {brief} exited {sliced.code}: {(sliced.err or sliced.out).strip()[:300]}; {lane} launches on a later pass", file=sys.stderr)
+                continue
             self.spawned[lane] = actions.stamp(self.now)
             done = self.shell.run([sys.executable, str(SCRIPTS / "desk-launch.py"), "lane", lane, *FIX_MODEL, str(brief), "--drive", self.watch.drive, "--lane", LANE, "--timeout-seconds", str(LAUNCH_SECONDS)])
             if done.code:
@@ -1617,6 +1623,10 @@ def fix_brief(drive_name: str, lane: str, name: str, found: list[tuple[dict, dic
         "",
         "## Root's acknowledgements",
         *(f"- #{ack['seq']} {ack['kind']} at {pacific(at(ack), now)}: {clip(ack.get('text') or '', RECORD_CHARS)}" for ack in acks),
+        "",
+        "Scale: no N",
+        "ccx: incident=none",
+        f"Register slice: lane={lane} step=all",
         "",
     ])
 
