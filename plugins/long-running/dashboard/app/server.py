@@ -88,7 +88,7 @@ SENTENCE = re.compile(r"(?<=[.!?])(?<!\be\.g\.)(?<!\bi\.e\.)(?<!\bvs\.)(?<!\betc
 SOURCE_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>{title}</title><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"></head><body><main class="wrap pg"><a class="pg-back" href="/">‹ The drive dashboard</a><header class="pg-h"><div><h1>{title}</h1></div></header><pre class="src-text">{text}</pre></main></body></html>'
 STORY_ROUTE = re.compile(r"/api/story/([a-z0-9-]+)")
 TRANSCRIPT_ROUTE = re.compile(r"/api/transcript/([a-z0-9-]+)")
-ROW_FACTS = ("number", "head", "key", "title", "change", "plan", "risk", "review", "blocker", "md", "block", "state", "ci_fix_go", "checked_at")
+ROW_FACTS = ("number", "head", "key", "title", "change", "plan", "risk", "review", "blocker", "md", "block", "state", "ci_fix_go", "checked_at", "awaiting")
 CONFLICT = "Conflicts with its base, so it cannot land until its worker rebases it."
 UNCHECKED = "GitHub has not yet rechecked whether it merges cleanly."
 RELEASED = re.compile(r"^(released|done|live)", re.I)
@@ -689,6 +689,38 @@ def at_live_head(rows, prs, records):
     return [{**row, "state": "failing", "blocker": why} if row["state"] == "you" and (why := held_back(row)) else row for row in rows]
 
 
+def owner_asks(records, prs):
+    """Each pull request's questions from the owner's row box, oldest first, with every reply down its chain; one stays open until an answer lands in that chain or a new version of the pull request is pushed (owner 12:03 AM Nov 2, root #308820)."""
+    children = {}
+    for record in records:
+        if record.get("re"):
+            children.setdefault(record["re"], []).append(record)
+    asks = {}
+    for record in records:
+        if record["lane"] != "owner-board" or record["kind"] != "ask":
+            continue
+        replies, frontier = [], [record["seq"]]
+        while frontier:
+            for child in children.get(frontier.pop(), []):
+                frontier.append(child["seq"])
+                replies += [child] if child["kind"] != "ask" else []
+        asked_at = ((record.get("fields") or {}).get("attrs") or {}).get("head") or ""
+        for number in map(str, (record.get("refs") or {}).get("prs") or []):
+            live = (prs.get(number) or {}).get("head") or ""
+            pushed = bool(asked_at and live and not live.startswith(asked_at))
+            asks.setdefault(number, []).append({"seq": record["seq"], "at": record["at"], "text": record["text"], "replies": lean(sorted(replies, key=lambda r: r["seq"])), "answered": pushed or any(r["kind"] == "answer" for r in replies)})
+    return asks
+
+
+def awaiting_reply(rows, asks):
+    """Each board row with the owner's latest unanswered question on it, which keeps the row out of his review queue until the answer lands."""
+    def open_ask(number):
+        last = (asks.get(str(number)) or [None])[-1]
+        return last["seq"] if last and not last["answered"] else None
+
+    return [{**row, "awaiting": open_ask(row["number"])} for row in rows]
+
+
 def merge_needs(rows, board_url):
     groups = {}
     for row in rows:
@@ -1219,7 +1251,7 @@ class Drive:
     def live(self, model):
         board = self.board()
         self.check_gos(board["rows"])
-        board["rows"] = at_live_head(with_conflicts(board["rows"], model["prs"]), model["prs"], model["records"])
+        board["rows"] = awaiting_reply(at_live_head(with_conflicts(board["rows"], model["prs"]), model["prs"], model["records"]), model["asks"])
         board["cards"] = unanswered(board["cards"], model["words"])
         stamp(board)
         now = dt.datetime.now(dt.timezone.utc)
@@ -1298,6 +1330,7 @@ class Drive:
             "title": self.config["title"],
             "repo": self.config["repo"],
             "records": records[-1500:],
+            "asks": owner_asks(records, self.slow["prs"]),
             "trees": {n: entry["trees"] for n, entry in self.paths.items()},
             "tree_names": [tree["name"] for tree in self.config["trees"]],
             "lanes": lanes,

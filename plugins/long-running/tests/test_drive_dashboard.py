@@ -1115,3 +1115,25 @@ def test_a_refresh_carries_only_the_parts_that_changed_since_the_version_the_bro
     assert changed_since(served, {"version": b"7", "prs": b"p", "brief": b"o"}) == {"version": 8, "changed": {"version": 8, "brief": "new"}}
     assert changed_since(served, None) is None
     assert changed_since(served, {"version": b"7", "prs": b"p"}) is None
+
+
+def test_an_owner_question_stays_open_until_an_answer_lands_down_its_chain_or_a_new_version_is_pushed():
+    """Root #308820: a row question is answered by the answer record that replies to it, through root's relay too, and the row then returns to the owner's queue."""
+    ask = lambda seq, number, head: {"seq": seq, "lane": "owner-board", "kind": "ask", "at": "2026-11-02T07:27:00Z", "text": "why?", "refs": {"prs": [number]}, "fields": {"attrs": {"head": head}}}
+    records = [
+        ask(1, 46811, "aaaa111"),
+        {"seq": 2, "lane": "root", "kind": "ask", "at": "2026-11-02T07:28:00Z", "re": 1, "text": "answer it", "refs": {}},
+        {"seq": 3, "lane": "signal-valkey-2", "kind": "answer", "at": "2026-11-02T07:30:00Z", "re": 2, "text": "A replica.", "refs": {}},
+        ask(4, 46742, "bbbb222"),
+        {"seq": 5, "lane": "root", "kind": "decide", "at": "2026-11-02T07:39:00Z", "re": 4, "text": "board-refresher-6: rewrite the row.", "refs": {}},
+        ask(6, 47329, "cccc333"),
+    ]
+    prs = {"46811": {"head": "aaaa111"}, "46742": {"head": "bbbb222"}, "47329": {"head": "dddd444"}}
+    rows = [{"number": n, "head": "x", "state": "you"} for n in (46811, 46742, 47329, 47400)]
+
+    asks = server.owner_asks(records, prs)
+    awaiting = {row["number"]: row["awaiting"] for row in server.awaiting_reply(rows, asks)}
+
+    assert [r["seq"] for r in asks["46811"][0]["replies"]] == [3]
+    assert [r["seq"] for r in asks["46742"][0]["replies"]] == [5]
+    assert awaiting == {46811: None, 46742: 4, 47329: None, 47400: None}

@@ -434,3 +434,17 @@ def test_a_change_request_the_server_drops_says_not_sent_and_keeps_the_draft_for
     assert page.locator(".pr-drawer.front [data-change] button").inner_text() == "Send"
     assert page.locator(".pr-drawer.front [data-change] input").input_value() == "no lock on insert"
     page.unroute("**/api/change")
+
+
+def test_after_a_tap_the_queue_moves_to_the_next_new_or_answered_row_never_one_awaiting_a_reply(page):
+    """Owner 12:03 AM Nov 2: reviewing one PR kept taking him back to one he was waiting on a reply for."""
+    page.goto(page.url.split("#")[0] + "#/review")
+    order = page.evaluate("""() => {
+      const row = (number) => ({ number, head: 'aaaa111', state: 'you', group: 'g', block: 'b' });
+      state.model.board.rows = [row(1), row(2), row(3), row(4)];
+      state.model.asks = { 2: [{ seq: 10, at: '2026-11-02T08:00:00Z', text: 'why port 0?', replies: [], answered: false }],
+                           3: [{ seq: 11, at: '2026-11-02T08:00:00Z', text: 'what is a chat copy?', replies: [{ seq: 12, lane: 'w-1', kind: 'answer', at: '2026-11-02T08:05:00Z', text: 'A replica.' }], answered: true }] };
+      const rows = state.model.board.rows;
+      return [nextForYou(rows[0]).number, nextForYou(rows[2]).number, nextForYou(rows[3]).number];
+    }""")
+    assert order == [3, 4, 1]

@@ -36,7 +36,7 @@ function reviewPR(n, tab) {
   const v = verdictState(row);
   const rows = state.model.board.rows.filter((r) => r.group === row.group);
   const index = rows.indexOf(row);
-  const next = state.model.board.rows.find((r) => r.number !== row.number && verdictState(r) === 'you');
+  const next = nextForYou(row);
   for (const r of [rows[index - 1], rows[index + 1], next]) if (r) describe(r.number);
   const step = (r, label, key) => (r ? `<a class="btn" href="#/review/${r.number}" data-key="${key.toLowerCase()}">${label}<kbd>${key}</kbd></a>` : '');
   const group = state.model.needs.find((item) => item.kind === 'prs' && [...item.prs, ...item.others].some((r) => r.number === row.number));
@@ -134,7 +134,7 @@ async function decide(row, verdict, note, advance = true) {
     return render();
   }
   pending.number = null;
-  const next = verdict === 'cleared' || !advance ? null : state.model.board.rows.find((r) => r.number !== row.number && verdictState(r) === 'you');
+  const next = verdict === 'cleared' || !advance ? null : nextForYou(row);
   const from = location.hash;
   if (next) pending.advance = setTimeout(() => { if (location.hash === from) swapDrawer(`#/review/${next.number}`); }, 300);
   tapped({ seq: out.seq, block: row.block, number: row.number, head: row.head, verdict: verdict === 'cleared' ? null : { verdict, head: row.head, note, at: new Date().toISOString() }, state: verdict === 'cleared' ? 'you' : verdict === 'approved' ? 'approved' : 'held' });
@@ -185,7 +185,7 @@ document.addEventListener('keydown', (e) => {
   else if (key === 'o') $('#main .pr-drawer.front [data-key="o"]').click();
   else if (key === 'a' && row && verdictState(row) === 'you') decide(row, 'approved');
   else if (key === 'h' && row && verdictState(row) === 'you') { Object.assign(pending, { number: row.number, holding: true, error: '' }); render(); }
-  else if (key === 'n' && row) go(state.model.board.rows.find((x) => x.number !== row.number && verdictState(x) === 'you'));
+  else if (key === 'n' && row) go(nextForYou(row));
   else return;
   e.preventDefault();
 });
@@ -245,13 +245,22 @@ const sentChanges = [];
 const changesSending = new Set();
 const changesUnsent = {};
 function changeAsks(n) {
-  const asks = [...state.model.records, ...sentChanges].filter((r) => r.lane === 'owner-board' && r.kind === 'ask' && r.refs?.prs?.includes(Number(n)));
+  const asks = [...sentChanges.filter((r) => r.refs.prs.includes(Number(n))), ...(state.model.asks[n] ?? [])];
   return [...new Map(asks.map((r) => [r.seq, r])).values()].sort((a, b) => a.seq - b.seq);
+}
+function awaitingReply(n) {
+  const last = changeAsks(n).at(-1);
+  return Boolean(last && !last.answered);
+}
+function nextForYou(row) {
+  const rows = state.model.board.rows;
+  const at = rows.findIndex((r) => r.number === row.number);
+  return [...rows.slice(at + 1), ...rows.slice(0, at)].find((r) => verdictState(r) === 'you' && !awaitingReply(r.number));
 }
 function changeBox(n, head) {
   const thread = changeAsks(n).map((ask) => {
-    const replies = state.model.records.filter((r) => r.seq > ask.seq && (r.re === ask.seq || r.text.includes(`#${ask.seq}`)));
-    return `<div class="fb-said">${dotted('Change requested', 'you')}<span class="fb-words">${esc(ask.text)}</span><small>${clock(ask.at)}</small>${replies.map((r) => `<div class="fb-reply"><b>${esc(workerName(r.lane))}</b> ${esc(r.text.length > 220 ? `${r.text.slice(0, 220)}…` : r.text)} <a href="/record/${r.seq}" target="_blank" rel="noopener">${clock(r.at)} ↗</a></div>`).join('') || '<div class="fb-reply dim">No reply yet.</div>'}</div>`;
+    const replies = ask.replies ?? [];
+    return `<div class="fb-said">${ask.answered ? dotted('You asked; answered', 'ok') : dotted('You asked; waiting on the reply', 'you')}<span class="fb-words">${esc(ask.text)}</span><small>${clock(ask.at)}</small>${replies.map((r) => `<div class="fb-reply"><b>${esc(workerName(r.lane))}</b> ${esc(r.text.length > 220 ? `${r.text.slice(0, 220)}…` : r.text)} <a href="/record/${r.seq}" target="_blank" rel="noopener">${clock(r.at)} ↗</a></div>`).join('') || '<div class="fb-reply dim">No reply yet.</div>'}</div>`;
   }).join('');
   const busy = changesSending.has(Number(n));
   return `<div class="fb-box">${thread}<form class="fb" data-change="${n}" data-head="${esc(head ?? '')}"><kbd>F</kbd><input name="change" data-draft="${n}" value="${esc(changeDrafts[n] ?? '')}" placeholder="Tell Claude what to change" autocomplete="off"${busy ? ' disabled' : ''}><button class="btn"${busy ? ' disabled' : ''}>${busy ? 'Sending' : 'Send'}</button>${changesUnsent[n] ? `<span class="pill bad">Not sent: ${esc(changesUnsent[n])}</span>` : ''}</form></div>`;
