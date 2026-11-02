@@ -16449,6 +16449,25 @@ def test_a_fidelity_head_the_ledger_ranks_first_starts_before_older_heads_and_as
     assert [(job["pr"], job["fast"]) for job in fidelity_jobs(shell)] == [("45244", True)]
 
 
+def root_first(shell: FakeShell, pr: str) -> None:
+    shell.records.append({"seq": 149000 + len(shell.records), "drive": "d1", "lane": "root", "kind": "decide", "to": ["finder-desk", "fidelity-pipeline"], "refs": {}, "text": f"root: #{pr} at {hashlib.sha1(pr.encode()).hexdigest()[:7]} (flip path) is first in every grading queue", "at": actions.stamp(shell.clock)})
+
+
+@pytest.mark.parametrize("grader", ["finder", "fidelity"])
+def test_a_reserved_grading_slot_waits_for_the_pr_a_root_decide_puts_first(shell, config, grader):
+    """Root #325189: within the pinned caps, one slot of each grader is held for a root priority order, so a flip-path head never queues behind quota."""
+    (finder_config if grader == "finder" else fidelity_config)(config, concurrent=2, reserved=1)
+    jobs = finder_jobs if grader == "finder" else fidelity_jobs
+    orca_pass(shell, config)
+    for pr in ("43439", "43299", "45244"):
+        head_record(shell, pr, hashlib.sha1(pr.encode()).hexdigest())
+    orca_pass(shell, config)
+    assert [job["pr"] for job in jobs(shell)] == ["43439"]
+    root_first(shell, "45244")
+    orca_pass(shell, config)
+    assert [job["pr"] for job in jobs(shell)] == ["43439", "45244"]
+
+
 def test_an_incident_fix_rows_fidelity_head_starts_before_every_ranked_head(shell, config):
     """Root #297607: an incident squash waits for its fidelity ok, so the fidelity desks grade an incident fix row first in their queue."""
     fidelity_config(config, concurrent=1)
