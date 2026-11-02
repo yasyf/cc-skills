@@ -60,6 +60,7 @@ SETTLED = frozenset({"handoff", "done", "stand-down", "stopped"})
 SPAWN = "spawn"
 REQUEST = "decide"
 VERBS = frozenset({"stand-down", "park", "unpark", "owner", "done"})
+VERB_NAMED = re.compile(r"\b(?:closed|complete|done|owner|park|retired|stand-down|stop waking|unpark)\b")
 LANDED = "landed"
 SLICE_STEP = re.compile(r"^Register slice: lane=\S+ step=(\S+)", re.MULTILINE)
 WORKER_DONE = re.compile(r"^OUTCOME \S+ (?P<lane>[\w.-]+): worker_done succeeded\b")
@@ -331,7 +332,7 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
                         store.lane_page(waiter.name, {"topic": f"owner:{record['seq']}", "why": f"the owner answered {waiter.awaits}, the card you wait on: {text}", "text": text, "prs": list(waiter.prs)})
         if lane == SELF:
             continue
-        if lane in (ROOT, "main") and kind == REQUEST and SELF in addressed(record) and not request(record) and live is None:
+        if lane in (ROOT, "main") and kind == REQUEST and SELF in addressed(record) and not request(record) and (attrs_of(record).get("verb") or VERB_NAMED.search(text)) and live is None:
             out.untyped.append(record["seq"])
         if lane == ROOT and kind == REQUEST:
             for found in RETIRED.finditer(text):
