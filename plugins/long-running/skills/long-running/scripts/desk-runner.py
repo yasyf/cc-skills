@@ -135,8 +135,8 @@ nothing. A lane's own stop that scopes a release gate out, a `stopped` or a text
 team, a release check, or dev red beside `active no`, no or zero customer, or false alarm, is refused, settled
 dispatch or not: a failing release gate is active always and no customer impact is only its scope. The runner
 launches `<lane>-opus` at once as the fix owner and posts one `REFUSED-STOP` incident record to root. Any
-incident, mechanism, report, answer, stopped, or not-ours record of the last hour, root's aside, that proposes a
-mute, a false alarm, or a monitor that skips the failing teams gets one `MUTE-PUSHBACK` incident record to root,
+incident, mechanism, report, answer, stopped, or not-ours record of the last hour, root's aside, that proposes to
+mute a failing group, calls it a false alarm, or skips or scopes out the failing teams gets one `MUTE-PUSHBACK` incident record to root,
 which pushes back where it was proposed and names the fix owner; a mute never closes an unfixed mechanism. While any clock runs, a DEADLINE, UNACKED, STALE-MAIL, or RECLAIM about anything outside
 the incident waits in the view, and the pass after the last clock ends posts them as one `DEFERRED <n> escalations held
 during <lanes>` record. A root `go` or `decision` to a release lane that orders a cut or `release start`, or a landing's
@@ -1087,7 +1087,8 @@ SAYS_MECHANISM = re.compile(r"\bmechanism\b", re.IGNORECASE)
 RELEASE_GATE = re.compile(r"\b(?:smoke[- ]?(?:teams?|tests?|runs?|checks?)|release[- ](?:checks?|smokes?|gates?)|dev[- ]red|dev is red)\b", re.IGNORECASE)
 SCOPED_OUT = re.compile(r"\bactive no\b|\b(?:no|zero) customer\b|\bfalse alarm\b", re.IGNORECASE)
 STOPPED_TEXT = re.compile(r"^STOPPED\b")
-MUTE = re.compile(r"\bmut(?:e|ed|es|ing)\b|\bfalse alarm\b|\b(?:skips?|leaves? out|stops? counting|excludes?)\b[^.\n]{0,60}\b(?:smoke|release[- ]check|teams?)\b", re.IGNORECASE)
+MUTE = re.compile(r"(?<![\w/-])mut(?:e|ed|es|ing)(?![\w/-])[^.;\n]{0,40}?\b(?:smoke|teams?|monitors?|alerts?|pages?|runs?|failures?|checks?)\b|\bfalse alarm\b|\b(?:skips?|leaves? out|stops? counting|excludes?|scopes? out)\b[^.\n]{0,60}\b(?:smoke|release[- ]check|teams?)\b", re.IGNORECASE)
+UNMUTE = re.compile(r"\b(?:delet|remov|lift|expir|unmut|drop|clear)\w*", re.IGNORECASE)
 REFUSED_STOP = "refused-stop"
 MUTE_KINDS = ("incident", "mechanism", "report", "answer", STOPPED, "not-ours")
 MUTE_PUSHBACK = "mute-pushback"
@@ -4206,7 +4207,7 @@ class Runner:
             )
 
     def mute_pushback(self) -> None:
-        """Post one MUTE-PUSHBACK to root for each incident, mechanism, report, answer, stopped, or not-ours record of the last hour that proposes a mute, a false alarm, or a monitor that skips the failing teams: a mute never closes an unfixed mechanism."""
+        """Post one MUTE-PUSHBACK to root for each incident, mechanism, report, answer, stopped, or not-ours record of the last hour that proposes to mute a failing group, calls it a false alarm, or skips or scopes out the failing teams: a mute never closes an unfixed mechanism. The word inside a name such as `open-mute/first-week`, or a clause that deletes, lifts or expires a mute, proposes nothing (root #298621)."""
         try:
             records = cci.records(self.cci_tail, self.config.drive, *(f"--kind={kind}" for kind in MUTE_KINDS), since=actions.stamp(self.now() - PR_SILENT_HORIZON))
         except CciTailFailed as failure:
@@ -4214,7 +4215,8 @@ class Runner:
             return
         for record in records:
             text = record.get("text") or ""
-            if record["drive"] != self.config.drive or record["lane"] == ROOT or text.startswith("MUTE-PUSHBACK") or not (said := MUTE.search(text)):
+            said = next((found for found in MUTE.finditer(text) if not UNMUTE.search(text[max(0, found.start() - 40) : found.end()])), None)
+            if record["drive"] != self.config.drive or record["lane"] == ROOT or text.startswith("MUTE-PUSHBACK") or not said:
                 continue
             self.escalate(
                 f"{MUTE_PUSHBACK}:{record['seq']}",
