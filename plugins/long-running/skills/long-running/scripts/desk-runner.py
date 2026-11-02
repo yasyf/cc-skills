@@ -10396,6 +10396,13 @@ def startup_fault(runner: Runner, keychain: bool = False) -> tuple[str, str, str
     return None
 
 
+def registered(runner: Runner, drive: str, lane: str) -> bool:
+    """Whether `lane` ever bound a session on `drive` on this machine or posted a record there, which every node the relay joins reads, so a desk on a remote host knows the lanes of this one."""
+    if runner.shell.run(["cci", "who", "--drive", drive, "--lane", lane, "--all", "--json"]).out.strip():
+        return True
+    return bool(runner.shell.run(["cci", "tail", "--drive", drive, "--lane", lane, "--since", "0", "--limit", "1", "--json"]).out.strip())
+
+
 def preflight_faults(runner: Runner, keychain: bool = False) -> list[str]:
     landing, drive = runner.config.landing, runner.config.drive
     kind = landing["adapter"]["kind"]
@@ -10406,7 +10413,7 @@ def preflight_faults(runner: Runner, keychain: bool = False) -> list[str]:
     else:
         faults = [f"{name} is unset, and the {kind} adapter cannot reach its queue without it" for name in unset]
     named = dict.fromkeys(lane for key in LANE_KEYS for lane in ([landing[key]] if isinstance(landing.get(key), str) else landing.get(key, [])) if lane not in RUNNER_LANES)
-    if unregistered := [lane for lane in named if not runner.shell.run(["cci", "who", "--drive", drive, "--lane", lane, "--all", "--json"]).out.strip()]:
+    if unregistered := [lane for lane in named if not registered(runner, drive, lane)]:
         faults.append(f"{runner.config.source} names {', '.join(unregistered)}, which never registered on drive {drive}; start each lane or remove it from runner.json")
     checkout = Path(landing["checkout"]).expanduser()
     status = runner.shell.run(["git", "-C", str(checkout), "status", "--porcelain", "--untracked-files=no"])

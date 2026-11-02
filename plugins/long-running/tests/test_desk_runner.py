@@ -5600,6 +5600,18 @@ def test_the_landing_desk_refuses_to_start_on_a_lane_that_never_registered(shell
     assert line.startswith("PREFLIGHT-FAILED ") and "names fidelity-desk-14, which never registered on drive d1" in line and "fidelity-pipeline" not in line
 
 
+def test_a_lane_with_no_session_here_that_posted_on_the_drive_counts_as_registered(shell, config, tmp_path):
+    """Nov 2 12:20 AM: the landing desk on the dar-desk-1 Sprite refused to start, since every lane's session lives on the Mac and only the drive's records reach the Sprite."""
+    raw = json.loads(config.read_text())
+    raw["landing"]["fidelity_lane"] = ["fidelity-desk", "fidelity-desk-14", "fidelity-pipeline"]
+    config.write_text(json.dumps(raw))
+    shell.unregistered = {"fidelity-desk-14"}
+    shell.records.append({"seq": 9001, "kind": "state", "lane": "fidelity-desk-14", "to": ["root"], "text": "fidelity-desk-14: registered at its first command", "drive": "d1"})
+    lone_green_pr(shell)
+    assert cli(shell, config, "run", "--desk", "landing", "--once") == 0
+    assert not [line for line in escalations(shell) if line.startswith("PREFLIGHT-FAILED ")]
+
+
 @pytest.mark.parametrize(("lanes", "written"), [(["fidelity-desk", "fidelity-pipeline"], True), (["fidelity-desk", "fidelity-desk-14"], False)], ids=["registered", "unregistered"])
 def test_a_config_edit_is_written_only_when_the_landing_desk_would_start_on_it(shell, config, capsys, lanes, written):
     """Oct 30 9:47 PM: six fidelity desks went into runner.json before they registered, and the restarted landing desk refused to start for three minutes (mq-health-4 #237301)."""
