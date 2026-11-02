@@ -1,8 +1,8 @@
 #!/bin/bash
 # Every bin/<tool> is a symlink to this script, so a session that started on an
-# older plugin version still runs the newest installed one after an update,
-# except under LONG_RUNNING_PIN naming this copy's version, which a pinned desk
-# runner sets so it and its children keep the version runner.json pins.
+# older plugin version still runs the version the install link names after an
+# update, except under LONG_RUNNING_PIN naming this copy's version, which a
+# pinned desk runner sets so it and its children keep the version runner.json pins.
 set -eu
 
 case "$0" in */*) d=${0%/*} ;; *) d=. ;; esac
@@ -25,20 +25,10 @@ version_gt() {
 }
 
 if is_version "${ROOT##*/}" && [ "${LONG_RUNNING_PIN:-}" != "${ROOT##*/}" ]; then
-  newest=$ROOT whole=$ROOT
-  for sibling in "${ROOT%/*}"/*/; do
-    sibling=${sibling%/}
-    is_version "${sibling##*/}" || continue
-    [ -x "$sibling/bin/$TOOL" ] && [ -e "$sibling/skills/long-running/scripts/$TOOL" ] || continue
-    if [ ! -e "$sibling/.orphaned_at" ] && version_gt "${sibling##*/}" "${newest##*/}"; then
-      newest=$sibling
-    fi
-    if version_gt "${sibling##*/}" "${whole##*/}"; then
-      whole=$sibling
-    fi
-  done
-  [ "$newest" != "$ROOT" ] || [ ! -e "$ROOT/.orphaned_at" ] || newest=$whole
-  [ "$newest" = "$ROOT" ] || exec "$newest/bin/$TOOL" "$@"
+  current=$(readlink "${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}/long-running/current" 2>/dev/null || true)
+  if [ -n "$current" ] && is_version "${current##*/}" && version_gt "${current##*/}" "${ROOT##*/}" && [ -x "$current/bin/$TOOL" ]; then
+    exec "$current/bin/$TOOL" "$@"
+  fi
 fi
 
 SCRIPT="$ROOT/skills/long-running/scripts/$TOOL"

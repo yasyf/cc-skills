@@ -58,3 +58,9 @@ def test_current_is_the_named_install_or_the_callers_own_while_none_is_named(cac
     assert release.current(cache / "0.7.44") == cache / "0.7.44"
     promote(cache / "0.7.57")
     assert release.current(cache / "0.7.44") == (cache / "0.7.57").resolve()
+
+
+def test_current_leaves_a_directory_that_is_no_version_where_it_is(tmp_path: Path, cache: Path):
+    promote(cache / "0.7.57")
+    worktree = tmp_path / "long-running"
+    assert release.current(worktree) == worktree

@@ -53,9 +53,8 @@ POINTER_PREFIX = "- **Progress (read first after any compaction):**"
 SLUG = re.compile(r"progress:([\w.-]+)")
 POINTED = re.compile(r"(?:ccn doc show |docs/)([0-9a-f]{7,40})\b")
 PACKAGED = re.compile(r"`((?:[\w.-]+/)+)[0-9a-f]{7,40}\.md` in the package")
-VERSION = re.compile(r"\d+(?:\.\d+)+")
-ORPHANED = ".orphaned_at"
 SCRIPTS = Path("skills") / "long-running" / "scripts"
+OWN = Path(__file__).parents[2]
 VIOLATIONS = 3
 SEVERAL_ACTIVE = 4
 OVERSIZED = 5
@@ -105,30 +104,30 @@ CCN_DOC_ADD = CommandSchema(
 )
 
 
-def release(path: Path) -> tuple[int, ...]:
-    return tuple(int(part) for part in path.name.split("."))
-
-
-def newest(root: Path) -> Path:
-    if not VERSION.fullmatch(root.name):
-        return root
-    whole = [path for path in root.parent.iterdir() if VERSION.fullmatch(path.name) and (path / SCRIPTS).is_dir()]
-    return max([path for path in whole if not (path / ORPHANED).exists()] or whole, key=release)
-
-
 def script(name: str) -> Path:
-    return newest(Path(__file__).parents[2]) / SCRIPTS / name
+    return release_module().current(OWN) / SCRIPTS / name
 
 
 @cache
-def script_module(name: str) -> ModuleType:
-    path = script(f"{name.replace(".", "/")}.py")
+def release_module() -> ModuleType:
+    return load(OWN / SCRIPTS / "long_running" / "release.py", "long_running.release")
+
+
+def load(path: Path, name: str) -> ModuleType:
     identity = hashlib.sha256(str(path).encode()).hexdigest()[:16]
     spec = importlib.util.spec_from_file_location(f"long_running_{identity}_{name.replace(".", "_")}", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+@cache
+def script_module(name: str) -> ModuleType:
+    return load(script(f"{name.replace(".", "/")}.py"), name)
+
+
+release_module().promote(OWN)
 
 
 def judged(kind: str, evidence: str, artifact: str, drive: str | None) -> str | None:

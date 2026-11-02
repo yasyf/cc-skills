@@ -38,8 +38,8 @@ def held() -> Path | None:
 
 
 def current(own: Path) -> Path:
-    """The install every reader runs: the one the link names, or `own`, the install this process runs from, while the link names none."""
-    return held() or own
+    """The install a reader running from `own` runs: the one the link names, or `own` itself while the link names none or `own` is no version directory."""
+    return (held() or own) if VERSION.fullmatch(own.name) else own
 
 
 def promote(own: Path) -> None:

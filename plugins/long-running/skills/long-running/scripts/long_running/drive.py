@@ -71,7 +71,7 @@ and no PR, ready, fix-live, or root go from any lane answers it by ``--re``, top
 Otherwise it prints ``not owed: <why>`` and exits 1, as it does for an evidence, proof, closeout, desk, or audit lane.
 
 ``digest`` prints one line per desk runner from its newest ``<desk> alive`` cci record on the drive: its pid, the plugin
-version it runs, the version its ``runner.json`` pins, the version ``installed_plugins.json`` lists, and when it posted. A runner
+version it runs, the version its ``runner.json`` pins, the version the install link names, and when it posted. A runner
 off its pin, or one whose record names no version, reads off its pin with the ``desk-runner.py handoff`` command that moves it
 onto the pin; a newer install alone never makes a runner stale, and the line names the ``handoff --version`` that would move
 the pin after that version's preflight. One whose
@@ -185,18 +185,10 @@ def plugin_manifest() -> dict:
     return json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text())
 
 
-def newest_install() -> dict | None:
-    """The newest install of this plugin Claude Code lists in ``installed_plugins.json``, or None when it lists none."""
-    path = drives_dir().parents[1] / "plugins" / "installed_plugins.json"
-    if not path.is_file():
-        return None
-    name = plugin_manifest()["name"]
-    installs = [install for key, entries in load(path)["plugins"].items() if key.partition("@")[0] == name for install in entries]
-    return max(installs, key=lambda install: version_key(install["version"]), default=None)
-
-
 def installed_version() -> str:
-    return (newest_install() or {}).get("version", "")
+    """The version the install link names, or an empty string while it names none."""
+    named = release.held()
+    return named.name if named else ""
 
 
 def installs() -> Path:
@@ -251,16 +243,15 @@ def behind(running: str, installed: str) -> bool:
 
 
 def run_installed(script: str, *, before_exec: Callable[[], None] = lambda: None) -> None:
-    """Re-execute `script` from the installed plugin version, as the `bin/` shim does, when it is a copy of an older version, the installed copy's own manifest is newer, no process of its own version started it, and `LONG_RUNNING_PIN` does not pin its version, so a path that names an old version still runs current code and never writes a line the current runner cannot read; a process that passes marks its children with its version, so a runner started before an update keeps its own scripts until it re-executes, and a runner on its pinned version keeps them for its life. Every GitHub read the script makes through ccx is charged to the script's name, every command it starts ends with it (`end_commands_with_script`), and an image that replaced an earlier one passively reaps inherited exits (`adopt_children`). Callers close explicitly owned resources through `before_exec` only when an update will actually replace the image."""
+    """Re-execute `script` from the installed plugin version, as the `bin/` shim does, when it is a copy of an older version than the install link names, no process of its own version started it, and `LONG_RUNNING_PIN` does not pin its version, so a path that names an old version still runs current code and never writes a line the current runner cannot read; a process that passes marks its children with its version, so a runner started before an update keeps its own scripts until it re-executes, and a runner on its pinned version keeps them for its life. Every GitHub read the script makes through ccx is charged to the script's name, every command it starts ends with it (`end_commands_with_script`), and an image that replaced an earlier one passively reaps inherited exits (`adopt_children`). Callers close explicitly owned resources through `before_exec` only when an update will actually replace the image."""
     os.environ["CCX_CALLER"] = Path(script).stem
     release.promote(PLUGIN)
     running = plugin_manifest()["version"]
-    if running not in (os.environ.get(CALLER_VERSION_ENV), os.environ.get(PIN_ENV)) and (install := newest_install()) and behind(running, install["version"]):
-        manifest = Path(install["installPath"]) / ".claude-plugin" / "plugin.json"
-        if manifest.is_file() and behind(running, load(manifest)["version"]):
-            fresh = manifest.parents[1] / Path(__file__).resolve().parents[1].relative_to(PLUGIN) / Path(script).resolve().name
-            before_exec()
-            reexec([sys.executable, str(fresh), *sys.argv[1:]])
+    named = release.held()
+    if running not in (os.environ.get(CALLER_VERSION_ENV), os.environ.get(PIN_ENV)) and named and behind(running, named.name):
+        fresh = named / Path(__file__).resolve().parents[1].relative_to(PLUGIN) / Path(script).resolve().name
+        before_exec()
+        reexec([sys.executable, str(fresh), *sys.argv[1:]])
     os.environ[CALLER_VERSION_ENV] = running
     end_commands_with_script()
     adopt_children()

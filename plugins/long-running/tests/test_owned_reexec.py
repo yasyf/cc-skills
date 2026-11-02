@@ -74,13 +74,13 @@ def recorded_exec(argv):
     actual_exec(argv)
 
 drive.reexec = recorded_exec
-fresh = root / 'fresh' / 'skills' / 'long-running' / 'scripts' / 'board_watch.py'
+fresh = root / '9999.0.0' / 'skills' / 'long-running' / 'scripts' / 'board_watch.py'
 if mode == 'direct':
     drive.reexec([sys.executable, str(fresh), mode])
 else:
     import board_watch
     drive.plugin_manifest = lambda: {'version': '0.0.0'}
-    drive.newest_install = lambda: {'installPath': str(root / 'fresh'), 'version': '9999.0.0'}
+    drive.release.held = lambda: root / '9999.0.0'
     board_watch.SNAPSHOT_SECONDS = 0.01
     class Shell(board_watch.Shell):
         def stale(self):
@@ -98,7 +98,7 @@ else:
         while not shell.stale():
             assert time.monotonic() < deadline, 'owned streams never started'
             time.sleep(0.01)
-        drive.newest_install = lambda: {'installPath': str(root / 'fresh'), 'version': '0.0.0'}
+        drive.release.held = lambda: root / '0.0.0'
         shell.reexec()
         assert not shell._closing and len(shell._watches) == 2
         assert all(child.poll() is None for child in shell._watches)
@@ -130,10 +130,7 @@ def reexec_probe(tmp_path: Path, mode: str) -> dict:
         path.chmod(0o700)
     old = root / 'probe.py'
     old.write_text(PROBE)
-    fresh = root / 'fresh'
-    (fresh / '.claude-plugin').mkdir(parents=True)
-    (fresh / '.claude-plugin' / 'plugin.json').write_text(json.dumps({'version': '9999.0.0'}))
-    target = fresh / 'skills' / 'long-running' / 'scripts' / 'board_watch.py'
+    target = root / '9999.0.0' / 'skills' / 'long-running' / 'scripts' / 'board_watch.py'
     target.parent.mkdir(parents=True)
     target.write_text(PROBE)
     env = os.environ | {'WATCH_PROBE_ROOT': str(root), 'PATH': f"{tools}{os.pathsep}{os.environ['PATH']}", 'PYTHONPATH': str(Path(board_watch.__file__).parent), 'HOME': str(root / 'home'), 'CLAUDE_CONFIG_DIR': str(root / '.claude'), board_watch.drive.PIN_ENV: board_watch.drive.plugin_manifest()['version']}
