@@ -7,13 +7,14 @@ on:
       - ".github/fixtures/long_running_build_cache_costs.py"
       - ".github/workflows/long-running-build-cache-costs.yml"
   pull_request:
+    branches: [main]
     paths:
       - ".github/fixtures/long_running_build_cache_costs.py"
       - ".github/workflows/long-running-build-cache-costs.yml"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -21,6 +22,7 @@ permissions:
 jobs:
   baseline:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       UV_PYTHON: "3.14"
     steps:

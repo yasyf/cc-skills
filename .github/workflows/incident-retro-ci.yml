@@ -8,6 +8,7 @@ on:
       - "plugins/_shared/**"
       - ".github/workflows/incident-retro-ci.yml"
   pull_request:
+    branches: [main]
     paths:
       - "plugins/incident-retro/**"
       - "plugins/_shared/**"
@@ -24,6 +25,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     defaults:
       run:
         working-directory: plugins/incident-retro/skills/incident-retro

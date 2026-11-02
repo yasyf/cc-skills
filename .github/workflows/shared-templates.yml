@@ -11,6 +11,7 @@ on:
       - "plugins/*/skills/*/reference/components/dd.*.json"
       - ".github/workflows/shared-templates.yml"
   pull_request:
+    branches: [main]
     paths:
       - "plugins/_shared/**"
       - "plugins/*/skills/*/templates/**"
@@ -30,6 +31,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
 

@@ -12,6 +12,7 @@ on:
       - ".github/lr-test-durations.json"
       - ".github/workflows/long-running-ci.yml"
   pull_request:
+    branches: [main]
     paths:
       - "plugins/long-running/**"
       - "plugins/live-dashboard/skills/live-dashboard/scripts/**"
@@ -84,6 +85,7 @@ jobs:
 
   native-cci-caller:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     env:
       UV_PYTHON: "3.14"
       GOMAXPROCS: "2"
@@ -127,6 +129,7 @@ jobs:
 
   machine-cci-post:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     env:
       UV_PYTHON: "3.14"
       GOMAXPROCS: "2"
@@ -168,6 +171,7 @@ jobs:
   replay-fixture:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
