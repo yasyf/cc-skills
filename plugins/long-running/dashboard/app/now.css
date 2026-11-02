@@ -210,8 +210,9 @@
 .nw-prevent .pt-row + .pt-row { border-top: 1px solid var(--line); }
 .nw-prevent .pt-row b { font-weight: 600; color: var(--ink); }
 .nw-prevent .pt-row .pr { color: var(--ink3); white-space: nowrap; }
-.nw-prevent .pt-row.none { box-shadow: inset 3px 0 0 var(--bad); }
-.nw-prevent .chip.pv-none { color: var(--bad); border-color: var(--bad); }
+.nw-prevent .pt-row.broken { box-shadow: inset 3px 0 0 var(--bad); }
+.nw-prevent .chip.pv-broken { color: var(--bad); border-color: var(--bad); }
+.nw-prevent .pv-why { display: block; color: var(--bad); margin-top: 3px; }
 .nw-prevent .chip:is(.pv-building, .pv-open, .pv-merged) { color: var(--doing); border-color: var(--doing); }
 .nw-prevent .chip.pv-live { color: var(--done); border-color: var(--done); }
 .nw-prevent .nw-fh { font-size: 13px; font-weight: 600; color: var(--ink2); margin: 14px 0 6px; }
