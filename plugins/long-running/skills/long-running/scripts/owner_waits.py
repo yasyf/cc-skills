@@ -17,8 +17,10 @@ row that awaits his tap at the head it names, and one per pick he has not answer
 
 or `Nothing waits on your tap or pick.` With `--pr` it reads the landing ledger's open rows, from the
 `runner.json` beside the drive's state, and the drive's cci records about each PR, and prints one line
-per PR: `#<pr> at <head>: waits on your tap on <block>, up since <time>` when a row at the PR's
-ledger head awaits him, else `#<pr> at <head>: not waiting on you: <state>`, where the state says
+per PR. A PR's head is its newest `head` record's when that names another head than the ledger,
+which lags the lanes (root #328321), and the ledger's build and conflict state, which belong to the
+older head, then say nothing. It prints `#<pr> at <head>: waits on your tap on <block>, up since <time>` when a row at the PR's
+head awaits him, else `#<pr> at <head>: not waiting on you: <state>`, where the state says
 which board row it has or that it has none, a red build, a conflict, a `fidelity: missing` grade
 with the time it was posted and whether a lane record or a PR comment answered it since and no
 grade followed, a missing grade, an open finder major, and an open parent it is stacked on.
@@ -279,6 +281,9 @@ def read_board(drive_name: str, session: str, runner: Callable[..., subprocess.C
     return board_of(json.loads(done.stdout[start:]), [record for record in snapshots if record["drive"] == drive_name])
 
 
+LEDGER_HEAD_STATE = frozenset({"test_state", "red_at", "failing_checks", "mergeable_state"})
+
+
 def ledger_rows(landing: dict, drive_name: str, runner: Callable[..., subprocess.CompletedProcess] = run) -> dict[str, dict]:
     argv = [sys.executable, str(Path(__file__).resolve().parent / "ledger.py"), "-C", str(Path(landing["checkout"]).expanduser()), "list", "--ledger", landing["ledger"], "--open", "--json"]
     done = runner(argv, env=os.environ | {drive.DRIVE_ENV: drive_name})
@@ -326,6 +331,9 @@ def main(argv: list[str] | None = None, runner: Callable[..., subprocess.Complet
         found = []
         for pr in args.pr:
             records = records_about(args.drive, repo, pr, runner)
+            moved = next((named for record in reversed(records) if record["kind"] == "head" and grades.about_pr(record, repo, pr) and (named := grades.head_of(record, repo, pr))), "")
+            if (row := rows.get(pr)) and moved and not grades.names_head(moved, row.get("head", "")):
+                rows = rows | {pr: {key: value for key, value in row.items() if key not in LEDGER_HEAD_STATE} | {"head": moved}}
             line = state(pr, rows, board, records, lambda pr=pr: pr_comments(runner, repo, pr), repo=repo, drive_name=args.drive, fidelity_lanes=grades.with_successors(lanes, records))
             head = rows.get(pr, {}).get("head", "")
             found.append({"pr": pr, "head": head, "waiting": bool(head and board.tap_at(pr, head)), "line": line})

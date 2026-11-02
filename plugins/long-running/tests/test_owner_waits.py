@@ -146,6 +146,17 @@ def test_a_row_at_its_head_is_the_only_tap_wait_and_one_at_an_older_head_is_not(
     ]
 
 
+def test_a_ledger_head_older_than_a_head_record_uses_the_head_record(registry, capsys):
+    """Root #328321: the ledger named #48063 at 9526ccf while the PR and its board row sat at 5023ef2, so owner-waits called a correct row wrong."""
+    rows = [ledger("45507", OLD, test_state="failure", red_at=stamp(90))]
+    outcomes = {"doc": doc(("45507", HEAD)), "interactions": {}}
+    records = [record(10, "next-red-tests-1", "head", f"HEAD #45507 {HEAD}", 30), record(11, "fidelity-desk", "review", f"fidelity: ok {HEAD}", 20)]
+
+    out = printed(capsys, Runner(outcomes, [snapshot(1, 20, [("45507", HEAD)])], rows, records), "--pr", "45507")
+
+    assert out == "#45507 at 632c4a5: waits on your tap on merge-prs, up since 4:20 AM"
+
+
 def test_a_red_build_and_an_open_parent_are_named_and_his_approval_is_no_wait(registry, capsys):
     rows = [ledger("45521", PARENT), ledger("45524", HEAD, base="b45521", test_state="failure", red_at=stamp(40))]
     outcomes = {"doc": doc(("45524", HEAD)), "interactions": {"triage": {"merge-prs": {"45524": {"verdict": "approved", "head": HEAD[:7], "at": stamp(10)}}}}}
