@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -46,10 +47,7 @@ def executable(path: Path, text: str) -> None:
     path.chmod(0o755)
 
 
-@pytest.mark.parametrize("conflicting", [False, True], ids=["moves-the-chain", "conflict-pushes-nothing"])
-def test_a_remote_restack_replays_the_chain_onto_its_base_on_the_sprite_and_posts_each_new_head(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, conflicting: bool) -> None:
-    """Owner 1:27 PM Oct 30, through root #221702: restacks move off this machine; the lane names a PR or stack, a Sprite fetches, rebases, reports conflicts and pushes, and the lane gets the result record. p8a-step7 #227831: a conflict in the lower PR's commit was reported against the top PR with no conflict output."""
-    mac, sprite = tmp_path / "mac", tmp_path / "sprite"
+def stacked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, conflicting: bool, clone: Path) -> tuple[Path, dict[str, str]]:
     gitconfig = tmp_path / "gitconfig"
     gitconfig.write_text("[user]\n\tname = Lane\n\temail = lane@example.com\n[init]\n\tdefaultBranch = dev\n")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gitconfig))
@@ -68,9 +66,17 @@ def test_a_remote_restack_replays_the_chain_onto_its_base_on_the_sprite_and_post
     git(work, "checkout", "-q", "dev")
     commit(work, "dev.txt", "two\n")
     git(work, "push", "-q", "origin", "dev")
-    heads = {branch: git(origin, "rev-parse", branch) for branch in ("a", "b")}
+    subprocess.run(["git", "clone", "-q", str(origin), str(clone)], check=True, env=env, capture_output=True)
+    return origin, {branch: git(origin, "rev-parse", branch) for branch in ("a", "b")}
+
+
+@pytest.mark.parametrize("conflicting", [False, True], ids=["moves-the-chain", "conflict-pushes-nothing"])
+def test_a_remote_restack_replays_the_chain_onto_its_base_on_the_sprite_and_posts_each_new_head(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, conflicting: bool) -> None:
+    """Owner 1:27 PM Oct 30, through root #221702: restacks move off this machine; the lane names a PR or stack, a Sprite fetches, rebases, reports conflicts and pushes, and the lane gets the result record. p8a-step7 #227831: a conflict in the lower PR's commit was reported against the top PR with no conflict output."""
+    mac, sprite = tmp_path / "mac", tmp_path / "sprite"
     clone = mac / "clone"
-    subprocess.run(["git", "clone", "-q", str(origin), f"{sprite}{clone}"], check=True, env=env, capture_output=True)
+    origin, heads = stacked(tmp_path, monkeypatch, conflicting, Path(f"{sprite}{clone}"))
+    env = dict(os.environ)
     config = tmp_path / "runner.json"
     config.write_text(json.dumps({"drive": "d1", "landing": {"repo": "o/r", "checkout": str(clone)}, "fidelity": {"sprite": "vet4"}}))
     executable(mac / "bin" / "sprite", SPRITE)
@@ -97,3 +103,24 @@ def test_a_remote_restack_replays_the_chain_onto_its_base_on_the_sprite_and_post
     moved = {branch: git(origin, "rev-parse", branch) for branch in ("a", "b")}
     assert git(origin, "rev-parse", "b~1") == moved["a"] and git(origin, "rev-parse", "a~1") == dev
     assert [post.split(" --text ")[1] for post in posts] == [f"HEAD #{number} {moved[branch]}: restacked onto dev {dev[:10]} on vet4 by remote-restack (was {heads[branch][:10]})" for number, branch in ((1, "a"), (2, "b"))]
+
+
+def test_a_restack_on_a_sprite_host_runs_in_its_own_clone_with_no_sprite_exec(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """remote-desks-5 #330044: the landing desk on dar-desk-1 holds no Sprite org token, by the owner's rule, so `sprite exec` to dar-fleet-8 failed with 'no organizations configured'."""
+    clone = tmp_path / "clone"
+    origin, heads = stacked(tmp_path, monkeypatch, False, clone)
+    config = tmp_path / "runner.json"
+    config.write_text(json.dumps({"drive": "d1", "landing": {"repo": "o/r", "checkout": str(clone)}, "fidelity": {"sprite": "vet4"}}))
+    bin_dir = tmp_path / "bin"
+    executable(bin_dir / "sprite", "#!/bin/sh\necho 'Error: no organizations configured' >&2\nexit 1\n")
+    executable(bin_dir / "gh", GH)
+    executable(bin_dir / "cci", f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> {tmp_path / 'posts'}\necho '#9'\n")
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    spec = importlib.util.spec_from_file_location("remote_restack", SCRIPT)
+    restack = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(restack)
+    monkeypatch.setattr(restack, "ON_SPRITE", tmp_path)
+    assert restack.main(["--config", str(config), "--lane", "lane-a", "2"]) == 0
+    moved = {branch: git(origin, "rev-parse", branch) for branch in ("a", "b")}
+    assert moved != heads and git(origin, "rev-parse", "a~1") == git(origin, "rev-parse", "dev")
+    assert f"on {os.uname().nodename} by remote-restack" in (tmp_path / "posts").read_text()
