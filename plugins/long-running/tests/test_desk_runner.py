@@ -3900,18 +3900,22 @@ def test_a_go_on_a_head_a_tap_rule_names_enqueues_only_on_the_owners_board_tap_a
     merge_go(shell, "29020", "merge #29020 at cccc333")
     landing_pass(shell, config)
     landing_pass(shell, config)
-    refusals = [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    refusals = tap_waits(shell)
     if row:
         assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and refusals == []
         return
     assert shell.enqueues() == []
     [blocker] = refusals
-    assert "root" in blocker["to"].split(",") and "; TAP-REQUIRED rule/82317b0: it lands only once the owner has tapped some head of it, and a root go is no tap; #29020 at cccc333: " in post_body(blocker)
+    assert "root" not in blocker["to"].split(",") and "; TAP-REQUIRED rule/82317b0: it lands only once the owner has tapped some head of it, and a root go is no tap; #29020 at cccc333: " in post_body(blocker)
+
+
+def tap_waits(shell: FakeShell) -> list[dict]:
+    return [post for post in shell.posts if post["kind"] == "state" and "waits on the owner's tap" in post_body(post)]
 
 
 @pytest.mark.parametrize("built", [True, False], ids=["green", "building"])
-def test_a_tap_required_stack_draws_one_blocker_to_the_board_lane_and_none_while_its_heads_build(shell, config, built):
-    """Root #285056: each pass posted one 'board holds no row' blocker per PR of an 11-PR stack to root, its lane and five board lanes, while the heads still built."""
+def test_a_tap_required_stack_posts_one_wait_state_per_head_to_the_board_lane_and_none_while_its_heads_build(shell, config, built):
+    """Root #285056: each pass posted one 'board holds no row' blocker per PR of an 11-PR stack to root, its lane and five board lanes, while the heads still built. Root 313862: a tap wait is one state record per PR, never a blocker."""
     merge_mode(config, "every")
     board_lane(config)
     two_pr_stack(shell)
@@ -3925,14 +3929,25 @@ def test_a_tap_required_stack_draws_one_blocker_to_the_board_lane_and_none_while
     merge_go(shell, "29031", "go #29031 at dddd444 on green [TAP-REQUIRED first-ask]")
     landing_pass(shell, config)
     landing_pass(shell, config)
-    refusals = [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
-    assert shell.enqueues() == []
+    assert shell.enqueues() == [] and [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)] == []
     if not built:
-        assert refusals == []
+        assert tap_waits(shell) == []
         return
-    [blocker] = refusals
-    assert blocker["to"].split(",") == ["board-refresher"]
-    assert post_body(blocker).startswith("#29020 cccc333333: ") and "#29031 at dddd444: " in post_body(blocker)
+    assert [(post["to"], post_body(post).split(";")[0]) for post in tap_waits(shell)] == [
+        ("board-refresher", "#29020 cccc333333: waits on the owner's tap"),
+        ("board-refresher", "#29031 dddd444444: waits on the owner's tap"),
+    ]
+
+
+def test_a_tap_wait_with_no_board_lane_never_reaches_the_root(shell, config):
+    """Root 313862: the remote landing desk had no board lane, so each tap wait went to root as a BLOCKER, and root cannot supply a tap."""
+    merge_mode(config, "every")
+    two_pr_stack(shell)
+    merge_go(shell, "29020", "go #29020 at cccc333 on green [TAP-REQUIRED first-ask]")
+    landing_pass(shell, config)
+    landing_pass(shell, config)
+    assert shell.enqueues() == []
+    assert [post for post in shell.posts if "root" in post["to"].split(",") and "TAP-REQUIRED" in post_body(post) and post["kind"] in ("blocker", "state")] == []
 
 
 @pytest.mark.parametrize("tapped", [False, True], ids=["untapped", "tapped"])
@@ -3945,7 +3960,7 @@ def test_a_go_whose_bracket_says_tap_required_anywhere_lands_only_on_the_owners_
     merge_go(shell, "29020", "9:09 PM go #29020 at cccc333 on green [TAP-REQUIRED; signal stack restacked onto dev 0c3c10b, green and approved at every head]")
     landing_pass(shell, config)
     landing_pass(shell, config)
-    refusals = [post_body(post) for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    refusals = [post_body(post) for post in tap_waits(shell)]
     if tapped:
         assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and refusals == []
         return
@@ -3993,7 +4008,7 @@ def test_a_pure_port_lands_on_a_root_go_with_no_board_tap_only_when_grade_and_go
     merge_go(shell, "29020", go)
     landing_pass(shell, config)
     landing_pass(shell, config)
-    refusals = [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    refusals = tap_waits(shell)
     admissions = [post_body(post) for post in notes(shell) if "EXEMPT-ADMITTED" in post_body(post)]
     if not admitted:
         assert shell.enqueues() == [] and len(refusals) == 1 and admissions == []
@@ -4073,7 +4088,7 @@ def test_a_go_marked_exempt_admits_a_tap_ruled_head_whose_stale_board_row_waits(
     landing_pass(shell, config)
     landing_pass(shell, config)
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
-    assert not [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    assert not tap_waits(shell)
 
 @pytest.mark.parametrize(
     "files",
@@ -4147,7 +4162,7 @@ def test_a_test_only_pr_lands_on_a_root_go_with_no_board_tap_and_one_exempt_admi
     merge_go(shell, "29020", go)
     landing_pass(shell, config)
     landing_pass(shell, config)
-    refusals = [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    refusals = tap_waits(shell)
     admissions = [post_body(post) for post in notes(shell) if "EXEMPT-ADMITTED" in post_body(post)]
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and refusals == []
     assert admissions == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "test-only or CI-only, no non-test code", so it goes straight to the merge queue with no go or board tap (root #194387)']
@@ -4160,7 +4175,7 @@ def test_a_grade_saying_test_only_or_ci_only_alone_lands_on_a_root_go_with_no_bo
     merge_go(shell, "29020", "go test-only #29020 at cccc333")
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and not [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and not tap_waits(shell)
     assert [post_body(post) for post in notes(shell) if "EXEMPT-ADMITTED" in post_body(post)] == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "{said}", so it goes straight to the merge queue with no go or board tap (root #194387)']
 
 
@@ -4204,7 +4219,7 @@ def test_a_port_claim_over_a_pr_that_changes_a_file_outside_the_port_tree_waits_
     merge_go(shell, "29020", "go port #29020 at cccc333")
     landing_pass(shell, config)
     landing_pass(shell, config)
-    refusals = [post_body(post) for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    refusals = [post_body(post) for post in tap_waits(shell)]
     assert bool(shell.enqueues()) is admitted and bool([note for note in notes(shell) if "EXEMPT-ADMITTED" in post_body(note)]) is admitted
     assert refusals == ([] if admitted else [refusals[0]]) and all("PORT-MISMATCH api/src/routes/run.ts is outside go/sand/next/" in refusal for refusal in refusals)
 
@@ -4351,7 +4366,7 @@ def test_a_port_exemption_carries_to_a_head_a_head_record_calls_patch_identical(
     merge_go(shell, "29020", "go port #29020 at cccc333")
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert not [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    assert not tap_waits(shell)
     assert [post_body(post) for post in notes(shell) if "EXEMPT-ADMITTED" in post_body(post)] == [f'EXEMPT-ADMITTED #29020 at cccc333333: fidelity grade cci #{seq} says "pure port, no interaction", so it goes straight to the merge queue with no go or board tap (root #194387)']
 
 
@@ -4372,7 +4387,7 @@ def test_a_long_branching_chain_of_patch_identical_heads_is_walked_once_per_head
     grade(shell, "29020", "ok cccc333333 F307 at cccc333.")
     merge_go(shell, "29020", "go #29020 at cccc333")
     landing_pass(shell, config)
-    assert [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    assert tap_waits(shell)
 
 
 @pytest.mark.parametrize("state", ["board unread", "row absent", "row superseded"])
@@ -4390,7 +4405,7 @@ def test_a_tap_rule_never_guesses_a_merge_on_an_unread_board_and_gates_only_whil
     landing_pass(shell, config)
     landing_pass(shell, config)
     warnings = [post_body(post) for post in notes(shell) if "TAP-UNREAD" in post_body(post)]
-    assert not [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)]
+    assert not tap_waits(shell)
     if state != "board unread":
         assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and warnings == []
         return
@@ -4853,7 +4868,7 @@ def test_a_kept_tap_under_a_root_go_lands_the_tap_rule_head_when_the_board_refus
     merge_go(shell, "29020", "go #29020 at cccc333333: carried from his tap on aaaa111 (go at that head), no new behavior (rule 399b5fa).")
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert [post for post in blockers(shell) if "TAP-REQUIRED" in post_body(post)] == []
+    assert tap_waits(shell) == []
     assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]]
 
 
