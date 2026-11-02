@@ -196,11 +196,18 @@ Only the root completes a task, and only after consuming the deliverable: route 
 to the desk/ledger, record the ruling, relay the answer to the owner. A lane saying
 done, READY, GREEN, or landed completes nothing. Lanes report through a cci record
 first, a `report`, `head`, `handoff`, `fix-live` or `done`, then `SendMessage`, and leave the
-root's task open; a hook denies a lane's `TaskUpdate` to `completed` on a lane-owned
-task. A report sent only by `SendMessage` is a defect: the pack's stop hook refuses a
+root's task open; a hook warns a lane that sets a lane-owned task to `completed`. A
+report sent only by `SendMessage` is a defect: the pack's stop hook refuses a
 lane's stop while its last 10 minutes hold a `SendMessage` to root and none of those
 records, and names the `cci post` to run. A message is lost across a compaction; a
 record is in the next handoff.
+
+A maintenance lane is the exception: its brief or spawn prompt carries `Role: maintenance`
+or `ccx: role=maintenance`. It may complete or delete tasks, close ledger rows (`ledger.py
+drop|answer|unregister|unadmit|gone`), and retire registry lanes (`drive_supervisor.py
+request done <lane> --config <lr.json> --by <its own lane>`). The hook admits its `TaskUpdate`,
+and posts a cci `applied` record `MAINTENANCE <lane> <action>` naming each task, row, or
+lane it closed.
 
 At every handoff, milestone report, and compaction, the root reconciles the list:
 every `in_progress` task has a working lane, and every running lane has an open task.

@@ -34,6 +34,8 @@ ROOT_THREAD = "root"
 INCIDENT_NAME = re.compile(r"^(?:incident|outage)-")
 INCIDENT_BRIEF = re.compile(r"\b(?:incident|outage)\b", re.IGNORECASE)
 SLICE_HEADER = re.compile(r"^Register slice: lane=(\S+) step=\S+", re.MULTILINE)
+ROLE = re.compile(r"^(?:ccx:(?:.*[ \t])?role=|Role:[ \t]*)([\w-]+)", re.MULTILINE | re.IGNORECASE)
+MAINTENANCE = "maintenance"
 SCALE_LINES = re.compile(r"^[ \t>*_-]*Scale:.*$", re.MULTILINE)
 INCIDENT_SLICE = "Register slice: lane={lane} step=incident"
 BRIEF_FILE = re.compile(r"(?<![\w.~/-])[~/][\w./~-]*\.md\b")
@@ -331,14 +333,30 @@ class LaneRegistrations(WorkflowState):
     pending: dict[str, str] = {}
 
 
+def own_prompt(evt: BaseHookEvent) -> tuple[Subagent, str]:
+    transcript = evt.transcript_path.with_suffix("") / "subagents" / f"agent-{evt.agent_id}.jsonl"
+    agent = Subagent(evt.agent_id, json.loads(transcript.with_suffix(".meta.json").read_text()), transcript)
+    return agent, next((event.text for event in agent.read_events() if isinstance(event, UserEvent)), "")
+
+
+def own_role(evt: BaseHookEvent) -> str | None:
+    """The role this subagent's spawn prompt or the brief file it names gives it, as `ccx: role=<role>` or a `Role: <role>` line; None for the root thread or an unread brief."""
+    if evt.agent_id is None or evt.transcript_path is None:
+        return None
+    try:
+        text, brief, _ = brief_of(own_prompt(evt)[1])
+        found = ROLE.search(text) or (brief and ROLE.search(brief.read_text()))
+    except UNREAD:
+        return None
+    return found[1].lower() if found else None
+
+
 def own_lane(evt: BaseHookEvent) -> str | None:
     if evt.agent_id is None:
         return reqenv.getenv(LANE_ENV)
-    transcript = Path(evt._raw["transcript_path"]).with_suffix("") / "subagents" / f"agent-{evt.agent_id}.jsonl"
-    agent = Subagent(evt.agent_id, json.loads(transcript.with_suffix(".meta.json").read_text()), transcript)
+    agent, prompt = own_prompt(evt)
     if helper(agent.meta.get("agentType")):
         return None
-    prompt = next((event.text for event in agent.read_events() if isinstance(event, UserEvent)), "")
     sliced = SLICE_HEADER.search(brief_of(prompt)[0])
     lane = sliced[1] if sliced else agent.name if agent.meta.get("agentType") in LANE_AGENTS else None
     return None if lane and lane != agent.name and lane == drive_lane(evt) else lane
