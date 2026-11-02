@@ -6,8 +6,9 @@ fact rows keyed by PR, head and kind: posting one twice changes nothing, a later
 supersedes an earlier one. An escalation is unique per subject and cause. Workers live in
 the store from their first heartbeat and go stale after fifteen silent minutes. One lease
 row per drive carries the generation a supervisor runs under; a stale generation is told
-so on its next renewal. The lanes table is the registry of lanes the drive needs alive, with each
-lane's brief, model, newest handoff and owned PRs; only the lanes mover writes it. The store's
+so on its next renewal. The lanes table is the registry of workers the drive needs alive, one row per worker
+with its brief, model, placement, state, successor, newest handoff and owned PRs; only the lanes
+mover writes it, and every sender and reader routes by it. The store's
 one migration is additive: a column the schema declares that an older file lacks is added on open.
 """
 
@@ -21,7 +22,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 STALE_AFTER = timedelta(minutes=15)
-ADDED_COLUMNS = (("lanes", "waiting", "INTEGER"), ("lanes", "answered", "TEXT"), ("lanes", "page", "TEXT"), ("lanes", "awaits", "TEXT"), ("heard", "kind", "TEXT"), ("heard", "seq", "INTEGER"))
+ADDED_COLUMNS = (("lanes", "waiting", "INTEGER"), ("lanes", "answered", "TEXT"), ("lanes", "page", "TEXT"), ("lanes", "awaits", "TEXT"), ("heard", "kind", "TEXT"), ("heard", "seq", "INTEGER"), ("lanes", "placement", "TEXT"))
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS prs (
@@ -63,7 +64,7 @@ CREATE TABLE IF NOT EXISTS lanes (
   name TEXT PRIMARY KEY, brief TEXT NOT NULL, model TEXT NOT NULL, effort TEXT NOT NULL, role TEXT NOT NULL,
   state TEXT NOT NULL CHECK (state IN ('launching', 'desired', 'held', 'retired')),
   since TEXT NOT NULL, handoff TEXT,
-  predecessor TEXT, reason TEXT, strikes INTEGER NOT NULL DEFAULT 0, asked TEXT, flushed TEXT, retired_by TEXT, waiting INTEGER, answered TEXT, page TEXT, awaits TEXT
+  predecessor TEXT, reason TEXT, strikes INTEGER NOT NULL DEFAULT 0, asked TEXT, flushed TEXT, retired_by TEXT, waiting INTEGER, answered TEXT, page TEXT, awaits TEXT, placement TEXT
 );
 CREATE TABLE IF NOT EXISTS heard (lane TEXT PRIMARY KEY, at TEXT NOT NULL, kind TEXT, seq INTEGER);
 CREATE TABLE IF NOT EXISTS owners (pr INTEGER PRIMARY KEY, lane TEXT NOT NULL);
@@ -120,11 +121,12 @@ class Lane:
     page: dict | None
     awaits: str | None
     last: str | None
+    placement: str | None
 
     @classmethod
     def row(cls, row: sqlite3.Row, heard: sqlite3.Row | None, prs: tuple[int, ...]) -> Lane:
         when = {name: parse(row[name]) if row[name] else None for name in ("asked", "flushed", "answered")}
-        return cls(row["name"], row["brief"], row["model"], row["effort"], row["role"], row["state"], parse(row["since"]), parse(heard["at"]) if heard else None, row["handoff"], prs, row["predecessor"], row["reason"], row["strikes"], when["asked"], when["flushed"], row["retired_by"], row["waiting"], when["answered"], json.loads(row["page"]) if row["page"] else None, row["awaits"], heard["kind"] if heard else None)
+        return cls(row["name"], row["brief"], row["model"], row["effort"], row["role"], row["state"], parse(row["since"]), parse(heard["at"]) if heard else None, row["handoff"], prs, row["predecessor"], row["reason"], row["strikes"], when["asked"], when["flushed"], row["retired_by"], row["waiting"], when["answered"], json.loads(row["page"]) if row["page"] else None, row["awaits"], heard["kind"] if heard else None, row["placement"])
 
 
 @dataclass(frozen=True)
@@ -274,6 +276,9 @@ class Store:
 
     def lanes(self, *states: str) -> list[Lane]:
         return self.registered(f"WHERE state IN ({', '.join('?' * len(states))})", states)
+
+    def names(self) -> list[str]:
+        return [row["name"] for row in self.db.execute("SELECT name FROM lanes ORDER BY name")]
 
     def all_lanes(self) -> list[Lane]:
         return self.registered("", ())

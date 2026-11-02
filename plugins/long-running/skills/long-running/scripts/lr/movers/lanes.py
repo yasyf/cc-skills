@@ -23,6 +23,14 @@ makes it live again, but once it stops the supervisor holds it for root rather t
 (root #304721, #307233). A `<lane>-handoff` writer's `handoff <lane>: doc <id>` is the
 lane's newest handoff. It signals no process: a live lane leaves only
 through the record that stands it down.
+
+The registry holds one row per worker, and only this mover writes it, through the verbs below.
+Anyone else asks for a change with one typed request, a `decide` to `supervisor` whose attrs name
+the `verb` (`stand-down`, `park`, `unpark`, `owner` or `done`), the `lane`, and, as the verb needs,
+the `successor`, the `last-read` seq and the PRs by `--pr`; `drive_supervisor.py request` writes it.
+A launch is a `SPAWNED` state record or a cci `spawn` record whose attrs carry the brief, model,
+effort, role, placement and, for a relaunch, `successor-of`. The supervisor alone posts the
+`stand-down --successor` record cci routes mail by, and `route` answers every sender from the row.
 """
 
 from __future__ import annotations
@@ -51,6 +59,9 @@ HANDED_OFF = re.compile(r"\bhandoff (?P<lane>[\w.-]+): doc (?P<doc>[0-9a-f]{7,40
 CARRIES = ("head", "opened")
 WAITS = frozenset({"ask", "blocked", "blocker"})
 SETTLED = frozenset({"handoff", "done", "stand-down", "stopped"})
+SPAWN = "spawn"
+REQUEST = "decide"
+VERBS = frozenset({"stand-down", "park", "unpark", "owner", "done"})
 LANDED = "landed"
 SLICE_STEP = re.compile(r"^Register slice: lane=\S+ step=(\S+)", re.MULTILINE)
 WORKER_DONE = re.compile(r"^OUTCOME \S+ (?P<lane>[\w.-]+): worker_done succeeded\b")
@@ -129,15 +140,42 @@ def attrs_of(record: dict) -> dict:
     return (record.get("fields") or {}).get("attrs") or {}
 
 
-def spawned(record: dict) -> tuple[str, str, str, str, str] | None:
-    text = record.get("text") or ""
-    if record["kind"] != "state" or not text.startswith("SPAWNED "):
+@dataclass(frozen=True)
+class Spawn:
+    name: str
+    brief: str
+    model: str
+    effort: str
+    role: str
+    placement: str | None
+    successor_of: str | None
+
+
+def spawned(record: dict) -> Spawn | None:
+    text, attrs = record.get("text") or "", attrs_of(record)
+    if record["kind"] == SPAWN and (named := (record.get("refs") or {}).get("lanes")):
+        name, brief = named[0], attrs.get("brief") or ""
+    elif record["kind"] == "state" and text.startswith("SPAWNED "):
+        name, brief = text.split()[1], attrs.get("brief") or text.split()[2]
+    else:
         return None
-    attrs = attrs_of(record)
-    name, brief = text.split()[1], attrs.get("brief") or text.split()[2]
     if not brief.startswith("/") or attrs.get("role") in HELPER_ROLES or name.endswith("-handoff"):
         return None
-    return name, brief, attrs.get("model") or "opus", attrs.get("effort") or "xhigh", attrs.get("role") or "lane"
+    return Spawn(name, brief, attrs.get("model") or "opus", attrs.get("effort") or "xhigh", attrs.get("role") or "lane", attrs.get("placement"), attrs.get("successor-of"))
+
+
+def request(record: dict) -> dict | None:
+    """The attrs of a typed registry request, a `decide` to the supervisor naming a known verb and a lane, or None."""
+    attrs = attrs_of(record)
+    return attrs if record["kind"] == REQUEST and SELF in addressed(record) and attrs.get("verb") in VERBS and attrs.get("lane") else None
+
+
+def route(store: Store, name: str) -> str:
+    """Where mail for `name` goes: the end of its successor chain in the registry, root when that end is retired with no successor, and `name` itself when the registry has no row for it."""
+    lane = newest(store, name)
+    if lane is None:
+        return name
+    return ROOT if lane.state == "retired" else lane.name
 
 
 def family(name: str) -> tuple[str, int]:
@@ -158,9 +196,10 @@ def successor_name(name: str, taken: set[str]) -> str:
 
 
 def newest(store: Store, name: str) -> Lane | None:
-    lane = store.lane(name)
-    while lane and lane.state == "retired" and lane.retired_by and (after := store.lane(lane.retired_by)):
+    lane, seen = store.lane(name), {name}
+    while lane and lane.state == "retired" and lane.retired_by not in seen and (after := store.lane(lane.retired_by or "")):
         lane = after
+        seen.add(lane.name)
     return lane
 
 
@@ -174,22 +213,76 @@ def hold(store: Store, name: str, why: str, at: datetime) -> None:
     store.release_worker(name)
 
 
-def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: Path) -> tuple[list[str], list[str], list[str]]:
-    """Apply bus records to the registry; with `live` set, the store is fresh and registers only the spawned lanes in it. Returns the lanes adopted, the lanes this supervisor is launching that someone else spawned from another brief, one line per PR owner root named that the registry reads dead, and each live lane a root record left in place because it cites no `last-read=<seq>` as new as that lane's newest record."""
-    adopted, hand, dead, unread = [], [], [], []
+@dataclass
+class Folded:
+    adopted: list[str] = field(default_factory=list)
+    hand: list[str] = field(default_factory=list)
+    dead: list[str] = field(default_factory=list)
+    unread: list[tuple[str, str]] = field(default_factory=list)
+    stood: list[tuple[str, str | None, tuple[int, ...], int]] = field(default_factory=list)
+
+
+def takes_over(store: Store, name: str, old: Lane, at: datetime) -> None:
+    store.own(name, old.prs)
+    if old.state in LIVE or not store.lane(old.retired_by or ""):
+        retire(store, old.name, name, at)
+
+
+def granted(store: Store, record: dict, asked: dict, live: set[str] | None, at: datetime, out: Folded) -> None:
+    """Apply one typed request: `stand-down` retires the lane for its successor or root and queues the stand-down record cci routes by, `park` and `unpark` set and clear its wait, `owner` moves the request's PRs to it, and `done` retires it. A request that takes a live lane's place or PRs counts only when its `last-read` is no older than that lane's newest record (root #304721)."""
+    name, verb, cited = asked["lane"], asked["verb"], asked.get("last-read")
+    row = store.lane(name)
+    if verb == "park" and row:
+        store.lane_waiting(name, record["seq"])
+    elif verb == "unpark" and row:
+        store.lane_waiting(name, None, at)
+    elif verb == "done" and row and row.state != "retired":
+        retire(store, name, "done", at)
+    elif verb == "owner":
+        numbers = prs_of(record)
+        running = {other.name for other in store.lanes(*LIVE)}
+        taken = {held for held in store.owner_of(numbers).values() if held and held != name and held in running}
+        if live is None and (refused := [(held, why) for held in sorted(taken) if (why := unread_by(store, record, held, cited))]):
+            out.unread += refused
+            for held, why in refused:
+                hold(store, held, why, at)
+            return
+        store.own(name, numbers)
+        if live is None and numbers and (probe := store.probes().get(name)) and probe["dead"]:
+            out.dead.append(f"{name} for {' '.join(f'#{n}' for n in numbers)}: root named it owner at {pacific(at)}, but it left the supervisor's {pacific(probe['asked'])} ask unanswered; {successor_note(store, name)}")
+    elif verb == "stand-down" and row:
+        successor = asked.get("successor") or None
+        if live is None and row.state in LIVE and (why := unread_by(store, record, name, cited)):
+            out.unread.append((name, why))
+            hold(store, name, why, at)
+            return
+        if row.state != "retired":
+            retire(store, name, successor or ROOT, at)
+        if successor:
+            store.want_lane(successor, row.brief, row.model, row.effort, row.role, "launching", at, handoff=row.handoff, predecessor=name, placement=row.placement)
+            store.own(successor, row.prs)
+        else:
+            store.own(ROOT, row.prs)
+        if live is None:
+            out.stood.append((name, successor, row.prs, record["seq"]))
+
+
+def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: Path) -> Folded:
+    """Apply bus records to the registry; with `live` set, the store is fresh and registers only the spawned lanes in it. Returns the lanes adopted, the lanes this supervisor is launching that someone else spawned from another brief, one line per PR owner root named that the registry reads dead, each live lane a root record left in place because it cites no `last-read=<seq>` as new as that lane's newest record, and each stand-down a request granted."""
+    out = Folded()
+    adopted, hand, dead, unread = out.adopted, out.hand, out.dead, out.unread
     for record in records:
         lane, at = record["lane"], at_of(record)
         if found := spawned(record):
-            name, brief, model, effort, role = found
-            for old in store.all_lanes():
-                if succeeds(name, old.name):
-                    store.own(name, old.prs)
-                    if old.state in LIVE or not store.lane(old.retired_by or ""):
-                        retire(store, old.name, name, at)
+            name, brief, model, effort, role = found.name, found.brief, found.model, found.effort, found.role
+            if found.successor_of and (old := store.lane(found.successor_of)) and old.name != name:
+                takes_over(store, name, old, at)
+            for old in [store.lane(other) for other in store.names() if succeeds(name, other)]:
+                takes_over(store, name, old, at)
             if (mine := store.lane(name)) and mine.state == "launching" and mine.reason and Path(brief).resolve() != (briefs / f"{name}.brief.md").resolve():
                 hand.append(name)
             if live is None or name in live:
-                if store.want_lane(name, brief, model, effort, role, "launching" if live is None else "desired", at):
+                if store.want_lane(name, brief, model, effort, role, "launching" if live is None else "desired", at, placement=found.placement):
                     adopted.append(name)
             continue
         row = store.lane(lane)
@@ -227,7 +320,9 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
                         store.lane_page(waiter.name, {"topic": f"owner:{record['seq']}", "why": f"the owner answered {waiter.awaits}, the card you wait on: {text}", "text": text, "prs": list(waiter.prs)})
         if lane == SELF:
             continue
-        if lane == RUNNER and (done := WORKER_DONE.match(text)) and (ended := store.lane(done["lane"])) and ended.state != "retired":
+        if asked := request(record):
+            granted(store, record, asked, live, at, out)
+        elif lane == RUNNER and (done := WORKER_DONE.match(text)) and (ended := store.lane(done["lane"])) and ended.state != "retired":
             retire(store, ended.name, "worker-done", at)
         elif kind == "handoff" and row and (doc := (record.get("refs") or {}).get("ccn")):
             store.lane_handoff(lane, doc, at if row.asked else None)
@@ -255,7 +350,7 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             for old in sorted((named or set(record.get("to") or [])) - {successor}):
                 if not (gone := store.lane(old)):
                     continue
-                if live is None and gone.state in LIVE and (why := unread_by(store, record, old)):
+                if live is None and gone.state in LIVE and (why := unread_by(store, record, old, cited_in(record))):
                     unread.append((old, why))
                     hold(store, old, why, at)
                     continue
@@ -270,7 +365,7 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             named = set(prs_of(record)) | {int(n) for n in PR_MENTION.findall(text)}
             running = {other.name for other in store.lanes(*LIVE)}
             taken = {held for held in store.owner_of(named).values() if held and held != owner[1] and held in running}
-            if live is None and (refused := [(held, why) for held in sorted(taken) if (why := unread_by(store, record, held))]):
+            if live is None and (refused := [(held, why) for held in sorted(taken) if (why := unread_by(store, record, held, cited_in(record)))]):
                 unread += refused
                 for held, why in refused:
                     hold(store, held, why, at)
@@ -279,21 +374,25 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             if live is None and numbers and (probe := store.probes().get(owner[1])) and probe["dead"]:
                 dead.append(f"{owner[1]} for {' '.join(f'#{n}' for n in numbers)}: root named it owner at {pacific(at)}, but it left the supervisor's {pacific(probe['asked'])} ask unanswered; {successor_note(store, owner[1])}")
         elif lane == ROOT and (moved := REPLACES.search(text)) and (old := store.lane(moved["old"])) and old.state in LIVE and (taker := store.lane(moved["new"])):
-            if live is None and (why := unread_by(store, record, old.name)):
+            if live is None and (why := unread_by(store, record, old.name, cited_in(record))):
                 unread.append((old.name, why))
                 hold(store, old.name, why, at)
                 continue
             retire(store, old.name, taker.name, at)
             store.own(taker.name, old.prs)
-    return adopted, hand, dead, unread
+    return out
 
 
-def unread_by(store: Store, record: dict, name: str) -> str:
+def cited_in(record: dict) -> str | None:
+    return found["seq"] if (found := LAST_READ.search(record.get("text") or "")) else None
+
+
+def unread_by(store: Store, record: dict, name: str, cited: str | None) -> str:
     """Why root's `record` may not stand `name` down or hand its PRs on: it cites no `last-read=<seq>`, or one older than the newest record `name` posted (root #304721)."""
-    newest, cited = store.newest_seq(name), LAST_READ.search(record.get("text") or "")
-    if cited and (newest is None or int(cited["seq"]) >= newest):
+    newest = store.newest_seq(name)
+    if cited and (newest is None or int(cited) >= newest):
         return ""
-    read = f"cites last-read={cited['seq']}, older than {name}'s newest record #{newest}" if cited else "cites no last-read=<seq>"
+    read = f"cites last-read={cited}, older than {name}'s newest record #{newest}" if cited else "cites no last-read=<seq>"
     return f"root's {record['kind']} #{record['seq']} would stand {name}{UNREAD}{read}"
 
 
@@ -482,7 +581,7 @@ def liveness(store: Store, now: datetime) -> list[dict]:
     registered = {lane.name: lane for lane in store.all_lanes()}
     heard, owned, probes = store.heard(), store.owners(), store.probes()
     return [
-        {"lane": name, "state": lane.state if lane else "unregistered", "live": not (probes.get(name) or {}).get("dead"), "heard": stamp(heard[name]) if name in heard else None, "prs": owned.get(name, []), "handoff": lane.handoff if lane else None, "retired_by": lane.retired_by if lane else None}
+        {"lane": name, "state": lane.state if lane else "unregistered", "live": not (probes.get(name) or {}).get("dead"), "heard": stamp(heard[name]) if name in heard else None, "prs": owned.get(name, []), "handoff": lane.handoff if lane else None, "retired_by": lane.retired_by if lane else None, "placement": lane.placement if lane else None, "route": route(store, name)}
         for name in sorted(registered.keys() | heard.keys() | owned.keys())
         for lane in [registered.get(name)]
     ]
@@ -511,7 +610,10 @@ def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
         records = deps.records(store.cursor(CURSOR))
     except Unread:
         return out
-    out.adopted, hand, dead, unread = fold(store, records, {lane for lane, peer in found.items() if alive(peer, peer.seen, now)} if fresh else None, deps.briefs)
+    folded = fold(store, records, {lane for lane, peer in found.items() if alive(peer, peer.seen, now)} if fresh else None, deps.briefs)
+    out.adopted, hand, dead, unread = folded.adopted, folded.hand, folded.dead, folded.unread
+    for old, successor, prs, seq in folded.stood:
+        post(deps, "stand-down", old, f"{pacific(now)} {old} stood down{f' for {successor}' if successor else ', its PRs to root'} on request #{seq}.", *(("--successor", successor) if successor else ()), "--re", str(seq), *[arg for n in prs for arg in ("--pr", str(n))])
     for line in dead:
         escalate(store, deps, f"lane:{line.split(' ', 1)[0]}", line, now)
     for name, why in unread:

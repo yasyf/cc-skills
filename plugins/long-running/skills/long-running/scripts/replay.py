@@ -78,7 +78,7 @@ READ_TEXT = (
     re.compile(r"\bPARKED [\w.-]+:"),
 )
 KEPT_FIELDS = ("seq", "at", "lane", "kind", "to", "re", "resolves", "also_resolves", "topic")
-KEPT_ATTRS = ("brief", "model", "effort", "role", "successor")
+KEPT_ATTRS = ("brief", "model", "effort", "role", "successor", "verb", "lane", "last-read", "placement", "successor-of")
 KEPT_ROW = ("lane", "live", "seen_at", "announced_at", "stood_down", "roster")
 
 
@@ -139,13 +139,15 @@ def stubbed(records: list[dict], briefs: Path) -> list[dict]:
     out = []
     for record in records:
         text = record.get("text") or ""
-        if record["kind"] == "state" and text.startswith("SPAWNED "):
-            name, written = text.split()[1], Path(((record.get("fields") or {}).get("attrs") or {}).get("brief") or text.split()[2])
+        attrs = (record.get("fields") or {}).get("attrs") or {}
+        spawn = record["kind"] == "spawn" and attrs.get("brief")
+        if spawn or (record["kind"] == "state" and text.startswith("SPAWNED ")):
+            name = ((record.get("refs") or {}).get("lanes") or [""])[0] if spawn else text.split()[1]
+            written = Path(attrs.get("brief") or text.split()[2])
             stub = briefs / "spawned" / written.parent.name / written.name
             stub.parent.mkdir(parents=True, exist_ok=True)
             stub.write_text(f"# {name}\nRegister slice: lane={name} step=all\n")
-            attrs = ((record.get("fields") or {}).get("attrs") or {}) | {"brief": str(stub)}
-            record = record | {"text": f"SPAWNED {name} {stub}", "fields": (record.get("fields") or {}) | {"attrs": attrs}}
+            record = record | {"text": text if spawn else f"SPAWNED {name} {stub}", "fields": (record.get("fields") or {}) | {"attrs": attrs | {"brief": str(stub)}}}
         out.append(record)
     return out
 
@@ -271,7 +273,7 @@ def scrubbed_text(text: str) -> str:
 
 def scrubbed(record: dict) -> dict:
     attrs = {key: brief_path(value) if key == "brief" else value for key, value in ((record.get("fields") or {}).get("attrs") or {}).items() if key in KEPT_ATTRS}
-    return {key: record[key] for key in KEPT_FIELDS if record.get(key) is not None} | {"text": scrubbed_text(record.get("text") or ""), "refs": {"prs": prs_of(record)}, "fields": {"attrs": attrs}}
+    return {key: record[key] for key in KEPT_FIELDS if record.get(key) is not None} | {"text": scrubbed_text(record.get("text") or ""), "refs": {"prs": prs_of(record), **({"lanes": lanes} if (lanes := (record.get("refs") or {}).get("lanes")) else {})}, "fields": {"attrs": attrs}}
 
 
 def scrubbed_patch(runner, name: str, patch: str | None) -> str | None:

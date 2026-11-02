@@ -5,6 +5,8 @@
     drive_supervisor.py install --config LR_JSON
     drive_supervisor.py uninstall --config LR_JSON
     drive_supervisor.py lanes --config LR_JSON [--json]
+    drive_supervisor.py route LANE --config LR_JSON
+    drive_supervisor.py request VERB LANE --config LR_JSON [--successor LANE] [--last-read SEQ] [--pr N ...] [--by LANE]
 
 STDLIB ONLY. `lr.json` sits in the drive's state directory beside the store `lr.sqlite`, and the
 lanes mover writes successor briefs and launch logs under `lanes/` there. `run` takes the drive's
@@ -15,7 +17,10 @@ worker list per tick; a successor launches through `desk-launch.py lane`, detach
 never holds the tick. `install` writes `~/Library/LaunchAgents/com.long-running.<drive>.supervisor.plist`
 and bootstraps that one label, booting out only its own earlier copy; launchd restarts the process
 whenever it exits. `lanes` prints the registry, one line per lane, and with `--json` one
-`lanes.liveness` object per lane: the drive's one liveness answer, read by every desk.
+`lanes.liveness` object per lane: the drive's one liveness answer, read by every desk. `route`
+prints, as one JSON object, where mail for a lane goes: the live end of its successor chain in the
+registry, or root. `request` posts the one typed record that asks the supervisor to change a row:
+`stand-down`, `park`, `unpark`, `owner` or `done`; nothing else changes the registry.
 """
 
 from __future__ import annotations
@@ -396,17 +401,49 @@ def cmd_lanes(config: lr_config.Config, path: Path, as_json: bool) -> int:
     return 0
 
 
+def cmd_route(config: lr_config.Config, path: Path, name: str) -> int:
+    store = Store.open(path.parent / "lr.sqlite")
+    lane = store.lane(name)
+    print(json.dumps({"lane": name, "route": lanes.route(store, name), "state": lane.state if lane else "unregistered"}))
+    return 0
+
+
+def cmd_request(config: lr_config.Config, args: argparse.Namespace) -> int:
+    attrs = {"verb": args.request, "lane": args.lane, "successor": args.successor, "last-read": args.last_read}
+    words = " ".join(filter(None, [args.request, args.lane, f"for {args.successor}" if args.successor else "", f"last-read={args.last_read}" if args.last_read else "", *(f"#{n}" for n in args.pr)]))
+    print(run(["cci", "post", "--drive", config.drive, "--lane", args.by, "--kind", lanes.REQUEST, "--to", lanes.SELF, *[arg for key, value in attrs.items() if value for arg in ("--attr", f"{key}={value}")], *[arg for n in args.pr for arg in ("--pr", str(n))], "--stamp", "--text", f"registry request: {words}"]).strip())
+    return 0
+
+
 def main(argv: list[str]) -> int:
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--config", required=True, type=Path)
     parser = argparse.ArgumentParser(prog="drive_supervisor.py")
-    parser.add_argument("verb", choices=("run", "install", "uninstall", "lanes"))
-    parser.add_argument("--config", required=True, type=Path)
-    parser.add_argument("--json", action="store_true")
+    verbs = parser.add_subparsers(dest="verb", required=True)
+    for verb in ("run", "install", "uninstall"):
+        verbs.add_parser(verb, parents=[common])
+    listing = verbs.add_parser("lanes", parents=[common])
+    listing.add_argument("--json", action="store_true")
+    routing = verbs.add_parser("route", parents=[common])
+    routing.add_argument("lane")
+    asking = verbs.add_parser("request", parents=[common])
+    asking.add_argument("request", choices=sorted(lanes.VERBS))
+    asking.add_argument("lane")
+    asking.add_argument("--successor", default="")
+    asking.add_argument("--last-read", default="")
+    asking.add_argument("--pr", type=int, action="append", default=[])
+    asking.add_argument("--by", default=lanes.ROOT)
     args = parser.parse_args(argv)
     path = args.config.resolve()
+    config = lr_config.load(path)
     if args.verb == "lanes":
-        return cmd_lanes(lr_config.load(path), path, args.json)
+        return cmd_lanes(config, path, args.json)
+    if args.verb == "route":
+        return cmd_route(config, path, args.lane)
+    if args.verb == "request":
+        return cmd_request(config, args)
     verbs = {"run": cmd_run, "install": cmd_install, "uninstall": cmd_uninstall}
-    return verbs[args.verb](lr_config.load(path), path)
+    return verbs[args.verb](config, path)
 
 
 if __name__ == "__main__":
