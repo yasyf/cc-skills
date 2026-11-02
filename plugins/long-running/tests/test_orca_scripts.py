@@ -20,7 +20,8 @@ TIMED_OUT = {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_error", "m
 IDLE = {"rc": 0, "out": {"ok": True, "result": {"wait": {"handle": "term_a", "condition": "tui-idle", "satisfied": True, "status": "running", "exitCode": None}}}}
 MISSING = {"rc": 1, "out": ""}
 NOT_IDLE = {"rc": 1, "out": {"ok": False, "error": {"code": "timeout", "message": "timeout"}}}
-BRANCH = "yasyf/v3-lane-a-base"
+BRANCH = "yasyf/v3-lane-a-1-1"
+NODE = " node_modules is a shared symlink farm; never run yarn install, ask warm-lane to rebuild for a changed lockfile."
 SPARSE = " This lane is sparse: widen with `git sparse-checkout add <dir>` before reading outside it."
 DESK_CONTRACT = " Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc."
 
@@ -121,7 +122,7 @@ class Orca:
 
     @property
     def worktree(self) -> Path:
-        return self.parent.parent / "v3-lane-a-base"
+        return self.parent.parent / "v3-lane-a-1-1"
 
     def reply(self, command: str, *replies: dict) -> None:
         (self.state / command.replace(" ", "_")).write_text(json.dumps(list(replies)))
@@ -154,6 +155,8 @@ class Orca:
         (self.worktree / "file").write_text("x\n")
         git(self.worktree, "add", "file")
         git(self.worktree, "commit", "-qm", "base")
+        self.receipts.mkdir(exist_ok=True)
+        (self.receipts / "lane-a.worktree").write_text(f"{self.worktree}\n")
 
     def launch(self, *args: str) -> subprocess.CompletedProcess[str]:
         return self.run("orca-launch.sh", *(args or ("lane-a", "opus", "high", str(self.brief))))
@@ -298,7 +301,7 @@ def test_launch_creates_a_child_worktree_and_a_bypass_terminal(orca):
     result = orca.launch()
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.strip() == f"lane-a ready task=task_a dispatch=ctx_a terminal=term_a worktree={orca.worktree}"
-    assert orca.calls("worktree set") == [["worktree", "set", "--worktree", f"path:{orca.worktree}", "--display-name", "v3-lane-a-base", "--parent-worktree", f"path:{orca.parent}", "--json"]]
+    assert orca.calls("worktree set") == [["worktree", "set", "--worktree", f"path:{orca.worktree}", "--display-name", "v3-lane-a-1-1", "--parent-worktree", f"path:{orca.parent}", "--json"]]
     assert git(orca.worktree, "rev-parse", "--abbrev-ref", "HEAD") == BRANCH
     assert git(orca.worktree, "rev-parse", "HEAD") == git(orca.main, "rev-parse", "origin/dev")
     assert subprocess.run(["git", "-C", str(orca.main), "config", "--get", f"branch.{BRANCH}.merge"], check=False).returncode == 1
@@ -365,8 +368,8 @@ def test_a_launch_without_a_root_adds_the_worktree_to_the_ccx_worktree_pool(orca
         git(orca.main, "config", "ccx.worktreeRoot", str(root))
     result = orca.launch()
     assert result.returncode == 0, result.stdout + result.stderr
-    assert result.stdout.strip().endswith(f"worktree={root}/main/v3-lane-a-base")
-    assert (root / "main" / "v3-lane-a-base" / ".agents").is_dir()
+    assert result.stdout.strip().endswith(f"worktree={root}/main/v3-lane-a-1-1")
+    assert (root / "main" / "v3-lane-a-1-1" / ".agents").is_dir()
 
 
 def test_a_repo_with_no_more_tracked_files_than_the_sparse_floor_keeps_a_full_checkout(orca):
@@ -387,15 +390,47 @@ def test_a_relaunch_into_a_full_checkout_keeps_the_plain_spec(orca):
     assert flag(orca.calls("orchestration worker-start")[0], "--spec").endswith("its Escalate rules hold.")
 
 
-def test_an_existing_lane_branch_is_checked_out_as_it_stands(orca):
+@pytest.mark.parametrize("taken", ["branch", "path", "receipt"])
+def test_a_name_already_cut_is_never_cut_again(orca, taken):
     orca.healthy()
-    git(orca.main, "branch", BRANCH, "origin/dev")
-    git(orca.main, "commit", "-q", "--allow-empty", "-m", "later")
+    if taken == "branch":
+        git(orca.main, "branch", BRANCH, "origin/dev")
+    elif taken == "path":
+        orca.worktree.mkdir()
+        (orca.worktree / "stray").write_text("x\n")
+    else:
+        orca.receipts.mkdir()
+        (orca.receipts / "lane-a.names").write_text("v3-lane-a-1-1\n")
+    result = orca.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    fresh = orca.parent.parent / "v3-lane-a-1-2"
+    assert result.stdout.strip().endswith(f"worktree={fresh}")
+    assert git(fresh, "rev-parse", "--abbrev-ref", "HEAD") == "yasyf/v3-lane-a-1-2"
+    assert (orca.receipts / "lane-a.names").read_text().splitlines()[-1] == "v3-lane-a-1-2"
+    assert taken != "path" or (orca.worktree / "stray").exists()
+
+
+def test_a_relaunch_after_a_rollback_cuts_the_next_name(orca):
+    orca.healthy(agent=None)
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
+    assert orca.launch().returncode == 1
+    assert not orca.worktree.exists()
+    orca.healthy()
+    del orca.env["ORCA_LAUNCH_BOOT_SECONDS"]
+    result = orca.launch()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip().endswith(f"worktree={orca.parent.parent / 'v3-lane-a-1-2'}")
+
+
+def test_a_worktree_with_the_warm_lane_hook_tells_the_worker_node_modules_is_shared(orca):
+    (orca.main / "tools" / "hooks").mkdir(parents=True)
+    (orca.main / "tools" / "hooks" / "warm-lane.sh").write_text("#!/bin/sh\n")
+    git(orca.main, "add", "tools/hooks/warm-lane.sh")
+    git(orca.main, "commit", "-qm", "warm-lane")
     git(orca.main, "update-ref", "refs/remotes/origin/dev", "HEAD")
-    head = git(orca.main, "rev-parse", BRANCH)
+    orca.healthy()
     assert orca.launch().returncode == 0
-    assert git(orca.worktree, "rev-parse", "--abbrev-ref", "HEAD") == BRANCH
-    assert git(orca.worktree, "rev-parse", "HEAD") == head != git(orca.main, "rev-parse", "origin/dev")
+    assert flag(orca.calls("orchestration worker-start")[0], "--spec").endswith(f"its Escalate rules hold.{NODE}{SPARSE}")
 
 
 def test_a_new_worktree_links_the_repos_symlink_paths_and_copies_its_worktreeinclude_paths(orca):
@@ -693,7 +728,7 @@ def test_an_update_prompt_failure_quotes_one_line_of_at_most_300_screen_characte
 def test_relaunch_retries_the_recorded_dispatch_in_the_existing_worktree(orca):
     orca.healthy()
     orca.check_out()
-    orca.receipts.mkdir()
+    orca.receipts.mkdir(exist_ok=True)
     (orca.receipts / "lane-a.json").write_text(json.dumps({"result": {"taskId": "task_old", "dispatchId": "ctx_old"}}))
     orca.reply("orchestration task-list", tasks("task_other"), tasks("task_old"))
     result = orca.launch()
@@ -709,7 +744,7 @@ def test_relaunch_retries_the_recorded_dispatch_in_the_existing_worktree(orca):
 def test_relaunch_after_the_recorded_task_completed_starts_a_fresh_task(orca):
     orca.healthy()
     orca.check_out()
-    orca.receipts.mkdir()
+    orca.receipts.mkdir(exist_ok=True)
     (orca.receipts / "lane-a.json").write_text(json.dumps({"result": {"taskId": "task_old", "dispatchId": "ctx_old"}}))
     orca.reply("orchestration task-list", tasks("task_other"))
     result = orca.launch()
@@ -743,19 +778,18 @@ def test_a_worktree_orca_lists_late_is_awaited_and_then_named(orca):
     assert len(orca.calls("worktree set")) == 1
 
 
-def test_a_directory_in_the_worktrees_place_fails_the_add_and_keeps_the_directory(orca):
+def test_a_receipt_naming_a_worktree_that_is_no_checkout_cuts_a_fresh_name_and_leaves_the_directory(orca):
     orca.healthy()
     orca.worktree.mkdir()
     (orca.worktree / "stray").write_text("x\n")
     orca.receipts.mkdir()
     (orca.receipts / "lane-a.worktree").write_text(f"{orca.worktree}\n")
     result = orca.launch()
-    assert result.returncode == 1
-    assert result.stdout.startswith(f"lane-a failed worktree add {orca.worktree}: ") and "already exists" in result.stdout
-    assert "rollback left" not in result.stdout and git(orca.main, "branch", "--list", BRANCH) == ""
-    assert orca.calls("worktree set") == [] and orca.calls("terminal create") == [] and orca.calls("ccx vcs") == []
-    assert (orca.worktree / "stray").exists()
-    assert not (orca.receipts / "lane-a.worktree").exists()
+    assert result.returncode == 0, result.stdout + result.stderr
+    fresh = orca.parent.parent / "v3-lane-a-1-2"
+    assert result.stdout.strip().endswith(f"worktree={fresh}")
+    assert (orca.receipts / "lane-a.worktree").read_text().strip() == str(fresh)
+    assert sorted(path.name for path in orca.worktree.iterdir()) == ["stray"]
 
 
 def test_a_create_that_prints_no_handle_polls_for_its_terminal_every_four_seconds(orca):
@@ -793,7 +827,7 @@ def test_launch_leaves_a_short_pointer_unlinked(orca):
 
 def test_launch_starts_a_lane_whose_worktree_path_alone_passes_500_characters(orca):
     orca.healthy()
-    worktree = orca.root / ("x" * 250) / ("y" * 250) / "v3-lane-a-base"
+    worktree = orca.root / ("x" * 250) / ("y" * 250) / "v3-lane-a-1-1"
     orca.env["ORCA_LAUNCH_ROOT"] = str(worktree.parent)
     result = orca.launch()
     assert result.returncode == 0, result.stdout + result.stderr
@@ -1072,7 +1106,7 @@ def test_relaunch_reuses_the_worktree_its_receipt_names(orca):
     elsewhere.mkdir(parents=True)
     git(elsewhere, "init", "-q")
     git(elsewhere, "commit", "-q", "--allow-empty", "-m", "base")
-    orca.receipts.mkdir()
+    orca.receipts.mkdir(exist_ok=True)
     (orca.receipts / "lane-a.worktree").write_text(f"{elsewhere}\n")
     orca.healthy()
     result = orca.launch()
@@ -1129,7 +1163,7 @@ def message(msg_id: str, kind: str, sender: str, subject: str, body: str) -> dic
 
 
 def test_check_prints_each_non_heartbeat_message_and_the_delivery(orca):
-    orca.receipts.mkdir()
+    orca.receipts.mkdir(exist_ok=True)
     (orca.receipts / "lane-a.terminal").write_text("term_a\n")
     orca.reply(
         "orchestration check",

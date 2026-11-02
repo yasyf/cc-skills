@@ -11,13 +11,17 @@ Launches one Orca worker for <lane> and prints one line:
 
 Anything else is a failure, printed as one line naming the step, exit 1.
 
-The worktree is created once, by git worktree add from the repo's main checkout,
-at <root>/<prefix><lane>-base on branch <user>/<prefix><lane>-base, with '/' in
-the name rewritten to '-' and <user> the gitUsername Orca records for the repo,
-as Orca names its own: a branch <user>/<prefix><lane> would make git refuse every
-branch under the lane's <user>/<prefix><lane>/ prefix. An existing branch of that
-name is checked out as it stands; a new one starts at the base, fetched from its
-remote first as Orca does, and tracks nothing. A checkout whose HEAD tracks more
+A relaunch whose receipt names a worktree that is still a checkout resumes in it.
+Every other launch adds a worktree under a name no launch has used, by git
+worktree add from the repo's main checkout: <root>/<prefix><lane>-<run>-<n> on
+branch <user>/<prefix><lane>-<run>-<n>, where <run> is the first 8 characters of
+the Run id after run_, <n> counts up past every name the lane's <lane>.names
+receipt records and every path or branch that already exists, '/' in the name
+becomes '-', and <user> is the gitUsername Orca records for the repo. The owner
+ruled that a name is never cut twice, and a branch <user>/<prefix><lane> would
+also make git refuse every branch under the lane's <user>/<prefix><lane>/ prefix.
+The branch starts at the base, fetched from its remote first as Orca does, and
+tracks nothing. A checkout whose HEAD tracks more
 than ORCA_LAUNCH_SPARSE_FILES files is sparse in cone mode: the root's files,
 .agents, .claude, tools, infra/ci/hooks/lib, which the monorepo's tools/ci
 sources, and each directory a paths=<dir>,<dir> key on the brief's ccx: header
@@ -27,8 +31,8 @@ and the spec tells the worker to widen before reading outside it. orca worktree
 create cannot make a sparse checkout, and git copies sparse config only from the
 checkout that runs worktree add. Orca lists the worktree a few seconds after it
 reads git's registry; the script waits up to ORCA_LAUNCH_WORKTREE_SECONDS for
-that, then names it <prefix><lane>-base and tags it as a child of the
-coordinator's worktree with orca worktree set. Like Orca's own create, it links
+that, then gives it its name as Orca's display name and tags it as a child of
+the coordinator's worktree with orca worktree set. Like Orca's own create, it links
 the repo's symlinkPaths from the main checkout and copies each existing,
 gitignored path .worktreeinclude names. It runs no Orca setup hook; a repo that
 needs one sets ORCA_LAUNCH_PREPARE.
@@ -48,7 +52,9 @@ pointer to <brief-file>, because Orca truncates a pasted spec near 3 KB. It name
 the brief as the authority over Orca's preamble, which forbids GitHub posts, and
 over any standing leave-uncommitted default. A sparse worktree's pointer adds
 "This lane is sparse: widen with `git sparse-checkout add <dir>` before reading
-outside it." A brief whose ccx: header line
+outside it." In a worktree that carries tools/hooks/warm-lane.sh, the pointer
+also says "node_modules is a shared symlink farm; never run yarn install, ask
+warm-lane to rebuild for a changed lockfile." A brief whose ccx: header line
 says role=desk or role=watch is a standing desk, and its pointer adds the desk
 contract: loop until rotation, and send worker_done only at rotation, naming the
 handoff doc, since Orca's preamble otherwise reads setup or one quiet cycle as
@@ -129,8 +135,7 @@ the standard tier), incident (gpt-6.1-sol on the fast tier), astra (gpt-6-astra,
 for exceptional cases only), or a gpt-* model id. <effort> is low, medium,
 high, xhigh, or max. Orca fails a terminal create with "Terminal creation timed
 out" when its renderer has not answered within a fixed 10 seconds, and the create
-may still open the terminal. A relaunch reuses the worktree its receipt names, or
-the checkout already at <root>/<prefix><lane>-base, as it stands.
+may still open the terminal.
 
 With ORCA_LAUNCH_PREPARE set, the script runs that shell command in each worktree
 this launch creates, once its checkout is whole and before the worker starts, for
@@ -192,7 +197,6 @@ EOF
 LANE=$1 MODEL=$2 EFFORT=$3 BRIEF=$4
 PARENT=${ORCA_LAUNCH_PARENT:-$PWD}
 NAME=${ORCA_LAUNCH_PREFIX:-}$LANE
-WORKTREE_NAME=$(printf '%s' "$NAME-base" | tr / -)
 BOOT=${ORCA_LAUNCH_BOOT_SECONDS:-180}
 WORKTREE_WAIT=${ORCA_LAUNCH_WORKTREE_SECONDS:-180}
 PREPARE=${ORCA_LAUNCH_PREPARE:-}
@@ -289,8 +293,8 @@ MAIN=$(jq -er '.result.repo.path' "$STATE/$LANE.repo.json" 2>/dev/null) ||
 POOL=$(git -C "$MAIN" config ccx.worktreeRoot) || POOL=$HOME/repos/claude/worktrees
 ROOT=${ORCA_LAUNCH_ROOT:-$POOL/$(basename "$MAIN")}
 GIT_USER=$(jq -r '.result.repo.gitUsername // empty' "$STATE/$LANE.repo.json")
-BRANCH=${GIT_USER:+$GIT_USER/}$WORKTREE_NAME
-WT=$(cat "$STATE/$LANE.worktree" 2>/dev/null || echo "$ROOT/$WORKTREE_NAME")
+RUN_ID=$(printf '%s' "${RUN#run_}" | cut -c1-8)
+WT=$(cat "$STATE/$LANE.worktree" 2>/dev/null) || WT=
 
 BASE=${ORCA_LAUNCH_BASE:-$(git -C "$PARENT" symbolic-ref --short refs/remotes/origin/HEAD)}
 DRIVE=$(python3 "$(dirname "$0")/drive.py" current) || DRIVE=
@@ -307,11 +311,11 @@ print("".join(f" -c mcp_servers.{name}.enabled=false" for name in servers if nam
 PY
 ) || fail "codex config: cannot read the mcp_servers of ${CODEX_HOME:-$HOME/.codex}/config.toml"
 [ "$AGENT" != incident ] || COMMAND="sh -c 'PATH=$BIN:\$PATH exec codex --dangerously-bypass-approvals-and-sandbox -c model=$MODEL_ID -c service_tier=fast -c model_reasoning_effort=$EFFORT -c check_for_update_on_startup=false -c mcp_servers=$CODEX_MCP$CODEX_OFF'"
-DESK='' SPARSE=''
+DESK='' SPARSE='' NODE=''
 ! grep -qE '^ccx:(.* )?role=(desk|watch)([[:space:]]|$)' "$BRIEF" ||
   DESK=" Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc."
 pointer() {
-  printf '%s' "Lane $LANE: read $1 in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree $WT, bypass-permissions mode; its Escalate rules hold.$SPARSE$DESK"
+  printf '%s' "Lane $LANE: read $1 in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree $WT, bypass-permissions mode; its Escalate rules hold.$NODE$SPARSE$DESK"
 }
 LANE_BRIEF=$BRIEF
 if [ "$AGENT" != claude ]; then
@@ -350,15 +354,22 @@ set -- --parent-worktree "path:$PARENT"
 is_checkout() {
   TOP=$(git -C "$WT" rev-parse --show-toplevel 2>/dev/null) && [ "$TOP" = "$(cd "$WT" && pwd -P)" ]
 }
+fresh() {
+  n=0
+  until
+    n=$((n + 1))
+    WORKTREE_NAME=$(printf '%s-%s-%s' "$NAME" "$RUN_ID" "$n" | tr / -)
+    BRANCH=${GIT_USER:+$GIT_USER/}$WORKTREE_NAME WT=$ROOT/$WORKTREE_NAME
+    ! grep -qxF "$WORKTREE_NAME" "$STATE/$LANE.names" 2>/dev/null && [ ! -e "$WT" ] &&
+      ! git -C "$MAIN" show-ref --verify --quiet "refs/heads/$BRANCH"
+  do :; done
+  printf '%s\n' "$WORKTREE_NAME" >>"$STATE/$LANE.names"
+}
 added() {
-  if git -C "$MAIN" show-ref --verify --quiet "refs/heads/$BRANCH"; then
-    git -C "$MAIN" worktree add --no-checkout "$WT" "$BRANCH"
-  else
-    remote=${BASE%%/*}
-    ! git -C "$MAIN" remote get-url "$remote" >/dev/null 2>&1 || git -C "$MAIN" fetch --quiet "$remote" "${BASE#*/}" || :
-    BRANCHED=1
-    git -C "$MAIN" worktree add --no-checkout --no-track -b "$BRANCH" "$WT" "$BASE"
-  fi
+  remote=${BASE%%/*}
+  ! git -C "$MAIN" remote get-url "$remote" >/dev/null 2>&1 || git -C "$MAIN" fetch --quiet "$remote" "${BASE#*/}" || :
+  BRANCHED=1
+  git -C "$MAIN" worktree add --no-checkout --no-track -b "$BRANCH" "$WT" "$BASE"
 }
 shared() {
   jq -r '.result.repo.symlinkPaths[]?' "$STATE/$LANE.repo.json" | while IFS= read -r path; do
@@ -378,7 +389,8 @@ checked() {
 }
 
 ROLLBACK=1
-if ! is_checkout; then
+if [ -z "$WT" ] || ! is_checkout; then
+  fresh
   added >"$STATE/$LANE.worktree.log" 2>&1 || fail "worktree add $WT: $(tail -n 3 "$STATE/$LANE.worktree.log")"
   MADE=1
   CONE=$(printf '%s\n' .agents .claude tools infra/ci/hooks/lib; sed -En 's/^ccx:(.* )?paths=([^[:space:]]+).*/\2/p' "$BRIEF" | tr , '\n')
@@ -405,6 +417,8 @@ if [ -n "$MADE" ] && [ -n "$PREPARE" ] && ! prepared; then
   LANE_BRIEF=$STATE/$LANE.brief.md
   printf '\n\n## Worktree preparation\n\n%s\n' "The launch ran \`$PREPARE\` in this worktree and it failed; its output is in $STATE/$LANE.prepare.log. Run it yourself before you build." >>"$LANE_BRIEF"
 fi
+[ ! -f "$WT/tools/hooks/warm-lane.sh" ] ||
+  NODE=" node_modules is a shared symlink farm; never run yarn install, ask warm-lane to rebuild for a changed lockfile."
 [ "$(git -C "$WT" config --get --bool core.sparseCheckout)" != true ] ||
   SPARSE=" This lane is sparse: widen with \`git sparse-checkout add <dir>\` before reading outside it."
 spec

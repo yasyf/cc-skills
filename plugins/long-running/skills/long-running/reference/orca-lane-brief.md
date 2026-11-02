@@ -293,9 +293,9 @@ Worktree and VCS:
   files outside your Ownership, and never write probes into another worktree.
 - This lane is sparse: widen with `git sparse-checkout add <dir>` before reading outside it.
 - node_modules is a shared symlink farm; never run yarn install, ask warm-lane to rebuild for a changed lockfile.
-- Branch prefix: <prefix>/<lane>/. The launch created your worktree on the branch
-  <prefix>/<lane>-base; rename it into that prefix before your first stack:
-  `git branch -m <prefix>/<lane>-base <prefix>/<lane>/<topic>`.
+- Branch prefix: <prefix>/<lane>/. The launch created your worktree on a branch named
+  for this launch, <prefix>/<lane>-<run>-<n>; rename it into that prefix before your
+  first stack: `git branch -m <prefix>/<lane>-<run>-<n> <prefix>/<lane>/<topic>`.
   One stack per lane; ship with <the repo's ship
   command>. Load <the repo's submit skill> before opening a PR. <title and body format>.
   A PR without a body, or left as a draft, is forbidden.
