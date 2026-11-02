@@ -55,6 +55,14 @@ def judged(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
     return asked
 
 
+
+def full_orca(argv: list[str]) -> list[str]:
+    """Orca 1.4.246 prints a concise orchestration record that drops `sequence`, `from_handle` and `dispatchStatus` unless asked for `--full` (cci 308175), so every orchestration read must ask for it."""
+    if argv[:2] != ["orca", "orchestration"]:
+        return argv
+    assert argv[-2:] == ["--full", "--json"], argv
+    return [*argv[:-2], "--json"]
+
 class Reexeced(Exception):
     pass
 
@@ -378,7 +386,7 @@ class FakeShell(runner_module.Shell):
 
     def run(self, argv, stdin=None, env=None, cwd=None):
         self.raw.append(list(argv))
-        argv = gateway(argv)
+        argv = full_orca(gateway(argv))
         self.calls.append(argv)
         name = Path(argv[0]).name
         if argv[:3] == ["security", "find-generic-password", "-s"]:

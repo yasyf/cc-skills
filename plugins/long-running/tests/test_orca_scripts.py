@@ -1262,7 +1262,7 @@ def test_check_peek_reads_without_waiting(orca):
     result = orca.run("orca-check.sh", "--peek", "--", "--terminal", "term_me")
     assert result.stdout.strip() == "msg_9 dispatch term_root note: hi"
     [check] = orca.calls("orchestration check")
-    assert check[2:] == ["--peek", "--terminal", "term_me", "--json"]
+    assert check[2:] == ["--peek", "--terminal", "term_me", "--full", "--json"]
 
 
 def minutes_ago(minutes: int) -> str:
@@ -1290,7 +1290,7 @@ def test_stale_flags_an_in_progress_dispatch_with_an_old_unread_message(orca):
     [show] = orca.calls("orchestration worker-show")
     assert flag(show, "--dispatch") == "ctx_a"
     [check] = orca.calls("orchestration check")
-    assert check[2:] == ["--terminal", "term_a", "--peek", "--json"]
+    assert check[2:] == ["--terminal", "term_a", "--peek", "--full", "--json"]
 
 
 def test_stale_flags_every_message_and_inbox_route_to_a_completed_dispatch(orca):

@@ -1860,7 +1860,7 @@ class Orca:
         self.sender: dict[str, str] = {}
 
     def call(self, *argv: str) -> dict:
-        done = self.shell.run(["orca", *argv, "--json"], env=self.sender or None)
+        done = self.shell.run(["orca", *argv, *(["--full"] if argv[0] == "orchestration" else []), "--json"], env=self.sender or None)
         try:
             return json.loads(done.out)
         except json.JSONDecodeError:

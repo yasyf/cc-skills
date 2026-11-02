@@ -192,7 +192,7 @@ class Orca:
         if flight or not (receipt := self.receipt(lane)):
             return flight
         try:
-            shown = json.loads(self.shell.run(["orca", "orchestration", "worker-show", "--dispatch", receipt["dispatch"], "--json"]))
+            shown = json.loads(self.shell.run(["orca", "orchestration", "worker-show", "--dispatch", receipt["dispatch"], "--full", "--json"]))
         except LOST:
             return False
         return shown["result"]["dispatch"]["status"] not in ("completed", "failed")

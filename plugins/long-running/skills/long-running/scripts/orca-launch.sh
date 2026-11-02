@@ -324,7 +324,7 @@ spec() {
 spec
 
 
-orca orchestration run-current --json >"$STATE/$LANE.binding.json" 2>&1 || :
+orca orchestration run-current --full --json >"$STATE/$LANE.binding.json" 2>&1 || :
 BOUND=$(jq -r '.result.run.id // empty' "$STATE/$LANE.binding.json" 2>/dev/null) || BOUND=
 [ "$BOUND" = "$RUN" ] ||
   fail "coordinator binding: terminal ${ORCA_TERMINAL_HANDLE:-unset} coordinates ${BOUND:-no Run}, not $RUN ($(orca_error "$STATE/$LANE.binding.json")); from the coordinator's Orca terminal run: orca orchestration run-use --id $RUN"
@@ -449,7 +449,7 @@ fi
 
 retryable() {
   for status in failed blocked; do
-    orca orchestration task-list --run "$RUN" --status "$status" --brief --json |
+    orca orchestration task-list --run "$RUN" --status "$status" --brief --full --json |
       jq -e --arg task "$1" 'any(.result.tasks[]; .id == $task)' >/dev/null && return 0
   done
   return 1
@@ -474,7 +474,7 @@ waited=0
 while :; do
   STARTED=0
   orca orchestration worker-start --run "$RUN" "$@" --worktree "path:$WT" \
-    --timeout-ms "$TIMEOUT" --json >"$RECEIPT.new" 2>"$STATE/$LANE.worker.err" || STARTED=$?
+    --timeout-ms "$TIMEOUT" --full --json >"$RECEIPT.new" 2>"$STATE/$LANE.worker.err" || STARTED=$?
   [ "$STARTED" != 0 ] && [ "$(refusal)" = agent_unconfigured ] && [ "$waited" -lt "$BOOT" ] || break
   pause "worker-start refuses terminal $TERMINAL as agent_unconfigured"
   waited=$((waited + POLL))
@@ -513,7 +513,7 @@ if [ "$AGENT" != claude ] && [ -n "$TERMINAL" ] &&
 fi
 turn_started() {
   waited=0
-  until orca orchestration worker-show --dispatch "$1" --json |
+  until orca orchestration worker-show --dispatch "$1" --full --json |
     jq -e '.result | .projection.stage.activity == "working" or (.worker.state | IN("ready", "succeeded"))' >/dev/null 2>&1; do
     [ "$waited" -lt "$BOOT" ] || return 1
     pause "dispatch $1 shows no turn started"
