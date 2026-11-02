@@ -192,7 +192,7 @@ def test_recurrences_are_counted_once_the_24_hours_after_an_install_have_run(mon
 def test_the_lane_replay_builds_deps_from_what_it_offers_so_a_newer_packs_defaulted_field_never_fails_the_gate():
     """Root #329609: the supervisor's replay gate exited 1 with KeyError 'held' when 0.7.911's replay built 0.7.922's lanes.Deps."""
 
-    @dataclasses.dataclass
+    @dataclasses.dataclass(frozen=True)
     class Newer(lanes.Deps):
         later: Callable[[], set[int]] = set
 

@@ -972,10 +972,11 @@ def test_a_red_on_a_ledger_head_the_pr_left_draws_no_red_stall(config, moved, st
     assert [topic for topic in shell.topics() if topic.startswith("red:")] == stalls
 
 
-@pytest.mark.parametrize(("moved", "stales"), [(False, ["stale:108:abc1234"]), (True, [])])
+@pytest.mark.parametrize(("moved", "stales"), [(False, ["stale:201:abc1234"]), (True, [])])
 def test_a_ledger_head_the_pr_left_draws_no_stale_line(config, moved, stales):
     """Root #329604, fidelity-desk-3 #329600: stall-watch posted STALE lines for #48067 at 2608172 and #47760 at 40ab93f after each PR had moved to a new head."""
-    shell = FakeShell([record(1, "enum-lane-11", "head", f"HEAD #108 {HEAD}", 300, "108"), *([record(2, "enum-lane-11", "head", f"HEAD #108 {OTHER}", 200, "108")] if moved else [])], [row("108", lane="enum-lane-11", mergeable_state="dirty")])
+    records = [record(1, "gone-lane", "head", f"HEAD #201 {HEAD}", 200, "201"), *graded(1, "201", HEAD, 200)[1:], record(11, "gone-lane", "stand-down", "standing down", 150)]
+    shell = FakeShell([*records, *([record(20, "gone-lane", "head", f"HEAD #201 {OTHER}", 100, "201")] if moved else [])], [row("201", mergeable_state="dirty", lane="gone-lane")])
     watch(shell, config)
     assert [topic for topic in shell.topics() if topic.startswith("stale:")] == stales
 
