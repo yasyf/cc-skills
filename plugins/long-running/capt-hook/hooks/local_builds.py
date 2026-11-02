@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from captain_hook import Allow, BaseHookEvent, Call, Event, HookResult, Input, Tool, Warn, on
+from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, on
 from captain_hook.util import reqenv
 
 from .compaction_handoff import CompactionState
@@ -38,9 +38,8 @@ VERBOSE_V = frozenset({"pytest"})
 RELEASE_CLI = "tools/ci"
 LANE_ENV = {"CLAUDE_LONG_RUNNING_LANE": "lane-b", "CLAUDE_LONG_RUNNING_DRIVE": "leftovers-oct-18"}
 ROOT = [CompactionState(active=True)]
-WARNING = (
-    "Warning, nothing was blocked: No local compile, test, vet, typecheck, or lint runs in a drive, in any lane or the root, a red CI step included,"
-    " and a Go golden's single `go test -update` run is the one exception (owner, Oct 13; F341, F348)."
+REFUSAL = (
+    "No local compile, test, vet, typecheck or lint runs in a drive, and a Go golden's single `go test -update` is the one exception."
     " Commit and run `ccx vcs ship`, then read the failing step's log, since CI grades."
 )
 
@@ -96,50 +95,50 @@ def in_drive(evt: BaseHookEvent) -> bool:
     return bool(reqenv.getenv("CLAUDE_LONG_RUNNING_LANE") or reqenv.getenv("CLAUDE_LONG_RUNNING_DRIVE")) or CompactionState.load(evt).active
 
 
-@on(
+@on(  # capt-hook: no-escape the owner bans local builds and tests in every drive session
     Event.PreToolUse,
     only_if=[Tool("Bash")],
     tests={
-        Input(command="go build ./...", env=LANE_ENV): Warn(pattern=r"^Warning, nothing was blocked: No local compile, test, vet, typecheck, or lint runs in a drive[\s\S]*ccx vcs ship"),
-        Input(command="go build ./...", state=ROOT): Warn(),
-        Input(command="go vet ./internal/sandsql/...", env={"CLAUDE_LONG_RUNNING_LANE": "lane-b"}): Warn(),
-        Input(command="cd go/sand && go test ./internal/vm/...", env=LANE_ENV): Warn(),
-        Input(command="go -C go/sand test ./...", env=LANE_ENV): Warn(),
-        Input(command="cargo nextest run -p sandsql-api", env=LANE_ENV): Warn(),
-        Input(command="cargo +nightly clippy --all-targets", env=LANE_ENV): Warn(),
-        Input(command="cargo --locked check", env=LANE_ENV): Warn(),
-        Input(command="cargo --manifest-path rust/Cargo.toml test", env=LANE_ENV): Warn(),
-        Input(command="bash -c 'cargo build --release'", env=LANE_ENV): Warn(),
-        Input(command="tsc --noEmit -p api", env=LANE_ENV): Warn(),
-        Input(command="yarn tsc:all", env=LANE_ENV): Warn(),
-        Input(command="yarn tsc:common", env=LANE_ENV): Warn(),
-        Input(command="npm run build", env=LANE_ENV): Warn(),
-        Input(command="npm run lint", env=LANE_ENV): Warn(),
-        Input(command="pnpm -r test", env=LANE_ENV): Warn(),
-        Input(command="pnpm --filter api build", env=LANE_ENV): Warn(),
-        Input(command="yarn workspace api test", env=LANE_ENV): Warn(),
-        Input(command="bun run test:unit", env=LANE_ENV): Warn(),
-        Input(command="just vet", env=LANE_ENV): Warn(),
-        Input(command="buck2 build //go/...", env=LANE_ENV): Warn(),
-        Input(command="make -j8 all", env=LANE_ENV): Warn(),
-        Input(command="make", env=LANE_ENV): Warn(),
-        Input(command="swift build -c release", env=LANE_ENV): Warn(),
-        Input(command="tools/ci release plan --target sand", env=LANE_ENV): Warn(),
-        Input(command="pytest tests/", env=LANE_ENV): Warn(),
-        Input(command="python -m pytest tests/ -q", env=LANE_ENV): Warn(),
-        Input(command="uv run --project plugins/long-running pytest plugins/long-running/tests -q", env=LANE_ENV): Warn(),
-        Input(command="uvx --isolated capt-hook test .claude/hooks/x.py", env=LANE_ENV): Warn(),
-        Input(command="uvx --isolated capt-hook lint .claude/hooks/x.py", env=LANE_ENV): Warn(),
-        Input(command="jest --ci", env=LANE_ENV): Warn(),
-        Input(command="vitest run", env=LANE_ENV): Warn(),
-        Input(command="npx tsc --noEmit", env=LANE_ENV): Warn(),
-        Input(command="bunx biome check api/src common/src", env=LANE_ENV): Warn(),
-        Input(command="biome check api/src", env=LANE_ENV): Warn(),
-        Input(command="pnpm exec eslint .", env=LANE_ENV): Warn(),
-        Input(command="uv run ruff check", env=LANE_ENV): Warn(),
-        Input(command="ruff check --fix .", env=LANE_ENV): Warn(),
-        Input(command="golangci-lint run ./...", env=LANE_ENV): Warn(),
-        Input(command="python3 -m mypy scripts", env=LANE_ENV): Warn(),
+        Input(command="go build ./...", env=LANE_ENV): Block(pattern=r"^No local compile, test, vet, typecheck or lint runs in a drive[\s\S]*ccx vcs ship"),
+        Input(command="go build ./...", state=ROOT): Block(),
+        Input(command="go vet ./internal/sandsql/...", env={"CLAUDE_LONG_RUNNING_LANE": "lane-b"}): Block(),
+        Input(command="cd go/sand && go test ./internal/vm/...", env=LANE_ENV): Block(),
+        Input(command="go -C go/sand test ./...", env=LANE_ENV): Block(),
+        Input(command="cargo nextest run -p sandsql-api", env=LANE_ENV): Block(),
+        Input(command="cargo +nightly clippy --all-targets", env=LANE_ENV): Block(),
+        Input(command="cargo --locked check", env=LANE_ENV): Block(),
+        Input(command="cargo --manifest-path rust/Cargo.toml test", env=LANE_ENV): Block(),
+        Input(command="bash -c 'cargo build --release'", env=LANE_ENV): Block(),
+        Input(command="tsc --noEmit -p api", env=LANE_ENV): Block(),
+        Input(command="yarn tsc:all", env=LANE_ENV): Block(),
+        Input(command="yarn tsc:common", env=LANE_ENV): Block(),
+        Input(command="npm run build", env=LANE_ENV): Block(),
+        Input(command="npm run lint", env=LANE_ENV): Block(),
+        Input(command="pnpm -r test", env=LANE_ENV): Block(),
+        Input(command="pnpm --filter api build", env=LANE_ENV): Block(),
+        Input(command="yarn workspace api test", env=LANE_ENV): Block(),
+        Input(command="bun run test:unit", env=LANE_ENV): Block(),
+        Input(command="just vet", env=LANE_ENV): Block(),
+        Input(command="buck2 build //go/...", env=LANE_ENV): Block(),
+        Input(command="make -j8 all", env=LANE_ENV): Block(),
+        Input(command="make", env=LANE_ENV): Block(),
+        Input(command="swift build -c release", env=LANE_ENV): Block(),
+        Input(command="tools/ci release plan --target sand", env=LANE_ENV): Block(),
+        Input(command="pytest tests/", env=LANE_ENV): Block(),
+        Input(command="python -m pytest tests/ -q", env=LANE_ENV): Block(),
+        Input(command="uv run --project plugins/long-running pytest plugins/long-running/tests -q", env=LANE_ENV): Block(),
+        Input(command="uvx --isolated capt-hook test .claude/hooks/x.py", env=LANE_ENV): Block(),
+        Input(command="uvx --isolated capt-hook lint .claude/hooks/x.py", env=LANE_ENV): Block(),
+        Input(command="jest --ci", env=LANE_ENV): Block(),
+        Input(command="vitest run", env=LANE_ENV): Block(),
+        Input(command="npx tsc --noEmit", env=LANE_ENV): Block(),
+        Input(command="bunx biome check api/src common/src", env=LANE_ENV): Block(),
+        Input(command="biome check api/src", env=LANE_ENV): Block(),
+        Input(command="pnpm exec eslint .", env=LANE_ENV): Block(),
+        Input(command="uv run ruff check", env=LANE_ENV): Block(),
+        Input(command="ruff check --fix .", env=LANE_ENV): Block(),
+        Input(command="golangci-lint run ./...", env=LANE_ENV): Block(),
+        Input(command="python3 -m mypy scripts", env=LANE_ENV): Block(),
         Input(command="go test ./internal/iris/... -run TestGolden -update", env=LANE_ENV): Allow(),
         Input(command="go test ./internal/parser -update=true", env=LANE_ENV): Allow(),
         Input(command="go build ./...", env={}): Allow(),
@@ -171,4 +170,4 @@ def in_drive(evt: BaseHookEvent) -> bool:
 def no_local_builds_in_a_drive(evt: BaseHookEvent) -> HookResult | None:
     if not any(builds(call) for call in evt.command.calls()) or not in_drive(evt):
         return None
-    return evt.context(WARNING)
+    return evt.block(REFUSAL)
