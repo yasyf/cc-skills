@@ -459,6 +459,26 @@ def test_a_hit_on_a_rows_own_name_clears_once_rulings_quote_that_row_and_say_how
     assert check(capsys, CheckShell(rows, body=body, diff=SERIES_DIFF)) == (1 if refusals else 0, refusals)
 
 
+SYNC_ROW = EDGE_CASES | {"words": "tehre shouldnt ever be a syncing state", "answer": '["7c7c7c7"]', "names": '["sync"]'}
+SYNC_HIT = "NAME-HIT rule/7c7c7c7 src/relay/pool.rs:2 sync"
+
+
+@pytest.mark.parametrize(
+    ("line", "refusals"),
+    [
+        ("+use std::sync::Arc;", []),
+        ("+use std::sync::{Arc, Mutex};", []),
+        ("+    let clock = std::sync::Mutex::new(Instant::now());", []),
+        ("+from threading import Lock as sync", []),
+        ("+    state.sync(&peer);", [SYNC_HIT]),
+    ],
+)
+def test_a_scope_name_in_an_import_line_or_a_std_path_is_no_hit(package: Path, state: Path, registered: Path, capsys, line: str, refusals: list[str]) -> None:
+    """Root #298792: NAME-HIT 'sync' on #47453's clock modules matched their std::sync imports."""
+    rows = pinned(package) | {"rule/7c7c7c7": dict(SYNC_ROW)}
+    assert check(capsys, CheckShell(rows, diff=DIFF.replace("+    self.drain();", line))) == (1 if refusals else 0, refusals)
+
+
 SHORT_ROW = EDGE_CASES | {"words": "Yes (my pick)", "answer": '["6b6b6b6"]', "names": '["writable"]'}
 WRITABLE_HIT = "NAME-HIT rule/6b6b6b6 src/relay/pool.rs:2 writable"
 
