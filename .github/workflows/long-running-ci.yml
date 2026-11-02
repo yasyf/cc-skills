@@ -954,7 +954,7 @@ jobs:
               sys.exit(0)
           scripts = "plugins/long-running/skills/long-running/scripts/"
           files = set(re.findall(r"^diff --git a/(\S+)", diff, re.MULTILINE))
-          checked = {f"{scripts}lr/movers/lanes.py", f"{scripts}testfiles.py"} & files or re.search(r"^@@ .* @@ def (?:test_only_offender|unclassed_files|file_kinds|dev_only|is_test_or_ci_file)\(", diff, re.MULTILINE)
+          checked = {f"{scripts}lr/movers/lanes.py", f"{scripts}long_running/testfiles.py"} & files or re.search(r"^@@ .* @@ def (?:test_only_offender|unclassed_files|file_kinds|dev_only|is_test_or_ci_file)\(", diff, re.MULTILINE)
           if checked and not any(name.startswith("plugins/long-running/tests/fixtures/replay/") for name in files):
               sys.exit("This fix cites the cci record that reported its defect but adds no replay fixture: write one with `replay.py capture` from that record into plugins/long-running/tests/fixtures/replay/, so CI replays the reporting case.")
           PY

@@ -78,7 +78,7 @@ def gate_args(**fields) -> argparse.Namespace:
 
 def stub_gate(monkeypatch, old: dict, new: dict, added: dict[str, dict]) -> list[tuple]:
     posts: list[tuple] = []
-    record = {"seq": 9, "lane": "desk-runner", "kind": "note", "at": iso(NOW), "text": "EXEMPT-ADMITTED #47425 at a1b2c3d4e5", "refs": {"prs": [47425]}}
+    record = {"seq": 9, "lane": "desk-runner", "kind": "note", "at": iso(datetime.now(UTC)), "text": 'EXEMPT-ADMITTED #47425 at a1b2c3d4e5: fidelity grade cci #9 says "test-only or CI-only, no non-test code"', "refs": {"prs": [47425]}}
     monkeypatch.setattr(replay.cci, "paged", lambda run, drive, filters, since: [record])
     monkeypatch.setattr(replay, "who_rows", lambda drive: [])
     monkeypatch.setattr(replay, "changed_files", lambda repo, pr: {"go/go.mod": None})

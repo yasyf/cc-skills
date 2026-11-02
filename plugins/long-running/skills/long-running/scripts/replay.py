@@ -24,7 +24,8 @@ relaunched and held, and the PRs whose test-only claim the class check refused.
 
 `gate` is the install step, run by `desk-runner.py handoff --version` and by the supervisor before it
 re-executes into a newer install. It replays the drive's last 24 hours, with the current `cci who` rows
-and the changed files of every PR the class check judged in them, through `--old` and `--new`. When `--new`
+and the changed files of every PR whose test-only claim the class check judged in them, through `--old`
+and `--new`; the 48 hours before fold in first, so lanes spawned then are registered when the day opens. When `--new`
 relaunches a lane or refuses a PR `--old` did not, it posts one `blocker` to root naming each and exits 3;
 otherwise it posts one `state` record, `REPLAY-PASSED`, naming the fixture classes `--new` adds, and exits
 0. Each verdict posts once per version.
@@ -55,10 +56,11 @@ INSTALLED_SCRIPTS = Path("skills") / "long-running" / "scripts"
 LANE = "replay"
 DAY = timedelta(hours=24)
 WINDOW = "24h"
+HISTORY = "72h"
 RECUR_WINDOW = "72h"
 REFUSED = 3
 PASSED = "REPLAY-PASSED"
-CLASS_CHECKED = re.compile(r"\b(?:EXEMPT-ADMITTED|TEST-ONLY-MISMATCH)\b")
+CLASS_CHECKED = re.compile(r"\bTEST-ONLY-MISMATCH\b|\bEXEMPT-ADMITTED\b.*\b(?:test-only|ci-only|exempt: (?:tests?|ci|harness|fixtures?))\b", re.IGNORECASE)
 LAUNCHED = re.compile(r"^LAUNCHED \S+ (?P<lane>[\w.-]+): dispatch (?P<dispatch>ctx_\w+)")
 ENDED = re.compile(r"^OUTCOME \S+ (?P<lane>[\w.-]+): worker_done \w+ dispatch=(?P<dispatch>ctx_\w+)")
 FILES_JQ = ".[] | [.filename, .patch] | @json"
@@ -164,22 +166,21 @@ def who_at(rows: list[dict], orca: list[tuple[str, datetime, datetime | None]], 
     return out
 
 
-def replay_lanes(pack, records: list[dict], rows: list[dict]) -> dict[str, list[str]]:
+def replay_lanes(pack, records: list[dict], rows: list[dict], since: str | None) -> dict[str, list[str]]:
+    """The lanes the mover relaunched and held, ticking from `since`, or the first record, to the last record; records before `since` fold in at the first tick, so lanes spawned earlier are registered when the compared window opens."""
     loop, lanes, Store, _ = pack
     if not records:
         return {"relaunched": [], "held": []}
     with tempfile.TemporaryDirectory() as scratch:
         briefs = Path(scratch)
         feed = sorted(stubbed(records, briefs), key=lambda record: record["seq"])
-        named = lanes_of(feed)
-        rows = [row for row in rows if row.get("lane") in named]
         stood_down = {}
         for record in feed:
             if record["kind"] == "stand-down":
                 for to in record.get("to") or []:
                     stood_down.setdefault(to.split("@", 1)[0], at_of(record["at"]))
         orca = dispatches(feed)
-        clock = {"now": at_of(feed[0]["at"]), "shown": 0}
+        clock = {"now": max(at_of(feed[0]["at"]), at_of(since or feed[0]["at"])), "shown": 0}
 
         def visible(since: int) -> list[dict]:
             start = clock["shown"]
@@ -207,11 +208,13 @@ def replay_lanes(pack, records: list[dict], rows: list[dict]) -> dict[str, list[
         store.advance(lanes.CURSOR, feed[0]["seq"] - 1)
         relaunched, held = set(), set()
         end = at_of(feed[-1]["at"])
-        while clock["now"] <= end:
+        while True:
             out = lanes.tick(store, deps, clock["now"], 1)
             relaunched |= {old for old, *_ in out.relaunched}
             held |= set(out.held)
-            clock["now"] += loop.TICK
+            if clock["now"] >= end:
+                break
+            clock["now"] = min(clock["now"] + loop.TICK, end)
         return {"relaunched": sorted(relaunched), "held": sorted(held)}
 
 
@@ -222,7 +225,7 @@ def replay_class_check(pack, prs: list[dict]) -> list[int]:
 
 def replay(scripts: Path, given: dict) -> dict:
     pack = load_pack(scripts)
-    return replay_lanes(pack, given.get("records") or [], given.get("who") or []) | {"refused": replay_class_check(pack, given.get("prs") or [])}
+    return replay_lanes(pack, given.get("records") or [], given.get("who") or [], given.get("since")) | {"refused": replay_class_check(pack, given.get("prs") or [])}
 
 
 def run_pack(scripts: Path, given: Path) -> dict:
@@ -298,14 +301,15 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def cmd_gate(args: argparse.Namespace) -> int:
-    records = cci.paged(shell, args.drive, (), WINDOW)
-    judged = sorted({pr for record in records if CLASS_CHECKED.search(record.get("text") or "") for pr in prs_of(record)}) if args.repo else []
-    given = {"records": records, "who": who_rows(args.drive), "prs": [{"pr": pr, "patches": changed_files(args.repo, pr)} for pr in judged]}
+    start = datetime.now(UTC) - DAY
+    records = cci.paged(shell, args.drive, (), HISTORY)
+    judged = sorted({pr for record in records if at_of(record["at"]) >= start and CLASS_CHECKED.search(record.get("text") or "") for pr in prs_of(record)}) if args.repo else []
+    given = {"records": records, "since": iso(start), "who": who_rows(args.drive), "prs": [{"pr": pr, "patches": changed_files(args.repo, pr)} for pr in judged]}
     with tempfile.NamedTemporaryFile("w", suffix=".json") as handle:
         json.dump(given, handle)
         handle.flush()
         old, new = run_pack(installed(args.old), Path(handle.name)), run_pack(installed(args.new), Path(handle.name))
-    replayed = f"{len(records):,} records and {len(judged)} class-checked PRs of the last 24 hours"
+    replayed = f"{sum(at_of(record['at']) >= start for record in records):,} records and {len(judged)} test-only class checks of the last 24 hours"
     if found := differences(old, new):
         why = f"{args.new} replayed {replayed} against {args.old} and {'; '.join(found)}, which {args.old} did not, so it is not installed"
         post(args.drive, "blocker", f"replay-refused:{args.new}", f"REPLAY-REFUSED {why}", "--attr", f"version={args.new}")

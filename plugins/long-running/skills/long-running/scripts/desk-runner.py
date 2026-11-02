@@ -2361,7 +2361,8 @@ class Runner:
 
     def handoff(self, desk: str, version: str = "") -> int:
         """Move `desk` onto `version`, or onto the pinned version without one. Refuse before stopping anything when that version's install is not its release (`drive.release_faults`: a file missing, added past its tag, or edited in place) or that version's own preflight for the desk refuses (Oct 30 9:47 PM); then pin it, stop the runner holding `desk`'s lock at its next step boundary, wait until it has exited, then start its successor, or under launchd supervision wait for launchd's restart instead, so a handoff killed mid-wait never leaves the desk empty (Oct 30 7:46 PM). A runner whose newest alive record, posted after the stop was asked, shows it re-executed into the pinned version under the same pid has handed over in place, so its stop is withdrawn and no successor starts (root, Oct 29 11:46 AM), unless it already ran that version when the stop was asked, since only a restart then reloads runner.json (cci #215987); refuse, naming its pid, when neither happens within HANDOFF_WAIT (#140225)."""
-        target = version or self.pinned() or RUNNING_VERSION
+        current = self.pinned() or RUNNING_VERSION
+        target = version or current
         if faults := drive.release_faults(target):
             shown = "; ".join(faults[:HANDOFF_FAULTS]) + (f"; and {len(faults) - HANDOFF_FAULTS} more" if len(faults) > HANDOFF_FAULTS else "")
             print(f"desk-runner handoff: no runner was stopped, since the {target} install is not its release: {shown}; reinstall it with `claude plugin update long-running@skills` and hand off again", file=sys.stderr)
@@ -2370,7 +2371,7 @@ class Runner:
         if fault := self.successor_fault(desk, target, supervised):
             print(f"desk-runner handoff: no runner was stopped, since its successor on {target} would refuse: {fault}", file=sys.stderr)
             return 3
-        if target != RUNNING_VERSION and (refused := self.replay_refusal(target)):
+        if target != current and (refused := self.replay_refusal(current, target)):
             print(f"desk-runner handoff: no runner was stopped, since {refused}", file=sys.stderr)
             return 3
         self.pin(target)
@@ -2493,9 +2494,9 @@ class Runner:
         beat = drive.heartbeat(self.cci_tail, self.config.drive, desk)
         return beat is not None and beat.get("pid") == str(pid) and beat.get("version") == version and actions.parse_stamp(beat["at"]) >= since
 
-    def replay_refusal(self, version: str) -> str:
-        """Why `version` may not take a desk from this runner's version: the drive's last 24 hours, replayed through both by `replay.py gate`, show it relaunching a lane or refusing a PR this version did not, or the gate did not finish; empty when it passes."""
-        done = self.shell.run([sys.executable, str(REPLAY), "gate", "--drive", self.config.drive, *(["--repo", self.config.landing["repo"]] if self.config.landing else []), "--old", RUNNING_VERSION, "--new", version])
+    def replay_refusal(self, current: str, version: str) -> str:
+        """Why `version` may not take a desk from `current`, the version the desk's pin runs: the drive's last 24 hours, replayed through both by `replay.py gate`, show it relaunching a lane or refusing a PR `current` did not, or the gate did not finish; empty when it passes."""
+        done = self.shell.run([sys.executable, str(REPLAY), "gate", "--drive", self.config.drive, *(["--repo", self.config.landing["repo"]] if self.config.landing else []), "--old", current, "--new", version])
         if done.code == 0:
             return ""
         last = ((done.out if done.code == 3 else done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1][:600]
