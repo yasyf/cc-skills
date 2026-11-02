@@ -374,6 +374,8 @@ class FakeShell(runner_module.Shell):
             (state / f"{argv[1]}.terminal").write_text(f"{ready['terminal']}\n")
             self.dispatches[ready["dispatch"]] = {"status": "dispatched", "terminal": ready["terminal"]}
         out.write_text(self.launch_line)
+        if Path(argv[0]).name == "orca-launch.sh" and not self.launch_line:
+            return self.launch_process or Running()
         return self.launch_process or Process()
 
     def stat(self, path):
@@ -12726,9 +12728,9 @@ def test_a_root_decide_that_closes_the_incident_withdraws_the_opus_fallback_it_l
     clocked_lane(shell, config, tmp_path)
     shell.sleep(10 * 60)
     orca_pass(shell, config)
-    orca_pass(shell, config)
     backup = f"{LANE}-opus"
     shell.launch(backup, "ctx_opus")
+    orca_pass(shell, config)
     orca_pass(shell, config)
     cci_record(shell, lane="root", kind="decide", to=[LANE], text="INCIDENT CLOSED rsw-go-panics: cancel the Opus fallback now", at=actions.stamp(shell.clock))
     orca_pass(shell, config)
@@ -13199,7 +13201,6 @@ def test_a_root_withdraw_of_the_clocks_opus_fallback_while_it_starts_stops_it_on
     shell.launch_process = Running()
     shell.sleep(10 * 60)
     orca_pass(shell, config)
-    orca_pass(shell, config)
     assert incident(tmp_path, f"desk-lane-{backup}").actions[key].status == "started"
     runner = runner_module.Runner(shell, runner_module.Config.load(config), actions.Store(tmp_path / "store"))
     runner.launching[f"desk-lane-{backup}/{key}"] = shell.launch_process
@@ -13414,10 +13415,10 @@ def test_the_clock_logs_nothing_while_cci_cannot_be_read(shell, config, tmp_path
 def test_an_opus_fallback_whose_orca_launch_fails_once_is_launched_once_more(shell, config, tmp_path):
     brief = clocked_lane(shell, config, tmp_path)
     backup = f"{LANE}-opus"
+    shell.launch_process = Running()
     shell.launch_line = f"{backup} failed worktree checkout: index still differs from HEAD after 180s\n"
     shell.sleep(10 * 60)
-    for _ in range(3):
-        orca_pass(shell, config)
+    orca_pass(shell, config)
     shell.launch_line = f"{backup} ready task=task_1 dispatch=ctx_opus terminal=term_ctx_opus worktree=/w\n"
     for _ in range(2):
         orca_pass(shell, config)
@@ -13452,7 +13453,8 @@ def test_an_opus_fallback_refused_on_load_twice_goes_to_the_root_in_process(shel
 def test_no_retry_or_in_process_fallback_while_the_executors_backup_is_live(shell, config, tmp_path):
     clocked_lane(shell, config, tmp_path)
     shell.sleep(10 * 60)
-    shell.cpu_load = 40
+    shell.launch_process = Running()
+    shell.launch_line = f"{LANE}-opus failed worktree checkout: index still differs from HEAD after 180s\n"
     orca_pass(shell, config)
     executor_backup(shell, "verified")
     shell.dispatches["ctx_backup"] = {"status": "dispatched", "terminal": "term_backup"}
@@ -13465,7 +13467,8 @@ def test_no_retry_or_in_process_fallback_while_the_executors_backup_is_live(shel
 def test_no_in_process_fallback_once_the_lanes_clock_has_stopped(shell, config, tmp_path):
     clocked_lane(shell, config, tmp_path)
     shell.sleep(10 * 60)
-    shell.cpu_load = 40
+    shell.launch_process = Running()
+    shell.launch_line = f"{LANE}-opus failed worktree checkout: index still differs from HEAD after 180s\n"
     orca_pass(shell, config)
     lane_record(shell, LANE, "ready")
     for _ in range(3):
@@ -13634,9 +13637,9 @@ def test_a_case_the_opus_fallback_reports_too_launches_one_case_lane(shell, conf
     clocked_lane(shell, config, tmp_path)
     shell.sleep(10 * 60)
     orca_pass(shell, config)
-    orca_pass(shell, config)
     backup = f"{LANE}-opus"
     shell.launch(backup, f"ctx_{backup}")
+    orca_pass(shell, config)
     orca_pass(shell, config)
     unfixed_report(shell, LANE, "ready", CASES[0])
     unfixed_report(shell, backup, "ready", *CASES)
