@@ -12412,6 +12412,20 @@ def test_an_opened_pr_stops_the_pr_threshold_and_counts_for_the_mechanism(shell,
     assert clock_lines(shell) == [] and len(launches(shell)) == 1
 
 
+def test_a_lane_posting_under_the_name_its_brief_gives_reaches_its_milestones_and_its_stand_down(shell, config, tmp_path):
+    poster = f"{LANE}-fix"
+    clocked_lane(shell, config, tmp_path, header=f"Post with `cci post --lane {poster} --drive d --stamp --kind mechanism --to root`.\n")
+    shell.sleep(4 * 60)
+    lane_record(shell, poster, "mechanism")
+    shell.sleep(8 * 60)
+    orca_pass(shell, config)
+    assert clock_lines(shell) == [] and len(launches(shell)) == 1
+    cci_record(shell, lane="root", kind="stand-down", text=f"{poster} stands down", to=[poster], at=actions.stamp(shell.clock))
+    shell.sleep(30 * 60)
+    orca_pass(shell, config)
+    assert clock_lines(shell) == [] and len(launches(shell)) == 1
+
+
 @pytest.mark.parametrize(("kind", "text"), [("ready", "READY #4242 green at 9c0b891"), ("report", "READY #4242 green at 9c0b891"), ("incident", "READY --fast GREEN #4242")])
 def test_a_ready_record_stops_the_clock(shell, config, tmp_path, capsys, kind, text):
     clocked_lane(shell, config, tmp_path)
