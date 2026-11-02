@@ -179,6 +179,39 @@ def test_a_sprite_whose_plugin_copy_is_missing_files_gets_the_whole_copy_again(t
     assert Path(f"{sprite}{mac}/plugin.digest").read_text() == shipped and not Path(f"{sprite}{mac}/plugin/.in_use").exists()
 
 
+def test_a_sprite_names_a_new_plugin_copy_by_one_rename_and_deletes_an_older_copy_only_once_no_job_holds_it(tmp_path: Path) -> None:
+    """tooling-misc-3 #234214, cc-skills#1342: the swap removed the plugin directory before it moved the new one in, so a job that started in between ran from nothing, and it deleted the copy under a job still running from it."""
+    mac, sprite = tmp_path / "mac", tmp_path / "sprite"
+    checkout, directory, config = mac / "checkout", mac / "finder-desk" / "46075-decdc3400000", mac / "config"
+    script = mac / "plugin" / "skills" / "long-running" / "scripts" / "finder.py"
+    executable(script, RESTARTED_JOB)
+    executable(script.parent / "rulings.py", "")
+    executable(mac / "bin" / "sprite", SPRITE)
+    executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    directory.mkdir(parents=True)
+    (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
+    (config / "long-running" / "drives").mkdir(parents=True)
+    (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
+    subprocess.run(["git", "init", "-q", f"{sprite}{checkout}"], check=True)
+    env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config)}
+
+    def job(marker: str) -> Path:
+        (mac / "plugin" / "marker.txt").write_text(marker)
+        subprocess.run(["sh", str(SCRIPT), "vet4", str(script), str(directory)], env=env, check=True, capture_output=True, timeout=60)
+        link = Path(f"{sprite}{mac}/plugin")
+        assert link.is_symlink() and (link / "marker.txt").read_text() == marker
+        return Path(os.readlink(link))
+
+    first = job("one")
+    held = os.open(f"{first}.lock", os.O_CREAT | os.O_RDWR)
+    fcntl.flock(held, fcntl.LOCK_SH)
+    second = job("two")
+    assert second != first and (first / "marker.txt").read_text() == "one"
+    os.close(held)
+    third = job("three")
+    assert not first.exists() and not second.exists() and (third / "marker.txt").read_text() == "three"
+
+
 def test_a_job_that_dies_with_its_sprite_leaves_an_error_result_so_the_runner_fails_it_at_once(tmp_path: Path) -> None:
     """remote-desks-5, 9:41 PM Oct 30: dar-fleet-4 restarted at about 9:20 PM mid-pass, sprite-job.sh exited with no result, and the runner counted fidelity #46330 801543b as running for 24 minutes, since a fidelity pass fails only on an error result or its 60-minute deadline."""
     mac, sprite = tmp_path / "mac", tmp_path / "sprite"

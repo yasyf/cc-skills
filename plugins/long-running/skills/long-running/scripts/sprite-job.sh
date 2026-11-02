@@ -27,8 +27,10 @@ GitHub between passes.
 
 The plugin version holding <script> is copied over whenever a file in it was
 added, removed or changed since the Sprite's copy, so a truncated install or a
-half-finished copy is replaced on the next job, swapped in whole, with caches
-and Claude Code's in-use marks left out; the drive's registry file on every run
+half-finished copy is replaced on the next job, extracted into a directory of
+its own beside the path and named by one rename of a link, with caches and
+Claude Code's in-use marks left out, and a job holds a shared lock on the copy
+it runs, so an older copy is deleted only once no job holds it; the drive's registry file on every run
 with its `checkout` set to the job's checkout, since the Sprite holds that clone and not this machine's, the register
 copy kept in the drive's state as a snapshot for that checkout, which rulings.py
 on the Sprite reads instead of rebuilding the register cold with ccn, and the plan package the drive's
@@ -86,7 +88,19 @@ ship() {
   if [ "$(sprite exec -s "$sprite" --no-stdin -- sh -c 'mkdir -p "$(dirname "$1")"; cat "$1.digest" 2>/dev/null' sh "$1")" != "$sum" ]; then
     tar --no-xattrs --exclude=__pycache__ --exclude=.in_use --exclude=.orphaned_at -C "$1" -cz . | sprite exec -s "$sprite" -- flock "$1.lock" sh -c '
       if [ "$(cat "$1.digest" 2>/dev/null)" = "$2" ]; then exec cat >/dev/null; fi
-      rm -rf "$1.new" && mkdir -p "$1.new" && tar -xz -m -C "$1.new" && rm -rf "$1" && mv "$1.new" "$1" && printf %s "$2" >"$1.digest"' sh "$1" "$sum"
+      next="$1.d/$2"
+      if [ -d "$next" ]; then
+        cat >/dev/null
+      else
+        rm -rf "$1.part" && mkdir -p "$1.part" && tar -xz -m -C "$1.part" && mv "$1.part" "$next" || exit 1
+      fi
+      [ -L "$1" ] || rm -rf "$1"
+      rm -f "$1.link" && ln -s "$next" "$1.link" && python3 -c "import os, sys; os.replace(sys.argv[1], sys.argv[2])" "$1.link" "$1" && printf %s "$2" >"$1.digest" || exit 1
+      for old in "$1.d"/*/; do
+        old=${old%/}
+        [ -d "$old" ] && [ "$old" != "$next" ] && flock -n -x "$old.lock" rm -rf "$old" "$old.lock"
+      done
+      true' sh "$1" "$sum"
   fi
 }
 
@@ -145,7 +159,8 @@ sprite exec -s "$sprite" --no-stdin -- sh -c '
     printf %s "$began" >"$3.fetched"
   fi
   exec 9>&-
-  exec python3 "$1" "$2"' sh "$script" "$dir" "$checkout" &
+  real=$(readlink "$4")
+  exec flock -s "$real.lock" python3 "$real${1#"$4"}" "$2"' sh "$script" "$dir" "$checkout" "$plugin" &
 job=$!
 { [ -z "$keys" ] || printf "%s\n" "$keys"; } | sprite exec -s "$sprite" -- sh -c '
   for _ in $(seq 600); do
