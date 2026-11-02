@@ -490,7 +490,7 @@ def test_a_go_the_landing_desk_saw_trunk_evict_cites_the_eviction_and_goes_to_it
     watch(shell, config)
 
     post = shell.post("go:101:abc1234")
-    assert post["to"] == "root,api-lane@d1"
+    assert post["to"] == "api-lane@d1"
     assert f"landing-desk-3's newest blocker for #101 at abc1234, cci #5: Trunk evicted #101 at {HEAD[:9]}" in post["text"]
     assert "wrote no QUEUED, MERGED or blocker record" not in post["text"]
 
@@ -1479,6 +1479,7 @@ def test_a_board_line_spares_root_and_goes_to_the_board_lane_while_the_board_ref
     config.write_text(json.dumps(raw))
     records = [head(1, "101", HEAD, 40), finder(2, "101", HEAD, 20), fidelity(3, "101", HEAD, 20), record(4, "board-refresher-2", "note", "row up for #101", 5, "101")]
     shell = FakeShell(records, [row("101")])
+    shell.successions = {"board-refresher": "board-refresher-2"}
     watch(shell, config)
     assert [shell.post(topic)["to"] for topic in shell.topics() if topic.startswith("board:")] == ["board-refresher-2@d1"]
 
@@ -1609,6 +1610,7 @@ def test_an_answered_pipeline_grade_with_no_regrade_goes_to_the_prs_lane_and_the
     reply = record(4, "api-lane", "report", "the container size is the plan's; see plan:44", 20, "101", re=3)
     desk = record(5, "fidelity-desk-11", "review", f"fidelity: ok {'d' * 7} carried", 10, "102")
     shell = FakeShell([head(1, "101", HEAD, 60), finder(2, "101", HEAD, 59), grade, reply, desk], [row("101", test_state="pending")])
+    shell.successions = {"fidelity-desk": "fidelity-desk-11"}
 
     watch(shell, config)
 
