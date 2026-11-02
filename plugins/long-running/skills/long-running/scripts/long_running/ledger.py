@@ -665,6 +665,11 @@ def default_lock(ledger: str) -> Path:
     return Path.home() / ".cache" / "ccn-ledger" / f"{ledger}.lock"
 
 
+def refresh_stamp(lock: Path) -> Path:
+    """The moment the ledger's last refresh pass read the forge, kept beside its lock and never on a row, so a pass over unchanged PRs writes nothing to the ledger."""
+    return lock.with_suffix(".refreshed")
+
+
 def is_shallow(shell: Shell, checkout: Path) -> bool:
     try:
         return shell.run(["git", "-C", str(checkout), "rev-parse", "--is-shallow-repository"]).strip() != "false"
@@ -764,9 +769,8 @@ def is_gh_api(failure: subprocess.CalledProcessError) -> bool:
     return ghread.gh_args(failure.cmd)[:2] == ["gh", "api"]
 
 
-def cache_banner(exhausted: QuotaExhausted, rows: dict[str, dict[str, str]], moment: datetime) -> str:
-    refreshed = max((fields["last_refresh"] for fields in rows.values() if fields.get("last_refresh")), default="")
-    age = f"{age_minutes(refreshed, moment)}m" if refreshed else "age unknown"
+def cache_banner(exhausted: QuotaExhausted, refreshed: Path, moment: datetime) -> str:
+    age = f"{age_minutes(refreshed.read_text(), moment)}m" if refreshed.exists() else "age unknown"
     return f"pr states: cached {age} ({' '.join(str(exhausted).split())})"
 
 
@@ -1619,7 +1623,7 @@ def merged_pr_state(reads: list[Future]) -> dict:
 
 
 def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: dict[str, dict[str, str]], named: list[str], lanes: dict[str, str], moment: str) -> list[dict]:
-    """One `ccx vcs pr state` read for one repository's rows, its lanes' prefixes, and the PRs `named` in it; returns the graded rows under their stored keys."""
+    """One `ccx vcs pr state` read for one repository's rows, its lanes' prefixes, and the PRs `named` in it; returns, under their stored keys, only the rows whose graded fields changed, each stamped `last_refresh`, so a pass over unchanged PRs writes no row (ledger 5b91baca took 121,613 timestamp-only upserts in 36 hours)."""
     every = {key: fields for key, fields in scope.view(stored).items() if key.isdigit()}
     reopenable = {key for key, fields in every.items() if fields.get("state") == CLOSED_WITHOUT_SQUASH and (key in named or ((last := fields.get("last_refresh")) and parse_iso(moment) - parse_iso(last) < REOPEN_WINDOW))}
     settled = {key for key, fields in every.items() if fields.get("state") in TERMINAL_STATES} - reopenable
@@ -1651,13 +1655,15 @@ def refresh_repo(shell: Shell, args: argparse.Namespace, scope: Scope, stored: d
                 fields[since] = was.get(since, moment)
             else:
                 fields[since] = moment
-        fields["last_refresh"] = moment
         if key not in known:
             fields["first_seen"] = moment
         if key in registered and not was.get("reassigned") and not was.get("unadmitted"):
             fields |= {"lane": registered[key], "registered": registered[key]} | ({} if was.get("step") else step_field(steps.get(registered[key])))
         if key in lanes:
             fields["lane"] = lanes[key]
+        if all(was.get(name, "") == value for name, value in fields.items()):
+            continue
+        fields["last_refresh"] = moment
         rows.append({"key": scope.store(key), "fields": fields})
     return rows
 
@@ -1683,9 +1689,15 @@ def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
         scope = Scope(repo, args.scope.default)
         named = same_repo(repo, args.repo)
         rows += refresh_repo(shell, args, scope, stored, args.pr if named else [], lanes if named else {}, moment)
-    with locked(args.lock or default_lock(args.ledger)):
-        notes.sync(kept_steps(rows, notes.stored()) if any("step" in row["fields"] for row in rows) else rows)
-    print(f"refreshed {len(rows)} PRs into {args.ledger}")
+    lock = args.lock or default_lock(args.ledger)
+    with locked(lock):
+        if rows:
+            notes.sync(kept_steps(rows, notes.stored()) if any("step" in row["fields"] for row in rows) else rows)
+        refreshed = refresh_stamp(lock)
+        pending = refreshed.with_name(refreshed.name + ".pending")
+        pending.write_text(moment)
+        pending.replace(refreshed)
+    print(f"refreshed {args.ledger}: {len(rows)} PRs changed")
     return 0
 
 
@@ -2143,16 +2155,17 @@ def pull_records(gh: Github, prs: list[str]) -> dict[str, dict]:
 
 
 def settle_row(trunk: str, pr: str, record: dict, read: Future | None, squashes: Callable[[], dict[str, tuple[str, str]]]) -> tuple[dict[str, str], str]:
-    """One row's settled fields and line, against the trunk, never against the PR's own base: the queue deletes a stacked PR's base branch when it lands, so that ref is often gone. Only a PR GitHub reads merged lands; a closed one whose files match the trunk delivered nothing (root #283091)."""
+    """One row's settled fields and line, against the trunk, never against the PR's own base: the queue deletes a stacked PR's base branch when it lands, so that ref is often gone. Only a PR GitHub reads merged lands; a closed one whose files match the trunk delivered nothing (root #283091). A `closed-without-squash` row is stamped `last_refresh`, so `refresh` re-reads it for `REOPEN_WINDOW` from the close even when this settle beat any refresh to it."""
     if record["state"] == "OPEN":
         ejected = read.result()
         if not ejected:
             return {}, ""
         return {"ejected_at": ejected}, f"#{pr} was EJECTED by the queue at {ejected} and still reads open; the label is gone exactly as a landing would leave it"
     cleared = {"settle_error": "", "settle_failed_at": ""}
+    closed = {"state": CLOSED_WITHOUT_SQUASH, "base": record["baseRefName"], "last_refresh": utc_stamp(), **cleared}
     if record["state"] != "MERGED":
         return (
-            {"state": CLOSED_WITHOUT_SQUASH, "base": record["baseRefName"], **cleared},
+            closed,
             f"#{pr} is {CLOSED_WITHOUT_SQUASH} on {trunk}: GitHub reads it closed unmerged, so the row stays until its lane answers",
         )
     if (payload := read.result()):
@@ -2162,7 +2175,7 @@ def settle_row(trunk: str, pr: str, record: dict, read: Future | None, squashes:
         sha, landed_at = squash
         return {"state": LANDED, "landed_sha": sha, "landed_at": landed_at, "base": trunk, **cleared}, f"landed #{pr} as {sha[:9]} on {trunk} at {landed_at}, which has moved on its files since"
     return (
-        {"state": CLOSED_WITHOUT_SQUASH, "base": record["baseRefName"], **cleared},
+        closed,
         f"#{pr} is {CLOSED_WITHOUT_SQUASH} on {trunk}: GitHub reads it merged, yet its payload is absent from {trunk}, so the row stays until its lane answers",
     )
 
@@ -2394,7 +2407,7 @@ def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
     try:
         records = pr_state(shell, args.ccx, args.repo, unsquashed, [])["prs"]
     except QuotaExhausted as exhausted:
-        print(cache_banner(exhausted, {pr: rows[pr] for pr in unsquashed}, now()))
+        print(cache_banner(exhausted, refresh_stamp(default_lock(args.ledger)), now()))
         records = None
     except subprocess.CalledProcessError as failure:
         raise ForgeUnreachable(f"ccx vcs pr state: {(failure.stderr or '').strip() or failure}") from failure

@@ -246,9 +246,10 @@ Do, in this order, forever:
      cache read; it never fetches the PR's own base, which the queue deletes when a stack lands; a row
      the forge cannot answer records `settle_error` and the pass settles the rest.
      Refresh never re-reads a row already `landed`, so a landing sticks. It re-reads a
-     `closed-without-squash` row that `refresh --pr` names or that it last read within
-     24 hours, and reopens the row at its current head only when GitHub shows the PR
-     open again, as the adapter's dequeue leaves one. PR rows enter through a lane's report, registration, or an explicit
+     `closed-without-squash` row that `refresh --pr` names or that closed within the
+     last 24 hours, and reopens the row at its current head only when GitHub shows the PR
+     open again, as the adapter's dequeue leaves one. It writes only the rows whose
+     graded fields changed, so a pass over unchanged PRs writes nothing to the ledger. PR rows enter through a lane's report, registration, or an explicit
      `refresh --pr`. Refresh makes one `ccx vcs pr state --repo <repo> <PR numbers>`
      call with every tracked or explicitly supplied PR number and one
      `--lane-prefix <prefix>` per registered prefix. The same read returns the lanes'
