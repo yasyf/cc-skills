@@ -371,7 +371,7 @@ def rulings(cwd: str, *args: str, evt: BaseHookEvent, stdin: str = "", timeout: 
         class Shell(module.ledger.Shell):
             @staticmethod
             def once(command: list[str], stdin: str | None, cwd: Path | None = None) -> str:
-                return module.cci.installed(command, lambda: run(command, input=stdin, cwd=cwd, env=env, timeout=read.remaining()))
+                return run(module.release.command(command), input=stdin, cwd=cwd, env=env, timeout=read.remaining())
 
             @staticmethod
             def session(argv, prepare, **kwargs):
