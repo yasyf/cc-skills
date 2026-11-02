@@ -4,7 +4,7 @@
 # ///
 """Post every keyed orca desk line in one command: allocate the next `R<n>`, stamp the clock, post the line to `orca-desk` on cci, and for a launch wait for the runner's verdict.
 
-    desk-launch.py incident <name> <fix-brief> [<evidence-brief>] [--drive D] [--lane L] [--timeout-seconds S]
+    desk-launch.py incident <name> <fix-brief> [<evidence-brief>] [--alert TEXT] [--drive D] [--lane L] [--timeout-seconds S]
     desk-launch.py lane <lane> <model> <effort> <brief> [--now] [--drive D] [--lane L] [--timeout-seconds S]
     desk-launch.py relay <lane>[,<lane>...] <text> [--drive D] [--lane L]
     desk-launch.py hold <slug> <owner> <what> [--drive D] [--lane L]
@@ -14,7 +14,11 @@
 
 STDLIB ONLY. `incident` launches `<name>-fix`, and `<name>-evidence` when an evidence brief is
 given, each `NOW incident xhigh` under its role, `role=fix` or `role=evidence`, the Incident
-Turn's route; the runner's incident clock holds only the fix lane. `lane` launches one lane on any
+Turn's route; the runner's incident clock holds only the fix lane. With `--alert`, each brief is
+a template: its `Root:` lines go, every `<lane>` becomes that lane's name, its `Alert:` line
+becomes `Alert: TEXT`, and the result is written to `<state dir>/<lane>/brief.md`, the path the
+runner accepts. An incident brief that still holds `<lane>`, `<state>` or `<...>`, or an
+`Alert:` line with any `<...>` in it, posts nothing: the command names the line and exits. `lane` launches one lane on any
 model `orca-launch.sh` starts; `--now` skips the runner's load hold. `relay`, `hold`,
 `unhold`, and `withdraw` post the runner's line of that verb and print it without waiting,
 since the runner's verdict reaches the root on cci. The next key is one past the highest
@@ -60,6 +64,9 @@ LOAD_HIGH = "LOAD-HIGH "
 LOAD_REFUSAL = re.compile(r"^LAUNCH-FAILED .*: R\d+ refused on load ")
 REFUSAL_WINDOW = "30m"
 FIX_ALIAS = "-fix"
+ROOT_LINES = re.compile(r"^Root:.*\n", re.MULTILINE)
+ALERT_LINE = re.compile(r"^Alert:.*$", re.MULTILINE)
+ROOT_PLACEHOLDER = re.compile(r"<(?:lane|state|\.\.\.)>")
 POLL_SECONDS = 2
 BUDGET = "30000"
 KEY_LOCK = Path.home() / ".claude" / "scratch" / "desk-launch.lock"
@@ -76,11 +83,16 @@ def records(out: str) -> list[dict]:
     return [json.loads(line) for line in out.splitlines() if line.strip()]
 
 
-def require_runner(drive: str, fallback: str) -> None:
+def drive_entry(drive: str) -> dict:
     session = os.environ.get(registry.SESSION_ENV)
     entry = next((entry for entry in registry.drives() if registry.cci_drive(entry) == drive or (not drive and session in entry["sessions"])), None)
     if not entry:
         sys.exit(f"no drive in the registry is {f'cci drive {drive}' if drive else f'bound to session {session}'}, so its orca desk runner is unknown and nothing is posted")
+    return entry
+
+
+def require_runner(drive: str, fallback: str) -> None:
+    entry = drive_entry(drive)
     beat = registry.heartbeat(lambda argv: cci("", *argv[1:]), registry.cci_drive(entry), "orca")
     if not registry.beating(beat, datetime.now(timezone.utc)):
         last = f"last at {datetime.fromisoformat(beat['at']).astimezone(PACIFIC).strftime('%-I:%M %p')}" if beat else "never"
@@ -127,6 +139,24 @@ def directive(args: argparse.Namespace) -> tuple[str, str]:
 
 def launch_directive(lane: str, model: str, effort: str, now: bool, role: str, brief: Path) -> str:
     return f"launch {lane}{' NOW' if now else ''} {model} {effort}{f' role={role}' if role else ''} brief={brief}"
+
+
+def filled(template: str, lane: str, alert: str) -> str:
+    text = ROOT_LINES.sub("", template).replace("<lane>", lane)
+    if not ALERT_LINE.search(text):
+        sys.exit(f"the template for {lane} has no Alert: line for --alert to fill, so nothing is posted")
+    return re.sub(r"\n{3,}", "\n\n", ALERT_LINE.sub(lambda _: f"Alert: {alert}", text, count=1))
+
+
+def unfilled(text: str) -> str:
+    return next((line.strip() for line in text.splitlines() if ROOT_PLACEHOLDER.search(line) or (line.startswith("Alert:") and re.search(r"<[^>]+>", line))), "")
+
+
+def written(entry: dict, lane: str, template: Path, alert: str) -> Path:
+    brief = Path(entry["state_dir"]) / lane / "brief.md"
+    brief.parent.mkdir(parents=True, exist_ok=True)
+    brief.write_text(filled(template.read_text(), lane, alert))
+    return brief
 
 
 def launches(args: argparse.Namespace) -> list[tuple[str, str, str, bool, str, Path]]:
@@ -192,6 +222,7 @@ def main(argv: list[str] | None = None) -> int:
     incident.add_argument("name", type=incident_name, help="the incident's name; a trailing -fix is dropped, so takeover-500-fix launches takeover-500-fix, never takeover-500-fix-fix")
     incident.add_argument("fix_brief", type=Path, help="the fix lane's brief, <state>/<name>-fix/brief.md; the runner refuses a brief.md in a directory named for another lane")
     incident.add_argument("evidence_brief", type=Path, nargs="?")
+    incident.add_argument("--alert", default="", help="the Alert line: the monitor or Slack link, times Pacific, what fails where, and the owner's words; each brief is then a template this fills")
     lane = verbs.add_parser("lane", parents=[common], help="launch one lane")
     lane.add_argument("target", metavar="lane")
     lane.add_argument("model")
@@ -226,6 +257,13 @@ def main(argv: list[str] | None = None) -> int:
     for *_, brief in planned:
         if not brief.is_file():
             parser.error(f"brief {brief} is not a file")
+    if args.verb == "incident" and args.alert:
+        entry = drive_entry(args.drive)
+        planned = [(lane, model, effort, now, role, written(entry, lane, brief, args.alert)) for lane, model, effort, now, role, brief in planned]
+    if args.verb == "incident":
+        for lane, *_, brief in planned:
+            if line := unfilled(brief.read_text()):
+                parser.error(f"brief {brief} for {lane} still holds a placeholder root fills, so nothing is posted: {line}")
     topic = args.name if args.verb == "incident" else args.target
     with keyed():
         first = next_key(args.drive, agent_fallback(args))
