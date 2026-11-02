@@ -1054,14 +1054,14 @@ class Pass:
             moved = next((named for record in reversed(records) if record["kind"] == "head" and grades.about_pr(record, repo, pr) and (named := grades.head_of(record, repo, pr))), "")
             if moved and not grades.names_head(moved, head) or pr in github_heads and not grades.names_head(github_heads[pr], head):
                 continue
+            if holding(pr):
+                continue
             if (classed is None or classed["class"] in ("real", "unclassed")) and (red := self.red(pr, row, lane)):
                 (probes if red.kind == "probe" else stalls).append(red)
             if row.get("test_state") == "failure" and classed:
                 entries[-1]["red"] = classed
                 if alarm := self.red_alarm(pr, row, classed):
                     stalls.append(alarm)
-            if holding(pr):
-                continue
             subject = f"#{pr} at {short(head)}"
             about = [record for record in reviews if grades.about_pr(record, repo, pr)]
             if going:

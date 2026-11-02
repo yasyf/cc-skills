@@ -985,6 +985,16 @@ def test_a_red_stall_whose_post_a_record_resolved_is_not_posted_again_at_that_he
     assert sum("red:108:abc1234" in argv for argv in shell.posts) == 1
 
 
+@pytest.mark.parametrize(("held", "stalls"), [(False, ["red:108:abc1234"]), (True, [])])
+def test_a_red_pr_under_an_open_typed_hold_draws_no_red_stall(config, held, stalls):
+    """root #329149: hold #328637 on #48047 was typed with --pr, yet stall-watch posted #329073 "STALL red #48047 at 5c5d017"."""
+    shell = red_shell(config, *([hold(2, "HOLD #108 to R2; typed with --pr so the stall watch reads it", "108")] if held else []))
+    watch(shell, config)
+    shell.clock = NOW + timedelta(minutes=2)
+    watch(shell, config)
+    assert [topic for topic in shell.topics() if topic.startswith("red:")] == stalls
+
+
 @pytest.mark.parametrize(("red_class", "stalls"), [("inherited", []), ("flake", []), ("stale", []), ("real", ["red:101:abc1234"])])
 def test_a_red_head_classed_inherited_flake_or_stale_draws_no_red_stall_until_the_head_moves(config, red_class, stalls):
     red = {"name": "buildkite/test", "url": "https://buildkite.com/forge/test/builds/9", "job": "Run api tests", "error": "FAIL api/src/x.test.ts", "probe": False}
