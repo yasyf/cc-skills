@@ -516,6 +516,6 @@ def test_a_deletion_on_owner_words_that_never_name_the_deleted_thing_grades_miss
 def test_the_grader_reads_the_plan_grounds_root_accepted_outside_the_package_from_the_jobs_sources_file(tmp_path):
     sources = tmp_path / "sources.md"
     directory = job(tmp_path, sources=str(sources))
-    shell = Fake(tmp_path, [reply()])
+    shell = Fake(tmp_path, [reply()], {(f"{OWN}^", HEAD): "5f1e", (f"{OLD}~1", OLD): "77aa"})
     fidelity.main([str(directory)], shell)
     assert f"Plan grounds root accepted outside the package, such as a class-fix inventory or a lane's\naccepted design contract: {sources}." in (directory / "question-1.md").read_text()

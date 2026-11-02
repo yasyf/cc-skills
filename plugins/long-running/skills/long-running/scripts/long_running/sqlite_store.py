@@ -681,11 +681,13 @@ def _read_facts(connection: sqlite3.Connection, read: Callable[[Mapping[str, obj
 
 
 def _on_disk(path: Path) -> tuple[int, ...]:
-    """The size and modification time of a database and of its write-ahead log, which every commit changes."""
+    """The size and modification time of a database and of its write-ahead log, which every commit changes; an empty log holds no commit, so a read-only connection that creates one changes nothing."""
     database = path.stat()
     try:
         log = Path(f"{path}-wal").stat()
     except FileNotFoundError:
+        return database.st_size, database.st_mtime_ns
+    if not log.st_size:
         return database.st_size, database.st_mtime_ns
     return database.st_size, database.st_mtime_ns, log.st_size, log.st_mtime_ns
 

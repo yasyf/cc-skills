@@ -4172,11 +4172,7 @@ class Runner:
 
     def incident_clock(self) -> None:
         """Hold each live incident fix lane the runner launched to its budget from the verified launch: past a threshold without its milestone, launch the Opus fallback and log INCIDENT-CLOCK, once per launch; `ready`, a closing record, or a settled dispatch stops the clock, and a root close of the lane's incident also withdraws its Opus fallback (root 311353)."""
-        try:
-            closes = [record for record in incidents.incident_records(self.cci_tail.run, self.config.drive) if incidents.closes(record)]
-        except CciTailFailed as failure:
-            self.tail_failed(failure)
-            return
+        closes = None
         for container in self.book.containers(LANE_PREFIX):
             lane = container.removeprefix(LANE_PREFIX)
             launch = self.fix_launch(container)
@@ -4184,6 +4180,12 @@ class Runner:
             current = bool(launch) and kept.get("key") == launch.action_id
             if not launch or (current and kept["ended"]):
                 continue
+            if closes is None:
+                try:
+                    closes = [record for record in incidents.incident_records(self.cci_tail.run, self.config.drive) if incidents.closes(record)]
+                except CciTailFailed as failure:
+                    self.tail_failed(failure)
+                    return
             launched = actions.parse_stamp(launch.verification_receipt["at"])
             clock = {"key": launch.action_id, "launched": launch.verification_receipt["at"], "reached": kept["reached"] if current else {}, "ended": ""}
             closed = next((f"#{record['seq']}" for record in closes if names_lane(record, set(self.names(lane))) and actions.parse_stamp(record["at"]) >= launched), "")
@@ -7951,16 +7953,19 @@ class Landing:
                     self.refuse_head(f"exempt-mismatch:{pr}:{graded.heads[pr]}", pr, graded, f"{mismatch}so #{pr} waits on the owner's tap like any other change", waiting, also=[ROOT, *self.board_lanes])
         if graded.act and waiting:
             self.ask_owner(graded.heads, waiting, graded.rows)
-        untapped, unread, exempt = self.untapped({pr: sha for pr, sha in graded.heads.items() if pr not in waiting}, set(asks))
+        unparsed, untapped, unread, exempt = self.untapped({pr: sha for pr, sha in graded.heads.items() if pr not in waiting}, set(asks))
         if graded.act:
             for pr, why in exempt.items():
                 if not self.book.known(LANDING, key := f"port:{pr}:{graded.heads[pr]}"):
                     self.post_record("note", key, ",".join(dict.fromkeys([*self.routine_audience([pr], graded.rows).split(","), *self.board_lanes])), why, pr)
+            for pr, why in unparsed.items():
+                if not self.untested(graded.heads[pr]):
+                    self.refuse_head(f"go-unparsed:{pr}:{graded.heads[pr]}", pr, graded, why, unparsed | untapped, also=[ROOT])
             if told := {pr: why for pr, why in untapped.items() if not self.untested(graded.heads[pr])}:
                 self.tap_required(graded, told)
             for pr, why in unread.items():
                 self.warn_head(f"tap-unread:{pr}:{graded.heads[pr]}:{why}", pr, graded, why, also=[ROOT, *self.runner.landing_lanes("desk_lane")])
-        return {pr: merge_queue.State(merge_queue.PENDING, self.owner_wait(pr, graded.heads[pr])) for pr in waiting} | {pr: merge_queue.State(merge_queue.PENDING, why) for pr, why in (untapped | unread).items()}
+        return {pr: merge_queue.State(merge_queue.PENDING, self.owner_wait(pr, graded.heads[pr])) for pr in waiting} | {pr: merge_queue.State(merge_queue.PENDING, why) for pr, why in (unparsed | untapped | unread).items()}
 
     def owner_wait(self, pr: str, sha: str) -> str:
         """What a PR the merge-mode check holds waits on at `sha`: the owner's tap authorizing each reserved row it touches, which no go or carried tap stands in for (C224), else his Merge answer."""
@@ -7968,7 +7973,7 @@ class Landing:
             return f"reserved row {', '.join(f'{key} ({words})' for key, words in reserved)} waits for the owner's tap on a merge card at {sha[:7]} that quotes it, which no go or carried tap stands in for (C224)"
         return f"merge mode {self.merge_mode} waits for the owner's Merge answer at {sha[:7]}"
 
-    def untapped(self, heads: dict[str, str], asked: set[str]) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
+    def untapped(self, heads: dict[str, str], asked: set[str]) -> tuple[dict[str, str], dict[str, str], dict[str, str], dict[str, str]]:
         """Each PR of `heads` whose changed files a glob of a `landing.tap_rules` row names, while that row is in the register in force, and no approval on the root's board names any head of the PR, with why it waits, since a root `go` never stands in for the owner's tap (rule/82317b0); each PR whose changed files, register, or board did not read, with what did not, which the runner leaves unqueued for the landing desk rather than guess a merge (4236611); and each such PR the owner's port and test-only rulings admit with no tap, with its `EXEMPT-ADMITTED` note (06288326). A go at the head whose bracket says `TAP-REQUIRED` anywhere holds its PR for the owner's tap whatever files it changes, and a bracket that names no condition the runner reads refuses the PR `GO-UNPARSED` with the bracket quoted, never reading it as no condition (root #274478). While his taps live on the root's board, each PR of `asked`, which the merge mode leaves for the owner, waits the same way whatever files it changes, unless its change is exempt, since a root go is never his tap there (root #237906)."""
         unparsed, held = {}, {}
         for pr, sha in heads.items():
@@ -7996,7 +8001,7 @@ class Landing:
         touching = {pr: found for pr, found in touching.items() if pr not in exempt}
         required = held | {pr: why for pr, why in moded.items() if pr not in exempt}
         if not touching and not required:
-            return unparsed, unread, exempt
+            return unparsed, {}, unread, exempt
         done = self.rulings_py("rows") if touching else None
         register = (json.loads(done.out)["rows"] if done.code == 0 else None) if done else {}
         try:
@@ -8015,7 +8020,7 @@ class Landing:
                 continue
             board = board or self.owner_board()
             waits[pr] = f"{mismatched.get(pr, '')}TAP-REQUIRED {','.join(found)}: it lands only once the owner has tapped some head of it, and a root go is no tap; {self.owner_state(pr, board)}"
-        return unparsed | waits, unread, exempt
+        return unparsed, waits, unread, exempt
 
     def exempt_admitted(self, pr: str, sha: str) -> tuple[str, str]:
         """The `EXEMPT-ADMITTED` note for `pr` at `sha` when its change is exempt and goes straight to Graphite's queue with no go and no board tap, and why its whole diff breaks the class its grade claims, read once per pass (root #194387, 06288326, owner Oct 28 8:45 PM). The head grades ok by `fidelity`'s rule and `exempt_class` finds one of `landing.exempt_grades` (default `pure port, no interaction`, `test-only or CI-only, no non-test code`, `test-only, no non-test code` and `CI-only, no non-test code`; the legacy `landing.port_phrase` replaces the first) in its grades. Both classes are checked against every file the PR changes against its base, never the grade's words alone (root #182391): a test-only or CI-only class fails on a file `test_only_offender` reads as code and carries an `UNCLASSED` warning for each file no class rule reads, and a port class on a file outside `PORT_PREFIXES` unless a `Rulings` comment clears its interaction; changed files that do not read admit nothing that pass."""

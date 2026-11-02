@@ -4148,7 +4148,7 @@ def test_a_go_marked_test_only_admits_its_head_only_when_every_changed_file_is_a
     merge_go(shell, "29020", "go #29020 at cccc333 on green [exempt: test-only, the vm suite]")
     landing_pass(shell, config)
     landing_pass(shell, config)
-    mismatches = [post_body(post) for post in blockers(shell) if "TEST-ONLY-MISMATCH" in post_body(post)]
+    mismatches = [post_body(post) for post in tap_waits(shell) if "TEST-ONLY-MISMATCH" in post_body(post)]
     if lands:
         assert [call[1:] for call in shell.enqueues()] == [["29020", "--partial"]] and mismatches == []
         return
@@ -4192,7 +4192,7 @@ def test_a_test_only_claim_over_a_pr_that_changes_non_test_code_is_refused_namin
     merge_go(shell, "29020", go)
     landing_pass(shell, config)
     landing_pass(shell, config)
-    refusals = [post_body(post) for post in blockers(shell) if "TEST-ONLY-MISMATCH" in post_body(post)]
+    refusals = [post_body(post) for post in tap_waits(shell) if "TEST-ONLY-MISMATCH" in post_body(post)]
     assert shell.enqueues() == [] and [note for note in notes(shell) if "EXEMPT-ADMITTED" in post_body(note)] == []
     assert len(refusals) == 1 and "TEST-ONLY-MISMATCH go/sand/next/vm/run.go is neither a test nor CI configuration" in refusals[0] and "other.go" not in refusals[0]
 
@@ -5881,7 +5881,8 @@ def test_an_unchanged_refused_tree_reuses_its_check_until_its_print_trunk_or_int
     landing.remember("29031", "print-1", {"29020", "29031"}, [])
     assert not landing.reuse(["29031"], "print-2", rows) and "29031" not in landing.unchanged
     landing.remember("29031", "print-1", {"29020", "29031"}, [])
-    monkeypatch.setattr(runner_module.time, "monotonic", lambda: landing.unchanged["29031"][2] + runner_module.UNCHANGED_FOR.total_seconds())
+    expired = landing.unchanged["29031"][2] + runner_module.UNCHANGED_FOR.total_seconds()
+    monkeypatch.setattr(runner_module.time, "monotonic", lambda: expired)
     assert not landing.reuse(["29031"], "print-1", rows)
 
 
@@ -6959,7 +6960,7 @@ def test_the_overflow_leaves_a_landable_stack_the_runner_refused_at_its_head(she
     shell.sleep(6 * 60)
     landing_pass(shell, config)
     overflowed(overflow)
-    assert [post for post in blockers(shell) if "TEST-ONLY-MISMATCH" in post_body(post)] and shell.enqueues() == []
+    assert [post for post in tap_waits(shell) if "TEST-ONLY-MISMATCH" in post_body(post)] and shell.enqueues() == []
 
 
 def test_the_overflow_never_enqueues_a_head_whose_go_was_withdrawn(shell, config, tmp_path):
@@ -8643,7 +8644,7 @@ def test_a_head_the_runner_refused_draws_no_go_unqueued(shell, config, tmp_path)
     shell.sleep(6 * 60)
     landing_pass(shell, config)
     landing_pass(shell, config)
-    assert [post for post in blockers(shell) if "TEST-ONLY-MISMATCH" in post_body(post)] and unqueued(shell) == []
+    assert [post for post in tap_waits(shell) if "TEST-ONLY-MISMATCH" in post_body(post)] and unqueued(shell) == []
 
 
 def test_a_go_named_head_the_queue_evicted_after_its_enqueue_went_in_draws_go_unqueued_naming_the_eviction(shell, config, tmp_path):
@@ -11447,7 +11448,6 @@ def test_a_command_whose_binary_is_missing_fails_after_its_backoff_instead_of_ra
     """Root #217937: brew replaced the cci link, the orca runner's call raised FileNotFoundError, and the runner died."""
     waits = []
     monkeypatch.setattr(runner_module.Shell, "sleep", lambda self, seconds: waits.append(seconds))
-    monkeypatch.setattr(runner_module.cci, "INSTALL_WINDOW_SECONDS", 0)
     done = runner_module.Shell().run(["cci-missing-for-this-test", "tail"])
     assert done.code == runner_module.MISSING_BINARY and "cci-missing-for-this-test" in done.err
     assert waits == list(runner_module.MISSING_BACKOFF)
@@ -15421,7 +15421,8 @@ def test_a_flake_goes_to_the_live_lane_that_last_changed_its_test_else_the_flake
         raw["landing"]["flake_lane"] = flake_lane
         config.write_text(json.dumps(raw))
     landing = trunk_watch(shell, config, tmp_path)
-    shell.gone = {"gone-lane", *([flake_lane] if flake_lane else [])}
+    shell.gone = {"gone-lane"}
+    shell.successions = {flake_lane: f"{flake_lane}-2"} if flake_lane else {}
     shell.seen["lag-lane"] = shell.seen["flake-census-1-2"] = actions.stamp(shell.clock)
     built(shell, "aaaa", "29018", script_build("sand-tests"))
     shell.builds["29019"] = {"state": "failed", "commit": "b" * 10, "finished_at": "2026-10-01T17:58:00Z", "jobs": [{"id": "job-1", "type": "script", "name": "sand-tests", "state": "failed"}]}
@@ -16276,7 +16277,7 @@ def test_a_pass_hands_codex_the_plan_grounds_root_accepted_outside_the_package_f
     for seq, lane, kind, text in ((149910, "p8a-step9", "contract", "S2 design: the park record holds the txid."), (149911, "root", "decide", "contract 149910 accepted."), (149912, "other-lane", "contract", "another lane's design")):
         shell.records.append({"seq": seq, "drive": "d1", "lane": lane, "kind": kind, "to": ["root"], "text": text, "at": actions.stamp(shell.clock)})
     orca_pass(shell, config)
-    head_record(shell, "43439", FINDER_HEAD)
+    head_record(shell, "43439", FINDER_HEAD, seq=149920)
     orca_pass(shell, config)
     [job] = fidelity_jobs(shell)
     assert Path(job["sources"]).read_text() == (
@@ -16292,7 +16293,7 @@ def test_a_pass_hands_codex_the_root_defects_decides_and_answers_its_pr_body_cit
         shell.records.append({"seq": seq, "drive": "d1", "lane": lane, "kind": kind, "to": ["all"], "text": text, "at": actions.stamp(shell.clock)})
     shell.pr_heads["43439"] = ("OPEN", FINDER_HEAD, "", "Fixes root's defect #149914 per #149915; see #149916, #149917 and PR #43000.")
     orca_pass(shell, config)
-    head_record(shell, "43439", FINDER_HEAD)
+    head_record(shell, "43439", FINDER_HEAD, seq=149920)
     orca_pass(shell, config)
     [job] = fidelity_jobs(shell)
     assert Path(job["sources"]).read_text() == (
@@ -16309,7 +16310,7 @@ def test_a_pass_on_an_options_branch_hands_codex_the_board_card_it_builds_an_opt
     shell.pr_heads["43439"] = ("OPEN", FINDER_HEAD)
     shell.pr_branches["43439"] = "options/P6-P6a"
     orca_pass(shell, config)
-    head_record(shell, "43439", FINDER_HEAD)
+    head_record(shell, "43439", FINDER_HEAD, seq=149920)
     orca_pass(shell, config)
     [job] = fidelity_jobs(shell)
     assert Path(job["sources"]).read_text() == (
