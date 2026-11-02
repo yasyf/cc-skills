@@ -1590,6 +1590,19 @@ built while he slept, and at 10:02 AM had to ask whether those branches were dep
 to staging and tested. Owner: "do more proactive things such as build option branches
 AND test them with the test mac" (`reference/case-studies.md`).*
 
+**Updates come from the ledger, never memory.** Before any status or update reply to
+the owner, the root runs `owner_update.py --drive <drive>`. It prints every open owner
+ask with its state and its lane's last record, every in-progress task with its lane's
+last record time, every delivery (a `report`, `done` or `fix-live` from a lane owning an
+open task) since the last update, every PR row on his board, and every open incident.
+The reply covers each delivery and calls nothing in flight "not started". The pack's
+Stop hook refuses a reply to his status or update ask that drops a delivery or says
+"not started" of a lane that posted in the last 30 minutes, and hands back the lines
+to add.
+
+*Prevents Nov 1, 9:55 PM: a worker's finished deliverable dropped from the owner's
+update after a compaction, because the update was written from memory.*
+
 ## The landing desk and its ledger
 
 On a drive where many lanes open PRs, the root is the wrong place for their reports.
