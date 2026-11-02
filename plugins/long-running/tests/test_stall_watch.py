@@ -1195,7 +1195,7 @@ def test_a_held_batch_whose_hold_record_names_prs_on_or_stacked_above_the_tap_li
         assert shell.post("tap-wait:digest")["text"].startswith("4 heads wait on the owner's tap: #201 at abc1234 is held on #301, #303, each waiting on the owner's tap, his board answer, or the merge queue, since 10:30 AM; #202 at abc1234 is held on #301, #303")
 
 
-@pytest.mark.parametrize(("tap", "stales"), [(None, []), ("approved", ["stale:201:abc1234"])], ids=["parent-untapped", "parent-tapped"])
+@pytest.mark.parametrize(("tap", "stales"), [(None, []), ("approved", [])], ids=["parent-untapped", "parent-tapped"])
 def test_a_row_held_behind_an_open_untapped_parent_never_stales(config, tmp_path, tap, stales):
     merge_mode(config, "ask")
     shell = FakeShell([*graded(1, "201", HEAD, 150), *graded(4, "301", HEAD, 150), hold(900, "hold #201 lands as the top of the cloud-runs batch above #301 (root 162279)", "201")], [row("201"), row("301", test_state="pending")])
@@ -1213,11 +1213,11 @@ def test_a_row_held_behind_an_open_untapped_parent_never_stales(config, tmp_path
     [
         ("hold #401 off the merge card until his pick on the eviction-card question", True, None, "tap-wait:401:abc1234"),
         ("hold #401 waits on eviction-route-choice", False, None, "tap-wait:401:abc1234"),
-        ("hold #401 off the merge card until his pick on the eviction-card question", True, {"optionIds": ["eviction-route-app"]}, "stale:401:abc1234"),
+        ("hold #401 off the merge card until his pick on the eviction-card question", True, {"optionIds": ["eviction-route-app"]}, ""),
     ],
     ids=["card-holding-the-pr-unanswered", "block-id-unanswered", "card-answered"],
 )
-def test_a_hold_on_an_owner_card_waits_while_the_card_is_unanswered_and_stales_once_he_answers(config, tmp_path, line, pr_block, answer, topic):
+def test_a_hold_on_an_owner_card_waits_while_the_card_is_unanswered_and_draws_no_stale_once_he_answers(config, tmp_path, line, pr_block, answer, topic):
     merge_mode(config, "ask")
     shell = FakeShell([*graded(1, "401", HEAD, 150), hold(900, line, "401")], [row("401")])
     children = [{"id": "eviction-route-choice", "type": "choice", "options": [{"id": "eviction-route-app"}]}, *([{"id": "eviction-route-pr", "type": "pr", "number": 401}] if pr_block else [])]
@@ -1227,7 +1227,7 @@ def test_a_hold_on_an_owner_card_waits_while_the_card_is_unanswered_and_stales_o
     watch(shell, config)
     watch(shell, config)
 
-    assert shell.topics() == [topic]
+    assert shell.topics() == [topic] * bool(topic)
     if topic.startswith("tap-wait:"):
         assert shell.post(topic)["text"] == "#401 at abc1234 is held on eviction-route-choice, each waiting on the owner's tap, his board answer, or the merge queue, since 10:30 AM"
 
@@ -1362,7 +1362,7 @@ def test_a_pr_that_moved_less_than_two_hours_ago_is_not_stale_and_a_new_state_on
     }
 
 
-def test_a_stale_stack_posts_once_from_its_lowest_stale_pr_a_held_pr_counts_and_a_lane_with_no_live_record_goes_to_root(config, tmp_path):
+def test_a_stale_stack_posts_once_from_its_lowest_stale_pr_a_held_pr_draws_none_and_a_lane_with_no_live_record_goes_to_root(config, tmp_path):
     records = [record(1, "gone-lane", "head", f"HEAD #201 {HEAD}", 200, "201"), *graded(1, "201", HEAD, 200)[1:], *graded(4, "202", OTHER, 200), *graded(7, "203", OLD, 200), head(10, "301", HEAD, 200), record(11, "gone-lane", "stand-down", "standing down", 150), hold(900, "hold #301 waits on the schema release", "301")]
     rows = [row("201", mergeable_state="dirty", lane="gone-lane"), row("202", OTHER, base="b201", test_state="pending"), row("203", OLD, base="b202", test_state="pending"), row("301")]
     shell = FakeShell(records, rows)
@@ -1370,13 +1370,12 @@ def test_a_stale_stack_posts_once_from_its_lowest_stale_pr_a_held_pr_counts_and_
 
     watch(shell, config)
 
-    assert shell.topics() == ["stale:201:abc1234", "stale:301:abc1234"]
+    assert shell.topics() == ["stale:201:abc1234"]
     assert shell.post("stale:201:abc1234") == {
         "to": "root",
         "kind": "urgent",
         "text": "STALE #201 at abc1234, 200 min: conflicts with its base; 2 above wait on it: #202, #203; gone-lane has posted nothing live in 24 h | owner root | restack #201 at abc1234 and post HEAD",
     }
-    assert "held: a hold record covers it | owner api-lane | lift the hold on #301 or do what it waits on" in shell.post("stale:301:abc1234")["text"]
     assert stack(config)["202"] | {"since": ""} == {
         "pr": "202",
         "title": "",
@@ -1394,17 +1393,14 @@ def test_a_stale_stack_posts_once_from_its_lowest_stale_pr_a_held_pr_counts_and_
     }
 
 
-@pytest.mark.parametrize("answered", [False, True], ids=["unanswered", "root-answered"])
-def test_a_held_pr_whose_stale_line_root_answered_posts_no_stale_line_until_its_state_moves(config, answered):
-    """Root #283203: root ruled at 5:14 AM that the hold on #46107 stands, and stall-watch paged root with the same STALE line at 5:43."""
-    records = [record(1, "gone-lane", "head", f"HEAD #301 {HEAD}", 200, "301"), *graded(1, "301", HEAD, 200)[1:], record(11, "gone-lane", "stand-down", "standing down", 150), hold(900, "hold #301 waits on the schema release", "301")]
-    if answered:
-        records.append(record(20, "root", "decide", "Hold on #301 stands until the schema release ships; waiting on the owner is not a stall.", 30, "301"))
+def test_a_pr_under_an_open_typed_hold_draws_no_stale_line_however_long_it_waits(config):
+    """Root #328888, devbox-explore-7 #328884: stall-watch paged a retired lane as owner of #46107 under root's typed hold 322779, at 5:32, 6:46, 7:47 and 8:48 AM."""
+    records = [record(1, "gone-lane", "head", f"HEAD #301 {HEAD}", 600, "301"), *graded(1, "301", HEAD, 600)[1:], hold(900, "hold #301: no work owed by any lane", "301")]
     shell = FakeShell(records, [row("301", lane="gone-lane")])
 
     watch(shell, config)
 
-    assert [topic for topic in shell.topics() if topic.startswith("stale:")] == ([] if answered else ["stale:301:abc1234"])
+    assert [topic for topic in shell.topics() if topic.startswith("stale:")] == []
 
 
 def desk_lane(config: Path, lane: str) -> None:
