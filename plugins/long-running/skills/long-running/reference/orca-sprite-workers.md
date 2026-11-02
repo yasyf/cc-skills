@@ -39,9 +39,10 @@ Before `worker-start`, the script installs cci on the Sprite from
 leaves the prepared worker idle. With `WORKER_RELAY_SPONSOR` set to a Sprite
 that holds an enrolled cci service key, the script then joins the new Sprite to
 this Mac's default relay mesh for the mesh's routed drives, with a 24-hour
-delegation and this Mac's node as owner. The key travels from the sponsor to
-the new Sprite over stdin and is never written to the Mac. Without the join, a
-worker's cci records stay on its Sprite. A failed join prints a warning, sets
+delegation and this Mac's node as owner, and starts `cci supervise` as a Sprite
+service so the worker's records push without a manual `cci relay push`. The key
+travels from the sponsor to the new Sprite over stdin and is never written to
+the Mac. Without the join, a worker's cci records stay on its Sprite. A failed join prints a warning, sets
 `relay` to `failed` in the launch line, and still starts the worker.
 
 Prepare starts the Sprite's Orca runtime through its `orca` CLI, and Orca
