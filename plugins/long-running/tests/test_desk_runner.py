@@ -11637,6 +11637,16 @@ def test_an_inbox_launch_line_launches_once_and_now_marks_it_urgent(shell, confi
     assert [(post["kind"], post["topic"]) for post in shell.posts] == [("report", "R1907")]
 
 
+def test_a_launch_that_exits_mid_pass_reaches_root_in_that_pass(shell, config, tmp_path):
+    """cci 310384: two incident launches exited at 1:27 AM, but their LAUNCHED records reached root at 1:31 AM, after the rest of a long pass."""
+    brief = launch_brief(tmp_path)
+    shell.launch_line = f"{LANE} ready task=task_1 dispatch=ctx_n terminal=term_ctx_n worktree=/w\n"
+    orca_pass(shell, config)
+    desk_orders(shell, f"R1908 (1:22 AM PT) orca-desk: launch {LANE} NOW opus xhigh brief={brief}")
+    orca_pass(shell, config)
+    assert escalations(shell) == [f"LAUNCHED R1908 {LANE}: dispatch ctx_n terminal term_ctx_n"]
+
+
 @pytest.mark.parametrize("via", ["inbox", "cli"])
 def test_a_verified_launch_records_the_lanes_dispatch_and_terminal_and_relays_reach_it(shell, config, tmp_path, capsys, via):
     brief = launch_brief(tmp_path)
