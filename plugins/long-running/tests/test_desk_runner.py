@@ -8666,6 +8666,49 @@ def test_a_stack_worker_that_settles_in_one_pass_and_ends_in_the_next_leaves_its
     assert settled(shell, "REFUSED")[-1].endswith("the gate read aaaa111111 WAITING: CI running")
 
 
+def test_a_stack_worker_that_settles_before_the_next_pass_admits_keeps_its_heads_settled_never_unsettled(shell, config, tmp_path, monkeypatch):
+    """Root #300098: #47306 and #47326 flapped between their TAP-REQUIRED refusal and `unsettled: the gate's status read` on Nov 1, since their stack's worker settled them while the next pass was still reading its rows, into the empty settlement that pass holds until it admits, which keeps nothing."""
+    monkeypatch.setattr(runner_module, "GATE_BUDGET", timedelta(seconds=1))
+    merge_mode(config, "every")
+    gone_green(shell, "#33001 WAITING aaaa111111 CI running")
+    shell.queue["33001"] = "not queued"
+    checking, settled_now, finish = threading.Event(), threading.Event(), threading.Event()
+    settle_tree, dispatch, advance = runner_module.Landing.settle_tree, runner_module.Landing.dispatch, runner_module.Landing.advance
+    advances = []
+
+    def settles_late(self, rows, held, gated):
+        checking.wait(10)
+        settle_tree(self, rows, held, gated)
+        settled_now.set()
+        finish.wait(10)
+
+    def advancing(self):
+        advances.append(1)
+        if len(advances) == 2:
+            checking.set()
+            settled_now.wait(10)
+        return advance(self)
+
+    def skipped(self, key, members, work):
+        future = dispatch(self, key, members, work)
+        if future is None:
+            finish.set()
+            for _, running in list(self.inflight.values()):
+                running.result()
+        return future
+
+    monkeypatch.setattr(runner_module.Landing, "settle_tree", settles_late)
+    monkeypatch.setattr(runner_module.Landing, "advance", advancing)
+    monkeypatch.setattr(runner_module.Landing, "dispatch", skipped)
+    landing = landing_of(shell, config, tmp_path)
+    landing.run()
+    landing.run()
+    landing.drain()
+    assert finish.is_set()
+    assert not [line for line in said(shell) if "unsettled" in line]
+    assert settled(shell, "REFUSED")[-1].endswith("the gate read aaaa111111 WAITING: CI running")
+
+
 def test_a_stacked_head_on_a_base_the_pass_did_not_admit_reads_below_blocked_never_gate_failed(shell, config, tmp_path):
     shell.rows = [
         {"pr": "33000", "lane": LANE, "branch": "g/0", "base": "dev", "head": "aaaa000000", "state": "open", "reported_head": "aaaa000000"},
