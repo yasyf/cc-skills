@@ -309,7 +309,8 @@ def test_an_opened_record_naming_its_pr_by_bare_number_or_by_repo_adds_both(tmp_
     assert store.lane("conflicts-2").prs == (46001, 46002)
 
 
-def test_a_lane_that_ended_its_turn_on_an_ask_to_root_waits_until_the_answer_goes_unheeded(tmp_path, brief):
+def test_a_lane_that_ended_its_turn_on_an_ask_to_root_waits_and_stops_on_roots_answer(tmp_path, brief):
+    """Root #311668: a lane that stopped after a root order of any kind, an answer included, counts as stood down and is never relaunched."""
     store = Store.memory()
     fake = adopted(tmp_path, brief, store)
     fake.feed.append(record(2, "conflicts-2", "ask", T0, "pick A or B?", ("root",)))
@@ -324,7 +325,7 @@ def test_a_lane_that_ended_its_turn_on_an_ask_to_root_waits_until_the_answer_goe
 
     out = lanes.tick(store, fake.deps, T0 + timedelta(hours=3, minutes=16), 1)
 
-    assert out.relaunched == [("conflicts-2", "conflicts-3", "stopped at 10:00 AM")]
+    assert out.relaunched == [] and store.lane("conflicts-2").retired_by == "stand-down"
 
 
 def test_a_lane_no_process_row_lists_is_held_for_root_and_never_relaunched(tmp_path, brief):
@@ -551,6 +552,7 @@ def test_prose_never_retires_a_lane_so_one_that_dies_mid_task_gets_a_successor(t
     store = Store.memory()
     fake = adopted(tmp_path, brief, store)
     fake.feed.append(record(2, "root", "decide", T0, text, ("conflicts-2", "mq-health-6")))
+    fake.feed.append(record(3, "conflicts-2", "state", T0, "conflicts-2: on #1478"))
     fake.peers = [who("conflicts-2", False, T0)]
 
     out = lanes.tick(store, fake.deps, T0 + timedelta(minutes=16), 1)

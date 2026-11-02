@@ -1717,14 +1717,14 @@ def test_a_red_record_naming_the_pr_closes_the_unclassed_stall_it_cleared_with_n
     shell = FakeShell([], [row("201", test_state="failure", red_at=stamp(25), failing_checks=json.dumps([{"name": "buildkite/lint", "url": "u"}]))])
 
     watch(shell, config)
-    assert shell.topics() == ["unclassed:201:abc1234"]
+    posted = f"#{9001 + shell.topics().index('unclassed:201:abc1234')}"
 
     shell.records.append(record(5, "api-lane", "red", f"class=real head={HEAD[:7]} owner=api-lane fixed in the restack", 1, "201"))
     watch(shell, config)
 
     [closing] = [post for post in shell.posts if post[post.index("--topic") + 1].startswith("cleared:")]
-    assert closing[closing.index("--resolves") + 1] == "#9001"
-    assert shell.post(closing[closing.index("--topic") + 1])["text"] == "CLEARED unclassed:201:abc1234: no longer standing this pass"
+    assert posted in closing[closing.index("--resolves") + 1].split(",")
+    assert "unclassed:201:abc1234" in shell.post(closing[closing.index("--topic") + 1])["text"]
     watch(shell, config)
     assert len([post for post in shell.posts if post[post.index("--topic") + 1].startswith("cleared:")]) == 1
 
@@ -1779,9 +1779,11 @@ def test_reds_with_no_live_red_sweep_lane_post_one_blocker_to_root_until_a_red_s
         "text": "STALL sweep 1 red PR, 25 min: no live red-sweep lane holds them: #201 (unclassed) | owner root | root spawns red-sweep from the long-running skill's reference/red-sweep-brief.md",
     }
 
+    swept = f"#{9001 + shell.topics().index('sweep:red-sweep')}"
     shell.records.append(record(1, "red-sweep-2", "state", "red-sweep-2 started", 0))
     watch(shell, config)
-    assert "sweep:red-sweep" not in opened(config) and len(shell.posts) == 2
+    [closing] = [post for post in shell.posts if post[post.index("--topic") + 1].startswith("cleared:")]
+    assert "sweep:red-sweep" not in opened(config) and len(shell.posts) == 3 and closing[closing.index("--resolves") + 1] == swept
 
 
 @pytest.mark.parametrize(("minutes", "stalls"), [(9, False), (11, True)], ids=["inside-10-min", "past-10-min"])
