@@ -1,18 +1,34 @@
 # The red-sweep lane
 
-Spawn `red-sweep` as `long-running:lane-ship`, model opus, effort high, beside the
-landing desk once the drive has open PRs, and keep one running until the drive ends.
-It owns every red drive PR as a set: each one goes green or carries a named reason.
-Owner, Oct 30 2026 6:06 AM, verbatim: "also someone is workong on unredding all these
-red PRs right?" Each red used to reach only its owning lane, so nobody owned the set.
+Spawn `red-sweep` as `long-running:lane-ship`, model opus, effort high, beside the landing desk once the drive has open PRs, and keep one running until the drive ends. It owns every red drive PR as a set, so each one goes green or carries a named reason.
 
-The stall watch raises three alarms to root when this lane falls behind. `unclassed`
-fires when a red head has no `red` record 20 minutes after it went red. `unfixed` fires
-when a head classed `real` has no new head 60 minutes later. `sweep` fires when reds
-stand and no `red-sweep` lane is live. Each posts once per PR and head.
-Fill the angle brackets and paste the brief.
+## Red register
+
+`drive.py reds --drive <drive>` lists every open drive PR whose build reads red, showing its head, failing checks, class, owner, since when, and last action from the `red` objects the stall watch writes into `stack.json` each pass.
+
+A lane classes a red head with `cci post --kind red --pr <n> --text "class=<inherited|flake|real|stale> head=<sha> owner=<lane> <what was done>"`. A head with no such record reads `unclassed`, and every new head starts unclassed. While dev reads `DEV-RED`, the landing runner posts that record itself with class `inherited` and dev's fix as the unblock for any red head whose failed Buildkite jobs all fail on dev too, so no lane classes it by hand. The dashboard's failing-tests count names the lane holding each red.
+
+The stall watch raises the `unclassed`, `unfixed` and `sweep` alarms to root when `red-sweep` falls behind or is missing; their thresholds are in [watchers.md](watchers.md#run-the-stall-watch).
+
+## Stalled-red sweep script
+
+On a drive without a desk, `label-watch.sh watch` only reprints a line when a PR's result changes. `scripts/red-sweep.sh` reads the same list file `label-watch.sh` watches and re-alerts once per head on any entry stuck `CONFLICT`, `NOT-READY`, or `EVICTED` past `RED_SWEEP_AGE_MINUTES` (default 20).
+
+```
+STALLED-RED #<n> <sha> <status>/<mergeable_state> head <age>m old: <title>
+```
+
+A red head whose every failing status is a Buildkite build, where each failed step also failed on the trunk's latest finished build of that pipeline, prints `DEV-RED #<n> <sha> <step>,<step>` instead, once per head while the trunk stays red. Once the trunk's step passes, a head still red prints `STALLED-RED`. `RED_SWEEP_TRUNK` names the trunk, by default the checkout's `origin/HEAD`.
+
+Run `scripts/red-sweep.sh` beside `label-watch.sh watch`, pointed at the same list file, as its own background sweep. It never edits the list, so `label-watch.sh` still removes an entry once it lands or gets skipped.
+
+The root classifies each output line first.
+- Hold a `DEV-RED` line as `dev-red:<step>` instead of routing it.
+- Route every `STALLED-RED` line to the lane that owns the PR by `SendMessage` in the same turn, with a 15-minute deadline, because an idle lane never sees CI. A red whose owner is gone gets a new lane at once, or goes to the train or red desk under D8 in [landing.md](landing.md).
 
 ## Spawn brief
+
+Fill the angle brackets and paste the brief.
 
 ```text
 ccx: role=desk

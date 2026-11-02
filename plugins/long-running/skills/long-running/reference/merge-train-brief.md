@@ -1,26 +1,20 @@
 # The merge-train lane
 
-Spawn one `merge-train` lane per hot set as `long-running:lane-ship`, model opus, with
-the landing desk. A hot set is the handful of files that nearly every open PR touches.
-On the drive this brief comes from, 77 of 80 open PRs formed one file-overlap cluster
-around four release-pipeline paths. Of the 15 conflicting PRs, 14 had never reached
-the queue. Each of those PRs went stale waiting for its own lane to rebase it against
-the others. A train rebases the ready ones once, as one linear stack, and lands it
-whole.
+Spawn one `merge-train` lane per hot set as `long-running:lane-ship`, model `opus`, with the landing desk, its own worktree, and a log per train. A hot set is the handful of files that nearly every open PR touches. A train turns the rows touching a hot set into one linear stack at a time and lands it whole instead of leaving each PR to rebase against the others alone. Run one train per hot set, never one for the whole repo, because a train is serial and one red car evicts every car above it. Two trains never share a PR.
 
-Two trains ran side by side there, one over the release-path files and one over the
-backlog of PRs older than 24 hours. Two trains never share a PR. The brief below is
-ready to paste; fill the angle brackets.
+```sh
+ledger.py train --repo "$REPO" --ledger "$LEDGER" --paths 'infra/ci/src/pipelines/release/**' 'infra/engine.ts'
+```
+
+`ledger.py train` prints at most six cars, placing green cars before conflicting but approved ones and ordering them by fewest file overlaps with the other cars and then oldest. It also prints the rows past the cap as the next train, the hot rows that are not ready, and the `ccx vcs stack rebase --linearize` line for the cars. It leaves out held rows and rows the queue already holds, and writes nothing. The globs are `fnmatch` globs, where `*` crosses `/`.
 
 ## Root and desk discipline
 
-The desk routes a hot-set row to the train, not to its lane, under D7. Lanes whose
-PRs touch the hot set report them to the train as `TRAIN #N <sha>` the moment they
-are green or conflicting, and never rebase or enqueue one of them again. The owning
-lane still pushes code fixes for its own PR's red; the train restacks and enqueues.
-The root answers the train's `RULING NEEDED` lines and nothing else.
+The desk routes a hot-set row to the train, not to its lane, under D7 in `reference/landing.md`. Lanes whose PRs touch the hot set report them to the train as `TRAIN #N <sha>` the moment they are green or conflicting, and never rebase or enqueue them again. The owning lane still pushes code fixes for its own PR's red, while the train restacks and enqueues. The root answers the train's `RULING NEEDED` lines and nothing else.
 
 ## Spawn brief
+
+Paste the brief below and fill the angle brackets.
 
 ```
 ccx: role=ship

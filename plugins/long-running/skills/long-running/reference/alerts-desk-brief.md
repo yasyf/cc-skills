@@ -1,59 +1,18 @@
 # The alerts-desk lane
 
-Spawn one `alerts-desk` as `long-running:lane`, model sonnet, effort low, whenever a
-drive touches production: deploys, applies, releases, or migrations. It watches the
-Datadog monitors the drive can break, tells the root only when one changes state,
-and launches an incident fix lane only when it judges one necessary.
-Fill the angle brackets and paste the brief.
+Spawn one `alerts-desk` beside the landing-desk as `long-running:lane`, model sonnet, effort low, whenever a drive deploys, applies, releases, or migrates. `scripts/monitor-watch.py` owns the polling and dedup. Fill the angle brackets and paste the brief below.
 
 ## Root discipline
 
-**A transition never launches a lane by itself.** The watch records each move into
-Alert or Warn with the desk runner, which launches nothing. The desk judges each
-one and launches an incident fix lane only when it deems one necessary.
+**A1. Report monitor transitions, and nothing else.** The desk runs `monitor-watch.py watch --alert-drive <drive>` in the foreground under `desk-wait.sh` over the drive's monitors by tag glob such as `release-target:*` and by named id. It messages the root only on a move into Alert, Warn, or No Data, or a recovery to OK. Each message includes the monitor id, name, transition time, a one-line first read, any `production-operations` entry from the last 24 hours on the monitor's target (SKILL.md R24), and its launch decision. It never messages on an unchanged state or a timer tick, owns no fixes, and posts nothing to Slack.
 
-**Open the incident before anything else.** When the runner's `INCIDENT` line for
-a desk launch arrives, or the root judges a reported transition an incident, the
-root runs `incident.py open --kind alert --target <monitor's target>` and starts
-`incident.py run` in that turn, under R16 and `active-alert-brief.md`. Adopt the
-desk's fix lane with `--adopt fix=<lane>`. The executor launches any missing
-incident fix and evidence lanes, fences the target, and adds the Opus 5.5 backup
-in fast mode at 15 minutes without a mechanism.
+**A2. A run-binding watch proves a new run starts and finishes.** After an apply or release of `executor`, `api`, `runtime-v2`, or `restate-worker`, the watch or bake records a newly bound run, its start, and its completion. Crash and storage health alone cannot pass the watch.
 
-Never put a "real-or-not" or "ours-or-not" verdict, a mechanism-depth mandate,
-an `AskUserQuestion`, or treating a mute as resolution before `incident.py run`.
-Diagnosis redirects the fix lane; it never precedes it. "If it is real, fix it"
-means the executor's lanes, no verdict gate.
+**A transition never launches a lane by itself.** `monitor-watch.py --alert-drive` posts `orca-desk: alert dd-<id> <link> :: <what fired>` to `orca-desk` on cci, which the runner records without launching. The alerts desk judges each transition into Alert or Warn and posts `orca-desk: incident dd-<id> <link> reported=<HH:MM> :: <what fired>` only when it deems an incident fix lane necessary.
 
-While the alert is unresolved, the monitor's targets stay fenced from deploys,
-applies, releases, and enqueues into its `release-target:*`
-targets. The fence never blocks the fix lane's own apply under R16. A recovery line,
-or a diagnosis that clears the alert, lifts the fence. A mute does not resolve it.
+**Open the incident in the same turn.** Each alert is P0 for the root. When the runner's `INCIDENT` line for a desk launch arrives, or the root judges a reported transition an incident, the root opens the incident with `incident.py open --kind alert --target <monitor's target>`, adopting any desk-launched fix lane with `--adopt fix=<lane>`, and starts `incident.py run` in that turn with no verdict gate (`reference/active-alert-brief.md`, SKILL.md R16). When posting individual cci records to `orca-desk` such as an evidence-lane launch or a fence, send one action per record; the runner logs `LAUNCH-FAILED` for a record that chains launches or a fence. While the alert is unresolved, the monitor's targets stay fenced from deploys, applies, releases, and enqueues into its `release-target:*` targets; the fence never blocks the fix lane's own apply under R16. A recovery line or a diagnosis clearing the alert lifts the fence; a mute does not resolve it.
 
-Pages in the on-call channels reach the root from the orca runner, not this desk: with
-`landing.pages` set, each top-level page posted while a drive release runs, or within
-30 minutes of its end, becomes one `incident` record to the root (`release-lanes.md`).
-The root handles it as it handles a transition this desk reports.
-
-The desk never gets a fix, a ruling to carry, or a Slack post. The root owns a
-monitors file: one `--tag <glob>` or `--id <monitor id>` per line. To change the set,
-the root rewrites that file. The desk reads it at its next watch rerun, keeping
-its state file, identity, and session. Never respawn or message the running desk
-for a changed set. The root addresses the desk over the cci bus,
-`cci post --drive <drive> --lane root --kind go --to alerts-desk --text "<ruling>"`,
-never by `SendMessage` (SKILL.md I4).
-
-On release-v3, 2026-09-30, the watch's first read over `release-target:*` printed:
-
-```text
-2026-09-30T19:45:41Z 324525079 start -> Warn at 2026-09-30T16:56:19+00:00 | App hosts refusing requests with 401 or failing them at the edge
-```
-
-The desk's report carries that line's id, name, states, and `at` time, its first
-read of the monitor's query, and its launch decision. When it launched
-`dd-324525079-fix`, the root's answer that turn is an evidence-lane launch and a
-fence for 324525079, each its own cci record to `orca-desk`. The runner takes one launch per
-record and logs `LAUNCH-FAILED` for a line that chains launches or a fence.
+**Manage the monitors file and desk inbox without respawning.** The root owns the monitors file, with one `--tag <glob>` or `--id <monitor id>` per line, and rewrites it to change the set; the desk re-reads it on its next watch rerun while keeping its state file, identity, and session. The root addresses the desk over the cci bus with `cci post --drive <drive> --lane root --kind go --to alerts-desk --text "<ruling>"`, never by `SendMessage` (`reference/bus-contracts.md` I4). Pages in on-call channels during a drive release reach the root from the orca runner, not this desk (`reference/release-lanes.md`).
 
 ## Spawn brief
 
@@ -101,9 +60,7 @@ On each printed line, in the same turn:
      release, quote its `applied before it failed` line when it failed
      (`tools/ci release watch <release>`), and put both in the report and the
      incident line's `what fired`, so the fix lane tests the monitor before the
-     product. On Nov 1 release 11804 replaced the seven run-queue monitors at
-     4:36 to 4:41 PM before failing; two misread a pre-admission snapshot and
-     paged at 4:46 PM while every team's runs completed.
+     product.
   2. On a move into Alert or Warn, decide whether an incident lane is necessary.
      Launch one when the first read shows production impact the drive's work
      can cause or fix: a customer-facing error rate, failing runs, a stalled

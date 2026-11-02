@@ -1,31 +1,30 @@
 # The priority-desk lane
 
-Spawn `<outcome>-desk` as `long-running:lane`, model opus, for each owner-named
-#1-priority outcome while it is open. It owns only that outcome's lanes.
-Fill the angle brackets and paste the brief.
+This reference covers [root discipline](#root-discipline), [desk rules](#desk-rules), and the [spawn brief](#spawn-brief).
 
 ## Root discipline
 
-The desk's inbox is the set of cci records addressed to `<outcome>-desk`. Post P1 with
-`cci post --drive <drive> --lane root --kind go --to <outcome>-desk --topic owed --text "<owed list summary>" --path <owed list file>`.
-The body lists one numbered item per PR or proof and its start state: on the base
-branch, queued, open PRs, pushed heads with no PR, and the lanes that own them.
+**P1. Give each owner-named #1 outcome its own desk.** While the outcome is open, the root spawns `<outcome>-desk` as `long-running:lane`, model opus, with its own append-only inbox file. It owns only that outcome's lanes. The desk's inbox is the set of cci records addressed to `<outcome>-desk`. Every other desk forwards traffic from those lanes with `cci post --to <outcome>-desk` and stops handling them.
 
-Post P2 with root-verified truth and a timestamp using the same command with
-`--topic truth` and its own text and body file. It directs the desk to act on all
-items in parallel, one dispatch per lane in the same iteration. Post later
-rulings with `cci post --drive <drive> --lane root --kind go --to <outcome>-desk --text "<ruling>"`.
-A standing owner rule gets a `scope:durable` cc-notes answer first, then its own
-GO record with `--ccn <answer id> --topic standing` under [I6](../SKILL.md#desk-inboxes).
+**P2. Open with the owner's owed list and the start state.** The root posts P1 with `cci post --drive <drive> --lane root --kind go --to <outcome>-desk --topic owed --text "<owed list summary>" --path <owed list file>`. The body lists one numbered item per PR or proof in the owner's definition of done. It states what is on the base branch, queued, open as a PR, and pushed with no PR, and names the lanes that owe each item.
 
-Other desks post these lanes' traffic with `cci post --to <outcome>-desk` and
-stop handling them.
-The root owns holds, which are cci `hold` records. Read the desk's 15-minute reports and read priority
-PR state directly in one batched `ccx vcs pr status <n1> <n2> ...` call.
-Dispatch every owed item with no PR in the same turn under R13.
-Follow [Desk inboxes](../SKILL.md#desk-inboxes) if the cursor stays stale.
+The root posts P2 with root-verified truth and a timestamp using the same command with `--topic truth` and its own text and body file. It directs the desk to act on all items in parallel, one dispatch per lane in the same iteration.
+
+The root posts later rulings with `cci post --drive <drive> --lane root --kind go --to <outcome>-desk --text "<ruling>"`. A standing owner rule gets a `scope:durable` cc-notes answer first, then its own `go` record with `--ccn <answer id> --topic standing` under [I6](owner-rulings.md).
+
+The root owns holds, which are cci `hold` records. The root reads the desk's 15-minute reports and reads priority PR state directly in one batched `ccx vcs pr status <n1> <n2> ...` call. The root dispatches every owed item with no PR in the same turn under R13 in [SKILL.md](../SKILL.md). Follow [bus-contracts.md](bus-contracts.md) if the cursor stays stale.
+
+## Desk rules
+
+**P3. Drive every owned lane in the same iteration.** The priority desk acts on all owed items in parallel, one dispatch per lane per iteration. It enqueues each stack's largest green, approved, unheld bottom prefix as soon as it sees it, following D1 and D3 in [landing.md](landing.md). It routes ejections, conflicts, and reds to the owning lane at once.
+
+**P4. Dispatch unclaimed work at the PR deadline.** For pushed heads with no PR after 10 minutes, the desk checks the owning lane's active work before dispatching `<lane>-submit`, sonnet xhigh, in its own worktree. `<lane>-submit` does PR mechanics only and submits those exact heads as one linear stack. For an unbuilt owed item with no PR after 15 minutes, the desk dispatches a separate implementation lane only when no live lane is working on it. The desk keeps the original session and never duplicates its active work.
+
+**P5. Report the owed list every 15 minutes and idle when it is done.** The desk sends the root each item as landed, queued, PR + blocker, or no PR + the lane launched for it, and includes `cursor #<seq>` or `cursor R<n>`. When every item is landed or proven, the desk reports once and keeps the session open and idle.
 
 ## Spawn brief
+
+Fill the angle brackets and paste the brief.
 
 ```text
 ccx: role=desk

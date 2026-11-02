@@ -1,24 +1,24 @@
 # The drive-watchdog lane
 
-Spawn `drive-watchdog` as `long-running:lane`, model opus, effort xhigh, beside the
-landing desk once the drive has a plan and an owner table doc. It watches every
-lane's cci traffic against the plan, corrects drift as it happens, keeps the retro
-log behind the owner table's last column. It feeds no dashboard (owner instruction of
-2026-10-18).
-Fill the angle brackets and paste the brief.
+Spawn `drive-watchdog` as `long-running:lane`, model opus, effort xhigh, beside the landing desk once the drive has a plan and an owner table doc.
 
 ## Root discipline
 
-The root addresses the watchdog over the cci bus, never by `SendMessage` (SKILL.md I4):
-`cci post --drive <drive> --lane root --kind decide --to drive-watchdog --text "<ruling>"`.
+**W1. One lane watches the whole drive against the plan.** `drive-watchdog` reads every lane's cci records and judges each for off-plan work, distractions, excuses or deferrals, parked lanes, and root drift. The watchdog posts each finding as a `decide` to the lane and the root with the correction and the rule it cites. When the lane has not corrected within 15 minutes, `drive-watchdog` posts again to the root. This desk writes no code and leaves stopping a lane to the root, which acts on its second post that turn.
 
-The root answers a watchdog `decide` within 10 minutes: re-brief the lane, stand it
-down, or post the ruling that makes the finding moot. A second post on the same
-finding means the lane did not correct within 15 minutes, and the root acts on it
-that turn. The root never argues a finding in a reply; it fixes the cause or records
-the plan line that makes the work on-plan.
+The root addresses the watchdog over the cci bus and never by `SendMessage` under I4 in [bus-contracts.md](bus-contracts.md), using `cci post --drive <drive> --lane root --kind decide --to drive-watchdog --text "<ruling>"`.
+
+Within 10 minutes of a watchdog `decide`, the root re-briefs the lane, stands it down, or posts the ruling that makes the finding moot. The root never argues a finding in a reply; it fixes the cause or records the plan line that makes the work on-plan.
+
+**W2. The watchdog keeps the retro.** Each finding is one entry in its cc-notes log, tagged `[step <n>]` with the plan step it slowed. That log feeds the owner table's last column in [owner-report-table.md](owner-report-table.md). Every 30 minutes the watchdog posts the root the top three things slowing the critical path. It feeds no dashboard.
+
+**W3. No sweep finding or owner pick is lost.** A sweep or audit lane posts each finding with `bin/findings.py post --sweep <lane> --owner <lane> --verdict <word> [--pr N] [--line path:line] <text>`, which posts a cci `defect` opening with `[finding:<lane>]` addressed to the lane that owns the fix. `findings.py sync` keeps every finding, and every pick or write-in the owner gives on a board card, as a row of the drive's findings ledger in `findings.json` in the state dir. A row stays open until a later `head` or `landed` record names its PR or seq, or a pick's card, which marks it fixed. An answer or a resolve without a fix marks it routed and still live, because a finding never waits on a card.
+
+`findings.py open` prints the open and routed rows by sweep, `findings.py track <seq>` adds an older record, and `findings.py close --why` settles a one-shot pick no lane builds. A lane that builds a pick names the pick's seq or card in its `HEAD` record. The fidelity pipeline in [fidelity-desk-brief.md](fidelity-desk-brief.md) grades a head `missing` with no model call while its PR has an open finding. `drive-watchdog` raises a finding open two hours with no fix head to root, and the dashboard's What failed section lists the open rows per sweep.
 
 ## Spawn brief
+
+Fill the angle brackets and paste the brief.
 
 ```text
 ccx: role=desk
@@ -43,7 +43,7 @@ Loop, forever, in the foreground:
   printed, then rerun. Run it as the Bash call itself and never filter or discard
   its output: the `MAILBOX` text is your only copy of that mail.
 
-For every record, judge seven things:
+For every record, judge eight things:
   (a) OFF-PLAN: work that is not in the plan, or off the critical path while a
       critical-path item sits idle.
   (b) DISTRACTION: lanes, PRs, or asks nobody asked for.
