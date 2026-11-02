@@ -4,7 +4,7 @@
  "expect": {
   "relaunched": []
  },
- "fix": "yasyf/cc-skills#PENDING",
+ "fix": "yasyf/cc-skills#1752",
  "input": {
   "records": [
    {
