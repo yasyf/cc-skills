@@ -1072,6 +1072,7 @@ FAILED_TEST = re.compile(r"--- FAIL: (?P<go>[\w.-]+)|^test (?P<cargo>\S+) \.\.\.
 LOG_CONTROL = re.compile(r"\x1b(?:_[^\x07]*\x07|\[[0-9;]*[A-Za-z])|\r")
 UNREACHABLE_WAIT = timedelta(minutes=2)
 HANDOFF_WAIT = timedelta(minutes=20)
+SPRITE_FAILING_FOR = timedelta(minutes=10)
 HANDOFF_FAULTS = 12
 LAUNCHD_THROTTLE_SECONDS = 60
 RUNNER_OPEN_FILES = 65536
@@ -5410,12 +5411,14 @@ class Runner:
         return True
 
     def least_busy_sprite(self, spec: dict) -> str | None:
-        """The Sprite the desk's `sprite` lists that runs the fewest finder and fidelity passes together now, the first listed on a tie; none when it lists none, so the pass runs here; and None while that Sprite already runs runner.json's `sprite_cap` passes, so the pass waits queued."""
+        """The Sprite the desk's `sprite` lists that runs the fewest finder and fidelity passes together now, the first listed on a tie; none when it lists none, so the pass runs here; and None while that Sprite already runs runner.json's `sprite_cap` passes, so the pass waits queued. A listed Sprite where a pass ended with no result in the last `SPRITE_FAILING_FOR` takes no pass while another listed one has none such, so a Sprite that restarts mid-pass, finishing nothing and so running the fewest, never draws every retry (dar-fleet-26, 12 passes in an hour, root #331960)."""
         listed = desk_sprites(spec)
         if not listed:
             return ""
         running = Counter(self.pass_sprite(action) for container in (FINDER, FIDELITY) if self.book.exists(container) for action in self.book.actions(container, status="started"))
-        sprite = min(listed, key=lambda name: running[name])
+        since = self.now() - SPRITE_FAILING_FOR
+        failing = {self.pass_sprite(action) for container in (FINDER, FIDELITY) if self.book.exists(container) for action in self.book.actions(container, status="failed") if action.started_at and actions.parse_stamp(action.started_at) >= since and "no result" in (action.reason or "")}
+        sprite = min([name for name in listed if name not in failing] or listed, key=lambda name: running[name])
         cap = json.loads(self.config.source.read_text()).get("sprite_cap")
         return None if cap is not None and running[sprite] >= cap else sprite
 
