@@ -137,7 +137,9 @@ dispatch or not: a failing release gate is active always and no customer impact 
 launches `<lane>-opus` at once as the fix owner and posts one `REFUSED-STOP` incident record to root. Any
 incident, mechanism, report, answer, stopped, or not-ours record of the last hour, root's aside, that proposes to
 mute a failing group, calls it a false alarm, or skips or scopes out the failing teams gets one `MUTE-PUSHBACK` incident record to root,
-which pushes back where it was proposed and names the fix owner; a mute never closes an unfixed mechanism. While any clock runs, a DEADLINE, UNACKED, STALE-MAIL, or RECLAIM about anything outside
+which pushes back where it was proposed and names the fix owner; a mute never closes an unfixed mechanism. A fix lane's typed
+`MUTE <lane>: monitors <ids> until fix-live: <proof>` line is the window on a page its mechanism proved false and gets no pushback,
+unless it names a release smoke team, a release check, or dev red; its clock runs on until FIX-LIVE. While any clock runs, a DEADLINE, UNACKED, STALE-MAIL, or RECLAIM about anything outside
 the incident waits in the view, and the pass after the last clock ends posts them as one `DEFERRED <n> escalations held
 during <lanes>` record. A root `go` or `decision` to a release lane that orders a cut or `release start`, or a landing's
 `release` record this runner posted, opens a cut clock only when it names components: the order's `--target` refs, or the
@@ -1096,6 +1098,7 @@ MUTE = re.compile(r"(?<![\w/-])mut(?:e|ed|es|ing)(?![\w/-])[^.;\n]{0,40}?\b(?:sm
 UNMUTE = re.compile(r"\b(?:delet|remov|lift|expir|unmut|drop|clear)\w*", re.IGNORECASE)
 REFUSED_STOP = "refused-stop"
 MUTE_KINDS = ("incident", "mechanism", "report", "answer", STOPPED, "not-ours")
+MUTE_WINDOW = re.compile(r"^MUTE [\w.-]+: monitors \d+(?:,? \d+)* until fix-live: \S")
 MUTE_PUSHBACK = "mute-pushback"
 CLOCK_HOLD = "hold"
 FIX_ALIAS = "-fix"
@@ -4254,7 +4257,7 @@ class Runner:
             )
 
     def mute_pushback(self) -> None:
-        """Post one MUTE-PUSHBACK to root for each incident, mechanism, report, answer, stopped, or not-ours record of the last hour that proposes to mute a failing group, calls it a false alarm, or skips or scopes out the failing teams: a mute never closes an unfixed mechanism. The word inside a name such as `open-mute/first-week`, or a clause that deletes, lifts or expires a mute, proposes nothing (root #298621)."""
+        """Post one MUTE-PUSHBACK to root for each incident, mechanism, report, answer, stopped, or not-ours record of the last hour that proposes to mute a failing group, calls it a false alarm, or skips or scopes out the failing teams: a mute never closes an unfixed mechanism. A typed `MUTE <lane>: monitors <ids> until fix-live: <proof>` line on a page proved false is the window, never a close, and passes unless it names a release gate. The word inside a name such as `open-mute/first-week`, or a clause that deletes, lifts or expires a mute, proposes nothing (root #298621)."""
         try:
             records = cci.records(self.cci_tail, self.config.drive, *(f"--kind={kind}" for kind in MUTE_KINDS), since=actions.stamp(self.now() - PR_SILENT_HORIZON))
         except CciTailFailed as failure:
@@ -4264,6 +4267,8 @@ class Runner:
             text = record.get("text") or ""
             said = next((found for found in MUTE.finditer(text) if not UNMUTE.search(text[max(0, found.start() - 40) : found.end()])), None)
             if record["drive"] != self.config.drive or record["lane"] == ROOT or text.startswith("MUTE-PUSHBACK") or not said:
+                continue
+            if MUTE_WINDOW.match(text) and not RELEASE_GATE.search(text):
                 continue
             self.escalate(
                 f"{MUTE_PUSHBACK}:{record['seq']}",
