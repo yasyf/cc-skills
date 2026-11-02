@@ -125,7 +125,7 @@ def test_a_pass_over_unchanged_pr_states_writes_no_row_and_stamps_the_pass(lock)
 
     assert not [argv for argv in shell.calls if argv[:3] in (["ccn", "ledger", "sync"], ["ccn", "ledger", "row"])]
     assert shell.fields("21052") == graded
-    assert ledger.parse_iso(ledger.refresh_stamp(lock).read_text()) >= ledger.parse_iso(graded["last_refresh"])
+    assert ledger.parse_iso(ledger.refresh_stamp(lock, None).read_text()) >= ledger.parse_iso(graded["last_refresh"])
 
 
 def test_a_pass_rewrites_and_restamps_only_the_row_whose_graded_fields_changed(lock, red_routes):

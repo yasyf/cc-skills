@@ -665,9 +665,19 @@ def default_lock(ledger: str) -> Path:
     return Path.home() / ".cache" / "ccn-ledger" / f"{ledger}.lock"
 
 
-def refresh_stamp(lock: Path) -> Path:
-    """The moment the ledger's last refresh pass read the forge, kept beside its lock and never on a row, so a pass over unchanged PRs writes nothing to the ledger."""
-    return lock.with_suffix(".refreshed")
+def shard_name(name: str, shard: frozenset[str] | None) -> str:
+    return name if shard is None else f"{name}.{hashlib.sha256('+'.join(sorted(shard)).encode()).hexdigest()[:16]}"
+
+
+def refresh_stamp(lock: Path, shard: frozenset[str] | None) -> Path:
+    """The moment the last refresh pass over `shard`'s rows read the forge, kept beside the ledger lock and never on a row, so a pass over unchanged PRs writes nothing to the ledger."""
+    return lock.with_name(f"{shard_name(lock.stem, shard)}.refreshed")
+
+
+def last_refreshed(ledger: str, shard: frozenset[str] | None) -> str:
+    """The newest refresh pass that covered `shard`'s rows, its own or one over the whole ledger."""
+    lock = default_lock(ledger)
+    return max((path.read_text() for path in {refresh_stamp(lock, None), refresh_stamp(lock, shard)} if path.exists()), default="")
 
 
 def is_shallow(shell: Shell, checkout: Path) -> bool:
@@ -769,8 +779,8 @@ def is_gh_api(failure: subprocess.CalledProcessError) -> bool:
     return ghread.gh_args(failure.cmd)[:2] == ["gh", "api"]
 
 
-def cache_banner(exhausted: QuotaExhausted, refreshed: Path, moment: datetime) -> str:
-    age = f"{age_minutes(refreshed.read_text(), moment)}m" if refreshed.exists() else "age unknown"
+def cache_banner(exhausted: QuotaExhausted, refreshed: str, moment: datetime) -> str:
+    age = f"{age_minutes(refreshed, moment)}m" if refreshed else "age unknown"
     return f"pr states: cached {age} ({' '.join(str(exhausted).split())})"
 
 
@@ -1693,7 +1703,7 @@ def cmd_refresh(args: argparse.Namespace, shell: Shell) -> int:
     with locked(lock):
         if rows:
             notes.sync(kept_steps(rows, notes.stored()) if any("step" in row["fields"] for row in rows) else rows)
-        refreshed = refresh_stamp(lock)
+        refreshed = refresh_stamp(lock, args.shard)
         pending = refreshed.with_name(refreshed.name + ".pending")
         pending.write_text(moment)
         pending.replace(refreshed)
@@ -2154,15 +2164,15 @@ def pull_records(gh: Github, prs: list[str]) -> dict[str, dict]:
     }
 
 
-def settle_row(trunk: str, pr: str, record: dict, read: Future | None, squashes: Callable[[], dict[str, tuple[str, str]]]) -> tuple[dict[str, str], str]:
-    """One row's settled fields and line, against the trunk, never against the PR's own base: the queue deletes a stacked PR's base branch when it lands, so that ref is often gone. Only a PR GitHub reads merged lands; a closed one whose files match the trunk delivered nothing (root #283091). A `closed-without-squash` row is stamped `last_refresh`, so `refresh` re-reads it for `REOPEN_WINDOW` from the close even when this settle beat any refresh to it."""
+def settle_row(trunk: str, pr: str, record: dict, was: dict[str, str], read: Future | None, squashes: Callable[[], dict[str, tuple[str, str]]]) -> tuple[dict[str, str], str]:
+    """One row's settled fields and line, against the trunk, never against the PR's own base: the queue deletes a stacked PR's base branch when it lands, so that ref is often gone. Only a PR GitHub reads merged lands; a closed one whose files match the trunk delivered nothing (root #283091). A row settling into `closed-without-squash` is stamped `last_refresh`, so `refresh` re-reads it for `REOPEN_WINDOW` from the close even when this settle beat any refresh to it; one already there keeps its stamp, so a later settle neither rewrites the row nor reopens the window."""
     if record["state"] == "OPEN":
         ejected = read.result()
         if not ejected:
             return {}, ""
         return {"ejected_at": ejected}, f"#{pr} was EJECTED by the queue at {ejected} and still reads open; the label is gone exactly as a landing would leave it"
     cleared = {"settle_error": "", "settle_failed_at": ""}
-    closed = {"state": CLOSED_WITHOUT_SQUASH, "base": record["baseRefName"], "last_refresh": utc_stamp(), **cleared}
+    closed = {"state": CLOSED_WITHOUT_SQUASH, "base": record["baseRefName"], **cleared} | ({} if was.get("state") == CLOSED_WITHOUT_SQUASH else {"last_refresh": utc_stamp()})
     if record["state"] != "MERGED":
         return (
             closed,
@@ -2180,7 +2190,7 @@ def settle_row(trunk: str, pr: str, record: dict, read: Future | None, squashes:
     )
 
 
-def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, records: dict[str, dict], searched: dict[str, tuple[str, str]] | None = None) -> int:
+def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, records: dict[str, dict], rows: dict[str, dict[str, str]], searched: dict[str, tuple[str, str]] | None = None) -> int:
     """Settle every row in one trunk fetch, one object check, one ledger write, and the per-PR forge reads in parallel.
 
     A head this clone lacks is fetched before any diff, one at a time, so no two fetches race for the clone's locks.
@@ -2219,7 +2229,7 @@ def settle(shell: Shell, gh: Github, notes: Notes, checkout: Path, records: dict
             try:
                 if pr in failures:
                     raise failures[pr]
-                fields, line = settle_row(trunk, pr, records[pr], reads[pr], squashes)
+                fields, line = settle_row(trunk, pr, records[pr], rows[pr], reads[pr], squashes)
             except subprocess.CalledProcessError as failure:
                 reason = (failure.stderr or str(failure)).strip()
                 updates[pr] = {"settle_error": reason, "settle_failed_at": utc_stamp()}
@@ -2240,14 +2250,13 @@ def cmd_landed(args: argparse.Namespace, shell: Shell) -> int:
     notes = Notes(shell, args.ledger, args.scope)
     rows = sharded(notes.pr_rows(), args.shard)
     prs = [pr for pr in args.pr if pr in rows] if args.pr else [pr for pr in sorted(rows, key=int) if rows[pr].get("state") != LANDED]
-    settle(shell, gh, notes, args.checkout, pull_records(gh, prs))
+    settle(shell, gh, notes, args.checkout, pull_records(gh, prs), rows)
     return 0
 
 
 def watch_state(ledger: str, shard: frozenset[str] | None, scope: Scope) -> Path:
     name = ledger if same_repo(scope.repo, scope.default) else f"{ledger}.{scope.repo.replace('/', '.')}"
-    name = name if shard is None else f"{name}.{hashlib.sha256('+'.join(sorted(shard)).encode()).hexdigest()[:16]}"
-    return Path.home() / ".cache" / "ccn-ledger" / f"{name}.watch.json"
+    return Path.home() / ".cache" / "ccn-ledger" / f"{shard_name(name, shard)}.watch.json"
 
 
 def snapshot_prs(state: Path) -> frozenset[str]:
@@ -2334,7 +2343,7 @@ def watch_pass(
         notes.set_fields(pr, changes)
     if settled:
         with redirect_stdout(sys.stderr):
-            settle(shell, gh, notes, checkout, pull_records(gh, settled))
+            settle(shell, gh, notes, checkout, pull_records(gh, settled), rows)
     if pending.exists():
         pending.replace(state)
 
@@ -2407,7 +2416,7 @@ def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
     try:
         records = pr_state(shell, args.ccx, args.repo, unsquashed, [])["prs"]
     except QuotaExhausted as exhausted:
-        print(cache_banner(exhausted, refresh_stamp(default_lock(args.ledger)), now()))
+        print(cache_banner(exhausted, last_refreshed(args.ledger, args.shard), now()))
         records = None
     except subprocess.CalledProcessError as failure:
         raise ForgeUnreachable(f"ccx vcs pr state: {(failure.stderr or '').strip() or failure}") from failure
@@ -2422,7 +2431,7 @@ def cmd_reconcile(args: argparse.Namespace, shell: Shell) -> int:
     else:
         if landed:
             notes.sync([{"key": pr, "fields": {"state": LANDED, "landed_sha": squashes[pr][0], "landed_at": squashes[pr][1], "base": trunk, "settle_error": "", "settle_failed_at": ""}} for pr in landed])
-        settled = settle(shell, gh, notes, args.checkout, {pr: records[pr] for pr in closed}, squashes)
+        settled = settle(shell, gh, notes, args.checkout, {pr: records[pr] for pr in closed}, rows, squashes)
     unsettled = f"{len(unsquashed)} unread" if records is None else f"{len(unsquashed) - len(closed)} open"
     print(f"reconciled {len(pending)} non-terminal rows: {len(landed)} landed by squash, {settled} of {len(closed)} closed settled, {unsettled}")
     return 0

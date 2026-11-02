@@ -544,6 +544,20 @@ def test_a_diff_against_the_base_is_not_a_landing(tmp_path):
     assert "landed_sha" not in shell.fields(PR)
 
 
+def test_a_row_keeps_the_stamp_it_closed_with_through_every_later_settle(tmp_path):
+    shell = desk_shell(state="closed")
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE, "last_refresh": "2020-01-01T00:00:00Z"}})
+    shell.pr_files[PR] = ["infra/rows/lightning.ts"]
+
+    run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
+    assert ledger.now() - ledger.parse_iso(shell.fields(PR)["last_refresh"]) < ledger.REOPEN_WINDOW
+    shell.fields(PR)["last_refresh"] = "2026-10-31T00:00:00Z"
+    run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path))
+
+    assert shell.fields(PR)["state"] == "closed-without-squash"
+    assert shell.fields(PR)["last_refresh"] == "2026-10-31T00:00:00Z"
+
+
 def test_the_base_moving_on_a_file_after_the_squash_is_still_a_landing(capsys, tmp_path):
     """A squash onto a moved base equals neither side, so content cannot see it."""
     shell = desk_shell(**MERGED)
@@ -1094,7 +1108,7 @@ def test_reconcile_dry_run_writes_nothing(capsys):
 def rate_limited_shell(monkeypatch, home: Path) -> FakeShell:
     """A pass refreshed the ledger 12 minutes ago, though no row has changed for three hours."""
     monkeypatch.setenv("HOME", str(home))
-    refreshed = ledger.refresh_stamp(ledger.default_lock(LEDGER))
+    refreshed = ledger.refresh_stamp(ledger.default_lock(LEDGER), None)
     refreshed.parent.mkdir(parents=True)
     refreshed.write_text(stamp(-timedelta(minutes=12)))
     shell = reconcile_shell()
@@ -1136,6 +1150,19 @@ def test_summary_under_an_exhausted_rest_quota_skips_the_reconcile_and_still_rep
     assert f"summary: reconcile skipped this pass, gh api repos/{REPO}: {FLOOR_REFUSAL}\n" in out
     assert shell.fields("28100").get("state") != "landed"
     assert any(line.startswith("desk ") for line in out.splitlines())
+
+
+def test_the_cache_banner_dates_a_shard_by_its_own_pass_or_one_over_the_whole_ledger(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    lock = ledger.default_lock(LEDGER)
+    lock.parent.mkdir(parents=True)
+    shard = frozenset({"lane-a"})
+    ledger.refresh_stamp(lock, None).write_text("2026-11-01T10:00:00Z")
+    ledger.refresh_stamp(lock, shard).write_text("2026-11-01T11:00:00Z")
+
+    assert ledger.last_refreshed(LEDGER, None) == "2026-11-01T10:00:00Z"
+    assert ledger.last_refreshed(LEDGER, shard) == "2026-11-01T11:00:00Z"
+    assert ledger.last_refreshed(LEDGER, frozenset({"lane-b"})) == "2026-11-01T10:00:00Z"
 
 
 def test_reconcile_under_an_exhausted_quota_with_no_recorded_refresh_says_so(capsys, monkeypatch, tmp_path):
