@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -375,3 +376,72 @@ def test_a_job_outlives_a_dropped_connection_since_only_the_short_key_exec_forwa
 
     assert json.loads((directory / "result.json").read_text()) == {"key": "sk-test"}
     assert not Path(f"{sprite}{directory}.keys").exists()
+
+
+FLAKY_SPRITE = """#!/usr/bin/env python3
+import os, pathlib, subprocess, sys
+args = sys.argv[4:]
+way, mac, sprite = os.environ["WAY"], os.environ["MAC_ROOT"], os.environ["SPRITE_ROOT"]
+if way == "unreachable":
+    print("Error: failed to start sprite command: failed to connect: read: operation timed out", file=sys.stderr)
+    sys.exit(255)
+stdin = None
+if args[0] == "--no-stdin":
+    args, stdin = args[1:], subprocess.DEVNULL
+dirs = [arg for arg in args if "/finder-desk/job-" in arg]
+dropped = pathlib.Path(dirs[0] + ".dropped") if way == "dropped" and dirs else None
+if dropped and dropped.exists():
+    print("Error: failed to connect", file=sys.stderr)
+    sys.exit(255)
+code = subprocess.run([sprite + arg if arg.startswith(mac) else arg for arg in args[1:]], stdin=stdin).returncode
+if dropped and any("exec python3" in arg for arg in args):
+    dropped.touch()
+    sys.exit(255)
+sys.exit(code)
+"""
+
+JOBS = {
+    "normal": "import json, pathlib, sys\n(pathlib.Path(sys.argv[1]) / 'result.json').write_text(json.dumps({'verdict': 'ok'}))\n",
+    "crash": "import sys\nsys.exit(1)\n",
+    "dropped": "import json, pathlib, sys\n(pathlib.Path(sys.argv[1]) / 'result.json').write_text(json.dumps({'verdict': 'ok'}))\n",
+    "unreachable": "",
+    "empty": "import pathlib, sys\n(pathlib.Path(sys.argv[1]) / 'result.json').write_text('')\n",
+}
+
+QUICK_SLEEP = """#!/bin/sh
+[ "$1" = 0.2 ] && exec /bin/sleep 0.2
+exit 0
+"""
+
+
+@pytest.mark.parametrize("jobs", [1, 144])
+@pytest.mark.parametrize("way", list(JOBS))
+def test_every_job_leaves_exactly_one_whole_result_record_however_it_ends(tmp_path: Path, jobs: int, way: str) -> None:
+    """T5: a Sprite job that crashed, lost its connection, could not reach its Sprite or wrote an empty result left no usable result, fixed one case at a time in #1352, #1406, #1428, #1470 and #1477."""
+    mac, sprite = tmp_path / "mac", tmp_path / "sprite"
+    checkout, config = mac / "checkout", mac / "config"
+    script = mac / "plugin" / "skills" / "long-running" / "scripts" / "finder.py"
+    executable(script, JOBS[way])
+    executable(script.parent / "rulings.py", "")
+    executable(mac / "bin" / "sprite", FLAKY_SPRITE)
+    executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", QUICK_SLEEP)
+    (config / "long-running" / "drives").mkdir(parents=True)
+    (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
+    subprocess.run(["git", "init", "-q", f"{sprite}{checkout}"], check=True)
+    directories = [mac / "finder-desk" / f"job-{n}" for n in range(jobs)]
+    for directory in directories:
+        directory.mkdir(parents=True)
+        (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
+    env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config), "WAY": way}
+
+    with ThreadPoolExecutor(16) as pool:
+        runs = list(pool.map(lambda directory: subprocess.run(["sh", str(SCRIPT), "dar-fleet-4", str(script), str(directory)], env=env, capture_output=True, timeout=300), directories))
+
+    for directory, run in zip(directories, runs):
+        record = json.loads((directory / "result.json").read_text())
+        if way == "normal":
+            assert record == {"verdict": "ok"}, run.stderr
+        else:
+            assert record["no_result"] is True and record["error"].startswith("the job on Sprite dar-fleet-4 ended with status"), run.stderr
+        assert [path.name for path in directory.iterdir() if path.name.startswith(".result.json")] == []
