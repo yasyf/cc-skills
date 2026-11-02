@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import threading
 
 import pytest
 
@@ -27,7 +28,7 @@ def global_store(tmp_path, monkeypatch, name="home"):
 
 def selected(connections, store):
     prefix = store.root.absolute().as_uri() + "/"
-    return [connection for connection in connections if connection.database.startswith(prefix)]
+    return [connection for connection in connections if connection.database.startswith(prefix) and connection.owner == threading.get_ident()]
 
 
 @pytest.mark.parametrize("history", [32, 256])

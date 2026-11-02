@@ -4201,7 +4201,7 @@ class Runner:
         key = f"{CLOCK}:{launch.dispatch_id}"
         if lane.endswith(CLOCK_FALLBACK):
             return f"{lane} is itself an Opus fallback, so none is launched for it"
-        if incident := incidents.incident_scope(incidents.open_incidents(self.cci_tail.run, self.config.drive), self.config.drive, "", None, lane):
+        if incident := incidents.incident_scope(incidents.open_incidents(incidents.incident_records(self.cci_tail.run, self.config.drive)), self.config.drive, "", None, lane):
             return f"no fallback launched for {backup}: open incident #{incident['seq']} names {lane}, so the drive's clocks warn and stand aside (owner, 2:21 PM Nov 1); root launches one by hand if the fix lane has missed"
         if self.book.known(lane_container(backup), key):
             return f"the Opus fallback {backup} is already launched"
@@ -5885,6 +5885,7 @@ class Landing:
         self.statuses_floor = datetime.min.replace(tzinfo=timezone.utc)
         self.reviews: list[dict] | None = None
         self.incidents: list[dict] | None = None
+        self.incident_ends: dict[str, int] = {}
         self.review_index: tuple[list[dict] | None, int, dict[str, list[dict]]] = (None, 0, {})
         self.claims_read: list[dict] | None = None
         self.scanning = threading.Lock()
@@ -8749,10 +8750,11 @@ class Landing:
         self.book.edit(LANDING, lambda incident: incident.facts.update({LANDED_TIDIED: sorted(landed, key=int)}))
 
     def is_incident(self, pr: str, row: dict) -> bool:
-        """Whether a ledger row is an incident fix's: its lane is an `incident-` or `outage-` lane or a fix lane the runner launched on the incident clock, or an open incident in the executor's store names the PR as its repair, and no root go, hold, lift, decide or release naming it took it off the incident path."""
+        """Whether a ledger row is an incident fix's: its lane is an `incident-` or `outage-` lane or a fix lane the runner launched on the incident clock, and no root `INCIDENT <slug> CLOSED` record addresses that lane, or an open incident in the executor's store names the PR as its repair, and no root go, hold, lift, decide or release naming it took it off the incident path."""
         lane = row.get("lane", "")
         store = actions.Store()
-        tagged = INCIDENT_NAME.match(lane) or (self.book.exists(lane_container(lane)) and self.runner.fix_launch(lane_container(lane)))
+        self.read_incidents()
+        tagged = lane not in self.incident_ends and (INCIDENT_NAME.match(lane) or (self.book.exists(lane_container(lane)) and self.runner.fix_launch(lane_container(lane))))
         if not tagged:
             with store.reading():
                 for incident_id in store.ids():
@@ -8762,9 +8764,13 @@ class Landing:
                         break
         return bool(tagged) and not self.incident_cleared(pr)
 
-    def in_incident(self, pr: str, lane: str) -> dict | None:
+    def read_incidents(self) -> None:
         if self.incidents is None:
-            self.incidents = incidents.open_incidents(self.cci_tail.run, self.runner.config.drive)
+            records = incidents.incident_records(self.cci_tail.run, self.runner.config.drive)
+            self.incidents, self.incident_ends = incidents.open_incidents(records), incidents.ended(records)
+
+    def in_incident(self, pr: str, lane: str) -> dict | None:
+        self.read_incidents()
         return incidents.incident_scope(self.incidents, self.runner.config.drive, self.repo, pr, lane)
 
     def incident_cleared(self, pr: str) -> bool:
