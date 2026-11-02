@@ -29,6 +29,7 @@ class FakeShell:
         self.rows: dict[str, dict[str, str]] = {}
         self.removed: list[str] = []
         self.posted: list[str] = []
+        self.status_reads = 0
 
     def run(
         self, argv: list[str], stdin: str | None = None, cwd: Path | None = None
@@ -59,8 +60,9 @@ class FakeShell:
             case ["cc-present", "remove-block", card, *_]:
                 self.removed.append(card)
                 return ""
-            case ["gh", "pr", "view", number, *_]:
-                return json.dumps({"state": self.prs.get(number, "OPEN")})
+            case ["ccx", "vcs", "pr", "status", "--json", "-R", _, *numbers]:
+                self.status_reads += 1
+                return json.dumps([{"number": int(number), "state": self.prs.get(number, "OPEN")} for number in numbers])
             case ["cci", "show", seq]:
                 return (
                     f"#{seq} ASK root -> lane text"
@@ -177,6 +179,7 @@ def test_sweep_withdraws_each_card_whose_event_happened_and_names_the_outcome(
     board_cards.main(["sweep", "--lane", "board-lane"], shell)
 
     assert shell.removed == ["merged-pr", "past-time", "closed-record", "shipped"]
+    assert shell.status_reads == 1
     assert (
         "Withdrew merged-pr from the owner's board: Forge-AI/monorepo#1 is merged"
         in shell.posted[0]
