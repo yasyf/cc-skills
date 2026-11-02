@@ -374,6 +374,21 @@ def test_a_screen_that_cannot_be_drawn_shows_why_in_the_panel_instead_of_skeleto
     server.shutdown()
 
 
+def test_a_refresh_asks_for_what_changed_since_its_version_and_merges_it_onto_the_rest(page):
+    model = json.loads(MODEL.read_text())
+    fresh = page.context.browser.new_page(viewport=LAPTOP)
+    fresh.goto(page.url.split("#")[0] + "#/")
+    fresh.wait_for_selector(".nw-spine")
+    asked = []
+    delta = {"version": model["version"] + 1, "changed": {"version": model["version"] + 1, "brief": {**model["brief"], "headline": "A fresher headline"}}}
+    fresh.route(re.compile(r"/api/model\?since="), lambda route: (asked.append(route.request.url), route.fulfill(json=delta)))
+    fresh.evaluate("load()")
+    fresh.wait_for_selector(".nw-head:has-text('A fresher headline')")
+    assert asked == [f"{page.url.split('#')[0]}api/model?since={model['version']}"]
+    assert fresh.evaluate("Object.keys(state.model.prs).length") == len(model["prs"])
+    fresh.close()
+
+
 def spine_widths(page):
     return page.locator(".nw-spine .sp").evaluate_all("(els) => els.map((e) => e.getBoundingClientRect().width)")
 
