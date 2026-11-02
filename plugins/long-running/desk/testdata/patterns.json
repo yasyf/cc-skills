@@ -1,0 +1,586 @@
+{
+ "desk-runner.py:ACCEPTED": {
+  "flags": 34,
+  "pattern": "\\s*accept(?:ed|s)?\\b"
+ },
+ "desk-runner.py:ACK": {
+  "flags": 48,
+  "pattern": "^(?P<verb>started|done)\\b[: ]*(?P<rest>.*)$"
+ },
+ "desk-runner.py:AGENT_PID": {
+  "flags": 40,
+  "pattern": "^\\s*pid = (\\d+)$"
+ },
+ "desk-runner.py:ALERT_SPEC": {
+  "flags": 32,
+  "pattern": "^ (?P<slug>[a-z0-9][a-z0-9.-]*) (?P<link>\\S+) :: (?P<what>\\S.*)$"
+ },
+ "desk-runner.py:ALREADY_SHIPS": {
+  "flags": 32,
+  "pattern": "already ships .* or later"
+ },
+ "desk-runner.py:BELOW_BLOCKED": {
+  "flags": 32,
+  "pattern": "\\bbelow BLOCKED #(\\d+)\\b"
+ },
+ "desk-runner.py:BUILDS_PATH": {
+  "flags": 32,
+  "pattern": "/builds/\\d+"
+ },
+ "desk-runner.py:BUILD_LINK": {
+  "flags": 32,
+  "pattern": "https://buildkite\\.com/[\\w.-]+/[\\w.-]+/builds/\\d+"
+ },
+ "desk-runner.py:BUILD_NUMBER": {
+  "flags": 32,
+  "pattern": "(\\d+)/?$"
+ },
+ "desk-runner.py:BUILD_URL": {
+  "flags": 32,
+  "pattern": "/(?P<pipeline>[\\w.-]+)/builds/(?P<number>\\d+)/?$"
+ },
+ "desk-runner.py:CARRIED_FROM": {
+  "flags": 32,
+  "pattern": "\\bcarried from #(\\d+)"
+ },
+ "desk-runner.py:CLAIMED_PR": {
+  "flags": 32,
+  "pattern": "(?:(?P<repo>[\\w.-]+/[\\w.-]+))?#(?P<pr>\\d+)\\b"
+ },
+ "desk-runner.py:CLAIM_CLAUSE": {
+  "flags": 32,
+  "pattern": ";|\\.\\s"
+ },
+ "desk-runner.py:CLASS_HEADER": {
+  "flags": 32,
+  "pattern": "^(?:(?:NEW )?CLASS(?![\\w-])[^\\n]*|\\[[^\\]\\n]+\\])"
+ },
+ "desk-runner.py:CLASS_TEXT": {
+  "flags": 32,
+  "pattern": "^(?:NEW )?CLASS(?![\\w-])"
+ },
+ "desk-runner.py:CLASS_WRONG": {
+  "flags": 34,
+  "pattern": "(?:re #\\d+:\\s*)?class wrong\\b"
+ },
+ "desk-runner.py:CUT_ORDER": {
+  "flags": 34,
+  "pattern": "\\b(?:cut|release start)\\b"
+ },
+ "desk-runner.py:DECIDE_LINE": {
+  "flags": 32,
+  "pattern": "^DECIDE (?P<msg>msg_\\S+) (?P<lane>[\\w.-]+): "
+ },
+ "desk-runner.py:DEQUEUE_ORDER": {
+  "flags": 34,
+  "pattern": "(?:\\A\\s*|\\b(?:landing-desk|desk-runner):\\s*)dequeue\\s+#(\\d+)\\b"
+ },
+ "desk-runner.py:DONE_MARKER": {
+  "flags": 32,
+  "pattern": "^✻ .* · done "
+ },
+ "desk-runner.py:EXEMPT_BRACKET": {
+  "flags": 34,
+  "pattern": "\\[exempt:\\s*(?P<claim>[^\\],;]*)[^\\]]*\\]"
+ },
+ "desk-runner.py:EXEMPT_GO": {
+  "flags": 34,
+  "pattern": "\\bgo\\s+(?:port|test-only|ci-only)\\s+#\\d+|\\bpure port\\b|\\b(?:test|ci)-only\\b"
+ },
+ "desk-runner.py:EXPIRING[incident]": {
+  "flags": 32,
+  "pattern": "^ (?P<slug>[a-z0-9][a-z0-9_.-]*) (?P<link>\\S+) reported=(?P<reported>(?:[01]?\\d|2[0-3]):[0-5]\\d|(?:1[0-2]|0?[1-9]):[0-5]\\d [AP]M) :: (?P<what>\\S.*)$"
+ },
+ "desk-runner.py:EXPIRING[launch]": {
+  "flags": 32,
+  "pattern": "^ (?P<lane>[\\w.-]+)(?P<now> NOW)? (?P<model>\\S+) (?P<effort>\\S+)(?: role=(?P<role>[\\w-]+))? brief=(?P<brief>/\\S+)$"
+ },
+ "desk-runner.py:FABLE_MODEL": {
+  "flags": 34,
+  "pattern": "(^|[-_.])fable([-_.0-9]|$)"
+ },
+ "desk-runner.py:FAILED_TEST": {
+  "flags": 40,
+  "pattern": "--- FAIL: (?P<go>[\\w.-]+)|^test (?P<cargo>\\S+) \\.\\.\\. FAILED|^\\s*FAIL \\[\\s*[\\d.]+s\\] \\S+ (?P<nextest>\\S+)"
+ },
+ "desk-runner.py:FAILURE_LINE": {
+  "flags": 40,
+  "pattern": "^\\s*(?:error(?:\\[\\w+\\])?:|--- FAIL|FAIL\\b|test \\S+ \\.\\.\\. FAILED|thread .* panicked|Error:|✗|×)"
+ },
+ "desk-runner.py:FINDER_STALL": {
+  "flags": 32,
+  "pattern": "finder:(?P<pr>\\d+):(?P<head>[0-9a-f]{7,40})(?::quiet)?"
+ },
+ "desk-runner.py:FIX_GO": {
+  "flags": 34,
+  "pattern": "\\bfix\\b"
+ },
+ "desk-runner.py:FLAKY_NOTICE": {
+  "flags": 32,
+  "pattern": "> failed (?:`([^`]+)`.*? )?on <(https://buildkite\\.com/[^|>]+)\\|[^>]*> at <[^|>]*/commit/([0-9a-f]+)\\|.*?(?:it looks flaky and|touches what it reads, so) nobody was told"
+ },
+ "desk-runner.py:FROZE": {
+  "flags": 32,
+  "pattern": "\\bfroze (?P<scope>\\S+) until (?P<until>\\S+) as freeze (?P<id>[\\w.-]*\\w)"
+ },
+ "desk-runner.py:FULL_RUN_GREEN": {
+  "flags": 32,
+  "pattern": "full run green (?P<build>\\d+)(?P<sentence>[^.]*)"
+ },
+ "desk-runner.py:GO_CONDITION": {
+  "flags": 34,
+  "pattern": "\\[\\s*(?:exempt:|TAP-CARRIED\\b|TAP-KEPT\\b)"
+ },
+ "desk-runner.py:HANDED_BACK": {
+  "flags": 34,
+  "pattern": "^(?:[\\w-]+:\\s*)?(?:NOT-OURS|stood down|stopped)\\b"
+ },
+ "desk-runner.py:HOLD_SPEC": {
+  "flags": 32,
+  "pattern": "^ (?P<slug>[a-z0-9][a-z0-9.-]*) owner=(?P<owner>[\\w.-]+) :: (?P<what>\\S.*)$"
+ },
+ "desk-runner.py:HTML_TAG": {
+  "flags": 32,
+  "pattern": "<[^>]+>"
+ },
+ "desk-runner.py:INBOX_DIRECTIVE": {
+  "flags": 48,
+  "pattern": "^(?:-\\s+)?(?:(?:1[0-2]|0?[1-9]):[0-5]\\d\\s?[AP]M\\s+)?(?:(?P<key>R\\d+)\\s+(?:\\([^)]*\\)\\s+)?)?orca-desk: (?P<verb>relay|launch|alert|incident|hold|unhold|withdraw)\\b(?P<rest>.*)$"
+ },
+ "desk-runner.py:INCIDENT_ANNOTATION": {
+  "flags": 40,
+  "pattern": "^ccx:.*\\bincident=([\\w.-]+)"
+ },
+ "desk-runner.py:INCIDENT_CLEARED": {
+  "flags": 34,
+  "pattern": "not an incident fix|off the incident path|no release is owed"
+ },
+ "desk-runner.py:INCIDENT_NAME": {
+  "flags": 32,
+  "pattern": "^(?:incident|outage)-"
+ },
+ "desk-runner.py:INCIDENT_PART": {
+  "flags": 32,
+  "pattern": "-[^-]+(?:-\\d+)?$"
+ },
+ "desk-runner.py:INCIDENT_SPEC": {
+  "flags": 32,
+  "pattern": "^ (?P<slug>[a-z0-9][a-z0-9_.-]*) (?P<link>\\S+) reported=(?P<reported>(?:[01]?\\d|2[0-3]):[0-5]\\d|(?:1[0-2]|0?[1-9]):[0-5]\\d [AP]M) :: (?P<what>\\S.*)$"
+ },
+ "desk-runner.py:JSON_CLOSE": {
+  "flags": 32,
+  "pattern": "\\s*\\},?\\s*$"
+ },
+ "desk-runner.py:JSON_SECTION": {
+  "flags": 32,
+  "pattern": "\\s*\"([^\"]+)\":\\s*\\{\\s*$"
+ },
+ "desk-runner.py:LANE_ENDED_TEXT": {
+  "flags": 32,
+  "pattern": "^(?:\\d{1,2}:\\d{2} [AP]M )?(?:STOPPED|DONE)\\b"
+ },
+ "desk-runner.py:LANE_LIST": {
+  "flags": 32,
+  "pattern": ", (?:and )?| and "
+ },
+ "desk-runner.py:LAUNCHED": {
+  "flags": 40,
+  "pattern": "^(?P<lane>\\S+) (?P<how>ready|unsupervised) task=\\S+ dispatch=(?P<dispatch>\\S+) terminal=(?P<terminal>\\S+) worktree=\\S+$"
+ },
+ "desk-runner.py:LAUNCH_KEY": {
+  "flags": 32,
+  "pattern": "R\\d+|unfixed:[\\w-]+:\\d+|inbox@\\S+"
+ },
+ "desk-runner.py:LAUNCH_SPEC": {
+  "flags": 32,
+  "pattern": "^ (?P<lane>[\\w.-]+)(?P<now> NOW)? (?P<model>\\S+) (?P<effort>\\S+)(?: role=(?P<role>[\\w-]+))? brief=(?P<brief>/\\S+)$"
+ },
+ "desk-runner.py:LINEAGE": {
+  "flags": 32,
+  "pattern": "(?:\\-opus|\\-case\\d+)+$"
+ },
+ "desk-runner.py:LIST_ITEM": {
+  "flags": 48,
+  "pattern": "<li>(.*?)</li>"
+ },
+ "desk-runner.py:LIVE_PAGE": {
+  "flags": 32,
+  "pattern": "^:(?:rotating_light|mag|eyes|hammer_and_wrench|hourglass_flowing_sand|chart_with_upwards_trend): \\*"
+ },
+ "desk-runner.py:LOG_CONTROL": {
+  "flags": 32,
+  "pattern": "\\x1b(?:_[^\\x07]*\\x07|\\[[0-9;]*[A-Za-z])|\\r"
+ },
+ "desk-runner.py:MISSING_BRANCH": {
+  "flags": 32,
+  "pattern": "returned no refs/heads/(\\S+)"
+ },
+ "desk-runner.py:MODELS": {
+  "flags": 32,
+  "pattern": "opus|sonnet|fable|astra|codex|sol|incident|claude-[\\w.-]+|gpt-[\\w.-]+"
+ },
+ "desk-runner.py:MONITOR_ID": {
+  "flags": 32,
+  "pattern": "(?:monitors/|\\bmonitor |\\bDatadog )(\\d{4,})"
+ },
+ "desk-runner.py:MUTE": {
+  "flags": 34,
+  "pattern": "(?<![\\w/-])mut(?:e|ed|es|ing)(?![\\w/-])[^.;\\n]{0,40}?\\b(?:smoke|teams?|monitors?|alerts?|pages?|runs?|failures?|checks?)\\b|\\bfalse alarm\\b|\\b(?:skips?|excludes?|scopes? out)\\b[^.\\n]{0,60}\\b(?:smoke|release[- ]check|teams?)\\b"
+ },
+ "desk-runner.py:MUTE_WINDOW": {
+  "flags": 32,
+  "pattern": "^MUTE [\\w.-]+: monitors \\d+(?:,? \\d+)* until fix-live: \\S"
+ },
+ "desk-runner.py:NATIVE_BASE": {
+  "flags": 32,
+  "pattern": "#(\\d+)'s native stack targets (\\S+), not "
+ },
+ "desk-runner.py:OLD_APP_LINE": {
+  "flags": 42,
+  "pattern": "^old-app:\\s*(?:unchanged|bug fix|changes)\\b.*$"
+ },
+ "desk-runner.py:OWNER_CITE": {
+  "flags": 32,
+  "pattern": "#\\s*owner:\\s*[0-9a-f]{7,40}\\b"
+ },
+ "desk-runner.py:PIN_BRANCH": {
+  "flags": 32,
+  "pattern": "dev|(?:[\\w.-]+/)*cc-remote-\\d+\\.\\d+\\.\\d+"
+ },
+ "desk-runner.py:PLACE": {
+  "flags": 40,
+  "pattern": "^ccx:(?:.*[ \\t])?place=(remote|local)(?:\\s|$)"
+ },
+ "desk-runner.py:PORT_CLAIM": {
+  "flags": 34,
+  "pattern": "\\bport\\b"
+ },
+ "desk-runner.py:POSTER": {
+  "flags": 32,
+  "pattern": "\\bcci post\\b[^`\\n]*?--lane[= ]['\\\"]?([\\w.-]+)"
+ },
+ "desk-runner.py:PREFIX_HELD": {
+  "flags": 40,
+  "pattern": "^nothing to enqueue: \\w+ already holds the green bottom prefix$"
+ },
+ "desk-runner.py:PROOF_BODY": {
+  "flags": 42,
+  "pattern": "^proof PR\\b"
+ },
+ "desk-runner.py:PROOF_TITLE": {
+  "flags": 34,
+  "pattern": "\\bproof:|\\b(?:red|green) proof\\b|\\bproof, do not merge\\b"
+ },
+ "desk-runner.py:PR_NAMED": {
+  "flags": 32,
+  "pattern": "(?<![\\w/])#(\\d{3,})\\b|/pull/(\\d+)\\b"
+ },
+ "desk-runner.py:REDUNDANT_SKIP": {
+  "flags": 34,
+  "pattern": "redundant within its stack"
+ },
+ "desk-runner.py:RED_BY_DESIGN": {
+  "flags": 34,
+  "pattern": "^\\W*red by design\\b"
+ },
+ "desk-runner.py:RED_CONTRACT": {
+  "flags": 34,
+  "pattern": "red[- ]by[- ]design|\\bfail(?:s|ed|ing)? (?:in )?(?:run|build)\\b|\\bfailing (?:ci )?runs?\\b"
+ },
+ "desk-runner.py:RELAYED_PR": {
+  "flags": 32,
+  "pattern": "^(?:blocker|restack):(\\d+):"
+ },
+ "desk-runner.py:RELAY_REF": {
+  "flags": 32,
+  "pattern": "(?:^|cci#)(R?\\d+)$"
+ },
+ "desk-runner.py:RELAY_TO": {
+  "flags": 48,
+  "pattern": "^ to (?P<lanes>[\\w.-]+(?:(?:, (?:and )?| and )[\\w.-]+)*):\\s+(?P<text>\\S.*)$"
+ },
+ "desk-runner.py:RELEASE_GATE": {
+  "flags": 34,
+  "pattern": "\\b(?:smoke[- ]?(?:teams?|tests?|runs?|checks?)|release[- ](?:checks?|smokes?|gates?)|dev[- ]red|dev is red)\\b"
+ },
+ "desk-runner.py:RELEASE_ID": {
+  "flags": 32,
+  "pattern": "\\breleases/(\\d{4}-\\d{2}-\\d{2}/\\d+)\\b"
+ },
+ "desk-runner.py:RELEASE_LANE": {
+  "flags": 32,
+  "pattern": "(?:^|-)release(?:-|$)"
+ },
+ "desk-runner.py:RELEASE_WITH": {
+  "flags": 40,
+  "pattern": "^Release-With:[ \\t]*(\\S.*)$"
+ },
+ "desk-runner.py:REUSED_REFUSAL": {
+  "flags": 32,
+  "pattern": "^the (?:gate read [0-9a-f]+ (?:BLOCKED|WAITING)|[\\w-]+ check reads) "
+ },
+ "desk-runner.py:ROLE": {
+  "flags": 40,
+  "pattern": "^ccx:(?:.*[ \\t])?role=([\\w-]+)"
+ },
+ "desk-runner.py:RUN_NUMBERS": {
+  "flags": 32,
+  "pattern": "\\d+"
+ },
+ "desk-runner.py:RUN_REF": {
+  "flags": 32,
+  "pattern": "R\\d+|\\d+"
+ },
+ "desk-runner.py:SAYS_MECHANISM": {
+  "flags": 34,
+  "pattern": "\\bmechanism\\b"
+ },
+ "desk-runner.py:SCALE_LINES": {
+  "flags": 40,
+  "pattern": "^[ \\t>*_-]*Scale:.*$"
+ },
+ "desk-runner.py:SCOPED_OUT": {
+  "flags": 34,
+  "pattern": "\\bactive no\\b|\\b(?:no|zero) customer\\b|\\bfalse alarm\\b"
+ },
+ "desk-runner.py:SLACK_LINK": {
+  "flags": 32,
+  "pattern": "<[^|>]+\\|([^>]+)>"
+ },
+ "desk-runner.py:SLICE_HEADER": {
+  "flags": 40,
+  "pattern": "^Register slice:"
+ },
+ "desk-runner.py:SPRITE_ID": {
+  "flags": 32,
+  "pattern": "[A-Za-z0-9][A-Za-z0-9._:-]{0,127}"
+ },
+ "desk-runner.py:SPRITE_LANE": {
+  "flags": 32,
+  "pattern": "[a-z0-9][a-z0-9-]{0,54}"
+ },
+ "desk-runner.py:SQUASHED_PR": {
+  "flags": 32,
+  "pattern": "\\(#(\\d+)\\)$"
+ },
+ "desk-runner.py:STANDING_DESK": {
+  "flags": 40,
+  "pattern": "^ccx:(?:.*[ \\t])?role=(?:desk|watch)(?:\\s|$)"
+ },
+ "desk-runner.py:STOPPED_TEXT": {
+  "flags": 32,
+  "pattern": "^(?:\\d{1,2}:\\d{2} [AP]M )?STOPPED\\b"
+ },
+ "desk-runner.py:TAP_CLAIM": {
+  "flags": 32,
+  "pattern": "\\bTAP-(?:KEPT|CARRIED)\\b|\\bowner tapped (?:#\\d+ at )?[0-9a-f]{7,40}\\b"
+ },
+ "desk-runner.py:TAP_REQUIRED_WORD": {
+  "flags": 32,
+  "pattern": "\\bTAP-REQUIRED\\b"
+ },
+ "desk-runner.py:TEST_NAME": {
+  "flags": 32,
+  "pattern": "(?:Test\\w+|\\w+(?:::\\w+)+)"
+ },
+ "desk-runner.py:TEST_ONLY_CLAIM": {
+  "flags": 34,
+  "pattern": "\\b(?:tests?|ci|harness|fixtures?)\\b"
+ },
+ "desk-runner.py:TEXT_MARK": {
+  "flags": 32,
+  "pattern": "^(?P<mark>MECHANISM|READY)\\b"
+ },
+ "desk-runner.py:TITLE_STALE": {
+  "flags": 34,
+  "pattern": "\\btitle: stale\\b[^\\n]*"
+ },
+ "desk-runner.py:TOML_SECTION": {
+  "flags": 32,
+  "pattern": "\\s*\\[+([^\\]]+)\\]+\\s*$"
+ },
+ "desk-runner.py:TOOLING_CAUSE": {
+  "flags": 32,
+  "pattern": "[0-9a-f]{7,}|\\d+|/\\S+"
+ },
+ "desk-runner.py:UNFIXED": {
+  "flags": 40,
+  "pattern": "^[ \\t>*-]*(?P<tick>`?)UNFIXED (?P<lane>[\\w.-]+):[ \\t]*(?P<case>\\S.*?)(?P=tick)[ \\t]*$"
+ },
+ "desk-runner.py:UNHOLD_SPEC": {
+  "flags": 32,
+  "pattern": "^ (?P<slug>[a-z0-9][a-z0-9.-]*)$"
+ },
+ "desk-runner.py:UNKNOWN_CAUSE": {
+  "flags": 32,
+  "pattern": "\\bUNKNOWN\\b"
+ },
+ "desk-runner.py:UNMUTE": {
+  "flags": 34,
+  "pattern": "\\b(?:delet|remov|lift|expir|unmut|drop|clear)\\w*"
+ },
+ "desk-runner.py:VOLATILE": {
+  "flags": 32,
+  "pattern": "\\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\\b|\\d+"
+ },
+ "desk-runner.py:WATCHED": {
+  "flags": 34,
+  "pattern": "\\b(?:mut\\w*|monitors?|alerts?|pages?|false alarm)\\b"
+ },
+ "desk-runner.py:WITHDRAW_SPEC": {
+  "flags": 32,
+  "pattern": "^ (?P<target>[\\w.:-]+)$"
+ },
+ "long_running/cci.py:ANSWER_TEXT": {
+  "flags": 32,
+  "pattern": "^(?:OPENED|READY)\\b"
+ },
+ "long_running/cci.py:FIX_LANE": {
+  "flags": 32,
+  "pattern": "-(?:fix(?:-\\d+)?|opus|case\\d+)$"
+ },
+ "long_running/cci.py:INCIDENT_LANE": {
+  "flags": 32,
+  "pattern": "^(?:inc|incident|outage)-"
+ },
+ "long_running/cci.py:INCIDENT_TAG": {
+  "flags": 32,
+  "pattern": "\\b([A-Z]{2,})(?:-([0-9A-Z]*\\d[0-9A-Z]*)|(\\d[0-9A-Z]*))\\b"
+ },
+ "long_running/cci.py:LEADING_HOLD": {
+  "flags": 34,
+  "pattern": "^\\W*hold\\s+#(\\d+)\\b"
+ },
+ "long_running/cci.py:MECHANISM_TEXT": {
+  "flags": 32,
+  "pattern": "^(?:\\d{1,2}:\\d{2} [AP]M )?(?P<mark>MECHANISM|CANDIDATE)\\b"
+ },
+ "long_running/cci.py:NAMED_PR": {
+  "flags": 32,
+  "pattern": "#(\\d+)\\b"
+ },
+ "long_running/cci.py:SETTLING_TEXT": {
+  "flags": 32,
+  "pattern": "^(?:\\d{1,2}:\\d{2} [AP]M )?(?:OPENED|BLOCKER|READY|NOT-OURS|DONE|STOPPED)\\b"
+ },
+ "long_running/cci.py:TRUNK_STATE": {
+  "flags": 32,
+  "pattern": "^(?P<state>DEV-RED|POST-MERGE-RED|DEV-GREEN)\\b(?: since (?P<since>\\d{1,2}:\\d{2} [AP]M))?"
+ },
+ "merge_queue.py:APPROVAL_BLOCKER": {
+  "flags": 32,
+  "pattern": "^(?:ai-review |changes requested by |awaiting approval on head|not approved by )"
+ },
+ "merge_queue.py:BLOCKER_HINT": {
+  "flags": 32,
+  "pattern": "^(?:run ccx vcs stack submit from|read the failure |.+, so the red check is its own$)"
+ },
+ "merge_queue.py:CI_FAILED": {
+  "flags": 32,
+  "pattern": "^graphite FAILING\\w*$"
+ },
+ "merge_queue.py:CI_PENDING": {
+  "flags": 32,
+  "pattern": "^(?:CI running|graphite (?:RUNNING|PENDING\\w*))"
+ },
+ "merge_queue.py:COMPUTING": {
+  "flags": 40,
+  "pattern": "^#(\\d+) BLOCKED \\S+ (?:.*; )?GitHub still computing mergeability"
+ },
+ "merge_queue.py:DOWNSTACK_FAILURE": {
+  "flags": 32,
+  "pattern": "downstack failures on PR #\\[?(\\d+)"
+ },
+ "merge_queue.py:DRAFT_ONLY_STACK": {
+  "flags": 32,
+  "pattern": "held only this stack, so the red check is its own$"
+ },
+ "merge_queue.py:EACH_SECTION": {
+  "flags": 56,
+  "pattern": "^=== (?P<key>[\\d,]+)\\n(?P<out>.*?)(?:^=== (?P=key) stderr (?P<err>.*?)\\n)?^=== (?P=key) exit (?P<code>\\d+)$"
+ },
+ "merge_queue.py:EJECTED": {
+  "flags": 32,
+  "pattern": "^ejected from the merge queue "
+ },
+ "merge_queue.py:GITHUB_CONFLICT": {
+  "flags": 32,
+  "pattern": "graphite MERGE_CONFLICTS|conflicts with origin/|GitHub reads CONFLICTING"
+ },
+ "merge_queue.py:LABEL_APPROVAL": {
+  "flags": 32,
+  "pattern": "has no approval in force|^ai-review "
+ },
+ "merge_queue.py:LABEL_CHAIN": {
+  "flags": 32,
+  "pattern": "#\\d+(?: <- #\\d+)*"
+ },
+ "merge_queue.py:LABEL_CI_FAILED": {
+  "flags": 32,
+  "pattern": "^(?:commit status (?:failure|error)|failed check runs)"
+ },
+ "merge_queue.py:LABEL_CI_PENDING": {
+  "flags": 32,
+  "pattern": "^(?:commit status pending|mergeable_state (?!dirty))"
+ },
+ "merge_queue.py:LABEL_CONFLICT": {
+  "flags": 32,
+  "pattern": " conflicts with |^mergeable_state dirty:"
+ },
+ "merge_queue.py:LABEL_FOREIGN": {
+  "flags": 32,
+  "pattern": "no drive lane registered it in the ledger, by name or by a branch prefix or stack its branch is on, and it carries no drive label"
+ },
+ "merge_queue.py:LABEL_REFUSED": {
+  "flags": 40,
+  "pattern": "^REFUSED (?P<reason>.+) \\(#(?P<pr>\\d+)\\)$"
+ },
+ "merge_queue.py:LABEL_ROUTED": {
+  "flags": 32,
+  "pattern": "^(?:unproven: |commit status (?:failure|error) |failed check runs |ai-review is |mergeable_state dirty:|#\\d+'s branch \\S+ is the base of |#\\d+ is based on |#\\d+ is its own ancestor )|^\\S+ conflicts with \\S+ on "
+ },
+ "merge_queue.py:LABEL_WOULD": {
+  "flags": 40,
+  "pattern": "^would label #(?P<tip>\\d+) "
+ },
+ "merge_queue.py:REVIEW_REFUSED": {
+  "flags": 32,
+  "pattern": "^changes requested by |Held —"
+ },
+ "merge_queue.py:ROUTED_BLOCKER": {
+  "flags": 32,
+  "pattern": "^(?:graphite (?:FAILING\\w*|MERGE_CONFLICTS|EVICTED)|unproven: |fidelity (?:failure|error):|conflicts with origin/|GitHub reads CONFLICTING|carries .* already squashed on|changes requested by |ejected from the merge queue)"
+ },
+ "merge_queue.py:SAID_WOULD": {
+  "flags": 40,
+  "pattern": "^would enqueue\\b.*$"
+ },
+ "merge_queue.py:STATUS_LINE": {
+  "flags": 40,
+  "pattern": "^#(?P<pr>\\d+) (?P<status>[A-Z_]+) "
+ },
+ "merge_queue.py:TRANSIENT_FAILURE": {
+  "flags": 32,
+  "pattern": "left no result, a transient failure|TLS handshake timeout|i/o timeout|context deadline exceeded|urlopen error|Connection reset|Connection refused|reset by peer|Remote end closed|Temporary failure in name resolution|nodename nor servname|Name or service not known|HTTP(?: Error)? 5\\d\\d|[Oo]peration timed out|Failed to connect to .* port 443|Recv failure|Could not resolve host"
+ },
+ "merge_queue.py:TRUNK_LIMITED": {
+  "flags": 32,
+  "pattern": "HTTP 429\\b"
+ },
+ "merge_queue.py:TRUNK_REQUIRED_CHECK": {
+  "flags": 32,
+  "pattern": "^required check .+ is (\\S+)$"
+ },
+ "merge_queue.py:TRUNK_WOULD_ENQUEUE": {
+  "flags": 40,
+  "pattern": "^would enqueue native stack through #\\d+: ((?:#\\d+ ?)+)$"
+ },
+ "merge_queue.py:VERDICT_LINE": {
+  "flags": 40,
+  "pattern": "^#(?P<pr>\\d+) (?P<verdict>[A-Z]+) (?P<sha>[0-9a-f]{0,10}) ?(?P<detail>.*)$"
+ },
+ "merge_queue.py:WOULD_ENQUEUE": {
+  "flags": 40,
+  "pattern": "^would enqueue ((?:#\\d+ ?)+) in one call$"
+ }
+}
