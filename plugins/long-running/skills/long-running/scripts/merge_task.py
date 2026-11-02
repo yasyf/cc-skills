@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import fcntl
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +29,8 @@ def run(job: dict) -> dict:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
             if not (tree / ".git").exists():
+                shutil.rmtree(tree, ignore_errors=True)
+                git("-C", str(checkout), "worktree", "prune")
                 git("-C", str(checkout), "worktree", "add", "--force", "--detach", str(tree), job["head"])
             elif subprocess.run(["git", "-C", str(tree), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip() != job["head"]:
                 git("-C", str(tree), "checkout", "--quiet", "--force", "--detach", job["head"])

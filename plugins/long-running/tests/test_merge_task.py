@@ -31,3 +31,12 @@ def test_a_head_the_clone_lacks_is_an_error_result_not_a_crash(tmp_path):
     commit(checkout, "first")
     ran = merge_task.run({"checkout": str(checkout), "head": "0" * 40, "argv": [str(checkout / "task.sh")]})
     assert "did not reach 000000000000" in ran["error"]
+
+
+def test_a_worktree_a_failed_first_task_left_without_its_git_link_is_made_again(tmp_path):
+    checkout = tmp_path / "runner"
+    subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+    head = commit(checkout, "first")
+    (tmp_path / "runner.merge" / "infra").mkdir(parents=True)
+    ran = merge_task.run({"checkout": str(checkout), "head": head, "argv": [str(checkout / "task.sh")]})
+    assert ran["out"] == f"{tmp_path / 'runner.merge'}/task.sh first \n"
