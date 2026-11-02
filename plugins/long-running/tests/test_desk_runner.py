@@ -10665,6 +10665,18 @@ def test_handoff_to_a_version_the_replay_gate_refuses_stops_no_runner_and_keeps_
     assert not runner.stop_marker().exists() and shell.successors == [] and pinned(config) == runner_module.RUNNING_VERSION
 
 
+def test_a_replay_gate_that_does_not_finish_warns_and_never_holds_the_handoff(shell, config, tmp_path, monkeypatch, capsys):
+    version = newer(runner_module.RUNNING_VERSION)
+    pin(config, runner_module.RUNNING_VERSION)
+    monkeypatch.setattr(runner_module.drive, "release_faults", lambda target: [])
+    run = shell.run
+    monkeypatch.setattr(shell, "run", lambda argv, stdin=None, env=None, cwd=None: runner_module.Done(0, json.dumps({"ok": True}), "") if argv[1:2] == ["preflight"] else run(argv, stdin, env, cwd))
+    shell.replay_done = (1, "", "Traceback: boom\n")
+
+    assert cli(shell, config, "handoff", "--desk", "orca", "--version", version) == 0
+    assert f"{version} takes the desk unreplayed, since its replay gate exited 1: Traceback: boom" in capsys.readouterr().err
+    assert pinned(config) == version
+
 @pytest.mark.parametrize("desk", ["orca", "landing"])
 def test_handoff_with_no_heartbeat_has_no_runner_to_stop_and_starts_one(shell, config, tmp_path, desk):
     assert cli(shell, config, "handoff", "--desk", desk) == 0

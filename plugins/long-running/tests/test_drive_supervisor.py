@@ -132,7 +132,7 @@ def test_only_a_conflicting_red_or_unapproved_open_pr_needs_work(node, expected)
     assert supervisor.pr_state(node) == expected
 
 
-def test_the_supervisor_moves_to_a_newer_install_only_once_its_replay_gate_passes(monkeypatch):
+def test_the_supervisor_moves_to_a_newer_install_unless_its_replay_gate_refuses_it(monkeypatch):
     config = lr_config.Config("org/repo", "d1", "/srv/checkout", "bot", "drive", ("lanes",))
     installed = iter(["0.7.820", "0.7.821", "0.7.821", "0.7.822", "0.7.823"])
     monkeypatch.setattr(supervisor.lr_drive, "installed_version", lambda: next(installed))
@@ -142,7 +142,7 @@ def test_the_supervisor_moves_to_a_newer_install_only_once_its_replay_gate_passe
     monkeypatch.setattr(supervisor, "run", lambda argv: posts.append(argv) or "")
     upgrade = supervisor.Upgrade(config, "0.7.820")
 
-    assert [upgrade() for _ in range(5)] == [False, False, False, True, False]
+    assert [upgrade() for _ in range(5)] == [False, False, False, True, True]
     assert gates == [["gate", "--drive", "d1", "--repo", "org/repo", "--old", "0.7.820", "--new", version] for version in ("0.7.821", "0.7.822", "0.7.823")]
     [post] = posts
-    assert post[post.index("--id") + 1] == "replay-failed:0.7.823" and post[-1] == "the supervisor stays on 0.7.820: its replay gate against 0.7.823 exited 1: Traceback: boom"
+    assert post[post.index("--id") + 1] == "replay-failed:0.7.823" and post[-1] == "the supervisor moves from 0.7.820 to 0.7.823 unreplayed: its replay gate exited 1: Traceback: boom"

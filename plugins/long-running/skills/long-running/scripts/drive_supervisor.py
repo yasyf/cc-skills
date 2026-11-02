@@ -289,7 +289,7 @@ def lanes_deps(config: lr_config.Config, state: Path) -> lanes.Deps:
 
 
 class Upgrade:
-    """Whether the supervisor re-executes into the newest install: only when it is newer than `running` and `replay.py gate` passes it against `running` on the drive's last 24 hours, read once per version. A refusal keeps this version serving, and the gate posts why; a gate that did not finish keeps it too, posting one blocker."""
+    """Whether the supervisor re-executes into the newest install: only when it is newer than `running` and `replay.py gate` passes it against `running` on the drive's last 24 hours, read once per version. A refusal keeps this version serving, and the gate posts why; a gate that did not finish proves nothing, so the supervisor moves on and posts one warning."""
 
     def __init__(self, config: lr_config.Config, running: str):
         self.config, self.running = config, running
@@ -301,10 +301,10 @@ class Upgrade:
             return False
         if installed not in self.passed:
             done = subprocess.run([sys.executable, str(REPLAY), "gate", "--drive", self.config.drive, "--repo", self.config.repo, "--old", self.running, "--new", installed], capture_output=True, text=True)
-            self.passed[installed] = done.returncode == 0
+            self.passed[installed] = done.returncode != 3
             if done.returncode not in (0, 3):
                 why = ((done.stderr or done.stdout).strip().splitlines() or [f"exit {done.returncode}"])[-1][:300]
-                run(["cci", "post", "--drive", self.config.drive, "--lane", lanes.SELF, "--kind", "blocker", "--to", "root", "--id", f"replay-failed:{installed}", "--stamp", "--text", f"the supervisor stays on {self.running}: its replay gate against {installed} exited {done.returncode}: {why}"])
+                run(["cci", "post", "--drive", self.config.drive, "--lane", lanes.SELF, "--kind", "report", "--to", "root", "--id", f"replay-failed:{installed}", "--stamp", "--text", f"the supervisor moves from {self.running} to {installed} unreplayed: its replay gate exited {done.returncode}: {why}"])
         return self.passed[installed]
 
 

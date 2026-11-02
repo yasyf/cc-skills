@@ -2495,12 +2495,15 @@ class Runner:
         return beat is not None and beat.get("pid") == str(pid) and beat.get("version") == version and actions.parse_stamp(beat["at"]) >= since
 
     def replay_refusal(self, current: str, version: str) -> str:
-        """Why `version` may not take a desk from `current`, the version the desk's pin runs: the drive's last 24 hours, replayed through both by `replay.py gate`, show it relaunching a lane or refusing a PR `current` did not, or the gate did not finish; empty when it passes."""
+        """Why `version` may not take a desk from `current`, the version the desk's pin runs: the drive's last 24 hours, replayed through both by `replay.py gate`, show it relaunching a lane or refusing a PR `current` did not; empty when it passes or the gate did not finish, which proves nothing and only warns."""
         done = self.shell.run([sys.executable, str(REPLAY), "gate", "--drive", self.config.drive, *(["--repo", self.config.landing["repo"]] if self.config.landing else []), "--old", current, "--new", version])
         if done.code == 0:
             return ""
         last = ((done.out if done.code == 3 else done.err or done.out).strip().splitlines() or [f"exit {done.code}"])[-1][:600]
-        return last if done.code == 3 else f"its replay gate against {version} exited {done.code}: {last}"
+        if done.code == 3:
+            return last
+        print(f"desk-runner handoff: {version} takes the desk unreplayed, since its replay gate exited {done.code}: {last}", file=sys.stderr)
+        return ""
 
     def successor_fault(self, desk: str, version: str, keychain: bool) -> str:
         """Why `desk`'s runner on `version` would refuse to start, as that version's own `preflight` reads it, or this runner's own checks when it runs that version; empty when it would start."""

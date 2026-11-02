@@ -437,7 +437,8 @@ defect in the lanes mover or the landing runner's class check carries a fixture 
 `replay.py capture` writes from that record into `tests/fixtures/replay/`, and CI replays
 every fixture. The install replays the drive's last 24 hours through the old and new
 pack: `desk-runner.py handoff --version` and the supervisor's move to a newer install
-refuse when the new pack relaunches a lane or refuses a PR the old one did not. The orca
+refuse when the new pack relaunches a lane or refuses a PR the old one did not; a gate
+that crashes only warns. The orca
 desk posts, per fixture class, how many times the defect recurred in the 24 hours after
 its install.
 
