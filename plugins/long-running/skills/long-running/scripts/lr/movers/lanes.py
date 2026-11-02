@@ -381,21 +381,12 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
                 if not successor:
                     store.own(ROOT, gone.prs)
         elif kind == "decide" and lane == ROOT and (owner := OWNER.search(text)):
-            running = {other.name for other in store.lanes(*LIVE)}
-            taken = {held for held in store.owner_of(prs_of(record)).values() if held and held != owner[1] and held in running}
-            if live is None and (refused := [(held, why) for held in sorted(taken) if (why := unread_by(store, record, held, cited_in(record)))]):
-                unread += refused
-                for held, why in refused:
-                    hold(store, held, why, at)
-                continue
             store.own(owner[1], numbers := prs_of(record))
             if live is None and numbers and (probe := store.probes().get(owner[1])) and probe["dead"]:
                 dead.append(f"{owner[1]} for {' '.join(f'#{n}' for n in numbers)}: root named it owner at {pacific(at)}, but it left the supervisor's {pacific(probe['asked'])} ask unanswered; {successor_note(store, owner[1])}")
         elif kind == "decide" and lane == ROOT and (moves := [(int(found["pr"]), found["to"] or found["named"]) for found in OWNER_CLAUSE.finditer(text)]):
-            running = {other.name for other in store.lanes(*LIVE)}
             for number, name in moves:
-                held_by = store.owner_of([number]).get(number)
-                if name == ROOT or store.lane(name) and not (live is None and held_by in running and held_by != name and unread_by(store, record, held_by, cited_in(record))):
+                if name == ROOT or store.lane(name):
                     store.own(name, [number])
         elif lane == ROOT and (moved := REPLACES.search(text)) and (old := store.lane(moved["old"])) and old.state in LIVE and (taker := store.lane(moved["new"])):
             if live is None and (why := unread_by(store, record, old.name, cited_in(record))):

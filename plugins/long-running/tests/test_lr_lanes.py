@@ -609,6 +609,21 @@ def test_an_owner_decide_moves_only_the_prs_it_refs_and_stands_no_lane_it_mentio
     assert not [argv for argv in fake.posts if argv[argv.index("--kind") + 1] == "defect"]
 
 
+def test_an_owner_decide_moves_its_pr_from_a_live_lane_and_holds_no_lane(tmp_path, brief):
+    """Root #330626: 330605 named owner=truncate-folds-1 for #48257, which passive-only-1 owned, and the supervisor held passive-only-1 for lack of last-read (330607)."""
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store, prs=(48257,))
+    fake.feed += [spawned(2, "restack-children-2", brief), record(3, "conflicts-2", "head", text="#48257 6322d2f", refs={"prs": ["Forge-AI/monorepo#48257"]})]
+    fake.feed.append(record(4, "root", "decide", T0, "root: #48257 at 6322d2f: owner=restack-children-2 again for this one item; conflicts-2 restacked it.", ("restack-children-2", "supervisor-registry"), {"prs": ["Forge-AI/monorepo#48257"]}))
+    fake.peers.append(who("restack-children-2", True, T0))
+
+    lanes.tick(store, fake.deps, T0, 1)
+
+    assert store.lane("conflicts-2").state != "held"
+    assert store.owner_of([48257]) == {48257: "restack-children-2"}
+    assert not [argv for argv in fake.posts if argv[argv.index("--kind") + 1] == "defect"]
+
+
 @pytest.mark.parametrize("posts_again", [False, True])
 def test_a_lane_an_unread_stand_down_left_in_place_is_never_relaunched_once_it_stops(tmp_path, brief, posts_again):
     """Root #307233: on 0.7.847 the replay relaunched ten finished lanes whose stand-downs predate the last-read rule, such as exec-crash-2-fix-2, which posted one blocker after root's stand-down 293009 and stopped."""
