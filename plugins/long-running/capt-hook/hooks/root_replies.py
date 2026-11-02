@@ -811,3 +811,35 @@ def owner_updates_cover_every_delivery(evt: BaseHookEvent) -> HookResult | None:
     with UpdateClock.mutate(evt) as clock:
         clock.at = now
     return None
+
+
+RETRO = f"{sys.executable} {script('retro.py')}"
+RETRO_SECONDS = 30
+RETRO_CHECK = f"{RETRO} --drive brook-drive check"
+RETRO_PROBLEMS = 1
+UNFIXED_RETRO = (
+    "Every retro row carries a live owner, a closed-set state, a due time and its mechanism, and none sits past due unfixed. "
+    "Fix each row below with `retro.py set` or `retro.py live`, then stop again:\n```\n{lines}\n```"
+)
+
+
+@on(
+    Event.Stop,
+    skip_if=[FromSubagent()],
+    tests={
+        Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={RETRO_CHECK: (1, "PROBLEM r12 owner coordinator: no due time | froze releases")}): Block(pattern=r"PROBLEM r12 owner coordinator"),
+        Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={RETRO_CHECK: ""}): Allow(),
+        Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, commands={RETRO_CHECK: (2, "usage: retro.py")}): Allow(),
+        Input(state=DRIVE_ACTIVE, env=DRIVE_CONFIG, agent_id="a1b2c3", commands={RETRO_CHECK: (1, "PROBLEM r12 owner coordinator: no due time")}): Allow(),
+        Input(env=DRIVE_CONFIG, commands={RETRO_CHECK: (1, "PROBLEM r12 owner coordinator: no due time")}): Allow(),
+    },
+)
+def retro_rows_hold(evt: BaseHookEvent) -> HookResult | None:
+    """The root stops only while `retro.py check` finds every retro row whole: a live owner, a state from the closed set, a due time and a mechanism, no repeat of another row's failure, and none past due and not live; its lines go back to the root (owner 10:26 PM Nov 1, retro-close-1 contract #308142). A check that does not run blocks nothing."""
+    if not CompactionState.load(evt).active or not (entry := drive_entry(evt)):
+        return None
+    try:
+        done = subprocess.run([sys.executable, str(script("retro.py")), "--drive", bus_name(entry), "check"], capture_output=True, text=True, timeout=RETRO_SECONDS, env=dict(reqenv.env_map()))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return evt.block(UNFIXED_RETRO.format(lines=(done.stdout or done.stderr).strip())) if done.returncode == RETRO_PROBLEMS else None
