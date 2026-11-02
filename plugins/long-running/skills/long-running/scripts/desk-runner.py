@@ -229,7 +229,7 @@ answers `stop_unknown`. The
 lane is marked withdrawn: its `UNFIXED` lines launch no case lane, and an Orca question it
 leaves, such as the offer to dispatch it again, logs `WITHDRAWN` instead of `DECIDE`; a
 case lane whose dispatch the root stopped by hand is marked the same way. A settled launch with no dispatch, a key or lane the runner holds nothing under,
-or a worker-stop Orca refuses logs `WITHDRAW-FAILED`. Each root cci record carrying `--re`, read in sequence
+or a worker-stop Orca refuses logs `WITHDRAW-FAILED`. Each root cci record carrying `--re`, or `--resolves` naming the runner's `DECIDE`, read in sequence
 order with the records addressed to `orca-desk`, is a reply: one to the runner's `DECIDE` on a worker question replies to that
 question, one to a lane's own record replies to that lane's open Orca question, which the cci
 reply superseded, and a `withdraw` of a launch record addressed to `orca-desk` withdraws that
@@ -457,7 +457,7 @@ later commit running, for one of its components when it names any. Each record c
 `--id release:<pr>:<step>`, so a repost after a crash returns the stored record and no step is posted twice. A record cci refuses,
 or a post that prints no `#<seq>`, is posted again on the next pass and escalated to root as `RELEASE-FAILED`, once per
 `deadlines.release_start_minutes` step. A worker's question escalates to root as `DECIDE`, and only a reply this
-drive's root posts with `--re` on that `DECIDE` or on the lane's own record answers it.
+drive's root posts with `--re` or `--resolves` on that `DECIDE`, or with `--re` on the lane's own record, answers it.
 With a `finder` object in runner.json, read again every pass, each orca pass, and a thread of the orca desk every 15 seconds
 between them, dispatches the finder (reference/finder-brief.md) on every drive head, beside the fidelity desks and never
 after them, so a slot a finished pass frees refills in seconds. A head whose PR a root `go` or an owner's board tap names
@@ -2696,7 +2696,7 @@ class Runner:
         return self.book.accept(self.lane(lane), key, "reply" if reply_to else "relay", target, key, self.now() + timedelta(minutes=minutes))
 
     def read_cci(self) -> None:
-        """Act in sequence order on each cci record past the saved sequence that names the orca desk in its `--to`, as one `orca-desk:` line, or that this drive's root posted with `--re`, as a reply; a peer drive's root reply relays nothing, and a broadcast to `all`, such as board-watch's owner taps, is no directive (root #306118). A reply to the runner's `DECIDE` on a worker question answers that question, a reply to a lane's own record answers that lane's open question, which the cci reply superseded, and a `withdraw` of a launch record withdraws that launch. A first read starts at the newest record."""
+        """Act in sequence order on each cci record past the saved sequence that names the orca desk in its `--to`, as one `orca-desk:` line, or that this drive's root posted with `--re`, or with `--resolves` on the runner's `DECIDE`, as a reply; a peer drive's root reply relays nothing, and a broadcast to `all`, such as board-watch's owner taps, is no directive (root #306118). A reply to the runner's `DECIDE` on a worker question answers that question, a reply to a lane's own record answers that lane's open question, which the cci reply superseded, and a `withdraw` of a launch record withdraws that launch. A first read starts at the newest record."""
         fact = f"cci:{self.config.drive}:{ORCA_DESK}"
         cursor = self.book.fact(RUNNER, fact, None)
         try:
@@ -2705,11 +2705,12 @@ class Runner:
                 self.book.edit(RUNNER, lambda incident: incident.facts.update({fact: max((record["seq"] for record in newest), default=0)}))
                 return
             addressed = cci.records(self.cci_tail, self.config.drive, "--to", ORCA_DESK, since=cursor)
-            replies = [record for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, since=cursor) if record.get("re")]
+            replies = [record for record in cci.records(self.cci_tail, self.config.drive, "--lane", ROOT, since=cursor) if record.get("re") or cci.resolved(record)]
             for record in sorted({record["seq"]: record for record in [*addressed, *replies]}.values(), key=lambda record: record["seq"]):
                 desk_line = ORCA_DESK in {to.split("@", 1)[0] for to in record.get("to") or []}
-                if record.get("re") and not (desk_line and INBOX_DIRECTIVE.match(record["text"].strip())):
-                    answered = record["lane"] == ROOT and record["drive"] == self.config.drive and self.root_reply(record, self.cci_record(record["re"]))
+                reply_to = record.get("re") or self.resolved_decide(record)
+                if reply_to and not (desk_line and INBOX_DIRECTIVE.match(record["text"].strip())):
+                    answered = record["lane"] == ROOT and record["drive"] == self.config.drive and self.root_reply(record, self.cci_record(reply_to))
                     if desk_line and not answered:
                         self.refuse_line(record)
                 elif desk_line:
@@ -2720,6 +2721,12 @@ class Runner:
 
     def tail_failed(self, failure: CciTailFailed) -> None:
         self.escalate(f"cci-tail:{actions.stamp(self.now())[:15]}", "CCI-TAIL-FAILED", "runner", str(failure))
+
+    def resolved_decide(self, record: dict) -> int | None:
+        """The runner `DECIDE` on a worker question that this drive's root record closes with `--resolves`, or None."""
+        if record["lane"] != ROOT or record["drive"] != self.config.drive:
+            return None
+        return next((seq for seq in sorted(cci.resolved(record)) if (closed := self.cci_record(seq)) and closed["lane"] == RUNNER and DECIDE_LINE.match(closed["text"])), None)
 
     def cci_record(self, seq: int) -> dict | None:
         out = self.cci_tail(["cci", "tail", "--drive", self.config.drive, "--since-seq", str(seq - 1), "--json", "--budget", str(cci.PAGE_BYTES)])
