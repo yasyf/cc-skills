@@ -381,9 +381,8 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
                 if not successor:
                     store.own(ROOT, gone.prs)
         elif kind == "decide" and lane == ROOT and (owner := OWNER.search(text)):
-            named = set(prs_of(record)) | {int(n) for n in PR_MENTION.findall(text)}
             running = {other.name for other in store.lanes(*LIVE)}
-            taken = {held for held in store.owner_of(named).values() if held and held != owner[1] and held in running}
+            taken = {held for held in store.owner_of(prs_of(record)).values() if held and held != owner[1] and held in running}
             if live is None and (refused := [(held, why) for held in sorted(taken) if (why := unread_by(store, record, held, cited_in(record)))]):
                 unread += refused
                 for held, why in refused:

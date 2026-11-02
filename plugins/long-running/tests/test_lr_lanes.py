@@ -594,6 +594,21 @@ def test_a_root_record_standing_down_a_lane_it_has_not_read_since_its_newest_rec
     assert f"root's {stand_down['kind']} #4 would stand conflicts-2 down or hand its PRs on, but it {cited}, so the supervisor refused it and holds conflicts-2 with its PRs" in fake.posts[0][-1]
 
 
+def test_an_owner_decide_moves_only_the_prs_it_refs_and_stands_no_lane_it_mentions_down(tmp_path, brief):
+    """Root #330065: 330046 named owner=signal-valkey-2 for #48037 and routed a fix on #47245 to uploads-to-replicator-1, and the supervisor held uploads-to-replicator-1 for lack of last-read."""
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store, prs=(47245,))
+    fake.feed += [spawned(2, "restack-children-2", brief), record(3, "conflicts-2", "head", text="#47245 7071204", refs={"prs": ["Forge-AI/monorepo#47245"]})]
+    fake.feed.append(record(4, "root", "decide", T0, "root: owner=restack-children-2 for #48037. Its red is #47245 7071204: conflicts-2 fixes that on #47245 now and posts HEAD.", ("supervisor-registry", "restack-children-2", "conflicts-2"), {"prs": ["Forge-AI/monorepo#48037"]}))
+    fake.peers.append(who("restack-children-2", True, T0))
+
+    lanes.tick(store, fake.deps, T0, 1)
+
+    assert store.lane("conflicts-2").state != "held"
+    assert store.owner_of([48037, 47245]) == {48037: "restack-children-2", 47245: "conflicts-2"}
+    assert not [argv for argv in fake.posts if argv[argv.index("--kind") + 1] == "defect"]
+
+
 @pytest.mark.parametrize("posts_again", [False, True])
 def test_a_lane_an_unread_stand_down_left_in_place_is_never_relaunched_once_it_stops(tmp_path, brief, posts_again):
     """Root #307233: on 0.7.847 the replay relaunched ten finished lanes whose stand-downs predate the last-read rule, such as exec-crash-2-fix-2, which posted one blocker after root's stand-down 293009 and stopped."""
