@@ -9,13 +9,14 @@ from .lane_rotation import DriveActive
 ACTIVE = [CompactionState(active=True)]
 LANE = "atooling-misc-3-0123456789abcdef"
 SPAWN = {"name": "hook-fix", "description": "fix a hook", "prompt": "Fix the hook."}
+SHIP = "ship-pr"
 REFUSAL = (
     "A lane never spawns a sub-worker with Agent, since a teammate cannot background the call and `{lane}` would wait inside it. "
     "Write the brief to a file, post `cci post --lane {lane} --kind ask --to root --text 'spawn <name> brief=<path> model=<opus|sonnet>'`, and keep working."
 )
 
 
-@on(  # capt-hook: no-escape root spawns every sub-worker, root #235843
+@on(  # capt-hook: no-escape root spawns every sub-worker, root #235843; the submit-pr skill's ship-pr agent is one ship call, root #336914
     Event.PreToolUse,
     only_if=[Tool("Agent"), DriveActive()],
     tests={
@@ -24,9 +25,10 @@ REFUSAL = (
         Input(tool="Agent", tool_input=SPAWN, state=ACTIVE): Allow(),
         Input(tool="Agent", tool_input=SPAWN, agent_id="a0123456789abcdef", state=ACTIVE): Allow(),
         Input(tool="Agent", tool_input=SPAWN, agent_id=LANE): Allow(),
+        Input(tool="Agent", tool_input={**SPAWN, "subagent_type": SHIP}, agent_id=LANE, state=ACTIVE): Allow(),
     },
 )
 def lanes_never_spawn(evt: BaseHookEvent) -> HookResult | None:
-    if not (lane := lane_name(evt)):
+    if not (lane := lane_name(evt)) or evt.input.raw.get("subagent_type") == SHIP:
         return None
     return evt.block(REFUSAL.format(lane=lane))
