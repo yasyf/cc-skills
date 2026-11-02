@@ -144,9 +144,9 @@ def test_a_remote_vet_that_hangs_stops_at_its_timeout_and_names_the_stage(tmp_pa
 
     done = subprocess.run([sys.executable, str(SCRIPT), "--config", str(config), "--lane", "l1", "--timeout", "3", str(work)], env=env, capture_output=True, text=True, timeout=30)
 
-    assert done.returncode == 1
+    assert done.returncode == 3
     assert "START prepare" in done.stdout
-    assert "gave no result within 3s, still in stage prepare" in done.stderr
+    assert "left no verdict in stage prepare: no result within 3s; push and let CI grade l1" in done.stderr
 
 
 def test_a_remote_vet_refuses_when_every_vet_sprite_is_over_load_so_the_lane_pushes_for_ci(tmp_path: Path) -> None:
@@ -200,3 +200,16 @@ def test_a_remote_vet_with_no_build_sprite_refuses_and_never_falls_back_to_a_gra
     assert done.returncode == 3, done.stdout + done.stderr
     assert done.stdout == f"remote-vet: {config} names no BUILD Sprite under vet.sprite, and a vet never runs on a grading Sprite; pass --sprite or push and let CI grade l1\n"
     assert not (tmp_path / "sprites.log").exists()
+
+
+def test_a_remote_vet_whose_sprite_ends_without_a_verdict_reads_as_not_vetted_never_as_a_failed_vet(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """T5: a Sprite that answered the load probe and then lost the connection, or could not start the vet script, ended with a nonzero status that read as a vet failure, so the lane fixed code that was never run. Only the script's own VERDICT line says the vet ran."""
+    mac, sprite, work, config, _, env = lane_change(tmp_path, monkeypatch, "", "")
+    dropping = "#!/usr/bin/env python3\nimport sys\nif sys.argv[4:][-1] == '/proc/loadavg':\n    print('1')\n    sys.exit(0)\nprint('Error: failed to connect', file=sys.stderr)\nsys.exit(255)\n"
+    executable(mac / "bin" / "sprite", dropping)
+
+    done = subprocess.run([sys.executable, str(SCRIPT), "--config", str(config), "--lane", "l1", str(work)], env=env, capture_output=True, text=True)
+
+    assert done.returncode == 3, done.stdout + done.stderr
+    assert "left no verdict in stage connect: Error: failed to connect; push and let CI grade l1" in done.stderr
+    assert "failed in stage" not in done.stderr
