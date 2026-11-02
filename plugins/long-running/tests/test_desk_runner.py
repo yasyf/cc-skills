@@ -16330,7 +16330,7 @@ def test_each_head_starts_one_fidelity_pass_carrying_the_prs_grades_old_app_line
 
 
 def test_a_pass_hands_codex_the_plan_grounds_root_accepted_outside_the_package_for_its_lane(shell, config):
-    fidelity_config(config, sources={"docs": ["4baeb30"], "records": {"p8a-step9": [149910, 149911], "other-lane": [149912]}})
+    fidelity_config(config, sources={"docs": {"p8a-step*": ["4baeb30"], "s*-class-*": ["0000000"]}, "records": {"p8a-step9": [149910, 149911], "other-lane": [149912]}})
     shell.docs["4baeb30"] = {"id": "4baeb304cbf8", "title": "Class-fix inventory", "body": "S2: one implementation in the shared server for both trees.\n"}
     for seq, lane, kind, text in ((149910, "p8a-step9", "contract", "S2 design: the park record holds the txid."), (149911, "root", "decide", "contract 149910 accepted."), (149912, "other-lane", "contract", "another lane's design")):
         shell.records.append({"seq": seq, "drive": "d1", "lane": lane, "kind": kind, "to": ["root"], "text": text, "at": actions.stamp(shell.clock)})

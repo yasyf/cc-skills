@@ -662,6 +662,7 @@ import argparse
 import hashlib
 import html
 import itertools
+import fnmatch
 import json
 import os
 import plistlib
@@ -2083,6 +2084,11 @@ def sentence(text: str, found: re.Match) -> str:
     ends = [end for end in (text.find(". ", found.end()), text.find("\n", found.end())) if end != -1]
     return text[start : min(ends, default=len(text))]
 
+
+
+def lane_sources[T](table: dict[str, list[T]], lane: str) -> list[T]:
+    """Every entry `table` lists under a shell pattern `lane` matches, in the table's order, each once."""
+    return list(dict.fromkeys(entry for pattern, entries in table.items() if fnmatch.fnmatchcase(lane, pattern) for entry in entries))
 
 class Runner:
     def __init__(self, shell: Shell, config: Config, store: actions.Store):
@@ -5306,9 +5312,9 @@ class Runner:
                 running += self.start_fidelity(spec, repo, action, rows, live.get(json.loads(action.target)["pr"], {}))
 
     def fidelity_sources(self, spec: dict, drive_id: str, lane: str, live: dict) -> str:
-        """The plan grounds root accepted outside the plan package for a head of `lane` whose PR GitHub reads as `live`, in full: each cc-notes doc in `fidelity.sources.docs`, each cci record `records` lists under `*` or `lane`, each root defect, decide or answer the PR body cites as `#<seq>`, and, on an `options/<card>-<option>` branch, the root board's card the branch builds an option of, as `cc-present block show` prints it."""
-        docs = [json.loads(self.briefs("doc", "show", ident, "--json").out) for ident in spec.get("docs", [])]
-        named = [*spec.get("records", {}).get("*", []), *spec.get("records", {}).get(lane, [])]
+        """The plan grounds root accepted outside the plan package for a head of `lane` whose PR GitHub reads as `live`, in full: each cc-notes doc and cci record `fidelity.sources.docs` and `records` list under a shell pattern `lane` matches, such as `*` or `s*-class-*`, each root defect, decide or answer the PR body cites as `#<seq>`, and, on an `options/<card>-<option>` branch, the root board's card the branch builds an option of, as `cc-present block show` prints it."""
+        docs = [json.loads(self.briefs("doc", "show", ident, "--json").out) for ident in lane_sources(spec.get("docs", {}), lane)]
+        named = lane_sources(spec.get("records", {}), lane)
         cited = {int(seq) for seq in CITED_RECORD.findall(live.get("body") or "")} - set(named)
         records = [record for record in cci.selected_records(self.cci_tail, drive_id, [*named, *cited]) if record["seq"] not in cited or (record["lane"] == ROOT and record["kind"] in CITED_ROOT_KINDS)]
         sections = [*(f"## cc-notes doc {doc['id'][:7]}: {doc['title']}\n\n{doc['body'].strip()}" for doc in docs), *(f"## cci #{record['seq']}, {record['kind']} from {record['lane']}\n\n{full_text(record)}" for record in records)]
