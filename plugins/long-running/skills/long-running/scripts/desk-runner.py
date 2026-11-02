@@ -5301,9 +5301,8 @@ class Runner:
         if (branch := live.get("headRefName") or "").startswith(OPTIONS_BRANCH):
             card, option = branch.removeprefix(OPTIONS_BRANCH).rsplit("-", 1)
             shown = self.shell.run(["cc-present", "block", "show", card, "--session", drive.root_session(drive_id)])
-            if shown.code:
-                raise RuntimeError(f"cc-present block show {card}: {shown.err.strip()}")
-            sections.append(f"## Board card {card}, whose option {option} this branch builds\n\n{shown.out.strip()}")
+            if shown.code == 0:
+                sections.append(f"## Board card {card}, whose option {option} this branch builds\n\n{shown.out.strip()}")
         return "\n\n".join(sections)
 
     def incident_fix_row(self, row: dict) -> bool:
