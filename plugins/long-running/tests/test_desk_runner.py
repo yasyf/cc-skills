@@ -15326,6 +15326,18 @@ def test_a_green_ledger_head_no_record_named_starts_one_finder_pass_and_others_s
     assert [(job["pr"], job["head"], job["lane"]) for job in finder_jobs(shell)] == [("44614", heads["44614"], "p8c-conversion-ship-6")]
 
 
+def test_a_finder_stall_on_a_ledger_head_queues_its_pass_and_one_on_a_head_the_pr_left_queues_none(shell, config):
+    """Root #304381: stall-watch's finder stalls go to the finder desk, which queues the head a stall names while the PR is still at it."""
+    finder_config(config)
+    orca_pass(shell, config)
+    heads = {pr: hashlib.sha1(pr.encode()).hexdigest() for pr in ("44599", "44600")}
+    shell.rows = [{"pr": pr, "head": head, "test_state": "pending", "lane": "n-enumeration-12"} for pr, head in heads.items()]
+    for pr, head in (("44599", heads["44599"][:7]), ("44600", "0123abc")):
+        shell.records.append({"seq": 149000 + len(shell.records), "drive": "d1", "lane": "stall-watch", "kind": "urgent", "to": ["finder-desk@d1"], "topic": f"finder:{pr}:{head}", "refs": {"prs": [f"Forge-AI/monorepo#{pr}"]}, "text": f"STALL finder #{pr} at {head}, 30 min: no finder review names this head", "source": "post", "at": actions.stamp(shell.clock)})
+    orca_pass(shell, config)
+    assert [(job["pr"], job["head"], job["lane"]) for job in finder_jobs(shell)] == [("44599", heads["44599"], "n-enumeration-12")]
+
+
 def test_a_ledger_head_trailing_a_queued_head_record_never_supersedes_it(shell, config):
     finder_config(config, concurrent=1)
     orca_pass(shell, config)
