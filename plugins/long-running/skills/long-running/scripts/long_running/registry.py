@@ -2,19 +2,15 @@
 
 One `drive_supervisor.py lanes --json` answer holds a row per worker. A sender takes from it
 where a lane's mail goes, `route`, and a reader takes which names are one worker's line of
-successors, `lineage`, from the rows' own successor links. A numbered name such as
-`fidelity-desk-13` still joins `fidelity-desk-12`'s line until every launch names the
-worker it succeeds.
+successors, `lineage`, from the rows' own successor links, never from a lane's name.
 """
 
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 
 ROOT = "root"
-NUMBER = re.compile(r"(?:-\d{1,2})+$")
 
 
 @dataclass(frozen=True)
@@ -43,8 +39,7 @@ class Registry:
                 if other and other != ROOT and other in self.rows:
                     links.setdefault(name, set()).add(other)
                     links.setdefault(other, set()).add(name)
-        family = re.compile(rf"{re.escape(NUMBER.sub('', lane))}(?:-\d{{1,2}})*")
-        seen, todo = {lane}, [lane, *(name for name in self.rows if family.fullmatch(name))]
+        seen, todo = {lane}, [lane]
         while todo:
             name = todo.pop()
             seen.add(name)

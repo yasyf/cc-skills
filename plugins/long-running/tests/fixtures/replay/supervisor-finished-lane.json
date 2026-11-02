@@ -759,6 +759,25 @@
     "topic": "msg_704aa44059c7"
    },
    {
+    "at": "2026-11-01T13:53:18.629Z",
+    "fields": {
+     "attrs": {
+      "lane": "takeover-500-4-fix",
+      "verb": "done"
+     }
+    },
+    "kind": "decide",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283311,
+    "text": "",
+    "to": [
+     "supervisor"
+    ]
+   },
+   {
     "at": "2026-11-01T13:55:32.449Z",
     "fields": {
      "attrs": {}
@@ -971,22 +990,39 @@
    {
     "at": "2026-11-01T14:10:35.729Z",
     "fields": {
-     "attrs": {}
+     "attrs": {
+      "lane": "takeover-500-4-fix",
+      "verb": "stand-down"
+     }
     },
-    "kind": "stand-down",
+    "kind": "decide",
     "lane": "root",
-    "re": 283474,
     "refs": {
      "prs": []
     },
     "seq": 283487,
-    "text": "stand-down takeover-500-4-fix; stand-down takeover-500-4-fix-2",
+    "text": "",
     "to": [
-     "takeover-500-4-fix",
-     "takeover-500-4-fix-2",
-     "supervisor",
-     "orca-desk",
-     "drive-watchdog-2"
+     "supervisor"
+    ]
+   },
+   {
+    "at": "2026-11-01T14:10:35.729Z",
+    "fields": {
+     "attrs": {
+      "lane": "takeover-500-4-fix-2",
+      "verb": "stand-down"
+     }
+    },
+    "kind": "decide",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "seq": 283487,
+    "text": "",
+    "to": [
+     "supervisor"
     ]
    },
    {
@@ -1000,7 +1036,7 @@
      "prs": []
     },
     "seq": 283488,
-    "text": "stand-down exists is never relaunched",
+    "text": "",
     "to": [
      "tooling-misc-5",
      "mq-health-8"
@@ -1017,7 +1053,7 @@
      "prs": []
     },
     "seq": 283490,
-    "text": "stand-down takeover-500-4-fix; #283487",
+    "text": "#283487",
     "to": [
      "root"
     ],

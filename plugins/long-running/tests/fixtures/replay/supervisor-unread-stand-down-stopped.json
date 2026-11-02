@@ -1113,7 +1113,7 @@
      ]
     },
     "seq": 291059,
-    "text": "0 replaces are; #291025",
+    "text": "#291025",
     "to": [
      "root"
     ]
@@ -1133,7 +1133,7 @@
     },
     "resolves": 291045,
     "seq": 291060,
-    "text": "0 replaces or",
+    "text": "",
     "to": [
      "exec-crash-2-fix",
      "exec-crash-2-fix-opus",
@@ -1286,7 +1286,7 @@
      ]
     },
     "seq": 291157,
-    "text": "0 replaces required; #291060",
+    "text": "#291060",
     "to": [
      "root"
     ]
@@ -1518,7 +1518,7 @@
     },
     "resolves": 291481,
     "seq": 291531,
-    "text": "0 replaces everywhere",
+    "text": "",
     "to": [
      "exec-crash-2-fix",
      "dev-health-desk-1",
@@ -2010,6 +2010,25 @@
     "topic": "msg_1e3772a07202"
    },
    {
+    "at": "2026-11-01T20:56:14.673Z",
+    "fields": {
+     "attrs": {
+      "lane": "exec-crash-2-fix",
+      "verb": "done"
+     }
+    },
+    "kind": "decide",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 292336,
+    "text": "",
+    "to": [
+     "supervisor"
+    ]
+   },
+   {
     "at": "2026-11-01T20:56:57.071Z",
     "fields": {
      "attrs": {}
@@ -2106,7 +2125,7 @@
      "prs": []
     },
     "seq": 292974,
-    "text": "stand down exec-crash-2-fix-2 now; #292965; #292335; #290966",
+    "text": "#292965; #292335; #290966",
     "to": [
      "root",
      "mq-health-8"
@@ -2181,22 +2200,20 @@
    {
     "at": "2026-11-01T21:14:27.199Z",
     "fields": {
-     "attrs": {}
+     "attrs": {
+      "lane": "exec-crash-2-fix-2",
+      "verb": "stand-down"
+     }
     },
-    "kind": "stand-down",
+    "kind": "decide",
     "lane": "root",
     "refs": {
      "prs": []
     },
-    "resolves": 292974,
     "seq": 293009,
-    "text": "stand-down exec-crash-2-fix-2; #1606",
+    "text": "",
     "to": [
-     "supervisor",
-     "desk-runner",
-     "drive-watchdog-2",
-     "mq-health-8",
-     "exec-crash-2-fix-2"
+     "supervisor"
     ]
    },
    {
@@ -2227,7 +2244,7 @@
     },
     "resolves": 293067,
     "seq": 293068,
-    "text": "stand-down 293009)",
+    "text": "",
     "to": [
      "exec-crash-2-fix-2",
      "desk-runner",

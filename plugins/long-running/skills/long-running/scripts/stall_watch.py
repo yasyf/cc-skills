@@ -265,6 +265,7 @@ LAUNCH_SECONDS = 60
 RED_FIELD = re.compile(r"\b(class|head|owner)=(\S+)")
 HANDED_TO = re.compile(r"\bsuccessor ([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b")
 RED_SWEEP = "red-sweep"
+RED_SWEEPS = re.compile(rf"{RED_SWEEP}(?:-\d{{1,2}})*")
 OWNER_ORDER = re.compile(r"\bowner\b.{0,80}\bverbatim\b", re.IGNORECASE | re.DOTALL)
 ORDER_WINDOW = timedelta(hours=2)
 REASSIGNS = re.compile(r"\breassign", re.IGNORECASE)
@@ -714,6 +715,11 @@ class Pass:
         last = max((record for name, record in self.lane_newest.items() if name in lineage), key=lambda record: record["seq"], default=None)
         return last["lane"] if last is not None and not ended(last) else None
 
+    def red_sweep_live(self) -> bool:
+        """Whether a lane started from the red-sweep brief, which root names `red-sweep-<n>`, posted the newest of their records in the window and that record is no end of the lane: a role, not a successor."""
+        last = max((record for name, record in self.lane_newest.items() if RED_SWEEPS.fullmatch(name)), key=lambda record: record["seq"], default=None)
+        return last is not None and not ended(last)
+
     def warn(self, kinds: frozenset[str] | set[str], why: str) -> None:
         self.unread |= kinds
         print(f"WARN {why}; the {', '.join(sorted(kinds))} stalls it would clear stay open", file=sys.stderr)
@@ -1111,7 +1117,7 @@ class Pass:
             cite = grades.go_state(gos, first, rows[first]["head"]).said()
             stalls.append(Stall(f"go:{blocker}:{sha}", "go", min(since for _, since, *_ in group), f"#{blocker} at {sha}", f"root go{'s name' if len(named) > 1 else ' names'} {listed}{stack} (#{first}: {cite}), and no QUEUED record does", owner, step, blocker))
         reds = [found for found in entries if "red" in found]
-        if reds and self.live_lane(RED_SWEEP) is None and self.now - (oldest := min(actions.parse_stamp(found["red"]["since"]) for found in reds)) >= self.watch.age("sweep"):
+        if reds and not self.red_sweep_live() and self.now - (oldest := min(actions.parse_stamp(found["red"]["since"]) for found in reds)) >= self.watch.age("sweep"):
             named = [f"#{found['pr']} ({found['red']['class']})" for found in reds]
             listed = ", ".join(named[:LISTED]) + (f" and {len(named) - LISTED} more" if len(named) > LISTED else "")
             stalls.append(Stall(f"sweep:{RED_SWEEP}", "sweep", oldest, f"{len(reds)} red PR{'' if len(reds) == 1 else 's'}", f"no live {RED_SWEEP} lane holds them: {listed}", (ROOT,), f"root spawns {RED_SWEEP} from the long-running skill's reference/red-sweep-brief.md"))

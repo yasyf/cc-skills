@@ -4739,21 +4739,22 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   posts a `stand-down` for another lane. `drive_supervisor.py route <lane> --config
   lr.json` prints where that lane's mail goes. Helper roles and `<lane>-handoff` writers
   stay out. A lane's `head` and `opened` records move their PRs to it, `landed` records drop
-  them, a root `decide ... owner=<lane>` moves them, the lane's own `done`, `stopped` or
-  `stand-down` record retires it, and a root `stand-down` retires it or hands it to the
-  successor it names. Only these structured records retire a lane, never prose: a lane
-  told in prose to stand down after a task stays desired until it posts `--kind done`, so
-  a death mid-task still gets a successor. A lane is also retired
-  by the `SPAWNED` record of a numbered successor (`desk-4` for `desk-3`), by a root
-  `<new> replaces <old>`, and, while it has never come up, by another lane's records
-  taking its last PR. A `<lane>-handoff` writer's `handoff <lane>: doc <id>` is the
-  newest handoff of the lane now holding that work. A root `stand-down`, `replaces`, or
-  `owner=` decide that takes a live lane's place or PRs cites `last-read=<seq>`, the
-  newest record of that lane root read with `cci tail --lane <lane> --since <its wake seq>
-  --oldest`. The supervisor refuses one that cites none, or one older than the lane's
-  newest record, holds the lane with its PRs, and posts a `defect` to root and the lane. A
-  held lane is never relaunched or retired, and its next record makes it live again, so a
-  finished lane root stood down without a citation stays down and a working one keeps working.
+  them, an `owner` request moves them, the lane's own `done`, `stopped` or `stand-down`
+  record retires it, and a `stand-down` request retires it or hands it to the successor it
+  names. Only these typed records change a row, never prose and never a lane's name: a
+  lane told in prose to stand down stays desired until it posts `--kind done`, so a death
+  mid-task still gets a successor, and a numbered spawn such as `desk-4` takes over
+  `desk-3` only when its launch names it. A lane that has never come up is also retired by
+  another lane's records taking its last PR, and the desk runner asks for `done` when a
+  lane's Orca worker reports `worker_done succeeded`. A `<lane>-handoff` writer's
+  `handoff <lane>: doc <id>` is the newest handoff of the lane now holding that work. A
+  `stand-down` or `owner` request that takes a live lane's place or PRs carries
+  `--last-read <seq>`, the newest record of that lane root read with `cci tail --lane
+  <lane> --since <its wake seq> --oldest`. The supervisor refuses one that cites none, or
+  one older than the lane's newest record, holds the lane with its PRs, and posts a
+  `defect` to root and the lane. A held lane is never relaunched or retired, and its next
+  record makes it live again, so a finished lane root stood down without a citation stays
+  down and a working one keeps working.
 - **Liveness.** A lane is dead only when it has no live process and no record within
   `STALE_AFTER`, 15 minutes. A live process is a `cci who` row that reads live, a live
   Orca dispatch, or an in-process teammate on a live lead session's team roster, since
@@ -4788,16 +4789,15 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   record named it, and a lane is `live` unless it left the supervisor's direct ask
   unanswered, whatever its registry state. Each PR has one owner, the row that lists it: the last lane to post a `head`
   or `opened` record for it that is not addressed to its current owner, so a desk relaying a
-  rebase to the owner leaves it in place, the lane root names with `--kind decide --pr <n> --text
-  'owner=<lane>'`, or the successor of a stand-down or an `X replaces Y`. A `landed` record
-  clears it. Root's prose namings are not parsed. When a root `decide` names an owner that
+  rebase to the owner leaves it in place, the lane an `owner` request names, or the
+  successor of a stand-down or of a launch naming the lane it takes over. A `landed` record
+  clears it. Root's prose namings are not parsed. When an `owner` request names a lane that
   left the supervisor's ask unanswered, the supervisor posts one blocker back to root naming
   the lane, the ask's time and its live successor, if it has one. A quiet owner root names is
   asked first, like any quiet owner. A `cci who` row is a process fact only:
   every in-process teammate of a live root session reads live there, however long ago it
   stopped.
-- **Relaunch.** A lane that stopped or went silent, with no live numbered successor in
-  `cci who`, gets a successor `<lane>-<n+1>`. The supervisor writes its brief: a
+- **Relaunch.** A lane that stopped or went silent gets a successor `<lane>-<n+1>`. The supervisor writes its brief: a
   `ccx: place=local` line, so the lane runs on the Mac beside the inputs the brief
   names, a `Register slice:` line for the new name, the newest handoff doc or the order
   to spawn `<lane>-handoff` from
@@ -4826,14 +4826,13 @@ A fresh store adopts only the lanes live at that moment, and a tick whose source
 all answer acts on nothing. The supervisor signals no process: a lane leaves only
 through the record that stands it down.
 
-A `SendMessage` to a rotated or stood-down lane resumes it on its stale brief. The pack
-rewrites every such message, from any sender, to the end of the lane's successor chain,
-which it reads from this session's spawns and stops and from cci's stand-down records
-(`cci who --successor-of <lane>`), when `cci who` lists that successor live; otherwise
-the message goes to the lane as addressed, with a warning. A message that mentions a
-stand-down is never forwarded, only warned. A `TaskStop` or a
-root `STAND-DOWN` retires a lane with no successor: a lane's or worker's message to it
-goes to `main` instead. No case blocks. Respawning under the name clears both.
+A `SendMessage` to a stood-down lane resumes it on its stale brief. The pack rewrites
+every such message, from any sender, to where the registry routes that lane,
+`drive_supervisor.py route <lane>`: its successor, or `main` when it retired with no
+successor. Root's own message to a lane retired with no successor is only warned. A message
+that mentions a stand-down is never forwarded, only warned. A `cci post --kind stand-down`
+naming any lane but the poster's own is blocked with the `request` command to run instead,
+so only the supervisor posts the stand-down cci routes mail by.
 
 *Prevents five stacks of owner-approved PRs sitting unrebased overnight because their
 lanes had died and nothing restarted them until the root noticed hours later

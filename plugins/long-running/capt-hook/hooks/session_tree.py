@@ -18,7 +18,6 @@ from captain_hook.util import reqenv
 
 __capt_hook_skip__ = True
 
-STAND_DOWN = re.compile(r"\s*(?:[^.;:!?\n]{1,40}:\s*)?stand[\s-]?down\b", re.IGNORECASE)
 TEAMMATE_MESSAGE = re.compile(r'<teammate-message teammate_id="([^"]+)"[^>]*>\n(.*?)\n</teammate-message>', re.DOTALL)
 ROOT_NAMES = frozenset({"team-lead", "main"})
 LANE_IN_SUBJECT = re.compile(r"\blane `?([\w.-]+)")
@@ -70,10 +69,6 @@ def drive_lane(evt: BaseHookEvent, skip: Callable[[str | None], bool] = lambda _
             outermost = name
         agent_id = fields.get("parentAgentId")
     return outermost
-
-
-def orders_stand_down(text: str) -> bool:
-    return STAND_DOWN.match(text) is not None
 
 
 def acquire(lock: Path) -> bool:

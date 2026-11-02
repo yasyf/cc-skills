@@ -1,38 +1,29 @@
-"""The lanes mover: every lane the drive needs stays alive without the root.
+"""The lanes mover: every worker the drive needs stays alive without the root.
 
-Each tick folds the bus records after the mover's cursor into the `lanes` registry, reads
-once which lanes `cci who` lists live, and acts on each desired lane. A lane whose process
-row reads not live, with no record within `STALE_AFTER` and no stand-down on that row, has its
-successor launched from the lane's brief and newest handoff, and is stood down by one record
-naming that successor and the PRs it takes over once the successor is up; a lane with no
-process row in `cci who` or Orca is held and named to root instead, since nothing proves it
-died, and a row cci marks stood down retires it; a lane whose newest record is an unanswered ask to root
-is waiting, and its clock restarts at the answer. A lane past its context line is asked to
-rotate and flushes in place: its handoff becomes the newest one and it keeps working. Each
-live lane beats in the store's worker table, and a lane it relaunches, holds or retires
-leaves that table. A fresh store adopts only the lanes alive at that moment by the same
-rule, and a tick whose sources do not all answer acts on nothing. A numbered successor's
-`SPAWNED`, a root `<new> replaces <old>`, a root record telling a lane to stand down, the
-lane's own stand-down, and a `head` or `opened` record that takes a never-launched lane's
-last PR each retire a lane, and so does a lane that stops with nothing posted after its last owned
-PR landed, since its deliverable is merged (root #283488). A root stand-down, `replaces`, or
-`owner=` decide that takes a live lane's place or PRs counts only when it cites
-`last-read=<seq>` no older than that lane's newest record; otherwise it is refused to root
-and the lane as a defect, and the lane is held, neither retired nor relaunched. Its own next record
-makes it live again, but once it stops the supervisor holds it for root rather than relaunch it
-(root #304721, #307233). A `<lane>-handoff` writer's `handoff <lane>: doc <id>` is the
-lane's newest handoff. It signals no process: a live lane leaves only
-through the record that stands it down.
+The `lanes` table holds one row per worker, and only this mover writes it. Each tick folds the
+bus records after the mover's cursor into it, reads once which lanes `cci who` lists live, and
+acts on each desired lane. Only typed records change a row:
 
-The registry holds one row per worker, and only this mover writes it, through the verbs below.
-Anyone else asks for a change with one typed request, a `decide` to `supervisor` whose attrs name
-the `verb` (`stand-down`, `park`, `unpark`, `owner` or `done`), the `lane`, and, as the verb needs,
-the `successor`, the `last-read` seq and the PRs by `--pr`; `drive_supervisor.py request` writes it.
-A launch is a `SPAWNED` state record or a cci `spawn` record whose attrs carry the brief, model,
-effort, role, placement and, for a relaunch, `successor-of`. The supervisor alone posts the
-`stand-down --successor` record cci routes mail by, and `route` answers every sender from the row.
+- A launch, a `SPAWNED` state record or a cci `spawn` record, adds the worker with the brief,
+  model, effort, role and placement its attrs carry. One naming `successor-of` takes that
+  worker's PRs and retires it.
+- A request, a `decide` to `supervisor` whose attrs name the `verb` (`stand-down`, `park`,
+  `unpark`, `owner` or `done`) and the `lane`, with `successor`, `last-read` and `--pr` as the
+  verb needs, is the only way anyone else changes a row; `drive_supervisor.py request` writes it.
+  A stand-down or owner request that takes a live lane's place or PRs counts only when its
+  `last-read` is no older than that lane's newest record; otherwise the lane is held with its
+  PRs and root and the lane hear one defect (root #304721, #307233).
+- The lane's own `done`, `stopped` or `stand-down` retires it, its `head` and `opened` records
+  move PRs to it, and a `landed` record drops them.
+
+The supervisor alone posts the `stand-down --successor` record cci routes mail by, and `route`
+answers every sender from the row. A lane whose process row reads not live, with no record
+within `STALE_AFTER`, has its successor launched from the lane's brief and newest handoff; a
+lane with no process row is held for root, since nothing proves it died; a lane waiting on an
+ask to root keeps its clock until the answer. A lane past its context line is asked to rotate
+and flushes in place. A fresh store adopts only the lanes alive at that moment, and a tick
+whose sources do not all answer acts on nothing. The supervisor signals no process.
 """
-
 from __future__ import annotations
 
 import re
@@ -46,7 +37,6 @@ from lr.store import STALE_AFTER, Lane, Store, parse, stamp
 
 SELF = "supervisor"
 ROOT = "root"
-RUNNER = "desk-runner"
 CURSOR = "lanes"
 HOUR = "lanes.hour"
 ADOPT_WINDOW = "72h"
@@ -54,7 +44,6 @@ STRIKES = 2
 LIVE = ("launching", "desired")
 HELPER_ROLES = frozenset({"helper", "reader", "watch", "export", "evidence", "handoff", "comms", "triage"})
 NUMBERED = re.compile(r"^(?P<family>.+)-(?P<n>\d{1,2})$")
-REPLACES = re.compile(r"\b(?P<new>[\w.-]+) replaces (?P<old>[\w.-]+)\b")
 HANDED_OFF = re.compile(r"\bhandoff (?P<lane>[\w.-]+): doc (?P<doc>[0-9a-f]{7,40})\b")
 CARRIES = ("head", "opened")
 WAITS = frozenset({"ask", "blocked", "blocker"})
@@ -64,17 +53,12 @@ REQUEST = "decide"
 VERBS = frozenset({"stand-down", "park", "unpark", "owner", "done"})
 LANDED = "landed"
 SLICE_STEP = re.compile(r"^Register slice: lane=\S+ step=(\S+)", re.MULTILINE)
-WORKER_DONE = re.compile(r"^OUTCOME \S+ (?P<lane>[\w.-]+): worker_done succeeded\b")
-STAND_DOWN_LIST = re.compile(r"\bstand[ -]?down\s+(?P<names>[^.(;:\n]+)", re.IGNORECASE)
 CARD = re.compile(r"\bcard-[\w.-]*\w")
-PARKED = re.compile(r"\bPARKED (?P<lane>[\w.-]+):")
 PR_MENTION = re.compile(r"#(\d+)\b")
 NEEDS_WORK = "needs-work"
 STRIKE_WINDOW = 2 * STALE_AFTER
 PAGE_ANSWER = 2 * STALE_AFTER
 LIVE_WITHIN = 4 * STALE_AFTER
-OWNER = re.compile(r"\bowner=([\w.-]+)")
-LAST_READ = re.compile(r"\blast-read=#?(?P<seq>\d+)\b")
 UNREAD = " down or hand its PRs on, but it "
 PACIFIC = ZoneInfo("America/Los_Angeles")
 HANDOFF_BRIEF = Path(__file__).parents[3] / "reference" / "handoff-subagent-brief.md"
@@ -183,11 +167,6 @@ def family(name: str) -> tuple[str, int]:
     return (match["family"], int(match["n"])) if match else (name, 1)
 
 
-def succeeds(name: str, old: str) -> bool:
-    (base, n), (other, later) = family(old), family(name)
-    return other == base and later > n
-
-
 def successor_name(name: str, taken: set[str]) -> str:
     base, n = family(name)
     while f"{base}-{n + 1}" in taken:
@@ -279,8 +258,6 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
                 takes_over(store, name, old, at)
                 if live is None:
                     out.stood.append((old.name, name, old.prs, record["seq"]))
-            for old in [store.lane(other) for other in store.names() if succeeds(name, other)]:
-                takes_over(store, name, old, at)
             if (mine := store.lane(name)) and mine.state == "launching" and mine.reason and Path(brief).resolve() != (briefs / f"{name}.brief.md").resolve():
                 hand.append(name)
             if live is None or name in live:
@@ -308,8 +285,6 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
         if answers := resolved | {record.get("re")} - {None}:
             for name in store.answered(answers, LIVE):
                 store.lane_waiting(name, None, at)
-        if lane == ROOT and kind == "state" and (parked := PARKED.search(text)) and (resting := store.lane(parked["lane"])) and resting.state in LIVE:
-            store.lane_waiting(resting.name, record["seq"])
         moved = set(prs_of(record)) if kind == "head" else set()
         for name, page in store.pages().items():
             if resolved & set(page.get("seqs", [])) or moved & set(page["prs"]):
@@ -324,8 +299,6 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             continue
         if asked := request(record):
             granted(store, record, asked, live, at, out)
-        elif lane == RUNNER and (done := WORKER_DONE.match(text)) and (ended := store.lane(done["lane"])) and ended.state != "retired":
-            retire(store, ended.name, "worker-done", at)
         elif kind == "handoff" and row and (doc := (record.get("refs") or {}).get("ccn")):
             store.lane_handoff(lane, doc, at if row.asked else None)
         elif (handed := HANDED_OFF.search(text)) and lane == f"{handed['lane']}-handoff" and (owner := newest(store, handed["lane"])):
@@ -346,47 +319,7 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             retire(store, lane, "done", at)
         elif row and row.state != "retired" and kind in ("stopped", "stand-down"):
             retire(store, lane, "stand-down", at)
-        elif kind == "stand-down" and lane == ROOT:
-            successor = attrs_of(record).get("successor")
-            named = {name for listed in STAND_DOWN_LIST.finditer(text) for name in re.findall(r"[\w.-]+", listed["names"]) if store.lane(name)}
-            for old in sorted((named or set(record.get("to") or [])) - {successor}):
-                if not (gone := store.lane(old)):
-                    continue
-                if live is None and gone.state in LIVE and (why := unread_by(store, record, old, cited_in(record))):
-                    unread.append((old, why))
-                    hold(store, old, why, at)
-                    continue
-                if gone.state != "retired":
-                    retire(store, old, successor or ROOT, at)
-                    if successor:
-                        store.want_lane(successor, gone.brief, gone.model, gone.effort, gone.role, "launching", at, handoff=gone.handoff, prs=gone.prs, predecessor=old)
-                        continue
-                if not successor:
-                    store.own(ROOT, gone.prs)
-        elif kind == "decide" and lane == ROOT and (owner := OWNER.search(text)):
-            named = set(prs_of(record)) | {int(n) for n in PR_MENTION.findall(text)}
-            running = {other.name for other in store.lanes(*LIVE)}
-            taken = {held for held in store.owner_of(named).values() if held and held != owner[1] and held in running}
-            if live is None and (refused := [(held, why) for held in sorted(taken) if (why := unread_by(store, record, held, cited_in(record)))]):
-                unread += refused
-                for held, why in refused:
-                    hold(store, held, why, at)
-                continue
-            store.own(owner[1], numbers := prs_of(record))
-            if live is None and numbers and (probe := store.probes().get(owner[1])) and probe["dead"]:
-                dead.append(f"{owner[1]} for {' '.join(f'#{n}' for n in numbers)}: root named it owner at {pacific(at)}, but it left the supervisor's {pacific(probe['asked'])} ask unanswered; {successor_note(store, owner[1])}")
-        elif lane == ROOT and (moved := REPLACES.search(text)) and (old := store.lane(moved["old"])) and old.state in LIVE and (taker := store.lane(moved["new"])):
-            if live is None and (why := unread_by(store, record, old.name, cited_in(record))):
-                unread.append((old.name, why))
-                hold(store, old.name, why, at)
-                continue
-            retire(store, old.name, taker.name, at)
-            store.own(taker.name, old.prs)
     return out
-
-
-def cited_in(record: dict) -> str | None:
-    return found["seq"] if (found := LAST_READ.search(record.get("text") or "")) else None
 
 
 def unread_by(store: Store, record: dict, name: str, cited: str | None) -> str:
@@ -533,9 +466,6 @@ def escalate(store: Store, deps: Deps, subject: str, cause: str, now: datetime) 
 
 
 def relaunch(store: Store, deps: Deps, old: Lane, peers: dict[str, Peer], why: str, taken: set[str], now: datetime, out: Outcome) -> None:
-    if heir := next((p.lane for p in peers.values() if alive(p, p.seen, now) and succeeds(p.lane, old.name)), None):
-        retire(store, old.name, heir, now)
-        return
     peer = peers.get(old.name)
     strikes = old.strikes + 1 if old.predecessor and now - old.since < STRIKE_WINDOW else 0
     if strikes >= STRIKES or not Path(old.brief).is_file() or UNREAD in (old.reason or ""):
