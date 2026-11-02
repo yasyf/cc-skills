@@ -26,26 +26,24 @@ Read the code around every changed symbol at that sha, its callers and callees i
    A change to a request or response shape between two separately released components
    (GraphQL inputs and fields, REST bodies, the SandSQL wire, signal payloads) must work against the old and the new peer:
    the reader ships first and accepts both shapes, and the writer switches a release later
-   (the owner's Oct 29 pick on card-wire-order, rule 7ab71e2). A writer that sends a shape
-   the released reader rejects, such as a new input field sent on every call, is a major,
-   and so is a reader that stops accepting a shape a released writer still sends, such as
-   a resolver that now refuses a call older clients make. A removal of an accepted shape
-   stays a major until every installed client is past it, which the PR body shows by the
-   release that carried the new shape to them. The dual-shape reader the rule asks for is
-   never a compat layer.
+   (rule 7ab71e2). A writer that sends a shape the released reader rejects, such as a new
+   input field sent on every call, is a major, and so is a reader that stops accepting a
+   shape a released writer still sends, such as a resolver that now refuses a call older
+   clients make. A removal of an accepted shape stays a major until every installed client
+   is past it, which the PR body shows by the release that carried the new shape to them.
+   The dual-shape reader the rule asks for is never a compat layer.
    Shared infrastructure is old-tree surface. A head changes it when it edits a row,
    manifest or policy the old tree's production workloads run under or reach through, or
    points one of them at another service, fleet or endpoint: in Forge-AI/monorepo, anything
    under `infra/rows/` that renders a NetworkPolicy, a Namespace or its labels, an Istio
    AuthorizationPolicy or PeerAuthentication, a ServiceAccount, a Service, DNS or a route
    the executors, the api deployments, the restate workers or sanddb use, and any api or
-   runner change that moves an old-tree call onto another fleet, as #46834 moved run
-   journals onto the system SandSQL fleet. Such a head must name, in its PR body, the
-   old-tree workloads it affects, and carry a test that renders the change on every cluster
-   config, plat, staging and each tenant, such as `infra/rows/k8s/old-tree-reach.test.ts`
-   and its snapshot. A head that changes it without both is a major, its defect starting
-   "old-tree infra:", and a test that renders one cluster where the row differs per cluster
-   asserts less than it claims.
+   runner change that moves an old-tree call onto another fleet. Such a head must name, in
+   its PR body, the old-tree workloads it affects, and carry a test that renders the change
+   on every cluster config, plat, staging and each tenant, such as
+   `infra/rows/k8s/old-tree-reach.test.ts` and its snapshot. A head that changes it without
+   both is a major, its defect starting "old-tree infra:", and a test that renders one
+   cluster where the row differs per cluster asserts less than it claims.
 
 {rows_step}
 
