@@ -112,6 +112,21 @@ an install order in the same turn.
 - A known defect is fixed the hour it is known. A defect that blocks landings or
   recurs is never acknowledged twice. The second sighting is a root defect.
 
+### Ship every tooling fix cleanly and responsibly
+
+The drive improves its own tooling as it runs. A tooling bug, refusal, hook misfire, stale
+alarm, or missing verb that any lane or the root hits is a deliverable of the drive in the
+turn it is hit. It gets a named owner lane and a record. It is never a workaround, a mute, a
+retry, or a "known issue" label.
+
+- Cleanly means one fix for the whole class, tests that fail on the old code, no hacks,
+  no duplicate paths, and zero comments. The old path is deleted when the new one lands.
+- Responsibly means the owner lane tracks the fix to live: a PR that merges on green,
+  the release installed, and the lane that hit the defect confirming it live. The lanes
+  that depend on the tool hear of the change at handoff. A release is pinned so a
+  half-shipped fix never runs under a live desk.
+- A root that acknowledges the same tooling defect twice has a defect of its own.
+
 ### Fix the class, not the instance
 
 - A second bug in an area means a redesign of that area. The root names the class
@@ -599,6 +614,12 @@ lane never spawns with `Agent`, since a teammate cannot background the call; ins
 brief to a file, posts
 `cci post --kind ask --to root --text 'spawn <name> brief=<absolute path> model=<opus or sonnet>'`
 and keeps working. The `lanes_never_spawn` hook refuses a lane's `Agent` call.
+
+**Implementation lanes run on Sprites.** Every implementation lane launches through the orca
+desk onto a Sprite with `desk-launch.py lane`. An `Agent` spawn is only for a coordination
+lane that holds no worktree, such as a board, progress, watchdog or comms lane, or a
+read-only search. Incident fix lanes keep the incident route. A lane that must hold the Mac,
+for Mac-only desktop or signing work, names why in its brief.
 
 | Runner, desk or lane | What it does | When it runs | Brief |
 |---|---|---|---|
