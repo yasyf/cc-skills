@@ -4735,7 +4735,9 @@ alive, with no root action. Each tick reads the bus once and `cci who` once:
   `owner=` decide that takes a live lane's place or PRs cites `last-read=<seq>`, the
   newest record of that lane root read with `cci tail --lane <lane> --since <its wake seq>
   --oldest`. The supervisor refuses one that cites none, or one older than the lane's
-  newest record, and posts a `defect` to root and the lane, which keeps working.
+  newest record, holds the lane with its PRs, and posts a `defect` to root and the lane. A
+  held lane is never relaunched or retired, and its next record makes it live again, so a
+  finished lane root stood down without a citation stays down and a working one keeps working.
 - **Liveness.** A lane is dead only when it has no live process and no record within
   `STALE_AFTER`, 15 minutes. A live process is a `cci who` row that reads live, a live
   Orca dispatch, or an in-process teammate on a live lead session's team roster, since

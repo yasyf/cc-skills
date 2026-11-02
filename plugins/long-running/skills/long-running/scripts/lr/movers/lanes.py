@@ -18,7 +18,9 @@ last PR each retire a lane, and so does a lane that stops with nothing posted af
 PR landed, since its deliverable is merged (root #283488). A root stand-down, `replaces`, or
 `owner=` decide that takes a live lane's place or PRs counts only when it cites
 `last-read=<seq>` no older than that lane's newest record; otherwise it is refused to root
-and the lane as a defect (root #304721). A `<lane>-handoff` writer's `handoff <lane>: doc <id>` is the
+and the lane as a defect, and the lane is held, neither retired nor relaunched. Its own next record
+makes it live again, but once it stops the supervisor holds it for root rather than relaunch it
+(root #304721, #307233). A `<lane>-handoff` writer's `handoff <lane>: doc <id>` is the
 lane's newest handoff. It signals no process: a live lane leaves only
 through the record that stands it down.
 """
@@ -62,6 +64,7 @@ PAGE_ANSWER = 2 * STALE_AFTER
 LIVE_WITHIN = 4 * STALE_AFTER
 OWNER = re.compile(r"\bowner=([\w.-]+)")
 LAST_READ = re.compile(r"\blast-read=#?(?P<seq>\d+)\b")
+UNREAD = " down or hand its PRs on, but it "
 PACIFIC = ZoneInfo("America/Los_Angeles")
 HANDOFF_BRIEF = Path(__file__).parents[3] / "reference" / "handoff-subagent-brief.md"
 
@@ -254,6 +257,7 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
                     continue
                 if live is None and gone.state in LIVE and (why := unread_by(store, record, old)):
                     unread.append((old, why))
+                    hold(store, old, why, at)
                     continue
                 if gone.state != "retired":
                     retire(store, old, successor or ROOT, at)
@@ -268,6 +272,8 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
             taken = {held for held in store.owner_of(named).values() if held and held != owner[1] and held in running}
             if live is None and (refused := [(held, why) for held in sorted(taken) if (why := unread_by(store, record, held))]):
                 unread += refused
+                for held, why in refused:
+                    hold(store, held, why, at)
                 continue
             store.own(owner[1], numbers := prs_of(record))
             if live is None and numbers and (probe := store.probes().get(owner[1])) and probe["dead"]:
@@ -275,6 +281,7 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
         elif lane == ROOT and (moved := REPLACES.search(text)) and (old := store.lane(moved["old"])) and old.state in LIVE and (taker := store.lane(moved["new"])):
             if live is None and (why := unread_by(store, record, old.name)):
                 unread.append((old.name, why))
+                hold(store, old.name, why, at)
                 continue
             retire(store, old.name, taker.name, at)
             store.own(taker.name, old.prs)
@@ -287,7 +294,7 @@ def unread_by(store: Store, record: dict, name: str) -> str:
     if cited and (newest is None or int(cited["seq"]) >= newest):
         return ""
     read = f"cites last-read={cited['seq']}, older than {name}'s newest record #{newest}" if cited else "cites no last-read=<seq>"
-    return f"root's {record['kind']} #{record['seq']} would stand {name} down or hand its PRs on, but it {read}"
+    return f"root's {record['kind']} #{record['seq']} would stand {name}{UNREAD}{read}"
 
 
 def successor_note(store: Store, name: str) -> str:
@@ -430,9 +437,9 @@ def relaunch(store: Store, deps: Deps, old: Lane, peers: dict[str, Peer], why: s
         return
     peer = peers.get(old.name)
     strikes = old.strikes + 1 if old.predecessor and now - old.since < STRIKE_WINDOW else 0
-    if strikes >= STRIKES or not Path(old.brief).is_file():
+    if strikes >= STRIKES or not Path(old.brief).is_file() or UNREAD in (old.reason or ""):
         hold(store, old.name, why, now)
-        cause = f"its successors died within {STRIKE_WINDOW.seconds // 60} minutes of launch {STRIKES} times" if strikes >= STRIKES else f"its brief {old.brief} is gone"
+        cause = f"its successors died within {STRIKE_WINDOW.seconds // 60} minutes of launch {STRIKES} times" if strikes >= STRIKES else f"its brief {old.brief} is gone" if not Path(old.brief).is_file() else f"{old.reason}, so the supervisor refused it, and the lane has since stopped; post the stand-down again citing last-read=<seq>, or relaunch it by hand"
         escalate(store, deps, f"lane:{old.name}", f"held, not relaunched: {cause}; it {why}", now)
         out.held.append(old.name)
         return
@@ -508,7 +515,7 @@ def tick(store: Store, deps: Deps, now: datetime, generation: int) -> Outcome:
     for line in dead:
         escalate(store, deps, f"lane:{line.split(' ', 1)[0]}", line, now)
     for name, why in unread:
-        post(deps, "defect", ROOT, f"{pacific(now)} {why}, so the supervisor refused it and {name} stays live; {name}, keep working. Root: read {name} with `cci tail --lane {name} --since <its wake seq> --oldest` and the registry's heard time, then post it again citing last-read=<seq>.", "--to", name, "--lane-ref", name)
+        post(deps, "defect", ROOT, f"{pacific(now)} {why}, so the supervisor refused it and holds {name} with its PRs, never relaunched or retired, until {name} posts again; {name}, keep working. Root: read {name} with `cci tail --lane {name} --since <its wake seq> --oldest` and the registry's heard time, then post it again citing last-read=<seq>.", "--to", name, "--lane-ref", name)
     probe_owners(store, deps, found, now)
     for name in hand:
         deps.withdraw(name)

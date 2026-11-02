@@ -574,9 +574,30 @@ def test_a_root_record_standing_down_a_lane_it_has_not_read_since_its_newest_rec
 
     lanes.tick(store, fake.deps, T0, 1)
 
-    assert store.lane("conflicts-2").state == "desired" and store.lane("conflicts-2").prs == (46001,)
+    assert store.lane("conflicts-2").state == "held" and store.lane("conflicts-2").prs == (46001,)
     assert [(argv[argv.index("--kind") + 1], [argv[i + 1] for i, flag in enumerate(argv) if flag == "--to"]) for argv in fake.posts] == [("defect", ["root", "conflicts-2"])]
-    assert f"root's {stand_down['kind']} #4 would stand conflicts-2 down or hand its PRs on, but it {cited}, so the supervisor refused it and conflicts-2 stays live" in fake.posts[0][-1]
+    assert f"root's {stand_down['kind']} #4 would stand conflicts-2 down or hand its PRs on, but it {cited}, so the supervisor refused it and holds conflicts-2 with its PRs" in fake.posts[0][-1]
+
+
+@pytest.mark.parametrize("posts_again", [False, True])
+def test_a_lane_an_unread_stand_down_left_in_place_is_never_relaunched_once_it_stops(tmp_path, brief, posts_again):
+    """Root #307233: on 0.7.847 the replay relaunched ten finished lanes whose stand-downs predate the last-read rule, such as exec-crash-2-fix-2, which posted one blocker after root's stand-down 293009 and stopped."""
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    fake.feed += [record(2, "conflicts-2", "state", text="all five stacks restacked"), record(3, "root", "stand-down", text="1:14 PM stand-down conflicts-2: false relaunch", to=("conflicts-2",))]
+    lanes.tick(store, fake.deps, T0, 1)
+    assert store.lane("conflicts-2").state == "held"
+    if posts_again:
+        fake.feed.append(record(4, "conflicts-2", "blocker", T0 + timedelta(minutes=1), "LIVE conflicts-1: nothing to take over"))
+        lanes.tick(store, fake.deps, T0 + timedelta(minutes=2), 1)
+        assert store.lane("conflicts-2").state == "desired"
+    fake.peers = [who("conflicts-2", False, T0)]
+    fake.posts.clear()
+
+    out = lanes.tick(store, fake.deps, T0 + timedelta(hours=1), 1)
+
+    assert store.lane("conflicts-2").state == "held" and fake.launches == [] and out.relaunched == []
+    assert ["root's stand-down #3 would stand conflicts-2 down or hand its PRs on, but it cites no last-read=<seq>, so the supervisor refused it, and the lane has since stopped" in argv[-1] for argv in fake.posts] == [True] * posts_again
 
 
 def test_a_root_stand_down_citing_a_read_as_new_as_the_lanes_newest_record_retires_it(tmp_path, brief):
