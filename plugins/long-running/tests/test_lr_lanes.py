@@ -66,13 +66,6 @@ class Fake:
         return [(argv[argv.index("--kind") + 1], argv[argv.index("--to") + 1]) for argv in self.posts]
 
 
-@pytest.fixture
-def brief(tmp_path: Path) -> Path:
-    path = tmp_path / "brief-conflicts-2.md"
-    path.write_text("# conflicts-2: restack the five approved stacks\nRegister slice: lane=conflicts-2 step=tooling\n")
-    return path
-
-
 def adopted(tmp_path: Path, brief: Path, store: Store, handoff: str | None = None, prs: tuple[int, ...] = ()) -> Fake:
     fake = Fake(tmp_path, [spawned(1, "conflicts-2", brief, model="opus", effort="xhigh")], [who("conflicts-2", True, T0 - timedelta(minutes=1))])
     lanes.tick(store, fake.deps, T0 - timedelta(minutes=1), 1)

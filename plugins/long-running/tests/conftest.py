@@ -434,6 +434,13 @@ def outside_orca(monkeypatch) -> None:
 
 
 @pytest.fixture
+def brief(tmp_path: Path) -> Path:
+    path = tmp_path / "brief-conflicts-2.md"
+    path.write_text("# conflicts-2: restack the five approved stacks\nRegister slice: lane=conflicts-2 step=tooling\n")
+    return path
+
+
+@pytest.fixture
 def lock(tmp_path) -> Path:
     return tmp_path / "ledger.lock"
 
