@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import functools
+import io
 import json
 import os
 import re
@@ -117,6 +118,22 @@ def hook_workers() -> set[str]:
     rows = [line.split(None, 2) for line in subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout.splitlines()]
     daemons = {pid for pid, _, command in rows if command.endswith(HOOK_DAEMON)}
     return {pid for pid, ppid, command in rows if ppid in daemons and command.endswith(HOOK_WORKER)}
+
+
+def descendants(roots: set[str]) -> set[str]:
+    rows = [line.split() for line in subprocess.run(["ps", "-axo", "pid=,ppid=,sess="], capture_output=True, text=True).stdout.splitlines()]
+    session = {pid: sess for pid, _, sess in rows}
+    children: dict[str, set[str]] = {}
+    for pid, ppid, _ in rows:
+        children.setdefault(ppid, set()).add(pid)
+    found, pending = set(), list(roots)
+    while pending:
+        parent = pending.pop()
+        for child in children.get(parent, set()) - found:
+            if session.get(child) == session.get(parent):
+                found.add(child)
+                pending.append(child)
+    return found
 
 
 def pane_processes(pids: set[str], panes: frozenset[str]) -> set[str]:
@@ -312,8 +329,9 @@ class Orca:
         return int(time.time() * 1000)
 
     def holder(self, worktree: str, panes: frozenset[str]) -> str | None:
-        pids = set(subprocess.run(["lsof", "-t", "+D", worktree], capture_output=True, text=True).stdout.split())
-        if pids and pids - idle_login_shells() - hook_workers() - pane_processes(pids, panes):
+        pids = open_inside(worktree)
+        stopping = pane_processes(pids, panes) if pids else set()
+        if pids and pids - idle_login_shells() - hook_workers() - stopping - descendants(stopping):
             return "a live process has a file or its cwd open inside"
         if worktree in subprocess.run(["ps", "-axo", "command="], capture_output=True, text=True).stdout:
             return "a live process names it on its command line"
@@ -328,6 +346,16 @@ class Orca:
                 except OSError:
                     continue
         return None
+
+
+def open_inside(worktree: str) -> set[str]:
+    root, pids, pid = Path(worktree).resolve(), set(), ""
+    for line in subprocess.run(["lsof", "-n", "-P", "-Fpn"], capture_output=True, text=True).stdout.splitlines():
+        if line.startswith("p"):
+            pid = line[1:]
+        elif line.startswith("n/") and Path(line[1:]).is_relative_to(root):
+            pids.add(pid)
+    return pids
 
 
 class Git:
@@ -541,9 +569,9 @@ def apply(action: Action, orca: Orca, git: Git, pause: Pause) -> Action:
         shells = [terminal for terminal in now if terminal.handle not in stopping]
         woke = any(agent.verb == "close" and orca.idle(agent.target, agent.environment) is False for agent in action.agents)
         if {terminal.handle for terminal in now} - action.shells or woke or not all(terminal.idle_shell(action.target, orca.now_ms()) for terminal in shells):
-            return Action("keep", action.target, "changed since the first read")
+            return Action("keep", action.target, "changed since the first read", action.shells, action.agents)
         if action.environment is None and (held := orca.holder(action.target, frozenset(terminal.pane for terminal in now if terminal.handle in stopping))):
-            return Action("keep", action.target, held)
+            return Action("keep", action.target, held, action.shells, action.agents)
         if pause.held():
             return pause.skip(action.target, action.verb)
         if action.environment is not None:
@@ -631,10 +659,18 @@ def gc(run: str, dispatches: set[str], dry_run: bool, orca: Orca, git: Git, cc_r
         repositories = sorted({checkout.repository for checkout in checkouts} | ({git.repository()} if hosted else set()))
         remotes = dict(zip(repositories, pool.map(git.remote, repositories)))
         worktrees += pool.map(lambda checkout: act(worktree_action(checkout, orca.terminals_in(checkout.path, checkout.environment) or [], closing, remotes[checkout.repository], orca.now_ms())), checkouts)
-        stopped = {agent.target for done in worktrees if done.verb in ("remove", "removed") for agent in done.agents}
+        stopped = {agent.target for done in worktrees for agent in done.agents}
         terminals += pool.map(act, [action for target, action in closing.items() if target not in stopped and action.verb == "close"])
         reaped = list(pool.map(lambda pair: report(reap_sprite(*pair)), sorted(hosted.items(), key=lambda pair: pair[0].workspace)))
-    return Counter(done.verb for done in [action for action, _ in stops] + unplaced + terminals + worktrees + reaped if done)
+    tally = Counter(done.verb for done in [action for action, _ in stops] + unplaced + terminals + worktrees + reaped if done)
+    tally.update({"stopping": sum(len(done.agents) for done in worktrees if done.verb in ("remove", "removed"))})
+    return +tally
+
+
+def drift(planned: str, replanned: str) -> list[str]:
+    before = {line for line in planned.splitlines() if line.startswith("would ")}
+    after = {line for line in replanned.splitlines() if line.startswith("would ")}
+    return [f"- {line}" for line in sorted(before - after)] + [f"+ {line}" for line in sorted(after - before)]
 
 
 def main() -> int:
@@ -646,7 +682,8 @@ def main() -> int:
         "when no unsettled dispatch, no other agent, and no busy shell is left in it, its tree is clean, its HEAD is on its own repository's origin or landed there, "
         "whether or not its PR is still open, and, read right before the removal, no live process other than a login shell idle at its prompt, a process attached to a terminal the removal stops, or a capt-hookd worker has a file or "
         "its cwd inside it, names it on its command line, or runs from a directory whose shell or Python script names it; the removal stops its login shells "
-        "and the idle terminals gc would close, so only terminals in a kept worktree are closed tab by tab through the renderer. A settled dispatch's worktree "
+        "and the idle terminals gc would close, so only terminals in a worktree kept for its contents are closed tab by tab through the renderer; a worktree a live process holds, "
+        "or one that changed since the first read, keeps its terminals for the next pass, and a process descended from a terminal the removal stops, in that terminal's own session, does not hold it, while one that left the session does. A settled dispatch's worktree "
         "whose directory is gone has its Orca registration dropped; one git cannot read is kept and named. A settled dispatch Orca records no "
         "workspace for, such as one that failed before its worktree resolved, is kept and named. --done ends a lane the root has decided is done, settled or not: "
         "worker-stop fences the dispatch, or worker-abandon settles one Orca already fenced, whose worker-stop reads dispatch_inactive; its terminal is closed "
@@ -659,7 +696,8 @@ def main() -> int:
         "shares the workspace, its terminal reads idle twice (skipped under --done), and its checkout, read over ssh, is clean with its HEAD on origin "
         "or landed. A removal Orca answers with an error, such as runtime_unavailable when the runtime drops the connection, still counts as removed when "
         "the worktree's directory is gone afterwards, and the Orca error follows on its own error line. A worktree Orca answers selector_not_found for, because it "
-        "no longer tracks it, is removed with git worktree remove after the same checks, and kept and named when git refuses. Cleanup is paused until $XDG_STATE_HOME/orca-gc/resumed, default ~/.local/state/orca-gc/resumed, "
+        "no longer tracks it, is removed with git worktree remove after the same checks, and kept and named when git refuses. The closing tally counts, as stopping, every agent terminal a removal line names as stopping. "
+        "--plan takes a dry run's output; gc plans again first and refuses, printing each line the new plan dropped or added, unless the two match. Cleanup is paused until $XDG_STATE_HOME/orca-gc/resumed, default ~/.local/state/orca-gc/resumed, "
         "exists: a paused pass changes nothing, and a pause set mid-pass is read before each candidate and again right before its stop, release, "
         "terminal close, worktree removal, or Sprite destroy, which it skips and names, while an operation already started runs to completion. "
         "--dry-run reads through a pause. Prints one line per action, skipped action, or kept resource, then the tally."
@@ -668,7 +706,14 @@ def main() -> int:
     parser.add_argument("--dispatch", action="append", default=[], metavar="CTX", help="only this settled dispatch; repeatable")
     parser.add_argument("--done", action="append", default=[], metavar="CTX", help="worker-stop this dispatch, close its terminal, and reclaim its worktree; repeatable")
     parser.add_argument("--dry-run", action="store_true", help="print what gc would do and change nothing")
+    parser.add_argument("--plan", type=Path, metavar="FILE", help="a dry run's output; gc plans again first and refuses, printing the difference, unless the new plan prints the same lines")
     args = parser.parse_args()
+    if args.plan:
+        replanned = io.StringIO()
+        gc(args.run, set(args.dispatch), True, Orca(), Git(), CcRemote(), Pause(RESUMED), replanned, ending=frozenset(args.done))
+        if changed := drift(args.plan.read_text(), replanned.getvalue()):
+            print("\n".join(["refused: the plan differs from " + str(args.plan), *changed]))
+            return 3
     tally = gc(args.run, set(args.dispatch), args.dry_run, Orca(), Git(), CcRemote(), Pause(RESUMED), ending=frozenset(args.done))
     print(" ".join(f"{verb}={count}" for verb, count in sorted(tally.items())) or "nothing to reclaim")
     return 0
