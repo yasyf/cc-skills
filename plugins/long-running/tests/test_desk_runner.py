@@ -5895,6 +5895,16 @@ def landing_of(shell: FakeShell, config: Path, tmp_path: Path) -> runner_module.
     return runner_module.Landing(runner, runner.config.landing)
 
 
+def test_the_status_read_of_many_heads_splits_into_queries_github_answers(shell, config, tmp_path):
+    """Root #334925: GitHub refused one status query over 57 heads for its resource limits and timed out on 64, so no landing pass read a status."""
+    landing = landing_of(shell, config, tmp_path)
+    heads = {f"{index:040x}": str(30000 + index) for index in range(45)}
+    found = landing.read_heads(heads)
+    queries = [call[-1] for call in shell.calls if "graphql" in call and "object(expression" in call[-1]]
+    assert set(found) == set(heads) and landing.unread == {}
+    assert len(queries) == 3 and all(query.count("object(expression") <= runner_module.STATUS_HEADS_PER_QUERY for query in queries)
+
+
 def test_an_unchanged_refused_tree_reuses_its_check_until_its_print_trunk_or_interval_moves(shell, config, tmp_path, monkeypatch):
     landing = landing_of(shell, config, tmp_path)
     rows = {"29020": {"head": "cccc333333", "branch": "a"}, "29031": {"head": "dddd444444", "base": "a", "branch": "b"}}

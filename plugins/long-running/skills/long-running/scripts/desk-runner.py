@@ -1025,6 +1025,7 @@ BELOW_BLOCKED = re.compile(r"\bbelow BLOCKED #(\d+)\b")
 ORPHANED_HEAD = "queue head orphaned"
 STATUS_SETTLED = frozenset({QUEUED_STATE, "landed"})
 HEADS_PER_QUERY = 100
+STATUS_HEADS_PER_QUERY = 20
 QUOTA_FLOOR = 1000
 QUOTA_RESOURCES = ("core", "graphql")
 QUOTA_URGENT = 1500
@@ -7520,11 +7521,11 @@ class Landing:
             return next((statuses for head, (at, statuses) in self.read.items() if same_head(head, sha) and now - at < HEAD_FLOOR), None)
 
     def read_heads(self, heads: dict[str, str]) -> dict[str, list[dict] | None]:
-        """The commit statuses of each head in `heads`, a sha to the PR it heads, into `review_titles` the title of the review bot's newest `ai-review` run on it, and into `reviews` GitHub's head and review decision of the PR: one GraphQL query per `HEADS_PER_QUERY` heads not read in the last `HEAD_FLOOR`. A head GitHub refuses or does not know reads None and joins `unread` under its cause, which `report_unread` logs at the end of the pass, and its PR leaves `reviews`."""
+        """The commit statuses of each head in `heads`, a sha to the PR it heads, into `review_titles` the title of the review bot's newest `ai-review` run on it, and into `reviews` GitHub's head and review decision of the PR: one GraphQL query per `STATUS_HEADS_PER_QUERY` heads not read in the last `HEAD_FLOOR`, since GitHub refuses a query over 57 heads for its resource limits and times out at 64 (root #334925). A head GitHub refuses or does not know reads None and joins `unread` under its cause, which `report_unread` logs at the end of the pass, and its PR leaves `reviews`."""
         found = {sha: statuses for sha in heads if (statuses := self.cached(sha)) is not None}
         due = sorted(set(heads) - set(found))
-        for start in range(0, len(due), HEADS_PER_QUERY):
-            batch = due[start : start + HEADS_PER_QUERY]
+        for start in range(0, len(due), STATUS_HEADS_PER_QUERY):
+            batch = due[start : start + STATUS_HEADS_PER_QUERY]
             prs = sorted({heads[sha] for sha in batch}, key=int)
             done = self.shell.run(ghread.read("api", "graphql", "-f", f"query={heads_query(self.repo, batch, prs)}"), env={"GH_REPO": self.repo})
             last = (done.err or done.out).strip().splitlines()[-1:] or [f"exit {done.code}"]
