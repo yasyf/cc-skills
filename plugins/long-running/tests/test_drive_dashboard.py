@@ -579,7 +579,7 @@ def test_merge_needs_keep_the_board_groups_and_each_rows_facts():
     out = needs(rows, [], [], "http://board/p/x", set())
 
     assert [(item["group"], item["relation"]) for item in out] == [("Faster tools", "Four tooling changes; none reaches a user."), ("Release 1 waits on this", "The first release cannot start without it.")]
-    assert out[0]["prs"] == [{"number": 43246, "head": "43246aaaa", "title": "T43246", "change": "C43246", "plan": "P43246", "risk": "R43246", "review": "V43246", "blocker": "B43246", "md": "M", "block": "merge-prs", "state": "you", "key": rows[1]["key"], "ci_fix_go": None, "checked_at": None}]
+    assert out[0]["prs"] == [{"number": 43246, "head": "43246aaaa", "title": "T43246", "change": "C43246", "plan": "P43246", "risk": "R43246", "review": "V43246", "blocker": "B43246", "md": "M", "block": "merge-prs", "state": "you", "key": rows[1]["key"], "ci_fix_go": None, "checked_at": None, "awaiting": None}]
     assert out[0]["key"] != out[1]["key"]
     assert [row["number"] for row in out[0]["others"]] == [43243]
     assert out[1]["source"] == {"label": "Merge board: Release 1 waits on this", "href": "http://board/p/x"}
@@ -1115,3 +1115,25 @@ def test_a_refresh_carries_only_the_parts_that_changed_since_the_version_the_bro
     assert changed_since(served, {"version": b"7", "prs": b"p", "brief": b"o"}) == {"version": 8, "changed": {"version": 8, "brief": "new"}}
     assert changed_since(served, None) is None
     assert changed_since(served, {"version": b"7", "prs": b"p"}) is None
+
+
+def test_an_owner_question_stays_open_until_an_answer_lands_down_its_chain_or_a_new_version_is_pushed():
+    """Root #308820: a row question is answered by the answer record that replies to it, through root's relay too, and the row then returns to the owner's queue."""
+    ask = lambda seq, number, head: {"seq": seq, "lane": "owner-board", "kind": "ask", "at": "2026-11-02T07:27:00Z", "text": "why?", "refs": {"prs": [number]}, "fields": {"attrs": {"head": head}}}
+    records = [
+        ask(1, 46811, "aaaa111"),
+        {"seq": 2, "lane": "root", "kind": "ask", "at": "2026-11-02T07:28:00Z", "re": 1, "text": "answer it", "refs": {}},
+        {"seq": 3, "lane": "signal-valkey-2", "kind": "answer", "at": "2026-11-02T07:30:00Z", "re": 2, "text": "A replica.", "refs": {}},
+        ask(4, 46742, "bbbb222"),
+        {"seq": 5, "lane": "root", "kind": "decide", "at": "2026-11-02T07:39:00Z", "re": 4, "text": "board-refresher-6: rewrite the row.", "refs": {}},
+        ask(6, 47329, "cccc333"),
+    ]
+    prs = {"46811": {"head": "aaaa111"}, "46742": {"head": "bbbb222"}, "47329": {"head": "dddd444"}}
+    rows = [{"number": n, "head": "x", "state": "you"} for n in (46811, 46742, 47329, 47400)]
+
+    asks = server.owner_asks(records, prs)
+    awaiting = {row["number"]: row["awaiting"] for row in server.awaiting_reply(rows, asks)}
+
+    assert [r["seq"] for r in asks["46811"][0]["replies"]] == [3]
+    assert [r["seq"] for r in asks["46742"][0]["replies"]] == [5]
+    assert awaiting == {46811: None, 46742: 4, 47329: None, 47400: None}

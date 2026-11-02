@@ -300,6 +300,7 @@ function waitLine(row, w) {
   const since = waitingSince(row.number);
   if (!SETTLED.test(w.blocker.trim())) return `<p class="mr-waits">${dotted('Waits on', 'warn')} ${esc(w.blocker)}${since ? `<small class="pg-for">${blockedFor(since)}</small>` : ''}</p>`;
   if (verdictState(row) !== 'you') return '';
+  if (awaitingReply(row.number)) return `<p class="mr-waits">${dotted('Waiting on the reply to your question', 'warn')} It returns to your queue when the answer lands.</p>`;
   const checked = row.checked_at && row.head.slice(0, 7) === row.checked_at.slice(0, 7) ? ' Reviewed and checked; it lands on your tap.' : '';
   return since || checked ? `<p class="mr-waits">${dotted('Waiting on you', 'you')}${checked} ${since ? blockedFor(since) : ''}</p>` : '';
 }
