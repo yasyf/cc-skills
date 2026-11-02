@@ -11426,6 +11426,7 @@ def test_a_command_whose_binary_is_missing_fails_after_its_backoff_instead_of_ra
     """Root #217937: brew replaced the cci link, the orca runner's call raised FileNotFoundError, and the runner died."""
     waits = []
     monkeypatch.setattr(runner_module.Shell, "sleep", lambda self, seconds: waits.append(seconds))
+    monkeypatch.setattr(runner_module.cci, "INSTALL_WINDOW_SECONDS", 0)
     done = runner_module.Shell().run(["cci-missing-for-this-test", "tail"])
     assert done.code == runner_module.MISSING_BINARY and "cci-missing-for-this-test" in done.err
     assert waits == list(runner_module.MISSING_BACKOFF)

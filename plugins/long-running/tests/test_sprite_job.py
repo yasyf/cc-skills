@@ -78,6 +78,7 @@ def test_the_sprite_reads_the_register_from_the_jobs_checkout_never_the_launchin
     executable(script.parent / "rulings.py", "")
     executable(mac / "bin" / "sprite", SPRITE)
     executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", "#!/bin/sh\nexec /bin/sleep 0.05\n")
     directory.mkdir(parents=True)
     (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
     registry = config / "long-running" / "drives" / "d1.json"
@@ -109,6 +110,7 @@ def test_a_job_keeps_fetch_start_freshness_without_running_pack_maintenance(tmp_
     executable(script.parent / "rulings.py", "")
     executable(mac / "bin" / "sprite", SPRITE)
     executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", "#!/bin/sh\nexec /bin/sleep 0.05\n")
     log, clock = tmp_path / "git.log", tmp_path / "clock"
     executable(mac / "bin" / "date", f"#!/usr/bin/env python3\nfrom pathlib import Path\np = Path({str(clock)!r})\nnow = 100 * (len(p.read_text().splitlines()) + 1) if p.exists() else 100\nwith p.open('a') as stream: stream.write(f'{{now}}\\n')\nprint(now)\n")
     executable(mac / "bin" / "git", f"#!/bin/sh\necho \"$*\" >> {log}\ncase \" $* \" in *' fetch '*) date +%s%N >/dev/null;; esac\nexec {shutil.which('git')} \"$@\"\n")
@@ -162,6 +164,7 @@ def test_a_sprite_whose_plugin_copy_is_missing_files_gets_the_whole_copy_again(t
     executable(Path(f"{sprite}{script.parent}") / "rulings.py", "")
     executable(mac / "bin" / "sprite", SPRITE)
     executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", "#!/bin/sh\nexec /bin/sleep 0.05\n")
     directory.mkdir(parents=True)
     (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
     (config / "long-running" / "drives").mkdir(parents=True)
@@ -189,6 +192,7 @@ def test_a_sprite_names_a_new_plugin_copy_by_one_rename_and_deletes_an_older_cop
     executable(script.parent / "rulings.py", "")
     executable(mac / "bin" / "sprite", SPRITE)
     executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", "#!/bin/sh\nexec /bin/sleep 0.05\n")
     directory.mkdir(parents=True)
     (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
     (config / "long-running" / "drives").mkdir(parents=True)
@@ -365,6 +369,7 @@ def test_a_job_outlives_a_dropped_connection_since_only_the_short_key_exec_forwa
     executable(script.parent / "rulings.py", "")
     executable(mac / "bin" / "sprite", DROPPING_SPRITE)
     executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", "#!/bin/sh\nexec /bin/sleep 0.05\n")
     directory.mkdir(parents=True)
     (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
     (config / "long-running" / "drives").mkdir(parents=True)
@@ -410,7 +415,7 @@ JOBS = {
 
 QUICK_SLEEP = """#!/bin/sh
 [ "$1" = 0.2 ] && exec /bin/sleep 0.2
-exit 0
+exec /bin/sleep 0.05
 """
 
 

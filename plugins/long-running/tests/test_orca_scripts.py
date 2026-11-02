@@ -1089,6 +1089,7 @@ def test_a_relaunch_never_adopts_a_terminal_that_predates_the_create(orca):
 
 def test_a_failed_create_reports_its_output_after_three_attempts(orca):
     orca.healthy()
+    orca.env["ORCA_LAUNCH_BOOT_SECONDS"] = "4"
     orca.reply("terminal create", {"rc": 1, "out": "runtime_unavailable"})
     orca.reply("terminal list", bare())
     result = orca.launch()

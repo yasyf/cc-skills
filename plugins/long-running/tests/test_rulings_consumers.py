@@ -29,8 +29,8 @@ def cases():
         assert len(entries) == 1, name
         entry = entries[0]
         assert not set(migrated) & set(entry.spec.tests)
-        for inp, expected in migrated.items():
-            result.append(pytest.param(entry, inp, expected, id=f"{name}:{inp!r}"))
+        for index, (inp, expected) in enumerate(migrated.items()):
+            result.append(pytest.param(entry, inp, expected, id=f"{name}:{index}"))
     assert result
     return result
 
