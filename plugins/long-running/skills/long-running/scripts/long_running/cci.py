@@ -26,8 +26,8 @@ ANSWER_TEXT = re.compile(r"^(?:OPENED|READY)\b")
 ANSWER_KINDS = frozenset({*CLAIM_KINDS, "ready", "fix-live"})
 ROOT_ANSWER_KINDS = frozenset({"go", "decide", "decision"})
 ROOT_RULINGS = frozenset({"decide", "decision"})
-MECHANISM_TEXT = re.compile(r"^(?P<mark>MECHANISM|CANDIDATE)\b")
-SETTLING_TEXT = re.compile(r"^(?:OPENED|BLOCKER|READY|NOT-OURS|DONE|STOPPED)\b")
+MECHANISM_TEXT = re.compile(r"^(?:\d{1,2}:\d{2} [AP]M )?(?P<mark>MECHANISM|CANDIDATE)\b")
+SETTLING_TEXT = re.compile(r"^(?:\d{1,2}:\d{2} [AP]M )?(?:OPENED|BLOCKER|READY|NOT-OURS|DONE|STOPPED)\b")
 TEXT_KINDS = ("report", "incident", "state")
 REPORT_VERDICTS = ("clean", "red", "conflicting", "held")
 SETTLING_KINDS = frozenset({*CLAIM_KINDS, "ready", "blocker", "blocked", "fix-live", "not-ours", "stopped", "stand-down", "done"})
@@ -309,7 +309,7 @@ def held_by(record: dict) -> list[str]:
 
 
 def mechanism_mark(record: dict) -> str:
-    """MECHANISM or CANDIDATE when a lane's record names its incident's mechanism: a `mechanism` record, or a `report`, `incident`, or `state` whose text starts with either word."""
+    """MECHANISM or CANDIDATE when a lane's record names its incident's mechanism: a `mechanism` record, or a `report`, `incident`, or `state` whose text starts with either word, after any `--stamp` clock."""
     if record["kind"] == "mechanism":
         return "MECHANISM"
     found = MECHANISM_TEXT.match(record.get("text") or "") if record["kind"] in TEXT_KINDS else None
@@ -317,7 +317,7 @@ def mechanism_mark(record: dict) -> str:
 
 
 def settles_mechanism(record: dict) -> bool:
-    """Whether a lane's record answers its mechanism: a PR, a blocker, or the lane's end or DONE, by kind or by a text record starting OPENED, BLOCKER, READY, NOT-OURS, DONE, or STOPPED."""
+    """Whether a lane's record answers its mechanism: a PR, a blocker, or the lane's end or DONE, by kind or by a text record starting OPENED, BLOCKER, READY, NOT-OURS, DONE, or STOPPED, after the clock `--stamp` puts first (root #305423)."""
     return record["kind"] in SETTLING_KINDS or (record["kind"] in TEXT_KINDS and bool(SETTLING_TEXT.match(record.get("text") or "")))
 
 

@@ -13927,7 +13927,7 @@ def test_a_dirty_worktree_names_its_branch_and_files_and_a_missing_one_says_so(s
 
 @pytest.mark.parametrize(
     "ending",
-    ["blocker", "blocked", "opened-by-sibling", "ready", "not-ours", "root-stand-down", "root-stopped", "text-blocker"],
+    ["blocker", "blocked", "opened-by-sibling", "ready", "not-ours", "root-stand-down", "root-stopped", "text-blocker", "stamped-stopped"],
 )
 def test_a_blocker_a_sibling_pr_or_an_end_of_the_lane_stops_the_pr_silent_clock(shell, config, tmp_path, ending):
     orca_pass(shell, config)
@@ -13939,6 +13939,8 @@ def test_a_blocker_a_sibling_pr_or_an_end_of_the_lane_stops_the_pr_silent_clock(
         cci_record(shell, lane="root", kind=ending.removeprefix("root-"), text="stand down", at=actions.stamp(shell.clock), to=[SILENT_LANE])
     elif ending == "text-blocker":
         lane_record(shell, SILENT_LANE, "state", text="BLOCKER the grant needs an owner ruling")
+    elif ending == "stamped-stopped":
+        lane_record(shell, SILENT_LANE, "incident", text=f"8:49 PM STOPPED {SILENT_LANE}: out of scope, active no")
     else:
         lane_record(shell, SILENT_LANE, ending)
     shell.sleep(20 * 60)
