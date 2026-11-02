@@ -688,7 +688,7 @@ class Pass:
     def report(self, standing: dict[str, Stall], saved: dict, verdicts: dict[str, dict], dry_run: bool) -> int:
         kept = {key: entry for key, entry in saved["open"].items() if key not in standing and entry["kind"] in self.unread}
         last = {key: stamp for key, stamp in saved.get("last", {}).items() if self.now - actions.parse_stamp(stamp) < REPEAT}
-        failed = 0
+        failed: list[str] = []
         alarms: list[Stall] = []
         for stall in sorted(standing.values(), key=lambda stall: stall.since):
             if stall.id in saved["open"] and (stall.kind not in REPOSTED or stall.owner == (ROOT,) or stall.id in last):
@@ -703,8 +703,8 @@ class Pass:
                 continue
             done = self.post(stall)
             if done.code:
-                failed += 1
-                print(f"cci post exited {done.code} for {stall.id}: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
+                failed.append(f"cci post exited {done.code} for {stall.id}: {(done.err or done.out).strip()[:300]}")
+                print(failed[-1], file=sys.stderr)
                 continue
             kept[stall.id] = {"kind": stall.kind, "since": actions.stamp(stall.since), "posted": done.out.strip()[:200]}
             if stall.kind == "ungraded" and stall.id not in saved["open"] and not stall.to(self.watch.drive, self.watch.desk_lanes, self.live_lane).startswith(ROOT):
@@ -716,8 +716,8 @@ class Pass:
             listed = "; ".join(f"{stall.subject} has no {stall.id.split(':', 1)[0]} grade, green since {pacific(stall.since, self.now)}, owner {', '.join(stall.owner)}" for stall in alarms)
             done = self.shell.run(["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", "urgent", "--to", ROOT, "--topic", f"ungraded:{actions.stamp(self.now)}", *(arg for pr in dict.fromkeys(stall.pr for stall in alarms) for arg in ("--pr", f"{self.watch.landing['repo']}#{pr}")), "--text", f"STALL ungraded, {len(alarms)} green head{'' if len(alarms) == 1 else 's'} past {self.watch.minutes['ungraded']} min with no grade: {listed} | each owner heard its own line"])
             if done.code:
-                failed += 1
-                print(f"cci post exited {done.code} for the ungraded digest: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
+                failed.append(f"cci post exited {done.code} for the ungraded digest: {(done.err or done.out).strip()[:300]}")
+                print(failed[-1], file=sys.stderr)
         heads = None if self.stack is None else {f"{found['pr']}:{short(found['head'])}" for found in self.stack}
         told = {key: stamp for key, stamp in saved.get("told", {}).items() if heads is None or key in heads}
         fresh = {key: wait for key, wait in (self.tap_waits or {}).items() if key not in told}
@@ -727,8 +727,8 @@ class Pass:
             topic, text = (f"tap-wait:{next(iter(fresh))}", next(iter(fresh.values()))[1]) if len(fresh) == 1 else ("tap-wait:digest", f"{len(fresh)} heads wait on the owner's tap: {'; '.join(line for _, line in fresh.values())}")
             done = self.shell.run(["cci", "post", "--drive", self.watch.drive, "--lane", LANE, "--kind", "state", "--to", ROOT, "--topic", topic, *(arg for pr, _ in fresh.values() for arg in ("--pr", f"{self.watch.landing['repo']}#{pr}")), "--text", text])
             if done.code:
-                failed += 1
-                print(f"cci post exited {done.code} for {topic}: {(done.err or done.out).strip()[:300]}", file=sys.stderr)
+                failed.append(f"cci post exited {done.code} for {topic}: {(done.err or done.out).strip()[:300]}")
+                print(failed[-1], file=sys.stderr)
             else:
                 told |= dict.fromkeys(fresh, actions.stamp(self.now))
         if not dry_run:
@@ -740,6 +740,8 @@ class Pass:
                 staged = stack.with_name(f".{drive.STACK}")
                 staged.write_text(json.dumps({"at": actions.stamp(self.now), "prs": self.stack}, indent=1) + "\n")
                 staged.replace(stack)
+        if failed:
+            print(f"{len(failed)} cci post{'s' if len(failed) > 1 else ''} failed this pass, first {failed[0]}", file=sys.stderr)
         return 1 if failed else 0
 
     def post(self, stall: Stall) -> Done:
