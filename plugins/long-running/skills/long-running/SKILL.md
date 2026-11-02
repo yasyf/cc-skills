@@ -521,10 +521,14 @@ executor owns the incident, through the final reply:
 When the root launches an incident pair itself, the launch is one command:
 
 ```sh
-desk-launch.py incident <name> <fix-brief> [<evidence-brief>]
+desk-launch.py incident <name> <fix-brief> [<evidence-brief>] [--alert '<link, times PT, what fails, owner words>']
 ```
 
-It takes the next `R<n>`, one past every key on cci, posts
+With `--alert` each brief is a template the command fills itself: it drops the template's
+`Root:` lines, writes the lane's name for every `<lane>` and the text for the `Alert:` line,
+and saves it as `<state dir>/<lane>/brief.md`, so the root never edits a template by hand. An
+incident brief still holding `<lane>`, `<state>`, `<...>`, or a placeholder on its `Alert:` line
+posts nothing (Nov 1, 4:48 PM: run-queue-fix launched on a brief reading `<lane>`). It takes the next `R<n>`, one past every key on cci, posts
 `<name>-fix` and `<name>-evidence` to `orca-desk`
 on cci as `NOW incident xhigh` launch lines with `role=fix` and `role=evidence`, so
 the runner's incident clock holds only the fix lane, waits for the runner's `LAUNCHED` or

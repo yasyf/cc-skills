@@ -22,7 +22,7 @@ the highest `R<n>` on a cci record addressed to `orca-desk`, stamps the Pacific 
 posts the line to `orca-desk` on cci, and prints the key and the line.
 
 ```text
-desk-launch.py incident <name> <fix-brief> [<evidence-brief>]
+desk-launch.py incident <name> <fix-brief> [<evidence-brief>] [--alert TEXT]
 desk-launch.py lane <lane> <model> <effort> <brief> [--now]
 desk-launch.py relay <lane>[,<lane>...] <text>
 desk-launch.py hold <slug> <owner> <what>

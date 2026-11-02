@@ -157,6 +157,52 @@ def test_a_missing_brief_posts_nothing(drive, tmp_path):
     assert [call for call in drive.calls if call[1] == "post"] == []
 
 
+TEMPLATE = """# <lane> (incident fix lane)
+
+Root: `<lane>` is the whole lane name. Save it as `<state>/<lane>/brief.md`.
+
+Alert: <monitor or Slack link, times PT, what fails where>. Owner words, verbatim: <...>.
+
+0. SCOPE FIRST: post `SCOPE <lane>: active <yes|no>` as `<lane>`.
+"""
+
+
+def test_an_alert_fills_the_incident_template_into_the_lanes_own_brief(drive, state, tmp_path):
+    """Root #299799, Nov 1 4:48 PM: root sed the incident template by hand and run-queue-fix launched on a brief still reading <lane> for 20 seconds."""
+    template = tmp_path / "incident-template-fix.md"
+    template.write_text(TEMPLATE)
+    drive.verdicts = {"R2026": "LAUNCHED R2026 {lane}: dispatch ctx_fix terminal term_fix"}
+    alert = "monitor 339599887 Run queue backlog not draining, 4:46 PM PT. Owner words, verbatim: fix asap"
+    assert desk_launch.main(["incident", "run-queue", str(template), "--alert", alert]) == 0
+    brief = state / "run-queue-fix" / "brief.md"
+    assert brief.read_text() == f"# run-queue-fix (incident fix lane)\n\nAlert: {alert}\n\n0. SCOPE FIRST: post `SCOPE run-queue-fix: active <yes|no>` as `run-queue-fix`.\n"
+    [line] = posted(drive)
+    assert line.endswith(f"orca-desk: launch run-queue-fix NOW incident xhigh role=fix brief={brief}")
+
+
+@pytest.mark.parametrize("text", [
+    "# <lane>\n\nAlert: monitor 1, 4:46 PM\n",
+    "# run-queue-fix\n\nAlert: <monitor or Slack link>\n",
+    "# run-queue-fix\n\nAlert: monitor 1. Owner words, verbatim: <...>.\n",
+    "# run-queue-fix\n\nAlert: monitor 1\nWork in <state>/run-queue-fix.\n",
+])
+def test_an_incident_brief_still_holding_a_root_placeholder_posts_nothing(drive, tmp_path, text):
+    brief = tmp_path / "run-queue-fix" / "brief.md"
+    brief.parent.mkdir()
+    brief.write_text(text)
+    with pytest.raises(SystemExit):
+        desk_launch.main(["incident", "run-queue", str(brief)])
+    assert posted(drive) == []
+
+
+def test_a_lanes_own_placeholders_pass_once_root_filled_its_own(drive, tmp_path):
+    brief = tmp_path / "run-queue-fix" / "brief.md"
+    brief.parent.mkdir()
+    brief.write_text("# run-queue-fix\n\nAlert: monitor 1, 4:46 PM\n\nPost `CANDIDATE run-queue-fix: <files> <sha>`.\n")
+    drive.verdicts = {"R2026": "LAUNCHED R2026 {lane}: dispatch ctx_fix terminal term_fix"}
+    assert desk_launch.main(["incident", "run-queue", str(brief)]) == 0
+
+
 LOAD_HIGH = "LOAD-HIGH load:2026-10-14T03:0 runner: load 42 above 32 cores: Orca launches are refused while it lasts"
 ON_LOAD = "LAUNCH-FAILED desk-lane-inc-x-fix/R474 inc-x-fix: R474 refused on load 42 above 32 cores; nothing was launched, and the root launches it in-process or once the load is moved"
 
