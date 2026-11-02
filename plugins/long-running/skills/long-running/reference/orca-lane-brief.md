@@ -118,6 +118,7 @@ Plan task: register your unit at spawn so the progress record's plan counts incl
   ([Plan progress](#plan-progress)). The root fills the plan id and step, or writes "none".
 Worktree: <absolute path, exclusive to this lane>. This lane is sparse: widen with
   `git sparse-checkout add <dir>` before reading outside it.
+  node_modules is a shared symlink farm; never run yarn install, ask warm-lane to rebuild for a changed lockfile.
 Mailbox: `mailbox:<lane>=<cursor file>` in every desk-wait call, <lane> being your own
   name; desk-wait resolves it from the live team roster. Claude Code delivers your mail
   only after your turn ends; on `MAILBOX`, act on the text desk-wait prints with it.
@@ -291,6 +292,7 @@ Worktree and VCS:
 - Your worktree is exclusive to you; never touch another lane's worktree, branch, or
   files outside your Ownership, and never write probes into another worktree.
 - This lane is sparse: widen with `git sparse-checkout add <dir>` before reading outside it.
+- node_modules is a shared symlink farm; never run yarn install, ask warm-lane to rebuild for a changed lockfile.
 - Branch prefix: <prefix>/<lane>/. The launch created your worktree on the branch
   <prefix>/<lane>-base; rename it into that prefix before your first stack:
   `git branch -m <prefix>/<lane>-base <prefix>/<lane>/<topic>`.
