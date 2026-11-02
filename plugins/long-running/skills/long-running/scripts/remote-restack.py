@@ -8,7 +8,8 @@
 
 STDLIB ONLY. `--config` is the drive's desk-runner `runner.json`: its `landing.repo` and `landing.checkout` name the
 repository and the clone path every Sprite holds, and the first Sprite the `fidelity` or `finder` desk names runs the
-restack unless `--sprite` names another. The PR's chain runs down through each open PR whose head branch is the base of
+restack unless `--sprite` names another; on a Sprite, such as a landing desk host, which holds no Sprite org
+token by the owner's rule, the restack runs in that Sprite's own clone instead. The PR's chain runs down through each open PR whose head branch is the base of
 the one above, to the first base no open PR heads. On the Sprite, the clone fetches that base and every head, replays
 the chain's commits onto the base with `git replay --contained` under branch names of its own, with no checkout, so
 each PR below moves with the top one, and pushes every moved head in one atomic push leased on the head it read, committed as this machine's git user. A chain
@@ -22,11 +23,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 MOVED = "MOVED"
+ON_SPRITE = Path("/.sprite")
 
 SPRITE_SCRIPT = r"""
 set -eu
@@ -106,11 +109,12 @@ def main(argv: list[str] | None = None) -> int:
     config = json.loads(args.config.read_text())
     repo, clone = config["landing"]["repo"], config["landing"]["checkout"]
     named = [config.get(desk, {}).get("sprite", []) for desk in ("fidelity", "finder")]
-    sprite = args.sprite or next(name for names in named for name in ([names] if isinstance(names, str) else names))
+    here = ON_SPRITE.is_dir() and not args.sprite
+    sprite = os.uname().nodename if here else args.sprite or next(name for names in named for name in ([names] if isinstance(names, str) else names))
     base, pulls = chain(repo, args.pr.lstrip("#"))
     token = run("gh", "auth", "token", "--hostname", "github.com").strip()
     committer = [run("git", "config", key).strip() for key in ("user.name", "user.email")]
-    done = subprocess.run(["sprite", "exec", "-s", sprite, "--", "sh", "-c", SPRITE_SCRIPT, "sh", clone, base, *(p["headRefName"] for p in pulls)], input="".join(f"{line}\n" for line in (token, *committer)), capture_output=True, text=True)
+    done = subprocess.run([*([] if here else ["sprite", "exec", "-s", sprite, "--"]), "sh", "-c", SPRITE_SCRIPT, "sh", clone, base, *(p["headRefName"] for p in pulls)], input="".join(f"{line}\n" for line in (token, *committer)), capture_output=True, text=True)
     print(done.stdout, end="")
     if done.returncode:
         detail = done.stderr.strip()[-400:] or ("" if done.stdout.strip() else f"the sprite printed nothing and exited {done.returncode}")
