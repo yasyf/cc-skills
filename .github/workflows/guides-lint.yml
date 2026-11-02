@@ -16,6 +16,7 @@ on:
       - "plugins/repo-bootstrap/tests/test_guides_fragments.py"
       - "plugins/repo-bootstrap/tests/test_guides_sh.py"
       - ".github/workflows/guides-lint.yml"
+      - ".github/workflows/guides.yml"
   pull_request:
     paths:
       - "plugin/guides/**"
@@ -24,6 +25,7 @@ on:
       - "plugins/repo-bootstrap/tests/test_guides_fragments.py"
       - "plugins/repo-bootstrap/tests/test_guides_sh.py"
       - ".github/workflows/guides-lint.yml"
+      - ".github/workflows/guides.yml"
   workflow_dispatch:
 
 concurrency:

@@ -3,6 +3,19 @@ name: Guides
 on:
   push: {branches: [main]}
   pull_request:
+    paths:
+      - ".claude/fragments/**"
+      - ".claude/settings.json"
+      - ".gitignore"
+      - ".mcp.json"
+      - ".pre-commit-config.yaml"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "plugins/codex/scripts/install-binary.sh"
+      - "plugins/codex/scripts/render-descriptor.sh"
+      - "plugins/slop-cop/scripts/install-binary.sh"
+      - "plugins/slop-cop/scripts/render-descriptor.sh"
+      - ".github/workflows/guides.yml"
   repository_dispatch: {types: [cc-guides-render]}
   schedule: [{cron: "17 9 * * *"}]
   workflow_dispatch:

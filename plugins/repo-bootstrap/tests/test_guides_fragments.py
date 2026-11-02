@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tomllib
 from pathlib import Path
 
@@ -17,6 +18,7 @@ TEMPLATES = (
 )
 LOCK = REPO_ROOT / ".claude" / "fragments" / "cc-guides.lock"
 SETTINGS = REPO_ROOT / ".claude" / "settings.json"
+GUIDES_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "guides.yml"
 
 
 @pytest.mark.parametrize(
@@ -178,3 +180,12 @@ def test_captain_hook_plugin_stays_enabled():
         settings["extraKnownMarketplaces"]["captain-hook"]["source"]["repo"]
         == "yasyf/captain-hook"
     ), "captain-hook marketplace must point at yasyf/captain-hook"
+
+
+def test_guides_pull_request_paths_cover_every_ci_owned_file():
+    block = re.search(r"^  pull_request:\n    paths:\n((?:      - .+\n)+)", GUIDES_WORKFLOW.read_text(), re.M)
+    assert block, "guides.yml must filter pull_request by the CI-owned paths"
+    paths = re.findall(r'- "(.+)"', block[1])
+    owned = [*tomllib.loads(LOCK.read_text())["artifacts"], str(LOCK.relative_to(REPO_ROOT))]
+    missing = [f for f in owned if f not in paths and not any(p.endswith("/**") and f.startswith(p[:-2]) for p in paths)]
+    assert not missing, f"cc-guides pr-check fails a PR that edits {missing}, so guides.yml must run on it: add each to its pull_request paths"
