@@ -51,6 +51,7 @@ SLICE_STEP = re.compile(r"^Register slice: lane=\S+ step=(\S+)", re.MULTILINE)
 WORKER_DONE = re.compile(r"^OUTCOME \S+ (?P<lane>[\w.-]+): worker_done succeeded\b")
 STAND_DOWN_LIST = re.compile(r"\bstand[ -]?down\s+(?P<names>[^.(;:\n]+)", re.IGNORECASE)
 CARD = re.compile(r"\bcard-[\w.-]*\w")
+PARKED = re.compile(r"\bPARKED (?P<lane>[\w.-]+):")
 PR_MENTION = re.compile(r"#(\d+)\b")
 NEEDS_WORK = "needs-work"
 STRIKE_WINDOW = 2 * STALE_AFTER
@@ -205,6 +206,8 @@ def fold(store: Store, records: Iterable[dict], live: set[str] | None, briefs: P
         if answers := resolved | {record.get("re")} - {None}:
             for name in store.answered(answers, LIVE):
                 store.lane_waiting(name, None, at)
+        if lane == ROOT and kind == "state" and (parked := PARKED.search(text)) and (resting := store.lane(parked["lane"])) and resting.state in LIVE:
+            store.lane_waiting(resting.name, record["seq"])
         moved = set(prs_of(record)) if kind == "head" else set()
         for name, page in store.pages().items():
             if resolved & set(page.get("seqs", [])) or moved & set(page["prs"]):
