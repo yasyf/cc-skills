@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 import time
 from collections.abc import Iterable, Iterator
+from pathlib import Path
 
 from cc_transcript import AttachmentEvent, UserEvent
 from cc_transcript.models import TranscriptEvent
@@ -45,7 +47,7 @@ ASK = re.compile(
 LANE_TASK = {"id": "1", "subject": "Land the stack", "status": "in_progress", "owner": "stack-lander"}
 SYSTEM_PREFIXES = ("<", "/", "This session is being continued", "[Request interrupted")
 CLOSING = ("completed", "deleted")
-MAINTENANCE_COMMAND = re.compile(r"\b(?:ledger\.py\b.*\b(?:drop|answer|unregister|unadmit|gone)|drive_supervisor\.py\b.*\bretire)\b")
+MAINTENANCE_VERBS = {"ledger.py": frozenset({"drop", "answer", "unregister", "unadmit", "gone"}), "drive_supervisor.py": frozenset({"retire"})}
 RECORD_TIMEOUT_SECONDS = 10
 
 
@@ -188,8 +190,8 @@ def record_maintenance(evt: BaseHookEvent) -> HookResult | None:
             return None
         subject = MaintenanceState.load(evt).subjects.get(call.task_id)
         what = f"{call.status} task #{call.task_id}" + (f" ({subject})" if subject else "")
-    elif evt.event == Event.PostToolUse and (found := MAINTENANCE_COMMAND.search(command := evt._tool_input.get("command") or "")):
-        what = f"ran `{' '.join(command[found.start():].split())[:240]}`"
+    elif evt.event == Event.PostToolUse and (ran := maintenance_runs(evt)):
+        what = "; ".join(f"ran `{run[:240]}`" for run in ran)
     else:
         return None
     if own_role(evt) != MAINTENANCE or not (entry := drive_entry(evt)):
@@ -201,3 +203,16 @@ def record_maintenance(evt: BaseHookEvent) -> HookResult | None:
     except (OSError, subprocess.TimeoutExpired):
         return evt.context(f"Warning, nothing was blocked: this maintenance action posted no cci record, so post one now: `cci post --lane {lane} --kind applied --text 'MAINTENANCE {lane} {what}'`.")
     return None
+
+
+def maintenance_runs(evt: BaseHookEvent) -> list[str]:
+    runs = []
+    for call in evt.command.calls():
+        argv = [call.name, *call.args]
+        at = next((i for i, word in enumerate(argv) if Path(word).name in MAINTENANCE_VERBS), None)
+        if at is None:
+            continue
+        script = Path(argv[at]).name
+        if next((word for word in argv[at + 1 :] if not word.startswith("-")), "") in MAINTENANCE_VERBS[script]:
+            runs.append(shlex.join([script, *argv[at + 1 :]]))
+    return runs

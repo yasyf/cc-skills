@@ -334,14 +334,14 @@ class LaneRegistrations(WorkflowState):
 
 
 def own_prompt(evt: BaseHookEvent) -> tuple[Subagent, str]:
-    transcript = evt.transcript_path.with_suffix("") / "subagents" / f"agent-{evt.agent_id}.jsonl"
+    transcript = Path(evt._raw["transcript_path"]).with_suffix("") / "subagents" / f"agent-{evt.agent_id}.jsonl"
     agent = Subagent(evt.agent_id, json.loads(transcript.with_suffix(".meta.json").read_text()), transcript)
     return agent, next((event.text for event in agent.read_events() if isinstance(event, UserEvent)), "")
 
 
 def own_role(evt: BaseHookEvent) -> str | None:
     """The role this subagent's spawn prompt or the brief file it names gives it, as `ccx: role=<role>` or a `Role: <role>` line; None for the root thread or an unread brief."""
-    if evt.agent_id is None or evt.transcript_path is None:
+    if evt.agent_id is None or "transcript_path" not in evt._raw:
         return None
     try:
         text, brief, _ = brief_of(own_prompt(evt)[1])
