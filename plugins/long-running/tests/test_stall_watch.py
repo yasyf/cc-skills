@@ -631,39 +631,18 @@ def test_a_tap_stall_goes_to_root_and_the_live_registry_lanes_its_go_lanes_route
     assert shell.post("tap:102:fedcba9")["to"] == "root,go-sweep-8@d1"
 
 
-def test_a_tap_at_an_earlier_head_asks_sonnet_once_whether_the_new_head_replays_it(config):
-    restack = f"HEAD #101 {HEAD} (was {OLD}): restack, range-diff patch-identical (3 commits)"
-    shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 20, restack)], [row("101", test_state="pending")])
-    shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": OLD[:7], "at": stamp(60)}}}
-    shell.answer = lambda question: {"restack": True}
-
-    watch(shell, config)
-    watch(shell, config)
-
-    assert len(shell.prompts) == 1
-    assert restack in shell.prompts[0]
-    assert [topic for topic in shell.topics() if topic.startswith("carry:")] == ["carry:101:abc1234"]
-    assert shell.post("carry:101:abc1234")["to"] == "fidelity-desk@d1"
-    assert "post `fidelity: ok abc1234 carried from 0123456`" in shell.post("carry:101:abc1234")["text"]
-
-
-@pytest.mark.parametrize(
-    ("answer", "step"),
-    [
-        ({"fix": True}, "his tap at 0123456 keeps over a fix with no new behavior (rule 399b5fa): root posts `go #101 at abc1234` naming the fix once fidelity grades it, and the row lists the fix"),
-        ({}, "re-ask the owner at abc1234 unless a record shows it adds no new behavior"),
-    ],
-)
-def test_a_tap_at_an_earlier_head_keeps_over_a_fix_with_no_new_behavior_and_only_new_behavior_re_asks_the_owner(config, answer, step):
-    fixed = f"HEAD #101 {HEAD} (was {OLD}): answers the reviewer bot's finding with a nil check and its test"
+def test_a_tap_at_an_earlier_head_carries_and_the_stall_asks_only_for_the_carried_go(config):
+    """Root #312798: carry #312437 told root to re-ask the owner at #47276's moved head, against the owner's Oct 31 2:48 AM ruling that a tap carries to every later head."""
+    fixed = f"HEAD #101 {HEAD} (was {OLD}): one added commit, NEW BEHAVIOR: the startup pass runs as its own task"
     shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 20, fixed)], [row("101")])
     shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": OLD[:7], "at": stamp(60)}}}
-    shell.answer = lambda question: answer
 
     watch(shell, config)
 
-    assert shell.post("carry:101:abc1234")["to"] == "root"
-    assert f"| owner root | {step}" in shell.post("carry:101:abc1234")["text"]
+    post = shell.post("carry:101:abc1234")
+    assert post["to"] == "root" and shell.prompts == []
+    assert post["text"].endswith("| owner root | post `go #101 at abc1234`: his tap at 0123456 carries to every later head of this PR (owner, Oct 31 2:48 AM); it never goes back to his board")
+    assert "re-ask" not in post["text"]
 
 
 def test_a_root_go_that_opens_with_its_clock_time_settles_the_carry_of_its_head(config):
@@ -676,19 +655,6 @@ def test_a_root_go_that_opens_with_its_clock_time_settles_the_carry_of_its_head(
     watch(shell, config)
 
     assert not [topic for topic in shell.topics() if topic.startswith("carry:")] and shell.prompts == []
-
-
-def test_a_failed_sonnet_call_leaves_the_carry_to_both_owners_and_asks_again_next_pass(config):
-    shell = FakeShell([head(1, "101", OLD, 90), head(2, "101", HEAD, 20)], [row("101")])
-    shell.triage = {"merge-prs": {"101": {"verdict": "approved", "head": OLD[:7], "at": stamp(60)}}}
-    shell.judge_fails = True
-
-    watch(shell, config)
-    watch(shell, config)
-
-    assert len(shell.prompts) == 2
-    assert shell.post("carry:101:abc1234")["to"] == "root,fidelity-desk@d1"
-    assert "if it is a patch-identical restack; if it adds no new behavior, his tap keeps (rule 399b5fa) and root posts `go #101 at abc1234` naming the fix once fidelity grades it, and the row lists the fix; else root re-asks the owner at abc1234" in shell.post("carry:101:abc1234")["text"]
 
 
 def test_an_open_ask_to_root_stalls_until_root_answers_it(config):
