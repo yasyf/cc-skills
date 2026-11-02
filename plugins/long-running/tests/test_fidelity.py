@@ -54,7 +54,7 @@ class Fake:
         if argv[:3] == ["gh", "pr", "view"]:
             head = self.heads.pop(0) if len(self.heads) > 1 else self.heads[0]
             comments = self.comments.pop(0) if len(self.comments) > 1 else self.comments[0]
-            return json.dumps({"state": self.state, "baseRefName": "dev", "headRefOid": head, "body": "## Summary\nA cut signal resubscribes from the position it fetched.", "comments": comments, "author": LANE})
+            return json.dumps({"state": self.state, "title": "sand: 🐛 a cut signal resubscribes", "baseRefName": "dev", "headRefOid": head, "body": "## Summary\nA cut signal resubscribes from the position it fetched.", "comments": comments, "author": LANE})
         if argv[0] == "git":
             return self.git(argv[1:])
         if argv[:2] == ["sh", "-c"]:
@@ -484,3 +484,29 @@ def test_a_head_whose_pr_has_an_open_sweep_finding_grades_missing_naming_it_with
 
     assert shell.texts() == [f"fidelity: missing {HEAD} finding/205428 open finding 205428 from local-state-sweep-1, owner naming-diet-2: dev host /_ssql route lives in a JSON file under ~/.iris"]
     assert not shell.asks() and result(directory)["verdict"] == "missing"
+
+
+GRAPHIQL_TITLE = "api: 🔥 delete the /graphiql page, which loaded GraphiQL and React from esm.sh at view time"
+GRAPHIQL_BODY = """## Motivation
+
+Owner, Nov 1 10:41 AM: "remove entirely the code that installs litestream at runtime ... any other similar things?" Root's ruling (cci #289128) was to delete this page as the third of three rows under one line: nothing we ship loads code from a third-party CDN at run time.
+"""
+
+
+@pytest.mark.parametrize(
+    ("title", "body", "missing"),
+    [
+        (GRAPHIQL_TITLE, GRAPHIQL_BODY, True),
+        (GRAPHIQL_TITLE, GRAPHIQL_BODY.replace("installs litestream at runtime", "serves the graphiql page"), False),
+        ("infra: 🔥 remove the litestream installer that ran at runtime", GRAPHIQL_BODY, False),
+        (GRAPHIQL_TITLE, "## Motivation\n\nPlan step 4 deletes every page that loads a third-party CDN at run time.\n", False),
+        ("api: ✨ serve the schema at /graphql/schema", GRAPHIQL_BODY, False),
+    ],
+)
+def test_a_deletion_on_owner_words_that_never_name_the_deleted_thing_grades_missing(title, body, missing):
+    """Owner 1:32 AM Nov 2 on #47326: 'no one said to get rid of this its completely unrelted to any of our stuff'; root #310791."""
+    said = fidelity.unnamed_deletion(title, body)
+    assert bool(said) == missing
+    if missing:
+        assert said.startswith("deletes /graphiql page, and the owner words it cites never name graphiql: “remove entirely the code that installs litestream at runtime")
+        assert owner_grounded(f"{fidelity.FIDELITY_MISSING} abc1234 {fidelity.DELETION_KEY} {said}")

@@ -72,6 +72,23 @@ CODEX_SECONDS = 3600
 PLAN_LINE = re.compile(r"plan:(?:[\w./-]+\.md:)?\d+(?:-\d+)?")
 AGENTS_LINE = re.compile(r"(?:[\w.-]+/)*AGENTS\.md:\d+(?:-\d+)?")
 SPAN_DASH = re.compile(r"[–—]")
+DELETES = re.compile(r"\b(?:delete|deletes|deleting|remove|removes|removing|drop|drops|dropping)\s+(?:the\s+|a\s+|an\s+|its\s+)?(?P<thing>[^,;:()\n]+)", re.IGNORECASE)
+OWNER_WORDS = re.compile(r"\bowner\b[^\"“\n]{0,80}[\"“](?P<words>[^\"”]+)[\"”]", re.IGNORECASE)
+GENERIC = frozenset({"page", "pages", "route", "routes", "file", "files", "feature", "features", "endpoint", "endpoints", "code", "which", "that", "and", "the", "its", "from", "for", "with", "unused", "old", "dead"})
+DELETION_KEY = "owner/deletion"
+
+
+def unnamed_deletion(title: str, body: str) -> str:
+    """Why a PR whose title deletes a route, page, file or feature on the owner's words is out of scope: the owner words its body quotes never name the thing it deletes; empty when they name it, the body quotes no owner words, or the title deletes nothing (owner 1:32 AM Nov 2 on #47326, root #310791)."""
+    if not (deleted := DELETES.search(title)):
+        return ""
+    thing = deleted["thing"].strip()
+    nouns = {word for word in re.findall(r"[a-z][a-z0-9]+", thing.lower()) if word not in GENERIC}
+    quoted = [found["words"] for found in OWNER_WORDS.finditer(body)]
+    if not nouns or not quoted or any(noun in words.lower() for noun in nouns for words in quoted):
+        return ""
+    cited = "; ".join(f"“{' '.join(words.split())[:160]}”" for words in quoted)
+    return f"deletes {thing}, and the owner words it cites never name {', '.join(sorted(nouns))}: {cited}. A drive PR deletes only what a plan step, the owner's words or a drive-touched fix names."
 
 
 def patch_id(shell: finder.Shell, job: dict, start: str, end: str) -> str:
@@ -298,6 +315,10 @@ def run(directory: Path, shell: finder.Shell) -> dict:
         return {"skipped": f"{pr} moved to {view['headRefOid'][:12]}"}
     job["head"] = head = view["headRefOid"]
     body = directory / "record.md"
+    if said := unnamed_deletion(view["title"], view["body"]):
+        lines = [(f"{FIDELITY_MISSING} {head} {DELETION_KEY} {said}", [])]
+        body.write_text(f"{lines[0][0]}\n")
+        return {"verdict": "missing", "posted": post(shell, job, lines, body)}
     if found := open_findings(job):
         keys = ",".join(f"finding/{row['seq']}" for row in found)
         said = "; ".join(f"open finding {row['seq']} from {row['sweep']}, owner {row['owner']}: {' '.join(row['text'].split())[:FINDING_CHARS]}" for row in found)
