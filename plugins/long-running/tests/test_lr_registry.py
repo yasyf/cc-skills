@@ -197,6 +197,25 @@ def test_a_done_request_from_the_runner_retires_a_finished_worker_for_good(tmp_p
     assert store.lane("conflicts-2").state == "retired" and fake.launches == []
 
 
+@pytest.mark.parametrize(
+    "old_form",
+    [
+        record(5, "root", "stand-down", T0 - timedelta(minutes=20), "stand-down conflicts-2 (its PRs merged) last-read=1", ("supervisor",)),
+        record(5, "desk-runner", "report", T0 - timedelta(minutes=20), "OUTCOME msg_1 conflicts-2: worker_done succeeded dispatch=ctx_1: done", ("root",)),
+    ],
+)
+def test_a_lane_retired_by_a_record_written_before_the_registry_verbs_is_never_relaunched(tmp_path, brief, old_form):
+    """The 0.7.861 replay refusal (cci 310308): a root stand-down or a finished worker recorded before typed requests existed keeps its lane retired."""
+    store = Store.memory()
+    fake = adopted(tmp_path, brief, store)
+    fake.feed.append(old_form)
+    fake.peers = [who("conflicts-2", False, T0 - timedelta(minutes=20))]
+
+    lanes.tick(store, fake.deps, T0, 1)
+
+    assert store.lane("conflicts-2").state == "retired" and fake.launches == []
+
+
 def test_a_launch_naming_the_worker_it_succeeds_takes_its_prs_whatever_its_name(tmp_path, brief):
     """cc-skills#1529 and #1559: a successor takes its predecessor's PRs from the launch that names it, never from a guess at its name."""
     store = Store.memory()

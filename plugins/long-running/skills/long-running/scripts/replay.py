@@ -68,9 +68,14 @@ READ_TEXT = (
     LAUNCHED,
     ENDED,
     re.compile(r"\bRELAUNCHED [\w.-]+ as [\w.-]+"),
+    re.compile(r"\bstand[ -]?down\s+[^.(;:\n]+", re.IGNORECASE),
+    re.compile(r"\b[\w.-]+ replaces [\w.-]+\b"),
     re.compile(r"\bhandoff [\w.-]+: doc [0-9a-f]{7,40}\b"),
+    re.compile(r"\bowner=[\w.-]+"),
+    re.compile(r"\blast-read=#?\d+\b"),
     re.compile(r"\bcard-[\w.-]*\w"),
     re.compile(r"#\d+\b"),
+    re.compile(r"\bPARKED [\w.-]+:"),
 )
 KEPT_FIELDS = ("seq", "at", "lane", "kind", "to", "re", "resolves", "also_resolves", "topic")
 KEPT_ATTRS = ("brief", "model", "effort", "role", "successor", "verb", "lane", "last-read", "placement", "successor-of")
@@ -258,7 +263,7 @@ def brief_path(path: str) -> str:
 
 
 def scrubbed_text(text: str) -> str:
-    """The parts of a record's text the lanes mover and the replay read, joined by `; `, so a fixture in this public repository carries no drive prose: a `SPAWNED` line with its brief's folder and name, runner launch and outcome lines, relaunches, handoffs, cards, `#N` mentions, and a closing question mark."""
+    """The parts of a record's text the lanes mover reads, joined by `; `, so a fixture in this public repository carries no drive prose: a `SPAWNED` line with its brief's folder and name, runner launch and outcome lines, stand-downs, replacements, handoffs, owners, cards, `#N` mentions, and a closing question mark."""
     if text.startswith("SPAWNED "):
         name, path = text.split()[1:3]
         return f"SPAWNED {name} {brief_path(path)}"
